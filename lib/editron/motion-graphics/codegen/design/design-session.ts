@@ -14,8 +14,8 @@
  * with the rejection reason fed back (Rule 35 self-correction).
  *
  * FAIL HONEST (R2N/R18N): a model failure or an unfixable plan returns `{ plan: null, reason }` — never a
- * fabricated plan. The caller degrades to the per-moment path (today's production behaviour), so a bad design
- * session can never produce a worse video than shipping no design session at all.
+ * fabricated plan. The production caller declines those MG opportunities; it does not restore legacy graphic
+ * authority or insert a fallback card.
  */
 
 import { z } from 'zod';
@@ -48,7 +48,7 @@ export interface MgDesignSessionInput {
 }
 
 export interface MgDesignSessionResult {
-  /** The validated plan, or null when the model failed or produced an unfixable plan (caller falls back). */
+  /** The validated plan, or null when the model failed or produced an unfixable plan (caller declines the MGs). */
   plan: MgVideoDesignPlan | null;
   /** Why the plan is null (logged) — model error or the last validation problems. Absent on success. */
   reason?: string;
@@ -56,7 +56,8 @@ export interface MgDesignSessionResult {
   attempts: number;
 }
 
-const designReviewSchema = z.object({
+const momentDesignReviewSchema = z.object({
+  momentId: z.string().min(1).max(240),
   accepted: z.boolean(),
   hardFailures: z.object({
     decorativeFormOnly: z.boolean(),
@@ -64,11 +65,28 @@ const designReviewSchema = z.object({
     missingVisualEncoding: z.boolean(),
     flatHierarchy: z.boolean(),
     decorativeMotionOnly: z.boolean(),
-    repetitiveWithinVideo: z.boolean(),
     footageConflict: z.boolean(),
   }).strict(),
+  issues: z.array(z.string().min(1).max(240)).max(8),
+}).strict();
+
+const designReviewSchema = z.object({
+  accepted: z.boolean(),
+  packageFailures: z.object({ repetitiveWithinVideo: z.boolean() }).strict(),
+  moments: z.array(momentDesignReviewSchema).max(24),
   issues: z.array(z.string().min(1).max(240)).max(12),
 }).strict();
+
+type RejectedDesignMoment = { momentId: string; reason: string };
+type DesignReviewResult =
+  | { accepted: true }
+  | {
+    accepted: false;
+    reason: string;
+    packageRejected: boolean;
+    acceptedMomentIds: string[];
+    rejectedMoments: RejectedDesignMoment[];
+  };
 
 const DESIGN_REVIEW_STABLE_PREFIX = `<role>
 You are the independent motion-design PLAN critic. You do not write or repair the plan. Decide whether the plan
@@ -76,7 +94,7 @@ contains enough semantic visual thinking to justify expensive code generation. J
 pixels and not implementation details. Return strict JSON only.
 </role>
 
-<hard_failures>
+<moment_hard_failures>
 - decorativeFormOnly: the purported form is merely a lone rule, dot, motif, texture, particles, or ornamental
   flourish beside text; it does not make the licensed meaning visually understandable.
 - primitiveChecklist: elements are listed but do not form one composed visual system with deliberate relations.
@@ -84,19 +102,25 @@ pixels and not implementation details. Return strict JSON only.
   position, scale, quantity, sequence, contrast, or transformation carries the licensed meaning.
 - flatHierarchy: the stated structure has no clear entry point and reading progression appropriate to the content.
 - decorativeMotionOnly: motion adds activity but does not reveal, compare, transform, build, or land meaning.
+- footageConflict: placement/look ignores the supplied footage, subject, captions, or available negative space.
+</moment_hard_failures>
+
+<package_hard_failures>
 - repetitiveWithinVideo: the video plan repeats substantially the same structure across moments despite claiming
   variety. A recurring motif is coherent; repeating the entire composition is not.
-- footageConflict: placement/look ignores the supplied footage, subject, captions, or available negative space.
-</hard_failures>
+</package_hard_failures>
 
 Do not reject restraint, minimalism, equal-weight members of a true set, or use of kit primitives. Reject shallow
 design reasoning. The plan may use familiar primitives, but their relationships and choreography must be authored
-for this fact, this moment, this footage, and this video. accepted may be true only when every hard failure is false.
+for this fact, this moment, this footage, and this video. Review EVERY designed moment exactly once. A weak moment
+must not erase independently strong siblings: mark only that moment rejected. Package failures reject the package.
+Top-level accepted may be true only when the package and every moment are accepted with every hard failure false.
 
 Return exactly:
-{"accepted":boolean,"hardFailures":{"decorativeFormOnly":boolean,"primitiveChecklist":boolean,
-"missingVisualEncoding":boolean,"flatHierarchy":boolean,"decorativeMotionOnly":boolean,
-"repetitiveWithinVideo":boolean,"footageConflict":boolean},"issues":[string]}`;
+{"accepted":boolean,"packageFailures":{"repetitiveWithinVideo":boolean},
+"moments":[{"momentId":string,"accepted":boolean,"hardFailures":{"decorativeFormOnly":boolean,
+"primitiveChecklist":boolean,"missingVisualEncoding":boolean,"flatHierarchy":boolean,
+"decorativeMotionOnly":boolean,"footageConflict":boolean},"issues":[string]}],"issues":[string]}`;
 
 function designReviewParts(input: MgDesignSessionInput, plan: MgVideoDesignPlan): MgDesignerPart[] {
   const parts: MgDesignerPart[] = [{ kind: 'text', text: DESIGN_REVIEW_STABLE_PREFIX }];
@@ -119,22 +143,117 @@ async function reviewDesignPlan(
   input: MgDesignSessionInput,
   plan: MgVideoDesignPlan,
   generate: MgDesignerGenerate,
-): Promise<{ accepted: true } | { accepted: false; reason: string }> {
+): Promise<DesignReviewResult> {
   try {
     const raw = await generate(designReviewParts(input, plan));
     const review = designReviewSchema.parse(extractDesignPlanJson(raw));
-    const failures = Object.entries(review.hardFailures)
+    const expectedIds = new Set(plan.moments.map((moment) => moment.momentId));
+    const reviewedIds = new Set<string>();
+    const coverageProblems: string[] = [];
+    for (const momentReview of review.moments) {
+      if (!expectedIds.has(momentReview.momentId)) coverageProblems.push(`unknown moment ${momentReview.momentId}`);
+      if (reviewedIds.has(momentReview.momentId)) coverageProblems.push(`duplicate moment ${momentReview.momentId}`);
+      reviewedIds.add(momentReview.momentId);
+    }
+    for (const momentId of expectedIds) {
+      if (!reviewedIds.has(momentId)) coverageProblems.push(`missing moment ${momentId}`);
+    }
+    if (coverageProblems.length > 0) {
+      return {
+        accepted: false,
+        reason: `plan critic coverage invalid: ${coverageProblems.slice(0, 6).join('; ')}`,
+        packageRejected: true,
+        acceptedMomentIds: [],
+        rejectedMoments: plan.moments.map((moment) => ({
+          momentId: moment.momentId,
+          reason: 'plan critic did not return a complete one-to-one review',
+        })),
+      };
+    }
+
+    const packageFailures = Object.entries(review.packageFailures)
       .filter(([, active]) => active)
       .map(([name]) => name);
-    if (review.accepted && failures.length === 0) return { accepted: true };
-    const reason = [...failures, ...review.issues].slice(0, 6).join('; ');
-    return { accepted: false, reason: reason || 'plan critic rejected the design without a reason' };
+    const rejectedMoments: RejectedDesignMoment[] = [];
+    const acceptedMomentIds: string[] = [];
+    for (const momentReview of review.moments) {
+      const failures = Object.entries(momentReview.hardFailures)
+        .filter(([, active]) => active)
+        .map(([name]) => name);
+      if (momentReview.accepted && failures.length === 0) {
+        acceptedMomentIds.push(momentReview.momentId);
+      } else {
+        const reasonParts = momentReview.issues.length > 0
+          ? [...failures.slice(0, 3), momentReview.issues[0]]
+          : failures.slice(0, 4);
+        rejectedMoments.push({
+          momentId: momentReview.momentId,
+          reason: reasonParts.join('; ')
+            || 'plan critic rejected the moment without a reason',
+        });
+      }
+    }
+    const unexplainedPackageRejection = !review.accepted && rejectedMoments.length === 0;
+    const packageRejected = packageFailures.length > 0
+      || unexplainedPackageRejection
+      || (review.issues.length > 0 && rejectedMoments.length === 0);
+    if (review.accepted && !packageRejected && rejectedMoments.length === 0) return { accepted: true };
+    const reason = [
+      ...packageFailures,
+      ...review.issues,
+      ...rejectedMoments.map((moment) => `${moment.momentId}: ${moment.reason}`),
+    ].slice(0, 8).join('; ');
+    return {
+      accepted: false,
+      reason: reason || 'plan critic rejected the design without a reason',
+      packageRejected,
+      acceptedMomentIds: packageRejected ? [] : acceptedMomentIds,
+      rejectedMoments,
+    };
   } catch (error) {
     return {
       accepted: false,
       reason: `plan critic failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 240),
+      packageRejected: true,
+      acceptedMomentIds: [],
+      rejectedMoments: plan.moments.map((moment) => ({
+        momentId: moment.momentId,
+        reason: 'plan critic failed before producing a trustworthy moment review',
+      })),
     };
   }
+}
+
+function salvageQualityReviewedPlan(
+  plan: MgVideoDesignPlan,
+  contexts: MgDesignPlanMomentContext[],
+  budget: { maxMoments: number } | undefined,
+  review: Exclude<DesignReviewResult, { accepted: true }>,
+): { plan: MgVideoDesignPlan; dropped: string[] } | null {
+  if (review.packageRejected || review.acceptedMomentIds.length === 0) return null;
+  const accepted = new Set(review.acceptedMomentIds);
+  const rejectedReasons = new Map(review.rejectedMoments.map((moment) => [moment.momentId, moment.reason]));
+  const kept = plan.moments.filter((moment) => accepted.has(moment.momentId));
+  const declines = new Map((plan.declined ?? []).map((decline) => [decline.momentId, decline.reason]));
+  for (const moment of plan.moments) {
+    if (!accepted.has(moment.momentId)) {
+      declines.set(
+        moment.momentId,
+        `quality review: ${rejectedReasons.get(moment.momentId) ?? 'not independently accepted'}`.slice(0, 240),
+      );
+    }
+  }
+  const candidate: MgVideoDesignPlan = {
+    ...plan,
+    moments: kept,
+    declined: Array.from(declines, ([momentId, reason]) => ({ momentId, reason })),
+  };
+  return validateDesignPlan(candidate, contexts, budget).ok
+    ? {
+      plan: candidate,
+      dropped: plan.moments.filter((moment) => !accepted.has(moment.momentId)).map((moment) => moment.momentId),
+    }
+    : null;
 }
 
 /** Append the rejection reason to the volatile LAST text part (keeps data LAST, Rule 35) for the retry. */
@@ -191,6 +310,7 @@ export async function runVideoDesignSession(
   let lastReason = 'no attempt made';
   let lastPlan: MgVideoDesignPlan | null = null;
   let lastPlanPassedStructuralValidation = false;
+  let lastQualityReview: Exclude<DesignReviewResult, { accepted: true }> | null = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const parts = attempt === 0 ? baseParts : withFeedback(baseParts, lastReason);
@@ -211,20 +331,38 @@ export async function runVideoDesignSession(
       if (validation.ok) {
         const review = await reviewDesignPlan(input, plan, deps.generate);
         if (review.accepted) return { plan, attempts: attempt + 1 };
+        lastQualityReview = review;
         lastReason = `design-quality review rejected: ${review.reason}`;
         continue;
       }
+      lastQualityReview = null;
       lastReason = validation.problems.slice(0, 3).join(' | ') || 'plan failed validation';
     } catch (error) {
       lastPlanPassedStructuralValidation = false;
+      lastQualityReview = null;
       lastReason = `plan parse/validation error: ${error instanceof Error ? error.message : String(error)}`.slice(0, 180);
     }
   }
 
-  // Fix A (2026-07-19): every attempt failed validation. Rather than forfeit the WHOLE video's design — which the
-  // Hormozi stress run showed drops ALL decided graphics to free-form over one bad moment (e.g. a ring bound to no
-  // number) — SALVAGE the last plan: keep the valid moments, decline the invalid ones. Only when NOTHING valid
-  // survives do we return null and let the caller degrade to free-form (never worse than before this fix).
+  // Preserve independently accepted moments when the final quality review rejects only their siblings. A package
+  // failure still rejects everything; when nothing trustworthy survives, the caller declines instead of restoring
+  // legacy/free-form graphic authority.
+  if (lastPlan && lastPlanPassedStructuralValidation && lastQualityReview) {
+    const salvaged = salvageQualityReviewedPlan(
+      lastPlan,
+      input.contexts,
+      budget ? { maxMoments: budget.maxMoments } : undefined,
+      lastQualityReview,
+    );
+    if (salvaged && salvaged.plan.moments.length > 0) {
+      return {
+        plan: salvaged.plan,
+        attempts: maxAttempts,
+        reason: `quality-salvaged: kept ${salvaged.plan.moments.length}, dropped ${salvaged.dropped.length}${salvaged.dropped.length ? ` [${salvaged.dropped.join(', ')}]` : ''}`,
+      };
+    }
+  }
+
   if (lastPlan && !lastPlanPassedStructuralValidation) {
     const salvaged = salvageDesignPlan(lastPlan, input.contexts, budget ? { maxMoments: budget.maxMoments } : undefined);
     if (salvaged && salvaged.plan.moments.length > 0) {

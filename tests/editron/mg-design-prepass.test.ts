@@ -42,24 +42,35 @@ const brief: MgVideoDesignPlan['brief'] = {
   styleName: 'clean', motifLanguage: 'thin gold rule under key terms', paletteMoves: 'charcoal + gold',
   motionPersonality: 'snappy', formVariety: 'type then structure',
 };
-const acceptedReview = JSON.stringify({
-  accepted: true,
-  hardFailures: {
-    decorativeFormOnly: false,
-    primitiveChecklist: false,
-    missingVisualEncoding: false,
-    flatHierarchy: false,
-    decorativeMotionOnly: false,
-    repetitiveWithinVideo: false,
-    footageConflict: false,
-  },
-  issues: [],
-});
 const isDesignReview = (parts: Parameters<MgDesignerGenerate>[0]): boolean => parts.some(
   (part) => part.kind === 'text' && part.text.includes('independent motion-design PLAN critic'),
 );
+const acceptedReviewFor = (parts: Parameters<MgDesignerGenerate>[0]): string => {
+  const payload = parts.find((part) => part.kind === 'text' && part.text.includes('<design_plan>'));
+  const match = payload?.kind === 'text' ? payload.text.match(/<design_plan>([\s\S]*?)<\/design_plan>/) : null;
+  if (!match) throw new Error('design-review fixture did not receive the reviewed plan');
+  const plan = JSON.parse(match[1]) as MgVideoDesignPlan;
+  return JSON.stringify({
+    accepted: true,
+    packageFailures: { repetitiveWithinVideo: false },
+    moments: plan.moments.map((entry) => ({
+      momentId: entry.momentId,
+      accepted: true,
+      hardFailures: {
+        decorativeFormOnly: false,
+        primitiveChecklist: false,
+        missingVisualEncoding: false,
+        flatHierarchy: false,
+        decorativeMotionOnly: false,
+        footageConflict: false,
+      },
+      issues: [],
+    })),
+    issues: [],
+  });
+};
 const fakeGen = (text: string): MgDesignerGenerate => vi.fn(async (parts) => (
-  isDesignReview(parts) ? acceptedReview : text
+  isDesignReview(parts) ? acceptedReviewFor(parts) : text
 ));
 
 describe('runDesignPrepass — video-level design authority ledger', () => {
@@ -100,7 +111,7 @@ describe('runDesignPrepass — video-level design authority ledger', () => {
     let receivedParts: Array<{ kind: string; data?: string }> = [];
     const gen: MgDesignerGenerate = vi.fn(async (parts) => {
       receivedParts = parts;
-      return isDesignReview(parts) ? acceptedReview : JSON.stringify(plan);
+      return isDesignReview(parts) ? acceptedReviewFor(parts) : JSON.stringify(plan);
     });
     const images = { footageFrames: [{ mimeType: 'image/webp', data: 'Zm9vdGFnZQ==' }] };
     await runDesignPrepass({ beats, videoStyle, brand: INSTURIX, budget, images }, { generate: gen });

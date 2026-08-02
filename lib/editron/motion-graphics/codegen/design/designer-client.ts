@@ -8,8 +8,8 @@
  * (gemini-3.1-pro-preview, temperature 0, maxOutputTokens 16384, parts → contents[0].parts, text joined).
  *
  * FAIL LOUD (R18N): an HTTP error, a non-STOP finishReason, or an empty response throws — runVideoDesignSession
- * catches it, retries once, and on a second failure returns { plan: null } so every beat degrades to the free-form
- * codegen path. A bad designer call can never fabricate a plan, only fall back.
+ * catches it, retries once, and on a second failure returns { plan: null } so every offered MG is explicitly
+ * unavailable. A bad designer call can never fabricate a plan or restore legacy/free-form graphic authority.
  */
 
 import type { MgDesignerGenerate } from './design-session';

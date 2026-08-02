@@ -42,30 +42,30 @@ const fakeGen = (responses: string[]): MgDesignerGenerate => {
 
 const acceptedReview = JSON.stringify({
   accepted: true,
-  hardFailures: {
-    decorativeFormOnly: false,
-    primitiveChecklist: false,
-    missingVisualEncoding: false,
-    flatHierarchy: false,
-    decorativeMotionOnly: false,
-    repetitiveWithinVideo: false,
-    footageConflict: false,
-  },
+  packageFailures: { repetitiveWithinVideo: false },
+  moments: [{
+    momentId: 'b0', accepted: true,
+    hardFailures: {
+      decorativeFormOnly: false, primitiveChecklist: false, missingVisualEncoding: false,
+      flatHierarchy: false, decorativeMotionOnly: false, footageConflict: false,
+    },
+    issues: [],
+  }],
   issues: [],
 });
 
 const rejectedReview = JSON.stringify({
   accepted: false,
-  hardFailures: {
-    decorativeFormOnly: true,
-    primitiveChecklist: true,
-    missingVisualEncoding: true,
-    flatHierarchy: false,
-    decorativeMotionOnly: true,
-    repetitiveWithinVideo: false,
-    footageConflict: false,
-  },
-  issues: ['a headline plus underline does not visually explain the licensed idea'],
+  packageFailures: { repetitiveWithinVideo: false },
+  moments: [{
+    momentId: 'b0', accepted: false,
+    hardFailures: {
+      decorativeFormOnly: true, primitiveChecklist: true, missingVisualEncoding: true,
+      flatHierarchy: false, decorativeMotionOnly: true, footageConflict: false,
+    },
+    issues: ['a headline plus underline does not visually explain the licensed idea'],
+  }],
+  issues: [],
 });
 
 describe('MG video design session — the injected brain', () => {
@@ -178,6 +178,89 @@ describe('MG design-quality ownership', () => {
     expect(result.plan).toBeNull();
     expect(result.reason).toContain('design-quality review rejected');
     expect(result.attempts).toBe(2);
+  });
+
+  it('keeps independently accepted moments when a sibling repeatedly fails design quality', async () => {
+    const secondMoment = { ...moment, momentId: 'b1', sourceText: 'a second complete thought', salience: 0.5 };
+    const twoMomentPlan: MgVideoDesignPlan = {
+      ...validPlan,
+      moments: [validPlan.moments[0], { ...validPlan.moments[0], momentId: 'b1', concept: 'a weak sibling design' }],
+    };
+    const partialReview = JSON.stringify({
+      accepted: false,
+      packageFailures: { repetitiveWithinVideo: false },
+      moments: [
+        {
+          momentId: 'b0', accepted: true,
+          hardFailures: {
+            decorativeFormOnly: false, primitiveChecklist: false, missingVisualEncoding: false,
+            flatHierarchy: false, decorativeMotionOnly: false, footageConflict: false,
+          },
+          issues: [],
+        },
+        {
+          momentId: 'b1', accepted: false,
+          hardFailures: {
+            decorativeFormOnly: true, primitiveChecklist: false, missingVisualEncoding: true,
+            flatHierarchy: false, decorativeMotionOnly: false, footageConflict: false,
+          },
+          issues: ['the sibling is ornamental rather than explanatory'],
+        },
+      ],
+      issues: [],
+    });
+    const result = await runVideoDesignSession(
+      {
+        designer: {
+          ...designer,
+          moments: [moment, secondMoment],
+          budget: { maxMoments: 2, minSpacingSec: 3, rationale: 'test' },
+        },
+        contexts: [contexts[0], { ...contexts[0], momentId: 'b1', startMs: 5_000 }],
+      },
+      { generate: fakeGen([JSON.stringify(twoMomentPlan), partialReview, JSON.stringify(twoMomentPlan), partialReview]) },
+    );
+
+    expect(result.plan?.moments.map((entry) => entry.momentId)).toEqual(['b0']);
+    expect(result.plan?.declined).toEqual(expect.arrayContaining([
+      expect.objectContaining({ momentId: 'b1', reason: expect.stringContaining('quality review') }),
+    ]));
+    expect(result.reason).toContain('quality-salvaged');
+  });
+
+  it('rejects critic output that omits a designed moment instead of treating it as accepted', async () => {
+    const twoMomentPlan: MgVideoDesignPlan = {
+      ...validPlan,
+      moments: [validPlan.moments[0], { ...validPlan.moments[0], momentId: 'b1' }],
+    };
+    const result = await runVideoDesignSession(
+      {
+        designer: {
+          ...designer,
+          moments: [moment, { ...moment, momentId: 'b1' }],
+          budget: { maxMoments: 2, minSpacingSec: 3, rationale: 'test' },
+        },
+        contexts: [contexts[0], { ...contexts[0], momentId: 'b1', startMs: 5_000 }],
+      },
+      { generate: fakeGen([JSON.stringify(twoMomentPlan), acceptedReview, JSON.stringify(twoMomentPlan), acceptedReview]) },
+    );
+
+    expect(result.plan).toBeNull();
+    expect(result.reason).toContain('coverage invalid');
+  });
+
+  it('rejects an unexplained package-level failure even when every moment receipt says accepted', async () => {
+    const inconsistentReview = JSON.stringify({
+      ...JSON.parse(acceptedReview),
+      accepted: false,
+    });
+    const result = await runVideoDesignSession(
+      { designer, contexts },
+      { generate: fakeGen([JSON.stringify(validPlan), inconsistentReview, JSON.stringify(validPlan), inconsistentReview]) },
+    );
+
+    expect(result.plan).toBeNull();
+    expect(result.reason).toContain('critic rejected the design without a reason');
   });
 });
 

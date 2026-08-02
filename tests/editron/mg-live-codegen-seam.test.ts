@@ -113,15 +113,20 @@ const DESIGN_PLAN = JSON.stringify({
 
 const ACCEPTED_DESIGN_REVIEW = JSON.stringify({
   accepted: true,
-  hardFailures: {
-    decorativeFormOnly: false,
-    primitiveChecklist: false,
-    missingVisualEncoding: false,
-    flatHierarchy: false,
-    decorativeMotionOnly: false,
-    repetitiveWithinVideo: false,
-    footageConflict: false,
-  },
+  packageFailures: { repetitiveWithinVideo: false },
+  moments: [{
+    momentId: 'beat-0',
+    accepted: true,
+    hardFailures: {
+      decorativeFormOnly: false,
+      primitiveChecklist: false,
+      missingVisualEncoding: false,
+      flatHierarchy: false,
+      decorativeMotionOnly: false,
+      footageConflict: false,
+    },
+    issues: [],
+  }],
   issues: [],
 });
 
