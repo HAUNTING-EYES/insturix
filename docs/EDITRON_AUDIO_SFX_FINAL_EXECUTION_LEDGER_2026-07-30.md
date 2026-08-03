@@ -454,17 +454,47 @@ The overall audio initiative therefore remains active. This canary live-proves
 durable exact-duration finalization and reference-only clean export; it does not
 close the remaining BGM, music-off, SFX, silence, or history gates.
 
-### 6.2 Audio items to fix or prove later
+### 6.2 Zero-credit rendered audio evidence added 2026-08-03
+
+Three local production-shaped Remotion canaries now exercise the production
+conditioner, assignment owners, rights gates, render assembler, and final sound
+layer without provider, generation, cloud-render, or Editron render-credit calls.
+
+- Exportable BGM receipt:
+  `.calibration-temp/bgm-render-canary/2026-08-03T06-19-34-794Z/receipt.json`
+  - Conditioned duration: exactly 12,000 ms.
+  - Rendered PCM: exactly 576,000 sample frames at 48 kHz stereo.
+  - Output loudness: -13.9 LUFS; true peak: -7.6 dBTP.
+  - Six loops used a 250 ms equal-power crossfade.
+  - Rendered speech ducking measured 11.54 dB and the final 500 ms remained audible.
+- Transition/MG SFX receipt:
+  `.calibration-temp/sfx-render-canary/2026-08-03T06-16-39-681Z/receipt.json`
+  - A licensed catalog whoosh rendered on the whip-pan.
+  - A licensed catalog snap rendered on the motion graphic.
+  - The dip-to-black window remained exactly silent.
+  - Provider API calls: zero.
+- Uploaded manual SFX receipt:
+  `.calibration-temp/uploaded-sfx-render-canary/2026-08-03T06-28-50-781Z/receipt.json`
+  - The server created one owner-attested SFX derivative and one canonical row-0
+    timeline overlay, then replayed the same request without a second append.
+  - Stored source and derivative evidence passed the render rights authority.
+  - Rendered PCM was exactly 144,000 sample frames at 48 kHz stereo.
+  - The assigned frame 30-60 window was audible; PCM before and after was exactly
+    silent; provider and cloud-render calls were zero.
+
+The BGM and SFX receipts are repeatable local renderer evidence, not deployed-MP4
+evidence. `music:off` is covered by the shared policy plus focused tests across
+Director, storyboard finalize, and the audio worker; a paid deployed canary is not
+needed before the five-minute combined soak.
+
+### 6.3 Audio items to fix or prove later
 
 - Live proof of dynamic speech-gap ducking across a real long-form render
 - Rich-title, artist, and resolved-cue proof for the reference-track workflow
 - Cleared replacement selection for the `swap` export option
 - Paid canary for CassetteAI SFX only when explicitly approved
-- Uploaded manual SFX provenance and assignment battle test
 - Provider outage and timeout behavior in a full edit
 - Long-form memory/performance proof for videos around five minutes
-- Productized finalization-only retry without database/operator intervention or
-  another renderer charge
 
 ## 7. Deferred semantic architecture and pinned catalog coverage
 
@@ -689,14 +719,16 @@ in section 6.1.
 
 ## 12. Immediate order
 
-1. Productize finalization-only retry so a verified renderer output can be
-   republished without database surgery and without consuming another credit.
-2. Run an exportable-BGM canary that proves coverage, exact looping, loudness,
-   and speech ducking in the rendered MP4.
-3. Run `music:off` through every production path and prove zero music overlays.
-4. Run purpose-built transition-heavy, MG-heavy, and speech-heavy canaries to
-   prove restrained SFX, rights-bearing overlays, and intentional silence.
-5. Battle-test uploaded manual SFX provenance and assignment.
+1. **Complete:** productized finalization-only retry republishes verified renderer
+   output without database surgery or another renderer charge.
+2. **Production-shaped proof complete:** exportable BGM exact looping, loudness,
+   speech ducking, and audible-tail behavior pass the zero-credit renderer canary.
+3. **Code/test proof complete:** `music:off` uses one policy across Director,
+   storyboard finalize, and the audio worker and produces no music work.
+4. **Production-shaped proof complete:** transition, MG, and intentional-silence
+   SFX behavior passes the zero-credit renderer canary.
+5. **Production-shaped proof complete:** uploaded manual SFX assignment,
+   provenance, idempotency, render authority, and rendered timing pass.
 6. Repeat reference-only delivery with real title, artist, and cue metadata, and
    verify an explicit render-history surface when one exists.
 7. Run the approximately five-minute memory and performance canary.
