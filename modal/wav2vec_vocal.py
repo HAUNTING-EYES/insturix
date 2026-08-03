@@ -83,6 +83,8 @@ STRESS_PITCH_ZSCORE = 1.5     # z-score threshold for pitch peak = stress
 STRESS_ENERGY_ZSCORE = 1.5    # z-score threshold for energy peak = stress
 FILLER_PITCH_FLAT_THRESH = 15.0   # Hz — filler words have very flat pitch
 FILLER_ENERGY_LOW_THRESH = 0.3    # normalized — fillers are quiet
+EMOTION_BATCH_SIZE = 8
+PROSODY_HOP_LENGTH = 512
 
 # ─── Inference Class ────────────────────────────────────────────────────────
 
@@ -146,88 +148,104 @@ class Wav2VecAnalyzer:
         except Exception as e:
             print(f"[Wav2VecAnalyzer] Audio load failed: {e}")
             return {
-                "segments": [_empty(s) for s in segments],
+                "error": "audio_load_failed",
+                "segments": [],
                 "model_version": "wav2vec-2.0",
                 "processing_time_ms": int((time.time() - t0) * 1000),
             }
 
-        # ── 2. Analyze each segment ────────────────────────────────────
-        results: list[dict] = []
-
-        for seg in segments:
-            start_sample = int(seg["start_ms"] / 1000.0 * sr)
-            end_sample = int(seg["end_ms"] / 1000.0 * sr)
+        # Compute pitch and frame energy once for the source. Per-segment pyin
+        # previously ran twice for every segment and dominated long-video time.
+        prosody = _build_prosody_track(waveform, sr)
+        chunks: list[tuple[int, dict, "np.ndarray"]] = []
+        results: list[dict | None] = [None] * len(segments)
+        for index, seg in enumerate(segments):
+            start_sample = max(0, int(seg["start_ms"] / 1000.0 * sr))
+            end_sample = min(len(waveform), int(seg["end_ms"] / 1000.0 * sr))
             chunk = waveform[start_sample:end_sample]
+            if len(chunk) >= sr * 0.1:
+                chunks.append((index, seg, chunk))
 
-            if len(chunk) < sr * 0.1:  # <100ms, too short
-                results.append(_empty(seg))
-                continue
-
-            # ── Emotion classification ─────────────────────────────────
-            emotion_label, emotion_conf = self._classify_emotion(chunk, sr)
-            valence = VALENCE_MAP.get(emotion_label, "neutral")
-
-            # Emotion intensity = model confidence (higher = more expressive)
-            emotion_intensity = float(emotion_conf)
-
-            # ── Prosodic features via librosa ──────────────────────────
+        classifications = self._classify_emotions(
+            [chunk for _, _, chunk in chunks],
+            sr,
+        )
+        for (index, seg, chunk), (emotion_label, emotion_conf) in zip(
+            chunks,
+            classifications,
+        ):
             energy = _compute_energy(chunk, sr)
-            pitch_var = _compute_pitch_variability(chunk, sr)
-            stress = _detect_stress(chunk, sr)
+            pitch_var = _segment_pitch_variability(prosody, seg, sr)
+            stress = _segment_stress(prosody, seg, sr)
             filler = _filler_confidence(chunk, sr, pitch_var, energy)
-
-            results.append({
+            results[index] = {
                 "start_ms": seg["start_ms"],
                 "end_ms": seg["end_ms"],
-                "emotion_intensity": round(emotion_intensity, 4),
-                "emotional_valence": valence,
+                "emotion_intensity": round(float(emotion_conf), 4),
+                "emotional_valence": VALENCE_MAP.get(emotion_label, "neutral"),
                 "energy": round(energy, 4),
                 "pitch_variability": round(pitch_var, 4),
                 "stress_detected": stress,
                 "filler_confidence": round(filler, 4),
-            })
+            }
 
+        completed_results = [result for result in results if result is not None]
         elapsed_ms = int((time.time() - t0) * 1000)
         print(
-            f"[Wav2VecAnalyzer] {len(results)} segments in {elapsed_ms}ms "
-            f"(avg emotion={np.mean([r['emotion_intensity'] for r in results]):.2f})"
+            f"[Wav2VecAnalyzer] {len(completed_results)}/{len(segments)} segments "
+            f"in {elapsed_ms}ms "
+            f"(avg emotion={np.mean([r['emotion_intensity'] for r in completed_results]):.2f})"
+            if completed_results
+            else f"[Wav2VecAnalyzer] 0/{len(segments)} usable segments in {elapsed_ms}ms"
         )
 
         return {
-            "segments": results,
+            "segments": completed_results,
             "model_version": "wav2vec-2.0",
             "processing_time_ms": elapsed_ms,
         }
 
-    def _classify_emotion(
-        self, chunk: "np.ndarray", sr: int
-    ) -> tuple[str, float]:
-        """Run wav2vec2 emotion classifier on audio chunk."""
+    def _classify_emotions(
+        self, chunks: list["np.ndarray"], sr: int
+    ) -> list[tuple[str, float]]:
+        """Run length-bucketed GPU batches while preserving input order."""
         import torch
         import numpy as np
 
-        # Resample to 16kHz if needed
+        if not chunks:
+            return []
         if sr != TARGET_SR:
             import librosa
-            chunk = librosa.resample(chunk, orig_sr=sr, target_sr=TARGET_SR)
+            chunks = [
+                librosa.resample(chunk, orig_sr=sr, target_sr=TARGET_SR)
+                for chunk in chunks
+            ]
 
-        inputs = self.feature_extractor(
-            chunk,
-            sampling_rate=TARGET_SR,
-            return_tensors="pt",
-            padding=True,
-        )
-        input_values = inputs.input_values.half().cuda()
+        indexed = sorted(enumerate(chunks), key=lambda item: len(item[1]))
+        results: list[tuple[str, float] | None] = [None] * len(chunks)
+        for offset in range(0, len(indexed), EMOTION_BATCH_SIZE):
+            batch = indexed[offset:offset + EMOTION_BATCH_SIZE]
+            inputs = self.feature_extractor(
+                [chunk for _, chunk in batch],
+                sampling_rate=TARGET_SR,
+                return_tensors="pt",
+                padding=True,
+                return_attention_mask=True,
+            )
+            model_inputs = {"input_values": inputs.input_values.half().cuda()}
+            if "attention_mask" in inputs:
+                model_inputs["attention_mask"] = inputs.attention_mask.cuda()
+            with torch.no_grad():
+                logits = self.model(**model_inputs).logits
+            probabilities = torch.softmax(logits, dim=-1).cpu().float().numpy()
+            for (source_index, _), probs in zip(batch, probabilities):
+                pred_idx = int(np.argmax(probs))
+                label = self.labels[pred_idx] if pred_idx < len(self.labels) else "neutral"
+                results[source_index] = (label, float(probs[pred_idx]))
 
-        with torch.no_grad():
-            logits = self.model(input_values).logits
-
-        probs = torch.softmax(logits, dim=-1)[0].cpu().float().numpy()
-        pred_idx = int(np.argmax(probs))
-        label = self.labels[pred_idx] if pred_idx < len(self.labels) else "neutral"
-        confidence = float(probs[pred_idx])
-
-        return label, confidence
+        if any(result is None for result in results):
+            raise RuntimeError("emotion classifier did not return one result per input")
+        return [result for result in results if result is not None]
 
 
 # ─── Audio Loading ──────────────────────────────────────────────────────────
@@ -300,60 +318,67 @@ def _compute_energy(chunk: "np.ndarray", sr: int) -> float:
     return float(min(1.0, max(0.0, normalized)))
 
 
-def _compute_pitch_variability(chunk: "np.ndarray", sr: int) -> float:
-    """F0 standard deviation normalized to 0-1."""
+def _build_prosody_track(waveform: "np.ndarray", sr: int) -> dict:
+    """Compute source-level frame evidence once and reuse it for all segments."""
     import librosa
     import numpy as np
 
+    rms = librosa.feature.rms(
+        y=waveform,
+        frame_length=2048,
+        hop_length=PROSODY_HOP_LENGTH,
+    )[0]
     try:
-        f0, voiced_flag, _ = librosa.pyin(
-            chunk,
+        f0, _, _ = librosa.pyin(
+            waveform,
             fmin=librosa.note_to_hz("C2"),   # ~65 Hz
             fmax=librosa.note_to_hz("C7"),   # ~2093 Hz
             sr=sr,
+            hop_length=PROSODY_HOP_LENGTH,
         )
-
-        voiced_f0 = f0[voiced_flag] if voiced_flag is not None else f0[~np.isnan(f0)]
-        if len(voiced_f0) < 3:
-            return 0.0
-
-        std = float(np.std(voiced_f0))
-        return min(1.0, max(0.0, std / PITCH_NORM_HZ))
-    except Exception:
-        return 0.0
+    except Exception as error:
+        print(f"[Wav2VecAnalyzer] Source pitch extraction degraded: {error}")
+        f0 = np.full(len(rms), np.nan, dtype=np.float32)
+    return {"rms": rms, "f0": f0}
 
 
-def _detect_stress(chunk: "np.ndarray", sr: int) -> bool:
-    """Detect vocal stress from pitch + energy peaks exceeding z-score thresholds."""
-    import librosa
+def _segment_track_values(track: "np.ndarray", seg: dict, sr: int) -> "np.ndarray":
+    start_frame = max(0, int(seg["start_ms"] / 1000.0 * sr / PROSODY_HOP_LENGTH))
+    end_frame = min(
+        len(track),
+        max(start_frame + 1, int(seg["end_ms"] / 1000.0 * sr / PROSODY_HOP_LENGTH) + 1),
+    )
+    return track[start_frame:end_frame]
+
+
+def _segment_pitch_variability(prosody: dict, seg: dict, sr: int) -> float:
     import numpy as np
 
-    try:
-        # Frame-level energy
-        rms = librosa.feature.rms(y=chunk, frame_length=2048, hop_length=512)[0]
-        if len(rms) < 3:
-            return False
+    f0 = _segment_track_values(prosody["f0"], seg, sr)
+    voiced_f0 = f0[np.isfinite(f0)]
+    if len(voiced_f0) < 3:
+        return 0.0
+    std = float(np.std(voiced_f0))
+    return min(1.0, max(0.0, std / PITCH_NORM_HZ))
 
-        energy_z = (rms - rms.mean()) / (rms.std() + 1e-8)
-        energy_peaks = np.any(energy_z > STRESS_ENERGY_ZSCORE)
 
-        # Frame-level pitch
-        f0, voiced, _ = librosa.pyin(
-            chunk,
-            fmin=librosa.note_to_hz("C2"),
-            fmax=librosa.note_to_hz("C7"),
-            sr=sr,
-        )
-        voiced_f0 = f0[voiced] if voiced is not None else f0[~np.isnan(f0)]
-        if len(voiced_f0) < 3:
-            return bool(energy_peaks)
+def _segment_stress(prosody: dict, seg: dict, sr: int) -> bool:
+    """Detect vocal stress from source-level pitch and energy frame evidence."""
+    import numpy as np
 
-        pitch_z = (voiced_f0 - voiced_f0.mean()) / (voiced_f0.std() + 1e-8)
-        pitch_peaks = np.any(pitch_z > STRESS_PITCH_ZSCORE)
-
-        return bool(energy_peaks and pitch_peaks)
-    except Exception:
+    rms = _segment_track_values(prosody["rms"], seg, sr)
+    if len(rms) < 3:
         return False
+    energy_z = (rms - rms.mean()) / (rms.std() + 1e-8)
+    energy_peaks = np.any(energy_z > STRESS_ENERGY_ZSCORE)
+
+    f0 = _segment_track_values(prosody["f0"], seg, sr)
+    voiced_f0 = f0[np.isfinite(f0)]
+    if len(voiced_f0) < 3:
+        return bool(energy_peaks)
+    pitch_z = (voiced_f0 - voiced_f0.mean()) / (voiced_f0.std() + 1e-8)
+    pitch_peaks = np.any(pitch_z > STRESS_PITCH_ZSCORE)
+    return bool(energy_peaks and pitch_peaks)
 
 
 def _filler_confidence(
@@ -393,16 +418,3 @@ def _filler_confidence(
         indicators += 0.1
 
     return min(1.0, indicators)
-
-
-def _empty(seg: dict) -> dict:
-    return {
-        "start_ms": seg.get("start_ms", 0),
-        "end_ms": seg.get("end_ms", 0),
-        "emotion_intensity": 0.5,
-        "emotional_valence": "neutral",
-        "energy": 0.5,
-        "pitch_variability": 0.0,
-        "stress_detected": False,
-        "filler_confidence": 0.0,
-    }
