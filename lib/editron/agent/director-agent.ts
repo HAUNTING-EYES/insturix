@@ -1845,6 +1845,7 @@ export async function executeDirectorPlan(
             canvas,
             analysesMap,
             unifiedDecisionBundle.graphicsDensity,
+            { deferMgDesign: true },
           );
 
           edlSummary.totalDecisions = unifiedDecisionBundle.edl.totalDecisions;
@@ -2195,7 +2196,16 @@ export async function executeDirectorPlan(
 
           const moments = analyses.flatMap(a => detectCinematicMoments(a));
           const canvas = project.playerDimensions || { width: 1920, height: 1080 };
-          const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas, analysesMap, densityFromSignalsOrNeutral(pathDGenreParams));
+          const edlResult = await executeEDL(
+            edl,
+            projectId,
+            userId,
+            overlays,
+            canvas,
+            analysesMap,
+            densityFromSignalsOrNeutral(pathDGenreParams),
+            { deferMgDesign: true },
+          );
 
           // Build summary by decision type
           for (const d of edl.decisions) {

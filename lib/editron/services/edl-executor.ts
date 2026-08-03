@@ -428,7 +428,7 @@ export interface RejectedDecision {
   params?: Record<string, unknown>;
 }
 
-export type DecisionExecutionTraceOutcome = 'executed' | 'budget-rejected' | 'guard-rejected' | 'error';
+export type DecisionExecutionTraceOutcome = 'executed' | 'deferred' | 'budget-rejected' | 'guard-rejected' | 'error';
 
 export interface DecisionExecutionTraceEntry {
   decisionIndex: number;
@@ -449,6 +449,7 @@ export interface DecisionExecutionTraceEntry {
 
 export interface ExecutionResult {
   decisionsExecuted: number;
+  decisionsDeferred: number;
   decisionsSkipped: number;
   overlaysCreated: number;
   overlaysModified: number;
@@ -463,6 +464,30 @@ export interface ExecutionResult {
   budgetRejectedZoomAssetIds: Set<string>;
   /** AssetIds that already received a zoom from EDL — drift-zoom should skip these too */
   zoomedAssetIds: Set<string>;
+  mgDesignJob?: {
+    jobId?: string;
+    status: 'queued' | 'running' | 'completed' | 'failed';
+    decisionCount: number;
+    reason?: string;
+  };
+  mgDesignSummary?: {
+    attempts: number;
+    approvedCount: number;
+    declinedCount: number;
+    unavailableCount: number;
+    reason?: string;
+  };
+}
+
+export interface ExecuteEDLOptions {
+  deferMgDesign?: boolean;
+  enqueueMgDesignJob?: (input: {
+    projectId: string;
+    userId: string;
+    edl: EditDecisionList;
+    canvas: { width: number; height: number };
+    graphicsDensity?: 'heavy' | 'moderate' | 'minimal';
+  }) => Promise<{ jobId: string; status: 'queued' | 'running' | 'completed' }>;
 }
 
 interface EDLSignalContext {
@@ -798,9 +823,11 @@ export async function executeEDL(
   analyses?: Map<string, any>,
   /** Profile's graphic density — drives budget guardrails. */
   graphicsDensity?: 'heavy' | 'moderate' | 'minimal',
+  options: ExecuteEDLOptions = {},
 ): Promise<ExecutionResult> {
   const result: ExecutionResult = {
     decisionsExecuted: 0,
+    decisionsDeferred: 0,
     decisionsSkipped: 0,
     overlaysCreated: 0,
     overlaysModified: 0,
@@ -1022,20 +1049,113 @@ export async function executeEDL(
 
   let budgetRejected = 0;
   let decisionIndex = 0;
+  const deferredGraphicDecisions = new Set<EditDecision>();
+  let deferredGraphicFailure: string | undefined;
+
+  if (isLiveMgCodegenEnabled() && options.deferMgDesign) {
+    const graphics = actionable.filter((decision) => decision.type === 'graphic');
+    if (graphics.length > 0) {
+      const graphicEdl: EditDecisionList = {
+        ...edl,
+        decisions: graphics,
+        totalDecisions: graphics.length,
+        stats: {
+          ...edl.stats,
+          transitionCount: 0,
+          zoomCount: 0,
+          speedChangeCount: 0,
+          graphicCount: graphics.length,
+          averageConfidence: graphics.reduce((sum, decision) => sum + decision.confidence, 0) / graphics.length,
+        },
+      };
+      try {
+        const enqueue = options.enqueueMgDesignJob
+          ?? (await import('@/lib/editron/motion-graphics/codegen/mg-design-job-runner')).enqueueDurableMgDesignJob;
+        const queued = await enqueue({
+          projectId,
+          userId,
+          edl: graphicEdl,
+          canvas: canvasDimensions,
+          graphicsDensity,
+        });
+        graphics.forEach((decision) => deferredGraphicDecisions.add(decision));
+        result.mgDesignJob = {
+          jobId: queued.jobId,
+          status: queued.status,
+          decisionCount: graphics.length,
+        };
+        console.log(`[EDL-MG-Design] deferred ${graphics.length} graphic decisions to durable job ${queued.jobId}`);
+      } catch (error) {
+        deferredGraphicFailure = error instanceof Error ? error.message : String(error);
+        graphics.forEach((decision) => deferredGraphicDecisions.add(decision));
+        result.mgDesignJob = {
+          status: 'failed',
+          decisionCount: graphics.length,
+          reason: deferredGraphicFailure,
+        };
+        result.errors.push(`MG design queue failed: ${deferredGraphicFailure}`);
+        console.error(`[EDL-MG-Design] durable queue failed; ${graphics.length} MG decisions fail closed: ${deferredGraphicFailure}`);
+      }
+    }
+  }
+
   // Author the video's coherent MgVideoDesignPlan once before the loop. Every offered graphic receives an
   // explicit authority disposition; a failed pre-pass cannot silently license free-form codegen.
-  if (isLiveMgCodegenEnabled()) {
+  if (isLiveMgCodegenEnabled() && !options.deferMgDesign) {
     try {
       projectSignalContext.mgDesignAuthority = await runMgDesignPrepass(actionable, overlays, projectSignalContext, graphicsDensity, canvasDimensions);
+      const dispositions = [...projectSignalContext.mgDesignAuthority.dispositions.values()];
+      result.mgDesignSummary = {
+        attempts: projectSignalContext.mgDesignAuthority.attempts,
+        approvedCount: dispositions.filter((entry) => entry.status === 'approved').length,
+        declinedCount: dispositions.filter((entry) => entry.status === 'declined').length,
+        unavailableCount: dispositions.filter((entry) => entry.status === 'unavailable').length,
+        ...(projectSignalContext.mgDesignAuthority.reason ? { reason: projectSignalContext.mgDesignAuthority.reason } : {}),
+      };
     } catch (designPrepassErr) {
       const reason = `MG design pre-pass crashed: ${designPrepassErr instanceof Error ? designPrepassErr.message : designPrepassErr}`;
       projectSignalContext.mgDesignAuthority = { dispositions: new Map(), attempts: 0, reason };
+      result.mgDesignSummary = {
+        attempts: 0,
+        approvedCount: 0,
+        declinedCount: 0,
+        unavailableCount: actionable.filter((decision) => decision.type === 'graphic').length,
+        reason,
+      };
       console.error(`[EDL-MG-Design] ${reason}; live MGs fail closed`);
     }
   }
 
   for (const decision of actionable) {
     const currentDecisionIndex = decisionIndex++;
+
+    if (deferredGraphicDecisions.has(decision)) {
+      const beforeTraceSnapshot = captureOverlayTraceSnapshot(overlays);
+      if (deferredGraphicFailure) {
+        const reason = `MG-DESIGN-QUEUE: ${deferredGraphicFailure}`;
+        result.decisionsSkipped++;
+        result.rejectedDecisions.push({ type: decision.type, frame: decision.frame, reason });
+        appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
+          decision,
+          currentDecisionIndex,
+          'error',
+          beforeTraceSnapshot,
+          overlays,
+          { reason },
+        ));
+      } else {
+        result.decisionsDeferred++;
+        appendDecisionExecutionTrace(result, buildDecisionExecutionTraceEntry(
+          decision,
+          currentDecisionIndex,
+          'deferred',
+          beforeTraceSnapshot,
+          overlays,
+          { reason: `durable-mg-design-job:${result.mgDesignJob?.jobId ?? 'unknown'}` },
+        ));
+      }
+      continue;
+    }
 
     try {
       enrichDecisionSignals(decision, overlays, analyses, projectSignalContext, projectBrandSignalDefaults);
@@ -1187,7 +1307,7 @@ export async function executeEDL(
   }
 
   const budgetSummary = budget.getSummary();
-  console.log(`[EDL-Exec] Complete: ${result.decisionsExecuted} executed, ${result.decisionsSkipped} skipped (${budgetRejected} budget-rejected), ${result.overlaysCreated} created, ${result.overlaysModified} modified`);
+  console.log(`[EDL-Exec] Complete: ${result.decisionsExecuted} executed, ${result.decisionsDeferred} deferred, ${result.decisionsSkipped} skipped (${budgetRejected} budget-rejected), ${result.overlaysCreated} created, ${result.overlaysModified} modified`);
   console.log(`[EDL-Exec] Budget: ${JSON.stringify(budgetSummary)}`);
 
   // Surface rejection reasons grouped by type (A3.5.10 fix — no more silent drops)
