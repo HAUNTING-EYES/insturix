@@ -9,6 +9,7 @@ import {
   Layers,
   Loader2,
   Music2,
+  RotateCcw,
   Save,
   Volume2,
   X,
@@ -86,6 +87,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
   const [renders, setRenders] = React.useState<RenderItem[]>([]);
   // Track if there are new renders
   const [hasNewRender, setHasNewRender] = React.useState(false);
+  const [retryingFinalizationId, setRetryingFinalizationId] = React.useState<string | null>(null);
   const [musicDeliveryMode, setMusicDeliveryMode] =
     React.useState<RenderMusicDeliveryMode>("embedded");
   const hasReferenceMusic = hasReferenceOnlyBackgroundMusic(overlays);
@@ -200,31 +202,37 @@ const RenderControls: React.FC<RenderControlsProps> = ({
     }
   };
 
-  // Fetch render history on mount (for persistence across refreshes)
-  React.useEffect(() => {
+  const fetchRenderHistory = React.useCallback(async () => {
     if (!projectId || renderType !== "lambda") return;
+    try {
+      const response = await fetch(`/api/services/editron/render/history?projectId=${projectId}`);
+      const json = await response.json();
 
-    const fetchHistory = async () => {
-      try {
-        const response = await fetch(`/api/services/editron/render/history?projectId=${projectId}`);
-        const json = await response.json();
-        
-        if (json.type === "success" && json.data?.renders?.length > 0) {
-          const historyItems: RenderItem[] = json.data.renders.flatMap(
-            (record: unknown) => {
-              const item = parseRenderHistoryItem(record);
-              return item ? [item] : [];
-            },
-          );
-          setRenders(historyItems);
-        }
-      } catch (err) {
-        console.error("Error fetching render history:", err);
+      if (json.type === "success" && Array.isArray(json.data?.renders)) {
+        const historyItems: RenderItem[] = json.data.renders.flatMap(
+          (record: unknown) => {
+            const item = parseRenderHistoryItem(record);
+            return item ? [item] : [];
+          },
+        );
+        setRenders(historyItems);
       }
-    };
-
-    fetchHistory();
+    } catch (err) {
+      console.error("Error fetching render history:", err);
+    }
   }, [projectId, renderType]);
+
+  // Fetch render history on mount (for persistence across refreshes).
+  React.useEffect(() => {
+    void fetchRenderHistory();
+  }, [fetchRenderHistory]);
+
+  // A recovered finalization remains visible and refreshes until it reaches a terminal state.
+  React.useEffect(() => {
+    if (!renders.some((render) => render.status === "finalizing")) return;
+    const interval = window.setInterval(() => void fetchRenderHistory(), 3_000);
+    return () => window.clearInterval(interval);
+  }, [fetchRenderHistory, renders]);
 
   // Add new render to the list when completed + show post-render dialog
   React.useEffect(() => {
@@ -260,6 +268,39 @@ const RenderControls: React.FC<RenderControlsProps> = ({
       setHasNewRender(true);
     }
   }, [state.status, state.url, state.error, state.deliveryManifest]);
+
+  const handleRetryFinalization = async (renderId: string) => {
+    if (retryingFinalizationId) return;
+    setRetryingFinalizationId(renderId);
+    try {
+      const response = await fetch('/api/services/editron/render/finalization/retry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: renderId }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.message || `Finalization retry failed: ${response.status}`);
+      }
+      setRenders((current) => current.map((render) => render.id === renderId
+        ? {
+            ...render,
+            status: result?.data?.state === 'already_done' ? render.status : 'finalizing',
+            error: undefined,
+            canRetryFinalization: false,
+          }
+        : render));
+      await fetchRenderHistory();
+    } catch (error) {
+      console.error('[RenderControls] Finalization retry failed:', error);
+      const message = error instanceof Error ? error.message : 'Finalization retry failed.';
+      setRenders((current) => current.map((render) => render.id === renderId
+        ? { ...render, error: message }
+        : render));
+    } finally {
+      setRetryingFinalizationId(null);
+    }
+  };
 
   const handleDownload = async (url: string) => {
     try {
@@ -369,7 +410,9 @@ const RenderControls: React.FC<RenderControlsProps> = ({
                     className={`flex items-center justify-between rounded-md border p-1.5 ${
                       render.status === "error"
                         ? "border-destructive/50 bg-destructive/10"
-                        : "border-border"
+                        : render.status === "finalizing"
+                          ? "border-amber-500/40 bg-amber-500/10"
+                          : "border-border"
                     }`}
                   >
                     <div className="flex min-w-0 flex-col">
@@ -377,6 +420,10 @@ const RenderControls: React.FC<RenderControlsProps> = ({
                         {render.status === "error" ? (
                           <span className="font-medium text-red-400">
                             Render Failed
+                          </span>
+                        ) : render.status === "finalizing" ? (
+                          <span className="font-medium text-amber-300">
+                            Finalizing render
                           </span>
                         ) : (
                           getDisplayFileName(render.url!)
@@ -441,6 +488,23 @@ const RenderControls: React.FC<RenderControlsProps> = ({
                           </div>
                         );
                       })()
+                    )}
+                    {render.status === "finalizing" && (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 shrink-0 animate-spin text-amber-300" />
+                    )}
+                    {render.status === "error" && render.canRetryFinalization && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 text-zinc-200 hover:text-white"
+                        onClick={() => void handleRetryFinalization(render.id)}
+                        disabled={retryingFinalizationId !== null}
+                        title="Retry finalization without rendering again"
+                      >
+                        {retryingFinalizationId === render.id
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <RotateCcw className="h-3.5 w-3.5" />}
+                      </Button>
                     )}
                   </div>
                 );

@@ -725,7 +725,7 @@ export async function getJob(renderId: string): Promise<RenderJob | null> {
 
 /**
  * Get render history for a project (for persistent render list)
- * Returns completed and failed renders, sorted by most recent first
+ * Returns durable render history, including finalization recovery in progress.
  */
 export async function getRenderHistoryForProject(
   projectId: string,
@@ -736,9 +736,9 @@ export async function getRenderHistoryForProject(
   return collection.find({
     projectId,
     userId,
-    status: { $in: ['done', 'error'] }
+    status: { $in: ['done', 'error', 'finalizing'] }
   })
-  .sort({ completedAt: -1 })
+  .sort({ completedAt: -1, startedAt: -1 })
   .limit(limit)
   .toArray();
 }

@@ -1,10 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { getRenderHistoryForProject } from '@/lib/editron/services/render-job-service';
+import {
+  getRenderHistoryForProject,
+  MAX_RENDER_FINALIZATION_ATTEMPTS,
+} from '@/lib/editron/services/render-job-service';
+
+function hasRetryableFinalizationEvidence(job: Awaited<ReturnType<typeof getRenderHistoryForProject>>[number]) {
+  const finalization = job.finalization;
+  return job.status === 'error'
+    && finalization?.state === 'failed'
+    && Number.isInteger(finalization.attempts)
+    && finalization.attempts < MAX_RENDER_FINALIZATION_ATTEMPTS
+    && typeof finalization.sourceOutputUrl === 'string'
+    && finalization.sourceOutputUrl.startsWith('https://')
+    && Number.isInteger(finalization.sourceOutputSize)
+    && finalization.sourceOutputSize >= 0
+    && Number.isInteger(job.expectedDurationMs)
+    && job.expectedDurationMs! > 0;
+}
 
 /**
  * GET /api/services/editron/render/history?projectId=xxx
- * Returns render history for a project (completed and failed renders)
+ * Returns the public render history projection for a project.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -38,6 +55,9 @@ export async function GET(request: NextRequest) {
           size: job.outputSize,
           deliveryManifest: job.deliveryManifest,
           error: job.error,
+          finalizationState: job.finalization?.state ?? null,
+          canRetryFinalization: hasRetryableFinalizationEvidence(job),
+          startedAt: job.startedAt,
           completedAt: job.completedAt,
           expiresAt: job.expiresAt,
         })),
