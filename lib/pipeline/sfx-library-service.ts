@@ -220,7 +220,9 @@ async function searchFreesound(
       params.set('filter', `license:"Creative Commons 0" duration:[0 TO ${maxDuration + 2}]`);
     }
 
-    const res = await fetch(`https://freesound.org/apiv2/search/?${params}`);
+    const res = await fetch(`https://freesound.org/apiv2/search/?${params}`, {
+      signal: AbortSignal.timeout(FREESOUND_METADATA_TIMEOUT_MS),
+    });
     if (!res.ok) {
       console.warn(`[SFXLib] Freesound search failed: ${res.status}`);
       return [];
@@ -628,15 +630,18 @@ export async function searchAndDownloadSFX(
 
   // Download and upload through the existing media service. That service is R2-first
   // when Cloudflare credentials are configured, with GCS as fallback.
+  let buffer: Buffer;
   try {
-    const response = await fetch(candidate.url);
+    const response = await fetch(candidate.url, {
+      signal: AbortSignal.timeout(FREESOUND_AUDIO_TIMEOUT_MS),
+    });
     if (!response.ok) {
       reportSearch?.({ ...report, failureReason: 'download-failed' });
       console.error(`[SFXLib] Failed to download from ${candidate.source}: ${response.status}`);
       return null;
     }
 
-    const buffer = Buffer.from(await response.arrayBuffer());
+    buffer = Buffer.from(await response.arrayBuffer());
 
     // Validate the downloaded content is actually audio, not an image or HTML error page
     const contentType = response.headers.get('content-type') || '';
@@ -652,7 +657,13 @@ export async function searchAndDownloadSFX(
         return null;
       }
     }
+  } catch (downloadError) {
+    reportSearch?.({ ...report, failureReason: 'download-failed' });
+    console.error(`[SFXLib] Download failed from ${candidate.source}: ${downloadError instanceof Error ? downloadError.message : String(downloadError)}`);
+    return null;
+  }
 
+  try {
     let measurement: SfxAcousticMeasurement;
     try {
       measurement = await inspectAndValidateSfxAudio(buffer);
@@ -736,7 +747,7 @@ export async function searchAndDownloadSFX(
     };
   } catch (err: any) {
     reportSearch?.({ ...report, failureReason: 'upload-failed' });
-    console.error(`[SFXLib] Download/upload failed: ${err.message}`);
+    console.error(`[SFXLib] Upload/persist failed: ${err.message}`);
     return null;
   }
 }
