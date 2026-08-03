@@ -621,6 +621,29 @@ async function executeClaimedMgRenderJob(
   return result;
 }
 
+async function tombstoneMissingProjectMgRenderJob(
+  jobId: string,
+  projectId: string,
+  userId: string,
+  cause: Error,
+  now: Date,
+): Promise<void> {
+  await (await getDatabase()).collection<MgRenderJob>(COLLECTIONS.MG_RENDER_JOBS).updateOne(
+    { _id: jobId },
+    {
+      $set: {
+        status: 'failed',
+        leaseId: null,
+        leaseExpiresAt: null,
+        lastError: `project-missing-tombstone: ${cause.message}`,
+        completedAt: now,
+        updatedAt: now,
+      },
+    },
+  );
+  console.warn(`[MGRenderWorker] ${jobId} tombstoned: project ${projectId} for user ${userId} no longer exists`);
+}
+
 export async function executeQueuedMgRenderJob(
   jobId: string,
   options: {
@@ -662,11 +685,33 @@ export async function executeQueuedMgRenderJob(
     };
   }
   if (state.status === 'queued') {
-    const ready = await (dependencies.waitForProjectReady ?? waitForDirectorSaveBarrier)(
-      state.projectId,
-      state.userId,
-      env,
-    );
+    let ready: boolean;
+    try {
+      ready = await (dependencies.waitForProjectReady ?? waitForDirectorSaveBarrier)(
+        state.projectId,
+        state.userId,
+        env,
+      );
+    } catch (error) {
+      // The project is gone (disposable fixture cleanup or user deletion) while this durable job was still
+      // queued. Tombstone it terminally instead of throwing into a QStash 500 retry storm — the job can
+      // never succeed without its project. Observed: grounded-process-mg matrix run, 2026-08-03.
+      if (error instanceof Error && /project missing|ownership mismatch/i.test(error.message)) {
+        await tombstoneMissingProjectMgRenderJob(jobId, state.projectId, state.userId, error, options.now ?? new Date());
+        await (dependencies.reconcileParent ?? reconcileChatEditorialIntentParent)({
+          jobId,
+          projectId: state.projectId,
+          userId: state.userId,
+        }).catch(() => undefined);
+        return {
+          status: 'not-claimed',
+          jobStatus: 'failed',
+          leaseExpiresAt: null,
+          nextAttemptAt: null,
+        };
+      }
+      throw error;
+    }
     if (!ready) {
       return {
         status: 'not-claimed',

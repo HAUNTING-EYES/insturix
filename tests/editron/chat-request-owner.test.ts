@@ -19,6 +19,7 @@ import {
   classifyChatRequestOwner,
   deriveChatRequestOwner,
   deriveChatSemanticWorkflow,
+  deriveRoutingFacts,
   filterChatToolsForRequestOwner,
   filterPromptForCallableChatTools,
   formatChatRequestOwnerLicenseForPrompt,
@@ -2430,5 +2431,43 @@ describe('live chat owner wiring', () => {
     expect(agentSource).not.toContain('STYLE TRANSFER WORKFLOW');
     expect(agentSource).not.toContain('WHEN TO USE EACH CAPTION TOOL');
     expect(agentSource).not.toContain('After ANY delete operation(s)');
+  });
+
+  it('synthesizes a strongest-signal zoom anchor when the planner names the capability but no edit', () => {
+    // mixed-multi-step regression (2026-08-03): "add one motivated zoom" came through as a bare
+    // localized-camera-motion capability with no localized edit, which halted the whole request.
+    const derived = deriveRoutingFacts({
+      requestsMutation: true,
+      requestsAnalysis: false,
+      requiresContentLocalization: true,
+      requiresEditorialJudgment: false,
+      requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
+      durableOperation: 'none',
+      operationFullySpecified: true,
+      targetFullySpecified: false,
+      timelineReference: 'none',
+      localizedReads: [],
+      localizedEdits: [],
+      requestedCapabilities: ['localized-camera-motion', 'caption-track'],
+      capabilityEvidence: [
+        { capability: 'localized-camera-motion', sourceSpan: 'add one motivated zoom' },
+      ],
+      familyDirectives: [{ family: 'zoom', mode: 'prefer' }],
+      confidence: 1,
+      reason: 'test',
+    } as Parameters<typeof deriveRoutingFacts>[0], 'Clean the captions, add one motivated zoom, and add music without covering speech.');
+
+    const zoomEdit = derived.localizedEdits?.find((edit) => edit.operation === 'camera-motion');
+    expect(zoomEdit).toMatchObject({
+      modality: 'audio',
+      operation: 'camera-motion',
+      cameraMotionJob: 'zoom-in',
+      anchorSelection: 'strongest-signal',
+      anchorSignal: 'speech-emphasis',
+    });
+    // The synthesized edit must be resolvable by the localized-camera-motion adapter, otherwise it
+    // would still be skipped at compilation.
+    expect(resolveChatLocalizedWorkflowAdapter(zoomEdit!)?.capability).toBe('localized-camera-motion');
   });
 });

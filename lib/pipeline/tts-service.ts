@@ -300,13 +300,27 @@ async function generateWithKokoro(
       }
 
       requestCount += 1;
-      const result: any = await fal.subscribe(model, {
-        input: {
-          prompt: segment,
-          voice: kokoroVoice as any,
-          speed: ttsSpeed,
-        },
-        logs: false,
+      // Bounded wait per segment: an unbounded fal.subscribe can hang past the caller's function
+      // ceiling and strand durable jobs (dubbing voice stage, 2026-08-03). 150s is generous for
+      // one TTS segment; a timeout surfaces as a retryable error instead of a silent hard-kill.
+      let kokoroTimeout: ReturnType<typeof setTimeout> | undefined;
+      const result: any = await Promise.race([
+        fal.subscribe(model, {
+          input: {
+            prompt: segment,
+            voice: kokoroVoice as any,
+            speed: ttsSpeed,
+          },
+          logs: false,
+        }),
+        new Promise((_, reject) => {
+          kokoroTimeout = setTimeout(
+            () => reject(new Error(`Kokoro synthesis timed out after 150s (model: ${model})`)),
+            150_000,
+          );
+        }),
+      ]).finally(() => {
+        if (kokoroTimeout) clearTimeout(kokoroTimeout);
       });
 
       const data = (result as any).data || result;

@@ -58,6 +58,11 @@ interface OperationTerminal {
   message?: string;
 }
 
+interface SkippedChatCapability {
+  capability: ChatRequestCapability;
+  reason: string;
+}
+
 const TIMELINE_READ_TOOLS = new Set(['read_project_file', 'get_timeline_view']);
 const RETRYABLE_OUTCOMES = new Set<ChatToolExecutionOutcome>([
   'replan-required',
@@ -85,7 +90,14 @@ export function resolveServerOwnedChatWorkflowStep(input: {
   if (compiled.status === 'unsupported') {
     return { kind: 'halt', message: compiled.message };
   }
-  if (compiled.operations.length === 0) return null;
+  if (compiled.operations.length === 0) {
+    // Every requested workflow was unresolvable — halt honestly with the skip reasons instead of
+    // pretending there was nothing to do.
+    if (compiled.skipped.length > 0) {
+      return { kind: 'halt', message: compiled.skipped.map((entry) => entry.reason).join('\n\n') };
+    }
+    return null;
+  }
   if (!input.projectRevision) {
     return {
       kind: 'halt',
@@ -116,19 +128,23 @@ export function resolveServerOwnedChatWorkflowStep(input: {
       message: haltedMessages.join('\n\n'),
     };
   }
+  const completionMessage = compiled.operations.length === 1
+    ? 'Done. I completed the licensed workflow.'
+    : `Done. I completed all ${compiled.operations.length} licensed workflows in order.`;
+  const skippedMessage = compiled.skipped.length > 0
+    ? `\n\n${compiled.skipped.map((entry) => entry.reason).join('\n')}`
+    : '';
   return {
     kind: 'complete',
-    message: compiled.operations.length === 1
-      ? 'Done. I completed the licensed workflow.'
-      : `Done. I completed all ${compiled.operations.length} licensed workflows in order.`,
+    message: completionMessage + skippedMessage,
   };
 }
 
 function compileChatExecutionOperations(
   facts?: ChatRequestRoutingFacts,
-): { status: 'ready'; operations: ChatExecutionOperation[] }
+): { status: 'ready'; operations: ChatExecutionOperation[]; skipped: SkippedChatCapability[] }
   | { status: 'unsupported'; message: string } {
-  if (!facts) return { status: 'ready', operations: [] };
+  if (!facts) return { status: 'ready', operations: [], skipped: [] };
 
   const localizedByCapability = new Map<ChatRequestCapability, ChatLocalizedEditRequest[]>();
   for (const edit of facts.localizedEdits ?? []) {
@@ -145,6 +161,7 @@ function compileChatExecutionOperations(
   }
 
   const operations: ChatExecutionOperation[] = [];
+  const skipped: SkippedChatCapability[] = [];
   const consumedLocalizedCapabilities = new Set<ChatRequestCapability>();
   const capabilities = normalizeChatWorkflowCapabilities(
     facts,
@@ -155,10 +172,14 @@ function compileChatExecutionOperations(
     if (contract.authority === 'localized-workflow') {
       const localizedEdits = localizedByCapability.get(capability) ?? [];
       if (localizedEdits.length === 0) {
-        return {
-          status: 'unsupported',
-          message: `The ${capability} workflow is missing the exact media target it must resolve.`,
-        };
+        // One unresolvable capability must not veto every other requested workflow in a multi-step
+        // request (mixed-multi-step matrix failure, 2026-08-03: the unresolvable zoom halted caption
+        // cleaning AND music). Skip it with an explicit reason; the request halts only if nothing runs.
+        skipped.push({
+          capability,
+          reason: `The ${capability} workflow is missing the exact media target it must resolve.`,
+        });
+        continue;
       }
       consumedLocalizedCapabilities.add(capability);
       for (const edit of localizedEdits) {
@@ -190,7 +211,7 @@ function compileChatExecutionOperations(
       });
     }
   }
-  return { status: 'ready', operations };
+  return { status: 'ready', operations, skipped };
 }
 
 function resolveLocalizedOperation(

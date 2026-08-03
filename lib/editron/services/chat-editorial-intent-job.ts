@@ -169,6 +169,8 @@ interface MgRenderChildJobSnapshot {
   status: 'queued' | 'running' | 'completed' | 'failed';
   result?: Record<string, unknown> | null;
   lastError?: string | null;
+  /** Which durable-job collection the child lives in (design runs first, then queues render). */
+  kind?: 'design' | 'render';
 }
 
 interface RunDependencies extends CompletionDependencies {
@@ -687,12 +689,28 @@ async function loadMgRenderChildJobs(
 ): Promise<MgRenderChildJobSnapshot[]> {
   if (jobIds.length === 0) return [];
   const { COLLECTIONS, getDatabase } = await import('@/lib/editron/db/mongodb');
-  return (await getDatabase()).collection<MgRenderChildJobSnapshot>(
-    COLLECTIONS.MG_RENDER_JOBS,
-  ).find(
-    { _id: { $in: jobIds }, projectId, userId },
-    { projection: { _id: 1, status: 1, result: 1, lastError: 1 } },
-  ).toArray();
+  const db = await getDatabase();
+  const projection = { _id: 1, status: 1, result: 1, lastError: 1 } as const;
+  const [renderJobs, designJobs] = await Promise.all([
+    db.collection<MgRenderChildJobSnapshot>(
+      COLLECTIONS.MG_RENDER_JOBS,
+    ).find(
+      { _id: { $in: jobIds }, projectId, userId },
+      { projection },
+    ).toArray(),
+    // The deferred MG design job lives in its own collection ('editron_mg_design_jobs'); a parent tracking
+    // only render jobs would never see it. Kept as a literal to mirror mg-design-job-runner.ts JOB_COLLECTION.
+    db.collection<MgRenderChildJobSnapshot>(
+      'editron_mg_design_jobs' as never,
+    ).find(
+      { _id: { $in: jobIds }, projectId, userId } as never,
+      { projection },
+    ).toArray(),
+  ]);
+  return [
+    ...renderJobs.map((job) => ({ ...job, kind: 'render' as const })),
+    ...designJobs.map((job) => ({ ...job, kind: 'design' as const })),
+  ];
 }
 
 async function publishEditorialIntentJob(payload: { jobId: string; projectId: string; userId: string }) {
@@ -804,6 +822,16 @@ function pendingMgRenderJobIds(project: Record<string, unknown>): string[] {
     const jobId = cleanString(entry?.jobId);
     return entry?.status === 'queued' && jobId ? [jobId] : [];
   });
+  // The deferred video-level MG DESIGN job is also a pending child of this intent: it is enqueued during the
+  // Director run (intelligence.mgDesignJob on the project) and later queues the render jobs. Without tracking
+  // it here the parent can decline ('unified-planner-produced-no-material-change') while its own MG chain is
+  // still in flight — the grounded-process-mg matrix failure (2026-08-03).
+  const designJob = objectRecord(intelligence?.mgDesignJob);
+  const designJobId = cleanString(designJob?.jobId);
+  const designStatus = cleanString(designJob?.status);
+  if (designJobId && (designStatus === 'queued' || designStatus === 'running')) {
+    jobIds.push(designJobId);
+  }
   return [...new Set(jobIds)].sort();
 }
 
@@ -817,6 +845,35 @@ async function reconcileWaitingParent(
   }
   const children = await deps.loadChildJobs(pendingIds, parent.projectId, parent.userId);
   const byId = new Map(children.map((child) => [child._id, child]));
+  // A completed MG DESIGN child is not the end of the chain: it queues follow-on RENDER jobs
+  // (intelligence.mgCodegenRun.outcomes[status=queued]) that the parent must keep waiting for. Discover and
+  // adopt them here, otherwise the parent would decline while the render it asked for is still in flight.
+  const designChildCompleted = children.some((child) => child.kind === 'design' && child.status === 'completed');
+  if (designChildCompleted) {
+    const project = await deps.loadProject(parent.userId, parent.projectId);
+    const followOnRenderIds = project
+      ? pendingMgRenderJobIds(project).filter((jobId) => !pendingIds.includes(jobId) && !jobId.startsWith('mgd_'))
+      : [];
+    if (followOnRenderIds.length > 0) {
+      const extended = [...new Set([...pendingIds, ...followOnRenderIds])].sort();
+      await deps.store.markWaitingChildren(
+        parent._id,
+        parent.userId,
+        extended,
+        {
+          ...(objectRecord(parent.result) ?? {}),
+          pendingChildJobIds: extended,
+          lifecycle: 'waiting-for-async-mg-render',
+        },
+        deps.now(),
+      );
+      return {
+        status: 'waiting_children',
+        jobId: parent._id,
+        reason: `waiting-for-async-mg-render:design-complete-follow-on:${followOnRenderIds.length}`,
+      };
+    }
+  }
   const unresolved = pendingIds.filter((jobId) => {
     const child = byId.get(jobId);
     return !child || child.status === 'queued' || child.status === 'running';

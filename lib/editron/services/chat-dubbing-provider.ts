@@ -38,7 +38,10 @@ import {
   type DubbingTranslationFidelityReceipt,
 } from './chat-dubbing-job';
 
-const PHRASES_PER_DELIVERY = 4;
+// One phrase per worker invocation: each voice step re-queues itself for the next phrase, so a
+// Vercel 300s hard-kill mid-phrase can never strand the job (observed 2026-08-03: a 4-phrase chunk
+// exceeded the function ceiling, the killed invocation held the lease, and the job stuck at 0/5).
+const PHRASES_PER_DELIVERY = 1;
 const MAX_POST_HOC_PLAYBACK_RATE = 1.25;
 const MAX_PROVIDER_RATE_FIT_ATTEMPTS = 2;
 const MAX_TRANSLATION_REVISIONS = 2;

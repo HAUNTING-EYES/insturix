@@ -1250,7 +1250,7 @@ ${boundedRequest(input.userMessage)}
 Return exactly {"facts":{"requestsMutation":boolean,"requestsAnalysis":boolean,"requiresContentLocalization":boolean,"requiresEditorialJudgment":boolean,"requestsReferenceStyle":boolean,"requestsBroadEditorialOutcome":boolean,"durableOperation":"none"|"selected-dialogue-dubbing","operationFullySpecified":boolean,"targetFullySpecified":boolean,"timelineReference":"none"|"selected-range"|"visible-timeline"|"playhead","localizedReads":[{"modality":"transcript"|"visual"|"audio"|"asset","goal":"locate"|"inspect","query":"target in the user's original language"}],"localizedEdits":[{"modality":"transcript"|"visual"|"audio"|"asset","operation":"remove"|"highlight"|"camera-motion"|"speed-change"|"sound-effect"|"beat-sync"|"place-asset"|"replace-asset","query":"compatibility query","sourceQuery":"uploaded source asset, requested SFX, or empty","targetQuery":"timeline target or empty","targetKind":"none"|"selected-overlay"|"described-overlay","sourceSpan":"exact verbatim request span","cameraMotionJob":"zoom-in"|"zoom-out"|"shake"|null,"anchorSelection":"strongest-signal"|null,"anchorSignal":"speech-emphasis"|"impact-emphasis"|null,"relativeAnchor":{"modality":"transcript"|"visual"|"audio","query":"reference moment","relation":"after"|"before"|"nearest","referenceEdge":"start"|"end"|"point","occurrence":"first"|"last"|"nearest","sourceSpan":"exact relation span"}|null}],"requestedCapabilities":[${CHAT_REQUEST_CAPABILITIES.map((capability) => `"${capability}"`).join('|')}],"capabilityEvidence":[{"capability":"one requested capability","sourceSpan":"exact verbatim request span"}],"familyDirectives":[{"family":"captions"|"motionGraphics"|"zoom"|"transitions"|"sfx"|"music","mode":"prefer"|"off"}]},"confidence":"concise decimal from 0 to 1","reason":"one short factual sentence"}. Every localized edit must include cameraMotionJob, anchorSelection, anchorSignal, and relativeAnchor. Use null when that field does not apply. For an asset placement with supplied spatial or timeline constraints, add the optional placement and timing objects shown in rule 14 to that localized edit.`;
 }
 
-function deriveRoutingFacts(
+export function deriveRoutingFacts(
   facts: z.infer<typeof modelRoutingFactsSchema>,
   userMessage: string,
 ): ChatRequestRoutingFacts {
@@ -1301,7 +1301,37 @@ function deriveRoutingFacts(
     ),
   );
   const hasPreferredFamily = facts.familyDirectives.some((directive) => directive.mode === 'prefer');
-  const localizedCapabilityEntries = localizedEdits.flatMap((edit) => {
+  // A bare localized-workflow capability (e.g. "add one motivated zoom" inside a multi-step request)
+  // must still materialize its anchor; otherwise the workflow cannot resolve the capability and the
+  // whole request stalls (mixed-multi-step matrix failure, 2026-08-03). Mirror the single-intent
+  // path: synthesize a strongest-signal anchor edit when the planner named the capability but
+  // preserved no edit for it. Scoped to camera-motion — the only localized workflow with a safe
+  // measured-signal default.
+  const executableLocalizedEdits = [...localizedEdits];
+  for (const capability of facts.requestedCapabilities) {
+    if (capability !== 'localized-camera-motion') continue;
+    if (executableLocalizedEdits.some((edit) =>
+      resolveChatLocalizedWorkflowAdapter(edit)?.capability === capability,
+    )) continue;
+    const evidence = facts.capabilityEvidence.find((entry) => entry.capability === capability);
+    if (!evidence || !sourceSpanOccursInRequest(evidence.sourceSpan, userMessage)) continue;
+    const cameraMotionJob = inferSynthesizedCameraMotionJob(userMessage);
+    executableLocalizedEdits.push({
+      modality: 'audio',
+      operation: 'camera-motion',
+      // The adapter rejects empty queries; the evidence span is the user's own wording for the
+      // anchor, and ranking still comes from the measured signal (strongest-signal selection).
+      query: evidence.sourceSpan,
+      sourceQuery: '',
+      targetQuery: '',
+      targetKind: 'none',
+      sourceSpan: evidence.sourceSpan,
+      cameraMotionJob,
+      anchorSelection: 'strongest-signal',
+      anchorSignal: cameraMotionJob === 'shake' ? 'impact-emphasis' : 'speech-emphasis',
+    });
+  }
+  const localizedCapabilityEntries = executableLocalizedEdits.flatMap((edit) => {
     const adapter = resolveChatLocalizedWorkflowAdapter(edit);
     return adapter ? [{ capability: adapter.capability, sourceSpan: edit.sourceSpan }] : [];
   });
@@ -1336,15 +1366,21 @@ function deriveRoutingFacts(
       ? false
       : facts.requiresContentLocalization
         || localizedReads.length > 0
-        || localizedEdits.length > 0,
+        || executableLocalizedEdits.length > 0,
     localizedReads,
-    localizedEdits,
+    localizedEdits: executableLocalizedEdits,
     requestedCapabilities: normalizeChatWorkflowCapabilities(facts, [
       ...requestedCapabilities,
       ...localizedCapabilities,
     ]),
     familyScopeExclusive: hasPreferredFamily && !facts.requestsBroadEditorialOutcome,
   };
+}
+
+function inferSynthesizedCameraMotionJob(userMessage: string): 'zoom-in' | 'zoom-out' | 'shake' {
+  if (/zoom[-\s]?out|pull[-\s]?back|pull[-\s]?out/i.test(userMessage)) return 'zoom-out';
+  if (/shake|shaky/i.test(userMessage)) return 'shake';
+  return 'zoom-in';
 }
 
 function isStickerCapabilityAnchor(

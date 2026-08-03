@@ -80,6 +80,8 @@ interface MgDesignJobDependencies {
   executeJob?: (job: MgDesignJob) => Promise<MgDesignExecutionResult>;
   completeJob?: (job: MgDesignJob, leaseId: string, result: MgDesignExecutionResult) => Promise<boolean>;
   failJob?: (job: MgDesignJob, leaseId: string, error: unknown, now: Date) => Promise<'queued' | 'failed' | 'stale-lease'>;
+  /** Re-drive any chat editorial-intent parent waiting on this design child (adopts follow-on render jobs). */
+  reconcileParent?: (input: { jobId: string; projectId: string; userId: string }) => Promise<void>;
 }
 
 let indexesPromise: Promise<unknown> | null = null;
@@ -425,6 +427,17 @@ async function completeMgDesignJob(
   return true;
 }
 
+async function reconcileChatEditorialIntentParentForDesign(input: {
+  jobId: string;
+  projectId: string;
+  userId: string;
+}): Promise<void> {
+  const { reconcileChatEditorialIntentMgChild } = await import(
+    '@/lib/editron/services/chat-editorial-intent-job'
+  );
+  await reconcileChatEditorialIntentMgChild(input);
+}
+
 export class MgDesignJobExecutionError extends Error {
   constructor(
     jobId: string,
@@ -476,13 +489,23 @@ export async function executeQueuedMgDesignJob(
       nextAttemptAt: latest.nextAttemptAt,
     };
   }
+  const reconcileParent = dependencies.reconcileParent ?? reconcileChatEditorialIntentParentForDesign;
   try {
     const result = await (dependencies.executeJob ?? executeMgDesignJob)(claimed);
     const completed = await (dependencies.completeJob ?? completeMgDesignJob)(claimed, leaseId, result);
     if (!completed) throw new Error(`MG design job ${jobId} lost its lease before completion`);
+    // Best-effort: a waiting chat editorial-intent parent adopts this design child's follow-on render jobs.
+    await reconcileParent({ jobId: claimed._id, projectId: claimed.projectId, userId: claimed.userId })
+      .catch((reconcileError) => console.warn(
+        `[MGDesignJob] parent reconciliation failed for ${claimed._id}: ${reconcileError instanceof Error ? reconcileError.message : String(reconcileError)}`,
+      ));
     return { status: 'completed', result };
   } catch (error) {
     const disposition = await (dependencies.failJob ?? failMgDesignJob)(claimed, leaseId, error, now);
+    if (disposition === 'failed') {
+      await reconcileParent({ jobId: claimed._id, projectId: claimed.projectId, userId: claimed.userId })
+        .catch(() => undefined);
+    }
     throw new MgDesignJobExecutionError(jobId, disposition, error);
   }
 }

@@ -33,6 +33,12 @@ async function handleChatDubbingWorker(request: NextRequest) {
   if (result.status === 'failed' || result.status === 'stale') {
     return NextResponse.json({ success: false, retryable: false, result }, { status: 422 });
   }
+  if (result.status === 'skipped') {
+    // The prior invocation was hard-killed (e.g., Vercel runtime timeout) and its lease is still
+    // valid. Answering 200 here tells QStash the redelivery was handled and permanently strands the
+    // job — answer 409 so QStash retries after the lease expires and the job resumes (2026-08-03).
+    return NextResponse.json({ success: false, retryable: true, result }, { status: 409 });
+  }
   return NextResponse.json({ success: true, result });
 }
 

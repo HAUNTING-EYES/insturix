@@ -443,7 +443,10 @@ export async function generateCreativeBrief(
     // Retry with different seeds on JSON parse failure.
     // Batch testing showed ~20% JSON parse failure rate on seed 42.
     // Different seeds produce different completion paths, often fixing truncation.
+    // Request-level failures (abort/timeout/network) also advance to the next seed instead of
+    // failing the whole brief on the first attempt — a single 280s abort used to kill Path E.
     const seeds = [generationConfig.seed, 7, 99];
+    let lastRequestError: Error | null = null;
     for (const seed of seeds) {
       let result: Awaited<ReturnType<typeof model.generateContent>>;
       try {
@@ -453,12 +456,11 @@ export async function generateCreativeBrief(
           generationConfig: { ...generationConfig, seed },
         }, { timeout: requestTimeoutMs });
       } catch (requestErr: any) {
-        const requestError = requestErr instanceof Error ? requestErr : new Error(String(requestErr));
+        lastRequestError = requestErr instanceof Error ? requestErr : new Error(String(requestErr));
         console.error(
-          `[CreativeBrief] Gemini request failed (seed=${seed}, timeout=${requestTimeoutMs}ms): ${requestError.message}`,
+          `[CreativeBrief] Gemini request failed (seed=${seed}, timeout=${requestTimeoutMs}ms), trying next seed: ${lastRequestError.message}`,
         );
-        pipelineWarnings?.errorSwallowed('director', requestError, 'creative brief model request');
-        return null;
+        continue;
       }
 
       try {
@@ -483,6 +485,9 @@ export async function generateCreativeBrief(
       }
     }
 
+    if (lastRequestError) {
+      pipelineWarnings?.errorSwallowed('director', lastRequestError, 'creative brief model request');
+    }
     console.error('[CreativeBrief] All seeds failed — returning null');
     return null;
   } catch (err: any) {

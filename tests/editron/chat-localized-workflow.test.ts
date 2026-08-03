@@ -1387,4 +1387,44 @@ describe('server-owned localized chat workflow', () => {
       message: 'I could not complete caption-track after 3 validated attempts, so I stopped without guessing.',
     });
   });
+
+  it('executes resolvable workflows and reports the unresolvable one instead of halting everything', async () => {
+    // mixed-multi-step regression (2026-08-03): an unresolvable localized-camera-motion (no edit,
+    // no evidence span) used to veto the whole request — caption cleaning never ran. It must now
+    // skip the zoom and still complete the caption-track workflow, reporting the skip.
+    const owner = license(routingFacts(
+      [],
+      ['caption-track', 'localized-camera-motion'],
+    ));
+
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+    })).toMatchObject({
+      kind: 'tool-call',
+      operationId: '0:caption-track',
+      toolCall: { name: 'get_timeline_view' },
+    });
+
+    const refreshed = execution('get_timeline_view', { granularity: 'detailed' }, {
+      toolCallId: 'server-workflow:0:caption-track:timeline:0',
+      evidenceReceipts: [receipt('timeline-state', 'get_timeline_view', undefined, 'revision-2')],
+    });
+    const captions = execution('add_captions', {}, {
+      toolCallId: 'server-workflow:0:caption-track:1:model:0',
+    });
+
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: owner,
+      ledger: ledger(refreshed, captions),
+      projectId: PROJECT_ID,
+      projectRevision: 'revision-2',
+    })).toEqual({
+      kind: 'complete',
+      message: 'Done. I completed the licensed workflow.\n\n'
+        + 'The localized-camera-motion workflow is missing the exact media target it must resolve.',
+    });
+  });
 });
