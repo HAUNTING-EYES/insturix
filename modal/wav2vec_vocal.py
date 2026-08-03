@@ -137,8 +137,6 @@ class Wav2VecAnalyzer:
 
         audio_url = request.get("audio_url")
         segments = request.get("segments", [])
-        features = set(request.get("features", []))
-
         if not audio_url or not segments:
             return {"error": "audio_url and segments[] required", "segments": []}
 
@@ -154,8 +152,6 @@ class Wav2VecAnalyzer:
             }
 
         # ── 2. Analyze each segment ────────────────────────────────────
-        import torch
-
         results: list[dict] = []
 
         for seg in segments:
@@ -374,8 +370,6 @@ def _filler_confidence(
     - Lower energy than surrounding speech
     - Typically 200-800ms duration
     """
-    import numpy as np
-
     duration_s = len(chunk) / sr
 
     # Fillers are typically short segments
