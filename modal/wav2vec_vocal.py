@@ -154,9 +154,6 @@ class Wav2VecAnalyzer:
                 "processing_time_ms": int((time.time() - t0) * 1000),
             }
 
-        # Compute pitch and frame energy once for the source. Per-segment pyin
-        # previously ran twice for every segment and dominated long-video time.
-        prosody = _build_prosody_track(waveform, sr)
         chunks: list[tuple[int, dict, "np.ndarray"]] = []
         results: list[dict | None] = [None] * len(segments)
         for index, seg in enumerate(segments):
@@ -165,6 +162,17 @@ class Wav2VecAnalyzer:
             chunk = waveform[start_sample:end_sample]
             if len(chunk) >= sr * 0.1:
                 chunks.append((index, seg, chunk))
+
+        if chunks:
+            first_sample = min(max(0, int(seg["start_ms"] / 1000.0 * sr)) for _, seg, _ in chunks)
+            last_sample = max(min(len(waveform), int(seg["end_ms"] / 1000.0 * sr)) for _, seg, _ in chunks)
+            prosody = _build_prosody_track(
+                waveform[first_sample:last_sample],
+                sr,
+                origin_sample=first_sample,
+            )
+        else:
+            prosody = _build_prosody_track(waveform[:0], sr, origin_sample=0)
 
         classifications = self._classify_emotions(
             [chunk for _, _, chunk in chunks],
@@ -318,35 +326,47 @@ def _compute_energy(chunk: "np.ndarray", sr: int) -> float:
     return float(min(1.0, max(0.0, normalized)))
 
 
-def _build_prosody_track(waveform: "np.ndarray", sr: int) -> dict:
-    """Compute source-level frame evidence once and reuse it for all segments."""
+def _build_prosody_track(waveform: "np.ndarray", sr: int, origin_sample: int) -> dict:
+    """Compute one fast pitch/energy track for the requested source span."""
     import librosa
     import numpy as np
 
+    if len(waveform) == 0:
+        empty = np.array([], dtype=np.float32)
+        return {"rms": empty, "f0": empty, "origin_sample": origin_sample}
     rms = librosa.feature.rms(
         y=waveform,
         frame_length=2048,
         hop_length=PROSODY_HOP_LENGTH,
     )[0]
     try:
-        f0, _, _ = librosa.pyin(
+        f0 = librosa.yin(
             waveform,
             fmin=librosa.note_to_hz("C2"),   # ~65 Hz
             fmax=librosa.note_to_hz("C7"),   # ~2093 Hz
             sr=sr,
             hop_length=PROSODY_HOP_LENGTH,
         )
+        shared_length = min(len(f0), len(rms))
+        f0 = f0[:shared_length]
+        rms = rms[:shared_length]
+        rms_db = librosa.amplitude_to_db(rms, ref=1.0)
+        f0[rms_db <= ENERGY_FLOOR_DB] = np.nan
     except Exception as error:
         print(f"[Wav2VecAnalyzer] Source pitch extraction degraded: {error}")
         f0 = np.full(len(rms), np.nan, dtype=np.float32)
-    return {"rms": rms, "f0": f0}
+    return {"rms": rms, "f0": f0, "origin_sample": origin_sample}
 
 
-def _segment_track_values(track: "np.ndarray", seg: dict, sr: int) -> "np.ndarray":
-    start_frame = max(0, int(seg["start_ms"] / 1000.0 * sr / PROSODY_HOP_LENGTH))
+def _segment_track_values(prosody: dict, track_name: str, seg: dict, sr: int) -> "np.ndarray":
+    track = prosody[track_name]
+    origin_sample = prosody["origin_sample"]
+    start_sample = int(seg["start_ms"] / 1000.0 * sr) - origin_sample
+    end_sample = int(seg["end_ms"] / 1000.0 * sr) - origin_sample
+    start_frame = max(0, int(start_sample / PROSODY_HOP_LENGTH))
     end_frame = min(
         len(track),
-        max(start_frame + 1, int(seg["end_ms"] / 1000.0 * sr / PROSODY_HOP_LENGTH) + 1),
+        max(start_frame + 1, int(end_sample / PROSODY_HOP_LENGTH) + 1),
     )
     return track[start_frame:end_frame]
 
@@ -354,7 +374,7 @@ def _segment_track_values(track: "np.ndarray", seg: dict, sr: int) -> "np.ndarra
 def _segment_pitch_variability(prosody: dict, seg: dict, sr: int) -> float:
     import numpy as np
 
-    f0 = _segment_track_values(prosody["f0"], seg, sr)
+    f0 = _segment_track_values(prosody, "f0", seg, sr)
     voiced_f0 = f0[np.isfinite(f0)]
     if len(voiced_f0) < 3:
         return 0.0
@@ -366,13 +386,13 @@ def _segment_stress(prosody: dict, seg: dict, sr: int) -> bool:
     """Detect vocal stress from source-level pitch and energy frame evidence."""
     import numpy as np
 
-    rms = _segment_track_values(prosody["rms"], seg, sr)
+    rms = _segment_track_values(prosody, "rms", seg, sr)
     if len(rms) < 3:
         return False
     energy_z = (rms - rms.mean()) / (rms.std() + 1e-8)
     energy_peaks = np.any(energy_z > STRESS_ENERGY_ZSCORE)
 
-    f0 = _segment_track_values(prosody["f0"], seg, sr)
+    f0 = _segment_track_values(prosody, "f0", seg, sr)
     voiced_f0 = f0[np.isfinite(f0)]
     if len(voiced_f0) < 3:
         return bool(energy_peaks)
