@@ -134,7 +134,15 @@ async function handler(request: NextRequest) {
               })(),
           (async () => {
             const { analyzeAudioWithWav2Vec } = await import('@/lib/editron/services/wav2vec-service');
-            return analyzeAudioWithWav2Vec(videoUrl, segmentInputs);
+            const { resolveCanonicalWav2VecAnalysis } = await import('@/lib/editron/services/canonical-wav2vec-analysis');
+            return resolveCanonicalWav2VecAnalysis({
+              db,
+              assetId: sourceAssetId,
+              userId,
+              audioUrl: videoUrl,
+              segments: segmentInputs,
+              analyze: analyzeAudioWithWav2Vec,
+            });
           })(),
           (async () => {
             const { analyzeMusicContent } = await import('@/lib/editron/services/music-analysis-service');
@@ -200,43 +208,59 @@ async function handler(request: NextRequest) {
         }
 
         // Handle Wav2Vec result
-        if (wav2vecResult.status === 'fulfilled' && wav2vecResult.value) {
-          wav2vecAnalysis = wav2vecResult.value;
+        const wav2vecResolution = wav2vecResult.status === 'fulfilled' ? wav2vecResult.value : null;
+        if (wav2vecResolution?.analysis) {
+          wav2vecAnalysis = wav2vecResolution.analysis;
           const avgEmo = wav2vecAnalysis.segments.reduce((s: number, r: any) => s + r.emotionIntensity, 0) / wav2vecAnalysis.segments.length;
-          console.log(`[TribeWorker] Wav2Vec: ${wav2vecAnalysis.segments.length} segments analyzed (avg emotion=${avgEmo.toFixed(2)}, ${wav2vecAnalysis.processingTimeMs}ms)`);
+          console.log(
+            `[TribeWorker] Wav2Vec: ${wav2vecAnalysis.segments.length} segments ` +
+            `(avg emotion=${avgEmo.toFixed(2)}, ${wav2vecAnalysis.processingTimeMs}ms, ` +
+            `source=${wav2vecResolution.provenance}, waited=${wav2vecResolution.waitedMs}ms)`,
+          );
         } else {
-          const msg = wav2vecResult.status === 'rejected' ? (wav2vecResult.reason?.message || String(wav2vecResult.reason)) : 'returned null';
+          const msg = wav2vecResult.status === 'rejected'
+            ? (wav2vecResult.reason?.message || String(wav2vecResult.reason))
+            : wav2vecResolution?.provenance || 'returned null';
           console.warn(`[TribeWorker] Wav2Vec skipped: ${msg}`);
         }
-        await recordTribeCostEvent(payload, wav2vecResult.status === 'fulfilled' && wav2vecResult.value
+        await recordTribeCostEvent(payload, wav2vecResolution?.analysis
           ? {
               stage: 'wav2vec_modal',
-              status: 'success',
+              status: wav2vecResolution.providerInvoked ? 'success' : 'skipped',
               provider: 'modal',
-              model: wav2vecResult.value.modelVersion || 'wav2vec-2.0',
+              model: wav2vecResolution.analysis.modelVersion || 'wav2vec-2.0',
               operation: 'gpu_audio_analysis',
+              ...(wav2vecResolution.providerInvoked ? {} : { estimatedCostUsd: 0, costBasis: 'provider_usage' as const }),
               units: {
-                requestCount: 1,
+                requestCount: wav2vecResolution.providerInvoked ? 1 : 0,
                 mediaSeconds: speechRequestedSeconds,
-                functionMs: wav2vecResult.value.processingTimeMs,
-                gpuSeconds: msToSeconds(wav2vecResult.value.processingTimeMs),
+                ...(wav2vecResolution.providerInvoked ? {
+                  functionMs: wav2vecResolution.providerProcessingTimeMs,
+                  gpuSeconds: msToSeconds(wav2vecResolution.providerProcessingTimeMs),
+                } : {}),
               },
               metadata: {
                 requestedSegmentCount: segmentInputs.length,
-                analyzedSegmentCount: wav2vecResult.value.segments?.length ?? 0,
+                analyzedSegmentCount: wav2vecResolution.analyzedSegmentCount,
+                uncoveredSegmentCount: wav2vecResolution.uncoveredSegmentCount,
+                provenance: wav2vecResolution.provenance,
+                waitedMs: wav2vecResolution.waitedMs,
               },
             }
           : {
               stage: 'wav2vec_modal',
-              status: 'failed',
+              status: wav2vecResolution?.provenance === 'owner-pending-timeout' ? 'skipped' : 'failed',
               provider: 'modal',
               model: 'wav2vec-2.0',
               operation: 'gpu_audio_analysis',
-              units: { requestCount: 1, mediaSeconds: speechRequestedSeconds },
+              ...(wav2vecResolution?.providerInvoked ? {} : { estimatedCostUsd: 0, costBasis: 'provider_usage' as const }),
+              units: { requestCount: wav2vecResolution?.providerInvoked ? 1 : 0, mediaSeconds: speechRequestedSeconds },
               metadata: {
                 requestedSegmentCount: segmentInputs.length,
                 resultStatus: wav2vecResult.status,
                 errorClass: settledErrorClass(wav2vecResult),
+                provenance: wav2vecResolution?.provenance,
+                waitedMs: wav2vecResolution?.waitedMs,
               },
             });
 
