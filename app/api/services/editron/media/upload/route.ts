@@ -220,6 +220,39 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // ── Server-side audio byte verification ──
+    // The client's declared content-type is untrusted: a corrupt, non-audio, or
+    // mislabeled file must never be persisted as an audio asset. Verify the actual
+    // stored bytes are a recognized audio container before registering.
+    let verifiedAudio: { mime: string; extension: string; bytesChecked: number } | null = null;
+    if (fileType === 'audio') {
+      const { verifyUploadedAudioPrefix } = await import('@/lib/editron/services/media/verify-uploaded-audio');
+      const verification = await verifyUploadedAudioPrefix(readUrl);
+      if (!verification.verified) {
+        try {
+          await deleteUploadedObject(gcsPath, assetId);
+        } catch (delErr: unknown) {
+          console.error('[Upload] failed to delete non-audio object:', delErr instanceof Error ? delErr.message : delErr);
+        }
+        return NextResponse.json(
+          {
+            success: false,
+            error: verification.reason === 'not-audio'
+              ? 'Uploaded file is not a recognized audio format'
+              : 'Uploaded audio could not be read from storage',
+            code: verification.reason === 'not-audio' ? 'audio_verification_failed' : 'audio_read_failed',
+          },
+          { status: 422 },
+        );
+      }
+      verifiedAudio = {
+        mime: verification.mime,
+        extension: verification.extension,
+        bytesChecked: verification.bytesChecked,
+      };
+      console.log(`[Upload] Server-verified audio ${assetId} as ${verification.mime} (${verification.bytesChecked} bytes checked)`);
+    }
     let nativeVideoAudioRights: AudioRightsContract | undefined;
     if (fileType === 'video' && sourceMediaRightsAttestation !== undefined) {
       try {
@@ -327,6 +360,14 @@ export async function POST(request: NextRequest) {
       uploadedAt: now,
       lastUsedAt: now, // seed the LRU signal at upload time
       ...(nativeVideoAudioRights && { audioRights: nativeVideoAudioRights }),
+      ...(verifiedAudio && {
+        serverVerifiedAudio: {
+          mime: verifiedAudio.mime,
+          extension: verifiedAudio.extension,
+          bytesChecked: verifiedAudio.bytesChecked,
+          verifiedAt: now.toISOString(),
+        },
+      }),
       ...(cleanUploadBatchId && { uploadBatchId: cleanUploadBatchId }),
       ...(!gcsPath && { r2Key: assetId }),
       ...(isProxy && { isProxy: true }),
@@ -529,6 +570,7 @@ export async function POST(request: NextRequest) {
       thumbnail: uploadedThumbnail?.url,
       analysisQueued,
       uploadBatchId: cleanUploadBatchId,
+      ...(verifiedAudio ? { serverVerifiedAudio: verifiedAudio } : {}),
     });
   } catch (error: any) {
     if (uploadedThumbnail && !mediaAssetInserted) {
