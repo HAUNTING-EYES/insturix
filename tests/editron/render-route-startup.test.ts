@@ -11,6 +11,9 @@ const routeMocks = vi.hoisted(() => ({
   failJob: vi.fn(),
   claimJobFinalization: vi.fn(),
   releaseJobFinalizationClaim: vi.fn(),
+  getJob: vi.fn(),
+  claimFailedJobFinalizationRetry: vi.fn(),
+  releaseFailedJobFinalizationRetryClaim: vi.fn(),
   reconcileProviderTerminalEvent: vi.fn(),
   getActiveRendersForUser: vi.fn(),
   resolveProjectAssets: vi.fn(),
@@ -52,6 +55,9 @@ vi.mock('@/lib/editron/services/render-job-service', () => ({
   failJob: routeMocks.failJob,
   claimJobFinalization: routeMocks.claimJobFinalization,
   releaseJobFinalizationClaim: routeMocks.releaseJobFinalizationClaim,
+  getJob: routeMocks.getJob,
+  claimFailedJobFinalizationRetry: routeMocks.claimFailedJobFinalizationRetry,
+  releaseFailedJobFinalizationRetryClaim: routeMocks.releaseFailedJobFinalizationRetryClaim,
   reconcileProviderTerminalEvent: routeMocks.reconcileProviderTerminalEvent,
   getActiveRendersForUser: routeMocks.getActiveRendersForUser,
 }));
@@ -110,6 +116,7 @@ vi.mock('@/lib/shared/project-status', () => ({
 
 import { POST } from '@/app/api/services/editron/cloudrun/render/route';
 import { GET as GET_ACTIVE_RENDERS } from '@/app/api/services/editron/render/active/route';
+import { POST as POST_FINALIZATION_RETRY } from '@/app/api/services/editron/render/finalization/retry/route';
 import { POST as POST_RENDER_WEBHOOK } from '@/app/api/services/editron/cloudrun/render/webhook/route';
 import { RenderAudioRightsAuthorityError } from '@/lib/editron/services/render-audio-rights-authority';
 import { beginRenderFinalization } from '@/lib/editron/services/render-finalization-dispatch';
@@ -169,6 +176,7 @@ describe('Editron render startup boundary', () => {
     routeMocks.markJobStarted.mockResolvedValue(undefined);
     routeMocks.failJob.mockResolvedValue(undefined);
     routeMocks.releaseJobFinalizationClaim.mockResolvedValue(true);
+    routeMocks.releaseFailedJobFinalizationRetryClaim.mockResolvedValue(true);
     routeMocks.publishJSON.mockResolvedValue({ messageId: 'msg_finalizer_1' });
     routeMocks.reconcileProviderTerminalEvent.mockResolvedValue(undefined);
     routeMocks.getActiveRendersForUser.mockResolvedValue([]);
@@ -724,6 +732,197 @@ describe('Editron render startup boundary', () => {
     });
   });
 
+  it('atomically re-leases a preserved failed artifact with a bounded no-credit retry', async () => {
+    const actualJobService = await vi.importActual<
+      typeof import('@/lib/editron/services/render-job-service')
+    >('@/lib/editron/services/render-job-service');
+    const now = new Date('2026-08-03T00:00:00.000Z');
+    routeMocks.dbFindOneAndUpdate.mockResolvedValueOnce({
+      _id: 'rnd_admission_1',
+      userId: 'user_1',
+      providerRenderId: 'render_provider_1',
+      status: 'finalizing',
+      expectedDurationMs: 38_000,
+      finalization: {
+        state: 'running',
+        sourceOutputUrl: 'https://bucket.example.test/raw.mp4',
+        sourceOutputSize: 44_583_988,
+      },
+    });
+
+    await expect(actualJobService.claimFailedJobFinalizationRetry({
+      jobId: 'rnd_admission_1',
+      userId: 'user_1',
+      claimToken: 'rfl_retry_1',
+      leaseMs: 60_000,
+      now,
+    })).resolves.toEqual({
+      jobId: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      claimToken: 'rfl_retry_1',
+      sourceOutputUrl: 'https://bucket.example.test/raw.mp4',
+      sourceOutputSize: 44_583_988,
+      expectedDurationMs: 38_000,
+    });
+    expect(routeMocks.dbFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: 'rnd_admission_1',
+        userId: 'user_1',
+        status: 'error',
+        'finalization.state': 'failed',
+        'finalization.attempts': { $lt: 3 },
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'finalizing',
+          'finalization.state': 'running',
+          'finalization.claimToken': 'rfl_retry_1',
+          'finalization.leaseExpiresAt': new Date('2026-08-03T00:01:00.000Z'),
+        }),
+        $inc: { 'finalization.attempts': 1 },
+      }),
+      { returnDocument: 'after' },
+    );
+
+    routeMocks.dbUpdateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    await expect(actualJobService.releaseFailedJobFinalizationRetryClaim({
+      jobId: 'rnd_admission_1',
+      claimToken: 'rfl_retry_1',
+      error: new Error('QStash unavailable'),
+      now,
+    })).resolves.toBe(true);
+    expect(routeMocks.dbUpdateOne).toHaveBeenCalledWith(
+      {
+        _id: 'rnd_admission_1',
+        status: 'finalizing',
+        'finalization.state': 'running',
+        'finalization.claimToken': 'rfl_retry_1',
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'error',
+          'finalization.state': 'failed',
+        }),
+      }),
+    );
+    const retryReleaseUpdate = routeMocks.dbUpdateOne.mock.calls.at(-1)?.[1];
+    expect(retryReleaseUpdate?.$set).not.toHaveProperty('finalization.sourceOutputUrl');
+    expect(retryReleaseUpdate?.$unset).not.toHaveProperty('finalization.sourceOutputUrl');
+  });
+
+  it('queues owner-scoped finalization recovery without invoking or billing the renderer', async () => {
+    const claim = {
+      jobId: 'rnd_admission_1',
+      providerRenderId: 'render_provider_1',
+      claimToken: 'rfl_retry_1',
+      sourceOutputUrl: 'https://bucket.example.test/raw.mp4',
+      sourceOutputSize: 44_583_988,
+      expectedDurationMs: 38_000,
+    };
+    routeMocks.getJob.mockResolvedValue({
+      _id: claim.jobId,
+      userId: 'user_1',
+      status: 'error',
+      finalization: { state: 'failed' },
+    });
+    routeMocks.claimFailedJobFinalizationRetry.mockResolvedValue(claim);
+
+    const response = await POST_FINALIZATION_RETRY(new Request(
+      'http://localhost/api/services/editron/render/finalization/retry',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: claim.jobId }),
+      },
+    ));
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'success',
+      data: { state: 'enqueued', jobId: claim.jobId, messageId: 'msg_finalizer_1' },
+    });
+    expect(routeMocks.claimFailedJobFinalizationRetry).toHaveBeenCalledWith({
+      jobId: claim.jobId,
+      userId: 'user_1',
+    });
+    expect(routeMocks.publishJSON).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.objectContaining({ jobId: claim.jobId, claimToken: claim.claimToken }),
+      deduplicationId: claim.claimToken,
+    }));
+    expect(routeMocks.checkCredits).not.toHaveBeenCalled();
+    expect(routeMocks.deduct).not.toHaveBeenCalled();
+    expect(routeMocks.renderMediaOnLambda).not.toHaveBeenCalled();
+  });
+
+  it('keeps failed recovery retryable when queue publication fails and hides foreign jobs', async () => {
+    const failedJob = {
+      _id: 'rnd_admission_1',
+      userId: 'user_1',
+      status: 'error',
+      finalization: { state: 'failed' },
+    };
+    const claim = {
+      jobId: failedJob._id,
+      claimToken: 'rfl_retry_1',
+      sourceOutputUrl: 'https://bucket.example.test/raw.mp4',
+      sourceOutputSize: 44_583_988,
+      expectedDurationMs: 38_000,
+    };
+    routeMocks.getJob.mockResolvedValue(failedJob);
+    routeMocks.claimFailedJobFinalizationRetry.mockResolvedValue(claim);
+    routeMocks.publishJSON.mockRejectedValueOnce(new Error('QStash unavailable'));
+
+    const failed = await POST_FINALIZATION_RETRY(retryFinalizationRequest(failedJob._id));
+    expect(failed.status).toBe(503);
+    expect(routeMocks.releaseFailedJobFinalizationRetryClaim).toHaveBeenCalledWith({
+      jobId: claim.jobId,
+      claimToken: claim.claimToken,
+      error: expect.any(Error),
+    });
+
+    routeMocks.getJob.mockResolvedValueOnce({ ...failedJob, userId: 'user_2' });
+    const hidden = await POST_FINALIZATION_RETRY(retryFinalizationRequest(failedJob._id));
+    expect(hidden.status).toBe(404);
+    expect(routeMocks.claimFailedJobFinalizationRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes retry authorization and terminal/idempotent states explicit', async () => {
+    routeMocks.auth.mockResolvedValueOnce({ userId: null });
+    const unauthorized = await POST_FINALIZATION_RETRY(retryFinalizationRequest('rnd_admission_1'));
+    expect(unauthorized.status).toBe(401);
+
+    routeMocks.getJob.mockResolvedValueOnce({
+      _id: 'rnd_admission_1',
+      userId: 'user_1',
+      status: 'done',
+    });
+    const done = await POST_FINALIZATION_RETRY(retryFinalizationRequest('rnd_admission_1'));
+    expect(done.status).toBe(200);
+    await expect(done.json()).resolves.toMatchObject({ data: { state: 'already_done' } });
+
+    routeMocks.getJob.mockResolvedValueOnce({
+      _id: 'rnd_admission_1',
+      userId: 'user_1',
+      status: 'finalizing',
+    });
+    const finalizing = await POST_FINALIZATION_RETRY(retryFinalizationRequest('rnd_admission_1'));
+    expect(finalizing.status).toBe(202);
+    await expect(finalizing.json()).resolves.toMatchObject({ data: { state: 'already_finalizing' } });
+
+    routeMocks.getJob.mockResolvedValueOnce({
+      _id: 'rnd_admission_1',
+      userId: 'user_1',
+      status: 'error',
+      error: 'Provider render itself failed',
+    });
+    const notRetryable = await POST_FINALIZATION_RETRY(retryFinalizationRequest('rnd_admission_1'));
+    expect(notRetryable.status).toBe(409);
+    await expect(notRetryable.json()).resolves.toMatchObject({
+      code: 'FINALIZATION_NOT_RETRYABLE',
+    });
+    expect(routeMocks.claimFailedJobFinalizationRetry).not.toHaveBeenCalled();
+  });
+
   it('leases completion effects only from a verified finalized job', async () => {
     const actualJobService = await vi.importActual<
       typeof import('@/lib/editron/services/render-job-service')
@@ -982,6 +1181,17 @@ function renderWebhookRequest(payload: unknown): Request {
         'x-remotion-signature': 'sha512=test-signature',
       },
       body: JSON.stringify(payload),
+    },
+  );
+}
+
+function retryFinalizationRequest(jobId: string): Request {
+  return new Request(
+    'https://app.example.test/api/services/editron/render/finalization/retry',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jobId }),
     },
   );
 }

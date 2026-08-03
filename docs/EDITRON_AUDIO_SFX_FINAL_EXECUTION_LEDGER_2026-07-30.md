@@ -9,7 +9,7 @@ If it does not pass the gates in this document, Editron ships with the ordinary
 deterministic catalog selector and semantic retrieval is disabled and deferred.
 
 Decision recorded 2026-07-30: **semantic retrieval is disabled and deferred**.
-The 48-sound reviewed catalog remains active through ordinary deterministic
+The 49-sound reviewed catalog remains active through ordinary deterministic
 selection.
 
 Observed branch: `infrastructure-improvs-+Editron`
@@ -367,8 +367,10 @@ Implemented in code and focused tests:
 - Delivery metadata tests
 - Clean-master UI controls and history/progress parsing
 
-What remains is a real live editor-to-render battle test, not another data-model
-rewrite.
+The clean-master/reference-track path is now live-proven by the canary recorded
+in section 6.1. Rich user-facing song metadata remains partial: the tested
+receipt preserved BPM and reference-only usage, but it had an internal asset ID
+for the title, no artists, and no resolved platform cue.
 
 ### 5.3 SFX
 
@@ -399,32 +401,70 @@ published assets may be selected.
 
 ## 6. What remains after the semantic decision
 
-### 6.1 Required for agency/demo confidence
+### 6.1 Full-scale live canary evidence
 
-These remain required even if semantic mode is disabled:
+The first deployed full-scale canary is recorded against:
 
-1. Run one full-scale video through the real editor and renderer.
-2. Verify music coverage, loudness, looping, and ducking in the rendered MP4.
-3. Verify `music:off` produces zero music.
-4. Verify a transition-heavy section receives restrained SFX.
-5. Verify an MG-heavy section receives restrained SFX.
-6. Verify speech-heavy moments and ordinary cuts can remain silent.
-7. Verify every audible overlay has a rights receipt.
-8. Verify a reference-only chart song plays in preview but is absent from the
-   clean master.
-9. Verify the delivery receipt preserves title, artist, cue window, timeline
-   offset, BPM, and beat-entry information.
-10. Verify the output is usable after reload and in render history.
+- Project: `proj_4N_6crLWX89A`
+- Render job: `rnd_DbNZQqYrlh4A`
+- Finalization state: `done` through the production R2/CDN delivery path
+- Output size: 43,987,542 bytes
+- Output SHA-256:
+  `09FDC463D15776F616FAB8444CE6588871DA2E41147006F54E2B187DDFBDFCF1`
+
+Independent output inspection proved:
+
+- Container duration: exactly 38.000 seconds
+- Video duration: exactly 38.000 seconds
+- Audio duration: exactly 38.000 seconds
+- Video: H.264, 1920x1080, 30 fps
+- Audio: AAC, 48 kHz, stereo
+- The failed delivery was recovered by republishing finalization only. The
+  renderer was not called again and no additional render credit was consumed.
+
+The reference-only track was absent from the clean MP4. Independent decoded-PCM
+comparison against the uploaded reference produced full-length correlation
+`-0.0014414`, a one-second-shift control of `-0.0020097`, median one-second-window
+correlation `-0.00811`, and maximum absolute one-second-window correlation
+`0.0838`. These near-zero results are evidence that the reference recording was
+not embedded in the exported audio.
+
+The delivery receipt persisted reference-only usage and BPM `193.5`. Its title
+was the internal asset ID `bgm_Q-8zdOA2KMYe`, artists were empty, and the cue was
+`manual-cue-required`; therefore real title, artist, and resolved platform cue
+metadata are not live-proven.
+
+After a hard editor reload, the 38-second timeline recovered, Clean mode remained
+selected, and the track remained marked as a reference. No explicit render-history
+surface was available to verify, so project reload is live-proven but render-history
+recovery is not.
+
+This canary did **not** prove the following agency/demo conditions:
+
+1. Exported BGM coverage, looping, loudness, or speech ducking. The reference
+   track was intentionally excluded and no exportable BGM was present.
+2. `music:off` producing zero music across every production path.
+3. Restrained transition SFX. This project contained no transition SFX overlay.
+4. Restrained motion-graphic SFX. This project contained no MG SFX overlay.
+5. Intentional silence behavior. Continuous voiceover was present and no
+   silence of at least 300 ms below -50 dB was detected.
+6. Explicit render-history recovery.
+
+The overall audio initiative therefore remains active. This canary live-proves
+durable exact-duration finalization and reference-only clean export; it does not
+close the remaining BGM, music-off, SFX, silence, or history gates.
 
 ### 6.2 Audio items to fix or prove later
 
 - Live proof of dynamic speech-gap ducking across a real long-form render
-- Live proof of the clean-master/reference-track workflow
+- Rich-title, artist, and resolved-cue proof for the reference-track workflow
 - Cleared replacement selection for the `swap` export option
 - Paid canary for CassetteAI SFX only when explicitly approved
 - Uploaded manual SFX provenance and assignment battle test
 - Provider outage and timeout behavior in a full edit
 - Long-form memory/performance proof for videos around five minutes
+- Productized finalization-only retry without database/operator intervention or
+  another renderer charge
 
 ## 7. Deferred semantic architecture and pinned catalog coverage
 
@@ -643,20 +683,28 @@ Use these terms consistently:
   provider decision blocks activation.
 - **Rejected:** not part of the product direction.
 
-Do not call the overall audio initiative complete until the full-scale rendered
-canary in section 6 passes.
+Do not call the overall audio initiative complete until every remaining live
+render gate in section 6 passes. The first canary proved only the subset recorded
+in section 6.1.
 
 ## 12. Immediate order
 
-1. Run the full-scale video canary in ordinary deterministic mode.
-2. Verify every agency/demo condition in section 6.1 against the rendered
-   output, editor state, and delivery receipt.
-3. Record canary findings and exact evidence paths in this ledger.
-4. Fix only blockers exposed by the full-scale canary, with focused regression
-   coverage.
-5. Resume the pinned S6 catalog coverage loop after the canary findings are
-   recorded.
-6. Resume S1-S5 only through a separately approved semantic retrieval effort.
+1. Productize finalization-only retry so a verified renderer output can be
+   republished without database surgery and without consuming another credit.
+2. Run an exportable-BGM canary that proves coverage, exact looping, loudness,
+   and speech ducking in the rendered MP4.
+3. Run `music:off` through every production path and prove zero music overlays.
+4. Run purpose-built transition-heavy, MG-heavy, and speech-heavy canaries to
+   prove restrained SFX, rights-bearing overlays, and intentional silence.
+5. Battle-test uploaded manual SFX provenance and assignment.
+6. Repeat reference-only delivery with real title, artist, and cue metadata, and
+   verify an explicit render-history surface when one exists.
+7. Run the approximately five-minute memory and performance canary.
+8. Resume the pinned S6 catalog coverage loop using only observed runtime misses
+   and known coverage gaps.
+9. Verify provider timeout/outage behavior and run a CassetteAI SFX canary only
+   with explicit paid approval.
+10. Resume S1-S5 only through a separately approved semantic retrieval effort.
 
 This order is the single active audio plan. Older phase labels remain historical
 evidence, not competing execution queues.

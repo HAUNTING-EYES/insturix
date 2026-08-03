@@ -17,6 +17,7 @@ import {
 const COLLECTION_NAME = 'editron_render_jobs';
 const DEFAULT_FINALIZATION_LEASE_MS = 20 * 60 * 1000;
 const MAX_FINALIZATION_LEASE_MS = 60 * 60 * 1000;
+export const MAX_RENDER_FINALIZATION_ATTEMPTS = 3;
 const DEFAULT_COMPLETION_EFFECTS_LEASE_MS = 5 * 60 * 1000;
 
 async function getCollection(): Promise<Collection<RenderJob>> {
@@ -187,6 +188,111 @@ export async function releaseJobFinalizationClaim(input: {
       },
       $unset: {
         finalization: '',
+      },
+    },
+  );
+  return released.modifiedCount === 1;
+}
+
+/**
+ * Re-lease a failed finalization without starting or billing another render.
+ * The preserved provider artifact is the only valid recovery source.
+ */
+export async function claimFailedJobFinalizationRetry(input: {
+  jobId: string;
+  userId: string;
+  claimToken?: string;
+  leaseMs?: number;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<ClaimedRenderFinalization | null> {
+  const leaseMs = input.leaseMs ?? DEFAULT_FINALIZATION_LEASE_MS;
+  if (!Number.isInteger(leaseMs) || leaseMs <= 0 || leaseMs > MAX_FINALIZATION_LEASE_MS) {
+    throw new Error('Finalization lease must be a positive integer within one hour.');
+  }
+  const jobs = input.collection ?? await getCollection();
+  const now = input.now ?? new Date();
+  const claimToken = input.claimToken ?? `rfl_${randomUUID().replaceAll('-', '')}`;
+  const claimed = await jobs.findOneAndUpdate(
+    {
+      _id: input.jobId,
+      userId: input.userId,
+      status: 'error',
+      expectedDurationMs: { $exists: true, $gt: 0 },
+      'finalization.state': 'failed',
+      'finalization.sourceOutputUrl': { $regex: /^https:\/\// },
+      'finalization.sourceOutputSize': { $exists: true, $gte: 0 },
+      'finalization.attempts': { $lt: MAX_RENDER_FINALIZATION_ATTEMPTS },
+    },
+    {
+      $set: {
+        status: 'finalizing',
+        progress: 0.99,
+        'finalization.state': 'running',
+        'finalization.claimToken': claimToken,
+        'finalization.claimedAt': now,
+        'finalization.leaseExpiresAt': new Date(now.getTime() + leaseMs),
+      },
+      $inc: { 'finalization.attempts': 1 },
+      $unset: {
+        'finalization.completedAt': '',
+        'finalization.error': '',
+        completedAt: '',
+        error: '',
+      },
+    },
+    { returnDocument: 'after' },
+  );
+  if (
+    !claimed?.expectedDurationMs
+    || !claimed.finalization?.sourceOutputUrl
+    || claimed.finalization.sourceOutputSize === undefined
+  ) {
+    return null;
+  }
+  assertHttpsUrl(claimed.finalization.sourceOutputUrl, 'Preserved provider output URL');
+  return {
+    jobId: claimed._id,
+    providerRenderId: claimed.providerRenderId,
+    claimToken,
+    sourceOutputUrl: claimed.finalization.sourceOutputUrl,
+    sourceOutputSize: claimed.finalization.sourceOutputSize,
+    expectedDurationMs: claimed.expectedDurationMs,
+  };
+}
+
+/** Restore a failed retry claim when durable queue publication did not succeed. */
+export async function releaseFailedJobFinalizationRetryClaim(input: {
+  jobId: string;
+  claimToken: string;
+  error: unknown;
+  now?: Date;
+  collection?: Collection<RenderJob>;
+}): Promise<boolean> {
+  const jobs = input.collection ?? await getCollection();
+  const completedAt = input.now ?? new Date();
+  const message = boundedError(input.error);
+  const released = await jobs.updateOne(
+    {
+      _id: input.jobId,
+      status: 'finalizing',
+      'finalization.state': 'running',
+      'finalization.claimToken': input.claimToken,
+    },
+    {
+      $set: {
+        status: 'error',
+        progress: 0.99,
+        error: message,
+        completedAt,
+        'finalization.state': 'failed',
+        'finalization.error': message,
+        'finalization.completedAt': completedAt,
+      },
+      $unset: {
+        'finalization.claimToken': '',
+        'finalization.claimedAt': '',
+        'finalization.leaseExpiresAt': '',
       },
     },
   );
