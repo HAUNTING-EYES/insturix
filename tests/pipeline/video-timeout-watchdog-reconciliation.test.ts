@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   loggerError: vi.fn(),
   refundCredits: vi.fn(),
   getCreditCost: vi.fn(),
+  reconcileCalosImages: vi.fn(),
 }));
 
 vi.mock('@/lib/editron/db/mongodb', () => ({
@@ -60,6 +61,10 @@ vi.mock('@/lib/services/tasks/handle-failure', () => ({
   handleTaskFailure: mocks.handleTaskFailure,
 }));
 
+vi.mock('@/lib/calos/reconcile-image-claims', () => ({
+  reconcileExpiredCalosImageClaims: mocks.reconcileCalosImages,
+}));
+
 import { GET } from '@/app/api/cron/check-task-timeouts/route';
 
 function cursor(items: any[]) {
@@ -79,6 +84,14 @@ describe('Editron video timeout watchdog reconciliation', () => {
     mocks.clickatronFindLean.mockResolvedValue([]);
     mocks.alyzitronFindToArray.mockResolvedValue([]);
     mocks.getCreditCost.mockReturnValue(3);
+    mocks.reconcileCalosImages.mockResolvedValue({
+      scanned: 0,
+      completed: 0,
+      failed: 0,
+      released: 0,
+      pending: 0,
+      errors: 0,
+    });
   });
 
   afterEach(() => {

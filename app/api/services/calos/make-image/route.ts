@@ -105,7 +105,6 @@ export async function POST(req: NextRequest) {
   try {
     const { userId, orgId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    billingUserId = userId;
 
     const { brandId, deliverableId, aspectRatio } = await req.json();
     if (!brandId || !deliverableId) {
@@ -123,6 +122,16 @@ export async function POST(req: NextRequest) {
       deletedAt: null,
     });
     if (!deliverable) return NextResponse.json({ error: "Deliverable not found" }, { status: 404 });
+    const generationOwnerUserId = typeof deliverable.ownerUserId === "string"
+      ? deliverable.ownerUserId.trim()
+      : "";
+    if (!generationOwnerUserId) {
+      return NextResponse.json(
+        { error: "Deliverable owner is missing", code: "DELIVERABLE_OWNER_MISSING" },
+        { status: 500 },
+      );
+    }
+    billingUserId = generationOwnerUserId;
 
     const format = deliverable.card?.contentFormat || "text";
     if (serviceForFormat(format) !== "clickatron") {
@@ -162,8 +171,8 @@ export async function POST(req: NextRequest) {
     const pendingJobId = `claim:${claimId}`;
     const billingIdempotencyKey = priorClaimId
       ? deliverable.serviceRef?.billingIdempotencyKey
-        || `calos:image:${userId}:${brandId}:${deliverableId}:v${deliverable.version}:${claimId}`
-      : `calos:image:${userId}:${brandId}:${deliverableId}:v${deliverable.version}:${claimId}`;
+        || `calos:image:${generationOwnerUserId}:${brandId}:${deliverableId}:v${deliverable.version}:${claimId}`
+      : `calos:image:${generationOwnerUserId}:${brandId}:${deliverableId}:v${deliverable.version}:${claimId}`;
     const priorBilling = priorClaimId
       ? {
           ...(deliverable.serviceRef?.creditTransactionId
@@ -229,7 +238,7 @@ export async function POST(req: NextRequest) {
     let deduction;
     try {
       deduction = await CreditsService.deductCredits(
-        userId,
+        generationOwnerUserId,
         "clickatron",
         "variation",
         {
@@ -314,7 +323,7 @@ export async function POST(req: NextRequest) {
 
     const referenceImageRefs = await collectImageReferenceUrls(brandId, claimed.campaignId);
     const kickoff = await createClickatronImageJob({
-      userId,
+      userId: generationOwnerUserId,
       orgId: orgId ?? null,
       brandId,
       prompt,
