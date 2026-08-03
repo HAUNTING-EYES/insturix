@@ -7,6 +7,7 @@ import { useTimeline } from "../../../contexts/timeline-context";
 import { Overlay, OverlayType } from "../../../types";
 import { LocalMediaGallery } from "../../local-media/local-media-gallery";
 import { getMediaDimensionsFromUrl } from "../../../utils/media-upload";
+import { FPS } from "../../../constants";
 import {
   UploadedAudioAssignmentDialog,
   useUploadedAudioAssignment,
@@ -80,7 +81,7 @@ export const LocalMediaPanel: React.FC = () => {
         },
         {
           from,
-          durationInFrames: file.duration ? Math.round(file.duration * 30) : 200,
+          durationInFrames: file.duration ? Math.round(file.duration * FPS) : 200,
           requestedRow: row,
           startFromSound: 0,
         },
@@ -96,7 +97,7 @@ export const LocalMediaPanel: React.FC = () => {
         top,
         width,
         height,
-        durationInFrames: file.duration ? Math.round(file.duration * 30) : 200,
+        durationInFrames: file.duration ? Math.round(file.duration * FPS) : 200,
         from,
         id: Date.now(),
         rotation: 0,

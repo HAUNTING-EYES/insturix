@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo, useCallback, useState } from "react";
-import { ROW_HEIGHT } from "../../constants";
+import { ROW_HEIGHT, FPS } from "../../constants";
 import { useTimeline } from "../../contexts/timeline-context";
 import { useEditorContext } from "../../contexts/editor-context";
 import { Overlay } from "../../types";
@@ -278,7 +278,7 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
       const dropFrame = Math.round((x / e.currentTarget.scrollWidth) * totalDuration);
       const targetRow = Math.max(0, Math.min(visibleRows - 1, Math.floor(y / ROW_HEIGHT)));
 
-      const fps = 30;
+      const fps = FPS;
       const durationFrames = asset.duration ? Math.round(asset.duration * fps) : 150;
 
       // Determine segment props if this is a segment
