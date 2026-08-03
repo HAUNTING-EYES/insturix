@@ -36,6 +36,20 @@ import {
 } from '@/lib/editron/services/render-audio-rights-authority';
 
 const NOW = new Date('2026-07-27T10:00:00.000Z');
+const VALID_SFX_BUFFER = Buffer.from('RIFF....WAVEfmt ....data', 'binary');
+const VALID_SFX_MEASUREMENT = {
+  version: 'sfx-acoustic-measurement-v1',
+  algorithm: 'ffmpeg-ebur128-v1',
+  loudnessMetric: 'integrated-lufs' as const,
+  loudnessDb: -18,
+  integratedLufs: -18,
+  truePeakDbtp: -3,
+  sampleRateHz: 48_000,
+  channelCount: 1,
+  durationMs: 900,
+  measuredAt: NOW.toISOString(),
+  sourceHashSha256: 'a'.repeat(64),
+};
 const SOURCE_ASSET = {
   assetId: 'audio_source_1',
   userId: 'user_1',
@@ -82,6 +96,8 @@ function createDependencies(
       url: 'https://media.example.com/assigned.wav',
       expiresAt: new Date('2026-07-27T11:00:00.000Z'),
     }),
+    fetchSfxSourceBytes: vi.fn().mockResolvedValue(VALID_SFX_BUFFER),
+    inspectSfxAudio: vi.fn().mockResolvedValue(VALID_SFX_MEASUREMENT),
     now: () => NOW,
   };
 }
@@ -115,10 +131,13 @@ function timelineAssignmentInput(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createTimelineDependencies(): UploadedAudioTimelineAssignmentDependencies & {
-  project: Record<string, unknown>;
-  appendCount: () => number;
-} {
+function createTimelineDependencies():
+  UploadedAudioTimelineAssignmentDependencies & {
+    project: Record<string, unknown>;
+    appendCount: () => number;
+    documents: Map<string, Record<string, unknown>>;
+    insertCount: () => number;
+  } {
   const base = createDependencies();
   const project: Record<string, unknown> = {
     projectId: 'project_1',
@@ -332,6 +351,85 @@ describe('uploaded audio assignment', () => {
       code: 'IDEMPOTENCY_CONFLICT',
       httpStatus: 409,
     });
+  });
+});
+
+describe('uploaded SFX acoustic admission', () => {
+  it('records the server-verified measurement on the derivative and overlay', async () => {
+    const dependencies = createTimelineDependencies();
+    const result = await assignUploadedAudioToTimeline(timelineAssignmentInput(), dependencies);
+    const derivative = dependencies.documents.get(result.derivativeAssetId);
+
+    expect(dependencies.inspectSfxAudio).toHaveBeenCalledTimes(1);
+    expect(dependencies.fetchSfxSourceBytes).toHaveBeenCalledTimes(1);
+    expect(derivative).toMatchObject({ sfxAcousticMeasurement: VALID_SFX_MEASUREMENT });
+    const overlay = result.overlays.find((candidate: any) => candidate.id === result.overlayId);
+    expect(overlay?.metadata).toMatchObject({ sfxAcousticMeasurement: VALID_SFX_MEASUREMENT });
+    expect(result.sfxAcousticMeasurement).toEqual(VALID_SFX_MEASUREMENT);
+  });
+
+  it('rejects a silent upload before persisting the derivative', async () => {
+    const dependencies = createDependencies();
+    dependencies.inspectSfxAudio = vi.fn().mockRejectedValue(new UploadedAudioAssignmentError(
+      'SFX_AUDIO_REJECTED',
+      'Uploaded SFX is silent or below the loudness floor',
+      422,
+    ));
+
+    await expect(assignUploadedAudio(assignmentInput(), dependencies)).rejects.toMatchObject({
+      code: 'SFX_AUDIO_REJECTED',
+      httpStatus: 422,
+    });
+    expect(dependencies.insertCount()).toBe(0);
+  });
+
+  it('rejects a clipping upload before persisting the derivative', async () => {
+    const dependencies = createDependencies();
+    dependencies.inspectSfxAudio = vi.fn().mockRejectedValue(new UploadedAudioAssignmentError(
+      'SFX_AUDIO_REJECTED',
+      'Uploaded SFX exceeds the -1 dBTP ceiling (0.4 dBTP)',
+      422,
+    ));
+
+    await expect(assignUploadedAudio(assignmentInput(), dependencies)).rejects.toMatchObject({
+      code: 'SFX_AUDIO_REJECTED',
+      httpStatus: 422,
+    });
+    expect(dependencies.insertCount()).toBe(0);
+  });
+
+  it('rejects a corrupt file that cannot be decoded', async () => {
+    const dependencies = createDependencies();
+    dependencies.inspectSfxAudio = vi.fn().mockRejectedValue(new UploadedAudioAssignmentError(
+      'SFX_AUDIO_REJECTED',
+      'Uploaded SFX could not be decoded: corrupt',
+      422,
+    ));
+
+    await expect(assignUploadedAudio(assignmentInput(), dependencies)).rejects.toMatchObject({
+      code: 'SFX_AUDIO_REJECTED',
+      httpStatus: 422,
+    });
+    expect(dependencies.insertCount()).toBe(0);
+  });
+
+  it('rejects an SFX whose storage bytes cannot be fetched', async () => {
+    const dependencies = createDependencies();
+    dependencies.fetchSfxSourceBytes = vi.fn().mockRejectedValue(new Error('storage 410'));
+
+    await expect(assignUploadedAudio(assignmentInput(), dependencies)).rejects.toMatchObject({
+      code: 'SFX_AUDIO_REJECTED',
+      httpStatus: 422,
+    });
+    expect(dependencies.insertCount()).toBe(0);
+  });
+
+  it('does not run SFX inspection for non-SFX roles', async () => {
+    const dependencies = createTimelineDependencies();
+    await assignUploadedAudioToTimeline(timelineAssignmentInput({ mediaRole: 'voiceover' as const }), dependencies);
+
+    expect(dependencies.inspectSfxAudio).not.toHaveBeenCalled();
+    expect(dependencies.fetchSfxSourceBytes).not.toHaveBeenCalled();
   });
 });
 

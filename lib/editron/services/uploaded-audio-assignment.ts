@@ -6,6 +6,7 @@ import {
   type AudioRightsContract,
 } from '@/lib/editron/shared/render-request-payload';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
+import type { SfxAcousticMeasurement } from '@/lib/pipeline/sfx-acoustic-measurement';
 
 const ASSIGNMENT_VERSION = 'editron-uploaded-audio-assignment-v1';
 const TIMELINE_ASSIGNMENT_VERSION = 'editron-uploaded-audio-timeline-v1';
@@ -35,7 +36,8 @@ export type UploadedAudioAssignmentErrorCode =
   | 'IDEMPOTENCY_CONFLICT'
   | 'DERIVATIVE_PERSISTENCE_FAILED'
   | 'PROJECT_TIMELINE_INVALID'
-  | 'PROJECT_PERSISTENCE_FAILED';
+  | 'PROJECT_PERSISTENCE_FAILED'
+  | 'SFX_AUDIO_REJECTED';
 
 export class UploadedAudioAssignmentError extends Error {
   constructor(
@@ -69,6 +71,7 @@ export interface UploadedAudioAssignmentResult {
   audioRights: AudioRightsContract;
   audioUrl: string;
   duration?: number;
+  sfxAcousticMeasurement?: SfxAcousticMeasurement;
 }
 
 export interface UploadedAudioTimelinePlacement {
@@ -108,6 +111,7 @@ interface StoredAudioAsset extends Record<string, unknown> {
   parentAssetId?: unknown;
   assignmentStatus?: unknown;
   audioAssignmentReceipt?: unknown;
+  sfxAcousticMeasurement?: unknown;
 }
 
 interface AssignmentReceipt extends Record<string, unknown> {
@@ -129,6 +133,8 @@ export interface UploadedAudioAssignmentDependencies {
     asset: StoredAudioAsset,
     now: Date,
   ): Promise<{ url: string; expiresAt: Date }>;
+  fetchSfxSourceBytes?: (url: string) => Promise<Buffer>;
+  inspectSfxAudio?: (buffer: Buffer) => Promise<SfxAcousticMeasurement>;
   now(): Date;
 }
 
@@ -190,8 +196,72 @@ const defaultDependencies: UploadedAudioAssignmentDependencies = {
     }
     throw new Error('No refreshable or current storage URL exists');
   },
+  async fetchSfxSourceBytes(url) {
+    return defaultSfxFetch(url);
+  },
+  async inspectSfxAudio(buffer) {
+    return defaultSfxInspect(buffer);
+  },
   now: () => new Date(),
 };
+
+async function defaultSfxFetch(
+  url: string,
+): Promise<Buffer> {
+  const { fetchUploadedAudioBytes } = await import(
+    '@/lib/editron/services/media/verify-uploaded-audio'
+  );
+  return fetchUploadedAudioBytes(url);
+}
+
+async function defaultSfxInspect(
+  buffer: Buffer,
+): Promise<SfxAcousticMeasurement> {
+  const { inspectEncodedSfxAudio } = await import('@/lib/pipeline/audio-conditioning');
+  const { buildSfxAcousticMeasurement } = await import(
+    '@/lib/pipeline/sfx-acoustic-measurement'
+  );
+  let inspection;
+  try {
+    inspection = await inspectEncodedSfxAudio(buffer);
+  } catch (error) {
+    throw new UploadedAudioAssignmentError(
+      'SFX_AUDIO_REJECTED',
+      `Uploaded SFX could not be decoded: ${error instanceof Error ? error.message : String(error)}`,
+      422,
+      error instanceof Error ? error : undefined,
+    );
+  }
+  if (!Number.isFinite(inspection.loudness.valueDb) || inspection.loudness.valueDb <= -60) {
+    throw new UploadedAudioAssignmentError(
+      'SFX_AUDIO_REJECTED',
+      'Uploaded SFX is silent or below the loudness floor',
+      422,
+    );
+  }
+  if (inspection.truePeakDbtp > -1) {
+    throw new UploadedAudioAssignmentError(
+      'SFX_AUDIO_REJECTED',
+      `Uploaded SFX exceeds the -1 dBTP ceiling (${inspection.truePeakDbtp.toFixed(1)} dBTP)`,
+      422,
+    );
+  }
+  if (inspection.sampleRate < 44_100) {
+    throw new UploadedAudioAssignmentError(
+      'SFX_AUDIO_REJECTED',
+      `Uploaded SFX sample rate ${inspection.sampleRate} Hz is below the 44.1 kHz floor`,
+      422,
+    );
+  }
+  if (inspection.durationMs > 30_000) {
+    throw new UploadedAudioAssignmentError(
+      'SFX_AUDIO_REJECTED',
+      `Uploaded SFX exceeds the 30s duration limit (${(inspection.durationMs / 1000).toFixed(1)}s)`,
+      422,
+    );
+  }
+  return buildSfxAcousticMeasurement(buffer, inspection);
+}
 
 const defaultTimelineDependencies: UploadedAudioTimelineAssignmentDependencies = {
   ...defaultDependencies,
@@ -247,6 +317,41 @@ export async function assignUploadedAudio(
   const assignedAt = dependencies.now();
   const audioRights = buildAudioRights(input, assignedAt);
   const readUrl = await resolveReadUrl(sourceAsset, assignedAt, dependencies);
+
+  // Uploaded SFX is admitted only after its actual bytes decode to acceptable
+  // audio. A silent, clipping, corrupt, too-quiet, or over-long file must not
+  // reach preview or render admission as a volume-1 overlay.
+  let sfxAcousticMeasurement: SfxAcousticMeasurement | undefined;
+  if (input.mediaRole === 'sfx') {
+    let sourceBytes;
+    try {
+      sourceBytes = await (dependencies.fetchSfxSourceBytes ?? defaultSfxFetch)(readUrl.url);
+    } catch (error) {
+      throw assignmentError(
+        'SFX_AUDIO_REJECTED',
+        `Uploaded SFX could not be read from storage: ${error instanceof Error ? error.message : String(error)}`,
+        422,
+        error,
+      );
+    }
+    try {
+      sfxAcousticMeasurement = await (
+        dependencies.inspectSfxAudio ?? defaultSfxInspect
+      )(sourceBytes);
+    } catch (error) {
+      if (error instanceof UploadedAudioAssignmentError
+        && error.code === 'SFX_AUDIO_REJECTED') {
+        throw error;
+      }
+      throw assignmentError(
+        'SFX_AUDIO_REJECTED',
+        `Uploaded SFX failed acoustic inspection: ${error instanceof Error ? error.message : String(error)}`,
+        422,
+        error,
+      );
+    }
+  }
+
   const receipt: AssignmentReceipt = {
     version: ASSIGNMENT_VERSION,
     idempotencyKey: input.idempotencyKey,
@@ -276,6 +381,9 @@ export async function assignUploadedAudio(
       : {}),
     ...(finiteNumber(sourceAsset.duration) !== null
       ? { duration: finiteNumber(sourceAsset.duration) }
+      : {}),
+    ...(sfxAcousticMeasurement
+      ? { sfxAcousticMeasurement }
       : {}),
     uploadedAt: assignedAt,
     lastUsedAt: assignedAt,
@@ -588,6 +696,9 @@ function buildResult(
     ...(finiteNumber(asset.duration) !== null
       ? { duration: finiteNumber(asset.duration) as number }
       : {}),
+    ...(asset.sfxAcousticMeasurement
+      ? { sfxAcousticMeasurement: asset.sfxAcousticMeasurement as SfxAcousticMeasurement }
+      : {}),
   };
 }
 
@@ -628,6 +739,9 @@ function buildTimelineOverlay(
       source: 'uploaded-audio-assignment',
       audioRole: input.mediaRole,
       sourceAssetId: input.sourceAssetId,
+      ...(assignment.sfxAcousticMeasurement
+        ? { sfxAcousticMeasurement: assignment.sfxAcousticMeasurement }
+        : {}),
       uploadedAudioAssignment: {
         version: TIMELINE_ASSIGNMENT_VERSION,
         idempotencyKey: input.idempotencyKey,
