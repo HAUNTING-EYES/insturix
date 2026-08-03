@@ -404,6 +404,57 @@ describe('background music assignment', () => {
     }));
   });
 
+  it('preserves discovered-song identity through reference assignment and the delivery receipt', async () => {
+    const deps = dependencies();
+    const result = await assignBackgroundMusic({
+      ...INPUT,
+      usageMode: 'reference-only',
+      rightsAttestation: undefined,
+      sourceMetadata: {
+        identityId: 'mbid-recording-123',
+        title: 'Nights Like This',
+        artists: ['Kehlani', 'Ty Dolla $ign'],
+        provider: 'musicbrainz',
+        providerTrackId: 'mbid-recording-123',
+        isrcs: ['USUM71704250'],
+      },
+    }, deps);
+    const referenceOverlays = result.overlays.filter((overlay: any) => overlay.row === ROW.BGM);
+    const deliveryPlan = resolveRenderDeliveryPlan({
+      requestedMode: 'platform-native',
+      overlays: result.overlays,
+      fps: 30,
+      durationInFrames: 300,
+      destinationPlatform: 'instagram',
+    });
+
+    expect(referenceOverlays).not.toHaveLength(0);
+    expect(referenceOverlays).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          referenceTrack: expect.objectContaining({
+            title: 'Nights Like This',
+            artists: ['Kehlani', 'Ty Dolla $ign'],
+            provider: 'musicbrainz',
+            providerTrackId: 'mbid-recording-123',
+            isrcs: ['USUM71704250'],
+            identityId: 'mbid-recording-123',
+            bpm: 120,
+          }),
+        }),
+      }),
+    ]));
+    expect(deliveryPlan.music.handoff).not.toBeNull();
+    expect(deliveryPlan.music.handoff!.track).toMatchObject({
+      status: 'reference-ready',
+      title: 'Nights Like This',
+      artists: ['Kehlani', 'Ty Dolla $ign'],
+      provider: 'musicbrainz',
+      providerTrackId: 'mbid-recording-123',
+      bpm: 120,
+    });
+  });
+
   it('scopes Mongo lookup and accepts only a matching durable library receipt', async () => {
     expect(buildBackgroundMusicSourceAssetFilter({
       assetId: 'audio_1',

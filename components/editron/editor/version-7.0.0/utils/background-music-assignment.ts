@@ -26,8 +26,18 @@ export interface AssignBackgroundMusicAssetInput {
   idempotencyKey: string;
   usageMode?: BackgroundMusicUsageMode;
   rightsSource?: 'user-upload' | 'library';
+  sourceMetadata?: BackgroundMusicSourceMetadata;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
+}
+
+export interface BackgroundMusicSourceMetadata {
+  identityId?: string;
+  title?: string;
+  artists?: string[];
+  provider?: string;
+  providerTrackId?: string;
+  isrcs?: string[];
 }
 
 export interface AssignBackgroundMusicAssetResult {
@@ -124,6 +134,7 @@ export async function assignBackgroundMusicAsset({
   idempotencyKey,
   usageMode = 'embedded',
   rightsSource = 'user-upload',
+  sourceMetadata,
   signal,
   fetchImpl = fetch,
 }: AssignBackgroundMusicAssetInput): Promise<AssignBackgroundMusicAssetResult> {
@@ -154,6 +165,7 @@ export async function assignBackgroundMusicAsset({
           assetId: normalizedAssetId,
           idempotencyKey,
           ...(usageMode === 'reference-only' ? { usageMode } : {}),
+          ...(sourceMetadata ? { sourceMetadata } : {}),
           ...(rightsSource === 'user-upload' && usageMode === 'embedded'
             ? {
                 rightsAttestation: {

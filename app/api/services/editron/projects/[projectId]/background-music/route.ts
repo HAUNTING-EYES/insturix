@@ -49,6 +49,7 @@ export async function POST(
       assetId: body.assetId as string,
       idempotencyKey: body.idempotencyKey as string,
       usageMode: body.usageMode as BackgroundMusicAssignmentInput['usageMode'],
+      sourceMetadata: body.sourceMetadata as BackgroundMusicAssignmentInput['sourceMetadata'],
       rightsAttestation: body.rightsAttestation as BackgroundMusicAssignmentInput['rightsAttestation'],
     });
     return NextResponse.json({ success: true, ...result });
