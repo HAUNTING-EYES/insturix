@@ -84,6 +84,8 @@ export interface ContentCard {
   seriesId?: string;
   calendarItemId?: string;
   contentFormat?: string;
+  /** User-requested runtime input. Editron/ThinkForge production-brief resolution remains authoritative. */
+  targetDurationSeconds?: number;
   publishWindow?: ContentCardPublishWindow;
   trendContext?: ContentCardTrendContext;
   clickatron?: ContentCardClickatronState;
@@ -138,6 +140,7 @@ export function normalizeContentCardForStorage(input: unknown, options: Normaliz
     seriesId: readOptionalString(record.seriesId, 'seriesId'),
     calendarItemId: readOptionalString(record.calendarItemId, 'calendarItemId'),
     contentFormat: readOptionalString(record.contentFormat, 'contentFormat'),
+    targetDurationSeconds: normalizeTargetDuration(record.targetDurationSeconds),
     publishWindow: normalizePublishWindow(record.publishWindow),
     trendContext: normalizeTrendContext(record.trendContext),
     clickatron: normalizeClickatronState(record.clickatron),
@@ -250,6 +253,14 @@ function readStringArray(value: unknown, field: string): string[] | undefined {
 
 function normalizeScore(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : undefined;
+}
+
+function normalizeTargetDuration(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 3600) {
+    throw new ContentCardValidationError('targetDurationSeconds must be a whole number from 1 to 3600');
+  }
+  return value;
 }
 
 function normalizeRatio(value: unknown): number | undefined {

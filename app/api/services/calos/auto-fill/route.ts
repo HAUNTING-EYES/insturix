@@ -6,6 +6,10 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign, { type CalosCadenceRule } from "@/schemas/calos-campaign";
 import CalosDeliverable from "@/schemas/calos-deliverable";
 import { proposeCadenceCards } from "@/lib/calos/cadence";
+import {
+  cadenceContentRequirements,
+  type CampaignCadenceRule,
+} from "@/lib/calos/campaign-cadence";
 import { persistDraftDeliverables } from "@/lib/calos/persist-deliverables";
 import { calosScope } from "@/lib/calos/scope";
 
@@ -55,11 +59,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
     }
 
-    const rules = campaign.cadenceRules.map((r: CalosCadenceRule) => ({
+    const rules: CampaignCadenceRule[] = campaign.cadenceRules.map((r: CalosCadenceRule) => ({
       platform: r.platform,
       perWeek: r.perWeek,
       preferredDays: [...r.preferredDays],
+      format: r.format,
+      targetDurationSeconds: r.targetDurationSeconds,
     }));
+    const requirementsByPlatform = new Map(
+      rules.map((rule) => [rule.platform, cadenceContentRequirements(rule)]),
+    );
     const proposals = proposeCadenceCards(rules, { from: effectiveFrom, to: toDate });
     if (proposals.length === 0) {
       return NextResponse.json({
@@ -91,7 +100,11 @@ export async function POST(req: NextRequest) {
     }
 
     const created = await persistDraftDeliverables(
-      fresh.map((p) => ({ ...p, campaignId })),
+      fresh.map((p) => ({
+        ...p,
+        ...(requirementsByPlatform.get(p.platform) ?? {}),
+        campaignId,
+      })),
       { userId, brandId, orgId },
     );
     return NextResponse.json({ created }, { status: 201 });
