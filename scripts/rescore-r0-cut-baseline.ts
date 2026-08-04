@@ -77,6 +77,7 @@ export async function rescoreR0RealVideos(inputPaths: string[]) {
     rawCount: number;
     adaptiveCount: number;
     merges: number;
+    keptStrongClusters: number;
     rawCutsPerMin: string;
     adaptiveCutsPerMin: string;
   }> = [];
@@ -98,11 +99,13 @@ export async function rescoreR0RealVideos(inputPaths: string[]) {
       rawCount: merged.before,
       adaptiveCount: merged.after,
       merges: merged.merges,
+      keptStrongClusters: merged.keptStrong,
       rawCutsPerMin: perMin(merged.before),
       adaptiveCutsPerMin: perMin(merged.after),
     });
     console.log(
-      `[adapt] ${doc.video.fileName}: ${merged.before} -> ${merged.after} cuts (${merged.merges} merged), ` +
+      `[adapt] ${doc.video.fileName}: ${merged.before} -> ${merged.after} cuts ` +
+      `(${merged.merges} weak clusters merged, ${merged.keptStrong} strong clusters kept), ` +
       `${perMin(merged.before)} -> ${perMin(merged.after)}/min`,
     );
   }
