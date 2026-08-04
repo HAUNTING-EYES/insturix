@@ -660,9 +660,11 @@ const RenderControls: React.FC<RenderControlsProps> = ({
         </div>
       )}
 
-      {/* Long video info - shown when not rendering but project > 3 min */}
-      {state.totalFrames > 5400 && state.status !== "rendering" && state.status !== "invoking" && (
-        <div className="flex items-center gap-1 text-[10px] text-zinc-500" title="Videos over 3 minutes use parallel chapter rendering for faster export">
+      {/* Long video info - shown when not rendering but project > 15 min */}
+      {/* Chapter rendering starts only above CHAPTER_SPLIT_THRESHOLD (27000 frames = 15 min at 30fps) in
+          lib/editron/services/chapter-renderer.ts. Below that the standard single-Lambda path is used. */}
+      {state.totalFrames > 27000 && state.status !== "rendering" && state.status !== "invoking" && (
+        <div className="flex items-center gap-1 text-[10px] text-zinc-500" title="Videos over 15 minutes use parallel chapter rendering for faster export">
           <Info className="w-3 h-3" />
           <span>Chapter render (parallel)</span>
         </div>
