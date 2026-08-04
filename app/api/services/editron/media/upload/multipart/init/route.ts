@@ -12,6 +12,7 @@ import { initiateMultipartUpload, getR2PublicUrl } from '@/lib/editron/services/
 import { getDatabase } from '@/lib/editron/db/mongodb';
 import { formatStorageBytes } from '@/lib/services/storage-quota-service';
 import { reserveStorageForUpload } from '@/lib/services/storage-reserve-service';
+import { R2_MAX_OBJECT_BYTES, R2_MIN_PART_BYTES, R2_MAX_PART_BYTES, R2_MAX_PARTS, isValidPartSize } from '@/lib/editron/services/r2-upload-limits';
 
 export const runtime = 'nodejs';
 
@@ -25,9 +26,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { filename, contentType, totalSize, totalParts, assetId: clientAssetId } = body;
+    const { filename, contentType, totalSize, totalParts, partSize, assetId: clientAssetId } = body;
     const numericTotalSize = Number(totalSize);
     const numericTotalParts = Number(totalParts);
+    const numericPartSize = Number(partSize);
 
     if (!filename || !contentType || !numericTotalSize || !numericTotalParts) {
       return NextResponse.json(
@@ -36,8 +38,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (numericTotalSize > 3 * 1024 * 1024 * 1024) {
-      return NextResponse.json({ success: false, error: 'File too large. Maximum size is 3GB.' }, { status: 413 });
+    // R2 hard cap (multipart): 5 TiB max object, 10,000 parts, 5 MiB – 5 GiB per part.
+    // The server recomputes the authoritative plan from the size rather than trusting the client.
+    if (numericTotalSize > R2_MAX_OBJECT_BYTES) {
+      return NextResponse.json(
+        { success: false, error: 'File too large. Maximum size is 5TB.' },
+        { status: 413 },
+      );
+    }
+    if (numericPartSize && !isValidPartSize(numericPartSize)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Part size must be between ${Math.round(R2_MIN_PART_BYTES / 1024 / 1024)}MB and ${Math.round(R2_MAX_PART_BYTES / 1024 / 1024 / 1024 / 1024)}GB per part.`,
+        },
+        { status: 400 },
+      );
+    }
+    const resolvedParts = Math.ceil(numericTotalSize / (numericPartSize || 1));
+    if (numericTotalParts !== resolvedParts || resolvedParts > R2_MAX_PARTS) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Part count must be ceil(size/partSize) and at most ${R2_MAX_PARTS}. Got ${numericTotalParts}, expected ${resolvedParts}.`,
+        },
+        { status: 400 },
+      );
     }
 
     // Reserve BEFORE the multipart upload starts — evict LRU non-protected assets
@@ -71,13 +97,14 @@ export async function POST(request: NextRequest) {
       contentType,
       totalSize: numericTotalSize,
       totalParts: numericTotalParts,
+      partSize: numericPartSize,
       completedParts: [],
       status: 'in-progress',
       createdAt: new Date(),
       lastActivityAt: new Date(),
     });
 
-    console.log(`[Multipart] Init: ${assetId} (${numericTotalParts} parts, ${Math.round(numericTotalSize / 1024 / 1024)}MB)`);
+    console.log(`[Multipart] Init: ${assetId} (${numericTotalParts} parts x ${Math.round((numericPartSize || 0) / 1024 / 1024)}MB, ${Math.round(numericTotalSize / 1024 / 1024 / 1024 / 1024 * 10) / 10}GB)`);
 
     return NextResponse.json({
       success: true,

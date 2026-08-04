@@ -2,17 +2,22 @@
  * MultipartUploader
  *
  * Client-side chunked upload engine for large files via R2 S3 multipart.
- * Splits file into 10MB parts, uploads concurrently (3 max),
- * retries failed parts with exponential backoff (3 attempts).
+ * Parts are sized dynamically from the file size (5 MiB – 5 GiB, capped at
+ * 10,000 parts) so files up to R2's 5 TiB limit are supported. Uploads
+ * concurrently (3 max), retries failed parts with exponential backoff.
  *
- * Supports: pause, resume, abort, progress callbacks, beforeunload cleanup.
+ * Durable resume: every completed part's ETag is recorded server-side, so a
+ * browser refresh/tab-close picks the upload back up and only re-uploads the
+ * missing parts (never the whole file).
+ *
+ * Supports: pause, resume, abort, progress callbacks, durable across reload.
  */
 
 import type { UploadProgress, CompletedPart } from './upload-types';
+import { resolveMultipartPlan, isValidPartSize } from '@/lib/editron/services/r2-upload-limits';
 
 // ─── Config ──────────────────────────────────────────────────────
 
-const DEFAULT_PART_SIZE = 10 * 1024 * 1024; // 10MB — R2 minimum is 5MB
 const DEFAULT_MAX_CONCURRENCY = 3;
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 1000;
@@ -65,7 +70,11 @@ export class MultipartUploader {
   constructor(options: MultipartUploaderOptions) {
     this.file = options.file;
     this.assetId = options.assetId;
-    this.partSize = options.partSize ?? DEFAULT_PART_SIZE;
+    // Dynamic part size by default (R2-aware). A caller-provided partSize is honored
+    // only if it is within R2's legal [5 MiB, 5 GiB] range.
+    this.partSize = (options.partSize && isValidPartSize(options.partSize))
+      ? options.partSize
+      : resolveMultipartPlan(options.file.size).partSize;
     this.maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
     this.onProgress = options.onProgress;
     this.onPartComplete = options.onPartComplete;
@@ -86,43 +95,59 @@ export class MultipartUploader {
     this.registerBeforeUnload();
 
     try {
-      // 1. Init multipart on server (pass assetId so part-url can find the record)
-      const initRes = await fetch('/api/services/editron/media/upload/multipart/init', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assetId: this.assetId,
-          filename: this.file.name,
-          contentType: this.file.type,
-          totalSize: this.file.size,
-          totalParts: Math.ceil(this.file.size / this.partSize),
-        }),
-      });
+      const plan = resolveMultipartPlan(this.file.size);
 
-      if (!initRes.ok) {
-        const data = await initRes.json().catch(() => ({}));
-        throw new Error(data.error || `Init failed (HTTP ${initRes.status})`);
+      // 0. Resume an interrupted upload for the same file (refresh / tab-close).
+      const resumed = await this.tryResume(plan);
+
+      if (!resumed) {
+        // 1. Init multipart on server (persist partSize for a later resume).
+        const initRes = await fetch('/api/services/editron/media/upload/multipart/init', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            assetId: this.assetId,
+            filename: this.file.name,
+            contentType: this.file.type,
+            totalSize: this.file.size,
+            totalParts: plan.totalParts,
+            partSize: plan.partSize,
+          }),
+        });
+
+        if (!initRes.ok) {
+          const data = await initRes.json().catch(() => ({}));
+          throw new Error(data.error || `Init failed (HTTP ${initRes.status})`);
+        }
+
+        const { uploadId, r2Key } = await initRes.json();
+        this.uploadId = uploadId;
+        this.r2Key = r2Key;
+        this.partSize = plan.partSize;
+
+        // 2. Reject 0-byte files — no parts to upload
+        if (this.file.size === 0) {
+          throw new Error('Cannot upload empty file (0 bytes)');
+        }
       }
 
-      const { uploadId, r2Key } = await initRes.json();
-      this.uploadId = uploadId;
-      this.r2Key = r2Key;
-
-      // 2. Reject 0-byte files — no parts to upload
-      if (this.file.size === 0) {
-        throw new Error('Cannot upload empty file (0 bytes)');
-      }
-
-      // 3. Build part list
-      const totalParts = Math.ceil(this.file.size / this.partSize);
+      // 3. Build part list, skipping parts already uploaded in a resumed session.
+      const totalParts = this.partSize > 0 ? Math.ceil(this.file.size / this.partSize) : plan.totalParts;
+      const donePartNumbers = new Set(this.completedParts.map((p) => p.PartNumber));
       this.pendingParts = [];
       for (let i = 0; i < totalParts; i++) {
+        if (donePartNumbers.has(i + 1)) continue;
         this.pendingParts.push({
           partNumber: i + 1,
           start: i * this.partSize,
           end: Math.min((i + 1) * this.partSize, this.file.size),
           retries: 0,
         });
+      }
+
+      if (resumed) {
+        // Seed progress from already-uploaded bytes so the bar doesn't restart at 0.
+        this.bytesUploaded = Math.min(this.file.size, this.completedParts.length * this.partSize);
       }
 
       // 4. Start concurrent uploads
@@ -190,6 +215,80 @@ export class MultipartUploader {
   getR2Key(): string | null { return this.r2Key; }
   getCompletedParts(): CompletedPart[] { return [...this.completedParts]; }
   getState(): UploaderState { return this.state; }
+
+  // ─── Resume ────────────────────────────────────────────────────
+
+  /**
+   * Look up an in-progress upload for this asset. When one exists for the same
+   * file (same total size + same resolved part size), reuse it: adopt the
+   * server-persisted part ETags so only missing parts are re-uploaded.
+   */
+  private async tryResume(plan: { partSize: number }): Promise<boolean> {
+    try {
+      const res = await fetch(
+        `/api/services/editron/media/upload/multipart/status?assetId=${encodeURIComponent(this.assetId)}`,
+      );
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data || data.status !== 'in-progress') return false;
+      if (!data.uploadId || !data.r2Key) return false;
+      if (Number(data.partSize) !== plan.partSize) return false;
+      if (Number(data.totalSize) !== this.file.size) return false;
+
+      const serverParts = Array.isArray(data.completedParts) ? data.completedParts : [];
+      const valid: CompletedPart[] = serverParts
+        .filter((p: { PartNumber?: unknown; ETag?: unknown }) => (
+          p && typeof p === 'object'
+          && Number.isInteger(p?.PartNumber)
+          && typeof p?.ETag === 'string'
+          && (p?.ETag as string).length > 0
+        ))
+        .map((p: { PartNumber: number; ETag: string }) => ({ PartNumber: p.PartNumber, ETag: p.ETag }));
+
+      this.uploadId = data.uploadId;
+      this.r2Key = data.r2Key;
+      this.partSize = plan.partSize;
+      this.completedParts = valid;
+      return true;
+    } catch (err) {
+      console.warn(
+        '[Uploader] Resume lookup failed, starting fresh:',
+        err instanceof Error ? err.message : err,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Persist a completed part's ETag server-side so a later refresh/tab-close can
+   * resume without re-uploading this part. Best-effort: a failed record only
+   * means this part may be re-uploaded on a future resume (bytes stay on R2).
+   */
+  private async recordPart(partNumber: number, etag: string): Promise<void> {
+    if (!this.uploadId || !this.r2Key) return;
+    try {
+      const res = await fetch('/api/services/editron/media/upload/multipart/part', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assetId: this.assetId,
+          uploadId: this.uploadId,
+          r2Key: this.r2Key,
+          partNumber,
+          etag,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Part record failed (HTTP ${res.status})`);
+      }
+    } catch (err) {
+      console.warn(
+        '[Uploader] Failed to persist part ETag server-side (resume may re-upload this part):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
 
   // ─── Internal ────────────────────────────────────────────────
 
@@ -269,6 +368,9 @@ export class MultipartUploader {
       this.bytesUploaded += (task.end - task.start);
       this.onPartComplete?.(part);
       this.emitProgress();
+
+      // Persist the ETag server-side for durable resume (best-effort).
+      await this.recordPart(task.partNumber, etag);
 
       this.activeParts--;
 
@@ -351,28 +453,21 @@ export class MultipartUploader {
   }
 
   private registerBeforeUnload(): void {
+    if (typeof window === 'undefined' || !window.addEventListener) return;
     this.boundBeforeUnload = (e: BeforeUnloadEvent) => {
       if (this.state === 'uploading' || this.state === 'paused') {
         e.preventDefault();
-        // sendBeacon is synchronous and survives page unload — async fetch won't
-        if (this.uploadId && this.r2Key) {
-          navigator.sendBeacon(
-            '/api/services/editron/media/upload/multipart/complete',
-            new Blob([JSON.stringify({
-              assetId: this.assetId,
-              uploadId: this.uploadId,
-              r2Key: this.r2Key,
-              abort: true,
-            })], { type: 'application/json' }),
-          );
-        }
+        // Intentionally NOT aborting on unload: the R2 multipart upload and its
+        // server-persisted part ETags stay in-progress, so the next session (or a
+        // refresh of this tab) resumes by uploading only the missing parts. R2's
+        // 7-day incomplete-upload lifecycle cleans up uploads that never resume.
       }
     };
     window.addEventListener('beforeunload', this.boundBeforeUnload);
   }
 
   private unregisterBeforeUnload(): void {
-    if (this.boundBeforeUnload) {
+    if (this.boundBeforeUnload && typeof window !== 'undefined' && window.removeEventListener) {
       window.removeEventListener('beforeunload', this.boundBeforeUnload);
       this.boundBeforeUnload = null;
     }
