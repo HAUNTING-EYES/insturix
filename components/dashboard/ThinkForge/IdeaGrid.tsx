@@ -11,6 +11,12 @@ interface IdeaGridProps {
   onRegenerate: () => void;
 }
 
+function formatDuration(seconds: number): string {
+  if (seconds % 3600 === 0) return `${seconds / 3600} hr`;
+  if (seconds % 60 === 0) return `${seconds / 60} min`;
+  return `${seconds}s`;
+}
+
 export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted, prompt, onSelect, onRegenerate }) => {
   const [expandedIdea, setExpandedIdea] = useState<IdeaCardData | null>(null);
 
@@ -51,6 +57,7 @@ export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted
               </div>
               <div className="idea-tags">
                 <span className="idea-tag">{idea.platform}</span>
+                {idea.durationSec !== undefined && <span className="idea-tag">{formatDuration(idea.durationSec)}</span>}
                 {idea.tone && <span className="idea-tag">{idea.tone}</span>}
               </div>
             </div>
@@ -125,6 +132,7 @@ export interface IdeaCardData {
   format: string;
   platform: string;
   tone: string;
+  durationSec?: number;
   sessionName?: string;
   originalPrompt?: string;
   brandBrief?: string;

@@ -40,6 +40,20 @@ const STYLE_OPTIONS = [
 const FORMAT_OPTIONS = [
   'Short-form Video','Long-form Video','Blog Post','Tweet Thread','Carousel','Podcast Episode','Newsletter Issue','Script Outline','Listicle','Case Study','How-To Guide','Explainer'
 ];
+// Explicit target-length presets, mirroring Editron's confirm-choices DURATION_PRESET_SECONDS
+// but extended for long-form (short + 3/5/7/10/15 min). The user's chosen length is a direct
+// decision here, never inferred from free text alone.
+const DURATION_OPTIONS = [
+  { label: '15s', seconds: 15 },
+  { label: '30s', seconds: 30 },
+  { label: '1m', seconds: 60 },
+  { label: '1.5m', seconds: 90 },
+  { label: '3m', seconds: 180 },
+  { label: '5m', seconds: 300 },
+  { label: '7m', seconds: 420 },
+  { label: '10m', seconds: 600 },
+  { label: '15m', seconds: 900 },
+];
 
 export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBack, onUpdateIdea, hideNavigation = false, sessionCount = 0 }: SessionMetadataSettingsProps) {
   // Generate default Session Name if not set
@@ -53,6 +67,9 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
   const [platforms, setPlatforms] = useState<string[]>(() => idea.platform.split(/,\s*/).filter(Boolean));
   const [styles, setStyles] = useState<string[]>(() => idea.style.split(/,\s*/).filter(Boolean));
   const [formats, setFormats] = useState<string[]>(() => idea.format.split(/,\s*/).filter(Boolean));
+  const [durationSec, setDurationSec] = useState<number | undefined>(idea.durationSec);
+  const [customMin, setCustomMin] = useState('');
+  const [customSec, setCustomSec] = useState('');
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const savedIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -77,6 +94,9 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
       setPlatforms(idea.platform.split(/,\s*/).filter(Boolean));
       setStyles(idea.style.split(/,\s*/).filter(Boolean));
       setFormats(idea.format.split(/,\s*/).filter(Boolean));
+      setDurationSec(idea.durationSec);
+      setCustomMin('');
+      setCustomSec('');
       if (!idea.sessionName || !idea.sessionName.trim()) {
         setSaveState('dirty');
       } else {
@@ -169,6 +189,44 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
   const handleTone = (tone: Idea['tone']) => {
     setLocalIdea(prev => ({ ...prev, tone }));
     setSaveState('dirty');
+  };
+
+  const durationLongLabel = (seconds: number): string => {
+    if (seconds % 3600 === 0) return `${seconds / 3600}-hour`;
+    if (seconds % 60 === 0) return `${seconds / 60}-minute`;
+    return `${seconds}-second`;
+  };
+
+  const durationShortLabel = (seconds: number): string => {
+    if (seconds % 60 === 0) return `${seconds / 60} min`;
+    if (seconds > 60) return `${Math.round((seconds / 60) * 10) / 10} min`;
+    return `${seconds}s`;
+  };
+
+  const isVideoIdea = durationSec !== undefined
+    || formats.some((f) => /\b(video|film|documentary|reel|shorts?|vlog|youtube|tiktok)\b/i.test(f));
+
+  const applyVideoDuration = (seconds: number | undefined) => {
+    setDurationSec(seconds);
+    setLocalIdea(prev => ({ ...prev, durationSec: seconds }));
+    setSaveState('dirty');
+    if (seconds === undefined) return;
+    const label = durationLongLabel(seconds);
+    // Keep the format field honest for downstream writers: drop short-form entries and
+    // surface the chosen length ("7-minute video").
+    setFormats(prev => {
+      const withoutShort = prev.filter((f) => !/\b(short\s*videos?|shorts?\b|reels?\b|tiktok|reel\b)\b/i.test(f));
+      const already = withoutShort.some((f) => f.toLowerCase().includes(label.toLowerCase()));
+      return already ? withoutShort : [`${label} video`, ...withoutShort];
+    });
+  };
+
+  const applyCustomDuration = () => {
+    const mins = parseFloat(customMin);
+    const secs = parseFloat(customSec);
+    if (!Number.isFinite(mins) || mins < 0) return;
+    const total = Math.round(mins * 60) + (Number.isFinite(secs) && secs > 0 ? Math.round(secs) : 0);
+    if (total > 0) applyVideoDuration(total);
   };
 
   return (
@@ -342,6 +400,61 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
                 onChange={setPlatforms}
                 options={PLATFORM_OPTIONS}
               />
+              {isVideoIdea && (
+                <div className="rounded-xl border border-[#1C1B19] bg-[#131312] p-4 md:col-span-2">
+                  <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest text-[#7A776E]">
+                    Target Length (Duration)
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {DURATION_OPTIONS.map((opt) => {
+                      const active = durationSec === opt.seconds;
+                      return (
+                        <button
+                          key={opt.seconds}
+                          type="button"
+                          onClick={() => applyVideoDuration(active ? undefined : opt.seconds)}
+                          className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-all ${active ? 'border-[#D4A652]/60 bg-[#D4A652]/15 text-[#ECE9E1]' : 'border-[#1C1B19] bg-[#0F0F0E] text-[#7A776E] hover:text-[#ECE9E1] hover:border-[#282724]'}`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      value={customMin}
+                      onChange={(e) => setCustomMin(e.target.value)}
+                      placeholder="min"
+                      aria-label="Custom minutes"
+                      className="w-20 rounded-lg border border-[#282724] bg-[#0F0F0E] px-2 py-1 text-sm text-[#ECE9E1] placeholder:text-[#454340] focus:outline-none focus:border-[#D4A652]/40"
+                    />
+                    <span className="text-[11px] text-[#7A776E]">min</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={customSec}
+                      onChange={(e) => setCustomSec(e.target.value)}
+                      placeholder="sec"
+                      aria-label="Custom seconds"
+                      className="w-20 rounded-lg border border-[#282724] bg-[#0F0F0E] px-2 py-1 text-sm text-[#ECE9E1] placeholder:text-[#454340] focus:outline-none focus:border-[#D4A652]/40"
+                    />
+                    <span className="text-[11px] text-[#7A776E]">sec</span>
+                    <button
+                      type="button"
+                      onClick={applyCustomDuration}
+                      className="rounded-lg border border-[#D4A652]/40 bg-[#D4A652]/10 px-3 py-1 text-[11px] font-semibold text-[#D4A652] hover:bg-[#D4A652]/20 transition"
+                    >
+                      Set length
+                    </button>
+                    {durationSec !== undefined && (
+                      <span className="text-[11px] font-medium text-[#ECE9E1]">→ {durationShortLabel(durationSec)}</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Tone Selection */}

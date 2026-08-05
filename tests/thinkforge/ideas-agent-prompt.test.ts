@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { IdeasAgent } from '@/lib/thinkforge/agents/ideas-agent';
+import { IdeasAgent, deriveVideoDurationPolicy } from '@/lib/thinkforge/agents/ideas-agent';
 import { ChatAgent } from '@/lib/thinkforge/agents/chat-agent';
 import { formatSystemBrief, type RetrievedContext } from '@/lib/thinkforge/context';
 
@@ -362,5 +362,111 @@ describe('IdeasAgent prompt contract', () => {
 
     expect(brief).toContain('## Relevant Saved Facts');
     expect(brief).not.toContain('Global Knowledge Vault');
+  });
+
+  it('derives a long/short duration policy from a stated length only', () => {
+    const longSpecies = ['i need to make a 7 min video', 'a 10-minute video about X', '2 hour documentary', 'long-form explainer', 'documentary about the topic'];
+    for (const p of longSpecies) {
+      const policy = deriveVideoDurationPolicy(p);
+      expect(policy.longFormRequested).toBe(true);
+      expect(policy.shortFormRequested).toBe(false);
+    }
+
+    const shortSpecies = ['make a 30 second video', 'a 20 sec reel', 'short-form clip', 'TikTok short'];
+    for (const p of shortSpecies) {
+      const policy = deriveVideoDurationPolicy(p);
+      expect(policy.longFormRequested).toBe(false);
+      expect(policy.shortFormRequested).toBe(true);
+    }
+
+    expect(deriveVideoDurationPolicy('i need to make a 7 min video with this topic')).toEqual({
+      requestedDurationSec: 420,
+      durationLabel: '7-minute',
+      longFormRequested: true,
+      shortFormRequested: false,
+    });
+    expect(deriveVideoDurationPolicy('make a 30 second video')?.requestedDurationSec).toBe(30);
+    expect(deriveVideoDurationPolicy('snappy punchy video')?.longFormRequested).toBe(false);
+
+    const halfHour = deriveVideoDurationPolicy('half an hour video');
+    expect(halfHour.requestedDurationSec).toBe(1800);
+    expect(halfHour.longFormRequested).toBe(true);
+    const hour = deriveVideoDurationPolicy('an hour deep dive');
+    expect(hour.requestedDurationSec).toBe(3600);
+    expect(hour.longFormRequested).toBe(true);
+    const feature = deriveVideoDurationPolicy('feature-length documentary');
+    expect(feature.longFormRequested).toBe(true);
+    expect(feature.shortFormRequested).toBe(false);
+    expect(feature.requestedDurationSec).toBeUndefined();
+    const underMinute = deriveVideoDurationPolicy('under a minute clip');
+    expect(underMinute.requestedDurationSec).toBe(60);
+    expect(underMinute.shortFormRequested).toBe(true);
+    expect(underMinute.longFormRequested).toBe(false);
+  });
+
+  it('enforces a stated long duration: "7 min video" never stays "Short video script"', async () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const agent = new IdeasAgent(undefined, {
+      embeddingProvider: async () => null,
+    });
+    const makeIdea = (tag: string) => ({
+      id: `idea_${tag}`,
+      idea: `${tag} angle on this topic`,
+      purpose: `Unique ${tag} purpose for the brief`,
+      style: `style-${tag}`,
+      format: 'Short video script',
+      platform: 'YouTube',
+      tone: 'blue' as const,
+    });
+    const tags = ['Historical', 'Data-driven', 'Story-first', 'Problem-scale'];
+    const runStructured = vi.fn().mockResolvedValueOnce({
+      result: { ideas: tags.map(makeIdea) },
+      metadata: {},
+    });
+    (agent as unknown as { runStructured: typeof runStructured }).runStructured = runStructured;
+
+    const ideas = await agent.generateIdeas('i need to make a 7 min video with this topic');
+
+    expect(runStructured).toHaveBeenCalledTimes(1);
+    for (const idea of ideas) {
+      expect(idea.format).toBe('7-minute video script');
+      expect(idea.format).not.toMatch(/short video|reel/i);
+      expect(idea.durationSec).toBe(420);
+      expect(idea.platform).toBe('YouTube');
+    }
+  });
+
+  it('keeps a 30-second request short and surfaces the duration', async () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const agent = new IdeasAgent(undefined, {
+      embeddingProvider: async () => null,
+    });
+    const specs = [
+      { tag: 'Countdown', title: 'The Countdown Hook', purpose: 'Leads with urgency in three beats.' },
+      { tag: 'Audience', title: 'Name the Viewers Fear', purpose: 'Calls out what users privately worry about.' },
+      { tag: 'Mistake', title: 'The Common Mistake', purpose: 'Shows what to avoid with a real example.' },
+      { tag: 'Verdict', title: 'The Final Verdict', purpose: 'Gives a definitive rating to close the clip.' },
+    ];
+    const makeIdea = (s: { tag: string; title: string; purpose: string }) => ({
+      id: `idea_${s.tag}`,
+      idea: s.title,
+      purpose: s.purpose,
+      style: `clip-style-${s.tag}`,
+      format: 'Reel script',
+      platform: 'TikTok',
+      tone: 'red' as const,
+    });
+    const runStructured = vi.fn().mockResolvedValueOnce({
+      result: { ideas: specs.map(makeIdea) },
+      metadata: {},
+    });
+    (agent as unknown as { runStructured: typeof runStructured }).runStructured = runStructured;
+
+    const ideas = await agent.generateIdeas('make a 30 second TikTok video about this topic');
+
+    expect(ideas[0].durationSec).toBe(30);
+    expect(ideas[0].platform).toBe('TikTok');
+    expect(ideas[0].format).toBe('Reel script');
+    expect(ideas[0].format).not.toMatch(/\b7-minute\b/);
   });
 });

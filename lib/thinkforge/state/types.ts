@@ -30,6 +30,7 @@ export interface IdeaCardData {
   format: string;
   platform: string;
   tone: string;
+  durationSec?: number;
   sessionName?: string;
   brandId?: string;
   brandBrief?: string;
@@ -52,6 +53,7 @@ export interface ProjectMeta {
   contentContract?: ThinkForgeDocumentContract;
   platform?: string;
   tone?: string;
+  durationSec?: number;
   sessionName?: string;
   brandId?: string;
   brandBrief?: string;

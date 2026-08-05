@@ -110,6 +110,7 @@ export default function IdeationMode({
               format: selectedIdea.format,
               platform: selectedIdea.platform,
               tone: selectedIdea.tone as any,
+              durationSec: selectedIdea.durationSec,
               sessionName: selectedIdea.sessionName,
               originalPrompt: selectedIdea.originalPrompt,
               brandBrief: selectedIdea.brandBrief
