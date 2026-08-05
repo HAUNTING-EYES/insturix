@@ -35,6 +35,55 @@ describe('adaptive cut post-process (R0)', () => {
     expect(result.cuts[0]).toMatchObject({ tMs: 212_212, sceneScore: 0.43847 });
   });
 
+  it('collapses the KOLD 120.787 lavender camera-drift pair 2 -> 1', () => {
+    // Frame-verified 2026-08-05: both ±100ms frames showed the SAME lavender shot
+    // with only camera drift - not a cut. The pair sits in one weak burst (max 0.348),
+    // so the adaptive pass collapses it to the single strongest boundary. (A human then
+    // removed even that rep from the annotation because it is drift, not a transition.)
+    const cluster = [
+      { tMs: 120_787, sceneScore: 0.34824 },
+      { tMs: 120_912, sceneScore: 0.330817 },
+    ];
+    const result = mergeCloseCuts(cluster);
+
+    expect(result.before).toBe(2);
+    expect(result.after).toBe(1);
+    expect(result.merges).toBe(1);
+    expect(result.cuts).toEqual([{ tMs: 120_787, sceneScore: 0.34824 }]);
+  });
+
+  it('collapses the KOLD 32s metalwork->Taj whip cluster 3 -> 1', () => {
+    // Frame-verified 2026-08-05: ornate metalwork -> whip-pan blur -> Taj Mahal shot.
+    // One real transition into a new shot; detector fired 3x on the blur (max 0.386).
+    const cluster = [
+      { tMs: 32_157, sceneScore: 0.339933 },
+      { tMs: 32_282, sceneScore: 0.320085 },
+      { tMs: 32_407, sceneScore: 0.385509 },
+    ];
+    const result = mergeCloseCuts(cluster);
+
+    expect(result.before).toBe(3);
+    expect(result.after).toBe(1);
+    expect(result.merges).toBe(1);
+    expect(result.cuts).toEqual([{ tMs: 32_407, sceneScore: 0.385509 }]);
+  });
+
+  it('collapses the Collatz 1066.9 static-hold pair 2 -> 1', () => {
+    // Frame-verified 2026-08-05: cuts at 1066.90/1066.94 (40ms apart) fire at the
+    // START of a ~800ms STATIC graphic hold (frames 1066.7->1067.5 byte-identical).
+    // One transition into the held frame; the extra 1066.94 is a false positive.
+    const cluster = [
+      { tMs: 1_066_900, sceneScore: 0.428559 },
+      { tMs: 1_066_940, sceneScore: 0.352177 },
+    ];
+    const result = mergeCloseCuts(cluster);
+
+    expect(result.before).toBe(2);
+    expect(result.after).toBe(1);
+    expect(result.merges).toBe(1);
+    expect(result.cuts).toEqual([{ tMs: 1_066_900, sceneScore: 0.428559 }]);
+  });
+
   it('keeps EVERY member of a real rapid montage cluster that has a strong cut', () => {
     // The Egg 355-360s montage: 29 cuts, span 2840ms, max 0.861 -> all real.
     const montage = Array.from({ length: 29 }, (_, i) => ({
