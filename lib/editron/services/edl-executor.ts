@@ -1103,7 +1103,7 @@ export async function executeEDL(
   // explicit authority disposition; a failed pre-pass cannot silently license free-form codegen.
   if (isLiveMgCodegenEnabled() && !options.deferMgDesign) {
     try {
-      projectSignalContext.mgDesignAuthority = await runMgDesignPrepass(actionable, overlays, projectSignalContext, graphicsDensity, canvasDimensions);
+      projectSignalContext.mgDesignAuthority = await runMgDesignPrepass(actionable, overlays, projectSignalContext, graphicsDensity, canvasDimensions, { shadowTarget: { projectId, userId } });
       const dispositions = [...projectSignalContext.mgDesignAuthority.dispositions.values()];
       result.mgDesignSummary = {
         attempts: projectSignalContext.mgDesignAuthority.attempts,
@@ -4272,6 +4272,7 @@ async function runMgDesignPrepass(
   projectSignalContext: EDLSignalContext,
   graphicsDensity: 'heavy' | 'moderate' | 'minimal' | undefined,
   canvas: { width: number; height: number },
+  options: { shadowTarget?: { projectId: string; userId: string } } = {},
 ): Promise<MgDesignPrepassResult<EditDecision>> {
   const { brandToKit } = await import('@/lib/editron/motion-graphics/codegen/brand-mapper');
   const mappedBrand = brandToKit(projectSignalContext.codegenBrand);
@@ -4373,6 +4374,16 @@ async function runMgDesignPrepass(
     brandMotionEnergy: mappedBrand.brand.motion.energy,
     preference: projectSignalContext.motionGraphicsPref,
   });
+  // Phase 2 (brief cycle-1 #3): VideoTasteContract in SHADOW — flag-gated, non-fatal, never changes live behavior.
+  if (options.shadowTarget) {
+    const { maybePersistTasteContractShadow } = await import('@/lib/editron/motion-graphics/codegen/taste/shadow');
+    await maybePersistTasteContractShadow(options.shadowTarget.projectId, options.shadowTarget.userId, {
+      brand: mappedBrand.isDefault ? null : mappedBrand.brand,
+      hasConfiguredBrand: projectSignalContext.hasConfiguredBrand,
+      intent: projectSignalContext.intent,
+      videoSignals: projectSignalContext.videoSignals,
+    }).catch(() => undefined);
+  }
   if (budget.maxMoments === 0) {
     return uniformMgDesignAuthority(
       beats.map((beat) => beat.key),
