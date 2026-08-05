@@ -74,6 +74,35 @@ const fakeGen = (text: string): MgDesignerGenerate => vi.fn(async (parts) => (
   isDesignReview(parts) ? acceptedReviewFor(parts) : text
 ));
 
+const rejectingReviewFor = (parts: Parameters<MgDesignerGenerate>[0], opts: { packageFailure?: boolean } = {}): string => {
+  const payload = parts.find((part) => part.kind === 'text' && part.text.includes('<design_plan>'));
+  const match = payload?.kind === 'text' ? payload.text.match(/<design_plan>([\s\S]*?)<\/design_plan>/) : null;
+  if (!match) throw new Error('reject-review fixture did not receive the reviewed plan');
+  const plan = JSON.parse(match[1]) as MgVideoDesignPlan;
+  return JSON.stringify({
+    accepted: false,
+    packageFailures: { repetitiveWithinVideo: opts.packageFailure ?? false },
+    moments: plan.moments.map((entry) => ({
+      momentId: entry.momentId,
+      accepted: false,
+      hardFailures: {
+        decorativeFormOnly: true,
+        primitiveChecklist: false,
+        genericPrimitiveStack: true,
+        missingVisualEncoding: false,
+        flatHierarchy: false,
+        decorativeMotionOnly: false,
+        footageConflict: false,
+      },
+      issues: ['lone rule and a dot — decorative primitives, not a composed visual system'],
+    })),
+    issues: opts.packageFailure ? ['repetitive within video'] : [],
+  });
+};
+const fakeReviewReject = (text: string, opts?: { packageFailure?: boolean }): MgDesignerGenerate => (
+  vi.fn(async (parts) => (isDesignReview(parts) ? rejectingReviewFor(parts, opts) : text))
+);
+
 describe('runDesignPrepass — video-level design authority ledger', () => {
   it('★ maps each designed moment back to its opaque key (the decision reference)', async () => {
     const plan: MgVideoDesignPlan = { brief, moments: [designedMoment('b0'), designedMoment('b1')], declined: [] };
@@ -97,6 +126,36 @@ describe('runDesignPrepass — video-level design authority ledger', () => {
     expect(r.dispositions.get(keyA)).toMatchObject({ status: 'unavailable', reason: expect.any(String) });
     expect(r.dispositions.get(keyB)).toMatchObject({ status: 'unavailable', reason: expect.any(String) });
     expect(r.reason).toBeTruthy();
+  });
+
+  it('★ a critic reject of ALL designed moments salvages to honest per-moment DECLINED — never unavailable (live-repro: 240-char fix + one-bad-plan-kills-everything trap)', async () => {
+    // Mirrors the live vlogbrothers run: designer designs ONE beat; the plan critic rejects it
+    // (decorativeFormOnly / genericPrimitiveStack). Fix: per-moment decline with the critic reason,
+    // not a wholesale "video-level designer unavailable" that voids every beat.
+    const plan: MgVideoDesignPlan = {
+      brief,
+      moments: [designedMoment('b0')],
+      declined: [{ momentId: 'b1', reason: 'already on screen' }],
+    };
+    const r = await runDesignPrepass({ beats, videoStyle, brand: INSTURIX, budget }, {
+      generate: fakeReviewReject(JSON.stringify(plan)),
+      maxAttempts: 1,
+    });
+    expect(r.dispositions.size).toBe(2);
+    expect(r.dispositions.get(keyA)?.status).toBe('declined');
+    expect(r.dispositions.get(keyA)).toMatchObject({ reason: expect.stringContaining('decorative') });
+    expect(r.dispositions.get(keyB)).toEqual({ status: 'declined', reason: 'already on screen' });
+    expect([...r.dispositions.values()].every((d) => d.status !== 'unavailable')).toBe(true);
+  });
+
+  it('a true PACKAGE failure still voids the session to unavailable (designer/quality rejection ≠ system failure, but package ≠ decline)', async () => {
+    const plan: MgVideoDesignPlan = { brief, moments: [designedMoment('b0'), designedMoment('b1')], declined: [] };
+    const r = await runDesignPrepass({ beats, videoStyle, brand: INSTURIX, budget }, {
+      generate: fakeReviewReject(JSON.stringify(plan), { packageFailure: true }),
+      maxAttempts: 1,
+    });
+    expect(r.dispositions.get(keyA)).toMatchObject({ status: 'unavailable' });
+    expect(r.dispositions.get(keyB)).toMatchObject({ status: 'unavailable' });
   });
 
   it('no beats → empty map, zero attempts, no model call', async () => {

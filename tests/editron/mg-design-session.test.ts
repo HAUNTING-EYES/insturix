@@ -197,7 +197,7 @@ describe('MG design-quality ownership', () => {
     expect(retryFeedback).toContain('headline plus underline');
   });
 
-  it('does not salvage a structurally valid plan that repeatedly fails design quality', async () => {
+  it('★ a repeated per-moment design-quality rejection salvages to an honest ALL-DECLINED plan (never unavailable)', async () => {
     const gen = fakeGen([
       JSON.stringify(validPlan),
       rejectedReview,
@@ -207,8 +207,12 @@ describe('MG design-quality ownership', () => {
 
     const result = await runVideoDesignSession({ designer, contexts }, { generate: gen });
 
-    expect(result.plan).toBeNull();
-    expect(result.reason).toContain('design-quality review rejected');
+    // Not plan:null → not a system-level 'unavailable'. The single designed beat is honestly DECLINED with its
+    // critic reason so the pre-pass records a per-moment decline (brief §7.2), exactly the live-repro fix.
+    expect(result.plan).not.toBeNull();
+    expect(result.plan!.moments).toHaveLength(0);
+    expect(result.plan!.declined.some((d) => d.momentId === 'b0' && /does not visually explain|decorative/.test(d.reason))).toBe(true);
+    expect(result.reason).toContain('quality-salvaged');
     expect(result.attempts).toBe(2);
   });
 

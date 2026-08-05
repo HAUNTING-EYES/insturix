@@ -235,7 +235,11 @@ function salvageQualityReviewedPlan(
   budget: { maxMoments: number } | undefined,
   review: Exclude<DesignReviewResult, { accepted: true }>,
 ): { plan: MgVideoDesignPlan; dropped: string[] } | null {
-  if (review.packageRejected || review.acceptedMomentIds.length === 0) return null;
+  // Fail-honest isolation (brief §7.2): a COMPLETE per-moment critic review with ZERO accepted must not void the
+  // whole video into `unavailable`. Emit an all-declined plan (each designed-but-rejected beat declined with its
+  // critic reason) so the pre-pass records per-moment DECLINED — a designer/quality rejection is a DECLINE (fail
+  // honest), never a system-level failure. Only a package failure (or structurally broken plan) stays unavailable.
+  if (review.packageRejected) return null;
   const accepted = new Set(review.acceptedMomentIds);
   const rejectedReasons = new Map(review.rejectedMoments.map((moment) => [moment.momentId, moment.reason]));
   const kept = plan.moments.filter((moment) => accepted.has(moment.momentId));
@@ -359,11 +363,11 @@ export async function runVideoDesignSession(
       budget ? { maxMoments: budget.maxMoments } : undefined,
       lastQualityReview,
     );
-    if (salvaged && salvaged.plan.moments.length > 0) {
+    if (salvaged) {
       return {
         plan: salvaged.plan,
         attempts: maxAttempts,
-        reason: `quality-salvaged: kept ${salvaged.plan.moments.length}, dropped ${salvaged.dropped.length}${salvaged.dropped.length ? ` [${salvaged.dropped.join(', ')}]` : ''}`,
+        reason: `quality-salvaged: kept ${salvaged.plan.moments.length}, declined ${salvaged.dropped.length}${salvaged.dropped.length ? ` [${salvaged.dropped.slice(0, 5).join(', ')}]` : ''}`,
       };
     }
   }
