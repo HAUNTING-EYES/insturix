@@ -46,11 +46,15 @@ export const SILENCE_MEASUREMENT_VERSION = 'editron-r2-silence-v1' as const;
 export const DEFAULT_HOP_MS = 20;
 /** Window for each RMS sample (ms). ⚠️ INVENTED — matches hop; fine for gaps ≥ minSilence. */
 export const DEFAULT_WINDOW_MS = 20;
-/** A silent run shorter than this (ms) is noise, not silence. ⚠️ INVENTED — tune on real refs. */
-export const DEFAULT_MIN_SILENCE_MS = 300;
-/** A window is silent when its RMS < factor × file-median RMS. ⚠️ INVENTED — 0.25 gives
- *  ~12dB clearance below median content while staying above pure noise. */
-export const DEFAULT_SILENCE_RMS_FACTOR = 0.25;
+/** A silent run shorter than this (ms) is noise, not silence. Measured on the real
+ *  corpus vs the ffmpeg silencedetect oracle: 500ms beats 300ms/800ms (meanF1 0.634
+ *  vs 0.556/0.579 on 20 real reference videos). */
+export const DEFAULT_MIN_SILENCE_MS = 500;
+/** A window is silent when its RMS < factor × file-median RMS. Calibrated on the real
+ *  corpus vs the ffmpeg silencedetect oracle: 0.05 beats 0.25 by a wide margin (real
+ *  silence is far quieter relative to median than guessed). ⚠️ informative-video meanF1
+ *  0.367 — windows land in the right region but oracle start-point alignment differs. */
+export const DEFAULT_SILENCE_RMS_FACTOR = 0.05;
 
 export interface MeasureSilenceOptions {
   hopMs?: number;
