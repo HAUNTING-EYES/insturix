@@ -389,10 +389,12 @@ Generate 4 ideas now.`;
       finalResult = repaired.result;
     }
 
-    // Intent detection for platform enforcement
+    // Intent detection for platform enforcement. VIDEO_INTENT_WORDS covers explicit video words
+    // plus long-form video nouns (documentary/explainer/tutorial/film…) so a "7 minute documentary"
+    // is treated as video — never silently left as a short card.
     const lower = prompt.toLowerCase();
     const isPostIntent = /\b(post|article|blog|essay|thread|newsletter|write|linkedin|twitter|tweet|medium)\b/.test(lower);
-    const isVideoIntent = /\b(video|reel|short|tiktok|youtube|vlog|film|clip|skit)\b/.test(lower);
+    const isVideoIntent = /\b(video|reels?|shorts?|tiktok|youtube|vlog|film|clip|skit|documentary|explainer|tutorial|walkthrough|demo|trailer|episode|feature|movie)\b/.test(lower);
 
     const platformMap: Record<string, string> = {
       linkedin: 'LinkedIn', twitter: 'Twitter/X', tweet: 'Twitter/X',
@@ -406,18 +408,25 @@ Generate 4 ideas now.`;
     const textPlatforms = new Set(['LinkedIn', 'Twitter/X', 'Medium', 'Blog', 'Newsletter', 'Reddit', 'Facebook']);
     const videoPlatforms = new Set(['YouTube', 'TikTok', 'Instagram', 'Facebook']);
 
-    // Post wins when both match — "post for a video editing tool" is a post
+    // Medium intent: post wins when both appear ("post for a video tool" = post),
+    // EXCEPT explicit video-essay compounds that are video deliverables, never posts.
+    const isVideoEssay = /\b(video|film)\s+essay\b/.test(lower);
+    const intendedMedium: 'text' | 'video' | null =
+      isVideoEssay ? 'video'
+      : isPostIntent ? 'text'
+      : isVideoIntent ? 'video'
+      : null;
+
+    // Platforms follow the same medium decision so a video-essay resolves to a video platform.
     const allowedPlatforms = lockedPlatform
       ? new Set([lockedPlatform])
-      : isPostIntent
+      : intendedMedium === 'text'
         ? textPlatforms
-        : isVideoIntent
+        : intendedMedium === 'video'
           ? videoPlatforms
           : null; // null = all allowed
-
-    // Medium intent: post wins when both appear ("post for a video tool" = post).
-    const intendedMedium: 'text' | 'video' | null = isPostIntent ? 'text' : isVideoIntent ? 'video' : null;
     const VIDEO_FORMAT = /\b(video|reels?|shorts?|vlog|clip|skit|film|tiktok|youtube)\b/i;
+    const VIDEO_CUE = /\b(video|reels?|shorts?|vlog|clip|skit|film|documentary|explainer|tutorial|walkthrough|demo|trailer|episode|feature|movie|tiktok|youtube)\b/i;
     const fallbackPlatform = allowedPlatforms ? [...allowedPlatforms][0] : null;
 
     // Duration-aware format enforcement. The prompt (rule 11) makes the model honor an
@@ -446,8 +455,16 @@ Generate 4 ideas now.`;
         format = `${platform} post`;
       }
 
+      // Every card is a "video product" when the medium is video, OR the model produced a
+      // video-y format, OR it landed on a video platform. This catches prompts whose only
+      // video cue is, e.g., "documentary"/"explainer" or a video platform chosen by the model.
+      const mediaIsVideo =
+        intendedMedium === 'video'
+        || VIDEO_CUE.test(format)
+        || platform === 'YouTube' || platform === 'TikTok' || platform === 'Instagram' || platform === 'Facebook';
+
       // Honor the explicitly stated length: a long-form request never stays "short video".
-      if (intendedMedium === 'video') {
+      if (mediaIsVideo) {
         const shortMarked = SHORT_VIDEO_MARKER.test(format);
         if (durationPolicy.longFormRequested) {
           if (shortMarked) {
@@ -478,7 +495,7 @@ Generate 4 ideas now.`;
         idea: stripPlaceholders(idea.idea),
         purpose: stripPlaceholders(idea.purpose),
         style: stripPlaceholders(idea.style),
-        ...(durationPolicy.requestedDurationSec !== undefined
+        ...(mediaIsVideo && durationPolicy.requestedDurationSec !== undefined
           ? { durationSec: durationPolicy.requestedDurationSec }
           : {}),
       };

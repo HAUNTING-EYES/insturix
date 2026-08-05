@@ -469,4 +469,93 @@ describe('IdeasAgent prompt contract', () => {
     expect(ideas[0].format).toBe('Reel script');
     expect(ideas[0].format).not.toMatch(/\b7-minute\b/);
   });
+
+  it('battery: never ships a short-form card for any long-form phrasing, whatever the wording', async () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+
+    const runFor = async (prompt: string) => {
+      const agent = new IdeasAgent(undefined, { embeddingProvider: async () => null });
+      const tags = ['Historical', 'Data-driven', 'Story-first', 'Problem-scale'];
+      const makeIdea = (tag: string) => ({
+        id: `idea_${tag}`,
+        idea: `${tag} angle on this topic`,
+        purpose: `Unique ${tag} purpose for the brief`,
+        style: `style-${tag}`,
+        format: 'Short video script',
+        platform: 'YouTube',
+        tone: 'blue' as const,
+      });
+      const runStructured = vi.fn().mockResolvedValueOnce({
+        result: { ideas: tags.map(makeIdea) },
+        metadata: {},
+      });
+      (agent as unknown as { runStructured: typeof runStructured }).runStructured = runStructured;
+      const ideas = await agent.generateIdeas(prompt);
+      expect(runStructured).toHaveBeenCalledTimes(1);
+      return ideas[0];
+    };
+
+    const longCases: Array<{ prompt: string; label: string; durationSec: number }> = [
+      { prompt: 'i need to make a 7 min video with this topic', label: '7-minute', durationSec: 420 },
+      { prompt: 'make a 10-minute YouTube video about SEO', label: '10-minute', durationSec: 600 },
+      { prompt: 'produce a 2 hour documentary about startup failures', label: '2-hour', durationSec: 7200 },
+      { prompt: 'create a 5 minute explainer on how APIs work', label: '5-minute', durationSec: 300 },
+      { prompt: 'i want a 7-min-long vlog on my trip', label: '7-minute', durationSec: 420 },
+      { prompt: 'make a half an hour feature about AI', label: '30-minute', durationSec: 1800 },
+      { prompt: 'a 3 minute tutorial for beginners', label: '3-minute', durationSec: 180 },
+      { prompt: 'make a 15 minute video essay', label: '15-minute', durationSec: 900 },
+    ];
+    for (const c of longCases) {
+      const idea = await runFor(c.prompt);
+      expect(idea.format.toLowerCase()).toContain(c.label);
+      expect(idea.format).not.toMatch(/\b(short|shorts?|reel)\b/i);
+      expect(idea.durationSec).toBe(c.durationSec);
+      expect(idea.platform).toBe('YouTube');
+    }
+
+    const shortReel = await runFor('make a 30 second reel');
+    expect(shortReel.durationSec).toBe(30);
+    expect(shortReel.format).not.toMatch(/\b(7-minute|long-form)\b/i);
+
+    const noLength = await runFor('make a video about this topic');
+    expect(noLength.format).toBe('Short video script');
+    expect(noLength.durationSec).toBeUndefined();
+  });
+
+  it('battery: leaves text requests untouched — never forced into video', async () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+
+    const runFor = async (prompt: string, modelFormat: string, modelPlatform: string) => {
+      const agent = new IdeasAgent(undefined, { embeddingProvider: async () => null });
+      const tags = ['Historical', 'Data-driven', 'Story-first', 'Problem-scale'];
+      const makeIdea = (tag: string) => ({
+        id: `idea_${tag}`,
+        idea: `${tag} angle on this topic`,
+        purpose: `Unique ${tag} purpose for the brief`,
+        style: `style-${tag}`,
+        format: modelFormat,
+        platform: modelPlatform,
+        tone: 'blue' as const,
+      });
+      const runStructured = vi.fn().mockResolvedValueOnce({
+        result: { ideas: tags.map(makeIdea) },
+        metadata: {},
+      });
+      (agent as unknown as { runStructured: typeof runStructured }).runStructured = runStructured;
+      const ideas = await agent.generateIdeas(prompt);
+      return ideas[0];
+    };
+
+    const post = await runFor('create LinkedIn post ideas about content operations', 'LinkedIn post', 'LinkedIn');
+    expect(post.format).toBe('LinkedIn post');
+    expect(post.durationSec).toBeUndefined();
+
+    const article = await runFor('write a blog article about content ops', 'Blog article', 'Blog');
+    expect(article.format).toBe('Blog article');
+    expect(article.durationSec).toBeUndefined();
+
+    const newsletter = await runFor('draft a 5 minute read newsletter', 'Newsletter', 'Newsletter');
+    expect(newsletter.format).toBe('Newsletter');
+    expect(newsletter.durationSec).toBeUndefined();
+  });
 });
