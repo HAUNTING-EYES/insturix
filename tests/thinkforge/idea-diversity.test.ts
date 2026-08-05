@@ -20,6 +20,18 @@ describe('ThinkForge idea diversity', () => {
     expect(deriveIdeaGenerationSeed(3, 0)).not.toBe(deriveIdeaGenerationSeed(4, 0));
   });
 
+  it('stays within the Gemini signed-INT32 seed range for every regenerate/repair attempt', () => {
+    // generation_config.seed is INT32; unsigned FNV-1a hashes >2^31-1 cause 400 INVALID_ARGUMENT.
+    const INT32_MAX = 2147483647;
+    for (let variation = 0; variation <= 1000; variation += 1) {
+      for (const attempt of [0, 1]) {
+        const seed = deriveIdeaGenerationSeed(variation, attempt);
+        expect(seed).toBeGreaterThanOrEqual(0);
+        expect(seed).toBeLessThanOrEqual(INT32_MAX);
+      }
+    }
+  });
+
   it('detects semantic paraphrases even when lexical overlap is low', async () => {
     const ideas = [
       { title: 'Review Queue Gridlock', purpose: 'Show why client work waits for sign-off.' },
