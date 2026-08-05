@@ -6,9 +6,11 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildReferenceCanonicalEnvelope,
   demuxReferenceVideo,
   ReferenceDemuxError,
   DEMUX_RECEIPT_VERSION,
+  REFERENCE_ENVELOPE_VERSION,
 } from '@/lib/editron/reference-video/reference-demux';
 
 type FakeProcess = EventEmitter & {
@@ -150,3 +152,61 @@ describe('R1-A canonical demux', () => {
     }
   });
 });
+
+describe('R1-B canonical reference envelope', () => {
+  const receipt = {
+    version: DEMUX_RECEIPT_VERSION,
+    referenceAssetId: 'ref_abc123',
+    userId: 'user_1',
+    createdAt: '2026-08-05T00:00:00.000Z',
+    durationMs: 12_345,
+    video: {
+      key: 'r2/v.mp4',
+      size: 100,
+      contentType: 'video/mp4',
+      sha256: 'a'.repeat(64),
+    },
+    audio: {
+      key: 'r2/a.m4a',
+      size: 200,
+      contentType: 'audio/mp4',
+      sha256: 'b'.repeat(64),
+      present: true,
+    },
+    source: {
+      path: '/tmp/src.mp4',
+      kind: 'asset' as const,
+      label: 'Match Edit Ref',
+      sourceSha256: 'c'.repeat(64),
+    },
+  };
+
+  it('builds a v1 envelope from a demux receipt (audio present)', () => {
+    const envelope = buildReferenceCanonicalEnvelope(receipt, 'preview-waveform-only');
+    expect(envelope.version).toBe(REFERENCE_ENVELOPE_VERSION);
+    expect(envelope.contentHash).toBe('c'.repeat(64));
+    expect(envelope.audioUsageMode).toBe('preview-waveform-only');
+    expect(envelope.demux).toEqual({
+      version: DEMUX_RECEIPT_VERSION,
+      demuxedAt: '2026-08-05T00:00:00.000Z',
+      durationMs: 12_345,
+      videoSha256: 'a'.repeat(64),
+      audioSha256: 'b'.repeat(64),
+      audioPresent: true,
+    });
+  });
+
+  it('carries the export-attested audio usage mode through (Constraint #7)', () => {
+    const envelope = buildReferenceCanonicalEnvelope(receipt, 'export-attested');
+    expect(envelope.audioUsageMode).toBe('export-attested');
+    expect(envelope.demux?.audioPresent).toBe(true);
+  });
+
+  it('produces null audio fields when the receipt has no audio track', () => {
+    const noAudio = { ...receipt, audio: null };
+    const envelope = buildReferenceCanonicalEnvelope(noAudio, 'preview-waveform-only');
+    expect(envelope.demux?.audioPresent).toBe(false);
+    expect(envelope.demux?.audioSha256).toBeNull();
+  });
+});
+
