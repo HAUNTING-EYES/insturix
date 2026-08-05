@@ -312,11 +312,11 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
               <div className="mt-3">
                 <Label htmlFor="ae-reference" className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">
                   Reference video (match this style)
-                  <span className="ml-1 text-[#454340] normal-case tracking-normal">(optional — YouTube or direct video URL)</span>
+                  <span className="ml-1 text-[#454340] normal-case tracking-normal">(optional — YouTube, Instagram, or direct video URL)</span>
                 </Label>
                 <Textarea
                   id="ae-reference"
-                  placeholder="e.g. https://www.youtube.com/watch?v=... or https://example.com/clip.mp4"
+                  placeholder="e.g. https://www.youtube.com/watch?v=... , reels link, or https://example.com/clip.mp4"
                   value={referenceVideoUrl}
                   onChange={(e) => setReferenceVideoUrl(e.target.value)}
                   rows={1}
