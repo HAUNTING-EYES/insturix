@@ -32,6 +32,11 @@ export interface MgDensityBudgetInput {
   beatCount: number;
   /** Verified numeric facts the enricher attached across beats (integer ≥ 0) — CKG's entity_number_count. */
   numericEvidenceCount: number;
+  /** Narrative/abstract (concept) beats available to license — expressive talks are as license-worthy as numeric
+   *  facts (founder: "MG need not be numbers, it can be abstract stuff"). Optional — default 0 ⇒ no behavior change
+   *  for callers that don't offer narrative beats. ⚠ INVENTED weighting (treated 1:1 with numeric) — calibrate via
+   *  the Fix-0 harness before tuning further; env MG_DENSITY_RATE_BASE / MG_DENSITY_CEILING override the knobs. */
+  narrativeEvidenceCount?: number;
   /** Brand.motion.energy, 0..1 (finite) — the formality-inverse nudge. */
   brandMotionEnergy: number;
   /** The project's motionGraphics family preference; absent/undefined = 'auto' (absence means auto). */
@@ -55,6 +60,18 @@ const RESTRAINT_BASE = 2; // per-minute auto default ← half the evidence ceili
 const RATE_FLOOR = 0.5; // per-minute floor so ceil() licenses ≥1 on any non-vetoed clip with beats
 const MIN_SPACING_SEC = 3.0; // ← CKG time_since_last_graphic clutter threshold
 
+// ⚠ INVENTED overrides (Founder cater: raise MG volume incl. abstract beats). ⚠ tune via the Fix-0 harness.
+function densityRateBase(): number {
+  const raw = process.env.MG_DENSITY_RATE_BASE;
+  if (raw != null) { const n = Number(raw); if (Number.isFinite(n) && n > 0) return Math.min(RATE_RANGE_MAX, Math.max(RATE_FLOOR, n)); }
+  return RESTRAINT_BASE;
+}
+function densityCeiling(): number {
+  const raw = process.env.MG_DENSITY_CEILING;
+  if (raw != null) { const n = Number(raw); if (Number.isFinite(n) && n > 0) return Math.min(RATE_RANGE_MAX, Math.max(RATE_FLOOR, n)); }
+  return EVIDENCE_CEILING;
+}
+
 function assertFinite(name: string, value: number): void {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(`density-budget: ${name} must be a finite number, got ${String(value)}`);
@@ -75,6 +92,7 @@ export function computeMgDensityBudget(input: MgDensityBudgetInput): MgDensityBu
   if (input.durationSec <= 0) throw new Error(`density-budget: durationSec must be > 0, got ${input.durationSec}`);
   assertCount('beatCount', input.beatCount);
   assertCount('numericEvidenceCount', input.numericEvidenceCount);
+  assertCount('narrativeEvidenceCount', input.narrativeEvidenceCount ?? 0);
   assertFinite('brandMotionEnergy', input.brandMotionEnergy);
   const energy = clamp(input.brandMotionEnergy, 0, 1);
 
@@ -101,7 +119,7 @@ export function computeMgDensityBudget(input: MgDensityBudgetInput): MgDensityBu
 
   const durationMin = input.durationSec / 60;
   const brandNudge = energy - 0.5; // ±0.5/min, direction ← CKG formality modulator
-  const evidenceRate = input.numericEvidenceCount / durationMin; // ← CKG computedFrom
+  // evidence = numeric + narrative/abstract beats (see evidenceRateAll in the auto branch) // ← CKG computedFrom
 
   let rate: number;
   let derivation: string;
@@ -111,9 +129,11 @@ export function computeMgDensityBudget(input: MgDensityBudgetInput): MgDensityBu
     rate = clamp(RESTRAINT_BASE + 2 * frequency + brandNudge, RATE_FLOOR, RATE_RANGE_MAX);
     derivation = `prefer: base ${RESTRAINT_BASE} + freq ${frequency.toFixed(2)}×2 + brand ${brandNudge >= 0 ? '+' : ''}${brandNudge.toFixed(2)}`;
   } else {
-    // auto: restraint default, liftable by numeric evidence up to the evidence ceiling.
-    rate = clamp(Math.max(RESTRAINT_BASE + brandNudge, Math.min(evidenceRate, EVIDENCE_CEILING)), RATE_FLOOR, EVIDENCE_CEILING);
-    derivation = `auto: max(base ${RESTRAINT_BASE} + brand ${brandNudge >= 0 ? '+' : ''}${brandNudge.toFixed(2)}, evidence ${evidenceRate.toFixed(2)}/min capped ${EVIDENCE_CEILING})`;
+    // auto: restraint default, liftable by evidence (numeric AND/OR narrative/abstract beats) up to the ceiling.
+    const ceil = densityCeiling();
+    const evidenceRateAll = (input.numericEvidenceCount + (input.narrativeEvidenceCount ?? 0)) / durationMin;
+    rate = clamp(Math.max(densityRateBase() + brandNudge, Math.min(evidenceRateAll, ceil)), RATE_FLOOR, ceil);
+    derivation = `auto: max(base ${densityRateBase()} + brand ${brandNudge >= 0 ? '+' : ''}${brandNudge.toFixed(2)}, evidence ${evidenceRateAll.toFixed(2)}/min (numeric ${input.numericEvidenceCount} + narrative ${input.narrativeEvidenceCount ?? 0}) capped ${ceil})`;
   }
 
   const maxMoments = Math.min(Math.ceil(durationMin * rate), input.beatCount);
