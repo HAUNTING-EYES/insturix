@@ -112,6 +112,38 @@ export async function POST(request: Request) {
         { status: 404 }
       );
     }
+    // MG delivery integrity preflight (brief §16, Fix-4): an expected-but-undelivered codegen MG must NEVER silently
+    // vanish. This surfaces missingMGs; it NEVER inserts a plain card / deterministic replacement (non-negotiable
+    // §3.2/§3.3). strict → block; preview / degraded_allowed → proceed with the warning surfaced in `mgIntegrity`.
+    let mgIntegrity: unknown = null;
+    try {
+      const { computeMGRenderPreflight, renderIntegrityPolicy } = await import('@/lib/editron/motion-graphics/codegen/mg-delivery');
+      const mgPreflight = computeMGRenderPreflight(project as never, { policy: renderIntegrityPolicy() });
+      mgIntegrity = {
+        missingMGs: mgPreflight.missingMGs,
+        policy: mgPreflight.policy,
+        degraded: mgPreflight.degraded,
+        computedAt: mgPreflight.lastPreflightAt,
+      };
+      if (mgPreflight.missingMGs.length > 0) {
+        console.warn(
+          `[Render] MG preflight: ${mgPreflight.missingMGs.length} expected MG(s) undelivered (${mgPreflight.missingMGs.map((m: { jobId?: string }) => m.jobId).join(',')}); policy=${mgPreflight.policy}; NO replacement inserted.`,
+        );
+        if (mgPreflight.policy === 'strict') {
+          return NextResponse.json(
+            {
+              type: 'error',
+              code: 'MG_RENDER_INTEGRITY',
+              message: 'render blocked (strict): expected motion graphics not delivered before render',
+              missingMGs: mgPreflight.missingMGs,
+            },
+            { status: 409 },
+          );
+        }
+      }
+    } catch (preflightErr) {
+      console.warn('[Render] MG preflight unavailable (non-blocking):', preflightErr instanceof Error ? preflightErr.message : preflightErr);
+    }
     let resolvedProps = buildProjectRenderInputProps(project, inputProps || {});
     console.log(`[Render] Hydrated render props from project ${canonicalProjectId} (${project.overlays?.length || 0} overlays)`);
 
@@ -241,13 +273,16 @@ export async function POST(request: Request) {
         });
       }
 
+      const mgInt = mgIntegrity as { degraded?: boolean } | null;
+      const finalTracking: 'durable' | 'degraded' = mgInt?.degraded === true ? 'degraded' : trackingStatus;
       return NextResponse.json({
         type: 'success',
         data: {
           ...buildChapterRenderApiData({ jobId, region, chapters }),
           renderAdmissionId,
           deliveryManifest: renderDeliveryManifest!,
-          trackingStatus,
+          trackingStatus: finalTracking,
+          ...(mgIntegrity ? { mgIntegrity } : {}),
         },
       });
     }
@@ -324,6 +359,8 @@ export async function POST(request: Request) {
     }
 
     // Return the render ID and bucket info
+    const mgInt = mgIntegrity as { degraded?: boolean } | null;
+    const finalTracking: 'durable' | 'degraded' = mgInt?.degraded === true ? 'degraded' : trackingStatus;
     return NextResponse.json({
       type: 'success',
       data: {
@@ -333,7 +370,8 @@ export async function POST(request: Request) {
         functionName,
         deliveryManifest: renderDeliveryManifest!,
         renderAdmissionId,
-        trackingStatus,
+        trackingStatus: finalTracking,
+        ...(mgIntegrity ? { mgIntegrity } : {}),
         // Progress endpoint for polling
         progressUrl: `/api/services/editron/cloudrun/progress?renderId=${renderId}&bucketName=${bucketName}&region=${region}`,
       }

@@ -350,8 +350,12 @@ describe('production MG codegen runtime', () => {
     expect(parts[7].text).toContain('contrast-only stress sheet');
 
     const phaseImages = [parts[2], parts[4], parts[6]].map((part) => Buffer.from(part.inlineData.data, 'base64'));
+    const phaseMeta = await sharp(phaseImages[0]).metadata();
+    const phaseW = phaseMeta.width as number;
+    const phaseH = phaseMeta.height as number;
+    expect({ width: phaseW, height: phaseH }).toEqual({ width: 960, height: 540 });
     const phasePixels = await Promise.all(phaseImages.map((image) => sharp(image)
-      .extract({ left: 135, top: 152, width: 1, height: 1 })
+      .extract({ left: Math.round(phaseW * 0.25), top: Math.round(phaseH * 0.5), width: 1, height: 1 })
       .removeAlpha()
       .raw()
       .toBuffer()));
@@ -360,7 +364,7 @@ describe('production MG codegen runtime', () => {
     expect([...phasePixels[2]]).toEqual([0, 0, 255]);
 
     const footagePixels = await Promise.all(phaseImages.map((image) => sharp(image)
-      .extract({ left: 405, top: 152, width: 1, height: 1 })
+      .extract({ left: Math.round(phaseW * 0.75), top: Math.round(phaseH * 0.5), width: 1, height: 1 })
       .removeAlpha()
       .raw()
       .toBuffer()));
@@ -370,11 +374,11 @@ describe('production MG codegen runtime', () => {
 
     const stressSheet = Buffer.from(parts[8].inlineData.data, 'base64');
     const stressMetadata = await sharp(stressSheet).metadata();
-    expect({ width: stressMetadata.width, height: stressMetadata.height }).toEqual({ width: 1_080, height: 406 });
+    expect({ width: stressMetadata.width, height: stressMetadata.height }).toEqual({ width: 1_440, height: 540 });
     const backgroundPixels = await Promise.all([0, 1].map((row) => sharp(stressSheet)
       .extract({
-        left: 270,
-        top: row * 203 + 101,
+        left: 360,
+        top: row * 270 + 135,
         width: 1,
         height: 1,
       })
@@ -383,8 +387,10 @@ describe('production MG codegen runtime', () => {
       .toBuffer()));
     expect([...backgroundPixels[0]]).toEqual([17, 17, 17]);
     expect([...backgroundPixels[1]]).toEqual([242, 242, 242]);
-    expect(parts[0].text).toContain('JUDGE IMAGES 1-3 are sequential full composites');
-    expect(parts[0].text).toContain('final judge image is one contrast-only stress sheet');
+    // Fix-1 rubric rewrite: the judge now reads full composites + a LAST stress sheet; DETAIL crops (when a
+    // localized graphic earns them) are typography authorities only, never placement.
+    expect(parts[0].text).toContain('FULL COMPOSITES (labelled intro, build, settled hold)');
+    expect(parts[0].text).toContain('contrast-only stress sheet');
     await runtime.dispose();
   });
 
