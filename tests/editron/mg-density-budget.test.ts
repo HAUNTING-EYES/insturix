@@ -36,18 +36,6 @@ describe('computeMgDensityBudget', () => {
     expect(dense.maxMoments).toBeGreaterThan(sparse.maxMoments);
   });
 
-  it('narrative/abstract beats lift the auto rate like numeric facts (founder: MG need not be numbers)', () => {
-    const dense = computeMgDensityBudget({ ...base, narrativeEvidenceCount: 12 }); // 12/min narrative evidence
-    expect(dense.maxMoments).toBe(4); // capped at evidence ceiling 4/min × 1min
-    const sparse = computeMgDensityBudget({ ...base }); // no narrative offered
-    expect(dense.maxMoments).toBeGreaterThan(sparse.maxMoments);
-    expect(dense.rationale).toContain('narrative 12');
-  });
-
-  it('narrativeEvidenceCount defaults to 0 when omitted — existing restraint preserved', () => {
-    expect(computeMgDensityBudget({ ...base }).maxMoments).toBe(2);
-  });
-
   it("prefer: the user's frequency dial rules (0 → restraint, 1 → ceiling)", () => {
     const low = computeMgDensityBudget({ ...base, preference: { mode: 'prefer', frequency: 0 } });
     const high = computeMgDensityBudget({ ...base, preference: { mode: 'prefer', frequency: 1 } });

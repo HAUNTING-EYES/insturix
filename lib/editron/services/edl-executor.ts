@@ -4285,7 +4285,6 @@ async function runMgDesignPrepass(
   const fps = DEFAULT_CONFIG.timing.fps;
   const beats: MgDesignPrepassBeat<EditDecision>[] = [];
   let numericEvidenceCount = 0;
-  let narrativeEvidenceCount = 0;
   let beatIndex = 0;
 
   for (const decision of decisions) {
@@ -4332,7 +4331,6 @@ async function runMgDesignPrepass(
     const contentProps = listMgRenderableDataProps(selected);
     const numericProps = contentProps.filter(({ kind }) => kind === 'number').map(({ name }) => name);
     if (numericProps.length > 0) numericEvidenceCount += 1;
-    else if (selected.factKind === 'narrative' || selected.factKind === 'concept') narrativeEvidenceCount += 1;
     const momentId = `beat-${beatIndex++}`;
     const tier: MgDesignerMoment['tier'] = authority.qualityTier === 'suppressed' ? 'subtle' : authority.qualityTier;
     const sourceText = String(
@@ -4372,7 +4370,6 @@ async function runMgDesignPrepass(
     durationSec,
     beatCount: beats.length,
     numericEvidenceCount,
-    narrativeEvidenceCount,
     brandMotionEnergy: mappedBrand.brand.motion.energy,
     preference: projectSignalContext.motionGraphicsPref,
   });
