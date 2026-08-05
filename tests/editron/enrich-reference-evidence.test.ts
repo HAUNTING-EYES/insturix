@@ -80,6 +80,21 @@ describe('R2/R3 worker enrichment', () => {
     expect((layerConf?.audio as Record<string, unknown>)?.coordinateSpace).toBe('beat');
   });
 
+  it('normalizes a fingerprint into an R5 adaptive reference plan', async () => {
+    const primary = new Float32Array(32_000);
+    const out = await enrichReferenceWithMeasuredEvidence(input, {
+      fetchAudioBytes: async () => new Uint8Array(Buffer.from('fake-audio-bytes', 'utf8')),
+      decodeAudio: async () => ({ channelData: [primary], sampleRate: 16_000 }),
+      recognize: async () => null,
+    });
+    const plan = out.adaptivePlan as Record<string, unknown> | undefined;
+    expect(plan).toBeDefined();
+    const p = plan as { version?: string; referenceId?: string; rhythm?: { beatsMs?: unknown[] } };
+    expect(p.version).toMatch(/editron-r5-adaptive-plan/);
+    expect(p.referenceId).toBe('ref_canon_x');
+    expect(Array.isArray(p.rhythm?.beatsMs)).toBe(true);
+  });
+
   it('returns identity=undefined when recognizer finds no match (audio evidence still measured)', async () => {
     const primary = new Float32Array(16_000);
     const out = await enrichReferenceWithMeasuredEvidence(input, {

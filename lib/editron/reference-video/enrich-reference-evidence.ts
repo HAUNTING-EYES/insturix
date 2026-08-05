@@ -31,6 +31,8 @@ export interface ReferenceEnrichmentOutput {
   audioEvidence?: unknown;
   /** R4 canonical EditFingerprint unified from the measured evidence + identity. */
   canonicalFingerprint?: unknown;
+  /** R5 adaptive reference plan normalized from the fingerprint. */
+  adaptivePlan?: unknown;
   warnings: Array<{ code: string; source: 'section' | 'soundtrack' | 'fetch'; message: string }>;
 }
 
@@ -161,6 +163,13 @@ export async function enrichReferenceWithMeasuredEvidence(
           measured,
           identityFull ?? null,
           { extractedAt: new Date().toISOString() },
+        );
+
+        // R5: normalize the fingerprint into the adaptive reference plan.
+        const { buildAdaptiveReferencePlan } = await import('./adaptive-reference-plan');
+        out.adaptivePlan = buildAdaptiveReferencePlan(
+          out.canonicalFingerprint as Parameters<typeof buildAdaptiveReferencePlan>[0],
+          { silenceWindows: silence.windows },
         );
       } catch (error) {
         warnings.push({ code: 'fingerprint_build_failed', source: 'section', message: error instanceof Error ? error.message : String(error) });
