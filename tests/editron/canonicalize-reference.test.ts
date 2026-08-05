@@ -76,6 +76,8 @@ describe('R1-C canonicalize reference', () => {
     expect(out.canonicalKind).toBe('materialized-remote');
     expect(out.referenceAssetId).toBe(expectedId);
     expect(uploadedAssetId).toBe(expectedId);
+    // Fake demux has no audio track -> no audioArtifact surfaced for R3.
+    expect(out.audioArtifact).toBeNull();
     expect(out.envelope).toBeDefined();
     expect(out.envelope?.version).toBe(REFERENCE_ENVELOPE_VERSION);
     expect(out.envelope?.audioUsageMode).toBe('preview-waveform-only');

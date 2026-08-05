@@ -48,6 +48,9 @@ export interface CanonicalizeReferenceOutput {
   envelope?: ReferenceCanonicalEnvelope;
   /** Where the bytes physically live ('asset' | 'materialized-remote'). */
   canonicalKind: 'asset' | 'materialized-remote';
+  /** Demuxed audio artifact (storage key + content type) for R3 recognition.
+   *  Present only when this step materialized + demuxed a direct remote URL. */
+  audioArtifact?: { key: string; contentType: string } | null;
   durationSec?: number;
   sourceLabel?: string;
   sourceFingerprint?: string;
@@ -214,6 +217,7 @@ export async function canonicalizeReferenceVideo(
   const tmpDir = await mkdtemp(path.join(tmpdir(), 'editron-canonicalize-'));
   const tmpPath = path.join(tmpDir, 'source.mp4');
   let envelope: ReferenceCanonicalEnvelope;
+  let demuxedAudio: { key: string; contentType: string } | null = null;
   try {
     await writeFile(tmpPath, bytes);
     const receipt = await demux(
@@ -227,6 +231,9 @@ export async function canonicalizeReferenceVideo(
       { sha256: deps.sha256, readDurationMs: deps.readDurationMs },
     );
     envelope = buildReferenceCanonicalEnvelope(receipt, audioUsageMode);
+    if (receipt.audio) {
+      demuxedAudio = { key: receipt.audio.key, contentType: receipt.audio.contentType };
+    }
   } catch (error) {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
     throw error instanceof CanonicalizeReferenceError
@@ -252,6 +259,7 @@ export async function canonicalizeReferenceVideo(
     videoUrl: uploaded.videoUrl,
     envelope,
     canonicalKind: 'materialized-remote',
+    audioArtifact: demuxedAudio,
     sourceLabel: source.sourceLabel,
     sourceFingerprint: source.sourceFingerprint,
   };
