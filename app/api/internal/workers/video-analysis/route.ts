@@ -269,6 +269,7 @@ async function handler(request: NextRequest) {
                       ...referenceVideoAnalysis,
                       soundtrackIdentity: enriched.soundtrackIdentity,
                       audioEvidence: enriched.audioEvidence,
+                      canonicalFingerprint: enriched.canonicalFingerprint,
                       enrichmentWarnings: enriched.warnings,
                     };
                     console.log(`[VideoAnalysisWorker] Reference soundtrack identity attached for ${canonical.referenceAssetId}`);
@@ -276,6 +277,7 @@ async function handler(request: NextRequest) {
                     referenceVideoAnalysis = {
                       ...referenceVideoAnalysis,
                       audioEvidence: enriched.audioEvidence,
+                      canonicalFingerprint: enriched.canonicalFingerprint,
                       enrichmentWarnings: enriched.warnings,
                     };
                   }

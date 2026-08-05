@@ -63,6 +63,23 @@ describe('R2/R3 worker enrichment', () => {
     expect(out.warnings).toEqual([]);
   });
 
+  it('builds an R4 canonical fingerprint from measured audio evidence', async () => {
+    const primary = new Float32Array(32_000);
+    const out = await enrichReferenceWithMeasuredEvidence(input, {
+      fetchAudioBytes: async () => new Uint8Array(Buffer.from('fake-audio-bytes', 'utf8')),
+      decodeAudio: async () => ({ channelData: [primary], sampleRate: 16_000 }),
+      recognize: async () => null,
+    });
+    expect(out.canonicalFingerprint).toBeDefined();
+    const fp = out.canonicalFingerprint as Record<string, unknown>;
+    expect(fp.referenceId).toBe('ref_canon_x');
+    expect((fp as { audio?: { soundClass?: string } }).audio?.soundClass).toBe('unknown');
+    // audio layer metadata carries R4 provenance
+    const layerConf = (fp as { layerConfidence?: Record<string, unknown> }).layerConfidence;
+    expect((layerConf?.audio as Record<string, unknown>)?.algorithmVersion).toMatch(/editron-r2-measured-evidence/);
+    expect((layerConf?.audio as Record<string, unknown>)?.coordinateSpace).toBe('beat');
+  });
+
   it('returns identity=undefined when recognizer finds no match (audio evidence still measured)', async () => {
     const primary = new Float32Array(16_000);
     const out = await enrichReferenceWithMeasuredEvidence(input, {

@@ -29,6 +29,8 @@ export interface ReferenceEnrichmentInput {
 export interface ReferenceEnrichmentOutput {
   soundtrackIdentity?: unknown;
   audioEvidence?: unknown;
+  /** R4 canonical EditFingerprint unified from the measured evidence + identity. */
+  canonicalFingerprint?: unknown;
   warnings: Array<{ code: string; source: 'section' | 'soundtrack' | 'fetch'; message: string }>;
 }
 
@@ -131,6 +133,38 @@ export async function enrichReferenceWithMeasuredEvidence(
         beats: { bpm: beats.bpm, bpmConfidence: beats.bpmConfidence, beats: beats.beats },
         silence,
       };
+
+      // R4: unify the available measured audio evidence + identity into the
+      // canonical EditFingerprint. Cuts are intentionally empty here — they
+      // come from the separate R0 video-cut path (this enrichment never
+      // re-downloads the source for cut detection).
+      try {
+        const { buildCanonicalFingerprintFromEvidence } = await import('./build-canonic-fingerprint');
+        const { MEASURED_EVIDENCE_VERSION } = await import('./measure-reference-evidence');
+        const measured: import('./measure-reference-evidence').MeasuredReferenceEvidence = {
+          version: MEASURED_EVIDENCE_VERSION,
+          referenceAssetId: input.referenceAssetId,
+          durationMs: Math.round((primary.length / decoded.sampleRate) * 1000),
+          cuts: [],
+          beats,
+          silence,
+          sections: [],
+          soundtrackIdentity: out.soundtrackIdentity ?? null,
+          warnings: [],
+          rhythm: { avgCutsPerMinute: 0, avgClipDurationMs: 0, bpm: beats.bpm || 0 },
+        };
+        const identityFull = (out.audioEvidence as { identity?: unknown }).identity as
+          | import('./soundtrack-identity').SoundtrackIdentity
+          | undefined;
+        out.canonicalFingerprint = buildCanonicalFingerprintFromEvidence(
+          input.referenceAssetId,
+          measured,
+          identityFull ?? null,
+          { extractedAt: new Date().toISOString() },
+        );
+      } catch (error) {
+        warnings.push({ code: 'fingerprint_build_failed', source: 'section', message: error instanceof Error ? error.message : String(error) });
+      }
     }
   } catch (error) {
     warnings.push({ code: 'audio_measure_failed', source: 'section', message: error instanceof Error ? error.message : String(error) });

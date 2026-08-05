@@ -248,6 +248,14 @@ export interface FingerprintLayerConfidence {
   confidence: number;
   /** Wall-clock ms of the frames that evidence this layer. */
   evidenceFramesMs?: number[];
+  /** Provenance of the producer that built this layer (R4: source + algorithm version). */
+  source?: string;
+  /** Algorithm/contract version the producer used (e.g. 'editron-r2-measured-evidence-v1'). */
+  algorithmVersion?: string;
+  /** Coordinate space the layer's values are expressed in (R4): 'beat' | 'slot' | 'wall-clock'. */
+  coordinateSpace?: 'beat' | 'slot' | 'wall-clock';
+  /** Units the layer's magnitudes use (R4) — e.g. 'ms', 'events-per-minute', 'count'. */
+  units?: string;
 }
 
 // ─── Top-level fingerprint ───────────────────────────────────────────────────
