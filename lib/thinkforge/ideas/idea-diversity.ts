@@ -38,7 +38,10 @@ export function deriveIdeaGenerationSeed(variationIndex: number, attempt: number
     hash ^= identity.charCodeAt(index);
     hash = Math.imul(hash, 0x01000193);
   }
-  return hash >>> 0;
+  // Gemini's generation_config.seed is a signed INT32; the raw FNV-1a hash is unsigned and
+  // frequently exceeds 2^31-1 (e.g. 2345774616 -> 400 INVALID_ARGUMENT). Mask to a non-negative
+  // int32 range while preserving determinism and per-variation spread.
+  return (hash >>> 0) & 0x7fffffff;
 }
 
 export async function assessIdeaDiversity(input: {
