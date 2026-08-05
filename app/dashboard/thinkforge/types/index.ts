@@ -27,6 +27,7 @@ export interface Idea {
   format: string;
   platform: string;
   tone: ThinkingHat;
+  durationSec?: number;
   sessionName?: string;
   originalPrompt?: string;
   brandBrief?: string;

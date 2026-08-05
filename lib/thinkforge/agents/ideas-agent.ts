@@ -151,6 +151,68 @@ function stripPlaceholders(text: string): string {
 }
 
 // =============================================================================
+// DURATION POLICY - deterministic, logic-native (Rule 30: no LLM for length math)
+// =============================================================================
+
+export interface VideoDurationPolicy {
+  requestedDurationSec?: number;
+  durationLabel?: string;
+  longFormRequested: boolean;
+  shortFormRequested: boolean;
+}
+
+// Matches a stated video length: "7 min", "7-minute", "90 seconds", "2 hours".
+// Reuses the minutes->seconds convention from content-signal-resolver.ts.
+const DURATION_STATEMENT_PATTERN = /(\d{1,3})\s*[-–]?\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)\b/i;
+
+/**
+ * Derive whether the user asked for a long-form or short-form video, and any explicit
+ * duration they stated. Pure and conservative: only an explicit number+unit or a clear
+ * "long-form"/"documentary"/"short"/"reel" word flips a flag. Vibe words do not.
+ */
+export function deriveVideoDurationPolicy(prompt: string): VideoDurationPolicy {
+  const lower = prompt.toLowerCase();
+  const match = lower.match(DURATION_STATEMENT_PATTERN);
+  if (match) {
+    const amount = Number(match[1]);
+    const unit = match[2].toLowerCase();
+    const requestedDurationSec = /h/.test(unit) ? amount * 3600 : /min/.test(unit) ? amount * 60 : amount;
+    const durationLabel =
+      requestedDurationSec % 3600 === 0
+        ? `${requestedDurationSec / 3600}-hour`
+        : requestedDurationSec % 60 === 0
+          ? `${requestedDurationSec / 60}-minute`
+          : `${requestedDurationSec}-second`;
+    return {
+      requestedDurationSec,
+      durationLabel,
+      // 60s is the industry-standard short/long split (same as "under a minute" = 60 in prompt-knob-parser).
+      longFormRequested: requestedDurationSec > 60,
+      shortFormRequested: requestedDurationSec <= 60,
+    };
+  }
+
+  // Word-form explicit lengths (conservative: unambiguous units only, never vibe-words).
+  // "half an hour" / "half-hour"
+  if (/\bhalf[- ]an?[- ]hour\b/.test(lower)) {
+    return { requestedDurationSec: 1800, durationLabel: '30-minute', longFormRequested: true, shortFormRequested: false };
+  }
+  // "an hour" / "one hour" / "sixty minutes"
+  if (/\b(an|one)[- ]hour\b|\bsixty[- ]minutes?\b/.test(lower)) {
+    return { requestedDurationSec: 3600, durationLabel: '1-hour', longFormRequested: true, shortFormRequested: false };
+  }
+  // "under a minute" / "less than a minute" (same bound as prompt-knob-parser)
+  if (/\b(under|less than)[- ]an?[- ]minute\b/.test(lower)) {
+    return { requestedDurationSec: 60, durationLabel: '60-second', longFormRequested: false, shortFormRequested: true };
+  }
+
+  return {
+    longFormRequested: /\b(long[- ]?form|documentary|feature[- ]film|feature[- ]length)\b/.test(lower),
+    shortFormRequested: /\b(short[- ]?form|shorts?\b|reels?\b|tiktok)\b/.test(lower),
+  };
+}
+
+// =============================================================================
 // NEW ARCHITECTURE - Clean, Pure Agent
 // =============================================================================
 
@@ -203,13 +265,14 @@ ${isQualityRepair ? '- This is one bounded quality repair. Rewrite all 4 ideas t
 8. If the user asks for a content calendar, campaign, or series, every idea must preserve that planning context in the purpose and format. Say where it fits in the calendar or campaign, not just what the content is.
 9. If the user asks to repurpose a public trend, meme, or news item, every idea must name the trend, explain the brand-fit reason, and include a freshness or expiry window.
 10. For business, agency, or operator content, make the format a concrete platform-ready deliverable such as "LinkedIn post", "LinkedIn carousel", "newsletter section", "blog article", "short video script", or "X thread". Avoid vague formats like "campaign idea", "content concept", or "multi-platform".
+11. Honor an explicitly stated length. If the user names a duration ("7 minutes", "a 10-minute video", "long-form"), every format must be long-form and name that exact duration ("7-minute video", "10-minute documentary script"). Never return a short-form format ("reel script", "shorts script", "TikTok script") for a stated long duration. Only use short-form formats when the user explicitly asks for a short, reel, shorts, or TikTok video.
 
 ## Output schema per idea
 - id: "idea_1" through "idea_4"
 - idea: Specific, compelling title (max 80 chars) that captures the angle
 - purpose: What this angle achieves for the project (1-2 sentences)
 - style: Editorial/visual style matched to the medium (e.g., "data-driven explainer", "founder-voice monologue", "punchy contrarian take", "behind-the-scenes")
-- format: The concrete deliverable, matched to the medium the user asked for. If the request says "post", "write", "article", or names a text platform, choose a TEXT format ("LinkedIn post", "X thread", "carousel", "newsletter", "blog article"). Only choose a video format ("short video script", "reel script") when the user explicitly asks for video, reel, short, or names a video platform. Never default to video for a text request.
+- format: The concrete deliverable, matched to the medium and length the user asked for. If the request says "post", "write", "article", or names a text platform, choose a TEXT format ("LinkedIn post", "X thread", "carousel", "newsletter", "blog article") and never default to video for a text request. For video requests, match the requested length: if the user states a duration or asks for long-form ("7 minutes", "10-minute", "documentary"), choose a LONG-FORM format naming that duration ("7-minute video", "long-form video script", "documentary script"); choose a short-form format ("reel script", "shorts script") only when the user explicitly asks for a short, reel, shorts, or TikTok video.
 - platform: Where this lives (e.g., "Netflix", "YouTube", "Film Festival", "Internal", "Blog", "Multi-platform")
 - tone: One of: white (factual), red (emotional), black (critical), yellow (optimistic), green (creative), blue (analytical)
 
@@ -357,17 +420,54 @@ Generate 4 ideas now.`;
     const VIDEO_FORMAT = /\b(video|reels?|shorts?|vlog|clip|skit|film|tiktok|youtube)\b/i;
     const fallbackPlatform = allowedPlatforms ? [...allowedPlatforms][0] : null;
 
+    // Duration-aware format enforcement. The prompt (rule 11) makes the model honor an
+    // explicitly stated length; this deterministic pass is the safety net.
+    const durationPolicy = deriveVideoDurationPolicy(prompt);
+    const SHORT_VIDEO_MARKER = /\b(short\s*videos?|shorts?\b|reels?\b|tiktok|reel\b)\b|short[- ]?form/i;
+    const longFormPlatformCorrection =
+      durationPolicy.longFormRequested && !lockedPlatform ? 'YouTube' : null;
+
     return finalResult.ideas.map(idea => {
       // Normalize multi-platform strings ("YouTube, LinkedIn") to the first, then enforce.
       const first = idea.platform.split(/[,&]/)[0].trim();
-      const platform = !allowedPlatforms
+      let platform = !allowedPlatforms
         ? first
         : allowedPlatforms.has(first) ? first : (fallbackPlatform as string);
+
+      // A stated long duration belongs on a long-form platform when the user didn't
+      // explicitly name one (a 7-minute video is not TikTok).
+      if (longFormPlatformCorrection && (platform === 'TikTok' || platform === 'Instagram')) {
+        platform = longFormPlatformCorrection;
+      }
 
       // RC3: keep the deliverable in the medium the user asked for.
       let format = idea.format;
       if (intendedMedium === 'text' && VIDEO_FORMAT.test(format)) {
         format = `${platform} post`;
+      }
+
+      // Honor the explicitly stated length: a long-form request never stays "short video".
+      if (intendedMedium === 'video') {
+        const shortMarked = SHORT_VIDEO_MARKER.test(format);
+        if (durationPolicy.longFormRequested) {
+          if (shortMarked) {
+            format = durationPolicy.durationLabel
+              ? `${durationPolicy.durationLabel} video script`
+              : 'long-form video script';
+          } else if (
+            durationPolicy.durationLabel
+            && !format.toLowerCase().includes(durationPolicy.durationLabel)
+          ) {
+            format = `${durationPolicy.durationLabel} ${format.charAt(0).toLowerCase()}${format.slice(1)}`;
+          }
+        } else if (
+          durationPolicy.shortFormRequested
+          && durationPolicy.durationLabel
+          && !shortMarked
+          && !format.toLowerCase().includes(durationPolicy.durationLabel)
+        ) {
+          format = `${durationPolicy.durationLabel} ${format.charAt(0).toLowerCase()}${format.slice(1)}`;
+        }
       }
 
       // RC2: never let a bracketed template placeholder reach the UI.
@@ -378,6 +478,9 @@ Generate 4 ideas now.`;
         idea: stripPlaceholders(idea.idea),
         purpose: stripPlaceholders(idea.purpose),
         style: stripPlaceholders(idea.style),
+        ...(durationPolicy.requestedDurationSec !== undefined
+          ? { durationSec: durationPolicy.requestedDurationSec }
+          : {}),
       };
     });
   }
