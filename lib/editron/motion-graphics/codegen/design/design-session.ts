@@ -68,14 +68,14 @@ const momentDesignReviewSchema = z.object({
     decorativeMotionOnly: z.boolean(),
     footageConflict: z.boolean(),
   }).strict(),
-  issues: z.array(z.string().min(1).max(240)).max(8),
+  issues: z.array(z.string().min(1).max(1_000)).max(8),
 }).strict();
 
 const designReviewSchema = z.object({
   accepted: z.boolean(),
   packageFailures: z.object({ repetitiveWithinVideo: z.boolean() }).strict(),
   moments: z.array(momentDesignReviewSchema).max(24),
-  issues: z.array(z.string().min(1).max(240)).max(12),
+  issues: z.array(z.string().min(1).max(1_000)).max(12),
 }).strict();
 
 type RejectedDesignMoment = { momentId: string; reason: string };
