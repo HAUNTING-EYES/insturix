@@ -51,6 +51,10 @@ export interface AutoEditOptions {
   aspectRatio?: string;
   editorialPreferences?: EditorialPreferences;
   sourceMediaRightsAttestation?: NativeVideoAudioRightsAttestation;
+  /** Optional reference video to match this edit's style (uploaded asset id). */
+  referenceAssetId?: string;
+  /** Optional reference video URL (YouTube / direct mp4) to match this edit's style. */
+  referenceVideoUrl?: string;
   /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   captionStyle?: 'word_by_word' | 'sentence' | 'key_phrases' | 'none';
   /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
@@ -96,6 +100,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [userIntent, setUserIntent] = useState('');
   const [script, setScript] = useState('');
+  const [referenceVideoUrl, setReferenceVideoUrl] = useState('');
   const [editorialPreferences, setEditorialPreferences] = useState<EditorialPreferences>({});
   const [rightsAttested, setRightsAttested] = useState(false);
 
@@ -105,6 +110,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
     setAspectRatio('16:9');
     setUserIntent('');
     setScript('');
+    setReferenceVideoUrl('');
     setEditorialPreferences({});
     setRightsAttested(false);
   }, []);
@@ -127,11 +133,12 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
     if (aspectRatio && aspectRatio !== '16:9') options.aspectRatio = aspectRatio;
     if (userIntent.trim()) options.userIntent = userIntent.trim();
     if (script.trim()) options.script = script.trim();
+    if (referenceVideoUrl.trim()) options.referenceVideoUrl = referenceVideoUrl.trim();
     const normalizedPreferences = normalizeEditorialPreferences(editorialPreferences);
     if (normalizedPreferences) options.editorialPreferences = normalizedPreferences;
     onConfirm(file, options);
     resetState();
-  }, [file, platform, aspectRatio, userIntent, script, editorialPreferences, onConfirm, resetState, rightsAttested]);
+  }, [file, platform, aspectRatio, userIntent, script, referenceVideoUrl, editorialPreferences, onConfirm, resetState, rightsAttested]);
   const handleOpenChange = useCallback((open: boolean) => {
     if (!open) {
       onCancel();
@@ -298,6 +305,23 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
                   rows={2}
                   className="resize-none text-[13px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] placeholder:text-[#454340] focus:border-[#D4A652]/35 focus:ring-1 focus:ring-[#D4A652]/6"
                   maxLength={500}
+                />
+              </div>
+
+              {/* Reference video (style match) */}
+              <div className="mt-3">
+                <Label htmlFor="ae-reference" className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">
+                  Reference video (match this style)
+                  <span className="ml-1 text-[#454340] normal-case tracking-normal">(optional — YouTube or direct video URL)</span>
+                </Label>
+                <Textarea
+                  id="ae-reference"
+                  placeholder="e.g. https://www.youtube.com/watch?v=... or https://example.com/clip.mp4"
+                  value={referenceVideoUrl}
+                  onChange={(e) => setReferenceVideoUrl(e.target.value)}
+                  rows={1}
+                  className="resize-none text-[13px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] placeholder:text-[#454340] focus:border-[#D4A652]/35 focus:ring-1 focus:ring-[#D4A652]/6"
+                  maxLength={2000}
                 />
               </div>
 

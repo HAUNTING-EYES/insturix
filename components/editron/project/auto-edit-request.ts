@@ -6,6 +6,8 @@ const AUTO_EDIT_OPTION_KEYS: Array<keyof AutoEditOptions> = [
   'aspectRatio',
   'userIntent',
   'script',
+  'referenceAssetId',
+  'referenceVideoUrl',
 ];
 
 export interface BuildAutoEditFromAssetPayloadInput {

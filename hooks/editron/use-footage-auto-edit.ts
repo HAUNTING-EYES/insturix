@@ -35,6 +35,10 @@ export interface FootageAutoEditOptions {
   script?: string;
   editorialPreferences?: EditorialPreferences;
   sourceMediaRightsAttestation?: NativeVideoAudioRightsAttestation;
+  /** Optional reference video to match this edit's style (uploaded asset id). */
+  referenceAssetId?: string;
+  /** Optional reference video URL (YouTube / direct mp4) to match this edit's style. */
+  referenceVideoUrl?: string;
   captionStyle?: string;
   transitionPreference?: string;
   zoomBehavior?: string;

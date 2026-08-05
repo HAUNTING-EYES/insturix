@@ -14,6 +14,8 @@ describe('auto-edit intake preferences', () => {
         aspectRatio: '9:16',
         userIntent: '  talking-head reel with crisp captions  ',
         script: '  intro hook then proof  ',
+        referenceVideoUrl: '  https://www.youtube.com/watch?v=dQw4w9WgXcQ  ',
+        referenceAssetId: 'asset_ref_yt',
         editorialPreferences: {
           families: {
             captions: { mode: 'prefer', frequency: 0.8, intensity: 0.45 },
@@ -34,6 +36,8 @@ describe('auto-edit intake preferences', () => {
       aspectRatio: '9:16',
       userIntent: 'talking-head reel with crisp captions',
       script: 'intro hook then proof',
+      referenceVideoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      referenceAssetId: 'asset_ref_yt',
       editorialPreferences: {
         families: {
           captions: { mode: 'prefer', frequency: 0.8, intensity: 0.45 },
@@ -60,6 +64,8 @@ describe('auto-edit intake preferences', () => {
     expect(source).toContain('Skip Preferences - Let AI Decide Everything');
     expect(source).toContain('Edit with These Settings');
     expect(source).toContain('EditorialPreferenceControls');
+    expect(source).toContain('Reference video (match this style)');
+    expect(source).toContain('referenceVideoUrl');
     expect(controlsSource).toContain('AI + brand');
     expect(controlsSource).toContain('Frequency');
     expect(controlsSource).toContain('Intensity');
