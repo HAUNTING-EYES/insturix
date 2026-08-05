@@ -19,6 +19,7 @@
 
 import { SILENCE_MEASUREMENT_VERSION, measureSilence, type SilenceMeasurement } from './measure-silence';
 import { mergeCloseCuts, DEFAULT_MERGE_WINDOW_MS, DEFAULT_STRONG_CUT_FLOOR } from './adaptive-cut-postprocess';
+import { resolveSoundtrackIdentity, type SoundtrackIdentity } from './soundtrack-identity';
 import type { BeatAnalysis } from '@/lib/editron/services/media/types';
 
 export const MEASURED_EVIDENCE_VERSION = 'editron-r2-measured-evidence-v1' as const;
@@ -49,6 +50,8 @@ export interface MeasuredReferenceEvidence {
   silence: SilenceMeasurement;
   /** Structural sections (verse/chorus/drop/...). Empty when no provider. */
   sections: MeasuredSection[];
+  /** R3 canonical recording identity. null when no recognizer configured or no match. */
+  soundtrackIdentity: SoundtrackIdentity | null;
   /** Objectively derived rhythm summary for the fingerprint. */
   rhythm: {
     avgCutsPerMinute: number;
@@ -77,6 +80,8 @@ export interface MeasureReferenceEvidenceDeps {
   measureSilenceFn?: typeof measureSilence;
   /** Optional section provider (Essentia/Modal/etc). Injected; skip when absent. */
   measureSections?: (audioBytes: Uint8Array) => Promise<MeasuredSection[]>;
+  /** Optional R3 audio recognizer (AudD/ACRCloud). Skip -> soundtrackIdentity null. */
+  soundtrackRecognizer?: (audioBytes: Uint8Array) => Promise<import('./soundtrack-identity').RecognizedTrack | null>;
 }
 
 export class MeasureReferenceEvidenceError extends Error {
@@ -149,6 +154,7 @@ export async function measureReferenceEvidence(
     version: SILENCE_MEASUREMENT_VERSION,
   };
   let sections: MeasuredSection[] = [];
+  let soundtrackIdentity: SoundtrackIdentity | null = null;
   if (audioBytes && audioBytes.byteLength > 0) {
     try {
       const decoded = await decodeAudio(audioBytes);
@@ -163,6 +169,11 @@ export async function measureReferenceEvidence(
       silence = measureSilenceFn(primary, decoded.sampleRate);
       if (opts.measureSections) {
         sections = await opts.measureSections(audioBytes);
+      }
+      if (opts.soundtrackRecognizer) {
+        soundtrackIdentity = await resolveSoundtrackIdentity(referenceAssetId, audioBytes, {
+          recognize: opts.soundtrackRecognizer,
+        });
       }
     } catch (error) {
       throw new MeasureReferenceEvidenceError(
@@ -187,6 +198,7 @@ export async function measureReferenceEvidence(
     beats,
     silence,
     sections,
+    soundtrackIdentity,
     rhythm: {
       avgCutsPerMinute: round(avgCutsPerMinute),
       avgClipDurationMs: Math.round(avgClipDurationMs),

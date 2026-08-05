@@ -114,6 +114,31 @@ describe('R2 measured reference evidence', () => {
     expect(evidence.sections[1].label).toBe('drop');
   });
 
+  it('attaches an R3 soundtrack identity when a recognizer is injected', async () => {
+    const deps = fakeDeps({
+      soundtrackRecognizer: async () => ({
+        recordingId: 'isrc:USRC17607839',
+        title: 'Nightcall',
+        artists: ['Kavinsky'],
+        isrcs: ['USRC17607839'],
+        confidence: 0.94,
+        cueOffsetMs: 3_200,
+        providerName: 'audd',
+        providerReceipt: 'audd_receipt_abc123',
+      }),
+    });
+    const evidence = await measureReferenceEvidence('ref_canon_x', video, audio, deps);
+    expect(evidence.soundtrackIdentity).not.toBeNull();
+    expect(evidence.soundtrackIdentity?.title).toBe('Nightcall');
+    expect(evidence.soundtrackIdentity?.cueOffsetMs).toBe(3_200);
+    expect(evidence.soundtrackIdentity?.provider.receipt).toBe('audd_receipt_abc123');
+  });
+
+  it('keeps soundtrackIdentity null when no recognizer is configured', async () => {
+    const evidence = await measureReferenceEvidence('ref_canon_x', video, audio, fakeDeps());
+    expect(evidence.soundtrackIdentity).toBeNull();
+  });
+
   it('fails loud on an undecodable audio track', async () => {
     const deps = fakeDeps({
       decodeAudio: async () => {
