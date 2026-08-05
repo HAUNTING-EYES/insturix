@@ -129,14 +129,36 @@ export async function resolveSoundtrackIdentity(
   }
   if (!track) return null;
 
+  const title = track.title.trim();
+  const artists = [...new Set(track.artists.map((a) => a.trim()).filter(Boolean))];
+  const recordingId = track.recordingId.trim();
+  if (!recordingId) {
+    throw new SoundtrackIdentityError(
+      'recognizer_failed',
+      'Recognizer returned a track with an empty recording id; refusing to fabricate identity.',
+    );
+  }
+  if (!title) {
+    throw new SoundtrackIdentityError(
+      'recognizer_failed',
+      'Recognizer returned a track with an empty title; refusing to fabricate identity.',
+    );
+  }
+  if (artists.length === 0) {
+    throw new SoundtrackIdentityError(
+      'recognizer_failed',
+      'Recognizer returned a track with no artist; refusing to fabricate identity.',
+    );
+  }
+
   const isrcs = [...new Set((track.isrcs ?? []).map(normalizeIsrc).filter((v): v is string => Boolean(v)))]
     .sort();
   return {
     version: SOUNDTRACK_IDENTITY_VERSION,
     referenceAssetId,
-    recordingId: track.recordingId,
-    title: track.title,
-    artists: [...new Set(track.artists.map((a) => a.trim()).filter(Boolean))],
+    recordingId,
+    title,
+    artists,
     isrcs,
     catalogDurationMs: track.durationMs ?? null,
     confidence: clamp01(Number(track.confidence)),

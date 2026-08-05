@@ -19,7 +19,7 @@
 
 import { SILENCE_MEASUREMENT_VERSION, measureSilence, type SilenceMeasurement } from './measure-silence';
 import { mergeCloseCuts, DEFAULT_MERGE_WINDOW_MS, DEFAULT_STRONG_CUT_FLOOR } from './adaptive-cut-postprocess';
-import { resolveSoundtrackIdentity, type SoundtrackIdentity } from './soundtrack-identity';
+import { resolveSoundtrackIdentity, SoundtrackIdentityError, type SoundtrackIdentity } from './soundtrack-identity';
 import type { BeatAnalysis } from '@/lib/editron/services/media/types';
 
 export const MEASURED_EVIDENCE_VERSION = 'editron-r2-measured-evidence-v1' as const;
@@ -38,6 +38,13 @@ export interface MeasuredCut {
   merged?: boolean;
 }
 
+/** Non-fatal measurement warnings (e.g. optional provider outages). Fail-loud but decoupled. */
+export interface MeasuredEvidenceWarning {
+  code: string;
+  source: 'section' | 'soundtrack';
+  message: string;
+}
+
 export interface MeasuredReferenceEvidence {
   version: typeof MEASURED_EVIDENCE_VERSION;
   referenceAssetId: string;
@@ -52,6 +59,8 @@ export interface MeasuredReferenceEvidence {
   sections: MeasuredSection[];
   /** R3 canonical recording identity. null when no recognizer configured or no match. */
   soundtrackIdentity: SoundtrackIdentity | null;
+  /** Non-fatal provider outages (identity/sections) surfaced loudly, not swallowed. */
+  warnings: MeasuredEvidenceWarning[];
   /** Objectively derived rhythm summary for the fingerprint. */
   rhythm: {
     avgCutsPerMinute: number;
@@ -155,6 +164,7 @@ export async function measureReferenceEvidence(
   };
   let sections: MeasuredSection[] = [];
   let soundtrackIdentity: SoundtrackIdentity | null = null;
+  const recordingWarnings: MeasuredEvidenceWarning[] = [];
   if (audioBytes && audioBytes.byteLength > 0) {
     try {
       const decoded = await decodeAudio(audioBytes);
@@ -167,19 +177,34 @@ export async function measureReferenceEvidence(
         duration: decoded.duration,
       });
       silence = measureSilenceFn(primary, decoded.sampleRate);
-      if (opts.measureSections) {
-        sections = await opts.measureSections(audioBytes);
-      }
-      if (opts.soundtrackRecognizer) {
-        soundtrackIdentity = await resolveSoundtrackIdentity(referenceAssetId, audioBytes, {
-          recognize: opts.soundtrackRecognizer,
-        });
-      }
     } catch (error) {
       throw new MeasureReferenceEvidenceError(
         'audio_decode_failed',
         'Could not decode demuxed audio: ' + (error instanceof Error ? error.message : String(error)),
       );
+    }
+    if (opts.measureSections) {
+      try {
+        sections = await opts.measureSections(audioBytes);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn('[MeasureEvidence] Section provider failed — evidence continues without sections:', error);
+        recordingWarnings.push({ code: 'section_provider_failed', source: 'section', message });
+      }
+    }
+    if (opts.soundtrackRecognizer) {
+      // R3 identity is supplementary: a recognizer outage must NOT nullify the
+      // measured evidence (beats/silence/cuts). Report it loudly, keep the rest.
+      try {
+        soundtrackIdentity = await resolveSoundtrackIdentity(referenceAssetId, audioBytes, {
+          recognize: opts.soundtrackRecognizer,
+        });
+      } catch (error) {
+        const code = error instanceof SoundtrackIdentityError ? error.code : 'recognizer_failed';
+        console.warn(`[MeasureEvidence] Soundtrack identity failed (${code}) — evidence continues without identity:`,
+          error instanceof Error ? error.message : error);
+        recordingWarnings.push({ code, source: 'soundtrack', message: error instanceof Error ? error.message : String(error) });
+      }
     }
   }
 
@@ -199,6 +224,7 @@ export async function measureReferenceEvidence(
     silence,
     sections,
     soundtrackIdentity,
+    warnings: recordingWarnings,
     rhythm: {
       avgCutsPerMinute: round(avgCutsPerMinute),
       avgClipDurationMs: Math.round(avgClipDurationMs),
