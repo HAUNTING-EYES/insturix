@@ -468,11 +468,16 @@ export default function ThinkForgeLanding() {
 	const handleTrendDraft = useCallback((input: { prompt: string; sessionId: string; target: TrendTarget; selectedTrend: SelectedTrend }) => {
 		const title = input.selectedTrend.candidate.title.trim();
 		const platform = input.selectedTrend.candidate.platform === 'unknown' ? '' : input.selectedTrend.candidate.platform;
+		const analyzed = input.selectedTrend.analysis?.status === 'completed';
 		setSelectedIdea({
 			id: 'trend-' + input.selectedTrend.candidate.candidateId,
-			idea: 'Create a ' + input.target + ' using the analyzed trend: ' + title,
+			idea: analyzed
+				? 'Create a ' + input.target + ' using the analyzed trend: ' + title
+				: 'Create a ' + input.target + ' inspired by the trend: ' + title,
 			purpose: input.prompt,
-			style: 'Original, brand-safe adaptation of the analyzed trend mechanics.',
+			style: analyzed
+				? 'Original, brand-safe adaptation of the analyzed trend mechanics.'
+				: 'Original, brand-safe draft inspired by the trend topic, platform, and audience angle (no timing analysis was run).',
 			format: input.target,
 			platform,
 			tone: 'blue',
