@@ -4,6 +4,12 @@ Date: 2026-07-30 (IST)
 
 Status: ACTIVE / AUTHORITATIVE FOR REMAINING AUDIO WORK
 
+> **Update 2026-08-06:** R0-R6 (the deferred reference-video plan) were built,
+> tested, and wired this session by owner decision, ahead of the four audio
+> gates. See §9 UPDATE. The four audio gates (BGM canary, SFX go/no-go, clean
+> export, render-boundary rights) remain open for the AUDIO work only and no
+> longer block the reference plan.
+
 Deadline decision: semantic SFX retrieval receives work only through 2026-07-31.
 If it does not pass the gates in this document, Editron ships with the ordinary
 deterministic catalog selector and semantic retrieval is disabled and deferred.
@@ -655,6 +661,51 @@ render-audio suppliers.
 
 ## 9. Deferred trend/reference-video plan
 
+### UPDATE 2026-08-06 — R0-R6 built ahead of the audio gates (reconcile)
+
+The plan below originally said "do not begin R0-R6 until the four audio gates
+pass." That precondition was **bypassed by owner decision** and R0-R6 were built
+and wired this session (branch `infrastructure-improvs-+Editron`). Current
+reality:
+
+- **R0-R6 are BUILT, unit-tested, and WIRED** into the worker enrichment path
+  (`app/api/internal/workers/video-analysis/route.ts`). They are NOT deferred
+  anymore. Commits: `9489222a5` (R0 lock) through `c6f9a8efe` (R6).
+- The **four audio precondition gates still are not met**:
+  - BGM battle canary — §6 canary subset only; BGM looping/loudness/ducking
+    gates in §6.1 still open.
+  - SFX go/no-go — closed as **fail** (§4.7); semantic disabled, deferred.
+  - Reference-only preview + clean export — live-proven subset (§6.1).
+  - Render-boundary rights — code/test proven; not all live-proven.
+- So the doc is **ahead of its own gates**: R0-R6 shipped anyway. Any future
+  reader should treat R0-R6 as done and the four gates as pending for the AUDIO
+  work only, not as blockers on the reference plan.
+
+New work this session that was not in this ledger:
+
+- **Reference-song → licensed catalog → timeline bridge** (`f5dd73a88`):
+  recognized R3 identity now surfaces in the Sounds panel References view with
+  licensed catalog matches and one-click assign. Partner-gated (Epidemic
+  agreement).
+- **Executable style-transfer upgrade direction**: the existing EditDNA path is
+  text-only (prose prompts, nothing executed). An upgrade to typed executable
+  actions fed by measured R0-R6 evidence is designed and pending audit.
+
+### SFX clarifications — mapped to current R0-R6 state
+
+- R0 annotations include timecoded reference SFX events: NOT YET (R0 corpus is
+  cut-annotated; timecoded SFX events remain to add).
+- R2 emits a timecoded SFX event map: NOT YET (R2 emits cuts/beats/sections/
+  silence; SFX events pending).
+- R4 adds `sfxEvents` to `EditFingerprint`: NOT YET (layers audio/decision/
+  structure exist; `sfxEvents` pending).
+- Separation-derived audio is analysis-only, never a render input: PRINCIPLE
+  PRESERVED (no render path consumes separation audio).
+- R5 adapts structural SFX placement using approved Editron assets: R5 slot
+  normalization exists; SFX placement not yet bound to approved assets.
+
+### Original wording (historical, superseded by the update above)
+
 `REFERENCE_VIDEO_ADAPTIVE_TEMPLATE_PLAN_2026-07-27.md` remains pinned and
 deferred. Do not begin it before:
 
@@ -691,7 +742,10 @@ The trend system will not:
 
 ## 10. Deferred music-first work
 
-True music-first composition remains a later architecture phase:
+True music-first composition (choosing shot lengths FROM measured beat/section
+evidence) remains a later architecture phase. Status unchanged — the existing
+realignment pass remains the fallback; the reference-song → catalog → timeline
+bridge (§9 UPDATE) is a separate, shipped step toward it.
 
 - Composer chooses candidate shot lengths from measured beat/section evidence.
 - Speech and action continuity retain authority.
