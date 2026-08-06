@@ -15,6 +15,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { deriveRevisionRouting } from './judge-verdict';
 
 import type {
   SemanticMgCandidate,
@@ -486,12 +487,18 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     if (receipt.attempts >= MAX_MODEL_ATTEMPTS) {
       return fallback(`judge ${ev.score} < ${threshold}; model attempt budget exhausted`);
     }
+    // Phase 5 (§12): route WHO fixes this — designer (concept/contract) vs coder (execution) vs placement vs none.
+    // A wrong-concept rejection must reach the DESIGNER (or be preserved), not be "fixed" by repainting execution.
+    const routed = deriveRevisionRouting(ev.issues);
+    receipt.revisionOwner = routed.owner;
+    receipt.revisionOwnerReason = routed.reason;
+    console.info(`[MGCodegen] revision owner=${routed.owner} (${routed.reason}) score=${ev.score}`);
     // Keep-what-worked revision discipline: the dominant live failure of naive "revise to fix" was
     // regression on UNNAMED dimensions — most often a frozen animation timeline after fixing a visual
     // issue (motion-floor kills, 3× observed 2026-07-18). The revision is a surgical diff, not a redo.
     let rev = await attempt([
       `A design reviewer scored your output ${ev.score}/10. Issues: ${ev.issues.join('; ')}.`,
-      'Revise SURGICALLY: change ONLY what the issues name and keep everything else byte-identical where possible.',
+      routed.instruction,
       'PRESERVE the animation timeline (entrances, word-sync, settle, ambient drift) unless an issue names it —',
       'a static/frozen render is an automatic rejection. Return the full corrected component.',
     ].join(' '), code);

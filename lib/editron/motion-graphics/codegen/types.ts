@@ -177,6 +177,10 @@ export interface MgReceipt {
   reason?: string;
   /** Machine-readable failure semantics. Ordinary quality/compile fallbacks leave this absent. */
   failure?: MgProviderFailureReceipt;
+  /** Phase 5 (§12): which owner should fix a rejected render (designer/coder/placement/system/none). */
+  revisionOwner?: 'designer' | 'coder' | 'placement' | 'system' | 'none';
+  /** The routing reason (which signal matched) — telemetry for the revision loop. */
+  revisionOwnerReason?: string;
 }
 
 /** The service result: a validated component, an honest decline (no faithful graphic), or a Law-2 fallback. */
