@@ -23,6 +23,7 @@ import type { MgDensityBudget } from './density-budget';
 import type { Brand } from '../kit/brand';
 import type { VideoStyle } from '../style/style-resolver';
 import type { MgMomentDesign } from '../types';
+import type { VideoTasteContract } from '../taste/taste-schemas';
 
 /** One offered graphic moment: the designer's view + an opaque KEY the caller uses to attach the plan later. */
 export interface MgDesignPrepassBeat<K> {
@@ -45,6 +46,9 @@ export interface MgDesignPrepassInput<K> {
   /** Multimodal session images (P5-1 Phase D): footage frames sampled across the video so the designer designs
    *  for the real palette/negative-space. Best-effort — absent → a valid text-only design session. */
   images?: MgDesignerSessionImages;
+  /** The video-level taste contract (§6.5) — when provided the designer executes its art direction and each
+   *  approved moment plan is stamped with tasteContractId/hash (Phase 4a). */
+  tasteContract?: VideoTasteContract | null;
 }
 
 export type MgDesignPrepassDisposition =
@@ -79,6 +83,7 @@ export async function runDesignPrepass<K>(
       designer: { intent: input.intent, videoStyle: input.videoStyle, brand: input.brand, moments, budget: input.budget },
       contexts,
       images: input.images,
+      tasteContract: input.tasteContract ?? null,
     },
     { generate: deps.generate, maxAttempts: deps.maxAttempts },
   );
@@ -95,7 +100,11 @@ export async function runDesignPrepass<K>(
   for (const beat of input.beats) {
     const momentPlan = planByMomentId.get(beat.moment.momentId);
     if (momentPlan) {
-      dispositions.set(beat.key, { status: 'approved', design: { plan: momentPlan, brief } });
+      // Phase 4a: stamp the video-level taste contract onto the approved plan (id + hash together, §6.6/§21).
+      const plan = input.tasteContract && !momentPlan.tasteContractId
+        ? { ...momentPlan, tasteContractId: input.tasteContract.id, tasteContractHash: input.tasteContract.contractHash }
+        : momentPlan;
+      dispositions.set(beat.key, { status: 'approved', design: { plan, brief } });
       continue;
     }
     const declineReason = declineByMomentId.get(beat.moment.momentId);

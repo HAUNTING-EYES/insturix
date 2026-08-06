@@ -65,6 +65,8 @@ import { normalizeEditorialPreferences, type EditorialFamilyPreference } from '@
 import { computeMgMotionIntensity } from '@/lib/editron/motion-graphics/codegen/design/motion-intensity';
 // P5-1 Phase C 2/2 — the video-level DESIGN pre-pass (design-then-code producer). Dark until the flag flips.
 import { computeMgDensityBudget } from '@/lib/editron/motion-graphics/codegen/design/density-budget';
+import { buildVideoTasteContract } from '@/lib/editron/motion-graphics/codegen/taste/contract-resolver';
+import { tasteContractLiveEnabled } from '@/lib/editron/motion-graphics/codegen/taste/shadow';
 import { resolveVideoStyle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
 import {
   runDesignPrepass,
@@ -4406,6 +4408,17 @@ async function runMgDesignPrepass(
     videoSignals: projectSignalContext.videoSignals,
   });
 
+  // Phase 4a: when live taste contracts are enabled, resolve the video-level art direction and let it DIRECT the
+  // designer (art-director mode). Otherwise behavior is unchanged (the contract stays shadow-generated only).
+  const tasteContract = tasteContractLiveEnabled()
+    ? buildVideoTasteContract({
+        brand: mappedBrand.isDefault ? null : mappedBrand.brand,
+        hasConfiguredBrand: projectSignalContext.hasConfiguredBrand,
+        intent: projectSignalContext.intent,
+        videoSignals: projectSignalContext.videoSignals,
+      }).contract
+    : undefined;
+
   // P5-1 Phase D: sample a few real footage frames across the video so the designer designs for the ACTUAL palette
   // and negative space (buildDesignerParts.footageFrames). Best-effort — any failure → a valid text-only session.
   let images: { footageFrames: Array<{ mimeType: string; data: string }> } | undefined;
@@ -4418,7 +4431,7 @@ async function runMgDesignPrepass(
   }
 
   const result = await runDesignPrepass(
-    { beats, intent: projectSignalContext.intent, videoStyle, brand: mappedBrand.brand, budget, images },
+    { beats, intent: projectSignalContext.intent, videoStyle, brand: mappedBrand.brand, budget, images, tasteContract },
     { generate },
   );
   const approvedCount = [...result.dispositions.values()].filter((entry) => entry.status === 'approved').length;

@@ -11,12 +11,18 @@ export function tasteContractShadowEnabled(env: NodeJS.ProcessEnv = process.env)
   return v === '1' || v === 'true' || v === 'yes';
 }
 
+/** Phase 4a live gate: when ON, the resolved contract actually DIRECTS the designer (art-director mode). */
+export function tasteContractLiveEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = (env.MG_TASTE_CONTRACT_ENABLED ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
 export async function maybePersistTasteContractShadow(
   projectId: string,
   userId: string,
   input: TasteContractBuildInput,
 ): Promise<{ result: TasteContractBuildResult; persisted: boolean } | null> {
-  if (!tasteContractShadowEnabled()) return null;
+  if (!tasteContractShadowEnabled() && !tasteContractLiveEnabled()) return null;
   const result = buildVideoTasteContract(input);
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');

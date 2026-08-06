@@ -159,6 +159,29 @@ describe('runDesignPrepass — video-level design authority ledger', () => {
     expect(r.dispositions.get(keyB)).toMatchObject({ status: 'unavailable' });
   });
 
+  it('★ Phase 4a: approved moment plans are stamped with tasteContractId + hash (provenance for the judge)', async () => {
+    const plan: MgVideoDesignPlan = { brief, moments: [designedMoment('b0'), designedMoment('b1')], declined: [] };
+    const { buildVideoTasteContract } = await import('@/lib/editron/motion-graphics/codegen/taste/contract-resolver');
+    const vtc = buildVideoTasteContract({ brand: INSTURIX, hasConfiguredBrand: false, intent: null, videoSignals: { energy: 0.5 } }).contract;
+    const r = await runDesignPrepass(
+      { beats, videoStyle, brand: INSTURIX, budget, tasteContract: vtc },
+      { generate: fakeGen(JSON.stringify(plan)) },
+    );
+    const d = r.dispositions.get(keyA);
+    expect(d?.status).toBe('approved');
+    if (d?.status === 'approved') {
+      expect(d.design.plan.tasteContractId).toBe(vtc.id);
+      expect(d.design.plan.tasteContractHash).toBe(vtc.contractHash);
+    }
+    // Without a contract the stamp is absent (behavior unchanged).
+    const noContract = await runDesignPrepass(
+      { beats, videoStyle, brand: INSTURIX, budget },
+      { generate: fakeGen(JSON.stringify(plan)) },
+    );
+    const d2 = noContract.dispositions.get(keyA);
+    if (d2?.status === 'approved') expect(d2.design.plan.tasteContractId).toBeUndefined();
+  });
+
   it('no beats → empty map, zero attempts, no model call', async () => {
     const gen = fakeGen('unused');
     const r = await runDesignPrepass({ beats: [], videoStyle, brand: INSTURIX, budget }, { generate: gen });

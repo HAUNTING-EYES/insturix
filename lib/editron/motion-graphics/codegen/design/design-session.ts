@@ -27,6 +27,7 @@ import {
   type MgDesignerPart,
   type MgDesignerSessionImages,
 } from './designer-prompt';
+import type { VideoTasteContract } from '../taste/taste-schemas';
 import {
   mgVideoDesignPlanSchema,
   validateDesignPlan,
@@ -45,6 +46,8 @@ export interface MgDesignSessionInput {
   contexts: MgDesignPlanMomentContext[];
   /** Multimodal session images: the level moodboard (anchor frames) + THIS video's sampled footage frames. */
   images?: MgDesignerSessionImages;
+  /** The video-level taste contract (brief §6.5) — the ESTABLISHED art direction the designer executes (Phase 4a). */
+  tasteContract?: VideoTasteContract | null;
 }
 
 export interface MgDesignSessionResult {
@@ -315,7 +318,7 @@ export async function runVideoDesignSession(
 ): Promise<MgDesignSessionResult> {
   const maxAttempts = Math.max(1, Math.min(3, deps.maxAttempts ?? 2));
   const budget = input.designer.budget;
-  const baseParts = buildDesignerParts(input.designer, input.images ?? {});
+  const baseParts = buildDesignerParts(input.designer, input.images ?? {}, input.tasteContract ?? null);
   let lastReason = 'no attempt made';
   let lastPlan: MgVideoDesignPlan | null = null;
   let lastPlanPassedStructuralValidation = false;
