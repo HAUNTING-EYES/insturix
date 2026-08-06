@@ -122,6 +122,9 @@ describe('R5 adaptive reference plan', () => {
     expect(dropSlot?.startMs).toBe(3250);
     // Beat grid rescaled.
     expect(plan.target?.beatsMs).toEqual([125, 375, 625]);
+    // Cut + drop times are ALSO rescaled (no source/target space mixing).
+    expect(plan.target?.cutMs).toEqual([1250, 3500]);
+    expect(plan.target?.dropsMs).toEqual([3250]);
     // All boundaries within [0, target].
     for (const s of plan.target?.slots ?? []) {
       expect(s.startMs).toBeGreaterThanOrEqual(0);

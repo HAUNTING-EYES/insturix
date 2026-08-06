@@ -90,32 +90,59 @@ export function verifyRenderedReference(
     if (!report.passed) failures.push(report.detail);
   };
 
-  // ── Structural alignment: are the plan's slot anchor times near a rendered cut? ──
-  const planCutTimes = plan.slots
-    .filter((s) => s.role !== 'protected-silence' && s.startMs >= 0)
+  // ── Coordinate space: when the plan carries a target remap, the RENDER lives
+  // in TARGET space — consume the rescaled slots/rhythm, not the source ones.
+  const space = plan.target
+    ? {
+        slots: plan.target.slots,
+        beatsMs: plan.target.beatsMs,
+        cutMs: plan.target.cutMs ?? [],
+        dropsMs: plan.target.dropsMs ?? [],
+        avgCutsPerMinute: plan.rhythm.avgCutsPerMinute, // density is per-minute, scale-invariant
+        beatSpanMs: spanOf(plan.target.beatsMs),
+      }
+    : {
+        slots: plan.slots,
+        beatsMs: plan.rhythm.beatsMs,
+        cutMs: plan.rhythm.cutMs,
+        dropsMs: plan.rhythm.dropsMs,
+        avgCutsPerMinute: plan.rhythm.avgCutsPerMinute,
+        beatSpanMs: spanOf(plan.rhythm.beatsMs),
+      };
+
+  // ── Structural alignment: do the rendered cuts land on the plan's STRUCTURAL ──
+  // markers (drops, builds, hooks, outros — the moments that define the edit's
+  // architecture, not generic body-span starts)? Body spans are ranges, not cut
+  // points, so they don't anchor this dimension.
+  const STRUCTURAL_ROLES = new Set(['drop', 'build', 'hook', 'outro', 'pre-drop', 'break']);
+  const structuralAnchors = space.slots
+    .filter((s) => STRUCTURAL_ROLES.has(s.role) && s.startMs >= 0)
     .map((s) => s.startMs);
-  if (planCutTimes.length === 0) {
+  // Also: a faithful render reproduces the reference's ACTUAL cut pattern.
+  const anchors = [...new Set([...structuralAnchors, ...space.cutMs])].sort((a, b) => a - b);
+
+  if (anchors.length === 0) {
     add({
       id: 'structural_alignment',
       score: 1,
       passed: true,
-      detail: 'no slotted anchors to verify',
+      detail: 'no structural markers to verify',
     });
   } else {
-    const matched = planCutTimes.filter((t) =>
+    const matched = anchors.filter((t) =>
       rendered.cutMs.some((c) => Math.abs(c - t) <= cutToleranceMs),
     ).length;
-    const score = matched / planCutTimes.length;
+    const score = matched / anchors.length;
     add({
       id: 'structural_alignment',
       score: round(score),
       passed: score >= pass,
-      detail: `plan slots matched: ${matched}/${planCutTimes.length} within ${cutToleranceMs}ms`,
+      detail: `structural anchors matched: ${matched}/${anchors.length} within ${cutToleranceMs}ms`,
     });
   }
 
   // ── Beat alignment: rendered cuts near the plan's beat grid. ──
-  const beatGrid = plan.rhythm.beatsMs;
+  const beatGrid = space.beatsMs;
   if (beatGrid.length === 0 || rendered.cutMs.length === 0) {
     add({ id: 'beat_alignment', score: 0.5, passed: true, detail: 'no beat grid or no cuts to compare (skip)' });
   } else {
@@ -130,7 +157,7 @@ export function verifyRenderedReference(
   }
 
   // ── Cut-density curve: rendered cuts/min vs plan. ──
-  const planDensity = plan.rhythm.avgCutsPerMinute;
+  const planDensity = space.avgCutsPerMinute;
   const renderMin = rendered.durationMs > 0 ? rendered.durationMs / 60_000 : 0;
   const renderDensity = renderMin > 0 ? rendered.cutMs.length / renderMin : 0;
   if (planDensity <= 0 || renderDensity <= 0) {
@@ -169,7 +196,7 @@ export function verifyRenderedReference(
   }
 
   // ── Protected silence: plan silence vs rendered silence. ──
-  const planSilences = plan.slots.filter((s) => s.role === 'protected-silence');
+  const planSilences = space.slots.filter((s) => s.role === 'protected-silence');
   if (!checkProtectedSilence || planSilences.length === 0) {
     add({ id: 'protected_silence', score: 1, passed: true, detail: 'no protected silence in plan (skip)' });
   } else {
@@ -186,9 +213,7 @@ export function verifyRenderedReference(
   }
 
   // ── Energy trajectory proxy: rendered cut pacing vs plan beat pacing spread. ──
-  const planSpan = plan.rhythm.beatsMs.length > 1
-    ? plan.rhythm.beatsMs[plan.rhythm.beatsMs.length - 1] - plan.rhythm.beatsMs[0]
-    : plan.sourceDurationMs;
+  const planSpan = space.beatSpanMs;
   const renderLast = rendered.cutMs.length > 1 ? sorted(rendered.cutMs)[rendered.cutMs.length - 1] : 0;
   const renderFirst = rendered.cutMs.length > 1 ? sorted(rendered.cutMs)[0] : 0;
   if (planSpan <= 0 || renderLast < renderFirst) {
@@ -219,6 +244,10 @@ export function verifyRenderedReference(
 
 function sorted(xs: number[]): number[] {
   return [...xs].sort((a, b) => a - b);
+}
+
+function spanOf(xs: number[]): number {
+  return xs.length > 1 ? Math.max(0, xs[xs.length - 1] - xs[0]) : 0;
 }
 
 function clamp(v: number, min: number, max: number): number {

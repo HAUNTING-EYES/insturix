@@ -43,9 +43,9 @@ describe('R6 rendered verification', () => {
     expect(report.overall.score).toBeGreaterThan(0.5);
   });
 
-  it('fails visibly when rendered cuts miss the plan (structural mismatch)', () => {
+  it('fails visibly when rendered cuts miss the structural markers', () => {
     const rendered = {
-      cutMs: [4200, 4700, 5200], // nowhere near slot anchors
+      cutMs: [4200, 4700, 5200], // nowhere near drop@6500 / hook@0 / cut pattern
       silenceWindows: [],
       durationMs: 10_000,
     };

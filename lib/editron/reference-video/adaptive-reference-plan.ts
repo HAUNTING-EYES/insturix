@@ -61,6 +61,10 @@ export interface AdaptiveReferencePlan {
     requestedDurationMs: number;
     slots: ReferencePlanSlot[];
     beatsMs: number[];
+    /** Rescaled cut times; present so R6 never compares source- vs target-space. */
+    cutMs?: number[];
+    /** Rescaled drop times. */
+    dropsMs?: number[];
   };
 }
 
@@ -193,6 +197,8 @@ export function buildAdaptiveReferencePlan(
       requestedDurationMs: options.targetDurationMs,
       slots: target.slots,
       beatsMs: target.beatsMs,
+      cutMs: target.cutMs,
+      dropsMs: target.dropsMs,
     };
   }
 
@@ -200,12 +206,16 @@ export function buildAdaptiveReferencePlan(
 }
 
 /**
- * Rescale slot boundaries + beat grid proportionally (slot-space, deterministic).
- * Order preserved; boundaries clamped into [0, target].
+ * Rescale slot boundaries + beat grid + cut/drop times proportionally
+ * (slot-space, deterministic). Order preserved; boundaries clamped into
+ * [0, target]. EVERY timed primitive is rescaled so the target plan never mixes
+ * source-space and target-space numbers (R6 verification depends on this).
  */
 function remapToTarget(plan: AdaptiveReferencePlan, targetDurationMs: number): {
   slots: ReferencePlanSlot[];
   beatsMs: number[];
+  cutMs: number[];
+  dropsMs: number[];
 } {
   const scale = targetDurationMs / plan.sourceDurationMs;
   const slots = plan.slots
@@ -219,7 +229,13 @@ function remapToTarget(plan: AdaptiveReferencePlan, targetDurationMs: number): {
   const beatsMs = plan.rhythm.beatsMs
     .map((t) => clamp(round(t * scale, 0), 0, targetDurationMs))
     .filter((t) => t >= 0 && t <= targetDurationMs);
-  return { slots, beatsMs };
+  const cutMs = plan.rhythm.cutMs
+    .map((t) => clamp(round(t * scale, 0), 0, targetDurationMs))
+    .filter((t) => t >= 0 && t <= targetDurationMs);
+  const dropsMs = plan.rhythm.dropsMs
+    .map((t) => clamp(round(t * scale, 0), 0, targetDurationMs))
+    .filter((t) => t >= 0 && t <= targetDurationMs);
+  return { slots, beatsMs, cutMs, dropsMs };
 }
 
 /** A fallback drop-span gap (ms). ⚠️ INVENTED — a drop is a moment, not a long window. */

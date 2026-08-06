@@ -136,6 +136,17 @@ export async function enrichReferenceWithMeasuredEvidence(
         silence,
       };
 
+      // R2/R5: derive structural sections from the measured signals so the plan
+      // is not section-less (the Essentia/Modal provider is not wired here; this
+      // deterministic sectionizer is the honest stopgap — confidence 0.6).
+      const { deriveReferenceSections } = await import('./derive-reference-sections');
+      const derivedSections = deriveReferenceSections({
+        durationMs: Math.round((primary.length / decoded.sampleRate) * 1000),
+        beats: beats.beats,
+        dropsMs: [],
+        silenceWindows: silence.windows.map((w) => ({ startMs: w.startMs, endMs: w.endMs })),
+      });
+
       // R4: unify the available measured audio evidence + identity into the
       // canonical EditFingerprint. Cuts are intentionally empty here — they
       // come from the separate R0 video-cut path (this enrichment never
@@ -150,7 +161,7 @@ export async function enrichReferenceWithMeasuredEvidence(
           cuts: [],
           beats,
           silence,
-          sections: [],
+          sections: derivedSections,
           soundtrackIdentity: out.soundtrackIdentity ?? null,
           warnings: [],
           rhythm: { avgCutsPerMinute: 0, avgClipDurationMs: 0, bpm: beats.bpm || 0 },
