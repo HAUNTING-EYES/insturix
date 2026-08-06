@@ -158,15 +158,20 @@ converge on one aesthetic across videos; converge on the LEVEL.
 <output_format>
 Return ONLY one JSON object, no prose, no markdown fences, exactly this shape:
 {"brief":{"styleName":string,"motifLanguage":string,"paletteMoves":string,"motionPersonality":string,"formVariety":string},
- "moments":[{"momentId":string,"lane":${MG_DESIGN_LANES.map((l) => `"${l}"`).join('|')},"concept":string,
-   "targetBar":${MG_TARGET_BARS.map((b) => `"${b}"`).join('|')},
-   "structure":{"placement":string,"grouping":string,"readingOrder":string},
-   "elements":[{"kind":string,"role":string,"dataProps":[string],"hints":{string:string}?}],
-   "imagery":{"scenePrompt":string,"mode":"still"|"motion","paletteDirection":string}?,
-   "motion":{"enterOrder":[int],"build":string,"hold":string,"syncTo":"word-onsets"|"beats"|"landing"|"phases-only"}}],
- "declined":[{"momentId":string,"reason":string}]}
+  "moments":[{"momentId":string,"lane":${MG_DESIGN_LANES.map((l) => `"${l}"`).join('|')},"concept":string,
+    "targetBar":${MG_TARGET_BARS.map((b) => `"${b}"`).join('|')},
+    "primaryCommunicativeJob":"identify"|"quantify"|"compare"|"sequence"|"locate"|"relate"|"explain_causality"|"emphasize"|"quote"|"punctuate"|"transition"|"other",
+    "semanticPayload":string,"intendedViewerResponse":string,"visualMetaphor":string?,
+    "structure":{"placement":string,"grouping":string,"readingOrder":string},
+    "elements":[{"kind":string,"role":string,"dataProps":[string],"hints":{string:string}?}],
+    "imagery":{"scenePrompt":string,"mode":"still"|"motion","paletteDirection":string}?,
+    "motion":{"enterOrder":[int],"build":string,"hold":string,"syncTo":"word-onsets"|"beats"|"landing"|"phases-only"}}],
+  "declined":[{"momentId":string,"reason":string}]}
 Every offered beat appears EXACTLY ONCE — either as a designed moment or in "declined" (with a budget, design
 at most the budgeted count). Strings are bounded — keep concepts and reasons one sentence.
+Every designed moment MUST declare its primaryCommunicativeJob (the LOCAL rhetorical move its graphic makes for
+the licensed fact) + semanticPayload (the meaning the design must encode — the judge verifies it). This is a
+communicative job about THIS fact, never a genre label.
 </output_format>`;
 
 function momentBlock(m: MgDesignerMoment): string {

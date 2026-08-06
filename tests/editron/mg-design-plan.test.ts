@@ -30,6 +30,7 @@ const designedList = (over: Partial<MgMomentDesignPlan> = {}): MgMomentDesignPla
   lane: 'overlay-kit',
   concept: 'three steps as staggered numbered cards climbing the negative space',
   targetBar: 'clarity',
+  primaryCommunicativeJob: 'sequence',
   structure: {
     placement: 'center-right negative space, clear of subject and caption',
     grouping: 'three plate cards, one per step, each with a dot marker + label',
@@ -59,6 +60,7 @@ describe('salvageDesignPlan — keep the valid moments, decline the bad ones (Fi
   // The exact failure the Hormozi stress run hit: a ring (quantitative mark) bound to no numeric prop.
   const badRing: MgMomentDesignPlan = {
     momentId: 'm_stat', lane: 'overlay-kit', concept: 'a ring bound to nothing', targetBar: 'clarity',
+    primaryCommunicativeJob: 'quantify',
     structure: { placement: 'center', grouping: 'ring', readingOrder: 'ring' },
     elements: [{ kind: 'ring', role: 'progress indicator', dataProps: [] }],
     motion: { enterOrder: [0], build: 'ring draws', hold: 'still', syncTo: 'phases-only' },

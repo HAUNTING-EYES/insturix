@@ -30,6 +30,7 @@ const videoStyle = resolveVideoStyle({ brandFont: INSTURIX.fontSans, videoSignal
 
 const designedMoment = (id: string): MgMomentDesignPlan => ({
   momentId: id, lane: 'overlay-kit', concept: `kinetic line for ${id}`, targetBar: 'energy',
+  primaryCommunicativeJob: 'emphasize', semanticPayload: `the line lands ${id}`,
   structure: { placement: 'center', grouping: 'headline + underline', readingOrder: 'headline then rule' },
   elements: [
     { kind: 'headline', role: 'the spoken line', dataProps: ['line'] },

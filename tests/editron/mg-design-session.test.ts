@@ -24,6 +24,7 @@ const validPlan: MgVideoDesignPlan = {
   brief: { styleName: 'clean', motifLanguage: 'thin gold rule under key terms', paletteMoves: 'charcoal + gold', motionPersonality: 'snappy', formVariety: 'type then structure' },
   moments: [{
     momentId: 'b0', lane: 'overlay-kit', concept: 'kinetic line, quality dominates quantity', targetBar: 'energy',
+    primaryCommunicativeJob: 'emphasize', semanticPayload: 'quality outruns quantity',
     structure: { placement: 'center-right', grouping: 'headline + underline', readingOrder: 'headline then rule' },
     elements: [
       { kind: 'headline', role: 'the spoken line', dataProps: ['line'] },

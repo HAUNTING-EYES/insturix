@@ -91,6 +91,7 @@ const DESIGN_PLAN = JSON.stringify({
     lane: 'overlay-kit',
     concept: 'conversion lift resolves from claim to measured outcome',
     targetBar: 'clarity',
+    primaryCommunicativeJob: 'quantify',
     structure: {
       placement: 'open area clear of the subject',
       grouping: 'outcome label connected to a resolving reveal',

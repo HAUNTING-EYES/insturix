@@ -197,6 +197,7 @@ describe('renderMgMoment - illustrated-overlay backdrop (P5-3)', () => {
   };
   const illustratedPlan: MgMomentDesignPlan = {
     momentId: 'm1', lane: 'illustrated-overlay', concept: 'charcoal field with the figure', targetBar: 'restraint',
+    primaryCommunicativeJob: 'emphasize',
     structure: { placement: 'center', grouping: 'headline over scene', readingOrder: 'headline' },
     elements: [{ kind: 'headline', role: 'the line', dataProps: ['label'] }],
     imagery: { scenePrompt: 'abstract charcoal field, soft gold light', mode: 'still', paletteDirection: 'charcoal + gold' },
