@@ -270,6 +270,7 @@ const receiptSchema: z.ZodType<MgReceipt> = z.object({
   compileError: z.string().max(8_000).optional(),
   judgeScore: finiteNumber.optional(),
   judgeIssues: z.array(z.string().max(2_000)).max(100).optional(),
+  watchlist: z.boolean().optional(),
   outcome: z.enum(['generated', 'declined', 'fallback']),
   reason: z.string().max(8_000).optional(),
   failure: z.object({

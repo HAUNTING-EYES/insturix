@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { INSTURIX } from '@/lib/editron/motion-graphics/codegen/kit/brand';
 import { scanCode } from '@/lib/editron/motion-graphics/codegen/scan';
@@ -121,6 +121,29 @@ describe('generateMoment - the pipeline (decline / scan→repair→compile→jud
     expect(r.receipt.outcome).toBe('generated');
     expect(r.receipt.attempts).toBe(1);
     expect(r.receipt.judgeScore).toBe(8);
+  });
+
+  it('⭐ Phase 6: a watchlist-band score (6.5..7.5) ships tagged watchlist when calibration-gated shipping is ON (no fallback)', async () => {
+    vi.stubEnv('MG_WATCHLIST_SHIP_ENABLED', '1');
+    vi.stubEnv('MG_JUDGE_CALIBRATION_VERSION', 'v1');
+    try {
+      const r = await generateMoment(input(), deps({ evaluate: async () => ({ score: 6.8, issues: ['typography weight could pop'] }) }));
+      expect(r.status).toBe('generated');
+      if (r.status === 'generated') expect(r.receipt.watchlist).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('⭐ Phase 6: the unsafe combo (ship=1 but NO calibration version) fails CLOSED — watchlist score still falls back', async () => {
+    vi.stubEnv('MG_WATCHLIST_SHIP_ENABLED', '1');
+    try {
+      const r = await generateMoment(input(), deps({ evaluate: async () => ({ score: 6.8, issues: [] }) }));
+      expect(r.status).toBe('fallback');
+      if (r.status === 'fallback') expect(r.reason).toMatch(/6\.8/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('★ model DECLINES → status declined, no MG, no fallback card', async () => {

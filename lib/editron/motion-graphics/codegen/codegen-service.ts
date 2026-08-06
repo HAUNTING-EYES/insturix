@@ -16,6 +16,7 @@
 
 import { createHash } from 'node:crypto';
 import { deriveRevisionRouting } from './judge-verdict';
+import { classifyAcceptance, resolveWatchlistPolicy } from './acceptance';
 
 import type {
   SemanticMgCandidate,
@@ -548,7 +549,16 @@ export async function generateMoment(input: MgMomentInput, deps: CodegenDeps): P
     }
     receipt.judgeScore = ev2.score;
     receipt.judgeIssues = ev2.issues;
-    if (ev2.score < threshold) return fallback(`judge ${ev2.score} < ${threshold}`);
+    if (ev2.score < threshold) {
+      // Phase 6 (§13.3): a WATCHLIST-band score ships tagged (calibration-gated) instead of falling back —
+      // but only when the unsafe-combination guard passes (ship enabled WITH a calibration version).
+      const policy = resolveWatchlistPolicy();
+      if (classifyAcceptance(ev2.score, threshold, policy.floor) !== 'watchlist' || !policy.shipEnabled) {
+        return fallback(`judge ${ev2.score} < ${threshold}`);
+      }
+      receipt.watchlist = true;
+      console.info(`[MGCodegen] ACCEPT_WATCHLIST ${receipt.momentId} score=${ev2.score.toFixed(1)} floor=${policy.floor} (${policy.reason})`);
+    }
     code = revCode;
   }
 

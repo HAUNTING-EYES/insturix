@@ -181,6 +181,8 @@ export interface MgReceipt {
   revisionOwner?: 'designer' | 'coder' | 'placement' | 'system' | 'none';
   /** The routing reason (which signal matched) — telemetry for the revision loop. */
   revisionOwnerReason?: string;
+  /** Phase 6 (§13.3): true when accepted via the WATCHLIST band (ship tagged; calibration-gated). */
+  watchlist?: boolean;
 }
 
 /** The service result: a validated component, an honest decline (no faithful graphic), or a Law-2 fallback. */
