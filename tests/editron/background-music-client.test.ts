@@ -396,3 +396,55 @@ describe('background music client contract', () => {
     }
   });
 });
+
+describe('reference-song bridge client', () => {
+  it('fetches the reference identity + catalog match and hits the reference-song endpoint', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        success: true,
+        referenceAudio: {
+          hasIdentity: true,
+          identity: {
+            recordingId: 'isrc:USRC17607839',
+            title: 'Nightcall',
+            artists: ['Kavinsky'],
+            isrcs: ['USRC17607839'],
+            cueOffsetMs: 3200,
+            provider: 'audd',
+            confidence: 0.94,
+          },
+          rhythm: { bpm: 120, cutsPerMinute: 12, durationMs: 30000 },
+        },
+        match: {
+          identity: { recordingId: 'isrc:USRC17607839', title: 'Nightcall', artists: ['Kavinsky'], isrcs: ['USRC17607839'], cueOffsetMs: 3200, provider: 'audd' },
+          candidates: [catalogTrack],
+          strategy: 'isrc-exact',
+          matched: true,
+          sameSong: { isrc: 'USRC17607839', candidate: catalogTrack },
+        },
+      }),
+    );
+
+    const payload = await (
+      await import('@/components/editron/editor/version-7.0.0/utils/background-music-assignment')
+    ).fetchReferenceSong({ projectId: 'proj_123', fetchImpl });
+
+    const [url] = vi.mocked(fetchImpl).mock.calls[0];
+    expect(String(url)).toContain('/api/services/editron/music-catalog/reference-song');
+    expect(String(url)).toContain('projectId=proj_123');
+    expect(payload.referenceAudio?.identity?.title).toBe('Nightcall');
+    expect(payload.match?.strategy).toBe('isrc-exact');
+    expect(payload.match?.sameSong?.candidate.providerTrackId).toBe('track_licensed_1');
+  });
+
+  it('rejects an invalid project id without hitting the network', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ success: true }));
+    const { fetchReferenceSong, BackgroundMusicAssignmentClientError } = await import(
+      '@/components/editron/editor/version-7.0.0/utils/background-music-assignment'
+    );
+    await expect(fetchReferenceSong({ projectId: '  ', fetchImpl }))
+      .rejects.toBeInstanceOf(BackgroundMusicAssignmentClientError);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+

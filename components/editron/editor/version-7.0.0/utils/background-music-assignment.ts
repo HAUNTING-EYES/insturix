@@ -462,3 +462,64 @@ function isMusicCatalogTag(value: unknown): boolean {
   const tag = recordField(value);
   return Boolean(tag && stringField(tag.id) && stringField(tag.name));
 }
+
+// ─── Reference-song bridge (R3 identity -> licensed catalog -> picker) ──────
+
+export interface ReferenceSongPickerPayload {
+  success: boolean;
+  referenceAudio?: {
+    hasIdentity: boolean;
+    identity?: {
+      recordingId: string;
+      title: string;
+      artists: string[];
+      isrcs: string[];
+      cueOffsetMs: number | null;
+      provider: string;
+      confidence: number;
+    };
+    rhythm?: { bpm: number | null; cutsPerMinute: number; durationMs: number | null };
+  };
+  match?: {
+    identity: { recordingId: string; title: string; artists: string[]; isrcs: string[]; cueOffsetMs: number | null; provider: string };
+    candidates: MusicCatalogTrack[];
+    strategy: 'isrc-exact' | 'title-artist' | 'none';
+    matched: boolean;
+    sameSong?: { isrc: string; candidate: MusicCatalogTrack };
+  };
+  code?: string;
+}
+
+export interface FetchReferenceSongInput {
+  projectId: string;
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+}
+
+/** Load the stored reference identity + catalog matches for the Sounds References view. */
+export async function fetchReferenceSong(
+  input: FetchReferenceSongInput,
+): Promise<ReferenceSongPickerPayload> {
+  const projectId = input.projectId.trim();
+  if (!projectId) {
+    throw new BackgroundMusicAssignmentClientError(
+      'INVALID_REQUEST',
+      'Reference song lookup requires a saved project',
+    );
+  }
+  const fetchImpl = input.fetchImpl ?? fetch;
+  let response: Response;
+  try {
+    response = await fetchImpl(
+      `/api/services/editron/music-catalog/reference-song?projectId=${encodeURIComponent(projectId)}`,
+      { method: 'GET', signal: input.signal },
+    );
+  } catch (error) {
+    throw requestFailure(error, 'Reference song lookup was interrupted', 'Could not reach the reference song service');
+  }
+  const payload = await readJsonRecord(response);
+  if (!response.ok || payload.success !== true) {
+    throw responseFailure(payload, response, 'Reference song lookup failed');
+  }
+  return payload as ReferenceSongPickerPayload;
+}
