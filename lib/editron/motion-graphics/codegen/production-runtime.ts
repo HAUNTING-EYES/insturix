@@ -417,6 +417,27 @@ function judgeDetailTinyCropPx(): number { return numberEnv('MG_JUDGE_DETAIL_TIN
 function judgeDetailZoom(): number { return numberEnv('MG_JUDGE_DETAIL_ZOOM', 1.6); }
 function judgeDetailMaxBboxFrac(): number { return Math.min(1, Math.max(0.1, numberEnv('MG_JUDGE_DETAIL_MAX_BBOX_FRAC', 0.6))); }
 function judgeDetailMinBboxPx(): number { return numberEnv('MG_JUDGE_DETAIL_MIN_BBOX_PX', 24); }
+function judgeMotionFramesEnabled(): boolean { return boolEnv('MG_JUDGE_MOTION_FRAMES', false); }
+
+/** §9.3: normalized mean/max frame-difference over the sampled buffers (0..1) — cheap motion evidence. */
+async function motionSummaryOf(buffers: Buffer[]): Promise<{ mean: number; max: number }> {
+  const frames: Buffer[] = [];
+  for (const b of buffers) frames.push(await sharp(b).resize({ width: 64, height: 36, fit: 'fill' }).removeAlpha().raw().toBuffer());
+  let mean = 0;
+  let max = 0;
+  let n = 0;
+  for (let i = 1; i < frames.length; i += 1) {
+    const a = frames[i - 1];
+    const b = frames[i];
+    for (let p = 0; p < a.length; p += 1) {
+      const d = Math.abs(a[p] - b[p]);
+      mean += d;
+      if (d > max) max = d;
+    }
+    n += a.length;
+  }
+  return { mean: n ? mean / n / 255 : 0, max: max / 255 };
+}
 
 // Fix-2 (2026-08-05, REVISED per brief §10.2/§24.1): grounded subject interference. NO hard subject veto from the
 // coarse V-JEPA motion blob in the first deploy. The code measures opaque coverage of the subject box (metrics +
@@ -767,6 +788,39 @@ async function buildJudgeImages(
     image: stressSheet,
     mimeType: 'image/png',
   });
+
+  // Phase 8 (§9.3): adaptive motion-transition frames + a normalized motion summary, GATED (default OFF — the
+  // classic packet layout and its tests are unchanged). Samples the MIDPOINT between consecutive sampled phases
+  // (no-op for 3-frame fixtures; meaningful on real 90+ frame renders) so the judge sees actual transitions.
+  if (judgeMotionFramesEnabled() && indices.length >= 2) {
+    const midFrames: number[] = [];
+    for (let i = 1; i < indices.length; i += 1) {
+      const mid = Math.round((indices[i - 1] + indices[i]) / 2);
+      if (mid >= 0 && mid < render.files.length && !indices.includes(mid)) midFrames.push(mid);
+    }
+    if (midFrames.length > 0) {
+      const motionBuffers = [...frameBuffers];
+      for (const m of midFrames) motionBuffers.push(await fs.readFile(path.join(render.webpDir, render.files[m])));
+      const summary = await motionSummaryOf(motionBuffers);
+      for (let c = 0; c < midFrames.length; c += 1) {
+        const transitionFrame = await sharp(motionBuffers[frameBuffers.length + c])
+          .resize({ width: phaseWidth, height: phaseHeight, fit: 'contain' })
+          .png()
+          .toBuffer();
+        const transitionFootage = await sharp(decodeVisualEvidenceFrame(evidenceFrames[Math.min(c, evidenceFrames.length - 1)]))
+          .resize({ width: phaseWidth, height: phaseHeight, fit: 'cover' })
+          .png()
+          .toBuffer();
+        const transitionComposite = await sharp(transitionFootage).composite([{ input: transitionFrame }]).png().toBuffer();
+        images.push({
+          label: `motion transition (adaptive midpoint sample ${midFrames[c]}); motionSummary mean=${summary.mean.toFixed(3)} max=${summary.max.toFixed(3)}`,
+          image: transitionComposite,
+          mimeType: 'image/png',
+        });
+      }
+    }
+  }
+
   return { images, geometry };
 }
 
@@ -962,6 +1016,7 @@ LICENSED FACT JSON:
 ${fact}`;
   let lastError = 'unknown structured-output failure';
   let lastFailure: MgProviderFailureError | null = null;
+  const judgeStartedAt = Date.now();
   for (let attempt = 0; attempt < JUDGE_ATTEMPTS.length; attempt += 1) {
     let finishReason = 'unknown';
     let totalTokens: number | undefined;
@@ -977,6 +1032,8 @@ ${fact}`;
       finishReason = result.finishReason;
       totalTokens = result.totalTokens;
       thoughtsTokens = result.thoughtsTokens;
+      // Phase 8 (§9.5): judge usage telemetry — model, tokens, latency per call.
+      console.info(`[MGCodegen] judge call: model=${provider.model} totalTokens=${totalTokens ?? '?'} latencyMs=${Date.now() - judgeStartedAt}`);
       const response = result.text;
       if (!response) throw new MgProviderFailureError('MG visual judge returned an empty response', {
         domain: 'provider', provider: providerName, operation: 'visual-judge', code: 'invalid-response', disposition: 'terminal',

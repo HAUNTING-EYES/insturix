@@ -4879,6 +4879,24 @@ async function applyGraphic(
           sequenceNamespace: userId,
         });
 
+        // Phase 8 (§6.8/§16.2): durable per-moment delivery record so a lapsed/stale worker delivery can never
+        // silently mutate the project. Best-effort, non-blocking.
+        try {
+          const { computeDeliveryRecord, persistMGDeliveryRecord } = await import('@/lib/editron/motion-graphics/codegen/mg-delivery-record');
+          await persistMGDeliveryRecord(projectId, userId, computeDeliveryRecord({
+            videoId: projectId,
+            momentId,
+            status: 'enqueued',
+            attempt: 1,
+            jobId: enqueued.jobId,
+            tasteContractHash: projectSignalContext.tasteContractForJudge?.hash,
+            expectedTimelineRange: { startFrame: snappedFrame, endFrame: snappedFrame + compositionDuration },
+            idempotencyKey: `${projectId}:${momentId}:${enqueued.jobId}`,
+          }));
+        } catch (deliveryRecordErr) {
+          console.warn('[EDL] MG delivery record persist failed (non-fatal):', deliveryRecordErr instanceof Error ? deliveryRecordErr.message : deliveryRecordErr);
+        }
+
         if (enqueued.status !== 'completed') {
           const outcome: MgCodegenDecisionOutcome = {
             ...outcomeBase,
