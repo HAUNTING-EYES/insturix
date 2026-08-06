@@ -3,6 +3,7 @@ import type {
   ChatBattleFixturePlan,
 } from './chat-edit-battle-fixture-plan';
 import { resolveRenderableAudio } from '../shared/render-request-payload';
+import { groupWordsIntoCaptions } from '../utils/caption-utils';
 
 export interface PreparedChatBattleFixture {
   project: Record<string, unknown>;
@@ -36,6 +37,11 @@ export interface ChatBattleFixtureCapabilityReport {
   videoAssetIds: string[];
   semanticVisualAssetIds: string[];
   spatialVisualAssetIds: string[];
+  renderableNativeAudioAssetIds: string[];
+  renderableMusicOverlayIds: Array<string | number>;
+  musicBeatGridOverlayIds: Array<string | number>;
+  renderableSfxOverlayIds: Array<string | number>;
+  speechTimingAssetIds: string[];
 }
 
 export function inspectChatBattleFixtureCapabilities(input: {
@@ -45,8 +51,9 @@ export function inspectChatBattleFixtureCapabilities(input: {
 }): ChatBattleFixtureCapabilityReport {
   const required = [...new Set(input.required)];
   const sourceAssetIds = uniqueStrings(input.sourceProject.sourceAssetIds);
+  const overlays = asRecords(input.sourceProject.overlays);
   const videoAssetIds = uniqueStrings(
-    asRecords(input.sourceProject.overlays)
+    overlays
       .filter((overlay) => stringValue(overlay.type) === 'video')
       .map((overlay) => overlay.assetId),
   );
@@ -62,6 +69,33 @@ export function inspectChatBattleFixtureCapabilities(input: {
   const spatialVisualAssetIds = videoAssetIds.filter((assetId) => (
     hasTimeLocalizedSpatialVisual(analysisByAssetId.get(assetId))
   ));
+  const renderableNativeAudioAssetIds = uniqueStrings(
+    overlays
+      .filter((overlay) => (
+        stringValue(overlay.type) === 'video'
+        && overlay.hasNativeAudio === true
+        && isIndependentlyRenderableAudio(overlay)
+      ))
+      .map((overlay) => overlay.assetId),
+  );
+  const renderableMusicOverlays = overlays.filter((overlay) => (
+    stringValue(overlay.type) === 'sound'
+    && isMusicSoundOverlay(overlay)
+    && isIndependentlyRenderableAudio(overlay)
+  ));
+  const renderableSfxOverlays = overlays.filter((overlay) => (
+    isSfxSoundOverlay(overlay)
+    && isIndependentlyRenderableAudio(overlay)
+  ));
+  const renderableMusicOverlayIds = overlayIds(renderableMusicOverlays);
+  const musicBeatGridOverlayIds = overlayIds(
+    renderableMusicOverlays.filter(hasUsableBeatGrid),
+  );
+  const renderableSfxOverlayIds = overlayIds(renderableSfxOverlays);
+  const speechTimingAssetIds = videoAssetIds.filter((assetId) => (
+    hasTimedSpeech(analysisByAssetId.get(assetId))
+    || hasTimedCaptionSpeech(overlays, assetId, videoAssetIds)
+  ));
 
   const missing = required.filter((capability) => {
     if (capability === 'multi-asset') {
@@ -73,7 +107,22 @@ export function inspectChatBattleFixtureCapabilities(input: {
     if (capability === 'semantic-visual-all-video-assets') {
       return videoAssetIds.length === 0 || semanticVisualAssetIds.length !== videoAssetIds.length;
     }
-    return videoAssetIds.length === 0 || spatialVisualAssetIds.length !== videoAssetIds.length;
+    if (capability === 'spatial-visual-all-video-assets') {
+      return videoAssetIds.length === 0 || spatialVisualAssetIds.length !== videoAssetIds.length;
+    }
+    if (capability === 'renderable-native-audio') {
+      return renderableNativeAudioAssetIds.length === 0;
+    }
+    if (capability === 'speech-timing') {
+      return speechTimingAssetIds.length === 0;
+    }
+    if (capability === 'renderable-music') {
+      return renderableMusicOverlayIds.length === 0;
+    }
+    if (capability === 'music-beat-grid') {
+      return musicBeatGridOverlayIds.length === 0;
+    }
+    return renderableSfxOverlayIds.length === 0;
   });
 
   return {
@@ -84,6 +133,11 @@ export function inspectChatBattleFixtureCapabilities(input: {
     videoAssetIds,
     semanticVisualAssetIds,
     spatialVisualAssetIds,
+    renderableNativeAudioAssetIds,
+    renderableMusicOverlayIds,
+    musicBeatGridOverlayIds,
+    renderableSfxOverlayIds,
+    speechTimingAssetIds,
   };
 }
 
@@ -99,17 +153,21 @@ export function prepareChatBattleFixture(input: {
   delete project._id;
 
   const overlays = cloneOverlays(project.overlays);
-  const scenarioOverlays = input.plan.preserveSoundOverlays
-    ? overlays
-    : overlays.filter((overlay) => stringValue(overlay.type) !== 'sound');
+  const retainedOverlays = applySoundOverlayPolicy(overlays, input.plan);
+  applyNativeAudioPolicy(retainedOverlays, input.plan);
+  const scenarioOverlays = applyScenarioTimelineSeeds(
+    retainedOverlays,
+    project,
+    input.plan,
+  );
   let transcriptAssetAlias: ChatBattleTranscriptAssetAlias | undefined;
-  if (input.plan.removeCaptionTrack) {
-    project.overlays = scenarioOverlays.filter((overlay) => !isCaptionOverlay(overlay));
-  } else if (input.plan.seedTranscript) {
+  project.overlays = scenarioOverlays;
+  if (input.plan.seedTranscript) {
     project.overlays = seedTranscriptOverlay(scenarioOverlays, project, input.fixtureProjectId);
     transcriptAssetAlias = remapSeededTranscriptAsset(project, input.fixtureProjectId, now);
-  } else {
-    project.overlays = scenarioOverlays;
+  }
+  if (input.plan.removeCaptionTrack) {
+    project.overlays = cloneOverlays(project.overlays).filter((overlay) => !isCaptionOverlay(overlay));
   }
   assertFixtureAudioIsRenderable(project.overlays, input.plan);
 
@@ -133,15 +191,26 @@ export function prepareChatBattleFixture(input: {
       projectMode: input.plan.projectMode,
       profile: input.plan.profile,
       sourceProjectId,
+      soundOverlayPolicy: input.plan.soundOverlayPolicy,
+      nativeAudioPolicy: input.plan.nativeAudioPolicy,
       disposable: true,
       preparedAt: now.toISOString(),
     },
   };
 
-  const selectedOverlay = findSelectedOverlay(project.overlays, input.plan.selectedOverlayType);
+  const selectedOverlay = findSelectedOverlay(
+    project.overlays,
+    input.plan.selectedOverlayType,
+    input.plan.selectedOverlayRole,
+    input.plan.selectedOverlayMinimumDurationFrames,
+  );
   if (input.plan.selectedOverlayType && !selectedOverlay) {
+    const role = input.plan.selectedOverlayRole ? ` ${input.plan.selectedOverlayRole}` : '';
     throw new Error(
-      `Fixture source ${sourceProjectId} has no ${input.plan.selectedOverlayType} overlay required by ${input.plan.scenarioId}.`,
+      `Fixture source ${sourceProjectId} has no${role} ${input.plan.selectedOverlayType} overlay`
+      + `${input.plan.selectedOverlayMinimumDurationFrames
+        ? ` lasting at least ${input.plan.selectedOverlayMinimumDurationFrames} frames`
+        : ''} required by ${input.plan.scenarioId}.`,
     );
   }
   const durationInFrames = positiveInteger(project.durationInFrames) ?? maxOverlayEnd(project.overlays);
@@ -227,6 +296,43 @@ export function cloneChatBattleUploadBatch(
   return clone;
 }
 
+export function cloneChatBattleStoryboard(
+  sourceStoryboard: Record<string, unknown>,
+  fixtureProjectId: string,
+  fixtureStoryboardId: string,
+  now: Date = new Date(),
+): Record<string, unknown> {
+  const sourceStoryboardId = stringValue(sourceStoryboard.storyboardId);
+  if (!sourceStoryboardId) {
+    throw new Error('Storyboard fixture source has no storyboardId.');
+  }
+  const clone = structuredClone(sourceStoryboard);
+  delete clone._id;
+  const sourceSceneAssetIds = uniqueStrings(
+    asRecords(clone.scenes).flatMap((scene) => [
+      scene.imageAssetId,
+      scene.videoAssetId,
+      asRecord(scene.voiceover).audioAssetId,
+      ...asRecords(scene.generationHistory).map((entry) => entry.assetId),
+    ]),
+  );
+  clone.storyboardId = fixtureStoryboardId;
+  clone.projectId = fixtureProjectId;
+  clone.createdAt = now;
+  clone.updatedAt = now;
+  clone.metadata = {
+    ...asRecord(clone.metadata),
+    battleTest: {
+      disposable: true,
+      fixtureProjectId,
+      sourceStoryboardId,
+      sourceSceneAssetIds,
+      preparedAt: now.toISOString(),
+    },
+  };
+  return clone;
+}
+
 function seedTranscriptOverlay(
   overlays: Record<string, unknown>[],
   project: Record<string, unknown>,
@@ -236,8 +342,10 @@ function seedTranscriptOverlay(
   const durationInFrames = Math.max(600, positiveInteger(project.durationInFrames) ?? maxOverlayEnd(overlays));
   project.durationInFrames = durationInFrames;
   const words = transcriptFixtureTokens().map((token, index) => {
-    const startFrame = 15 + (index * 6);
-    const endFrame = startFrame + 5;
+    // Seed ordinary, readable speech (~138 WPM). The previous 300 WPM fixture
+    // made a caption-style edit inherit unreadable timing before chat touched it.
+    const startFrame = 15 + (index * 13);
+    const endFrame = startFrame + 12;
     return {
       word: token,
       startMs: Math.round((startFrame / fps) * 1000),
@@ -255,7 +363,12 @@ function seedTranscriptOverlay(
     durationInFrames,
     row: finiteFrame(existing.row) || 4,
     words,
-    captions: [],
+    captions: groupWordsIntoCaptions(words, {
+      wordsPerGroup: 4,
+      groupByPunctuation: true,
+      maxGroupDuration: 2_200,
+      maxCharsPerLine: 42,
+    }),
     metadata: {
       ...asRecord(existing.metadata),
       battleFixtureTranscript: true,
@@ -372,7 +485,7 @@ function transcriptFixtureTokens(): string[] {
     '\u0915\u0940\u092e\u0924', '\u0906\u0938\u093e\u0928', '\u0939\u0948',
     'pricing', 'simple', 'hai',
     'this', 'is', 'the', 'key', 'point',
-    'now', 'watch', 'this',
+    'now', 'watch', 'this', 'keep', 'it', 'clear',
   ];
 }
 
@@ -417,6 +530,7 @@ function buildFixtureClientContext(input: {
 
 function stripStaleRenderEvidence(value: unknown): Record<string, unknown> {
   const intelligence = structuredClone(asRecord(value));
+  delete intelligence.latestChatEditRenderVerification;
   delete intelligence.phase0RenderedStillEvidence;
   delete intelligence.phase0RenderedQualityGate;
   delete intelligence.phase0RenderedAestheticReport;
@@ -427,10 +541,10 @@ function assertFixtureAudioIsRenderable(
   overlays: unknown,
   plan: ChatBattleFixturePlan,
 ): void {
-  if (!plan.preserveSoundOverlays) return;
   for (const overlay of asRecords(overlays)) {
-    if (stringValue(overlay.type) !== 'sound') continue;
     try {
+      // Canonical render authority identifies both sound overlays and videos
+      // with embedded native audio; unrelated overlays pass through unchanged.
       resolveRenderableAudio(overlay);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -441,8 +555,240 @@ function assertFixtureAudioIsRenderable(
   }
 }
 
+function applySoundOverlayPolicy(
+  overlays: Record<string, unknown>[],
+  plan: ChatBattleFixturePlan,
+): Record<string, unknown>[] {
+  if (plan.soundOverlayPolicy === 'preserve-all') return overlays;
+  if (plan.soundOverlayPolicy === 'preserve-sfx-only') {
+    return overlays.filter((overlay) => (
+      stringValue(overlay.type) !== 'sound' || isSfxSoundOverlay(overlay)
+    ));
+  }
+  return overlays.filter((overlay) => stringValue(overlay.type) !== 'sound');
+}
+
+function applyNativeAudioPolicy(
+  overlays: Record<string, unknown>[],
+  plan: ChatBattleFixturePlan,
+): void {
+  if (plan.nativeAudioPolicy === 'preserve') return;
+
+  const explicitAudioTracks = overlays.filter((overlay) => stringValue(overlay.type) === 'sound');
+  if (
+    plan.nativeAudioPolicy === 'mute-embedded-when-explicit-tracks'
+    && explicitAudioTracks.length === 0
+  ) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} cannot mute embedded audio for ${plan.scenarioId} `
+      + 'because it has no explicit audio tracks.',
+    );
+  }
+  if (
+    plan.nativeAudioPolicy === 'mute-embedded-for-seeded-transcript'
+    && !plan.seedTranscript
+  ) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} cannot mute embedded audio for ${plan.scenarioId} `
+      + 'because it has no synthetic transcript contract.',
+    );
+  }
+  if (explicitAudioTracks.length > 0) {
+    assertFixtureAudioIsRenderable(explicitAudioTracks, plan);
+  }
+  const reason = plan.nativeAudioPolicy === 'mute-embedded-for-seeded-transcript'
+    ? 'synthetic-transcript-fixture'
+    : plan.nativeAudioPolicy === 'mute-embedded-for-visual-only'
+      ? 'visual-only-fixture'
+      : 'explicit-renderable-audio-tracks-preserved';
+
+  for (const overlay of overlays) {
+    if (stringValue(overlay.type) !== 'video' || overlay.hasNativeAudio !== true) continue;
+    overlay.hasNativeAudio = false;
+    overlay.metadata = {
+      ...asRecord(overlay.metadata),
+      battleFixtureAudio: {
+        embeddedNativeAudio: 'muted',
+        reason,
+      },
+    };
+  }
+}
+
 function cloneOverlays(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? structuredClone(value).map(asRecord) : [];
+}
+
+function applyScenarioTimelineSeeds(
+  overlays: Record<string, unknown>[],
+  project: Record<string, unknown>,
+  plan: ChatBattleFixturePlan,
+): Record<string, unknown>[] {
+  if (plan.seedTimelineGapFrames) {
+    seedTimelineGap(overlays, project, plan.seedTimelineGapFrames, plan);
+  }
+  if (plan.minimumOverlayCount) {
+    seedMinimumOverlayCount(overlays, project, plan);
+  }
+  if (plan.selectedBehindOverlayType) {
+    seedSelectedBehindReference(overlays, project, plan);
+  }
+  if (plan.stripSelectedAnimation) {
+    stripSelectedAnimation(overlays, plan);
+  }
+  if (plan.stripBgmDuckingConfig) {
+    stripBgmDuckingConfig(overlays);
+  }
+  return overlays;
+}
+
+function stripBgmDuckingConfig(overlays: Record<string, unknown>[]): void {
+  for (const overlay of overlays) {
+    if (!isMusicSoundOverlay(overlay)) continue;
+    const styles = { ...asRecord(overlay.styles) };
+    delete styles.duckingConfig;
+    overlay.styles = styles;
+  }
+}
+
+function seedTimelineGap(
+  overlays: Record<string, unknown>[],
+  project: Record<string, unknown>,
+  gapFrames: number,
+  plan: ChatBattleFixturePlan,
+): void {
+  const videos = overlays
+    .filter((overlay) => stringValue(overlay.type) === 'video')
+    .sort((left, right) => finiteFrame(left.from) - finiteFrame(right.from));
+  if (videos.length < 2) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} needs at least two video clips for ${plan.scenarioId}.`,
+    );
+  }
+  const existingGap = videos.some((video, index) => (
+    index > 0
+    && finiteFrame(video.from)
+      > finiteFrame(videos[index - 1].from) + finiteFrame(videos[index - 1].durationInFrames)
+  ));
+  if (existingGap) return;
+
+  const boundary = finiteFrame(videos[1].from);
+  for (const overlay of overlays) {
+    const from = finiteFrame(overlay.from);
+    if (from >= boundary) overlay.from = from + gapFrames;
+  }
+  const currentDuration = positiveInteger(project.durationInFrames) ?? maxOverlayEnd(overlays);
+  project.durationInFrames = Math.max(currentDuration + gapFrames, maxOverlayEnd(overlays));
+}
+
+function seedMinimumOverlayCount(
+  overlays: Record<string, unknown>[],
+  project: Record<string, unknown>,
+  plan: ChatBattleFixturePlan,
+): void {
+  const requirement = plan.minimumOverlayCount;
+  if (!requirement) return;
+  const matching = overlays.filter((overlay) => stringValue(overlay.type) === requirement.type);
+  const source = matching[0];
+  if (!source) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} has no ${requirement.type} overlay to seed ${plan.scenarioId}.`,
+    );
+  }
+
+  const seeded: Record<string, unknown>[] = [];
+  while (matching.length + seeded.length < requirement.count) {
+    const peer = structuredClone(source);
+    peer.id = nextNumericOverlayId(overlays, seeded);
+    peer.content = `Fixture peer title ${seeded.length + 1}`;
+    peer.from = maxOverlayEnd([...overlays, ...seeded]) + 30;
+    peer.durationInFrames = Math.max(90, finiteFrame(source.durationInFrames));
+    peer.row = 0;
+    if (requirement.requireDistinctStyles) {
+      peer.styles = {
+        ...asRecord(peer.styles),
+        color: '#ff2d55',
+        fill: '#ff2d55',
+      };
+    }
+    seeded.push(peer);
+  }
+  overlays.push(...seeded);
+  project.durationInFrames = Math.max(
+    positiveInteger(project.durationInFrames) ?? 1,
+    maxOverlayEnd(overlays),
+  );
+}
+
+function seedSelectedBehindReference(
+  overlays: Record<string, unknown>[],
+  project: Record<string, unknown>,
+  plan: ChatBattleFixturePlan,
+): void {
+  const selected = findSelectedOverlay(
+    overlays,
+    plan.selectedOverlayType,
+    plan.selectedOverlayRole,
+    plan.selectedOverlayMinimumDurationFrames,
+  );
+  const reference = overlays.find(
+    (overlay) => stringValue(overlay.type) === plan.selectedBehindOverlayType,
+  );
+  if (!selected || !reference) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} cannot create the selected ${plan.selectedOverlayType ?? 'overlay'} `
+      + `/ ${plan.selectedBehindOverlayType} layer relation required by ${plan.scenarioId}.`,
+    );
+  }
+
+  const isolatedStart = maxOverlayEnd(overlays) + 30;
+  const isolatedDuration = Math.max(90, finiteFrame(selected.durationInFrames));
+  selected.from = isolatedStart;
+  selected.durationInFrames = isolatedDuration;
+  selected.row = 2;
+  reference.from = isolatedStart;
+  reference.durationInFrames = isolatedDuration;
+  reference.row = 1;
+  for (const key of ['left', 'top', 'width', 'height'] as const) {
+    if (selected[key] !== undefined) reference[key] = selected[key];
+  }
+  project.durationInFrames = Math.max(
+    positiveInteger(project.durationInFrames) ?? 1,
+    isolatedStart + isolatedDuration,
+  );
+}
+
+function stripSelectedAnimation(
+  overlays: Record<string, unknown>[],
+  plan: ChatBattleFixturePlan,
+): void {
+  const selected = findSelectedOverlay(
+    overlays,
+    plan.selectedOverlayType,
+    plan.selectedOverlayRole,
+    plan.selectedOverlayMinimumDurationFrames,
+  );
+  if (!selected) {
+    throw new Error(
+      `Fixture source ${plan.sourceProjectId} has no selected overlay whose animation can be cleared for ${plan.scenarioId}.`,
+    );
+  }
+  const styles = { ...asRecord(selected.styles) };
+  delete styles.animation;
+  selected.styles = styles;
+  selected.keyframeTracks = asRecords(selected.keyframeTracks).filter((track) => (
+    stringValue(track.property) !== 'opacity'
+  ));
+}
+
+function nextNumericOverlayId(
+  overlays: Record<string, unknown>[],
+  seeded: Record<string, unknown>[],
+): number {
+  const ids = [...overlays, ...seeded]
+    .map((overlay) => overlay.id)
+    .filter((id): id is number => typeof id === 'number' && Number.isSafeInteger(id));
+  return ids.length > 0 ? Math.max(...ids) + 1 : 9_000_000_000 + seeded.length;
 }
 
 function hasTimeLocalizedSemanticVisual(analysis: Record<string, unknown> | undefined): boolean {
@@ -468,6 +814,76 @@ function hasTimeLocalizedSpatialVisual(analysis: Record<string, unknown> | undef
   });
 }
 
+function isIndependentlyRenderableAudio(overlay: Record<string, unknown>): boolean {
+  try {
+    return resolveRenderableAudio(overlay).overlay !== null;
+  } catch {
+    return false;
+  }
+}
+
+function isMusicSoundOverlay(overlay: Record<string, unknown>): boolean {
+  if (stringValue(overlay.type) !== 'sound') return false;
+  const assetId = stringValue(overlay.assetId)?.toLowerCase() ?? '';
+  const rights = asRecord(overlay.musicRights ?? overlay.audioRights);
+  return overlay.row === 1
+    || overlay.row === '1'
+    || stringValue(overlay.mediaRole) === 'music'
+    || stringValue(overlay.audioRole) === 'music'
+    || stringValue(rights.mediaRole) === 'music'
+    || assetId.startsWith('bgm_');
+}
+
+function hasUsableBeatGrid(overlay: Record<string, unknown>): boolean {
+  const metadata = asRecord(overlay.metadata);
+  const beatGrid = asRecord(overlay.beatGrid ?? metadata.beatGrid);
+  const beats = asRecords(beatGrid.beats);
+  const downbeats = Array.isArray(beatGrid.downbeats) ? beatGrid.downbeats : [];
+  return beats.some((beat) => finiteNonNegativeNumber(beat.frame) != null)
+    && downbeats.some((frame) => typeof frame === 'number' && Number.isFinite(frame) && frame >= 0);
+}
+
+function hasTimedSpeech(analysis: Record<string, unknown> | undefined): boolean {
+  const rawFootageAnalysis = asRecord(analysis?.rawFootageAnalysis);
+  const transcription = asRecord(rawFootageAnalysis.transcription ?? analysis?.transcription);
+  return hasTimedWords(transcription.words);
+}
+
+function hasTimedCaptionSpeech(
+  overlays: Record<string, unknown>[],
+  assetId: string,
+  videoAssetIds: string[],
+): boolean {
+  const videoOverlayIds = new Set(
+    overlays
+      .filter((overlay) => overlay.assetId === assetId && stringValue(overlay.type) === 'video')
+      .map((overlay) => String(overlay.id)),
+  );
+  return overlays.some((overlay) => {
+    if (!isCaptionOverlay(overlay) || !hasTimedWords(overlay.words)) return false;
+    const sourceVideoId = stringValue(overlay.sourceVideoId);
+    return sourceVideoId
+      ? videoOverlayIds.has(sourceVideoId)
+      : videoAssetIds.length === 1;
+  });
+}
+
+function hasTimedWords(value: unknown): boolean {
+  return asRecords(value).some((word) => {
+    const startMs = finiteNonNegativeNumber(word.startMs);
+    const endMs = finiteNonNegativeNumber(word.endMs);
+    return startMs != null && endMs != null && endMs > startMs;
+  });
+}
+
+function overlayIds(overlays: Record<string, unknown>[]): Array<string | number> {
+  return overlays.flatMap((overlay) => (
+    typeof overlay.id === 'string' || typeof overlay.id === 'number'
+      ? [overlay.id]
+      : []
+  ));
+}
+
 function uniqueStrings(value: unknown): string[] {
   return [...new Set(
     (Array.isArray(value) ? value : [])
@@ -480,12 +896,37 @@ function asRecords(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map(asRecord) : [];
 }
 
-function findSelectedOverlay(value: unknown, requiredType?: string): Record<string, unknown> | undefined {
+function findSelectedOverlay(
+  value: unknown,
+  requiredType?: string,
+  requiredRole?: 'sfx',
+  minimumDurationFrames?: number,
+): Record<string, unknown> | undefined {
   if (!requiredType || !Array.isArray(value)) return undefined;
   const compatible = requiredType === 'html-scene'
     ? new Set(['html-scene', 'generated-scene'])
     : new Set([requiredType]);
-  return value.map(asRecord).find((overlay) => compatible.has(stringValue(overlay.type) ?? ''));
+  return value.map(asRecord).find((overlay) => (
+    compatible.has(stringValue(overlay.type) ?? '')
+    && (requiredRole !== 'sfx' || isSfxSoundOverlay(overlay))
+    && (
+      minimumDurationFrames == null
+      || finiteFrame(overlay.durationInFrames) >= minimumDurationFrames
+    )
+  ));
+}
+
+function isSfxSoundOverlay(overlay: Record<string, unknown>): boolean {
+  if (stringValue(overlay.type) !== 'sound') return false;
+  const assetId = stringValue(overlay.assetId)?.toLowerCase() ?? '';
+  const metadata = asRecord(overlay.metadata);
+  return assetId.startsWith('sfx_')
+    || stringValue(overlay.role) === 'sfx'
+    || stringValue(overlay.audioRole) === 'sfx'
+    || metadata.atomicSfxForm !== undefined
+    || metadata.sfxType !== undefined
+    || metadata.audioRole === 'sfx'
+    || metadata.role === 'sfx';
 }
 
 function isCaptionOverlay(value: unknown): boolean {

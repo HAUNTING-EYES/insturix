@@ -2,11 +2,29 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { Client } from '@upstash/qstash';
 
-import { buildChatProjectRevision } from '@/lib/editron/agent/chat-edit-postconditions';
+import type { ChatAiEditTransaction } from '@/lib/editron/agent/chat-ai-edit-transaction-runtime';
+import {
+  buildChatProjectRevision,
+} from '@/lib/editron/agent/chat-edit-postconditions';
+import type {
+  Checkpoint,
+  CheckpointService,
+  RestorableProjectState,
+} from '@/lib/editron/services/checkpoint-service';
+import type { Phase0RenderedEvidenceDispatchResult } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import type { GeneratedAudioReceipt } from '@/lib/pipeline/tts-service';
+import {
+  listSupportedSpeechLanguages,
+  resolveSpeechSynthesisCapability,
+  type CanonicalSpeechLanguage,
+  type GeneratedSpeechCapability,
+  type SpeechSynthesisCapability,
+} from '@/lib/pipeline/speech-capabilities';
 
-export const CHAT_DUBBING_JOB_VERSION = 'editron-chat-dubbing-job-v2' as const;
+export const CHAT_DUBBING_JOB_VERSION = 'editron-chat-dubbing-job-v4' as const;
+const LEGACY_CHAT_DUBBING_JOB_V3 = 'editron-chat-dubbing-job-v3' as const;
+const LEGACY_CHAT_DUBBING_JOB_V2 = 'editron-chat-dubbing-job-v2' as const;
 export const CHAT_DUBBING_MAX_FAILURES = 2;
 
 const JOB_LEASE_MS = 5 * 60 * 1000;
@@ -23,20 +41,68 @@ export type ChatDubbingJobStatus =
   | 'failed'
   | 'stale';
 
+export type DubbingFidelityCheck =
+  | 'coreClaims'
+  | 'entities'
+  | 'quantities'
+  | 'negation'
+  | 'comparisons'
+  | 'relationships'
+  | 'certainty'
+  | 'speakerIntent'
+  | 'targetLanguage';
+
+export type DubbingAcceptableCompression =
+  | 'removed-disfluency'
+  | 'removed-filler'
+  | 'removed-repetition'
+  | 'condensed-syntax';
+
+export type DubbingFidelityIssueCode = DubbingFidelityCheck | 'judge-invalid';
+
+export type DubbingFidelityState =
+  | 'preserved'
+  | 'not-applicable'
+  | 'changed'
+  | 'uncertain';
+
+export interface DubbingTranslationFidelityReceipt {
+  version: 'editron-dubbing-translation-fidelity-v1';
+  outcome: 'faithful' | 'drift' | 'uncertain';
+  checks: Record<DubbingFidelityCheck, DubbingFidelityState>;
+  issueCodes: DubbingFidelityIssueCode[];
+  acceptableCompression: DubbingAcceptableCompression[];
+  judgeModel: 'gemini-2.5-flash';
+}
+
 export interface DubbingPhraseProgress {
   index: number;
   sourceText: string;
   translatedText: string;
   timelineStartFrame: number;
   timelineEndFrame: number;
+  deliveryEndFrame?: number;
   sourceStartMs: number;
   sourceEndMs: number;
+  translationRevision?: number;
+  translationFidelity?: DubbingTranslationFidelityReceipt;
+  fitAttempts?: Array<{
+    revision: number;
+    voiceDurationMs: number;
+    availableDurationMs: number;
+    requiredPlaybackRate: number;
+    synthesisSpeed: number;
+    outcome: 'accepted' | 'rephrase' | 'rate-adjustment';
+  }>;
   voiceAssetId?: string;
   voiceUrl?: string;
   voiceDurationMs?: number;
+  synthesisSpeed?: number;
+  fitMode?: 'natural' | 'semantic-compression' | 'provider-native-rate' | 'post-hoc-playback';
   playbackRate?: number;
   voiceAudioRights?: AudioRightsContract;
   generatedAudioReceipt?: GeneratedAudioReceipt;
+  generatedSpeechCapability?: GeneratedSpeechCapability;
 }
 
 export interface AudioSeparationReceipt {
@@ -72,15 +138,24 @@ export interface ChatDubbingProgress {
 export interface ChatDubbingJob {
   _id: string;
   idempotencyKey: string;
-  version: typeof CHAT_DUBBING_JOB_VERSION;
+  version:
+    | typeof CHAT_DUBBING_JOB_VERSION
+    | typeof LEGACY_CHAT_DUBBING_JOB_V3
+    | typeof LEGACY_CHAT_DUBBING_JOB_V2;
   status: ChatDubbingJobStatus;
   projectId: string;
   userId: string;
+  sessionId?: string;
+  operationId?: string;
+  beforeCheckpointId?: string;
+  afterCheckpointId?: string | null;
+  renderVerification?: Phase0RenderedEvidenceDispatchResult | null;
   projectRevision: string;
   overlayId: string;
   assetId: string;
-  targetLanguage: 'English';
+  targetLanguage: CanonicalSpeechLanguage | 'English';
   voiceId?: string | null;
+  speechCapability?: SpeechSynthesisCapability;
   fps: number;
   timelineStartFrame: number;
   timelineEndFrame: number;
@@ -103,6 +178,8 @@ export interface ChatDubbingJob {
 export interface ResolveChatDubbingRequest {
   projectId: string;
   userId: string;
+  sessionId?: string;
+  operationId?: string;
   overlayId: string | number;
   targetLanguage?: string;
   voiceId?: string;
@@ -121,6 +198,15 @@ export interface ChatDubbingStepCompleted {
 
 export type ChatDubbingStepResult = ChatDubbingStepContinue | ChatDubbingStepCompleted;
 
+export interface ChatDubbingCompletion {
+  jobId: string;
+  userId: string;
+  result: Record<string, unknown>;
+  afterCheckpointId?: string;
+  renderVerification?: Phase0RenderedEvidenceDispatchResult;
+  now: Date;
+}
+
 export interface ChatDubbingJobStore {
   createOrGet(job: ChatDubbingJob): Promise<{ created: boolean; job: ChatDubbingJob }>;
   find(jobId: string, userId: string): Promise<ChatDubbingJob | null>;
@@ -129,12 +215,12 @@ export interface ChatDubbingJobStore {
   markDispatchFailed(jobId: string, userId: string, error: string, now: Date): Promise<void>;
   claimRun(jobId: string, userId: string, leaseId: string, now: Date): Promise<ChatDubbingJob | null>;
   markProgress(jobId: string, userId: string, progress: ChatDubbingProgress, now: Date): Promise<void>;
-  markCompleted(jobId: string, userId: string, result: Record<string, unknown>, now: Date): Promise<void>;
+  markCompleted(completion: ChatDubbingCompletion): Promise<void>;
   markRetry(jobId: string, userId: string, error: string, now: Date): Promise<void>;
   markFailed(jobId: string, userId: string, status: 'failed' | 'stale', error: string, now: Date): Promise<void>;
 }
 
-interface ProjectLike {
+interface ProjectLike extends Record<string, unknown> {
   projectId?: string;
   userId?: string;
   fps?: number;
@@ -145,6 +231,9 @@ interface SharedDependencies {
   store: ChatDubbingJobStore;
   loadProject(userId: string, projectId: string): Promise<ProjectLike | null>;
   buildProjectRevision(project: unknown): string | null;
+  buildCheckpointId: typeof import(
+    '@/lib/editron/agent/chat-ai-edit-transaction-runtime'
+  )['buildChatEditCheckpointId'];
   now(): Date;
 }
 
@@ -155,6 +244,21 @@ interface QueueDependencies extends SharedDependencies {
 interface RunDependencies extends QueueDependencies {
   execute(job: ChatDubbingJob): Promise<ChatDubbingStepResult>;
   cleanup(job: ChatDubbingJob): Promise<void>;
+  checkpointService: Pick<
+    CheckpointService,
+    'createCheckpoint' | 'getCheckpoint' | 'updateChatEditOperation' | 'restoreProjectCheckpoint'
+  >;
+  captureProjectState(project: Record<string, unknown>): RestorableProjectState;
+  fingerprintProjectState(state: RestorableProjectState): string;
+  buildRenderVerificationRequest: typeof import(
+    '@/lib/editron/agent/chat-ai-edit-transaction-runtime'
+  )['buildChatEditRenderVerificationRequest'];
+  dispatchRenderEvidence: typeof import(
+    '@/lib/editron/services/phase0-rendered-evidence-worker'
+  )['dispatchPhase0RenderedEvidenceJob'];
+  verifyPostcondition: typeof import(
+    '@/lib/editron/agent/chat-edit-postconditions'
+  )['verifyChatToolPostcondition'];
 }
 
 export class TerminalDubbingError extends Error {
@@ -168,13 +272,22 @@ export class TerminalDubbingError extends Error {
 export async function resolveChatDubbingJob(
   raw: ResolveChatDubbingRequest,
   overrides: Partial<SharedDependencies> = {},
-): Promise<{ jobId: string; created: boolean; status: ChatDubbingJobStatus }> {
+): Promise<{
+  jobId: string;
+  created: boolean;
+  status: ChatDubbingJobStatus;
+  targetLanguage: CanonicalSpeechLanguage;
+  speechCapability: SpeechSynthesisCapability;
+}> {
   const deps = await resolveSharedDependencies(overrides);
   const projectId = requiredIdentifier(raw.projectId, 'projectId');
   const userId = requiredIdentifier(raw.userId, 'userId');
+  const sessionId = requiredIdentifier(raw.sessionId, 'sessionId');
+  const operationId = requiredIdentifier(raw.operationId, 'operationId');
   const overlayId = requiredIdentifier(String(raw.overlayId), 'overlayId');
-  const targetLanguage = normalizeTargetLanguage(raw.targetLanguage);
-  const voiceId = cleanString(raw.voiceId);
+  const speechCapability = requireSpeechSynthesisCapability(raw.targetLanguage, raw.voiceId);
+  const targetLanguage = speechCapability.language;
+  const voiceId = speechCapability.voiceId;
   const project = await deps.loadProject(userId, projectId);
   if (!project) throw new TerminalDubbingError('project-not-found', 'Project is missing or not owned by the current user.');
   const revision = deps.buildProjectRevision(project);
@@ -197,14 +310,23 @@ export async function resolveChatDubbingJob(
   );
   const timelineEndFrame = timelineStartFrame + durationInFrames;
   const sourceEndFrame = sourceStartFrame + durationInFrames;
+  const beforeCheckpointId = deps.buildCheckpointId({
+    operationId,
+    sessionId,
+    projectId,
+    userId,
+  }, 'before');
   const idempotencyKey = createHash('sha256').update(JSON.stringify({
     version: CHAT_DUBBING_JOB_VERSION,
     userId,
     projectId,
+    sessionId,
+    operationId,
     revision,
     overlayId,
     targetLanguage,
     voiceId,
+    speechCapability,
   })).digest('hex');
   const now = deps.now();
   const proposed: ChatDubbingJob = {
@@ -214,11 +336,15 @@ export async function resolveChatDubbingJob(
     status: 'resolved',
     projectId,
     userId,
+    sessionId,
+    operationId,
+    beforeCheckpointId,
     projectRevision: revision,
     overlayId,
     assetId,
     targetLanguage,
     voiceId,
+    speechCapability,
     fps,
     timelineStartFrame,
     timelineEndFrame,
@@ -235,7 +361,14 @@ export async function resolveChatDubbingJob(
   if (!sameContract(stored.job, proposed)) {
     throw new TerminalDubbingError('dubbing-job-collision', `Dubbing job collision for ${proposed._id}.`);
   }
-  return { jobId: stored.job._id, created: stored.created, status: stored.job.status };
+  const storedCapability = resolveChatDubbingSpeechCapability(stored.job);
+  return {
+    jobId: stored.job._id,
+    created: stored.created,
+    status: stored.job.status,
+    targetLanguage: storedCapability.language,
+    speechCapability: storedCapability,
+  };
 }
 
 export async function queueChatDubbingJob(
@@ -286,10 +419,24 @@ export async function runChatDubbingJob(
 
   let cleanupJob = job;
   try {
+    const beforeCheckpoint = job.version === CHAT_DUBBING_JOB_VERSION && job.progress.stage === 'commit'
+      ? await requireDubbingBeforeCheckpoint(job, deps)
+      : null;
     const step = await deps.execute(job);
     if (step.status === 'completed') {
-      await deps.store.markCompleted(job._id, job.userId, step.result, deps.now());
-      return { status: 'completed', jobId: job._id, result: step.result };
+      if (job.version === CHAT_DUBBING_JOB_VERSION && job.progress.stage !== 'commit') {
+        throw new TerminalDubbingError(
+          'dubbing-stage-contract-violation',
+          `The provider completed from ${job.progress.stage}; only the commit stage may mutate the project.`,
+        );
+      }
+      const completed = await completeDubbingMutation({
+        job,
+        result: step.result,
+        beforeCheckpoint,
+        deps,
+      });
+      return { status: 'completed', jobId: job._id, result: completed };
     }
     await deps.store.markProgress(job._id, job.userId, step.progress, deps.now());
     const latest = { ...job, progress: step.progress, status: 'resolved' as const };
@@ -310,6 +457,202 @@ export async function runChatDubbingJob(
     await deps.store.markFailed(job._id, job.userId, 'failed', message, deps.now());
     return { status: 'failed', jobId: job._id, reason: message };
   }
+}
+
+async function completeDubbingMutation(input: {
+  job: ChatDubbingJob;
+  result: Record<string, unknown>;
+  beforeCheckpoint: Checkpoint | null;
+  deps: RunDependencies;
+}): Promise<Record<string, unknown>> {
+  const { job, result, beforeCheckpoint, deps } = input;
+  if (job.version !== CHAT_DUBBING_JOB_VERSION) {
+    await deps.store.markCompleted({ jobId: job._id, userId: job.userId, result, now: deps.now() });
+    return result;
+  }
+  if (!beforeCheckpoint) {
+    throw new TerminalDubbingError(
+      'dubbing-before-checkpoint-missing',
+      'The durable dubbing mutation has no canonical before-state.',
+    );
+  }
+
+  const afterProject = await deps.loadProject(job.userId, job.projectId);
+  if (!afterProject) {
+    throw new TerminalDubbingError('project-not-found-after-dubbing', 'Project disappeared after dubbing commit.');
+  }
+  const beforeProject = projectFromCheckpoint(beforeCheckpoint);
+  const postcondition = deps.verifyPostcondition({
+    toolName: 'dub_selected_dialogue',
+    args: { overlayId: job.overlayId, targetLanguage: job.targetLanguage, voiceId: job.voiceId },
+    resultData: result,
+    beforeProject,
+    afterProject,
+  });
+  if (postcondition.status !== 'pass') {
+    const restore = await deps.checkpointService.restoreProjectCheckpoint(
+      beforeCheckpoint.checkpointId,
+      job.userId,
+    );
+    await deps.checkpointService.updateChatEditOperation(
+      beforeCheckpoint.checkpointId,
+      job.userId,
+      requiredCurrentJobField(job.operationId, 'operationId'),
+      {
+        operationStatus: restore.restored ? 'rolled-back' : 'failed',
+        mutatingToolNames: ['dub_selected_dialogue'],
+        operationError: restore.restored
+          ? postcondition.reason
+          : `${postcondition.reason}; rollback failed (${restore.reason ?? 'unknown'})`,
+      },
+    );
+    throw new TerminalDubbingError(
+      'dubbing-postcondition-failed',
+      restore.restored
+        ? `${postcondition.reason} The project was restored.`
+        : `${postcondition.reason} Rollback failed (${restore.reason ?? 'unknown'}).`,
+    );
+  }
+
+  const afterCheckpoint = await createDubbingAfterCheckpoint(job, afterProject, deps);
+  const operationId = requiredCurrentJobField(job.operationId, 'operationId');
+  const sessionId = requiredCurrentJobField(job.sessionId, 'sessionId');
+  const beforeCheckpointId = requiredCurrentJobField(job.beforeCheckpointId, 'beforeCheckpointId');
+  await deps.checkpointService.updateChatEditOperation(
+    beforeCheckpointId,
+    job.userId,
+    operationId,
+    {
+      operationStatus: 'completed',
+      mutatingToolNames: ['dub_selected_dialogue'],
+      afterCheckpointId: afterCheckpoint.checkpointId,
+    },
+  );
+
+  const resultWithPostcondition = { ...result, postconditionVerification: postcondition };
+  const transaction: ChatAiEditTransaction = {
+    operationId,
+    sessionId,
+    projectId: job.projectId,
+    userId: job.userId,
+    beforeCheckpointId,
+  };
+  let renderVerification: Phase0RenderedEvidenceDispatchResult;
+  try {
+    const renderRequest = deps.buildRenderVerificationRequest({
+      transaction,
+      afterCheckpointId: afterCheckpoint.checkpointId,
+      project: afterProject,
+      successfulCalls: [{
+        call: {
+          name: 'dub_selected_dialogue',
+          args: { overlayId: job.overlayId, targetLanguage: job.targetLanguage, voiceId: job.voiceId },
+        },
+        result: {
+          toolName: 'dub_selected_dialogue',
+          result: JSON.stringify({
+            status: 'success',
+            data: resultWithPostcondition,
+            error: null,
+            nextAction: null,
+          }),
+        },
+      }],
+    });
+    renderVerification = await deps.dispatchRenderEvidence({
+      projectId: job.projectId,
+      userId: job.userId,
+      requestedAt: deps.now().toISOString(),
+      chatEditVerification: renderRequest,
+    });
+  } catch (error) {
+    renderVerification = {
+      dispatched: false,
+      reason: `dubbing-render-verification-dispatch-failed:${errorMessage(error)}`,
+    };
+  }
+  await deps.store.markCompleted({
+    jobId: job._id,
+    userId: job.userId,
+    result: resultWithPostcondition,
+    afterCheckpointId: afterCheckpoint.checkpointId,
+    renderVerification,
+    now: deps.now(),
+  });
+  return { ...resultWithPostcondition, renderVerification };
+}
+
+async function requireDubbingBeforeCheckpoint(
+  job: ChatDubbingJob,
+  deps: RunDependencies,
+): Promise<Checkpoint> {
+  const operationId = requiredCurrentJobField(job.operationId, 'operationId');
+  const sessionId = requiredCurrentJobField(job.sessionId, 'sessionId');
+  const beforeCheckpointId = requiredCurrentJobField(job.beforeCheckpointId, 'beforeCheckpointId');
+  const checkpoint = await deps.checkpointService.getCheckpoint(beforeCheckpointId, job.userId);
+  if (
+    !checkpoint
+    || checkpoint.operationId !== operationId
+    || checkpoint.sessionId !== sessionId
+    || checkpoint.projectId !== job.projectId
+    || checkpoint.userId !== job.userId
+  ) {
+    throw new TerminalDubbingError(
+      'dubbing-before-checkpoint-identity-mismatch',
+      'The durable dubbing job is not bound to the originating chat transaction.',
+    );
+  }
+  return checkpoint;
+}
+
+async function createDubbingAfterCheckpoint(
+  job: ChatDubbingJob,
+  afterProject: ProjectLike,
+  deps: RunDependencies,
+): Promise<Checkpoint> {
+  const operationId = requiredCurrentJobField(job.operationId, 'operationId');
+  const sessionId = requiredCurrentJobField(job.sessionId, 'sessionId');
+  const checkpointId = `ckpt_dub_${createHash('sha256')
+    .update(`${job._id}:${operationId}:after`)
+    .digest('hex')
+    .slice(0, 32)}`;
+  const projectState = deps.captureProjectState(afterProject);
+  const expectedStateHash = deps.fingerprintProjectState(projectState);
+  const existing = await deps.checkpointService.getCheckpoint(checkpointId, job.userId);
+  if (existing) {
+    if (
+      existing.operationId !== operationId
+      || existing.sessionId !== sessionId
+      || existing.projectId !== job.projectId
+      || existing.userId !== job.userId
+      || existing.stateHash !== expectedStateHash
+    ) {
+      throw new TerminalDubbingError(
+        'dubbing-after-checkpoint-identity-mismatch',
+        'A conflicting post-dubbing checkpoint already exists.',
+      );
+    }
+    return existing;
+  }
+  const created = await deps.checkpointService.createCheckpoint({
+    checkpointId,
+    operationId,
+    sessionId,
+    projectId: job.projectId,
+    userId: job.userId,
+    overlays: Array.isArray(afterProject.overlays) ? afterProject.overlays as any[] : [],
+    projectState,
+    description: `After durable selected-dialogue dubbing ${operationId}`,
+    type: 'after-llm',
+    force: true,
+  });
+  if (!created) {
+    throw new TerminalDubbingError(
+      'dubbing-after-checkpoint-not-created',
+      'The canonical post-dubbing checkpoint was not created.',
+    );
+  }
+  return created;
 }
 
 export class MongoChatDubbingJobStore implements ChatDubbingJobStore {
@@ -366,10 +709,28 @@ export class MongoChatDubbingJobStore implements ChatDubbingJobStore {
       { $set: { status: 'resolved', progress, updatedAt: now }, $unset: { leaseId: '', leaseExpiresAt: '', error: '' } },
     );
   }
-  async markCompleted(jobId: string, userId: string, result: Record<string, unknown>, now: Date) {
+  async markCompleted(completion: ChatDubbingCompletion) {
+    const {
+      jobId,
+      userId,
+      result,
+      afterCheckpointId,
+      renderVerification,
+      now,
+    } = completion;
     await (await jobsCollection()).updateOne(
       { _id: jobId, userId, status: 'running' },
-      { $set: { status: 'completed', result, completedAt: now, updatedAt: now }, $unset: { leaseId: '', leaseExpiresAt: '', error: '' } },
+      {
+        $set: {
+          status: 'completed',
+          result,
+          ...(afterCheckpointId ? { afterCheckpointId } : {}),
+          ...(renderVerification ? { renderVerification } : {}),
+          completedAt: now,
+          updatedAt: now,
+        },
+        $unset: { leaseId: '', leaseExpiresAt: '', error: '' },
+      },
     );
   }
   async markRetry(jobId: string, userId: string, error: string, now: Date) {
@@ -401,6 +762,9 @@ async function dispatchExistingJob(job: ChatDubbingJob, deps: QueueDependencies)
 }
 
 async function resolveSharedDependencies(overrides: Partial<SharedDependencies>): Promise<SharedDependencies> {
+  const buildCheckpointId = overrides.buildCheckpointId ?? (
+    await import('@/lib/editron/agent/chat-ai-edit-transaction-runtime')
+  ).buildChatEditCheckpointId;
   return {
     store: overrides.store ?? new MongoChatDubbingJobStore(),
     loadProject: overrides.loadProject ?? (async (userId, projectId) => {
@@ -408,6 +772,7 @@ async function resolveSharedDependencies(overrides: Partial<SharedDependencies>)
       return projectService.loadProject(userId, projectId) as Promise<ProjectLike | null>;
     }),
     buildProjectRevision: overrides.buildProjectRevision ?? buildChatProjectRevision,
+    buildCheckpointId,
     now: overrides.now ?? (() => new Date()),
   };
 }
@@ -418,14 +783,37 @@ async function resolveQueueDependencies(overrides: Partial<QueueDependencies>): 
 
 async function resolveRunDependencies(overrides: Partial<RunDependencies>): Promise<RunDependencies> {
   const queue = await resolveQueueDependencies(overrides);
-  if (overrides.execute && overrides.cleanup) {
-    return { ...queue, execute: overrides.execute, cleanup: overrides.cleanup };
-  }
-  const provider = await import('@/lib/editron/services/chat-dubbing-provider');
+  const provider = !overrides.execute || !overrides.cleanup
+    ? await import('@/lib/editron/services/chat-dubbing-provider')
+    : null;
+  const checkpointModule = !overrides.checkpointService
+    || !overrides.captureProjectState
+    || !overrides.fingerprintProjectState
+    ? await import('@/lib/editron/services/checkpoint-service')
+    : null;
+  const transactionModule = !overrides.buildRenderVerificationRequest
+    ? await import('@/lib/editron/agent/chat-ai-edit-transaction-runtime')
+    : null;
+  const renderedEvidenceModule = !overrides.dispatchRenderEvidence
+    ? await import('@/lib/editron/services/phase0-rendered-evidence-worker')
+    : null;
+  const postconditionModule = !overrides.verifyPostcondition
+    ? await import('@/lib/editron/agent/chat-edit-postconditions')
+    : null;
   return {
     ...queue,
-    execute: overrides.execute ?? provider.executeChatDubbingStep,
-    cleanup: overrides.cleanup ?? provider.cleanupChatDubbingAssets,
+    execute: overrides.execute ?? provider!.executeChatDubbingStep,
+    cleanup: overrides.cleanup ?? provider!.cleanupChatDubbingAssets,
+    checkpointService: overrides.checkpointService ?? checkpointModule!.checkpointService,
+    captureProjectState: overrides.captureProjectState ?? checkpointModule!.captureRestorableProjectState,
+    fingerprintProjectState:
+      overrides.fingerprintProjectState ?? checkpointModule!.projectStateFingerprint,
+    buildRenderVerificationRequest:
+      overrides.buildRenderVerificationRequest ?? transactionModule!.buildChatEditRenderVerificationRequest,
+    dispatchRenderEvidence:
+      overrides.dispatchRenderEvidence ?? renderedEvidenceModule!.dispatchPhase0RenderedEvidenceJob,
+    verifyPostcondition:
+      overrides.verifyPostcondition ?? postconditionModule!.verifyChatToolPostcondition,
   };
 }
 
@@ -448,21 +836,70 @@ async function jobsCollection() {
   return (await getDatabase()).collection<ChatDubbingJob>(COLLECTIONS.CHAT_DUBBING_JOBS);
 }
 
-function normalizeTargetLanguage(value: unknown): 'English' {
-  const normalized = (cleanString(value) ?? 'English').toLowerCase();
-  if (!['english', 'en', 'en-us', 'en-gb'].includes(normalized)) {
-    throw new TerminalDubbingError('unsupported-target-language', 'The current licensed dubbing voice lane supports English output only.');
+export function resolveChatDubbingSpeechCapability(
+  job: Pick<ChatDubbingJob, 'targetLanguage' | 'voiceId' | 'speechCapability'>,
+): SpeechSynthesisCapability {
+  const resolved = requireSpeechSynthesisCapability(job.targetLanguage, job.voiceId);
+  if (job.speechCapability && !sameSpeechCapability(job.speechCapability, resolved)) {
+    throw new TerminalDubbingError(
+      'dubbing-capability-mismatch',
+      'The persisted dubbing language/provider/voice contract no longer matches the executable speech capability.',
+    );
   }
-  return 'English';
+  return job.speechCapability ?? resolved;
+}
+
+function requireSpeechSynthesisCapability(
+  targetLanguage: unknown,
+  voiceId?: string | null,
+): SpeechSynthesisCapability {
+  const capability = resolveSpeechSynthesisCapability(targetLanguage, cleanString(voiceId));
+  if (capability) return capability;
+  const supported = listSupportedSpeechLanguages().map((item) => item.displayName).join(', ');
+  throw new TerminalDubbingError(
+    'unsupported-target-language',
+    `No licensed dubbing capability matches the requested language/voice. Supported languages: ${supported}.`,
+  );
+}
+
+function sameSpeechCapability(left: SpeechSynthesisCapability, right: SpeechSynthesisCapability): boolean {
+  return left.language === right.language
+    && left.provider === right.provider
+    && left.model === right.model
+    && left.voiceId === right.voiceId
+    && left.fallback?.provider === right.fallback?.provider
+    && left.fallback?.model === right.fallback?.model
+    && left.fallback?.voiceId === right.fallback?.voiceId;
 }
 
 function sameContract(left: ChatDubbingJob, right: ChatDubbingJob) {
   return left.version === right.version
     && left.idempotencyKey === right.idempotencyKey
+    && left.sessionId === right.sessionId
+    && left.operationId === right.operationId
+    && left.beforeCheckpointId === right.beforeCheckpointId
     && left.projectRevision === right.projectRevision
     && left.overlayId === right.overlayId
     && left.assetId === right.assetId
-    && left.targetLanguage === right.targetLanguage;
+    && left.targetLanguage === right.targetLanguage
+    && Boolean(left.speechCapability) === Boolean(right.speechCapability)
+    && (!left.speechCapability || !right.speechCapability || sameSpeechCapability(left.speechCapability, right.speechCapability));
+}
+
+function projectFromCheckpoint(checkpoint: Checkpoint): ProjectLike {
+  if (!checkpoint.projectState) {
+    return { overlays: (checkpoint.overlays ?? []) as unknown as Array<Record<string, unknown>> };
+  }
+  return Object.fromEntries(
+    checkpoint.projectState.presentFields.map((field) => [
+      field,
+      checkpoint.projectState?.fields[field],
+    ]),
+  ) as ProjectLike;
+}
+
+function requiredCurrentJobField(value: unknown, field: string): string {
+  return requiredIdentifier(value, `current dubbing job ${field}`);
 }
 
 function isRetryableDubbingError(error: unknown) {

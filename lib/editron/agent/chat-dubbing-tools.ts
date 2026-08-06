@@ -5,16 +5,23 @@ import {
   getChatDubbingJob,
   queueChatDubbingJob,
   resolveChatDubbingJob,
+  TerminalDubbingError,
   type ChatDubbingJob,
   type ChatDubbingJobStatus,
   type ResolveChatDubbingRequest,
 } from '@/lib/editron/services/chat-dubbing-job';
+import {
+  listSupportedSpeechLanguages,
+  type CanonicalSpeechLanguage,
+  type SpeechSynthesisCapability,
+} from '@/lib/pipeline/speech-capabilities';
 
 const identifierSchema = z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9:_-]+$/);
+const supportedDubbingLanguages = listSupportedSpeechLanguages().map((item) => item.displayName);
 
 export const dubSelectedDialogueSchema = z.object({
   overlayId: z.union([identifierSchema, z.number().int().nonnegative()]),
-  targetLanguage: z.enum(['English']).default('English'),
+  targetLanguage: z.string().trim().min(1).max(80).default('English'),
   voiceId: identifierSchema.optional(),
 }).strict();
 
@@ -23,7 +30,13 @@ export const getDubbingJobResultSchema = z.object({ jobId: identifierSchema }).s
 type QueueResult = Awaited<ReturnType<typeof queueChatDubbingJob>>;
 
 export interface ChatDubbingToolDependencies {
-  resolveJob(request: ResolveChatDubbingRequest): Promise<{ jobId: string; created: boolean; status: ChatDubbingJobStatus }>;
+  resolveJob(request: ResolveChatDubbingRequest): Promise<{
+    jobId: string;
+    created: boolean;
+    status: ChatDubbingJobStatus;
+    targetLanguage: CanonicalSpeechLanguage;
+    speechCapability: SpeechSynthesisCapability;
+  }>;
   queueJob(input: { jobId: string; projectId: string; userId: string }): Promise<QueueResult>;
   findJob(jobId: string, userId: string): Promise<ChatDubbingJob | null>;
 }
@@ -31,10 +44,12 @@ export interface ChatDubbingToolDependencies {
 interface CreateChatDubbingToolsOptions {
   userId: string;
   projectId: string;
+  sessionId?: string;
+  operationId?: string;
 }
 
 export function createChatDubbingTools(
-  { userId, projectId }: CreateChatDubbingToolsOptions,
+  { userId, projectId, sessionId, operationId }: CreateChatDubbingToolsOptions,
   overrides: Partial<ChatDubbingToolDependencies> = {},
 ) {
   const dependencies = resolveDependencies(overrides);
@@ -42,7 +57,13 @@ export function createChatDubbingTools(
   const dubSelectedDialogue = tool(
     async (input: z.infer<typeof dubSelectedDialogueSchema>) => {
       try {
-        const resolved = await dependencies.resolveJob({ ...input, userId, projectId });
+        const resolved = await dependencies.resolveJob({
+          ...input,
+          userId,
+          projectId,
+          sessionId,
+          operationId,
+        });
         const queued = await dependencies.queueJob({ jobId: resolved.jobId, projectId, userId });
         if (queued.status === 'failed' || queued.status === 'stale') {
           return envelope(
@@ -54,13 +75,30 @@ export function createChatDubbingTools(
         }
         return envelope(
           'success',
-          { jobId: resolved.jobId, status: queued.status, created: resolved.created },
+          {
+            jobId: resolved.jobId,
+            status: queued.status,
+            created: resolved.created,
+            targetLanguage: resolved.targetLanguage,
+            speechCapability: resolved.speechCapability,
+          },
           null,
           queued.status === 'completed'
             ? 'The grounded dubbing job is complete. Call get_dubbing_job_result with this jobId to read the committed result.'
             : 'Dubbing is processing durably. Tell the user it is processing and stop; check it later with get_dubbing_job_result.',
         );
       } catch (error) {
+        if (error instanceof TerminalDubbingError && error.code === 'unsupported-target-language') {
+          return envelope(
+            'declined',
+            {
+              requestedLanguage: input.targetLanguage,
+              supportedLanguages: supportedDubbingLanguages,
+            },
+            null,
+            'Explain that the requested language is not supported by the licensed dubbing lane. Do not queue work, translate to a different language, or substitute a generic voiceover.',
+          );
+        }
         return envelope(
           'error',
           null,
@@ -71,7 +109,7 @@ export function createChatDubbingTools(
     },
     {
       name: 'dub_selected_dialogue',
-      description: 'Queue faithful English dubbing for one explicitly selected video overlay. The durable worker reads word timings, preserves non-dialogue background audio through source separation, translates phrase by phrase, aligns generated speech within natural timing bounds, and commits atomically. This queues work; it does not mean the project changed yet.',
+      description: 'Queue faithful English or Hindi dubbing for one explicitly selected video overlay. The server pins a licensed language/provider/voice contract before queueing. The durable worker reads word timings, preserves non-dialogue background audio through source separation, translates phrase by phrase, aligns generated speech within natural timing bounds, and commits atomically. Unsupported languages decline without substitution. This queues work; it does not mean the project changed yet.',
       schema: dubSelectedDialogueSchema,
     },
   );
@@ -133,10 +171,12 @@ function publicJob(job: ChatDubbingJob) {
     jobId: job._id,
     status: job.status,
     targetLanguage: job.targetLanguage,
+    speechCapability: job.speechCapability ?? null,
     stage: job.progress.stage,
     phraseCount: job.progress.phrases?.length ?? 0,
     completedPhraseCount: job.progress.phrases?.filter((phrase) => phrase.voiceAssetId).length ?? 0,
     result: job.status === 'completed' ? job.result ?? null : null,
+    renderVerification: job.renderVerification ?? null,
     error: job.error ?? null,
   };
 }

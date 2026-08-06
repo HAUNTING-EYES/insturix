@@ -3,6 +3,14 @@ import { z } from "zod";
 
 import { AUDIO_LEVELS, DEFAULT_DUCKING_CONFIG } from "../constants/audio-standards";
 import { ROW } from "@/lib/pipeline/scene-to-editron";
+import {
+  selectStrongestSpeechEmphasis,
+  type ChatSpeechEmphasisCandidate,
+} from "@/lib/editron/services/chat-signal-moment-evidence";
+import {
+  CHAT_LOCALIZED_ANCHOR_SIGNALS,
+  type ChatLocalizedAnchorSignal,
+} from "./chat-command-authority";
 
 type OverlayId = string | number;
 
@@ -30,7 +38,8 @@ export interface AudioMomentCandidate {
   durationFrames: number;
   confidence: number;
   confidenceLabel: "high" | "medium" | "low";
-  matchType: "exact-phrase" | "audio-kind" | "token-overlap" | "character-vector";
+  signalStrength?: number;
+  matchType: "exact-phrase" | "audio-kind" | "token-overlap" | "character-vector" | "signal-ranked";
   matchReasons: string[];
   evidenceText: string;
   source: {
@@ -38,6 +47,8 @@ export interface AudioMomentCandidate {
     overlayId?: OverlayId;
     assetId?: string;
     overlayType?: string;
+    auditId?: string;
+    evidenceId?: string;
     path: string;
   };
   safeForAutoEdit: boolean;
@@ -51,12 +62,20 @@ export interface AudioMomentCandidate {
   };
 }
 
-export type AudioEditAction = "add_sfx" | "camera_shake" | "cut_section" | "sync_cuts_to_beats";
+export type AudioEditAction = "add_sfx" | "camera_shake" | "cut_section" | "keyframe_anchor" | "sync_cuts_to_beats";
 export type AudioEditResolutionStatus = "ready" | "no-match" | "ambiguous" | "unsupported";
+
+export interface AudioTemporalConstraint {
+  referenceFrame: number;
+  relation: "after" | "before" | "nearest";
+  occurrence: "first" | "last" | "nearest";
+}
 
 export interface AudioEditResolveOptions extends AudioMomentOptions {
   action?: AudioEditAction;
   sfxQuery?: string;
+  temporalConstraint?: AudioTemporalConstraint;
+  precomputedCandidates?: AudioMomentCandidate[];
 }
 
 export interface AudioEditResolution {
@@ -86,6 +105,7 @@ interface AudioMomentOptions {
   limit?: number;
   minConfidence?: number;
   includeOverlayMetadata?: boolean;
+  temporalConstraint?: AudioTemporalConstraint;
 }
 
 export interface AudioDuckingConfig {
@@ -150,14 +170,21 @@ const DEFAULT_CLIP_DURATION_FRAMES = 30;
 const audioMomentSchema = z.object({
   query: z.string().min(1).describe("Natural-language audio event, beat, drop, silence, filler, music section, or sound cue to locate."),
   audioOverlayId: z.union([z.string(), z.number()]).optional().describe("Optional timeline audio/video overlay id to constrain the search."),
+  selectionGoal: z.literal("strongest-signal").optional().describe("Rank measured evidence instead of matching query words."),
+  selectionSignal: z.enum(CHAT_LOCALIZED_ANCHOR_SIGNALS).optional().describe("Measured signal to rank. Required with strongest-signal."),
   limit: z.coerce.number().int().min(1).max(12).default(5).describe("Maximum audio moment candidates to return."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.35).describe("Minimum candidate confidence."),
   includeOverlayMetadata: z.boolean().default(true).describe("Also search audio/sound overlay metadata and labels."),
 });
 
 const audioEditSchema = audioMomentSchema.extend({
-  action: z.enum(["add_sfx", "camera_shake", "cut_section", "sync_cuts_to_beats"]).default("add_sfx").describe("Edit operation that needs the resolved audio timing."),
+  action: z.enum(["add_sfx", "camera_shake", "cut_section", "keyframe_anchor", "sync_cuts_to_beats"]).default("add_sfx").describe("Edit operation that needs the resolved audio timing. keyframe_anchor only grounds timing; resolve_keyframe_edit remains the zoom-form owner."),
   sfxQuery: z.string().trim().min(1).optional().describe("Optional SFX search query to pass to add_sfx. If omitted, the resolver derives a conservative query from the request words."),
+  temporalConstraint: z.object({
+    referenceFrame: z.coerce.number().int().min(0),
+    relation: z.enum(["after", "before", "nearest"]),
+    occurrence: z.enum(["first", "last", "nearest"]),
+  }).strict().optional().describe("Server-resolved temporal relation. The model must never invent referenceFrame."),
 });
 
 const audioDuckingSchema = z.object({
@@ -228,11 +255,155 @@ const KIND_TERMS: Record<AudioMomentKind, string[]> = {
   problem: ["problem", "remove", "cleanup", "awkward", "bad"],
 };
 
+async function loadMeasuredSpeechEmphasisCandidates(input: {
+  projectId: string;
+  userId: string;
+  project: any;
+  audioOverlayId?: OverlayId;
+  limit: number;
+}): Promise<{
+  auditId: string;
+  searchedEvidenceCount: number;
+  candidates: AudioMomentCandidate[];
+}> {
+  const ranked = await selectStrongestSpeechEmphasis({
+    projectId: input.projectId,
+    userId: input.userId,
+    project: input.project,
+    overlayId: input.audioOverlayId,
+    limit: input.limit,
+  });
+  return {
+    auditId: ranked.auditId,
+    searchedEvidenceCount: ranked.candidates.length,
+    candidates: ranked.candidates
+      .map((candidate) => speechEmphasisToAudioCandidate(candidate, ranked.auditId))
+      .filter((candidate): candidate is AudioMomentCandidate => candidate != null),
+  };
+}
+
+function loadMeasuredImpactEmphasisCandidates(input: {
+  project: any;
+  audioOverlayId?: OverlayId;
+  limit: number;
+}): {
+  searchedEvidenceCount: number;
+  candidates: AudioMomentCandidate[];
+} {
+  const measuredEvidence = buildAudioEvidence(input.project, {
+    audioOverlayId: input.audioOverlayId,
+    includeOverlayMetadata: true,
+  }).filter((evidence) => (
+    isImpactEmphasisKind(evidence.audioKind)
+    && evidence.strength != null
+  ));
+
+  const strongestPerFrame = new Map<number, AudioEvidence>();
+  for (const evidence of measuredEvidence) {
+    const existing = strongestPerFrame.get(evidence.frame);
+    if (
+      existing == null
+      || (evidence.strength ?? -1) > (existing.strength ?? -1)
+      || (
+        evidence.strength === existing.strength
+        && impactKindPriority(evidence.audioKind) > impactKindPriority(existing.audioKind)
+      )
+    ) {
+      strongestPerFrame.set(evidence.frame, evidence);
+    }
+  }
+
+  const ranked = Array.from(strongestPerFrame.values())
+    .sort((a, b) => (
+      (b.strength ?? -1) - (a.strength ?? -1)
+      || impactKindPriority(b.audioKind) - impactKindPriority(a.audioKind)
+      || a.frame - b.frame
+      || a.source.path.localeCompare(b.source.path)
+    ));
+  const topStrength = ranked[0]?.strength;
+  const hasDistinctTopTie = topStrength != null && ranked
+    .slice(1)
+    .some((evidence) => evidence.strength === topStrength);
+
+  return {
+    searchedEvidenceCount: measuredEvidence.length,
+    candidates: ranked
+      .slice(0, input.limit)
+      .map((evidence, index) => measuredImpactToAudioCandidate(
+        evidence,
+        index === 0 && !hasDistinctTopTie,
+      )),
+  };
+}
+
+async function loadMeasuredRankedAudioCandidates(input: {
+  projectId: string;
+  userId: string;
+  project: any;
+  audioOverlayId?: OverlayId;
+  limit: number;
+  signal: ChatLocalizedAnchorSignal;
+}): Promise<{
+  auditId?: string;
+  searchedEvidenceCount: number;
+  candidates: AudioMomentCandidate[];
+}> {
+  if (input.signal === "speech-emphasis") {
+    return loadMeasuredSpeechEmphasisCandidates(input);
+  }
+  return loadMeasuredImpactEmphasisCandidates(input);
+}
+
+export function findStrongestImpactEmphasisCandidates(
+  project: any,
+  options: Pick<AudioMomentOptions, "audioOverlayId" | "limit"> = {},
+): AudioMomentCandidate[] {
+  return loadMeasuredImpactEmphasisCandidates({
+    project,
+    audioOverlayId: options.audioOverlayId,
+    limit: options.limit ?? 5,
+  }).candidates;
+}
+
 export function createChatAudioTools({ userId, projectId }: CreateChatAudioToolsOptions) {
   const findAudioMoment = tool(
     async (input: z.infer<typeof audioMomentSchema>) => {
       const { projectService } = await import("../services/project-service");
       const project = await projectService.loadProject(userId, projectId);
+      if (input.selectionGoal || input.selectionSignal) {
+        if (input.selectionGoal !== "strongest-signal" || input.selectionSignal == null) {
+          return JSON.stringify({
+            status: "error",
+            message: "Ranked audio selection requires selectionGoal=strongest-signal and a measured selectionSignal.",
+          });
+        }
+        const ranked = await loadMeasuredRankedAudioCandidates({
+          projectId,
+          userId,
+          project,
+          audioOverlayId: input.audioOverlayId,
+          limit: input.limit,
+          signal: input.selectionSignal,
+        });
+        const candidates = ranked.candidates;
+        return JSON.stringify({
+          status: "success",
+          data: {
+            query: input.query,
+            selection: {
+              goal: input.selectionGoal,
+              signal: input.selectionSignal,
+              auditId: ranked.auditId,
+            },
+            searchedEvidenceCount: ranked.searchedEvidenceCount,
+            returned: candidates.length,
+            candidates,
+            message: candidates.some((candidate) => candidate.safeForAutoEdit)
+              ? `Found one uniquely strongest mapped ${input.selectionSignal} moment from measured evidence.`
+              : `No uniquely strongest mapped ${input.selectionSignal} moment was safe for automatic editing.`,
+          },
+        });
+      }
       const evidence = buildAudioEvidence(project, {
         audioOverlayId: input.audioOverlayId,
         includeOverlayMetadata: input.includeOverlayMetadata,
@@ -261,6 +432,7 @@ export function createChatAudioTools({ userId, projectId }: CreateChatAudioTools
       name: "find_audio_moment",
       description: `Find when a stored audio event, silence, filler, beat, downbeat, music drop, energy peak, music section, or sound overlay appears in the edited timeline.
 Use before edit requests such as "cut the long pause", "add impact on the beat drop", "sync this cut to the downbeat", or "put SFX on the loud hit".
+For requests such as "the strongest spoken emphasis", pass selectionGoal=strongest-signal and selectionSignal=speech-emphasis. For the strongest impact, hit, transient, or beat emphasis, use selectionSignal=impact-emphasis. Ranked paths use persisted measurements and never fall back to matching those words.
 Returns deterministic frame candidates, confidence, source evidence, and exact frame hints for cut_section, add_sfx, apply_camera_shake, set_keyframes, sync_cuts_to_beats, and add_motion_graphic.
 Do not make a destructive edit from a low-confidence or ambiguous candidate; present the candidates and ask once.`,
       schema: audioMomentSchema,
@@ -271,6 +443,23 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
     async (input: z.infer<typeof audioEditSchema>) => {
       const { projectService } = await import("../services/project-service");
       const project = await projectService.loadProject(userId, projectId);
+      let precomputedCandidates: AudioMomentCandidate[] | undefined;
+      if (input.selectionGoal || input.selectionSignal) {
+        if (input.selectionGoal !== "strongest-signal" || input.selectionSignal == null) {
+          return JSON.stringify({
+            status: "error",
+            message: "Ranked audio selection requires selectionGoal=strongest-signal and a measured selectionSignal.",
+          });
+        }
+        precomputedCandidates = (await loadMeasuredRankedAudioCandidates({
+          projectId,
+          userId,
+          project,
+          audioOverlayId: input.audioOverlayId,
+          limit: input.limit,
+          signal: input.selectionSignal,
+        })).candidates;
+      }
       const resolution = resolveAudioEditTiming(project, input.query, {
         action: input.action,
         audioOverlayId: input.audioOverlayId,
@@ -278,6 +467,8 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
         minConfidence: input.minConfidence,
         includeOverlayMetadata: input.includeOverlayMetadata,
         sfxQuery: input.sfxQuery,
+        temporalConstraint: input.temporalConstraint,
+        precomputedCandidates,
       });
 
       return JSON.stringify(buildAudioEditResolutionEnvelope(resolution));
@@ -308,6 +499,15 @@ This is read-only: it returns safe frame params for add_sfx, apply_camera_shake,
             data: plan,
           });
         }
+        if (plan.status === "unchanged") {
+          return JSON.stringify({
+            status: "no-op",
+            data: plan,
+            error: null,
+            nextAction: "stop",
+            message: plan.message,
+          });
+        }
 
         for (const update of plan.updates) {
           await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
@@ -336,6 +536,81 @@ This only updates BGM sound overlays. It must not modify SFX, captions, video ti
   );
 
   return [findAudioMoment, resolveAudioEdit, applyAudioDucking];
+}
+
+export function speechEmphasisToAudioCandidate(
+  candidate: ChatSpeechEmphasisCandidate,
+  auditId: string,
+): AudioMomentCandidate | null {
+  if (
+    candidate.frame == null
+    || candidate.startFrame == null
+    || candidate.endFrame == null
+    || candidate.endFrame <= candidate.startFrame
+  ) {
+    return null;
+  }
+  const note = `Prosody-ranked speech emphasis from evidence ${candidate.evidenceId}.`;
+  const text = candidate.transcriptText.trim() || "speech emphasis";
+  const confidence = clamp(candidate.score, 0, 1);
+  return {
+    text,
+    audioKind: "speech",
+    frame: candidate.frame,
+    startFrame: candidate.startFrame,
+    endFrame: candidate.endFrame,
+    startMs: candidate.sourceStartMs,
+    endMs: candidate.sourceEndMs,
+    durationFrames: candidate.endFrame - candidate.startFrame,
+    confidence,
+    confidenceLabel: confidenceLabel(confidence),
+    matchType: "signal-ranked",
+    matchReasons: [
+      "ranked-speech-prosody",
+      `vocal-energy:${candidate.channels.vocalEnergy ?? "missing"}`,
+      `emotion-intensity:${candidate.channels.emotionIntensity ?? "missing"}`,
+      `pitch-variability:${candidate.channels.pitchVariability ?? "missing"}`,
+      ...candidate.rejectionReasons,
+    ],
+    evidenceText: text,
+    source: {
+      type: "analysis",
+      ...(candidate.overlayId != null ? { overlayId: candidate.overlayId } : {}),
+      assetId: candidate.assetId,
+      auditId,
+      evidenceId: candidate.evidenceId,
+      path: candidate.sourcePaths[0] ?? "editron_asset_analyses.segmentAnalysis",
+    },
+    safeForAutoEdit: candidate.safeForAutomaticMutation,
+    useWith: {
+      cut_section: {
+        startFrame: candidate.startFrame,
+        endFrame: candidate.endFrame,
+        note,
+      },
+      add_sfx: {
+        frame: candidate.frame,
+        sync: "audio-anchor",
+        note,
+      },
+      apply_camera_shake: {
+        targetFrame: candidate.frame,
+        note,
+      },
+      set_keyframes: {
+        frame: candidate.frame,
+        note,
+      },
+      sync_cuts_to_beats: {
+        frame: candidate.frame,
+        note,
+      },
+      add_motion_graphic: {
+        frame: candidate.frame,
+        text,
+      },
+    },
+  };
 }
 
 export function buildAudioEditResolutionEnvelope(resolution: AudioEditResolution) {
@@ -374,12 +649,19 @@ export function resolveAudioEditTiming(
   options: AudioEditResolveOptions = {},
 ): AudioEditResolution {
   const action = options.action ?? "add_sfx";
-  const candidates = findAudioMomentCandidates(project, query, {
-    audioOverlayId: options.audioOverlayId,
-    limit: options.limit ?? 8,
-    minConfidence: options.minConfidence ?? 0.35,
-    includeOverlayMetadata: options.includeOverlayMetadata,
-  });
+  const candidates = options.precomputedCandidates
+    ? constrainAudioCandidates(
+        options.precomputedCandidates,
+        options.temporalConstraint,
+        options.limit ?? 8,
+      )
+    : findAudioMomentCandidates(project, query, {
+        audioOverlayId: options.audioOverlayId,
+        limit: options.limit ?? 8,
+        minConfidence: options.minConfidence ?? 0.35,
+        includeOverlayMetadata: options.includeOverlayMetadata,
+        temporalConstraint: options.temporalConstraint,
+      });
   const warnings: string[] = [];
 
   if (!candidates.length) {
@@ -394,7 +676,7 @@ export function resolveAudioEditTiming(
     };
   }
 
-  const selection = selectAudioEditCandidate(candidates, query);
+  const selection = selectAudioEditCandidate(candidates, query, options.temporalConstraint);
   warnings.push(...selection.warnings);
   const candidate = selection.candidate ?? candidates[0];
 
@@ -411,6 +693,19 @@ export function resolveAudioEditTiming(
         "The top audio candidate is not safe for automatic editing. Ask once or show candidates before mutating the project.",
       ],
       message: `Audio reference "${query}" was ambiguous or too low-confidence for an automatic ${action} edit.`,
+    };
+  }
+
+  if (action === "keyframe_anchor") {
+    return {
+      status: "ready",
+      action,
+      query,
+      searchedCandidateCount: candidates.length,
+      candidates,
+      candidate,
+      warnings,
+      message: `Resolved audio keyframe anchor "${candidate.text}" at frame ${candidate.frame}; resolve_keyframe_edit still owns the zoom form.`,
     };
   }
 
@@ -585,13 +880,15 @@ export function findAudioMomentCandidates(
     }
   }
 
-  const candidates = Array.from(candidateMap.values())
-    .sort((a, b) => b.confidence - a.confidence || a.startFrame - b.startFrame || a.text.localeCompare(b.text))
-    .slice(0, limit);
+  const candidates = constrainAudioCandidates(
+    Array.from(candidateMap.values()),
+    options.temporalConstraint,
+    limit,
+  );
 
   if (!candidates.length) return candidates;
 
-  const ambiguous = candidates.slice(1).some((candidate) => (
+  const ambiguous = options.temporalConstraint == null && candidates.slice(1).some((candidate) => (
     Math.abs(candidates[0].confidence - candidate.confidence) < 0.08
     && !overlapsCandidate(candidates[0], candidate)
   ));
@@ -608,9 +905,20 @@ export function findAudioMomentCandidates(
 function selectAudioEditCandidate(
   candidates: AudioMomentCandidate[],
   query: string,
+  temporalConstraint?: AudioTemporalConstraint,
 ): { candidate?: AudioMomentCandidate; safe: boolean; warnings: string[] } {
   const candidate = candidates[0];
   if (!candidate) return { safe: false, warnings: [] };
+
+  if (temporalConstraint) {
+    return {
+      candidate,
+      safe: candidate.safeForAutoEdit,
+      warnings: [
+        `Selected the ${temporalConstraint.occurrence} qualifying audio candidate ${temporalConstraint.relation} reference frame ${temporalConstraint.referenceFrame}.`,
+      ],
+    };
+  }
 
   const normalizedQuery = normalizeText(query);
   const queryTokens = new Set(tokenize(query));
@@ -641,6 +949,39 @@ function selectAudioEditCandidate(
   return { candidate, safe: candidate.safeForAutoEdit, warnings: [] };
 }
 
+function constrainAudioCandidates(
+  candidates: AudioMomentCandidate[],
+  constraint: AudioTemporalConstraint | undefined,
+  limit: number,
+): AudioMomentCandidate[] {
+  const boundedLimit = clampInt(limit, 1, 12);
+  if (!constraint) {
+    return [...candidates]
+      .sort((a, b) => b.confidence - a.confidence || a.startFrame - b.startFrame || a.text.localeCompare(b.text))
+      .slice(0, boundedLimit);
+  }
+
+  const eligible = candidates.filter((candidate) => {
+    if (constraint.relation === "after") return candidate.frame > constraint.referenceFrame;
+    if (constraint.relation === "before") return candidate.frame < constraint.referenceFrame;
+    return true;
+  });
+  eligible.sort((a, b) => {
+    if (constraint.occurrence === "first") {
+      return a.frame - b.frame || b.confidence - a.confidence || a.text.localeCompare(b.text);
+    }
+    if (constraint.occurrence === "last") {
+      return b.frame - a.frame || b.confidence - a.confidence || a.text.localeCompare(b.text);
+    }
+    return Math.abs(a.frame - constraint.referenceFrame) - Math.abs(b.frame - constraint.referenceFrame)
+      || b.confidence - a.confidence
+      || a.frame - b.frame
+      || a.text.localeCompare(b.text);
+  });
+
+  return eligible.slice(0, boundedLimit);
+}
+
 function isBeatSyncKind(kind: AudioMomentKind): boolean {
   return kind === "beat"
     || kind === "downbeat"
@@ -656,6 +997,83 @@ function isImpactEmphasisKind(kind: AudioMomentKind): boolean {
     || kind === "beat-drop"
     || kind === "transient"
     || kind === "energy-peak";
+}
+
+function impactKindPriority(kind: AudioMomentKind): number {
+  switch (kind) {
+    case "transient":
+      return 5;
+    case "beat-drop":
+      return 4;
+    case "energy-peak":
+      return 3;
+    case "downbeat":
+      return 2;
+    case "beat":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function measuredImpactToAudioCandidate(
+  evidence: AudioEvidence,
+  safeForAutoEdit: boolean,
+): AudioMomentCandidate {
+  const strength = evidence.strength ?? 0;
+  const startMs = Math.round((evidence.startFrame / evidence.fps) * 1000);
+  const endMs = Math.round((evidence.endFrame / evidence.fps) * 1000);
+  const note = `Measured ${evidence.audioKind} impact at strength ${round3(strength)} from ${evidence.source.path}.`;
+  return {
+    text: truncate(evidence.evidenceText, 140),
+    audioKind: evidence.audioKind,
+    frame: evidence.frame,
+    startFrame: evidence.startFrame,
+    endFrame: evidence.endFrame,
+    startMs,
+    endMs,
+    durationFrames: evidence.durationFrames,
+    confidence: 1,
+    confidenceLabel: "high",
+    signalStrength: round3(strength),
+    matchType: "signal-ranked",
+    matchReasons: [
+      "ranked-impact-signal",
+      `signal-strength:${round3(strength)}`,
+      safeForAutoEdit ? "unique-maximum" : "not-unique-maximum",
+    ],
+    evidenceText: evidence.evidenceText,
+    source: evidence.source,
+    safeForAutoEdit,
+    useWith: {
+      cut_section: {
+        startFrame: evidence.startFrame,
+        endFrame: evidence.endFrame,
+        note,
+      },
+      add_sfx: {
+        frame: evidence.frame,
+        sync: "audio-anchor",
+        note,
+      },
+      apply_camera_shake: {
+        targetFrame: evidence.frame,
+        note,
+      },
+      set_keyframes: {
+        frame: evidence.frame,
+        note,
+      },
+      sync_cuts_to_beats: {
+        frame: evidence.frame,
+        note,
+      },
+      add_motion_graphic: {
+        frame: evidence.frame,
+        text: truncate(evidence.evidenceText, 80),
+      },
+    },
+  };
 }
 
 function inferAudioSfxQuery(query: string, kind: AudioMomentKind): string {
@@ -1264,7 +1682,7 @@ function sameDuckingConfig(a: AudioDuckingConfig, b: AudioDuckingConfig): boolea
 
 function strengthValue(item: unknown): number | undefined {
   if (!isRecord(item)) return undefined;
-  return clampNumber(firstNumber(item, ["strength", "confidence", "magnitude", "energy", "score"]));
+  return clampNumber(firstNumber(item, ["strength", "magnitude", "energy", "score"]));
 }
 
 function energyValue(item: unknown): number | undefined {

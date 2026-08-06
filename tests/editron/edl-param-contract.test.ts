@@ -173,8 +173,22 @@ describe('EDL param contract normalization', () => {
   });
 
   it('executes J-cut decisions as native-audio boundary overlays, not visual transition tiles', async () => {
+    const clipBAssetId = 'video-native-j-cut';
+    const clipBRights = generatedNativeVideoRights(clipBAssetId);
+    const clipBReceipt = generatedNativeVideoReceipt(clipBAssetId);
     const clipA = videoOverlay({ id: 'clip-a', from: 0, durationInFrames: 100, sourceStartFrame: 300, videoStartTime: 300, hasNativeAudio: true } as any);
-    const clipB = videoOverlay({ id: 'clip-b', from: 100, durationInFrames: 120, sourceStartFrame: 900, videoStartTime: 900, hasNativeAudio: true, styles: { opacity: 1, volume: 0.82 } } as any);
+    const clipB = videoOverlay({
+      id: 'clip-b',
+      from: 100,
+      durationInFrames: 120,
+      sourceStartFrame: 900,
+      videoStartTime: 900,
+      hasNativeAudio: true,
+      assetId: clipBAssetId,
+      audioRights: clipBRights,
+      generatedVideoReceipt: clipBReceipt,
+      styles: { opacity: 1, volume: 0.82 },
+    } as any);
     const overlays = [clipA, clipB];
     const edl = decisionList([{
       type: 'transition',
@@ -201,6 +215,9 @@ describe('EDL param contract normalization', () => {
       row: 3,
       content: 'https://example.com/source.mp4',
       src: 'https://example.com/source.mp4',
+      assetId: clipBAssetId,
+      audioRights: clipBRights,
+      generatedVideoReceipt: clipBReceipt,
     }));
     expect(sound.metadata).toEqual(expect.objectContaining({
       source: 'edl-native-audio-boundary',
@@ -227,7 +244,21 @@ describe('EDL param contract normalization', () => {
   });
 
   it('executes L-cut decisions as native-audio boundary overlays, not visual transition tiles', async () => {
-    const clipA = videoOverlay({ id: 'clip-a', from: 0, durationInFrames: 100, sourceStartFrame: 300, videoStartTime: 300, hasNativeAudio: true, styles: { opacity: 1, volume: 0.7 } } as any);
+    const clipAAssetId = 'video-native-l-cut';
+    const clipARights = generatedNativeVideoRights(clipAAssetId);
+    const clipAReceipt = generatedNativeVideoReceipt(clipAAssetId);
+    const clipA = videoOverlay({
+      id: 'clip-a',
+      from: 0,
+      durationInFrames: 100,
+      sourceStartFrame: 300,
+      videoStartTime: 300,
+      hasNativeAudio: true,
+      assetId: clipAAssetId,
+      audioRights: clipARights,
+      generatedVideoReceipt: clipAReceipt,
+      styles: { opacity: 1, volume: 0.7 },
+    } as any);
     const clipB = videoOverlay({ id: 'clip-b', from: 100, durationInFrames: 120, sourceStartFrame: 900, videoStartTime: 900, hasNativeAudio: true } as any);
     const overlays = [clipA, clipB];
     const edl = decisionList([{
@@ -255,6 +286,9 @@ describe('EDL param contract normalization', () => {
       row: 3,
       content: 'https://example.com/source.mp4',
       src: 'https://example.com/source.mp4',
+      assetId: clipAAssetId,
+      audioRights: clipARights,
+      generatedVideoReceipt: clipAReceipt,
     }));
     expect(sound.styles.volume).toBe(0.7);
     expect(sound.metadata).toEqual(expect.objectContaining({
@@ -272,6 +306,33 @@ describe('EDL param contract normalization', () => {
       nativeAudioBoundaryMutedBy: 'l-cut',
       nativeAudioBoundaryCloneId: sound.id,
     }));
+  });
+
+  it('does not create a J/L-cut audio clone without source-native-audio rights', async () => {
+    const clipA = videoOverlay({ id: 'clip-a', from: 0, durationInFrames: 100 } as any);
+    const clipB = videoOverlay({
+      id: 'clip-b',
+      from: 100,
+      durationInFrames: 120,
+      hasNativeAudio: true,
+      assetId: 'video-without-rights',
+      styles: { opacity: 1, volume: 0.82 },
+    } as any);
+    const overlays = [clipA, clipB];
+    const edl = decisionList([{
+      type: 'transition',
+      frame: 100,
+      durationFrames: 0,
+      confidence: 0.95,
+      params: { transitionRelation: 'audio-leads-picture', offsetMs: 500 },
+    }]);
+
+    const result = await executeEDL(edl, 'edl-param-j-cut-rights-test', 'user-1', overlays, { width: 1920, height: 1080 });
+
+    expect(result.decisionsExecuted).toBe(0);
+    expect(result.overlaysCreated).toBe(0);
+    expect(overlays.some((overlay: any) => overlay.type === 'sound')).toBe(false);
+    expect((clipB as any).styles.volume).toBe(0.82);
   });
 
   it('counts anchored match-cut decisions as executed editorial cuts without visual tiles', async () => {
@@ -751,6 +812,38 @@ function soundOverlay(): Overlay {
     styles: { opacity: 1 },
   } as any;
 }
+
+function generatedNativeVideoRights(assetId: string) {
+  return {
+    mediaRole: 'native-video' as const,
+    source: 'generated' as const,
+    userChoice: 'attested' as const,
+    licensed: true,
+    evidence: {
+      kind: 'generated-provider' as const,
+      sourceAssetId: assetId,
+      licenseId: 'fal-ai:seedance-v1.5-pro:service-output-terms',
+    },
+  };
+}
+
+function generatedNativeVideoReceipt(assetId: string) {
+  return {
+    version: 'editron-generated-video-receipt-v1' as const,
+    provider: 'fal-ai' as const,
+    model: 'seedance-v1.5-pro',
+    assetId,
+    generatedAt: '2026-07-27T00:00:00.000Z',
+    nativeAudio: {
+      requestMode: 'enabled' as const,
+      present: true,
+      probe: 'ffmpeg-audio-stream-decode' as const,
+      probedAt: '2026-07-27T00:00:00.000Z',
+      licenseId: generatedNativeVideoRights(assetId).evidence.licenseId,
+    },
+  };
+}
+
 function captionOverlay(): Overlay {
   const words = [
     { word: 'trust', startMs: 0, endMs: 350, confidence: 1 },

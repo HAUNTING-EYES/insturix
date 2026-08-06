@@ -3,15 +3,34 @@ import type { EditorialFamily } from '../production-brief/editorial-preferences'
 export const CHAT_REQUEST_CAPABILITIES = [
   'caption-track',
   'caption-refresh',
+  'caption-batch-style',
+  'motion-graphic-composition',
   'audio-ducking',
+  'background-music',
   'beat-sync',
   'scene-regeneration',
   'html-scene-edit',
+  'overlay-create',
+  'overlay-update',
+  'overlay-batch-update',
+  'clip-split',
+  'clip-trim',
+  'timeline-cut',
+  'overlay-delete',
+  'overlay-style-sync',
+  'timeline-gap-close',
+  'sticker-overlay',
+  'selected-keyframes',
+  'overlay-fade',
+  'overlay-layer-order',
+  'overlay-retime',
+  'clip-filter',
   'asset-placement',
   'asset-replacement',
   'localized-cut',
   'localized-overlay',
   'localized-sfx',
+  'sfx-replacement',
   'localized-camera-motion',
   'localized-speed-change',
   'project-reframe',
@@ -42,6 +61,40 @@ export const CHAT_LOCALIZED_OPERATIONS = [
 ] as const;
 export type ChatLocalizedOperation = (typeof CHAT_LOCALIZED_OPERATIONS)[number];
 
+export const CHAT_CAMERA_MOTION_JOBS = [
+  'zoom-in',
+  'zoom-out',
+  'shake',
+] as const;
+export type ChatCameraMotionJob = (typeof CHAT_CAMERA_MOTION_JOBS)[number];
+
+export const CHAT_LOCALIZED_ANCHOR_SELECTIONS = [
+  'strongest-signal',
+] as const;
+export type ChatLocalizedAnchorSelection = (typeof CHAT_LOCALIZED_ANCHOR_SELECTIONS)[number];
+
+export const CHAT_LOCALIZED_ANCHOR_SIGNALS = [
+  'speech-emphasis',
+  'impact-emphasis',
+] as const;
+export type ChatLocalizedAnchorSignal = (typeof CHAT_LOCALIZED_ANCHOR_SIGNALS)[number];
+
+export const CHAT_RELATIVE_ANCHOR_MODALITIES = [
+  'transcript',
+  'visual',
+  'audio',
+] as const;
+export type ChatRelativeAnchorModality = (typeof CHAT_RELATIVE_ANCHOR_MODALITIES)[number];
+
+export const CHAT_TEMPORAL_RELATIONS = ['after', 'before', 'nearest'] as const;
+export type ChatTemporalRelation = (typeof CHAT_TEMPORAL_RELATIONS)[number];
+
+export const CHAT_TEMPORAL_REFERENCE_EDGES = ['start', 'end', 'point'] as const;
+export type ChatTemporalReferenceEdge = (typeof CHAT_TEMPORAL_REFERENCE_EDGES)[number];
+
+export const CHAT_TEMPORAL_OCCURRENCES = ['first', 'last', 'nearest'] as const;
+export type ChatTemporalOccurrence = (typeof CHAT_TEMPORAL_OCCURRENCES)[number];
+
 export const CHAT_LOCALIZED_READ_GOALS = [
   'locate',
   'inspect',
@@ -54,10 +107,43 @@ export interface ChatLocalizedReadRequest {
   query: string;
 }
 
+export interface ChatAssetPlacementConstraint {
+  mode: 'corner' | 'center' | 'full-frame';
+  horizontal?: 'left' | 'center' | 'right';
+  vertical?: 'top' | 'center' | 'bottom';
+}
+
+export interface ChatAssetTimingConstraint {
+  startSeconds?: number;
+  endSeconds?: number;
+  durationSeconds?: number;
+  anchor?: 'intro' | 'outro' | 'entire';
+}
+
+export interface ChatRelativeAnchor {
+  modality: ChatRelativeAnchorModality;
+  query: string;
+  relation: ChatTemporalRelation;
+  referenceEdge: ChatTemporalReferenceEdge;
+  occurrence: ChatTemporalOccurrence;
+  sourceSpan: string;
+}
+
 export interface ChatLocalizedEditRequest {
   modality: ChatLocalizedModality;
   operation: ChatLocalizedOperation;
   query: string;
+  sourceQuery?: string;
+  targetQuery?: string;
+  targetKind?: 'none' | 'selected-overlay' | 'described-overlay';
+  targetOverlayId?: string | number;
+  sourceSpan?: string;
+  cameraMotionJob?: ChatCameraMotionJob;
+  anchorSelection?: ChatLocalizedAnchorSelection;
+  anchorSignal?: ChatLocalizedAnchorSignal;
+  relativeAnchor?: ChatRelativeAnchor;
+  placement?: ChatAssetPlacementConstraint;
+  timing?: ChatAssetTimingConstraint;
 }
 
 export interface ChatLocalizedWorkflowAdapter {
@@ -68,6 +154,7 @@ export interface ChatLocalizedWorkflowAdapter {
 }
 export type ChatOperationalAuthority =
   | 'family-owner'
+  | 'mechanical-workflow'
   | 'localized-workflow'
   | 'durable-workflow'
   | 'project-transform'
@@ -80,6 +167,7 @@ export interface ChatCapabilityAuthorityContract {
   evidenceTools: ReadonlySet<string>;
   mutationTools: ReadonlySet<string>;
   requiredToolSequence: readonly ChatRequiredToolStep[];
+  requiresResolverAuthorization: boolean;
 }
 
 const TIMELINE_READ_STEP = ['read_project_file', 'get_timeline_view'] as const;
@@ -107,6 +195,7 @@ function capabilityContract(input: {
   evidenceTools?: readonly string[];
   mutationTools: readonly string[];
   requiredToolSequence: readonly ChatRequiredToolStep[];
+  requiresResolverAuthorization?: boolean;
 }): ChatCapabilityAuthorityContract {
   const evidenceTools = new Set(input.evidenceTools ?? []);
   return {
@@ -119,6 +208,7 @@ function capabilityContract(input: {
     evidenceTools,
     mutationTools: new Set(input.mutationTools),
     requiredToolSequence: input.requiredToolSequence,
+    requiresResolverAuthorization: input.requiresResolverAuthorization ?? false,
   };
 }
 
@@ -126,31 +216,39 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
   'caption-track': capabilityContract({
     authority: 'family-owner',
     evidenceTools: ['get_video_transcription'],
-    mutationTools: ['add_captions', 'add_fancy_captions'],
-    requiredToolSequence: [TIMELINE_READ_STEP, ['add_captions', 'add_fancy_captions']],
+    mutationTools: ['add_captions'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'add_captions'],
   }),
   'caption-refresh': capabilityContract({
     authority: 'family-owner',
     evidenceTools: ['get_video_transcription'],
-    mutationTools: ['refresh_captions', 'refresh_fancy_captions'],
-    requiredToolSequence: [TIMELINE_READ_STEP, ['refresh_captions', 'refresh_fancy_captions']],
+    mutationTools: ['refresh_captions'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'refresh_captions'],
+  }),
+  'caption-batch-style': capabilityContract({
+    authority: 'family-owner',
+    mutationTools: ['batch_edit_captions'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'batch_edit_captions'],
+  }),
+  'motion-graphic-composition': capabilityContract({
+    authority: 'unified-planner',
+    mutationTools: ['apply_editorial_intent'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'apply_editorial_intent'],
   }),
   'audio-ducking': capabilityContract({
     authority: 'family-owner',
     mutationTools: ['apply_audio_ducking'],
     requiredToolSequence: [TIMELINE_READ_STEP, 'apply_audio_ducking'],
   }),
+  'background-music': capabilityContract({
+    authority: 'family-owner',
+    mutationTools: ['regenerate_bgm'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'regenerate_bgm'],
+  }),
   'beat-sync': capabilityContract({
-    authority: 'localized-workflow',
-    evidenceTools: [
-      'find_audio_moment',
-      'resolve_audio_edit',
-      'resolve_clip_analysis',
-      'queue_resolved_clip_analysis',
-      'get_clip_analysis_result',
-    ],
+    authority: 'family-owner',
     mutationTools: ['sync_cuts_to_beats'],
-    requiredToolSequence: [TIMELINE_READ_STEP, 'resolve_audio_edit', 'sync_cuts_to_beats'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'sync_cuts_to_beats'],
   }),
   'scene-regeneration': capabilityContract({
     authority: 'family-owner',
@@ -161,6 +259,93 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     authority: 'family-owner',
     mutationTools: ['edit_html_scene'],
     requiredToolSequence: [TIMELINE_READ_STEP, 'edit_html_scene'],
+  }),
+  'overlay-create': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['add_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'add_overlay'],
+  }),
+  'overlay-update': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['update_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'update_overlay'],
+  }),
+  'overlay-batch-update': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['batch_update_overlays'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'batch_update_overlays'],
+  }),
+  'clip-split': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['split_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'split_overlay'],
+  }),
+  'clip-trim': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['trim_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'trim_overlay'],
+  }),
+  'timeline-cut': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['cut_section'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'cut_section'],
+  }),
+  'overlay-delete': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['delete_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'delete_overlay'],
+  }),
+  'overlay-style-sync': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['sync_style'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'sync_style'],
+  }),
+  'timeline-gap-close': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['close_gaps'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'close_gaps'],
+  }),
+  'sticker-overlay': capabilityContract({
+    authority: 'mechanical-workflow',
+    evidenceTools: ['resolve_sticker_overlay'],
+    mutationTools: ['generate_html_sticker'],
+    requiredToolSequence: [
+      TIMELINE_READ_STEP,
+      'resolve_sticker_overlay',
+      'generate_html_sticker',
+    ],
+    requiresResolverAuthorization: true,
+  }),
+  'selected-keyframes': capabilityContract({
+    authority: 'mechanical-workflow',
+    evidenceTools: ['resolve_keyframe_edit'],
+    mutationTools: ['set_keyframes'],
+    requiredToolSequence: [
+      TIMELINE_READ_STEP,
+      'resolve_keyframe_edit',
+      'set_keyframes',
+    ],
+    requiresResolverAuthorization: true,
+  }),
+  'overlay-fade': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['apply_fade'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'apply_fade'],
+  }),
+  'overlay-layer-order': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['reorder_layer'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'reorder_layer'],
+  }),
+  'overlay-retime': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['move_retime_overlay'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'move_retime_overlay'],
+  }),
+  'clip-filter': capabilityContract({
+    authority: 'mechanical-workflow',
+    mutationTools: ['apply_filter'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'apply_filter'],
   }),
   'asset-placement': capabilityContract({
     authority: 'localized-workflow',
@@ -173,10 +358,10 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     mutationTools: ['add_overlay'],
     requiredToolSequence: [
       TIMELINE_READ_STEP,
-      'search_user_assets',
       'resolve_user_asset_overlay',
       'add_overlay',
     ],
+    requiresResolverAuthorization: true,
   }),
   'asset-replacement': capabilityContract({
     authority: 'localized-workflow',
@@ -189,10 +374,10 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     mutationTools: ['use_matching_footage'],
     requiredToolSequence: [
       TIMELINE_READ_STEP,
-      'search_user_assets',
       'resolve_user_asset_overlay',
       'use_matching_footage',
     ],
+    requiresResolverAuthorization: true,
   }),
   'localized-cut': capabilityContract({
     authority: 'localized-workflow',
@@ -207,16 +392,22 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_audio_edit'],
       'cut_section',
     ],
+    requiresResolverAuthorization: true,
   }),
   'localized-overlay': capabilityContract({
     authority: 'localized-workflow',
     evidenceTools: ['resolve_visual_edit'],
     mutationTools: ['add_overlay'],
     requiredToolSequence: [TIMELINE_READ_STEP, 'resolve_visual_edit', 'add_overlay'],
+    requiresResolverAuthorization: true,
   }),
   'localized-sfx': capabilityContract({
     authority: 'localized-workflow',
     evidenceTools: [
+      'find_transcript_moment',
+      'resolve_transcript_edit',
+      'find_visual_moment',
+      'resolve_visual_edit',
       'find_audio_moment',
       'resolve_audio_edit',
       'resolve_clip_analysis',
@@ -225,6 +416,12 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     ],
     mutationTools: ['add_sfx'],
     requiredToolSequence: [TIMELINE_READ_STEP, 'resolve_audio_edit', 'add_sfx'],
+    requiresResolverAuthorization: true,
+  }),
+  'sfx-replacement': capabilityContract({
+    authority: 'family-owner',
+    mutationTools: ['replace_sfx'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'replace_sfx'],
   }),
   'localized-camera-motion': capabilityContract({
     authority: 'localized-workflow',
@@ -233,6 +430,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       'find_visual_moment',
       'resolve_transcript_edit',
       'resolve_visual_edit',
+      'resolve_audio_edit',
       'resolve_keyframe_edit',
       'visual_inspect_frame',
       'resolve_clip_analysis',
@@ -242,9 +440,10 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
     mutationTools: ['apply_camera_shake', 'set_keyframes'],
     requiredToolSequence: [
       TIMELINE_READ_STEP,
-      ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_keyframe_edit'],
+      ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_audio_edit', 'resolve_keyframe_edit'],
       ['apply_camera_shake', 'set_keyframes'],
     ],
+    requiresResolverAuthorization: true,
   }),
   'localized-speed-change': capabilityContract({
     authority: 'localized-workflow',
@@ -265,6 +464,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
       ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_keyframe_edit'],
       'apply_speed_ramp',
     ],
+    requiresResolverAuthorization: true,
   }),
   'project-reframe': capabilityContract({
     authority: 'project-transform',
@@ -280,7 +480,7 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
   'selected-dialogue-dubbing': capabilityContract({
     authority: 'durable-workflow',
     mutationTools: ['dub_selected_dialogue'],
-    requiredToolSequence: ['dub_selected_dialogue', 'get_dubbing_job_result'],
+    requiredToolSequence: [TIMELINE_READ_STEP, 'dub_selected_dialogue'],
   }),
   'project-edit': capabilityContract({
     authority: 'unified-planner',
@@ -291,13 +491,12 @@ export const CHAT_CAPABILITY_AUTHORITY_CONTRACTS = {
 
 export const CHAT_DIRECT_FAMILY_TOOLS: ReadonlySet<string> = new Set([
   'add_captions',
-  'add_fancy_captions',
   'regenerate_bgm',
   'sync_cuts_to_beats',
 ]);
 
 const EXCLUSIVE_FAMILY_OWNER_TOOLS: Partial<Record<EditorialFamily, ReadonlySet<string>>> = {
-  captions: new Set(['add_captions', 'add_fancy_captions']),
+  captions: new Set(['add_captions']),
   music: new Set(['regenerate_bgm']),
 };
 
@@ -337,13 +536,48 @@ export function resolveChatLocalizedWorkflowAdapter(
       action: 'highlight',
     });
   }
-  if (edit.modality === 'visual' && edit.operation === 'camera-motion') {
+  if (edit.operation === 'camera-motion' && edit.cameraMotionJob === 'shake' && edit.modality === 'audio') {
+    return localizedAdapter('localized-camera-motion', 'resolve_audio_edit', {
+      query,
+      action: 'camera_shake',
+      ...(edit.anchorSelection ? {
+        selectionGoal: edit.anchorSelection,
+        selectionSignal: edit.anchorSignal,
+      } : {}),
+    });
+  }
+  if (
+    edit.operation === 'camera-motion'
+    && (edit.cameraMotionJob === 'zoom-in' || edit.cameraMotionJob === 'zoom-out')
+  ) {
+    const resolverTool = edit.modality === 'transcript'
+      ? 'resolve_transcript_edit'
+      : edit.modality === 'visual'
+        ? 'resolve_visual_edit'
+        : edit.modality === 'audio'
+          ? 'resolve_audio_edit'
+          : null;
+    return resolverTool
+      ? localizedAdapter('localized-camera-motion', resolverTool, {
+          query,
+          action: 'keyframe_anchor',
+          ...(edit.anchorSelection ? {
+            selectionGoal: edit.anchorSelection,
+            selectionSignal: edit.anchorSignal,
+          } : {}),
+        })
+      : null;
+  }
+  // Backward compatibility for stored pre-job request licenses. New classifier
+  // output must preserve the requested job explicitly instead of inferring it
+  // from the evidence modality.
+  if (edit.operation === 'camera-motion' && edit.modality === 'visual') {
     return localizedAdapter('localized-camera-motion', 'resolve_visual_edit', {
       query,
       action: 'keyframe_anchor',
     });
   }
-  if (edit.modality === 'audio' && edit.operation === 'camera-motion') {
+  if (edit.operation === 'camera-motion' && edit.modality === 'audio') {
     return localizedAdapter('localized-camera-motion', 'resolve_audio_edit', {
       query,
       action: 'camera_shake',
@@ -359,24 +593,35 @@ export function resolveChatLocalizedWorkflowAdapter(
     return localizedAdapter('localized-sfx', 'resolve_audio_edit', {
       query,
       action: 'add_sfx',
-    });
-  }
-  if (edit.modality === 'audio' && edit.operation === 'beat-sync') {
-    return localizedAdapter('beat-sync', 'resolve_audio_edit', {
-      query,
-      action: 'sync_cuts_to_beats',
+      ...(edit.sourceQuery?.trim() ? { sfxQuery: edit.sourceQuery.trim() } : {}),
     });
   }
   if (edit.modality === 'asset' && edit.operation === 'place-asset') {
+    const sourceQuery = edit.sourceQuery?.trim() || query;
+    const placement = edit.placement;
+    const timing = edit.timing;
     return localizedAdapter('asset-placement', 'resolve_user_asset_overlay', {
-      query,
+      query: sourceQuery,
       operation: 'place',
+      ...(placement ? {
+        placement: placement.mode,
+        ...(placement.horizontal ? { horizontal: placement.horizontal } : {}),
+        ...(placement.vertical ? { vertical: placement.vertical } : {}),
+      } : {}),
+      ...(timing ? {
+        ...(timing.startSeconds == null ? {} : { startSeconds: timing.startSeconds }),
+        ...(timing.endSeconds == null ? {} : { endSeconds: timing.endSeconds }),
+        ...(timing.durationSeconds == null ? {} : { durationSeconds: timing.durationSeconds }),
+        ...(timing.anchor ? { timingAnchor: timing.anchor } : {}),
+      } : {}),
     });
   }
   if (edit.modality === 'asset' && edit.operation === 'replace-asset') {
+    const sourceQuery = edit.sourceQuery?.trim() || query;
     return localizedAdapter('asset-replacement', 'resolve_user_asset_overlay', {
-      query,
+      query: sourceQuery,
       operation: 'replace',
+      ...(edit.targetOverlayId == null ? {} : { targetOverlayId: edit.targetOverlayId }),
     });
   }
   return null;

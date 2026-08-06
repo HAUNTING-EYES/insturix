@@ -3,7 +3,11 @@ import { join } from 'path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createChatDubbingTools } from '@/lib/editron/agent/chat-dubbing-tools';
-import type { ChatDubbingJob } from '@/lib/editron/services/chat-dubbing-job';
+import {
+  TerminalDubbingError,
+  type ChatDubbingJob,
+  type ResolveChatDubbingRequest,
+} from '@/lib/editron/services/chat-dubbing-job';
 
 import {
   CHAT_TOOL_REGISTRY,
@@ -79,6 +83,10 @@ describe('chat tool registry', () => {
       requiresProjectReload: false,
       executionType: 'generative',
       riskLevel: 'medium',
+      turnContract: {
+        evidenceStrategy: 'preflight',
+        requiredEvidence: ['project-state', 'timeline-state'],
+      },
     });
     expect(shouldReloadProjectAfterTool('get_dubbing_job_result')).toBe(true);
   });
@@ -123,7 +131,25 @@ describe('chat tool registry', () => {
   });
 
   it('queues revision-bound dubbing and scopes result reads to the current project', async () => {
-    const resolveJob = vi.fn(async () => ({ jobId: 'chat_dub_1', created: true, status: 'resolved' as const }));
+    const speechCapability = {
+      language: 'en' as const,
+      displayName: 'English' as const,
+      provider: 'fal-ai' as const,
+      model: 'fal-ai/kokoro/american-english',
+      voiceId: 'af_heart',
+      fallback: {
+        provider: 'deepgram' as const,
+        model: 'aura-asteria-en',
+        voiceId: 'aura-asteria-en',
+      },
+    };
+    const resolveJob = vi.fn(async () => ({
+      jobId: 'chat_dub_1',
+      created: true,
+      status: 'resolved' as const,
+      targetLanguage: 'en' as const,
+      speechCapability,
+    }));
     const queueJob = vi.fn(async () => ({ status: 'queued' as const, jobId: 'chat_dub_1', messageId: 'msg-1' }));
     const findJob = vi.fn(async () => ({
       _id: 'chat_dub_1',
@@ -140,7 +166,15 @@ describe('chat tool registry', () => {
     if (!dubTool || !resultTool) throw new Error('Dubbing tools were not declared.');
 
     const queued = JSON.parse(String(await dubTool.invoke({ overlayId: 17, targetLanguage: 'English' })));
-    expect(queued).toMatchObject({ status: 'success', data: { jobId: 'chat_dub_1', status: 'queued' } });
+    expect(queued).toMatchObject({
+      status: 'success',
+      data: {
+        jobId: 'chat_dub_1',
+        status: 'queued',
+        targetLanguage: 'en',
+        speechCapability,
+      },
+    });
     expect(resolveJob).toHaveBeenCalledWith(expect.objectContaining({
       overlayId: 17,
       userId: 'user-1',
@@ -150,6 +184,83 @@ describe('chat tool registry', () => {
 
     const crossProject = JSON.parse(String(await resultTool.invoke({ jobId: 'chat_dub_1' })));
     expect(crossProject).toMatchObject({ status: 'error', error: expect.stringContaining('not found') });
+  });
+
+  it('preserves unsupported target language truth without queueing a fallback dub', async () => {
+    const resolveJob = vi.fn(async (request: ResolveChatDubbingRequest) => {
+      throw new TerminalDubbingError(
+        'unsupported-target-language',
+        `The requested language ${request.targetLanguage} is unsupported.`,
+      );
+    });
+    const queueJob = vi.fn();
+    const tools = createChatDubbingTools(
+      { userId: 'user-1', projectId: 'project-1' },
+      { resolveJob, queueJob },
+    );
+    const dubTool = tools.find((candidate) => candidate.name === 'dub_selected_dialogue');
+    if (!dubTool) throw new Error('Dubbing tool was not declared.');
+
+    const declined = JSON.parse(String(await dubTool.invoke({
+      overlayId: 17,
+      targetLanguage: 'French',
+    })));
+
+    expect(resolveJob).toHaveBeenCalledWith(expect.objectContaining({
+      overlayId: 17,
+      targetLanguage: 'French',
+    }));
+    expect(queueJob).not.toHaveBeenCalled();
+    expect(declined).toMatchObject({
+      status: 'declined',
+      data: {
+        requestedLanguage: 'French',
+        supportedLanguages: ['English', 'Hindi'],
+      },
+      error: null,
+    });
+  });
+
+  it('queues Hindi with the server-pinned Hindi capability instead of substituting English', async () => {
+    const hindiCapability = {
+      language: 'hi' as const,
+      displayName: 'Hindi' as const,
+      provider: 'fal-ai' as const,
+      model: 'fal-ai/kokoro/hindi',
+      voiceId: 'hf_alpha',
+    };
+    const resolveJob = vi.fn(async () => ({
+      jobId: 'chat_dub_hi',
+      created: true,
+      status: 'resolved' as const,
+      targetLanguage: 'hi' as const,
+      speechCapability: hindiCapability,
+    }));
+    const queueJob = vi.fn(async () => ({
+      status: 'queued' as const,
+      jobId: 'chat_dub_hi',
+      messageId: 'msg-hi',
+    }));
+    const tools = createChatDubbingTools(
+      { userId: 'user-1', projectId: 'project-1' },
+      { resolveJob, queueJob },
+    );
+    const dubTool = tools.find((candidate) => candidate.name === 'dub_selected_dialogue');
+    if (!dubTool) throw new Error('Dubbing tool was not declared.');
+
+    const queued = JSON.parse(String(await dubTool.invoke({
+      overlayId: 17,
+      targetLanguage: 'Hindi',
+    })));
+
+    expect(queued).toMatchObject({
+      status: 'success',
+      data: {
+        targetLanguage: 'hi',
+        speechCapability: hindiCapability,
+      },
+    });
+    expect(queueJob).toHaveBeenCalledOnce();
   });
 
   it('keeps cardinality in the tool contract instead of a second hardcoded analyzer limiter', () => {

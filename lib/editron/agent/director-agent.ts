@@ -62,6 +62,7 @@ import { buildPhase0LiveTruthSnapshot } from '@/lib/editron/services/phase0-live
 import { buildPhase0FixtureManifest } from '@/lib/editron/services/phase0-fixture-manifest';
 import { buildPhase0RenderArtifactPack } from '@/lib/editron/services/phase0-render-artifact-pack';
 import { buildStorylineSeamTransitionEdl } from '@/lib/editron/services/storyline-seam-transitions';
+import { buildCreativeBriefGroundedContext } from '@/lib/editron/services/creative-brief-grounding';
 import {
   buildPhase0RenderedEvidenceDispatchPersistSet,
   dispatchPhase0RenderedEvidenceJob,
@@ -929,11 +930,24 @@ export async function executeDirectorPlan(
           // which may reflect a buggy silence-removal output.
           const cleanDurationSec = (editedTimelineContext?.durationMs || rfa.estimatedCleanDurationMs || rfa.originalDurationMs || (project.durationInFrames || 900) / pathEFps * 1000) / 1000;
 
+          const groundedEditorialContext = buildCreativeBriefGroundedContext({
+            userGoal: brief?.intent,
+            segmentAnalysis: projectDoc.segmentAnalysis ?? null,
+          });
+          if (groundedEditorialContext) {
+            console.log(
+              `[Director] Creative Brief grounding: ${groundedEditorialContext.facts.length}/` +
+              `${groundedEditorialContext.coverage.availableFactCount} canonical facts, ` +
+              `userGoal=${Boolean(groundedEditorialContext.userGoal)}`,
+            );
+          }
+
           // Build video context for Creative Brief
           const videoContext = {
             transcription,
             totalDurationSec: cleanDurationSec,
             segmentCount: decisionRawFootage.segments?.length || 0,
+            ...(groundedEditorialContext ? { groundedEditorialContext } : {}),
             audioFeatures: audioEnergyCurve.length > 0 ? {
               rmsEnergyCurve: audioEnergyCurve,
               silenceGaps: (decisionRawFootage.silenceGaps || []).map((g: any) => ({ startMs: g.startMs || g.start || 0, endMs: g.endMs || g.end || 0 })),
@@ -1831,6 +1845,7 @@ export async function executeDirectorPlan(
             canvas,
             analysesMap,
             unifiedDecisionBundle.graphicsDensity,
+            { deferMgDesign: true },
           );
 
           edlSummary.totalDecisions = unifiedDecisionBundle.edl.totalDecisions;
@@ -2181,7 +2196,16 @@ export async function executeDirectorPlan(
 
           const moments = analyses.flatMap(a => detectCinematicMoments(a));
           const canvas = project.playerDimensions || { width: 1920, height: 1080 };
-          const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas, analysesMap, densityFromSignalsOrNeutral(pathDGenreParams));
+          const edlResult = await executeEDL(
+            edl,
+            projectId,
+            userId,
+            overlays,
+            canvas,
+            analysesMap,
+            densityFromSignalsOrNeutral(pathDGenreParams),
+            { deferMgDesign: true },
+          );
 
           // Build summary by decision type
           for (const d of edl.decisions) {

@@ -4,10 +4,13 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  CHAT_REFERENCE_STYLE_MAX_ATTEMPTS,
   CHAT_REFERENCE_STYLE_JOB_VERSION,
-  ChatReferenceStyleRetryableError,
+  applyReferenceStyleProfileThroughUnifiedPlanner,
+  buildReferenceStyleProjectBrief,
   queueChatReferenceStyleJob,
   runChatReferenceStyleJob,
+  sweepChatReferenceStyleJobs,
   type ChatReferenceStyleJob,
   type ChatReferenceStyleJobStore,
 } from '@/lib/editron/services/chat-reference-style-job';
@@ -123,6 +126,7 @@ describe('durable chat reference-style jobs', () => {
     });
     const attemptOperationId = checkpoint.claimChatEditOperation.mock.calls[0]?.[0].operationId;
     expect(attemptOperationId).toMatch(/^style_[a-f0-9]{32}$/);
+    expect(store.jobs.get('job-style-1')?.renderOperationId).toBe(attemptOperationId);
     expect(checkpoint.createCheckpoint.mock.calls[0]?.[0].operationId).toBe(attemptOperationId);
     expect(dispatchRenderEvidence).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'project-1',
@@ -168,11 +172,61 @@ describe('durable chat reference-style jobs', () => {
     expect(dispatchRenderEvidence).not.toHaveBeenCalled();
   });
 
+  it('applies a reference profile inside its owning durable transaction without nesting apply_style', async () => {
+    const job = queuedJob();
+    const loadProfile = vi.fn(async () => referenceProfile());
+    const executeDirector = vi.fn(async () => ({
+      success: true,
+      overlaysModified: 3,
+      warnings: [],
+      actionsSkipped: [],
+      decisionAuthority: { executableProducer: 'unified-planner' },
+    }));
+
+    const result = await applyReferenceStyleProfileThroughUnifiedPlanner(
+      job,
+      'style-profile-1',
+      { loadProfile, executeDirector },
+    );
+
+    expect(result).toMatchObject({
+      status: 'mutated',
+      data: {
+        profileId: 'style-profile-1',
+        overlaysModified: 3,
+        appliedThrough: 'director-unified-planner',
+      },
+    });
+    expect(executeDirector).toHaveBeenCalledWith(
+      'project-1',
+      'user-1',
+      'style-profile-1',
+      expect.objectContaining({
+        intent: expect.stringContaining('observation, not a forced form'),
+        editorialPreferences: expect.objectContaining({
+          families: expect.objectContaining({
+            transitions: { mode: 'prefer' },
+            music: { mode: 'prefer' },
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('keeps reference measurements as context instead of concrete renderer forms', () => {
+    const brief = buildReferenceStyleProjectBrief(referenceProfile(), 0.65);
+
+    expect(brief.intent).toContain('Reference influence is 0.65');
+    expect(brief.intent).toContain('family planners must resolve readable forms');
+    expect(brief.editorialPreferences).not.toHaveProperty('transitionType');
+    expect(brief.editorialPreferences).not.toHaveProperty('graphicType');
+  });
+
   it('retries a transient extraction failure without creating or restoring a mutation checkpoint', async () => {
     const store = new MemoryStore(queuedJob());
     const checkpoint = installCheckpointSpies([]);
 
-    await expect(runChatReferenceStyleJob(workerPayload(), {
+    const run = runChatReferenceStyleJob(workerPayload(), {
       store,
       loadProject: async () => project('before'),
       extractProfile: async () => { throw new Error('Gemini 429 RESOURCE_EXHAUSTED'); },
@@ -180,11 +234,190 @@ describe('durable chat reference-style jobs', () => {
       dispatchRenderEvidence: vi.fn(),
       ...checkpoint.dependencies,
       now: () => NOW,
-    })).rejects.toBeInstanceOf(ChatReferenceStyleRetryableError);
+    });
 
-    expect(store.jobs.get('job-style-1')).toMatchObject({ status: 'retry_wait', attemptCount: 1 });
+    await expect(run).rejects.toMatchObject({
+      name: 'ChatReferenceStyleRetryableError',
+      retryAt: expect.any(Date),
+    });
+
+    const persisted = store.jobs.get('job-style-1');
+    expect(persisted).toMatchObject({
+      status: 'retry_wait',
+      attemptCount: 1,
+      beforeCheckpointId: null,
+      nextAttemptAt: expect.any(Date),
+    });
+    expect(persisted!.nextAttemptAt!.getTime()).toBeGreaterThanOrEqual(NOW.getTime() + 60_000);
     expect(checkpoint.claimChatEditOperation).not.toHaveBeenCalled();
     expect(checkpoint.restoreProjectCheckpoint).not.toHaveBeenCalled();
+  });
+
+  it('does not consume an attempt when a QStash retry arrives before the durable retry time', async () => {
+    const pendingRetry = {
+      ...queuedJob(),
+      status: 'retry_wait' as const,
+      attemptCount: 1,
+      nextAttemptAt: new Date(NOW.getTime() + 60_000),
+    };
+    const store = new MemoryStore(pendingRetry);
+    const checkpoint = installCheckpointSpies([]);
+    const extractProfile = vi.fn();
+
+    const result = await runChatReferenceStyleJob(workerPayload(), {
+      store,
+      loadProject: async () => project('before'),
+      extractProfile,
+      applyProfile: vi.fn(),
+      dispatchRenderEvidence: vi.fn(),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({
+      status: 'retrying',
+      jobId: 'job-style-1',
+      reason: 'job-not-claimable:retry_wait',
+      retryAt: new Date(NOW.getTime() + 60_000).toISOString(),
+    });
+    expect(store.jobs.get('job-style-1')?.attemptCount).toBe(1);
+    expect(extractProfile).not.toHaveBeenCalled();
+  });
+
+  it('restores an interrupted attempt before reclaiming an expired lease', async () => {
+    const interrupted = {
+      ...queuedJob(),
+      status: 'running' as const,
+      attemptCount: 1,
+      leaseId: 'expired-lease',
+      leaseExpiresAt: new Date(NOW.getTime() - 1),
+      beforeCheckpointId: 'ckpt-interrupted',
+    };
+    const store = new MemoryStore(interrupted);
+    let currentProject = project('before');
+    const order: string[] = [];
+    const checkpoint = installCheckpointSpies(order);
+    checkpoint.restoreProjectCheckpoint.mockImplementationOnce(async () => {
+      order.push('restore-interrupted');
+      return {
+        restored: true,
+        checkpointId: 'ckpt-interrupted',
+        expectedStateHash: 'before',
+        actualStateHash: 'before',
+      };
+    });
+
+    const result = await runChatReferenceStyleJob(workerPayload(), {
+      store,
+      loadProject: async () => structuredClone(currentProject),
+      extractProfile: async () => 'style-profile-1',
+      applyProfile: async () => {
+        currentProject = project('after');
+        return { status: 'mutated', rawOutput: '{}', data: {} };
+      },
+      dispatchRenderEvidence: async () => ({ dispatched: true, messageId: 'render-recovered' }),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result.status).toBe('completed');
+    expect(order).toEqual(['restore-interrupted', 'before-checkpoint', 'after-checkpoint']);
+    const completed = store.jobs.get('job-style-1');
+    expect(completed).toMatchObject({
+      status: 'completed',
+      attemptCount: 2,
+    });
+    expect(completed?.beforeCheckpointId).toMatch(/^ckpt_chat_style_before_/);
+    expect(completed?.beforeCheckpointId).not.toBe('ckpt-interrupted');
+  });
+
+  it('fails loudly when a pending job has exhausted its retry deadline', async () => {
+    const expired = {
+      ...queuedJob(),
+      status: 'retry_wait' as const,
+      attemptCount: 1,
+      nextAttemptAt: new Date(NOW.getTime() + 60_000),
+      retryDeadlineAt: NOW,
+    };
+    const store = new MemoryStore(expired);
+    const checkpoint = installCheckpointSpies([]);
+
+    const result = await runChatReferenceStyleJob(workerPayload(), {
+      store,
+      loadProject: async () => project('before'),
+      extractProfile: vi.fn(),
+      applyProfile: vi.fn(),
+      dispatchRenderEvidence: vi.fn(),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({
+      status: 'failed',
+      jobId: 'job-style-1',
+      reason: 'reference-style-retry-deadline-exhausted',
+    });
+    expect(store.jobs.get('job-style-1')?.status).toBe('failed');
+  });
+
+  it('redispatches due jobs and terminalizes exhausted jobs in one bounded watchdog pass', async () => {
+    const due = {
+      ...queuedJob(),
+      status: 'retry_wait' as const,
+      attemptCount: 2,
+      nextAttemptAt: new Date(NOW.getTime() - 1),
+    };
+    const exhausted = {
+      ...queuedJob(),
+      _id: 'job-style-exhausted',
+      idempotencyKey: 'idem-exhausted',
+      status: 'running' as const,
+      attemptCount: CHAT_REFERENCE_STYLE_MAX_ATTEMPTS,
+      leaseExpiresAt: new Date(NOW.getTime() - 1),
+    };
+    const dispatch = vi.fn(async () => ({ messageId: 'qstash-recovered' }));
+    const markTerminal = vi.fn(async () => true);
+
+    const result = await sweepChatReferenceStyleJobs({
+      now: NOW,
+      limit: 25,
+      dedupSalt: 'test-window',
+    }, {
+      findCandidates: async () => [due, exhausted],
+      dispatch,
+      markTerminal,
+    });
+
+    expect(result).toEqual({
+      scanned: 2,
+      redispatched: 1,
+      terminalized: 1,
+      errors: 0,
+      details: [],
+    });
+    expect(dispatch).toHaveBeenCalledWith(due, 'test-window', NOW);
+    expect(markTerminal).toHaveBeenCalledWith(
+      exhausted,
+      'reference-style-attempts-exhausted',
+      NOW,
+    );
+  });
+
+  it('keeps watchdog dispatch failures observable without aborting the pass', async () => {
+    const due = {
+      ...queuedJob(),
+      status: 'retry_wait' as const,
+      nextAttemptAt: new Date(NOW.getTime() - 1),
+    };
+
+    const result = await sweepChatReferenceStyleJobs({ now: NOW }, {
+      findCandidates: async () => [due],
+      dispatch: async () => { throw new Error('QStash unavailable'); },
+      markTerminal: vi.fn(),
+    });
+
+    expect(result).toMatchObject({ scanned: 1, redispatched: 0, terminalized: 0, errors: 1 });
+    expect(result.details).toEqual(['job-style-1:redispatch:QStash unavailable']);
   });
 
   it('rolls back and fails when a claimed style application reports success without changing canonical state', async () => {
@@ -241,6 +474,34 @@ describe('durable chat reference-style jobs', () => {
     expect(source).toContain('verifySignatureAppRouter(handleChatReferenceStyleWorker)');
     expect(source).toContain("process.env.NODE_ENV === 'test'");
     expect(source).toContain('QStash signing keys are required for this internal worker');
+    expect(source).toContain('Retry-After');
+    expect(source).toContain('Upstash-NonRetryable-Error');
+  });
+
+  it('keeps the reference-style watchdog authenticated and scheduled', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'app/api/cron/sweep-chat-reference-style-jobs/route.ts'),
+      'utf8',
+    );
+    const vercel = JSON.parse(readFileSync(resolve(process.cwd(), 'vercel.json'), 'utf8')) as {
+      crons?: Array<{ path?: string; schedule?: string }>;
+    };
+
+    expect(source).toContain("userAgent.includes('vercel-cron')");
+    expect(source).toContain('CRON_SECRET');
+    expect(source).toContain('sweepChatReferenceStyleJobs');
+    expect(vercel.crons).toContainEqual({
+      path: '/api/cron/sweep-chat-reference-style-jobs',
+      schedule: '*/15 * * * *',
+    });
+  });
+
+  it('rejects unauthenticated watchdog requests before touching durable jobs', async () => {
+    const { GET } = await import('@/app/api/cron/sweep-chat-reference-style-jobs/route');
+    const response = await GET(new Request('http://localhost/api/cron/sweep-chat-reference-style-jobs'));
+
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe('Unauthorized');
   });
 });
 
@@ -280,10 +541,16 @@ class MemoryStore implements ChatReferenceStyleJobStore {
 
   async claimRun(jobId: string, userId: string, leaseId: string, now: Date) {
     const job = this.owned(jobId, userId);
-    if (!['dispatching', 'queued', 'retry_wait'].includes(job.status)) return null;
+    if (job.attemptCount >= CHAT_REFERENCE_STYLE_MAX_ATTEMPTS) return null;
+    if (job.retryDeadlineAt && job.retryDeadlineAt.getTime() <= now.getTime()) return null;
+    const claimable = ['created', 'dispatch_failed', 'dispatching', 'queued'].includes(job.status)
+      || (job.status === 'retry_wait' && (!job.nextAttemptAt || job.nextAttemptAt.getTime() <= now.getTime()))
+      || (job.status === 'running' && Boolean(job.leaseExpiresAt && job.leaseExpiresAt.getTime() <= now.getTime()));
+    if (!claimable) return null;
     job.status = 'running';
     job.leaseId = leaseId;
-    job.leaseExpiresAt = new Date(now.getTime() + 60_000);
+    job.leaseExpiresAt = new Date(now.getTime() + (15 * 60_000));
+    job.nextAttemptAt = null;
     job.attemptCount += 1;
     return structuredClone(job);
   }
@@ -296,6 +563,10 @@ class MemoryStore implements ChatReferenceStyleJobStore {
     Object.assign(this.owned(jobId, userId), { beforeCheckpointId: checkpointId, updatedAt: now });
   }
 
+  async clearInterruptedAttempt(jobId: string, userId: string, now: Date) {
+    Object.assign(this.owned(jobId, userId), { beforeCheckpointId: null, updatedAt: now });
+  }
+
   async markDeclined(jobId: string, userId: string, result: Record<string, unknown>, now: Date) {
     Object.assign(this.owned(jobId, userId), { status: 'declined', result, completedAt: now, updatedAt: now });
   }
@@ -304,6 +575,7 @@ class MemoryStore implements ChatReferenceStyleJobStore {
     jobId: string;
     userId: string;
     afterCheckpointId: string;
+    renderOperationId: string;
     renderVerification: { dispatched: boolean; messageId?: string; reason?: string };
     result: Record<string, unknown>;
     now: Date;
@@ -311,6 +583,7 @@ class MemoryStore implements ChatReferenceStyleJobStore {
     Object.assign(this.owned(input.jobId, input.userId), {
       status: input.renderVerification.dispatched ? 'completed' : 'completed_unverified',
       afterCheckpointId: input.afterCheckpointId,
+      renderOperationId: input.renderOperationId,
       renderVerification: input.renderVerification,
       result: input.result,
       error: input.renderVerification.dispatched ? null : input.renderVerification.reason,
@@ -319,8 +592,16 @@ class MemoryStore implements ChatReferenceStyleJobStore {
     });
   }
 
-  async markRetry(jobId: string, userId: string, error: string, now: Date) {
-    Object.assign(this.owned(jobId, userId), { status: 'retry_wait', error, updatedAt: now });
+  async markRetry(jobId: string, userId: string, error: string, nextAttemptAt: Date, now: Date) {
+    Object.assign(this.owned(jobId, userId), {
+      status: 'retry_wait',
+      leaseId: null,
+      leaseExpiresAt: null,
+      beforeCheckpointId: null,
+      nextAttemptAt,
+      error,
+      updatedAt: now,
+    });
   }
 
   async markFailed(jobId: string, userId: string, error: string, rolledBack: boolean, now: Date) {
@@ -354,6 +635,45 @@ function workerPayload() {
   return { jobId: 'job-style-1', projectId: 'project-1', userId: 'user-1' };
 }
 
+function referenceProfile() {
+  return {
+    profileId: 'style-profile-1',
+    sourceName: 'reference.mp4',
+    cutRhythm: {
+      avgCutsPerMinute: 18,
+      pattern: 'building' as const,
+      avgClipDuration: 3.3,
+    },
+    transitions: {
+      dominant: 'zoom_punch' as const,
+      frequency: 12,
+    },
+    colorGrade: {
+      temperature: 'neutral' as const,
+      saturation: 'normal' as const,
+      contrast: 'high' as const,
+      dominantColors: ['#111111'],
+    },
+    textStyle: {
+      fontWeight: 'bold' as const,
+      position: 'lower_third' as const,
+      animation: 'slide' as const,
+      frequency: 'moderate' as const,
+    },
+    musicStyle: {
+      tempo: 'medium' as const,
+      genre: 'electronic',
+      energyLevel: 'medium' as const,
+    },
+    pacing: {
+      overall: 'medium' as const,
+      hookSpeed: 'fast' as const,
+      mainSpeed: 'medium' as const,
+    },
+    graphicsDensity: 'moderate' as const,
+  };
+}
+
 function queuedJob(): ChatReferenceStyleJob {
   return {
     _id: 'job-style-1',
@@ -367,6 +687,8 @@ function queuedJob(): ChatReferenceStyleJob {
     referenceAssetId: 'asset-reference',
     strength: 0.65,
     attemptCount: 0,
+    nextAttemptAt: NOW,
+    retryDeadlineAt: new Date(NOW.getTime() + (45 * 60_000)),
     createdAt: NOW,
     updatedAt: NOW,
     expiresAt: new Date(NOW.getTime() + 86_400_000),

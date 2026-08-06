@@ -25,6 +25,7 @@ import { TokenTracker } from '@/lib/editron/utils/token-tracker';
 import { CHAT_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 import {
   formatChatFrameEvidencePrompt,
+  resolveChatFrameContinuationLicense,
   sanitizeChatFrameEvidence,
 } from '@/lib/editron/agent/chat-frame-evidence';
 import {
@@ -32,7 +33,11 @@ import {
   formatChatAttachmentsForPrompt,
   resolveAuthorizedChatAttachments,
 } from '@/lib/editron/services/chat-attachment-contract';
-import { classifyChatRequestOwner } from '@/lib/editron/agent/chat-request-owner';
+import {
+  bindTrustedSelectedOverlayTarget,
+  bindTrustedTimelineTarget,
+  classifyChatRequestOwner,
+} from '@/lib/editron/agent/chat-request-owner';
 import { classifyChatProviderFailure } from '@/lib/editron/agent/chat-provider-failure';
 import {
   buildRequestedChatEditRenderVerification,
@@ -302,15 +307,29 @@ export async function POST(req: NextRequest) {
 
     const restoreTarget = resolveChatAiEditRestoreTarget(history, { userMessage: message });
     const tokenTracker = new TokenTracker(CHAT_MODEL_NAME);
-    const requestOwnerLicense = await classifyChatRequestOwner({
-      userMessage: message,
-      restoreStatus: restoreTarget.status,
-      selectedOverlayPresent: Boolean(selectedOverlayId),
-      visualEvidencePresent: Boolean(visualEvidence),
-      attachments,
-    }, {
-      addUsage: (usage) => tokenTracker.addUsage(usage),
-    });
+    const continuationLicense = visualEvidence
+      ? resolveChatFrameContinuationLicense(history, visualEvidence)
+      : null;
+    const classifiedRequestOwnerLicense = continuationLicense
+      ?? await classifyChatRequestOwner({
+        userMessage: message,
+        restoreStatus: restoreTarget.status,
+        selectedOverlayPresent: Boolean(selectedOverlayId),
+        visualEvidencePresent: Boolean(visualEvidence),
+        selectedRangePresent: Boolean(chatEditContext.selectedRange),
+        visibleTimelinePresent: Boolean(chatEditContext.visibleTimeline),
+        playheadPresent: Number.isFinite(chatEditContext.playhead.frame),
+        attachments,
+      }, {
+        addUsage: (usage) => tokenTracker.addUsage(usage),
+      });
+    const requestOwnerLicense = bindTrustedTimelineTarget(
+      bindTrustedSelectedOverlayTarget(
+        classifiedRequestOwnerLicense,
+        selectedOverlayId,
+      ),
+      chatEditContext,
+    );
 
     // Fail closed before invoking any mutating tool. Every turn gets a durable
     // pre-state because mutation intent is not trustworthy until the agent has

@@ -8,9 +8,15 @@ import { chatCompletionsUrl } from '@/lib/editron/reference-video/glm-vision-cli
 import {
   CODEGEN_STABLE_PREFIX,
   MgProviderFailureError,
+  pickMgRenderableCandidateData,
   mgProviderHttpError,
   type CodegenDeps,
 } from './codegen-service';
+import {
+  LEGACY_GLM_COMPONENT_MODEL,
+  resolveMgComponentModel,
+  resolveMgComponentProviderName,
+} from './mg-provider-config';
 import { phases } from './kit/choreo';
 import { JUDGE_PROMPT } from './prompt';
 import type { MgMomentInput, MgVisualEvidence, MgVisualEvidenceFrame } from './types';
@@ -25,7 +31,7 @@ import {
   type MgRenderInput,
   type MgRenderResult,
 } from './render/frame-renderer';
-import { mgRenderSanityGate, mgMotionPresenceGate } from './mg-placement-gate';
+import { mgRenderSanityGate, mgMotionPresenceGate, DEFAULT_MG_RENDER_SANITY_THRESHOLDS } from './mg-placement-gate';
 
 type RenderFn = (input: MgRenderInput, opts?: ProductionMgRuntimeOptions['renderOpts']) => Promise<MgRenderResult>;
 type CleanupFn = (workspaceDir: string) => Promise<void>;
@@ -35,8 +41,6 @@ const JUDGE_ATTEMPTS = [
   { seed: 7, maxOutputTokens: 4_096 },
 ] as const;
 const DEFAULT_ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
-const DEFAULT_MG_CODEGEN_MODEL = 'gemini-3.1-pro-preview'; // A/B winner: 4/7 vs glm-5v-turbo 2/7 (2026-07-19). Override with MG_CODEGEN_MODEL; both are vision-capable.
-const GLM_COMPONENT_MODEL = 'glm-5v-turbo';
 const DEFAULT_COMPONENT_TIMEOUT_MS = 3 * 60 * 1_000;
 const COMPONENT_MAX_OUTPUT_TOKENS = 32_768;
 
@@ -159,26 +163,17 @@ function componentWriterContent(prompt: string, visualEvidence?: MgVisualEvidenc
 }
 
 
-const VISION_CAPABLE_COMPONENT_MODELS = new Set([GLM_COMPONENT_MODEL]);
-
-function isGeminiComponentModel(model: string): boolean {
-  return model.toLowerCase().startsWith('gemini');
-}
-
-function isVisionCapableComponentModel(model: string): boolean {
-  return isGeminiComponentModel(model) || VISION_CAPABLE_COMPONENT_MODELS.has(model.toLowerCase());
-}
-
 // Vision gate: writing FROM footage evidence needs a multimodal writer. gemini-* and glm-5v-turbo both qualify
 // (measured 2026-07-19: Gemini 3.1-pro and GLM-5V both author correctly from the frames). A non-vision model
 // with visual evidence fails loud here rather than silently ignoring the footage.
 function assertVisionCapableComponentModel(model: string, visualEvidence?: MgVisualEvidence): void {
-  if (visualEvidence && !isVisionCapableComponentModel(model)) {
+  const provider = resolveMgComponentProviderName(model);
+  if (visualEvidence && !provider) {
     throw new MgProviderFailureError(
-      `MG codegen visual evidence requires a vision-capable component model (gemini-* or ${GLM_COMPONENT_MODEL}); received ${model}`,
+      `MG codegen visual evidence requires a vision-capable component model (gemini-* or ${LEGACY_GLM_COMPONENT_MODEL}); received ${model}`,
       {
         domain: 'provider',
-        provider: isGeminiComponentModel(model) ? 'gemini' : 'zai',
+        provider: model.toLowerCase().startsWith('gemini') ? 'gemini' : 'zai',
         operation: 'component-generation',
         code: 'configuration',
         disposition: 'terminal',
@@ -308,9 +303,9 @@ async function defaultWriteComponent(
   prompt: string,
   visualEvidence?: MgVisualEvidence,
 ): Promise<string> {
-  const model = process.env.MG_CODEGEN_MODEL?.trim() || DEFAULT_MG_CODEGEN_MODEL;
+  const model = resolveMgComponentModel();
   assertVisionCapableComponentModel(model, visualEvidence);
-  if (isGeminiComponentModel(model)) {
+  if (resolveMgComponentProviderName(model) === 'gemini') {
     return geminiWriteComponent(prompt, model, visualEvidence);
   }
   const apiKey = process.env.ZAI_API_KEY?.trim();
@@ -408,6 +403,78 @@ const JUDGE_EVIDENCE_ROLES: MgVisualEvidenceFrame['role'][] = [
 const JUDGE_PHASE_LABELS = ['intro', 'build', 'settled-hold'] as const;
 const JUDGE_STRESS_BACKGROUNDS = ['#111111', '#f2f2f2'] as const;
 
+// Fix-1 (2026-08-05): the judge must SEE the rendered text at a scale the user sees. The old 540px composites turned
+// a 1080p project's 48px overlay stat into ~13px glyphs (≈3.6× shrink), so typography/placement reads as "tiny /
+// garbled / competing" even on good overlays. Phase composites now run at 0.5× (960w) with optional native-scale
+// DETAIL crops of the graphic's own region, so glyph quality is actually assessable.
+// ALL values are env-configurable and must be decided by the Fix-0 eval harness (brief §9.1/§24.4) — no magic
+// production numbers stay buried here.
+function judgeCompositeWidth(): number { return numberEnv('MG_JUDGE_COMPOSITE_WIDTH', 960); }
+function judgeStressWidth(): number { return numberEnv('MG_JUDGE_STRESS_WIDTH', 480); }
+function judgeDetailEnabled(): boolean { return boolEnv('MG_JUDGE_DETAIL_CROPS_ENABLED', true); }
+function judgeDetailMaxWidth(): number { return numberEnv('MG_JUDGE_DETAIL_MAX_WIDTH', 640); }
+function judgeDetailTinyCropPx(): number { return numberEnv('MG_JUDGE_DETAIL_TINY_CROP_PX', 256); }
+function judgeDetailZoom(): number { return numberEnv('MG_JUDGE_DETAIL_ZOOM', 1.6); }
+function judgeDetailMaxBboxFrac(): number { return Math.min(1, Math.max(0.1, numberEnv('MG_JUDGE_DETAIL_MAX_BBOX_FRAC', 0.6))); }
+function judgeDetailMinBboxPx(): number { return numberEnv('MG_JUDGE_DETAIL_MIN_BBOX_PX', 24); }
+
+// Fix-2 (2026-08-05, REVISED per brief §10.2/§24.1): grounded subject interference. NO hard subject veto from the
+// coarse V-JEPA motion blob in the first deploy. The code measures opaque coverage of the subject box (metrics +
+// telemetry), and the VLM's eyeballed subject flag is downgraded to a composition concern UNLESS a calibrated
+// precise-geometry veto is explicitly enabled. MG_SUBJECT_HARD_VETO_ENABLED defaults OFF; the coverage threshold
+// (MG_SUBJECT_COVER_HARD) is ⚠ INVENTED and is only consulted while the flag is on. Never a production default.
+const MG_SUBJECT_COVER_HARD_DEFAULT = 0.5; // ⚠ INVENTED — sourcing required before the veto is ever enabled.
+function mgSubjectCoverHardThreshold(): number {
+  const raw = process.env.MG_SUBJECT_COVER_HARD;
+  if (raw == null) return MG_SUBJECT_COVER_HARD_DEFAULT;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : MG_SUBJECT_COVER_HARD_DEFAULT;
+}
+function mgSubjectHardVetoEnabled(): boolean {
+  return boolEnv('MG_SUBJECT_HARD_VETO_ENABLED', false);
+}
+
+function numberEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw == null) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+function boolEnv(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (raw == null) return fallback;
+  if (raw === 'true' || raw === '1' || raw === 'yes') return true;
+  if (raw === 'false' || raw === '0' || raw === 'no') return false;
+  return fallback;
+}
+
+/** Pure Fix-2 veto decision (ONLY consulted while MG_SUBJECT_HARD_VETO_ENABLED). A code-verified opaque cover of the
+ *  subject box. Isolated so the threshold + veto are unit-testable without a render fixture. */
+export function mgJudgeSubjectVeto(coveredPct: number, testThreshold?: number): boolean {
+  return coveredPct >= (testThreshold ?? mgSubjectCoverHardThreshold());
+}
+
+/** Fix-1/2 judge geometry: everything derived deterministically from the rendered alpha + the moment's subject box. */
+export interface MgJudgeGeometryGrounding {
+  /** The moment's subject box in frame fractions (V-JEPA when the seam read it, else the coarse placement-derived box). */
+  subject: { x: number; y: number; width: number; height: number } | null;
+  /** Opaque (α>230) pixels inside the subject box / box area (0..1). Measured on the settled-hold frame. */
+  coveredPct: number;
+  /** Opaque coverage of the subject box PER sampled phase (0..1 each) — §10.1 telemetry. */
+  coverageByPhase: number[];
+  /** Alpha-weighted coverage of the subject box on the settled-hold frame (0..1) — softer §10.1 metric. */
+  alphaWeightedCoverage: number;
+  /** True ONLY when the calibrated precise-geometry veto is enabled (MG_SUBJECT_HARD_VETO_ENABLED=true) AND an opaque
+   *  plate actually covers the subject above the threshold. Default false — the coarse box never hard-vetoes (§10.2). */
+  hardVeto: boolean;
+  /** Whether the veto was flag-eligible at all. The judge must never treat a non-enabled veto as a rejection. */
+  hardVetoEligible: boolean;
+  /** Known in-canvas caption rects. NONE are wired yet (Fix-2 follow-up) — until then judge caption flags are soft. */
+  captionRects: unknown[];
+  /** Union visible-pixel bbox across the sampled phases (frame fractions) — drives the Fix-1 detail crops. */
+  bboxPct: { x: number; y: number; width: number; height: number } | null;
+}
+
 function decodeVisualEvidenceFrame(frame: MgVisualEvidenceFrame): Buffer {
   const match = frame.imageDataUrl.match(/^data:image\/(?:jpeg|webp);base64,([A-Za-z0-9+/=]+)$/i);
   if (!match) throw new Error(`MG judge received malformed ${frame.role} visual evidence`);
@@ -429,23 +496,202 @@ function requireJudgeVisualEvidence(moment: MgMomentInput): MgVisualEvidenceFram
   return frames;
 }
 
-async function buildJudgeImages(render: MgRenderResult, moment: MgMomentInput): Promise<MgVisualJudgeImage[]> {
+/** All geometry thresholds reuse mg-placement-gate's degenerate-render alpha definitions (one source of truth). */
+const GEOMETRY_THRESHOLDS = DEFAULT_MG_RENDER_SANITY_THRESHOLDS;
+
+interface MeasuredGeometry {
+  subjectPx: { x: number; y: number; width: number; height: number } | null;
+  coveredPct: number;
+  coverageByPhase: number[];
+  alphaWeightedCoverage: number;
+  bboxPx: { x: number; y: number; width: number; height: number } | null;
+}
+
+/**
+ * Fix-2: measure OPAQUE subject coverage + the visible graphic bbox from rendered alpha frames.
+ * Pure-ish: takes the sampled full-res frame buffers (same order as `sampleIndices`), the render dimensions, and
+ * the moment's subject box in frame fractions. One raw alpha pass per frame + a subject-box scan — cheap.
+ */
+export async function measureJudgeFrameGeometry(
+  frameBuffers: Buffer[],
+  frameWidth: number,
+  frameHeight: number,
+  subjectFrac: { x: number; y: number; width?: number; height?: number } | undefined,
+  opts: { opaqueAlpha?: number; faintAlpha?: number } = {},
+): Promise<MeasuredGeometry> {
+  const opaqueAt = opts.opaqueAlpha ?? GEOMETRY_THRESHOLDS.opaqueAlpha;
+  const faintAt = opts.faintAlpha ?? GEOMETRY_THRESHOLDS.faintAlpha;
+
+  const rawFrames: { data: Buffer; info: { width: number; height: number; channels: number } }[] = [];
+  for (const buf of frameBuffers) {
+    rawFrames.push(await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true }));
+  }
+
+  // Union visible (α > faint) bbox across all sampled phases. The sanity gate pre-screens blank renders.
+  let bboxPx: { x: number; y: number; width: number; height: number } | null = null;
+  for (const fr of rawFrames) {
+    const { data, info } = fr;
+    const { width, height, channels } = info;
+    const alphaIdx = channels - 1;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (data[(y * width + x) * channels + alphaIdx] > faintAt) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX >= 0) {
+      const candidate = { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+      bboxPx = bboxPx
+        ? {
+            x: Math.min(bboxPx.x, candidate.x),
+            y: Math.min(bboxPx.y, candidate.y),
+            width: Math.max(bboxPx.width, candidate.width),
+            height: Math.max(bboxPx.height, candidate.height),
+          }
+        : candidate;
+    }
+  }
+
+  let subjectPx: { x: number; y: number; width: number; height: number } | null = null;
+  if (subjectFrac && Number.isFinite(subjectFrac.x) && Number.isFinite(subjectFrac.y)) {
+    subjectPx = {
+      x: Math.max(0, Math.round(subjectFrac.x * frameWidth)),
+      y: Math.max(0, Math.round(subjectFrac.y * frameHeight)),
+      width: Math.max(0, Math.min(frameWidth, Math.round((subjectFrac.width ?? 0.2) * frameWidth))),
+      height: Math.max(0, Math.min(frameHeight, Math.round((subjectFrac.height ?? 0.4) * frameHeight))),
+    };
+  }
+
+  // Subject-coverage metrics (§10.1): per-phase opaque coverage + hold-frame simple + alpha-weighted coverage.
+  // The coarse subject box feeds METRICS + telemetry; it never hard-vetoes unless the calibrated veto is enabled.
+  let coveredPct = 0;
+  let alphaWeightedCoverage = 0;
+  const coverageByPhase: number[] = [];
+  if (subjectPx && subjectPx.width > 0 && subjectPx.height > 0 && rawFrames.length > 0) {
+    for (const fr of rawFrames) {
+      const { data, info } = fr;
+      const { width, height, channels } = info;
+      const alphaIdx = channels - 1;
+      const sx0 = Math.max(0, subjectPx.x);
+      const sx1 = Math.min(width, subjectPx.x + subjectPx.width);
+      const sy0 = Math.max(0, subjectPx.y);
+      const sy1 = Math.min(height, subjectPx.y + subjectPx.height);
+      let opaque = 0;
+      let alphaSum = 0;
+      for (let y = sy0; y < sy1; y += 1) {
+        for (let x = sx0; x < sx1; x += 1) {
+          const a = data[(y * width + x) * channels + alphaIdx];
+          if (a > opaqueAt) opaque += 1;
+          alphaSum += a;
+        }
+      }
+      coverageByPhase.push(opaque / (subjectPx.width * subjectPx.height));
+    }
+    coveredPct = coverageByPhase[coverageByPhase.length - 1];
+    const hold = rawFrames[rawFrames.length - 1];
+    const { data: holdData, info: holdInfo } = hold;
+    const { width: holdW, height: holdH, channels: holdCh } = holdInfo;
+    const holdAlphaIdx = holdCh - 1;
+    let alphaSum = 0;
+    const hx0 = Math.max(0, subjectPx.x);
+    const hx1 = Math.min(holdW, subjectPx.x + subjectPx.width);
+    const hy0 = Math.max(0, subjectPx.y);
+    const hy1 = Math.min(holdH, subjectPx.y + subjectPx.height);
+    for (let y = hy0; y < hy1; y += 1) {
+      for (let x = hx0; x < hx1; x += 1) {
+        alphaSum += holdData[(y * holdW + x) * holdCh + holdAlphaIdx];
+      }
+    }
+    alphaWeightedCoverage = alphaSum / (subjectPx.width * subjectPx.height) / 255;
+  }
+
+  return { subjectPx, coveredPct, coverageByPhase, alphaWeightedCoverage, bboxPx };
+}
+
+async function buildJudgeImages(
+  render: MgRenderResult,
+  moment: MgMomentInput,
+): Promise<{ images: MgVisualJudgeImage[]; geometry: MgJudgeGeometryGrounding }> {
   if (!render.files.length) throw new Error('MG judge cannot evaluate an empty frame sequence');
-  const phaseWidth = 540;
-  const phaseHeight = Math.max(304, Math.min(960, Math.round(phaseWidth * render.height / render.width)));
-  const stressTileWidth = 360;
-  const stressTileHeight = Math.max(202, Math.min(640, Math.round(stressTileWidth * render.height / render.width)));
+  const phaseWidth = judgeCompositeWidth();
+  const phaseHeight = Math.max(304, Math.min(1280, Math.round(phaseWidth * render.height / render.width)));
+  const stressTileWidth = judgeStressWidth();
+  const stressTileHeight = Math.max(202, Math.min(760, Math.round(stressTileWidth * render.height / render.width)));
   const indices = sampleIndices(render.files.length, moment.brand);
   const evidenceFrames = requireJudgeVisualEvidence(moment);
   if (indices.length !== evidenceFrames.length) {
     throw new Error(`MG judge requires ${evidenceFrames.length} distinct animation phase samples; received ${indices.length}`);
   }
+
+  // Fix-2: measure geometry from the SAME full-res frames (union visible bbox + opaque subject coverage metrics).
+  // The bbox also drives the Fix-1 detail crops. Subject box = the moment's V-JEPA/coarse box (frame fractions).
+  const frameBuffers: Buffer[] = [];
+  for (const i of indices) frameBuffers.push(await fs.readFile(path.join(render.webpDir, render.files[i])));
+  const subjectFrac = moment.screen?.subject;
+  const measured = await measureJudgeFrameGeometry(frameBuffers, render.width, render.height, subjectFrac);
+  const hardVetoEligible = measured.subjectPx != null && mgSubjectHardVetoEnabled();
+  if (hardVetoEligible) {
+    // Brief §10.2/§24.1: the precise-geometry subject veto must be calibrated BEFORE use. Seeing it enabled with an
+    // uncalibrated threshold is a config warning — never a silent production default.
+    console.warn('[MGCodegen] MG_SUBJECT_HARD_VETO_ENABLED=true with an uncalibrated coverage threshold — per brief §10.2 the coarse-box veto is off by default; this must be calibrated in the Fix-0 harness before production.');
+  }
+  const geometry: MgJudgeGeometryGrounding = {
+    subject: subjectFrac && Number.isFinite(subjectFrac.x) && Number.isFinite(subjectFrac.y)
+      ? {
+          x: subjectFrac.x,
+          y: subjectFrac.y,
+          width: subjectFrac.width ?? 0.2,
+          height: subjectFrac.height ?? 0.4,
+        }
+      : null,
+    coveredPct: measured.coveredPct,
+    coverageByPhase: measured.coverageByPhase,
+    alphaWeightedCoverage: measured.alphaWeightedCoverage,
+    hardVetoEligible,
+    hardVeto: hardVetoEligible && mgJudgeSubjectVeto(measured.coveredPct),
+    captionRects: [],
+    bboxPct: measured.bboxPx
+      ? {
+          x: measured.bboxPx.x / render.width,
+          y: measured.bboxPx.y / render.height,
+          width: measured.bboxPx.width / render.width,
+          height: measured.bboxPx.height / render.height,
+        }
+      : null,
+  };
+
+  // Fix-1 detail crops: only for LOCALIZED graphics AND when enabled. A full-frame kinetic beat gets no detail panel
+  // — the (config) composite already shows it at useful scale.
+  const detailEnabled = judgeDetailEnabled();
+  const bboxPx = measured.bboxPx;
+  const wantDetail = detailEnabled && Boolean(
+    bboxPx
+    && bboxPx.width >= judgeDetailMinBboxPx()
+    && bboxPx.height >= judgeDetailMinBboxPx()
+    && bboxPx.width * bboxPx.height < judgeDetailMaxBboxFrac() * render.width * render.height,
+  );
+  const detailCrop = wantDetail && bboxPx
+    ? {
+        left: bboxPx.x,
+        top: bboxPx.y,
+        width: Math.max(0, Math.min(bboxPx.width, render.width - bboxPx.x)),
+        height: Math.max(0, Math.min(bboxPx.height, render.height - bboxPx.y)),
+      }
+    : null;
+
   const images: MgVisualJudgeImage[] = [];
   const stressComposites: sharp.OverlayOptions[] = [];
 
   for (let column = 0; column < indices.length; column += 1) {
-    const framePath = path.join(render.webpDir, render.files[indices[column]]);
-    const frameBytes = await fs.readFile(framePath);
+    const frameBytes = frameBuffers[column];
     const phaseFrame = await sharp(frameBytes)
       .resize({ width: phaseWidth, height: phaseHeight, fit: 'contain' })
       .png()
@@ -460,6 +706,34 @@ async function buildJudgeImages(render: MgRenderResult, moment: MgMomentInput): 
       image: phaseComposite,
       mimeType: 'image/png',
     });
+
+    // Native-scale detail crop of the graphic's own region over the same footage crop — typography/legibility ONLY.
+    // Any resize (tiny-crop upscale or max-width downscale) is RECORDED in the label — never an unlabeled zoom.
+    if (detailCrop) {
+      const maxW = judgeDetailMaxWidth();
+      const tinyPx = judgeDetailTinyCropPx();
+      const maxZoom = judgeDetailZoom();
+      const cropFrame = await sharp(frameBytes).extract(detailCrop).toBuffer();
+      const cropFootage = await sharp(decodeVisualEvidenceFrame(evidenceFrames[column])).extract(detailCrop).toBuffer();
+      let dw = detailCrop.width;
+      let appliedZoom = 1;
+      if (dw < tinyPx) {
+        dw = Math.min(Math.round(dw * maxZoom), maxW);
+        appliedZoom = dw / detailCrop.width;
+      }
+      if (dw > maxW) {
+        dw = maxW;
+        appliedZoom = dw / detailCrop.width;
+      }
+      const detailFrame = await sharp(cropFrame).resize({ width: dw, fit: 'contain' }).png().toBuffer();
+      const detailFootage = await sharp(cropFootage).resize({ width: dw, fit: 'contain' }).png().toBuffer();
+      const detail = await sharp(detailFootage).composite([{ input: detailFrame }]).png().toBuffer();
+      images.push({
+        label: `detail (crop of the graphic region; typography/legibility/clipping authority ONLY - never placement) - ${JUDGE_PHASE_LABELS[column]} phase; bboxPct=${geometry.bboxPct ? JSON.stringify(geometry.bboxPct) : 'n/a'}; cropScale=${appliedZoom.toFixed(3)}x (recorded, never hidden)`,
+        image: detail,
+        mimeType: 'image/png',
+      });
+    }
 
     const stressFrame = await sharp(frameBytes)
       .resize({ width: stressTileWidth, height: stressTileHeight, fit: 'contain' })
@@ -496,7 +770,7 @@ async function buildJudgeImages(render: MgRenderResult, moment: MgMomentInput): 
     image: stressSheet,
     mimeType: 'image/png',
   });
-  return images;
+  return { images, geometry };
 }
 
 function extractJsonObject(text: string): string {
@@ -554,7 +828,10 @@ const JUDGE_DIMENSION_CAP_SCORE = 7; // ← the "not 8+" ceiling (7 < the 7.5 ac
 const JUDGE_FORM_CAP = 4;            // ← "if form ≤ 4 (undesigned bare-text output)"
 const JUDGE_FORM_CAP_SCORE = 6;      // ← "...score is at most 6"
 
-export function parseJudgeResponse(response: string): { score: number; issues: string[] } {
+export function parseJudgeResponse(
+  response: string,
+  geo: MgJudgeGeometryGrounding | null | undefined = null,
+): { score: number; issues: string[] } {
   const parsed = JSON.parse(extractJsonObject(response)) as Record<string, unknown>;
   if (typeof parsed.faithful !== 'boolean') throw new Error('faithful must be a boolean');
   if (typeof parsed.score !== 'number' || !Number.isFinite(parsed.score)) throw new Error('score must be a finite number');
@@ -575,13 +852,44 @@ export function parseJudgeResponse(response: string): { score: number; issues: s
     dims.set(dim, clamped);
     if (clamped < WEAK_DIMENSION_SCORE) weak.push(`weak ${dim} (${clamped}/10)`);
   }
-  if (!isRecord(parsed.hardFailures)) throw new Error('hardFailures must be an object');
-  const activeHardFailures: string[] = [];
+  const hardFailures = parsed.hardFailures;
+  if (!isRecord(hardFailures)) throw new Error('hardFailures must be an object');
+  const hard = Object.fromEntries(
+    JUDGE_HARD_FAILURES.map((f) => [f, hardFailures[f]]),
+  ) as Record<(typeof JUDGE_HARD_FAILURES)[number], boolean>;
   for (const failure of JUDGE_HARD_FAILURES) {
-    const value = parsed.hardFailures[failure];
-    if (typeof value !== 'boolean') throw new Error(`hardFailures.${failure} must be a boolean`);
-    if (value) activeHardFailures.push(failure);
+    if (typeof hard[failure] !== 'boolean') throw new Error(`hardFailures.${failure} must be a boolean`);
   }
+
+  // Fix-2 grounding: the CODE owns the geometry veto, the judge owns craft. When geometry is provided (codegen
+  // lane), a judge-flagged subject hard-fail is honored ONLY when the calibrated precise-geometry veto is enabled
+  // AND the code measured a real opaque cover (geo.hardVeto). Otherwise — coarse box (default, veto disabled) or a
+  // proximity-only flag — it is downgraded to a composition note, killing the false "type is near a face"/"crowds
+  // the caption zone" hard-vetoes that were dropping good overlays (prompt.ts rubric matched the placement gate's
+  // SOFT intent (mg-placement-gate.ts); enforcement never did — §10.2/§10.4).
+  const softNotes: string[] = [];
+  if (geo) {
+    if (geo.subject) {
+      if (geo.hardVeto) {
+        hard.subjectInterference = true;
+        softNotes.push(
+          `subject covered — code-verified ${(geo.coveredPct * 100).toFixed(0)}% opaque coverage of the subject box + calibrated veto enabled: subjectInterference enforced (corpse-⑤)`,
+        );
+      } else if (hard.subjectInterference) {
+        hard.subjectInterference = false;
+        softNotes.push(
+          geo.hardVetoEligible
+            ? `subject proximity flagged by judge but geometry measured ${(geo.coveredPct * 100).toFixed(1)}% opaque coverage of the subject box (below the veto threshold) — downgraded to a composition note (grounded subject, Fix-2)`
+            : `subject proximity flagged by judge but the precise-geometry subject veto is DISABLED (MG_SUBJECT_HARD_VETO_ENABLED=false); geometry measured ${(geo.coveredPct * 100).toFixed(1)}% opaque coverage of the subject box — downgraded to a composition note (grounded subject, Fix-2)`,
+        );
+      }
+    }
+    if (geo.captionRects.length === 0 && hard.captionOrExistingTextInterference) {
+      hard.captionOrExistingTextInterference = false;
+      softNotes.push('caption interference downgraded: no caption rects are known yet (Fix-2 follow-up) — treated as composition feedback, not auto-reject');
+    }
+  }
+  const activeHardFailures = JUDGE_HARD_FAILURES.filter((f) => hard[f]);
 
   if (!parsed.faithful) {
     const unfaithful = [...issues, ...weak].slice(0, 25);
@@ -605,14 +913,14 @@ export function parseJudgeResponse(response: string): { score: number; issues: s
     capNotes.push(`score capped at ${JUDGE_FORM_CAP_SCORE}: form ${form}/10 (≤${JUDGE_FORM_CAP}) — undesigned/minimum-viable text cannot score above ${JUDGE_FORM_CAP_SCORE}`);
   }
 
-  return { score, issues: [...issues, ...weak, ...capNotes].slice(0, 25) };
+  return { score, issues: [...issues, ...weak, ...softNotes, ...capNotes].slice(0, 25) };
 }
 
 async function defaultJudgeRendered(
   render: MgRenderResult,
   moment: MgMomentInput,
 ): Promise<{ score: number; issues: string[] }> {
-  const images = await buildJudgeImages(render, moment);
+  const { images, geometry } = await buildJudgeImages(render, moment);
   const providerName = resolveMgVisualJudgeProviderName();
   let provider: Awaited<ReturnType<typeof createMgVisualJudgeProvider>>;
   try {
@@ -621,15 +929,36 @@ async function defaultJudgeRendered(
     throw normalizeProviderFailure({ provider: providerName, operation: 'visual-judge', error });
   }
   console.info(`[MGCodegen] Visual judge configured: provider=${provider.name}, model=${provider.model}`);
+  // Packet budget telemetry (§9.5): log what the judge is seeing and its size before the provider call.
+  console.info(
+    `[MGCodegen] Judge packet: ${images.length} images; ${images.map((i) => i.image.byteLength).reduce((a, b) => a + b, 0)} bytes; ` +
+    `compositeWidth=${images.some((i) => i.label.includes('phase over')) ? judgeCompositeWidth() : 'n/a'}; detailEnabled=${judgeDetailEnabled()}; ` +
+    `geometry=${geometry.subject ? `subjectCoverage=${geometry.coverageByPhase.join('/')}` : 'no-subject-box'}; hardVetoEligible=${geometry.hardVetoEligible}; hardVeto=${geometry.hardVeto}`,
+  );
   const fact = JSON.stringify({
     factKind: moment.candidate.factKind,
     rhetoricalRole: moment.candidate.rhetoricalRole,
     content: moment.candidate.content,
     sourceText: moment.candidate.sourceSpan.text,
     placement: moment.placement,
-    // P5-2(b): the REAL V-JEPA subject box (frame fractions), when known — the judge checks obstruction against these
-    // coordinates instead of eyeballing. Absent → the judge falls back to reading the composite alone (unchanged).
-    subject: moment.screen?.subject,
+    // Phase 4b (§11): the video taste contract (hash + compact direction) — the judge verifies CONTRACT FIDELITY
+    // (execution of the established art direction) instead of substituting its own taste. Absent → fidelity N/A.
+    tasteContract: moment.tasteContract ?? null,
+    // Fix-2: GROUNDED geometry, code-measured (not eyeballed) per brief §10.1. subjectOverlap.collision is a hard
+    // failure ONLY when hardVeto=true (calibrated veto ENABLED + opaque cover). hardVeto=false (coarse box, default,
+    // or below threshold) → subject proximity is composition negative-space, never an auto-reject.
+    subjectOverlap: geometry
+      ? {
+          subject: geometry.subject,
+          coveredPct: geometry.coveredPct,
+          coverageByPhase: geometry.coverageByPhase,
+          alphaWeightedCoverage: geometry.alphaWeightedCoverage,
+          hardVeto: geometry.hardVeto,
+          hardVetoEligible: geometry.hardVetoEligible,
+          captionRects: geometry.captionRects,
+          captionRectsKnown: geometry.captionRects.length > 0,
+        }
+      : null,
   }).slice(0, 6000);
   const prompt = `${JUDGE_PROMPT}
 
@@ -657,7 +986,7 @@ ${fact}`;
         domain: 'provider', provider: providerName, operation: 'visual-judge', code: 'invalid-response', disposition: 'terminal',
       });
       try {
-        return parseJudgeResponse(response);
+        return parseJudgeResponse(response, geometry);
       } catch (error) {
         throw new MgProviderFailureError('MG visual judge returned invalid structured output', {
           domain: 'provider', provider: providerName, operation: 'visual-judge', code: 'invalid-response', disposition: 'terminal',
@@ -730,7 +1059,7 @@ export function createProductionMgRuntime(
       brand: moment.brand,
       // Reserved system props AFTER content (never shadowed) — same merge as render-moment.ts (P5-1).
       data: {
-        ...moment.candidate.content,
+        ...pickMgRenderableCandidateData(moment.candidate),
         ...(moment.anchors?.wordFrames?.length ? { wordFrames: moment.anchors.wordFrames } : {}),
         ...(typeof moment.motionIntensity === 'number' ? { motionIntensity: moment.motionIntensity } : {}),
       },

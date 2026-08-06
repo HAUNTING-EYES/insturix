@@ -156,4 +156,22 @@ describe('chat terminal outcome contract', () => {
     expect(truth(forbidden, [], false)).toBe('pass');
     expect(truth(forbidden, ['no-op'], false)).toBe('fail');
   });
+
+  it('accepts an explicitly licensed partial-success journey without weakening ordinary failures', () => {
+    const partialSuccess = getChatEditBattleScenario('rollback-partial-failure')!;
+    const ordinary = getChatEditBattleScenario('clean-captions')!;
+
+    expect(evaluateChatBattleMutationTruth(
+      partialSuccess,
+      ['mutated', 'mutated', 'failed'],
+      true,
+      false,
+    )).toBe('pass');
+    expect(evaluateChatBattleMutationTruth(
+      ordinary,
+      ['mutated', 'failed'],
+      true,
+      false,
+    )).toBe('fail');
+  });
 });

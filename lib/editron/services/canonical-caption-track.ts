@@ -18,9 +18,38 @@ import {
   EDITRON_CAPTION_SAFE_BOTTOM_MARGIN,
   EDITRON_CAPTION_SAFE_TOP_MARGIN,
 } from '../shared/overlay-safe-zone-contract';
+import {
+  captionMinimumEventDurationMs,
+  maximumReadableCaptionWords,
+  normalizeCaptionGroupsForReadability,
+} from './caption-readability-contract';
 
 export const CANONICAL_CAPTION_TRACK_SOURCE = 'canonical-caption-track';
 const SOURCE_TEXT_PROTECTED_REGION_REASON = 'source-text-box';
+
+export interface CanonicalCaptionStyleIntent {
+  fontSize?: string;
+  color?: string;
+  backgroundColor?: string;
+  position?: 'top' | 'center' | 'bottom';
+  fontFamily?: string;
+  fontWeight?: number | string;
+  textCase?: 'sentence' | 'uppercase' | 'lowercase' | 'capitalize';
+}
+
+export interface CaptionStyleAudit {
+  requested: CanonicalCaptionStyleIntent;
+  applied: {
+    fontSize: string;
+    color: string;
+    backgroundColor?: string;
+    position: 'top-center' | 'center' | 'bottom-center';
+    fontFamily: string;
+    fontWeight: number | string;
+    textTransform?: CaptionStyles['textTransform'];
+  };
+  adjustments: string[];
+}
 
 export interface InstallCanonicalCaptionTrackInput {
   overlays: any[];
@@ -28,6 +57,7 @@ export interface InstallCanonicalCaptionTrackInput {
   segmentAnalysis?: SegmentAnalysis | null;
   playerDimensions?: { width: number; height: number } | null;
   presentation: AtomicCaptionPresentation;
+  styleIntent?: CanonicalCaptionStyleIntent;
   choreographyReservationCount?: number;
 }
 
@@ -46,6 +76,12 @@ interface CaptionProtectedRegion {
   width: number;
   height: number;
   strength: number;
+}
+
+export interface RestyleCanonicalCaptionTracksResult {
+  updated: number;
+  captionOverlayIds: Array<string | number>;
+  styleAudit: CaptionStyleAudit;
 }
 
 export function installCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackInput): InstallCanonicalCaptionTrackResult {
@@ -118,6 +154,68 @@ export function buildCanonicalCaptionChoreographyReservations(
     };
   });
 }
+
+export function restyleCanonicalCaptionTracks(
+  input: InstallCanonicalCaptionTrackInput,
+): RestyleCanonicalCaptionTracksResult {
+  const dimensions = input.playerDimensions ?? { width: 1920, height: 1080 };
+  const protectedRegions = collectCaptionProtectedRegions(
+    input.overlays,
+    input.editedTimelineContext.durationFrames,
+    input.editedTimelineContext,
+    input.segmentAnalysis,
+  );
+  const geometry = captionGeometry(
+    dimensions,
+    input.presentation,
+    protectedRegions,
+    input.styleIntent?.position,
+  );
+  const styleResolution = resolveCaptionStyles(
+    input.presentation,
+    input.styleIntent,
+    geometry,
+  );
+  const displayConfig = resolveDisplayConfig(input.presentation);
+  const captionOverlayIds: Array<string | number> = [];
+
+  input.overlays.forEach((overlay, index) => {
+    if (overlay?.type !== OverlayType.CAPTION && overlay?.type !== 'caption') return;
+    captionOverlayIds.push(overlay.id);
+    input.overlays[index] = {
+      ...overlay,
+      left: geometry.left,
+      top: geometry.top,
+      width: geometry.width,
+      height: geometry.height,
+      styles: styleResolution.styles,
+      displayConfig,
+      position: 'custom',
+      template: input.presentation.style,
+      metadata: {
+        ...(overlay.metadata ?? {}),
+        captionPresentationOwner: CANONICAL_CAPTION_TRACK_SOURCE,
+        captionPresentation: input.presentation,
+        captionStyleIntent: styleResolution.audit,
+        evidence: {
+          ...(overlay.metadata?.evidence ?? {}),
+          sourceDisplayMode: input.presentation.displayMode,
+          renderDisplayMode: displayConfig.mode,
+          captionAesthetic: input.presentation.aesthetic,
+          protectedRegionCount: protectedRegions.length,
+          selectedRegion: geometry.region,
+        },
+      },
+    };
+  });
+
+  return {
+    updated: captionOverlayIds.length,
+    captionOverlayIds,
+    styleAudit: styleResolution.audit,
+  };
+}
+
 export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackInput): (CaptionOverlay & { metadata: Record<string, unknown>; words: CaptionWord[] }) | null {
   const words = input.editedTimelineContext.transcription
     .map((word): CaptionWord => ({
@@ -156,8 +254,17 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
     input.editedTimelineContext,
     input.segmentAnalysis,
   );
-  const geometry = captionGeometry(dimensions, input.presentation, protectedRegions);
-  const styles = stylesForPresentation(input.presentation);
+  const geometry = captionGeometry(
+    dimensions,
+    input.presentation,
+    protectedRegions,
+    input.styleIntent?.position,
+  );
+  const styleResolution = resolveCaptionStyles(
+    input.presentation,
+    input.styleIntent,
+    geometry,
+  );
   const sourceTextProtectedRegionCount = protectedRegions
     .filter((region) => region.reason === SOURCE_TEXT_PROTECTED_REGION_REASON)
     .length;
@@ -177,7 +284,7 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
     rotation: 0,
     isDragging: false,
     row: ROW.CAPTIONS,
-    styles,
+    styles: styleResolution.styles,
     displayConfig,
     position: 'custom',
     template: input.presentation.style,
@@ -193,6 +300,7 @@ export function createCanonicalCaptionTrack(input: InstallCanonicalCaptionTrackI
         activeGroupCount: captions.length,
       },
       captionPresentation: input.presentation,
+      captionStyleIntent: styleResolution.audit,
       evidence: {
         editedWordCount: words.length,
         measuredSpeakingRateWpm,
@@ -295,10 +403,17 @@ function groupWordsIntoBoundaryAwareCaptions(
   const captions: Caption[] = [];
   let currentWords: CaptionWord[] = [];
   let boundaryIndex = 0;
+  let segmentStartMs = 0;
 
   const pushCurrentWords = (segmentEndMs?: number) => {
     if (currentWords.length === 0) return;
-    captions.push(...readableCaptionGroups(currentWords, config, readability, segmentEndMs));
+    captions.push(...readableCaptionGroups(
+      currentWords,
+      config,
+      readability,
+      segmentEndMs,
+      segmentStartMs,
+    ));
     currentWords = [];
   };
 
@@ -308,6 +423,7 @@ function groupWordsIntoBoundaryAwareCaptions(
       word.startMs >= boundariesMs[boundaryIndex]
     ) {
       pushCurrentWords(boundariesMs[boundaryIndex]);
+      segmentStartMs = boundariesMs[boundaryIndex];
       boundaryIndex++;
     }
     currentWords.push(word);
@@ -322,113 +438,14 @@ function readableCaptionGroups(
   config: Parameters<typeof groupWordsIntoCaptions>[1],
   readability: ReturnType<typeof captionReadabilityPolicy>,
   segmentEndMs?: number,
+  segmentStartMs?: number,
 ): Caption[] {
-  return padReadableCaptionWindows(
-    normalizeReadableCaptionGroups(groupWordsIntoCaptions(words, config), readability),
+  return normalizeCaptionGroupsForReadability(
+    groupWordsIntoCaptions(words, config),
     readability,
     segmentEndMs,
+    segmentStartMs,
   );
-}
-
-function normalizeReadableCaptionGroups(
-  captions: Caption[],
-  readability: ReturnType<typeof captionReadabilityPolicy>,
-): Caption[] {
-  const normalized: Caption[] = [];
-
-  for (const caption of captions) {
-    const previous = normalized[normalized.length - 1];
-    if (
-      previous &&
-      (captionDurationMs(previous) < readability.minGroupDurationMs || captionDurationMs(caption) < readability.minGroupDurationMs) &&
-      canMergeCaptionGroups(previous, caption, readability)
-    ) {
-      normalized[normalized.length - 1] = mergeCaptionGroups(previous, caption);
-    } else {
-      normalized.push(caption);
-    }
-  }
-
-  return normalized;
-}
-
-function canMergeCaptionGroups(
-  left: Caption,
-  right: Caption,
-  readability: ReturnType<typeof captionReadabilityPolicy>,
-): boolean {
-  const words = [...(left.words ?? []), ...(right.words ?? [])];
-  const text = words.map((word) => word.word).join(' ');
-  const durationMs = (right.endMs ?? 0) - (left.startMs ?? 0);
-
-  return words.length <= readability.maxMergeWords
-    && text.length <= readability.maxMergeChars
-    && durationMs <= readability.maxMergedGroupDurationMs;
-}
-
-function mergeCaptionGroups(left: Caption, right: Caption): Caption {
-  const words = [...(left.words ?? []), ...(right.words ?? [])];
-  const text = words.map((word) => word.word).join(' ');
-  const confidence = words.length > 0
-    ? words.reduce((sum, word) => sum + (word.confidence ?? 1), 0) / words.length
-    : Math.min(left.confidence ?? 1, right.confidence ?? 1);
-
-  return {
-    text,
-    startMs: left.startMs,
-    endMs: right.endMs,
-    timestampMs: null,
-    confidence,
-    words,
-  };
-}
-
-function captionDurationMs(caption: Caption): number {
-  return Math.max(0, (caption.endMs ?? 0) - (caption.startMs ?? 0));
-}
-
-function padReadableCaptionWindows(
-  captions: Caption[],
-  readability: ReturnType<typeof captionReadabilityPolicy>,
-  segmentEndMs?: number,
-): Caption[] {
-  return captions.map((caption, index) => {
-    const durationMs = captionDurationMs(caption);
-    if (durationMs >= readability.minGroupDurationMs) return caption;
-
-    const previous = captions[index - 1];
-    const next = captions[index + 1];
-    const minStartMs = (previous?.endMs ?? 0) + readability.minCaptionGapMs;
-    const maxEndMs = Math.min(
-      next ? next.startMs - readability.minCaptionGapMs : Number.POSITIVE_INFINITY,
-      Number.isFinite(segmentEndMs) ? (segmentEndMs ?? Number.POSITIVE_INFINITY) - readability.minCaptionGapMs : Number.POSITIVE_INFINITY,
-    );
-
-    let startMs = caption.startMs;
-    let endMs = caption.endMs;
-    let remainingMs = readability.minGroupDurationMs - durationMs;
-
-    const postRollMs = Math.min(
-      remainingMs,
-      readability.maxCaptionPostRollMs,
-      Math.max(0, maxEndMs - endMs),
-    );
-    endMs += postRollMs;
-    remainingMs -= postRollMs;
-
-    const preRollMs = Math.min(
-      remainingMs,
-      readability.maxCaptionPreRollMs,
-      Math.max(0, startMs - minStartMs),
-    );
-    startMs -= preRollMs;
-
-    return {
-      ...caption,
-      startMs: Math.max(0, Math.round(startMs)),
-      endMs: Math.max(Math.round(startMs) + 80, Math.round(endMs)),
-    };
-  });
 }
 
 function removeSupersededGeneratedCaptionTracks(overlays: any[]): number {
@@ -466,6 +483,8 @@ function resolveDisplayConfig(presentation: AtomicCaptionPresentation): CaptionD
     mode: readability.renderMode,
     wordsPerGroup: readability.wordsPerGroup,
     maxWordsPerLine: readability.maxWordsPerLine,
+    emphasisBehavior: presentation.displayMode === 'subtitle' ? 'none' : 'active-word',
+    fontSizing: 'authored',
   };
 }
 
@@ -510,8 +529,11 @@ function captionReadabilityPolicy(
   const maxCharsPerCaption = subtitleMode ? 38 : sourceKaraokeMode ? 84 : highEnergy ? 22 : 30;
   const maxGroupDurationMs = sourceKaraokeMode ? 2800 : panelMode ? 2300 : highEnergy ? 1450 : 1900;
   const speechPauseBoundaryMs = highEnergy ? 380 : panelMode ? 620 : 500;
-  const minGroupDurationMs = subtitleMode ? 900 : karaokeMode ? 760 : highEnergy ? 560 : 680;
-  const maxMergeWords = subtitleMode
+  const minGroupDurationMs = Math.max(
+    subtitleMode ? 900 : karaokeMode ? 760 : highEnergy ? 560 : 680,
+    captionMinimumEventDurationMs(sourceMode),
+  );
+  const structuralMaxMergeWords = subtitleMode
     ? Math.max(wordsPerGroup, 10)
     : sourceKaraokeMode
       ? Math.max(groupWordsPerCaption, 18)
@@ -522,9 +544,17 @@ function captionReadabilityPolicy(
   const maxMergedGroupDurationMs = sourceKaraokeMode
     ? Math.max(maxGroupDurationMs, 5200)
     : Math.max(maxGroupDurationMs, minGroupDurationMs + 700);
+  const maxMergeWords = Math.min(
+    structuralMaxMergeWords,
+    maximumReadableCaptionWords({
+      durationMs: maxMergedGroupDurationMs,
+      mode,
+      configuredFloorMs: minGroupDurationMs,
+    }),
+  );
 
   return {
-    version: 'caption-readability-policy-v1',
+    version: 'caption-readability-policy-v1' as const,
     sourceMode,
     renderMode: mode,
     wordsPerGroup: Math.max(1, wordsPerGroup),
@@ -537,7 +567,7 @@ function captionReadabilityPolicy(
     maxMergeChars,
     maxMergedGroupDurationMs,
     maxCaptionPreRollMs: panelMode ? 320 : 260,
-    maxCaptionPostRollMs: panelMode ? 520 : 420,
+    maxCaptionPostRollMs: panelMode ? 520 : 500,
     minCaptionGapMs: 80,
     speechPauseBoundaryMs,
     softClipBoundaryGapMs: Math.max(220, Math.round(speechPauseBoundaryMs * 0.65)),
@@ -552,6 +582,7 @@ function captionGeometry(
   dimensions: { width: number; height: number },
   presentation: AtomicCaptionPresentation,
   protectedRegions: CaptionProtectedRegion[] = [],
+  preferredPosition?: CanonicalCaptionStyleIntent['position'],
 ) {
   const aesthetic = presentation.aesthetic;
   const width = Math.round(Math.min(dimensions.width * aesthetic.widthFraction, aesthetic.maxWidthPx));
@@ -585,10 +616,26 @@ function captionGeometry(
       left: Math.round((dimensions.width - width) / 2),
       top: clampTopToSafeCenter(dimensions.height * 0.12),
     },
+    ...(preferredPosition === 'center'
+      ? [{
+          region: 'center' as const,
+          left: Math.round((dimensions.width - width) / 2),
+          top: clampTopToSafeCenter((dimensions.height - height) / 2),
+        }]
+      : []),
   ];
+  const preferredRegion = preferredPosition === 'top'
+    ? 'top-center'
+    : preferredPosition === 'center'
+      ? 'center'
+      : 'bottom-center';
   const selected = candidates
-    .map((candidate) => ({ ...candidate, risk: captionRegionRisk(candidate, width, height, dimensions, protectedRegions) }))
-    .sort((a, b) => a.risk - b.risk || (a.region === 'bottom-center' ? -1 : 1))[0] ?? candidates[0];
+    .map((candidate) => ({
+      ...candidate,
+      risk: captionRegionRisk(candidate, width, height, dimensions, protectedRegions),
+      preferenceRank: candidate.region === preferredRegion ? 0 : 1,
+    }))
+    .sort((a, b) => a.risk - b.risk || a.preferenceRank - b.preferenceRank)[0] ?? candidates[0];
   return {
     width,
     height,
@@ -837,7 +884,11 @@ function measureSpeakingRateWpm(words: CaptionWord[]): number {
   return Math.max(80, Math.min(320, wpm));
 }
 
-function stylesForPresentation(presentation: AtomicCaptionPresentation): CaptionStyles {
+function resolveCaptionStyles(
+  presentation: AtomicCaptionPresentation,
+  intent: CanonicalCaptionStyleIntent | undefined,
+  geometry: { width: number; height: number; region: 'top-center' | 'center' | 'bottom-center' },
+): { styles: CaptionStyles; audit: CaptionStyleAudit } {
   // The registry row owns the style IDENTITY (font, palette, highlight mode/effect/animation). The
   // explicitly-chosen style (presentation.style) wins selection; signals only break ties. The aesthetic
   // carries the SIGNAL-DRIVEN MAGNITUDE â€” size + emphasis scale move with energy/surface â€” so size and
@@ -849,7 +900,7 @@ function stylesForPresentation(presentation: AtomicCaptionPresentation): Caption
   const shadowAlpha = Math.max(0.65, Math.min(0.95, aesthetic.shadowStrength));
   const shadowFloor = `0 4px 16px rgba(0,0,0,${shadowAlpha}), 0 0 5px rgba(0,0,0,0.98), 0 1px 1px rgba(0,0,0,1)`;
 
-  return {
+  const styles: CaptionStyles = {
     ...preset.styles,
     fontSize: `${Math.round(aesthetic.fontSizePx)}px`,
     lineHeight: aesthetic.lineHeight,
@@ -863,4 +914,229 @@ function stylesForPresentation(presentation: AtomicCaptionPresentation): Caption
     stroke: preset.stroke,
     roles: preset.roles,
   };
+  const adjustments: string[] = [];
+  const requested = { ...(intent ?? {}) };
+  const requestedFontSize = parsePixelSize(intent?.fontSize);
+  if (intent?.fontSize && requestedFontSize == null) {
+    adjustments.push('font-size-invalid');
+  } else if (requestedFontSize != null) {
+    const baseFontSize = Math.round(aesthetic.fontSizePx);
+    const availableHeight = Math.max(1, geometry.height - 32);
+    const twoLineFit = Math.floor(
+      (availableHeight * 150)
+      / Math.max(1, geometry.height * aesthetic.lineHeight * 2),
+    );
+    const maximumFontSize = Math.max(baseFontSize, twoLineFit);
+    const appliedFontSize = Math.max(baseFontSize, Math.min(maximumFontSize, requestedFontSize));
+    styles.fontSize = `${appliedFontSize}px`;
+    if (appliedFontSize !== requestedFontSize) adjustments.push('font-size-clamped-to-readable-fit');
+  }
+
+  const requestedColor = normalizeCaptionColor(intent?.color);
+  if (intent?.color && !requestedColor) adjustments.push('text-color-invalid');
+  if (requestedColor) styles.color = requestedColor;
+
+  const requestedBackground = normalizeCaptionColor(intent?.backgroundColor);
+  if (intent?.backgroundColor && !requestedBackground) adjustments.push('background-color-invalid');
+  if (requestedBackground) styles.backgroundColor = requestedBackground;
+
+  const foreground = parseCaptionColor(styles.color);
+  const background = parseCaptionColor(styles.backgroundColor);
+  if (foreground && background && background.a >= 0.75) {
+    const ratio = colorContrastRatio(foreground, background);
+    if (ratio < 4.5) {
+      const black = { r: 0, g: 0, b: 0, a: 1 };
+      const white = { r: 255, g: 255, b: 255, a: 1 };
+      styles.color = colorContrastRatio(black, background) >= colorContrastRatio(white, background)
+        ? '#000000'
+        : '#ffffff';
+      adjustments.push('text-color-adjusted-for-wcag-aa');
+    }
+  }
+
+  const resolvedBackground = parseCaptionColor(styles.backgroundColor);
+  const resolvedForeground = parseCaptionColor(styles.color);
+  if (resolvedForeground && (!resolvedBackground || resolvedBackground.a < 0.28)) {
+    styles.textShadow = mergeCaptionTextShadows(
+      styles.textShadow,
+      captionContrastEdgeShadow(styles.color, styles.fontSize, shadowAlpha),
+    );
+    adjustments.push('base-contrast-edge-added');
+  }
+
+  const highlight = styles.highlight;
+  const highlightForeground = parseCaptionColor(highlight?.color ?? styles.color);
+  const highlightBackground = parseCaptionColor(highlight?.backgroundColor);
+  const hasHighlightSurface = Boolean(
+    (highlightBackground && highlightBackground.a >= 0.28)
+    || (resolvedBackground && resolvedBackground.a >= 0.28),
+  );
+  if (highlight && highlightForeground && !hasHighlightSurface) {
+    highlight.textShadow = mergeCaptionTextShadows(
+      highlight.textShadow,
+      captionContrastEdgeShadow(highlight.color ?? styles.color, styles.fontSize, shadowAlpha),
+    );
+    adjustments.push('highlight-contrast-edge-added');
+  }
+
+  const fontFamily = normalizeCaptionFontFamily(intent?.fontFamily);
+  if (intent?.fontFamily && !fontFamily) adjustments.push('font-family-rejected-for-readability');
+  if (fontFamily) styles.fontFamily = fontFamily;
+
+  const fontWeight = normalizeCaptionFontWeight(intent?.fontWeight);
+  if (intent?.fontWeight != null && fontWeight == null) adjustments.push('font-weight-invalid');
+  if (fontWeight != null) styles.fontWeight = fontWeight;
+
+  if (intent?.textCase) {
+    styles.textTransform = intent.textCase === 'sentence' ? 'none' : intent.textCase;
+  }
+
+  return {
+    styles,
+    audit: {
+      requested,
+      applied: {
+        fontSize: styles.fontSize,
+        color: styles.color,
+        backgroundColor: styles.backgroundColor,
+        position: geometry.region,
+        fontFamily: styles.fontFamily,
+        fontWeight: styles.fontWeight,
+        textTransform: styles.textTransform,
+      },
+      adjustments,
+    },
+  };
+}
+
+function captionContrastEdgeShadow(
+  color: string | undefined,
+  fontSize: string | undefined,
+  shadowAlpha: number,
+): string {
+  const parsed = parseCaptionColor(color);
+  const lightText = !parsed || relativeLuminance(parsed) >= 0.45;
+  const edge = lightText ? '0,0,0' : '255,255,255';
+  const edgePx = Math.max(2, Math.min(4, Math.round((parsePixelSize(fontSize) ?? 36) / 18)));
+  const alpha = Math.max(0.86, shadowAlpha);
+  return [
+    `${edgePx}px 0 0 rgba(${edge},${alpha})`,
+    `-${edgePx}px 0 0 rgba(${edge},${alpha})`,
+    `0 ${edgePx}px 0 rgba(${edge},${alpha})`,
+    `0 -${edgePx}px 0 rgba(${edge},${alpha})`,
+    `${edgePx}px ${edgePx}px 0 rgba(${edge},${alpha})`,
+    `-${edgePx}px ${edgePx}px 0 rgba(${edge},${alpha})`,
+    `${edgePx}px -${edgePx}px 0 rgba(${edge},${alpha})`,
+    `-${edgePx}px -${edgePx}px 0 rgba(${edge},${alpha})`,
+    `0 4px 16px rgba(${edge},${Math.max(0.65, shadowAlpha)})`,
+  ].join(', ');
+}
+
+function mergeCaptionTextShadows(...values: Array<string | undefined>): string {
+  return values
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .join(', ');
+}
+
+function parsePixelSize(value: string | undefined): number | null {
+  if (!value) return null;
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)px$/i);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
+}
+
+function normalizeCaptionFontFamily(value: string | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (
+    trimmed.length === 0
+    || trimmed.length > 80
+    || /[;{}()]/.test(trimmed)
+    || /\b(?:script|cursive)\b/i.test(trimmed)
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
+function normalizeCaptionFontWeight(value: number | string | undefined): number | null {
+  if (value == null) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 100 || parsed > 900) return null;
+  return Math.round(parsed / 100) * 100;
+}
+
+function normalizeCaptionColor(value: string | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === 'transparent') return 'transparent';
+  if (NAMED_CAPTION_COLORS[trimmed]) return NAMED_CAPTION_COLORS[trimmed];
+  if (/^#[0-9a-f]{3,8}$/i.test(trimmed) && [4, 5, 7, 9].includes(trimmed.length)) {
+    return trimmed;
+  }
+  if (/^rgba?\(\s*\d{1,3}(?:\.\d+)?\s*,\s*\d{1,3}(?:\.\d+)?\s*,\s*\d{1,3}(?:\.\d+)?(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(trimmed)) {
+    return trimmed;
+  }
+  return null;
+}
+
+const NAMED_CAPTION_COLORS: Record<string, string> = {
+  black: '#000000',
+  white: '#ffffff',
+  yellow: '#ffff00',
+  red: '#ff0000',
+  blue: '#0000ff',
+  green: '#008000',
+  orange: '#ffa500',
+};
+
+function parseCaptionColor(value: string | undefined): { r: number; g: number; b: number; a: number } | null {
+  if (!value || value === 'transparent') return value === 'transparent'
+    ? { r: 0, g: 0, b: 0, a: 0 }
+    : null;
+  const normalized = NAMED_CAPTION_COLORS[value.toLowerCase()] ?? value;
+  if (normalized.startsWith('#')) {
+    const raw = normalized.slice(1);
+    const expanded = raw.length === 3 || raw.length === 4
+      ? raw.split('').map((part) => part + part).join('')
+      : raw;
+    if (expanded.length !== 6 && expanded.length !== 8) return null;
+    return {
+      r: Number.parseInt(expanded.slice(0, 2), 16),
+      g: Number.parseInt(expanded.slice(2, 4), 16),
+      b: Number.parseInt(expanded.slice(4, 6), 16),
+      a: expanded.length === 8 ? Number.parseInt(expanded.slice(6, 8), 16) / 255 : 1,
+    };
+  }
+  const match = normalized.match(/^rgba?\(([^)]+)\)$/i);
+  if (!match) return null;
+  const parts = match[1].split(',').map((part) => Number(part.trim()));
+  if (parts.length < 3 || parts.some((part) => !Number.isFinite(part))) return null;
+  return {
+    r: Math.max(0, Math.min(255, parts[0])),
+    g: Math.max(0, Math.min(255, parts[1])),
+    b: Math.max(0, Math.min(255, parts[2])),
+    a: Math.max(0, Math.min(1, parts[3] ?? 1)),
+  };
+}
+
+function colorContrastRatio(
+  foreground: { r: number; g: number; b: number },
+  background: { r: number; g: number; b: number },
+): number {
+  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
+  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function relativeLuminance(color: { r: number; g: number; b: number }): number {
+  const channel = (value: number) => {
+    const normalized = value / 255;
+    return normalized <= 0.04045
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  };
+  return (0.2126 * channel(color.r)) + (0.7152 * channel(color.g)) + (0.0722 * channel(color.b));
 }

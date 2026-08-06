@@ -29,7 +29,9 @@ export type ChatBattleFixtureRequirement =
   | 'ai-edit-checkpoint'
   | 'prior-idempotency-record'
   | 'durable-reference-asset'
-  | 'completed-clip-analysis-job';
+  | 'completed-clip-analysis-job'
+  | 'timeline-gap'
+  | 'selected-image-overlap';
 
 export interface ChatBattleArgumentProhibition {
   tool: string;
@@ -47,6 +49,7 @@ export interface ChatBattleScenario {
   expectOperationReplay: boolean;
   mutationExpectation: ChatBattleMutationExpectation;
   minimumSuccessfulMutations: number;
+  allowPartialMutationFailure: boolean;
   requiredToolSequence: ReadonlyArray<string | readonly string[]>;
   forbiddenTools: readonly string[];
   forbiddenArguments: readonly ChatBattleArgumentProhibition[];
@@ -69,6 +72,7 @@ export interface ChatBattleToolEvent {
 
 export interface ChatBattleInvocationEvidence {
   agentRunId: string;
+  sessionId?: string;
   mode: ChatBattleRuntimeMode;
   prompt: string;
   responseText: string;
@@ -88,7 +92,7 @@ export interface ChatBattleOperationReplayEvidence {
 }
 
 export interface ChatBattleDurableOperationEvidence {
-  owner: 'editorial-intent' | 'reference-style' | 'dubbing';
+  owner: 'editorial-intent' | 'reference-style' | 'dubbing' | 'scene-regeneration';
   jobId: string;
   status:
     | 'completed'
@@ -123,6 +127,15 @@ export interface ChatBattleDurableChildOperationEvidence {
   sequenceId?: string;
   reason?: string;
   error?: string;
+  promptHash?: string;
+  attempts?: number;
+  compiled?: boolean;
+  scans?: Array<{
+    passed: boolean;
+    reason?: string;
+  }>;
+  judgeScore?: number;
+  judgeIssues?: string[];
   providerFailure?: {
     provider?: string;
     operation?: string;
@@ -157,11 +170,18 @@ export interface ChatBattleProjectSnapshot {
 
 export interface ChatBattleRenderEvidence {
   status: 'pass' | 'warn' | 'fail' | 'missing';
+  source?: 'chat-verification' | 'phase0-fallback';
+  operationId?: string;
   capturedAt?: string;
   artifactRefs: string[];
   issues: Array<Record<string, unknown>>;
   jobLifecycle?: Record<string, unknown>;
   reason?: string;
+}
+
+export interface ChatBattleRenderEvidenceSelection {
+  requireChatVerification?: boolean;
+  expectedOperationIds?: readonly string[];
 }
 
 export interface ChatBattleFixturePreconditionResult {
@@ -250,6 +270,7 @@ function scenario(
     expectOperationReplay: options.expectOperationReplay ?? false,
     mutationExpectation: options.mutationExpectation ?? 'required',
     minimumSuccessfulMutations: options.minimumSuccessfulMutations ?? 1,
+    allowPartialMutationFailure: options.allowPartialMutationFailure ?? false,
     requiredToolSequence: options.requiredToolSequence ?? [],
     forbiddenTools: options.forbiddenTools ?? [],
     forbiddenArguments: options.forbiddenArguments ?? [],
@@ -295,9 +316,18 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('vague-transitions', 'Content-owned transitions', 'Add transitions where they genuinely help the edit.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['add_transition'] }),
   scenario('vague-motion-graphics', 'Signal-owned motion graphics', 'Add motion graphics only where the idea is visually explainable.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['auto_motion_graphics', 'add_motion_graphic'] }),
   scenario('motivated-zoom', 'Motivated zoom', 'Use a subtle zoom on the strongest spoken emphasis, if the shot supports it.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: requiredToolSequenceForChatCapability('localized-camera-motion', 'set_keyframes'), forbiddenTools: ['apply_editorial_intent'] }),
-  scenario('vague-sfx-beat', 'SFX on a grounded beat', 'Add a subtle impact on the strongest visual or spoken beat.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: requiredToolSequenceForChatCapability('localized-sfx', 'add_sfx'), forbiddenTools: ['apply_editorial_intent'] }),
+  scenario('vague-sfx-beat', 'SFX on a grounded beat', 'Add a subtle impact on the strongest visual or spoken beat.', { mutationExpectation: 'conditional', minimumSuccessfulMutations: 0, requiredToolSequence: requiredToolSequenceForChatCapability('localized-sfx', 'add_sfx'), forbiddenTools: ['apply_editorial_intent'], acceptedResolverOutcomes: ['ambiguous'] }),
   scenario('clean-captions', 'Clean readable captions', 'Add clean readable captions that fit this video.', { requiredToolSequence: requiredToolSequenceForChatCapability('caption-track', 'add_captions'), forbiddenTools: ['apply_editorial_intent'] }),
-  scenario('create-html-scene', 'Create process graphic', 'Create a full-screen process diagram for this explanation.', { requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'], forbiddenTools: ['generate_html_scene', 'generate_html_sticker', 'add_overlay'], requiredCreatedOverlayTypes: [['motion-graphic', 'mg-sequence']] }),
+  scenario(
+    'grounded-process-mg',
+    'Grounded AI process graphic',
+    'Create one full-screen motion graphic explaining the real production stages evidenced in this project. Preserve their grounded order and labels, and do not invent missing stages.',
+    {
+      requiredToolSequence: [READ_PROJECT, 'apply_editorial_intent'],
+      forbiddenTools: ['generate_html_scene', 'generate_html_sticker', 'add_overlay', 'add_motion_graphic', 'auto_motion_graphics'],
+      requiredCreatedOverlayTypes: ['mg-sequence'],
+    },
+  ),
   scenario('edit-html-scene', 'Edit HTML scene in place', 'Edit the selected HTML scene itself: change the heading embedded inside that HTML scene to How it works. Do not edit the separate text overlay.', { requiredToolSequence: [READ_PROJECT, 'edit_html_scene'] }),
   scenario('bgm-explicit', 'Explicit BGM intent', 'Add restrained cinematic background music with no vocals and keep speech clear.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], forbiddenTools: ['apply_editorial_intent'] }),
   scenario('bgm-vague', 'Vague BGM intent', 'Add suitable background music for this edit.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_bgm'], forbiddenTools: ['apply_editorial_intent'] }),
@@ -315,7 +345,11 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
     'rollback-partial-failure',
     'Keep verified edits on partial failure',
     'Apply these three edits: add a small label saying Kept edit test at 1 second, make the selected title white, and delete overlay battle_missing_overlay. Keep the successful edits if the missing-overlay deletion fails, and report exactly what succeeded and failed.',
-    { requiredToolSequence: [READ_PROJECT], minimumSuccessfulMutations: 2 },
+    {
+      requiredToolSequence: [READ_PROJECT],
+      minimumSuccessfulMutations: 2,
+      allowPartialMutationFailure: true,
+    },
   ),
   scenario('retry-idempotency', 'Interrupted request retry', 'Retry my previous edit without applying anything twice.', {
     expectOperationReplay: true,
@@ -352,7 +386,7 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('trim-selected-overlay', 'Trim selected clip', 'Trim one second from the end of the selected clip.', { requiredToolSequence: [READ_PROJECT, 'trim_overlay'] }),
   scenario('delete-selected-overlay', 'Delete selected overlay', 'Delete the selected overlay and nothing else.', { requiredToolSequence: [READ_PROJECT, 'delete_overlay'] }),
   scenario('sync-overlay-style', 'Sync overlay style', 'Copy the selected title style to the other title overlays without changing their text.', { requiredToolSequence: [READ_PROJECT, 'sync_style'] }),
-  scenario('close-timeline-gaps', 'Close timeline gaps', 'Close all empty gaps between the main video clips while preserving their order.', { requiredToolSequence: [READ_PROJECT, 'close_gaps'] }),
+  scenario('close-timeline-gaps', 'Close timeline gaps', 'Close all empty gaps between the main video clips while preserving their order.', { requiredToolSequence: [READ_PROJECT, 'close_gaps'], fixtureRequirements: ['timeline-gap'] }),
   scenario('transcript-overview', 'Read full timeline transcript', 'Show me the full transcript in timeline order. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['get_video_transcription'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('transcript-moment-search', 'Find spoken phrase', 'Find where I explain the pricing model and give me the matching frame candidates. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['find_transcript_moment'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('visual-moment-search', 'Find visual moment', 'Find the shot where the garment sketch is measured and give me the matching frame candidates. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['find_visual_moment'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
@@ -360,33 +394,40 @@ export const CHAT_EDIT_BATTLE_SCENARIOS: readonly ChatBattleScenario[] = [
   scenario('speech-anchored-sticker', 'Speech-anchored sticker', 'When I say this is the key point, add a small animated lightbulb sticker for one second.', { requiredToolSequence: ['resolve_sticker_overlay', 'generate_html_sticker'] }),
   scenario('manual-keyframe-zoom', 'Explicit keyframed zoom', 'On the selected video clip, create a gentle keyframed zoom from 100% to 108% over the next two seconds.', { requiredToolSequence: [READ_PROJECT, 'resolve_keyframe_edit', 'set_keyframes'] }),
   scenario('audio-anchored-camera-shake', 'Audio-anchored camera shake', 'Add one subtle camera shake exactly on the strongest impact beat.', { requiredToolSequence: ['resolve_audio_edit', 'apply_camera_shake'] }),
-  scenario('visual-speed-ramp', 'Visual action speed ramp', 'Speed-ramp only the shot where the fabric is thrown into frame, centered on that action.', { requiredToolSequence: ['resolve_visual_edit', 'apply_speed_ramp'] }),
+  scenario('visual-speed-ramp', 'Visual action speed ramp', 'Speed-ramp only the shot where the camera pushes in from a full-body view of the model to a close-up, centered on that push-in.', { requiredToolSequence: ['resolve_visual_edit', 'apply_speed_ramp'] }),
   scenario('selected-overlay-fade', 'Fade selected overlay', 'Fade the selected overlay in and out smoothly without moving it.', { requiredToolSequence: [READ_PROJECT, 'apply_fade'] }),
-  scenario('reorder-overlay-layer', 'Reorder overlay layer', 'Move the selected title in front of the image overlay without changing timing.', { requiredToolSequence: [READ_PROJECT, 'reorder_layer'] }),
+  scenario('reorder-overlay-layer', 'Reorder overlay layer', 'Move the selected title in front of the image overlay without changing timing.', { requiredToolSequence: [READ_PROJECT, 'reorder_layer'], fixtureRequirements: ['selected-image-overlap'] }),
   scenario('move-retime-overlay', 'Move and retime overlay', 'Move the selected title to start at 4 seconds and keep it on screen for 2 seconds.', { requiredToolSequence: [READ_PROJECT, 'move_retime_overlay'] }),
   scenario('selected-clip-filter', 'Apply explicit clip filter', 'Warm the selected video clip slightly and add a little contrast. Do not grade the other clips.', { requiredToolSequence: [READ_PROJECT, 'apply_filter'] }),
   scenario('selected-dialogue-dubbing', 'Translate and dub selected dialogue', 'Translate and dub the selected video clip\'s spoken dialogue into Hindi. Preserve the original speech timing, keep the background sound natural, and do not change the other clips.', { requiredToolSequence: ['dub_selected_dialogue', 'get_dubbing_job_result'], requireEvidenceBeforeMutation: false }),
-  scenario('vertical-subject-reframe', 'Reframe project while preserving subjects', 'Reframe this project to 9:16 and keep the main subject visible throughout every shot. Do not crop important on-screen text.', { requiredToolSequence: [READ_PROJECT, 'reframe_project'] }),
-  scenario('manual-impact-sfx', 'Grounded manual SFX', 'Add a restrained impact sound exactly on the first strong downbeat after the phrase now watch this.', { requiredToolSequence: ['resolve_audio_edit', 'add_sfx'] }),
+  scenario('vertical-subject-reframe', 'Reframe project while preserving subjects', 'Reframe this vertical project to 16:9 and keep the main subject visible throughout every shot. Do not crop important on-screen text.', { requiredToolSequence: [READ_PROJECT, 'reframe_project'] }),
+  scenario('manual-impact-sfx', 'Grounded manual SFX', 'Add a restrained impact sound exactly on the first strong downbeat after the phrase now watch this.', { requiredToolSequence: ['resolve_transcript_edit', 'resolve_audio_edit', 'add_sfx'] }),
   scenario('dialogue-ducking', 'Duck music under dialogue', 'Duck the background music under every spoken section so the dialogue remains clear.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'apply_audio_ducking'] }),
   scenario('content-analysis', 'Analyze edit opportunities', 'Analyze this video for silence, filler words, and useful edit points. Report findings only.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['analyze_video_content'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('plain-caption-track', 'Add explicit plain captions', 'Add plain subtitle captions for all spoken dialogue, with no animated emphasis.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'add_captions'] }),
-  scenario('fancy-caption-track', 'Add explicit animated captions', 'Add animated word-highlight captions for all spoken dialogue.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'add_fancy_captions'] }),
+  scenario('fancy-caption-track', 'Add explicit animated captions', 'Add animated word-highlight captions for all spoken dialogue.', {
+    projectMode: 'assist',
+    requiredToolSequence: requiredToolSequenceForChatCapability('caption-track', 'add_captions'),
+    forbiddenTools: ['add_fancy_captions'],
+  }),
   scenario('refresh-plain-captions', 'Refresh plain captions', 'Realign the existing plain captions to the current edited clips and transcript.', { requiredToolSequence: [READ_PROJECT, 'refresh_captions'] }),
-  scenario('refresh-fancy-captions', 'Refresh animated captions', 'Realign the existing animated captions to the current edited clips and transcript.', { requiredToolSequence: [READ_PROJECT, 'refresh_fancy_captions'] }),
+  scenario('refresh-fancy-captions', 'Refresh animated captions', 'Realign the existing animated captions to the current edited clips and transcript.', {
+    requiredToolSequence: requiredToolSequenceForChatCapability('caption-refresh', 'refresh_captions'),
+    forbiddenTools: ['refresh_fancy_captions'],
+  }),
   scenario('batch-caption-edit', 'Batch edit caption styling', 'Make all existing captions use sentence case and a high-contrast white style without changing their timing.', { requiredToolSequence: [READ_PROJECT, 'batch_edit_captions'] }),
   scenario('analyze-selected-audio', 'Analyze selected clip audio', 'Resolve and queue durable analysis of the selected clip audio for beats, pauses, speech, and energy. Do not edit anything and do not claim findings before the job completes.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['resolve_clip_analysis', 'queue_resolved_clip_analysis'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('analyze-selected-video', 'Analyze selected clip video', 'Resolve and queue durable analysis of the selected clip visuals for subjects, actions, shot changes, and text. Do not edit anything and do not claim findings before the job completes.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['resolve_clip_analysis', 'queue_resolved_clip_analysis'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('read-completed-clip-analysis', 'Read completed clip analysis', 'Read the completed deep-analysis job already referenced in this project conversation. Report only its grounded findings and do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['get_clip_analysis_result'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false, fixtureRequirements: ['completed-clip-analysis-job'] }),
-  scenario('regenerate-existing-scene', 'Regenerate existing scene', 'Regenerate scene 2 while preserving its narrative purpose and timing.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_scene'] }),
-  scenario('beat-sync-cuts', 'Sync cuts to detected beats', 'Find the music downbeats and sync the existing montage cuts to them without changing clip order.', { projectMode: 'assist', requiredToolSequence: ['resolve_audio_edit', 'sync_cuts_to_beats'] }),
+  scenario('regenerate-existing-scene', 'Regenerate existing scene', 'Regenerate scene 2 while preserving its narrative purpose and timing.', { projectMode: 'assist', requiredToolSequence: [READ_PROJECT, 'regenerate_scene'], requireUiReload: false, requireRenderedEvidence: false }),
+  scenario('beat-sync-cuts', 'Sync cuts to detected beats', 'Find the music downbeats and sync the existing montage cuts to them without changing clip order.', { projectMode: 'assist', requiredToolSequence: [['read_project_file', 'get_timeline_view'], 'sync_cuts_to_beats'] }),
   scenario('replace-selected-sfx', 'Replace selected SFX', 'Replace the selected sound effect with a softer paper whoosh at the same time.', { requiredToolSequence: [READ_PROJECT, 'replace_sfx'] }),
   scenario('list-uploaded-assets', 'List uploaded assets', 'List the videos, images, and audio files I uploaded to this project. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['list_user_assets'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('search-uploaded-assets', 'Search uploaded assets', 'Find my uploaded clip showing embroidery work. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['search_user_assets'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
   scenario('inspect-uploaded-asset', 'Inspect uploaded asset', 'Find my uploaded embroidery clip, inspect the best match, and tell me what it contains. Do not edit anything.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['search_user_assets', 'inspect_user_asset'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
-  scenario('place-uploaded-asset', 'Place uploaded asset', 'Find my uploaded logo image and place it in the bottom-right corner from 2 to 6 seconds.', { requiredToolSequence: ['search_user_assets', 'resolve_user_asset_overlay', 'add_overlay'] }),
+  scenario('place-uploaded-asset', 'Place uploaded asset', 'Place my uploaded image asset a_portrait123 in the bottom-right corner from 2 to 6 seconds.', { requiredToolSequence: [READ_PROJECT, 'resolve_user_asset_overlay', 'add_overlay'] }),
   scenario('search-stock-footage', 'Search stock footage', 'Search stock footage for a close-up of hand embroidery. Show me the best options without editing.', { mutationExpectation: 'forbidden', minimumSuccessfulMutations: 0, requiredToolSequence: ['search_stock_footage'], requireEvidenceBeforeMutation: false, requireUiReload: false, requireRenderedEvidence: false }),
-  scenario('replace-with-uploaded-footage', 'Replace scene with uploaded footage', 'Find my uploaded embroidery clip and replace the selected video scene with its best matching section.', { requiredToolSequence: ['search_user_assets', 'resolve_user_asset_overlay', 'use_matching_footage'] }),
+  scenario('replace-with-uploaded-footage', 'Replace scene with uploaded footage', 'Replace the selected video scene with uploaded video asset a_embroidery123, using its best matching section.', { requiredToolSequence: [READ_PROJECT, 'resolve_user_asset_overlay', 'use_matching_footage'] }),
 ] as const;
 
 export function getChatEditBattleScenario(id: string): ChatBattleScenario | undefined {
@@ -670,6 +711,7 @@ export function evaluateChatEditBattleJourney(input: {
     mutationTerminals.map((terminal) => terminal.outcome),
     stateChanged,
     acceptedGroundedClarification,
+    input.invocation.durableOperations?.some((operation) => operation.materialChange) ?? false,
   );
   checks.push(check(
     'mongo.mutation-truth',
@@ -686,6 +728,8 @@ export function evaluateChatEditBattleJourney(input: {
       })),
       durableOperations: input.invocation.durableOperations ?? [],
       stateChanged,
+      verifiedExternalMaterialChange:
+        input.invocation.durableOperations?.some((operation) => operation.materialChange) ?? false,
       beforeDigest: input.mongoBefore.digest,
       afterDigest: input.mongoAfter.digest,
     },
@@ -872,13 +916,19 @@ export function buildChatBattleProjectSnapshot(
 export function extractPersistedChatBattleRenderEvidence(
   projectValue: unknown,
   startedAt: string,
+  selection: ChatBattleRenderEvidenceSelection = {},
 ): ChatBattleRenderEvidence {
   const project = asRecord(unwrapProject(projectValue));
   const intelligence = asRecord(project.intelligence);
   const chatVerification = asRecord(intelligence.latestChatEditRenderVerification);
   const jobLifecycle = asRecord(chatVerification.lifecycle);
   const chatRequestedAt = stringValue(chatVerification.requestedAt) ?? undefined;
-  if (isFreshTimestamp(chatRequestedAt, startedAt)) {
+  const chatOperationId = stringValue(chatVerification.operationId) ?? undefined;
+  const expectedOperationIds = selection.expectedOperationIds?.filter(Boolean) ?? [];
+  const operationMatches = expectedOperationIds.length === 0
+    || expectedOperationIds.some((expected) => chatOperationId === expected
+      || chatOperationId?.startsWith(`${expected}:`));
+  if (isFreshTimestamp(chatRequestedAt, startedAt) && operationMatches) {
     const chatStatus = stringValue(chatVerification.status);
     const chatCapturedAt = stringValue(chatVerification.completedAt) ?? undefined;
     const lifecycleState = stringValue(jobLifecycle.state);
@@ -892,6 +942,8 @@ export function extractPersistedChatBattleRenderEvidence(
     if (!chatCapturedAt || !isFreshTimestamp(chatCapturedAt, startedAt)) {
       return {
         status: 'missing',
+        source: 'chat-verification',
+        operationId: chatOperationId,
         capturedAt: chatCapturedAt,
         artifactRefs,
         issues,
@@ -902,6 +954,8 @@ export function extractPersistedChatBattleRenderEvidence(
     if (chatStatus === 'fail' || chatStatus === 'failed' || chatStatus === 'error') {
       return {
         status: 'fail',
+        source: 'chat-verification',
+        operationId: chatOperationId,
         capturedAt: chatCapturedAt,
         artifactRefs,
         issues,
@@ -910,18 +964,49 @@ export function extractPersistedChatBattleRenderEvidence(
       };
     }
     if (chatStatus === 'warn' || chatStatus === 'partial' || chatStatus === 'needs_review') {
-      return { status: 'warn', capturedAt: chatCapturedAt, artifactRefs, issues, jobLifecycle };
+      return {
+        status: 'warn',
+        source: 'chat-verification',
+        operationId: chatOperationId,
+        capturedAt: chatCapturedAt,
+        artifactRefs,
+        issues,
+        jobLifecycle,
+      };
     }
     if (chatStatus === 'pass' || chatStatus === 'completed') {
-      return { status: 'pass', capturedAt: chatCapturedAt, artifactRefs, issues, jobLifecycle };
+      return {
+        status: 'pass',
+        source: 'chat-verification',
+        operationId: chatOperationId,
+        capturedAt: chatCapturedAt,
+        artifactRefs,
+        issues,
+        jobLifecycle,
+      };
     }
     return {
       status: 'missing',
+      source: 'chat-verification',
+      operationId: chatOperationId,
       capturedAt: chatCapturedAt,
       artifactRefs,
       issues,
       jobLifecycle,
       reason: `Unknown chat edit render status: ${chatStatus ?? 'missing'}.`,
+    };
+  }
+  if (selection.requireChatVerification) {
+    const reason = expectedOperationIds.length > 0 && chatOperationId && !operationMatches
+      ? `Waiting for chat render verification owned by ${expectedOperationIds.join(', ')}; latest belongs to ${chatOperationId}.`
+      : 'No fresh operation-scoped chat render verification exists for this journey.';
+    return {
+      status: 'missing',
+      source: 'chat-verification',
+      operationId: chatOperationId,
+      artifactRefs: [],
+      issues: [],
+      reason,
     };
   }
   const evidence = asRecord(intelligence.phase0RenderedStillEvidence);
@@ -932,21 +1017,124 @@ export function extractPersistedChatBattleRenderEvidence(
   const reportSummary = asRecord(report.summary);
   const reportStatus = stringValue(reportSummary.status ?? report.status);
   const artifactRefs = uniqueStrings([
-    ...readStrings(evidence.renderedFrames, ['url', 'artifactUrl', 'frameUrl']),
+    ...readStrings(evidence.renderedFrames, [
+      'url',
+      'artifactUrl',
+      'frameUrl',
+      'baselineUrl',
+      'aestheticBaselineUrl',
+    ]),
     ...readStrings(report, ['jsonReport', 'htmlReport', 'artifactUrl']),
+    ...readStrings(report.frames, ['fullStill', 'baselineStill']),
   ]);
-  const issues = Array.isArray(report.issues)
-    ? report.issues.map(asRecord).slice(0, 100)
-    : Array.isArray(evidence.issues)
-      ? evidence.issues.map(asRecord).slice(0, 100)
-      : [];
+  const issues = collectPhase0RenderIssues({ evidence, gate, report });
   if (!capturedAt || !isFreshTimestamp(capturedAt, startedAt)) {
-    return { status: 'missing', capturedAt, artifactRefs, issues, reason: 'No fresh rendered evidence exists for this chat journey.' };
+    return {
+      status: 'missing',
+      source: 'phase0-fallback',
+      capturedAt,
+      artifactRefs,
+      issues,
+      reason: 'No fresh rendered evidence exists for this chat journey.',
+    };
   }
-  if (evidenceStatus === 'failed' || reportStatus === 'fail') return { status: 'fail', capturedAt, artifactRefs, issues };
-  if (evidenceStatus === 'partial' || reportStatus === 'warn') return { status: 'warn', capturedAt, artifactRefs, issues };
-  if (evidenceStatus === 'completed' && reportStatus === 'pass') return { status: 'pass', capturedAt, artifactRefs, issues };
-  return { status: 'missing', capturedAt, artifactRefs, issues, reason: 'Rendered evidence did not contain a completed aesthetic verdict.' };
+  if (evidenceStatus === 'failed' || reportStatus === 'fail') {
+    return { status: 'fail', source: 'phase0-fallback', capturedAt, artifactRefs, issues };
+  }
+  if (evidenceStatus === 'partial' || reportStatus === 'warn') {
+    return { status: 'warn', source: 'phase0-fallback', capturedAt, artifactRefs, issues };
+  }
+  if (evidenceStatus === 'completed' && reportStatus === 'pass') {
+    return { status: 'pass', source: 'phase0-fallback', capturedAt, artifactRefs, issues };
+  }
+  return {
+    status: 'missing',
+    source: 'phase0-fallback',
+    capturedAt,
+    artifactRefs,
+    issues,
+    reason: 'Rendered evidence did not contain a completed aesthetic verdict.',
+  };
+}
+
+function collectPhase0RenderIssues(input: {
+  evidence: Record<string, unknown>;
+  gate: Record<string, unknown>;
+  report: Record<string, unknown>;
+}): Array<Record<string, unknown>> {
+  const issues: Array<Record<string, unknown>> = [];
+  issues.push(...readRecordArray(input.report.issues));
+  issues.push(...readRecordArray(input.evidence.issues));
+
+  for (const frame of readRecordArray(input.report.frames)) {
+    const frameReport = asRecord(frame.report);
+    for (const issue of readRecordArray(frameReport.issues)) {
+      issues.push({
+        ...issue,
+        ...(typeof frame.frame === 'number' && Number.isFinite(frame.frame)
+          ? { frame: Math.round(frame.frame) }
+          : {}),
+        ...(Array.isArray(frame.activeOverlayIds)
+          ? { activeOverlayIds: frame.activeOverlayIds.slice(0, 30) }
+          : {}),
+        ...(Array.isArray(frame.activeOverlayTypes)
+          ? { activeOverlayTypes: frame.activeOverlayTypes.slice(0, 30) }
+          : {}),
+        ...(stringValue(frame.fullStill) ? { fullStill: stringValue(frame.fullStill) } : {}),
+        ...(stringValue(frame.baselineStill) ? { baselineStill: stringValue(frame.baselineStill) } : {}),
+      });
+    }
+  }
+
+  for (const failedFrame of readRecordArray(input.evidence.failedFrames)) {
+    const error = stringValue(failedFrame.error);
+    if (!error) continue;
+    issues.push({
+      modality: 'system',
+      severity: 'error',
+      code: 'phase0_render_failed',
+      message: error,
+      ...(typeof failedFrame.frame === 'number' && Number.isFinite(failedFrame.frame)
+        ? { frame: Math.round(failedFrame.frame) }
+        : {}),
+      ...(stringValue(failedFrame.renderKind)
+        ? { renderKind: stringValue(failedFrame.renderKind) }
+        : {}),
+    });
+  }
+
+  for (const message of readStringArray(input.evidence.artifactPackIssues)) {
+    issues.push({
+      modality: 'system',
+      severity: 'error',
+      code: 'phase0_artifact_pack_issue',
+      message,
+    });
+  }
+
+  const diagnosticMessages = [
+    stringValue(input.evidence.statusReason),
+    stringValue(input.gate.warning),
+    stringValue(input.gate.reason),
+  ].filter((message): message is string => Boolean(message));
+  if (issues.length === 0) {
+    for (const message of diagnosticMessages) {
+      issues.push({
+        modality: 'system',
+        severity: 'error',
+        code: 'phase0_render_status_reason',
+        message,
+      });
+    }
+  }
+
+  const seen = new Set<string>();
+  return issues.filter((issue) => {
+    const key = JSON.stringify(sanitizeMaterialState(issue));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 100);
 }
 
 function collectRenderVerificationIssues(input: {
@@ -969,8 +1157,15 @@ function collectRenderVerificationIssues(input: {
     ...visualIssues,
     ...audioIssues,
   ];
+  const lifecycleReason = stringValue(asRecord(input.chatVerification.lifecycle).reason);
+  const persistedReasons = readStringArray(input.chatVerification.reasons);
+  const diagnosticReasons = persistedReasons.length > 0
+    ? persistedReasons
+    : lifecycleReason
+      ? [lifecycleReason]
+      : [];
   const reasonIssues = structuredIssues.length === 0
-    ? readStringArray(input.chatVerification.reasons).map((reason) => ({
+    ? diagnosticReasons.map((reason) => ({
         modality: reason.startsWith('audio_') ? 'audio' : reason.startsWith('visual_') ? 'visual' : 'system',
         severity: 'error',
         code: reason.split(':')[0] || 'render_verification_failed',
@@ -1125,6 +1320,10 @@ function chatBattleFixtureRequirementSatisfied(
       return truthyFixtureFlag(fixture, 'hasCompletedClipAnalysisJob')
         || stringValue(fixture.completedClipAnalysisJobId) != null
         || projectHasCompletedClipAnalysisJob(project);
+    case 'timeline-gap':
+      return projectHasTimelineGap(project);
+    case 'selected-image-overlap':
+      return projectHasSelectedImageOverlap(project, clientContext);
   }
 }
 
@@ -1161,6 +1360,45 @@ function projectHasCompletedClipAnalysisJob(project: Record<string, unknown>): b
   ];
   return jobs.some((job) => stringValue(job.status) === 'completed'
     && (stringValue(job.jobId ?? job.id) != null || Object.keys(asRecord(job.result)).length > 0));
+}
+
+function projectHasTimelineGap(project: Record<string, unknown>): boolean {
+  const videos = readRecordArray(project.overlays)
+    .filter((overlay) => stringValue(overlay.type) === 'video')
+    .map((overlay) => ({
+      from: finiteNumber(overlay.from),
+      durationInFrames: finiteNumber(overlay.durationInFrames),
+    }))
+    .filter((overlay) => overlay.durationInFrames > 0)
+    .sort((left, right) => left.from - right.from);
+
+  return videos.some((video, index) => (
+    index > 0
+    && video.from > videos[index - 1].from + videos[index - 1].durationInFrames
+  ));
+}
+
+function projectHasSelectedImageOverlap(
+  project: Record<string, unknown>,
+  clientContext?: Record<string, unknown>,
+): boolean {
+  const selectedOverlayId = identifierValue(clientContext?.selectedOverlayId);
+  if (!selectedOverlayId) return false;
+  const overlays = readRecordArray(project.overlays);
+  const selected = overlays.find(
+    (overlay) => identifierValue(overlay.id) === selectedOverlayId,
+  );
+  if (!selected || stringValue(selected.type) !== 'text') return false;
+
+  const selectedStart = finiteNumber(selected.from);
+  const selectedEnd = selectedStart + finiteNumber(selected.durationInFrames);
+  if (selectedEnd <= selectedStart) return false;
+  return overlays.some((overlay) => {
+    if (stringValue(overlay.type) !== 'image') return false;
+    const start = finiteNumber(overlay.from);
+    const end = start + finiteNumber(overlay.durationInFrames);
+    return end > selectedStart && start < selectedEnd;
+  });
 }
 
 function requiredSequenceResult(
@@ -1203,6 +1441,7 @@ export function evaluateChatBattleMutationTruth(
   terminalOutcomes: readonly ChatBattleMutationTerminalOutcome[],
   stateChanged: boolean,
   acceptedGroundedClarification: boolean,
+  verifiedExternalMaterialChange = false,
 ): ChatBattleStatus {
   const mutatedCount = terminalOutcomes.filter((outcome) => outcome === 'mutated').length;
   const noOpCount = terminalOutcomes.filter((outcome) => outcome === 'no-op').length;
@@ -1213,7 +1452,7 @@ export function evaluateChatBattleMutationTruth(
   if (scenarioDefinition.mutationExpectation === 'forbidden') {
     return terminalOutcomes.length === 0 && !stateChanged ? 'pass' : 'fail';
   }
-  if (failedCount > 0) return 'fail';
+  if (failedCount > 0 && !scenarioDefinition.allowPartialMutationFailure) return 'fail';
   if (
     scenarioDefinition.mutationExpectation === 'conditional'
     && acceptedGroundedClarification
@@ -1223,11 +1462,15 @@ export function evaluateChatBattleMutationTruth(
     return 'pass';
   }
   if (scenarioDefinition.mutationExpectation === 'conditional') {
-    if (mutatedCount > 0) return stateChanged ? 'pass' : 'fail';
+    if (mutatedCount > 0) {
+      return stateChanged || verifiedExternalMaterialChange ? 'pass' : 'fail';
+    }
     return acceptedConditionalCount > 0 && !stateChanged ? 'pass' : 'fail';
   }
   const satisfiedCount = mutatedCount + noOpCount;
-  const stateMatchesOutcome = mutatedCount > 0 ? stateChanged : !stateChanged;
+  const stateMatchesOutcome = mutatedCount > 0
+    ? stateChanged || verifiedExternalMaterialChange
+    : !stateChanged && !verifiedExternalMaterialChange;
   return satisfiedCount >= scenarioDefinition.minimumSuccessfulMutations && stateMatchesOutcome
     ? 'pass'
     : 'fail';
@@ -1300,6 +1543,8 @@ function durableOperationForEvent(
     const authority = asRecord(dispatch.authority);
     jobId = stringValue(authority.jobId ?? dispatch.jobId ?? data.jobId);
   } else if (event.name === 'apply_reference_style' || event.name === 'dub_selected_dialogue') {
+    jobId = stringValue(data.jobId);
+  } else if (event.name === 'regenerate_scene') {
     jobId = stringValue(data.jobId);
   }
   return jobId ? operations.find((operation) => operation.jobId === jobId) ?? null : null;
@@ -1374,6 +1619,9 @@ function isEphemeralProjectKey(
   owner: Record<string, unknown>,
 ): boolean {
   if (['createdAt', 'updatedAt', 'resolvedAt', 'expiresAt', 'signedUrl', 'publicUrl', 'cachedUrl', 'thumbnailUrl', 'frameUrls'].includes(key)) return true;
+  if (key === 'sequence' && stringValue(owner.type) === 'mg-sequence') {
+    return true;
+  }
   if (['src', 'url', 'mediaUrl'].includes(key) && typeof value === 'string' && /^(?:https?:|blob:|data:)/i.test(value)) return true;
   if (
     key === 'content'

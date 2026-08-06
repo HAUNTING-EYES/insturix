@@ -14,6 +14,7 @@ import {
   EDITRON_CAPTION_SAFE_BOTTOM_MARGIN,
   EDITRON_CAPTION_SAFE_TOP_MARGIN,
 } from '../../../shared/overlay-safe-zone-contract';
+import { minimumReadableCaptionDurationMs } from '../../../services/caption-readability-contract';
 
 export type RenderedAestheticDimension =
   | 'render'
@@ -52,6 +53,7 @@ export interface RenderedOverlayEvidence {
   receipt?: AtomicOverlayReceipt;
   box?: RenderedOverlayBox;
   sampleRoles?: string[];
+  plannedVisibilityPhase?: 'entry' | 'exit';
   visualIntentStageMode?: string;
 }
 
@@ -213,6 +215,7 @@ export function scoreRenderedFrameAesthetic(input: RenderedFrameAestheticInput):
 }
 
 function scoreVisibility(overlay: NormalizedOverlay, addIssue: AddIssue): void {
+  if (overlay.item.plannedVisibilityPhase) return;
   const opacity = overlay.item.box?.opacity ?? numberValue(overlay.item.receipt?.form.style.opacity);
   if (opacity !== undefined && opacity <= 0.03) {
     addIssue('visibility', 0.35, 'overlay is effectively invisible', {
@@ -344,6 +347,7 @@ function scoreText(overlay: NormalizedOverlay, input: RenderedFrameAestheticInpu
   const isCaption = text.channel === 'caption';
   const rowCapacity = text.composition.rowCapacity ?? text.display?.maxWordsPerLine ?? wordCount;
   const targetRows = text.composition.targetRowCount;
+  const renderedRowWordCount = maximumRenderedRowWordCount(text);
 
   if (fontSize !== undefined) {
     const minimumFontSize = minimumReadableTextPx(overlay.family, text, input);
@@ -359,23 +363,23 @@ function scoreText(overlay: NormalizedOverlay, input: RenderedFrameAestheticInpu
     }
   }
 
-  if (isCaption && rowCapacity > 6) {
+  if (isCaption && renderedRowWordCount > 8) {
     addIssue('text', 0.2, 'caption row is too wide for social-video reading', {
       overlay: overlay.item,
-      evidence: `rowCapacity=${rowCapacity}`,
+      evidence: `renderedRowWords=${renderedRowWordCount}; rowCapacity=${rowCapacity}`,
       severity: 'fail',
     });
-  } else if (isCaption && rowCapacity > 4) {
+  } else if (isCaption && renderedRowWordCount > 6) {
     addIssue('text', 0.12, 'caption row is crowded', {
       overlay: overlay.item,
-      evidence: `rowCapacity=${rowCapacity}`,
+      evidence: `renderedRowWords=${renderedRowWordCount}; rowCapacity=${rowCapacity}`,
     });
   }
 
-  if (isCaption && wordCount > 8 && targetRows <= 1) {
+  if (isCaption && wordCount > 8 && targetRows <= 1 && renderedRowWordCount <= 8) {
     addIssue('text', 0.2, 'long caption is compressed into one row', {
       overlay: overlay.item,
-      evidence: `words=${wordCount}; rows=${targetRows}`,
+      evidence: `words=${wordCount}; renderedRowWords=${renderedRowWordCount}; rows=${targetRows}`,
       severity: 'fail',
     });
   }
@@ -383,14 +387,37 @@ function scoreText(overlay: NormalizedOverlay, input: RenderedFrameAestheticInpu
   const durationFrames = overlay.item.receipt?.durationFrames ?? overlay.item.receipt?.form.timing.durationFrames;
   if (durationFrames !== undefined && input.fps && wordCount > 0) {
     const seconds = durationFrames / input.fps;
-    const needed = readSeconds(wordCount);
-    if (seconds + 0.05 < needed) {
+    const needed = isCaption
+      ? minimumReadableCaptionDurationMs({
+          wordCount,
+          mode: text.display?.mode,
+        }) / 1_000
+      : readSeconds(wordCount);
+    const timedSpeechSeconds = isCaption ? timedCaptionSpeechSpanSeconds(text) : undefined;
+    const isShorterThanTimedSpeech = timedSpeechSeconds === undefined
+      || seconds + 0.05 < timedSpeechSeconds;
+    if (seconds + 0.05 < needed && isShorterThanTimedSpeech) {
       addIssue('text', 0.16, 'text does not stay long enough to read', {
         overlay: overlay.item,
-        evidence: `duration=${seconds.toFixed(2)}s; needed=${needed.toFixed(2)}s`,
+        evidence: `duration=${seconds.toFixed(2)}s; needed=${needed.toFixed(2)}s${timedSpeechSeconds === undefined ? '' : `; timedSpeech=${timedSpeechSeconds.toFixed(2)}s`}`,
       });
     }
   }
+}
+
+function timedCaptionSpeechSpanSeconds(text: AtomicTextForm): number | undefined {
+  const timedGlyphs = text.glyphs.filter((glyph) => (
+    typeof glyph.startMs === 'number'
+    && Number.isFinite(glyph.startMs)
+    && typeof glyph.endMs === 'number'
+    && Number.isFinite(glyph.endMs)
+    && glyph.endMs > glyph.startMs
+  ));
+  if (timedGlyphs.length === 0) return undefined;
+
+  const startMs = Math.min(...timedGlyphs.map((glyph) => glyph.startMs!));
+  const endMs = Math.max(...timedGlyphs.map((glyph) => glyph.endMs!));
+  return Math.max(0, endMs - startMs) / 1_000;
 }
 
 function scoreContrast(overlay: NormalizedOverlay, addIssue: AddIssue): void {
@@ -412,11 +439,12 @@ function scoreContrast(overlay: NormalizedOverlay, addIssue: AddIssue): void {
 
   if (contrastRatio < required) {
     if (isIntentionalFullFrameMotionGraphic(overlay) && contrastRatio >= 3) return;
-    const exitPrep = overlay.item.sampleRoles?.includes('exit-prep') ?? false;
-    const penalty = exitPrep ? 0.04 : contrastRatio < 2 ? 0.24 : 0.18;
-    const severity: RenderedAestheticSeverity = exitPrep ? 'info' : contrastRatio < 2.4 ? 'fail' : 'warn';
-    const message = exitPrep
-      ? 'rendered text contrast drops during planned exit fade'
+    const transitionPhase = overlay.item.plannedVisibilityPhase
+      ?? (overlay.item.sampleRoles?.includes('exit-prep') ? 'exit' : undefined);
+    const penalty = transitionPhase ? 0.04 : contrastRatio < 2 ? 0.24 : 0.18;
+    const severity: RenderedAestheticSeverity = transitionPhase ? 'info' : contrastRatio < 2.4 ? 'fail' : 'warn';
+    const message = transitionPhase
+      ? `rendered text contrast drops during planned ${transitionPhase} fade/visibility transition`
       : 'rendered text contrast is below accessibility floor';
     const phaseEvidence = overlay.item.sampleRoles?.length
       ? `; sampleRoles=${overlay.item.sampleRoles.join('+')}`
@@ -678,6 +706,12 @@ function countWords(text: AtomicTextForm): number {
   const glyphWords = text.glyphs.filter((glyph) => glyph.role !== 'punctuation').length;
   if (glyphWords > 0) return glyphWords;
   return text.rawText.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function maximumRenderedRowWordCount(text: AtomicTextForm): number {
+  const measured = text.lines.reduce((maximum, line) => Math.max(maximum, line.wordCount), 0);
+  if (measured > 0) return measured;
+  return Math.ceil(countWords(text) / Math.max(1, text.composition.targetRowCount));
 }
 
 function fontSizePx(value: string | undefined): number | undefined {

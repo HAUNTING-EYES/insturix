@@ -9,13 +9,29 @@ import type {
   CheckpointService,
   RestorableProjectState,
 } from '@/lib/editron/services/checkpoint-service';
+import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
+import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
 import type { Phase0RenderedEvidenceDispatchResult } from '@/lib/editron/services/phase0-rendered-evidence-worker';
+import type { EditDNA } from '@/lib/editron/services/style-transfer-service';
 
 export const CHAT_REFERENCE_STYLE_JOB_VERSION = 'editron-chat-reference-style-job-v1' as const;
-export const CHAT_REFERENCE_STYLE_MAX_ATTEMPTS = 3;
+export const CHAT_REFERENCE_STYLE_MAX_ATTEMPTS = 6;
 
-const JOB_LEASE_MS = 12 * 60 * 1000;
+const JOB_LEASE_MS = 15 * 60 * 1000;
+const JOB_RETRY_DEADLINE_MS = 45 * 60 * 1000;
+const MAX_RETRY_DELAY_MS = 8 * 60 * 1000;
+const MIN_TRANSIENT_RETRY_DELAY_MS = 15 * 1000;
+const MIN_RATE_LIMIT_RETRY_DELAY_MS = 60 * 1000;
+const JOB_RECOVERY_STALE_MS = 15 * 60 * 1000;
 const JOB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const RECOVERABLE_STATUSES: ChatReferenceStyleJobStatus[] = [
+  'created',
+  'dispatching',
+  'queued',
+  'running',
+  'retry_wait',
+  'dispatch_failed',
+];
 
 export type ChatReferenceStyleJobStatus =
   | 'created'
@@ -54,11 +70,14 @@ export interface ChatReferenceStyleJob {
   sourceName?: string;
   profileId?: string;
   attemptCount: number;
+  nextAttemptAt?: Date | null;
+  retryDeadlineAt?: Date | null;
   leaseId?: string | null;
   leaseExpiresAt?: Date | null;
   dispatchMessageId?: string | null;
   beforeCheckpointId?: string | null;
   afterCheckpointId?: string | null;
+  renderOperationId?: string | null;
   renderVerification?: Phase0RenderedEvidenceDispatchResult | null;
   result?: Record<string, unknown> | null;
   error?: string | null;
@@ -80,14 +99,33 @@ export interface RunChatReferenceStyleJobResult {
   jobId: string;
   profileId?: string;
   reason?: string;
+  retryAt?: string;
   renderVerification?: Phase0RenderedEvidenceDispatchResult;
 }
 
-interface StyleExecutionResult {
+export interface StyleExecutionResult {
   status: 'mutated' | 'declined';
   rawOutput: unknown;
   data: Record<string, unknown>;
   reason?: string;
+}
+
+interface ReferenceStyleDirectorResult {
+  success: boolean;
+  overlaysModified: number;
+  warnings?: string[];
+  actionsSkipped?: Array<{ action: string; reason: string }>;
+  decisionAuthority?: Record<string, unknown>;
+}
+
+interface ReferenceStylePlannerDependencies {
+  loadProfile(userId: string, profileId: string): Promise<EditDNA | null>;
+  executeDirector(
+    projectId: string,
+    userId: string,
+    profileId: string,
+    brief: ProjectBrief,
+  ): Promise<ReferenceStyleDirectorResult>;
 }
 
 interface InvokableStyleTool {
@@ -103,16 +141,18 @@ export interface ChatReferenceStyleJobStore {
   claimRun(jobId: string, userId: string, leaseId: string, now: Date): Promise<ChatReferenceStyleJob | null>;
   markProfileExtracted(jobId: string, userId: string, profileId: string, now: Date): Promise<void>;
   markCheckpointStarted(jobId: string, userId: string, checkpointId: string, now: Date): Promise<void>;
+  clearInterruptedAttempt(jobId: string, userId: string, now: Date): Promise<void>;
   markDeclined(jobId: string, userId: string, result: Record<string, unknown>, now: Date): Promise<void>;
   markCompleted(input: {
     jobId: string;
     userId: string;
     afterCheckpointId: string;
+    renderOperationId: string;
     renderVerification: Phase0RenderedEvidenceDispatchResult;
     result: Record<string, unknown>;
     now: Date;
   }): Promise<void>;
-  markRetry(jobId: string, userId: string, error: string, now: Date): Promise<void>;
+  markRetry(jobId: string, userId: string, error: string, nextAttemptAt: Date, now: Date): Promise<void>;
   markFailed(jobId: string, userId: string, error: string, rolledBack: boolean, now: Date): Promise<void>;
 }
 
@@ -141,10 +181,27 @@ interface RunDependencies {
   now(): Date;
 }
 
+export interface ChatReferenceStyleSweepResult {
+  scanned: number;
+  redispatched: number;
+  terminalized: number;
+  errors: number;
+  details: string[];
+}
+
+export interface ChatReferenceStyleSweepDependencies {
+  findCandidates(now: Date, limit: number): Promise<ChatReferenceStyleJob[]>;
+  markTerminal(job: ChatReferenceStyleJob, reason: string, now: Date): Promise<boolean>;
+  dispatch(job: ChatReferenceStyleJob, dedupSalt: string, now: Date): Promise<{ messageId?: string }>;
+}
+
 export class ChatReferenceStyleRetryableError extends Error {
-  constructor(message: string) {
+  readonly retryAt: Date;
+
+  constructor(message: string, retryAt: Date) {
     super(message);
     this.name = 'ChatReferenceStyleRetryableError';
+    this.retryAt = retryAt;
   }
 }
 
@@ -172,6 +229,8 @@ export async function queueChatReferenceStyleJob(
     ...request,
     sourceName: request.sourceName ?? asset.filename,
     attemptCount: 0,
+    nextAttemptAt: now,
+    retryDeadlineAt: new Date(now.getTime() + JOB_RETRY_DEADLINE_MS),
     createdAt: now,
     updatedAt: now,
     expiresAt: new Date(now.getTime() + JOB_TTL_MS),
@@ -212,7 +271,7 @@ export async function runChatReferenceStyleJob(
   const now = deps.now();
   const leaseId = randomUUID();
   const job = await deps.store.claimRun(payload.jobId, payload.userId, leaseId, now);
-  if (!job) return { status: 'skipped', jobId: payload.jobId, reason: 'job-not-claimable' };
+  if (!job) return resolveUnclaimableJob(payload, deps, now);
   if (job.projectId !== payload.projectId) {
     await deps.store.markFailed(job._id, job.userId, 'worker-project-scope-mismatch', false, deps.now());
     return { status: 'failed', jobId: job._id, reason: 'worker-project-scope-mismatch' };
@@ -221,6 +280,29 @@ export async function runChatReferenceStyleJob(
   let checkpoint: Checkpoint | null = null;
   let attemptOperationId = '';
   try {
+    if (job.beforeCheckpointId) {
+      const interruptedAttempt = Math.max(1, job.attemptCount - 1);
+      const interruptedOperationId = attemptOperationKey(job, interruptedAttempt);
+      const restored = await deps.checkpointService.restoreProjectCheckpoint(job.beforeCheckpointId, job.userId);
+      if (!restored.restored) {
+        const failure = `reference-style-interrupted-attempt-rollback-failed:${restored.reason ?? 'unknown'}`;
+        await deps.store.markFailed(job._id, job.userId, failure, false, deps.now());
+        return { status: 'failed', jobId: job._id, reason: failure };
+      }
+      await deps.checkpointService.updateChatEditOperation(
+        job.beforeCheckpointId,
+        job.userId,
+        interruptedOperationId,
+        {
+          operationStatus: 'rolled-back',
+          mutatingToolNames: ['apply_style'],
+          operationError: 'Recovered an interrupted durable reference-style attempt before retrying.',
+        },
+      );
+      await deps.store.clearInterruptedAttempt(job._id, job.userId, deps.now());
+      job.beforeCheckpointId = null;
+    }
+
     const profileId = job.profileId ?? await deps.extractProfile(job);
     if (!job.profileId) await deps.store.markProfileExtracted(job._id, job.userId, profileId, deps.now());
 
@@ -247,14 +329,18 @@ export async function runChatReferenceStyleJob(
 
     const applied = await deps.applyProfile(job, profileId);
     if (applied.status === 'declined') {
+      const declineReason = applied.reason ?? 'unified-planner-declined';
       await deps.checkpointService.updateChatEditOperation(
         checkpoint.checkpointId,
         job.userId,
         attemptOperationId,
         { operationStatus: 'no-op', mutatingToolNames: [] },
       );
-      await deps.store.markDeclined(job._id, job.userId, applied.data, deps.now());
-      return { status: 'declined', jobId: job._id, profileId, reason: applied.reason ?? 'unified-planner-declined' };
+      await deps.store.markDeclined(job._id, job.userId, {
+        ...applied.data,
+        reason: declineReason,
+      }, deps.now());
+      return { status: 'declined', jobId: job._id, profileId, reason: declineReason };
     }
 
     const afterProject = await deps.loadProject(job.userId, job.projectId);
@@ -329,6 +415,7 @@ export async function runChatReferenceStyleJob(
       jobId: job._id,
       userId: job.userId,
       afterCheckpointId: afterCheckpoint.checkpointId,
+      renderOperationId: attemptOperationId,
       renderVerification,
       result: applied.data,
       now: deps.now(),
@@ -363,13 +450,61 @@ export async function runChatReferenceStyleJob(
       }
     }
 
-    if (isRetryableFailure(message) && job.attemptCount < CHAT_REFERENCE_STYLE_MAX_ATTEMPTS) {
-      await deps.store.markRetry(job._id, job.userId, message, deps.now());
-      throw new ChatReferenceStyleRetryableError(message);
+    const retryAt = nextRetryAt(job, message, deps.now());
+    if (isRetryableFailure(message) && retryAt) {
+      await deps.store.markRetry(job._id, job.userId, message, retryAt, deps.now());
+      throw new ChatReferenceStyleRetryableError(message, retryAt);
     }
     await deps.store.markFailed(job._id, job.userId, message, rolledBack, deps.now());
     return { status: 'failed', jobId: job._id, reason: message };
   }
+}
+
+export async function sweepChatReferenceStyleJobs(
+  input: { now?: Date; limit?: number; dedupSalt?: string } = {},
+  overrides: Partial<ChatReferenceStyleSweepDependencies> = {},
+): Promise<ChatReferenceStyleSweepResult> {
+  const now = input.now ?? new Date();
+  const limit = Math.max(1, Math.min(100, Math.round(input.limit ?? 50)));
+  const dedupSalt = input.dedupSalt ?? `sweep:${Math.floor(now.getTime() / JOB_RECOVERY_STALE_MS)}`;
+  const findCandidates = overrides.findCandidates ?? findReferenceStyleRecoveryCandidates;
+  const markTerminal = overrides.markTerminal ?? markReferenceStyleRecoveryTerminal;
+  const dispatch = overrides.dispatch ?? redispatchReferenceStyleJob;
+  const candidates = await findCandidates(now, limit);
+  const result: ChatReferenceStyleSweepResult = {
+    scanned: candidates.length,
+    redispatched: 0,
+    terminalized: 0,
+    errors: 0,
+    details: [],
+  };
+
+  for (const job of candidates) {
+    const exhaustedReason = job.attemptCount >= CHAT_REFERENCE_STYLE_MAX_ATTEMPTS
+      ? 'reference-style-attempts-exhausted'
+      : retryDeadline(job).getTime() <= now.getTime()
+        ? 'reference-style-retry-deadline-exhausted'
+        : null;
+    if (exhaustedReason) {
+      try {
+        if (await markTerminal(job, exhaustedReason, now)) result.terminalized += 1;
+      } catch (error) {
+        result.errors += 1;
+        result.details.push(`${job._id}:terminalize:${errorMessage(error)}`);
+      }
+      continue;
+    }
+
+    try {
+      await dispatch(job, dedupSalt, now);
+      result.redispatched += 1;
+    } catch (error) {
+      result.errors += 1;
+      result.details.push(`${job._id}:redispatch:${errorMessage(error)}`);
+    }
+  }
+
+  return result;
 }
 
 class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
@@ -421,9 +556,26 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
           _id: jobId,
           userId,
           attemptCount: { $lt: CHAT_REFERENCE_STYLE_MAX_ATTEMPTS },
-          $or: [
-            { status: { $in: ['dispatching', 'queued', 'retry_wait'] } },
-            { status: 'running', leaseExpiresAt: { $lte: now } },
+          $and: [
+            {
+              $or: [
+                { retryDeadlineAt: null },
+                { retryDeadlineAt: { $gt: now } },
+              ],
+            },
+            {
+              $or: [
+                { status: { $in: ['created', 'dispatch_failed', 'dispatching', 'queued'] } },
+                {
+                  status: 'retry_wait',
+                  $or: [
+                    { nextAttemptAt: null },
+                    { nextAttemptAt: { $lte: now } },
+                  ],
+                },
+                { status: 'running', leaseExpiresAt: { $lte: now } },
+              ],
+            },
           ],
         },
         {
@@ -431,6 +583,7 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
             status: 'running',
             leaseId,
             leaseExpiresAt: new Date(now.getTime() + JOB_LEASE_MS),
+            nextAttemptAt: null,
             error: null,
             updatedAt: now,
           },
@@ -449,6 +602,10 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
     await this.set(jobId, userId, { beforeCheckpointId: checkpointId, updatedAt: now });
   }
 
+  async clearInterruptedAttempt(jobId: string, userId: string, now: Date) {
+    await this.set(jobId, userId, { beforeCheckpointId: null, updatedAt: now });
+  }
+
   async markDeclined(jobId: string, userId: string, result: Record<string, unknown>, now: Date) {
     await this.finish(jobId, userId, { status: 'declined', result, error: null }, now);
   }
@@ -457,6 +614,7 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
     jobId: string;
     userId: string;
     afterCheckpointId: string;
+    renderOperationId: string;
     renderVerification: Phase0RenderedEvidenceDispatchResult;
     result: Record<string, unknown>;
     now: Date;
@@ -464,17 +622,20 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
     await this.finish(input.jobId, input.userId, {
       status: input.renderVerification.dispatched ? 'completed' : 'completed_unverified',
       afterCheckpointId: input.afterCheckpointId,
+      renderOperationId: input.renderOperationId,
       renderVerification: input.renderVerification,
       result: input.result,
       error: input.renderVerification.dispatched ? null : bounded(input.renderVerification.reason ?? 'render-verification-not-dispatched'),
     }, input.now);
   }
 
-  async markRetry(jobId: string, userId: string, error: string, now: Date) {
+  async markRetry(jobId: string, userId: string, error: string, nextAttemptAt: Date, now: Date) {
     await this.set(jobId, userId, {
       status: 'retry_wait',
       leaseId: null,
       leaseExpiresAt: null,
+      beforeCheckpointId: null,
+      nextAttemptAt,
       error: bounded(error),
       updatedAt: now,
     });
@@ -498,6 +659,7 @@ class MongoChatReferenceStyleJobStore implements ChatReferenceStyleJobStore {
       ...fields,
       leaseId: null,
       leaseExpiresAt: null,
+      nextAttemptAt: null,
       completedAt: now,
       updatedAt: now,
     });
@@ -550,7 +712,7 @@ async function resolveRunDependencies(overrides: Partial<RunDependencies>): Prom
     store: overrides.store ?? new MongoChatReferenceStyleJobStore(),
     loadProject,
     extractProfile: overrides.extractProfile ?? extractProfileThroughLiveTool,
-    applyProfile: overrides.applyProfile ?? applyProfileThroughLiveTool,
+    applyProfile: overrides.applyProfile ?? applyReferenceStyleProfileThroughUnifiedPlanner,
     checkpointService,
     captureProjectState,
     buildRenderVerificationRequest,
@@ -565,19 +727,96 @@ async function referenceStyleJobsCollection() {
 }
 
 async function publishReferenceStyleJob(payload: { jobId: string; projectId: string; userId: string }) {
-  const token = process.env.QSTASH_TOKEN;
+  return publishReferenceStyleJobPayload(payload, process.env);
+}
+
+async function publishReferenceStyleJobPayload(
+  payload: { jobId: string; projectId: string; userId: string },
+  env: NodeJS.ProcessEnv,
+  deduplicationId?: string,
+) {
+  const token = env.QSTASH_TOKEN;
   if (!token) throw new Error('QSTASH_TOKEN is required for durable reference-style execution');
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const client = new Client({ token, baseUrl: process.env.QSTASH_URL || undefined });
+  const baseUrl = env.VERCEL_URL
+    ? `https://${env.VERCEL_URL}`
+    : env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const client = new Client({ token, baseUrl: env.QSTASH_URL || undefined });
   const result = await client.publishJSON({
     url: `${baseUrl}/api/internal/workers/chat-reference-style`,
     body: payload,
     retries: CHAT_REFERENCE_STYLE_MAX_ATTEMPTS - 1,
+    retryDelay: 'min(480000, max(60000, pow(2, retried) * 60000))',
+    ...(deduplicationId ? { deduplicationId } : {}),
     headers: { 'Upstash-Timeout': '600s' },
   });
   return { messageId: (result as { messageId?: string }).messageId };
+}
+
+async function findReferenceStyleRecoveryCandidates(now: Date, limit: number): Promise<ChatReferenceStyleJob[]> {
+  const staleBefore = new Date(now.getTime() - JOB_RECOVERY_STALE_MS);
+  return (await referenceStyleJobsCollection()).find({
+    status: { $in: RECOVERABLE_STATUSES },
+    $or: [
+      {
+        status: 'retry_wait',
+        $or: [
+          { nextAttemptAt: null },
+          { nextAttemptAt: { $lte: now } },
+        ],
+      },
+      { status: 'running', leaseExpiresAt: { $lte: now } },
+      {
+        status: { $in: ['created', 'dispatch_failed', 'dispatching', 'queued'] },
+        updatedAt: { $lte: staleBefore },
+      },
+    ],
+  }).sort({ updatedAt: 1 }).limit(limit).toArray();
+}
+
+async function markReferenceStyleRecoveryTerminal(
+  job: ChatReferenceStyleJob,
+  reason: string,
+  now: Date,
+): Promise<boolean> {
+  const result = await (await referenceStyleJobsCollection()).updateOne(
+    { _id: job._id, userId: job.userId, status: { $in: RECOVERABLE_STATUSES } },
+    {
+      $set: {
+        status: 'failed',
+        error: bounded(reason),
+        leaseId: null,
+        leaseExpiresAt: null,
+        nextAttemptAt: null,
+        completedAt: now,
+        updatedAt: now,
+      },
+    },
+  );
+  return result.modifiedCount === 1;
+}
+
+async function redispatchReferenceStyleJob(
+  job: ChatReferenceStyleJob,
+  dedupSalt: string,
+  now: Date,
+): Promise<{ messageId?: string }> {
+  const payload = { jobId: job._id, projectId: job.projectId, userId: job.userId };
+  const deduplicationId = `chat-style-${digest(`${job._id}:${job.attemptCount}:${dedupSalt}`).slice(0, 40)}`;
+  const published = await publishReferenceStyleJobPayload(payload, process.env, deduplicationId);
+  const collection = await referenceStyleJobsCollection();
+  await collection.updateOne(
+    { _id: job._id, userId: job.userId, status: { $in: RECOVERABLE_STATUSES } },
+    { $set: { dispatchMessageId: published.messageId ?? null, updatedAt: now } },
+  );
+  await collection.updateOne(
+    {
+      _id: job._id,
+      userId: job.userId,
+      status: { $in: ['created', 'dispatch_failed', 'dispatching', 'queued'] },
+    },
+    { $set: { status: 'queued', updatedAt: now } },
+  );
+  return published;
 }
 
 async function extractProfileThroughLiveTool(job: ChatReferenceStyleJob): Promise<string> {
@@ -592,24 +831,95 @@ async function extractProfileThroughLiveTool(job: ChatReferenceStyleJob): Promis
   return profileId;
 }
 
-async function applyProfileThroughLiveTool(job: ChatReferenceStyleJob, profileId: string): Promise<StyleExecutionResult> {
-  const tool = await styleTool(job, 'apply_style');
-  const rawOutput = await tool.invoke({ profileId, strength: job.strength });
-  const envelope = parseToolOutput(rawOutput);
-  if (envelope.status === 'advisory') {
-    const data = asRecord(envelope.data);
+export async function applyReferenceStyleProfileThroughUnifiedPlanner(
+  job: ChatReferenceStyleJob,
+  profileId: string,
+  overrides: Partial<ReferenceStylePlannerDependencies> = {},
+): Promise<StyleExecutionResult> {
+  const loadStyleProfile = overrides.loadProfile ?? (async (userId: string, id: string) => {
+    const { loadProfile } = await import('@/lib/editron/services/style-transfer-service');
+    return loadProfile(userId, id);
+  });
+  const executeDirector = overrides.executeDirector ?? (async (
+    projectId: string,
+    userId: string,
+    id: string,
+    brief: ProjectBrief,
+  ) => {
+    const { executeDirectorPlan } = await import('@/lib/editron/agent/director-agent');
+    return executeDirectorPlan(projectId, userId, 'A-01', brief) as Promise<ReferenceStyleDirectorResult>;
+  });
+  const profile = await loadStyleProfile(job.userId, profileId);
+  if (!profile) throw new Error(`reference-style-profile-not-found:${profileId}`);
+
+  const brief = buildReferenceStyleProjectBrief(profile, job.strength);
+  const director = await executeDirector(job.projectId, job.userId, profileId, brief);
+  const reasons = [
+    ...(director.warnings ?? []),
+    ...(director.actionsSkipped ?? []).map(
+      (entry) => `${entry.action}:${entry.reason}`,
+    ),
+  ];
+  const data = {
+    profileId: profile.profileId,
+    sourceName: profile.sourceName,
+    appliedThrough: 'director-unified-planner',
+    overlaysModified: director.overlaysModified,
+    decisionAuthority: director.decisionAuthority ?? null,
+    reasons,
+    unappliedDimensions: ['project-wide-color-grade'],
+  };
+  if (!director.success) {
+    throw new Error(`reference-style-director-failed:${reasons[0] ?? 'unknown'}`);
+  }
+  if (director.overlaysModified <= 0) {
     return {
       status: 'declined',
-      rawOutput,
+      rawOutput: data,
       data,
-      reason: cleanString(data.message) ?? 'unified-planner-declined',
+      reason: reasons[0] ?? 'unified-planner-produced-no-material-change',
     };
   }
-  assertToolSuccess(envelope, 'apply_style');
-  return { status: 'mutated', rawOutput, data: asRecord(envelope.data) };
+  return { status: 'mutated', rawOutput: data, data };
 }
 
-async function styleTool(job: ChatReferenceStyleJob, name: 'extract_style' | 'apply_style') {
+export function buildReferenceStyleProjectBrief(
+  profile: EditDNA,
+  strength: number,
+): ProjectBrief {
+  const transitionMode = profile.transitions.frequency <= 0 ? 'off' : 'prefer';
+  const graphicsMode = profile.graphicsDensity === 'heavy' ? 'prefer' : 'auto';
+  const captionMode = profile.textStyle.frequency === 'minimal' ? 'auto' : 'prefer';
+  const intent = [
+    `Match the editorial language measured from reference "${profile.sourceName}" without copying renderer forms blindly.`,
+    `Reference influence is ${Math.max(0, Math.min(1, strength)).toFixed(2)} and remains soft context, never execution confidence.`,
+    `Pacing is ${profile.pacing.overall}; hook ${profile.pacing.hookSpeed}; body ${profile.pacing.mainSpeed}.`,
+    `Measured cut rhythm is ${profile.cutRhythm.avgCutsPerMinute} cuts/min with ${profile.cutRhythm.avgClipDuration}s average clips and a ${profile.cutRhythm.pattern} arc.`,
+    `Transition usage is ${profile.transitions.frequency}% with ${profile.transitions.dominant} as an observation, not a forced form.`,
+    `Text usage is ${profile.textStyle.frequency}, ${profile.textStyle.fontWeight}, ${profile.textStyle.position}, ${profile.textStyle.animation}; family planners must resolve readable forms from the current video.`,
+    `Music language is ${profile.musicStyle.tempo} ${profile.musicStyle.genre} at ${profile.musicStyle.energyLevel} energy.`,
+    `Graphics density is ${profile.graphicsDensity}.`,
+    `Color observation is ${profile.colorGrade.temperature}, ${profile.colorGrade.saturation}, ${profile.colorGrade.contrast}; preserve skin and product colors.`,
+  ].join(' ');
+  const editorialPreferences = normalizeEditorialPreferences({
+    families: {
+      captions: { mode: captionMode },
+      motionGraphics: { mode: graphicsMode },
+      transitions: { mode: transitionMode },
+      music: { mode: 'prefer' },
+    },
+    pacing: { mode: 'prefer' },
+    musicPrompt: `${profile.musicStyle.tempo} tempo ${profile.musicStyle.genre}, ${profile.musicStyle.energyLevel} energy, supporting dialogue`,
+    notes: `Reference profile ${profile.profileId}. Reference labels are observations; existing signal-owned family planners retain form authority.`,
+  });
+  return {
+    modifiers: [],
+    intent,
+    editorialPreferences,
+  };
+}
+
+async function styleTool(job: ChatReferenceStyleJob, name: 'extract_style') {
   const { createTools } = await import('@/lib/editron/agent/tools');
   const selected = createTools(job.userId, job.projectId).find((candidate) => candidate.name === name);
   if (!selected) throw new Error(`live-style-tool-not-found:${name}`);
@@ -652,7 +962,13 @@ function terminalQueueResult(job: ChatReferenceStyleJob): QueueChatReferenceStyl
   if (job.status === 'completed' || job.status === 'completed_unverified') {
     return { status: 'completed', jobId: job._id, messageId: job.dispatchMessageId ?? undefined };
   }
-  if (job.status === 'declined') return { status: 'declined', jobId: job._id, reason: job.error ?? undefined };
+  if (job.status === 'declined') {
+    return {
+      status: 'declined',
+      jobId: job._id,
+      reason: job.error ?? persistedDeclineReason(job.result) ?? 'reference-style-job-declined',
+    };
+  }
   if (job.status === 'failed' || job.status === 'rolled_back') {
     return { status: 'failed', jobId: job._id, reason: job.error ?? 'reference-style-job-failed' };
   }
@@ -660,6 +976,14 @@ function terminalQueueResult(job: ChatReferenceStyleJob): QueueChatReferenceStyl
     return { status: 'already-queued', jobId: job._id, messageId: job.dispatchMessageId ?? undefined };
   }
   return null;
+}
+
+function persistedDeclineReason(result: Record<string, unknown> | null | undefined): string | null {
+  if (!result) return null;
+  const direct = cleanString(result.reason) ?? cleanString(result.message);
+  if (direct) return direct;
+  const reasons = Array.isArray(result.reasons) ? result.reasons : [];
+  return cleanString(reasons[0]) ?? null;
 }
 
 function failedQueueResult(request: ChatReferenceStyleJobRequest, reason: string): QueueChatReferenceStyleJobResult {
@@ -670,8 +994,69 @@ function checkpointId(job: ChatReferenceStyleJob, position: 'before' | 'after'):
   return `ckpt_chat_style_${position}_${digest(`${job._id}:${job.attemptCount}:${position}`).slice(0, 24)}`;
 }
 
-function attemptOperationKey(job: ChatReferenceStyleJob): string {
-  return `style_${digest(`${job.operationId}:${job.attemptCount}`).slice(0, 32)}`;
+function attemptOperationKey(job: ChatReferenceStyleJob, attemptCount = job.attemptCount): string {
+  return `style_${digest(`${job.operationId}:${attemptCount}`).slice(0, 32)}`;
+}
+
+async function resolveUnclaimableJob(
+  payload: { jobId: string; projectId: string; userId: string },
+  deps: RunDependencies,
+  now: Date,
+): Promise<RunChatReferenceStyleJobResult> {
+  const current = await deps.store.find(payload.jobId, payload.userId);
+  if (!current) return { status: 'skipped', jobId: payload.jobId, reason: 'reference-style-job-not-found' };
+  if (current.projectId !== payload.projectId) {
+    return { status: 'skipped', jobId: payload.jobId, reason: 'worker-project-scope-mismatch' };
+  }
+  if (isTerminalStatus(current.status)) {
+    return { status: 'skipped', jobId: current._id, reason: `job-already-${current.status}` };
+  }
+
+  const deadline = retryDeadline(current);
+  if (current.attemptCount >= CHAT_REFERENCE_STYLE_MAX_ATTEMPTS || deadline.getTime() <= now.getTime()) {
+    const reason = current.attemptCount >= CHAT_REFERENCE_STYLE_MAX_ATTEMPTS
+      ? 'reference-style-attempts-exhausted'
+      : 'reference-style-retry-deadline-exhausted';
+    await deps.store.markFailed(current._id, current.userId, reason, false, now);
+    return { status: 'failed', jobId: current._id, reason };
+  }
+
+  const retryAt = futureRetryAt(current, now);
+  return {
+    status: 'retrying',
+    jobId: current._id,
+    reason: `job-not-claimable:${current.status}`,
+    retryAt: retryAt.toISOString(),
+  };
+}
+
+function nextRetryAt(job: ChatReferenceStyleJob, message: string, now: Date): Date | null {
+  if (job.attemptCount >= CHAT_REFERENCE_STYLE_MAX_ATTEMPTS) return null;
+  const deadline = retryDeadline(job);
+  if (deadline.getTime() <= now.getTime()) return null;
+  const rateLimited = /\b429\b|rate.?limit|resource_exhausted/i.test(message);
+  const minimum = rateLimited ? MIN_RATE_LIMIT_RETRY_DELAY_MS : MIN_TRANSIENT_RETRY_DELAY_MS;
+  const exponent = Math.max(0, job.attemptCount - 1);
+  const rawDelay = Math.min(MAX_RETRY_DELAY_MS, minimum * (2 ** exponent));
+  const jitterUnit = Number.parseInt(digest(`${job._id}:${job.attemptCount}:retry`).slice(0, 8), 16) / 0xffffffff;
+  const delay = Math.min(MAX_RETRY_DELAY_MS, Math.round(rawDelay * (1 + (jitterUnit * 0.15))));
+  const retryAt = new Date(now.getTime() + delay);
+  return retryAt.getTime() < deadline.getTime() ? retryAt : null;
+}
+
+function retryDeadline(job: ChatReferenceStyleJob): Date {
+  return job.retryDeadlineAt ?? new Date(job.createdAt.getTime() + JOB_RETRY_DEADLINE_MS);
+}
+
+function futureRetryAt(job: ChatReferenceStyleJob, now: Date): Date {
+  const candidates = [job.nextAttemptAt, job.leaseExpiresAt]
+    .filter((value): value is Date => value instanceof Date && value.getTime() > now.getTime())
+    .sort((left, right) => left.getTime() - right.getTime());
+  return candidates[0] ?? new Date(now.getTime() + MIN_TRANSIENT_RETRY_DELAY_MS);
+}
+
+function isTerminalStatus(status: ChatReferenceStyleJobStatus): boolean {
+  return ['completed', 'completed_unverified', 'declined', 'failed', 'rolled_back'].includes(status);
 }
 
 function assertToolSuccess(envelope: Record<string, unknown>, toolName: string): void {

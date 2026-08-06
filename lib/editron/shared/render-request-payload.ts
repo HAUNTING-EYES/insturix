@@ -64,6 +64,21 @@ export interface RenderAudioRightsNotice {
   source: "preview-only";
 }
 
+export interface ProjectRenderEligibilityIssue {
+  overlayId: string | number | null;
+  overlayType: string;
+  reason: string;
+}
+
+export interface ProjectRenderEligibilityAudit {
+  version: "editron-project-render-eligibility-v1";
+  status: "eligible" | "blocked" | "unknown";
+  issueCount: number;
+  issues: ProjectRenderEligibilityIssue[];
+  strippedAudioNotices: RenderAudioRightsNotice[];
+  truncated: boolean;
+}
+
 type RenderableAudioDecision = {
   overlay: unknown | null;
   notice?: RenderAudioRightsNotice;
@@ -208,6 +223,15 @@ export function resolveRenderableAudio(
   }
   const nativeVideoOverlay =
     overlay.type === "video" && overlay.hasNativeAudio === true;
+  const nativeAudioBoundaryOverlay = isNativeAudioBoundarySoundOverlay(overlay);
+  if (
+    overlay.type === "sound" &&
+    !isSoundOverlayWithRenderableSource(overlay) &&
+    overlay.audioRights === undefined &&
+    overlay.musicRights === undefined
+  ) {
+    return { overlay };
+  }
   if (overlay.type !== "sound" && !nativeVideoOverlay) {
     return { overlay };
   }
@@ -220,14 +244,6 @@ export function resolveRenderableAudio(
     throw new UnlicensedAudioInRenderError(overlay, rightsClaim.issue);
   }
   const rightsValue = rightsClaim.rights;
-  if (
-    rightsValue === null &&
-    !knownPreviewSource &&
-    !musicOverlay &&
-    !nativeVideoOverlay
-  ) {
-    return { overlay };
-  }
   if (rightsValue === null) {
     throw new UnlicensedAudioInRenderError(
       overlay,
@@ -252,8 +268,18 @@ export function resolveRenderableAudio(
     );
   }
   if (
+    nativeAudioBoundaryOverlay &&
+    audioRights.mediaRole !== "native-video"
+  ) {
+    throw new UnlicensedAudioInRenderError(
+      overlay,
+      `native video audio boundary cannot use ${audioRights.mediaRole ?? "unspecified"} rights evidence`
+    );
+  }
+  if (
     overlay.type === "sound" &&
-    audioRights.mediaRole === "native-video"
+    audioRights.mediaRole === "native-video" &&
+    !nativeAudioBoundaryOverlay
   ) {
     throw new UnlicensedAudioInRenderError(
       overlay,
@@ -278,13 +304,19 @@ export function resolveRenderableAudio(
     );
   }
 
-  if (nativeVideoOverlay && audioRights.source === "preview-only") {
+  if (
+    (nativeVideoOverlay || nativeAudioBoundaryOverlay) &&
+    audioRights.source === "preview-only"
+  ) {
     throw new UnlicensedAudioInRenderError(
       overlay,
       "preview-only audio cannot remain embedded in a rendered video"
     );
   }
-  if (nativeVideoOverlay && audioRights.source === "generated") {
+  if (
+    (nativeVideoOverlay || nativeAudioBoundaryOverlay) &&
+    audioRights.source === "generated"
+  ) {
     const receiptIssue = getGeneratedNativeVideoReceiptIssue(
       overlay.generatedVideoReceipt,
       {
@@ -336,6 +368,53 @@ export function resolveRenderableAudio(
   }
 
   return { overlay };
+}
+
+export function auditProjectRenderEligibility(
+  project: { overlays?: unknown[] } | null | undefined
+): ProjectRenderEligibilityAudit {
+  if (!Array.isArray(project?.overlays)) {
+    return {
+      version: "editron-project-render-eligibility-v1",
+      status: "unknown",
+      issueCount: 1,
+      issues: [{
+        overlayId: null,
+        overlayType: "project",
+        reason: "Project overlays are unavailable, so render eligibility could not be evaluated.",
+      }],
+      strippedAudioNotices: [],
+      truncated: false,
+    };
+  }
+
+  const allIssues: ProjectRenderEligibilityIssue[] = [];
+  const allNotices: RenderAudioRightsNotice[] = [];
+  for (const overlay of project.overlays) {
+    try {
+      const decision = resolveRenderableAudio(overlay);
+      if (decision.notice) allNotices.push(decision.notice);
+    } catch (error) {
+      if (!(error instanceof UnlicensedAudioInRenderError)) throw error;
+      allIssues.push({
+        overlayId: error.overlayId,
+        overlayType: isRecord(overlay) && typeof overlay.type === "string"
+          ? overlay.type
+          : "unknown",
+        reason: error.message,
+      });
+    }
+  }
+
+  const maxEntries = 100;
+  return {
+    version: "editron-project-render-eligibility-v1",
+    status: allIssues.length > 0 ? "blocked" : "eligible",
+    issueCount: allIssues.length,
+    issues: allIssues.slice(0, maxEntries),
+    strippedAudioNotices: allNotices.slice(0, maxEntries),
+    truncated: allIssues.length > maxEntries || allNotices.length > maxEntries,
+  };
 }
 
 /**
@@ -602,6 +681,25 @@ export function isCanonicalMusicOverlay(overlay: unknown): boolean {
     overlay.audioRole === "music" ||
     Boolean(assetId?.toLowerCase().startsWith("bgm_"))
   );
+}
+
+export function isNativeAudioBoundarySoundOverlay(overlay: unknown): boolean {
+  if (!isRecord(overlay) || overlay.type !== "sound") return false;
+  const metadata = isRecord(overlay.metadata) ? overlay.metadata : null;
+  return (
+    metadata?.source === "edl-native-audio-boundary" &&
+    nonEmptyString(metadata.sourceClipId) !== null &&
+    (
+      metadata.audioBoundaryKind === "j-cut" ||
+      metadata.audioBoundaryKind === "l-cut"
+    )
+  );
+}
+
+export function isSoundOverlayWithRenderableSource(overlay: unknown): boolean {
+  if (!isRecord(overlay) || overlay.type !== "sound") return false;
+  return [overlay.assetId, overlay.src, overlay.content]
+    .some((value) => nonEmptyString(value) !== null);
 }
 
 function canonicalAudioRightsSignature(rights: AudioRightsContract): string {

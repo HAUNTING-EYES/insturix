@@ -1566,7 +1566,7 @@ describe('from-batch storyline route handoff', () => {
     expect(generateContent).toHaveBeenCalledOnce();
     expect(generateContent).toHaveBeenCalledWith(
       expect.objectContaining({ generationConfig: expect.objectContaining({ seed: 42 }) }),
-      { timeout: 90_000 },
+      { timeout: 280_000 },
     );
     expect(errorSwallowed).toHaveBeenCalledWith(
       'director',
@@ -1574,7 +1574,7 @@ describe('from-batch storyline route handoff', () => {
       'creative brief model request',
     );
     expect(resolveCreativeBriefRequestTimeoutMs('1000')).toBe(15_000);
-    expect(resolveCreativeBriefRequestTimeoutMs('999999')).toBe(180_000);
+    expect(resolveCreativeBriefRequestTimeoutMs('999999')).toBe(400_000);
   });
 
   it('parses and bounds a QStash Director delivery failure audit', () => {

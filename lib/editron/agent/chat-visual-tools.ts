@@ -11,11 +11,13 @@ import {
   verifyChatFrameVisualMatch,
   type ChatFrameVisualVerification,
 } from "../services/chat-frame-visual-verification";
+import { protectChatTextLegibility } from "./chat-overlay-safe-placement";
 import { PROJECT_ASSET_ANALYSES_COLLECTION } from "../services/project-analysis-storage";
 import {
   buildSubjectAwareReframePlan,
   type SubjectReframePlan,
 } from "../services/subject-reframe-plan";
+import { resolveAtomicZoomForm } from "../services/zoom-form";
 
 type OverlayId = string | number;
 
@@ -67,6 +69,7 @@ export interface VisualMomentCandidate {
     scores?: CanonicalChatEvidenceCandidate["scores"];
     missingModalities?: string[];
     rejectionReasons?: string[];
+    accepted?: boolean;
     frameVerificationReceiptId?: string;
     verifiedFrame?: number;
   };
@@ -75,7 +78,7 @@ export interface VisualMomentCandidate {
     cut_section: { startFrame: number; endFrame: number; note: string };
     add_motion_graphic: { frame: number; text: string };
     set_keyframes: { frame: number; note: string };
-    visual_inspect_frame: { frame: number; question: string };
+    visual_inspect_frame: { frame: number; frames?: number[]; question: string };
   };
 }
 
@@ -203,7 +206,7 @@ export interface FadeOptions {
   endFrame?: number;
   targetFrame?: number;
   targetQuery?: string;
-  direction?: "in" | "out";
+  direction?: "in" | "out" | "both";
   durationFrames?: number;
   fromOpacity?: number;
   toOpacity?: number;
@@ -220,6 +223,7 @@ export interface FadeOverlayUpdate {
   localEndFrame: number;
   previousKeyframeTrackCount: number;
   nextKeyframeTracks: any[];
+  nextStyles?: Record<string, unknown>;
   fromOpacity: number;
   toOpacity: number;
   reason: string;
@@ -240,11 +244,14 @@ export type KeyframeEditDirection = "in" | "out";
 export interface KeyframeEditOptions {
   overlayId?: OverlayId;
   targetQuery?: string;
+  targetFrame?: number;
   direction?: KeyframeEditDirection;
   startFrame?: number;
   endFrame?: number;
   durationFrames?: number;
   scaleDelta?: number;
+  evidenceModality?: "transcript" | "visual" | "audio";
+  evidenceStrength?: number;
   replaceExistingScaleKeyframes?: boolean;
   allowCaptionKeyframes?: boolean;
 }
@@ -287,6 +294,7 @@ export interface LayerReorderOverlayUpdate {
   overlayId: OverlayId;
   previousRow: number;
   nextRow: number;
+  nextStyles?: Record<string, unknown>;
   referenceOverlayId?: OverlayId;
   relation: LayerReorderRelation | "target-row";
   reason: string;
@@ -430,10 +438,10 @@ const fadeSchema = z.object({
   endFrame: z.coerce.number().int().min(0).optional().describe("Global timeline frame where the fade ends."),
   targetFrame: z.coerce.number().int().min(0).optional().describe("Global timeline frame used to resolve the target overlay when overlayId is omitted."),
   targetQuery: z.string().min(1).optional().describe("Optional visual query to resolve the target overlay/frame when explicit ids are unavailable."),
-  direction: z.enum(["in", "out"]).default("out").describe("Fade direction. Use out for fade away/end, in for reveal/start."),
-  durationFrames: z.coerce.number().int().min(1).default(20).describe("Fade duration in frames. 20 frames matches the existing EDL/keyframe fade default."),
-  fromOpacity: z.coerce.number().min(0).max(1).optional().describe("Optional starting opacity. Defaults to 1 for fade out, 0 for fade in."),
-  toOpacity: z.coerce.number().min(0).max(1).optional().describe("Optional ending opacity. Defaults to 0 for fade out, 1 for fade in."),
+  direction: z.enum(["in", "out", "both"]).default("out").describe("Fade direction. Use both for one atomic fade-in/hold/fade-out envelope; never split that request into two calls."),
+  durationFrames: z.coerce.number().int().min(1).default(20).describe("Fade duration in frames per edge. For both, each edge is capped to half the available range."),
+  fromOpacity: z.coerce.number().min(0).max(1).optional().describe("Optional edge opacity. Defaults to 1 for fade out, and 0 for fade in or both."),
+  toOpacity: z.coerce.number().min(0).max(1).optional().describe("Optional destination/hold opacity. Defaults to 0 for fade out, and 1 for fade in or both."),
   replaceExistingOpacityKeyframes: z.boolean().default(false).describe("Allow replacing existing opacity keyframes. Keep false unless the user explicitly wants to overwrite opacity animation."),
   allowCaptionFade: z.boolean().default(false).describe("Allow fading caption/subtitle overlays. Keep false unless captions were explicitly targeted."),
   allowBrandFade: z.boolean().default(false).describe("Allow fading likely logo/brand/watermark overlays. Keep false unless the brand element was explicitly targeted."),
@@ -442,11 +450,14 @@ const fadeSchema = z.object({
 const keyframeEditSchema = z.object({
   overlayId: z.union([z.string(), z.number()]).optional().describe("Target overlay id. Prefer selectedOverlayId from chat context when the user says this clip, selected clip, or this overlay."),
   targetQuery: z.string().min(1).optional().describe("Natural-language overlay reference when overlayId is unavailable. Use explicit selectedOverlayId when available."),
+  targetFrame: z.coerce.number().int().min(0).optional().describe("Grounded global timeline anchor. When overlayId is omitted, the one active visual source at this frame is resolved."),
   direction: z.enum(["in", "out"]).default("in").describe("Scale direction: in means 1.0 to larger, out means larger to 1.0."),
   startFrame: z.coerce.number().int().min(0).optional().describe("Optional global timeline frame where the scale keyframes should start. Defaults to the overlay start."),
   endFrame: z.coerce.number().int().min(0).optional().describe("Optional global timeline frame where the scale keyframes should end. Defaults to the overlay end."),
   durationFrames: z.coerce.number().int().min(2).max(7200).optional().describe("Optional duration in frames when only one edge is supplied. Defaults to the full target overlay duration."),
   scaleDelta: z.coerce.number().min(0.01).max(0.5).default(0.12).describe("Requested scale delta before safety clamping. 0.12 is a restrained manual zoom."),
+  evidenceModality: z.enum(["transcript", "visual", "audio"]).optional().describe("Server-owned evidence modality for a motivated zoom anchor."),
+  evidenceStrength: z.coerce.number().min(0).max(1).optional().describe("Revision-bound resolver confidence for a motivated zoom. This is evidence, not a hand-authored scale value."),
   replaceExistingScaleKeyframes: z.boolean().default(false).describe("Allow replacing existing scale keyframes. Keep false unless the user explicitly wants to overwrite zoom/scale motion."),
   allowCaptionKeyframes: z.boolean().default(false).describe("Allow scale keyframes on captions/subtitles. Keep false unless captions were explicitly targeted."),
 });
@@ -779,8 +790,10 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
             candidateContext: candidate.evidenceText,
           });
         } catch (error) {
-          return resolutionEnvelope(
-            {
+          const message = `The rendered frame could not be independently verified: ${error instanceof Error ? error.message : String(error)}`;
+          return JSON.stringify({
+            status: "declined",
+            data: {
               status: "ambiguous",
               action: input.action,
               query: input.query,
@@ -788,12 +801,19 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
               warnings: ["frame-verification-provider-failed"],
               canonicalEvidence: retrieval.audit,
             },
-            `The rendered frame could not be independently verified: ${error instanceof Error ? error.message : String(error)}`,
-          );
+            error: {
+              code: "VISUAL_VERIFICATION_PROVIDER_FAILED",
+              message,
+              details: { retryable: false },
+            },
+            nextAction: "stop",
+          });
         }
         if (frameVerification.status !== "confirmed") {
-          return resolutionEnvelope(
-            {
+          const message = `The rendered frame did not visibly confirm "${input.query}". No edit was authorized.`;
+          return JSON.stringify({
+            status: "needs-choice",
+            data: {
               status: "ambiguous",
               action: input.action,
               query: input.query,
@@ -802,8 +822,13 @@ Do not make a destructive edit from a low-confidence or ambiguous candidate; pre
               canonicalEvidence: retrieval.audit,
               frameVerification,
             },
-            `The rendered frame did not visibly confirm "${input.query}". No edit was authorized.`,
-          );
+            error: {
+              code: "VISUAL_TARGET_NOT_CONFIRMED",
+              message,
+              details: { retryable: false },
+            },
+            nextAction: "ask_clarification",
+          });
         }
         candidates = promoteFrameVerifiedCandidate(candidates, candidate, frameVerification);
       }
@@ -871,6 +896,11 @@ This is read-only: it returns local-frame scale keyframes for set_keyframes and 
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          cameraShakeAffectedFrameRanges(project, plan),
+          "apply_camera_shake",
+        );
 
         for (const update of plan.updates) {
           await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
@@ -878,7 +908,7 @@ This is read-only: it returns local-frame scale keyframes for set_keyframes and 
           } as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply camera shake." });
       }
@@ -905,6 +935,11 @@ Requires a target frame or high-confidence visual target. Refuses to overwrite e
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          plan.updates.map(({ startFrame, endFrame }) => ({ startFrame, endFrame })),
+          "apply_speed_ramp",
+        );
 
         for (const update of plan.updates) {
           await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
@@ -913,7 +948,7 @@ Requires a target frame or high-confidence visual target. Refuses to overwrite e
           } as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply speed ramp." });
       }
@@ -940,6 +975,11 @@ Writes speedCurve plus matching speed keyframes into the existing video speed pa
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          plan.updates.map(({ startFrame, endFrame }) => ({ startFrame, endFrame })),
+          "apply_fade",
+        );
 
         for (const update of plan.updates) {
           await projectService.updateOverlay(userId, projectId, Number(update.overlayId), {
@@ -947,7 +987,7 @@ Writes speedCurve plus matching speed keyframes into the existing video speed pa
           } as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply fade." });
       }
@@ -955,7 +995,8 @@ Writes speedCurve plus matching speed keyframes into the existing video speed pa
     {
       name: "apply_fade",
       description: `Apply bounded opacity fade keyframes to one visual overlay.
-Use for "fade this out", "fade this overlay in", or "fade it at the end" after a selected overlay, explicit overlay id, target frame, or high-confidence visual target.
+Use for "fade this out", "fade this overlay in", "fade in and out", or "fade it at the end" after a selected overlay, explicit overlay id, target frame, or high-confidence visual target.
+For fade in and out, call this tool exactly once with direction="both"; never split one user request into separate in/out calls.
 Writes opacity keyframes into the existing keyframeTracks path. Refuses sound overlays, protected captions/brand elements, and existing opacity motion unless explicitly allowed.`,
       schema: fadeSchema,
     },
@@ -974,6 +1015,11 @@ Writes opacity keyframes into the existing keyframeTracks path. Refuses sound ov
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          layerReorderAffectedFrameRanges(project, plan),
+          "reorder_layer",
+        );
 
         for (const update of plan.updates) {
           const numericOverlayId = Number(update.overlayId);
@@ -982,10 +1028,11 @@ Writes opacity keyframes into the existing keyframeTracks path. Refuses sound ov
           }
           await projectService.updateOverlay(userId, projectId, numericOverlayId, {
             row: update.nextRow,
+            ...(update.nextStyles ? { styles: update.nextStyles } : {}),
           } as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to reorder layer." });
       }
@@ -1012,6 +1059,20 @@ Lower rows render in front for ordinary overlays. This refuses sound, captions, 
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          plan.updates.flatMap((update) => [
+            {
+              startFrame: update.previousStartFrame,
+              endFrame: update.previousEndFrame,
+            },
+            {
+              startFrame: update.nextStartFrame,
+              endFrame: update.nextEndFrame,
+            },
+          ]),
+          "move_retime_overlay",
+        );
 
         for (const update of plan.updates) {
           const numericOverlayId = Number(update.overlayId);
@@ -1021,7 +1082,7 @@ Lower rows render in front for ordinary overlays. This refuses sound, captions, 
           await projectService.updateOverlay(userId, projectId, numericOverlayId, update.nextUpdates as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to move or retime overlay." });
       }
@@ -1048,6 +1109,11 @@ Refuses caption/subtitle retiming, transitions, same-row timeline collisions, pr
         if (plan.status !== "changed") {
           return JSON.stringify({ status: "error", message: plan.message, data: plan });
         }
+        const resultData = withAffectedFrameRanges(
+          plan,
+          overlayRangesForIds(project, plan.updates.map((update) => update.overlayId)),
+          "apply_filter",
+        );
 
         for (const update of plan.updates) {
           const numericOverlayId = Number(update.overlayId);
@@ -1059,7 +1125,7 @@ Refuses caption/subtitle retiming, transitions, same-row timeline collisions, pr
           } as any);
         }
 
-        return JSON.stringify({ status: "success", data: plan });
+        return JSON.stringify({ status: "success", data: resultData });
       } catch (error: any) {
         return JSON.stringify({ status: "error", message: error?.message ?? "Failed to apply filter." });
       }
@@ -1096,10 +1162,17 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
           analyses,
           targetAspectRatio: input.targetAspectRatio,
         }, dependencies);
+        const resultData = plan.status === "changed"
+          ? withAffectedFrameRanges(
+              plan,
+              overlayRangesForIds(project, plan.overlayUpdates.map((update) => update.overlayId)),
+              "reframe_project",
+            )
+          : plan;
 
         return JSON.stringify({
           status: plan.status === "changed" ? "success" : "error",
-          data: plan,
+          data: resultData,
           message: plan.message,
         });
       } catch (error: any) {
@@ -1303,6 +1376,7 @@ function canonicalVisualCandidate(
       scores: candidate.scores,
       missingModalities: candidate.missingModalities,
       rejectionReasons: candidate.rejectionReasons,
+      accepted: candidate.accepted,
     },
     safeForAutoEdit: candidate.safeForAutomaticMutation,
     useWith: {
@@ -1316,6 +1390,14 @@ function canonicalVisualCandidate(
       visual_inspect_frame: { frame, question: `Verify canonical visual match for: ${truncate(query, 80)}` },
     },
   };
+}
+
+function canRequestCanonicalFrameVerification(
+  candidate: VisualMomentCandidate,
+): boolean {
+  return candidate.source.type === "multimodal-evidence"
+    && candidate.source.accepted === true
+    && !candidate.source.rejectionReasons?.includes("ambiguous-top-candidates");
 }
 
 function mergeVisualCandidates(
@@ -1345,22 +1427,26 @@ export function resolveKeyframeEditParams(
   const direction = options.direction ?? "in";
   const warnings: string[] = [];
 
-  if (options.overlayId == null && !options.targetQuery?.trim()) {
+  if (
+    options.overlayId == null
+    && !options.targetQuery?.trim()
+    && positiveOrZeroNumber(options.targetFrame) == null
+  ) {
     return {
       status: "no-target",
       direction,
       warnings,
-      message: "Keyframe edit needs overlayId from selectedOverlayId or an unambiguous targetQuery.",
+      message: "Keyframe edit needs overlayId, an unambiguous targetQuery, or a grounded targetFrame.",
     };
   }
 
-  const targetResult = resolveMoveRetimeOverlay(project, options.overlayId, options.targetQuery);
+  const targetResult = resolveKeyframeTargetOverlay(project, options);
   if (!targetResult.ok) {
     return {
       status: "no-target",
       direction,
       warnings: targetResult.warnings,
-      message: targetResult.message.replace("Move/retime", "Keyframe edit"),
+      message: targetResult.message,
     };
   }
 
@@ -1388,7 +1474,19 @@ export function resolveKeyframeEditParams(
     };
   }
 
-  const rangeResult = resolveKeyframeEditFrameRange(overlay, options);
+  const motivatedForm = resolveMotivatedZoomForm(overlay, options, direction);
+  const rangeResult = motivatedForm
+    ? {
+        ok: true as const,
+        range: {
+          startFrame: frame(overlay.from) + motivatedForm.startFrame,
+          endFrame: frame(overlay.from) + motivatedForm.endFrame,
+        },
+        localStartFrame: motivatedForm.startFrame,
+        localEndFrame: motivatedForm.endFrame,
+        warnings: [] as string[],
+      }
+    : resolveKeyframeEditFrameRange(overlay, options);
   if (!rangeResult.ok) {
     return {
       status: "no-target",
@@ -1398,6 +1496,7 @@ export function resolveKeyframeEditParams(
       message: rangeResult.message,
     };
   }
+  warnings.push(...rangeResult.warnings);
 
   const existingTracks = Array.isArray(overlay.keyframeTracks) ? overlay.keyframeTracks : [];
   const existingScaleTracks = existingTracks.filter(isScaleKeyframeTrack);
@@ -1418,8 +1517,15 @@ export function resolveKeyframeEditParams(
     };
   }
 
-  const scaleDelta = round3(clamp(options.scaleDelta ?? 0.12, 0.02, 0.35));
-  const keyframes = buildScaleKeyframes(rangeResult.localStartFrame, rangeResult.localEndFrame, direction, scaleDelta);
+  const scaleDelta = motivatedForm
+    ? round3(Math.abs(motivatedForm.scaleDelta))
+    : round3(clamp(options.scaleDelta ?? 0.12, 0.02, 0.35));
+  const keyframes = motivatedForm
+    ? motivatedForm.keyframes.map((keyframe) => ({
+        ...keyframe,
+        easing: keyframe.easing === "snap-out" ? "ease-out" as const : keyframe.easing,
+      }))
+    : buildScaleKeyframes(rangeResult.localStartFrame, rangeResult.localEndFrame, direction, scaleDelta);
 
   return {
     status: "ready",
@@ -1438,17 +1544,102 @@ export function resolveKeyframeEditParams(
       },
     },
     warnings,
-    message: `Resolved ${direction === "in" ? "zoom in" : "zoom out"} scale keyframes for overlay ${String(overlay.id)} over frames ${rangeResult.range.startFrame}-${rangeResult.range.endFrame}.`,
+    message: `Resolved ${direction === "in" ? "zoom in" : "zoom out"} scale keyframes for overlay ${String(overlay.id)} over frames ${rangeResult.range.startFrame}-${rangeResult.range.endFrame}${motivatedForm ? " from grounded moment evidence and the atomic zoom-form owner" : ""}.`,
   };
+}
+
+function resolveKeyframeTargetOverlay(
+  project: any,
+  options: KeyframeEditOptions,
+): { ok: true; overlay: any; warnings: string[] }
+  | { ok: false; message: string; warnings: string[] } {
+  if (options.overlayId != null || options.targetQuery?.trim()) {
+    const resolved = resolveMoveRetimeOverlay(project, options.overlayId, options.targetQuery);
+    return resolved.ok
+      ? resolved
+      : {
+          ...resolved,
+          message: resolved.message.replace("Move/retime", "Keyframe edit"),
+        };
+  }
+
+  const targetFrame = positiveOrZeroNumber(options.targetFrame);
+  const overlays: any[] = Array.isArray(project?.overlays) ? project.overlays : [];
+  const activeSources = targetFrame == null
+    ? []
+    : overlays.filter((overlay) => {
+        const type = String(overlay?.type ?? "").toLowerCase();
+        return (type === "video" || type === "image") && overlayContainsFrame(overlay, targetFrame);
+      });
+  if (activeSources.length === 1) {
+    return { ok: true, overlay: activeSources[0], warnings: [] };
+  }
+  if (activeSources.length > 1) {
+    const primarySources = activeSources.filter((overlay) => frame(overlay?.row) === 0);
+    if (primarySources.length === 1) {
+      return {
+        ok: true,
+        overlay: primarySources[0],
+        warnings: [`Multiple visual sources were active at frame ${targetFrame}; the sole primary-row source was selected.`],
+      };
+    }
+    return {
+      ok: false,
+      warnings: [],
+      message: `Multiple visual sources are active at frame ${targetFrame}; select the intended clip before applying zoom keyframes.`,
+    };
+  }
+  return {
+    ok: false,
+    warnings: [],
+    message: `No visual source is active at frame ${targetFrame}; the zoom was not applied.`,
+  };
+}
+
+function resolveMotivatedZoomForm(
+  overlay: any,
+  options: KeyframeEditOptions,
+  direction: KeyframeEditDirection,
+): ReturnType<typeof resolveAtomicZoomForm> | null {
+  const targetFrame = positiveOrZeroNumber(options.targetFrame);
+  const evidenceStrength = finiteNumber(options.evidenceStrength);
+  if (targetFrame == null || evidenceStrength == null || !options.evidenceModality) return null;
+
+  const overlayStart = frame(overlay?.from);
+  const sceneEnd = duration(overlay?.durationInFrames);
+  const localFrame = targetFrame - overlayStart;
+  if (localFrame < 0 || localFrame >= sceneEnd) return null;
+
+  const metadata = isRecord(overlay?.metadata) ? overlay.metadata : {};
+  const signals = {
+    ...record(metadata.rawSignals),
+    ...record(metadata.signals),
+    ...record(metadata.atomicOverlaySignals),
+    ...record(overlay?.contentSignals),
+    ...(options.evidenceModality === "transcript"
+      ? { word_importance: evidenceStrength }
+      : options.evidenceModality === "audio"
+        ? { speech_energy: evidenceStrength }
+        : { visual_significance: evidenceStrength }),
+    topic_shift: direction === "out" ? 1 : 0,
+  };
+
+  return resolveAtomicZoomForm({
+    signals,
+    params: direction === "out" ? { zoomType: "pull-back" } : {},
+    localFrame,
+    sceneEnd,
+  });
 }
 
 function resolveKeyframeEditFrameRange(
   overlay: any,
   options: KeyframeEditOptions,
-): { ok: true; range: FrameRange; localStartFrame: number; localEndFrame: number } | { ok: false; message: string } {
+): { ok: true; range: FrameRange; localStartFrame: number; localEndFrame: number; warnings: string[] } | { ok: false; message: string } {
   const overlayStartFrame = frame(overlay?.from);
   const overlayDurationFrames = duration(overlay?.durationInFrames);
   const overlayEndFrame = overlayStartFrame + overlayDurationFrames;
+  const warnings: string[] = [];
   if (overlayDurationFrames < 2) {
     return { ok: false, message: `Overlay ${String(overlay?.id)} is too short for visible scale keyframes.` };
   }
@@ -1461,6 +1652,12 @@ function resolveKeyframeEditFrameRange(
 
   if (endFrame == null && requestedDurationFrames != null) {
     endFrame = startFrame + Math.round(requestedDurationFrames);
+    if (endFrame > overlayEndFrame) {
+      warnings.push(
+        `Requested ${Math.round(requestedDurationFrames)}-frame zoom was clamped to overlay ${String(overlay?.id)} ending at frame ${overlayEndFrame}.`,
+      );
+      endFrame = overlayEndFrame;
+    }
   } else if (endFrame == null) {
     endFrame = overlayEndFrame;
   }
@@ -1479,6 +1676,7 @@ function resolveKeyframeEditFrameRange(
     range: { startFrame, endFrame },
     localStartFrame: startFrame - overlayStartFrame,
     localEndFrame: endFrame - overlayStartFrame,
+    warnings,
   };
 }
 
@@ -1640,7 +1838,10 @@ export function applySpeedRampToProject(
     };
   }
 
-  if (!options.allowDialogueSpeedRamp && hasCaptionDialogueInRange(overlays, rangeResult.range)) {
+  if (
+    !options.allowDialogueSpeedRamp
+    && hasCaptionDialogueInRange(overlays, rangeResult.range, positiveNumber(project?.fps) ?? 30)
+  ) {
     return {
       status: "conflict",
       startFrame,
@@ -1778,7 +1979,13 @@ export function applyFadeToProject(
   const overlayDurationFrames = duration(overlay.durationInFrames);
   const localStartFrame = startFrame - overlayStartFrame;
   const localEndFrame = endFrame - overlayStartFrame;
-  if (localStartFrame < 0 || localEndFrame > overlayDurationFrames || localEndFrame - localStartFrame < 1) {
+  const direction = options.direction ?? "out";
+  const minimumRangeFrames = direction === "both" ? 2 : 1;
+  if (
+    localStartFrame < 0
+    || localEndFrame > overlayDurationFrames
+    || localEndFrame - localStartFrame < minimumRangeFrames
+  ) {
     return {
       status: "no-target",
       startFrame,
@@ -1805,9 +2012,41 @@ export function applyFadeToProject(
     };
   }
 
-  const direction = options.direction ?? "out";
-  const fromOpacity = round3(clamp(options.fromOpacity ?? (direction === "in" ? 0 : 1), 0, 1));
-  const toOpacity = round3(clamp(options.toOpacity ?? (direction === "in" ? 1 : 0), 0, 1));
+  const rendererFade = resolveRendererFadeAnimation(overlay, direction);
+  const hasExplicitFadeShape = [
+    options.startFrame,
+    options.endFrame,
+    options.targetFrame,
+    options.durationFrames,
+    options.fromOpacity,
+    options.toOpacity,
+  ].some((value) => value != null);
+  if (rendererFade.satisfiesRequest && !hasExplicitFadeShape && !options.replaceExistingOpacityKeyframes) {
+    return {
+      status: "no-target",
+      startFrame,
+      endFrame,
+      targetOverlayId: overlay.id,
+      updates: [],
+      warnings,
+      message: `Overlay ${String(overlay.id)} already has the requested renderer fade.`,
+    };
+  }
+  if (rendererFade.hasConflictingFade && !options.replaceExistingOpacityKeyframes) {
+    return {
+      status: "conflict",
+      startFrame,
+      endFrame,
+      targetOverlayId: overlay.id,
+      updates: [],
+      warnings: ["Existing renderer fade animation was found; a second opacity owner was not added."],
+      message: `Overlay ${String(overlay.id)} already has renderer-owned fade motion. Ask to replace existing opacity motion if different fade timing is intentional.`,
+    };
+  }
+
+  const fadesFromTransparentEdge = direction === "in" || direction === "both";
+  const fromOpacity = round3(clamp(options.fromOpacity ?? (fadesFromTransparentEdge ? 0 : 1), 0, 1));
+  const toOpacity = round3(clamp(options.toOpacity ?? (fadesFromTransparentEdge ? 1 : 0), 0, 1));
   if (fromOpacity === toOpacity) {
     return {
       status: "no-target",
@@ -1820,7 +2059,14 @@ export function applyFadeToProject(
     };
   }
 
-  const fadeTrack = buildFadeTrack(localStartFrame, localEndFrame, fromOpacity, toOpacity, direction);
+  const fadeTrack = buildFadeTrack(
+    localStartFrame,
+    localEndFrame,
+    fromOpacity,
+    toOpacity,
+    direction,
+    Math.max(1, Math.round(positiveNumber(options.durationFrames) ?? 20)),
+  );
   const keptTracks = existingTracks.filter((track: any) => {
     if (options.replaceExistingOpacityKeyframes && track?.property === "opacity") return false;
     return !isFadeTrack(track);
@@ -1840,12 +2086,15 @@ export function applyFadeToProject(
       localEndFrame,
       previousKeyframeTrackCount: existingTracks.length,
       nextKeyframeTracks,
+      ...(rendererFade.nextStyles ? { nextStyles: rendererFade.nextStyles } : {}),
       fromOpacity,
       toOpacity,
       reason: `semantic-fade-${direction}`,
     }],
     warnings,
-    message: `Applied ${direction === "in" ? "fade in" : "fade out"} to overlay ${String(overlay.id)} over frames ${startFrame}-${endFrame}.`,
+    message: `Applied ${
+      direction === "both" ? "fade in and out" : direction === "in" ? "fade in" : "fade out"
+    } to overlay ${String(overlay.id)} over frames ${startFrame}-${endFrame}.`,
   };
 }
 
@@ -1891,7 +2140,19 @@ export function applyLayerReorderToProject(
   } else if (relation === "front") {
     nextRow = 0;
   } else if (relation === "back") {
-    nextRow = overlays.reduce((maxRow: number, overlay: any) => Math.max(maxRow, currentOverlayRow(overlay)), 0) + 1;
+    const furthestOtherRow = overlays
+      .filter((overlay: any) => String(overlay?.id) !== String(target.id))
+      .reduce((maxRow: number, overlay: any) => Math.max(maxRow, currentOverlayRow(overlay)), -1);
+    if (previousRow > furthestOtherRow) {
+      return {
+        status: "no-target",
+        targetOverlayId: target.id,
+        updates: [],
+        warnings,
+        message: `Overlay ${String(target.id)} is already behind every other ordinary layer.`,
+      };
+    }
+    nextRow = furthestOtherRow + 1;
   } else {
     const referenceResult = resolveLayerReorderOverlay(project, options.referenceOverlayId, options.referenceQuery, "reference");
     if (!referenceResult.ok) {
@@ -1942,8 +2203,28 @@ export function applyLayerReorderToProject(
 
     const referenceRow = currentOverlayRow(reference);
     if (relation === "behind") {
+      if (previousRow > referenceRow) {
+        return {
+          status: "no-target",
+          targetOverlayId: target.id,
+          referenceOverlayId: reference.id,
+          updates: [],
+          warnings,
+          message: `Overlay ${String(target.id)} is already behind reference overlay ${String(reference.id)}.`,
+        };
+      }
       nextRow = referenceRow + 1;
     } else {
+      if (previousRow < referenceRow) {
+        return {
+          status: "no-target",
+          targetOverlayId: target.id,
+          referenceOverlayId: reference.id,
+          updates: [],
+          warnings,
+          message: `Overlay ${String(target.id)} is already in front of reference overlay ${String(reference.id)}.`,
+        };
+      }
       if (referenceRow <= 0) {
         return {
           status: "conflict",
@@ -1993,6 +2274,23 @@ export function applyLayerReorderToProject(
     };
   }
 
+  const currentStyles = target?.styles && typeof target.styles === "object" && !Array.isArray(target.styles)
+    ? target.styles as Record<string, unknown>
+    : {};
+  const protectedStyles = String(target?.type) === "text" && roundedNextRow < previousRow
+    ? protectChatTextLegibility({
+        overlayType: "text",
+        currentStyles,
+      })
+    : undefined;
+  const nextStyles = protectedStyles && Object.entries(protectedStyles)
+    .some(([key, value]) => currentStyles[key] !== value)
+    ? protectedStyles
+    : undefined;
+  if (nextStyles) {
+    warnings.push("Applied the canonical text legibility floor because the text overlay moved toward the front.");
+  }
+
   return {
     status: "changed",
     targetOverlayId: target.id,
@@ -2001,6 +2299,7 @@ export function applyLayerReorderToProject(
       overlayId: target.id,
       previousRow,
       nextRow: roundedNextRow,
+      ...(nextStyles ? { nextStyles } : {}),
       referenceOverlayId: reference?.id,
       relation,
       reason: "semantic-layer-reorder",
@@ -2741,15 +3040,39 @@ function overlayCoversRange(overlay: any, range: FrameRange): boolean {
   return startFrame <= range.startFrame && endFrame >= range.endFrame;
 }
 
-function hasCaptionDialogueInRange(overlays: any[], range: FrameRange): boolean {
+function hasCaptionDialogueInRange(overlays: any[], range: FrameRange, fps: number): boolean {
   return overlays.some((overlay) => {
     const type = String(overlay?.type ?? "").toLowerCase();
     if (type !== "caption" && type !== "subtitle") return false;
+    const overlayStartFrame = frame(overlay?.from);
+    const timedWords = timedCaptionRanges(overlay?.words, overlayStartFrame, fps);
+    const timedCaptions = timedWords.length === 0
+      ? timedCaptionRanges(overlay?.captions, overlayStartFrame, fps)
+      : [];
+    const timedRanges = timedWords.length > 0 ? timedWords : timedCaptions;
+    if (timedRanges.length > 0) {
+      return timedRanges.some((timedRange) => rangesOverlap(range, timedRange));
+    }
+
+    // Legacy caption payloads without usable word/group timings remain
+    // conservative: their outer range is the only dialogue evidence available.
     const overlayRange = {
-      startFrame: frame(overlay?.from),
-      endFrame: frame(overlay?.from) + duration(overlay?.durationInFrames),
+      startFrame: overlayStartFrame,
+      endFrame: overlayStartFrame + duration(overlay?.durationInFrames),
     };
     return rangesOverlap(range, overlayRange);
+  });
+}
+
+function timedCaptionRanges(value: unknown, overlayStartFrame: number, fps: number): FrameRange[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item: any) => {
+    const startMs = finiteNumber(item?.startMs);
+    const endMs = finiteNumber(item?.endMs);
+    if (startMs === undefined || endMs === undefined || startMs < 0 || endMs <= startMs) return [];
+    const startFrame = overlayStartFrame + Math.floor((startMs / 1_000) * fps);
+    const endFrame = overlayStartFrame + Math.ceil((endMs / 1_000) * fps);
+    return endFrame > startFrame ? [{ startFrame, endFrame }] : [];
   });
 }
 
@@ -2866,7 +3189,14 @@ function resolveFadeFrameRange(
   let endFrame = positiveOrZeroNumber(options.endFrame);
   const targetFrame = positiveOrZeroNumber(options.targetFrame);
 
-  if (startFrame == null && endFrame == null && targetFrame != null) {
+  if (direction === "both" && startFrame == null && endFrame == null) {
+    startFrame = overlayStartFrame;
+    endFrame = overlayEndFrame;
+  } else if (direction === "both" && startFrame == null && endFrame != null) {
+    startFrame = overlayStartFrame;
+  } else if (direction === "both" && endFrame == null && startFrame != null) {
+    endFrame = overlayEndFrame;
+  } else if (startFrame == null && endFrame == null && targetFrame != null) {
     startFrame = targetFrame;
     endFrame = targetFrame + durationFrames;
   } else if (startFrame == null && endFrame == null) {
@@ -2944,8 +3274,40 @@ function buildFadeTrack(
   localEndFrame: number,
   fromOpacity: number,
   toOpacity: number,
-  direction: "in" | "out",
+  direction: "in" | "out" | "both",
+  durationFrames: number,
 ): any {
+  if (direction === "both") {
+    const availableFrames = localEndFrame - localStartFrame;
+    const edgeDurationFrames = Math.min(
+      Math.max(1, Math.round(durationFrames)),
+      Math.floor(availableFrames / 2),
+    );
+    const fadeInEndFrame = localStartFrame + edgeDurationFrames;
+    const fadeOutStartFrame = localEndFrame - edgeDurationFrames;
+    const keyframes = [
+      { frame: localStartFrame, value: fromOpacity, easing: "ease-out" },
+      {
+        frame: fadeInEndFrame,
+        value: toOpacity,
+        easing: fadeOutStartFrame === fadeInEndFrame ? "ease-in" : "linear",
+      },
+    ];
+    if (fadeOutStartFrame > fadeInEndFrame) {
+      keyframes.push({ frame: fadeOutStartFrame, value: toOpacity, easing: "ease-in" });
+    }
+    keyframes.push({ frame: localEndFrame, value: fromOpacity, easing: "linear" });
+    return {
+      property: "opacity",
+      keyframes,
+      metadata: {
+        family: "fade",
+        source: "apply_fade",
+        direction,
+      },
+    };
+  }
+
   return {
     property: "opacity",
     keyframes: [
@@ -2966,6 +3328,49 @@ function isFadeTrack(track: any): boolean {
     || track?.source === "apply_fade"
     || metadata?.family === "fade"
     || metadata?.source === "apply_fade";
+}
+
+function resolveRendererFadeAnimation(
+  overlay: any,
+  direction: "in" | "out" | "both",
+): {
+  satisfiesRequest: boolean;
+  hasConflictingFade: boolean;
+  nextStyles?: Record<string, unknown>;
+} {
+  const styles = isRecord(overlay?.styles) ? overlay.styles : undefined;
+  const animation = isRecord(styles?.animation) ? styles.animation : undefined;
+  if (!styles || !animation) {
+    return { satisfiesRequest: false, hasConflictingFade: false };
+  }
+
+  const hasFadeIn = animation.enter === "fade";
+  const hasFadeOut = animation.exit === "fade";
+  const satisfiesRequest = direction === "both"
+    ? hasFadeIn && hasFadeOut
+    : direction === "in"
+      ? hasFadeIn
+      : hasFadeOut;
+  const hasConflictingFade = direction === "both"
+    ? hasFadeIn || hasFadeOut
+    : direction === "in"
+      ? hasFadeIn
+      : hasFadeOut;
+  if (!hasConflictingFade) {
+    return { satisfiesRequest, hasConflictingFade };
+  }
+
+  const nextAnimation = { ...animation };
+  if (direction === "in" || direction === "both") delete nextAnimation.enter;
+  if (direction === "out" || direction === "both") delete nextAnimation.exit;
+  return {
+    satisfiesRequest,
+    hasConflictingFade,
+    nextStyles: {
+      ...styles,
+      animation: nextAnimation,
+    },
+  };
 }
 
 function resolveLayerReorderOverlay(
@@ -3100,6 +3505,84 @@ function overlayFrameRange(overlay: any): FrameRange {
     startFrame,
     endFrame: startFrame + duration(overlay?.durationInFrames),
   };
+}
+
+function withAffectedFrameRanges<T extends object>(
+  data: T,
+  ranges: FrameRange[],
+  owner: string,
+): T & { affectedFrameRanges: FrameRange[] } {
+  const affectedFrameRanges = normalizeAffectedFrameRanges(ranges);
+  if (affectedFrameRanges.length === 0) {
+    throw new Error(`${owner} produced a changed plan without a valid affected frame range.`);
+  }
+  return { ...data, affectedFrameRanges };
+}
+
+function normalizeAffectedFrameRanges(ranges: FrameRange[]): FrameRange[] {
+  const unique = new Map<string, FrameRange>();
+  for (const range of ranges) {
+    const rawStart = Number(range?.startFrame);
+    const rawEnd = Number(range?.endFrame);
+    if (!Number.isFinite(rawStart) || !Number.isFinite(rawEnd)) continue;
+    const startFrame = Math.max(0, Math.round(rawStart));
+    const endFrame = Math.max(0, Math.round(rawEnd));
+    if (endFrame <= startFrame) continue;
+    unique.set(`${startFrame}:${endFrame}`, { startFrame, endFrame });
+  }
+  return Array.from(unique.values()).sort(
+    (left, right) => left.startFrame - right.startFrame || left.endFrame - right.endFrame,
+  );
+}
+
+function overlayRangesForIds(project: any, overlayIds: OverlayId[]): FrameRange[] {
+  const ids = new Set(overlayIds.map((overlayId) => String(overlayId)));
+  const overlays = Array.isArray(project?.overlays) ? project.overlays : [];
+  return overlays
+    .filter((overlay: any) => ids.has(String(overlay?.id)))
+    .map(overlayFrameRange);
+}
+
+function cameraShakeAffectedFrameRanges(project: any, plan: CameraShakePlan): FrameRange[] {
+  const overlays = Array.isArray(project?.overlays) ? project.overlays : [];
+  return plan.updates.flatMap((update) => {
+    const overlay = overlays.find((candidate: any) => String(candidate?.id) === String(update.overlayId));
+    if (!overlay) return [];
+    const shakeFrames = update.nextKeyframeTracks
+      .filter(isCameraShakeTrack)
+      .flatMap((track: any) => (
+        Array.isArray(track?.keyframes)
+          ? track.keyframes.map((keyframe: any) => Number(keyframe?.frame))
+          : []
+      ))
+      .filter(Number.isFinite);
+    if (shakeFrames.length === 0) return [];
+    const overlayStartFrame = frame(overlay.from);
+    return [{
+      startFrame: overlayStartFrame + Math.min(...shakeFrames),
+      endFrame: overlayStartFrame + Math.max(...shakeFrames) + 1,
+    }];
+  });
+}
+
+function layerReorderAffectedFrameRanges(project: any, plan: LayerReorderPlan): FrameRange[] {
+  const overlays = Array.isArray(project?.overlays) ? project.overlays : [];
+  return plan.updates.flatMap((update) => {
+    const target = overlays.find((overlay: any) => String(overlay?.id) === String(update.overlayId));
+    if (!target) return [];
+    const targetRange = overlayFrameRange(target);
+    if (update.referenceOverlayId == null) return [targetRange];
+    const reference = overlays.find(
+      (overlay: any) => String(overlay?.id) === String(update.referenceOverlayId),
+    );
+    if (!reference) return [targetRange];
+    const referenceRange = overlayFrameRange(reference);
+    if (!rangesOverlap(targetRange, referenceRange)) return [targetRange];
+    return [{
+      startFrame: Math.max(targetRange.startFrame, referenceRange.startFrame),
+      endFrame: Math.min(targetRange.endFrame, referenceRange.endFrame),
+    }];
+  });
 }
 
 function findLayerRowCollisions(overlays: any[], target: any, nextRow: number): any[] {
@@ -3336,6 +3819,9 @@ export function resolveVisualEditPlacement(
   const readOnlyInspection = action === "inspect";
   if ((!candidate.safeForAutoEdit && !readOnlyInspection) || semanticCutRequiresConfirmation) {
     const second = candidates[1];
+    const inspection = canRequestCanonicalFrameVerification(candidate)
+      ? visualInspectionRequest(candidate, action)
+      : undefined;
     return {
       status: "ambiguous",
       action,
@@ -3343,9 +3829,12 @@ export function resolveVisualEditPlacement(
       candidates,
       candidate,
       warnings,
-      message: second
-        ? `Visual reference "${query}" is ambiguous between frames ${candidate.startFrame}-${candidate.endFrame} and ${second.startFrame}-${second.endFrame}. Ask the user to choose before editing.`
-        : `Visual reference "${query}" was not confident enough for automatic ${action}.`,
+      ...(inspection ? { useWith: { visual_inspect_frame: inspection } } : {}),
+      message: inspection
+        ? `Visual reference "${query}" requires rendered-frame confirmation before automatic ${action}.`
+        : second
+          ? `Visual reference "${query}" is ambiguous between frames ${candidate.startFrame}-${candidate.endFrame} and ${second.startFrame}-${second.endFrame}. Ask the user to choose before editing.`
+          : `Visual reference "${query}" was not confident enough for automatic ${action}.`,
     };
   }
 
@@ -3443,6 +3932,21 @@ export function resolveVisualEditPlacement(
     },
     message: `Resolved highlight for "${candidate.text}" to frame ${candidate.frame} with a bounding box.`,
   };
+}
+
+function visualInspectionRequest(
+  candidate: VisualMomentCandidate,
+  action: VisualEditAction,
+): VisualMomentCandidate["useWith"]["visual_inspect_frame"] {
+  const request = candidate.useWith.visual_inspect_frame;
+  if (action !== "speed_ramp") return request;
+  const lastFrame = Math.max(candidate.startFrame, candidate.endFrame - 1);
+  const frames = Array.from(new Set([
+    Math.min(lastFrame, candidate.startFrame + 1),
+    clampInt(candidate.frame, candidate.startFrame, lastFrame),
+    Math.max(candidate.startFrame, lastFrame - 1),
+  ])).sort((left, right) => left - right);
+  return frames.length >= 3 ? { ...request, frames } : request;
 }
 
 function buildVisualHighlightOverlay(
@@ -3922,6 +4426,15 @@ function positiveNumber(value: unknown): number | undefined {
 function positiveOrZeroNumber(value: unknown): number | undefined {
   const numeric = typeof value === "number" ? value : Number(value);
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -100,7 +100,7 @@ export async function prepareChatAiEditTransaction(
 ): Promise<PrepareChatAiEditTransactionResult> {
   assertOperationId(input.operationId);
   const checkpointStore = dependencies.checkpointStore ?? checkpointService;
-  const beforeCheckpointId = checkpointIdFor(input, 'before');
+  const beforeCheckpointId = buildChatEditCheckpointId(input, 'before');
   const projectState = captureRestorableProjectState(input.project);
   const claim = await checkpointStore.claimChatEditOperation({
     checkpointId: beforeCheckpointId,
@@ -186,7 +186,7 @@ export async function completeChatAiEditTransaction(
   try {
     const project = await services.loadProject(input.transaction.userId, input.transaction.projectId);
     if (!project) throw new Error('Project could not be loaded after AI edit execution.');
-    const afterCheckpointId = checkpointIdFor(input.transaction, 'after');
+    const afterCheckpointId = buildChatEditCheckpointId(input.transaction, 'after');
     const afterCheckpoint = await services.checkpointStore.createCheckpoint({
       checkpointId: afterCheckpointId,
       operationId: input.transaction.operationId,
@@ -376,7 +376,10 @@ export function buildChatEditRenderVerificationRequest(input: {
   const targetsByKey = new Map<string, ChatEditRenderVerificationTarget>();
   const mutationRangesByKey = new Map<string, ChatEditRenderVerificationMutationRange>();
   const modalitySet = new Set<ChatEditRenderVerificationModality>();
-  const expectedEffects = new Set<ChatEditRenderVerificationExpectation>();
+  const expectedEffectsByModality = new Map<
+    ChatEditRenderVerificationModality,
+    Set<ChatEditRenderVerificationExpectation>
+  >();
   const inheritedRenderEligibilityOverlayIds = new Set<string>();
 
   for (const successful of input.successfulCalls) {
@@ -404,23 +407,39 @@ export function buildChatEditRenderVerificationRequest(input: {
         withOwner,
       );
     }
-    for (const modality of inferMutationModalities(successful.call, targets, receipt?.modalities)) {
+    const inferredModalities = inferMutationModalities(successful.call, targets, receipt?.modalities);
+    const renderContract = getChatToolMetadata(successful.call.name)?.postconditions?.render;
+    for (const modality of inferredModalities) {
       modalitySet.add(modality);
+      const expectations = expectedEffectsByModality.get(modality) ?? new Set();
+      expectations.add(
+        renderContract?.expectationsByModality?.[modality]
+        ?? renderContract?.expectation
+        ?? 'mutation-delta',
+      );
+      expectedEffectsByModality.set(modality, expectations);
     }
-    expectedEffects.add(
-      getChatToolMetadata(successful.call.name)?.postconditions?.render.expectation
-      ?? 'mutation-delta',
-    );
   }
 
   const targets = Array.from(targetsByKey.values());
   const mutationRanges = Array.from(mutationRangesByKey.values());
   if (modalitySet.size === 0) modalitySet.add('visual');
   const durationInFrames = Math.max(1, Math.round(finitePositiveNumber(input.project.durationInFrames) ?? 1));
+  const expectationsByModality = Object.fromEntries(
+    Array.from(modalitySet).map((modality) => {
+      const expectations = expectedEffectsByModality.get(modality);
+      return [
+        modality,
+        expectations?.has('mutation-delta') === false
+          ? 'continuity-preserved'
+          : 'mutation-delta',
+      ];
+    }),
+  ) as Partial<Record<ChatEditRenderVerificationModality, ChatEditRenderVerificationExpectation>>;
   const expectedEffect: ChatEditRenderVerificationExpectation =
-    expectedEffects.has('mutation-delta')
-      ? 'mutation-delta'
-      : 'continuity-preserved';
+    expectationsByModality.visual
+    ?? expectationsByModality.audio
+    ?? 'mutation-delta';
   const sampleFrames = buildVerificationSampleFrames(
     targets,
     durationInFrames,
@@ -438,6 +457,7 @@ export function buildChatEditRenderVerificationRequest(input: {
     requestedAt: input.requestedAt ?? new Date().toISOString(),
     modalities: Array.from(modalitySet),
     expectedEffect,
+    expectationsByModality,
     targets,
     ...(mutationRanges.length > 0 ? { mutationRanges } : {}),
     ...(inheritedRenderEligibilityOverlayIds.size > 0
@@ -520,18 +540,17 @@ function inferMutationModalities(
   targets: ChatEditRenderVerificationTarget[],
   declared: ChatEditRenderVerificationModality[] = [],
 ): ChatEditRenderVerificationModality[] {
+  // A passed postcondition receipt is the family owner's explicit contract.
+  // It derives audio eligibility from the actual changed overlays and their
+  // durable rights receipts, so the transaction layer must not broaden it.
+  if (declared.length > 0) {
+    return Array.from(new Set(declared));
+  }
+
   const isTimelineMutation = [
     'split_overlay', 'trim_overlay', 'cut_section', 'close_gaps',
     'auto_edit_from_script',
   ].includes(call.name);
-
-  // A passed postcondition receipt is the family owner's explicit contract.
-  // Do not broaden a visual-only video edit into audio verification merely
-  // because the target video may contain an audio stream. Timeline mutations
-  // remain the exception because they can change picture and sound together.
-  if (declared.length > 0 && !isTimelineMutation) {
-    return Array.from(new Set(declared));
-  }
 
   const targetTypes = new Set(targets.map((target) => target.overlayType.toLowerCase()));
   const argumentKeys = collectObjectKeys(call.args);
@@ -599,9 +618,12 @@ function buildVerificationSampleFrames(
       }
       continue;
     }
+    const midpoint = Math.round((start + end) / 2);
     frames.push(
       clampFrame(start - 1, durationInFrames),
       start,
+      midpoint,
+      end,
       clampFrame(end + 1, durationInFrames),
     );
   }
@@ -770,7 +792,7 @@ async function resolveServices(dependencies: RuntimeDependencies) {
   return { checkpointStore, loadProject: projectService.loadProject.bind(projectService) as LoadProject };
 }
 
-function checkpointIdFor(
+export function buildChatEditCheckpointId(
   input: Pick<ChatAiEditTransaction, 'operationId' | 'sessionId' | 'projectId' | 'userId'>,
   position: 'before' | 'after',
 ): string {

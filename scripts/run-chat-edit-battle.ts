@@ -5,6 +5,13 @@ import { pathToFileURL } from 'node:url';
 
 import { config as loadEnv } from 'dotenv';
 
+import type { Overlay } from '../components/editron/editor/version-7.0.0/types';
+import {
+  extractChatFrameCaptureRequest,
+  type ChatFrameCaptureRequest,
+  type ChatFrameEvidence,
+} from '../lib/editron/agent/chat-frame-evidence';
+import { captureMgVisualEvidence } from '../lib/editron/motion-graphics/codegen/visual-evidence';
 import { readRotatingChatBattleAuthHeaders } from './chat-edit-battle-auth';
 import { cleanupDisposableChatBattleFixture } from '../lib/editron/services/chat-edit-battle-fixture-cleanup';
 import {
@@ -78,6 +85,9 @@ async function main(): Promise<void> {
   let baselineMaterialDigest: string | null = null;
   let latestInvocation: ChatBattleInvocationEvidence | null = null;
   let latestDurableMutationFailure: string | null = null;
+  const requestedOperationIds = new Set<string>([
+    options.operationId ?? `chat-battle:${safeSegment(options.runId)}`,
+  ]);
 
   const report = await runChatEditBattleJourney(
     {
@@ -123,7 +133,7 @@ async function main(): Promise<void> {
         return loadMongoProject(projectId);
       },
       invokeAgent: async ({ scenario, projectId, selectedOverlayId, clientContext: context }) => {
-        const invocation = await invokeLiveChatAgent({
+        let invocation = await invokeLiveChatAgent({
           api,
           scenarioPrompt: scenario.prompt,
           projectId,
@@ -134,6 +144,38 @@ async function main(): Promise<void> {
           operationId: options.operationId,
           startedAt: startedAtHolder.value || new Date().toISOString(),
         });
+        const frameCaptureEvent = [...invocation.toolEvents]
+          .reverse()
+          .find((event) => event.name === 'visual_inspect_frame');
+        const frameCaptureRequest = frameCaptureEvent
+          ? extractChatFrameCaptureRequest(frameCaptureEvent.output)
+          : null;
+        if (frameCaptureRequest) {
+          const continuationSessionId = invocation.sessionId ?? options.sessionId;
+          if (!continuationSessionId) {
+            throw new Error('Visual-evidence continuation requires the sessionId returned by the first chat round.');
+          }
+          console.log(`[chat-battle] rendering requested visual evidence at frame ${frameCaptureRequest.frame}`);
+          const visualEvidence = await buildChatBattleFrameEvidence(
+            await loadMongoProject(projectId),
+            frameCaptureRequest,
+          );
+          const followUpOperationId = `chat-battle:${safeSegment(`${options.runId}-visual-evidence`)}`;
+          requestedOperationIds.add(followUpOperationId);
+          const followUp = await invokeLiveChatAgent({
+            api,
+            scenarioPrompt: scenario.prompt,
+            projectId,
+            sessionId: continuationSessionId,
+            selectedOverlayId,
+            clientContext: context,
+            runId: `${options.runId}-visual-evidence`,
+            operationId: followUpOperationId,
+            startedAt: startedAtHolder.value || new Date().toISOString(),
+            visualEvidence,
+          });
+          invocation = mergeChatBattleInvocations(invocation, followUp);
+        }
         const editorialIntentJobId = extractQueuedEditorialIntentJobId(invocation);
         if (editorialIntentJobId) {
           console.log(`[chat-battle] waiting for editorial-intent job ${editorialIntentJobId} to settle`);
@@ -191,6 +233,7 @@ async function main(): Promise<void> {
             `[chat-battle] reference-style reached ${terminal.status} after ${terminal.polls} poll(s)`
             + `${terminal.error ? `: ${terminal.error}` : ''}`,
           );
+          if (terminal.renderOperationId) requestedOperationIds.add(terminal.renderOperationId);
           const settledInvocation: ChatBattleInvocationEvidence = {
             ...invocation,
             durableOperations: [
@@ -208,6 +251,32 @@ async function main(): Promise<void> {
           latestDurableMutationFailure = isFailedDurableStatus(terminal.status)
             ? `reference-style-${terminal.status}:${terminal.error ?? 'no error detail'}`
             : null;
+          latestInvocation = settledInvocation;
+          return settledInvocation;
+        }
+        const sceneRegeneration = extractCompletedSceneRegenerationReceipt(invocation);
+        if (sceneRegeneration) {
+          const terminal = await verifyCompletedSceneRegenerationReceipt({
+            projectId,
+            receipt: sceneRegeneration,
+          });
+          const settledInvocation: ChatBattleInvocationEvidence = {
+            ...invocation,
+            durableOperations: [
+              ...(invocation.durableOperations ?? []),
+              {
+                owner: 'scene-regeneration',
+                jobId: sceneRegeneration.jobId,
+                status: terminal.materialChange ? 'completed' : 'failed',
+                materialChange: terminal.materialChange,
+                polls: 1,
+                ...(terminal.error ? { error: terminal.error } : {}),
+              },
+            ],
+          };
+          latestDurableMutationFailure = terminal.materialChange
+            ? null
+            : `scene-regeneration-failed:${terminal.error ?? 'no error detail'}`;
           latestInvocation = settledInvocation;
           return settledInvocation;
         }
@@ -272,7 +341,10 @@ async function main(): Promise<void> {
       },
       reloadUiProject: async (projectId) => getJson(api, `/api/services/editron/projects/${encodeURIComponent(projectId)}`),
       captureRenderEvidence: async ({ projectId, mongoAfter, startedAt }) => {
-        const initial = extractPersistedChatBattleRenderEvidence(mongoAfter, startedAt);
+        const initial = extractPersistedChatBattleRenderEvidence(mongoAfter, startedAt, {
+          requireChatVerification: true,
+          expectedOperationIds: [...requestedOperationIds],
+        });
         if (!shouldPollForFreshChatBattleRenderEvidence({
           requiresRenderedEvidence: scenario.requireRenderedEvidence,
           initialStatus: initial.status,
@@ -286,6 +358,8 @@ async function main(): Promise<void> {
           projectId,
           startedAt,
           initialProject: asRecord(mongoAfter),
+          requireChatVerification: true,
+          expectedOperationIds: [...requestedOperationIds],
         });
       },
     },
@@ -343,6 +417,7 @@ async function invokeLiveChatAgent(input: {
   runId: string;
   operationId?: string;
   startedAt: string;
+  visualEvidence?: ChatFrameEvidence;
 }): Promise<ChatBattleInvocationEvidence> {
   const requestBody = buildLiveChatRequestBody(input);
   const headers = await readChatBattleAuthHeaders(input.api.authHeaderFile);
@@ -356,6 +431,7 @@ async function invokeLiveChatAgent(input: {
   if (replayProtection) {
     return {
       agentRunId: input.runId,
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       mode: 'live-provider',
       prompt: input.scenarioPrompt,
       responseText: '',
@@ -375,6 +451,11 @@ async function invokeLiveChatAgent(input: {
     .join('');
   return {
     agentRunId: typeof done?.sessionId === 'string' ? `${input.runId}:${done.sessionId}` : input.runId,
+    ...(typeof done?.sessionId === 'string'
+      ? { sessionId: done.sessionId }
+      : input.sessionId
+        ? { sessionId: input.sessionId }
+        : {}),
     mode: 'live-provider',
     prompt: input.scenarioPrompt,
     responseText,
@@ -391,6 +472,7 @@ export function buildLiveChatRequestBody(input: {
   clientContext?: Record<string, unknown>;
   runId: string;
   operationId?: string;
+  visualEvidence?: ChatFrameEvidence;
 }): Record<string, unknown> {
   return {
     message: input.scenarioPrompt,
@@ -399,6 +481,92 @@ export function buildLiveChatRequestBody(input: {
     operationId: input.operationId ?? `chat-battle:${safeSegment(input.runId)}`,
     ...(input.selectedOverlayId ? { selectedOverlayId: input.selectedOverlayId } : {}),
     ...(input.clientContext ? { clientContext: input.clientContext } : {}),
+    ...(input.visualEvidence ? { visualEvidence: input.visualEvidence } : {}),
+  };
+}
+
+export async function buildChatBattleFrameEvidence(
+  projectValue: unknown,
+  request: ChatFrameCaptureRequest,
+  dependencies: {
+    capture: typeof captureMgVisualEvidence;
+    now(): number;
+  } = {
+    capture: captureMgVisualEvidence,
+    now: () => Date.now(),
+  },
+): Promise<ChatFrameEvidence> {
+  const project = asRecord(projectValue);
+  const playerDimensions = asRecord(project.playerDimensions);
+  const dimensions = asRecord(project.dimensions);
+  const width = positiveInteger(project.width)
+    ?? positiveInteger(playerDimensions.width)
+    ?? positiveInteger(dimensions.width);
+  const height = positiveInteger(project.height)
+    ?? positiveInteger(playerDimensions.height)
+    ?? positiveInteger(dimensions.height);
+  const fps = positiveNumber(project.fps);
+  const durationInFrames = positiveInteger(project.durationInFrames);
+  if (!width || !height || !fps || !durationInFrames) {
+    throw new Error('Visual-evidence continuation requires persisted canvas dimensions, fps, and duration.');
+  }
+  const requestedFrames = request.frames ?? [request.frame];
+  if (requestedFrames.some((frame) => frame < 1 || frame >= durationInFrames - 1)) {
+    throw new Error(
+      `Visual-evidence frames ${requestedFrames.join(', ')} lack the surrounding edited-timeline context required for verification.`,
+    );
+  }
+  const overlays = Array.isArray(project.overlays) ? project.overlays as Overlay[] : [];
+  if (overlays.length === 0) {
+    throw new Error('Visual-evidence continuation requires at least one persisted overlay.');
+  }
+
+  const renderFrames = request.frames ?? [request.frame - 1, request.frame, request.frame + 1];
+  const captureStartFrame = Math.min(...renderFrames);
+  const captureEndFrame = Math.max(...renderFrames) + 1;
+  const captured = await dependencies.capture({
+    overlays,
+    window: {
+      startFrame: captureStartFrame,
+      endFrame: captureEndFrame,
+      fps,
+    },
+    canvas: { width, height },
+    anchors: { landingFrame: request.frame - captureStartFrame },
+  });
+  const anchor = captured.frames.find((frame) => frame.role === 'anchor');
+  if (!anchor || anchor.coordinate.timelineFrame !== request.frame) {
+    throw new Error(
+      `Visual-evidence renderer returned frame ${anchor?.coordinate.timelineFrame ?? 'missing'} for requested frame ${request.frame}.`,
+    );
+  }
+  const capturedByFrame = new Map(
+    captured.frames.map((candidate) => [candidate.coordinate.timelineFrame, candidate]),
+  );
+  const missingFrames = requestedFrames.filter((frame) => !capturedByFrame.has(frame));
+  if (missingFrames.length > 0) {
+    throw new Error(`Visual-evidence renderer omitted requested frame(s): ${missingFrames.join(', ')}.`);
+  }
+  return {
+    frame: request.frame,
+    question: request.question,
+    dataUrl: anchor.imageDataUrl,
+    width: captured.canvas.width,
+    height: captured.canvas.height,
+    capturedAtMs: dependencies.now(),
+    source: 'editor-rendered-frame',
+    ...(requestedFrames.length > 1
+      ? {
+          contextFrames: requestedFrames
+            .filter((frame) => frame !== request.frame)
+            .map((frame) => ({
+              frame,
+              dataUrl: capturedByFrame.get(frame)!.imageDataUrl,
+              width: captured.canvas.width,
+              height: captured.canvas.height,
+            })),
+        }
+      : {}),
   };
 }
 
@@ -490,6 +658,91 @@ export function extractQueuedEditorialIntentJobId(
   return null;
 }
 
+export interface CompletedSceneRegenerationReceipt {
+  storyboardId: string;
+  sceneIndex: number;
+  jobId: string;
+  beforeAssetId: string;
+  afterAssetId: string;
+}
+
+export function extractCompletedSceneRegenerationReceipt(
+  invocation: ChatBattleInvocationEvidence,
+): CompletedSceneRegenerationReceipt | null {
+  for (const event of invocation.toolEvents) {
+    if (event.name !== 'regenerate_scene') continue;
+    const output = parseToolOutputRecord(event.output);
+    if (output.status !== 'success') continue;
+    const data = asRecord(output.data);
+    const storyboardId = stringValue(data.storyboardId);
+    const sceneIndex = data.sceneIndex;
+    const operations = Array.isArray(data.operations) ? data.operations.map(asRecord) : [];
+    const completedImage = operations.find((operation) => (
+      operation.target === 'image'
+      && operation.status === 'completed'
+    ));
+    const jobId = stringValue(completedImage?.jobId ?? data.jobId);
+    const beforeAssetId = stringValue(completedImage?.beforeAssetId);
+    const afterAssetId = stringValue(completedImage?.afterAssetId);
+    if (
+      !storyboardId
+      || !/^[A-Za-z0-9_-]{1,200}$/.test(storyboardId)
+      || typeof sceneIndex !== 'number'
+      || !Number.isInteger(sceneIndex)
+      || sceneIndex < 0
+      || !jobId
+      || !/^[A-Za-z0-9:_-]{1,400}$/.test(jobId)
+      || !beforeAssetId
+      || !/^[A-Za-z0-9_-]{1,300}$/.test(beforeAssetId)
+      || !afterAssetId
+      || !/^[A-Za-z0-9_-]{1,300}$/.test(afterAssetId)
+      || beforeAssetId === afterAssetId
+    ) {
+      return null;
+    }
+    return { storyboardId, sceneIndex, jobId, beforeAssetId, afterAssetId };
+  }
+  return null;
+}
+
+interface SceneRegenerationVerificationDependencies {
+  loadScene(
+    projectId: string,
+    storyboardId: string,
+    sceneIndex: number,
+  ): Promise<Record<string, unknown> | null>;
+}
+
+export async function verifyCompletedSceneRegenerationReceipt(
+  input: {
+    projectId: string;
+    receipt: CompletedSceneRegenerationReceipt;
+  },
+  dependencies: SceneRegenerationVerificationDependencies = {
+    loadScene: loadChatBattleStoryboardScene,
+  },
+): Promise<{ materialChange: boolean; error?: string }> {
+  const scene = await dependencies.loadScene(
+    input.projectId,
+    input.receipt.storyboardId,
+    input.receipt.sceneIndex,
+  );
+  if (!scene) {
+    return { materialChange: false, error: 'regenerated-storyboard-scene-not-found' };
+  }
+  const persistedAssetId = stringValue(scene.imageAssetId);
+  if (persistedAssetId !== input.receipt.afterAssetId) {
+    return {
+      materialChange: false,
+      error: `regenerated-scene-asset-mismatch:${persistedAssetId ?? 'missing'}`,
+    };
+  }
+  if (persistedAssetId === input.receipt.beforeAssetId) {
+    return { materialChange: false, error: 'regenerated-scene-asset-unchanged' };
+  }
+  return { materialChange: true };
+}
+
 export function mergeChatBattleInvocations(
   initial: ChatBattleInvocationEvidence,
   followUp: ChatBattleInvocationEvidence,
@@ -497,6 +750,7 @@ export function mergeChatBattleInvocations(
   return {
     ...initial,
     agentRunId: `${initial.agentRunId}+${followUp.agentRunId}`,
+    sessionId: followUp.sessionId ?? initial.sessionId,
     responseText: [initial.responseText, followUp.responseText].filter(Boolean).join('\n'),
     toolEvents: [...initial.toolEvents, ...followUp.toolEvents],
     ...(followUp.error ? { error: followUp.error } : initial.error ? { error: initial.error } : {}),
@@ -532,6 +786,7 @@ export interface ReferenceStyleJobSettlementResult {
   status: 'completed' | 'completed_unverified' | 'declined' | 'failed' | 'dispatch_failed' | 'rolled_back' | 'timeout' | 'missing';
   materialChange: boolean;
   polls: number;
+  renderOperationId?: string;
   error?: string;
 }
 
@@ -618,7 +873,8 @@ export async function waitForReferenceStyleJobTerminal(
     if (!job) return { status: 'missing', materialChange: false, polls, error: 'reference-style-job-not-found' };
     const status = stringValue(job.status);
     if (status === 'completed' || status === 'completed_unverified') {
-      return { status, materialChange: true, polls };
+      const renderOperationId = stringValue(job.renderOperationId);
+      return { status, materialChange: true, polls, ...(renderOperationId ? { renderOperationId } : {}) };
     }
     if (status === 'declined') return { status, materialChange: false, polls };
     if (status === 'failed' || status === 'dispatch_failed' || status === 'rolled_back') {
@@ -657,6 +913,22 @@ async function loadChatBattleReferenceStyleJob(
   chatBattleMongoClient = client;
   return db.collection<Record<string, unknown> & { _id: string; projectId: string }>(COLLECTIONS.CHAT_REFERENCE_STYLE_JOBS)
     .findOne({ _id: jobId, projectId }) as Promise<Record<string, unknown> | null>;
+}
+
+async function loadChatBattleStoryboardScene(
+  projectId: string,
+  storyboardId: string,
+  sceneIndex: number,
+): Promise<Record<string, unknown> | null> {
+  const { connectToDatabase } = await import('../lib/editron/db/mongodb');
+  const { client, db } = await connectToDatabase();
+  chatBattleMongoClient = client;
+  const storyboard = await db.collection<Record<string, unknown>>('storyboards')
+    .findOne({ projectId, storyboardId });
+  const scenes = Array.isArray(storyboard?.scenes)
+    ? storyboard.scenes.map(asRecord)
+    : [];
+  return scenes.find((scene) => scene.sceneIndex === sceneIndex) ?? null;
 }
 
 function isFailedDurableStatus(status: string): boolean {
@@ -851,6 +1123,7 @@ function childOperationsFromParentResult(
       const outcome = normalizeChildOutcome(child.outcome, status);
       const reason = boundedEvidenceText(child.reason);
       const error = boundedEvidenceText(child.error);
+      const receipt = compactMgReceipt(asRecord(child.receipt));
       return [{
         owner: 'mg-render' as const,
         jobId,
@@ -858,6 +1131,7 @@ function childOperationsFromParentResult(
         outcome,
         ...(reason ? { reason } : {}),
         ...(error ? { error } : {}),
+        ...receipt,
       }];
     });
 }
@@ -886,7 +1160,47 @@ function childOperationEvidence(
     ...(boundedEvidenceText(address.sequenceId, 240) ? { sequenceId: boundedEvidenceText(address.sequenceId, 240)! } : {}),
     ...(reason ? { reason } : {}),
     ...(error ? { error } : {}),
+    ...compactMgReceipt(receipt),
     ...(providerFailure ? { providerFailure } : {}),
+  };
+}
+
+function compactMgReceipt(
+  receipt: Record<string, unknown>,
+): Pick<
+  ChatBattleDurableChildOperationEvidence,
+  'promptHash' | 'attempts' | 'compiled' | 'scans' | 'judgeScore' | 'judgeIssues'
+> {
+  const promptHash = boundedEvidenceText(receipt.promptHash, 128);
+  const attempts = typeof receipt.attempts === 'number'
+    && Number.isInteger(receipt.attempts)
+    && receipt.attempts >= 0
+    ? receipt.attempts
+    : undefined;
+  const compiled = typeof receipt.compiled === 'boolean' ? receipt.compiled : undefined;
+  const scans = arrayValue(receipt.scans).slice(0, 32).flatMap((value) => {
+    const scan = asRecord(value);
+    if (typeof scan.passed !== 'boolean') return [];
+    const reason = boundedEvidenceText(scan.reason);
+    return [{
+      passed: scan.passed,
+      ...(reason ? { reason } : {}),
+    }];
+  });
+  const judgeScore = typeof receipt.judgeScore === 'number' && Number.isFinite(receipt.judgeScore)
+    ? receipt.judgeScore
+    : undefined;
+  const judgeIssues = arrayValue(receipt.judgeIssues).slice(0, 100).flatMap((value) => {
+    const issue = boundedEvidenceText(value);
+    return issue ? [issue] : [];
+  });
+  return {
+    ...(promptHash ? { promptHash } : {}),
+    ...(attempts != null ? { attempts } : {}),
+    ...(compiled != null ? { compiled } : {}),
+    ...(scans.length > 0 ? { scans } : {}),
+    ...(judgeScore != null ? { judgeScore } : {}),
+    ...(judgeIssues.length > 0 ? { judgeIssues } : {}),
   };
 }
 
@@ -1086,6 +1400,8 @@ export async function waitForFreshChatBattleRenderEvidence(
     projectId: string;
     startedAt: string;
     initialProject: Record<string, unknown>;
+    requireChatVerification?: boolean;
+    expectedOperationIds?: readonly string[];
     timeoutMs?: number;
     pollIntervalMs?: number;
   },
@@ -1103,7 +1419,10 @@ export async function waitForFreshChatBattleRenderEvidence(
   let project = input.initialProject;
 
   while (true) {
-    const evidence = extractPersistedChatBattleRenderEvidence(project, input.startedAt);
+    const evidence = extractPersistedChatBattleRenderEvidence(project, input.startedAt, {
+      requireChatVerification: input.requireChatVerification,
+      expectedOperationIds: input.expectedOperationIds,
+    });
     if (evidence.status !== 'missing') return evidence;
     if (dependencies.now() >= deadline) return evidence;
     await dependencies.sleep(pollIntervalMs);
@@ -1179,6 +1498,17 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function positiveNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
+function positiveInteger(value: unknown): number | null {
+  const number = positiveNumber(value);
+  return number == null ? null : Math.round(number);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

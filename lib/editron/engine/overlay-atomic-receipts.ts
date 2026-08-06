@@ -203,12 +203,9 @@ function overlaySignals(overlay: Overlay, overrides?: Record<string, unknown>): 
   const text = overlayText(overlay);
   const hasText = text.trim().length > 0;
   const isVisual = String(overlay.type) !== "sound";
-  const isCaption = String(overlay.type) === "caption";
-  const selfTextOnScreen = hasText ? 1 : 0;
-  const selfTextCoverage = hasText ? Math.min(text.length / 900, 0.72) : 0;
   return {
-    text_on_screen: isCaption ? 0 : selfTextOnScreen,
-    text_coverage: isCaption ? 0 : selfTextCoverage,
+    text_on_screen: 0,
+    text_coverage: 0,
     visual_complexity: isVisual ? 0.35 : 0,
     speech_energy: overlay.type === "sound" || overlay.type === "caption" ? 0.5 : 0,
     word_importance: hasText ? Math.min(text.split(/\s+/).filter(Boolean).length / 42, 1) : 0,
@@ -241,6 +238,9 @@ function overlayAtoms(
   const themeTokens = text.trim() && signals ? resolveMotionTokens(contentSignalsFromSignals(signals), brandInputs) : undefined;
   const resolvedCaptionDisplay = String(overlay.type) === "caption"
     ? resolveCaptionDisplay(text, displayConfig, signals, themeTokens)
+    : undefined;
+  const visibleCaptionWordCount = String(overlay.type) === "caption"
+    ? maximumVisibleCaptionWordCount(overlay, resolvedCaptionDisplay ?? displayConfig)
     : undefined;
 
   pushNumberAtom(atoms, "opacity", "overlay.opacity", styleLike.opacity, "decision-param");
@@ -288,7 +288,16 @@ function overlayAtoms(
       overlayAtom("text-line-count", "text.line_count", lineCount(text), 1, "derived-signal"),
       overlayAtom("text-word-count", "text.word_count", wordCount(text), 1, "derived-signal"),
       ...textThemeAtoms(themeTokens),
-      ...textCompositionAtoms(family, text, styleLike, displayConfig, resolvedCaptionDisplay, signals, themeTokens),
+      ...textCompositionAtoms(
+        family,
+        text,
+        styleLike,
+        displayConfig,
+        resolvedCaptionDisplay,
+        signals,
+        themeTokens,
+        visibleCaptionWordCount,
+      ),
     );
   }
   if (String(overlay.type) === "caption" && "captions" in overlay) {
@@ -386,13 +395,14 @@ function textCompositionAtoms(
   resolvedDisplayConfig?: CaptionDisplayAtomInput,
   signals?: Record<string, unknown>,
   themeTokens?: MotionTokens,
+  visibleWordCount?: number,
 ): AtomicOverlayAtom[] {
   const lines = lineCount(text);
   const words = wordCount(text);
   const display = resolvedDisplayConfig ?? displayConfig;
   const rowCapacity = resolvedRowCapacity(family, words, lines, display, signals, themeTokens);
   const targetRowCount = display
-    ? Math.max(1, Math.ceil((display.wordsPerGroup || words || 1) / Math.max(1, rowCapacity)))
+    ? Math.max(1, Math.ceil((visibleWordCount || display.wordsPerGroup || words || 1) / Math.max(1, rowCapacity)))
     : Math.max(1, lines);
 
   return [
@@ -403,6 +413,27 @@ function textCompositionAtoms(
     overlayAtom("text-target-row-count", "text.target_row_count", targetRowCount, 1, "layout-analysis"),
     overlayAtom("text-contrast-mode", "text.contrast_mode", textContrastMode(styleLike.color, styleLike.backgroundColor), 1, "derived-signal"),
   ];
+}
+
+function maximumVisibleCaptionWordCount(
+  overlay: Overlay,
+  displayConfig?: CaptionDisplayAtomInput,
+): number | undefined {
+  if (!("captions" in overlay) || !Array.isArray(overlay.captions)) return undefined;
+  const maximumGroupWords = overlay.captions.reduce((maximum, caption) => {
+    const words = Array.isArray(caption.words) && caption.words.length > 0
+      ? caption.words.length
+      : wordCount(caption.text ?? "");
+    return Math.max(maximum, words);
+  }, 0);
+  if (maximumGroupWords <= 0) return undefined;
+
+  const mode = displayConfig?.mode;
+  if (mode === "word-by-word") return 1;
+  if (mode === "phrase" || mode === "instagram" || mode === "hormozi") {
+    return Math.min(maximumGroupWords, Math.max(1, displayConfig?.wordsPerGroup ?? maximumGroupWords));
+  }
+  return maximumGroupWords;
 }
 
 function textThemeAtoms(themeTokens?: MotionTokens): AtomicOverlayAtom[] {

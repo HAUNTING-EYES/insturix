@@ -207,6 +207,28 @@ describe('reference video source intake', () => {
     }
   });
 
+  it('accepts direct video-file URLs from any platform host (TikTok/X/Vimeo CDNs) as remote-url', () => {
+    // "Other platform" support = any host that exposes a direct video file.
+    // Platform page links (tiktok.com/...) without a file are not imported; a
+    // direct .mp4/.mov/.webm/.m4v is accepted and materialized by R1-C.
+    for (const url of [
+      'https://v16-web.tiktokcdn.com/tos/mp4/some-clip.mp4',
+      'https://video.twimg.com/ext_tw_video/123/vid/720x1280/tw.mp4',
+      'https://storage.googleapis.com/bucket/promo.webm',
+    ]) {
+      const validation = validateReferenceVideoUrlForAutoEditIntake(url);
+      expect(validation.ok).toBe(true);
+      if (validation.ok) {
+        expect(validation.sourceKind).toBe('remote-url');
+      }
+    }
+    // A direct-intake bare URL is still rejected (must be a file URL).
+    expect(validateReferenceVideoUrlForIntake('https://www.tiktok.com/@user/video/123')).toMatchObject({
+      ok: false,
+      reason: 'unsupported_reference_video_url',
+    });
+  });
+
   it('downloads and registers bounded YouTube references without live network calls', async () => {
     let selectedItag: number | undefined;
     let clipAttempted = false;

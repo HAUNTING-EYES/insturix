@@ -171,18 +171,22 @@ import type {
   ChatEditRenderedAudioWindowEvidence,
   ChatEditRenderVerificationRequest,
 } from '@/lib/editron/services/phase0-rendered-evidence-worker';
+import type { MgVisualEvidence } from '@/lib/editron/motion-graphics/codegen/types';
 import {
+  buildChatBattleFrameEvidence,
   buildLiveChatRequestBody,
   chatBattleInvocationQueuedProjectMutation,
   extractQueuedDubbingJobId,
   extractQueuedEditorialIntentJobId,
   extractQueuedReferenceStyleJobId,
+  extractCompletedSceneRegenerationReceipt,
   loadChatBattleMongoProject,
   mergeChatBattleInvocations,
   parseChatBattleCliArgs,
   parseChatBattleOperationReplayResponse,
   shouldPollForFreshChatBattleRenderEvidence,
   validateChatBattleCliOptions,
+  verifyCompletedSceneRegenerationReceipt,
   waitForDubbingJobTerminal,
   waitForEditorialIntentJobTerminal,
   waitForReferenceStyleJobTerminal,
@@ -282,6 +286,67 @@ beforeEach(() => {
 });
 
 describe('chat edit battle harness', () => {
+  it('streams a server-owned terminal response without invoking the model', async () => {
+    const tokens: string[] = [];
+    const agent = createAgent('user-battle', 'Project fixture.', {
+      sessionId: 'session-server-owned-halt',
+      operationId: 'operation-server-owned-halt',
+      requestOwnerLicense: {
+        version: 'editron-chat-request-owner-v1',
+        owner: 'semantic-editorial-planner',
+        confidence: 1,
+        reason: 'The requested transcript operation requires a localized workflow.',
+        requestDigest: 'server-owned-halt',
+        decidedBy: 'gemini',
+        semanticWorkflow: 'localized-mutation',
+        routingFacts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: false,
+          localizedReads: [],
+          localizedEdits: [{
+            modality: 'transcript',
+            operation: 'highlight',
+            query: 'this is the key point',
+            sourceSpan: 'highlight this is the key point',
+          }],
+          requestedCapabilities: [],
+          familyDirectives: [],
+          familyScopeExclusive: false,
+        },
+      },
+    });
+
+    const result = await agent.invoke(
+      { messages: [new HumanMessage('Highlight this is the key point.')] },
+      {
+        recursionLimit: 5,
+        configurable: {
+          projectId: 'proj_battle',
+          loadPostconditionProject: async () => structuredClone(fixture.project),
+          streamCallback: (chunk: { type: string; data: Record<string, unknown> }) => {
+            if (chunk.type === 'token') tokens.push(String(chunk.data.content ?? ''));
+          },
+        },
+      },
+    );
+    const finalMessage = [...(result.messages ?? [])]
+      .reverse()
+      .find((message) => message instanceof AIMessage);
+
+    expect(tokens).toEqual([
+      'I cannot safely perform the requested highlight operation on transcript evidence yet.',
+    ]);
+    expect(finalMessage?.content).toBe(tokens[0]);
+    expect(fixture.modelStep).toBe(0);
+  });
+
   it('drives the real agent graph with a deterministic model fixture and records the full journey', async () => {
     const eventMap = new Map<string, ChatBattleToolEvent>();
     const invokeAgent = async ({ scenario }: { scenario: { prompt: string } }): Promise<ChatBattleInvocationEvidence> => {
@@ -852,7 +917,7 @@ describe('chat edit battle harness', () => {
     expect(getChatEditBattleScenario('motivated-zoom')).toMatchObject({
       requiredToolSequence: [
         ['read_project_file', 'get_timeline_view'],
-        ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_keyframe_edit'],
+        ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_audio_edit', 'resolve_keyframe_edit'],
         'set_keyframes',
       ],
       forbiddenTools: ['apply_editorial_intent'],
@@ -864,6 +929,24 @@ describe('chat edit battle harness', () => {
         'add_sfx',
       ],
       forbiddenTools: ['apply_editorial_intent'],
+      acceptedResolverOutcomes: ['ambiguous'],
+    });
+  });
+
+  it('keeps animated caption requests on the canonical caption owners', () => {
+    expect(getChatEditBattleScenario('fancy-caption-track')).toMatchObject({
+      requiredToolSequence: [
+        ['read_project_file', 'get_timeline_view'],
+        'add_captions',
+      ],
+      forbiddenTools: ['add_fancy_captions'],
+    });
+    expect(getChatEditBattleScenario('refresh-fancy-captions')).toMatchObject({
+      requiredToolSequence: [
+        ['read_project_file', 'get_timeline_view'],
+        'refresh_captions',
+      ],
+      forbiddenTools: ['refresh_fancy_captions'],
     });
   });
 
@@ -879,21 +962,26 @@ describe('chat edit battle harness', () => {
     }
   });
 
-  it('requires operation-ready resolvers before localized audio, visual, and asset mutations', () => {
+  it('requires resolvers only for localized mutations and keeps beat-sync family-owned', () => {
     expect(getChatEditBattleScenario('audio-anchored-camera-shake')?.requiredToolSequence).toEqual([
       'resolve_audio_edit',
       'apply_camera_shake',
+    ]);
+    expect(getChatEditBattleScenario('manual-impact-sfx')?.requiredToolSequence).toEqual([
+      'resolve_transcript_edit',
+      'resolve_audio_edit',
+      'add_sfx',
     ]);
     expect(getChatEditBattleScenario('visual-speed-ramp')?.requiredToolSequence).toEqual([
       'resolve_visual_edit',
       'apply_speed_ramp',
     ]);
     expect(getChatEditBattleScenario('beat-sync-cuts')?.requiredToolSequence).toEqual([
-      'resolve_audio_edit',
+      ['read_project_file', 'get_timeline_view'],
       'sync_cuts_to_beats',
     ]);
     expect(getChatEditBattleScenario('replace-with-uploaded-footage')?.requiredToolSequence).toEqual([
-      'search_user_assets',
+      ['read_project_file', 'get_timeline_view'],
       'resolve_user_asset_overlay',
       'use_matching_footage',
     ]);
@@ -951,10 +1039,11 @@ describe('chat edit battle harness', () => {
       expect(scenario.mutationExpectation).toBe('conditional');
       expect(scenario.minimumSuccessfulMutations).toBe(0);
     }
+    expect(getChatEditBattleScenario('vague-sfx-beat')?.acceptedResolverOutcomes).toEqual(['ambiguous']);
   });
 
-  it('requires process-diagram creation to persist MG-family output', () => {
-    const scenario = getChatEditBattleScenario('create-html-scene')!;
+  it('requires a grounded process request to persist only AI MG sequence output', () => {
+    const scenario = getChatEditBattleScenario('grounded-process-mg')!;
     expect(scenario.requiredToolSequence).toEqual([
       ['read_project_file', 'get_timeline_view'],
       'apply_editorial_intent',
@@ -963,10 +1052,11 @@ describe('chat edit battle harness', () => {
       'generate_html_scene',
       'generate_html_sticker',
       'add_overlay',
+      'add_motion_graphic',
+      'auto_motion_graphics',
     ]));
-    expect(scenario.requiredCreatedOverlayTypes).toEqual([
-      ['motion-graphic', 'mg-sequence'],
-    ]);
+    expect(scenario.prompt).toContain('real production stages evidenced in this project');
+    expect(scenario.requiredCreatedOverlayTypes).toEqual(['mg-sequence']);
   });
 
   it('keeps rendered title proof on the literal overlay owner and rejects collateral captions', () => {
@@ -1029,10 +1119,10 @@ describe('chat edit battle harness', () => {
       });
   });
 
-  it('rejects collateral caption creation as process-diagram success', () => {
-    const scenario = getChatEditBattleScenario('create-html-scene')!;
+  it('rejects legacy and collateral overlays as grounded AI MG success', () => {
+    const scenario = getChatEditBattleScenario('grounded-process-mg')!;
     const beforeProject = project([]);
-    const invocationEvidence = invocation('create-html-scene', [
+    const invocationEvidence = invocation('grounded-process-mg', [
       {
         id: 'read',
         name: 'read_project_file',
@@ -1077,16 +1167,18 @@ describe('chat edit battle harness', () => {
       });
     };
 
-    expect(evaluateCreatedType('caption').checks.find(
-      (check) => check.id === 'mongo.required-created-overlay-types',
-    )).toMatchObject({
-      status: 'fail',
-      blocking: true,
-      evidence: {
-        createdOverlays: [{ id: 'created-caption', type: 'caption' }],
-        missing: [['motion-graphic', 'mg-sequence']],
-      },
-    });
+    for (const rejectedType of ['caption', 'motion-graphic', 'html']) {
+      expect(evaluateCreatedType(rejectedType).checks.find(
+        (check) => check.id === 'mongo.required-created-overlay-types',
+      )).toMatchObject({
+        status: 'fail',
+        blocking: true,
+        evidence: {
+          createdOverlays: [{ id: `created-${rejectedType}`, type: rejectedType }],
+          missing: ['mg-sequence'],
+        },
+      });
+    }
     expect(evaluateCreatedType('mg-sequence').checks.find(
       (check) => check.id === 'mongo.required-created-overlay-types',
     )).toMatchObject({
@@ -1157,6 +1249,118 @@ describe('chat edit battle harness', () => {
         },
       }),
     }]))).toBeNull();
+  });
+
+  it('verifies a completed scene regeneration against its authoritative storyboard record', async () => {
+    const regenerated = invocation('regenerate-existing-scene', [{
+      id: 'regenerate',
+      name: 'regenerate_scene',
+      args: { sceneIndex: 1, target: 'image' },
+      startedAt: '2026-07-30T10:00:00.100Z',
+      completedAt: '2026-07-30T10:00:02.200Z',
+      output: successEnvelope({
+        storyboardId: 'sb-fixture-1',
+        sceneIndex: 1,
+        jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+        operations: [{
+          target: 'image',
+          status: 'completed',
+          jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+          beforeAssetId: 'old-asset',
+          afterAssetId: 'new-asset',
+        }],
+      }),
+    }]);
+    const receipt = extractCompletedSceneRegenerationReceipt(regenerated);
+
+    expect(receipt).toEqual({
+      storyboardId: 'sb-fixture-1',
+      sceneIndex: 1,
+      jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+      beforeAssetId: 'old-asset',
+      afterAssetId: 'new-asset',
+    });
+    await expect(verifyCompletedSceneRegenerationReceipt(
+      {
+        projectId: 'proj_battle',
+        receipt: receipt!,
+      },
+      {
+        loadScene: async () => ({ sceneIndex: 1, imageAssetId: 'new-asset' }),
+      },
+    )).resolves.toEqual({ materialChange: true });
+    await expect(verifyCompletedSceneRegenerationReceipt(
+      {
+        projectId: 'proj_battle',
+        receipt: receipt!,
+      },
+      {
+        loadScene: async () => ({ sceneIndex: 1, imageAssetId: 'old-asset' }),
+      },
+    )).resolves.toEqual({
+      materialChange: false,
+      error: 'regenerated-scene-asset-mismatch:old-asset',
+    });
+  });
+
+  it('accepts a verified storyboard mutation without pretending the project document changed', () => {
+    const scenario = getChatEditBattleScenario('regenerate-existing-scene')!;
+    const unchanged = buildChatBattleProjectSnapshot(project([]), 'mongo-before');
+    const report = evaluateChatEditBattleJourney({
+      journeyId: 'storyboard-cross-resource-mutation',
+      scenario,
+      projectId: 'proj_battle',
+      startedAt: '2026-07-30T10:00:00.000Z',
+      completedAt: '2026-07-30T10:00:03.000Z',
+      invocation: {
+        ...invocation('regenerate-existing-scene', [{
+          id: 'timeline',
+          name: 'get_timeline_view',
+          args: {},
+          startedAt: '2026-07-30T10:00:00.100Z',
+          completedAt: '2026-07-30T10:00:00.200Z',
+          output: successEnvelope({ summary: 'timeline' }),
+        }, {
+          id: 'regenerate',
+          name: 'regenerate_scene',
+          args: { sceneIndex: 1, target: 'image' },
+          startedAt: '2026-07-30T10:00:00.300Z',
+          completedAt: '2026-07-30T10:00:02.200Z',
+          output: successEnvelope({
+            storyboardId: 'sb-fixture-1',
+            sceneIndex: 1,
+            jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+            operations: [{
+              target: 'image',
+              status: 'completed',
+              jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+              beforeAssetId: 'old-asset',
+              afterAssetId: 'new-asset',
+            }],
+          }),
+        }]),
+        durableOperations: [{
+          owner: 'scene-regeneration',
+          jobId: 'storyboard:sb-fixture-1:scene:1:image:new-asset',
+          status: 'completed',
+          materialChange: true,
+          polls: 1,
+        }],
+      },
+      mongoBefore: unchanged,
+      mongoAfter: { ...unchanged, source: 'mongo-after' },
+      uiReload: null,
+      renderEvidence: { status: 'missing', artifactRefs: [], issues: [] },
+      fixturePreconditions: { ok: true, missing: [], satisfied: [] },
+    });
+
+    expect(report.checks.find((check) => check.id === 'mongo.mutation-truth')).toMatchObject({
+      status: 'pass',
+      evidence: {
+        stateChanged: false,
+        verifiedExternalMaterialChange: true,
+      },
+    });
   });
 
   it('treats a durable MG decline as a valid conditional no-op instead of a queued mutation hang', () => {
@@ -1318,7 +1522,10 @@ describe('chat edit battle harness', () => {
     }, {
       loadJob: vi.fn()
         .mockResolvedValueOnce({ status: 'running' })
-        .mockResolvedValueOnce({ status: 'completed_unverified' }),
+        .mockResolvedValueOnce({
+          status: 'completed_unverified',
+          renderOperationId: 'style_child_operation_1',
+        }),
       now: () => clock,
       sleep: async (milliseconds) => { clock += milliseconds; },
     });
@@ -1326,6 +1533,7 @@ describe('chat edit battle harness', () => {
       status: 'completed_unverified',
       materialChange: true,
       polls: 2,
+      renderOperationId: 'style_child_operation_1',
     });
 
     const declined = await waitForReferenceStyleJobTerminal({
@@ -1417,6 +1625,12 @@ describe('chat edit battle harness', () => {
           reason: 'provider unavailable '.repeat(500),
           receipt: {
             outcome: 'fallback',
+            promptHash: 'prompt-hash-2',
+            attempts: 2,
+            compiled: true,
+            scans: [{ passed: true }, { passed: false, reason: 'unsafe text geometry' }],
+            judgeScore: 4.25,
+            judgeIssues: ['poor hierarchy', 'weak semantic encoding'],
             failure: {
               provider: 'zai',
               operation: 'component-generation',
@@ -1465,6 +1679,12 @@ describe('chat edit battle harness', () => {
             disposition: 'retryable',
             statusCode: 504,
           },
+          promptHash: 'prompt-hash-2',
+          attempts: 2,
+          compiled: true,
+          scans: [{ passed: true }, { passed: false, reason: 'unsafe text geometry' }],
+          judgeScore: 4.25,
+          judgeIssues: ['poor hierarchy', 'weak semantic encoding'],
         },
         {
           jobId: 'mgr_child_generated',
@@ -1698,6 +1918,34 @@ describe('chat edit battle harness', () => {
       ...project([]),
       intelligence: { chatDeepAnalysisJobs: [{ jobId: 'deep_1', status: 'completed' }] },
     })).toMatchObject({ ok: true, satisfied: ['completed-clip-analysis-job'] });
+  });
+
+  it('requires the concrete timeline condition named by gap and layer scenarios', () => {
+    const gapScenario = getChatEditBattleScenario('close-timeline-gaps')!;
+    const layerScenario = getChatEditBattleScenario('reorder-overlay-layer')!;
+    const timeline = project([
+      { id: 'video-1', type: 'video', from: 0, durationInFrames: 60, row: 0 },
+      { id: 'video-2', type: 'video', from: 90, durationInFrames: 60, row: 0 },
+      { id: 'title-1', type: 'text', from: 30, durationInFrames: 60, row: 1 },
+      { id: 'image-1', type: 'image', from: 45, durationInFrames: 30, row: 2 },
+    ]);
+
+    expect(evaluateChatBattleFixturePreconditions(gapScenario, timeline)).toMatchObject({
+      ok: true,
+      satisfied: ['timeline-gap'],
+    });
+    expect(evaluateChatBattleFixturePreconditions(layerScenario, timeline, {
+      selectedOverlayId: 'title-1',
+    })).toMatchObject({
+      ok: true,
+      satisfied: ['selected-image-overlap'],
+    });
+    expect(evaluateChatBattleFixturePreconditions(layerScenario, timeline, {
+      selectedOverlayId: 'video-1',
+    })).toMatchObject({
+      ok: false,
+      missing: ['selected-image-overlap'],
+    });
   });
 
   it('fails a stale rendered artifact even when tools and Mongo mutation look healthy', () => {
@@ -1968,12 +2216,50 @@ describe('chat edit battle harness', () => {
       src: 'https://cdn/asset/upload_1',
       content: 'https://cdn/asset/upload_1',
     }]);
+    const mongoSequence = project([{
+      id: 'mg-sequence-1',
+      type: 'mg-sequence',
+      assetId: 'asset-sequence-1',
+      from: 120,
+      durationInFrames: 90,
+      row: 6,
+      sequence: {
+        sequenceId: 'sequence-1',
+        frameCount: 90,
+        fps: 30,
+        width: 1920,
+        height: 1080,
+        transparent: true,
+        frameFormat: 'webp',
+        cdnBaseUrl: 'https://old-cdn.example',
+      },
+    }]);
+    const hydratedSequence = project([{
+      id: 'mg-sequence-1',
+      type: 'mg-sequence',
+      assetId: 'asset-sequence-1',
+      from: 120,
+      durationInFrames: 90,
+      row: 6,
+      sequence: {
+        sequenceId: 'sequence-from-asset',
+        frameCount: 96,
+        fps: 30,
+        width: 1920,
+        height: 1080,
+        transparent: true,
+        frameFormat: 'webp',
+        cdnBaseUrl: 'https://resolved-cdn.example',
+      },
+    }]);
     expect(buildChatBattleProjectSnapshot(mongo, 'mongo-after').digest)
       .toBe(buildChatBattleProjectSnapshot(reload, 'ui-reload').digest);
     expect(buildChatBattleProjectSnapshot(mongo, 'mongo-after').digest)
       .not.toBe(buildChatBattleProjectSnapshot(changed, 'ui-reload').digest);
     expect(buildChatBattleProjectSnapshot(mongoVideo, 'mongo-after').digest)
       .toBe(buildChatBattleProjectSnapshot(hydratedVideo, 'ui-reload').digest);
+    expect(buildChatBattleProjectSnapshot(mongoSequence, 'mongo-after').digest)
+      .toBe(buildChatBattleProjectSnapshot(hydratedSequence, 'ui-reload').digest);
   });
 
   it('preserves numeric overlay IDs so live created-overlay checks remain trustworthy', () => {
@@ -2066,6 +2352,94 @@ describe('chat edit battle harness', () => {
       runId: 'run 2026/07/18 #2',
       operationId: 'chat-battle-seed:retry-idempotency:operation',
     }).operationId).toBe('chat-battle-seed:retry-idempotency:operation');
+
+    const visualEvidence = {
+      frame: 84,
+      question: 'Is the bird visible?',
+      dataUrl: 'data:image/webp;base64,UklGRgwAAABXRUJQVlA4IAAAAAAwAQCdASoBAAEAAUAmJaQAA3AA/vuUAAA=',
+      width: 1280,
+      height: 720,
+      capturedAtMs: 1_785_000_000_000,
+      source: 'editor-rendered-frame' as const,
+    };
+    expect(buildLiveChatRequestBody({
+      scenarioPrompt: 'Remove the bird.',
+      projectId: 'proj_chatbattle_contract',
+      sessionId: 'session-visual',
+      runId: 'visual-continuation',
+      visualEvidence,
+    })).toMatchObject({
+      sessionId: 'session-visual',
+      visualEvidence,
+    });
+  });
+
+  it('builds visual continuation evidence from the exact real rendered frame', async () => {
+    const capture = vi.fn(async (): Promise<MgVisualEvidence> => ({
+      space: 'edited-canvas' as const,
+      canvas: { width: 1280, height: 720 },
+      frames: [
+        {
+          role: 'context-before' as const,
+          coordinate: { kind: 'edited-timeline' as const, timelineFrame: 83 },
+          imageDataUrl: 'data:image/webp;base64,before',
+        },
+        {
+          role: 'anchor' as const,
+          coordinate: { kind: 'edited-timeline' as const, timelineFrame: 84 },
+          imageDataUrl: 'data:image/webp;base64,anchor',
+        },
+        {
+          role: 'context-after' as const,
+          coordinate: { kind: 'edited-timeline' as const, timelineFrame: 85 },
+          imageDataUrl: 'data:image/webp;base64,after',
+        },
+      ],
+    }));
+
+    const evidence = await buildChatBattleFrameEvidence({
+      projectId: 'proj_visual',
+      fps: 30,
+      durationInFrames: 300,
+      playerDimensions: { width: 1280, height: 720 },
+      overlays: [{ id: 'video-1', type: 'video', from: 0, durationInFrames: 300, row: 0 }],
+    }, {
+      frame: 84,
+      frames: [83, 84, 85],
+      question: 'Verify the requested visual event.',
+    }, {
+      capture,
+      now: () => 1_785_000_000_000,
+    });
+
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({
+      window: { startFrame: 83, endFrame: 86, fps: 30 },
+      canvas: { width: 1280, height: 720 },
+      anchors: { landingFrame: 1 },
+    }));
+    expect(evidence).toEqual({
+      frame: 84,
+      question: 'Verify the requested visual event.',
+      dataUrl: 'data:image/webp;base64,anchor',
+      width: 1280,
+      height: 720,
+      capturedAtMs: 1_785_000_000_000,
+      source: 'editor-rendered-frame',
+      contextFrames: [
+        {
+          frame: 83,
+          dataUrl: 'data:image/webp;base64,before',
+          width: 1280,
+          height: 720,
+        },
+        {
+          frame: 85,
+          dataUrl: 'data:image/webp;base64,after',
+          width: 1280,
+          height: 720,
+        },
+      ],
+    });
   });
 
   it('parses only the canonical chat operation replay receipt', () => {
@@ -2247,6 +2621,135 @@ describe('chat edit battle harness', () => {
     ]);
   });
 
+  it('waits for operation-scoped chat evidence instead of accepting a fresh project-wide render', async () => {
+    let now = 1_000;
+    const genericPhase0Failure = {
+      ...project([]),
+      intelligence: {
+        phase0RenderedStillEvidence: {
+          status: 'completed',
+          completedAt: '2026-07-18T10:00:02.000Z',
+          renderedFrames: [],
+        },
+        phase0RenderedAestheticReport: {
+          summary: { status: 'fail' },
+          completedAt: '2026-07-18T10:00:02.000Z',
+          issues: [{ severity: 'fail', overlayId: 'unrelated-overlay' }],
+        },
+      },
+    };
+    const operationPass = {
+      ...project([]),
+      intelligence: {
+        ...genericPhase0Failure.intelligence,
+        latestChatEditRenderVerification: {
+          operationId: 'chat-battle:expected-operation:editorial-intent:attempt:1',
+          status: 'pass',
+          requestedAt: '2026-07-18T10:00:03.000Z',
+          completedAt: '2026-07-18T10:00:05.000Z',
+          visual: { renderedFrames: [], issues: [] },
+          audio: { windows: [] },
+          lifecycle: { state: 'completed', terminalStatus: 'pass' },
+        },
+      },
+    };
+    const loadProject = vi.fn(async () => operationPass);
+
+    const evidence = await waitForFreshChatBattleRenderEvidence({
+      projectId: 'proj_fixture',
+      startedAt: '2026-07-18T10:00:00.000Z',
+      initialProject: genericPhase0Failure,
+      requireChatVerification: true,
+      expectedOperationIds: ['chat-battle:expected-operation'],
+      timeoutMs: 10_000,
+      pollIntervalMs: 1_000,
+    }, {
+      loadProject,
+      now: () => now,
+      sleep: async (milliseconds) => { now += milliseconds; },
+    });
+
+    expect(loadProject).toHaveBeenCalledTimes(1);
+    expect(evidence).toMatchObject({
+      status: 'pass',
+      source: 'chat-verification',
+      operationId: 'chat-battle:expected-operation:editorial-intent:attempt:1',
+    });
+  });
+
+  it('keeps polling when a fresh chat verification belongs to another operation', async () => {
+    let now = 1_000;
+    const otherOperation = {
+      ...project([]),
+      intelligence: {
+        latestChatEditRenderVerification: {
+          operationId: 'chat-battle:other-tab',
+          status: 'fail',
+          requestedAt: '2026-07-18T10:00:01.000Z',
+          completedAt: '2026-07-18T10:00:02.000Z',
+          visual: { renderedFrames: [], issues: [{ overlayId: 'other-tab-overlay' }] },
+          audio: { windows: [] },
+        },
+      },
+    };
+    const expectedOperation = {
+      ...project([]),
+      intelligence: {
+        latestChatEditRenderVerification: {
+          operationId: 'chat-battle:this-tab',
+          status: 'pass',
+          requestedAt: '2026-07-18T10:00:03.000Z',
+          completedAt: '2026-07-18T10:00:04.000Z',
+          visual: { renderedFrames: [], issues: [] },
+          audio: { windows: [] },
+        },
+      },
+    };
+    const loadProject = vi.fn(async () => expectedOperation);
+
+    const evidence = await waitForFreshChatBattleRenderEvidence({
+      projectId: 'proj_fixture',
+      startedAt: '2026-07-18T10:00:00.000Z',
+      initialProject: otherOperation,
+      requireChatVerification: true,
+      expectedOperationIds: ['chat-battle:this-tab'],
+      timeoutMs: 10_000,
+      pollIntervalMs: 1_000,
+    }, {
+      loadProject,
+      now: () => now,
+      sleep: async (milliseconds) => { now += milliseconds; },
+    });
+
+    expect(loadProject).toHaveBeenCalledTimes(1);
+    expect(evidence).toMatchObject({
+      status: 'pass',
+      operationId: 'chat-battle:this-tab',
+    });
+  });
+
+  it('does not substitute generic Phase-0 evidence for a required chat verification', () => {
+    const evidence = extractPersistedChatBattleRenderEvidence({
+      projectId: 'proj_fixture',
+      intelligence: {
+        phase0RenderedStillEvidence: {
+          status: 'completed',
+          completedAt: '2026-07-18T10:00:02.000Z',
+        },
+        phase0RenderedAestheticReport: {
+          summary: { status: 'fail' },
+          completedAt: '2026-07-18T10:00:02.000Z',
+        },
+      },
+    }, '2026-07-18T10:00:00.000Z', { requireChatVerification: true });
+
+    expect(evidence).toMatchObject({
+      status: 'missing',
+      source: 'chat-verification',
+      reason: 'No fresh operation-scoped chat render verification exists for this journey.',
+    });
+  });
+
   it('keeps a disposable fixture alive beyond the worker three-minute boundary by default', async () => {
     let now = 0;
     const pending = project([]);
@@ -2411,6 +2914,36 @@ describe('chat edit battle harness', () => {
       status: 'warn',
       artifactRefs: ['https://cdn/title.webp'],
       issues: [expect.objectContaining({ severity: 'warn', code: 'safe-area' })],
+    });
+  });
+
+  it('never persists a non-pass terminal render verdict without a diagnostic', () => {
+    const failed = markChatEditRenderVerificationTerminal(
+      buildRequestedChatEditRenderVerification(renderVerificationRequest()),
+      {
+        status: 'fail',
+        visual: null,
+        audio: null,
+        reasons: [],
+        issues: [],
+        now: '2026-07-18T10:00:04.000Z',
+      },
+    );
+
+    expect(failed).toMatchObject({
+      status: 'fail',
+      reasons: ['render_verification_terminal_missing_diagnostic'],
+      issues: [{
+        modality: 'system',
+        severity: 'error',
+        code: 'render_verification_terminal_missing_diagnostic',
+        message: 'Render verification ended without a diagnostic.',
+      }],
+      lifecycle: {
+        state: 'completed',
+        terminalStatus: 'quality-fail',
+        reason: 'render_verification_terminal_missing_diagnostic',
+      },
     });
   });
 
@@ -2620,5 +3153,90 @@ describe('chat edit battle harness', () => {
       code: 'qstash_delivery_failed',
       message: 'qstash_delivery_failed:timeout',
     })]);
+  });
+
+  it('extracts nested Phase-0 frame issues and artifact references from fallback evidence', () => {
+    const evidence = extractPersistedChatBattleRenderEvidence({
+      projectId: 'proj_phase0_nested',
+      intelligence: {
+        phase0RenderedStillEvidence: {
+          status: 'completed',
+          completedAt: '2026-07-30T10:00:04.000Z',
+          renderedFrames: [{
+            frame: 84,
+            url: 'https://cdn/full.webp',
+            baselineUrl: 'https://cdn/source.webp',
+          }],
+          failedFrames: [],
+          artifactPackIssues: [],
+        },
+        phase0RenderedAestheticReport: {
+          summary: { status: 'fail' },
+          frames: [{
+            frame: 84,
+            activeOverlayIds: ['caption-1'],
+            activeOverlayTypes: ['caption'],
+            fullStill: 'https://cdn/full.webp',
+            baselineStill: 'https://cdn/source.webp',
+            report: {
+              status: 'fail',
+              issues: [{
+                dimension: 'contrast',
+                severity: 'fail',
+                overlayId: 'caption-1',
+                message: 'Caption contrast is below the readable threshold.',
+              }],
+            },
+          }],
+        },
+      },
+    }, '2026-07-30T10:00:00.000Z');
+
+    expect(evidence.status).toBe('fail');
+    expect(evidence.artifactRefs).toEqual(expect.arrayContaining([
+      'https://cdn/full.webp',
+      'https://cdn/source.webp',
+    ]));
+    expect(evidence.issues).toEqual([expect.objectContaining({
+      frame: 84,
+      dimension: 'contrast',
+      severity: 'fail',
+      overlayId: 'caption-1',
+      message: 'Caption contrast is below the readable threshold.',
+      activeOverlayIds: ['caption-1'],
+    })]);
+  });
+
+  it('surfaces Phase-0 renderer failures instead of returning an empty issue list', () => {
+    const evidence = extractPersistedChatBattleRenderEvidence({
+      projectId: 'proj_phase0_failed',
+      intelligence: {
+        phase0RenderedStillEvidence: {
+          status: 'failed',
+          statusReason: 'rendered_still_failed',
+          completedAt: '2026-07-30T10:00:04.000Z',
+          renderedFrames: [],
+          failedFrames: [{
+            frame: 120,
+            renderKind: 'full',
+            error: 'Source asset could not be resolved.',
+          }],
+          artifactPackIssues: ['source-video-missing'],
+        },
+      },
+    }, '2026-07-30T10:00:00.000Z');
+
+    expect(evidence.status).toBe('fail');
+    expect(evidence.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'phase0_render_failed',
+        frame: 120,
+        message: 'Source asset could not be resolved.',
+      }),
+      expect.objectContaining({
+        code: 'phase0_artifact_pack_issue',
+        message: 'source-video-missing',
+      }),
+    ]));
   });
 });

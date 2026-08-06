@@ -10,6 +10,7 @@ import type { Overlay } from '../components/editron/editor/version-7.0.0/types';
 import { OverlayType } from '../components/editron/editor/version-7.0.0/types';
 import { evaluateAllTracks } from '../components/editron/editor/version-7.0.0/utils/keyframe-evaluator';
 import { ensureLiveAtomicOverlayReceipt } from '../lib/editron/engine/overlay-atomic-receipts';
+import { constrainFinalOverlayGeometry } from '../lib/editron/shared/final-overlay-geometry';
 import { ROW } from '../lib/pipeline/scene-to-editron';
 import {
   scoreRenderedFrameAesthetic,
@@ -830,30 +831,40 @@ export function overlayOnlyBlankImageJustification(input: {
   return `overlay-only sample has no active visual overlays; ${sampledTypes.join(', ') || 'timing'} evidence is source/timing-only and not a renderer failure`;
 }
 
-export function renderedOverlayBoxAtFrame(overlay: Overlay, frame: number): RenderedOverlayBox {
+export function renderedOverlayBoxAtFrame(
+  overlay: Overlay,
+  frame: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): RenderedOverlayBox {
   const localFrame = Math.max(0, frame - overlay.from);
   const keyframes = overlay.keyframeTracks?.length ? evaluateAllTracks(overlay.keyframeTracks, localFrame) : {};
-  let x = keyframes.x ?? overlay.left;
-  let y = keyframes.y ?? overlay.top;
-  let width = overlay.width;
-  let height = overlay.height;
+  const x = keyframes.x ?? overlay.left;
+  const y = keyframes.y ?? overlay.top;
+  const width = overlay.width;
+  const height = overlay.height;
   const scale = keyframes.scale ?? 1;
   const opacity = keyframes.opacity ?? numericValue(overlayStyles(overlay).opacity) ?? 1;
-
-  if (scale !== 1) {
-    const scaledWidth = width * scale;
-    const scaledHeight = height * scale;
-    x -= (scaledWidth - width) / 2;
-    y -= (scaledHeight - height) / 2;
-    width = scaledWidth;
-    height = scaledHeight;
-  }
-
-  return {
-    x,
-    y,
+  const rotation = keyframes.rotation ?? overlay.rotation ?? 0;
+  const transformOrigin = String(overlayStyles(overlay).transformOrigin ?? 'center center');
+  const geometry = constrainFinalOverlayGeometry({
+    overlayType: overlay.type,
+    left: x,
+    top: y,
     width,
     height,
+    scale,
+    rotationDegrees: rotation,
+    transformOrigin,
+    canvasWidth,
+    canvasHeight,
+  });
+
+  return {
+    x: geometry.bounds.left,
+    y: geometry.bounds.top,
+    width: geometry.bounds.right - geometry.bounds.left,
+    height: geometry.bounds.bottom - geometry.bounds.top,
     opacity,
     textPixelHeight: fontSizePx(overlayStyles(overlay).fontSize),
   };
@@ -913,7 +924,9 @@ function activeRenderedOverlayEvidence(
   return overlays
     .filter((overlay) => isAuditedOverlay(overlay) && isActiveAtFrame(overlay, frame))
     .flatMap((overlay) => {
-      const fallbackBox = renderedOverlayBoxAtFrame(overlay, frame);
+      const renderW = renderEvidence.baselineImage?.width ?? renderEvidence.fallbackImage?.width ?? 0;
+      const renderH = renderEvidence.baselineImage?.height ?? renderEvidence.fallbackImage?.height ?? 0;
+      const fallbackBox = renderedOverlayBoxAtFrame(overlay, frame, renderW, renderH);
       const isolatedImage = overlay.id !== undefined ? renderEvidence.isolatedImages?.get(String(overlay.id)) : undefined;
       const paintedBox = isolatedImage && renderEvidence.baselineImage ? changedPixelBounds(isolatedImage, renderEvidence.baselineImage) : undefined;
       const box = paintedBox ? { ...fallbackBox, ...paintedBox } : fallbackBox;

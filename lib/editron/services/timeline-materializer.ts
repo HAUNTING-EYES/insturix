@@ -14,6 +14,8 @@
  * PRE-materializer partition — this module never trims differently per lane.
  */
 import { ROW } from '@/lib/pipeline/scene-to-editron';
+import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 
 export const FPS = 30;
 export const DEFAULT_IMAGE_HOLD_SEC = 4;
@@ -22,6 +24,8 @@ export const DEFAULT_IMAGE_HOLD_SEC = 4;
 export type MaterializableAsset = {
   assetId: string;
   type: 'video' | 'image' | 'audio';
+  source?: string | null;
+  audioRights?: AudioRightsContract | null;
   duration?: number | string | null;
   thumbnail?: string;
   cachedUrl?: string | null;
@@ -83,6 +87,9 @@ export async function materializeChronologicalFallback(
       : DEFAULT_IMAGE_HOLD_SEC;
     const durationFrames = Math.max(1, Math.round(durationSec * FPS));
     const src = await resolveOverlayUrl(asset, userId);
+    const nativeVideoAudioRights = asset.type === 'video'
+      ? readStoredNativeVideoAudioRights(asset)
+      : null;
     const base = {
       id: overlayId++,
       type: asset.type,
@@ -98,6 +105,7 @@ export async function materializeChronologicalFallback(
       content: asset.type === 'image' ? src : (asset.thumbnail || ''),
       src,
       assetId: asset.assetId,
+      ...(nativeVideoAudioRights && { audioRights: nativeVideoAudioRights }),
       styles: { opacity: 1, objectFit: 'cover' },
       storyline: {
         uploadBatchId,

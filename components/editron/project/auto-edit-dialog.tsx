@@ -37,6 +37,11 @@ import {
   type EditorialPreferences,
 } from '@/lib/editron/production-brief/editorial-preferences';
 import { EditorialPreferenceControls } from '@/components/editron/project/editorial-preference-controls';
+import { SourceMediaRightsControl } from '@/components/editron/project/source-media-rights-control';
+import {
+  CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION,
+  type NativeVideoAudioRightsAttestation,
+} from '@/lib/editron/services/native-video-audio-rights';
 
 /** Options forwarded to the from-asset backend endpoint. */
 export interface AutoEditOptions {
@@ -45,6 +50,11 @@ export interface AutoEditOptions {
   script?: string;
   aspectRatio?: string;
   editorialPreferences?: EditorialPreferences;
+  sourceMediaRightsAttestation?: NativeVideoAudioRightsAttestation;
+  /** Optional reference video to match this edit's style (uploaded asset id). */
+  referenceAssetId?: string;
+  /** Optional reference video URL (YouTube / direct mp4) to match this edit's style. */
+  referenceVideoUrl?: string;
   /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
   captionStyle?: 'word_by_word' | 'sentence' | 'key_phrases' | 'none';
   /** @deprecated Compatibility input for batch/older clients; new intake emits editorialPreferences. */
@@ -90,7 +100,9 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [userIntent, setUserIntent] = useState('');
   const [script, setScript] = useState('');
+  const [referenceVideoUrl, setReferenceVideoUrl] = useState('');
   const [editorialPreferences, setEditorialPreferences] = useState<EditorialPreferences>({});
+  const [rightsAttested, setRightsAttested] = useState(false);
 
   const resetState = useCallback(() => {
     setShowAdvanced(true);
@@ -98,28 +110,35 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
     setAspectRatio('16:9');
     setUserIntent('');
     setScript('');
+    setReferenceVideoUrl('');
     setEditorialPreferences({});
+    setRightsAttested(false);
   }, []);
 
   const handleQuickEdit = useCallback(() => {
-    if (!file) return;
-    // Explicit opt-out path: skip preferences and let the planner decide.
-    onConfirm(file, {});
+    if (!file || !rightsAttested) return;
+    // Rights are not an editorial preference and cannot be skipped.
+    onConfirm(file, {
+      sourceMediaRightsAttestation: CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION,
+    });
     resetState();
-  }, [file, onConfirm, resetState]);
+  }, [file, onConfirm, resetState, rightsAttested]);
 
   const handleConfirmWithOptions = useCallback(() => {
-    if (!file) return;
-    const options: AutoEditOptions = {};
+    if (!file || !rightsAttested) return;
+    const options: AutoEditOptions = {
+      sourceMediaRightsAttestation: CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION,
+    };
     if (platform && platform !== 'auto') options.platform = platform;
     if (aspectRatio && aspectRatio !== '16:9') options.aspectRatio = aspectRatio;
     if (userIntent.trim()) options.userIntent = userIntent.trim();
     if (script.trim()) options.script = script.trim();
+    if (referenceVideoUrl.trim()) options.referenceVideoUrl = referenceVideoUrl.trim();
     const normalizedPreferences = normalizeEditorialPreferences(editorialPreferences);
     if (normalizedPreferences) options.editorialPreferences = normalizedPreferences;
     onConfirm(file, options);
     resetState();
-  }, [file, platform, aspectRatio, userIntent, script, editorialPreferences, onConfirm, resetState]);
+  }, [file, platform, aspectRatio, userIntent, script, referenceVideoUrl, editorialPreferences, onConfirm, resetState, rightsAttested]);
   const handleOpenChange = useCallback((open: boolean) => {
     if (!open) {
       onCancel();
@@ -178,11 +197,19 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
             </div>
           )}
 
+          <div className="mt-3">
+            <SourceMediaRightsControl
+              checked={rightsAttested}
+              onCheckedChange={setRightsAttested}
+            />
+          </div>
+
           {/* Skip-preferences path. Settings are visible by default below. */}
           <button
             type="button"
             onClick={handleQuickEdit}
-            className="flex w-full items-center justify-center gap-2.5 mt-3 px-4 py-2.5 rounded-md border border-[#282724] bg-[#1B1A18] hover:border-[#D4A652]/45 text-[#B5B2A8] hover:text-[#D4A652] text-[13px] font-semibold transition-colors"
+            disabled={!rightsAttested}
+            className="flex w-full items-center justify-center gap-2.5 mt-3 px-4 py-2.5 rounded-md border border-[#282724] bg-[#1B1A18] hover:border-[#D4A652]/45 text-[#B5B2A8] hover:text-[#D4A652] text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45"
           >
             <Sparkles className="h-[16px] w-[16px]" />
             <span>Skip Preferences - Let AI Decide Everything</span>
@@ -281,6 +308,23 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
                 />
               </div>
 
+              {/* Reference video (style match) */}
+              <div className="mt-3">
+                <Label htmlFor="ae-reference" className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">
+                  Reference video (match this style)
+                  <span className="ml-1 text-[#454340] normal-case tracking-normal">(optional — YouTube, Instagram, or direct video URL)</span>
+                </Label>
+                <Textarea
+                  id="ae-reference"
+                  placeholder="e.g. https://www.youtube.com/watch?v=... , reels link, or https://example.com/clip.mp4"
+                  value={referenceVideoUrl}
+                  onChange={(e) => setReferenceVideoUrl(e.target.value)}
+                  rows={1}
+                  className="resize-none text-[13px] bg-[#1B1A18] border-[#282724] text-[#ECE9E1] placeholder:text-[#454340] focus:border-[#D4A652]/35 focus:ring-1 focus:ring-[#D4A652]/6"
+                  maxLength={2000}
+                />
+              </div>
+
               {/* Script / Narration */}
               <div className="mt-3">
                 <Label htmlFor="ae-script" className="font-mono text-[10px] tracking-[0.08em] uppercase text-[#5F5E5A] mb-1 block">
@@ -317,6 +361,7 @@ export function AutoEditDialog({ file, onConfirm, onCancel }: AutoEditDialogProp
                 </Button>
                 <Button
                   onClick={handleConfirmWithOptions}
+                  disabled={!rightsAttested}
                   className="gap-1.5 bg-[#D4A652] hover:bg-[#C49840] text-[#0B0B0A] font-semibold rounded text-[13px] border-none"
                 >
                   <Sparkles className="h-3.5 w-3.5" />

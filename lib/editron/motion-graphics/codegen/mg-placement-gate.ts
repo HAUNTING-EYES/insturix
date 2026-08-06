@@ -183,8 +183,11 @@ export function evaluateMgMotionProfile(
 /**
  * IMPURE: motion profile across the sequence — { mean, peak } of the per-interval mean-absolute per-channel
  * delta (0-1, alpha included so a fade counts). Samples up to `maxSamples` evenly-spaced frames, downscales
- * each to a tiny RGBA thumbnail, and compares consecutive samples. `mean` = continuous-motion signal; `peak` =
- * the single biggest interval, the "did it ever build" signal. Needs >= 2 frames; {0,0} for fewer.
+ * each to a tiny RGBA thumbnail, and compares consecutive samples. Deltas are normalized over the union of
+ * VISIBLE graphic pixels, not the whole transparent canvas: otherwise identical motion on a compact overlay is
+ * diluted below the floor while a full-frame graphic passes. Premultiplied RGB prevents hidden colour in fully
+ * transparent pixels from faking motion. `mean` = continuous-motion signal; `peak` = the single biggest interval,
+ * the "did it ever build" signal. Needs >= 2 frames; {0,0} for fewer.
  */
 export async function measureMgMotionProfile(
   frames: Buffer[],
@@ -194,10 +197,14 @@ export async function measureMgMotionProfile(
   const width = opts.sampleWidth ?? 48;
   const n = Math.min(Math.max(2, opts.maxSamples ?? 6), frames.length);
   const idxs = Array.from({ length: n }, (_, k) => Math.round((k / (n - 1)) * (frames.length - 1)));
-  const thumbs: Buffer[] = [];
+  const thumbs: Array<{ data: Buffer; channels: number }> = [];
   for (const i of idxs) {
-    const { data } = await sharp(frames[i]).ensureAlpha().resize({ width, fit: 'fill', kernel: 'nearest' }).raw().toBuffer({ resolveWithObject: true });
-    thumbs.push(data);
+    const { data, info } = await sharp(frames[i])
+      .ensureAlpha()
+      .resize({ width, fit: 'fill', kernel: 'nearest' })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    thumbs.push({ data, channels: info.channels });
   }
   // The BUILD peak only counts intervals ending before the exit segment begins (choreo: resolve = durF×0.84,
   // the scene releases after it). Without this cut, a frozen render with ONLY a fade-out spikes the final
@@ -210,11 +217,28 @@ export async function measureMgMotionProfile(
   for (let k = 1; k < thumbs.length; k += 1) {
     const a = thumbs[k - 1];
     const b = thumbs[k];
-    const len = Math.min(a.length, b.length);
-    if (!len) continue;
+    const channels = Math.min(a.channels, b.channels);
+    const pixels = Math.floor(Math.min(a.data.length / a.channels, b.data.length / b.channels));
+    if (!pixels || channels < 4) continue;
     let sum = 0;
-    for (let j = 0; j < len; j += 1) sum += Math.abs(a[j] - b[j]);
-    const delta = sum / len / 255;
+    let comparedChannels = 0;
+    for (let pixel = 0; pixel < pixels; pixel += 1) {
+      const aOffset = pixel * a.channels;
+      const bOffset = pixel * b.channels;
+      const aAlpha = a.data[aOffset + a.channels - 1];
+      const bAlpha = b.data[bOffset + b.channels - 1];
+      if (Math.max(aAlpha, bAlpha) <= DEFAULT_MG_RENDER_SANITY_THRESHOLDS.faintAlpha) continue;
+
+      const aWeight = aAlpha / 255;
+      const bWeight = bAlpha / 255;
+      for (let channel = 0; channel < channels - 1; channel += 1) {
+        sum += Math.abs(a.data[aOffset + channel] * aWeight - b.data[bOffset + channel] * bWeight);
+        comparedChannels += 1;
+      }
+      sum += Math.abs(aAlpha - bAlpha);
+      comparedChannels += 1;
+    }
+    const delta = comparedChannels ? sum / comparedChannels / 255 : 0;
     total += delta;
     deltas.push(delta);
     if (idxs[k] <= buildCutoff && delta > peak) peak = delta;

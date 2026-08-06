@@ -1,15 +1,26 @@
 import {
   getGeneratedNativeVideoReceiptIssue,
-  isCanonicalMusicOverlay,
+  isNativeAudioBoundarySoundOverlay,
+  isSoundOverlayWithRenderableSource,
   resolveAudioRightsClaim,
   type AudioRightsContract,
 } from '@/lib/editron/shared/render-request-payload';
 
 type UnknownRecord = Record<string, unknown>;
 
-const GENERATED_SFX_PROVIDER_LICENSES = new Map([
-  ['cassetteai', 'fal-ai:cassetteai/music-generator:commercial-use'],
-  ['mirelo-video-to-audio', 'fal-ai:mirelo-ai/sfx-v1.5/video-to-audio:commercial-use'],
+const GENERATED_SFX_LICENSE_SOURCES = new Map<string, ReadonlySet<string>>([
+  [
+    'fal-ai:cassetteai/sound-effects-generator:commercial-use',
+    new Set(['cassetteai', 'generated']),
+  ],
+  [
+    'fal-ai:cassetteai/music-generator:commercial-use',
+    new Set(['cassetteai', 'generated']),
+  ],
+  [
+    'fal-ai:mirelo-ai/sfx-v1.5/video-to-audio:commercial-use',
+    new Set(['mirelo-video-to-audio', 'generated']),
+  ],
 ]);
 
 interface StoredAudioAsset extends UnknownRecord {
@@ -64,19 +75,36 @@ export interface VerifyRenderAudioRightsAuthorityInput {
   overlays: unknown[];
 }
 
+export type RenderAudioMediaRole = NonNullable<AudioRightsContract['mediaRole']>;
+
+export interface RenderAudioRightsAuthorityDiagnostic {
+  overlayId: string | number | null;
+  overlayType: string | null;
+  mediaRole: RenderAudioMediaRole | null;
+  renderAssetId: string | null;
+  sourceAssetId: string | null;
+  rightsReceipt: {
+    state: 'missing' | 'invalid' | 'present';
+    aliases: 'none' | 'audioRights' | 'musicRights' | 'both';
+    source: AudioRightsContract['source'] | null;
+    evidenceKind: NonNullable<AudioRightsContract['evidence']>['kind'] | null;
+  };
+  reason: string;
+}
+
 export class RenderAudioRightsAuthorityError extends Error {
   readonly code = 'AUDIO_RIGHTS_EVIDENCE_UNVERIFIED';
+  readonly overlayId: string | number | null;
 
-  constructor(
-    readonly overlayId: string | number | null,
-    reason: string,
-  ) {
+  constructor(readonly diagnostic: RenderAudioRightsAuthorityDiagnostic) {
+    const { overlayId, reason } = diagnostic;
     super(
       `Cannot verify render audio rights for overlay ${
         overlayId === null ? 'unknown' : String(overlayId)
       }: ${reason}`,
     );
     this.name = 'RenderAudioRightsAuthorityError';
+    this.overlayId = overlayId;
   }
 }
 
@@ -196,16 +224,22 @@ function readAudioClaim(overlay: unknown): RenderAudioClaim {
   const rights = claim.rights;
   const nativeVideoOverlay =
     record.type === 'video' && record.hasNativeAudio === true;
-  if (nativeVideoOverlay && rights.mediaRole !== 'native-video') {
+  const nativeAudioBoundaryOverlay = isNativeAudioBoundarySoundOverlay(record);
+  const nativeVideoAudioClaim = nativeVideoOverlay || nativeAudioBoundaryOverlay;
+  if (nativeVideoAudioClaim && rights.mediaRole !== 'native-video') {
     throw authorityError(
       record,
-      `native video cannot use ${rights.mediaRole ?? 'unspecified'} rights evidence`,
+      `native video audio cannot use ${rights.mediaRole ?? 'unspecified'} rights evidence`,
     );
   }
-  if (record.type === 'sound' && rights.mediaRole === 'native-video') {
+  if (
+    record.type === 'sound'
+    && rights.mediaRole === 'native-video'
+    && !nativeAudioBoundaryOverlay
+  ) {
     throw authorityError(record, 'sound overlay cannot use native-video rights evidence');
   }
-  if (nativeVideoOverlay && rights.source === 'preview-only') {
+  if (nativeVideoAudioClaim && rights.source === 'preview-only') {
     throw authorityError(record, 'preview-only audio cannot remain embedded in a rendered video');
   }
 
@@ -241,13 +275,13 @@ function readAudioClaim(overlay: unknown): RenderAudioClaim {
     rights,
   );
   if (
-    nativeVideoOverlay
+    nativeVideoAudioClaim
     && rights.source === 'generated'
     && sourceAssetId !== overlayAssetId
   ) {
     throw authorityError(record, 'generated native-video rights must identify the rendered video asset');
   }
-  if (nativeVideoOverlay && rights.source === 'generated') {
+  if (nativeVideoAudioClaim && rights.source === 'generated') {
     const receiptIssue = getGeneratedNativeVideoReceiptIssue(
       record.generatedVideoReceipt,
       {
@@ -268,10 +302,10 @@ function readAudioClaim(overlay: unknown): RenderAudioClaim {
     overlayAssetId,
     sourceAssetId,
     requiresStoredEvidence: true,
-    expectedAssetType: nativeVideoOverlay ? 'video' : 'audio',
+    expectedAssetType: nativeVideoAudioClaim ? 'video' : 'audio',
     expectedSourceAssetType: audioSeparationReceipt
       ? 'video'
-      : nativeVideoOverlay ? 'video' : 'audio',
+      : nativeVideoAudioClaim ? 'video' : 'audio',
     audioSeparationReceipt,
   };
 }
@@ -282,11 +316,11 @@ function isAudioRightsAuthorityCandidate(overlay: unknown): boolean {
     record
     && (
       (record.type === 'video' && record.hasNativeAudio === true)
+      || isSoundOverlayWithRenderableSource(record)
       || (
         record.type === 'sound'
         && (
-          isCanonicalMusicOverlay(record)
-          || record.audioRights !== undefined
+          record.audioRights !== undefined
           || record.musicRights !== undefined
         )
       )
@@ -473,12 +507,13 @@ function isGeneratedSfxProviderAuthority(
 ): boolean {
   if (rights.mediaRole !== 'sfx') return false;
   const provider = nonEmptyString(asset.source)?.toLowerCase();
-  const expectedLicense = provider
-    ? GENERATED_SFX_PROVIDER_LICENSES.get(provider)
+  const licenseId = nonEmptyString(rights.evidence?.licenseId);
+  const allowedSources = licenseId
+    ? GENERATED_SFX_LICENSE_SOURCES.get(licenseId)
     : null;
   return Boolean(
-    expectedLicense
-    && nonEmptyString(rights.evidence?.licenseId) === expectedLicense
+    provider
+    && allowedSources?.has(provider)
   );
 }
 
@@ -627,12 +662,93 @@ function canonicalAudioSeparationReceipt(receipt: AudioSeparationReceipt): strin
 }
 
 function authorityError(overlay: unknown, reason: string): RenderAudioRightsAuthorityError {
+  return new RenderAudioRightsAuthorityError(
+    buildRenderAudioRightsAuthorityDiagnostic(overlay, reason),
+  );
+}
+
+function buildRenderAudioRightsAuthorityDiagnostic(
+  overlay: unknown,
+  reason: string,
+): RenderAudioRightsAuthorityDiagnostic {
   const record = asRecord(overlay);
   const id = record?.id;
-  return new RenderAudioRightsAuthorityError(
-    typeof id === 'string' || typeof id === 'number' ? id : null,
+  const hasAudioRights = record?.audioRights !== undefined;
+  const hasMusicRights = record?.musicRights !== undefined;
+  const resolution = resolveAudioRightsClaim(overlay);
+  const rawAudioRights = asRecord(record?.audioRights);
+  const rawMusicRights = asRecord(record?.musicRights);
+  const rawRights = asRecord(resolution.rights) ?? rawAudioRights ?? rawMusicRights;
+  const evidence = asRecord(rawRights?.evidence);
+
+  return {
+    overlayId: typeof id === 'string' || typeof id === 'number' ? id : null,
+    overlayType: nonEmptyString(record?.type),
+    mediaRole: resolveDiagnosticMediaRole(record, rawRights),
+    renderAssetId: nonEmptyString(record?.assetId),
+    sourceAssetId: nonEmptyString(evidence?.sourceAssetId),
+    rightsReceipt: {
+      state: !hasAudioRights && !hasMusicRights
+        ? 'missing'
+        : resolution.issue || !resolution.rights ? 'invalid' : 'present',
+      aliases: hasAudioRights && hasMusicRights
+        ? 'both'
+        : hasAudioRights ? 'audioRights' : hasMusicRights ? 'musicRights' : 'none',
+      source: readRightsSource(rawRights?.source),
+      evidenceKind: readRightsEvidenceKind(evidence?.kind),
+    },
     reason,
-  );
+  };
+}
+
+function resolveDiagnosticMediaRole(
+  overlay: UnknownRecord | null,
+  rights: UnknownRecord | null,
+): RenderAudioMediaRole | null {
+  const explicitRole = readMediaRole(rights?.mediaRole)
+    ?? readMediaRole(overlay?.mediaRole)
+    ?? readMediaRole(overlay?.audioRole);
+  if (explicitRole) return explicitRole;
+  if (overlay?.type === 'video' && overlay.hasNativeAudio === true) return 'native-video';
+
+  const metadata = asRecord(overlay?.metadata);
+  if (metadata?.isDubbingVoiceover === true) return 'dubbing';
+
+  const assetId = nonEmptyString(overlay?.assetId) ?? '';
+  if (overlay?.row === 3 || /^(voiceover_|vo_)/i.test(assetId)) return 'voiceover';
+  if (overlay?.row === 1 || /^bgm_/i.test(assetId)) return 'music';
+  if (overlay?.row === 0) return 'sfx';
+  return overlay?.type === 'sound' ? 'other' : null;
+}
+
+function readMediaRole(value: unknown): RenderAudioMediaRole | null {
+  return value === 'music'
+    || value === 'sfx'
+    || value === 'voiceover'
+    || value === 'dubbing'
+    || value === 'native-video'
+    || value === 'other'
+    ? value
+    : null;
+}
+
+function readRightsSource(value: unknown): AudioRightsContract['source'] | null {
+  return value === 'user-upload'
+    || value === 'library'
+    || value === 'generated'
+    || value === 'preview-only'
+    ? value
+    : null;
+}
+
+function readRightsEvidenceKind(
+  value: unknown,
+): NonNullable<AudioRightsContract['evidence']>['kind'] | null {
+  return value === 'user-attestation'
+    || value === 'library-license'
+    || value === 'generated-provider'
+    ? value
+    : null;
 }
 
 function asRecord(value: unknown): UnknownRecord | null {

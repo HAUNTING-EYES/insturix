@@ -4,6 +4,10 @@
  * ShootKitResult — renders a ready ShotPlan produced by the deterministic backend.
  * It DISPLAYS the plan only. No camera/light/cost/fallback/optimization logic lives
  * here; every value shown is read straight off the ShotPlan the server returned.
+ *
+ * Styling follows design-system v1 (design-tokens.css): palette tokens only, type
+ * scale 10/11/13/14, weights 400/500, radii 4 (tags) / 7 (cards+buttons), 4px
+ * spacing rhythm, gold reserved for decision moments (the optimized order, costs).
  */
 
 import React from "react";
@@ -30,6 +34,11 @@ const SOURCE_LABEL: Record<PlanResource["source"], string> = {
   buy: "Purchased",
 };
 const SOURCE_ORDER: PlanResource["source"][] = ["owned", "borrowed", "household", "natural", "rent", "buy"];
+
+/** System motion: micro 0.25s, one easing. */
+const EASE = "transition-colors duration-[250ms] ease-[cubic-bezier(0.16,1,0.3,1)]";
+/** Mono system-label recipe (10px / 500 / dim / 0.08em / caps). */
+const MONO_LABEL = "font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[#5F5E5A]";
 
 function money(amount: number, currency: string): string {
   try {
@@ -73,14 +82,14 @@ export function ShootKitResult({ plan, onEditInputs, refreshing }: ShootKitResul
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-[#6B6860]">
+        <span className={MONO_LABEL}>
           {plan.tier} · {plan.currency}
           {refreshing ? " · updating…" : ""}
         </span>
         <button
           type="button"
           onClick={onEditInputs}
-          className="inline-flex items-center gap-1.5 rounded-[6px] border border-[#34322E] px-2.5 py-1 text-[11px] text-[#B5B2A8] transition-colors hover:text-[#ECE9E1] hover:border-[#4A4842]"
+          className={`inline-flex items-center gap-1 rounded-[7px] border border-[#282724] px-2 py-1 text-[11px] text-[#B5B2A8] ${EASE} hover:text-[#ECE9E1] focus:outline-none focus-visible:shadow-[0_0_0_2px_#D4A65240]`}
         >
           <Pencil className="h-3 w-3" /> Edit inputs
         </button>
@@ -99,9 +108,9 @@ export function ShootKitResult({ plan, onEditInputs, refreshing }: ShootKitResul
         <OrderRow label="Narrative" ids={narrativeOrder} />
         <OrderRow label="Optimized" ids={plan.shootOrder} emphasise />
         {plan.optimization && plan.optimization.reasons.length > 0 && (
-          <ul className="mt-1.5 space-y-0.5 pl-3">
+          <ul className="mt-2 space-y-1 pl-3">
             {plan.optimization.reasons.map((r, i) => (
-              <li key={i} className="list-disc text-[11px] leading-relaxed text-[#8B887F]">{r}</li>
+              <li key={i} className="list-disc text-[11px] leading-relaxed text-[#7A776E]">{r}</li>
             ))}
           </ul>
         )}
@@ -115,22 +124,20 @@ export function ShootKitResult({ plan, onEditInputs, refreshing }: ShootKitResul
             if (rows.length === 0) return null;
             return (
               <div key={source}>
-                <div className="mb-1 font-mono text-[10px] uppercase tracking-wide text-[#6B6860]">
-                  {SOURCE_LABEL[source]}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className={`mb-1 ${MONO_LABEL}`}>{SOURCE_LABEL[source]}</div>
+                <div className="flex flex-wrap gap-1">
                   {rows.map((r) => (
                     <span
                       key={r.id}
-                      className="inline-flex items-center gap-1 rounded-[6px] border border-[#282724] bg-[#0F0F0E] px-2 py-1 text-[11px] text-[#D8D5CC]"
+                      className="inline-flex items-center gap-1 rounded-[4px] border border-[#1C1B19] bg-[#0F0F0E] px-2 py-1 text-[11px] text-[#B5B2A8]"
                       title={r.notes.join(" · ") || undefined}
                     >
-                      {r.label}
+                      <span className="text-[#ECE9E1]">{r.label}</span>
                       {r.quantity > 1 && <span className="text-[#7A776E]">×{r.quantity}</span>}
                       {r.incrementalCost > 0 && (
-                        <span className="text-[#D4A652]">{money(r.incrementalCost, plan.currency)}</span>
+                        <span className="font-mono text-[#D4A652]">{money(r.incrementalCost, plan.currency)}</span>
                       )}
-                      {!r.required && <span className="text-[#6B6860]">(optional)</span>}
+                      {!r.required && <span className="text-[#5F5E5A]">(optional)</span>}
                     </span>
                   ))}
                 </div>
@@ -148,9 +155,9 @@ export function ShootKitResult({ plan, onEditInputs, refreshing }: ShootKitResul
             const selectedId = selectedScene[setup.id] ?? scenes[0]?.sceneId;
             const activeScene = scenes.find((s) => s.sceneId === selectedId) ?? scenes[0] ?? null;
             return (
-              <div key={setup.id} className="rounded-md border border-[#282724] bg-[#0F0F0E] p-3">
+              <div key={setup.id} className="rounded-[7px] border border-[#1C1B19] bg-[#0F0F0E] p-3">
                 <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                  <h4 className="text-[13px] font-semibold text-[#ECE9E1]">{setup.label}</h4>
+                  <h4 className="text-[13px] font-medium text-[#ECE9E1]">{setup.label}</h4>
                   <span className="font-mono text-[10px] text-[#7A776E]">
                     setup {minutes(setup.setupMinutes)}
                     {setup.resetMinutes > 0 ? ` · reset ${minutes(setup.resetMinutes)}` : ""}
@@ -169,8 +176,8 @@ export function ShootKitResult({ plan, onEditInputs, refreshing }: ShootKitResul
                           aria-selected={on}
                           type="button"
                           onClick={() => setSelectedScene((prev) => ({ ...prev, [setup.id]: s.sceneId }))}
-                          className={`rounded-[6px] border px-2 py-0.5 text-[11px] transition-colors ${
-                            on ? "border-[#D4A652] text-[#D4A652]" : "border-[#34322E] text-[#8B887F] hover:text-[#ECE9E1]"
+                          className={`rounded-[4px] border px-2 py-1 font-mono text-[10px] ${EASE} focus:outline-none focus-visible:shadow-[0_0_0_2px_#D4A65240] ${
+                            on ? "border-[#D4A652] text-[#D4A652]" : "border-[#282724] text-[#7A776E] hover:text-[#ECE9E1]"
                           }`}
                         >
                           {s.sceneId}
@@ -183,7 +190,7 @@ export function ShootKitResult({ plan, onEditInputs, refreshing }: ShootKitResul
                 <ShootKitDiagram setup={setup} scene={activeScene} coordinateSystem={plan.coordinateSystem} />
 
                 {setup.instructions.length > 0 && (
-                  <ul className="mt-2 space-y-0.5 pl-3">
+                  <ul className="mt-2 space-y-1 pl-3">
                     {setup.instructions.map((ins, i) => (
                       <li key={i} className="list-disc text-[11px] leading-relaxed text-[#B5B2A8]">{ins}</li>
                     ))}
@@ -202,20 +209,20 @@ export function ShootKitResult({ plan, onEditInputs, refreshing }: ShootKitResul
       {/* Upgrade options */}
       {plan.upgradeOptions.length > 0 && (
         <Section title="Optional upgrades">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {plan.upgradeOptions.map((u) => (
-              <div key={u.id} className="flex items-start justify-between gap-3 rounded-md border border-[#282724] bg-[#0F0F0E] px-3 py-2">
+              <div key={u.id} className="flex items-start justify-between gap-3 rounded-[7px] border border-[#1C1B19] bg-[#0F0F0E] px-3 py-2">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 text-[12px] font-medium text-[#ECE9E1]">
-                    <ArrowUpRight className="h-3.5 w-3.5 text-[#D4A652] shrink-0" />
+                  <div className="flex items-center gap-1 text-[13px] font-medium text-[#ECE9E1]">
+                    <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[#7A776E]" />
                     {u.label}
                   </div>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-[#8B887F]">{u.benefit}</p>
-                  <p className="mt-0.5 font-mono text-[10px] text-[#6B6860]">
+                  <p className="mt-1 text-[11px] leading-relaxed text-[#B5B2A8]">{u.benefit}</p>
+                  <p className={`mt-1 ${MONO_LABEL}`}>
                     {u.resourceLabels.join(", ")} · scenes {u.affectedSceneIds.join(", ")}
                   </p>
                 </div>
-                <span className="shrink-0 font-mono text-[12px] text-[#D4A652]">
+                <span className="shrink-0 font-mono text-[11px] text-[#D4A652]">
                   +{money(u.incrementalCost, plan.currency)}
                 </span>
               </div>
@@ -244,7 +251,7 @@ function SceneDetail({
   return (
     <div className="mt-2 space-y-2 border-t border-[#1C1B19] pt-2">
       <p className="text-[11px] leading-relaxed text-[#B5B2A8]">
-        <span className="text-[#ECE9E1]">{scene.intent.narrativePurpose}</span>
+        <span className="font-medium text-[#ECE9E1]">{scene.intent.narrativePurpose}</span>
         {" — "}{scene.intent.emotionalBeat} · energy {Math.round(scene.intent.energy * 100)}% · {scene.intent.visualPriority}
       </p>
 
@@ -289,12 +296,12 @@ function SceneDetail({
       )}
 
       {scene.fallback && (
-        <div className="rounded-[6px] border border-[#3A3320] bg-[#181509] px-2.5 py-1.5">
-          <div className="font-mono text-[10px] uppercase tracking-wide text-[#C9A24A]">Resolver fallback</div>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-[#D8D5CC]">
+        <div className="rounded-[4px] px-3 py-2" style={{ background: "#D4A65214" }}>
+          <div className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[#D4A652]">Resolver fallback</div>
+          <p className="mt-1 text-[11px] leading-relaxed text-[#B5B2A8]">
             <span className="text-[#ECE9E1]">{scene.fallback.framing}</span> — {scene.fallback.instruction}
           </p>
-          <p className="mt-0.5 text-[10px] leading-relaxed text-[#8B887F]">Reason: {scene.fallback.reason}</p>
+          <p className="mt-1 text-[10px] leading-relaxed text-[#7A776E]">Reason: {scene.fallback.reason}</p>
         </div>
       )}
     </div>
@@ -303,9 +310,9 @@ function SceneDetail({
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-md border border-[#282724] bg-[#0F0F0E] px-2.5 py-2">
-      <div className="font-mono text-[10px] uppercase tracking-wide text-[#6B6860]">{label}</div>
-      <div className="mt-0.5 text-[15px] font-semibold text-[#ECE9E1]">{value}</div>
+    <div className="rounded-[7px] border border-[#1C1B19] bg-[#0F0F0E] px-3 py-2">
+      <div className={MONO_LABEL}>{label}</div>
+      <div className="mt-1 text-[14px] font-medium text-[#ECE9E1]">{value}</div>
       {hint && <div className="text-[10px] text-[#7A776E]">{hint}</div>}
     </div>
   );
@@ -314,7 +321,7 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="mb-1.5 font-mono text-[11px] uppercase tracking-wide text-[#8B887F]">{title}</h3>
+      <h3 className={`mb-2 ${MONO_LABEL}`}>{title}</h3>
       {children}
     </section>
   );
@@ -322,13 +329,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function OrderRow({ label, ids, emphasise }: { label: string; ids: string[]; emphasise?: boolean }) {
   return (
-    <div className="flex items-baseline gap-2 py-0.5">
-      <span className="w-16 shrink-0 font-mono text-[10px] uppercase text-[#6B6860]">{label}</span>
+    <div className="flex items-baseline gap-2 py-1">
+      <span className={`w-16 shrink-0 ${MONO_LABEL}`}>{label}</span>
       <div className="flex flex-wrap items-center gap-1">
         {ids.map((id, i) => (
           <React.Fragment key={`${id}-${i}`}>
             <span className={`font-mono text-[11px] ${emphasise ? "text-[#D4A652]" : "text-[#B5B2A8]"}`}>{id}</span>
-            {i < ids.length - 1 && <span className="text-[#4A4842]">→</span>}
+            {i < ids.length - 1 && <span className="text-[#454340]">→</span>}
           </React.Fragment>
         ))}
       </div>
@@ -339,22 +346,20 @@ function OrderRow({ label, ids, emphasise }: { label: string; ids: string[]; emp
 function Kv({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <p className="text-[11px] leading-relaxed text-[#B5B2A8]">
-      <span className="font-mono text-[10px] uppercase tracking-wide text-[#6B6860]">{label}: </span>
+      <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-[#5F5E5A]">{label}: </span>
       {children}
     </p>
   );
 }
 
 function Notice({ tone, icon, title, items }: { tone: "warn" | "info"; icon: React.ReactNode; title: string; items: string[] }) {
-  const border = tone === "warn" ? "#3A3320" : "#25303A";
-  const bg = tone === "warn" ? "#171307" : "#0C1418";
-  const fg = tone === "warn" ? "#C9A24A" : "#5CB8CC";
+  const fg = tone === "warn" ? "#D4A652" : "#5CB8CC";
   return (
-    <div className="rounded-md border px-3 py-2" style={{ borderColor: border, background: bg }}>
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: fg }}>
+    <div className="rounded-[7px] px-3 py-2" style={{ background: `${fg}14` }}>
+      <div className="flex items-center gap-1 text-[11px] font-medium" style={{ color: fg }}>
         {icon} {title}
       </div>
-      <ul className="mt-1 space-y-0.5 pl-3">
+      <ul className="mt-1 space-y-1 pl-3">
         {items.map((it, i) => (
           <li key={i} className="list-disc text-[11px] leading-relaxed text-[#B5B2A8]">{it}</li>
         ))}

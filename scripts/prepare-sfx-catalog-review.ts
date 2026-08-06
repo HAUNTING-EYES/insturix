@@ -49,6 +49,7 @@ export interface SfxCatalogReviewReportCandidate {
   gainDb: number;
   sourceInspection: ConditionSfxCatalogAssetResult['source'];
   outputInspection: ConditionSfxCatalogAssetResult['output'];
+  reviewEvidence?: SfxCatalogReviewCandidate['reviewEvidence'];
   curation: SfxCatalogReviewMetadata & {
     sourcePath: string;
     provenance: ReviewProvenance;
@@ -74,6 +75,7 @@ export interface SfxCatalogReviewReport {
     evidencePath: string;
     evidenceHashSha256: string;
   }>;
+  sourceEvidence?: SfxCatalogReviewSeed['sourceEvidence'];
   candidates: SfxCatalogReviewReportCandidate[];
 }
 
@@ -157,6 +159,15 @@ export async function prepareSfxCatalogReview(
     const source = await resolveLicensedSourcePath(sourceRoot, candidate.sourcePath, realpath);
     const sourceBuffer = await readFile(source.absolutePath);
     const sourceHashSha256 = hashBuffer(sourceBuffer);
+    if (
+      candidate.reviewEvidence?.sourceHashSha256 !== undefined
+      && candidate.reviewEvidence.sourceHashSha256 !== sourceHashSha256
+    ) {
+      throw new SfxCatalogReviewError(
+        'SFX_REVIEW_EVIDENCE_HASH_MISMATCH',
+        `Candidate ${candidate.providerAssetId} does not match its review evidence hash`,
+      );
+    }
     if (sourceHashes.has(sourceHashSha256)) {
       throw new SfxCatalogReviewError(
         'DUPLICATE_SFX_REVIEW_AUDIO',
@@ -189,6 +200,7 @@ export async function prepareSfxCatalogReview(
         gainDb: conditioned.gainDb,
         sourceInspection: conditioned.source,
         outputInspection: conditioned.output,
+        reviewEvidence: candidate.reviewEvidence,
         curation: {
           sourcePath: audioPath,
           ...candidate.metadata,
@@ -203,6 +215,7 @@ export async function prepareSfxCatalogReview(
   const reportWithoutSetHash = {
     version: 'sfx-catalog-review-report-v1' as const,
     generatedAt: now.toISOString(),
+    ...(seed.sourceEvidence ? { sourceEvidence: seed.sourceEvidence } : {}),
     requiredRoles: [...seed.requiredRoles],
     coverage: seed.requiredRoles.map(role => {
       const candidateCount = candidates.filter(candidate => (
@@ -220,10 +233,12 @@ export async function prepareSfxCatalogReview(
   const report: SfxCatalogReviewReport = {
     ...reportWithoutSetHash,
     sourceSetHashSha256: hashJson({
+      sourceEvidence: seed.sourceEvidence ?? null,
       licenses: licenses.map(license => license.evidenceHashSha256),
       candidates: candidates.map(candidate => ({
         source: candidate.sourceHashSha256,
         conditioned: candidate.conditionedHashSha256,
+        reviewEvidence: candidate.reviewEvidence ?? null,
       })),
     }),
   };

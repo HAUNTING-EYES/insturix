@@ -16,9 +16,9 @@ import {
   TOTAL_STAGES,
 } from '@/components/editron/project/auto-edit/auto-edit-stages';
 import { canRescueToDirectorMode } from '@/lib/editron/services/assist-lane-predicates';
+import { isAssistLaneVisible } from '@/lib/editron/services/assist-lane-flag';
 
-const DIRECTOR_MODE_ENABLED = process.env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED === 'true'
-  || process.env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED === '1';
+const DIRECTOR_MODE_ENABLED = isAssistLaneVisible();
 
 /* Full-screen auto-edit processing route. Polls the project's coarse
    autoEditStatus and drives the AutoEditProcessing screen from it, then

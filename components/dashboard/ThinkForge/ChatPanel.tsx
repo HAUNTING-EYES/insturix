@@ -16,6 +16,10 @@ import { extractUrls } from "./PromptPanel";
 import { logShadowEvent } from "@/lib/thinkforge/services/shadow-logger";
 import { BlueprintCustomizer } from "./chat/BlueprintCustomizer";
 import { TrendWorkflowPanel } from "./TrendWorkflowPanel";
+import {
+  normalizeThinkForgeDocumentContract,
+  resolveCarouselSlideCount,
+} from "@/lib/thinkforge/schemas/document-contract";
 
 interface ChatPanelProps {
   selectedIdea: Idea;
@@ -88,6 +92,16 @@ function pickProjectMetaPassthrough(source: unknown): Record<string, string> {
     if (value) acc[key] = value;
     return acc;
   }, {});
+}
+
+function resolveSelectedIdeaContentContract(idea: Idea) {
+  const contract = normalizeThinkForgeDocumentContract(idea?.format);
+  if (contract?.outputKind !== 'carousel') return contract;
+
+  const carouselSlideCount = resolveCarouselSlideCount(idea?.originalPrompt);
+  return carouselSlideCount === undefined
+    ? contract
+    : { ...contract, carouselSlideCount };
 }
 
 function getContextualSuggestions(hasScript: boolean, messageCount: number = 0, count: number = 3, seed: string = ''): string[] {
@@ -260,17 +274,21 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
 
   // Build project payload from selected idea
   const sessionPayload = useMemo(
-    () => ({
-      idea: selectedIdea?.idea,
-      purpose: (selectedIdea as any)?.purpose,
-      style: (selectedIdea as any)?.style,
-      format: (selectedIdea as any)?.format,
-      platform: (selectedIdea as any)?.platform,
-      tone: selectedIdea?.tone,
-      sessionName: (selectedIdea as any)?.sessionName,
-      originalPrompt: (selectedIdea as any)?.originalPrompt,
-      ...pickProjectMetaPassthrough(selectedIdea),
-    }),
+    () => {
+      const contentContract = resolveSelectedIdeaContentContract(selectedIdea);
+      return {
+        idea: selectedIdea?.idea,
+        purpose: (selectedIdea as any)?.purpose,
+        style: (selectedIdea as any)?.style,
+        format: (selectedIdea as any)?.format,
+        ...(contentContract ? { contentContract } : {}),
+        platform: (selectedIdea as any)?.platform,
+        tone: selectedIdea?.tone,
+        sessionName: (selectedIdea as any)?.sessionName,
+        originalPrompt: (selectedIdea as any)?.originalPrompt,
+        ...pickProjectMetaPassthrough(selectedIdea),
+      };
+    },
     [selectedIdea]
   );
 

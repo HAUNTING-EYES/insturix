@@ -44,9 +44,19 @@ export async function GET(request: NextRequest) {
       success: true,
       assetId,
       status: upload.status,
+      uploadId: upload.uploadId ?? null,
+      r2Key: upload.r2Key ?? null,
       totalParts: upload.totalParts,
-      completedParts: upload.completedParts?.length ?? 0,
+      partSize: upload.partSize ?? null,
       totalSize: upload.totalSize,
+      completedParts: Array.isArray(upload.completedParts)
+        ? upload.completedParts.map((part: { PartNumber?: unknown; ETag?: unknown }) => ({
+          PartNumber: typeof part?.PartNumber === 'number' ? part.PartNumber : Number(part?.PartNumber),
+          ETag: typeof part?.ETag === 'string' ? part.ETag : '',
+        })).filter((part: { PartNumber: number; ETag: string }) => (
+          Number.isInteger(part.PartNumber) && part.PartNumber >= 1 && part.ETag.length > 0
+        )).sort((a: { PartNumber: number }, b: { PartNumber: number }) => a.PartNumber - b.PartNumber)
+        : [],
       createdAt: upload.createdAt,
       lastActivityAt: upload.lastActivityAt,
     });

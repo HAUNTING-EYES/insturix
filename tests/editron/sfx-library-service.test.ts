@@ -43,6 +43,7 @@ import {
   searchAndDownloadSFX,
   type SFXLibrarySearchReport,
 } from '@/lib/pipeline/sfx-library-service';
+import type { SfxCatalogSemanticRetrieval } from '@/lib/pipeline/sfx-catalog-semantic-index';
 import { handleSfxLibraryIngest } from '@/app/api/services/editron/sfx-library/ingest/route';
 
 function freesoundResponse(results: Array<Record<string, unknown>>): Response {
@@ -143,6 +144,13 @@ function validCatalogManifest(): SfxCatalogManifest {
   });
 }
 
+function emptyCatalogManifest(): SfxCatalogManifest {
+  return {
+    ...validCatalogManifest(),
+    entries: [],
+  };
+}
+
 function catalogManifestWithMeasurement(
   measurement: Record<string, unknown>,
   durationMs: number,
@@ -191,12 +199,13 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
     vi.unstubAllGlobals();
   });
 
-  it('reports library availability truthfully from its provider credential', () => {
+  it('reports library availability from either the bundled catalog or provider credential', () => {
     delete process.env.FREESOUND_API_KEY;
-    expect(isSFXLibraryAvailable()).toBe(false);
+    expect(isSFXLibraryAvailable(emptyCatalogManifest())).toBe(false);
+    expect(isSFXLibraryAvailable()).toBe(true);
 
     process.env.FREESOUND_API_KEY = 'configured';
-    expect(isSFXLibraryAvailable()).toBe(true);
+    expect(isSFXLibraryAvailable(emptyCatalogManifest())).toBe(true);
   });
 
   it('scores provider candidates before downloading and uploads only the accepted SFX', async () => {
@@ -239,7 +248,14 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
     });
 
     const reports: SFXLibrarySearchReport[] = [];
-    const result = await searchAndDownloadSFX('whoosh cinematic sweep', 'user-1', 2, form, report => reports.push(report));
+    const result = await searchAndDownloadSFX(
+      'whoosh cinematic sweep',
+      'user-1',
+      2,
+      form,
+      report => reports.push(report),
+      emptyCatalogManifest(),
+    );
 
     expect(reports).toHaveLength(1);
     expect(reports[0]).toEqual(expect.objectContaining({
@@ -504,6 +520,119 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
     expect(mocks.updateOne).not.toHaveBeenCalled();
   });
 
+  it('uses configured semantic evidence and propagates its immutable audit receipt', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error('semantic catalog hit must not reach a provider');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const form = resolveAtomicSfxForm({
+      params: {
+        sfxCue: 'cinematic whoosh sweep transition',
+        sfxAnchor: 'transition',
+        transitionFrame: 30,
+      },
+      frame: 30,
+      sceneRemainingFrames: 90,
+    });
+    const semanticRetrieval = semanticRetrievalFixture(
+      'sfx_catalog_air_whoosh_001',
+      0.91,
+    );
+    const retrieveCatalogSemantics = vi.fn(async () => semanticRetrieval);
+    const reports: SFXLibrarySearchReport[] = [];
+    const manifest = validCatalogManifest();
+
+    const result = await searchAndDownloadSFX(
+      'whoosh cinematic sweep',
+      'user-1',
+      2,
+      form,
+      report => reports.push(report),
+      manifest,
+      { retrieveCatalogSemantics },
+    );
+
+    expect(result?.audioAssetId).toBe('sfx_catalog_air_whoosh_001');
+    expect(retrieveCatalogSemantics).toHaveBeenCalledWith(
+      'whoosh cinematic sweep',
+      manifest,
+    );
+    expect(reports[0].semanticRetrieval).toEqual(semanticRetrieval.report);
+    expect(reports[0].catalog.candidates[0]).toEqual(expect.objectContaining({
+      assetId: 'sfx_catalog_air_whoosh_001',
+      semanticQuerySimilarity: 0.91,
+      reasons: expect.arrayContaining(['semantic-query-similarity:0.9100']),
+    }));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not invoke semantic retrieval when the atomic resolver chooses silence', async () => {
+    const retrieveCatalogSemantics = vi.fn(async () => semanticRetrievalFixture(
+      'sfx_catalog_air_whoosh_001',
+      0.99,
+    ));
+    const form = resolveAtomicSfxForm({
+      frame: 60,
+      signals: {
+        speech_energy: 0.7,
+        word_importance: 0.42,
+        visual_complexity: 0.94,
+        text_on_screen: 0.9,
+        face_present: 1,
+        active_overlay_count: 4,
+        restraint: 0.86,
+      },
+    });
+    const reports: SFXLibrarySearchReport[] = [];
+
+    const result = await searchAndDownloadSFX(
+      'whoosh',
+      'user-1',
+      2,
+      form,
+      report => reports.push(report),
+      validCatalogManifest(),
+      { retrieveCatalogSemantics },
+    );
+
+    expect(result).toBeNull();
+    expect(retrieveCatalogSemantics).not.toHaveBeenCalled();
+    expect(reports).toEqual([
+      expect.objectContaining({
+        selectionLane: 'none',
+        semanticRetrieval: undefined,
+        failureReason: 'form-resolved-silence',
+      }),
+    ]);
+  });
+
+  it('fails loud when configured semantic retrieval fails instead of hiding it with a provider', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error('provider fallback must not conceal semantic index failure');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const configuredFailure = new Error('configured semantic release is corrupt');
+    const retrieveCatalogSemantics = vi.fn(async () => {
+      throw configuredFailure;
+    });
+    const form = resolveAtomicSfxForm({
+      params: { sfxCue: 'cinematic whoosh sweep transition' },
+      frame: 30,
+      sceneRemainingFrames: 90,
+    });
+
+    await expect(searchAndDownloadSFX(
+      'whoosh',
+      'user-1',
+      2,
+      form,
+      undefined,
+      validCatalogManifest(),
+      { retrieveCatalogSemantics },
+    )).rejects.toBe(configuredFailure);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('fails loud on forged rights or audio measurements at catalog ingest', () => {
     const invalid = structuredClone(validCatalogManifest());
     invalid.entries[0].audioRights.evidence.sourceAssetId = 'sfx_catalog_other_asset';
@@ -692,6 +821,33 @@ describe('searchAndDownloadSFX provider candidate gate', () => {
     expect(selection.report.candidates[0].score).toBeGreaterThan(selection.report.candidates[1].score);
   });
 });
+
+function semanticRetrievalFixture(
+  assetId: string,
+  cosineSimilarity: number,
+): SfxCatalogSemanticRetrieval {
+  return {
+    similarityByAssetId: new Map([[assetId, cosineSimilarity]]),
+    report: {
+      version: 'editron-sfx-catalog-semantic-retrieval-v1',
+      releaseReceiptDigestSha256: 'c'.repeat(64),
+      promotedManifestDigestSha256: 'd'.repeat(64),
+      queryDigestSha256: 'e'.repeat(64),
+      model: {
+        provider: 'huggingface-transformers-js',
+        packageVersion: '3.8.1',
+        modelId: 'Xenova/clap-htsat-unfused',
+        revision: 'c28f2883575e590e04d3146ff0713c2448d691ba',
+        dtype: 'q8',
+        sampleRateHz: 48_000,
+        embeddingDimension: 512,
+        windowing: 'non-overlapping-10s-duration-weighted-mean',
+      },
+      indexedAssetCount: 1,
+      candidates: [{ assetId, cosineSimilarity }],
+    },
+  };
+}
 
 describe('controlled Freesound SFX ingest', () => {
   const audioBytes = Buffer.from([

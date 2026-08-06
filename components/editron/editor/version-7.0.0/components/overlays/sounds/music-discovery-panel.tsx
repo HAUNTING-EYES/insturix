@@ -145,6 +145,14 @@ export function MusicDiscoveryPanel() {
         assetId: uploaded.assetId,
         idempotencyKey: createBackgroundMusicIdempotencyKey(),
         usageMode: 'reference-only',
+        sourceMetadata: {
+          identityId: identity.identityId,
+          title: identity.title,
+          artists: identity.artists,
+          provider: identity.sources[0]?.provider,
+          providerTrackId: identity.sources[0]?.providerId,
+          isrcs: identity.isrcs,
+        },
       });
       setOverlays(assignment.overlays);
       setFeedback({

@@ -540,7 +540,7 @@ describe('chat semantic editorial intent', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it('keeps weak or ambiguous targeted evidence advisory and never mutates', async () => {
+  it('asks for one choice when weak evidence does not ground an ambiguous target', async () => {
     const deps = dependencies({
       searchEvidence: vi.fn(async () => ({
         auditId: 'audit-weak',
@@ -568,10 +568,75 @@ describe('chat semantic editorial intent', () => {
       },
     }, deps);
 
-    expect(result.status).toBe('advisory');
+    expect(result.status).toBe('needs-choice');
     expect(result.dispatch.reasons).toContain('no-safe-canonical-evidence');
     expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
     expect(deps.executeProjectIntent).not.toHaveBeenCalled();
+  });
+
+  it('returns a truthful no-op when an exact range is grounded but contains no safe edit opportunity', async () => {
+    const deps = dependencies({
+      searchEvidence: vi.fn(async () => ({
+        auditId: 'audit-visible-range',
+        candidates: [candidate({
+          startFrame: 57,
+          endFrame: 126,
+          score: 0.49,
+          accepted: false,
+          safeForAutomaticMutation: false,
+          rejectionReasons: ['below-semantic-threshold'],
+        })],
+        analyzedDocumentCount: 4,
+        embeddedDocumentCount: 4,
+        rankingPolicy: CHAT_EVIDENCE_RANKING_POLICY,
+      })),
+    });
+    const intentTool = createChatEditorialIntentTools(
+      { userId: 'user-1', projectId: 'project-1' },
+      deps,
+    ).find((tool) => tool.name === 'apply_editorial_intent');
+    expect(intentTool).toBeDefined();
+
+    const output = JSON.parse(await intentTool!.invoke({
+      goal: 'Tighten this visible section without changing the rest',
+      scopeKind: 'selection',
+      startFrame: 0,
+      endFrame: 270,
+    }) as string);
+
+    expect(output).toMatchObject({
+      status: 'no-op',
+      data: {
+        status: 'no-op',
+        dispatch: {
+          mutated: false,
+          reasons: ['no-safe-canonical-evidence'],
+        },
+      },
+      error: null,
+    });
+    expect(output.nextAction).toContain('no grounded edit opportunity');
+    expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
+    expect(deps.persistAudit).toHaveBeenCalledWith(expect.objectContaining({ status: 'no-op' }));
+  });
+
+  it('keeps high-uncertainty exact targets as needs-choice rather than no-op', async () => {
+    const deps = dependencies();
+    const result = await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Do something tasteful here',
+        scope: { kind: 'moment', startFrame: 100, endFrame: 200 },
+        constraints: [],
+        strength: 0.5,
+        uncertainty: 1,
+      },
+    }, deps);
+
+    expect(result.status).toBe('needs-choice');
+    expect(result.dispatch.reasons).toEqual(['intent-uncertainty-too-high']);
+    expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
   });
 
   it('builds fact and signal candidates while leaving physical forms to existing owners', () => {
@@ -722,6 +787,88 @@ describe('Director Mode confirm-gate (assist lane)', () => {
     expect(deps.executeProjectIntent).not.toHaveBeenCalled();
     expect(deps.dispatchScriptIntent).not.toHaveBeenCalled();
     expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
+  });
+
+  it('does not let model-supplied scriptText override explicit family authority', async () => {
+    const deps = dependencies();
+    const tools = createChatEditorialIntentTools({
+      userId: 'user-1',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      operationId: 'operation-1',
+      requiredFamilyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
+      familyScopeExclusive: true,
+    }, deps);
+    const applyTool = tools.find((candidate) => (candidate as { name: string }).name === 'apply_editorial_intent') as {
+      invoke: (input: unknown, config: unknown) => Promise<string>;
+    };
+    const userTurnText = 'Create one grounded process motion graphic from the real project stages.';
+    const output = JSON.parse(await applyTool.invoke({
+      goal: userTurnText,
+      motionGraphicsMode: 'prefer',
+      scriptText: userTurnText,
+    }, {
+      configurable: { chatUserTurnText: userTurnText },
+    }));
+
+    expect(output.status).toBe('success');
+    expect(output.data.intent).not.toHaveProperty('script');
+    expect(output.data.dispatch.owner).toBe('director-unified-planner');
+    expect(deps.executeProjectIntent).toHaveBeenCalledOnce();
+    expect(deps.dispatchScriptIntent).not.toHaveBeenCalled();
+  });
+
+  it('keeps explicit family scope authoritative for internal callers carrying script context', async () => {
+    const deps = dependencies();
+    const result = await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Create a grounded process motion graphic',
+        scope: { kind: 'project' },
+        constraints: [],
+        strength: 0.5,
+        uncertainty: 0,
+        script: 'First show design, then construction, then the finished result.',
+      },
+      executionScope: {
+        version: 'editorial-execution-scope-v1',
+        source: 'chat-editorial-intent',
+        mode: 'explicit-families-only',
+        families: ['motionGraphics'],
+      },
+    }, deps);
+
+    expect(result.intent.script).toContain('First show design');
+    expect(result.dispatch.owner).toBe('director-unified-planner');
+    expect(deps.executeProjectIntent).toHaveBeenCalledOnce();
+    expect(deps.dispatchScriptIntent).not.toHaveBeenCalled();
+  });
+
+  it('does not treat an explicit family-only MG composition as a full Auto-Director handoff', async () => {
+    const deps = dependencies({ loadProject: vi.fn(async () => assistProject()) });
+    const result = await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Create a process diagram for this explanation',
+        scope: { kind: 'project' },
+        constraints: [],
+        strength: 0.5,
+        uncertainty: 0,
+        families: { motionGraphics: { mode: 'prefer' } },
+      },
+      executionScope: {
+        version: 'editorial-execution-scope-v1',
+        source: 'chat-editorial-intent',
+        mode: 'explicit-families-only',
+        families: ['motionGraphics'],
+      },
+    }, deps);
+
+    expect(result.status).toBe('success');
+    expect(result.dispatch.reasons).not.toContain('assist-auto-director-needs-confirmation');
+    expect(deps.executeProjectIntent).toHaveBeenCalledOnce();
   });
 
   it('gates a script-led intent the same way', async () => {

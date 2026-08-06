@@ -42,6 +42,9 @@ export interface NormalizedAssetCandidate {
 }
 
 export type UserAssetOverlayPlacement = "corner" | "center" | "full-frame";
+export type UserAssetHorizontalAnchor = "left" | "center" | "right";
+export type UserAssetVerticalAnchor = "top" | "center" | "bottom";
+export type UserAssetTimingAnchor = "intro" | "outro" | "entire";
 export type UserAssetOverlayOperation = "place" | "replace";
 export type UserAssetOverlayStatus =
   | "ready"
@@ -56,8 +59,14 @@ export interface UserAssetOverlayOptions {
   query: string;
   operation?: UserAssetOverlayOperation;
   placement?: UserAssetOverlayPlacement;
+  horizontal?: UserAssetHorizontalAnchor;
+  vertical?: UserAssetVerticalAnchor;
   startFrame?: number;
   durationFrames?: number;
+  startSeconds?: number;
+  endSeconds?: number;
+  durationSeconds?: number;
+  timingAnchor?: UserAssetTimingAnchor;
   targetOverlayId?: string | number;
   targetSceneIndex?: number;
   sourceStartFrame?: number;
@@ -119,13 +128,84 @@ const resolveUserAssetOverlaySchema = z.object({
   operation: z.enum(["place", "replace"]).default("place").describe("Place creates a new overlay. Replace swaps one exact existing video target while preserving its timeline timing and geometry."),
   type: assetTypeSchema.optional().describe("Optional asset type filter. Infer logo/image/photo as image, clip/footage as video, and music/audio as audio."),
   placement: z.enum(["corner", "center", "full-frame"]).default("corner").describe("Requested frame placement. Corner is appropriate for logo bugs; center/full-frame need explicit user intent."),
+  horizontal: z.enum(["left", "center", "right"]).optional().describe("Explicit horizontal anchor for corner placement."),
+  vertical: z.enum(["top", "center", "bottom"]).optional().describe("Explicit vertical anchor for corner placement."),
   startFrame: z.coerce.number().int().min(0).optional().describe("Timeline frame where the asset overlay should start. Defaults to the intro or outro position inferred from the query."),
   durationFrames: z.coerce.number().int().min(1).max(7200).optional().describe("Overlay duration in frames. Defaults to a short intro/logo dwell for images."),
+  startSeconds: z.coerce.number().min(0).optional().describe("User-supplied timeline start in seconds. The server converts it using the project FPS."),
+  endSeconds: z.coerce.number().min(0).optional().describe("User-supplied exclusive timeline end in seconds."),
+  durationSeconds: z.coerce.number().positive().optional().describe("User-supplied overlay duration in seconds."),
+  timingAnchor: z.enum(["intro", "outro", "entire"]).optional().describe("Semantic timeline anchor when the user supplied one instead of absolute seconds."),
   targetOverlayId: z.union([z.string(), z.number()]).optional().describe("Exact existing video overlay to replace. Prefer selectedOverlayId from trusted chat context."),
   targetSceneIndex: z.coerce.number().int().min(0).optional().describe("Compatibility target for a generated scene containing exactly one video overlay. Do not combine with targetOverlayId."),
   sourceStartFrame: z.coerce.number().int().min(0).optional().describe("Optional verified source frame where replacement playback begins. Omit rather than guessing when no source-range evidence exists."),
   minConfidence: z.coerce.number().min(0).max(1).default(0.65).describe("Minimum confidence required to auto-select one asset."),
   allowLowConfidence: z.boolean().default(false).describe("Allow returning add_overlay params even when the best asset candidate is below minConfidence."),
+}).strict().superRefine((input, context) => {
+  if (
+    input.placement !== "corner"
+    && (input.horizontal != null || input.vertical != null)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["placement"],
+      message: "Horizontal and vertical anchors apply only to corner placement.",
+    });
+  }
+  const hasFrameTiming = input.startFrame != null || input.durationFrames != null;
+  const hasSecondTiming = input.startSeconds != null
+    || input.endSeconds != null
+    || input.durationSeconds != null;
+  if (hasFrameTiming && hasSecondTiming) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["startSeconds"],
+      message: "Supply timeline constraints in frames or seconds, not both.",
+    });
+  }
+  if (
+    input.startSeconds != null
+    && input.endSeconds != null
+    && input.endSeconds <= input.startSeconds
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["endSeconds"],
+      message: "endSeconds must be greater than startSeconds.",
+    });
+  }
+  if (
+    input.startSeconds != null
+    && input.endSeconds != null
+    && input.durationSeconds != null
+    && Math.abs((input.endSeconds - input.startSeconds) - input.durationSeconds) > 0.05
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["durationSeconds"],
+      message: "durationSeconds must agree with explicit startSeconds and endSeconds.",
+    });
+  }
+  if (
+    input.timingAnchor != null
+    && (input.startFrame != null || input.startSeconds != null || input.endSeconds != null)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["timingAnchor"],
+      message: "Use a semantic timing anchor or an explicit start/end, not both.",
+    });
+  }
+  if (
+    input.timingAnchor === "entire"
+    && (input.durationFrames != null || input.durationSeconds != null)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["timingAnchor"],
+      message: "An entire-timeline placement cannot also specify a duration.",
+    });
+  }
 });
 
 export function createChatAssetTools({ userId, projectId }: CreateChatAssetToolsOptions) {
@@ -242,29 +322,50 @@ Use this to check duration, dimensions, tags, transcription summary, and whether
 
   const resolveUserAssetOverlay = tool(
     async (input: z.infer<typeof resolveUserAssetOverlaySchema>) => {
+      const { assetResolver } = await import("../services/asset-resolver");
       const { searchUserAssets } = await import("../services/asset-search-service");
       const { projectService } = await import("../services/project-service");
       const effectiveType = input.type ?? inferAssetType(input.query);
       const usage = await getTimelineAssetUsage(userId, projectId);
       const project = await projectService.loadProject(userId, projectId);
-      const semanticResults = await searchUserAssets(userId, input.query, {
-        type: effectiveType,
-        minScore: 0.2,
-        limit: 8,
-      });
-      const lexicalResults = await searchUserAssetsLexically(userId, input.query, {
-        type: effectiveType,
-        minScore: 0.2,
-        limit: 8,
-      });
-      const candidates = mergeAssetResults(semanticResults, lexicalResults)
-        .slice(0, 8)
-        .map((result) => normalizeSearchResult(result, usage.get(result.assetId)));
+      const exactAsset = await assetResolver.getAsset(input.query.trim(), userId);
+      const exactCandidate = exactAsset && (!effectiveType || exactAsset.type === effectiveType)
+        ? normalizeAsset(exactAsset, usage.get(exactAsset.assetId), {
+            score: 1,
+            matchReasons: ["direct-asset-id"],
+          })
+        : null;
+      const candidates = exactCandidate
+        ? [exactCandidate]
+        : mergeAssetResults(
+            await searchUserAssets(userId, input.query, {
+              type: effectiveType,
+              minScore: 0.2,
+              limit: 8,
+            }),
+            await searchUserAssetsLexically(userId, input.query, {
+              type: effectiveType,
+              minScore: 0.2,
+              limit: 8,
+            }),
+          )
+          .slice(0, 8)
+          .map((result) => normalizeSearchResult(result, usage.get(result.assetId)));
       const plan = resolveUserAssetOverlayPlacement(project, candidates, {
         query: input.query,
+        operation: input.operation,
         placement: input.placement,
+        horizontal: input.horizontal,
+        vertical: input.vertical,
         startFrame: input.startFrame,
         durationFrames: input.durationFrames,
+        startSeconds: input.startSeconds,
+        endSeconds: input.endSeconds,
+        durationSeconds: input.durationSeconds,
+        timingAnchor: input.timingAnchor,
+        targetOverlayId: input.targetOverlayId,
+        targetSceneIndex: input.targetSceneIndex,
+        sourceStartFrame: input.sourceStartFrame,
         minConfidence: input.minConfidence,
         allowLowConfidence: input.allowLowConfidence,
       });
@@ -432,9 +533,9 @@ export function resolveUserAssetOverlayPlacement(
   const range = resolveAssetOverlayRange(project, candidate, options);
   const geometry = overlayType === "sound"
     ? {}
-    : resolveAssetOverlayGeometry(project, candidate, placement, options.query);
+    : resolveAssetOverlayGeometry(project, candidate, placement, options);
   const styles = overlayType === "image"
-    ? { objectFit: "contain", opacity: 1, animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 } }
+    ? { objectFit: "contain", opacity: 1 }
     : overlayType === "video"
       ? { objectFit: placement === "full-frame" ? "cover" : "contain", opacity: 1 }
       : { volume: 0.75 };
@@ -635,12 +736,40 @@ function resolveAssetOverlayRange(
   const defaultDuration = candidate.type === "audio"
     ? Math.min(projectDuration, Math.max(1, Math.round((candidate.duration ?? 3) * fps)))
     : Math.min(projectDuration, Math.round(fps * 3));
-  const duration = clampInt(options.durationFrames ?? defaultDuration, 1, Math.max(1, projectDuration));
+  if (options.timingAnchor === "entire") {
+    return { start: 0, duration: Math.max(1, Math.round(projectDuration)) };
+  }
+
+  const explicitStart = options.startFrame
+    ?? frameFromSeconds(options.startSeconds, fps);
+  const explicitEnd = frameFromSeconds(options.endSeconds, fps);
+  const requestedDuration = options.durationFrames
+    ?? frameFromSeconds(options.durationSeconds, fps)
+    ?? (
+      explicitEnd != null && explicitStart != null
+        ? explicitEnd - explicitStart
+        : explicitEnd
+    )
+    ?? defaultDuration;
+  const boundedDuration = clampInt(requestedDuration, 1, Math.max(1, projectDuration));
   const lower = options.query.toLowerCase();
-  const inferredStart = /\b(outro|ending|closing|end card|final)\b/.test(lower)
-    ? Math.max(0, projectDuration - duration)
-    : 0;
-  const start = clampInt(options.startFrame ?? inferredStart, 0, Math.max(0, projectDuration - duration));
+  const inferredOutro = options.timingAnchor === "outro"
+    || /\b(outro|ending|closing|end card|final)\b/.test(lower);
+  const inferredStart = inferredOutro
+    ? Math.max(0, projectDuration - boundedDuration)
+    : explicitEnd != null && options.durationSeconds != null
+      ? Math.max(0, explicitEnd - boundedDuration)
+      : 0;
+  const start = clampInt(
+    explicitStart ?? inferredStart,
+    0,
+    Math.max(0, projectDuration - 1),
+  );
+  const duration = clampInt(
+    boundedDuration,
+    1,
+    Math.max(1, projectDuration - start),
+  );
   return { start, duration };
 }
 
@@ -648,7 +777,7 @@ function resolveAssetOverlayGeometry(
   project: any,
   candidate: NormalizedAssetCandidate,
   placement: UserAssetOverlayPlacement,
-  query: string,
+  options: UserAssetOverlayOptions,
 ): { x: number; y: number; width: number; height: number } {
   const canvas = canvasDimensions(project);
   if (placement === "full-frame") {
@@ -674,15 +803,29 @@ function resolveAssetOverlayGeometry(
 
   const marginX = Math.round(canvas.width * 0.04);
   const marginY = Math.round(canvas.height * 0.05);
-  const lower = query.toLowerCase();
-  const left = /\b(left)\b/.test(lower);
-  const top = /\b(top|upper)\b/.test(lower);
+  const lower = options.query.toLowerCase();
+  const horizontal = options.horizontal
+    ?? (/\b(left)\b/.test(lower) ? "left" : "right");
+  const vertical = options.vertical
+    ?? (/\b(top|upper)\b/.test(lower) ? "top" : "bottom");
   return {
-    x: left ? marginX : Math.max(0, canvas.width - width - marginX),
-    y: top ? marginY : Math.max(0, canvas.height - height - marginY),
+    x: horizontal === "left"
+      ? marginX
+      : horizontal === "center"
+        ? Math.round((canvas.width - width) / 2)
+        : Math.max(0, canvas.width - width - marginX),
+    y: vertical === "top"
+      ? marginY
+      : vertical === "center"
+        ? Math.round((canvas.height - height) / 2)
+        : Math.max(0, canvas.height - height - marginY),
     width,
     height,
   };
+}
+
+function frameFromSeconds(seconds: number | undefined, fps: number): number | undefined {
+  return seconds == null ? undefined : Math.round(seconds * fps);
 }
 
 function canvasDimensions(project: any): { width: number; height: number } {

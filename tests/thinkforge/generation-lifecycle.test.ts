@@ -43,6 +43,15 @@ describe('ThinkForge generation lifecycle', () => {
     expect(service).not.toContain('initializing: true');
   });
 
+  it('keeps the writer execution budget and stale-generation watchdog aligned', () => {
+    const route = read('app/api/services/thinkforge/chat/route.ts');
+    const statusRoute = read('app/api/services/thinkforge/generation/status/route.ts');
+
+    expect(route).toContain('export const maxDuration = 300');
+    expect(statusRoute).toContain('const CHAT_EXECUTION_BUDGET_MS = 300_000');
+    expect(statusRoute).toContain('const STALE_AFTER_MS = CHAT_EXECUTION_BUDGET_MS + WATCHDOG_GRACE_MS');
+  });
+
   it('keeps probing and polling when recovery has no live SSE transport', () => {
     expect(shouldProbeThinkForgeGeneration({
       hasSession: true,

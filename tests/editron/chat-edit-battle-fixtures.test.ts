@@ -4,6 +4,7 @@ import { getChatEditBattleScenario } from '@/lib/editron/services/chat-edit-batt
 import { planChatBattleFixture } from '@/lib/editron/services/chat-edit-battle-fixture-plan';
 import {
   cloneChatBattleAnalysisDocuments,
+  cloneChatBattleStoryboard,
   cloneChatBattleUploadBatch,
   inspectChatBattleFixtureCapabilities,
   prepareChatBattleFixture,
@@ -16,16 +17,40 @@ describe('chat edit battle fixtures', () => {
     expect(plan('selected-overlay-edit')).toMatchObject({ profile: 'mixed', selectedOverlayType: 'text' });
     expect(plan('spoken-phrase-devanagari')).toMatchObject({
       profile: 'speech',
+      sourceProjectId: 'proj_FYZeVGomJuSh',
       seedTranscript: true,
-      preserveSoundOverlays: false,
+      soundOverlayPolicy: 'remove',
+      nativeAudioPolicy: 'mute-embedded-for-seeded-transcript',
     });
     expect(plan('mixed-multi-step')).toMatchObject({
       profile: 'audio',
-      preserveSoundOverlays: true,
+      soundOverlayPolicy: 'preserve-all',
+      nativeAudioPolicy: 'preserve',
     });
-    expect(plan('replace-selected-sfx')).toMatchObject({ profile: 'audio', selectedOverlayType: 'sound' });
+    expect(plan('replace-selected-sfx')).toMatchObject({
+      profile: 'sfx',
+      sourceProjectId: 'proj_chatbattle_impact_audio_v1',
+      selectedOverlayType: 'sound',
+      selectedOverlayRole: 'sfx',
+      soundOverlayPolicy: 'preserve-sfx-only',
+    });
     expect(plan('edit-html-scene')).toMatchObject({ profile: 'generated-scene', selectedOverlayType: 'html-scene' });
-    expect(plan('explicit-asset')).toMatchObject({ requiresImageAssetAlias: true });
+    expect(plan('regenerate-existing-scene')).toMatchObject({
+      profile: 'storyboard-scene',
+      sourceProjectId: 'proj_4N_6crLWX89A',
+      selectedOverlayType: undefined,
+      nativeAudioPolicy: 'mute-embedded-for-visual-only',
+      requiresStoryboardClone: true,
+    });
+    expect(plan('explicit-asset')).toMatchObject({ requestedAssetAlias: 'explicit-image' });
+    expect(plan('place-uploaded-asset')).toMatchObject({
+      requestedAssetAlias: 'portrait-image',
+      selectedOverlayType: undefined,
+    });
+    expect(plan('replace-with-uploaded-footage')).toMatchObject({
+      requestedAssetAlias: 'embroidery-video',
+      selectedOverlayType: 'video',
+    });
     expect(plan('selected-dialogue-dubbing')).toMatchObject({
       profile: 'dubbing',
       sourceProjectId: 'proj_FYZeVGomJuSh',
@@ -48,7 +73,57 @@ describe('chat edit battle fixtures', () => {
       requiresUploadBatchClone: true,
       requiredSourceCapabilities: ['multi-asset', 'semantic-visual-all-video-assets'],
     });
+    expect(plan('close-timeline-gaps')).toMatchObject({ seedTimelineGapFrames: 30 });
+    expect(plan('manual-keyframe-zoom')).toMatchObject({ selectedOverlayMinimumDurationFrames: 60 });
+    expect(plan('selected-overlay-fade')).toMatchObject({ stripSelectedAnimation: true });
+    expect(plan('dialogue-ducking')).toMatchObject({ stripBgmDuckingConfig: true });
+    expect(plan('sync-overlay-style')).toMatchObject({
+      minimumOverlayCount: { type: 'text', count: 2, requireDistinctStyles: true },
+    });
+    expect(plan('batch-overlay-update')).toMatchObject({
+      minimumOverlayCount: { type: 'text', count: 2, requireDistinctStyles: true },
+    });
+    expect(plan('reorder-overlay-layer')).toMatchObject({
+      selectedOverlayType: 'text',
+      selectedBehindOverlayType: 'image',
+    });
     expect(plan('selected-overlay-edit')).toMatchObject({ requiredSourceCapabilities: [] });
+    expect(getChatEditBattleScenario('place-uploaded-asset')?.requiredToolSequence).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'resolve_user_asset_overlay',
+      'add_overlay',
+    ]);
+    expect(getChatEditBattleScenario('replace-with-uploaded-footage')?.requiredToolSequence).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'resolve_user_asset_overlay',
+      'use_matching_footage',
+    ]);
+  });
+
+  it('removes inherited BGM ducking only for the dialogue-ducking mutation fixture', () => {
+    const source = audioCapabilityProject();
+    const music = overlays(source).find((overlay) => overlay.type === 'sound');
+    expect(music).toBeDefined();
+    music!.styles = {
+      volume: 0.2,
+      duckingConfig: {
+        enabled: true,
+        duckLevel: 0.18,
+        rampDownMs: 300,
+        rampUpMs: 600,
+        lookAheadMs: 200,
+      },
+    };
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_ducking',
+      plan: plan('dialogue-ducking'),
+      now: NOW,
+    });
+    const preparedMusic = overlays(prepared.project).find((overlay) => overlay.id === 'sound-1');
+
+    expect(preparedMusic?.styles).toEqual({ volume: 0.2 });
   });
 
   it('rejects semantically blind visual fixtures before they can produce false product failures', () => {
@@ -125,10 +200,128 @@ describe('chat edit battle fixtures', () => {
     });
     expect(prepared.project).not.toHaveProperty('_id');
     expect(prepared.project).not.toHaveProperty('qualityReview');
+    expect(prepared.project.intelligence).not.toHaveProperty('latestChatEditRenderVerification');
     expect(prepared.project.intelligence).not.toHaveProperty('phase0RenderedStillEvidence');
     expect(prepared.selectedOverlayId).toBe('title-1');
     expect(prepared.clientContext).toMatchObject({ selectedOverlayId: 'title-1', activePanel: 'ai-chat' });
     expect(overlays(prepared.project).some((overlay) => overlay.type === 'sound')).toBe(false);
+  });
+
+  it('seeds a real main-video gap only for the gap-closing scenario', () => {
+    const source = sourceProject();
+    source.overlays.push({
+      id: 'video-2',
+      type: 'video',
+      from: 900,
+      durationInFrames: 120,
+      row: 0,
+      assetId: 'video-asset-2',
+    });
+    source.durationInFrames = 1_020;
+    const snapshot = structuredClone(source);
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_gap1',
+      plan: plan('close-timeline-gaps'),
+      now: NOW,
+    });
+    const videos = overlays(prepared.project).filter((overlay) => overlay.type === 'video');
+
+    expect(source).toEqual(snapshot);
+    expect(videos[1].from).toBe(930);
+    expect(prepared.project.durationInFrames).toBe(1_050);
+  });
+
+  it('isolates the selected title behind an overlapping image for a visible layer-order test', () => {
+    const source = sourceProject();
+    const snapshot = structuredClone(source);
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_layer1',
+      plan: plan('reorder-overlay-layer'),
+      now: NOW,
+    });
+    const preparedOverlays = overlays(prepared.project);
+    const selected = preparedOverlays.find((overlay) => overlay.id === prepared.selectedOverlayId);
+    const image = preparedOverlays.find((overlay) => overlay.type === 'image');
+
+    expect(source).toEqual(snapshot);
+    expect(selected).toMatchObject({ type: 'text', row: 2 });
+    expect(image).toMatchObject({
+      from: selected?.from,
+      durationInFrames: selected?.durationInFrames,
+      row: 1,
+    });
+    expect(Number(selected?.from)).toBeGreaterThan(source.durationInFrames);
+    expect(prepared.project.durationInFrames).toBeGreaterThan(source.durationInFrames);
+  });
+
+  it('selects a video long enough for the requested two-second zoom', () => {
+    const source = sourceProject();
+    overlays(source)[0].durationInFrames = 57;
+    source.overlays.splice(1, 0, {
+      id: 'video-long',
+      type: 'video',
+      from: 57,
+      durationInFrames: 120,
+      row: 1,
+      assetId: 'video-long-asset',
+    });
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_zoom1',
+      plan: plan('manual-keyframe-zoom'),
+      now: NOW,
+    });
+
+    expect(prepared.selectedOverlayId).toBe('video-long');
+  });
+
+  it('removes inherited animation before testing an explicit fade', () => {
+    const source = sourceProject();
+    const title = overlays(source).find((overlay) => overlay.type === 'text');
+    if (!title) throw new Error('Expected title fixture.');
+    title.styles = { animation: { enter: 'fadeIn', exit: 'fadeOut' }, color: '#ffffff' };
+    title.keyframeTracks = [{ property: 'opacity', family: 'fade' }, { property: 'scale' }];
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_fade1',
+      plan: plan('selected-overlay-fade'),
+      now: NOW,
+    });
+    const selected = overlays(prepared.project).find((overlay) => overlay.id === prepared.selectedOverlayId);
+
+    expect(selected?.styles).toEqual({ color: '#ffffff' });
+    expect(selected?.keyframeTracks).toEqual([{ property: 'scale' }]);
+  });
+
+  it('seeds distinct peer titles for style synchronization and batch styling', () => {
+    for (const scenarioId of ['sync-overlay-style', 'batch-overlay-update']) {
+      const source = sourceProject();
+      const prepared = prepareChatBattleFixture({
+        sourceProject: source,
+        fixtureProjectId: `proj_chatbattle_${scenarioId}`,
+        plan: plan(scenarioId),
+        now: NOW,
+      });
+      const titles = overlays(prepared.project).filter((overlay) => overlay.type === 'text');
+
+      expect(titles).toHaveLength(2);
+      expect(titles[1]).toMatchObject({
+        content: 'Fixture peer title 1',
+        styles: { color: '#ff2d55', fill: '#ff2d55' },
+      });
+      expect(Number(titles[1].from)).toBeGreaterThan(source.durationInFrames);
+    }
+  });
+
+  it('keeps visual mutation prompts non-no-op and grounded in the source fixture', () => {
+    expect(getChatEditBattleScenario('vertical-subject-reframe')?.prompt).toContain('to 16:9');
+    expect(getChatEditBattleScenario('visual-speed-ramp')?.prompt).toContain(
+      'camera pushes in from a full-body view of the model to a close-up',
+    );
   });
 
   it('fails fixture preflight immediately when an audio scenario inherits unlicensed sound', () => {
@@ -142,6 +335,227 @@ describe('chat edit battle fixtures', () => {
       plan: plan('mixed-multi-step'),
       now: NOW,
     })).toThrow(/unrenderable audio required by mixed-multi-step/);
+  });
+
+  it('fails fixture preflight when retained video embeds unlicensed native audio', () => {
+    const source = sourceProject();
+    const video = overlays(source).find((overlay) => overlay.type === 'video');
+    if (!video) throw new Error('Expected video fixture.');
+    video.hasNativeAudio = true;
+    delete video.audioRights;
+
+    expect(() => prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_native_audio_rights1',
+      plan: plan('selected-overlay-edit'),
+      now: NOW,
+    })).toThrow(/embedded native audio has no durable rights receipt/);
+  });
+
+  it('preserves attested native dialogue alongside independently licensed music', () => {
+    const source = sourceProject();
+    const video = overlays(source).find((overlay) => overlay.type === 'video');
+    const music = overlays(source).find((overlay) => overlay.type === 'sound');
+    if (!video) throw new Error('Expected video fixture.');
+    if (!music) throw new Error('Expected music fixture.');
+    video.hasNativeAudio = true;
+    video.src = 'https://assets.example/video.mp4';
+    video.audioRights = nativeAudioRights('video-asset');
+    music.row = 1;
+    music.src = 'https://assets.example/music.wav';
+    music.audioRights = musicRights('audio-asset');
+    music.musicRights = musicRights('audio-asset');
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_explicit_audio1',
+      plan: plan('bgm-explicit'),
+      now: NOW,
+    });
+    const preparedVideo = overlays(prepared.project).find((overlay) => overlay.type === 'video');
+
+    expect(preparedVideo).toMatchObject({
+      hasNativeAudio: true,
+      audioRights: expect.objectContaining({
+        mediaRole: 'native-video',
+        licensed: true,
+      }),
+    });
+    expect(overlays(prepared.project).some((overlay) => overlay.type === 'sound')).toBe(true);
+  });
+
+  it('requires independently renderable dialogue, music, beats, speech timing, and SFX', () => {
+    const source = audioCapabilityProject();
+    const report = inspectChatBattleFixtureCapabilities({
+      sourceProject: source,
+      sourceAnalyses: [{
+        assetId: 'video-asset',
+        rawFootageAnalysis: {
+          transcription: {
+            words: [{ word: 'hello', startMs: 0, endMs: 400 }],
+          },
+        },
+      }],
+      required: [
+        'renderable-native-audio',
+        'speech-timing',
+        'renderable-music',
+        'music-beat-grid',
+        'renderable-sfx',
+      ],
+    });
+
+    expect(report).toMatchObject({
+      ok: true,
+      missing: [],
+      renderableNativeAudioAssetIds: ['video-asset'],
+      renderableMusicOverlayIds: ['sound-1'],
+      musicBeatGridOverlayIds: ['sound-1'],
+      renderableSfxOverlayIds: ['sfx-1'],
+      speechTimingAssetIds: ['video-asset'],
+    });
+  });
+
+  it('rejects playable-looking audio without durable rights or grounded timing', () => {
+    const source = audioCapabilityProject();
+    const video = overlays(source).find((overlay) => overlay.type === 'video');
+    const music = overlays(source).find((overlay) => overlay.id === 'sound-1');
+    const sfx = overlays(source).find((overlay) => overlay.id === 'sfx-1');
+    const caption = overlays(source).find((overlay) => overlay.type === 'caption');
+    if (!video || !music || !sfx || !caption) {
+      throw new Error('Expected complete audio capability fixture.');
+    }
+    delete video.audioRights;
+    delete music.audioRights;
+    delete music.musicRights;
+    delete music.metadata;
+    delete sfx.audioRights;
+    caption.words = [];
+
+    const report = inspectChatBattleFixtureCapabilities({
+      sourceProject: source,
+      sourceAnalyses: [],
+      required: [
+        'renderable-native-audio',
+        'speech-timing',
+        'renderable-music',
+        'music-beat-grid',
+        'renderable-sfx',
+      ],
+    });
+
+    expect(report).toMatchObject({
+      ok: false,
+      missing: [
+        'renderable-native-audio',
+        'speech-timing',
+        'renderable-music',
+        'music-beat-grid',
+        'renderable-sfx',
+      ],
+    });
+  });
+
+  it('mutes embedded audio for synthetic transcript fixtures without retaining source sounds', () => {
+    const source = sourceProject();
+    const video = overlays(source).find((overlay) => overlay.type === 'video');
+    if (!video) throw new Error('Expected video fixture.');
+    video.hasNativeAudio = true;
+    delete video.audioRights;
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_seeded_speech1',
+      plan: plan('batch-caption-edit'),
+      now: NOW,
+    });
+    const preparedVideo = overlays(prepared.project).find((overlay) => overlay.type === 'video');
+    const preparedCaption = overlays(prepared.project).find((overlay) => overlay.type === 'caption');
+
+    expect(preparedVideo).toMatchObject({
+      hasNativeAudio: false,
+      metadata: {
+        battleFixtureAudio: {
+          embeddedNativeAudio: 'muted',
+          reason: 'synthetic-transcript-fixture',
+        },
+      },
+    });
+    expect(overlays(prepared.project).some((overlay) => overlay.type === 'sound')).toBe(false);
+    expect(preparedCaption).toBeDefined();
+    expect(preparedCaption?.captions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        text: expect.any(String),
+        startMs: expect.any(Number),
+        endMs: expect.any(Number),
+        words: expect.any(Array),
+      }),
+    ]));
+    for (const group of preparedCaption?.captions as Array<{
+      startMs: number;
+      endMs: number;
+      words: unknown[];
+    }>) {
+      const durationSeconds = (group.endMs - group.startMs) / 1_000;
+      const requiredSeconds = 0.35 + (group.words.length / 3.2);
+      expect(durationSeconds + 0.05).toBeGreaterThanOrEqual(requiredSeconds);
+    }
+  });
+
+  it('mutes unattested native audio when a storyboard fixture tests only visual regeneration', () => {
+    const source = sourceProject();
+    const video = overlays(source).find((overlay) => overlay.type === 'video');
+    if (!video) throw new Error('Expected video fixture.');
+    video.hasNativeAudio = true;
+    delete video.audioRights;
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_storyboard_audio1',
+      plan: plan('regenerate-existing-scene'),
+      now: NOW,
+    });
+    const preparedVideo = overlays(prepared.project).find((overlay) => overlay.type === 'video');
+
+    expect(preparedVideo).toMatchObject({
+      hasNativeAudio: false,
+      metadata: {
+        battleFixtureAudio: {
+          embeddedNativeAudio: 'muted',
+          reason: 'visual-only-fixture',
+        },
+      },
+    });
+  });
+
+  it('preserves and selects only a real SFX for the replacement scenario', () => {
+    const source = sourceProject();
+    const genericSound = overlays(source).find((overlay) => overlay.type === 'sound');
+    if (!genericSound) throw new Error('Expected sound fixture.');
+    genericSound.assetId = 'sfx_lib_fixture';
+    genericSound.src = 'https://assets.example/paper.wav';
+    genericSound.role = 'sfx';
+    genericSound.audioRights = generatedSfxRights('sfx_lib_fixture');
+    source.overlays.push({
+      id: 'unlicensed-bgm',
+      type: 'sound',
+      from: 0,
+      durationInFrames: 900,
+      row: 1,
+      assetId: 'bgm_fixture',
+    });
+
+    const prepared = prepareChatBattleFixture({
+      sourceProject: source,
+      fixtureProjectId: 'proj_chatbattle_sfx1',
+      plan: plan('replace-selected-sfx'),
+      now: NOW,
+    });
+    const sounds = overlays(prepared.project).filter((overlay) => overlay.type === 'sound');
+
+    expect(sounds).toHaveLength(1);
+    expect(sounds[0]).toMatchObject({ id: 'sound-1', assetId: 'sfx_lib_fixture' });
+    expect(prepared.selectedOverlayId).toBe('sound-1');
   });
 
   it('seeds exact multilingual and speech-anchor words as timed caption truth', () => {
@@ -180,6 +594,16 @@ describe('chat edit battle fixtures', () => {
     });
     expect(overlays(prepared.project).some((overlay) => overlay.type === 'caption')).toBe(false);
     expect(overlays(source).some((overlay) => overlay.type === 'caption')).toBe(true);
+    expect(prepared.transcriptAssetAlias).toMatchObject({
+      sourceAssetId: 'video-asset',
+      fixtureAssetId: 'battle_proj_chatbattle_caption1',
+      transcription: {
+        transcript: expect.stringContaining('pricing is simple'),
+        language: 'multilingual-fixture',
+      },
+    });
+    expect(overlays(prepared.project).find((overlay) => overlay.type === 'video')?.assetId)
+      .toBe('battle_proj_chatbattle_caption1');
   });
 
   it('fails loudly when a selected-overlay command has no compatible overlay', () => {
@@ -191,6 +615,25 @@ describe('chat edit battle fixtures', () => {
       plan: plan('selected-overlay-edit'),
       now: NOW,
     })).toThrow(/has no text overlay/);
+  });
+
+  it('seeds a trusted selected video target for uploaded-footage replacement', () => {
+    const prepared = prepareChatBattleFixture({
+      sourceProject: sourceProject(),
+      fixtureProjectId: 'proj_chatbattle_replace1',
+      plan: plan('replace-with-uploaded-footage'),
+      now: NOW,
+    });
+
+    expect(prepared.selectedOverlayId).toBe('video-1');
+    expect(prepared.clientContext).toMatchObject({
+      selectedOverlayId: 'video-1',
+      selectedRange: {
+        startFrame: 0,
+        endFrame: 900,
+        source: 'selected-overlay',
+      },
+    });
   });
 
   it('clones analysis documents without retaining ids or changing originals', () => {
@@ -300,6 +743,53 @@ describe('chat edit battle fixtures', () => {
     expect(clone).not.toHaveProperty('deliverables');
   });
 
+  it('clones storyboards into the disposable fixture without mutating the source', () => {
+    const source = {
+      _id: 'mongo-storyboard-id',
+      storyboardId: 'sb-source',
+      projectId: 'source-project',
+      userId: 'user-1',
+      scenes: [
+        {
+          sceneIndex: 0,
+          imageAssetId: 'image-source',
+          videoAssetId: 'video-source',
+          voiceover: { audioAssetId: 'voice-source' },
+          generationHistory: [{ assetId: 'image-history-source' }],
+        },
+      ],
+      metadata: { source: true },
+    };
+    const snapshot = structuredClone(source);
+    const clone = cloneChatBattleStoryboard(
+      source,
+      'proj_chatbattle_storyboard1',
+      'sb_cb_storyboard1',
+      NOW,
+    );
+
+    expect(source).toEqual(snapshot);
+    expect(clone).toMatchObject({
+      storyboardId: 'sb_cb_storyboard1',
+      projectId: 'proj_chatbattle_storyboard1',
+      userId: 'user-1',
+      scenes: source.scenes,
+      metadata: {
+        source: true,
+        battleTest: {
+          disposable: true,
+          fixtureProjectId: 'proj_chatbattle_storyboard1',
+          sourceStoryboardId: 'sb-source',
+          sourceSceneAssetIds: ['image-source', 'video-source', 'voice-source', 'image-history-source'],
+          preparedAt: NOW.toISOString(),
+        },
+      },
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    expect(clone).not.toHaveProperty('_id');
+  });
+
   it('adds fresh cursor evidence only for the cursor scenario', () => {
     const prepared = prepareChatBattleFixture({
       sourceProject: sourceProject(),
@@ -338,6 +828,12 @@ function sourceProject(): Record<string, any> {
       { id: 'scene-1', type: 'html-scene', from: 180, durationInFrames: 120, row: 5, content: '<div>Scene</div>' },
     ],
     intelligence: {
+      latestChatEditRenderVerification: {
+        operationId: 'stale-operation',
+        status: 'fail',
+        requestedAt: '2026-07-17T10:00:00.000Z',
+        completedAt: '2026-07-17T10:00:05.000Z',
+      },
       phase0RenderedStillEvidence: { status: 'completed' },
       phase0RenderedQualityGate: { reviewedAt: 'old' },
       phase0RenderedAestheticReport: { status: 'pass' },
@@ -346,6 +842,46 @@ function sourceProject(): Record<string, any> {
     qualityReview: { overallScore: 100 },
     metadata: { source: true },
   };
+}
+
+function audioCapabilityProject(): Record<string, any> {
+  const source = sourceProject();
+  const video = overlays(source).find((overlay) => overlay.type === 'video');
+  const caption = overlays(source).find((overlay) => overlay.type === 'caption');
+  const music = overlays(source).find((overlay) => overlay.type === 'sound');
+  if (!video || !caption || !music) {
+    throw new Error('Expected source fixture media.');
+  }
+
+  video.src = 'https://assets.example/video.mp4';
+  video.hasNativeAudio = true;
+  video.audioRights = nativeAudioRights('video-asset');
+  caption.words = [{ word: 'hello', startMs: 0, endMs: 400 }];
+  music.row = 1;
+  music.role = 'music';
+  music.src = 'https://assets.example/music.wav';
+  music.audioRights = musicRights('audio-asset');
+  music.musicRights = musicRights('audio-asset');
+  music.metadata = {
+    beatGrid: {
+      bpm: 120,
+      beats: [{ frame: 0, isDownbeat: true }, { frame: 15, isDownbeat: false }],
+      downbeats: [0],
+      source: 'audio-analysis',
+    },
+  };
+  source.overlays.push({
+    id: 'sfx-1',
+    type: 'sound',
+    from: 300,
+    durationInFrames: 30,
+    row: 3,
+    role: 'sfx',
+    assetId: 'sfx-asset',
+    src: 'https://assets.example/impact.wav',
+    audioRights: generatedSfxRights('sfx-asset'),
+  });
+  return source;
 }
 
 function overlays(project: Record<string, any>): Record<string, any>[] {
@@ -369,6 +905,52 @@ function visualAnalysis(assetId: string): Record<string, unknown> {
           mainSubjectHeight: 0.8,
         },
       }],
+    },
+  };
+}
+
+function nativeAudioRights(assetId: string): Record<string, unknown> {
+  return {
+    mediaRole: 'native-video',
+    source: 'user-upload',
+    userChoice: 'attested',
+    licensed: true,
+    evidence: {
+      kind: 'user-attestation',
+      sourceAssetId: assetId,
+      attestationVersion: 'audio-rights-attestation-v1',
+      attestedAt: NOW.toISOString(),
+      attestedBy: 'user-1',
+    },
+  };
+}
+
+function musicRights(assetId: string): Record<string, unknown> {
+  return {
+    mediaRole: 'music',
+    source: 'user-upload',
+    userChoice: 'attested',
+    licensed: true,
+    evidence: {
+      kind: 'user-attestation',
+      sourceAssetId: assetId,
+      attestationVersion: 'music-rights-attestation-v1',
+      attestedAt: NOW.toISOString(),
+      attestedBy: 'user-1',
+    },
+  };
+}
+
+function generatedSfxRights(assetId: string): Record<string, unknown> {
+  return {
+    mediaRole: 'sfx',
+    source: 'generated',
+    userChoice: 'attested',
+    licensed: true,
+    evidence: {
+      kind: 'generated-provider',
+      sourceAssetId: assetId,
+      licenseId: 'fixture-provider:commercial-use',
     },
   };
 }

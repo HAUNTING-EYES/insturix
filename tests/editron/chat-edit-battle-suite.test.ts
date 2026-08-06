@@ -27,13 +27,24 @@ describe('chat edit battle suite environment selection', () => {
       '--base-url=https://preview.example.test/',
       '--auth-header-file=C:\\tmp\\editron-auth.json',
       '--env-file=.calibration-temp/vercel-preview.env',
+      '--database-name=editron_prev',
       '--cases=motivated-zoom,vague-sfx-beat',
     ])).toMatchObject({
       baseUrl: 'https://preview.example.test',
       authHeaderFile: 'C:\\tmp\\editron-auth.json',
       environmentFile: '.calibration-temp/vercel-preview.env',
+      databaseName: 'editron_prev',
       scenarioIds: ['motivated-zoom', 'vague-sfx-beat'],
     });
+  });
+
+  it('rejects unsafe database overrides before opening MongoDB', () => {
+    expect(() => parseSuiteArgs([
+      '--base-url=https://preview.example.test/',
+      '--auth-header-file=C:\\tmp\\editron-auth.json',
+      '--env-file=.calibration-temp/vercel-preview.env',
+      '--database-name=editron_prev;drop',
+    ])).toThrow('safe MongoDB database name');
   });
 
   it('keeps deterministic fault contracts out of the remote live suite', () => {

@@ -9,6 +9,7 @@ vi.mock("@/schemas/calos-deliverable", () => ({ default: { findOne } }));
 import { attachGeneratedAsset, markGeneratedAssetFailed } from "@/lib/calos/attach-generated-asset";
 
 interface FakeDoc {
+  version: number;
   editorialStatus: string;
   assetUrl: string | null;
   errorMessage: string | null;
@@ -18,6 +19,7 @@ interface FakeDoc {
 
 function fakeDoc(over: Partial<FakeDoc> = {}): FakeDoc {
   return {
+    version: 2,
     editorialStatus: "drafting",
     assetUrl: null,
     errorMessage: null,
@@ -31,7 +33,9 @@ beforeEach(() => findOne.mockReset());
 
 describe("attachGeneratedAsset", () => {
   it("attaches the asset and advances drafting → generated (first write)", async () => {
-    const doc = fakeDoc();
+    const doc = fakeDoc({
+      serviceRef: { service: "clickatron", jobId: "j1", deliverableVersion: 2 },
+    });
     findOne.mockResolvedValue(doc);
 
     const r = await attachGeneratedAsset({
@@ -46,8 +50,71 @@ describe("attachGeneratedAsset", () => {
     expect(doc.assetUrl).toBe("https://r2/img.png");
     expect(doc.editorialStatus).toBe("generated");
     expect(doc.errorMessage).toBeNull();
-    expect(doc.serviceRef).toMatchObject({ service: "clickatron", jobId: "j1", variationId: "v1" });
+    expect(doc.serviceRef).toMatchObject({
+      service: "clickatron",
+      jobId: "j1",
+      deliverableVersion: 2,
+      variationId: "v1",
+    });
     expect(doc.save).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a late success from a superseded image job", async () => {
+    const doc = fakeDoc({
+      serviceRef: { service: "clickatron", jobId: "j2", deliverableVersion: 2 },
+    });
+    findOne.mockResolvedValue(doc);
+
+    const r = await attachGeneratedAsset({
+      deliverableId: "c1",
+      ownerUserId: "u1",
+      brandId: "b1",
+      assetUrl: "https://r2/stale.png",
+      serviceRef: { service: "clickatron", jobId: "j1" },
+    });
+
+    expect(r).toEqual({ ok: true, reason: "stale_generation" });
+    expect(doc.assetUrl).toBeNull();
+    expect(doc.save).not.toHaveBeenCalled();
+  });
+
+  it("rejects a completion for an older deliverable version", async () => {
+    const doc = fakeDoc({
+      version: 3,
+      serviceRef: { service: "clickatron", jobId: "j1", deliverableVersion: 2 },
+    });
+    findOne.mockResolvedValue(doc);
+
+    const r = await attachGeneratedAsset({
+      deliverableId: "c1",
+      ownerUserId: "u1",
+      brandId: "b1",
+      assetUrl: "https://r2/stale-version.png",
+      serviceRef: { service: "clickatron", jobId: "j1" },
+    });
+
+    expect(r).toEqual({ ok: true, reason: "stale_generation" });
+    expect(doc.assetUrl).toBeNull();
+    expect(doc.save).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a legacy generation has no deliverable-version claim", async () => {
+    const doc = fakeDoc({
+      serviceRef: { service: "clickatron", jobId: "j1" },
+    });
+    findOne.mockResolvedValue(doc);
+
+    const r = await attachGeneratedAsset({
+      deliverableId: "c1",
+      ownerUserId: "u1",
+      brandId: "b1",
+      assetUrl: "https://r2/unbound.png",
+      serviceRef: { service: "clickatron", jobId: "j1" },
+    });
+
+    expect(r).toEqual({ ok: true, reason: "stale_generation" });
+    expect(doc.assetUrl).toBeNull();
+    expect(doc.save).not.toHaveBeenCalled();
   });
 
   it("is idempotent: skips (no save) when an asset already landed — guards QStash retries", async () => {
@@ -104,7 +171,9 @@ describe("attachGeneratedAsset", () => {
 
 describe("markGeneratedAssetFailed", () => {
   it("records the error and keeps the card in drafting", async () => {
-    const doc = fakeDoc();
+    const doc = fakeDoc({
+      serviceRef: { service: "clickatron", jobId: "j1", deliverableVersion: 2 },
+    });
     findOne.mockResolvedValue(doc);
 
     const r = await markGeneratedAssetFailed({
@@ -120,6 +189,25 @@ describe("markGeneratedAssetFailed", () => {
     expect(doc.editorialStatus).toBe("drafting");
     expect(doc.serviceRef).toMatchObject({ service: "clickatron", jobId: "j1" });
     expect(doc.save).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a late failure from a superseded image job", async () => {
+    const doc = fakeDoc({
+      serviceRef: { service: "clickatron", jobId: "j2", deliverableVersion: 2 },
+    });
+    findOne.mockResolvedValue(doc);
+
+    const r = await markGeneratedAssetFailed({
+      deliverableId: "c1",
+      ownerUserId: "u1",
+      brandId: "b1",
+      errorMessage: "old job failed",
+      serviceRef: { service: "clickatron", jobId: "j1" },
+    });
+
+    expect(r).toEqual({ ok: true, reason: "stale_generation" });
+    expect(doc.errorMessage).toBeNull();
+    expect(doc.save).not.toHaveBeenCalled();
   });
 
   it("success wins: does not overwrite a card that already generated an asset", async () => {

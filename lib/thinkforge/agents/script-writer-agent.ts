@@ -274,6 +274,17 @@ function countMatches(text: string, pattern: RegExp): number {
   return Array.from(text.matchAll(pattern)).length;
 }
 
+/**
+ * Runtime-contract gate thresholds (R19N: an editor trims an over-long script but never pads a short one).
+ * - Undershoot tolerance: allow the writer to land within ~30s of the asked runtime before flagging — a small
+ *   shortfall is compression, not a dropped runtime contract. 30s ← domain allowance (calibrated; pinned by the
+ *   420s/42s test).
+ * - Scene-count floor: long-form pacing ≈ 1 scene per 42s, so a 420s ask demands ~10 scenes (7-min ≈ 10 beats).
+ *   42s/scene ← domain pacing (calibrated; test pins 420s -> floor 10, 30s/60s asks pass short counts).
+ */
+const RUNTIME_MISMATCH_TOLERANCE_SEC = 30;
+const RUNTIME_SCENE_FLOOR_STEP_SEC = 42;
+
 export function assertUsableScriptWriterResult(
   result: ScriptWriterResult,
   options: ScriptWriterValidationOptions = {},
@@ -299,6 +310,20 @@ export function assertUsableScriptWriterResult(
     sidecarSceneCount = sidecar.scenes.length;
     validateWriterCapabilityCompliance(result, sidecar, failures);
     validateCastingBriefCompliance(sidecar, options.productionBrief, failures);
+
+    // Runtime contract: a script that undershoots the asked runtime must never ship as success (an editor trims
+    // overages, but a 42s script for a 7-minute ask is a silent contract break — regression guard for the 420s repair).
+    const runtimeTargetSec = options.productionBrief?.output.targetDurationSec;
+    if (typeof runtimeTargetSec === 'number' && Number.isFinite(runtimeTargetSec) && runtimeTargetSec > 0) {
+      const totalSceneSec = sidecar.scenes.reduce((sum, scene) => sum + (scene.durationSeconds ?? 0), 0);
+      if (totalSceneSec < runtimeTargetSec - RUNTIME_MISMATCH_TOLERANCE_SEC) {
+        failures.push(`runtime_duration_mismatch:${totalSceneSec}s/${runtimeTargetSec}s`);
+      }
+      const sceneFloor = Math.max(1, Math.round(runtimeTargetSec / RUNTIME_SCENE_FLOOR_STEP_SEC));
+      if (sidecar.scenes.length < sceneFloor) {
+        failures.push(`scene_count_under_runtime_floor:${sidecar.scenes.length}/${sceneFloor}`);
+      }
+    }
     failures.push(...findSourceLedgerIssuesForSidecar(sidecar, options.sourceLedger));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown';

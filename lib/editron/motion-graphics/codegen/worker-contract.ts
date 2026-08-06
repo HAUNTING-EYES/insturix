@@ -232,6 +232,11 @@ export const mgMomentInputSchema = z.object({
   visualEvidence: visualEvidenceSchema.optional(),
   notes: z.string().max(2_000).optional(),
   videoStyle: videoStyleSchema.optional(),
+  // Phase 4b: the video taste contract as {hash, compact direction} so the judge verifies contract fidelity (§11).
+  tasteContract: z.object({
+    hash: boundedString(64),
+    direction: boundedString(6_000),
+  }).strict().optional(),
   footageSignals: footageSignalsSchema.optional(),
   /** Resolved liveness [0.7,1] (brand×video×user) — becomes the reserved data.motionIntensity at render. */
   motionIntensity: z.number().min(0).max(1).optional(),

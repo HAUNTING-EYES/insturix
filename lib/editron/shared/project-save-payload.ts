@@ -5,6 +5,8 @@ type EditorSaveStateLike = {
   [key: string]: unknown;
 };
 
+export type OverlaySaveAuthority = 'client' | 'server';
+
 const SERVER_OWNED_ROOT_KEYS = [
   'atomicMomentBundle',
   'atomicMomentBundles',
@@ -61,6 +63,7 @@ export function compactEditorStateForSave<T extends EditorSaveStateLike>(state: 
 export function mergeServerOwnedOverlayDataForSave(
   incomingOverlays: Overlay[],
   currentOverlays: Overlay[] | undefined,
+  incomingAuthority: OverlaySaveAuthority = 'client',
 ): Overlay[] {
   const currentById = new Map(
     (Array.isArray(currentOverlays) ? currentOverlays : [])
@@ -68,7 +71,7 @@ export function mergeServerOwnedOverlayDataForSave(
   );
   return incomingOverlays.map((incoming) => {
     const current = currentById.get(String(incoming.id));
-    return mergeOverlayServerOwnedData(incoming, current);
+    return mergeOverlayServerOwnedData(incoming, current, incomingAuthority);
   });
 }
 
@@ -100,12 +103,19 @@ function compactMetadataForSave(metadata: Record<string, unknown>): Record<strin
   return Object.keys(compact).length > 0 ? compact : undefined;
 }
 
-function mergeOverlayServerOwnedData<T extends Overlay>(incoming: T, current?: Overlay): T {
+function mergeOverlayServerOwnedData<T extends Overlay>(
+  incoming: T,
+  current: Overlay | undefined,
+  incomingAuthority: OverlaySaveAuthority,
+): T {
   const merged = { ...incoming } as Record<string, unknown>;
 
   for (const key of SERVER_OWNED_ROOT_KEYS) {
+    const incomingValue = merged[key];
     delete merged[key];
-    if (current && (current as Record<string, unknown>)[key] !== undefined) {
+    if (incomingAuthority === 'server' && incomingValue !== undefined) {
+      merged[key] = incomingValue;
+    } else if (current && (current as Record<string, unknown>)[key] !== undefined) {
       merged[key] = (current as Record<string, unknown>)[key];
     }
   }

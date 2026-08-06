@@ -8,6 +8,7 @@ import { z } from 'zod';
 import {
   BUNDLED_SFX_CATALOG,
   parseSfxCatalogManifest,
+  sfxCatalogSemanticEvidenceSchema,
   type SfxCatalogEntry,
   type SfxCatalogManifest,
 } from '../lib/pipeline/sfx-catalog';
@@ -97,6 +98,7 @@ const curationAssetSchema = z.object({
   direction: directionSchema,
   motionSpeed: z.enum(['still', 'slow', 'medium', 'fast']),
   trendTag: z.string().trim().min(1).optional(),
+  semanticEvidence: sfxCatalogSemanticEvidenceSchema.optional(),
   provenance: provenanceSchema,
   approval: approvalSchema,
 }).strict();

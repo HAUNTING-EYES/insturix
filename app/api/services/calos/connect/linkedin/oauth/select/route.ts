@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
         accessTokenEnc: pending.accessTokenEnc, // Model B — the client's own encrypted token
         refreshTokenEnc: pending.refreshTokenEnc ?? null,
         expiresAt: pending.tokenExpiresAt ?? null,
+        scopes: pending.scopes ?? [],
       },
     },
     { upsert: true },

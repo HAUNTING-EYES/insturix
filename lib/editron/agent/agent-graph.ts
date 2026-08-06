@@ -49,7 +49,7 @@ import { TokenTracker } from '../utils/token-tracker';
 // Previously these were `await import(...)` inside callModel, which re-resolved
 // the module on EVERY agent invocation (adds ~10-30ms cold overhead each call).
 // Moving them here means the module is loaded once at startup.
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { FunctionCallingMode, GoogleGenerativeAI } from '@google/generative-ai';
 import { CHAT_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 import { buildGeminiFunctionDeclarations } from './gemini-tool-schema';
 import {
@@ -78,13 +78,15 @@ import {
   recordServerTimelinePreflightEvidence,
 } from './chat-tool-server-preflight';
 import {
+  enforceTrustedTimelineTargetArgs,
   filterChatToolsForRequestOwner,
   filterPromptForCallableChatTools,
   formatChatRequestOwnerLicenseForPrompt,
   type ChatRequestOwnerLicense,
 } from './chat-request-owner';
 import { filterChatToolsForWorkflowPhase } from './chat-tool-workflow-phase';
-import { resolveServerOwnedLocalizedWorkflowStep } from './chat-localized-workflow';
+import { resolveServerOwnedChatWorkflowStep } from './chat-server-workflow';
+import { buildDeterministicGeminiFunctionCallPart } from './gemini-function-call-history';
 
 // PERF FIX: Singleton GenAI client — reuse across all requests instead of
 // instantiating `new GoogleGenerativeAI(...)` on every callModel call.
@@ -125,7 +127,10 @@ const debugError = (...args: any[]) => { console.error('[AGENT-ERROR]', ...args)
 export function normalizeAgentToolArgs(
   toolName: string,
   input: unknown,
-  options: { projectFps?: unknown } = {},
+  options: {
+    projectFps?: unknown;
+    requestOwnerLicense?: ChatRequestOwnerLicense;
+  } = {},
 ): Record<string, unknown> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return {};
@@ -191,9 +196,14 @@ export function normalizeAgentToolArgs(
     if (value === 'false') args[key] = false;
   }
 
-  return toolName === 'apply_editorial_intent'
+  const normalized = toolName === 'apply_editorial_intent'
     ? normalizeChatEditorialIntentWireAliases(args)
     : args;
+  return enforceTrustedTimelineTargetArgs(
+    toolName,
+    normalized,
+    options.requestOwnerLicense,
+  );
 }
 
 function latestHumanMessageText(messages: unknown[]): string {
@@ -301,7 +311,12 @@ export const createAgent = (
           turnContext?.requestOwnerLicense?.routingFacts?.familyScopeExclusive,
       }),
       ...createChatDeepAnalysisTools({ userId, projectId }),
-      ...createChatDubbingTools({ userId, projectId }),
+      ...createChatDubbingTools({
+        userId,
+        projectId,
+        sessionId: turnContext?.sessionId,
+        operationId: turnContext?.operationId,
+      }),
     ];
     return turnContext?.requestOwnerLicense
       ? filterChatToolsForRequestOwner(liveChatTools, turnContext.requestOwnerLicense, { assistLane: turnContext.assistLane })
@@ -366,49 +381,77 @@ export const createAgent = (
     });
 
     const workflowLedger = buildChatToolTurnLedger(messages);
-    const localizedWorkflowProject = turnContext?.requestOwnerLicense?.semanticWorkflow === 'localized-mutation'
+    const routingFacts = turnContext?.requestOwnerLicense?.routingFacts;
+    const hasServerOwnedWorkflow = turnContext?.requestOwnerLicense?.owner === 'semantic-editorial-planner'
+      && Boolean(
+        routingFacts?.requestedCapabilities.length
+        || routingFacts?.localizedEdits?.length,
+      );
+    const serverWorkflowProject = hasServerOwnedWorkflow
       ? await (
         config.configurable?.loadPostconditionProject ?? loadCanonicalPostconditionProject
       )(userId, projectId)
       : null;
-    const localizedWorkflowRevision = buildChatProjectRevision(localizedWorkflowProject);
-    const localizedWorkflowStep = resolveServerOwnedLocalizedWorkflowStep({
+    const serverWorkflowRevision = buildChatProjectRevision(serverWorkflowProject);
+    const serverWorkflowStep = resolveServerOwnedChatWorkflowStep({
       requestOwnerLicense: turnContext?.requestOwnerLicense,
       ledger: workflowLedger,
       projectId,
-      projectRevision: localizedWorkflowRevision,
+      projectRevision: serverWorkflowRevision,
     });
-    if (localizedWorkflowStep?.kind === 'tool-call') {
+    if (serverWorkflowStep?.kind === 'tool-call') {
       const available = getOrCreateTools(projectId).some(
-        (tool) => tool.name === localizedWorkflowStep.toolCall.name,
+        (tool) => tool.name === serverWorkflowStep.toolCall.name,
       );
       if (!available) {
         throw new Error(
-          `Server-owned localized workflow produced unlicensed tool ${localizedWorkflowStep.toolCall.name}.`,
+          `Server-owned workflow produced unlicensed tool ${serverWorkflowStep.toolCall.name}.`,
         );
       }
+      const toolCall = {
+        type: 'tool_call',
+        ...serverWorkflowStep.toolCall,
+      };
       return processResponse({
         content: '',
-        tool_calls: [{
-          type: 'tool_call',
-          ...localizedWorkflowStep.toolCall,
-        }],
+        tool_calls: [toolCall],
+        geminiParts: [buildDeterministicGeminiFunctionCallPart(toolCall)],
       });
     }
-    if (localizedWorkflowStep?.kind === 'complete' || localizedWorkflowStep?.kind === 'halt') {
-      return processResponse({ content: localizedWorkflowStep.message });
+    if (serverWorkflowStep?.kind === 'complete' || serverWorkflowStep?.kind === 'halt') {
+      await streamCallback?.({
+        type: 'token',
+        data: { content: serverWorkflowStep.message },
+      });
+      return processResponse({ content: serverWorkflowStep.message });
     }
-    const tools = filterChatToolsForWorkflowPhase(getOrCreateTools(projectId), {
-      requestOwnerLicense: turnContext?.requestOwnerLicense,
-      ledger: workflowLedger,
-      projectId,
-      projectRevision: localizedWorkflowRevision,
-    });
+    const ownerTools = getOrCreateTools(projectId);
+    const tools = serverWorkflowStep?.kind === 'model-call'
+      ? ownerTools.filter((tool) => serverWorkflowStep.allowedToolNames.has(tool.name))
+      : filterChatToolsForWorkflowPhase(ownerTools, {
+          requestOwnerLicense: turnContext?.requestOwnerLicense,
+          ledger: workflowLedger,
+          projectId,
+          projectRevision: serverWorkflowRevision,
+        });
+    if (serverWorkflowStep?.kind === 'model-call' && tools.length === 0) {
+      throw new Error(
+        `Server-owned workflow ${serverWorkflowStep.operationId} has no licensed implementation tool.`,
+      );
+    }
+
     
     const ownerLicensePrompt = formatChatRequestOwnerLicenseForPrompt(
       turnContext?.requestOwnerLicense,
       { assistLane: turnContext?.assistLane },
     );
+    const serverWorkflowPrompt = serverWorkflowStep?.kind === 'model-call'
+      ? `<server_owned_operation>
+operationId=${serverWorkflowStep.operationId}
+${serverWorkflowStep.instruction}
+Call exactly one of the attached functions. Supply only arguments grounded in the user's request and current project context. Do not schedule another workflow or answer with text.
+</server_owned_operation>`
+      : '';
     const availableToolNames = tools.map((tool) => tool.name).join(', ');
     const callableToolNames = new Set(tools.map((tool) => tool.name));
     const semanticIntentGuidance = callableToolNames.has('apply_editorial_intent')
@@ -460,12 +503,14 @@ export const createAgent = (
     const dubbingGuidance = callableToolNames.has('dub_selected_dialogue')
       && callableToolNames.has('get_dubbing_job_result')
       ? `**DURABLE SELECTED-CLIP DUBBING**:
-    - For an explicit request to dub the selected video overlay to English, call dub_selected_dialogue once. Do not use a generic voiceover, mute the source manually, or call apply_editorial_intent for the same request.
+    - For an explicit request to dub the selected video overlay to English or Hindi, call dub_selected_dialogue once with the requested language. The server owns language/provider/voice capability validation; never translate to a different language as a fallback.
+    - If the tool declines an unsupported language, report its supportedLanguages exactly. Do not use a generic voiceover, mute the source manually, or call apply_editorial_intent for the same request.
     - A queued job is processing, not completion. On a later turn, call get_dubbing_job_result with its exact jobId. Only a completed result means translated dialogue and the preserved background stem were committed.`
       : '';
     const SYSTEM_MESSAGE = `<role>You are Editron AI, an intelligent video editing assistant integrated into the Editron web-based video editor. You assist users in editing their video projects by manipulating the timeline, adding overlays (text, images, video, audio), and adjusting styles.</role>
 
 ${ownerLicensePrompt}
+${serverWorkflowPrompt}
 
 <rules>
     GOLDEN RULE: Complete the user's request and STOP. Do NOT suggest variations, alternatives, or additional elements unless the user explicitly asks for them. If the user asks for "a sticker", create ONE sticker and confirm. Do NOT offer to create more.
@@ -631,6 +676,16 @@ ${ownerLicensePrompt}
           maxOutputTokens: 8192,
         },
         tools: [{ functionDeclarations }],
+        ...(serverWorkflowStep?.kind === 'model-call'
+          ? {
+              toolConfig: {
+                functionCallingConfig: {
+                  mode: FunctionCallingMode.ANY,
+                  allowedFunctionNames: Array.from(serverWorkflowStep.allowedToolNames),
+                },
+              },
+            }
+          : {}),
         systemInstruction: licensedSystemMessage,
       });
       
@@ -860,6 +915,22 @@ ${ownerLicensePrompt}
         }
       }
       
+      if (serverWorkflowStep?.kind === 'model-call') {
+        const invalidToolCalls = toolCalls.filter(
+          (toolCall) => !serverWorkflowStep.allowedToolNames.has(toolCall.name),
+        );
+        if (toolCalls.length !== 1 || invalidToolCalls.length > 0) {
+          throw new Error(
+            `Server-owned workflow ${serverWorkflowStep.operationId} expected exactly one licensed tool call; received ${toolCalls.length}.`,
+          );
+        }
+        const attemptPrefix = `server-workflow:${serverWorkflowStep.operationId}:${serverWorkflowStep.stepIndex}:model:`;
+        const attempt = workflowLedger.completedExecutions.filter(
+          (execution) => execution.toolCallId.startsWith(attemptPrefix),
+        ).length;
+        toolCalls[0].id = `${attemptPrefix}${attempt}`;
+        textContent = '';
+      }
       // Return as AIMessage for LangGraph compatibility
       return processResponse({
         content: textContent,
@@ -1002,6 +1073,7 @@ ${ownerLicensePrompt}
         let evidenceReceipts: ReturnType<typeof buildChatEvidenceReceipts> = [];
         let args = normalizeAgentToolArgs(toolCall.name, toolCall.args, {
           projectFps: config.configurable?.projectFps,
+          requestOwnerLicense: turnContext?.requestOwnerLicense,
         });
         const preflightInterception = interceptToolCallForServerPreflight({
           preflight: serverTimelinePreflight,
@@ -1075,6 +1147,8 @@ ${ownerLicensePrompt}
                   configurable: {
                     ...(config.configurable ?? {}),
                     chatUserTurnText,
+                    chatTrustedTimelineTarget:
+                      turnContext?.requestOwnerLicense?.trustedTimelineTarget,
                   },
                 });
                 if (toolMetadata?.mutatesProject) {

@@ -66,6 +66,20 @@ function generatedNativeVideoReceipt(assetId: string) {
   };
 }
 
+function generatedVoiceoverRights(assetId: string) {
+  return {
+    mediaRole: "voiceover" as const,
+    source: "generated" as const,
+    userChoice: "attested" as const,
+    licensed: true,
+    evidence: {
+      kind: "generated-provider" as const,
+      sourceAssetId: assetId,
+      licenseId: "provider:voiceover-commercial-use",
+    },
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -466,6 +480,14 @@ describe("Editron render request payloads", () => {
     userChoice,
     code,
   }) => {
+    const voiceover = {
+      id: 89,
+      type: "sound",
+      row: 3,
+      assetId: "voiceover-89",
+      src: "https://voice.example/vo.mp3",
+      audioRights: generatedVoiceoverRights("voiceover-89"),
+    };
     const renderable = resolveRenderableAudioInputProps({
       overlays: [
         {
@@ -479,13 +501,11 @@ describe("Editron render request payloads", () => {
             licensed: false,
           },
         },
-        { id: 89, type: "sound", row: 3, src: "https://voice.example/vo.mp3" },
+        voiceover,
       ],
     });
 
-    expect(renderable.overlays).toEqual([
-      { id: 89, type: "sound", row: 3, src: "https://voice.example/vo.mp3" },
-    ]);
+    expect(renderable.overlays).toEqual([voiceover]);
     expect(renderable.audioRightsNotices).toEqual([{
       code,
       overlayId: 88,
@@ -494,7 +514,7 @@ describe("Editron render request payloads", () => {
     }]);
   });
 
-  it("keeps affirmatively attested preview audio and unrelated sound overlays", () => {
+  it("keeps affirmatively attested preview audio and rights-backed voiceover", () => {
     const overlays = [
       {
         id: 91,
@@ -514,10 +534,54 @@ describe("Editron render request payloads", () => {
           },
         },
       },
-      { id: 92, type: "sound", row: 3, src: "https://voice.example/vo.mp3" },
+      {
+        id: 92,
+        type: "sound",
+        row: 3,
+        assetId: "voiceover-92",
+        src: "https://voice.example/vo.mp3",
+        audioRights: generatedVoiceoverRights("voiceover-92"),
+      },
     ];
 
     expect(buildLambdaRenderInputProps({ overlays }).overlays).toEqual(overlays);
+  });
+
+  it("CRITICAL: rejects every sound overlay without durable audio rights", async () => {
+    const overlays = [{
+      id: "rights-less-voiceover",
+      type: "sound",
+      row: 3,
+      assetId: "voiceover_missing_rights",
+      src: "https://voice.example/missing-rights.mp3",
+    }];
+
+    expect(() => buildLambdaRenderInputProps({ overlays }))
+      .toThrowError(/audio rights metadata is missing/);
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      projectOwnerId: "user_1",
+      overlays,
+    }, {
+      loadAssets: vi.fn(async () => []),
+    })).rejects.toMatchObject({
+      code: "AUDIO_RIGHTS_EVIDENCE_UNVERIFIED",
+      diagnostic: {
+        overlayId: "rights-less-voiceover",
+        overlayType: "sound",
+        mediaRole: "voiceover",
+        renderAssetId: "voiceover_missing_rights",
+        sourceAssetId: null,
+        rightsReceipt: {
+          state: "missing",
+          aliases: "none",
+          source: null,
+          evidenceKind: null,
+        },
+        reason: "audio rights metadata is missing",
+      },
+    });
   });
 
   it("rejects malformed or explicitly unlicensed non-preview rights", () => {
@@ -547,8 +611,11 @@ describe("Editron render request payloads", () => {
       "lib/editron/services/chapter-renderer.ts",
       "utf8"
     );
+    const deliveryIndex = routeSource.indexOf(
+      "resolveRenderDeliveryPlan({"
+    );
     const gateIndex = routeSource.indexOf(
-      "resolveRenderableAudioInputProps(resolvedProps)"
+      "resolveRenderableAudioInputProps({"
     );
     const authorityIndex = routeSource.indexOf(
       "verifyRenderAudioRightsAuthority({"
@@ -558,8 +625,10 @@ describe("Editron render request payloads", () => {
     );
     const creditIndex = routeSource.indexOf("checkCredits(userId");
 
+    expect(deliveryIndex).toBeGreaterThan(-1);
     expect(authorityIndex).toBeGreaterThan(-1);
     expect(gateIndex).toBeGreaterThan(-1);
+    expect(deliveryIndex).toBeLessThan(authorityIndex);
     expect(authorityIndex).toBeLessThan(gateIndex);
     expect(gateIndex).toBeLessThan(hydrationIndex);
     expect(gateIndex).toBeLessThan(creditIndex);
@@ -774,6 +843,57 @@ describe("Editron render request payloads", () => {
     })).rejects.toThrowError(/stored rights evidence is not a video asset/);
   });
 
+  it("verifies an EDL native-audio boundary clone against its source video authority", async () => {
+    const assetId = "video_native_boundary";
+    const rights = generatedNativeVideoRights(assetId);
+    const receipt = generatedNativeVideoReceipt(assetId);
+    const overlay = {
+      id: "native-audio-boundary",
+      type: "sound",
+      row: 3,
+      assetId,
+      src: "https://video.example/native.mp4",
+      audioRights: rights,
+      generatedVideoReceipt: receipt,
+      metadata: {
+        source: "edl-native-audio-boundary",
+        sourceClipId: "video-overlay-1",
+        audioBoundaryKind: "j-cut",
+      },
+    };
+    const storedVideo = {
+      assetId,
+      userId: "user_1",
+      projectId: "project_1",
+      type: "video",
+      source: "generated",
+      audioRights: rights,
+      generatedVideoReceipt: receipt,
+    };
+
+    expect(() => buildLambdaRenderInputProps({ overlays: [overlay] })).not.toThrow();
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      projectOwnerId: "user_1",
+      overlays: [overlay],
+    }, {
+      loadAssets: async () => [storedVideo],
+    })).resolves.toBeUndefined();
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      projectOwnerId: "user_1",
+      overlays: [{
+        ...overlay,
+        metadata: { source: "forged-native-audio-boundary" },
+      }],
+    }, {
+      loadAssets: async () => [storedVideo],
+    })).rejects.toThrowError(/sound overlay cannot use native-video rights evidence/);
+  });
+
   it("CRITICAL: verifies a separated dubbing bed against its native-video source", async () => {
     const sourceRights = generatedNativeVideoRights("video_dubbing_source");
     const derivativeRights = {
@@ -902,7 +1022,19 @@ describe("Editron render request payloads", () => {
     expect(loadAssets).toHaveBeenCalledWith(["sfx_freesound_2"]);
   });
 
-  it("accepts generated SFX only when the stored provider matches its receipt", async () => {
+  it.each([
+    {
+      source: "generated",
+      licenseId: "fal-ai:cassetteai/sound-effects-generator:commercial-use",
+    },
+    {
+      source: "cassetteai",
+      licenseId: "fal-ai:cassetteai/music-generator:commercial-use",
+    },
+  ])("accepts generated SFX from $source only when the stored provider matches $licenseId", async ({
+    source,
+    licenseId,
+  }) => {
     const rights = {
       mediaRole: "sfx" as const,
       source: "generated" as const,
@@ -911,7 +1043,7 @@ describe("Editron render request payloads", () => {
       evidence: {
         kind: "generated-provider" as const,
         sourceAssetId: "sfx_cassette",
-        licenseId: "fal-ai:cassetteai/music-generator:commercial-use",
+        licenseId,
       },
     };
 
@@ -930,10 +1062,44 @@ describe("Editron render request payloads", () => {
         assetId: "sfx_cassette",
         userId: "user_1",
         type: "audio",
-        source: "cassetteai",
+        source,
         audioRights: rights,
       }],
     })).resolves.toBeUndefined();
+  });
+
+  it("rejects generated SFX when the stored source is incompatible with its provider receipt", async () => {
+    const rights = {
+      mediaRole: "sfx" as const,
+      source: "generated" as const,
+      userChoice: "attested" as const,
+      licensed: true,
+      evidence: {
+        kind: "generated-provider" as const,
+        sourceAssetId: "sfx_wrong_source",
+        licenseId: "fal-ai:cassetteai/sound-effects-generator:commercial-use",
+      },
+    };
+
+    await expect(verifyRenderAudioRightsAuthority({
+      userId: "user_1",
+      projectId: "project_1",
+      overlays: [{
+        id: "sfx_wrong_source_overlay",
+        type: "sound",
+        row: 0,
+        assetId: "sfx_wrong_source",
+        audioRights: rights,
+      }],
+    }, {
+      loadAssets: async () => [{
+        assetId: "sfx_wrong_source",
+        userId: "user_1",
+        type: "audio",
+        source: "user-upload",
+        audioRights: rights,
+      }],
+    })).rejects.toBeInstanceOf(RenderAudioRightsAuthorityError);
   });
 
   it("accepts a conditioned library asset only with matching ownership and durable receipt", async () => {

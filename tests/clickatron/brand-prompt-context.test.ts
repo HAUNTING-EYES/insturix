@@ -5,7 +5,10 @@ import {
   resolveClickatronBrandContextBlock,
   resolveClickatronPromptBrandId,
 } from "@/lib/clickatron/brand-prompt-context";
-import { generateModelPayload } from "@/lib/config/clickatron-models";
+import {
+  DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID,
+  generateModelPayload,
+} from "@/lib/config/clickatron-models";
 import { CLICKATRON_CREATIVE_SPEC_VERSION } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 import { resolveEffectiveBrandWithProfile } from "@/lib/shared/brand-effective-resolver";
@@ -172,10 +175,9 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).toContain("Calendar item: calendar_week_2_linkedin");
     expect(prompt).toContain("Content card: card_linkedin_carousel_01");
     expect(prompt).toContain("Brand: Signal Supply");
-    expect(prompt).toContain("<clickatron_thumbnail_request>");
     expect(prompt).toContain("Create a high-click thumbnail.");
-    expect(prompt).toContain("Do not invent logos");
-    expect(prompt).toContain("Do not render readable words");
+    expect(prompt).toContain("Brand integrity: Never invent, redraw, or spell a logo from text.");
+    expect(prompt).toContain("Use supplied logo evidence only");
     expect(prompt).not.toContain("tf_session_secret");
     expect(prompt).not.toContain("script_secret");
     expect(prompt).not.toContain("plink_secret");
@@ -252,8 +254,9 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).toContain("exact copy withheld from raster prompt");
     expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");
     expect(prompt).toContain("Carousel slides: Slide 1 (Hook): Bold opening slide");
-    expect(prompt).toContain("Generate the raster image as a text-free visual/background");
-    expect(prompt).toContain("Use Clickatron text-layer summaries only to reserve safe zones");
+    expect(prompt).toContain("Raster text policy: Do not render any readable text");
+    expect(prompt).toContain("Treat screens and interfaces as abstract or defocused shapes");
+    expect(prompt).toContain("Reserve clear safe zones for editable Clickatron overlays");
     expect(prompt).not.toContain("Stop rebuilding context for every tool.");
     expect(prompt).not.toContain("Design this in Clickatron");
     expect(prompt).not.toContain("tf_session_secret");
@@ -261,21 +264,47 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).not.toContain("blk_secret");
   });
 
-  it("bakes text into the image when the picked model is text-capable (C2), default policy", () => {
-    // Same default 'editable_text_layers' fixture, but the user picked a text-capable model.
+  it("keeps editable text out of the raster prompt even when the model can render text", () => {
     const base = {
-      prompt: "Create the Clickatron graphic.",
+      prompt: "A cluttered agency workstation with four monitors. Text Overlay: 'THE FRAGMENTATION TRAP'.",
       metadata: { clickatron: { title: "Carousel handoff", creativeSpec: creativeSpec() } },
     };
-    const rendered = buildClickatronGenerationPrompt({ ...base, modelId: "fal-ai/nano-banana-pro" });
-    expect(rendered).toContain("Text-layer copy handling: render this exact copy accurately and legibly");
-    expect(rendered).toContain("render exactly that copy in the image");
-    expect(rendered).not.toContain("Generate the raster image as a text-free visual/background");
+    const prompt = buildClickatronGenerationPrompt({ ...base, modelId: "fal-ai/nano-banana-pro" });
 
-    // A weak-text model on the same default policy stays suppressed.
-    const suppressed = buildClickatronGenerationPrompt({ ...base, modelId: "fal-ai/imagen4/preview" });
-    expect(suppressed).toContain("Generate the raster image as a text-free visual/background");
-    expect(suppressed).not.toContain("render exactly that copy in the image");
+    expect(prompt).toContain("Generate a text-free raster background");
+    expect(prompt).toContain("Raster text policy: Do not render any readable text");
+    expect(prompt).toContain("Do not draw typography");
+    expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");
+    expect(prompt).not.toContain("THE FRAGMENTATION TRAP");
+    expect(prompt).not.toContain("Stop rebuilding context for every tool.");
+  });
+
+  it("renders exact text only when minimal raster text is explicit and the model supports it", () => {
+    const rasterTextSpec = creativeSpec();
+    rasterTextSpec.renderPlan.textPolicy = "minimal_generated_text";
+    const prompt = buildClickatronGenerationPrompt({
+      prompt: "Create the Clickatron graphic.",
+      metadata: { clickatron: { title: "Carousel handoff", creativeSpec: rasterTextSpec } },
+      modelId: "fal-ai/nano-banana-pro",
+    });
+
+    expect(prompt).toContain("Raster text policy: Render only the exact supplied text hierarchy");
+    expect(prompt).toContain("Text-layer copy handling: render this exact copy accurately and legibly");
+    expect(prompt).toContain("Stop rebuilding context for every tool.");
+  });
+
+  it("fails closed when minimal raster text targets a model without text support", () => {
+    const rasterTextSpec = creativeSpec();
+    rasterTextSpec.renderPlan.textPolicy = "minimal_generated_text";
+    const prompt = buildClickatronGenerationPrompt({
+      prompt: "Create the Clickatron graphic.",
+      metadata: { clickatron: { title: "Carousel handoff", creativeSpec: rasterTextSpec } },
+      modelId: "fal-ai/imagen4/preview",
+    });
+
+    expect(prompt).toContain("Raster text policy: Do not render any readable text");
+    expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");
+    expect(prompt).not.toContain("Stop rebuilding context for every tool.");
   });
 
   it("prefers task brandId and resolves BrandVault context through injected deps", async () => {
@@ -339,13 +368,14 @@ describe("Clickatron brand prompt context", () => {
     expect(brandContextBlock).toContain("Never use words/phrases: revolutionary, game-changing");
 
     const payload = generateModelPayload(
-      "fal-ai/imagen4/preview",
+      DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID,
       { num_images: 1 },
       {
         prompt: buildClickatronGenerationPrompt({
           prompt: "Create a Clickatron visual.",
           metadata: { sourceContext: { sourceService: "thinkforge", brandId: "brand_direct" } },
           brandContextBlock,
+          modelId: DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID,
         }),
       },
       "1:1",
@@ -357,7 +387,7 @@ describe("Clickatron brand prompt context", () => {
     expect(payload.prompt).toContain("Brand colors: primary #111111; accent #f5c542");
     expect(payload.prompt).toContain("Visual direction:");
     expect(payload.prompt).toContain("sharp or squared shape language");
-    expect(payload.prompt).toContain("<clickatron_thumbnail_request>");
+    expect(payload.prompt).toContain("Brand integrity: Never invent, redraw, or spell a logo from text.");
   });
 
   it("carries resolved BrandVault context into the final model payload prompt", async () => {
@@ -379,9 +409,10 @@ describe("Clickatron brand prompt context", () => {
         },
       },
       brandContextBlock,
+      modelId: DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID,
     });
     const payload = generateModelPayload(
-      "fal-ai/imagen4/preview",
+      DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID,
       { num_images: 1 },
       { prompt: enrichedPrompt },
       "1:1",
@@ -392,6 +423,6 @@ describe("Clickatron brand prompt context", () => {
     expect(payload.prompt).toContain("<brand_context>");
     expect(payload.prompt).toContain("Brand: Signal Supply");
     expect(payload.prompt).toContain("Voice: Plainspoken, sharp, no hype.");
-    expect(payload.prompt).toContain("<clickatron_thumbnail_request>");
+    expect(payload.prompt).toContain("Brand integrity: Never invent, redraw, or spell a logo from text.");
   });
 });

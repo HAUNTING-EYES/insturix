@@ -96,6 +96,9 @@ docs/agents/
 # MG codegen render scratch (Phase D)
 .mg-render-tmp/
 
+# Immutable semantic SFX worker bundle, staged locally for Modal image builds
+/.semantic-artifacts/
+
 # Local scratch / generated artifacts — never shipped, were leaking into `git status`
 /outputs/
 /tmp/

@@ -23,6 +23,7 @@
 import type { Brand } from '../kit/brand';
 import type { VideoStyle } from '../style/style-resolver';
 import type { MgDensityBudget } from './density-budget';
+import type { VideoTasteContract } from '../taste/taste-schemas';
 import { MG_DESIGN_LANES, MG_ELEMENT_KINDS, MG_FORM_ELEMENTS, MG_TARGET_BARS } from './design-plan';
 
 /** The per-moment context the designer needs — minimal + structural (R33), assembled by the caller/seam. */
@@ -121,6 +122,10 @@ converge on one aesthetic across videos; converge on the LEVEL.
   whether there is one. A LONE dot or rule beside a text block is NOT designed structure — that is the bare-caption
   failure (a bullet + a subtitle is a slide, not a motion graphic). Restraint means refined type + a considered
   mark SYSTEM + deliberate negative space — small, but unmistakably composed.
+- PRIMITIVES ARE MATERIAL, NOT THE IDEA. A standard mark + readout + label stack is still a generic widget even
+  when polished. Bars, rings, plots, type, and marks are valid only when their spatial relationship, motif, and
+  choreography materially express THIS fact and footage. Ask whether the same arrangement could be reused
+  unchanged for an unrelated fact; if yes, author a more specific relationship or decline the moment.
 - ONE GRAPHIC LANGUAGE PER VIDEO. The brief's motifLanguage is a recurring device (an underline that draws, a
   dot marker system, a corner tick) present across moments; paletteMoves stays in-brand (tint/shade/mix leans).
   Coherence in language, VARIETY in form: state in formVariety how forms are distributed so adjacent moments
@@ -154,15 +159,20 @@ converge on one aesthetic across videos; converge on the LEVEL.
 <output_format>
 Return ONLY one JSON object, no prose, no markdown fences, exactly this shape:
 {"brief":{"styleName":string,"motifLanguage":string,"paletteMoves":string,"motionPersonality":string,"formVariety":string},
- "moments":[{"momentId":string,"lane":${MG_DESIGN_LANES.map((l) => `"${l}"`).join('|')},"concept":string,
-   "targetBar":${MG_TARGET_BARS.map((b) => `"${b}"`).join('|')},
-   "structure":{"placement":string,"grouping":string,"readingOrder":string},
-   "elements":[{"kind":string,"role":string,"dataProps":[string],"hints":{string:string}?}],
-   "imagery":{"scenePrompt":string,"mode":"still"|"motion","paletteDirection":string}?,
-   "motion":{"enterOrder":[int],"build":string,"hold":string,"syncTo":"word-onsets"|"beats"|"landing"|"phases-only"}}],
- "declined":[{"momentId":string,"reason":string}]}
+  "moments":[{"momentId":string,"lane":${MG_DESIGN_LANES.map((l) => `"${l}"`).join('|')},"concept":string,
+    "targetBar":${MG_TARGET_BARS.map((b) => `"${b}"`).join('|')},
+    "primaryCommunicativeJob":"identify"|"quantify"|"compare"|"sequence"|"locate"|"relate"|"explain_causality"|"emphasize"|"quote"|"punctuate"|"transition"|"other",
+    "semanticPayload":string,"intendedViewerResponse":string,"visualMetaphor":string?,
+    "structure":{"placement":string,"grouping":string,"readingOrder":string},
+    "elements":[{"kind":string,"role":string,"dataProps":[string],"hints":{string:string}?}],
+    "imagery":{"scenePrompt":string,"mode":"still"|"motion","paletteDirection":string}?,
+    "motion":{"enterOrder":[int],"build":string,"hold":string,"syncTo":"word-onsets"|"beats"|"landing"|"phases-only"}}],
+  "declined":[{"momentId":string,"reason":string}]}
 Every offered beat appears EXACTLY ONCE — either as a designed moment or in "declined" (with a budget, design
 at most the budgeted count). Strings are bounded — keep concepts and reasons one sentence.
+Every designed moment MUST declare its primaryCommunicativeJob (the LOCAL rhetorical move its graphic makes for
+the licensed fact) + semanticPayload (the meaning the design must encode — the judge verifies it). This is a
+communicative job about THIS fact, never a genre label.
 </output_format>`;
 
 function momentBlock(m: MgDesignerMoment): string {
@@ -186,8 +196,9 @@ function momentBlock(m: MgDesignerMoment): string {
   room: ${m.room.slice(0, 200)}${subject}`;
 }
 
-/** Assemble the full designer prompt: stable prefix first (cacheable), the video's volatile context LAST. */
-export function buildDesignerPrompt(input: MgDesignerInput): string {
+/** Assemble the full designer prompt: stable prefix first (cacheable), the video's volatile context LAST.
+ *  When a taste contract is supplied, its art direction is appended as the ESTABLISHED direction (brief §7.1). */
+export function buildDesignerPrompt(input: MgDesignerInput, tasteContract?: VideoTasteContract | null): string {
   const b = input.brand;
   const video = `<video>
 intent: ${input.intent?.trim() || 'unspecified'}
@@ -199,7 +210,8 @@ beats (license within the budget):`
     : 'licensed moments (design EVERY one):'}
 ${input.moments.map(momentBlock).join('\n')}
 </video>`;
-  return `${DESIGNER_STABLE_PREFIX}\n\n${video}`;
+  const direction = tasteContract ? `\n\n${formatTasteContractForPrompt(tasteContract)}` : '';
+  return `${DESIGNER_STABLE_PREFIX}\n\n${video}${direction}`;
 }
 
 // ─── multimodal session parts (the director finally SEES the bar and the footage — audit fix, 2026-07-18) ───
@@ -222,12 +234,33 @@ identity and your own brief. Match the LEVEL, never the look.`;
 const FOOTAGE_FRAMING = `FOOTAGE — THIS video's actual frames: design placements, palette harmony, and scene
 integration against what is really on screen. Do not copy incidental on-screen text or infer unlicensed facts.`;
 
+/** Compact, token-bounded rendering of the video taste contract as the designer's art direction (brief §7.1/§11). */
+export function formatTasteContractForPrompt(contract: VideoTasteContract): string {
+  const s = contract.styleAxes;
+  return [
+    'ART DIRECTION — the ESTABLISHED direction for this video (the video taste contract). You are the art director EXECUTING it, not inventing your own. Do not substitute another style; deviate only with an explicit intentionalDeviation.',
+    `taste source: ${contract.tasteSourceSummary} · personalTaste=${contract.personalTasteConfidence} · contract=${contract.contractHash.slice(0, 12)}`,
+    `style: ${s.restraint} restraint · ${s.editoriality} · ${s.geometry} · ${s.dimensionality} · ${s.texture} · ${s.abstraction} · ${s.rhythm} rhythm · ${s.dominantMedium} · ${s.composition} · ${s.novelty}`,
+    `type: ${contract.typographyBehavior.hierarchyIntent}; scale ${contract.typographyBehavior.scaleBehavior}; weight ${contract.typographyBehavior.weightBehavior}; case ${contract.typographyBehavior.casingBehavior}`,
+    `color: ${contract.colorBehavior.paletteSource}; accent ${contract.colorBehavior.accentLogic}; contrast ${contract.colorBehavior.contrastIntent}`,
+    `form: prefer ${contract.formVocabulary.preferredForms.join('/')}; edge ${contract.formVocabulary.edgeTreatment}; depth ${contract.formVocabulary.depthTreatment}; icons ${contract.formVocabulary.iconographyTreatment}; avoid ${contract.formVocabulary.prohibitedForms.join('/')}`,
+    `motion: entry ${contract.motionGrammar.entryCharacter}; hold ${contract.motionGrammar.holdCharacter}; exit ${contract.motionGrammar.exitCharacter}; easing ${contract.motionGrammar.easingCharacter}; sync ${contract.motionGrammar.speechSyncPolicy}; avoid ${contract.motionGrammar.prohibitedMotion.join('/')}`,
+    `density: ${contract.densityAndRestraint.principle} · ${contract.densityAndRestraint.primaryIdeaPolicy}`,
+    `consistency anchors: ${contract.consistencyAnchors.join('; ')}`,
+    `prohibited motifs: ${contract.prohibitedMotifs.join('; ')}`,
+  ].join('\n');
+}
+
 /**
  * Assemble the full multimodal designer session: stable prefix → moodboard (level) → footage → the video context
  * LAST. Text-only callers can keep using buildDesignerPrompt; this is the audit-corrected session — the director
  * sees both the bar it is judged against and the footage it designs for.
  */
-export function buildDesignerParts(input: MgDesignerInput, images: MgDesignerSessionImages = {}): MgDesignerPart[] {
+export function buildDesignerParts(
+  input: MgDesignerInput,
+  images: MgDesignerSessionImages = {},
+  tasteContract?: VideoTasteContract | null,
+): MgDesignerPart[] {
   const parts: MgDesignerPart[] = [{ kind: 'text', text: DESIGNER_STABLE_PREFIX }];
   if (images.moodboard?.length) {
     parts.push({ kind: 'text', text: MOODBOARD_FRAMING });
@@ -244,7 +277,7 @@ export function buildDesignerParts(input: MgDesignerInput, images: MgDesignerSes
     }
   }
   // The volatile video context stays LAST (Rule 35) — reuse the text builder's tail by slicing off the prefix.
-  parts.push({ kind: 'text', text: buildDesignerPrompt(input).slice(DESIGNER_STABLE_PREFIX.length) });
+  parts.push({ kind: 'text', text: buildDesignerPrompt(input, tasteContract).slice(DESIGNER_STABLE_PREFIX.length) });
   return parts;
 }
 

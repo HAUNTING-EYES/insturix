@@ -211,6 +211,7 @@ export function evaluateAtomicSfxAssetCandidate(
   }
 
   const candidateSource = normalizeCandidateSource(candidate.source);
+  const catalogSemanticEvidence = candidate.source === 'catalog';
   const candidateTitle = candidateTitleText(candidate);
   const searchText = candidateSearchText(candidate);
   const hasTitleEvidence = searchText.length > 0;
@@ -235,7 +236,7 @@ export function evaluateAtomicSfxAssetCandidate(
   let score = 0;
   if (sourceOk) score += 0.18;
   if (durationOk) score += 0.18;
-  if (tokenMatches) score += 0.34;
+  if (tokenMatches || catalogSemanticEvidence) score += 0.34;
   if (matchedTerms.length > 0) score += Math.min(0.2, matchedTerms.length * 0.08);
   if (textureTermsHit.length > 0) score += Math.min(0.12, textureTermsHit.length * 0.04);
   if (avoidTermsHit.length === 0) score += 0.16;
@@ -247,7 +248,12 @@ export function evaluateAtomicSfxAssetCandidate(
   const effectiveFloor = effectiveAssetQualityFloor(form, candidateSource, hasTitleEvidence);
   const hardRejected = !durationOk
     || avoidTermsHit.length > 0
-    || (hasTitleEvidence && !tokenMatches && matchedTerms.length === 0);
+    || (
+      hasTitleEvidence
+      && !catalogSemanticEvidence
+      && !tokenMatches
+      && matchedTerms.length === 0
+    );
   const accepted = !hardRejected && score >= effectiveFloor;
   const reasons = [
     accepted ? 'candidate-accepted' : 'candidate-rejected',
@@ -256,6 +262,7 @@ export function evaluateAtomicSfxAssetCandidate(
     ...(effectiveFloor !== form.asset.qualityFloor ? [`base-floor:${format2(form.asset.qualityFloor)}`] : []),
     `source:${candidateSource}`,
     ...(hasTitleEvidence ? [] : ['metadata-light-candidate']),
+    ...(catalogSemanticEvidence ? ['catalog-semantic-selection'] : []),
     ...(tokenMatches ? ['token-match'] : []),
     ...(matchedTerms.length > 0 ? [`matched:${matchedTerms.join(',')}`] : []),
     ...(textureTermsHit.length > 0 ? [`texture:${textureTermsHit.join(',')}`] : []),
@@ -866,7 +873,11 @@ function queryTermsFor(token: AtomicSfxCompatibilityToken, texture: AtomicSfxTex
   if (texture === 'tech-ui') terms.add('digital');
   if (texture === 'ambient-natural') terms.add('room-tone');
   if (cue) {
-    for (const word of cue.replace(/[^\w\s-]/g, ' ').split(/\s+/)) {
+    const cueWords = cue.replace(/[^\w\s-]/g, ' ').split(/\s+/);
+    for (const word of cueWords) {
+      if (CATALOG_ROLE_QUERY_TERMS.has(word)) terms.add(word);
+    }
+    for (const word of cueWords) {
       if (word.length >= 4 && !SFX_STOP_WORDS.has(word)) terms.add(word);
       if (terms.size >= 5) break;
     }
@@ -1119,6 +1130,13 @@ const SFX_STOP_WORDS = new Set([
   'subtle',
   'loud',
   'quick',
+]);
+
+const CATALOG_ROLE_QUERY_TERMS = new Set([
+  'pop',
+  'logo',
+  'sting',
+  'stinger',
 ]);
 
 const SFX_SYNC_ANCHORS = new Set<AtomicSfxSyncAnchor>([

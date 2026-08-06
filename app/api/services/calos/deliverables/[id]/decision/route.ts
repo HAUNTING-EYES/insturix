@@ -7,7 +7,10 @@ import CalosDeliverable, {
   type ICalosDeliverable,
 } from "@/schemas/calos-deliverable";
 import CalosConnectedAccount from "@/schemas/calos-connected-account";
-import CalosScheduledPublish, { type CalosPublishPlatform } from "@/schemas/calos-scheduled-publish";
+import CalosScheduledPublish, {
+  type CalosPublishPayload,
+  type CalosPublishPlatform,
+} from "@/schemas/calos-scheduled-publish";
 import { toContentCard } from "@/lib/calos/deliverable-mapper";
 import { emitBrandEvent } from "@/lib/shared/brand-events";
 import { createCalosDecisionLearningEvent } from "@/lib/calos/calos-brand-learning-events";
@@ -17,6 +20,10 @@ import {
   loadCalosAssignmentHealth,
   type CalosAssignmentLike,
 } from "@/lib/calos/publishing-assignment-health";
+import {
+  validatePublishReadiness,
+  type PublisherMediaKind,
+} from "@/lib/calos/publish/contract";
 
 export const dynamic = "force-dynamic";
 
@@ -106,7 +113,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           await deliverable.save({ session });
           await enqueueApprovedPublish(
             deliverable,
-            deliverable.ownerUserId,
             brandId,
             publishTarget,
             session,
@@ -186,6 +192,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 type PublishTarget = {
   platform: CalosPublishPlatform;
   accountRef: string;
+  ownerUserId: string;
+  contentFormat: string;
+  mediaKind: PublisherMediaKind;
 };
 
 const PLATFORM_LABELS: Record<CalosPublishPlatform, string> = {
@@ -203,6 +212,10 @@ function publishAtFor(deliverable: ICalosDeliverable): Date {
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
+function publishCopyFor(deliverable: ICalosDeliverable): string {
+  return deliverable.assetText ?? deliverable.card?.scriptPreview ?? deliverable.card?.title ?? "";
+}
+
 async function resolveApprovedPublishTarget(
   deliverable: ICalosDeliverable,
   brandId: string,
@@ -210,12 +223,20 @@ async function resolveApprovedPublishTarget(
   const platform = String(deliverable.platform || "").toLowerCase();
   if (!isCalosAutoPublishPlatform(platform)) return { target: null };
 
+  const readiness = validatePublishReadiness({
+    platform,
+    contentFormat: deliverable.card?.contentFormat,
+    assetUrl: deliverable.assetUrl,
+    copyText: publishCopyFor(deliverable),
+  });
+  if (!readiness.ok) return { error: readiness.error };
+
   const assignments = await CalosConnectedAccount.find({
     brandId,
     platform,
     ...(deliverable.orgId ? { orgId: deliverable.orgId } : {}),
   })
-    .select("platform accountRef accountType displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt")
+    .select("platform accountRef accountType displayName ownerUserId accessTokenEnc refreshTokenEnc expiresAt scopes")
     .lean<CalosAssignmentLike[]>();
   const accountRefs = Array.from(
     new Set(
@@ -244,43 +265,90 @@ async function resolveApprovedPublishTarget(
       error: health?.message || `${platformLabel} connection could not be verified before approval.`,
     };
   }
-  return { target: { platform, accountRef: accountRefs[0] } };
+  const selectedAssignment = assignments.find(
+    (assignment) => assignment.accountRef?.trim() === accountRefs[0],
+  );
+  const assignmentOwnerUserId = selectedAssignment?.ownerUserId?.trim();
+  if (!assignmentOwnerUserId) {
+    return { error: `${platformLabel} assignment has no token owner. Reassign it before approval.` };
+  }
+  return {
+    target: {
+      platform,
+      accountRef: accountRefs[0],
+      ownerUserId: assignmentOwnerUserId,
+      contentFormat: readiness.format,
+      mediaKind: readiness.mediaKind,
+    },
+  };
 }
 
 /**
  * Enqueue a delivery-queue row when a deliverable is approved (the produce side; the
- * process-publish-queue cron consumes it). Idempotent per (deliverable, platform) via $setOnInsert
- * on the unique idempotencyKey — never double-posts, never clobbers an already-published or in-flight
- * row. Reapproval refreshes only a never-attempted pending row with the latest reviewed snapshot.
+ * process-publish-queue cron consumes it). Each approved version gets an immutable occurrence;
+ * reapproving the same version is idempotent, while older untouched occurrences are superseded.
  */
 async function enqueueApprovedPublish(
   deliverable: ICalosDeliverable,
-  ownerUserId: string,
   brandId: string,
   target: PublishTarget,
   session: ClientSession,
 ): Promise<void> {
   const publishAt = publishAtFor(deliverable);
 
-  const caption =
-    deliverable.assetText ?? deliverable.card?.scriptPreview ?? deliverable.card?.title ?? "";
-  // Media platforms (Instagram) need the image — carry the generated asset URL into the queue.
-  const imageUrl = deliverable.assetUrl ?? null;
+  const caption = publishCopyFor(deliverable);
+  // Bind execution to the exact reviewed version and its typed media requirement.
+  const payload: CalosPublishPayload = {
+    schemaVersion: 1,
+    approvalVersion: deliverable.version,
+    contentFormat: target.contentFormat,
+    caption,
+    title: deliverable.card?.title || caption,
+    media: {
+      kind: target.mediaKind,
+      url: deliverable.assetUrl ?? null,
+    },
+  };
   const currentSnapshot = {
-    ownerUserId,
+    ownerUserId: target.ownerUserId,
     orgId: deliverable.orgId ?? null,
     brandId,
     accountRef: target.accountRef,
-    payload: { caption, imageUrl },
+    payload,
     publishAt,
   };
 
-  const idempotencyKey = `${deliverable.card.id}:${target.platform}`;
+  const idempotencyKey = `${deliverable.card.id}:${target.platform}:v${deliverable.version}`;
+  await CalosScheduledPublish.updateMany(
+    {
+      deliverableId: deliverable.card.id,
+      orgId: deliverable.orgId ?? null,
+      brandId,
+      platform: target.platform,
+      status: "pending",
+      attempts: 0,
+      postId: null,
+      idempotencyKey: { $ne: idempotencyKey },
+      $or: [
+        { approvalVersion: { $lt: deliverable.version } },
+        { approvalVersion: null },
+      ],
+    },
+    {
+      $set: {
+        status: "superseded",
+        lockedAt: null,
+        lastError: `Superseded by approval version ${deliverable.version}.`,
+      },
+    },
+    { session },
+  );
   await CalosScheduledPublish.findOneAndUpdate(
     { idempotencyKey },
     {
       $setOnInsert: {
         deliverableId: deliverable.card.id,
+        approvalVersion: deliverable.version,
         ...currentSnapshot,
         platform: target.platform,
         status: "pending",
@@ -289,11 +357,5 @@ async function enqueueApprovedPublish(
       },
     },
     { upsert: true, new: false, session },
-  );
-  // Never retarget a claimed, retried, failed, or published row.
-  await CalosScheduledPublish.updateOne(
-    { idempotencyKey, status: "pending", attempts: 0, postId: null },
-    { $set: currentSnapshot },
-    { session },
   );
 }

@@ -1,7 +1,7 @@
 /**
  * Sound Effects (SFX) Generation Service
  *
- * Uses the same fal.ai Stable Audio 2.5 model as the BGM service (and Musitron)
+ * Uses a rights-cleared library first, then purpose-built fal.ai sound models
  * to generate per-scene sound effects from audioDescription prompts.
  *
  * Each scene with an audioDescription gets a short SFX clip that matches
@@ -11,7 +11,16 @@
 import { fal } from '@fal-ai/client';
 import { uploadMedia } from '@/lib/editron/services/upload-service';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
-import { isSFXLibraryAvailable } from '@/lib/pipeline/sfx-library-service';
+import {
+  isSFXLibraryAvailable,
+  type SFXLibraryResult,
+} from '@/lib/pipeline/sfx-library-service';
+import {
+  assertCassetteSfxWav,
+  buildCassetteSfxRequest,
+  CASSETTE_SFX_LICENSE_ID,
+  extractCassetteSfxAudioUrl,
+} from '@/lib/pipeline/cassette-sfx-provider';
 import { nanoid } from 'nanoid';
 import { recordProviderCostEvent, type ProviderCostEventStatus } from '@/lib/financials/provider-cost-events';
 
@@ -32,6 +41,14 @@ export interface SFXResult {
   audioAssetId: string;
   durationMs: number;
   audioRights: AudioRightsContract;
+  source: SFXLibraryResult['source'] | 'mirelo-video-to-audio' | 'cassetteai';
+  originalTitle?: string;
+  storage?: {
+    r2Key: string | null;
+    urlExpiresAt: Date | null;
+    size: number;
+    contentType: string;
+  };
 }
 
 export interface SFXSceneInput {
@@ -40,6 +57,10 @@ export interface SFXSceneInput {
   durationSeconds: number;
   /** If provided, mirelo video-to-audio generates SFX synced to actual video */
   videoUrl?: string;
+}
+
+export interface GenerateSFXOptions {
+  skipLibrary?: boolean;
 }
 
 async function recordPipelineSFXProviderCost(input: {
@@ -92,6 +113,7 @@ export async function generateSFX(
   videoUrl?: string,
   /** Explicit SFX cue from script editDirections (e.g., "chalk dust puff, fabric rustle") */
   sfxCue?: string,
+  options: GenerateSFXOptions = {},
 ): Promise<SFXResult> {
   // Beatoven sound-effect-generation supports 1-35 seconds.
   const duration = Math.min(Math.max(durationSec, 1), 35);
@@ -110,20 +132,22 @@ export async function generateSFX(
 
   // Priority 1: SFX Library (Pixabay/Freesound).
   // Instant, free, royalty-free. Best for deterministic SFX.
-  try {
-    const { searchAndDownloadSFX, audioDescriptionToSearchQuery } = await import('./sfx-library-service');
-    if (isSFXLibraryAvailable()) {
-      const searchQuery = audioDescriptionToSearchQuery(sfxPrompt);
-      console.log('[SFX] Searching free SFX library');
-      const libResult = await searchAndDownloadSFX(searchQuery, userId, Math.round(duration));
-      if (libResult) {
-        console.log(`[SFX] Library hit (${libResult.source})`);
-        return libResult;
+  if (!options.skipLibrary) {
+    try {
+      const { searchAndDownloadSFX, audioDescriptionToSearchQuery } = await import('./sfx-library-service');
+      if (isSFXLibraryAvailable()) {
+        const searchQuery = audioDescriptionToSearchQuery(sfxPrompt);
+        console.log('[SFX] Searching free SFX library');
+        const libResult = await searchAndDownloadSFX(searchQuery, userId, Math.round(duration));
+        if (libResult) {
+          console.log(`[SFX] Library hit (${libResult.source})`);
+          return libResult;
+        }
+        console.log('[SFX] Library: no match, trying AI generation');
       }
-      console.log('[SFX] Library: no match, trying AI generation');
+    } catch (libErr: any) {
+      console.warn(`[SFX] Library search failed: ${libErr.message}`);
     }
-  } catch (libErr: any) {
-    console.warn(`[SFX] Library search failed: ${libErr.message}`);
   }
 
   if (!process.env.FAL_AI_API_KEY?.trim()) {
@@ -185,6 +209,14 @@ export async function generateSFX(
           audioAssetId: uploadResult.assetId,
           durationMs: duration * 1000,
           audioRights: generatedSfxRights(uploadResult.assetId, mireloModel),
+          source: 'mirelo-video-to-audio',
+          originalTitle: sfxPrompt,
+          storage: {
+            r2Key: uploadResult.r2Key,
+            urlExpiresAt: uploadResult.urlExpiresAt,
+            size: uploadResult.size,
+            contentType: uploadResult.contentType,
+          },
         };
       }
       const noAudioError = new Error('mirelo returned no audio');
@@ -212,21 +244,17 @@ export async function generateSFX(
     }
   }
 
-  // Priority 3: CassetteAI (AI generation fallback).
-  const cassetteModel = 'cassetteai/music-generator';
+  // Priority 3: CassetteAI's purpose-built sound-effects model.
+  const cassetteRequest = buildCassetteSfxRequest(
+    layeredCassettePrompt(audioDescription),
+    duration,
+  );
+  const cassetteModel = cassetteRequest.model;
+  const cassetteDuration = cassetteRequest.input.duration;
   const cassetteStartMs = Date.now();
   try {
-    const layeredPrompt = [
-      audioDescription,
-      'layered audio design: continuous ambient bed underneath',
-      'with spot sound effects at natural moments on top',
-      'atmospheric, immersive, clean recording, no vocals, no music',
-    ].join(', ');
     result = await fal.subscribe(cassetteModel, {
-      input: {
-        prompt: layeredPrompt,
-        duration: Math.min(Math.max(Math.round(duration), 10), 180),
-      },
+      input: cassetteRequest.input,
       logs: true,
       pollInterval: 3000,
       onQueueUpdate: (update: any) => {
@@ -240,7 +268,7 @@ export async function generateSFX(
       userId,
       providerBranch: 'cassetteai_fallback',
       model: cassetteModel,
-      durationSec: duration,
+      durationSec: cassetteDuration,
       functionMs: Date.now() - cassetteStartMs,
       error: err,
     });
@@ -251,47 +279,25 @@ export async function generateSFX(
     const data = (result as any).data || result;
     console.log('[SFX] fal.ai response keys:', Object.keys(data || {}));
 
-    const audioUrl =
-      data?.audio_file?.url ||
-      data?.audio?.url ||
-      data?.audio?.[0]?.url ||
-      data?.output?.url ||
-      data?.url;
-
-    if (!audioUrl) {
-      throw new Error(
-        'SFX generation returned no audio URL. Response: ' +
-          JSON.stringify(data).substring(0, 300),
-      );
-    }
+    const audioUrl = extractCassetteSfxAudioUrl(result);
 
     const response = await fetch(audioUrl);
     if (!response.ok) throw new Error('Failed to download generated SFX');
     const buffer = Buffer.from(await response.arrayBuffer());
-
-    if (buffer.length < 12) {
-      throw new Error(`SFX audio too small (${buffer.length} bytes), likely corrupted`);
-    }
-    const isMP3 = (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) ||
-                  (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0);
-    const isWAV = buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46;
-    const isOGG = buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67 && buffer[3] === 0x53;
-
-    if (!isMP3 && !isWAV && !isOGG) {
-      console.error(`[SFX] Invalid audio format. First 8 bytes: ${buffer.slice(0, 8).toString('hex')}. Skipping upload.`);
-      throw new Error('SFX generation returned invalid audio (not MP3/WAV/OGG)');
-    }
-
-    const ext = isWAV ? 'wav' : isOGG ? 'ogg' : 'mp3';
-    const mime = isWAV ? 'audio/wav' : isOGG ? 'audio/ogg' : 'audio/mpeg';
-    const filename = `${assetId}.${ext}`;
-    const uploadResult = await uploadMedia(buffer, userId, filename, mime, { customAssetId: assetId });
+    assertCassetteSfxWav(buffer);
+    const uploadResult = await uploadMedia(
+      buffer,
+      userId,
+      `${assetId}.wav`,
+      'audio/wav',
+      { customAssetId: assetId },
+    );
     await recordPipelineSFXProviderCost({
       status: 'success',
       userId,
       providerBranch: 'cassetteai_fallback',
       model: cassetteModel,
-      durationSec: duration,
+      durationSec: cassetteDuration,
       bytesOut: buffer.length,
       functionMs: Date.now() - cassetteStartMs,
     });
@@ -300,8 +306,19 @@ export async function generateSFX(
       audioUrl: uploadResult.signedUrl,
       gcsPath: uploadResult.gcsPath ?? null,
       audioAssetId: uploadResult.assetId,
-      durationMs: duration * 1000,
-      audioRights: generatedSfxRights(uploadResult.assetId, cassetteModel),
+      durationMs: cassetteDuration * 1000,
+      audioRights: generatedSfxRights(
+        uploadResult.assetId,
+        CASSETTE_SFX_LICENSE_ID,
+      ),
+      source: 'cassetteai',
+      originalTitle: sfxPrompt,
+      storage: {
+        r2Key: uploadResult.r2Key,
+        urlExpiresAt: uploadResult.urlExpiresAt,
+        size: uploadResult.size,
+        contentType: uploadResult.contentType,
+      },
     };
   } catch (err) {
     await recordPipelineSFXProviderCost({
@@ -309,7 +326,7 @@ export async function generateSFX(
       userId,
       providerBranch: 'cassetteai_fallback',
       model: cassetteModel,
-      durationSec: duration,
+      durationSec: cassetteDuration,
       functionMs: Date.now() - cassetteStartMs,
       error: err,
     });
@@ -364,7 +381,10 @@ export function isSFXAvailable(): boolean {
   return isSFXLibraryAvailable() || Boolean(process.env.FAL_AI_API_KEY?.trim());
 }
 
-function generatedSfxRights(assetId: string, model: string): AudioRightsContract {
+function generatedSfxRights(assetId: string, modelOrLicenseId: string): AudioRightsContract {
+  const licenseId = modelOrLicenseId.startsWith('fal-ai:')
+    ? modelOrLicenseId
+    : `fal-ai:${modelOrLicenseId}:commercial-use`;
   return {
     mediaRole: 'sfx',
     source: 'generated',
@@ -373,7 +393,16 @@ function generatedSfxRights(assetId: string, model: string): AudioRightsContract
     evidence: {
       kind: 'generated-provider',
       sourceAssetId: assetId,
-      licenseId: `fal-ai:${model}:commercial-use`,
+      licenseId,
     },
   };
+}
+
+function layeredCassettePrompt(audioDescription: string): string {
+  return [
+    audioDescription,
+    'layered audio design: continuous ambient bed underneath',
+    'with spot sound effects at natural moments on top',
+    'atmospheric, immersive, clean recording, no vocals, no music',
+  ].join(', ');
 }

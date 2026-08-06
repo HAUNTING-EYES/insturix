@@ -1,0 +1,57 @@
+FROM node:22.18.0-bookworm-slim@sha256:0d130e2ee18e88e1561375276daced6bff032539200173f2daf48c2e33f38ff5 AS dependencies
+
+WORKDIR /app
+
+COPY workers/sfx-semantic/package.json workers/sfx-semantic/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund \
+    && npm cache clean --force \
+    && rm -rf \
+      node_modules/onnxruntime-node/bin/napi-v3/darwin \
+      node_modules/onnxruntime-node/bin/napi-v3/linux/arm64 \
+      node_modules/onnxruntime-node/bin/napi-v3/win32 \
+      node_modules/onnxruntime-web \
+    && rm -f \
+      node_modules/onnxruntime-node/bin/napi-v3/linux/x64/libonnxruntime_providers_cuda.so \
+      node_modules/onnxruntime-node/bin/napi-v3/linux/x64/libonnxruntime_providers_tensorrt.so
+
+FROM node:22.18.0-bookworm-slim@sha256:0d130e2ee18e88e1561375276daced6bff032539200173f2daf48c2e33f38ff5
+
+WORKDIR /app
+
+COPY --from=dependencies --chown=1000:1000 /app/node_modules ./node_modules
+COPY --chown=1000:1000 workers/sfx-semantic/package.json ./package.json
+COPY --chown=1000:1000 tsconfig.json ./tsconfig.json
+COPY --chown=1000:1000 scripts/run-sfx-semantic-worker.ts ./scripts/run-sfx-semantic-worker.ts
+COPY --chown=1000:1000 lib/pipeline ./lib/pipeline
+COPY --chown=1000:1000 lib/editron/constants/audio-standards.ts ./lib/editron/constants/audio-standards.ts
+COPY --chown=1000:1000 lib/editron/services/moment-bundle.ts ./lib/editron/services/moment-bundle.ts
+COPY --chown=1000:1000 lib/editron/services/sfx-form.ts ./lib/editron/services/sfx-form.ts
+COPY --chown=1000:1000 lib/editron/services/signal-registry.ts ./lib/editron/services/signal-registry.ts
+COPY --chown=1000:1000 lib/editron/services/media/ffmpeg-runtime.ts ./lib/editron/services/media/ffmpeg-runtime.ts
+COPY --chown=1000:1000 public/sfx/manifest.json ./public/sfx/manifest.json
+COPY --chown=1000:1000 workers/sfx-semantic/verify-bundle.mjs ./workers/sfx-semantic/verify-bundle.mjs
+COPY --chown=1000:1000 .semantic-artifacts/ /opt/editron/sfx/
+
+ARG SFX_SEMANTIC_BUNDLE_RECEIPT_SHA256
+RUN test -n "${SFX_SEMANTIC_BUNDLE_RECEIPT_SHA256}" \
+    && node workers/sfx-semantic/verify-bundle.mjs \
+      verify \
+      /opt/editron/sfx \
+      "${SFX_SEMANTIC_BUNDLE_RECEIPT_SHA256}"
+
+ENV NODE_ENV=production \
+    PORT=8080 \
+    TRANSFORMERS_OFFLINE=1 \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    SFX_CATALOG_PROMOTED_MANIFEST_PATH=/opt/editron/sfx/manifest.json \
+    SFX_CATALOG_SEMANTIC_RELEASE_DIR=/opt/editron/sfx/semantic-release \
+    SFX_CLAP_MODEL_CACHE_DIR=/opt/editron/sfx/model-cache
+
+USER 1000:1000
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:8080/healthz').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
+
+CMD ["./node_modules/.bin/tsx", "scripts/run-sfx-semantic-worker.ts"]

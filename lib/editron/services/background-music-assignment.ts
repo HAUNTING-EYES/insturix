@@ -78,6 +78,14 @@ export interface BackgroundMusicAssignmentInput {
   assetId: string;
   idempotencyKey: string;
   usageMode?: BackgroundMusicUsageMode;
+  sourceMetadata?: {
+    identityId?: string;
+    title?: string;
+    artists?: string[];
+    provider?: string;
+    providerTrackId?: string;
+    isrcs?: string[];
+  };
   rightsAttestation?: {
     accepted: true;
     version: typeof RIGHTS_ATTESTATION_VERSION;
@@ -357,13 +365,11 @@ export async function assignBackgroundMusic(
     16,
   );
   const referenceTrack = usageMode === 'reference-only'
-    ? {
-        title: audioAssetDisplayTitle(sourceAsset),
-        artists: [],
-        provider: sourceAsset.source ?? 'user-upload',
-        sourceAssetId: input.assetId,
+    ? resolveReferenceTrackMetadata({
+        sourceAsset: sourceAsset,
+        sourceMetadata: input.sourceMetadata,
         bpm: positiveNumber(beatEvidence.beatGrid.bpm),
-      }
+      })
     : null;
   const baseOverlay: any = {
     ...(existingBgm[0] ?? {}),
@@ -886,6 +892,42 @@ function audioAssetDisplayTitle(asset: StoredAudioAsset): string {
   if (!filename) return asset.assetId;
   const withoutExtension = filename.replace(/\.[^.]+$/, '').trim();
   return withoutExtension || filename;
+}
+
+function resolveReferenceTrackMetadata(input: {
+  sourceAsset: StoredAudioAsset;
+  sourceMetadata?: BackgroundMusicAssignmentInput['sourceMetadata'];
+  bpm: number | null;
+}): {
+  title: string;
+  artists: string[];
+  provider: string;
+  sourceAssetId: string;
+  bpm: number | null;
+  providerTrackId?: string;
+  isrcs?: string[];
+  identityId?: string;
+} {
+  const metadata = input.sourceMetadata;
+  const title = nonEmptyString(metadata?.title) ?? audioAssetDisplayTitle(input.sourceAsset);
+  const artists = Array.isArray(metadata?.artists)
+    ? metadata.artists.filter((artist): artist is string => Boolean(nonEmptyString(artist)))
+    : [];
+  const provider = nonEmptyString(metadata?.provider) ?? nonEmptyString(input.sourceAsset.source) ?? 'user-upload';
+  const providerTrackId = nonEmptyString(metadata?.providerTrackId) ?? null;
+  const isrcs = Array.isArray(metadata?.isrcs)
+    ? metadata.isrcs.filter((isrc): isrc is string => Boolean(nonEmptyString(isrc)))
+    : [];
+  return {
+    title,
+    artists,
+    provider,
+    sourceAssetId: input.sourceAsset.assetId,
+    bpm: input.bpm,
+    ...(providerTrackId ? { providerTrackId } : {}),
+    ...(isrcs.length > 0 ? { isrcs } : {}),
+    ...(nonEmptyString(metadata?.identityId) ? { identityId: nonEmptyString(metadata?.identityId) as string } : {}),
+  };
 }
 
 function nonEmptyString(value: unknown): string | null {

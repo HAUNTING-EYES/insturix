@@ -14,6 +14,10 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
 }));
 
 import { createTools } from '@/lib/editron/agent/tools';
+import { buildChatEditRenderVerificationRequest } from '@/lib/editron/agent/chat-ai-edit-transaction-runtime';
+import { enforceChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
+import { EDITRON_TEXT_SHADOW_FLOOR } from '@/lib/editron/agent/chat-overlay-safe-placement';
+import { createChatVisualTools } from '@/lib/editron/agent/chat-visual-tools';
 import { projectService } from '@/lib/editron/services/project-service';
 
 type FixtureProject = {
@@ -60,6 +64,11 @@ function installProjectStore(project: FixtureProject) {
       project.overlays.push(structuredClone(overlay) as Record<string, any>);
     },
   );
+  const deleteOverlay = vi.spyOn(projectService, 'deleteOverlay').mockImplementation(
+    async (_userId, _projectId, overlayId) => {
+      project.overlays = project.overlays.filter((candidate) => candidate.id !== overlayId);
+    },
+  );
   const updateProject = vi.spyOn(projectService, 'updateProject').mockImplementation(
     async (_userId, _projectId, patch) => {
       Object.assign(project, structuredClone(patch));
@@ -70,7 +79,7 @@ function installProjectStore(project: FixtureProject) {
       Object.assign(project, structuredClone(nextProject));
     },
   );
-  return { updateOverlay, addOverlay, updateProject, saveProject };
+  return { updateOverlay, addOverlay, deleteOverlay, updateProject, saveProject };
 }
 
 function toolNamed(name: string) {
@@ -84,7 +93,7 @@ function toolNamed(name: string) {
 
 function parseEnvelope(raw: string) {
   return JSON.parse(raw) as {
-    status: 'success' | 'error';
+    status: 'success' | 'error' | 'no-op';
     data: Record<string, any> | null;
     error: { code?: string; message: string; details?: Record<string, any> } | null;
   };
@@ -114,6 +123,7 @@ describe('chat mechanical tool contracts', () => {
       data: {
         firstPart: { id: 1, from: 30, duration: 40 },
         secondPart: { from: 70, duration: 50 },
+        affectedFrameRanges: [{ startFrame: 69, endFrame: 72 }],
       },
     });
     expect(project.overlays).toHaveLength(2);
@@ -158,6 +168,176 @@ describe('chat mechanical tool contracts', () => {
     expect(store.updateProject).not.toHaveBeenCalled();
   });
 
+  it('carries a visual producer mutation window through postconditions into render verification', async () => {
+    const project = makeProject([{
+      id: 3,
+      type: 'video',
+      from: 0,
+      durationInFrames: 180,
+      row: 0,
+      src: 'https://cdn.example.com/source.mp4',
+    }], 180);
+    installProjectStore(project);
+    const beforeProject = structuredClone(project);
+    const args = {
+      videoOverlayId: 3,
+      startFrame: 30,
+      endFrame: 90,
+      targetSpeed: 0.5,
+      allowDialogueSpeedRamp: false,
+    };
+
+    const rawOutput = await toolNamed('apply_speed_ramp').invoke(args);
+    const result = parseEnvelope(rawOutput);
+
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        affectedFrameRanges: [{ startFrame: 30, endFrame: 90 }],
+      },
+    });
+
+    const enforced = enforceChatToolPostcondition({
+      toolName: 'apply_speed_ramp',
+      args,
+      output: rawOutput,
+      beforeProject,
+      afterProject: project,
+    });
+    expect(enforced.verification?.status).toBe('pass');
+
+    const request = buildChatEditRenderVerificationRequest({
+      transaction: {
+        operationId: 'op_visual_mutation_window',
+        sessionId: 'session_visual_mutation_window',
+        projectId: project.projectId,
+        userId: project.userId,
+        beforeCheckpointId: 'checkpoint_before_visual_mutation',
+      },
+      afterCheckpointId: 'checkpoint_after_visual_mutation',
+      project,
+      successfulCalls: [{
+        call: { name: 'apply_speed_ramp', args },
+        result: {
+          toolName: 'apply_speed_ramp',
+          result: enforced.output,
+        },
+      }],
+      requestedAt: '2026-07-28T00:00:00.000Z',
+    });
+
+    expect(request.mutationRanges).toEqual([{
+      startFrame: 30,
+      endFrame: 90,
+      toolName: 'apply_speed_ramp',
+    }]);
+    expect(request.sampleFrames).toEqual([29, 30, 60, 89, 90]);
+  });
+
+  it('reports exact affected windows from every visual mutation producer', async () => {
+    const project = makeProject([
+      {
+        id: 30,
+        type: 'video',
+        assetId: 'asset_video_30',
+        from: 0,
+        durationInFrames: 180,
+        row: 0,
+        left: 0,
+        top: 0,
+        width: 1280,
+        height: 720,
+        styles: {},
+      },
+      {
+        id: 31,
+        type: 'text',
+        from: 20,
+        durationInFrames: 60,
+        row: 0,
+        content: 'Target title',
+      },
+      {
+        id: 32,
+        type: 'image',
+        from: 30,
+        durationInFrames: 70,
+        row: 1,
+        left: 100,
+        top: 100,
+        width: 300,
+        height: 200,
+      },
+      {
+        id: 33,
+        type: 'text',
+        from: 100,
+        durationInFrames: 30,
+        row: 4,
+        content: 'Move me',
+      },
+    ], 180);
+    installProjectStore(project);
+
+    const shake = parseEnvelope(await toolNamed('apply_camera_shake').invoke({
+      videoOverlayId: 30,
+      targetFrame: 40,
+      durationFrames: 10,
+    }));
+    expect(shake.data?.affectedFrameRanges).toEqual([{ startFrame: 40, endFrame: 52 }]);
+
+    const fade = parseEnvelope(await toolNamed('apply_fade').invoke({
+      overlayId: 31,
+      startFrame: 60,
+      endFrame: 75,
+      direction: 'out',
+    }));
+    expect(fade.data?.affectedFrameRanges).toEqual([{ startFrame: 60, endFrame: 75 }]);
+
+    const reorder = parseEnvelope(await toolNamed('reorder_layer').invoke({
+      overlayId: 31,
+      referenceOverlayId: 32,
+      relation: 'behind',
+    }));
+    expect(reorder.data?.affectedFrameRanges).toEqual([{ startFrame: 30, endFrame: 80 }]);
+
+    const retime = parseEnvelope(await toolNamed('move_retime_overlay').invoke({
+      overlayId: 33,
+      startFrame: 140,
+    }));
+    expect(retime.data?.affectedFrameRanges).toEqual([
+      { startFrame: 100, endFrame: 130 },
+      { startFrame: 140, endFrame: 170 },
+    ]);
+
+    const filter = parseEnvelope(await toolNamed('apply_filter').invoke({
+      overlayId: 30,
+      filterIntent: 'warmer',
+    }));
+    expect(filter.data?.affectedFrameRanges).toEqual([{ startFrame: 0, endFrame: 180 }]);
+
+    const reframeDependencies = {
+      loadProject: vi.fn(async () => structuredClone(project) as Record<string, any>),
+      loadAnalyses: vi.fn(async () => []),
+      saveProject: vi.fn(async (_userId: string, _projectId: string, next: Record<string, any>) => {
+        Object.assign(project, structuredClone(next));
+      }),
+      updateProject: vi.fn(async () => {}),
+    };
+    const reframeTool = createChatVisualTools({
+      userId: project.userId,
+      projectId: project.projectId,
+      subjectReframeDependencies: reframeDependencies,
+    }).find((candidate) => candidate.name === 'reframe_project');
+    expect(reframeTool).toBeDefined();
+    const reframe = JSON.parse(await reframeTool!.invoke({ targetAspectRatio: '9:16' })) as {
+      status: string;
+      data?: Record<string, any>;
+    };
+    expect(reframe.status).toBe('success');
+    expect(reframe.data?.affectedFrameRanges).toEqual([{ startFrame: 0, endFrame: 180 }]);
+  });
+
   it('copies only requested style properties and reports missing targets', async () => {
     const project = makeProject([
       { id: 10, type: 'text', from: 0, durationInFrames: 90, styles: { color: '#FFD166', fontSize: 72 } },
@@ -178,6 +358,7 @@ describe('chat mechanical tool contracts', () => {
           { id: 11, status: 'success' },
           { id: 999, status: 'error', message: 'Not found' },
         ],
+        affectedFrameRanges: [{ startFrame: 90, endFrame: 180 }],
       },
     });
     expect(project.overlays.find((overlay) => overlay.id === 11)?.styles).toEqual({
@@ -202,7 +383,17 @@ describe('chat mechanical tool contracts', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      data: { clipsMoved: 5, totalFramesClosed: 60, totalSecondsClosed: 2 },
+      data: {
+        clipsMoved: 5,
+        totalFramesClosed: 60,
+        totalSecondsClosed: 2,
+        affectedFrameRanges: expect.arrayContaining([
+          { startFrame: 0, endFrame: 60 },
+          { startFrame: 30, endFrame: 90 },
+          { startFrame: 60, endFrame: 180 },
+          { startFrame: 120, endFrame: 240 },
+        ]),
+      },
     });
     expect(Object.fromEntries(project.overlays.map((overlay) => [overlay.id, overlay.from]))).toEqual({
       20: 0,
@@ -218,6 +409,245 @@ describe('chat mechanical tool contracts', () => {
       'proj_mechanical_tools',
       { durationInFrames: 180 },
     );
+  });
+
+  it('reports old and new windows for canonical retime, trim, batch, and delete mutations', async () => {
+    const project = makeProject([
+      { id: 40, type: 'text', from: 10, durationInFrames: 30, row: 2, content: 'Move' },
+      {
+        id: 41,
+        type: 'video',
+        from: 0,
+        durationInFrames: 100,
+        row: 0,
+        videoStartTime: 12,
+      },
+      { id: 42, type: 'image', from: 120, durationInFrames: 30, row: 2 },
+      { id: 43, type: 'text', from: 150, durationInFrames: 30, row: 3, styles: { color: '#fff' } },
+    ], 240);
+    installProjectStore(project);
+
+    const update = parseEnvelope(await toolNamed('move_retime_overlay').invoke({
+      overlayId: 40,
+      startFrame: 50,
+    }));
+    expect(update.data?.affectedFrameRanges).toEqual([
+      { startFrame: 10, endFrame: 40 },
+      { startFrame: 50, endFrame: 80 },
+    ]);
+
+    const shadowTimingAttempt = parseEnvelope(await toolNamed('update_overlay').invoke({
+      id: 40,
+      start: 70,
+    }));
+    expect(shadowTimingAttempt).toMatchObject({
+      status: 'error',
+      error: {
+        code: 'TOOL_INVOKE_EXCEPTION',
+        message: expect.stringContaining('Unrecognized key: "start"'),
+      },
+    });
+
+    const trim = parseEnvelope(await toolNamed('trim_overlay').invoke({
+      id: 41,
+      trimStart: 10,
+      trimEnd: 20,
+    }));
+    expect(trim.data?.affectedFrameRanges).toEqual([
+      { startFrame: 0, endFrame: 10 },
+      { startFrame: 80, endFrame: 100 },
+    ]);
+
+    const batch = parseEnvelope(await toolNamed('batch_update_overlays').invoke({
+      updates: [{
+        id: 43,
+        start: 180,
+        styles: { color: '#ffd166' },
+      }],
+    }));
+    expect(batch.data?.affectedFrameRanges).toEqual([
+      { startFrame: 150, endFrame: 180 },
+      { startFrame: 180, endFrame: 210 },
+    ]);
+
+    const deletion = parseEnvelope(await toolNamed('delete_overlay').invoke({ id: 42 }));
+    expect(deletion.data?.affectedFrameRanges).toEqual([{ startFrame: 120, endFrame: 150 }]);
+  });
+
+  it('reports already-applied audio ducking as a no-op instead of a successful mutation', async () => {
+    const project = makeProject([
+      {
+        id: 90,
+        type: 'sound',
+        row: 1,
+        assetId: 'bgm_main',
+        styles: {
+          volume: 0.18,
+          duckingConfig: {
+            enabled: true,
+            duckLevel: 0.18,
+            rampDownMs: 300,
+            rampUpMs: 600,
+            lookAheadMs: 200,
+          },
+        },
+      },
+      { id: 91, type: 'video', row: 0, assetId: 'voice_video', styles: { volume: 1 } },
+    ]);
+    const store = installProjectStore(project);
+
+    const result = parseEnvelope(await toolNamed('apply_audio_ducking').invoke({
+      enabled: true,
+      duckLevel: 0.18,
+      rampDownMs: 300,
+      rampUpMs: 600,
+      lookAheadMs: 200,
+    }));
+
+    expect(result).toMatchObject({
+      status: 'no-op',
+      nextAction: 'stop',
+      data: { status: 'unchanged', updates: [] },
+    });
+    expect(store.updateOverlay).not.toHaveBeenCalled();
+  });
+
+  it('preserves an exact delete target instead of coercing or substituting another overlay id', async () => {
+    const project = makeProject([
+      { id: 71, type: 'video', from: 0, durationInFrames: 90, row: 0 },
+      { id: 72, type: 'caption', sourceVideoId: 71, from: 0, durationInFrames: 90, row: 4 },
+    ], 90);
+    const store = installProjectStore(project);
+
+    const missing = parseEnvelope(await toolNamed('delete_overlay').invoke({
+      id: 'battle_missing_overlay',
+    }));
+
+    expect(missing.status).toBe('error');
+    expect(project.overlays.map((overlay) => overlay.id)).toEqual([71, 72]);
+    expect(store.deleteOverlay).not.toHaveBeenCalled();
+
+    const deleted = parseEnvelope(await toolNamed('delete_overlay').invoke({ id: '71' }));
+    expect(deleted.status).toBe('success');
+    expect(project.overlays).toEqual([]);
+    expect(store.deleteOverlay).toHaveBeenCalledWith(
+      'user_mechanical_tools',
+      'proj_mechanical_tools',
+      71,
+    );
+  });
+
+  it('preserves text legibility when a layer reorder moves transparent text toward the front', async () => {
+    const project = makeProject([
+      {
+        id: 80,
+        type: 'text',
+        from: 0,
+        durationInFrames: 90,
+        row: 3,
+        content: 'Foreground title',
+        styles: {
+          color: '#ffffff',
+          backgroundColor: 'transparent',
+        },
+      },
+      {
+        id: 81,
+        type: 'image',
+        from: 0,
+        durationInFrames: 90,
+        row: 2,
+      },
+    ], 90);
+    installProjectStore(project);
+
+    const reordered = parseEnvelope(await toolNamed('reorder_layer').invoke({
+      overlayId: 80,
+      referenceOverlayId: 81,
+      relation: 'in-front-of',
+    }));
+
+    expect(reordered.status).toBe('success');
+    expect(reordered.data?.updates).toEqual([
+      expect.objectContaining({
+        overlayId: 80,
+        previousRow: 3,
+        nextRow: 1,
+        nextStyles: expect.objectContaining({
+          textShadow: EDITRON_TEXT_SHADOW_FLOOR,
+        }),
+      }),
+    ]);
+    expect(project.overlays.find((overlay) => overlay.id === 80)).toMatchObject({
+      row: 1,
+      styles: {
+        color: '#ffffff',
+        backgroundColor: 'transparent',
+        textShadow: EDITRON_TEXT_SHADOW_FLOOR,
+      },
+    });
+  });
+
+  it('normalizes editor-style text fill without dropping batch style mutations', async () => {
+    const project = makeProject([
+      {
+        id: 44,
+        type: 'text',
+        from: 20,
+        durationInFrames: 90,
+        row: 2,
+        content: 'Keep this wording',
+        styles: { color: '#111111', fontSize: 42 },
+      },
+      {
+        id: 45,
+        type: 'shape',
+        from: 20,
+        durationInFrames: 90,
+        row: 3,
+        styles: { fill: '#222222' },
+      },
+    ], 180);
+    installProjectStore(project);
+
+    const batch = parseEnvelope(await toolNamed('batch_update_overlays').invoke({
+      updates: [
+        { id: 44, styles: { fill: '#FFFFFF' } },
+        { id: 45, styles: { fill: '#FFCC00' } },
+      ],
+    }));
+
+    expect(batch.status).toBe('success');
+    expect(project.overlays[0]).toMatchObject({
+      id: 44,
+      from: 20,
+      durationInFrames: 90,
+      content: 'Keep this wording',
+      styles: {
+        color: '#FFFFFF',
+        fontSize: 42,
+      },
+    });
+    expect(project.overlays[0]?.styles).not.toHaveProperty('fill');
+    expect(project.overlays[1]?.styles).toMatchObject({ fill: '#FFCC00' });
+  });
+
+  it('rejects unknown batch style properties instead of silently stripping them', async () => {
+    const project = makeProject([
+      { id: 46, type: 'text', from: 0, durationInFrames: 60, row: 2, content: 'Text' },
+    ]);
+    installProjectStore(project);
+
+    const result = parseEnvelope(await toolNamed('batch_update_overlays').invoke({
+      updates: [{ id: 46, styles: { colour: '#FFFFFF' } }],
+    }));
+
+    expect(result.status).toBe('error');
+    expect(result.error).toMatchObject({
+      code: 'TOOL_INVOKE_EXCEPTION',
+    });
+    expect(result.error?.message).toContain('Unrecognized key: "colour"');
+    expect(project.overlays[0]?.styles).toBeUndefined();
   });
 
   it('atomically removes a timeline range while preserving source continuity across overlay families', async () => {

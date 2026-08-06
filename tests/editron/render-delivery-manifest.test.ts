@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
-import { createRenderJob } from '@/lib/editron/schemas/render-job';
 import {
   buildRenderDeliveryManifest,
   completeRenderDeliveryManifest,
@@ -46,6 +45,36 @@ const MUSIC = {
   },
 };
 
+const REFERENCE_MUSIC = {
+  ...MUSIC,
+  id: 'reference_music_1',
+  musicRights: {
+    mediaRole: 'music',
+    source: 'preview-only',
+    userChoice: 'no-music',
+    licensed: false,
+  },
+  audioRights: {
+    mediaRole: 'music',
+    source: 'preview-only',
+    userChoice: 'no-music',
+    licensed: false,
+  },
+  metadata: {
+    assignment: { usageMode: 'reference-only' },
+    referenceTrack: {
+      provider: 'user-upload',
+      title: 'Reference Track',
+      artists: ['Reference Artist'],
+      sourceAssetId: 'reference_source_1',
+      bpm: 120,
+    },
+    beatGrid: {
+      beats: [{ frame: 15, isDownbeat: true }],
+    },
+  },
+};
+
 const NON_MUSIC = [
   { id: 'video_1', type: 'video', row: 0, from: 0, durationInFrames: 240 },
   { id: 'voice_1', type: 'sound', row: 2, from: 0, durationInFrames: 240 },
@@ -63,6 +92,36 @@ describe('render delivery manifest', () => {
       embedded: true,
       removedOverlayIds: [],
       handoff: null,
+    });
+  });
+
+  it('CRITICAL: forces reference-only music into a clean-master plan', () => {
+    const plan = resolveRenderDeliveryPlan({
+      requestedMode: 'embedded',
+      overlays: [...NON_MUSIC, REFERENCE_MUSIC],
+      fps: 30,
+      durationInFrames: 240,
+    });
+
+    expect(plan.mode).toBe('platform-native');
+    expect(plan.overlays).toEqual(NON_MUSIC);
+    expect(plan.music).toMatchObject({
+      embedded: false,
+      removedOverlayIds: ['reference_music_1'],
+      handoff: {
+        track: {
+          status: 'reference-ready',
+          title: 'Reference Track',
+          artists: ['Reference Artist'],
+          sourceAssetId: 'reference_source_1',
+          bpm: 120,
+        },
+        timing: {
+          timelineStartFrame: 30,
+          timelineEndFrame: 180,
+          timelineBeatEntryFrame: 45,
+        },
+      },
     });
   });
 
@@ -134,7 +193,7 @@ describe('render delivery manifest', () => {
     });
   });
 
-  it('persists and completes a mode-consistent artifact receipt', () => {
+  it('builds and completes a mode-consistent artifact receipt', () => {
     const plan = resolveRenderDeliveryPlan({
       requestedMode: 'platform-native',
       overlays: [...NON_MUSIC, MUSIC],
@@ -146,20 +205,12 @@ describe('render delivery manifest', () => {
       renderId: 'render_clean_1',
       createdAt: '2026-07-26T00:00:00.000Z',
     });
-    const job = createRenderJob(
-      'render_clean_1',
-      'user_1',
-      'project_1',
-      'render-bucket',
-      manifest,
-    );
     const completed = completeRenderDeliveryManifest(
       manifest,
       'https://cdn.example/clean-master.mp4',
       '2026-07-26T00:05:00.000Z',
     );
 
-    expect(job.deliveryManifest).toEqual(manifest);
     expect(manifest).toMatchObject({
       mode: 'platform-native',
       primaryArtifact: {
@@ -203,7 +254,7 @@ describe('render delivery manifest', () => {
     }).success).toBe(false);
   });
 
-  it('wires selection before rendering and persists the manifest on both render paths', () => {
+  it('persists the delivery receipt at admission and on both render paths', () => {
     const renderRoute = readFileSync(
       'app/api/services/editron/cloudrun/render/route.ts',
       'utf8',
@@ -213,17 +264,23 @@ describe('render delivery manifest', () => {
       'utf8',
     );
 
-    expect(renderRoute.indexOf('verifyRenderAudioRightsAuthority({')).toBeLessThan(
-      renderRoute.indexOf('resolveRenderDeliveryPlan({'),
-    );
     expect(renderRoute.indexOf('resolveRenderDeliveryPlan({')).toBeLessThan(
+      renderRoute.indexOf('verifyRenderAudioRightsAuthority({'),
+    );
+    expect(renderRoute.indexOf('verifyRenderAudioRightsAuthority({')).toBeLessThan(
       renderRoute.indexOf('assetResolver.resolveProjectAssets'),
     );
     expect(renderRoute.indexOf('resolveRenderDeliveryPlan({')).toBeLessThan(
       renderRoute.indexOf("checkCredits(userId, 'editron', 'render_export'"),
     );
-    expect(renderRoute.match(/buildRenderDeliveryManifest\(\{/g)).toHaveLength(2);
-    expect(renderRoute.match(/deliveryManifest,\s*\)/g)).toHaveLength(2);
+    expect(renderRoute.indexOf('reserveJob(')).toBeLessThan(
+      renderRoute.indexOf('renderMediaOnLambda({'),
+    );
+    expect(renderRoute.indexOf('reserveJob(')).toBeLessThan(
+      renderRoute.indexOf('startChapterRender('),
+    );
+    expect(renderRoute.match(/buildRenderDeliveryManifest\(\{/g)).toHaveLength(1);
+    expect(renderRoute).not.toContain('await createJob(');
     expect(jobService).toContain('completeRenderDeliveryManifest(');
     expect(jobService.indexOf('completeRenderDeliveryManifest(')).toBeLessThan(
       jobService.indexOf("status: 'done'"),

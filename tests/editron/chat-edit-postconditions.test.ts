@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { verifyChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
+import { buildNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
+import { AUDIO_RIGHTS_ATTESTATION_VERSION } from '@/lib/editron/shared/render-request-payload';
 
 const LEGACY_BGM = {
   id: 'bgm-legacy',
@@ -53,6 +55,37 @@ describe('chat edit render-eligibility postconditions', () => {
       }],
       introducedIssues: [],
     });
+    expect(verification.renderVerification.modalities).toEqual(['visual']);
+  });
+
+  it('requests audio proof for a timeline edit only when the affected video has renderable native audio', () => {
+    const audioRights = buildNativeVideoAudioRights({
+      sourceAssetId: 'video-with-rights',
+      userId: 'user-1',
+      attestation: { accepted: true, version: AUDIO_RIGHTS_ATTESTATION_VERSION },
+      attestedAt: new Date('2026-08-01T00:00:00.000Z'),
+    });
+    const beforeVideo = {
+      id: 'video-1',
+      type: 'video',
+      from: 30,
+      durationInFrames: 270,
+      assetId: 'video-with-rights',
+      hasNativeAudio: true,
+      audioRights,
+    };
+    const verification = verifyChatToolPostcondition({
+      toolName: 'close_gaps',
+      args: {},
+      resultData: { affectedOverlayIds: ['video-1'] },
+      beforeProject: { durationInFrames: 300, overlays: [beforeVideo] },
+      afterProject: {
+        durationInFrames: 270,
+        overlays: [{ ...beforeVideo, from: 0 }],
+      },
+    });
+
+    expect(verification.status).toBe('pass');
     expect(verification.renderVerification.modalities).toEqual(['visual', 'audio']);
   });
 

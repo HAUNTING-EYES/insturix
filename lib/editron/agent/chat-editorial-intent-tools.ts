@@ -128,7 +128,7 @@ export interface EditorialOwnerDispatchResult {
 }
 
 export interface ChatEditorialIntentResult {
-  status: 'success' | 'advisory' | 'error';
+  status: 'success' | 'advisory' | 'no-op' | 'needs-choice' | 'error';
   intent: GroundedEditorialIntent;
   evidence: {
     auditId?: string;
@@ -254,15 +254,18 @@ export async function applyGroundedEditorialIntent(
   // edit to the full Auto-Director — the engine this lane exists to route
   // around. FOUNDER RULING (plan REV 5 #3): confirm-gated, never silent. The
   // gate never touches targeted moment-scoped edits (normal chat ownership).
-  const handsProjectToAutoDirector = Boolean(intent.script) || intent.scope.kind === 'project';
+  const isExplicitFamilyOnly = intent.executionScope?.mode === 'explicit-families-only';
+  const hasScriptRecompositionAuthority = Boolean(intent.script) && !isExplicitFamilyOnly;
+  const handsProjectToAutoDirector = hasScriptRecompositionAuthority
+    || (intent.scope.kind === 'project' && !isExplicitFamilyOnly);
   if (handsProjectToAutoDirector && isAssistProject(project) && !args.input.autoDirectorConfirmed) {
     dispatch = {
-      owner: intent.script ? 'phase2-script-planner' : 'director-unified-planner',
+      owner: hasScriptRecompositionAuthority ? 'phase2-script-planner' : 'director-unified-planner',
       status: 'advisory',
       mutated: false,
       reasons: ['assist-auto-director-needs-confirmation'],
     };
-  } else if (intent.script) {
+  } else if (hasScriptRecompositionAuthority) {
     dispatch = await deps.dispatchScriptIntent({
       projectId: args.projectId,
       userId: args.userId,
@@ -302,7 +305,7 @@ export async function applyGroundedEditorialIntent(
   }
 
   const result: ChatEditorialIntentResult = {
-    status: dispatch.status === 'failed' ? 'error' : dispatch.mutated || dispatch.status === 'queued' ? 'success' : 'advisory',
+    status: classifyEditorialIntentResult(intent, dispatch),
     intent,
     evidence: {
       auditId: retrieval.auditId,
@@ -342,7 +345,10 @@ export function createChatEditorialIntentTools(
         enforceServerEditorialFamilyScope(
           compileChatEditorialIntentWire(
           { ...wireInput, autoDirectorConfirmed: wireInput.autoDirectorConfirmed || confirmedByClient },
-          { userTurnText },
+          {
+            userTurnText,
+            allowScriptRecomposition: !familyScopeExclusive,
+          },
           ),
           requiredFamilyDirectives,
           familyScopeExclusive,
@@ -367,11 +373,15 @@ export function createChatEditorialIntentTools(
           error: result.status === 'error' ? result.dispatch.reasons.join(', ') : null,
           nextAction: result.dispatch.reasons.includes('assist-auto-director-needs-confirmation')
             ? 'This is a Director Mode project. Tell the user plainly that this request would hand the whole timeline to Auto-Director (a full automatic re-edit), and that a confirmation button is shown for them to run it or decline. Do NOT call apply_editorial_intent again yourself and do NOT claim any edit was made — the confirm button drives it.'
-            : result.status === 'advisory'
+            : result.status === 'needs-choice'
               ? 'Ask once for a clearer target or narrower constraint. Do not claim an edit was made.'
-              : result.dispatch.status === 'queued'
-                ? 'Tell the user the editorial edit is processing. Do not claim the timeline has changed yet.'
-                : 'Reload the project and verify the requested outcome.',
+              : result.status === 'no-op'
+                ? 'Explain that the requested target was found, but no grounded edit opportunity safely warranted a change. Do not retry this operation in the same turn.'
+                : result.status === 'advisory'
+                  ? 'Explain the advisory result without claiming an edit was made.'
+                  : result.dispatch.status === 'queued'
+                    ? 'Tell the user the editorial edit is processing. Do not claim the timeline has changed yet.'
+                    : 'Reload the project and verify the requested outcome.',
         });
       } catch (error) {
         return JSON.stringify({
@@ -943,6 +953,33 @@ function normalizeScope(scope: ChatEditorialIntentInput['scope']): ChatEditorial
     ...(endFrame !== undefined ? { endFrame } : {}),
     ...(scope.overlayIds?.length ? { overlayIds: [...scope.overlayIds] } : {}),
   };
+}
+
+function classifyEditorialIntentResult(
+  intent: GroundedEditorialIntent,
+  dispatch: EditorialOwnerDispatchResult,
+): ChatEditorialIntentResult['status'] {
+  if (dispatch.status === 'failed') return 'error';
+  if (dispatch.mutated || dispatch.status === 'queued') return 'success';
+  if (dispatch.reasons.includes('assist-auto-director-needs-confirmation')) return 'advisory';
+  if (dispatch.reasons.includes('intent-uncertainty-too-high')) return 'needs-choice';
+  if (dispatch.reasons.includes('no-safe-canonical-evidence')) {
+    return hasExplicitTargetScope(intent.scope) ? 'no-op' : 'needs-choice';
+  }
+  if (
+    dispatch.reasons.includes('family-planners-rejected-all-grounded-candidates')
+    || dispatch.reasons.includes('no-executable-family-decision-survived')
+  ) {
+    return 'no-op';
+  }
+  return 'advisory';
+}
+
+function hasExplicitTargetScope(scope: GroundedEditorialIntent['scope']): boolean {
+  if (scope.overlayIds?.length) return true;
+  return scope.startFrame !== undefined
+    && scope.endFrame !== undefined
+    && scope.endFrame > scope.startFrame;
 }
 
 function buildIntentAudit(

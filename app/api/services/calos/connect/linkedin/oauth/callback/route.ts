@@ -89,7 +89,17 @@ export async function GET(request: NextRequest) {
     const accessToken: string = tokenData.access_token;
     const refreshToken: string | undefined = tokenData.refresh_token;
     const expiresIn: number | undefined = tokenData.expires_in;
-    const { options } = getLinkedInScopes();
+    const { scopes: requestedScopes, options } = getLinkedInScopes();
+    const providerScopes = Array.isArray(tokenData.scope)
+      ? tokenData.scope
+      : typeof tokenData.scope === "string"
+        ? tokenData.scope.split(/[\s,]+/)
+        : [];
+    const grantedScopes = Array.from(new Set(
+      (providerScopes.length > 0 ? providerScopes : requestedScopes)
+        .map((scope: unknown) => typeof scope === "string" ? scope.trim() : "")
+        .filter(Boolean),
+    ));
 
     // --- Discover the accounts this token can post as ---
     const accounts: PendingAccount[] = [];
@@ -180,6 +190,7 @@ export async function GET(request: NextRequest) {
       accessTokenEnc,
       refreshTokenEnc,
       tokenExpiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000) : null,
+      scopes: grantedScopes,
       availableAccounts: accounts,
       expiresAt: new Date(Date.now() + 15 * 60 * 1000),
     });

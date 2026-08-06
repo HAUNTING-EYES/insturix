@@ -181,8 +181,8 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
       >
         <DialogHeader className="sticky top-0 z-10 border-b px-4 py-3" style={{ borderColor: "#1C1B19", background: "#131312" }}>
           <div className="flex items-center gap-2">
-            <Clapperboard className="h-4 w-4 shrink-0 text-[#D4A652]" />
-            <DialogTitle className="text-[14px] font-semibold text-[#ECE9E1]">Shoot Kit</DialogTitle>
+            <Clapperboard className="h-4 w-4 shrink-0 text-[#B5B2A8]" />
+            <DialogTitle className="text-[14px] font-medium text-[#ECE9E1]">Shoot Kit</DialogTitle>
             {refreshing && <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7A776E]" aria-label="Refreshing" />}
           </div>
           <DialogDescription className="sr-only">
@@ -193,31 +193,35 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
         <div className="px-4 py-4">
           {/* Non-fatal error while a plan/form is already visible */}
           {error && data && (
-            <div className="mb-3 flex items-start justify-between gap-2 rounded-md border border-[#5A2828] bg-[#170C0C] px-3 py-2">
-              <p className="text-[11px] leading-relaxed text-[#E06C75]">
+            <div className="mb-3 flex items-start justify-between gap-2 rounded-[7px] px-3 py-2" style={{ background: "#D46A5C14" }}>
+              <p className="text-[11px] leading-relaxed text-[#D46A5C]">
                 {error.message}{error.detail ? ` (${error.detail})` : ""}
               </p>
-              <button type="button" onClick={() => void loadPlan()} className="shrink-0 text-[11px] text-[#B5B2A8] underline hover:text-[#ECE9E1]">
+              <button
+                type="button"
+                onClick={() => void loadPlan()}
+                className="shrink-0 text-[11px] text-[#B5B2A8] underline transition-colors duration-[250ms] ease-[cubic-bezier(0.16,1,0.3,1)] hover:text-[#ECE9E1] focus:outline-none focus-visible:shadow-[0_0_0_2px_#D4A65240]"
+              >
                 Retry
               </button>
             </div>
           )}
 
           {loading && !data ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-14 text-[#7A776E]">
+            <div className="flex flex-col items-center justify-center gap-2 py-16 text-[#7A776E]">
               <Loader2 className="h-5 w-5 animate-spin" />
-              <span className="text-[12px]">Loading your Shoot Kit…</span>
+              <span className="text-[11px]">Reading your production profile</span>
             </div>
           ) : error && !data ? (
             <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-              <AlertCircle className="h-6 w-6 text-[#E06C75]" />
-              <p className="max-w-sm text-[12px] leading-relaxed text-[#B5B2A8]">
+              <AlertCircle className="h-6 w-6 text-[#D46A5C]" />
+              <p className="max-w-sm text-[11px] leading-relaxed text-[#B5B2A8]">
                 {error.message}{error.detail ? ` (${error.detail})` : ""}
               </p>
               <button
                 type="button"
                 onClick={() => void loadPlan()}
-                className="inline-flex items-center gap-1.5 rounded-[6px] border border-[#34322E] px-3 py-1.5 text-[11px] text-[#ECE9E1] transition-colors hover:border-[#4A4842]"
+                className="inline-flex items-center gap-1 rounded-[7px] border border-[#282724] px-3 py-1 text-[11px] text-[#ECE9E1] transition-colors duration-[250ms] ease-[cubic-bezier(0.16,1,0.3,1)] hover:text-[#D4A652] focus:outline-none focus-visible:shadow-[0_0_0_2px_#D4A65240]"
               >
                 <RefreshCw className="h-3.5 w-3.5" /> Retry
               </button>

@@ -227,6 +227,73 @@ async function handler(request: NextRequest) {
           const referenceSourceLabel = referenceSource.sourceLabel;
           const referenceSourceFingerprint = referenceSource.sourceFingerprint;
 
+          // R1-C: enforce the canonical asset mandate for the intake path. Direct
+          // remote URLs are materialized into a canonical asset with the R1
+          // envelope (content hash + audio mode + demux receipt); asset / imported
+          // references already arrive canonical. Every downstream stage must use
+          // the canonical referenceAssetId, never the floating URL.
+          if (referenceSource.kind === 'remote-url') {
+            try {
+              const { canonicalizeReferenceVideo } = await import('@/lib/editron/reference-video/canonicalize-reference');
+              const canonical = await canonicalizeReferenceVideo({
+                userId,
+                source: referenceSource,
+                audioUsageMode: 'preview-waveform-only',
+              });
+              if (canonical.referenceAssetId) {
+                referenceVideoAnalysis = {
+                  provider: 'canonical-reference',
+                  status: 'accepted',
+                  sourceKind: 'materialized-remote',
+                  referenceAssetId: canonical.referenceAssetId,
+                  sourceLabel: canonical.sourceLabel,
+                  sourceFingerprint: canonical.sourceFingerprint,
+                  canonicalKind: canonical.canonicalKind,
+                };
+                console.log(`[VideoAnalysisWorker] Materialized remote reference as canonical asset ${canonical.referenceAssetId}`);
+
+                // R2/R3: enrich the canonical reference with measured evidence
+                // (audio beats/silence) + soundtrack identity. Env-gated: the AudD
+                // recognizer activates only when AUDD_API_TOKEN is set; without it
+                // this resolves nothing (soundClass stays unknown). Evidence survives
+                // a recognizer outage (warnings[]), so this never breaks the edit.
+                try {
+                  const { enrichReferenceWithMeasuredEvidence } = await import('@/lib/editron/reference-video/enrich-reference-evidence');
+                  const enriched = await enrichReferenceWithMeasuredEvidence({
+                    userId,
+                    referenceAssetId: canonical.referenceAssetId,
+                    audioArtifact: canonical.audioArtifact ?? null,
+                  });
+                  if (enriched.soundtrackIdentity) {
+                    referenceVideoAnalysis = {
+                      ...referenceVideoAnalysis,
+                      soundtrackIdentity: enriched.soundtrackIdentity,
+                      audioEvidence: enriched.audioEvidence,
+                      canonicalFingerprint: enriched.canonicalFingerprint,
+                      adaptivePlan: enriched.adaptivePlan,
+                      enrichmentWarnings: enriched.warnings,
+                    };
+                    console.log(`[VideoAnalysisWorker] Reference soundtrack identity attached for ${canonical.referenceAssetId}`);
+                  } else if (enriched.audioEvidence) {
+                    referenceVideoAnalysis = {
+                      ...referenceVideoAnalysis,
+                      audioEvidence: enriched.audioEvidence,
+                      canonicalFingerprint: enriched.canonicalFingerprint,
+                      adaptivePlan: enriched.adaptivePlan,
+                      enrichmentWarnings: enriched.warnings,
+                    };
+                  }
+                } catch (err) {
+                  console.warn('[VideoAnalysisWorker] Reference enrichment skipped:',
+                    err instanceof Error ? err.message : err);
+                }
+              }
+            } catch (canonicalErr) {
+              const msg = canonicalErr instanceof Error ? canonicalErr.message : String(canonicalErr);
+              console.warn(`[VideoAnalysisWorker] Reference canonicalization failed (${msg}) — using URL fallback`);
+            }
+          }
+
           if (isSaasReferenceGlmEnabled()) {
             try {
               const { sampleReferenceVideoFrames } = await import('@/lib/editron/reference-video/reference-frame-sampler');

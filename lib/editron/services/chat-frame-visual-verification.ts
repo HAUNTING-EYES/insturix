@@ -14,6 +14,7 @@ export interface ChatFrameVisualVerification {
   status: 'confirmed' | 'rejected';
   receiptId: string;
   frame: number;
+  frames: number[];
   query: string;
   provider: 'gemini';
   model: string;
@@ -36,11 +37,16 @@ interface ChatFrameVisualVerificationInput {
 }
 
 interface ChatFrameVisualVerificationDependencies {
-  generate?: (parts: ReturnType<typeof buildGeminiHumanParts>) => Promise<string>;
+  generate?: (
+    parts: ReturnType<typeof buildGeminiHumanParts>,
+    attempt: number,
+  ) => Promise<string>;
   model?: string;
 }
 
 const VERIFICATION_TIMEOUT_MS = 25_000;
+const VERIFICATION_MAX_ATTEMPTS = 2;
+const VERIFICATION_MAX_OUTPUT_TOKENS = 4_096;
 const MAX_TEXT_LENGTH = 500;
 const FRAME_QUERY_PREFIX = 'Verify canonical visual match for:';
 
@@ -70,21 +76,19 @@ export async function verifyChatFrameVisualMatch(
   dependencies: ChatFrameVisualVerificationDependencies = {},
 ): Promise<ChatFrameVisualVerification> {
   const query = bindQueryToInspectionEvidence(input.query, input.evidence.question);
-  const parts = buildGeminiHumanParts(buildVerificationPrompt(query, input.candidateContext), input.evidence);
-  const model = dependencies.model ?? ANALYSIS_MODEL_NAME;
-  const responseText = await withTimeout(
-    dependencies.generate
-      ? dependencies.generate(parts)
-      : generateWithGemini(parts),
-    VERIFICATION_TIMEOUT_MS,
+  const frames = evidenceFrameNumbers(input.evidence);
+  const parts = buildGeminiHumanParts(
+    buildVerificationPrompt(query, input.candidateContext, frames.length > 1),
+    input.evidence,
   );
-  const parsed = parseVerificationResponse(responseText);
+  const model = dependencies.model ?? ANALYSIS_MODEL_NAME;
+  const parsed = await generateVerifiedResponse(parts, dependencies);
   const confirmed = parsed.targetVisible
     && (parsed.matchQuality === 'exact' || parsed.matchQuality === 'clear-semantic');
   const boundingBox = confirmed ? readNormalizedBoundingBox(parsed.boundingBox) : undefined;
   const receiptId = buildReceiptId({
     query,
-    frame: input.evidence.frame,
+    frames,
     capturedAtMs: input.evidence.capturedAtMs,
     matchQuality: parsed.matchQuality,
     evidence: parsed.evidence,
@@ -94,6 +98,7 @@ export async function verifyChatFrameVisualMatch(
     status: confirmed ? 'confirmed' : 'rejected',
     receiptId,
     frame: input.evidence.frame,
+    frames,
     query,
     provider: 'gemini',
     model,
@@ -104,23 +109,34 @@ export async function verifyChatFrameVisualMatch(
   };
 }
 
-function buildVerificationPrompt(query: string, candidateContext?: string): string {
+function buildVerificationPrompt(
+  query: string,
+  candidateContext: string | undefined,
+  temporal: boolean,
+): string {
   return [
     '<role>You are a strict visual-grounding verifier for a video editor.</role>',
-    '<task>Decide whether the target is directly visible in this single editor-rendered frame.</task>',
+    temporal
+      ? '<task>Decide whether the target event or motion is directly demonstrated by this chronological sequence of editor-rendered frames.</task>'
+      : '<task>Decide whether the target is directly visible in this single editor-rendered frame.</task>',
     `<target>${JSON.stringify(query)}</target>`,
     candidateContext
       ? `<retrieval_hint>${JSON.stringify(boundedText(candidateContext, MAX_TEXT_LENGTH))}</retrieval_hint>`
       : '',
     '<rules>',
     '1. Judge pixels only. The retrieval hint is a search hint, never proof.',
-    '2. exact means the literal target is plainly visible.',
-    '3. clear-semantic means the same object/action is plainly visible despite different wording.',
-    '4. partial means only a related object, uncertain action, or incomplete target is visible.',
-    '5. absent means the target is not visible.',
-    '6. targetVisible may be true only for exact or clear-semantic.',
-    '7. If the target is visible and spatially localizable, return one tight normalized 0..1 bounding box.',
-    '8. Do not infer events outside this frame. Do not use transcript or metadata as visual evidence.',
+    temporal
+      ? '2. The frames are ordered by edited-timeline time. Confirm motion only when visible change across them establishes the requested event.'
+      : '2. A single frame can confirm visible objects, states, and poses, but not motion over time.',
+    '3. exact means the literal target is plainly demonstrated by the supplied pixels.',
+    '4. clear-semantic means the same object/action is plainly demonstrated despite different wording.',
+    '5. partial means only a related object, uncertain action, or incomplete target is visible.',
+    '6. absent means the target is not visible or the supplied frames cannot establish it.',
+    '7. targetVisible may be true only for exact or clear-semantic.',
+    '8. If the target is visible and spatially localizable at the anchor frame, return one tight normalized 0..1 bounding box.',
+    temporal
+      ? '9. Do not infer motion before, between, or after the supplied frames. Do not use transcript or metadata as visual evidence.'
+      : '9. Do not infer events outside this frame. Do not use transcript or metadata as visual evidence.',
     '</rules>',
     '<output>Return only schema-valid JSON.</output>',
   ].filter(Boolean).join('\n');
@@ -128,19 +144,61 @@ function buildVerificationPrompt(query: string, candidateContext?: string): stri
 
 async function generateWithGemini(
   parts: ReturnType<typeof buildGeminiHumanParts>,
+  attempt: number,
 ): Promise<string> {
   const model = await getAnalysisModel();
+  const retryInstruction = attempt > 1
+    ? [{ text: 'The previous provider response was not schema-valid. Return the required JSON object now, with no prose or code fence.' }]
+    : [];
   const result = await model.generateContent({
-    contents: [{ role: 'user', parts }],
+    contents: [{ role: 'user', parts: [...parts, ...retryInstruction] }],
     generationConfig: {
       responseMimeType: 'application/json',
       responseSchema: RESPONSE_SCHEMA,
       temperature: 0,
-      seed: 42,
-      maxOutputTokens: 768,
+      seed: 41 + attempt,
+      maxOutputTokens: VERIFICATION_MAX_OUTPUT_TOKENS,
     },
   });
   return result.response?.text?.() ?? '';
+}
+
+async function generateVerifiedResponse(
+  parts: ReturnType<typeof buildGeminiHumanParts>,
+  dependencies: ChatFrameVisualVerificationDependencies,
+): Promise<ReturnType<typeof parseVerificationResponse>> {
+  const deadline = Date.now() + VERIFICATION_TIMEOUT_MS;
+  const diagnostics: string[] = [];
+
+  for (let attempt = 1; attempt <= VERIFICATION_MAX_ATTEMPTS; attempt += 1) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    const responseText = await withTimeout(
+      dependencies.generate
+        ? dependencies.generate(parts, attempt)
+        : generateWithGemini(parts, attempt),
+      remainingMs,
+    );
+    try {
+      return parseVerificationResponse(responseText);
+    } catch (error) {
+      diagnostics.push(formatMalformedResponseDiagnostic(attempt, responseText, error));
+    }
+  }
+
+  throw new Error(
+    `Visual verification provider returned invalid structured output after ${diagnostics.length} attempt(s): ${diagnostics.join(' | ') || 'deadline exhausted'}`,
+  );
+}
+
+function formatMalformedResponseDiagnostic(
+  attempt: number,
+  responseText: string,
+  error: unknown,
+): string {
+  const fingerprint = createHash('sha256').update(responseText).digest('hex').slice(0, 12);
+  const reason = error instanceof Error ? error.message : String(error);
+  return `attempt=${attempt},chars=${responseText.length},sha256=${fingerprint},reason=${boundedText(reason, 160)}`;
 }
 
 function bindQueryToInspectionEvidence(query: string, question: string): string {
@@ -203,7 +261,7 @@ function readNormalizedBoundingBox(value: unknown): ChatFrameVisualVerification[
 
 function buildReceiptId(input: {
   query: string;
-  frame: number;
+  frames: number[];
   capturedAtMs: number;
   matchQuality: ChatFrameVisualMatchQuality;
   evidence: string;
@@ -213,6 +271,11 @@ function buildReceiptId(input: {
     .digest('hex')
     .slice(0, 24);
   return `frame-visual-${digest}`;
+}
+
+function evidenceFrameNumbers(evidence: ChatFrameEvidence): number[] {
+  return [evidence.frame, ...(evidence.contextFrames ?? []).map((sample) => sample.frame)]
+    .sort((left, right) => left - right);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

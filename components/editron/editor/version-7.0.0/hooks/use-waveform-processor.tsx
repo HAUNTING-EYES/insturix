@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 
+import { FPS as EDITRON_DEFAULT_FPS } from "../constants";
+
 interface WaveformData {
   peaks: number[];
   length: number;
@@ -20,7 +22,7 @@ interface WaveformOptions {
  * @param durationInFrames - Duration to process in frames
  * @param options - Configuration options
  * @param options.numPoints - Number of data points to generate for the waveform (default: 400)
- * @param options.fps - Frames per second for time calculations (default: 30)
+ * @param options.fps - Frames per second for time calculations (default: project FPS constant, currently 30)
  *
  * @returns {WaveformData | null} Object containing:
  *   - peaks: Array of normalized amplitude values between 0 and 1
@@ -43,7 +45,7 @@ export function useWaveformProcessor(
   options: WaveformOptions = {}
 ) {
   const [waveformData, setWaveformData] = useState<WaveformData | null>(null);
-  const { numPoints = 400, fps = 30 } = options;
+  const { numPoints = 400, fps = EDITRON_DEFAULT_FPS } = options;
 
   useEffect(() => {
     if (!src) return;

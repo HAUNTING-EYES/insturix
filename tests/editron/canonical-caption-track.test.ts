@@ -457,6 +457,8 @@ describe('canonical caption track', () => {
       mode: 'hormozi',
       wordsPerGroup: 3,
       maxWordsPerLine: 2,
+      emphasisBehavior: 'active-word',
+      fontSizing: 'authored',
       useSpringScale: true,
     });
     // High energy (0.88) selects the registry `hormozi` preset: transparent background,
@@ -468,8 +470,14 @@ describe('canonical caption track', () => {
         backgroundColor: 'transparent',
         animation: 'bounce',
         effect: 'pop',
+        textShadow: expect.stringContaining('rgba(0,0,0'),
       }),
     });
+    expect(caption.styles.textShadow).toContain('rgba(0,0,0');
+    expect(caption.metadata.captionStyleIntent.adjustments).toEqual(expect.arrayContaining([
+      'base-contrast-edge-added',
+      'highlight-contrast-edge-added',
+    ]));
     expect(caption.captions.every((item: any) => item.text.length <= 22)).toBe(true);
     expect(caption.metadata.evidence.readability).toMatchObject({
       wordsPerGroup: 3,
@@ -478,6 +486,44 @@ describe('canonical caption track', () => {
       maxGroupDurationMs: 1450,
       contrastFloor: 4.5,
     });
+  });
+
+  it('makes subtitle emphasis and font sizing explicit for the final renderer', () => {
+    const overlays: any[] = [
+      { id: 10, type: 'video', from: 0, durationInFrames: 180, sourceStartFrame: 300 },
+    ];
+    const resolved = resolveAtomicCaptionPresentation({
+      requestedStyle: 'minimal',
+      requestedStyleAuthority: 'user',
+      displayMode: 'subtitle',
+      genreParams: {
+        formality: 0.76,
+        energy_baseline: 0.34,
+        pacing_tolerance: 8,
+      },
+    });
+
+    const result = installCanonicalCaptionTrack({
+      overlays,
+      editedTimelineContext: context(['plain', 'captions', 'stay', 'readable']),
+      playerDimensions: { width: 1920, height: 1080 },
+      presentation: resolved,
+    });
+
+    expect(result.created).toBe(1);
+    const caption = overlays.find((overlay) => overlay.type === OverlayType.CAPTION);
+    expect(caption.displayConfig).toMatchObject({
+      mode: 'subtitle',
+      emphasisBehavior: 'none',
+      fontSizing: 'authored',
+    });
+    expect(caption.metadata.evidence.readability).toMatchObject({
+      maxMergedGroupDurationMs: 2300,
+      maxMergeWords: 6,
+    });
+    expect(caption.captions.every((item: any, index: number, all: any[]) => (
+      index === 0 || item.startMs >= all[index - 1].endMs
+    ))).toBe(true);
   });
 
   it('keeps global captions in the lower lane when only video context reports bottom text occupancy', () => {

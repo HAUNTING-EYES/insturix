@@ -11,6 +11,8 @@
  *    director-invocation sites consult.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 const mocks = vi.hoisted(() => ({
   r2Available: { value: false },
@@ -42,6 +44,10 @@ import {
   parseEditMode,
   partitionAssistAssets,
 } from '@/lib/editron/services/assist-lane';
+import {
+  CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION,
+  buildNativeVideoAudioRights,
+} from '@/lib/editron/services/native-video-audio-rights';
 
 const asset = (over: Partial<MaterializableAsset>): MaterializableAsset => ({
   assetId: 'a-default',
@@ -58,6 +64,22 @@ beforeEach(() => {
 });
 
 describe('materializeChronologicalFallback (behavior-identical move)', () => {
+  it('wires canonical native-audio rights into single and Storyline constructors', () => {
+    const singleSource = readFileSync(
+      join(process.cwd(), 'app/api/services/editron/auto-edit/from-asset/route.ts'),
+      'utf8',
+    );
+    const batchSource = readFileSync(
+      join(process.cwd(), 'app/api/services/editron/auto-edit/from-batch/route.ts'),
+      'utf8',
+    );
+
+    expect(singleSource).toContain('readStoredNativeVideoAudioRights(asset)');
+    expect(singleSource).toContain('audioRights: nativeVideoAudioRights');
+    expect(batchSource).toContain('readStoredNativeVideoAudioRights(asset)');
+    expect(batchSource).toContain('audioRights: nativeVideoAudioRights');
+  });
+
   it('lays down all visual assets untrimmed, in uploadedAt order, images at the hold duration', async () => {
     const timeline = await materializeChronologicalFallback(
       [
@@ -149,6 +171,39 @@ describe('materializeChronologicalFallback (behavior-identical move)', () => {
     expect(image.content).toBe('https://cdn.test/i');
     expect((image.styles as { animation?: unknown }).animation).toEqual({ enter: 'fadeIn', exit: 'fadeOut' });
     expect((video.styles as { opacity?: number }).opacity).toBe(1);
+  });
+
+  it('copies only a canonical matching native-audio receipt onto video overlays', async () => {
+    const rights = buildNativeVideoAudioRights({
+      sourceAssetId: 'video-rights',
+      userId: 'user_1',
+      attestation: CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION,
+      attestedAt: new Date('2026-07-28T00:00:00.000Z'),
+    });
+    const timeline = await materializeChronologicalFallback(
+      [
+        asset({
+          assetId: 'video-rights',
+          type: 'video',
+          source: 'user-upload',
+          duration: 2,
+          audioRights: rights,
+        }),
+        asset({
+          assetId: 'video-mismatch',
+          type: 'video',
+          source: 'user-upload',
+          duration: 2,
+          audioRights: rights,
+        }),
+      ],
+      'user_1',
+      'batch_1',
+      dims,
+    );
+
+    expect(timeline.overlays[0]?.audioRights).toEqual(rights);
+    expect(timeline.overlays[1]?.audioRights).toBeUndefined();
   });
 });
 

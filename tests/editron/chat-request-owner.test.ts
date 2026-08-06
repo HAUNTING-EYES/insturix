@@ -6,23 +6,30 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   getChatCapabilityAuthorityContract,
   requiredToolSequenceForChatCapability,
+  resolveChatLocalizedWorkflowAdapter,
 } from '@/lib/editron/agent/chat-command-authority';
 import {
   filterChatToolsForWorkflowPhase,
   resolveChatWorkflowPhase,
 } from '@/lib/editron/agent/chat-tool-workflow-phase';
 import {
+  bindTrustedSelectedOverlayTarget,
+  bindTrustedTimelineTarget,
   buildChatRequestOwnerPrompt,
   classifyChatRequestOwner,
   deriveChatRequestOwner,
   deriveChatSemanticWorkflow,
+  deriveRoutingFacts,
   filterChatToolsForRequestOwner,
   filterPromptForCallableChatTools,
   formatChatRequestOwnerLicenseForPrompt,
+  GEMINI_OWNER_RESPONSE_SCHEMA,
+  normalizeChatWorkflowCapabilities,
   type ChatRequestOwner,
   type ChatRequestOwnerLicense,
   type ChatSemanticWorkflow,
 } from '@/lib/editron/agent/chat-request-owner';
+import { resolveServerOwnedChatWorkflowStep } from '@/lib/editron/agent/chat-server-workflow';
 
 const baseInput = {
   userMessage: 'Make this edit feel more polished.',
@@ -75,9 +82,13 @@ describe('chat request owner classification', () => {
           requiresContentLocalization: false,
           requiresEditorialJudgment: true,
           requestsReferenceStyle: false,
-          requestsBroadEditorialOutcome: false,
+          requestsBroadEditorialOutcome: true,
+          durableOperation: 'none',
           operationFullySpecified: false,
           targetFullySpecified: false,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: ['project-edit'],
           familyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
         },
         confidence: 0.97,
@@ -91,13 +102,170 @@ describe('chat request owner classification', () => {
     expect(result.owner).toBe('semantic-editorial-planner');
     expect(result.semanticWorkflow).toBe('editorial-plan');
     expect(result.routingFacts?.requiresEditorialJudgment).toBe(true);
+    expect(result.routingFacts?.requestedCapabilities).toEqual(['project-edit']);
     expect(result.routingFacts?.familyDirectives).toEqual([
       { family: 'motionGraphics', mode: 'prefer' },
     ]);
-    expect(result.routingFacts?.familyScopeExclusive).toBe(true);
+    expect(result.routingFacts?.familyScopeExclusive).toBe(false);
     expect(result.decidedBy).toBe('gemini');
     expect(generate).toHaveBeenCalledTimes(1);
     expect(addUsage).toHaveBeenCalledWith({ promptTokenCount: 40, candidatesTokenCount: 12 });
+  });
+
+  it('repairs motion-graphic authority to the unified semantic composition owner', async () => {
+    const userMessage = 'Add motion graphics only where the idea is visually explainable.';
+    const baseFacts = {
+      requestsMutation: true,
+      requestsAnalysis: false,
+      requiresContentLocalization: false,
+      requiresEditorialJudgment: false,
+      requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
+      durableOperation: 'none',
+      operationFullySpecified: true,
+      targetFullySpecified: true,
+      localizedReads: [],
+      localizedEdits: [],
+      capabilityEvidence: [],
+      familyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
+    };
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          facts: {
+            ...baseFacts,
+            requestedCapabilities: ['localized-overlay'],
+          },
+          confidence: 0.96,
+          reason: 'The request asks for motion graphics.',
+        }),
+      })
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          facts: {
+            ...baseFacts,
+            requestedCapabilities: ['motion-graphic-composition'],
+          },
+          confidence: 0.98,
+          reason: 'The unified planner owns semantic motion-graphic composition.',
+        }),
+      });
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, { generate });
+
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate.mock.calls[1]?.[0]).toContain(
+      'Motion-graphic requests must license semantic composition through the unified planner',
+    );
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'editorial-plan',
+      routingFacts: {
+        requestedCapabilities: ['motion-graphic-composition'],
+        familyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
+        familyScopeExclusive: true,
+      },
+    });
+    expect(getChatCapabilityAuthorityContract('motion-graphic-composition')).toMatchObject({
+      authority: 'unified-planner',
+      requiresResolverAuthorization: false,
+    });
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: result,
+      ledger: { requestedToolNames: [], completedExecutions: [] },
+      projectId: 'proj_mg',
+      projectRevision: 'revision-1',
+    })).toMatchObject({
+      kind: 'tool-call',
+      operationId: '0:motion-graphic-composition',
+      toolCall: { name: 'get_timeline_view' },
+    });
+  });
+
+  it('collapses reference style and generic editorial planning into one durable semantic owner', async () => {
+    const userMessage = 'Match the pacing and graphic restraint of my uploaded reference video asset.';
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: false,
+            requiresEditorialJudgment: true,
+            requestsReferenceStyle: true,
+            requestsBroadEditorialOutcome: true,
+            durableOperation: 'none',
+            operationFullySpecified: false,
+            targetFullySpecified: true,
+            timelineReference: 'none',
+            localizedReads: [],
+            localizedEdits: [],
+            requestedCapabilities: [
+              'reference-style',
+              'motion-graphic-composition',
+              'project-edit',
+            ],
+            capabilityEvidence: [
+              { capability: 'reference-style', sourceSpan: userMessage },
+              { capability: 'motion-graphic-composition', sourceSpan: userMessage },
+              { capability: 'project-edit', sourceSpan: userMessage },
+            ],
+            familyDirectives: [{ family: 'motionGraphics', mode: 'prefer' }],
+          },
+          confidence: 1,
+          reason: 'The supplied video is a reference for the whole edit.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      semanticWorkflow: 'reference-style',
+      routingFacts: {
+        requestedCapabilities: ['reference-style'],
+      },
+    });
+    expect(normalizeChatWorkflowCapabilities(
+      { requestsReferenceStyle: true },
+      ['reference-style', 'project-edit'],
+    )).toEqual(['reference-style']);
+    expect(filterChatToolsForRequestOwner([
+      { name: 'apply_reference_style' },
+      { name: 'apply_editorial_intent' },
+    ], result).map((tool) => tool.name)).toEqual(['apply_reference_style']);
+
+    const defensiveLegacyLicense: ChatRequestOwnerLicense = {
+      ...result,
+      routingFacts: {
+        ...result.routingFacts!,
+        requestedCapabilities: ['reference-style', 'project-edit'],
+      },
+    };
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: defensiveLegacyLicense,
+      ledger: {
+        requestedToolNames: ['apply_reference_style'],
+        completedExecutions: [{
+          toolCallId: 'server-workflow:0:reference-style:0:model:0',
+          name: 'apply_reference_style',
+          args: {},
+          output: '{"status":"success"}',
+          outcome: 'success',
+          evidenceReceipts: [],
+        }],
+      },
+      projectId: 'proj_reference',
+      projectRevision: 'revision-1',
+    })).toEqual({
+      kind: 'complete',
+      message: 'Done. I completed the licensed workflow.',
+    });
   });
 
   it('allows one schema correction retry and then fails closed', async () => {
@@ -111,6 +279,500 @@ describe('chat request owner classification', () => {
     );
     expect(generate).toHaveBeenCalledTimes(2);
     expect(generate.mock.calls[1]?.[0]).toContain('<correction>');
+  });
+
+  it('does not require mutually exclusive timing fields in the provider response schema', () => {
+    const schema = GEMINI_OWNER_RESPONSE_SCHEMA as unknown as {
+      properties: {
+        facts: {
+          properties: {
+            localizedEdits: {
+              items: {
+                properties: {
+                  timing: { required?: string[] };
+                };
+              };
+            };
+          };
+        };
+      };
+    };
+
+    expect(
+      schema.properties.facts.properties.localizedEdits.items.properties.timing.required,
+    ).toEqual(['kind', 'sourceSpan']);
+  });
+
+  it('publishes the camera-motion job contract to the structured-output provider', () => {
+    const schema = GEMINI_OWNER_RESPONSE_SCHEMA as unknown as {
+      properties: {
+        facts: {
+          properties: {
+            localizedEdits: {
+              items: {
+                properties: {
+                  cameraMotionJob: { enum?: string[] };
+                  anchorSelection: { enum?: string[] };
+                  anchorSignal: { enum?: string[] };
+                };
+              };
+            };
+          };
+        };
+      };
+    };
+
+    expect(
+      schema.properties.facts.properties.localizedEdits.items.properties.cameraMotionJob.enum,
+    ).toEqual(['zoom-in', 'zoom-out', 'shake']);
+    expect(
+      schema.properties.facts.properties.localizedEdits.items.properties.anchorSelection.enum,
+    ).toEqual(['strongest-signal']);
+    expect(
+      schema.properties.facts.properties.localizedEdits.items.properties.anchorSignal.enum,
+    ).toEqual(['speech-emphasis', 'impact-emphasis']);
+    expect(buildChatRequestOwnerPrompt(baseInput)).toContain(
+      'Never turn an audio-located zoom into shake.',
+    );
+    expect(buildChatRequestOwnerPrompt(baseInput)).toContain(
+      'anchorSignal=impact-emphasis',
+    );
+  });
+
+  it('preserves a cross-modal SFX anchor as facts instead of asking Gemini to schedule tools', async () => {
+    const userMessage = 'Add a restrained impact sound exactly on the first strong downbeat after the phrase now watch this.';
+    const sourceSpan = userMessage.slice(0, -1);
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            timelineReference: 'none',
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'audio',
+              operation: 'sound-effect',
+              query: 'strong downbeat',
+              sourceQuery: 'restrained impact sound',
+              targetQuery: '',
+              targetKind: 'none',
+              sourceSpan,
+              cameraMotionJob: null,
+              anchorSelection: null,
+              anchorSignal: null,
+              relativeAnchor: {
+                modality: 'transcript',
+                query: 'now watch this',
+                relation: 'after',
+                referenceEdge: 'end',
+                occurrence: 'first',
+                sourceSpan: 'first strong downbeat after the phrase now watch this',
+              },
+            }],
+            requestedCapabilities: ['localized-sfx'],
+            capabilityEvidence: [{ capability: 'localized-sfx', sourceSpan }],
+            familyDirectives: [{ family: 'sfx', mode: 'prefer' }],
+          },
+          confidence: 0.99,
+          reason: 'The requested sound and transcript-relative beat anchor are explicit.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        localizedEdits: [{
+          modality: 'audio',
+          operation: 'sound-effect',
+          query: 'strong downbeat',
+          sourceQuery: 'restrained impact sound',
+          relativeAnchor: {
+            modality: 'transcript',
+            query: 'now watch this',
+            relation: 'after',
+            referenceEdge: 'end',
+            occurrence: 'first',
+          },
+        }],
+      },
+    });
+    expect(resolveChatLocalizedWorkflowAdapter(
+      result.routingFacts!.localizedEdits![0],
+    )).toMatchObject({
+      capability: 'localized-sfx',
+      resolverTool: 'resolve_audio_edit',
+      resolverArgs: {
+        query: 'strong downbeat',
+        action: 'add_sfx',
+        sfxQuery: 'restrained impact sound',
+      },
+    });
+  });
+
+  it('publishes the typed relative-anchor contract to Gemini', () => {
+    const schema = GEMINI_OWNER_RESPONSE_SCHEMA as any;
+    const relativeAnchor = schema.properties.facts.properties.localizedEdits.items.properties.relativeAnchor;
+
+    expect(relativeAnchor.nullable).toBe(true);
+    expect(relativeAnchor.properties.modality.enum).toEqual(['transcript', 'visual', 'audio']);
+    expect(relativeAnchor.properties.relation.enum).toEqual(['after', 'before', 'nearest']);
+    expect(relativeAnchor.properties.referenceEdge.enum).toEqual(['start', 'end', 'point']);
+    expect(relativeAnchor.properties.occurrence.enum).toEqual(['first', 'last', 'nearest']);
+    expect(buildChatRequestOwnerPrompt(baseInput)).toContain(
+      'what to add, which media moment to find, and the relation between them',
+    );
+  });
+
+  it.each([
+    {
+      userMessage: 'Use a subtle zoom on the strongest spoken emphasis.',
+      modality: 'audio',
+      query: 'strongest spoken emphasis',
+      cameraMotionJob: 'zoom-in',
+      anchorSelection: 'strongest-signal',
+      anchorSignal: 'speech-emphasis',
+    },
+    {
+      userMessage: 'Zoom out when the reveal appears.',
+      modality: 'visual',
+      query: 'the reveal appears',
+      cameraMotionJob: 'zoom-out',
+      anchorSelection: undefined,
+      anchorSignal: undefined,
+    },
+    {
+      userMessage: 'Shake on the strongest impact beat.',
+      modality: 'audio',
+      query: 'strongest impact beat',
+      cameraMotionJob: 'shake',
+      anchorSelection: 'strongest-signal',
+      anchorSignal: 'impact-emphasis',
+    },
+  ] as const)(
+    'preserves $cameraMotionJob independently from $modality anchor evidence',
+    async ({ userMessage, modality, query, cameraMotionJob, anchorSelection, anchorSignal }) => {
+      const result = await classifyChatRequestOwner({
+        ...baseInput,
+        userMessage,
+      }, {
+        generate: async () => ({
+          text: JSON.stringify({
+            facts: {
+              requestsMutation: true,
+              requestsAnalysis: false,
+              requiresContentLocalization: true,
+              requiresEditorialJudgment: false,
+              requestsReferenceStyle: false,
+              requestsBroadEditorialOutcome: false,
+              durableOperation: 'none',
+              operationFullySpecified: true,
+              targetFullySpecified: false,
+              localizedReads: [],
+              localizedEdits: [{
+                modality,
+                operation: 'camera-motion',
+                query,
+                sourceQuery: '',
+                targetQuery: '',
+                targetKind: 'none',
+                sourceSpan: userMessage.slice(0, -1),
+                cameraMotionJob,
+                ...(anchorSelection ? { anchorSelection, anchorSignal } : {}),
+                ...(cameraMotionJob === 'shake' ? {
+                  timing: {
+                    kind: 'anchor',
+                    sourceSpan: 'strongest impact beat',
+                    anchor: null,
+                  },
+                } : {}),
+              }],
+              requestedCapabilities: ['localized-camera-motion'],
+              capabilityEvidence: [{
+                capability: 'localized-camera-motion',
+                sourceSpan: userMessage.slice(0, -1),
+              }],
+              familyDirectives: [{ family: 'zoom', mode: 'prefer' }],
+            },
+            confidence: 0.98,
+            reason: 'The requested camera job and its semantic anchor are explicit.',
+          }),
+        }),
+      });
+
+      expect(result).toMatchObject({
+        owner: 'semantic-editorial-planner',
+        semanticWorkflow: 'localized-mutation',
+        routingFacts: {
+          localizedEdits: [{
+            modality,
+            operation: 'camera-motion',
+            query,
+            cameraMotionJob,
+            ...(anchorSelection ? { anchorSelection, anchorSignal } : {}),
+          }],
+        },
+      });
+      expect(result.routingFacts?.localizedEdits?.[0]?.timing).toBeUndefined();
+      if (anchorSelection) {
+        expect(resolveChatLocalizedWorkflowAdapter(
+          result.routingFacts!.localizedEdits![0],
+        )).toMatchObject({
+          resolverTool: 'resolve_audio_edit',
+          resolverArgs: {
+            query,
+            action: cameraMotionJob === 'shake' ? 'camera_shake' : 'keyframe_anchor',
+            selectionGoal: 'strongest-signal',
+            selectionSignal: anchorSignal,
+          },
+        });
+      }
+    },
+  );
+
+  it('accepts a caption-refresh capability that owns its transcript and timeline evidence', async () => {
+    const userMessage = 'Realign the existing animated captions to the current edited clips and transcript.';
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [],
+            localizedEdits: [],
+            requestedCapabilities: ['caption-refresh'],
+            capabilityEvidence: [{
+              capability: 'caption-refresh',
+              sourceSpan: userMessage,
+            }],
+            familyDirectives: [{ family: 'captions', mode: 'prefer' }],
+          },
+          confidence: 1,
+          reason: 'The existing caption track and refresh operation are explicit.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'editorial-plan',
+      routingFacts: {
+        requestedCapabilities: ['caption-refresh'],
+        localizedEdits: [],
+      },
+    });
+  });
+
+  it('normalizes legacy localized beat-sync output to the family-owned workflow', async () => {
+    const userMessage = 'Sync the existing montage cuts to the music downbeats.';
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: false,
+            targetFullySpecified: false,
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'audio',
+              operation: 'beat-sync',
+              query: 'music downbeats',
+              sourceQuery: '',
+              targetQuery: '',
+              targetKind: 'none',
+              sourceSpan: userMessage,
+              cameraMotionJob: null,
+              anchorSelection: null,
+              anchorSignal: null,
+            }],
+            requestedCapabilities: ['beat-sync'],
+            capabilityEvidence: [{ capability: 'beat-sync', sourceSpan: userMessage }],
+            familyDirectives: [],
+          },
+          confidence: 0.98,
+          reason: 'The requested edit is a project music-to-cut alignment.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      routingFacts: {
+        requiresContentLocalization: false,
+        localizedEdits: [],
+        requestedCapabilities: ['beat-sync'],
+      },
+    });
+    expect(requiredToolSequenceForChatCapability('beat-sync')).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'sync_cuts_to_beats',
+    ]);
+  });
+
+  it('accepts the exact spoken-phrase sticker workflow without requiring a fake localized edit', async () => {
+    const userMessage = 'When I say this is the key point, add a small animated lightbulb sticker for one second.';
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [{
+              modality: 'transcript',
+              goal: 'locate',
+              query: 'this is the key point',
+            }],
+            localizedEdits: [],
+            requestedCapabilities: ['sticker-overlay'],
+            capabilityEvidence: [{
+              capability: 'sticker-overlay',
+              sourceSpan: 'add a small animated lightbulb sticker for one second',
+            }],
+            familyDirectives: [],
+          },
+          confidence: 1,
+          reason: 'The sticker content, spoken anchor, and duration are explicit.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        requestedCapabilities: ['sticker-overlay'],
+        localizedEdits: [],
+      },
+    });
+    expect(requiredToolSequenceForChatCapability('sticker-overlay')).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'resolve_sticker_overlay',
+      'generate_html_sticker',
+    ]);
+  });
+
+  it('folds a provider-produced transcript highlight into sticker anchor evidence', async () => {
+    const userMessage = 'When I say this is the key point, add a small animated lightbulb sticker for one second.';
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'transcript',
+              operation: 'highlight',
+              query: 'this is the key point',
+              sourceQuery: '',
+              targetQuery: '',
+              targetKind: 'none',
+              sourceSpan: 'When I say this is the key point',
+            }],
+            requestedCapabilities: ['sticker-overlay'],
+            capabilityEvidence: [{
+              capability: 'sticker-overlay',
+              sourceSpan: 'add a small animated lightbulb sticker for one second',
+            }],
+            familyDirectives: [],
+          },
+          confidence: 1,
+          reason: 'The spoken phrase anchors the requested sticker.',
+        }),
+      }),
+    });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        localizedReads: [{
+          modality: 'transcript',
+          goal: 'locate',
+          query: 'this is the key point',
+        }],
+        localizedEdits: [],
+        requestedCapabilities: ['sticker-overlay'],
+      },
+    });
+    expect(resolveServerOwnedChatWorkflowStep({
+      requestOwnerLicense: result,
+      ledger: { requestedToolNames: [], completedExecutions: [] },
+      projectId: 'proj_sticker',
+      projectRevision: 'revision-1',
+    })).toMatchObject({
+      kind: 'tool-call',
+      operationId: '0:sticker-overlay',
+      toolCall: { name: 'get_timeline_view' },
+    });
+  });
+
+  it('rejects truncated structured output before parsing and retries with the provider reason', async () => {
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: '{"facts":{"requestsMutation":true',
+        finishReason: 'MAX_TOKENS',
+      })
+      .mockResolvedValueOnce({ text: 'still invalid', finishReason: 'STOP' });
+
+    await expect(classifyChatRequestOwner(baseInput, { generate })).rejects.toThrow(
+      'Chat request owner classification failed closed',
+    );
+    expect(generate.mock.calls[1]?.[0]).toContain(
+      'provider ended structured output with MAX_TOKENS',
+    );
   });
 
   it('does not turn provider failures into an unlicensed fallback owner', async () => {
@@ -223,9 +885,66 @@ describe('chat request owner classification', () => {
     expect(prompt).toContain('SFX at the strongest beat');
     expect(prompt).toContain('This scopes ownership only');
     expect(prompt).toContain('requestsBroadEditorialOutcome');
-    expect(prompt).toContain(
-      'localizedEdits=[{"modality":"audio","operation":"sound-effect","query":"strongest visual or spoken beat"}]',
+    expect(prompt).toContain('sourceSpan is the shortest exact verbatim span');
+    expect(prompt).toContain('sourceQuery is the uploaded asset to find');
+  });
+
+  it('documents complete server-owned family workflows instead of direct tool guessing', () => {
+    const prompt = buildChatRequestOwnerPrompt({
+      ...baseInput,
+      userMessage: 'Add music, restyle every caption, and replace the selected SFX.',
+      selectedOverlayPresent: true,
+    });
+
+    expect(prompt).toContain('background-music for adding or replacing project BGM');
+    expect(prompt).toContain('caption-batch-style for changing all existing caption presentation');
+    expect(prompt).toContain('sfx-replacement for replacing an existing selected or identified SFX');
+  });
+
+  it('documents exact mechanical workflows instead of exposing a broad mutation tool bag', () => {
+    const prompt = buildChatRequestOwnerPrompt({
+      ...baseInput,
+      userMessage: 'Split the selected clip, then fade the title.',
+      selectedOverlayPresent: true,
+    });
+
+    expect(prompt).toContain('clip-split or clip-trim for an identified clip');
+    expect(prompt).toContain('overlay-retime for every move, start-frame, end-frame, duration, shorten, or extend request');
+    expect(prompt).toContain('Literal timeline coordinates use a mechanical capability');
+    expect(prompt).toContain('overlay-update only for content, geometry, rotation, or style');
+    expect(prompt).toContain('Do not substitute overlay-update for timing or layer-order operations');
+  });
+
+  it('fails closed when an explicit music request omits its operational workflow', async () => {
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: false,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: [],
+          familyDirectives: [{ family: 'music', mode: 'prefer' }],
+        },
+        confidence: 1,
+        reason: 'The user explicitly requested background music.',
+      }),
+    }));
+
+    await expect(classifyChatRequestOwner({
+      ...baseInput,
+      userMessage: 'Add background music.',
+    }, { generate })).rejects.toThrow(
+      'Music requests must license a concrete music workflow.',
     );
+    expect(generate).toHaveBeenCalledTimes(2);
   });
 
   it('derives an exclusive family lock instead of trusting the model with final authority', async () => {
@@ -294,7 +1013,7 @@ describe('chat request owner classification', () => {
     });
   });
 
-  it('derives mechanical ownership from a fully specified literal timeline edit', async () => {
+  it('licenses a fully specified literal timeline edit through one server-owned workflow', async () => {
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
         facts: {
@@ -304,8 +1023,13 @@ describe('chat request owner classification', () => {
           requiresEditorialJudgment: false,
           requestsReferenceStyle: false,
           requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
           operationFullySpecified: true,
           targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: ['overlay-create'],
+          familyDirectives: [],
         },
         confidence: 0.99,
         reason: 'The literal text, style, placement, and timing are all supplied.',
@@ -317,11 +1041,45 @@ describe('chat request owner classification', () => {
       userMessage: 'Add a bold white title saying Launch day at the top for the first 3 seconds.',
     }, { generate });
 
-    expect(result.owner).toBe('mechanical-editor');
+    expect(result.owner).toBe('semantic-editorial-planner');
     expect(result.routingFacts).toEqual(expect.objectContaining({
       operationFullySpecified: true,
       targetFullySpecified: true,
+      requestedCapabilities: ['overlay-create'],
     }));
+  });
+
+  it('fails closed when a mutation declares neither a capability nor a localized edit', async () => {
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: false,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: [],
+          familyDirectives: [],
+        },
+        confidence: 0.99,
+        reason: 'The model omitted the operation workflow.',
+      }),
+    }));
+
+    await expect(classifyChatRequestOwner({
+      ...baseInput,
+      userMessage: 'Split the selected clip at the playhead.',
+      selectedOverlayPresent: true,
+    }, { generate })).rejects.toThrow(
+      'Every mutation must declare a complete operational capability or localized edit.',
+    );
+    expect(generate).toHaveBeenCalledTimes(2);
   });
 
   it('represents localized inspection without pretending it mutates the project', async () => {
@@ -392,6 +1150,10 @@ describe('chat request owner classification', () => {
             modality: 'transcript',
             operation: 'remove',
             query: 'pricing is simple',
+            sourceQuery: '',
+            targetQuery: '',
+            targetKind: 'none',
+            sourceSpan: 'Remove where I say pricing is simple',
           }],
           requestedCapabilities: [],
           familyDirectives: [],
@@ -421,7 +1183,507 @@ describe('chat request owner classification', () => {
     });
   });
 
-  it('fails closed when a localized read is not declared as analysis', async () => {
+  it('shadows a hallucinated direct capability that reuses localized evidence', async () => {
+    const userMessage = 'When the bird flies in, highlight that moment.';
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: false,
+          localizedReads: [],
+          localizedEdits: [{
+            modality: 'visual',
+            operation: 'highlight',
+            query: 'bird flies in',
+            sourceQuery: '',
+            targetQuery: '',
+            targetKind: 'none',
+            sourceSpan: userMessage,
+          }],
+          requestedCapabilities: ['clip-filter', 'localized-overlay'],
+          capabilityEvidence: [
+            { capability: 'clip-filter', sourceSpan: userMessage },
+            { capability: 'localized-overlay', sourceSpan: userMessage },
+          ],
+          familyDirectives: [],
+        },
+        confidence: 0.99,
+        reason: 'The visible event must be localized before highlighting it.',
+      }),
+    }));
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, { generate });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        requestedCapabilities: ['localized-overlay'],
+      },
+    });
+  });
+
+  it('keeps an exact selected-target capability ahead of an overlapping generic localized edit', async () => {
+    const userMessage =
+      'On the selected video clip, create a gentle keyframed zoom from 100% to 108% over the next two seconds.';
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [{
+            modality: 'visual',
+            operation: 'camera-motion',
+            cameraMotionJob: 'zoom-in',
+            query: 'gentle keyframed zoom from 100% to 108% over the next two seconds',
+            sourceQuery: '',
+            targetQuery: '',
+            targetKind: 'none',
+            sourceSpan: 'create a gentle keyframed zoom from 100% to 108% over the next two seconds',
+          }],
+          requestedCapabilities: ['selected-keyframes'],
+          capabilityEvidence: [{
+            capability: 'selected-keyframes',
+            sourceSpan: 'gentle keyframed zoom',
+          }],
+          familyDirectives: [{ family: 'zoom', mode: 'prefer' }],
+        },
+        confidence: 1,
+        reason: 'The selected clip and explicit keyframes fully specify the edit.',
+      }),
+    }));
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+      selectedOverlayPresent: true,
+    }, { generate });
+
+    expect(result).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'editorial-plan',
+      routingFacts: {
+        requiresContentLocalization: false,
+        localizedEdits: [],
+        requestedCapabilities: ['selected-keyframes'],
+      },
+    });
+  });
+
+  it('binds a trusted selected overlay without letting model output choose its id', async () => {
+    const userMessage = 'Replace the selected video scene with my uploaded embroidery clip.';
+    const classified = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+      selectedOverlayPresent: true,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: false,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'asset',
+              operation: 'replace-asset',
+              query: 'uploaded embroidery clip',
+              sourceQuery: 'uploaded embroidery clip',
+              targetQuery: 'selected video scene',
+              targetKind: 'selected-overlay',
+              sourceSpan: userMessage,
+            }],
+            requestedCapabilities: ['asset-replacement'],
+            capabilityEvidence: [{
+              capability: 'asset-replacement',
+              sourceSpan: userMessage,
+            }],
+            familyDirectives: [],
+          },
+          confidence: 1,
+          reason: 'The uploaded source and selected timeline target are explicit.',
+        }),
+      }),
+    });
+
+    expect(classified.routingFacts?.localizedEdits?.[0]).not.toHaveProperty('targetOverlayId');
+    expect(bindTrustedSelectedOverlayTarget(classified, 'video-selected'))
+      .toMatchObject({
+        routingFacts: {
+          localizedEdits: [{
+            sourceQuery: 'uploaded embroidery clip',
+            targetQuery: 'selected video scene',
+            targetKind: 'selected-overlay',
+            targetOverlayId: 'video-selected',
+          }],
+        },
+      });
+  });
+
+  it('binds editor timeline references from trusted context and fails closed when absent', () => {
+    const visibleTimelineLicense: ChatRequestOwnerLicense = {
+      ...license('semantic-editorial-planner', 'editorial-plan'),
+      routingFacts: {
+        requestsMutation: true,
+        requestsAnalysis: false,
+        requiresContentLocalization: false,
+        requiresEditorialJudgment: true,
+        requestsReferenceStyle: false,
+        requestsBroadEditorialOutcome: false,
+        durableOperation: 'none',
+        operationFullySpecified: false,
+        targetFullySpecified: true,
+        timelineReference: 'visible-timeline',
+        localizedReads: [],
+        localizedEdits: [],
+        requestedCapabilities: ['project-edit'],
+        capabilityEvidence: [],
+        familyDirectives: [],
+        familyScopeExclusive: false,
+      },
+    };
+
+    expect(bindTrustedTimelineTarget(visibleTimelineLicense, {
+      project: { durationInFrames: 300 },
+      visibleTimeline: { startFrame: 40, endFrame: 480 },
+    })).toMatchObject({
+      trustedTimelineTarget: {
+        status: 'ready',
+        reference: 'visible-timeline',
+        startFrame: 40,
+        endFrame: 300,
+      },
+    });
+    expect(bindTrustedTimelineTarget(visibleTimelineLicense, {
+      project: { durationInFrames: 300 },
+    })).toMatchObject({
+      trustedTimelineTarget: {
+        status: 'unavailable',
+        reference: 'visible-timeline',
+      },
+    });
+
+    const schema = GEMINI_OWNER_RESPONSE_SCHEMA as unknown as {
+      properties: { facts: { required: string[] } };
+    };
+    expect(schema.properties.facts.required).toContain('timelineReference');
+  });
+
+  it('preserves uploaded-asset placement and timing as executable resolver facts', async () => {
+    const userMessage = 'Place my uploaded image asset a_portrait123 in the bottom-right corner from 2 to 6 seconds.';
+    const classified = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'asset',
+              operation: 'place-asset',
+              query: 'a_portrait123',
+              sourceQuery: 'a_portrait123',
+              targetQuery: '',
+              targetKind: 'none',
+              sourceSpan: userMessage,
+              placement: {
+                mode: 'corner',
+                horizontal: 'right',
+                vertical: 'bottom',
+              },
+              timing: {
+                kind: 'range',
+                sourceSpan: 'from 2 to 6 seconds',
+                startSeconds: '2',
+                endSeconds: '6',
+              },
+            }],
+            requestedCapabilities: ['asset-placement'],
+            capabilityEvidence: [{
+              capability: 'asset-placement',
+              sourceSpan: userMessage,
+            }],
+            familyDirectives: [],
+          },
+          confidence: '1',
+          reason: 'The source asset, placement, and timeline window are explicit.',
+        }),
+      }),
+    });
+
+    expect(classified).toMatchObject({
+      owner: 'semantic-editorial-planner',
+      semanticWorkflow: 'localized-mutation',
+      routingFacts: {
+        requestedCapabilities: ['asset-placement'],
+        localizedEdits: [{
+          sourceQuery: 'a_portrait123',
+          placement: {
+            mode: 'corner',
+            horizontal: 'right',
+            vertical: 'bottom',
+          },
+          timing: {
+            startSeconds: 2,
+            endSeconds: 6,
+          },
+        }],
+      },
+    });
+    expect(resolveChatLocalizedWorkflowAdapter(
+      classified.routingFacts!.localizedEdits![0],
+    )).toMatchObject({
+      capability: 'asset-placement',
+      resolverTool: 'resolve_user_asset_overlay',
+      resolverArgs: {
+        query: 'a_portrait123',
+        operation: 'place',
+        placement: 'corner',
+        horizontal: 'right',
+        vertical: 'bottom',
+        startSeconds: 2,
+        endSeconds: 6,
+      },
+    });
+    expect(classified.routingFacts?.requiresContentLocalization).toBe(true);
+    expect(classified.routingFacts?.localizedEdits?.[0]?.timing).toEqual({
+      startSeconds: 2,
+      endSeconds: 6,
+    });
+  });
+
+  it('fails closed when asset-placement has no executable asset workflow', async () => {
+    const userMessage = 'Place my uploaded image asset a_portrait123.';
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: false,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: false,
+          localizedReads: [],
+          localizedEdits: [],
+          requestedCapabilities: ['asset-placement'],
+          capabilityEvidence: [{
+            capability: 'asset-placement',
+            sourceSpan: userMessage,
+          }],
+          familyDirectives: [],
+        },
+        confidence: 1,
+        reason: 'The request names asset placement.',
+      }),
+    }));
+
+    await expect(classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, { generate })).rejects.toThrow(
+      'asset-placement requires one executable asset/place-asset workflow',
+    );
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-derives model-produced asset timing from the exact user-authored span', async () => {
+    const userMessage = 'Place a_portrait123 in the corner from 2 to 6 seconds.';
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: true,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [{
+            modality: 'asset',
+            operation: 'place-asset',
+            query: 'a_portrait123',
+            sourceQuery: 'a_portrait123',
+            targetQuery: '',
+            targetKind: 'none',
+            sourceSpan: userMessage,
+            placement: { mode: 'corner' },
+            timing: {
+              kind: 'range',
+              sourceSpan: 'from 2 to 6 seconds',
+              startSeconds: 6,
+              endSeconds: 2,
+            },
+          }],
+          requestedCapabilities: ['asset-placement'],
+          capabilityEvidence: [{
+            capability: 'asset-placement',
+            sourceSpan: userMessage,
+          }],
+          familyDirectives: [],
+        },
+        confidence: 1,
+        reason: 'The model inverted the supplied timing.',
+      }),
+    }));
+
+    const classified = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, { generate });
+
+    expect(classified.routingFacts?.localizedEdits?.[0]?.timing).toEqual({
+      startSeconds: 2,
+      endSeconds: 6,
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('repairs a dropped endpoint from an explicit asset range', async () => {
+    const userMessage = 'Place a_portrait123 from 2 to 6 seconds.';
+    const generate = vi.fn(async () => ({
+      text: JSON.stringify({
+        facts: {
+          requestsMutation: true,
+          requestsAnalysis: false,
+          requiresContentLocalization: false,
+          requiresEditorialJudgment: false,
+          requestsReferenceStyle: false,
+          requestsBroadEditorialOutcome: false,
+          durableOperation: 'none',
+          operationFullySpecified: true,
+          targetFullySpecified: true,
+          localizedReads: [],
+          localizedEdits: [{
+            modality: 'asset',
+            operation: 'place-asset',
+            query: 'a_portrait123',
+            sourceQuery: 'a_portrait123',
+            targetQuery: '',
+            targetKind: 'none',
+            sourceSpan: userMessage,
+            timing: {
+              kind: 'range',
+              sourceSpan: 'from 2 to 6 seconds',
+              startSeconds: '2',
+            },
+          }],
+          requestedCapabilities: ['asset-placement'],
+          capabilityEvidence: [{
+            capability: 'asset-placement',
+            sourceSpan: userMessage,
+          }],
+          familyDirectives: [],
+        },
+        confidence: '1',
+        reason: 'The model dropped the explicit end of the range.',
+      }),
+    }));
+
+    const classified = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, { generate });
+
+    expect(classified.routingFacts?.localizedEdits?.[0]?.timing).toEqual({
+      startSeconds: 2,
+      endSeconds: 6,
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('repairs a dropped written duration without trusting model arithmetic', async () => {
+    const userMessage = 'Move the selected title to start at 4 seconds and keep it on screen for two seconds.';
+    const classified = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage,
+    }, {
+      generate: async () => ({
+        text: JSON.stringify({
+          facts: {
+            requestsMutation: true,
+            requestsAnalysis: false,
+            requiresContentLocalization: true,
+            requiresEditorialJudgment: false,
+            requestsReferenceStyle: false,
+            requestsBroadEditorialOutcome: false,
+            durableOperation: 'none',
+            operationFullySpecified: true,
+            targetFullySpecified: true,
+            localizedReads: [],
+            localizedEdits: [{
+              modality: 'asset',
+              operation: 'place-asset',
+              query: 'selected title',
+              sourceQuery: 'selected title',
+              targetQuery: '',
+              targetKind: 'none',
+              sourceSpan: userMessage,
+              timing: {
+                kind: 'start-duration',
+                sourceSpan: 'start at 4 seconds and keep it on screen for two seconds',
+                startSeconds: '4',
+              },
+            }],
+            requestedCapabilities: ['asset-placement'],
+            capabilityEvidence: [{
+              capability: 'asset-placement',
+              sourceSpan: userMessage,
+            }],
+            familyDirectives: [],
+          },
+          confidence: 1,
+          reason: 'The timing is explicit.',
+        }),
+      }),
+    });
+
+    expect(classified.routingFacts?.localizedEdits?.[0]?.timing).toEqual({
+      startSeconds: 4,
+      durationSeconds: 2,
+    });
+  });
+
+  it('derives analysis ownership from localized reads instead of trusting a contradictory summary bit', async () => {
     const generate = vi.fn(async () => ({
       text: JSON.stringify({
         facts: {
@@ -448,10 +1710,20 @@ describe('chat request owner classification', () => {
       }),
     }));
 
-    await expect(classifyChatRequestOwner(baseInput, { generate })).rejects.toThrow(
-      'Localized reads require requestsAnalysis=true.',
-    );
-    expect(generate).toHaveBeenCalledTimes(2);
+    const classified = await classifyChatRequestOwner(baseInput, { generate });
+
+    expect(classified).toMatchObject({
+      owner: 'analysis-reader',
+      routingFacts: {
+        requestsAnalysis: true,
+        localizedReads: [{
+          modality: 'visual',
+          goal: 'inspect',
+          query: 'frame under my playhead',
+        }],
+      },
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 
   it('keeps content-localized, mixed, and underspecified mutations with the semantic owner', () => {
@@ -479,6 +1751,25 @@ describe('chat request owner classification', () => {
       operationFullySpecified: true,
       targetFullySpecified: true,
       requestedCapabilities: [],
+      familyDirectives: [],
+      familyScopeExclusive: false,
+    })).toBe('semantic-editorial-planner');
+  });
+
+  it('keeps declared capability workflows with the server-owned semantic executor', () => {
+    expect(deriveChatRequestOwner({
+      requestsMutation: true,
+      requestsAnalysis: false,
+      requiresContentLocalization: false,
+      requiresEditorialJudgment: false,
+      requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
+      durableOperation: 'none',
+      operationFullySpecified: true,
+      targetFullySpecified: true,
+      localizedReads: [],
+      localizedEdits: [],
+      requestedCapabilities: ['html-scene-edit'],
       familyDirectives: [],
       familyScopeExclusive: false,
     })).toBe('semantic-editorial-planner');
@@ -519,6 +1810,19 @@ describe('chat request owner classification', () => {
     expect(deriveChatSemanticWorkflow({
       ...baseFacts,
       requiresContentLocalization: true,
+    })).toBe('editorial-plan');
+    expect(deriveChatSemanticWorkflow({
+      ...baseFacts,
+      requiresContentLocalization: true,
+      localizedEdits: [{
+        modality: 'visual',
+        operation: 'remove',
+        query: 'bird',
+        sourceQuery: '',
+        targetQuery: '',
+        targetKind: 'none',
+        sourceSpan: 'remove when the bird appears',
+      }],
     })).toBe('localized-mutation');
     expect(deriveChatSemanticWorkflow({
       ...baseFacts,
@@ -551,6 +1855,8 @@ describe('chat request owner capability filtering', () => {
     'add_captions',
     'add_fancy_captions',
     'regenerate_bgm',
+    'replace_sfx',
+    'batch_edit_captions',
     'sync_cuts_to_beats',
     'add_sfx',
     'apply_camera_shake',
@@ -560,6 +1866,7 @@ describe('chat request owner capability filtering', () => {
     'auto_motion_graphics',
     'generate_html_scene',
     'refresh_captions',
+    'refresh_fancy_captions',
     'reframe_project',
     'dub_selected_dialogue',
     'get_dubbing_job_result',
@@ -639,6 +1946,9 @@ describe('chat request owner capability filtering', () => {
       'refresh_captions',
       'refresh_fancy_captions',
       'apply_audio_ducking',
+      'regenerate_bgm',
+      'replace_sfx',
+      'batch_edit_captions',
       'sync_cuts_to_beats',
       'regenerate_scene',
       'edit_html_scene',
@@ -663,28 +1973,36 @@ describe('chat request owner capability filtering', () => {
       'get_timeline_view',
       'get_video_transcription',
       'add_captions',
-      'add_fancy_captions',
     ]);
     expect(licensedNames(['caption-refresh'])).toEqual([
       'read_project_file',
       'get_timeline_view',
       'get_video_transcription',
       'refresh_captions',
-      'refresh_fancy_captions',
+    ]);
+    expect(licensedNames(['caption-batch-style'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'batch_edit_captions',
     ]);
     expect(licensedNames(['audio-ducking'])).toEqual([
       'read_project_file',
       'get_timeline_view',
       'apply_audio_ducking',
     ]);
+    expect(licensedNames(['background-music'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'regenerate_bgm',
+    ]);
+    expect(licensedNames(['sfx-replacement'])).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'replace_sfx',
+    ]);
     expect(licensedNames(['beat-sync'])).toEqual([
       'read_project_file',
       'get_timeline_view',
-      'find_audio_moment',
-      'resolve_audio_edit',
-      'resolve_clip_analysis',
-      'queue_resolved_clip_analysis',
-      'get_clip_analysis_result',
       'sync_cuts_to_beats',
     ]);
     expect(licensedNames(['scene-regeneration'])).toEqual([
@@ -718,10 +2036,36 @@ describe('chat request owner capability filtering', () => {
     expect(licensedNames(['audio-ducking', 'asset-placement'])).not.toContain(
       'apply_editorial_intent',
     );
+
+    const musicMixLicense = capabilityLicense(['background-music', 'audio-ducking']);
+    musicMixLicense.routingFacts = {
+      ...musicMixLicense.routingFacts!,
+      familyDirectives: [{ family: 'music', mode: 'prefer' }],
+      familyScopeExclusive: true,
+    };
+    expect(filterChatToolsForRequestOwner(
+      capabilityTools,
+      musicMixLicense,
+      { assistLane: true },
+    ).map((tool) => tool.name)).toEqual([
+      'read_project_file',
+      'get_timeline_view',
+      'apply_audio_ducking',
+      'regenerate_bgm',
+    ]);
   });
 
   it('uses one fail-closed capability authority contract for runtime and verification', () => {
     expect(getChatCapabilityAuthorityContract('caption-track')).toMatchObject({
+      authority: 'family-owner',
+    });
+    expect(getChatCapabilityAuthorityContract('background-music')).toMatchObject({
+      authority: 'family-owner',
+    });
+    expect(getChatCapabilityAuthorityContract('caption-batch-style')).toMatchObject({
+      authority: 'family-owner',
+    });
+    expect(getChatCapabilityAuthorityContract('sfx-replacement')).toMatchObject({
       authority: 'family-owner',
     });
     expect(requiredToolSequenceForChatCapability('caption-track', 'add_captions')).toEqual([
@@ -733,8 +2077,12 @@ describe('chat request owner capability filtering', () => {
       'set_keyframes',
     )).toEqual([
       ['read_project_file', 'get_timeline_view'],
-      ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_keyframe_edit'],
+      ['resolve_transcript_edit', 'resolve_visual_edit', 'resolve_audio_edit', 'resolve_keyframe_edit'],
       'set_keyframes',
+    ]);
+    expect(requiredToolSequenceForChatCapability('selected-dialogue-dubbing')).toEqual([
+      ['read_project_file', 'get_timeline_view'],
+      'dub_selected_dialogue',
     ]);
     expect(() => requiredToolSequenceForChatCapability(
       'caption-track',
@@ -843,9 +2191,11 @@ describe('chat request owner capability filtering', () => {
       tools, license('semantic-editorial-planner', 'editorial-plan'), { assistLane: true },
     ).map((t) => t.name);
     // The chip directives now execute on their own hardened tools:
-    for (const direct of ['add_captions', 'regenerate_bgm', 'cut_section', 'add_fancy_captions', 'sync_cuts_to_beats', 'add_overlay', 'add_sfx', 'apply_camera_shake', 'apply_speed_ramp', 'use_matching_footage']) {
+    for (const direct of ['add_captions', 'regenerate_bgm', 'cut_section', 'sync_cuts_to_beats', 'add_overlay', 'add_sfx', 'apply_camera_shake', 'apply_speed_ramp', 'use_matching_footage']) {
       expect(assistNames).toContain(direct);
     }
+    expect(assistNames).not.toContain('add_fancy_captions');
+    expect(assistNames).not.toContain('refresh_fancy_captions');
     // MG creation stays with the semantic planner. Direct MG/HTML tools still
     // carry legacy form authority and may not bypass that owner.
     expect(assistNames).not.toContain('add_motion_graphic');
@@ -871,7 +2221,7 @@ describe('chat request owner capability filtering', () => {
         durableOperation: 'none',
         operationFullySpecified: false,
         targetFullySpecified: false,
-        requestedCapabilities: ['audio-ducking', 'project-edit'],
+        requestedCapabilities: ['background-music'],
         familyDirectives: [{ family: 'music', mode: 'prefer' }],
         familyScopeExclusive: true,
       },
@@ -908,7 +2258,7 @@ describe('chat request owner capability filtering', () => {
       tools, license('semantic-editorial-planner', 'editorial-plan'),
     ).map((t) => t.name);
     // The shadow-family tools remain banned for auto (the Director owns those choices):
-    for (const shadow of ['add_captions', 'regenerate_bgm', 'add_fancy_captions', 'sync_cuts_to_beats']) {
+    for (const shadow of ['add_captions', 'regenerate_bgm', 'add_fancy_captions', 'refresh_fancy_captions', 'sync_cuts_to_beats']) {
       expect(autoNames).not.toContain(shadow);
     }
     const autoMutators = autoNames.filter((n) => ['apply_editorial_intent', 'cut_section', 'add_overlay', 'add_sfx', 'set_keyframes', 'generate_html_sticker'].includes(n));
@@ -946,6 +2296,7 @@ describe('chat request owner capability filtering', () => {
       'apply_editorial_intent',
       'add_captions',
       'add_fancy_captions',
+      'refresh_fancy_captions',
       'regenerate_bgm',
       'sync_cuts_to_beats',
       // Family authorities like captions/music — banned from mechanical turns
@@ -1080,5 +2431,43 @@ describe('live chat owner wiring', () => {
     expect(agentSource).not.toContain('STYLE TRANSFER WORKFLOW');
     expect(agentSource).not.toContain('WHEN TO USE EACH CAPTION TOOL');
     expect(agentSource).not.toContain('After ANY delete operation(s)');
+  });
+
+  it('synthesizes a strongest-signal zoom anchor when the planner names the capability but no edit', () => {
+    // mixed-multi-step regression (2026-08-03): "add one motivated zoom" came through as a bare
+    // localized-camera-motion capability with no localized edit, which halted the whole request.
+    const derived = deriveRoutingFacts({
+      requestsMutation: true,
+      requestsAnalysis: false,
+      requiresContentLocalization: true,
+      requiresEditorialJudgment: false,
+      requestsReferenceStyle: false,
+      requestsBroadEditorialOutcome: false,
+      durableOperation: 'none',
+      operationFullySpecified: true,
+      targetFullySpecified: false,
+      timelineReference: 'none',
+      localizedReads: [],
+      localizedEdits: [],
+      requestedCapabilities: ['localized-camera-motion', 'caption-track'],
+      capabilityEvidence: [
+        { capability: 'localized-camera-motion', sourceSpan: 'add one motivated zoom' },
+      ],
+      familyDirectives: [{ family: 'zoom', mode: 'prefer' }],
+      confidence: 1,
+      reason: 'test',
+    } as Parameters<typeof deriveRoutingFacts>[0], 'Clean the captions, add one motivated zoom, and add music without covering speech.');
+
+    const zoomEdit = derived.localizedEdits?.find((edit) => edit.operation === 'camera-motion');
+    expect(zoomEdit).toMatchObject({
+      modality: 'audio',
+      operation: 'camera-motion',
+      cameraMotionJob: 'zoom-in',
+      anchorSelection: 'strongest-signal',
+      anchorSignal: 'speech-emphasis',
+    });
+    // The synthesized edit must be resolvable by the localized-camera-motion adapter, otherwise it
+    // would still be skipped at compilation.
+    expect(resolveChatLocalizedWorkflowAdapter(zoomEdit!)?.capability).toBe('localized-camera-motion');
   });
 });

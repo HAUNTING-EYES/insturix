@@ -48,7 +48,9 @@ describe('new project multi-upload intake', () => {
       'utf8',
     );
 
-    expect(hookSource).toContain('uploadMediaFiles(selectedFiles, { uploadBatchIntake: options })');
+    expect(hookSource).toContain('sourceMediaRightsAttestation,');
+    expect(hookSource).toContain('uploadBatchIntake: editOptions');
+    expect(hookSource).toContain('sourceMediaRightsAttestation,');
     expect(hookSource).toContain('createProjectFromMediaUploadBatch(result.uploadBatchId');
     expect(hookSource).toContain('Starting durable multi-source analysis');
     expect(hookSource).not.toContain('getMediaUploadBatchStatus');
@@ -64,5 +66,53 @@ describe('new project multi-upload intake', () => {
     expect(batchDialogSource).toContain('EditorialPreferenceControls');
     expect(batchDialogSource).toContain('normalizeEditorialPreferences');
     expect(batchDialogSource).not.toContain('musicPreference');
+  });
+
+  it('requires the same explicit source-media rights confirmation in both intake paths', () => {
+    const singleDialogSource = readFileSync(
+      join(process.cwd(), 'components/editron/project/auto-edit-dialog.tsx'),
+      'utf8',
+    );
+    const batchDialogSource = readFileSync(
+      join(process.cwd(), 'components/editron/project/footage-batch-intake-dialog.tsx'),
+      'utf8',
+    );
+    const rightsControlSource = readFileSync(
+      join(process.cwd(), 'components/editron/project/source-media-rights-control.tsx'),
+      'utf8',
+    );
+
+    expect(singleDialogSource).toContain('<SourceMediaRightsControl');
+    expect(singleDialogSource).toContain('disabled={!rightsAttested}');
+    expect(singleDialogSource).toContain('sourceMediaRightsAttestation');
+    expect(batchDialogSource).toContain('<SourceMediaRightsControl');
+    expect(batchDialogSource).toContain('disabled={files.length === 0 || !rightsAttested}');
+    expect(batchDialogSource).toContain('sourceMediaRightsAttestation');
+    expect(rightsControlSource).toContain('I own this media or have permission to use it');
+    expect(rightsControlSource).toContain('including any embedded audio');
+  });
+
+  it('carries rights consent to media registration without leaking it into creative intake', () => {
+    const hookSource = readFileSync(
+      join(process.cwd(), 'hooks/editron/use-footage-auto-edit.ts'),
+      'utf8',
+    );
+    const uploadSource = readFileSync(
+      join(process.cwd(), 'components/editron/editor/version-7.0.0/utils/media-upload.ts'),
+      'utf8',
+    );
+    const fallbackSource = readFileSync(
+      join(process.cwd(), 'components/editron/project/project-dashboard.tsx'),
+      'utf8',
+    );
+    const requestBuilderSource = readFileSync(
+      join(process.cwd(), 'components/editron/project/auto-edit-request.ts'),
+      'utf8',
+    );
+
+    expect(hookSource).toContain('sourceMediaRightsAttestation,');
+    expect(uploadSource).toContain('sourceMediaRightsAttestation: options.sourceMediaRightsAttestation');
+    expect(fallbackSource).toContain('sourceMediaRightsAttestation: options.sourceMediaRightsAttestation');
+    expect(requestBuilderSource).not.toContain("'sourceMediaRightsAttestation'");
   });
 });

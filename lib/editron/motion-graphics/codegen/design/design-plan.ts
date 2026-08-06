@@ -23,6 +23,7 @@
  */
 
 import { z } from 'zod';
+import { tasteConfidenceSchema } from '../taste/taste-schemas';
 
 // ─── the three output lanes a designed moment can take ───
 // overlay-kit:          pure kit composition over footage (transparent WebP sequence — the existing lane).
@@ -33,6 +34,14 @@ import { z } from 'zod';
 //                       track — Veo has no alpha). NON-DATA moments only (hard guard below).
 export const MG_DESIGN_LANES = ['overlay-kit', 'illustrated-overlay', 'cutaway-scene'] as const;
 export type MgDesignLane = (typeof MG_DESIGN_LANES)[number];
+
+/** The LOCAL, semantic communicative job each designed moment serves (brief §6.6). A communicative job is NOT a
+ *  content-type label — it is the rhetorical move the graphic makes for ITS licensed fact. */
+export const MG_COMMUNICATIVE_JOBS = [
+  'identify', 'quantify', 'compare', 'sequence', 'locate', 'relate', 'explain_causality',
+  'emphasize', 'quote', 'punctuate', 'transition', 'other',
+] as const;
+export type MgCommunicativeJob = (typeof MG_COMMUNICATIVE_JOBS)[number];
 
 /** The QUALITY LENS a moment is judged through — clarity (does it read instantly), energy (is it alive), or
  *  restraint (is it considered). LENSES, NOT STYLES (founder-corrected 2026-07-18): naming them after creators
@@ -116,6 +125,25 @@ export const mgMomentDesignPlanSchema = z.object({
    *  demonstrably CAN judge this (live decline: "footage already contains a hardcoded lower-third"); this
    *  field forces the judgment to be explicit. VLM verification of the claim lands at P5. */
   footageRedundancy: boundedString(200).optional(),
+  // ── Taste authority + communicative intent (brief §6.6, Phase 3) ──
+  // The JUDGE verifies contract fidelity against these; the DESIGNER declares what the moment communicates.
+  // NOTE (single-form-owner, AGENTS 12): hierarchy/geometry/motion "plans" are NOT re-listed here — they are
+  // already owned by structure.* and motion. These fields are evidence + intent, never duplicated final form.
+  primaryCommunicativeJob: z.enum(MG_COMMUNICATIVE_JOBS),
+  secondaryCommunicativeJobs: z.array(z.enum(MG_COMMUNICATIVE_JOBS)).max(3).optional(),
+  /** The video-level taste contract this moment inherits (Phase-4 wiring supplies it; required then). */
+  tasteContractId: boundedString(240).optional(),
+  tasteContractHash: boundedString(64).optional(),
+  /** The meaning the design must encode — the judge checks semantic effectiveness against it (§6.6 semanticPayload). */
+  semanticPayload: boundedString(240).optional(),
+  intendedViewerResponse: boundedString(240).optional(),
+  spokenBeatOrTimestamp: boundedString(160).optional(),
+  visualMetaphor: boundedString(240).optional(),
+  designConfidence: tasteConfidenceSchema.optional(),
+  intentionalDeviations: z.array(z.object({
+    property: boundedString(80),
+    reason: boundedString(200),
+  })).max(6).default([]),
 }).strict();
 export type MgMomentDesignPlan = z.infer<typeof mgMomentDesignPlanSchema>;
 
@@ -263,6 +291,13 @@ export function validateDesignPlan(
         if ((e.kind === 'bar' || e.kind === 'ring' || e.kind === 'plot') && !e.dataProps.some((p) => numeric.has(p))) {
           problems.push(`${mp.momentId}: '${e.kind}' element '${e.role}' binds no numeric data prop — quantitative marks need real numbers; use type/rule/dot/motif for qualitative beats`);
         }
+      }
+    }
+    // Taste-contract pairing (brief §6.6/§21): a designed moment must reference a contract by BOTH id and hash,
+    // or neither. Half-provisioned provenance is a reproducibility violation, not a silent default.
+    if (mp.tasteContractId != null || mp.tasteContractHash != null) {
+      if (!mp.tasteContractId || !mp.tasteContractHash) {
+        problems.push(`${mp.momentId}: tasteContractId and tasteContractHash must be provided together`);
       }
     }
     for (const idx of mp.motion.enterOrder) {

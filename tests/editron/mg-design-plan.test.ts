@@ -30,6 +30,8 @@ const designedList = (over: Partial<MgMomentDesignPlan> = {}): MgMomentDesignPla
   lane: 'overlay-kit',
   concept: 'three steps as staggered numbered cards climbing the negative space',
   targetBar: 'clarity',
+  primaryCommunicativeJob: 'sequence',
+  intentionalDeviations: [],
   structure: {
     placement: 'center-right negative space, clear of subject and caption',
     grouping: 'three plate cards, one per step, each with a dot marker + label',
@@ -59,6 +61,8 @@ describe('salvageDesignPlan — keep the valid moments, decline the bad ones (Fi
   // The exact failure the Hormozi stress run hit: a ring (quantitative mark) bound to no numeric prop.
   const badRing: MgMomentDesignPlan = {
     momentId: 'm_stat', lane: 'overlay-kit', concept: 'a ring bound to nothing', targetBar: 'clarity',
+    primaryCommunicativeJob: 'quantify',
+    intentionalDeviations: [],
     structure: { placement: 'center', grouping: 'ring', readingOrder: 'ring' },
     elements: [{ kind: 'ring', role: 'progress indicator', dataProps: [] }],
     motion: { enterOrder: [0], build: 'ring draws', hold: 'still', syncTo: 'phases-only' },
@@ -339,14 +343,14 @@ describe('P4 — the structural look axis', () => {
   });
 });
 
-describe('P3.5 door — prompt contract snapshot (KIT e1.10)', () => {
+describe('P3.5 door — prompt contract snapshot (KIT e1.11)', () => {
   it('coder mandates boxless-first, designer licenses within budget, judge penalizes unmotivated boxes', async () => {
     const { CODER_STABLE_PREFIX } = await import('@/lib/editron/motion-graphics/codegen/design/coder-prompt');
     const { DESIGNER_STABLE_PREFIX } = await import('@/lib/editron/motion-graphics/codegen/design/designer-prompt');
     const { JUDGE_PROMPT } = await import('@/lib/editron/motion-graphics/codegen/prompt');
     const { KIT_VERSION } = await import('@/lib/editron/motion-graphics/codegen/codegen-service');
 
-    expect(KIT_VERSION).toBe('e1.10');
+    expect(KIT_VERSION).toBe('e1.11');
     expect(CODER_STABLE_PREFIX).toMatch(/THE LOOK IS LAW/);
     expect(DESIGNER_STABLE_PREFIX).toMatch(/THE LOOK/);
     expect(DESIGNER_STABLE_PREFIX).toMatch(/COMPLETE spoken thought/);

@@ -706,7 +706,7 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           <span className="inline-flex items-center gap-1 text-[10px] text-[#5CCCB8]">
-                            <Check className="h-3 w-3" /> Active
+                            <Check className="h-3 w-3" /> Assigned
                           </span>
                           <button
                             onClick={() => unassign(acc)}
@@ -862,7 +862,7 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           <span className="inline-flex items-center gap-1 text-[10px] text-[#5C8DFF]">
-                            <Check className="h-3 w-3" /> Active
+                            <Check className="h-3 w-3" /> Assigned
                           </span>
                           <button
                             onClick={() => unassignFacebook(acc)}
@@ -971,7 +971,7 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           <span className="inline-flex items-center gap-1 text-[10px] text-[#E1306C]">
-                            <Check className="h-3 w-3" /> Active
+                            <Check className="h-3 w-3" /> Assigned
                           </span>
                           <button
                             onClick={() => unassignInstagram(acc)}
@@ -1078,7 +1078,7 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           <span className="inline-flex items-center gap-1 text-[10px] text-[#1D9BF0]">
-                            <Check className="h-3 w-3" /> Active
+                            <Check className="h-3 w-3" /> Assigned
                           </span>
                           <button
                             onClick={() => unassignTwitter(acc)}
@@ -1178,7 +1178,7 @@ export default function BrandConnections({ brandId, brandName, open, onClose }: 
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           <span className="inline-flex items-center gap-1 text-[10px] text-[#FF6B6B]">
-                            <Check className="h-3 w-3" /> Active
+                            <Check className="h-3 w-3" /> Assigned
                           </span>
                           <button
                             onClick={() => unassignYoutube(acc)}

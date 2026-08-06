@@ -17,6 +17,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/sweep-chat-reference-style-jobs",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/check-plan-expiration",
       "schedule": "0 0 * * *"
     },
@@ -31,10 +35,6 @@
     {
       "path": "/api/cron/send-ticket-reminders",
       "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron/process-render-queue",
-      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/process-video-queue",

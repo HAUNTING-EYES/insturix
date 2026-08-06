@@ -55,7 +55,7 @@ function makeResult(overrides: Partial<PostWriterResult> = {}): PostWriterResult
       violations: [],
     },
     clickatron: {
-      singleImagePrompt: 'Create a LinkedIn post graphic showing one clear approval owner replacing scattered comment threads; include editable headline text only.',
+      singleImagePrompt: 'A restrained editorial workflow scene with one clear approval lane replacing scattered abstract comment threads, generous headline-safe negative space, no readable UI labels.',
     },
     metadata: {
       platform: 'linkedin',
@@ -80,6 +80,14 @@ describe('assertUsablePostWriterResult', () => {
   it('keeps the post writer source valid UTF-8 for Vercel webpack/SWC', () => {
     const source = readFileSync(resolve(process.cwd(), 'lib/thinkforge/agents/post-writer-agent.ts'));
     expect(() => new TextDecoder('utf-8', { fatal: true }).decode(source)).not.toThrow();
+  });
+  it('authors visual-only Clickatron prompts and leaves exact copy to editable layers', () => {
+    const prompt = new PostWriterAgent().buildPrompt(baseInput);
+
+    expect(prompt).toContain('Keep every image prompt visual-only.');
+    expect(prompt).toContain('Exact copy remains in content and is derived into editable Clickatron text layers downstream.');
+    expect(prompt).toContain('abstract or defocused shapes with no legible text or invented brand marks');
+    expect(prompt).not.toContain('include editable overlay text when text appears');
   });
   it('accepts a complete publishable social post with Clickatron visual instructions', () => {
     expect(() => assertUsablePostWriterResult(makeResult(), baseInput)).not.toThrow();

@@ -32,7 +32,6 @@ import {
 import { TimelineProvider } from "./contexts/timeline-context";
 
 // Autosave Components
-import { AutosaveRecoveryDialog } from "./components/autosave/autosave-recovery-dialog";
 import { AutosaveStatus } from "./components/autosave/autosave-status";
 import { AIToolsDebugPanel } from "./components/debug/ai-tools-debug-panel";
 import { useState, useEffect, useMemo } from "react";
@@ -40,19 +39,25 @@ import { useAutosave } from "./hooks/use-autosave";
 import { LocalMediaProvider } from "./contexts/local-media-context";
 import { KeyframeProvider } from "./contexts/keyframe-context";
 import { AssetLoadingProvider } from "./contexts/asset-loading-context";
+import { NativeVideoAudioRightsDialog } from "./components/rendering/native-video-audio-rights-dialog";
+import {
+  confirmAndReloadExportAudioRights,
+  findUnverifiedNativeAudioAssetIds,
+  findUnverifiedUploadedExportAudioAssetIds,
+} from "./utils/native-video-audio-rights-client";
+import type { RenderMusicDeliveryMode } from "@/lib/editron/services/render-delivery-manifest";
+import { useCallback } from "react";
 
 export default function ReactVideoEditor({ projectId, variant = "v1" }: { projectId: string; variant?: "v1" | "v2" }) {
-  // Autosave state
-  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
-  const [autosaveTimestamp, setAutosaveTimestamp] = useState<number | null>(
-    null
-  );
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaveTime, setLastSaveTime] = useState<number | null>(null);
-  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [markers, setMarkers] = useState<NamedMarker[]>([]);
+  const [pendingRightsRenderMode, setPendingRightsRenderMode] =
+    useState<RenderMusicDeliveryMode | null>(null);
+  const [resumeRightsRenderMode, setResumeRightsRenderMode] =
+    useState<RenderMusicDeliveryMode | null>(null);
 
   // Overlay management hooks
   const {
@@ -112,6 +117,58 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     RENDER_TYPE,
     projectId // Enable resume-on-refresh
   );
+  const unverifiedNativeAudioAssetIds = useMemo(
+    () => findUnverifiedNativeAudioAssetIds(overlays),
+    [overlays],
+  );
+  const unverifiedUploadedAudioAssetIds = useMemo(
+    () => findUnverifiedUploadedExportAudioAssetIds(overlays),
+    [overlays],
+  );
+  const unverifiedExportAudioCount =
+    unverifiedNativeAudioAssetIds.length + unverifiedUploadedAudioAssetIds.length;
+  const requestRender = useCallback(async (
+    musicDeliveryMode: RenderMusicDeliveryMode = "embedded",
+  ) => {
+    if (unverifiedExportAudioCount > 0) {
+      setPendingRightsRenderMode(musicDeliveryMode);
+      return;
+    }
+    await renderMedia(musicDeliveryMode);
+  }, [renderMedia, unverifiedExportAudioCount]);
+  const confirmExportAudioRights = useCallback(async () => {
+    if (!pendingRightsRenderMode) return;
+    const refreshedOverlays = await confirmAndReloadExportAudioRights({
+      projectId,
+      confirmNativeVideoAudio: unverifiedNativeAudioAssetIds.length > 0,
+      confirmUploadedExportAudio: unverifiedUploadedAudioAssetIds.length > 0,
+    });
+    setOverlays(refreshedOverlays);
+    setResumeRightsRenderMode(pendingRightsRenderMode);
+    setPendingRightsRenderMode(null);
+  }, [
+    pendingRightsRenderMode,
+    projectId,
+    setOverlays,
+    unverifiedNativeAudioAssetIds.length,
+    unverifiedUploadedAudioAssetIds.length,
+  ]);
+
+  useEffect(() => {
+    if (
+      !resumeRightsRenderMode
+      || unverifiedExportAudioCount > 0
+    ) {
+      return;
+    }
+    const musicDeliveryMode = resumeRightsRenderMode;
+    setResumeRightsRenderMode(null);
+    void renderMedia(musicDeliveryMode);
+  }, [
+    renderMedia,
+    resumeRightsRenderMode,
+    unverifiedExportAudioCount,
+  ]);
 
   // Replace history management code with hook
   const { undo, redo, canUndo, canRedo } = useHistory(overlays, setOverlays);
@@ -137,7 +194,6 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
       setLastSaveTime(Date.now());
     },
     onLoad: (loadedState) => {
-      console.log("Applying loaded state to editor:", loadedState);
       if (loadedState) {
         // Apply loaded state to editor
         setOverlays(loadedState.overlays || []);
@@ -150,29 +206,13 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
         if (Array.isArray(loadedState.markers)) setMarkers(loadedState.markers);
       }
     },
-    onAutosaveDetected: (timestamp) => {
-      // Autosave detection is now handled by automatic load on mount
-      // This callback is kept for backward compatibility but not used
-      console.log("Autosave detected at:", new Date(timestamp));
-    },
   });
-
-  // Mark initial load as complete after component mounts
-  useEffect(() => {
-    setInitialLoadComplete(true);
-  }, []);
 
   // Load project state on mount
   useEffect(() => {
     const loadProjectState = async () => {
       try {
-        const loadedState = await loadState();
-        if (loadedState) {
-          console.log("Loaded project state from MongoDB:", loadedState);
-          // State will be applied via onLoad callback
-        } else {
-          console.log("No saved state found, using default overlays");
-        }
+        await loadState();
       } catch (error) {
         console.error("Error loading project state:", error);
       }
@@ -181,17 +221,6 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     loadProjectState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]); // Only run when projectId changes (loadState is stable)
-
-  // Handle recovery dialog actions
-  const handleRecoverAutosave = async () => {
-    const loadedState = await loadState();
-    console.log("loadedState", loadedState);
-    setShowRecoveryDialog(false);
-  };
-
-  const handleDiscardAutosave = () => {
-    setShowRecoveryDialog(false);
-  };
 
   // Manual save function for use in keyboard shortcuts or save button
   const handleManualSave = async () => {
@@ -250,7 +279,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
     // Add renderType to the context
     renderType: RENDER_TYPE,
     projectId,
-    renderMedia,
+    renderMedia: requestRender,
     cancelRender,
     state,
 
@@ -327,16 +356,12 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
                     lastSaveTime={lastSaveTime}
                   />
 
-                  {/* Autosave Recovery Dialog */}
-                  {showRecoveryDialog && autosaveTimestamp && (
-                    <AutosaveRecoveryDialog
-                      projectId={projectId}
-                      timestamp={autosaveTimestamp}
-                      onRecover={handleRecoverAutosave}
-                      onDiscard={handleDiscardAutosave}
-                      onClose={() => setShowRecoveryDialog(false)}
-                    />
-                  )}
+                  <NativeVideoAudioRightsDialog
+                    open={pendingRightsRenderMode !== null}
+                    sourceCount={unverifiedExportAudioCount}
+                    onCancel={() => setPendingRightsRenderMode(null)}
+                    onConfirm={confirmExportAudioRights}
+                  />
 
                   {/* AI Tools Debug Panel (Development) */}
                   {process.env.NODE_ENV === "development" && (

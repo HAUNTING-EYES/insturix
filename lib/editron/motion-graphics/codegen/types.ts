@@ -120,6 +120,9 @@ export interface MgMomentInput {
   expressiveness: MgExpressiveness;
   placement: MgPlacementContext;
   screen?: MgScreenContext;
+  /** Phase 4b: the video taste contract handed to the judge as {hash, compact direction} so it verifies CONTRACT
+   *  FIDELITY (execution of the established art direction) instead of its own taste (§11). Absent = judge-side off. */
+  tasteContract?: { hash: string; direction: string } | null;
   /** Real footage context for multimodal codegen; absent only on legacy/incomplete producers. */
   visualEvidence?: MgVisualEvidence;
   /** Bounded free-text editorial direction — Layer-2 context, never an executable instruction. */
@@ -174,6 +177,10 @@ export interface MgReceipt {
   reason?: string;
   /** Machine-readable failure semantics. Ordinary quality/compile fallbacks leave this absent. */
   failure?: MgProviderFailureReceipt;
+  /** Phase 5 (§12): which owner should fix a rejected render (designer/coder/placement/system/none). */
+  revisionOwner?: 'designer' | 'coder' | 'placement' | 'system' | 'none';
+  /** The routing reason (which signal matched) — telemetry for the revision loop. */
+  revisionOwnerReason?: string;
 }
 
 /** The service result: a validated component, an honest decline (no faithful graphic), or a Law-2 fallback. */

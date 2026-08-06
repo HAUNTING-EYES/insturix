@@ -3,7 +3,10 @@ import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import {
   CANONICAL_CAPTION_TRACK_SOURCE,
   installCanonicalCaptionTrack,
+  restyleCanonicalCaptionTracks,
+  type CanonicalCaptionStyleIntent,
   type InstallCanonicalCaptionTrackResult,
+  type RestyleCanonicalCaptionTracksResult,
 } from './canonical-caption-track';
 import {
   resolveAtomicCaptionPresentation,
@@ -18,6 +21,13 @@ export interface ChatCanonicalCaptionPreferences {
   displayMode?: string;
   wordsPerGroup?: number;
   overwrite?: boolean;
+  fontSize?: string;
+  color?: string;
+  backgroundColor?: string;
+  position?: CanonicalCaptionStyleIntent['position'];
+  fontFamily?: string;
+  fontWeight?: number | string;
+  textCase?: CanonicalCaptionStyleIntent['textCase'];
 }
 
 export type ChatCanonicalCaptionPlan =
@@ -36,6 +46,20 @@ export type ChatCanonicalCaptionPlan =
         | 'canonical-transcript-unavailable'
         | 'unsafe-source-mapping'
         | 'canonical-track-not-created';
+      message: string;
+    };
+
+export type ChatCanonicalCaptionRestylePlan =
+  | {
+      status: 'updated';
+      overlays: Overlay[];
+      captionOverlays: Array<Overlay & JsonRecord>;
+      presentation: AtomicCaptionPresentation;
+      result: RestyleCanonicalCaptionTracksResult;
+    }
+  | {
+      status: 'no-op';
+      reason: 'caption-track-not-found';
       message: string;
     };
 
@@ -92,20 +116,16 @@ export function planChatCanonicalCaptionTrack(
     };
   }
 
-  const presentation = resolveAtomicCaptionPresentation({
-    requestedStyle: preferences.requestedStyle,
-    displayMode: preferences.displayMode,
-    wordsPerGroup: preferences.wordsPerGroup,
-    genreParams: asRecord(
-      project.genreParametersSignalComputed ?? project.genreParameters,
-    ),
-  });
+  const existingCaption = generatedCaptions[0];
+  const presentation = resolveChatCaptionPresentation(project, preferences, existingCaption);
+  const styleIntent = resolveChatCaptionStyleIntent(preferences, existingCaption);
   const result = installCanonicalCaptionTrack({
     overlays,
     editedTimelineContext,
     segmentAnalysis: project.segmentAnalysis ?? null,
     playerDimensions: playerDimensions(project),
     presentation,
+    styleIntent,
   });
   const captionOverlay = overlays.find(
     (overlay) =>
@@ -127,6 +147,91 @@ export function planChatCanonicalCaptionTrack(
     presentation,
     result,
   };
+}
+
+export function planChatCanonicalCaptionRestyle(
+  project: JsonRecord,
+  preferences: ChatCanonicalCaptionPreferences,
+): ChatCanonicalCaptionRestylePlan {
+  const overlays = Array.isArray(project.overlays) ? [...project.overlays] : [];
+  const captionOverlays = overlays.filter((overlay) => overlay?.type === 'caption');
+  if (captionOverlays.length === 0) {
+    return {
+      status: 'no-op',
+      reason: 'caption-track-not-found',
+      message: 'No caption track exists in this project.',
+    };
+  }
+
+  const rawFootage = asRecord(project.rawFootageAnalysis);
+  const editedTimelineContext = buildEditedTimelineContext({
+    rawFootage: rawFootage as any,
+    overlays,
+    fps: finitePositive(project.fps) ?? 30,
+    projectDurationFrames: finitePositive(project.durationInFrames) ?? undefined,
+  });
+  const existingCaption = captionOverlays[0];
+  const presentation = resolveChatCaptionPresentation(project, preferences, existingCaption);
+  const styleIntent = resolveChatCaptionStyleIntent(preferences, existingCaption);
+  const result = restyleCanonicalCaptionTracks({
+    overlays,
+    editedTimelineContext,
+    segmentAnalysis: project.segmentAnalysis ?? null,
+    playerDimensions: playerDimensions(project),
+    presentation,
+    styleIntent,
+  });
+
+  return {
+    status: 'updated',
+    overlays: overlays as Overlay[],
+    captionOverlays: overlays.filter(
+      (overlay): overlay is Overlay & JsonRecord => overlay?.type === 'caption',
+    ),
+    presentation,
+    result,
+  };
+}
+
+function resolveChatCaptionPresentation(
+  project: JsonRecord,
+  preferences: ChatCanonicalCaptionPreferences,
+  existingCaption?: JsonRecord,
+): AtomicCaptionPresentation {
+  const storedPresentation = asRecord(existingCaption?.metadata?.captionPresentation);
+  const requestedStyle = preferences.requestedStyle
+    ?? nonEmptyString(storedPresentation.style)
+    ?? nonEmptyString(existingCaption?.template);
+  return resolveAtomicCaptionPresentation({
+    requestedStyle,
+    requestedStyleAuthority: requestedStyle ? 'user' : 'hint',
+    displayMode: preferences.displayMode
+      ?? nonEmptyString(storedPresentation.displayMode)
+      ?? nonEmptyString(existingCaption?.displayConfig?.mode),
+    wordsPerGroup: preferences.wordsPerGroup
+      ?? finitePositive(storedPresentation.wordsPerGroup)
+      ?? finitePositive(existingCaption?.displayConfig?.wordsPerGroup)
+      ?? undefined,
+    genreParams: asRecord(
+      project.genreParametersSignalComputed ?? project.genreParameters,
+    ),
+  });
+}
+
+function resolveChatCaptionStyleIntent(
+  preferences: ChatCanonicalCaptionPreferences,
+  existingCaption?: JsonRecord,
+): CanonicalCaptionStyleIntent {
+  const storedIntent = asRecord(existingCaption?.metadata?.captionStyleIntent?.requested);
+  return definedEntries({
+    fontSize: preferences.fontSize ?? nonEmptyString(storedIntent.fontSize),
+    color: preferences.color ?? nonEmptyString(storedIntent.color),
+    backgroundColor: preferences.backgroundColor ?? nonEmptyString(storedIntent.backgroundColor),
+    position: preferences.position ?? captionPosition(storedIntent.position),
+    fontFamily: preferences.fontFamily ?? nonEmptyString(storedIntent.fontFamily),
+    fontWeight: preferences.fontWeight ?? storedIntent.fontWeight,
+    textCase: preferences.textCase ?? captionTextCase(storedIntent.textCase),
+  }) as CanonicalCaptionStyleIntent;
 }
 
 function isGeneratedCaption(overlay: JsonRecord): boolean {
@@ -166,6 +271,29 @@ function playerDimensions(project: JsonRecord): { width: number; height: number 
 function finitePositive(value: unknown): number | null {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+function captionPosition(value: unknown): CanonicalCaptionStyleIntent['position'] | undefined {
+  return value === 'top' || value === 'center' || value === 'bottom' ? value : undefined;
+}
+
+function captionTextCase(value: unknown): CanonicalCaptionStyleIntent['textCase'] | undefined {
+  return value === 'sentence'
+    || value === 'uppercase'
+    || value === 'lowercase'
+    || value === 'capitalize'
+    ? value
+    : undefined;
+}
+
+function definedEntries(value: JsonRecord): JsonRecord {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  );
 }
 
 function asRecord(value: unknown): JsonRecord {

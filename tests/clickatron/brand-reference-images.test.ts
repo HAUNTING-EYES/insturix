@@ -7,6 +7,7 @@ import {
   brandProductReferenceImages,
   resolveClickatronBrandReferenceEvidence,
   resolveClickatronBrandReferenceImages,
+  selectClickatronGenerationBrandEvidence,
 } from '@/lib/clickatron/brand-reference-images';
 import type { BrandSignal, BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 import type { BrandVaultVisualIdentitySummary } from '@/lib/shared/brand-vault-visual-identity';
@@ -68,6 +69,23 @@ describe('clickatronBrandImageIntentFromMetadata', () => {
         clickatron: { creativeSpec: { userIntent: { visualMode: 'product_mockup', logoRequired: true } } },
       }),
     ).toBe('logo_and_product');
+  });
+  it('detects a logo requirement declared by any carousel slide prompt', () => {
+    expect(
+      clickatronBrandImageIntentFromMetadata({
+        clickatron: {
+          creativeSpec: {
+            kind: 'carousel',
+            renderPlan: {
+              slides: [
+                { imagePrompt: 'A clean product close-up' },
+                { imagePrompt: 'End card with the official logo in the lower-right corner' },
+              ],
+            },
+          },
+        },
+      }),
+    ).toBe('logo');
   });
   it('returns none for any other visual mode (no false positive)', () => {
     for (const mode of ['auto', 'photo', 'illustration', 'text_forward_graphic', 'diagram', 'mixed']) {
@@ -244,6 +262,35 @@ describe('resolveClickatronBrandReferenceEvidence', () => {
   });
 });
 
+describe('selectClickatronGenerationBrandEvidence', () => {
+  const resolution = {
+    intent: { requiresLogo: true, requiresProduct: true },
+    evidence: [
+      { url: 'https://cdn.b.com/logo.png', assetRole: 'logo' as const, source: 'brand-vault-logo' as const },
+      { url: 'https://cdn.b.com/product.png', assetRole: 'product' as const, source: 'brand-vault-product-image' as const },
+    ],
+    needsUserInput: false,
+  };
+
+  it('uses product evidence for a fresh product composition but keeps logo on the overlay path', () => {
+    expect(
+      selectClickatronGenerationBrandEvidence(resolution, {
+        hasParentImage: false,
+        userReferenceImageCount: 0,
+      }),
+    ).toEqual([expect.objectContaining({ assetRole: 'product' })]);
+  });
+
+  it('uses logo evidence only when an existing image context can preserve the real mark', () => {
+    expect(
+      selectClickatronGenerationBrandEvidence(resolution, {
+        hasParentImage: false,
+        userReferenceImageCount: 1,
+      }),
+    ).toEqual([expect.objectContaining({ assetRole: 'logo' })]);
+  });
+});
+
 describe('Clickatron Brand Vault wiring contracts', () => {
   it('keeps native session creation wired to active Brand Vault brand without overwriting handoff brandId', () => {
     const store = readRepoFile('stores/useCanvasStore.ts');
@@ -252,18 +299,30 @@ describe('Clickatron Brand Vault wiring contracts', () => {
     expect(store).toContain('getActiveBrandIdFromStorage');
     expect(store).toContain("activeBrandId && !formData.has('brandId')");
     expect(store).toContain("formData.append('brandId', activeBrandId)");
+    expect(store).toContain("headers: { 'Idempotency-Key': idempotencyKey }");
+    expect(store).toContain("body?.code !== 'REQUEST_IN_PROGRESS'");
     expect(sessionRoute).toContain("brandId: formData.get('brandId')");
     expect(sessionRoute).toContain('brandId: validatedData.brandId');
   });
 
-  it('keeps existing-session AI generation and worker logo handling connected', () => {
+  it('preflights Brand Vault evidence before billing and forbids worker model drift', () => {
     const canvasStage = readRepoFile('components/dashboard/Clickatron/stages/CanvasStage.tsx');
+    const sessionRoute = readRepoFile('app/api/services/clickatron/session/route.ts');
     const worker = readRepoFile('app/api/internal/workers/clickatron/variation/route.ts');
 
     expect(canvasStage).toContain('const generationBrandId = task.brandId || getActiveBrandIdFromStorage();');
     expect(canvasStage).toContain('sourceContext: { brandId: generationBrandId }');
+    expect(sessionRoute.indexOf('resolveClickatronBrandReferenceEvidence({')).toBeLessThan(
+      sessionRoute.indexOf('checkCredits(userId'),
+    );
+    expect(sessionRoute).toContain(
+      'referenceImageCount: referenceImages.length + generationBrandEvidence.length',
+    );
     expect(worker).toContain('resolveClickatronBrandReferenceEvidence');
+    expect(worker).toContain('selectClickatronGenerationBrandEvidence');
     expect(worker).toContain("needsInputError.code = 'NEEDS_USER_INPUT'");
     expect(worker).toContain('logoReferencePolicy');
+    expect(worker).toContain("code: 'MODEL_PREFLIGHT_DRIFT'");
+    expect(worker).not.toContain('selectedModelId = resolvedModel.modelId');
   });
 });

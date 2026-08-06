@@ -12,9 +12,8 @@
  * is only the design INPUT; the final render still uses the loop's own momentInput. Consistency is exact and needs
  * no shared resolution between the pre-pass and applyGraphic.
  *
- * FAIL HONEST (R2N/R18N): no beats, or a session that produced no plan (model failure / unfixable), returns an
- * EMPTY map — every decision then falls back to the free-form codegen path (today's behaviour), never a fabricated
- * design. The pre-pass can only ADD coherent designs, never make a video worse than shipping none.
+ * FAIL HONEST (R2N/R18N): every offered beat receives an explicit approved, declined, or unavailable disposition.
+ * A missing/failed plan is never interpreted as permission for a second producer to invent a free-form design.
  */
 
 import { runVideoDesignSession, type MgDesignerGenerate } from './design-session';
@@ -24,6 +23,7 @@ import type { MgDensityBudget } from './density-budget';
 import type { Brand } from '../kit/brand';
 import type { VideoStyle } from '../style/style-resolver';
 import type { MgMomentDesign } from '../types';
+import type { VideoTasteContract } from '../taste/taste-schemas';
 
 /** One offered graphic moment: the designer's view + an opaque KEY the caller uses to attach the plan later. */
 export interface MgDesignPrepassBeat<K> {
@@ -46,49 +46,80 @@ export interface MgDesignPrepassInput<K> {
   /** Multimodal session images (P5-1 Phase D): footage frames sampled across the video so the designer designs
    *  for the real palette/negative-space. Best-effort — absent → a valid text-only design session. */
   images?: MgDesignerSessionImages;
+  /** The video-level taste contract (§6.5) — when provided the designer executes its art direction and each
+   *  approved moment plan is stamped with tasteContractId/hash (Phase 4a). */
+  tasteContract?: VideoTasteContract | null;
 }
 
+export type MgDesignPrepassDisposition =
+  | { status: 'approved'; design: MgMomentDesign }
+  | { status: 'declined'; reason: string }
+  | { status: 'unavailable'; reason: string };
+
 export interface MgDesignPrepassResult<K> {
-  /** Per-key approved designs. A key is ABSENT when the designer declined that beat (→ free-form fallback). */
-  plans: Map<K, MgMomentDesign>;
+  /** One explicit authority result per offered key. Absence means the beat was never offered. */
+  dispositions: Map<K, MgDesignPrepassDisposition>;
   /** Session attempts made (0 when there were no beats). */
   attempts: number;
-  /** Why no plan was produced (model failure / unfixable) — absent on success. All beats then fall back. */
+  /** Session-level diagnostic, including salvage or provider failure. */
   reason?: string;
 }
 
 /**
- * Run the video-level design pre-pass. Deterministic given the same model output. Never throws — a failed session
- * resolves to an empty map (all beats fall back to free-form codegen).
+ * Run the video-level design pre-pass. Deterministic given the same model output. Never throws.
  */
 export async function runDesignPrepass<K>(
   input: MgDesignPrepassInput<K>,
   deps: { generate: MgDesignerGenerate; maxAttempts?: number },
 ): Promise<MgDesignPrepassResult<K>> {
-  const plans = new Map<K, MgMomentDesign>();
-  if (input.beats.length === 0) return { plans, attempts: 0 };
+  const dispositions = new Map<K, MgDesignPrepassDisposition>();
+  if (input.beats.length === 0) return { dispositions, attempts: 0 };
 
   const moments: MgDesignerMoment[] = input.beats.map((b) => b.moment);
   const contexts: MgDesignPlanMomentContext[] = input.beats.map((b) => b.context);
-  const momentIdToKey = new Map<string, K>();
-  for (const beat of input.beats) momentIdToKey.set(beat.moment.momentId, beat.key);
 
   const session = await runVideoDesignSession(
     {
       designer: { intent: input.intent, videoStyle: input.videoStyle, brand: input.brand, moments, budget: input.budget },
       contexts,
       images: input.images,
+      tasteContract: input.tasteContract ?? null,
     },
     { generate: deps.generate, maxAttempts: deps.maxAttempts },
   );
 
-  if (!session.plan) return { plans, attempts: session.attempts, reason: session.reason };
+  if (!session.plan) {
+    const reason = session.reason ?? 'video-level MG design session produced no plan';
+    for (const beat of input.beats) dispositions.set(beat.key, { status: 'unavailable', reason });
+    return { dispositions, attempts: session.attempts, reason };
+  }
 
   const brief: MgVideoDesignBrief = session.plan.brief;
-  for (const momentPlan of session.plan.moments) {
-    const key = momentIdToKey.get(momentPlan.momentId);
-    if (key === undefined) continue; // a plan for an unknown momentId (defensive; validation already covers it)
-    plans.set(key, { plan: momentPlan, brief });
+  const planByMomentId = new Map(session.plan.moments.map((momentPlan) => [momentPlan.momentId, momentPlan]));
+  const declineByMomentId = new Map(session.plan.declined.map((decline) => [decline.momentId, decline.reason]));
+  for (const beat of input.beats) {
+    const momentPlan = planByMomentId.get(beat.moment.momentId);
+    if (momentPlan) {
+      // Phase 4a: stamp the video-level taste contract onto the approved plan (id + hash together, §6.6/§21).
+      const plan = input.tasteContract && !momentPlan.tasteContractId
+        ? { ...momentPlan, tasteContractId: input.tasteContract.id, tasteContractHash: input.tasteContract.contractHash }
+        : momentPlan;
+      dispositions.set(beat.key, { status: 'approved', design: { plan, brief } });
+      continue;
+    }
+    const declineReason = declineByMomentId.get(beat.moment.momentId);
+    if (declineReason) {
+      dispositions.set(beat.key, { status: 'declined', reason: declineReason });
+      continue;
+    }
+    dispositions.set(beat.key, {
+      status: 'unavailable',
+      reason: `validated design plan omitted disposition for ${beat.moment.momentId}`,
+    });
   }
-  return { plans, attempts: session.attempts };
+  return {
+    dispositions,
+    attempts: session.attempts,
+    ...(session.reason ? { reason: session.reason } : {}),
+  };
 }

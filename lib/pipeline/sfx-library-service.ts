@@ -36,13 +36,18 @@ import {
   buildSfxAcousticMeasurement,
   type SfxAcousticMeasurement,
 } from '@/lib/pipeline/sfx-acoustic-measurement';
+import {
+  retrieveConfiguredSfxCatalogSemantics,
+  type SfxCatalogSemanticRetrieval,
+  type SfxCatalogSemanticRetrievalReport,
+} from '@/lib/pipeline/sfx-catalog-semantic-client';
 import { fileTypeFromBuffer } from 'file-type';
 import { nanoid } from 'nanoid';
 
 export type { SfxAcousticMeasurement } from '@/lib/pipeline/sfx-acoustic-measurement';
 
-// ROADMAP LOCK: populate the measured curated catalog and add actual-audio
-// embedding/classifier retrieval before claiming production semantic similarity.
+// Semantic retrieval is valid only through the immutable, manifest-bound release
+// reader. Keep rights, acoustic, atomic-form, and blocked-tag gates authoritative.
 
 export interface SFXLibraryResult {
   audioUrl: string;
@@ -115,6 +120,7 @@ export interface SFXLibrarySearchReport {
   atomicGate: boolean;
   selectionLane: 'catalog' | 'provider' | 'none';
   catalog: SfxCatalogSelectionReport;
+  semanticRetrieval?: SfxCatalogSemanticRetrievalReport;
   providerCandidateCount: number;
   acceptedCandidateCount: number;
   rejectedCandidateCount: number;
@@ -124,6 +130,13 @@ export interface SFXLibrarySearchReport {
 }
 
 export type SFXLibrarySearchReporter = (report: SFXLibrarySearchReport) => void;
+
+export interface SfxLibrarySearchDependencies {
+  retrieveCatalogSemantics?: (
+    query: string,
+    manifest: SfxCatalogManifest,
+  ) => Promise<SfxCatalogSemanticRetrieval | undefined>;
+}
 
 interface SFXProviderCandidate {
   id: string;
@@ -207,7 +220,9 @@ async function searchFreesound(
       params.set('filter', `license:"Creative Commons 0" duration:[0 TO ${maxDuration + 2}]`);
     }
 
-    const res = await fetch(`https://freesound.org/apiv2/search/?${params}`);
+    const res = await fetch(`https://freesound.org/apiv2/search/?${params}`, {
+      signal: AbortSignal.timeout(FREESOUND_METADATA_TIMEOUT_MS),
+    });
     if (!res.ok) {
       console.warn(`[SFXLib] Freesound search failed: ${res.status}`);
       return [];
@@ -506,11 +521,20 @@ export async function searchAndDownloadSFX(
   atomicForm?: AtomicSfxForm,
   reportSearch?: SFXLibrarySearchReporter,
   catalogManifest: SfxCatalogManifest = BUNDLED_SFX_CATALOG,
+  dependencies: SfxLibrarySearchDependencies = {},
 ): Promise<SFXLibraryResult | null> {
+  const semanticRetrieval = atomicForm
+    && (!atomicForm.shouldPlace || atomicForm.compatibilityToken === 'none')
+    ? undefined
+    : await (
+      dependencies.retrieveCatalogSemantics
+      ?? retrieveConfiguredSfxCatalogSemantics
+    )(query, catalogManifest);
   const catalogSelection = selectSfxCatalogEntry(catalogManifest, {
     query,
     maxDurationSec,
     form: atomicForm,
+    semanticSimilarityByAssetId: semanticRetrieval?.similarityByAssetId,
   });
   if (catalogSelection.entry) {
     const entry = catalogSelection.entry;
@@ -522,6 +546,7 @@ export async function searchAndDownloadSFX(
       atomicGate: Boolean(atomicForm),
       selectionLane: 'catalog',
       catalog: catalogSelection.report,
+      semanticRetrieval: semanticRetrieval?.report,
       providerCandidateCount: 0,
       acceptedCandidateCount: 1,
       rejectedCandidateCount: catalogSelection.report.rejectedCandidateCount,
@@ -558,6 +583,7 @@ export async function searchAndDownloadSFX(
       atomicGate: Boolean(atomicForm),
       selectionLane: 'none',
       catalog: catalogSelection.report,
+      semanticRetrieval: semanticRetrieval?.report,
       providerCandidateCount: 0,
       acceptedCandidateCount: 0,
       rejectedCandidateCount: 0,
@@ -584,6 +610,7 @@ export async function searchAndDownloadSFX(
     maxDurationSec,
     atomicForm,
     catalogSelection.report,
+    semanticRetrieval?.report,
     ranked,
     selected,
   );
@@ -603,15 +630,18 @@ export async function searchAndDownloadSFX(
 
   // Download and upload through the existing media service. That service is R2-first
   // when Cloudflare credentials are configured, with GCS as fallback.
+  let buffer: Buffer;
   try {
-    const response = await fetch(candidate.url);
+    const response = await fetch(candidate.url, {
+      signal: AbortSignal.timeout(FREESOUND_AUDIO_TIMEOUT_MS),
+    });
     if (!response.ok) {
       reportSearch?.({ ...report, failureReason: 'download-failed' });
       console.error(`[SFXLib] Failed to download from ${candidate.source}: ${response.status}`);
       return null;
     }
 
-    const buffer = Buffer.from(await response.arrayBuffer());
+    buffer = Buffer.from(await response.arrayBuffer());
 
     // Validate the downloaded content is actually audio, not an image or HTML error page
     const contentType = response.headers.get('content-type') || '';
@@ -627,7 +657,13 @@ export async function searchAndDownloadSFX(
         return null;
       }
     }
+  } catch (downloadError) {
+    reportSearch?.({ ...report, failureReason: 'download-failed' });
+    console.error(`[SFXLib] Download failed from ${candidate.source}: ${downloadError instanceof Error ? downloadError.message : String(downloadError)}`);
+    return null;
+  }
 
+  try {
     let measurement: SfxAcousticMeasurement;
     try {
       measurement = await inspectAndValidateSfxAudio(buffer);
@@ -711,7 +747,7 @@ export async function searchAndDownloadSFX(
     };
   } catch (err: any) {
     reportSearch?.({ ...report, failureReason: 'upload-failed' });
-    console.error(`[SFXLib] Download/upload failed: ${err.message}`);
+    console.error(`[SFXLib] Upload/persist failed: ${err.message}`);
     return null;
   }
 }
@@ -761,6 +797,7 @@ function buildSfxSearchReport(
   maxDurationSec: number | undefined,
   atomicForm: AtomicSfxForm | undefined,
   catalog: SfxCatalogSelectionReport,
+  semanticRetrieval: SfxCatalogSemanticRetrievalReport | undefined,
   ranked: Array<{ candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation }>,
   selected: { candidate: SFXProviderCandidate; score: number; quality?: AtomicSfxCandidateEvaluation } | null,
 ): SFXLibrarySearchReport {
@@ -774,6 +811,7 @@ function buildSfxSearchReport(
     atomicGate: Boolean(atomicForm),
     selectionLane: selected ? 'provider' : 'none',
     catalog,
+    semanticRetrieval,
     providerCandidateCount: ranked.length,
     acceptedCandidateCount: ranked.filter((item) => item.score >= threshold).length,
     rejectedCandidateCount: ranked.filter((item) => item.score < threshold).length,
@@ -1027,8 +1065,10 @@ export function audioDescriptionToSearchQuery(audioDescription: string): string 
  * Callers must not reserve SFX budget when the only library provider cannot run.
  * Unfulfilled intent belongs in the quality receipt, not a fake capability.
  */
-export function isSFXLibraryAvailable(): boolean {
-  return BUNDLED_SFX_CATALOG.entries.length > 0 || Boolean(process.env.FREESOUND_API_KEY?.trim());
+export function isSFXLibraryAvailable(
+  catalogManifest: SfxCatalogManifest = BUNDLED_SFX_CATALOG,
+): boolean {
+  return catalogManifest.entries.length > 0 || Boolean(process.env.FREESOUND_API_KEY?.trim());
 }
 
 async function conditionControlledSfxAudio(

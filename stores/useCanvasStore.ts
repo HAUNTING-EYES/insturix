@@ -10,6 +10,67 @@ import {
 import { produce } from 'immer';
 import { getActiveBrandIdFromStorage } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 
+const CREATE_SESSION_KEY_TTL_MS = 15 * 60 * 1000;
+const CREATE_SESSION_PENDING_RETRIES = 12;
+
+interface PendingCreateSessionRequest {
+  key: string;
+  expiresAt: number;
+}
+
+const pendingCreateSessionRequests = new Map<string, PendingCreateSessionRequest>();
+
+function buildClickatronSessionRequestFingerprint(formData: FormData): string {
+  return Array.from(formData.entries())
+    .map(([name, value]) => {
+      if (typeof value === 'string') return `${name}:text:${value}`;
+      return `${name}:file:${value.name}:${value.size}:${value.type}:${value.lastModified}`;
+    })
+    .join('\u001e');
+}
+
+function getCreateSessionRequestKey(fingerprint: string): string {
+  const now = Date.now();
+  for (const [key, pending] of pendingCreateSessionRequests) {
+    if (pending.expiresAt <= now) pendingCreateSessionRequests.delete(key);
+  }
+
+  const existing = pendingCreateSessionRequests.get(fingerprint);
+  if (existing) return existing.key;
+
+  const randomPart = globalThis.crypto?.randomUUID?.()
+    ?? `${now}_${Math.random().toString(36).slice(2)}`;
+  const key = `clickatron_create_${randomPart}`;
+  pendingCreateSessionRequests.set(fingerprint, {
+    key,
+    expiresAt: now + CREATE_SESSION_KEY_TTL_MS,
+  });
+  return key;
+}
+
+async function postCreateSession(formData: FormData, idempotencyKey: string): Promise<Response> {
+  for (let attempt = 0; attempt <= CREATE_SESSION_PENDING_RETRIES; attempt += 1) {
+    const response = await fetch('/api/services/clickatron/session', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: formData,
+    });
+    if (response.status !== 409) return response;
+
+    const body = await response.clone().json().catch(() => null);
+    if (body?.code !== 'REQUEST_IN_PROGRESS' || attempt === CREATE_SESSION_PENDING_RETRIES) {
+      return response;
+    }
+
+    const retryAfterSeconds = Number(response.headers.get('Retry-After')) || 2;
+    await new Promise((resolve) => {
+      setTimeout(resolve, Math.max(250, retryAfterSeconds * 1000));
+    });
+  }
+
+  throw new Error('Clickatron session creation retry budget was exhausted.');
+}
+
 const useClickatronStore = create<ClickatronStore>()(
   devtools(
     (set, get) => ({
@@ -67,18 +128,25 @@ const useClickatronStore = create<ClickatronStore>()(
             formData.append('brandId', activeBrandId);
           }
 
-          const response = await fetch('/api/services/clickatron/session', {
-            method: 'POST',
-            body: formData,
-          });
+          const requestFingerprint = buildClickatronSessionRequestFingerprint(formData);
+          const idempotencyKey = getCreateSessionRequestKey(requestFingerprint);
+          const response = await postCreateSession(formData, idempotencyKey);
 
           if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Failed to create session:', errorText);
-            throw new Error('Failed to create session');
+            const errorBody = await response.json().catch(() => null);
+            if (response.status < 500 && errorBody?.code !== 'REQUEST_IN_PROGRESS') {
+              pendingCreateSessionRequests.delete(requestFingerprint);
+            }
+            const message = errorBody?.error || `Failed to create session (${response.status})`;
+            console.error('Failed to create session:', message);
+            throw new Error(message);
           }
 
           const data = await response.json();
+          if (!data?.sessionId || !data?.variation) {
+            throw new Error('Clickatron returned an incomplete session response.');
+          }
+          pendingCreateSessionRequests.delete(requestFingerprint);
 
           // Set the new task in the store immediately
           set(produce((state: ClickatronStore) => {

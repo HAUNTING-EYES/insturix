@@ -60,6 +60,7 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
 }));
 
 import { normalizeAgentToolArgs } from '@/lib/editron/agent/agent-graph';
+import type { ChatRequestOwnerLicense } from '@/lib/editron/agent/chat-request-owner';
 import { CHAT_TOOL_REGISTRY } from '@/lib/editron/agent/chat-tool-registry';
 import { createTools } from '@/lib/editron/agent/tools';
 import { resolveRuntimeMusicCoveragePlan } from '@/lib/editron/services/music-coverage-runtime';
@@ -228,11 +229,70 @@ describe('chat Phase 3G operation contracts', () => {
       text: 'Poster alt text',
     });
 
+    const trustedTimelineLicense: ChatRequestOwnerLicense = {
+      version: 'editron-chat-request-owner-v1',
+      owner: 'semantic-editorial-planner',
+      confidence: 1,
+      reason: 'Trusted visible timeline.',
+      requestDigest: 'digest',
+      decidedBy: 'gemini',
+      semanticWorkflow: 'editorial-plan',
+      routingFacts: {
+        requestsMutation: true,
+        requestsAnalysis: false,
+        requiresContentLocalization: false,
+        requiresEditorialJudgment: true,
+        requestsReferenceStyle: false,
+        requestsBroadEditorialOutcome: false,
+        durableOperation: 'none',
+        operationFullySpecified: false,
+        targetFullySpecified: true,
+        timelineReference: 'visible-timeline',
+        localizedReads: [],
+        localizedEdits: [],
+        requestedCapabilities: ['project-edit'],
+        capabilityEvidence: [],
+        familyDirectives: [],
+        familyScopeExclusive: false,
+      },
+      trustedTimelineTarget: {
+        status: 'ready',
+        reference: 'visible-timeline',
+        startFrame: 120,
+        endFrame: 360,
+      },
+    };
+    expect(normalizeAgentToolArgs('apply_editorial_intent', {
+      scopeKind: 'project',
+      startFrame: 999,
+      endFrame: 1_500,
+      overlayIds: ['forged-overlay'],
+      instruction: 'Tighten this visible section without changing the rest.',
+    }, { requestOwnerLicense: trustedTimelineLicense })).toEqual({
+      scopeKind: 'selection',
+      startFrame: 120,
+      endFrame: 360,
+      instruction: 'Tighten this visible section without changing the rest.',
+    });
+    expect(() => normalizeAgentToolArgs('apply_editorial_intent', {
+      instruction: 'Tighten this visible section.',
+    }, {
+      requestOwnerLicense: {
+        ...trustedTimelineLicense,
+        trustedTimelineTarget: {
+          status: 'unavailable',
+          reference: 'visible-timeline',
+        },
+      },
+    })).toThrow('Trusted visible-timeline context is unavailable');
+
     const routeSource = readFileSync(join(
       process.cwd(),
       'app/api/services/editron/chat/stream/route.ts',
     ), 'utf8');
     expect(routeSource).toContain('projectFps: project.fps');
+    expect(routeSource).toContain('bindTrustedTimelineTarget(');
+    expect(routeSource).toContain('visibleTimelinePresent: Boolean(chatEditContext.visibleTimeline)');
   });
 
   it('revises an existing HTML scene under the same overlay identity', async () => {
@@ -268,7 +328,11 @@ describe('chat Phase 3G operation contracts', () => {
 
     expect(result, JSON.stringify(result)).toMatchObject({
       status: 'success',
-      data: { id: 41, replacedInPlace: true },
+      data: {
+        id: 41,
+        replacedInPlace: true,
+        affectedFrameRanges: [{ startFrame: 120, endFrame: 300 }],
+      },
     });
     expect(update).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledWith('user_1', 'proj_phase3g', 41, expect.objectContaining({

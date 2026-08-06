@@ -1,7 +1,14 @@
 import { nanoid } from "nanoid";
 import { ClickatronTask } from "@/schemas/Clickatron";
 import { getClickatronDb } from "@/lib/clickatron-mongo";
-import { createJob } from "@/lib/clickatron-jobs";
+import {
+  claimIdempotencyKey,
+  commitIdempotencyKey,
+  createJob,
+  failQueuedJob,
+  recordJobCreditTransaction,
+  releaseIdempotencyKey,
+} from "@/lib/clickatron-jobs";
 import { enqueueClickatronJob } from "@/lib/clickatron-qtask";
 import { resolveClickatronModelForGeneration } from "@/lib/config/clickatron-models";
 import type { ClickatronSourceContext } from "@/types/clickatron";
@@ -14,9 +21,9 @@ import type { ClickatronSourceContext } from "@/types/clickatron";
  * job. This extracts that mechanism into one place so callers don't duplicate the task/variation/job
  * shapes (which must stay in lockstep with the worker that consumes them).
  *
- * DELIBERATELY caller-owned (NOT in here): credits (check/deduct/refund), reference-image R2 upload,
- * carousel fan-out, and idempotency. Those are request-specific; moving billing into a shared helper
- * would couple every caller's wallet semantics. This helper only does: task + variation + job + enqueue.
+ * Credit deduction/refund remains caller-owned. The helper receives the resulting transaction and
+ * stable operation key so the durable Redis job carries its exact billing ledger before dispatch and
+ * retries reuse the original task/job instead of creating duplicate provider work.
  *
  * The completion side is already built: the worker reads `metadata.sourceContext.calosDeliverableId`
  * (and requires `task.brandId`) to land the finished image back on the CalOS card via
@@ -31,6 +38,9 @@ export interface CreateClickatronImageJobParams {
   brandId: string;
   /** The image-generation prompt (e.g. PostWriter's singleImagePrompt). */
   prompt: string;
+  /** Caller-owned durable variation identity. CalOS supplies its Mongo lease ID so completion can
+   *  prove ownership even if the kickoff request dies before the final Redis job ID is linked. */
+  variationId?: string;
   /** Aspect ratio for the still. Defaults to "1:1" — square renders on every social surface (IG feed,
    *  LinkedIn, X, FB); platform-aware sizing is a follow-up. */
   aspectRatio?: string;
@@ -42,6 +52,11 @@ export interface CreateClickatronImageJobParams {
   sourceContext?: ClickatronSourceContext;
   /** R2 refs for any reference images (empty for a from-scratch CalOS still). */
   referenceImageRefs?: string[];
+  /** Required by the IO helper (but not the pure planner): exact caller-owned debit to attach. */
+  creditTransactionId?: string;
+  chargedCredits?: number;
+  /** Stable for one CalOS deliverable version + generation claim. */
+  idempotencyKey?: string;
 }
 
 /** A single generating variation on a Clickatron canvas (matches the session-route shape). */
@@ -113,7 +128,7 @@ export function buildClickatronImageJobPlan(
   const modelId = resolved.modelId;
 
   const metadata = params.sourceContext ? { sourceContext: params.sourceContext } : undefined;
-  const variationId = nanoid();
+  const variationId = params.variationId || nanoid();
 
   const variation: PlannedVariation = {
     id: variationId,
@@ -163,37 +178,299 @@ export interface CreateClickatronImageJobResult {
   sessionId?: string;
   variationId?: string;
   jobId?: string;
+  /** True only when no worker can still claim this work, so the caller may safely refund. */
+  refundable?: boolean;
+  dispatchUncertain?: boolean;
+  inProgress?: boolean;
+  reused?: boolean;
   error?: string;
 }
 
+interface CommittedKickoff {
+  sessionId: string;
+  variationId: string;
+  jobId: string;
+}
+
+function parseCommittedKickoff(
+  value: string,
+  expectedVariationId?: string,
+): CommittedKickoff | null {
+  try {
+    const parsed = JSON.parse(value) as Partial<CommittedKickoff>;
+    if (
+      typeof parsed.sessionId !== "string"
+      || typeof parsed.variationId !== "string"
+      || typeof parsed.jobId !== "string"
+      || (expectedVariationId && parsed.variationId !== expectedVariationId)
+    ) {
+      return null;
+    }
+    return parsed as CommittedKickoff;
+  } catch {
+    return null;
+  }
+}
+
+async function markKickoffVariationFailed(
+  sessionId: string,
+  variationId: string,
+  error: string,
+): Promise<boolean> {
+  try {
+    const result = await ClickatronTask.updateOne(
+      { _id: sessionId, "details.canvas.variations.id": variationId },
+      {
+        $set: {
+          "details.canvas.variations.$.status": "failed",
+          "details.canvas.variations.$.error": error,
+          "details.canvas.variations.$.updatedAt": new Date(),
+        },
+      },
+    );
+    return result.matchedCount === 1;
+  } catch (persistError) {
+    console.error("[CalOS] failed to terminalize Clickatron kickoff variation:", persistError);
+    return false;
+  }
+}
+
+async function reconcileUnclaimedKickoff(
+  sessionId: string,
+  variationId: string,
+  jobId: string,
+  code: string,
+  error: string,
+): Promise<{ accepted: boolean; refundable: boolean }> {
+  try {
+    const failed = await failQueuedJob(jobId, { code, message: error });
+    if (failed.outcome === "updated" || failed.outcome === "missing") {
+      return {
+        accepted: false,
+        refundable: await markKickoffVariationFailed(sessionId, variationId, error),
+      };
+    }
+    if (
+      failed.outcome === "rejected"
+      && (failed.job?.status === "running" || failed.job?.status === "completed")
+    ) {
+      return { accepted: true, refundable: false };
+    }
+    if (
+      failed.outcome === "rejected"
+      && (failed.job?.status === "failed" || failed.job?.status === "canceled")
+    ) {
+      return {
+        accepted: false,
+        refundable: await markKickoffVariationFailed(sessionId, variationId, error),
+      };
+    }
+    return { accepted: false, refundable: false };
+  } catch (reconcileError) {
+    console.error("[CalOS] Clickatron kickoff reconciliation failed:", reconcileError);
+    return { accepted: false, refundable: false };
+  }
+}
+
 /**
- * Create a Clickatron session + generating variation and enqueue its generation job. Best-effort by
- * contract: returns `{ ok:false, error }` on any failure rather than throwing, so a CalOS caller can
- * keep the card's caption + refund its own image charge without the whole request failing.
+ * Create a Clickatron session + generating variation and enqueue its generation job. Queue failures
+ * are reconciled against the durable Redis job: only a queued-only terminal transition makes the
+ * result refundable; a worker that already claimed the job keeps ownership despite a lost dispatch
+ * acknowledgement.
  */
 export async function createClickatronImageJob(
   params: CreateClickatronImageJobParams,
 ): Promise<CreateClickatronImageJobResult> {
-  if (!params.prompt?.trim()) return { ok: false, error: "empty image prompt" };
-  if (!params.brandId) return { ok: false, error: "brandId is required (worker gates card write-back on it)" };
+  if (!params.prompt?.trim()) return { ok: false, refundable: true, error: "empty image prompt" };
+  if (!params.brandId) {
+    return {
+      ok: false,
+      refundable: true,
+      error: "brandId is required (worker gates card write-back on it)",
+    };
+  }
+  if (
+    !params.creditTransactionId
+    || !params.idempotencyKey
+    || typeof params.chargedCredits !== "number"
+    || !Number.isFinite(params.chargedCredits)
+    || params.chargedCredits < 0
+  ) {
+    return { ok: false, refundable: true, error: "durable image billing context is required" };
+  }
+
+  let sessionId: string | undefined;
+  let variationId: string | undefined;
+  let jobId: string | undefined;
+  let taskPersisted = false;
+  const idempotencyClaimToken = nanoid();
+  let ownsIdempotencyClaim = false;
+  let idempotencyCommitted = false;
+
+  const releaseIdempotencyClaim = async () => {
+    if (!ownsIdempotencyClaim || idempotencyCommitted) return;
+    try {
+      await releaseIdempotencyKey(params.idempotencyKey!, idempotencyClaimToken);
+      ownsIdempotencyClaim = false;
+    } catch (error) {
+      console.error("[CalOS] failed to release Clickatron idempotency claim:", error);
+    }
+  };
 
   try {
+    const idempotency = await claimIdempotencyKey(
+      params.idempotencyKey,
+      idempotencyClaimToken,
+    );
+    if (idempotency.outcome === "existing") {
+      if (idempotency.value.startsWith("pending:")) {
+        return {
+          ok: false,
+          inProgress: true,
+          refundable: false,
+          error: "An identical image kickoff is already in progress",
+        };
+      }
+      const existing = parseCommittedKickoff(idempotency.value, params.variationId);
+      if (!existing) {
+        return {
+          ok: false,
+          refundable: false,
+          error: "Clickatron image idempotency state is invalid",
+        };
+      }
+      return { ok: true, reused: true, ...existing };
+    }
+    ownsIdempotencyClaim = true;
+
     const plan = buildClickatronImageJobPlan(params);
+    variationId = plan.variationId;
 
     await getClickatronDb();
     const task = new ClickatronTask(plan.taskFields);
-    const sessionId = task._id.toString();
+    sessionId = task._id.toString();
     await task.save();
+    taskPersisted = true;
 
-    const jobData = { ...plan.jobDataBase, sessionId };
-    const jobId = await createJob(jobData);
-    await enqueueClickatronJob({ jobId, ...jobData });
+    const jobData = {
+      ...plan.jobDataBase,
+      sessionId,
+      metadata: {
+        ...(plan.jobDataBase.metadata || {}),
+        creditTransactionId: params.creditTransactionId,
+        chargedCredits: params.chargedCredits,
+      },
+    };
+    jobId = await createJob(jobData);
 
-    return { ok: true, sessionId, variationId: plan.variationId, jobId };
+    const billingRecorded = await recordJobCreditTransaction(
+      jobId,
+      params.creditTransactionId,
+      params.chargedCredits,
+    );
+    if (!billingRecorded) {
+      const error = "Credit transaction could not be verified on the generation job";
+      const reconciled = await reconcileUnclaimedKickoff(
+        sessionId,
+        variationId,
+        jobId,
+        "CREDIT_LEDGER_ATTACH_FAILED",
+        error,
+      );
+      if (reconciled.refundable) await releaseIdempotencyClaim();
+      return {
+        ok: reconciled.accepted,
+        refundable: reconciled.refundable,
+        dispatchUncertain: reconciled.accepted || undefined,
+        sessionId,
+        variationId,
+        jobId,
+        error,
+      };
+    }
+
+    const committed = await commitIdempotencyKey(
+      params.idempotencyKey,
+      idempotencyClaimToken,
+      JSON.stringify({ sessionId, variationId, jobId }),
+    );
+    if (!committed) {
+      const error = "Failed to commit image kickoff idempotency state";
+      const reconciled = await reconcileUnclaimedKickoff(
+        sessionId,
+        variationId,
+        jobId,
+        "IDEMPOTENCY_COMMIT_FAILED",
+        error,
+      );
+      if (reconciled.refundable) await releaseIdempotencyClaim();
+      return {
+        ok: reconciled.accepted,
+        refundable: reconciled.refundable,
+        dispatchUncertain: reconciled.accepted || undefined,
+        sessionId,
+        variationId,
+        jobId,
+        error,
+      };
+    }
+    idempotencyCommitted = true;
+
+    try {
+      await enqueueClickatronJob({ jobId, ...jobData });
+    } catch (dispatchError) {
+      const error = dispatchError instanceof Error ? dispatchError.message : "Queue dispatch failed";
+      const reconciled = await reconcileUnclaimedKickoff(
+        sessionId,
+        variationId,
+        jobId,
+        "QUEUE_DISPATCH_FAILED",
+        error,
+      );
+      return {
+        ok: reconciled.accepted,
+        refundable: reconciled.refundable,
+        dispatchUncertain: reconciled.accepted || undefined,
+        sessionId,
+        variationId,
+        jobId,
+        error,
+      };
+    }
+
+    return { ok: true, sessionId, variationId, jobId };
   } catch (err) {
+    const error = err instanceof Error ? err.message : "createClickatronImageJob failed";
+    if (jobId && sessionId && variationId) {
+      const reconciled = await reconcileUnclaimedKickoff(
+        sessionId,
+        variationId,
+        jobId,
+        "KICKOFF_PREPARATION_FAILED",
+        error,
+      );
+      if (reconciled.refundable) await releaseIdempotencyClaim();
+      return {
+        ok: reconciled.accepted,
+        refundable: reconciled.refundable,
+        dispatchUncertain: reconciled.accepted || undefined,
+        sessionId,
+        variationId,
+        jobId,
+        error,
+      };
+    }
+    const variationFailed = !taskPersisted || !sessionId || !variationId
+      ? true
+      : await markKickoffVariationFailed(sessionId, variationId, error);
+    if (variationFailed) await releaseIdempotencyClaim();
     return {
       ok: false,
-      error: err instanceof Error ? err.message : "createClickatronImageJob failed",
+      refundable: variationFailed,
+      sessionId,
+      variationId,
+      jobId,
+      error,
     };
   }
 }

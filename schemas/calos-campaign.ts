@@ -11,6 +11,8 @@ export interface CalosCadenceRule {
   platform: string; // 'youtube' | 'instagram' | 'linkedin' | 'facebook' | 'twitter' | string
   perWeek: number; // target posts per week for this platform
   preferredDays: number[]; // 0=Sun .. 6=Sat (date-fns convention)
+  format?: string; // optional required ContentCard format for every slot in this rule
+  targetDurationSeconds?: number; // explicit user requirement; final resolution stays downstream
 }
 
 /** A source material the user attaches to a campaign so generation writes FROM it, not just the brand
@@ -67,6 +69,8 @@ const CadenceRuleSchema = new Schema<CalosCadenceRule>(
     platform: { type: String, required: true },
     perWeek: { type: Number, required: true, default: 1 },
     preferredDays: { type: [Number], default: [] },
+    format: { type: String },
+    targetDurationSeconds: { type: Number },
   },
   { _id: false }
 );

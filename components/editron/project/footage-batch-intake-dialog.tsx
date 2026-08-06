@@ -26,6 +26,8 @@ import {
   normalizeEditorialPreferences,
   type EditorialPreferences,
 } from '@/lib/editron/production-brief/editorial-preferences';
+import { SourceMediaRightsControl } from '@/components/editron/project/source-media-rights-control';
+import { CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION } from '@/lib/editron/services/native-video-audio-rights';
 
 interface FootageBatchIntakeDialogProps {
   files: File[];
@@ -49,6 +51,7 @@ export function FootageBatchIntakeDialog({
   const [userIntent, setUserIntent] = useState('');
   const [script, setScript] = useState('');
   const [editorialPreferences, setEditorialPreferences] = useState<EditorialPreferences>({});
+  const [rightsAttested, setRightsAttested] = useState(false);
 
   const inventory = useMemo(() => {
     let videos = 0;
@@ -68,6 +71,7 @@ export function FootageBatchIntakeDialog({
     setUserIntent('');
     setScript('');
     setEditorialPreferences({});
+    setRightsAttested(false);
   }, []);
 
   const close = useCallback(() => {
@@ -76,7 +80,10 @@ export function FootageBatchIntakeDialog({
   }, [onCancel, reset]);
 
   const confirm = useCallback(() => {
-    const options: AutoEditOptions = {};
+    if (!rightsAttested) return;
+    const options: AutoEditOptions = {
+      sourceMediaRightsAttestation: CURRENT_NATIVE_VIDEO_AUDIO_RIGHTS_ATTESTATION,
+    };
     if (platform !== 'auto') options.platform = platform;
     if (aspectRatio !== '16:9') options.aspectRatio = aspectRatio;
     if (userIntent.trim()) options.userIntent = userIntent.trim();
@@ -85,7 +92,7 @@ export function FootageBatchIntakeDialog({
     if (normalizedPreferences) options.editorialPreferences = normalizedPreferences;
     onConfirm(options);
     reset();
-  }, [aspectRatio, editorialPreferences, onConfirm, platform, reset, script, userIntent]);
+  }, [aspectRatio, editorialPreferences, onConfirm, platform, reset, rightsAttested, script, userIntent]);
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) close(); }}>
@@ -120,6 +127,11 @@ export function FootageBatchIntakeDialog({
         </div>
 
         <div className="grid gap-4">
+          <SourceMediaRightsControl
+            checked={rightsAttested}
+            onCheckedChange={setRightsAttested}
+          />
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
               <Label className="text-[#B5B2A8]">Platform</Label>
@@ -176,7 +188,7 @@ export function FootageBatchIntakeDialog({
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={close}>Cancel</Button>
-          <Button type="button" onClick={confirm} disabled={files.length === 0}>
+          <Button type="button" onClick={confirm} disabled={files.length === 0 || !rightsAttested}>
             Upload and analyze batch
           </Button>
         </DialogFooter>

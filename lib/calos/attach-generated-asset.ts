@@ -13,11 +13,9 @@ import CalosDeliverable, { type CalosServiceRef } from "@/schemas/calos-delivera
  * - DIRECT Mongoose write, never an HTTP self-callback. The calling worker has no Clerk session
  *   and shares this same DB/connection, so an HTTP round-trip would only add an auth wall + a
  *   network failure mode for zero benefit.
- * - IDEMPOTENT first-write-wins. Both Clickatron (QStash ≤3 retries) and Editron (per-poll
- *   re-emit) can deliver the SAME completion more than once, so every write is guarded: it only
- *   fires while the card is still `drafting` with no asset yet. This can never clobber a human
- *   review/approval or a duplicate delivery, and on the failure side a late/duplicate failure can
- *   never revert a card that already generated (success-wins).
+ * - CLAIM-BOUND and idempotent. A callback must match the active service, deliverable version, and
+ *   either the final job ID or the pre-dispatch variation lease. The latter closes the crash window
+ *   where Clickatron finishes before the kickoff request stores its final job ID.
  * - FAIL LOUD (R18N). A "not found" means a service finished work for a card we can't resolve —
  *   a real wiring bug — so it is logged, not swallowed silently. DB errors propagate to the
  *   caller (the worker wraps the call so it can never fail the underlying job).
@@ -44,6 +42,7 @@ export interface MarkFailedParams {
 export type AssetCallbackReason =
   | "attached"
   | "already_attached"
+  | "stale_generation"
   | "not_attachable"
   | "not_found"
   | "invalid";
@@ -53,17 +52,56 @@ export interface AssetCallbackResult {
   reason: AssetCallbackReason;
 }
 
-/** Merge an incoming serviceRef onto whatever's stored, tolerating a Mongoose subdoc or plain object. */
-function mergeServiceRef(
-  existing: unknown,
+function asServiceRef(value: unknown): CalosServiceRef | undefined {
+  if (!value) return undefined;
+  return typeof (value as { toObject?: () => CalosServiceRef }).toObject === "function"
+    ? (value as { toObject: () => CalosServiceRef }).toObject()
+    : (value as CalosServiceRef);
+}
+
+/** Merge an incoming serviceRef onto whatever is stored, tolerating a Mongoose subdoc or plain object. */
+function mergeServiceRef(existing: unknown, incoming: CalosServiceRef | undefined) {
+  const base = asServiceRef(existing);
+  if (!incoming) return base;
+  const merged = { ...base, ...incoming };
+  delete merged.claimExpiresAt;
+  return merged;
+}
+
+function isCurrentGeneration(
+  deliverable: { version: number; serviceRef?: unknown },
   incoming: CalosServiceRef | undefined,
-): CalosServiceRef | undefined {
-  if (!incoming) return existing as CalosServiceRef | undefined;
-  const base: CalosServiceRef =
-    existing && typeof (existing as { toObject?: () => CalosServiceRef }).toObject === "function"
-      ? (existing as { toObject: () => CalosServiceRef }).toObject()
-      : ((existing as CalosServiceRef | undefined) ?? {});
-  return { ...base, ...incoming };
+) {
+  const current = asServiceRef(deliverable.serviceRef);
+  const jobMatches = Boolean(incoming?.jobId && current?.jobId === incoming.jobId);
+  const variationMatches = Boolean(
+    incoming?.variationId && current?.variationId === incoming.variationId,
+  );
+  return Boolean(
+    incoming?.service &&
+      current?.service === incoming.service &&
+      (jobMatches || variationMatches) &&
+      Number.isInteger(current.deliverableVersion) &&
+      current.deliverableVersion === deliverable.version,
+  );
+}
+
+function logStaleGeneration(
+  action: "attach" | "markFailed",
+  deliverable: { version: number; serviceRef?: unknown },
+  incoming: CalosServiceRef | undefined,
+) {
+  const current = asServiceRef(deliverable.serviceRef);
+  console.warn(`${LOG} ${action}: stale generation ignored`, {
+    currentService: current?.service ?? null,
+    incomingService: incoming?.service ?? null,
+    currentJobId: current?.jobId ?? null,
+    incomingJobId: incoming?.jobId ?? null,
+    currentVariationId: current?.variationId ?? null,
+    incomingVariationId: incoming?.variationId ?? null,
+    currentVersion: deliverable.version,
+    claimedVersion: current?.deliverableVersion ?? null,
+  });
 }
 
 async function findScopedDeliverable(deliverableId: string, ownerUserId: string, brandId: string) {
@@ -104,6 +142,10 @@ export async function attachGeneratedAsset(params: AttachAssetParams): Promise<A
   if (deliverable.assetUrl || deliverable.editorialStatus !== "drafting") {
     return { ok: true, reason: "already_attached" };
   }
+  if (!isCurrentGeneration(deliverable, serviceRef)) {
+    logStaleGeneration("attach", deliverable, serviceRef);
+    return { ok: true, reason: "stale_generation" };
+  }
 
   deliverable.assetUrl = assetUrl;
   deliverable.serviceRef = mergeServiceRef(deliverable.serviceRef, serviceRef);
@@ -134,6 +176,10 @@ export async function markGeneratedAssetFailed(params: MarkFailedParams): Promis
   // Success wins: don't overwrite a card that already generated or advanced past drafting.
   if (deliverable.assetUrl || deliverable.editorialStatus !== "drafting") {
     return { ok: true, reason: "not_attachable" };
+  }
+  if (!isCurrentGeneration(deliverable, serviceRef)) {
+    logStaleGeneration("markFailed", deliverable, serviceRef);
+    return { ok: true, reason: "stale_generation" };
   }
 
   deliverable.errorMessage = errorMessage;

@@ -26,8 +26,8 @@ export const PostWriterResultSchema = z.object({
     violations: z.array(z.string()).describe('List of platform or brand rule violations (ideally empty)'),
   }),
   clickatron: z.object({
-    singleImagePrompt: z.string().optional().describe('A detailed prompt to generate a single accompanying image using Clickatron. MUST include specific physical props/elements and explicitly define any Text Overlays (headings, dates, locations, quotes).'),
-    carouselPrompts: z.array(z.string()).optional().describe('An array of detailed prompts for each slide if this should be a carousel. MUST include specific physical props/elements and explicitly define any Text Overlays.'),
+    singleImagePrompt: z.string().optional().describe('A visual-only prompt for one Clickatron raster background. Describe concrete scene, composition, props, lighting, style, mood, and safe zones. Never include readable copy, text-overlay instructions, logos, watermarks, or legible UI labels.'),
+    carouselPrompts: z.array(z.string()).optional().describe('One visual-only raster-background prompt per carousel slide. Each prompt must describe a distinct grounded scene and consistent visual system without readable copy, text-overlay instructions, logos, watermarks, or legible UI labels.'),
   }),
   metadata: z.object({
     platform: z.string().describe('The targeted platform (linkedin, twitter, etc)'),
@@ -213,7 +213,10 @@ ANTI-FILLER
 
 VISUAL HANDOFF
 - The clickatron field is part of the deliverable, not optional decoration.
-- Image prompts must carry the same source facts as the post and include editable overlay text when text appears.
+- Image prompts must carry the same source facts as the post through scene, composition, props, lighting, style, mood, and layout.
+- Keep every image prompt visual-only. Never include exact headlines, captions, dates, hashtags, CTA copy, "Text Overlay:" metadata, logos, watermarks, or readable UI labels.
+- Exact copy remains in content and is derived into editable Clickatron text layers downstream.
+- When a scene contains screens or interfaces, describe them as abstract or defocused shapes with no legible text or invented brand marks.
 </rules>
 
 ${editContext ? `<edit_rules>

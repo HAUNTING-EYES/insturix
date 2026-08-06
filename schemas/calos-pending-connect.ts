@@ -25,6 +25,7 @@ export interface ICalosPendingConnect extends Document {
   accessTokenEnc: string;
   refreshTokenEnc?: string | null;
   tokenExpiresAt?: Date | null;
+  scopes: string[];
   availableAccounts: ICalosPendingAccount[];
   expiresAt: Date;
   createdAt: Date;
@@ -54,6 +55,7 @@ const CalosPendingConnectSchema = new Schema<ICalosPendingConnect>(
     accessTokenEnc: { type: String, required: true },
     refreshTokenEnc: { type: String, default: null },
     tokenExpiresAt: { type: Date, default: null },
+    scopes: { type: [String], default: [] },
     availableAccounts: { type: [PendingAccountSchema], default: [] },
     expiresAt: { type: Date, required: true },
   },

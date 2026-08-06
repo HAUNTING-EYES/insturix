@@ -43,6 +43,10 @@ const MAX_AUTH_TTL_MS = 60 * 60 * 1_000;
 const DEFAULT_DIRECTOR_SAVE_BARRIER_TIMEOUT_MS = 90 * 1_000;
 const MAX_DIRECTOR_SAVE_BARRIER_TIMEOUT_MS = 3 * 60 * 1_000;
 const DIRECTOR_SAVE_BARRIER_POLL_MS = 2 * 1_000;
+const DEFAULT_TRANSIENT_RETRY_BASE_MS = 15 * 1_000;
+const DEFAULT_RATE_LIMIT_RETRY_BASE_MS = 60 * 1_000;
+const DEFAULT_RETRY_MAX_MS = 8 * 60 * 1_000;
+const RETRY_JITTER_RATIO = 0.2;
 
 function required(env: EnvLike, name: string): string {
   const value = env[name]?.trim();
@@ -157,6 +161,36 @@ export interface MgRenderJobRunnerDependencies {
   getJobState?: typeof getMgRenderJobState;
   waitForProjectReady?: typeof waitForDirectorSaveBarrier;
   reconcileParent?: typeof reconcileChatEditorialIntentParent;
+}
+
+export function resolveMgRenderRetryDelayMs(
+  job: Pick<MgRenderJob, '_id' | 'attemptCount'>,
+  error: unknown,
+  env: EnvLike = process.env,
+): number {
+  const failureCode = error instanceof RetryableMgRenderResultError
+    ? error.result.receipt.failure?.code
+    : undefined;
+  const message = error instanceof Error ? error.message : String(error);
+  const rateLimited = failureCode === 'rate-limited' || /(?:\b429\b|rate.?limit|resource_exhausted)/i.test(message);
+  const configuredBase = Number(env[
+    rateLimited ? 'MG_RENDER_RATE_LIMIT_RETRY_BASE_MS' : 'MG_RENDER_TRANSIENT_RETRY_BASE_MS'
+  ]);
+  const defaultBase = rateLimited ? DEFAULT_RATE_LIMIT_RETRY_BASE_MS : DEFAULT_TRANSIENT_RETRY_BASE_MS;
+  const baseMs = Number.isInteger(configuredBase) && configuredBase >= 1_000
+    ? configuredBase
+    : defaultBase;
+  const configuredMax = Number(env.MG_RENDER_RETRY_MAX_MS);
+  const maxMs = Number.isInteger(configuredMax) && configuredMax >= baseMs
+    ? configuredMax
+    : DEFAULT_RETRY_MAX_MS;
+  const exponent = Math.max(0, Math.min(job.attemptCount - 1, 10));
+  const exponentialMs = Math.min(maxMs, baseMs * (2 ** exponent));
+  const jitterSeed = createHash('sha256')
+    .update(`${job._id}:${job.attemptCount}`)
+    .digest()
+    .readUInt32BE(0) / 0xffffffff;
+  return Math.round(Math.min(maxMs, exponentialMs * (1 + jitterSeed * RETRY_JITTER_RATIO)));
 }
 
 export class MgRenderJobExecutionError extends Error {
@@ -550,11 +584,14 @@ async function executeClaimedMgRenderJob(
     const completed = await completeJob({ jobId: claimed._id, leaseId, result });
     if (!completed) throw new Error(`MG render job ${claimed._id} lost its lease before completion`);
   } catch (error) {
+    const retryable = retryableSandboxFailure(error);
     const disposition = await failJob({
       jobId: claimed._id,
       leaseId,
       error,
-      retryable: retryableSandboxFailure(error),
+      retryable,
+      ...(retryable ? { retryDelayMs: resolveMgRenderRetryDelayMs(claimed, error, env) } : {}),
+      retryDeadlineAt: claimed.retryDeadlineAt,
     });
     if (deliver && disposition === 'failed') {
       try {
@@ -582,6 +619,29 @@ async function executeClaimedMgRenderJob(
     });
   }
   return result;
+}
+
+async function tombstoneMissingProjectMgRenderJob(
+  jobId: string,
+  projectId: string,
+  userId: string,
+  cause: Error,
+  now: Date,
+): Promise<void> {
+  await (await getDatabase()).collection<MgRenderJob>(COLLECTIONS.MG_RENDER_JOBS).updateOne(
+    { _id: jobId },
+    {
+      $set: {
+        status: 'failed',
+        leaseId: null,
+        leaseExpiresAt: null,
+        lastError: `project-missing-tombstone: ${cause.message}`,
+        completedAt: now,
+        updatedAt: now,
+      },
+    },
+  );
+  console.warn(`[MGRenderWorker] ${jobId} tombstoned: project ${projectId} for user ${userId} no longer exists`);
 }
 
 export async function executeQueuedMgRenderJob(
@@ -625,11 +685,33 @@ export async function executeQueuedMgRenderJob(
     };
   }
   if (state.status === 'queued') {
-    const ready = await (dependencies.waitForProjectReady ?? waitForDirectorSaveBarrier)(
-      state.projectId,
-      state.userId,
-      env,
-    );
+    let ready: boolean;
+    try {
+      ready = await (dependencies.waitForProjectReady ?? waitForDirectorSaveBarrier)(
+        state.projectId,
+        state.userId,
+        env,
+      );
+    } catch (error) {
+      // The project is gone (disposable fixture cleanup or user deletion) while this durable job was still
+      // queued. Tombstone it terminally instead of throwing into a QStash 500 retry storm — the job can
+      // never succeed without its project. Observed: grounded-process-mg matrix run, 2026-08-03.
+      if (error instanceof Error && /project missing|ownership mismatch/i.test(error.message)) {
+        await tombstoneMissingProjectMgRenderJob(jobId, state.projectId, state.userId, error, options.now ?? new Date());
+        await (dependencies.reconcileParent ?? reconcileChatEditorialIntentParent)({
+          jobId,
+          projectId: state.projectId,
+          userId: state.userId,
+        }).catch(() => undefined);
+        return {
+          status: 'not-claimed',
+          jobStatus: 'failed',
+          leaseExpiresAt: null,
+          nextAttemptAt: null,
+        };
+      }
+      throw error;
+    }
     if (!ready) {
       return {
         status: 'not-claimed',

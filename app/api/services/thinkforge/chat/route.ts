@@ -10,7 +10,9 @@ import * as db from '@/lib/thinkforge/services/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// Structured writers routinely need longer than the platform's 60-second default.
+// Keep this aligned with the stale-generation watchdog in generation/status.
+export const maxDuration = 300;
 
 /**
  * Unified chat endpoint

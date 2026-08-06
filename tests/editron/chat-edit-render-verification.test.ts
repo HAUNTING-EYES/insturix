@@ -76,7 +76,7 @@ describe('chat edit rendered verification', () => {
     expect(request.sampleFrames).toEqual([40, 41]);
   });
 
-  it('requires both visual and audio proof for timeline mutations on a video', () => {
+  it('trusts the postcondition receipt modality for timeline mutations', () => {
     const request = buildRequest({
       name: 'trim_overlay',
       args: { overlayId: 'video_1', startFrame: 45, endFrame: 150 },
@@ -84,7 +84,7 @@ describe('chat edit rendered verification', () => {
       modalities: ['visual'],
     });
 
-    expect(new Set(request.modalities)).toEqual(new Set(['visual', 'audio']));
+    expect(request.modalities).toEqual(['visual']);
   });
 
   it('marks a lossless split as continuity-preserving instead of requiring changed pixels or audio', () => {
@@ -98,6 +98,46 @@ describe('chat edit rendered verification', () => {
 
     expect(request.expectedEffect).toBe('continuity-preserved');
     expect(request.sampleFrames).toEqual([73, 74, 75, 76, 77]);
+  });
+
+  it('proves closed gaps through changed picture and preserved audio', async () => {
+    const request = buildRequest({
+      name: 'close_gaps',
+      args: {},
+      target: { overlayId: 'video_1', overlayType: 'video', state: 'updated', from: 0, endFrame: 150 },
+      modalities: ['visual', 'audio'],
+      affectedFrameRange: { startFrame: 74, endFrame: 77 },
+    });
+
+    expect(request.expectedEffect).toBe('mutation-delta');
+    expect(request.expectationsByModality).toEqual({
+      visual: 'mutation-delta',
+      audio: 'continuity-preserved',
+    });
+
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      afterProject(),
+      beforeProject(),
+      request,
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        inspectAudioTrack: async () => ({
+          status: 'present',
+          audioTrackCount: 1,
+          reason: null,
+        }),
+        renderAudioWindow: async () => ({
+          url: 'https://example.com/same.wav',
+          renderId: 'same-render',
+          bucketName: 'render-bucket',
+          pcmSha256: 'same-pcm',
+          rms: 0.2,
+          peak: 0.5,
+        }),
+      },
+    );
+    expect(evidence.status, evidence.reason ?? 'no reason').toBe('pass');
   });
 
   it('carries an owner-reported mutation range into exact seam samples and audio windows', () => {
@@ -171,6 +211,135 @@ describe('chat edit rendered verification', () => {
       url: 'https://example.com/after-f45.png',
       baselineUrl: 'https://example.com/before-f45.png',
     });
+  });
+
+  it('uses separate immutable controls for mutation proof and post-edit overlay quality', async () => {
+    const before = projectWithOverlays([{
+      id: 'txt_after',
+      type: OverlayType.TEXT,
+      from: 30,
+      durationInFrames: 60,
+      left: 60,
+      top: 60,
+      width: 200,
+      height: 60,
+      content: 'Old copy',
+      styles: { fontSize: '32px', color: '#111111' },
+    }]);
+    const after = projectWithOverlays([{
+      id: 'txt_after',
+      type: OverlayType.TEXT,
+      from: 30,
+      durationInFrames: 60,
+      left: 60,
+      top: 60,
+      width: 200,
+      height: 60,
+      content: 'New copy',
+      styles: { fontSize: '32px', color: '#ffffff' },
+    }]);
+    const renderStill = vi.fn(async (input: any) => {
+      const target = input.inputProps.overlays.find((overlay: any) => overlay.id === 'txt_after');
+      const kind = target?.content === 'New copy'
+        ? 'after'
+        : target?.content === 'Old copy'
+          ? 'before'
+          : 'aesthetic';
+      return stillResult(kind, input.frame);
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(after, {
+      baselineProject: before,
+      requestedSampleFrames: [45],
+      auditedOverlayIds: ['txt_after'],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => renderedImage(url.includes('/after-')),
+      prepareCredentials: async () => {},
+    });
+
+    expect(renderStill).toHaveBeenCalledTimes(3);
+    expect(renderStill.mock.calls[0]?.[0].inputProps.overlays)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ id: 'txt_after', content: 'New copy' })]));
+    expect(renderStill.mock.calls[1]?.[0].inputProps.overlays)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ id: 'txt_after', content: 'Old copy' })]));
+    expect(renderStill.mock.calls[2]?.[0].inputProps.overlays)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'txt_after' })]));
+    expect(evidence.renderedFrames[0]).toMatchObject({
+      url: 'https://example.com/after-f45.png',
+      baselineUrl: 'https://example.com/before-f45.png',
+      aestheticBaselineUrl: 'https://example.com/aesthetic-f45.png',
+    });
+    expect(evidence.renderedAestheticReport?.summary).toMatchObject({
+      mutationStatus: 'pass',
+      absoluteQualityStatus: 'pass',
+    });
+  });
+
+  it('does not report licensed fade endpoints as blank or invisible render failures', async () => {
+    const baseTarget = {
+      id: 'txt_after',
+      type: OverlayType.TEXT,
+      from: 30,
+      durationInFrames: 60,
+      left: 60,
+      top: 60,
+      width: 200,
+      height: 60,
+      content: 'Fade target',
+      styles: { fontSize: '32px', color: '#ffffff' },
+    };
+    const before = projectWithOverlays([baseTarget]);
+    const after = projectWithOverlays([{
+      ...baseTarget,
+      keyframeTracks: [{
+        property: 'opacity',
+        keyframes: [
+          { frame: 0, value: 0, easing: 'ease-out' },
+          { frame: 20, value: 1, easing: 'linear' },
+          { frame: 40, value: 1, easing: 'ease-in' },
+          { frame: 60, value: 0, easing: 'linear' },
+        ],
+        metadata: { family: 'fade', source: 'apply_fade', direction: 'both' },
+      }],
+    }]);
+    const renderStill = vi.fn(async (input: any) => {
+      const target = input.inputProps.overlays.find((overlay: any) => overlay.id === 'txt_after');
+      const kind = target?.keyframeTracks
+        ? 'after'
+        : target
+          ? 'before'
+          : 'aesthetic';
+      return stillResult(kind, input.frame);
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(after, {
+      baselineProject: before,
+      requestedSampleFrames: [30, 50, 70, 89],
+      auditedOverlayIds: ['txt_after'],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => {
+        const match = url.match(/\/([^/]+)-f(\d+)\.png$/);
+        const kind = match?.[1];
+        const frame = Number(match?.[2] ?? 0);
+        if (kind === 'aesthetic') return renderedImage(false);
+        if (kind === 'before') return renderedImage(true);
+        return renderedImage(frame !== 30 && frame !== 89);
+      },
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.renderedAestheticReport?.summary).toMatchObject({
+      mutationStatus: 'pass',
+      absoluteQualityStatus: 'pass',
+    });
+    expect(evidence.renderedAestheticReport?.frames?.flatMap((frame) => frame.report?.issues ?? []))
+      .not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ dimension: 'render', severity: 'fail' }),
+        expect.objectContaining({ dimension: 'visibility', severity: 'fail' }),
+        expect.objectContaining({ dimension: 'contrast', severity: 'fail' }),
+      ]));
   });
 
   it('retries only a transient still failure before declaring rendered evidence partial', async () => {
@@ -403,6 +572,39 @@ describe('chat edit rendered verification', () => {
       ]));
   });
 
+  it('treats a changed render canvas as visual mutation proof', async () => {
+    const renderStill = vi.fn(async (input: any) => {
+      const isAfter = input.inputProps.overlays.some((overlay: any) => overlay.id === 'txt_after');
+      return {
+        estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+        url: `https://example.com/${isAfter ? 'after' : 'before'}-f${input.frame}.png`,
+        outKey: `chat/${isAfter ? 'after' : 'before'}-f${input.frame}.png`,
+        bucketName: 'render-bucket',
+        renderId: `${isAfter ? 'after' : 'before'}-${input.frame}`,
+        cloudWatchLogs: 'https://logs.example.com',
+        sizeInBytes: 512,
+        artifacts: [],
+      };
+    });
+
+    const evidence = await buildPhase0RenderedStillEvidence(afterProject(), {
+      baselineProject: beforeProject(),
+      requestedSampleFrames: [45],
+      auditedOverlayIds: ['txt_after'],
+      env: configuredEnv(),
+      renderStill: renderStill as any,
+      readImage: async (url) => url.includes('/after-')
+        ? { data: Buffer.alloc(4 * 2 * 4, 240), width: 4, height: 2, channels: 4 }
+        : { data: Buffer.alloc(2 * 4 * 4, 240), width: 2, height: 4, channels: 4 },
+      prepareCredentials: async () => {},
+    });
+
+    expect(evidence.renderedAestheticReport?.summary).toMatchObject({
+      mutationStatus: 'pass',
+      mutationChangedFrameCount: 1,
+    });
+  });
+
   it('passes continuity proof only when the seam renders identically', async () => {
     const renderStill = vi.fn(async (input: any) => ({
       estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
@@ -614,6 +816,58 @@ describe('chat edit rendered verification', () => {
     expect(evidence.windows).toEqual(expect.arrayContaining([
       expect.objectContaining({ changed: false }),
     ]));
+  });
+
+  it('passes continuity proof across sub-frame decoder alignment drift', async () => {
+    const beforeWaveform = Array.from({ length: 1_200 }, (_, index) =>
+      Math.sin(index * 0.11) * 0.4 + Math.sin(index * 0.037) * 0.2);
+    const afterWaveform = beforeWaveform.map((sample, index) =>
+      index < 500 ? sample : (beforeWaveform[index - 1] ?? sample));
+    const evidence = await buildChatEditRenderedAudioEvidence(
+      afterProject(),
+      beforeProject(),
+      {
+        ...videoMutationAudioRequest(),
+        expectedEffect: 'continuity-preserved',
+      },
+      {
+        env: configuredEnv(),
+        prepareCredentials: async () => {},
+        inspectAudioTrack: async () => ({
+          status: 'present',
+          audioTrackCount: 1,
+          reason: null,
+        }),
+        renderAudioWindow: async (input) => {
+          const overlays = Array.isArray(input.inputProps.overlays) ? input.inputProps.overlays : [];
+          const isAfter = overlays.some((overlay: any) => overlay.id === 'sound_after');
+          return {
+            url: `https://example.com/${isAfter ? 'after' : 'before'}.wav`,
+            renderId: isAfter ? 'after-render' : 'before-render',
+            bucketName: 'render-bucket',
+            pcmSha256: isAfter ? 'after-shifted-pcm' : 'before-pcm',
+            rms: 0.2,
+            peak: 0.5,
+            fingerprint: {
+              sampleRate: 48_000,
+              samplesPerPoint: 24,
+              waveform: isAfter ? afterWaveform : beforeWaveform,
+            },
+          };
+        },
+      },
+    );
+
+    expect(evidence.status, evidence.reason ?? 'no reason').toBe('pass');
+    expect(evidence.windows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        changed: false,
+        comparisonMethod: 'aligned-waveform-v1',
+        rmsDeltaDb: 0,
+        peakDeltaDb: 0,
+      }),
+    ]));
+    expect(evidence.windows[0]?.similarity).toBeGreaterThan(0.985);
   });
 
   it('fails continuity proof when PCM changes across the split seam', async () => {
@@ -940,8 +1194,20 @@ function afterProject() {
       type: OverlayType.SOUND,
       from: 30,
       durationInFrames: 90,
+      assetId: 'sound_after_asset',
       src: 'https://example.com/sound.mp3',
       volume: 1,
+      audioRights: {
+        mediaRole: 'sfx',
+        source: 'generated',
+        userChoice: 'attested',
+        licensed: true,
+        evidence: {
+          kind: 'generated-provider',
+          sourceAssetId: 'sound_after_asset',
+          licenseId: 'chat-render-verification:test-provider',
+        },
+      },
     },
   ]);
 }
@@ -1004,4 +1270,17 @@ function renderedImageWithTinyDelta(changed: boolean): RawRenderedStillImage {
     }
   }
   return { width, height, channels, data };
+}
+
+function stillResult(kind: string, frame: number) {
+  return {
+    estimatedPrice: { currency: 'USD', estimatedCost: 0.001 },
+    url: `https://example.com/${kind}-f${frame}.png`,
+    outKey: `chat/${kind}-f${frame}.png`,
+    bucketName: 'render-bucket',
+    renderId: `${kind}-${frame}`,
+    cloudWatchLogs: 'https://logs.example.com',
+    sizeInBytes: 512,
+    artifacts: [],
+  };
 }

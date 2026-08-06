@@ -6,6 +6,10 @@ import {
   type MgRenderWorkerRequest,
   type MgRenderWorkerResult,
 } from './worker-contract';
+import {
+  assertProductionMgUsesGemini,
+  resolveMgComponentModel,
+} from './mg-provider-config';
 import { resolveMgVisualJudgeProviderName } from './visual-judge-provider';
 
 type EnvLike = Record<string, string | undefined>;
@@ -66,8 +70,6 @@ const DEFAULT_TIMEOUT_MS = 20 * 60 * 1_000;
 const MIN_TIMEOUT_MS = 5 * 60 * 1_000;
 const MAX_TIMEOUT_MS = 45 * 60 * 1_000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
-const DEFAULT_ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
-const DEFAULT_MG_CODEGEN_MODEL = 'glm-5v-turbo';
 
 function required(env: EnvLike, name: string): string {
   const value = env[name]?.trim();
@@ -92,10 +94,8 @@ function httpsUrl(value: string, env: EnvLike, label: string): URL {
 export function buildMgSandboxNetworkPolicy(input: {
   authorizationUrl: string;
   r2AccountId: string;
-  zaiApiUrl: string;
 }): NetworkPolicy {
   const authorizationHost = new URL(input.authorizationUrl).hostname;
-  const zaiHost = new URL(input.zaiApiUrl).hostname;
   return {
     allow: [
       'generativelanguage.googleapis.com',
@@ -103,7 +103,6 @@ export function buildMgSandboxNetworkPolicy(input: {
       // Those generated modules embed fonts.gstatic.com URLs; without this exact host, selectComposition fails
       // with a browser NetworkError before a single frame can render. Keep this narrower than general Google egress.
       'fonts.gstatic.com',
-      zaiHost,
       `${input.r2AccountId}.r2.cloudflarestorage.com`,
       authorizationHost,
     ],
@@ -136,18 +135,17 @@ export function resolveMgSandboxRuntimeConfig(input: {
   if (!authorizationToken) throw new Error('MG Sandbox: missing job-scoped storage authorization token');
   const r2AccountId = required(env, 'R2_ACCOUNT_ID');
   const visualJudgeProvider = resolveMgVisualJudgeProviderName(env);
+  const componentModel = resolveMgComponentModel(env);
+  assertProductionMgUsesGemini({ componentModel, visualJudgeProvider });
   const geminiApiKey = env.GEMINI_API_KEY?.trim() || env.GOOGLE_API_KEY?.trim();
-  if (visualJudgeProvider === 'gemini' && !geminiApiKey) {
-    throw new Error('MG Sandbox: Gemini visual judge requires GEMINI_API_KEY or GOOGLE_API_KEY');
+  if (!geminiApiKey) {
+    throw new Error('MG Sandbox: Gemini component writer and visual judge require GEMINI_API_KEY or GOOGLE_API_KEY');
   }
-  const zaiApiKey = required(env, 'ZAI_API_KEY');
-  const zaiApi = httpsUrl(env.ZAI_BASE_URL?.trim() || DEFAULT_ZAI_BASE_URL, env, 'Z.AI base URL');
 
   const workerEnv: Record<string, string> = {
     NODE_ENV: 'production',
-    ZAI_API_KEY: zaiApiKey,
-    ZAI_BASE_URL: zaiApi.toString().replace(/\/$/, ''),
-    MG_CODEGEN_MODEL: env.MG_CODEGEN_MODEL?.trim() || DEFAULT_MG_CODEGEN_MODEL,
+    GEMINI_API_KEY: geminiApiKey,
+    MG_CODEGEN_MODEL: componentModel,
     MG_VISUAL_JUDGE_PROVIDER: visualJudgeProvider,
     R2_ACCESS_KEY_ID: required(env, 'R2_ACCESS_KEY_ID'),
     R2_SECRET_ACCESS_KEY: required(env, 'R2_SECRET_ACCESS_KEY'),
@@ -155,14 +153,12 @@ export function resolveMgSandboxRuntimeConfig(input: {
     MG_STORAGE_AUTHORIZATION_URL: authorization.toString(),
     MG_STORAGE_AUTHORIZATION_TOKEN: authorizationToken,
   };
-  if (geminiApiKey) workerEnv.GEMINI_API_KEY = geminiApiKey;
   for (const name of [
     'R2_BUCKET_NAME',
     'CDN_WORKER_URL',
     'LLM_GENERAL_MODEL',
     'LLM_ANALYSIS_MODEL',
     'MG_CODEGEN_TIMEOUT_MS',
-    'MG_VISUAL_JUDGE_MODEL',
   ]) {
     const value = env[name]?.trim();
     if (value) workerEnv[name] = value;
@@ -181,7 +177,6 @@ export function resolveMgSandboxRuntimeConfig(input: {
     networkPolicy: buildMgSandboxNetworkPolicy({
       authorizationUrl: authorization.toString(),
       r2AccountId,
-      zaiApiUrl: zaiApi.toString(),
     }),
     workerEnv,
   };

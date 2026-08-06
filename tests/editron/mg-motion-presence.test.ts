@@ -71,6 +71,36 @@ describe('taste-gate floor — motion presence', () => {
     expect(built.peak).toBeGreaterThan(0.1);
   });
 
+  it('normalizes motion over visible graphic pixels instead of diluting compact overlays over transparency', async () => {
+    const compact = async (alpha: number) => sharp({
+      create: { width: 320, height: 180, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+    })
+      .composite([{
+        input: await sharp({
+          create: { width: 36, height: 36, channels: 4, background: { r: 212, g: 166, b: 82, alpha } },
+        }).png().toBuffer(),
+        left: 260,
+        top: 72,
+      }])
+      .png()
+      .toBuffer();
+
+    const lowOpacity = await compact(0.72);
+    const settled = await compact(1);
+    const lowOpacityRaw = await sharp(lowOpacity).ensureAlpha().raw().toBuffer();
+    const settledRaw = await sharp(settled).ensureAlpha().raw().toBuffer();
+    let wholeCanvasDelta = 0;
+    for (let index = 0; index < lowOpacityRaw.length; index += 1) {
+      wholeCanvasDelta += Math.abs(lowOpacityRaw[index] - settledRaw[index]);
+    }
+    wholeCanvasDelta /= lowOpacityRaw.length * 255;
+    const profile = await measureMgMotionProfile([lowOpacity, settled, settled]);
+
+    expect(wholeCanvasDelta).toBeLessThan(MIN_MG_MOTION_BUILD);
+    expect(profile.peak).toBeGreaterThan(MIN_MG_MOTION_BUILD);
+    expect(evaluateMgMotionProfile(profile).pass).toBe(true);
+  });
+
   it('★ EXIT-ONLY movement earns NO build credit (audit repro: frozen clip + fade-out must FAIL)', async () => {
     const white = await solid(255, 255, 255, 1);
     const clear = await solid(0, 0, 0, 0);

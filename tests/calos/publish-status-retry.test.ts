@@ -208,6 +208,8 @@ describe("CalOS publish status and deliberate retry", () => {
         refreshToken: "x_refresh",
         userId: "x_1",
         expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+        scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        missingScopes: [],
       },
     }]));
 
@@ -232,6 +234,53 @@ describe("CalOS publish status and deliberate retry", () => {
     expect(payload.connectedPlatforms).toEqual(["twitter"]);
   });
 
+  it("reports the newest approval occurrence regardless of database row order", async () => {
+    mocks.queueFind.mockReturnValue(
+      queryResult([
+        {
+          deliverableId: "card_1",
+          approvalVersion: 3,
+          platform: "twitter",
+          accountRef: "x_1",
+          status: "pending",
+          postId: null,
+          postUrl: null,
+          lastError: null,
+          updatedAt: new Date("2026-07-29T12:00:00.000Z"),
+        },
+        {
+          deliverableId: "card_1",
+          approvalVersion: 2,
+          platform: "twitter",
+          accountRef: "x_1",
+          status: "failed",
+          postId: null,
+          postUrl: null,
+          lastError: "Old approval failed",
+          updatedAt: new Date("2026-07-28T12:00:00.000Z"),
+        },
+      ]),
+    );
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mocks.queueFind).toHaveBeenCalledWith({
+      brandId: "brand_1",
+      ownerUserId: "user_1",
+      status: { $ne: "superseded" },
+    });
+    expect(payload.statuses.card_1).toEqual({
+      platform: "twitter",
+      status: "pending",
+      postUrl: null,
+      error: null,
+      accountRef: "x_1",
+      canRetry: false,
+    });
+  });
+
   it("reports an expired Model A account as reconnect-required before publishing", async () => {
     mocks.connectedAccountFind.mockReturnValue(
       queryResult([{
@@ -247,6 +296,8 @@ describe("CalOS publish status and deliberate retry", () => {
         accessToken: "expired_token",
         userId: "x_1",
         expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+        scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        missingScopes: [],
       },
     }]));
 
@@ -260,6 +311,77 @@ describe("CalOS publish status and deliberate retry", () => {
     });
     expect(payload.connectionHealth.twitter.message).toContain("cannot refresh");
     expect(payload.connectedPlatforms).toEqual([]);
+  });
+
+  it("reports an X assignment as reconnect-required when publishing scopes are missing", async () => {
+    mocks.connectedAccountFind.mockReturnValue(
+      queryResult([{
+        platform: "twitter",
+        accountRef: "x_1",
+        displayName: "@acme",
+        ownerUserId: "owner_1",
+      }]),
+    );
+    mocks.userFind.mockReturnValue(queryResult([{
+      clerkUserId: "owner_1",
+      twitterTokens: {
+        accessToken: "x_token",
+        refreshToken: "x_refresh",
+        userId: "x_1",
+        expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+        scopes: ["tweet.read", "users.read"],
+        missingScopes: ["tweet.write", "offline.access"],
+      },
+    }]));
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.connectionHealth.twitter).toMatchObject({
+      state: "reconnect",
+      accountRef: "x_1",
+    });
+    expect(payload.connectionHealth.twitter.message).toContain("tweet.write");
+    expect(payload.connectionHealth.twitter.message).toContain("offline.access");
+    expect(payload.connectedPlatforms).toEqual([]);
+  });
+
+  it("projects Model-B LinkedIn authorization evidence before reporting connected", async () => {
+    vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 9).toString("base64"));
+    const accountQuery = queryResult([{
+      platform: "linkedin",
+      accountRef: "linkedin_org_1",
+      accountType: "organization",
+      displayName: "Acme LinkedIn",
+      ownerUserId: "owner_1",
+      accessTokenEnc: encryptToken("brand_access"),
+      expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      scopes: ["w_organization_social", "rw_organization_admin"],
+    }]);
+    mocks.connectedAccountFind.mockReturnValue(accountQuery);
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      elements: [{
+        organization: "urn:li:organization:linkedin_org_1",
+        role: "ADMINISTRATOR",
+        state: "APPROVED",
+      }],
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    const response = await getPublishStatus(getRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.connectionHealth.linkedin).toMatchObject({
+      state: "assigned",
+      accountRef: "linkedin_org_1",
+    });
+    expect(payload.connectedPlatforms).toEqual(["linkedin"]);
+    expect(accountQuery.select).toHaveBeenCalledWith(expect.stringContaining("accountType"));
+    expect(accountQuery.select).toHaveBeenCalledWith(expect.stringContaining("scopes"));
   });
 
   it("verifies Facebook Page ownership and YouTube OAuth before reporting connected", async () => {
@@ -421,6 +543,29 @@ describe("CalOS publish status and deliberate retry", () => {
     expect(mocks.queueFindOne).not.toHaveBeenCalled();
   });
 
+  it("refuses to retry an older failure when the newest occurrence is not failed", async () => {
+    mocks.queueFindOne.mockResolvedValue({
+      _id: "queue_new",
+      approvalVersion: 3,
+      platform: "twitter",
+      accountRef: "x_1",
+      status: "pending",
+      postId: null,
+    });
+
+    const response = await callRetry({
+      brandId: "brand_1",
+      deliverableId: "card_1",
+      confirmPossibleDuplicate: true,
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("Only the latest failed, unpublished job");
+    expect(mocks.connectedAccountFindOne).not.toHaveBeenCalled();
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it("atomically requeues a failed unpublished row without changing its account", async () => {
     mocks.queueFindOne.mockResolvedValue({
       _id: "queue_1",
@@ -439,6 +584,8 @@ describe("CalOS publish status and deliberate retry", () => {
         accessToken: "x_token",
         userId: "x_1",
         expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+        scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        missingScopes: [],
       },
     }]));
     mocks.queueFindOneAndUpdate.mockResolvedValue({
@@ -461,6 +608,16 @@ describe("CalOS publish status and deliberate retry", () => {
       status: "pending",
       accountRef: "x_1",
     });
+    expect(mocks.queueFindOne).toHaveBeenCalledWith(
+      {
+        brandId: "brand_1",
+        ownerUserId: "user_1",
+        deliverableId: "card_1",
+        status: { $ne: "superseded" },
+      },
+      null,
+      { sort: { approvalVersion: -1, updatedAt: -1, _id: -1 } },
+    );
     expect(mocks.connectedAccountFindOne).toHaveBeenCalledWith({
       brandId: "brand_1",
       platform: "twitter",
@@ -613,11 +770,11 @@ describe("CalOS publish status and deliberate retry", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(409);
-    expect(payload.error).toContain("reconnected");
+    expect(payload.error).toContain("Reconnect");
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
-  it("allows retry when an expired stored LinkedIn token can refresh", async () => {
+  it("allows retry when an expired stored LinkedIn token has scope evidence and can refresh", async () => {
     vi.stubEnv("CALOS_TOKEN_ENCRYPTION_KEY", Buffer.alloc(32, 9).toString("base64"));
     vi.stubEnv("LINKEDIN_CLIENT_ID", "linkedin_client");
     vi.stubEnv("LINKEDIN_CLIENT_SECRET", "linkedin_secret");
@@ -630,10 +787,12 @@ describe("CalOS publish status and deliberate retry", () => {
     });
     mocks.connectedAccountFindOne.mockResolvedValue({
       accountRef: "linkedin_1",
+      accountType: "organization",
       ownerUserId: "owner_1",
       accessTokenEnc: encryptToken("expired_access"),
       refreshTokenEnc: encryptToken("brand_refresh"),
       expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+      scopes: ["w_organization_social", "rw_organization_admin"],
     });
     mocks.queueFindOneAndUpdate.mockResolvedValue({
       deliverableId: "card_1",
@@ -670,6 +829,8 @@ describe("CalOS publish status and deliberate retry", () => {
         accessToken: "expired_token",
         userId: "x_1",
         expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+        scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
+        missingScopes: [],
       },
     }]));
 

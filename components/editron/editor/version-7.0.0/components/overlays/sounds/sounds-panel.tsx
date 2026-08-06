@@ -24,6 +24,8 @@ import {
   createBackgroundMusicIdempotencyKey,
   ingestAndAssignMusicCatalogTrack,
   searchMusicCatalog,
+  fetchReferenceSong,
+  type ReferenceSongPickerPayload,
 } from "../../../utils/background-music-assignment";
 import { MusicDiscoveryPanel } from "./music-discovery-panel";
 import { SoundDetails } from "./sound-details";
@@ -118,6 +120,38 @@ const SoundsPanel: React.FC = () => {
     }
   };
 
+  // Reference-song bridge (R3 identity -> licensed catalog). Loads when the
+  // References view is opened, if the project has a stored reference identity.
+  const [referenceSong, setReferenceSong] = useState<ReferenceSongPickerPayload | null>(null);
+  const [referenceSongLoading, setReferenceSongLoading] = useState(false);
+
+  const loadReferenceSong = async () => {
+    if (!projectId) return;
+    const controller = beginRequest();
+    setReferenceSongLoading(true);
+    setReferenceSong(null);
+    try {
+      const payload = await fetchReferenceSong({ projectId, signal: controller.signal });
+      setReferenceSong(payload);
+    } catch {
+      setReferenceSong({ success: false, code: 'REFERENCE_SONG_LOAD_FAILED' });
+    } finally {
+      finishRequest(controller);
+      setReferenceSongLoading(false);
+    }
+  };
+
+  const selectView = (view: AudioLibraryView) => {
+    if (view !== "references" && playingTrack) {
+      audioRefs.current[playingTrack]?.pause();
+      setPlayingTrack(null);
+    }
+    setActiveView(view);
+    if (view === "references") {
+      void loadReferenceSong();
+    }
+  };
+
   const runCatalogSearch = async (mode: "search" | "recommend") => {
     if (mode === "search" && !searchTerm.trim()) {
       setFeedback({ tone: "error", message: "Enter a music direction to search." });
@@ -191,14 +225,6 @@ const SoundsPanel: React.FC = () => {
       finishRequest(controller);
       setAssigningTrackId(null);
     }
-  };
-
-  const selectView = (view: AudioLibraryView) => {
-    if (view !== "references" && playingTrack) {
-      audioRefs.current[playingTrack]?.pause();
-      setPlayingTrack(null);
-    }
-    setActiveView(view);
   };
 
   const renderSoundCard = (sound: LocalSound) => (
@@ -422,7 +448,30 @@ const SoundsPanel: React.FC = () => {
       ) : activeView === "discover" ? (
         <MusicDiscoveryPanel />
       ) : (
-        <div className="space-y-2">{localSounds.map(renderSoundCard)}</div>
+        <div className="space-y-3">
+          {referenceSongLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-3">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Detecting the reference song…
+            </div>
+          ) : referenceSong?.referenceAudio?.hasIdentity && referenceSong.referenceAudio.identity ? (
+            <ReferenceSongSection
+              identity={referenceSong.referenceAudio.identity}
+              rhythm={referenceSong.referenceAudio.rhythm}
+              candidates={referenceSong.match?.candidates ?? []}
+              sameSong={referenceSong.match?.sameSong}
+              assigningTrackId={assigningTrackId}
+              onAssign={handleUseTrack}
+            />
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                No reference song detected. Add a reference video and re-run to match its music.
+              </p>
+              {localSounds.map(renderSoundCard)}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -433,6 +482,118 @@ function formatDuration(durationMs: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+interface ReferenceSongSectionProps {
+  identity: NonNullable<ReferenceSongPickerPayload["referenceAudio"]>["identity"];
+  rhythm: NonNullable<ReferenceSongPickerPayload["referenceAudio"]>["rhythm"];
+  candidates: MusicCatalogTrack[];
+  sameSong?: { isrc: string; candidate: MusicCatalogTrack };
+  assigningTrackId: string | null;
+  onAssign: (track: MusicCatalogTrack) => void;
+}
+
+function ReferenceSongSection({
+  identity,
+  rhythm,
+  candidates,
+  sameSong,
+  assigningTrackId,
+  onAssign,
+}: ReferenceSongSectionProps) {
+  if (!identity) return null;
+  const primary = sameSong?.candidate ?? candidates[0];
+  return (
+    <div className="space-y-3">
+      {/* Detected reference song */}
+      <div className="rounded-md border border-border bg-muted/30 p-3">
+        <p className="font-mono text-[10px] tracking-[0.08em] uppercase text-muted-foreground">
+          Reference song
+        </p>
+        <p className="mt-1 text-sm font-semibold text-foreground truncate">
+          {identity.title}
+        </p>
+        <p className="text-xs text-muted-foreground truncate">
+          {identity.artists.join(", ") || "Unknown artist"}
+          {identity.cueOffsetMs !== null ? ` · starts ${(identity.cueOffsetMs / 1000).toFixed(1)}s in` : ""}
+        </p>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {identity.isrcs.length ? `ISRC ${identity.isrcs.join(", ")} · ` : ""}
+          via {identity.provider}
+          {rhythm?.bpm ? ` · ${rhythm.bpm} BPM` : ""}
+          {rhythm?.cutsPerMinute ? ` · ${rhythm.cutsPerMinute} cuts/min` : ""}
+        </p>
+      </div>
+
+      {primary ? (
+        <div className="rounded-md border border-border bg-background p-3">
+          <p className="font-mono text-[10px] tracking-[0.08em] uppercase text-muted-foreground">
+            {sameSong ? "Same song — licensed match" : "Best licensed match"}
+          </p>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground truncate">{primary.title}</p>
+              <p className="text-[11px] text-muted-foreground truncate">
+                {primary.artists.join(", ")} · {formatDuration(primary.durationMs)}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              disabled={assigningTrackId === primary.providerTrackId}
+              onClick={() => onAssign(primary)}
+              className="shrink-0"
+            >
+              {assigningTrackId === primary.providerTrackId ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {assigningTrackId === primary.providerTrackId ? "Adding…" : "Use this song"}
+            </Button>
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Licensed from the catalog. Cleared for preview; export requires your attestation (music-rights).
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          No licensed match found in the catalog yet — search above for alternate tracks.
+        </p>
+      )}
+
+      {candidates.length > 1 && (
+        <div>
+          <p className="mb-1 font-mono text-[10px] tracking-[0.08em] uppercase text-muted-foreground">
+            More matches
+          </p>
+          <div className="space-y-1.5">
+            {candidates.slice(1).map((track) => (
+              <div
+                key={track.providerTrackId}
+                className="flex items-center justify-between gap-3 rounded-md border border-border p-2"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm text-foreground truncate">{track.title}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {track.artists.join(", ")} · {formatDuration(track.durationMs)}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={assigningTrackId === track.providerTrackId}
+                  onClick={() => onAssign(track)}
+                  className="shrink-0"
+                >
+                  Use
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function clientErrorMessage(error: unknown, fallback: string): string {

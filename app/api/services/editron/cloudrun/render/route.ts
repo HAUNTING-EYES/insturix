@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 import { renderMediaOnLambda } from '@remotion/lambda/client';
 import { auth } from '@clerk/nextjs/server';
-import { createJob } from '@/lib/editron/services/render-job-service';
+import { nanoid } from 'nanoid';
+import {
+  calculateExpectedRenderDurationMs,
+  failJob,
+  markJobStarted,
+  reserveJob,
+} from '@/lib/editron/services/render-job-service';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { projectService } from '@/lib/editron/services/project-service';
 import {
@@ -15,18 +21,27 @@ import {
   resolveRenderableAudioInputProps,
   UnlicensedAudioInRenderError,
 } from '@/lib/editron/shared/render-request-payload';
-import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from '@/lib/editron/services/remotion-constants';
+import {
+  REMOTION_AUDIO_CODEC,
+  REMOTION_COMPOSITION_ID,
+  REMOTION_FRAMES_PER_LAMBDA,
+} from '@/lib/editron/services/remotion-constants';
 import { assertRemotionSiteFresh } from '@/lib/editron/services/remotion-site-version';
 import {
   buildRenderDeliveryManifest,
   RenderDeliveryContractError,
   resolveRenderDeliveryPlan,
 } from '@/lib/editron/services/render-delivery-manifest';
+import { resolveRenderFinalizationPipelineConfig } from '@/lib/editron/services/render-finalization-dispatch';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 
 export async function POST(request: Request) {
   let renderCreditCheck: CreditCheckResult | null = null;
+  let creditsDeducted = false;
   let renderStarted = false;
+  let renderAdmissionId: string | null = null;
+  let renderDeliveryManifest: ReturnType<typeof buildRenderDeliveryManifest> | null = null;
+  let standardWebhook: ReturnType<typeof buildRemotionRenderWebhook> | null = null;
 
   try {
     const { userId } = await auth();
@@ -61,6 +76,18 @@ export async function POST(request: Request) {
     if (!serveUrl) {
       throw new Error('REMOTION_LAMBDA_SERVE_URL is not defined');
     }
+    const finalizationConfig = resolveRenderFinalizationPipelineConfig();
+    if (!finalizationConfig.configured) {
+      console.error(`[Render] Verified finalization is unavailable: ${finalizationConfig.reason}`);
+      return NextResponse.json(
+        {
+          type: 'error',
+          code: 'RENDER_FINALIZATION_UNAVAILABLE',
+          message: 'Verified render finalization is temporarily unavailable.',
+        },
+        { status: 503 },
+      );
+    }
     const remotionSiteFreshness = assertRemotionSiteFresh({ serveUrl, env: process.env });
     if (remotionSiteFreshness.reason === 'unverified_no_app_commit') {
       console.warn('[Render] Remotion site version could not be verified because app commit metadata is missing');
@@ -85,19 +112,41 @@ export async function POST(request: Request) {
         { status: 404 }
       );
     }
+    // MG delivery integrity preflight (brief §16, Fix-4): an expected-but-undelivered codegen MG must NEVER silently
+    // vanish. This surfaces missingMGs; it NEVER inserts a plain card / deterministic replacement (non-negotiable
+    // §3.2/§3.3). strict → block; preview / degraded_allowed → proceed with the warning surfaced in `mgIntegrity`.
+    let mgIntegrity: unknown = null;
+    try {
+      const { computeMGRenderPreflight, renderIntegrityPolicy } = await import('@/lib/editron/motion-graphics/codegen/mg-delivery');
+      const mgPreflight = computeMGRenderPreflight(project as never, { policy: renderIntegrityPolicy() });
+      mgIntegrity = {
+        missingMGs: mgPreflight.missingMGs,
+        policy: mgPreflight.policy,
+        degraded: mgPreflight.degraded,
+        computedAt: mgPreflight.lastPreflightAt,
+      };
+      if (mgPreflight.missingMGs.length > 0) {
+        console.warn(
+          `[Render] MG preflight: ${mgPreflight.missingMGs.length} expected MG(s) undelivered (${mgPreflight.missingMGs.map((m: { jobId?: string }) => m.jobId).join(',')}); policy=${mgPreflight.policy}; NO replacement inserted.`,
+        );
+        if (mgPreflight.policy === 'strict') {
+          return NextResponse.json(
+            {
+              type: 'error',
+              code: 'MG_RENDER_INTEGRITY',
+              message: 'render blocked (strict): expected motion graphics not delivered before render',
+              missingMGs: mgPreflight.missingMGs,
+            },
+            { status: 409 },
+          );
+        }
+      }
+    } catch (preflightErr) {
+      console.warn('[Render] MG preflight unavailable (non-blocking):', preflightErr instanceof Error ? preflightErr.message : preflightErr);
+    }
     let resolvedProps = buildProjectRenderInputProps(project, inputProps || {});
     console.log(`[Render] Hydrated render props from project ${canonicalProjectId} (${project.overlays?.length || 0} overlays)`);
 
-    await verifyRenderAudioRightsAuthority({
-      userId,
-      projectId: canonicalProjectId,
-      projectOwnerId: project.userId,
-      overlays: Array.isArray(resolvedProps.overlays) ? resolvedProps.overlays : [],
-    });
-
-    // Resolve preview choices only after durable licensed claims have been
-    // matched to the authoritative stored project assets.
-    resolvedProps = resolveRenderableAudioInputProps(resolvedProps);
     const deliveryPlan = resolveRenderDeliveryPlan({
       requestedMode: musicDeliveryMode,
       overlays: resolvedProps.overlays,
@@ -105,10 +154,20 @@ export async function POST(request: Request) {
       durationInFrames: resolvedProps.durationInFrames,
       destinationPlatform: readProjectDestinationPlatform(project),
     });
-    resolvedProps = {
+    // The delivery plan owns the artifact contents. Reference-only music stays
+    // in its handoff receipt but is not export audio and must not be authorized
+    // as though Lambda will render it.
+    await verifyRenderAudioRightsAuthority({
+      userId,
+      projectId: canonicalProjectId,
+      projectOwnerId: project.userId,
+      overlays: deliveryPlan.overlays,
+    });
+
+    resolvedProps = resolveRenderableAudioInputProps({
       ...resolvedProps,
       overlays: deliveryPlan.overlays,
-    };
+    });
     let renderOverlays = Array.isArray(resolvedProps.overlays)
       ? resolvedProps.overlays as any[]
       : [];
@@ -118,8 +177,9 @@ export async function POST(request: Request) {
         renderOverlays = await assetResolver.resolveProjectAssets(renderOverlays);
         resolvedProps = { ...resolvedProps, overlays: renderOverlays };
         console.log(`[Render] Resolved ${renderOverlays.length} overlay asset URLs`);
-      } catch (err: any) {
-        console.warn('[Render] Asset URL resolution failed, using raw props:', err.message);
+      } catch (error) {
+        console.error('[Render] Asset URL resolution failed:', error);
+        throw new RenderAssetHydrationError();
       }
     }
 
@@ -138,10 +198,37 @@ export async function POST(request: Request) {
       return renderCreditCheck.errorResponse!;
     }
 
+    const admissionId = `${usesChapterRendering ? 'chr' : 'rnd'}_${nanoid(12)}`;
+    const deliveryManifest = buildRenderDeliveryManifest({
+      plan: deliveryPlan,
+      renderId: admissionId,
+    });
+    const webhook = usesChapterRendering
+      ? null
+      : buildRemotionRenderWebhook(request, admissionId);
+    await reserveJob(
+      admissionId,
+      userId,
+      canonicalProjectId,
+      region,
+      calculateExpectedRenderDurationMs(totalFrames, renderFps),
+      deliveryManifest,
+    );
+    renderAdmissionId = admissionId;
+    renderDeliveryManifest = deliveryManifest;
+    standardWebhook = webhook;
+
     try {
       await renderCreditCheck.deduct();
+      creditsDeducted = true;
     } catch (error) {
       console.error('[Render] render/export credit deduction failed:', error);
+      if (renderAdmissionId) {
+        await markRenderAdmissionFailed(
+          renderAdmissionId,
+          'Render/export credit deduction failed before provider dispatch',
+        );
+      }
       return NextResponse.json(
         { type: 'error', message: 'Unable to deduct credits for render/export.' },
         { status: 402 },
@@ -155,6 +242,7 @@ export async function POST(request: Request) {
       const height = Number(resolvedProps.height) || 1080;
 
       const { jobId, chapters } = await startChapterRender(
+        renderAdmissionId!,
         canonicalProjectId,
         userId,
         (lambdaRenderProps.overlays || []) as any[],
@@ -167,26 +255,34 @@ export async function POST(request: Request) {
       );
       renderStarted = true;
 
-      // Save job reference
-      const deliveryManifest = buildRenderDeliveryManifest({
-        plan: deliveryPlan,
-        renderId: jobId,
-      });
+      let trackingStatus: 'durable' | 'degraded' = 'durable';
       try {
-        await createJob(
-          jobId,
+        await markJobStarted(
+          renderAdmissionId!,
           userId,
-          canonicalProjectId,
+          jobId,
           'chapter-render',
-          deliveryManifest,
+          region,
+          renderDeliveryManifest!,
         );
-      } catch (err: unknown) { console.warn('[Render] chapter render job save failed:', err instanceof Error ? err.message : err); }
+      } catch (dbError) {
+        trackingStatus = 'degraded';
+        console.error('CRITICAL: chapter render started but admission binding failed:', {
+          renderAdmissionId,
+          error: dbError,
+        });
+      }
 
+      const mgInt = mgIntegrity as { degraded?: boolean } | null;
+      const finalTracking: 'durable' | 'degraded' = mgInt?.degraded === true ? 'degraded' : trackingStatus;
       return NextResponse.json({
         type: 'success',
         data: {
           ...buildChapterRenderApiData({ jobId, region, chapters }),
-          deliveryManifest,
+          renderAdmissionId,
+          deliveryManifest: renderDeliveryManifest!,
+          trackingStatus: finalTracking,
+          ...(mgIntegrity ? { mgIntegrity } : {}),
         },
       });
     }
@@ -201,32 +297,41 @@ export async function POST(request: Request) {
       // large/slow-proxied clip hangs delayRender on the browser <video> element → 598s render timeout.
       inputProps: lambdaRenderProps,
       codec: 'h264',
-      audioCodec: 'mp3', // Faster audio processing than AAC
+      audioCodec: REMOTION_AUDIO_CODEC,
       privacy: 'public', // Make the video publicly accessible
       // Distributed rendering settings — chunk size centralized in remotion-constants.
       framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
       timeoutInMilliseconds: 600000, // 10 minutes - AI videos need longer download time
+      metadata: {
+        editronRenderAdmissionId: renderAdmissionId!,
+      },
+      webhook: standardWebhook!,
     });
 
     renderStarted = true;
     console.log('Lambda render started:', { renderId, bucketName });
 
-    // Save job to database for persistence (wrapped in try-catch)
-    const deliveryManifest = buildRenderDeliveryManifest({
-      plan: deliveryPlan,
-      renderId,
-    });
+    let trackingStatus: 'durable' | 'degraded' = 'durable';
     try {
-      await createJob(
-        renderId,
+      await markJobStarted(
+        renderAdmissionId!,
         userId,
-        canonicalProjectId,
+        renderId,
         bucketName,
-        deliveryManifest,
+        region,
+        renderDeliveryManifest!,
       );
-      console.log('Render job saved to database:', renderId);
+      console.log('Render provider bound to durable admission:', {
+        renderAdmissionId,
+        renderId,
+      });
     } catch (dbError) {
-      console.error('Failed to save render job to DB:', dbError);
+      trackingStatus = 'degraded';
+      console.error('CRITICAL: render started but provider binding failed:', {
+        renderAdmissionId,
+        renderId,
+        error: dbError,
+      });
     }
 
     // Threshold calibration: process decision outcomes (async, non-blocking)
@@ -254,6 +359,8 @@ export async function POST(request: Request) {
     }
 
     // Return the render ID and bucket info
+    const mgInt = mgIntegrity as { degraded?: boolean } | null;
+    const finalTracking: 'durable' | 'degraded' = mgInt?.degraded === true ? 'degraded' : trackingStatus;
     return NextResponse.json({
       type: 'success',
       data: {
@@ -261,13 +368,22 @@ export async function POST(request: Request) {
         bucketName,
         region,
         functionName,
-        deliveryManifest,
+        deliveryManifest: renderDeliveryManifest!,
+        renderAdmissionId,
+        trackingStatus: finalTracking,
+        ...(mgIntegrity ? { mgIntegrity } : {}),
         // Progress endpoint for polling
         progressUrl: `/api/services/editron/cloudrun/progress?renderId=${renderId}&bucketName=${bucketName}&region=${region}`,
       }
     });
   } catch (error: any) {
-    if (renderCreditCheck && !renderStarted) {
+    if (renderAdmissionId && !renderStarted) {
+      await markRenderAdmissionFailed(
+        renderAdmissionId,
+        error instanceof Error ? error.message : 'Render failed before provider dispatch',
+      );
+    }
+    if (renderCreditCheck && creditsDeducted && !renderStarted) {
       await refundRenderExportCredits(renderCreditCheck, 'Render/export failed before render start');
     }
     console.error('Lambda render error:', error);
@@ -276,14 +392,27 @@ export async function POST(request: Request) {
       || error instanceof RenderAudioRightsAuthorityError
     );
     const deliveryError = error instanceof RenderDeliveryContractError;
+    const hydrationError = error instanceof RenderAssetHydrationError;
     return NextResponse.json(
       {
         type: 'error',
         message: error.message || 'Failed to trigger render',
-        ...((rightsError || deliveryError) ? { code: error.code } : {}),
+        ...((rightsError || deliveryError || hydrationError) ? { code: error.code } : {}),
+        ...(error instanceof RenderAudioRightsAuthorityError
+          ? { details: error.diagnostic }
+          : {}),
       },
       { status: rightsError ? 422 : deliveryError ? 400 : 500 }
     );
+  }
+}
+
+class RenderAssetHydrationError extends Error {
+  readonly code = 'RENDER_ASSET_HYDRATION_FAILED';
+
+  constructor() {
+    super('Unable to prepare all project assets for rendering.');
+    this.name = 'RenderAssetHydrationError';
   }
 }
 
@@ -313,6 +442,14 @@ async function refundRenderExportCredits(creditCheck: CreditCheckResult, reason:
   }
 }
 
+async function markRenderAdmissionFailed(jobId: string, reason: string): Promise<void> {
+  try {
+    await failJob(jobId, reason);
+  } catch (error) {
+    console.error('[Render] failed to mark render admission as failed:', error);
+  }
+}
+
 function readProjectDestinationPlatform(project: unknown): unknown {
   const record = asRecord(project);
   const productionBrief = asRecord(record?.productionBrief);
@@ -326,4 +463,25 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function buildRemotionRenderWebhook(request: Request, admissionId: string) {
+  const secret = process.env.REMOTION_WEBHOOK_SECRET?.trim();
+  if (!secret) {
+    throw new Error('REMOTION_WEBHOOK_SECRET is required for durable rendering');
+  }
+  const webhookUrl = new URL(
+    '/api/services/editron/cloudrun/render/webhook',
+    request.url,
+  );
+  if (webhookUrl.protocol !== 'https:' && webhookUrl.hostname !== 'localhost') {
+    throw new Error('Remotion render webhook must use HTTPS');
+  }
+  return {
+    url: webhookUrl.toString(),
+    secret,
+    customData: {
+      editronRenderAdmissionId: admissionId,
+    },
+  };
 }

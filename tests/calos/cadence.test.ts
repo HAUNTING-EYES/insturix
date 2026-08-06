@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { parseISO, startOfWeek, addDays } from "date-fns";
 import { proposeCadenceCards } from "@/lib/calos/cadence";
+import { cadenceContentRequirements, parseCampaignCadenceRules } from "@/lib/calos/campaign-cadence";
+import { normalizeContentCardForStorage } from "@/lib/thinkforge/planning/content-card-contract";
 
 describe("proposeCadenceCards", () => {
   // Align `from` to a week boundary so the range covers exactly 3 full weeks.
@@ -74,5 +76,31 @@ describe("proposeCadenceCards", () => {
     );
     expect(cards).toHaveLength(7);
     expect(new Set(cards.map((c) => c.date)).size).toBe(7);
+  });
+
+  it("preserves an explicit long-form format and duration through card normalization", () => {
+    const parsed = parseCampaignCadenceRules([{
+      platform: " YouTube ", perWeek: 1, preferredDays: [2], format: "LONG_VIDEO", targetDurationSeconds: 480,
+    }]);
+    expect(parsed).toEqual({
+      ok: true,
+      rules: [{ platform: "youtube", perWeek: 1, preferredDays: [2], format: "long_video", targetDurationSeconds: 480 }],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    const [proposal] = proposeCadenceCards(parsed.rules, { from, to: addDays(from, 6) });
+    const card = normalizeContentCardForStorage(
+      { ...proposal, ...cadenceContentRequirements(parsed.rules[0]) },
+      { userId: "user_1", idFactory: () => "card_1" },
+    );
+    expect(card).toMatchObject({ platform: "youtube", contentFormat: "long_video", targetDurationSeconds: 480 });
+  });
+
+  it("rejects long-form rules without a safe explicit duration", () => {
+    expect(parseCampaignCadenceRules([{
+      platform: "youtube", perWeek: 1, preferredDays: [2], format: "long_video",
+    }])).toEqual({ ok: false, error: "cadenceRules[0].targetDurationSeconds is required for long_video" });
+    expect(parseCampaignCadenceRules([{
+      platform: "youtube", perWeek: 1, preferredDays: [2], format: "long_video", targetDurationSeconds: 120,
+    }])).toEqual({ ok: false, error: "cadenceRules[0].targetDurationSeconds must be between 300 and 3600" });
   });
 });

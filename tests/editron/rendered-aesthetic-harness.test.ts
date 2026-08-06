@@ -10,6 +10,7 @@ import {
   type AtomicOverlayReceipt,
 } from '../../lib/editron/engine/atomic-overlay-core';
 import { ensureLiveAtomicOverlayReceipt } from '../../lib/editron/engine/overlay-atomic-receipts';
+import { renderedOverlayBoxAtFrame as renderedWorkerOverlayBoxAtFrame } from '../../lib/editron/services/phase0-rendered-aesthetic-scoring';
 import {
   buildBaselineOverlays,
   buildFrameAwareOverlayReceipt,
@@ -406,16 +407,18 @@ describe('rendered aesthetic harness helpers', () => {
       ],
     });
 
-    const box = renderedOverlayBoxAtFrame(overlay, 30);
+    const box = renderedOverlayBoxAtFrame(overlay, 30, 1920, 1080);
+    const workerBox = renderedWorkerOverlayBoxAtFrame(overlay as unknown as Parameters<typeof renderedWorkerOverlayBoxAtFrame>[0], 30, 1920, 1080);
 
     expect(box).toEqual(expect.objectContaining({
-      x: 130,
+      x: 192,
       y: 230,
       width: 360,
       height: 120,
       opacity: 1,
       textPixelHeight: 64,
     }));
+    expect(workerBox).toEqual(box);
 
     const snapOverlay = textOverlay({
       id: 8,
@@ -429,7 +432,7 @@ describe('rendered aesthetic harness helpers', () => {
       ],
     });
 
-    const snapBox = renderedOverlayBoxAtFrame(snapOverlay, 25);
+    const snapBox = renderedOverlayBoxAtFrame(snapOverlay, 25, 1920, 1080);
     expect(snapBox.width).toBeGreaterThan(350);
   });
 

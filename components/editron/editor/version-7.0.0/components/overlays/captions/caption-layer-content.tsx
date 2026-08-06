@@ -145,6 +145,26 @@ function normalizeFontSize(fontSize: string | number | undefined): string {
   return fontSize;
 }
 
+export function captionUsesActiveWordEmphasis(config: CaptionDisplayConfig): boolean {
+  return (config.emphasisBehavior ?? (config.mode === "subtitle" ? "none" : "active-word")) === "active-word";
+}
+
+export function resolveCaptionRenderedFontSize(
+  fontSize: string | number | undefined,
+  overlayHeight: number | undefined,
+  fontSizing: CaptionDisplayConfig["fontSizing"],
+): string {
+  const normalized = normalizeFontSize(fontSize);
+  if (fontSizing === "authored") return normalized;
+
+  const basePx = parseFloat(normalized);
+  if (!Number.isFinite(basePx)) return normalized;
+  const defaultHeight = 150;
+  const currentHeight = overlayHeight || defaultHeight;
+  const scale = Math.max(0.5, Math.min(3, currentHeight / defaultHeight));
+  return `${Math.round(basePx * scale)}px`;
+}
+
 type AtomicTextForm = NonNullable<AtomicOverlayForm["text"]>;
 
 type DisplayWord = {
@@ -271,6 +291,20 @@ function shouldBreakAfter(
   return rowCapacity > 0 && (index + 1) % rowCapacity === 0;
 }
 
+export function resolveCaptionWordTextShadow(
+  isActive: boolean,
+  highlightTextShadow: unknown,
+  baseTextShadow: unknown,
+): string | undefined {
+  const base = typeof baseTextShadow === "string" && baseTextShadow.trim()
+    ? baseTextShadow
+    : undefined;
+  if (!isActive) return base;
+  return typeof highlightTextShadow === "string" && highlightTextShadow.trim()
+    ? highlightTextShadow
+    : base;
+}
+
 /**
  * CaptionLayerContent Component
  * Renders animated captions with word-by-word highlighting and customizable effects
@@ -290,6 +324,7 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
     ...(atomicText?.highlight ?? {}),
   };
   const displayConfig = mergeAtomicDisplayConfig(overlay.displayConfig || defaultDisplayConfig, atomicText?.display);
+  const useActiveWordEmphasis = captionUsesActiveWordEmphasis(displayConfig);
   const motionStyles = atomicMotionStyles(atomicForm, frame, overlay.durationInFrames);
 
   // Find current caption based on frame timestamp
@@ -361,16 +396,18 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
     const wordsToDisplay = getWordsToDisplay(caption);
     
     return wordsToDisplay.map(({ word, state, globalIndex }, index) => {
-      const isActive = state === "active";
+      const isActive = state === "active" && useActiveWordEmphasis;
       const isFaded = state === "faded";
       const atomicGlyph = atomicText?.glyphs.find((glyph) => glyph.index === globalIndex);
       const glyphRole = atomicGlyph?.emphasis?.role ?? atomicGlyph?.role ?? word.emphasis?.type ?? "word";
       // Registry per-role colour (e.g. Hormozi keyword #FFD93D) wins; then atomic-glyph colour; then the
       // built-in role accents. Drives the "coloured-bold per word" look from the picked style's row.
       const registryRoleColor = styles.roles?.[glyphRole as "keyword" | "statistic" | "cta" | "entity"]?.color;
-      const roleColor = registryRoleColor ?? atomicGlyphColor(atomicText, atomicGlyph, highlight.color) ?? roleAccentColor(glyphRole, highlight.color);
-      const glyphScale = atomicGlyph?.visual?.scale ?? 1;
-      const glyphFontFamily = atomicGlyphFontFamily(atomicText, atomicGlyph);
+      const roleColor = useActiveWordEmphasis
+        ? registryRoleColor ?? atomicGlyphColor(atomicText, atomicGlyph, highlight.color) ?? roleAccentColor(glyphRole, highlight.color)
+        : styles.color;
+      const glyphScale = useActiveWordEmphasis ? atomicGlyph?.visual?.scale ?? 1 : 1;
+      const glyphFontFamily = useActiveWordEmphasis ? atomicGlyphFontFamily(atomicText, atomicGlyph) : undefined;
       
       // Calculate progress within the word's duration for smooth animations
       const wordDuration = word.endMs - word.startMs;
@@ -410,7 +447,10 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
         baseTransform = `${baseTransform} ${animationStyles.transform}`;
       }
 
-      const hasEmphasis = !!word.emphasis || (glyphRole !== "word" && glyphRole !== "punctuation" && glyphRole !== "unknown" && glyphRole !== "filler");
+      const hasEmphasis = useActiveWordEmphasis && (
+        !!word.emphasis
+        || (glyphRole !== "word" && glyphRole !== "punctuation" && glyphRole !== "unknown" && glyphRole !== "filler")
+      );
       const readablePanelMode = displayConfig.mode === "karaoke" || displayConfig.mode === "subtitle";
       const emphasisWeight = hasEmphasis ? 700 : (styles.fontWeight || 400);
       const emphasisScale = hasEmphasis && !isActive ? `scale(${glyphScale})` : baseTransform;
@@ -442,11 +482,13 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
                 ? highlight.fontWeight || 600
                 : emphasisWeight,
               fontFamily: glyphFontFamily,
-              textShadow: isActive
-                ? highlight.textShadow
-                : styles.textShadow,
-              padding: highlight.padding || "4px 8px",
-              borderRadius: highlight.borderRadius || "4px",
+              textShadow: resolveCaptionWordTextShadow(
+                isActive,
+                highlight.textShadow,
+                styles.textShadow,
+              ),
+              padding: useActiveWordEmphasis ? highlight.padding || "4px 8px" : "0",
+              borderRadius: useActiveWordEmphasis ? highlight.borderRadius || "4px" : "0",
               margin: "0 2px",
               transition: "color 150ms, background-color 150ms, opacity 150ms",
               // MrBeast-style outline — only when the picked style ships a stroke. paintOrder keeps the
@@ -484,16 +526,11 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
     >
       <div
         style={{
-          // Scale font size proportionally when user resizes the caption box.
-          // Base font size was designed for a default box height (~150px).
-          // If box is resized, scale the font proportionally.
-          fontSize: (() => {
-            const basePx = parseFloat(normalizeFontSize(styles.fontSize));
-            const defaultHeight = 150; // Default caption box height from calculatePosition
-            const currentHeight = overlay.height || defaultHeight;
-            const scale = Math.max(0.5, Math.min(3, currentHeight / defaultHeight));
-            return `${Math.round(basePx * scale)}px`;
-          })(),
+          fontSize: resolveCaptionRenderedFontSize(
+            styles.fontSize,
+            overlay.height,
+            displayConfig.fontSizing,
+          ),
           fontWeight: styles.fontWeight,
           fontFamily: getCaptionFontFamily(styles.fontFamily),
           letterSpacing: styles.letterSpacing || '0.025em',

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { regenerateWithContext } from '@/lib/pipeline/storyboard-interactive-service';
-import { CreditsService } from '@/lib/services/creditsService';
+import {
+  regenerateStoryboardSceneImage,
+  StoryboardSceneRegenerationError,
+} from '@/lib/pipeline/storyboard-scene-regeneration';
 
 // 2026-04-09: Bumped from 60s → 300s after FUNCTION_INVOCATION_TIMEOUT on scene 2
 // regeneration (proj_r8E_z9WVaBX9 follow-up test, log bom1::rl2r6-1775674225104).
@@ -25,34 +27,21 @@ export async function POST(
   try {
     const { id, sceneIndex: sceneIndexStr } = await params;
     const sceneIndex = parseInt(sceneIndexStr, 10);
+    if (!Number.isInteger(sceneIndex) || sceneIndex < 0) {
+      return NextResponse.json({ error: 'sceneIndex must be a non-negative integer' }, { status: 400 });
+    }
     const body = await req.json();
     const { feedback, modelId, referenceImageUrl } = body;
 
-    // Auth: prefer Clerk session, fallback to userId in body (for internal tool calls)
-    let userId: string | null = null;
-    try {
-      const authResult = await auth();
-      userId = authResult.userId;
-    } catch {}
-    if (!userId && body.userId) {
-      userId = body.userId; // Internal call from AI tool
-    }
+    const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Deduct credits (3 for context-aware regeneration)
-    const deductResult = await CreditsService.deductCredits(
-      userId, 'pipeline', 'storyboard_context_regeneration',
-    );
-    if (!deductResult.success) {
-      return NextResponse.json(
-        { error: 'Insufficient credits', required: 3 },
-        { status: 402 },
-      );
-    }
-
-    const scene = await regenerateWithContext(id, sceneIndex, userId, {
+    const scene = await regenerateStoryboardSceneImage({
+      storyboardId: id,
+      sceneIndex,
+      userId,
       feedback,
       modelId,
       referenceImageUrl,
@@ -61,6 +50,16 @@ export async function POST(
     return NextResponse.json({ success: true, scene });
   } catch (error: any) {
     console.error('[Scene Regenerate Context]', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: error.message,
+        ...(error instanceof StoryboardSceneRegenerationError ? { code: error.code } : {}),
+      },
+      {
+        status: error instanceof StoryboardSceneRegenerationError
+          ? error.httpStatus
+          : 500,
+      },
+    );
   }
 }

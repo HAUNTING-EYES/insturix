@@ -9,13 +9,37 @@ export type ChatBattleFixtureProfile =
   | 'dubbing'
   | 'visual-multi-asset'
   | 'audio'
-  | 'generated-scene';
+  | 'impact-audio'
+  | 'sfx'
+  | 'generated-scene'
+  | 'storyboard-scene';
 
 export type ChatBattleFixtureCapability =
   | 'multi-asset'
   | 'semantic-visual'
   | 'semantic-visual-all-video-assets'
-  | 'spatial-visual-all-video-assets';
+  | 'spatial-visual-all-video-assets'
+  | 'renderable-native-audio'
+  | 'speech-timing'
+  | 'renderable-music'
+  | 'music-beat-grid'
+  | 'renderable-sfx';
+
+export type ChatBattleFixtureSoundOverlayPolicy =
+  | 'remove'
+  | 'preserve-all'
+  | 'preserve-sfx-only';
+
+export type ChatBattleFixtureNativeAudioPolicy =
+  | 'preserve'
+  | 'mute-embedded-when-explicit-tracks'
+  | 'mute-embedded-for-seeded-transcript'
+  | 'mute-embedded-for-visual-only';
+
+export type ChatBattleFixtureAssetAlias =
+  | 'explicit-image'
+  | 'portrait-image'
+  | 'embroidery-video';
 
 export interface ChatBattleFixtureSources {
   mixed: string;
@@ -23,7 +47,10 @@ export interface ChatBattleFixtureSources {
   dubbing: string;
   'visual-multi-asset': string;
   audio: string;
+  'impact-audio': string;
+  sfx: string;
   'generated-scene': string;
+  'storyboard-scene': string;
 }
 
 export interface ChatBattleFixturePlan {
@@ -32,11 +59,24 @@ export interface ChatBattleFixturePlan {
   profile: ChatBattleFixtureProfile;
   sourceProjectId: string;
   selectedOverlayType?: string;
+  selectedOverlayRole?: 'sfx';
   seedTranscript: boolean;
   removeCaptionTrack: boolean;
-  preserveSoundOverlays: boolean;
-  requiresImageAssetAlias: boolean;
+  soundOverlayPolicy: ChatBattleFixtureSoundOverlayPolicy;
+  nativeAudioPolicy: ChatBattleFixtureNativeAudioPolicy;
+  requestedAssetAlias?: ChatBattleFixtureAssetAlias;
   requiresUploadBatchClone: boolean;
+  requiresStoryboardClone: boolean;
+  seedTimelineGapFrames?: number;
+  selectedOverlayMinimumDurationFrames?: number;
+  stripSelectedAnimation?: boolean;
+  stripBgmDuckingConfig?: boolean;
+  minimumOverlayCount?: {
+    type: 'text';
+    count: number;
+    requireDistinctStyles: boolean;
+  };
+  selectedBehindOverlayType?: string;
   requiredSourceCapabilities: ChatBattleFixtureCapability[];
 }
 
@@ -45,8 +85,11 @@ export const DEFAULT_CHAT_BATTLE_FIXTURE_SOURCES: ChatBattleFixtureSources = {
   speech: 'proj_FYZeVGomJuSh',
   dubbing: 'proj_FYZeVGomJuSh',
   'visual-multi-asset': 'proj_chatbattle_500c55dbd0',
-  audio: 'proj_4N_6crLWX89A',
+  audio: 'proj_chatbattle_dialogue_music_v1',
+  'impact-audio': 'proj_chatbattle_impact_audio_v1',
+  sfx: 'proj_chatbattle_impact_audio_v1',
   'generated-scene': 'proj_Fp_gxpn-Lonh',
+  'storyboard-scene': 'proj_4N_6crLWX89A',
 };
 
 const SPEECH_SCENARIOS = new Set([
@@ -79,16 +122,17 @@ const MULTI_ASSET_SEMANTIC_VISUAL_SCENARIOS = new Set([
 const AUDIO_SCENARIOS = new Set([
   'bgm-explicit', 'bgm-vague', 'bgm-provider-failure', 'audio-moment-search',
   'audio-anchored-camera-shake', 'manual-impact-sfx', 'dialogue-ducking',
-  'analyze-selected-audio', 'beat-sync-cuts', 'replace-selected-sfx', 'mixed-multi-step',
+  'analyze-selected-audio', 'beat-sync-cuts', 'mixed-multi-step',
 ]);
 
-const GENERATED_SCENE_SCENARIOS = new Set(['edit-html-scene', 'regenerate-existing-scene']);
+const GENERATED_SCENE_SCENARIOS = new Set(['edit-html-scene']);
+const STORYBOARD_SCENE_SCENARIOS = new Set(['regenerate-existing-scene']);
 const ADD_CAPTION_SCENARIOS = new Set(['plain-caption-track', 'fancy-caption-track']);
 
 const VIDEO_SELECTED_SCENARIOS = new Set([
   'split-selected-overlay', 'trim-selected-overlay', 'manual-keyframe-zoom',
   'selected-clip-filter', 'analyze-selected-audio', 'analyze-selected-video',
-  'selected-dialogue-dubbing',
+  'selected-dialogue-dubbing', 'replace-with-uploaded-footage',
 ]);
 
 const TEXT_SELECTED_SCENARIOS = new Set([
@@ -102,23 +146,87 @@ export function planChatBattleFixture(
   sources: ChatBattleFixtureSources = DEFAULT_CHAT_BATTLE_FIXTURE_SOURCES,
 ): ChatBattleFixturePlan {
   const profile = resolveProfile(scenario.id);
+  const usesExplicitAudioTrack = profile === 'audio' || profile === 'impact-audio';
   return {
     scenarioId: scenario.id,
     projectMode: scenario.projectMode,
     profile,
     sourceProjectId: sources[profile],
     selectedOverlayType: resolveSelectedOverlayType(scenario.id),
-    seedTranscript: SPEECH_SCENARIOS.has(scenario.id) || scenario.id === 'manual-impact-sfx',
+    ...(scenario.id === 'replace-selected-sfx' ? { selectedOverlayRole: 'sfx' as const } : {}),
+    seedTranscript: SPEECH_SCENARIOS.has(scenario.id)
+      || ADD_CAPTION_SCENARIOS.has(scenario.id)
+      || scenario.id === 'manual-impact-sfx',
     removeCaptionTrack: ADD_CAPTION_SCENARIOS.has(scenario.id),
-    preserveSoundOverlays: profile === 'audio',
-    requiresImageAssetAlias: scenario.id === 'explicit-asset',
+    soundOverlayPolicy: usesExplicitAudioTrack
+      ? 'preserve-all'
+      : profile === 'sfx'
+        ? 'preserve-sfx-only'
+        : 'remove',
+    nativeAudioPolicy: profile === 'impact-audio'
+      ? 'mute-embedded-when-explicit-tracks'
+      : profile === 'speech'
+        ? 'mute-embedded-for-seeded-transcript'
+        : profile === 'storyboard-scene'
+          ? 'mute-embedded-for-visual-only'
+          : 'preserve',
+    ...(resolveRequestedAssetAlias(scenario.id) ? {
+      requestedAssetAlias: resolveRequestedAssetAlias(scenario.id),
+    } : {}),
     requiresUploadBatchClone: scenario.id === 'multiasset-script-intake'
       || scenario.id === 'multiasset-script-chat',
+    requiresStoryboardClone: STORYBOARD_SCENE_SCENARIOS.has(scenario.id),
+    ...(scenario.id === 'close-timeline-gaps' ? { seedTimelineGapFrames: 30 } : {}),
+    ...(scenario.id === 'manual-keyframe-zoom'
+      ? { selectedOverlayMinimumDurationFrames: 60 }
+      : {}),
+    ...(scenario.id === 'selected-overlay-fade'
+      ? { stripSelectedAnimation: true }
+      : {}),
+    ...(scenario.id === 'dialogue-ducking'
+      ? { stripBgmDuckingConfig: true }
+      : {}),
+    ...(scenario.id === 'sync-overlay-style' || scenario.id === 'batch-overlay-update'
+      ? {
+          minimumOverlayCount: {
+            type: 'text' as const,
+            count: 2,
+            requireDistinctStyles: true,
+          },
+        }
+      : {}),
+    ...(scenario.id === 'reorder-overlay-layer'
+      ? { selectedBehindOverlayType: 'image' }
+      : {}),
     requiredSourceCapabilities: resolveRequiredSourceCapabilities(scenario.id),
   };
 }
 
+function resolveRequestedAssetAlias(scenarioId: string): ChatBattleFixtureAssetAlias | undefined {
+  if (scenarioId === 'explicit-asset') return 'explicit-image';
+  if (scenarioId === 'place-uploaded-asset') return 'portrait-image';
+  if (scenarioId === 'replace-with-uploaded-footage') return 'embroidery-video';
+  return undefined;
+}
+
 function resolveRequiredSourceCapabilities(scenarioId: string): ChatBattleFixtureCapability[] {
+  if (scenarioId === 'selected-dialogue-dubbing') {
+    return ['renderable-native-audio', 'speech-timing'];
+  }
+  if (scenarioId === 'audio-anchored-camera-shake' || scenarioId === 'replace-selected-sfx') {
+    return ['renderable-sfx'];
+  }
+  if (scenarioId === 'beat-sync-cuts') {
+    return ['renderable-music', 'music-beat-grid'];
+  }
+  if (AUDIO_SCENARIOS.has(scenarioId)) {
+    return [
+      'renderable-native-audio',
+      'speech-timing',
+      'renderable-music',
+      'music-beat-grid',
+    ];
+  }
   if (MULTI_ASSET_SEMANTIC_VISUAL_SCENARIOS.has(scenarioId)) {
     return ['multi-asset', 'semantic-visual-all-video-assets'];
   }
@@ -133,6 +241,9 @@ function resolveRequiredSourceCapabilities(scenarioId: string): ChatBattleFixtur
 
 function resolveProfile(scenarioId: string): ChatBattleFixtureProfile {
   if (scenarioId === 'selected-dialogue-dubbing') return 'dubbing';
+  if (scenarioId === 'audio-anchored-camera-shake') return 'impact-audio';
+  if (scenarioId === 'replace-selected-sfx') return 'sfx';
+  if (STORYBOARD_SCENE_SCENARIOS.has(scenarioId)) return 'storyboard-scene';
   if (GENERATED_SCENE_SCENARIOS.has(scenarioId)) return 'generated-scene';
   if (AUDIO_SCENARIOS.has(scenarioId)) return 'audio';
   if (VISUAL_SCENARIOS.has(scenarioId)) return 'visual-multi-asset';

@@ -44,6 +44,14 @@ const DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS = 20 * 60 * 1000;
 const PHASE0_RENDER_STILL_TIMEOUT_MS = 90_000;
 const PHASE0_RENDER_STILL_TRANSIENT_REPAIR_BUDGET = 2;
 const PHASE0_RENDER_STILL_LAMBDA_RETRIES = 0;
+const AUDIO_FINGERPRINT_TARGET_HZ = 2_000;
+const AUDIO_CONTINUITY_CHUNK_SECONDS = 0.2;
+const AUDIO_CONTINUITY_MAX_ALIGNMENT_SECONDS = 0.01;
+const AUDIO_CONTINUITY_MIN_SIMILARITY = 0.985;
+const AUDIO_CONTINUITY_MIN_LOCAL_SIMILARITY = 0.94;
+const AUDIO_CONTINUITY_MAX_RMS_DELTA_DB = 0.25;
+const AUDIO_CONTINUITY_MAX_PEAK_DELTA_DB = 0.5;
+const AUDIO_SILENCE_FLOOR = 1e-5;
 
 type Phase0RenderedStillEvidenceStatus = 'completed' | 'partial' | 'failed' | 'skipped';
 
@@ -84,6 +92,9 @@ export interface ChatEditRenderVerificationRequest {
   requestedAt: string;
   modalities: ChatEditRenderVerificationModality[];
   expectedEffect?: ChatEditRenderVerificationExpectation;
+  expectationsByModality?: Partial<
+    Record<ChatEditRenderVerificationModality, ChatEditRenderVerificationExpectation>
+  >;
   targets: ChatEditRenderVerificationTarget[];
   mutationRanges?: ChatEditRenderVerificationMutationRange[];
   inheritedRenderEligibilityOverlayIds?: string[];
@@ -133,6 +144,11 @@ export interface ChatEditRenderedAudioWindowEvidence {
   afterRms: number | null;
   beforePeak: number | null;
   afterPeak: number | null;
+  comparisonMethod?: 'exact-pcm' | 'aligned-waveform-v1' | 'hash-fallback' | 'stream-presence';
+  similarity?: number | null;
+  worstLocalSimilarity?: number | null;
+  rmsDeltaDb?: number | null;
+  peakDeltaDb?: number | null;
   changed: boolean;
   error: string | null;
 }
@@ -182,6 +198,11 @@ export interface Phase0RenderedStillFrameEvidence {
   baselineBucketName?: string;
   baselineRenderId?: string;
   baselineSizeInBytes?: number;
+  aestheticBaselineUrl?: string;
+  aestheticBaselineOutKey?: string;
+  aestheticBaselineBucketName?: string;
+  aestheticBaselineRenderId?: string;
+  aestheticBaselineSizeInBytes?: number;
 }
 
 export interface Phase0RenderedStillEvidence {
@@ -198,7 +219,7 @@ export interface Phase0RenderedStillEvidence {
   sampleLimit: number;
   requestedSampleFrames: number[];
   renderedFrames: Phase0RenderedStillFrameEvidence[];
-  failedFrames: Array<{ frame: number; error: string; renderKind?: 'full' | 'baseline' | 'worker' }>;
+  failedFrames: Array<{ frame: number; error: string; renderKind?: 'full' | 'baseline' | 'aesthetic-baseline' | 'worker' }>;
   artifactPackStatus: 'ready' | 'not-renderable';
   artifactPackIssues: string[];
   renderedAestheticReport?: Phase0RenderedAestheticReportLike;
@@ -479,12 +500,31 @@ export async function buildPhase0RenderedStillEvidence(
         ),
         isRendering: true,
       };
+  const aestheticBaselineOverlays = options.baselineProject
+    ? buildAestheticBaselineOverlays(
+        artifactPack.renderInput.overlays,
+        options.auditedOverlayIds,
+      )
+    : null;
+  const aestheticBaselineInputProps = aestheticBaselineOverlays
+    ? {
+        ...artifactPack.renderInput,
+        overlays: aestheticBaselineOverlays,
+        durationInFrames: operationDurationInFrames,
+        isRendering: true,
+      }
+    : null;
+  const frameConcurrency = aestheticBaselineInputProps ? 2 : 3;
 
   const frameResults = await mapWithConcurrency(
     requestedSampleFrames,
-    3,
+    frameConcurrency,
     async (frame) => {
-      const [fullResult, baselineResult] = await Promise.allSettled([
+      const renderPromises: [
+        Promise<RenderStillOnLambdaOutput>,
+        Promise<RenderStillOnLambdaOutput>,
+        Promise<RenderStillOnLambdaOutput | null>,
+      ] = [
         renderStillForEvidence(renderStill, {
           region: config.region as any,
           functionName: config.functionName,
@@ -507,8 +547,23 @@ export async function buildPhase0RenderedStillEvidence(
           frame,
           maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
         }),
-      ]);
-      return { frame, fullResult, baselineResult };
+        aestheticBaselineInputProps
+          ? renderStillForEvidence(renderStill, {
+              region: config.region as any,
+              functionName: config.functionName,
+              serveUrl: config.serveUrl,
+              composition: REMOTION_COMPOSITION_ID,
+              inputProps: aestheticBaselineInputProps,
+              imageFormat: 'png',
+              privacy: 'public',
+              frame,
+              maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
+            })
+          : Promise.resolve(null),
+      ];
+      const [fullResult, baselineResult, aestheticBaselineResult] =
+        await Promise.allSettled(renderPromises);
+      return { frame, fullResult, baselineResult, aestheticBaselineResult };
     },
   );
 
@@ -553,9 +608,28 @@ export async function buildPhase0RenderedStillEvidence(
         maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
       });
     }
+    if (
+      transientRepairBudget > 0
+      && aestheticBaselineInputProps
+      && frameResult.aestheticBaselineResult.status === 'rejected'
+      && isTransientRenderedStillFailure(frameResult.aestheticBaselineResult.reason)
+    ) {
+      transientRepairBudget -= 1;
+      frameResult.aestheticBaselineResult = await settleRenderedStillForEvidence(renderStill, {
+        region: config.region as any,
+        functionName: config.functionName,
+        serveUrl: config.serveUrl,
+        composition: REMOTION_COMPOSITION_ID,
+        inputProps: aestheticBaselineInputProps,
+        imageFormat: 'png',
+        privacy: 'public',
+        frame: frameResult.frame,
+        maxRetries: PHASE0_RENDER_STILL_LAMBDA_RETRIES,
+      });
+    }
   }
 
-  for (const { frame, fullResult, baselineResult } of frameResults) {
+  for (const { frame, fullResult, baselineResult, aestheticBaselineResult } of frameResults) {
     if (fullResult.status === 'rejected') {
       failedFrames.push({
         frame,
@@ -565,7 +639,26 @@ export async function buildPhase0RenderedStillEvidence(
       continue;
     }
     if (baselineResult.status === 'fulfilled') {
-      renderedFrames.push(toFrameEvidence(frame, fullResult.value, baselineResult.value));
+      if (aestheticBaselineInputProps) {
+        if (aestheticBaselineResult.status === 'rejected' || !aestheticBaselineResult.value) {
+          failedFrames.push({
+            frame,
+            renderKind: 'aesthetic-baseline',
+            error: aestheticBaselineResult.status === 'rejected'
+              ? settledError(aestheticBaselineResult.reason)
+              : 'aesthetic baseline render returned no artifact',
+          });
+          continue;
+        }
+      }
+      renderedFrames.push(toFrameEvidence(
+        frame,
+        fullResult.value,
+        baselineResult.value,
+        aestheticBaselineResult.status === 'fulfilled'
+          ? aestheticBaselineResult.value ?? undefined
+          : undefined,
+      ));
       continue;
     }
     failedFrames.push({
@@ -727,6 +820,22 @@ interface RenderedAudioArtifact {
   pcmSha256: string;
   rms: number;
   peak: number;
+  fingerprint?: RenderedAudioFingerprint;
+}
+
+interface RenderedAudioFingerprint {
+  sampleRate: number;
+  samplesPerPoint: number;
+  waveform: number[];
+}
+
+interface RenderedAudioComparison {
+  method: ChatEditRenderedAudioWindowEvidence['comparisonMethod'];
+  changed: boolean;
+  similarity: number | null;
+  worstLocalSimilarity: number | null;
+  rmsDeltaDb: number | null;
+  peakDeltaDb: number | null;
 }
 
 type RenderAudioWindow = (input: {
@@ -948,6 +1057,7 @@ export async function buildChatEditRenderedAudioEvidence(
       ]);
       const beforePcmSha256 = before?.pcmSha256 ?? EMPTY_AUDIO_PCM_SHA256;
       const afterPcmSha256 = after?.pcmSha256 ?? EMPTY_AUDIO_PCM_SHA256;
+      const comparison = compareRenderedAudioArtifacts(before, after);
       evidenceWindows.push({
         ...window,
         beforeUrl: before?.url ?? null,
@@ -958,7 +1068,12 @@ export async function buildChatEditRenderedAudioEvidence(
         afterRms: after?.rms ?? 0,
         beforePeak: before?.peak ?? 0,
         afterPeak: after?.peak ?? 0,
-        changed: beforePcmSha256 !== afterPcmSha256,
+        comparisonMethod: comparison.method,
+        similarity: comparison.similarity,
+        worstLocalSimilarity: comparison.worstLocalSimilarity,
+        rmsDeltaDb: comparison.rmsDeltaDb,
+        peakDeltaDb: comparison.peakDeltaDb,
+        changed: comparison.changed,
         error: null,
       });
     } catch (error: unknown) {
@@ -972,13 +1087,21 @@ export async function buildChatEditRenderedAudioEvidence(
         afterRms: null,
         beforePeak: null,
         afterPeak: null,
+        comparisonMethod: 'hash-fallback',
+        similarity: null,
+        worstLocalSimilarity: null,
+        rmsDeltaDb: null,
+        peakDeltaDb: null,
         changed: false,
         error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  const expectsContinuity = request.expectedEffect === 'continuity-preserved';
+  const expectsContinuity = (
+    request.expectationsByModality?.audio
+    ?? request.expectedEffect
+  ) === 'continuity-preserved';
   const failed = evidenceWindows.filter((window) =>
     Boolean(window.error) || (expectsContinuity ? window.changed : !window.changed),
   );
@@ -1206,12 +1329,20 @@ async function renderLambdaAudioWindow(input: {
   };
 }
 
-function inspectPcm16Wav(bytes: Buffer): { pcmSha256: string; rms: number; peak: number } {
+function inspectPcm16Wav(bytes: Buffer): {
+  pcmSha256: string;
+  rms: number;
+  peak: number;
+  fingerprint: RenderedAudioFingerprint;
+} {
   if (bytes.length < 44 || bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WAVE') {
     throw new Error('Rendered audio artifact is not a valid WAV file.');
   }
   let offset = 12;
   let format = 0;
+  let channelCount = 0;
+  let sampleRate = 0;
+  let blockAlign = 0;
   let bitsPerSample = 0;
   let data: Buffer | null = null;
   while (offset + 8 <= bytes.length) {
@@ -1221,6 +1352,9 @@ function inspectPcm16Wav(bytes: Buffer): { pcmSha256: string; rms: number; peak:
     const end = Math.min(bytes.length, start + size);
     if (id === 'fmt ' && end - start >= 16) {
       format = bytes.readUInt16LE(start);
+      channelCount = bytes.readUInt16LE(start + 2);
+      sampleRate = bytes.readUInt32LE(start + 4);
+      blockAlign = bytes.readUInt16LE(start + 12);
       bitsPerSample = bytes.readUInt16LE(start + 14);
     }
     if (id === 'data') {
@@ -1229,7 +1363,15 @@ function inspectPcm16Wav(bytes: Buffer): { pcmSha256: string; rms: number; peak:
     }
     offset = start + size + (size % 2);
   }
-  if (format !== 1 || bitsPerSample !== 16 || !data || data.length < 2) {
+  if (
+    format !== 1
+    || bitsPerSample !== 16
+    || channelCount < 1
+    || sampleRate < 1
+    || blockAlign < channelCount * 2
+    || !data
+    || data.length < blockAlign
+  ) {
     throw new Error('Rendered audio artifact is not PCM-16 WAV data.');
   }
 
@@ -1245,7 +1387,185 @@ function inspectPcm16Wav(bytes: Buffer): { pcmSha256: string; rms: number; peak:
     pcmSha256: createHash('sha256').update(data).digest('hex'),
     rms: Math.sqrt(energy / sampleCount),
     peak,
+    fingerprint: buildRenderedAudioFingerprint({
+      data,
+      channelCount,
+      sampleRate,
+      blockAlign,
+    }),
   };
+}
+
+function buildRenderedAudioFingerprint(input: {
+  data: Buffer;
+  channelCount: number;
+  sampleRate: number;
+  blockAlign: number;
+}): RenderedAudioFingerprint {
+  const sourceFrameCount = Math.floor(input.data.length / input.blockAlign);
+  const samplesPerPoint = Math.max(1, Math.floor(input.sampleRate / AUDIO_FINGERPRINT_TARGET_HZ));
+  const waveform: number[] = [];
+  for (let frameStart = 0; frameStart < sourceFrameCount; frameStart += samplesPerPoint) {
+    const frameEnd = Math.min(sourceFrameCount, frameStart + samplesPerPoint);
+    let sum = 0;
+    let count = 0;
+    for (let frame = frameStart; frame < frameEnd; frame++) {
+      const frameOffset = frame * input.blockAlign;
+      for (let channel = 0; channel < input.channelCount; channel++) {
+        sum += input.data.readInt16LE(frameOffset + channel * 2) / 32768;
+        count++;
+      }
+    }
+    waveform.push(count > 0 ? sum / count : 0);
+  }
+  return {
+    sampleRate: input.sampleRate,
+    samplesPerPoint,
+    waveform,
+  };
+}
+
+function compareRenderedAudioArtifacts(
+  before: RenderedAudioArtifact | null,
+  after: RenderedAudioArtifact | null,
+): RenderedAudioComparison {
+  if (!before || !after) {
+    return {
+      method: 'stream-presence',
+      changed: Boolean(before) !== Boolean(after),
+      similarity: null,
+      worstLocalSimilarity: null,
+      rmsDeltaDb: null,
+      peakDeltaDb: null,
+    };
+  }
+  if (before.pcmSha256 === after.pcmSha256) {
+    return {
+      method: 'exact-pcm',
+      changed: false,
+      similarity: 1,
+      worstLocalSimilarity: 1,
+      rmsDeltaDb: 0,
+      peakDeltaDb: 0,
+    };
+  }
+  const beforeFingerprint = before.fingerprint;
+  const afterFingerprint = after.fingerprint;
+  if (
+    !beforeFingerprint
+    || !afterFingerprint
+    || beforeFingerprint.sampleRate !== afterFingerprint.sampleRate
+    || beforeFingerprint.samplesPerPoint !== afterFingerprint.samplesPerPoint
+  ) {
+    return {
+      method: 'hash-fallback',
+      changed: true,
+      similarity: null,
+      worstLocalSimilarity: null,
+      rmsDeltaDb: decibelDelta(before.rms, after.rms),
+      peakDeltaDb: decibelDelta(before.peak, after.peak),
+    };
+  }
+
+  const pointRate = beforeFingerprint.sampleRate / beforeFingerprint.samplesPerPoint;
+  const local = compareAlignedWaveforms(
+    beforeFingerprint.waveform,
+    afterFingerprint.waveform,
+    Math.max(32, Math.round(pointRate * AUDIO_CONTINUITY_CHUNK_SECONDS)),
+    Math.max(1, Math.round(pointRate * AUDIO_CONTINUITY_MAX_ALIGNMENT_SECONDS)),
+  );
+  const rmsDeltaDb = decibelDelta(before.rms, after.rms);
+  const peakDeltaDb = decibelDelta(before.peak, after.peak);
+  const equivalent = local.similarity >= AUDIO_CONTINUITY_MIN_SIMILARITY
+    && local.worstLocalSimilarity >= AUDIO_CONTINUITY_MIN_LOCAL_SIMILARITY
+    && rmsDeltaDb <= AUDIO_CONTINUITY_MAX_RMS_DELTA_DB
+    && peakDeltaDb <= AUDIO_CONTINUITY_MAX_PEAK_DELTA_DB;
+  return {
+    method: 'aligned-waveform-v1',
+    changed: !equivalent,
+    similarity: local.similarity,
+    worstLocalSimilarity: local.worstLocalSimilarity,
+    rmsDeltaDb,
+    peakDeltaDb,
+  };
+}
+
+function compareAlignedWaveforms(
+  before: number[],
+  after: number[],
+  chunkSize: number,
+  maxLag: number,
+): { similarity: number; worstLocalSimilarity: number } {
+  const length = Math.min(before.length, after.length);
+  if (length === 0) return { similarity: 0, worstLocalSimilarity: 0 };
+
+  let weightedScore = 0;
+  let totalWeight = 0;
+  let worstLocalSimilarity = 1;
+  for (let start = 0; start < length; start += chunkSize) {
+    const end = Math.min(length, start + chunkSize);
+    const score = bestLocalWaveformSimilarity(before, after, start, end, maxLag);
+    const weight = Math.max(score.weight, AUDIO_SILENCE_FLOOR);
+    weightedScore += score.similarity * weight;
+    totalWeight += weight;
+    worstLocalSimilarity = Math.min(worstLocalSimilarity, score.similarity);
+  }
+  return {
+    similarity: totalWeight > 0 ? weightedScore / totalWeight : 1,
+    worstLocalSimilarity,
+  };
+}
+
+function bestLocalWaveformSimilarity(
+  before: number[],
+  after: number[],
+  start: number,
+  end: number,
+  maxLag: number,
+): { similarity: number; weight: number } {
+  let bestSimilarity = -1;
+  let bestWeight = 0;
+  for (let lag = -maxLag; lag <= maxLag; lag++) {
+    let dot = 0;
+    let beforeEnergy = 0;
+    let afterEnergy = 0;
+    let compared = 0;
+    for (let index = start; index < end; index++) {
+      const shifted = index + lag;
+      if (shifted < 0 || shifted >= after.length) continue;
+      const beforeSample = before[index] ?? 0;
+      const afterSample = after[shifted] ?? 0;
+      dot += beforeSample * afterSample;
+      beforeEnergy += beforeSample * beforeSample;
+      afterEnergy += afterSample * afterSample;
+      compared++;
+    }
+    if (compared === 0) continue;
+    const beforeRms = Math.sqrt(beforeEnergy / compared);
+    const afterRms = Math.sqrt(afterEnergy / compared);
+    const weight = Math.max(beforeRms, afterRms) * compared;
+    const bothSilent = beforeRms <= AUDIO_SILENCE_FLOOR && afterRms <= AUDIO_SILENCE_FLOOR;
+    const oneSilent = beforeRms <= AUDIO_SILENCE_FLOOR || afterRms <= AUDIO_SILENCE_FLOOR;
+    const similarity = bothSilent
+      ? 1
+      : oneSilent
+        ? 0
+        : Math.max(-1, Math.min(1, dot / Math.sqrt(beforeEnergy * afterEnergy)));
+    if (similarity > bestSimilarity) {
+      bestSimilarity = similarity;
+      bestWeight = weight;
+    }
+  }
+  return {
+    similarity: Math.max(0, bestSimilarity),
+    weight: bestWeight,
+  };
+}
+
+function decibelDelta(before: number, after: number): number {
+  if (before <= AUDIO_SILENCE_FLOOR && after <= AUDIO_SILENCE_FLOOR) return 0;
+  if (before <= AUDIO_SILENCE_FLOOR || after <= AUDIO_SILENCE_FLOOR) return Number.POSITIVE_INFINITY;
+  return Math.abs(20 * Math.log10(after / before));
 }
 
 
@@ -1393,6 +1713,7 @@ function toFrameEvidence(
   frame: number,
   still: RenderStillOnLambdaOutput,
   baselineStill?: RenderStillOnLambdaOutput,
+  aestheticBaselineStill?: RenderStillOnLambdaOutput,
 ): Phase0RenderedStillFrameEvidence {
   return {
     frame,
@@ -1408,7 +1729,25 @@ function toFrameEvidence(
       baselineRenderId: baselineStill.renderId,
       baselineSizeInBytes: baselineStill.sizeInBytes,
     } : {}),
+    ...(aestheticBaselineStill ? {
+      aestheticBaselineUrl: aestheticBaselineStill.url,
+      aestheticBaselineOutKey: aestheticBaselineStill.outKey,
+      aestheticBaselineBucketName: aestheticBaselineStill.bucketName,
+      aestheticBaselineRenderId: aestheticBaselineStill.renderId,
+      aestheticBaselineSizeInBytes: aestheticBaselineStill.sizeInBytes,
+    } : {}),
   };
+}
+
+function buildAestheticBaselineOverlays(
+  overlays: Phase0FixtureProject['overlays'],
+  auditedOverlayIds: Array<string | number> | undefined,
+): Phase0FixtureProject['overlays'] | null {
+  const auditedIds = new Set((auditedOverlayIds ?? []).map(String));
+  if (auditedIds.size === 0) return null;
+  const source = Array.isArray(overlays) ? overlays : [];
+  const filtered = source.filter((overlay) => !auditedIds.has(String(overlay.id)));
+  return filtered.length === source.length ? null : filtered;
 }
 
 function buildBaselineOverlays(

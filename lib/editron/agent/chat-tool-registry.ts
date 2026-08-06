@@ -228,6 +228,9 @@ export interface ChatToolPostconditionContract {
     required: true;
     modalities: ChatToolRenderEvidenceModality[];
     expectation: ChatToolRenderEvidenceExpectation;
+    expectationsByModality?: Partial<
+      Record<ChatToolRenderEvidenceModality, ChatToolRenderEvidenceExpectation>
+    >;
   };
 }
 
@@ -304,16 +307,25 @@ const EVIDENCE_PRODUCERS: Readonly<Record<string, ChatToolEvidenceClass[]>> = {
   resolve_visual_edit: ['visual-target'],
   resolve_audio_edit: ['audio-target'],
   resolve_user_asset_overlay: ['asset-target'],
+  resolve_keyframe_edit: ['visual-target'],
 };
 
 function postconditions(
   kind: ChatToolStatePostconditionKind,
   modalities: ChatToolRenderEvidenceModality[] = ['visual'],
   expectation: ChatToolRenderEvidenceExpectation = 'mutation-delta',
+  expectationsByModality?: Partial<
+    Record<ChatToolRenderEvidenceModality, ChatToolRenderEvidenceExpectation>
+  >,
 ): ChatToolPostconditionContract {
   return {
     state: { kind, targetSource: 'tool-args-and-result' },
-    render: { required: true, modalities, expectation },
+    render: {
+      required: true,
+      modalities,
+      expectation,
+      ...(expectationsByModality ? { expectationsByModality } : {}),
+    },
   };
 }
 
@@ -338,7 +350,7 @@ export const CHAT_TOOL_REGISTRY = {
   delete_overlay: defineTool({ name: 'delete_overlay', label: 'Removing element', shortLabel: 'Remove', iconCategory: 'delete', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Removed element', postconditions: postconditions('overlay-deleted', ['visual', 'audio']) }),
   sync_style: defineTool({ name: 'sync_style', label: 'Syncing styles', shortLabel: 'Sync', iconCategory: 'style', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Synced styles' }),
   visual_inspect_frame: defineTool({ name: 'visual_inspect_frame', label: 'Inspecting video frame', shortLabel: 'Inspect', iconCategory: 'visual', receiptLabel: 'Inspected frame' }),
-  close_gaps: defineTool({ name: 'close_gaps', label: 'Closing timeline gaps', shortLabel: 'Close gaps', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Closed gaps', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']), effectContract: { produces: ['timeline-gaps-closed'], redundantAfter: ['cut-gap-closed', 'timeline-gaps-closed'] } }),
+  close_gaps: defineTool({ name: 'close_gaps', label: 'Closing timeline gaps', shortLabel: 'Close gaps', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Closed gaps', postconditions: postconditions('overlay-set-changed', ['visual', 'audio'], 'mutation-delta', { visual: 'mutation-delta', audio: 'continuity-preserved' }), effectContract: { produces: ['timeline-gaps-closed'], redundantAfter: ['cut-gap-closed', 'timeline-gaps-closed'] } }),
   restore_ai_edit_checkpoint: defineTool({ name: 'restore_ai_edit_checkpoint', label: 'Restoring AI edit checkpoint', shortLabel: 'Restore', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Restored checkpoint', turnContract: { owner: 'checkpoint-restorer', evidenceStrategy: 'owner-internal', requiredEvidence: [], producesEvidence: [] } }),
   cut_section: defineTool({ name: 'cut_section', label: 'Cutting section', shortLabel: 'Cut', iconCategory: 'trim', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Cut section', postconditions: postconditions('overlay-set-changed', ['visual', 'audio']), effectContract: { produces: ['cut-gap-closed'], redundantAfter: [] } }),
   add_motion_graphic: defineTool({ name: 'add_motion_graphic', label: 'Adding motion graphic', shortLabel: 'MG', iconCategory: 'motion', executionType: 'quick', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphic', postconditions: postconditions('overlay-created') }),
@@ -362,18 +374,18 @@ export const CHAT_TOOL_REGISTRY = {
   move_retime_overlay: defineTool({ name: 'move_retime_overlay', label: 'Moving/retiming element', shortLabel: 'Timing', iconCategory: 'timeline', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Moved/retimed element' }),
   analyze_video_content: defineTool({ name: 'analyze_video_content', label: 'Analyzing video content', shortLabel: 'Analyze', iconCategory: 'visual', receiptLabel: 'Analyzed video' }),
   add_captions: defineTool({ name: 'add_captions', label: 'Adding captions', shortLabel: 'Captions', iconCategory: 'caption', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added captions' }),
-  add_fancy_captions: defineTool({ name: 'add_fancy_captions', label: 'Adding animated captions', shortLabel: 'Fancy', iconCategory: 'caption', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added animated captions', loadingMessages: ['Designing captions', 'Timing words', 'Finishing typography'] }),
-  refresh_fancy_captions: defineTool({ name: 'refresh_fancy_captions', label: 'Refreshing animated captions', shortLabel: 'Refresh', iconCategory: 'caption', executionType: 'generative', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Refreshed animated captions', loadingMessages: ['Re-syncing captions', 'Refreshing typography', 'Finishing up'] }),
+  add_fancy_captions: defineTool({ name: 'add_fancy_captions', label: 'Adding animated captions', shortLabel: 'Fancy', iconCategory: 'caption', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added animated captions', loadingMessages: ['Designing captions', 'Timing words', 'Finishing typography'] }),
+  refresh_fancy_captions: defineTool({ name: 'refresh_fancy_captions', label: 'Refreshing animated captions', shortLabel: 'Refresh', iconCategory: 'caption', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Refreshed animated captions', loadingMessages: ['Re-syncing captions', 'Refreshing typography', 'Finishing up'] }),
   refresh_captions: defineTool({ name: 'refresh_captions', label: 'Refreshing captions', shortLabel: 'Refresh', iconCategory: 'caption', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Refreshed captions' }),
   resolve_clip_analysis: defineTool({ name: 'resolve_clip_analysis', label: 'Resolving analysis target', shortLabel: 'Resolve analysis', iconCategory: 'search', receiptLabel: 'Resolved analysis target' }),
   queue_resolved_clip_analysis: defineTool({ name: 'queue_resolved_clip_analysis', label: 'Queueing deep analysis', shortLabel: 'Queue analysis', iconCategory: 'sparkles', executionType: 'generative', receiptLabel: 'Queued deep analysis', loadingMessages: ['Locking the target', 'Queueing analysis', 'Preparing evidence'] }),
   get_clip_analysis_result: defineTool({ name: 'get_clip_analysis_result', label: 'Reading analysis result', shortLabel: 'Analysis result', iconCategory: 'file', receiptLabel: 'Read analysis result' }),
-  dub_selected_dialogue: defineTool({ name: 'dub_selected_dialogue', label: 'Queueing translated dialogue', shortLabel: 'Dub dialogue', iconCategory: 'audio', executionType: 'generative', mutatesProject: true, mutationCompletion: 'durable', requiresProjectReload: false, riskLevel: 'medium', receiptLabel: 'Queued translated dialogue', loadingMessages: ['Locking the selected clip', 'Preparing dialogue timing', 'Queueing dubbing'], postconditions: postconditions('project-state-changed-or-durable-operation-queued', ['audio']), turnContract: { owner: 'mechanical-editor', evidenceStrategy: 'preflight', requiredEvidence: ['project-state', 'timeline-state', 'transcript-target'], producesEvidence: [] } }),
+  dub_selected_dialogue: defineTool({ name: 'dub_selected_dialogue', label: 'Queueing translated dialogue', shortLabel: 'Dub dialogue', iconCategory: 'audio', executionType: 'generative', mutatesProject: true, mutationCompletion: 'durable', requiresProjectReload: false, riskLevel: 'medium', receiptLabel: 'Queued translated dialogue', loadingMessages: ['Locking the selected clip', 'Preparing dialogue timing', 'Queueing dubbing'], postconditions: postconditions('project-state-changed-or-durable-operation-queued', ['audio']), turnContract: { owner: 'mechanical-editor', evidenceStrategy: 'preflight', requiredEvidence: ['project-state', 'timeline-state'], producesEvidence: [] } }),
   get_dubbing_job_result: defineTool({ name: 'get_dubbing_job_result', label: 'Checking translated dialogue', shortLabel: 'Dubbing status', iconCategory: 'audio', requiresProjectReload: true, receiptLabel: 'Checked translated dialogue' }),
   analyze_clip_audio: defineTool({ name: 'analyze_clip_audio', label: 'Analyzing audio', shortLabel: 'Audio', iconCategory: 'audio', executionType: 'generative', exposure: 'shadow-authority-filtered', receiptLabel: 'Analyzed audio', loadingMessages: ['Listening to audio', 'Finding beats', 'Checking pauses'] }),
   analyze_clip_video: defineTool({ name: 'analyze_clip_video', label: 'Analyzing video', shortLabel: 'Video', iconCategory: 'visual', executionType: 'generative', exposure: 'shadow-authority-filtered', receiptLabel: 'Analyzed video', loadingMessages: ['Inspecting video', 'Reading frames', 'Checking visuals'] }),
   auto_edit_from_script: defineTool({ name: 'auto_edit_from_script', label: 'Auto editing from script', shortLabel: 'Auto edit', iconCategory: 'script', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Auto edited from script', loadingMessages: ['Planning edit', 'Building timeline', 'Applying cuts'], postconditions: postconditions('overlay-set-changed', ['visual', 'audio']) }),
-  regenerate_scene: defineTool({ name: 'regenerate_scene', label: 'Regenerating scene', shortLabel: 'Regen', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, riskLevel: 'high', receiptLabel: 'Regenerated scene', loadingMessages: ['Regenerating scene', 'Starting render', 'Preparing update'] }),
+  regenerate_scene: defineTool({ name: 'regenerate_scene', label: 'Regenerating scene', shortLabel: 'Regen', iconCategory: 'sparkles', executionType: 'generative', mutatesProject: true, mutationCompletion: 'durable', requiresProjectReload: false, riskLevel: 'high', receiptLabel: 'Regenerated scene', loadingMessages: ['Regenerating scene', 'Starting render', 'Preparing update'], postconditions: postconditions('project-state-changed-or-durable-operation-queued', ['visual']) }),
   add_transition: defineTool({ name: 'add_transition', label: 'Adding transition', shortLabel: 'Transition', iconCategory: 'transition', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added transition' }),
   auto_motion_graphics: defineTool({ name: 'auto_motion_graphics', label: 'Adding motion graphics', shortLabel: 'Auto MG', iconCategory: 'motion', executionType: 'generative', exposure: 'shadow-authority-filtered', mutatesProject: true, riskLevel: 'medium', receiptLabel: 'Added motion graphics', loadingMessages: ['Finding moments', 'Planning graphics', 'Adding motion'] }),
   extract_style: defineTool({ name: 'extract_style', label: 'Extracting edit style', shortLabel: 'Extract', iconCategory: 'style', executionType: 'generative', exposure: 'shadow-authority-filtered', receiptLabel: 'Extracted style', loadingMessages: ['Reading style', 'Finding patterns', 'Building profile'] }),

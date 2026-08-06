@@ -2,6 +2,7 @@ import type {
   ChatEditRenderedAudioEvidence,
   ChatEditRenderVerificationRequest,
 } from './phase0-rendered-evidence-worker';
+import type { ProjectRenderEligibilityAudit } from '../shared/render-request-payload';
 
 export const CHAT_EDIT_RENDER_VERIFICATION_LIFECYCLE_VERSION =
   'editron-chat-render-verification-lifecycle-v1' as const;
@@ -65,6 +66,7 @@ export interface ChatEditRenderVerificationRecord<Visual = unknown, Audio = Chat
   modalities: ChatEditRenderVerificationRequest['modalities'];
   targets: ChatEditRenderVerificationRequest['targets'];
   inheritedRenderEligibilityOverlayIds?: string[];
+  projectRenderEligibility: ProjectRenderEligibilityAudit | null;
   sampleFrames: number[];
   visual: Visual | null;
   audio: Audio | null;
@@ -77,9 +79,13 @@ export interface ChatEditRenderVerificationRecord<Visual = unknown, Audio = Chat
 }
 
 export type PersistedChatEditRenderVerificationRecord<Visual = unknown, Audio = ChatEditRenderedAudioEvidence> =
-  Omit<ChatEditRenderVerificationRecord<Visual, Audio>, 'lifecycle' | 'issues'> & {
+  Omit<
+    ChatEditRenderVerificationRecord<Visual, Audio>,
+    'lifecycle' | 'issues' | 'projectRenderEligibility'
+  > & {
     lifecycle?: ChatEditRenderVerificationLifecycle;
     issues?: ChatEditRenderVerificationIssue[];
+    projectRenderEligibility?: ProjectRenderEligibilityAudit | null;
   };
 
 export function resolveChatEditRenderVerificationStatus(input: {
@@ -119,6 +125,7 @@ export function buildRequestedChatEditRenderVerification(
     ...(request.inheritedRenderEligibilityOverlayIds?.length
       ? { inheritedRenderEligibilityOverlayIds: request.inheritedRenderEligibilityOverlayIds }
       : {}),
+    projectRenderEligibility: null,
     sampleFrames: request.sampleFrames,
     visual: null,
     audio: null,
@@ -150,7 +157,36 @@ export function ensureChatEditRenderVerificationLifecycle<Visual, Audio>(
   now: Date | string = new Date(),
 ): ChatEditRenderVerificationRecord<Visual, Audio> {
   if (record.lifecycle?.version === CHAT_EDIT_RENDER_VERIFICATION_LIFECYCLE_VERSION) {
-    return record as ChatEditRenderVerificationRecord<Visual, Audio>;
+    const reasons = Array.isArray(record.reasons)
+      ? record.reasons
+          .map((reason) => cleanText(reason, 500))
+          .filter((reason): reason is string => Boolean(reason))
+      : [];
+    const suppliedIssues = sanitizeIssues(record.issues);
+    const needsTerminalDiagnostic =
+      record.status !== 'pass'
+      && ['warn', 'fail', 'error'].includes(record.status)
+      && reasons.length === 0
+      && suppliedIssues.length === 0;
+    const terminalReason = needsTerminalDiagnostic
+      ? cleanText(record.lifecycle.reason, 500) ?? 'render_verification_terminal_missing_diagnostic'
+      : null;
+    const normalizedReasons = terminalReason ? [terminalReason] : reasons;
+    const normalizedIssues = suppliedIssues.length > 0
+      ? suppliedIssues
+      : terminalReason
+        ? reasonsToIssues([terminalReason], record.status === 'error' ? 'system' : 'visual')
+        : [];
+    return {
+      ...record,
+      projectRenderEligibility: record.projectRenderEligibility ?? null,
+      reasons: normalizedReasons,
+      issues: normalizedIssues,
+      lifecycle: {
+        ...record.lifecycle,
+        reason: cleanText(record.lifecycle.reason, 500) ?? normalizedReasons[0] ?? null,
+      },
+    } as ChatEditRenderVerificationRecord<Visual, Audio>;
   }
   const updatedAt = toIso(now);
   const completed = record.status === 'pass' || record.status === 'warn' || record.status === 'fail';
@@ -166,6 +202,7 @@ export function ensureChatEditRenderVerificationLifecycle<Visual, Audio>(
           : 'requested';
   return {
     ...record,
+    projectRenderEligibility: record.projectRenderEligibility ?? null,
     issues: sanitizeIssues((record as { issues?: unknown }).issues),
     lifecycle: {
       version: CHAT_EDIT_RENDER_VERIFICATION_LIFECYCLE_VERSION,
@@ -311,12 +348,32 @@ export function markChatEditRenderVerificationTerminal<Visual, Audio>(
     audio: Audio | null;
     reasons: string[];
     issues?: unknown;
+    projectRenderEligibility?: ProjectRenderEligibilityAudit | null;
     now?: Date | string;
   },
 ): ChatEditRenderVerificationRecord<Visual, Audio> {
   const updatedAt = toIso(input.now ?? new Date());
-  const reasons = input.reasons.map((reason) => cleanText(reason, 500)).filter((reason): reason is string => Boolean(reason));
-  const issues = sanitizeIssues(input.issues);
+  const suppliedReasons = input.reasons
+    .map((reason) => cleanText(reason, 500))
+    .filter((reason): reason is string => Boolean(reason));
+  const suppliedIssues = sanitizeIssues(input.issues);
+  const missingTerminalDiagnostic =
+    input.status !== 'pass'
+    && suppliedReasons.length === 0
+    && suppliedIssues.length === 0;
+  const reasons = missingTerminalDiagnostic
+    ? ['render_verification_terminal_missing_diagnostic']
+    : suppliedReasons;
+  const issues = suppliedIssues.length > 0
+    ? suppliedIssues
+    : missingTerminalDiagnostic
+      ? [{
+          modality: 'system' as const,
+          severity: 'error' as const,
+          code: 'render_verification_terminal_missing_diagnostic',
+          message: 'Render verification ended without a diagnostic.',
+        }]
+      : reasonsToIssues(reasons, input.status === 'error' ? 'system' : 'visual');
   const isSystemError = input.status === 'error';
   return {
     ...record,
@@ -324,8 +381,10 @@ export function markChatEditRenderVerificationTerminal<Visual, Audio>(
     completedAt: updatedAt,
     visual: input.visual,
     audio: input.audio,
+    projectRenderEligibility:
+      input.projectRenderEligibility ?? record.projectRenderEligibility,
     reasons,
-    issues: issues.length > 0 ? issues : reasonsToIssues(reasons, isSystemError ? 'system' : 'visual'),
+    issues,
     notificationStatus: 'pending',
     lifecycle: {
       ...record.lifecycle,

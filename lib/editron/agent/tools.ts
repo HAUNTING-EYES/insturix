@@ -14,6 +14,14 @@ import {
 } from "@/components/editron/editor/version-7.0.0/types";
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import {
+  assertCassetteSfxWav,
+  buildCassetteSfxRequest,
+  CASSETTE_SFX_LICENSE_ID,
+  extractCassetteSfxAudioUrl,
+} from '@/lib/pipeline/cassette-sfx-provider';
+import type { SFXResult } from '@/lib/pipeline/sfx-service';
+import { recordChatSfxProviderCost } from '@/lib/editron/agent/chat-sfx-provider-cost';
+import {
   findBestRow,
   resolveCoordinates,
   getDefaultSize,
@@ -383,6 +391,45 @@ export const createTools = (userId: string, projectId: string) => {
     }
   }
 
+  type ChatMutationFrameRange = { startFrame: number; endFrame: number };
+
+  function overlayMutationFrameRange(overlay: any): ChatMutationFrameRange {
+    const startFrame = Math.max(0, Math.round(Number(overlay?.from) || 0));
+    const durationInFrames = Math.max(0, Math.round(Number(overlay?.durationInFrames) || 0));
+    return { startFrame, endFrame: startFrame + durationInFrames };
+  }
+
+  function normalizeChatMutationFrameRanges(
+    ranges: ChatMutationFrameRange[],
+  ): ChatMutationFrameRange[] {
+    const unique = new Map<string, ChatMutationFrameRange>();
+    for (const range of ranges) {
+      if (!Number.isFinite(range.startFrame) || !Number.isFinite(range.endFrame)) continue;
+      const startFrame = Math.max(0, Math.round(range.startFrame));
+      const endFrame = Math.max(0, Math.round(range.endFrame));
+      if (endFrame <= startFrame) continue;
+      unique.set(`${startFrame}:${endFrame}`, { startFrame, endFrame });
+    }
+    return Array.from(unique.values()).sort(
+      (left, right) => left.startFrame - right.startFrame || left.endFrame - right.endFrame,
+    );
+  }
+
+  function overlayUpdateMutationFrameRanges(
+    overlay: any,
+    updates: Record<string, unknown>,
+  ): ChatMutationFrameRange[] {
+    const previous = overlayMutationFrameRange(overlay);
+    const next = overlayMutationFrameRange({
+      ...overlay,
+      ...(updates.from !== undefined ? { from: updates.from } : {}),
+      ...(updates.durationInFrames !== undefined
+        ? { durationInFrames: updates.durationInFrames }
+        : {}),
+    });
+    return normalizeChatMutationFrameRanges([previous, next]);
+  }
+
   // Helper to get canvas dimensions from project
   // IMPORTANT: Always use composition dimensions for overlay positioning.
   // playerDimensions is the preview container size and will cause positioning
@@ -619,60 +666,33 @@ export const createTools = (userId: string, projectId: string) => {
     })
     .optional();
 
-  const textOverlayStylesSchema = z
-    .object({
-      fontSize: z.union([z.coerce.number(), z.string()]).optional(),
-      fontFamily: z.string().optional(),
-      fontWeight: z.union([z.coerce.number(), z.string()]).optional(),
-      textAlign: z.enum(["left", "center", "right", "justify"]).optional(),
-      color: z.string().optional(),
-      backgroundColor: z.string().optional(),
-      fontStyle: z.enum(["normal", "italic", "oblique"]).optional(),
-      textDecoration: z
-        .enum(["none", "underline", "line-through", "overline"])
-        .optional(),
-      textShadow: z.string().optional(),
-      lineHeight: z.union([z.coerce.number(), z.string()]).optional(),
-      letterSpacing: z.union([z.coerce.number(), z.string()]).optional(),
-      opacity: z.coerce.number().optional(),
-      animation: animationStyleSchema,
-    })
-    ;
-
-  const mediaOverlayStylesSchema = z
-    .object({
-      objectFit: z.enum(["cover", "contain", "fill"]).optional(),
-      volume: z.coerce.number().optional(),
-      opacity: z.coerce.number().optional(),
-      borderRadius: z.string().optional(),
-      animation: animationStyleSchema,
-    })
-    ;
-
-  const shapeOverlayStylesSchema = z
-    .object({
-      fill: z.string().optional(),
-      stroke: z.string().optional(),
-      strokeWidth: z.coerce.number().optional(),
-      opacity: z.coerce.number().optional(),
-      borderRadius: z.string().optional(),
-    })
-    ;
-
-  const genericOverlayStylesSchema = z
-    .object({
-      opacity: z.coerce.number().optional(),
-      borderRadius: z.string().optional(),
-      animation: animationStyleSchema,
-    })
-    ;
-
-  const overlayStylesUpdateSchema = z.union([
-    textOverlayStylesSchema,
-    mediaOverlayStylesSchema,
-    shapeOverlayStylesSchema,
-    genericOverlayStylesSchema,
-  ]);
+  // A permissive union silently stripped fields accepted by a later branch
+  // (for example, text "fill" matched the text branch as {}). Parse the
+  // explicit cross-overlay vocabulary once, then normalize aliases against the
+  // actual target overlay inside the mutation owner.
+  const overlayStylesUpdateSchema = z.object({
+    fontSize: z.union([z.coerce.number(), z.string()]).optional(),
+    fontFamily: z.string().optional(),
+    fontWeight: z.union([z.coerce.number(), z.string()]).optional(),
+    textAlign: z.enum(["left", "center", "right", "justify"]).optional(),
+    color: z.string().optional(),
+    fill: z.string().optional(),
+    backgroundColor: z.string().optional(),
+    fontStyle: z.enum(["normal", "italic", "oblique"]).optional(),
+    textDecoration: z
+      .enum(["none", "underline", "line-through", "overline"])
+      .optional(),
+    textShadow: z.string().optional(),
+    lineHeight: z.union([z.coerce.number(), z.string()]).optional(),
+    letterSpacing: z.union([z.coerce.number(), z.string()]).optional(),
+    objectFit: z.enum(["cover", "contain", "fill"]).optional(),
+    volume: z.coerce.number().optional(),
+    stroke: z.string().optional(),
+    strokeWidth: z.coerce.number().optional(),
+    opacity: z.coerce.number().optional(),
+    borderRadius: z.string().optional(),
+    animation: animationStyleSchema,
+  }).strict();
 
 
   // --- READ TOOLS ---
@@ -1178,23 +1198,20 @@ TYPE-SPECIFIC FIELDS:
     }
   );
 
-  // --- UPDATE OVERLAY (Enhanced) ---
+  // --- UPDATE OVERLAY (CONTENT / GEOMETRY / STYLE) ---
   
   const updateOverlaySchema = z.object({
     id: z.coerce.number().describe("The ID of the overlay to update"),
-    start: z.coerce.number().optional().describe("New start frame"),
-    duration: z.coerce.number().optional().describe("New duration in frames"),
     text: z.string().optional().describe("New text content (for text overlays)"),
     x: z.union([z.coerce.number(), z.string()]).optional().describe("New X position (pixels or %)"),
     y: z.union([z.coerce.number(), z.string()]).optional().describe("New Y position (pixels or %)"),
     width: z.union([z.coerce.number(), z.string()]).optional().describe("New width"),
     height: z.union([z.coerce.number(), z.string()]).optional().describe("New height"),
     rotation: z.coerce.number().optional(),
-    row: z.coerce.number().optional().describe("Move to specific row"),
     styles: overlayStylesUpdateSchema
       .optional()
       .describe("Typed partial styles to merge (text/media/shape/generic)."),
-  });
+  }).strict();
 
   const updateOverlay = tool(
     async (input: z.infer<typeof updateOverlaySchema>) => {
@@ -1208,11 +1225,6 @@ TYPE-SPECIFIC FIELDS:
         }
         
         const updates: any = {};
-        
-        // Timing updates
-        if (input.start !== undefined) updates.from = input.start;
-        if (input.duration !== undefined) updates.durationInFrames = input.duration;
-        if (input.row !== undefined) updates.row = input.row;
         
         // Text content
         if (input.text !== undefined && overlay.type === 'text') {
@@ -1271,9 +1283,24 @@ TYPE-SPECIFIC FIELDS:
             requestedStyles: input.styles,
           });
         }
+
+        if (Object.keys(updates).length === 0) {
+          return JSON.stringify({
+            status: 'no-op',
+            data: { overlayId: input.id, message: `Overlay ${input.id} has no applicable requested changes.` },
+            error: null,
+            nextAction: 'stop',
+          });
+        }
+        const affectedFrameRanges = overlayUpdateMutationFrameRanges(overlay, updates);
         
         await projectService.updateOverlay(userId, projectId, input.id, updates);
-        return JSON.stringify({ status: 'success', message: `Overlay ${input.id} updated`, updates });
+        return JSON.stringify({
+          status: 'success',
+          message: `Overlay ${input.id} updated`,
+          updates,
+          affectedFrameRanges,
+        });
         
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
@@ -1281,7 +1308,7 @@ TYPE-SPECIFIC FIELDS:
     },
     {
       name: 'update_overlay',
-      description: 'Update an existing overlay. Provide only the fields you want to change. Supports percentage positions.',
+      description: 'Update content, geometry, rotation, or styles on an existing overlay. Supports percentage positions. Timing is owned by move_retime_overlay; layer order is owned by reorder_layer.',
       schema: updateOverlaySchema
     }
   );
@@ -1310,6 +1337,7 @@ TYPE-SPECIFIC FIELDS:
         const project = await loadProject();
         const canvas = getCanvasDimensions(project);
         const results: any[] = [];
+        const mutationRanges: ChatMutationFrameRange[] = [];
         
         for (const update of input.updates) {
           const overlay = project.overlays.find((o: any) => o.id === update.id);
@@ -1364,17 +1392,37 @@ TYPE-SPECIFIC FIELDS:
           }
           
           if (update.styles) {
-            updates.styles = { ...overlay.styles, ...update.styles };
+            updates.styles = protectChatTextLegibility({
+              overlayType: overlay.type,
+              currentStyles: overlay.styles,
+              requestedStyles: update.styles,
+            });
+          }
+
+          if (Object.keys(updates).length === 0) {
+            results.push({ id: update.id, status: 'no-op', message: 'No applicable requested changes' });
+            continue;
           }
           
           await projectService.updateOverlay(userId, projectId, update.id, updates);
+          mutationRanges.push(...overlayUpdateMutationFrameRanges(overlay, updates));
           results.push({ id: update.id, status: 'success' });
         }
-        
+
+        const affectedFrameRanges = normalizeChatMutationFrameRanges(mutationRanges);
+        if (affectedFrameRanges.length === 0) {
+          return JSON.stringify({
+            status: 'no-op',
+            data: { results, message: 'No requested overlay changes could be applied.' },
+            error: null,
+            nextAction: 'stop',
+          });
+        }
         return JSON.stringify({ 
           status: 'success', 
           message: `Batch updated ${results.filter(r => r.status === 'success').length}/${input.updates.length} overlays`,
-          results 
+          results,
+          affectedFrameRanges,
         });
         
       } catch (e: any) {
@@ -1450,7 +1498,11 @@ TYPE-SPECIFIC FIELDS:
           status: 'success',
           message: `Split overlay ${input.id} at frame ${input.atFrame}`,
           firstPart: { id: input.id, from: overlay.from, duration: firstDuration },
-          secondPart: { id: newId, from: input.atFrame, duration: secondDuration }
+          secondPart: { id: newId, from: input.atFrame, duration: secondDuration },
+          affectedFrameRanges: [{
+            startFrame: Math.max(overlay.from, input.atFrame - 1),
+            endFrame: Math.min(overlayEnd, input.atFrame + 2),
+          }],
         });
 
       } catch (e: any) {
@@ -1512,6 +1564,25 @@ TYPE-SPECIFIC FIELDS:
             message: `Trim too large: overlay is ${overlay.durationInFrames} frames, but tried to trim ${totalTrim} frames. Max trimEnd: ${overlay.durationInFrames - 1}`,
           });
         }
+
+        const previousRange = overlayMutationFrameRange(overlay);
+        const nextEndFrame = newFrom + newDuration;
+        const affectedFrameRanges = normalizeChatMutationFrameRanges([
+          ...(newFrom > previousRange.startFrame
+            ? [{ startFrame: previousRange.startFrame, endFrame: newFrom }]
+            : []),
+          ...(nextEndFrame < previousRange.endFrame
+            ? [{ startFrame: nextEndFrame, endFrame: previousRange.endFrame }]
+            : []),
+        ]);
+        if (affectedFrameRanges.length === 0) {
+          return JSON.stringify({
+            status: 'no-op',
+            data: { overlayId: input.id, message: `Overlay ${input.id} has no positive trim to apply.` },
+            error: null,
+            nextAction: 'stop',
+          });
+        }
         
         updates.from = newFrom;
         updates.durationInFrames = newDuration;
@@ -1523,7 +1594,8 @@ TYPE-SPECIFIC FIELDS:
         return JSON.stringify({
           status: 'success',
           message: `Trimmed overlay ${input.id}`,
-          newTiming: { from: newFrom, duration: newDuration }
+          newTiming: { from: newFrom, duration: newDuration },
+          affectedFrameRanges,
         });
 
       } catch (e: any) {
@@ -1540,25 +1612,38 @@ TYPE-SPECIFIC FIELDS:
   // --- DELETE OVERLAY ---
   
   const deleteOverlaySchema = z.object({
-    id: z.coerce.number().describe("The ID of the overlay to delete"),
+    id: z.union([
+      z.string().trim().min(1),
+      z.number().finite(),
+    ]).describe("The exact persisted ID of the overlay to delete. Never substitute another overlay when this ID is missing."),
   });
 
   const deleteOverlay = tool(
     async (input: z.infer<typeof deleteOverlaySchema>) => {
       try {
         const project = await loadProject();
-        const overlay = project.overlays.find((o: any) => o.id === input.id);
-        
+        const requestedOverlayId = String(input.id);
+        const overlay = project.overlays.find((o: any) => String(o.id) === requestedOverlayId);
+        if (!overlay) {
+          return JSON.stringify({ status: 'error', message: `Overlay ${input.id} not found` });
+        }
+        const resolvedOverlayId = overlay.id;
+        const deletedOverlays = [overlay];
+
         // If deleting a video, cascade delete linked captions, transitions, and fancy captions
-        if (overlay?.type === 'video') {
+        if (overlay.type === 'video') {
           const linkedOverlays = project.overlays.filter(
             (o: any) =>
               // Captions linked to this video
               ((o.type === 'caption' || (o.type === 'html-scene' && o.metadata?.sourceType === 'fancy-caption')) &&
-                o.sourceVideoId === input.id) ||
+                String(o.sourceVideoId) === String(resolvedOverlayId)) ||
               // Transitions referencing this video as clip A or B
-              (o.type === 'transition' && (o.clipAId === input.id || o.clipBId === input.id))
+              (o.type === 'transition' && (
+                String(o.clipAId) === String(resolvedOverlayId)
+                || String(o.clipBId) === String(resolvedOverlayId)
+              ))
           );
+          deletedOverlays.push(...linkedOverlays);
           // PERF FIX: Delete linked overlays in parallel (Priyank's optimization)
           await Promise.all(
             linkedOverlays.map((linked: any) =>
@@ -1567,18 +1652,24 @@ TYPE-SPECIFIC FIELDS:
           );
         }
 
-        await projectService.deleteOverlay(userId, projectId, input.id);
+        await projectService.deleteOverlay(userId, projectId, resolvedOverlayId);
 
         await recalculateProjectDuration();
 
-        return JSON.stringify({ status: 'success', message: `Overlay ${input.id} deleted${overlay?.type === 'video' ? ' (and linked captions/fancy captions)' : ''}` });
+        return JSON.stringify({
+          status: 'success',
+          message: `Overlay ${String(resolvedOverlayId)} deleted${overlay.type === 'video' ? ' (and linked captions/fancy captions)' : ''}`,
+          affectedFrameRanges: normalizeChatMutationFrameRanges(
+            deletedOverlays.map(overlayMutationFrameRange),
+          ),
+        });
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
     {
       name: 'delete_overlay',
-      description: 'Delete an overlay by its ID. If deleting a video, also deletes any linked captions.',
+      description: 'Delete an overlay by its exact persisted ID. Never substitute a different overlay when the requested ID is missing. If deleting a video, also delete linked captions and transitions.',
       schema: deleteOverlaySchema
     }
   );
@@ -1603,6 +1694,7 @@ TYPE-SPECIFIC FIELDS:
         
         const sourceStyles = source.styles || {};
         const results: any[] = [];
+        const mutationRanges: ChatMutationFrameRange[] = [];
         
         for (const targetId of input.targetIds) {
           const target = project.overlays.find((o: any) => o.id === targetId);
@@ -1627,17 +1719,31 @@ TYPE-SPECIFIC FIELDS:
             stylesToApply = { ...sourceStyles };
           }
           
-          await projectService.updateOverlay(userId, projectId, targetId, {
-            styles: { ...target.styles, ...stylesToApply }
-          });
+          const nextStyles = { ...target.styles, ...stylesToApply };
+          if (JSON.stringify(nextStyles) === JSON.stringify(target.styles ?? {})) {
+            results.push({ id: targetId, status: 'no-op', message: 'Requested styles already match' });
+            continue;
+          }
+          await projectService.updateOverlay(userId, projectId, targetId, { styles: nextStyles });
+          mutationRanges.push(overlayMutationFrameRange(target));
           
           results.push({ id: targetId, status: 'success' });
         }
-        
+
+        const affectedFrameRanges = normalizeChatMutationFrameRanges(mutationRanges);
+        if (affectedFrameRanges.length === 0) {
+          return JSON.stringify({
+            status: 'no-op',
+            data: { results, message: 'No target overlay needed a style change.' },
+            error: null,
+            nextAction: 'stop',
+          });
+        }
         return JSON.stringify({
           status: 'success',
           message: `Synced styles from ${input.sourceId} to ${results.filter(r => r.status === 'success').length} overlays`,
-          results
+          results,
+          affectedFrameRanges,
         });
         
       } catch (e: any) {
@@ -1655,15 +1761,17 @@ TYPE-SPECIFIC FIELDS:
   
   const visualInspectFrameSchema = z.object({
     frame: z.coerce.number(),
+    frames: z.array(z.coerce.number()).min(2).max(3).optional(),
     question: z.string().optional(),
   });
 
   const visualInspectFrame = tool(
     async (input: z.infer<typeof visualInspectFrameSchema>) => {
-      const { frame, question } = input;
+      const { frame, frames, question } = input;
       return JSON.stringify({
         action: 'capture_frame',
         frame,
+        ...(frames ? { frames } : {}),
         question
       });
     },
@@ -1977,6 +2085,7 @@ CAPABILITIES:
           id: input.id,
           replacedInPlace: true,
           preserved: ['id', 'from', 'durationInFrames', 'row', 'position', 'styles'],
+          affectedFrameRanges: [overlayMutationFrameRange(overlay)],
           metadata: { fonts: metadata.fonts, colors: metadata.colors.slice(0, 3) },
           message: `Revised HTML scene ${input.id} in place.`,
         });
@@ -2486,7 +2595,7 @@ Use this to understand what exists. Then decide what to do based on user intent.
 
   // --- ADD CAPTIONS ---
   const addCaptionsSchema = z.object({
-    videoOverlayId: z.coerce.number().describe("ID of the video overlay to add captions for"),
+    videoOverlayId: z.coerce.number().optional().describe("Deprecated compatibility hint. The canonical caption planner reads the complete edited timeline and does not require one source video."),
     style: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle', 'hormozi', 'mrbeast', 'ali-abdaal', 'corporate']).optional().default('tiktok').describe("Requested caption aesthetic. The canonical planner owns safe geometry, contrast, timing, and grouping."),
     overwrite: z.coerce.boolean().optional().default(false).describe("Set to true to regenerate an existing generated caption track"),
     displayMode: z.enum(['word-by-word', 'phrase', 'karaoke', 'subtitle', 'instagram', 'hormozi']).optional().describe("Requested display behavior; canonical readability constraints remain authoritative."),
@@ -2498,11 +2607,6 @@ Use this to understand what exists. Then decide what to do based on user intent.
       try {
         const input = coerceInput(rawInput);
         const project = await loadProject();
-        const overlay = project.overlays.find((o: any) => o.id === input.videoOverlayId);
-        
-        if (!overlay || overlay.type !== 'video' || !overlay.assetId) {
-          return JSON.stringify({ status: 'error', message: 'Valid video overlay with asset not found' });
-        }
 
         const { planChatCanonicalCaptionTrack } = await import(
           '../services/chat-canonical-caption-adapter'
@@ -2588,56 +2692,64 @@ Use overwrite only to regenerate an existing generated track. Manually edited ca
       try {
         const input = coerceInput(rawInput);
         const project = await loadProject();
-        
-        // Find the caption overlay
         const captionOverlay: any = project.overlays.find(
           (o: any) => o.id === input.captionOverlayId && o.type === 'caption'
         );
-        
         if (!captionOverlay) {
           return JSON.stringify({ status: 'error', message: 'Caption overlay not found' });
         }
-        
-        // Find the linked video
-        if (!captionOverlay.sourceVideoId) {
-          return JSON.stringify({ status: 'error', message: 'Caption is not linked to a video (no sourceVideoId)' });
-        }
-        
-        const videoOverlay = project.overlays.find(
-          (o: any) => o.id === captionOverlay.sourceVideoId && o.type === 'video'
+
+        const { planChatCanonicalCaptionTrack } = await import(
+          '../services/chat-canonical-caption-adapter'
         );
-        
-        if (!videoOverlay) {
-          return JSON.stringify({ status: 'error', message: 'Linked video overlay not found (may have been deleted)' });
+        const plan = planChatCanonicalCaptionTrack(project as any, {
+          requestedStyle: input.newStyle,
+          overwrite: true,
+        });
+        if (plan.status !== 'generated') {
+          return JSON.stringify({
+            status: plan.status,
+            data: { reason: plan.reason, message: plan.message },
+            error: null,
+            nextAction: plan.status === 'needs-choice' ? 'ask_clarification' : 'stop',
+          });
         }
-        
-        const canvas = getCanvasDimensions(project);
-        const fps = project.fps || 30;
-        
-        // Use refresh function
-        const { refreshCaptions } = await import('../services/media');
-        const updatedCaption = await refreshCaptions({
-          captionOverlay,
-          videoOverlay: videoOverlay as any,
+
+        const revision = project.updatedAt instanceof Date
+          ? project.updatedAt
+          : new Date(project.updatedAt);
+        if (Number.isNaN(revision.getTime())) {
+          return JSON.stringify({
+            status: 'error',
+            data: null,
+            error: {
+              code: 'CHAT_CAPTION_PROJECT_REVISION_MISSING',
+              message: 'The canonical project revision is unavailable; captions were not refreshed.',
+            },
+            nextAction: 'retry',
+          });
+        }
+        const replaced = await projectService.replaceOverlayFamilyAtomic(
           userId,
-          playerDimensions: canvas,
-          fps,
-          preserveStyle: !input.newStyle,
-          newStyle: input.newStyle,
+          projectId,
+          { expectedUpdatedAt: revision, overlays: plan.overlays },
+        );
+        if (!replaced) {
+          return JSON.stringify({
+            status: 'replan-required',
+            data: { reason: 'project-revision-changed' },
+            error: null,
+            nextAction: 'Re-read the current timeline and retry caption refresh once.',
+          });
+        }
+
+        return successEnvelope({
+          captionId: plan.captionOverlay.id,
+          captionCount: plan.result.captionCount,
+          style: plan.presentation.style,
+          producer: 'canonical-caption-track',
+          message: `Refreshed one canonical caption track with ${plan.result.captionCount} readable groups.`,
         });
-        
-        // Update in database (replace the caption)
-        await projectService.deleteOverlay(userId, projectId, captionOverlay.id);
-        await projectService.addOverlay(userId, projectId, updatedCaption as any);
-        
-        return JSON.stringify({
-          status: 'success',
-          captionId: updatedCaption.id,
-          captionCount: updatedCaption.captions.length,
-          style: input.newStyle || 'preserved',
-          message: `Refreshed captions (${updatedCaption.captions.length} segments) synced to current video timing`,
-        });
-        
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
       }
@@ -2671,11 +2783,21 @@ Optionally apply a new style while refreshing.`,
           .sort((a: any, b: any) => a.from - b.from);
 
         if (videoClips.length === 0) {
-          return JSON.stringify({ status: 'success', message: 'No video clips found to close gaps for' });
+          return JSON.stringify({
+            status: 'no-op',
+            data: { message: 'No video clips found to close gaps for' },
+            error: null,
+            nextAction: 'stop',
+          });
         }
 
         let totalFramesClosed = 0;
-        const moves: Array<{ id: number; oldFrom: number; newFrom: number }> = [];
+        const moves: Array<{
+          id: number;
+          oldFrom: number;
+          newFrom: number;
+          durationInFrames: number;
+        }> = [];
 
         // Build a list of gaps between video clips (including gap before first clip)
         const gaps: Array<{ gapStart: number; gapEnd: number; shift: number }> = [];
@@ -2693,7 +2815,12 @@ Optionally apply a new style while refreshing.`,
         }
 
         if (gaps.length === 0) {
-          return JSON.stringify({ status: 'success', message: 'No gaps found to close' });
+          return JSON.stringify({
+            status: 'no-op',
+            data: { message: 'No gaps found to close' },
+            error: null,
+            nextAction: 'stop',
+          });
         }
 
         // BUG 2 FIX: Shift ALL overlays (not just video + captions)
@@ -2716,7 +2843,12 @@ Optionally apply a new style while refreshing.`,
 
           if (shiftAmount > 0 && !alreadyMoved.has(overlay.id)) {
             const newFrom = overlayStart - shiftAmount;
-            moves.push({ id: overlay.id, oldFrom: overlayStart, newFrom });
+            moves.push({
+              id: overlay.id,
+              oldFrom: overlayStart,
+              newFrom,
+              durationInFrames: Math.max(0, Math.round(Number(overlay.durationInFrames) || 0)),
+            });
             await projectService.updateOverlay(userId, projectId, overlay.id, { from: newFrom });
             alreadyMoved.add(overlay.id);
           }
@@ -2725,11 +2857,24 @@ Optionally apply a new style while refreshing.`,
         await recalculateProjectDuration();
 
         const fps = project.fps || 30;
+        const affectedFrameRanges = normalizeChatMutationFrameRanges(
+          moves.flatMap((move) => [
+            {
+              startFrame: move.oldFrom,
+              endFrame: move.oldFrom + move.durationInFrames,
+            },
+            {
+              startFrame: move.newFrom,
+              endFrame: move.newFrom + move.durationInFrames,
+            },
+          ]),
+        );
         return JSON.stringify({
           status: 'success',
           clipsMoved: moves.length,
           totalFramesClosed,
           totalSecondsClosed: Math.round((totalFramesClosed / fps) * 10) / 10,
+          affectedFrameRanges,
           message: moves.length > 0
             ? `Closed ${moves.length} gap(s), saved ${Math.round((totalFramesClosed / fps) * 10) / 10}s`
             : 'No gaps found to close',
@@ -4189,6 +4334,29 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     target: z.enum(['image', 'storyboard', 'video', 'voiceover', 'all']).default('image').describe("What to regenerate: image/storyboard (scene image), video (AI clip), voiceover (narration audio), or all"),
   });
 
+  async function readRegenerationResponse(response: Response): Promise<Record<string, any>> {
+    const body = await response.text();
+    if (!body.trim()) return {};
+    try {
+      return JSON.parse(body) as Record<string, any>;
+    } catch {
+      return { error: body.substring(0, 300) };
+    }
+  }
+
+  function regenerationFailureMessage(
+    operation: string,
+    statusCode: number,
+    response: Record<string, any>,
+  ): string {
+    const detail = typeof response.error === 'string'
+      ? response.error
+      : typeof response.message === 'string'
+        ? response.message
+        : 'provider returned no failure detail';
+    return `${operation} failed (HTTP ${statusCode}): ${detail}`;
+  }
+
   const regenerateScene = tool(
     async (input: z.infer<typeof regenerateSceneSchema>) => {
       try {
@@ -4196,43 +4364,9 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
         // Storyboard stores projectId on itself (not the other way around).
         // Look up the storyboard that was linked to this Editron project.
-        const { getStoryboardByProjectId } = await import('@/lib/pipeline/storyboard-db');
-        const storyboard = await getStoryboardByProjectId(projectId, userId);
-        let storyboardId = storyboard?.storyboardId
-          || (project as any).storyboardId
-          || (project as any).sourceStoryboardId;
-
-        // Fallback: if no link found, try to find a storyboard whose scene
-        // asset IDs appear in this project's overlays (handles pre-fix projects).
-        if (!storyboardId) {
-          try {
-            const { getDatabase } = await import('@/lib/editron/db/mongodb');
-            const db = await getDatabase();
-            const overlayAssetIds = ((project as any).overlays || [])
-              .map((o: any) => o.assetId)
-              .filter(Boolean);
-            if (overlayAssetIds.length > 0) {
-              const match = await db.collection('storyboards').findOne({
-                userId,
-                'scenes.imageAssetId': { $in: overlayAssetIds },
-              });
-              if (match) {
-                storyboardId = (match as any).storyboardId;
-                // Persist the link so future lookups are fast
-                await db.collection('storyboards').updateOne(
-                  { storyboardId },
-                  { $set: { projectId, updatedAt: new Date() } },
-                );
-                await db.collection('projects').updateOne(
-                  { projectId },
-                  { $set: { sourceStoryboardId: storyboardId, updatedAt: new Date() } },
-                );
-              }
-            }
-          } catch (linkErr) {
-            console.warn('[regenerate_scene] Fallback storyboard lookup failed:', linkErr);
-          }
-        }
+        const { getStoryboardForProjectContext } = await import('@/lib/pipeline/storyboard-db');
+        const storyboard = await getStoryboardForProjectContext(project as any, userId);
+        const storyboardId = storyboard?.storyboardId;
 
         if (!storyboardId) {
           return JSON.stringify({
@@ -4241,25 +4375,23 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           });
         }
 
-        // Validate storyboard exists and has the requested scene
-        try {
-          const { getStoryboard: getSb } = await import('@/lib/pipeline/storyboard-db');
-          const sb = await getSb(storyboardId, userId);
-          if (!sb) {
-            return JSON.stringify({ status: 'error', message: `Storyboard ${storyboardId} not found or unauthorized.` });
-          }
-          const sceneExists = sb.scenes?.some((s: any) => s.sceneIndex === input.sceneIndex);
-          if (!sceneExists) {
-            return JSON.stringify({
-              status: 'error',
-              message: `Scene ${input.sceneIndex} not found in storyboard (has ${sb.scenes?.length || 0} scenes, indices 0-${(sb.scenes?.length || 1) - 1}).`,
-            });
-          }
-        } catch (valErr: any) {
-          return JSON.stringify({ status: 'error', message: `Storyboard validation failed: ${valErr.message}` });
+        const sourceScene = storyboard.scenes?.find((scene: any) => scene.sceneIndex === input.sceneIndex);
+        if (!sourceScene) {
+          return JSON.stringify({
+            status: 'error',
+            message: `Scene ${input.sceneIndex} not found in storyboard (has ${storyboard.scenes?.length || 0} scenes).`,
+          });
         }
 
         const results: string[] = [];
+        const operations: Array<{
+          target: 'image' | 'video' | 'voiceover';
+          status: 'completed' | 'queued';
+          jobId: string;
+          beforeAssetId?: string;
+          afterAssetId?: string;
+        }> = [];
+        const failures: Array<{ target: 'image' | 'video' | 'voiceover'; message: string }> = [];
 
         // Use deployment-specific URL (VERCEL_URL) to hit the correct preview deployment
         const baseApiUrl = process.env.VERCEL_URL
@@ -4268,19 +4400,41 @@ NEVER ask the user which clips — default to applyToAll: true.`,
 
         // Regenerate storyboard image ('storyboard' is an alias for 'image')
         if (input.target === 'image' || input.target === 'storyboard' || input.target === 'all') {
-          const imgRes = await fetch(`${baseApiUrl}/api/services/pipeline/storyboard/${storyboardId}/scene/${input.sceneIndex}/regenerate-with-context`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          try {
+            const { regenerateStoryboardSceneImage } = await import(
+              '@/lib/pipeline/storyboard-scene-regeneration'
+            );
+            const scene = await regenerateStoryboardSceneImage({
+              storyboardId,
+              sceneIndex: input.sceneIndex,
+              userId,
               feedback: input.feedback,
-              userId, // Passed for internal auth fallback
-            }),
-          });
-          if (imgRes.ok) {
-            const data = await imgRes.json();
-            results.push(`Storyboard image regenerated (assetId: ${data.imageAssetId || 'updated'})`);
-          } else {
-            results.push(`Image regeneration failed: ${(await imgRes.text()).substring(0, 100)}`);
+            });
+            const afterAssetId = typeof scene.imageAssetId === 'string'
+              ? scene.imageAssetId
+              : '';
+            if (!afterAssetId) {
+              throw new Error('regeneration completed without a persisted image asset ID');
+            }
+            const jobId = `storyboard:${storyboardId}:scene:${input.sceneIndex}:image:${afterAssetId}`;
+            operations.push({
+              target: 'image',
+              status: 'completed',
+              jobId,
+              ...(typeof sourceScene.imageAssetId === 'string'
+                ? { beforeAssetId: sourceScene.imageAssetId }
+                : {}),
+              afterAssetId,
+            });
+            results.push(`Storyboard image regenerated (assetId: ${afterAssetId})`);
+          } catch (error) {
+            const message = error instanceof Error
+              ? error.message
+              : String(error);
+            failures.push({
+              target: 'image',
+              message,
+            });
           }
         }
 
@@ -4295,18 +4449,33 @@ NEVER ask the user which clips — default to applyToAll: true.`,
               userId, // Passed for internal auth fallback
             }),
           });
+          const data = await readRegenerationResponse(vidRes);
           if (vidRes.ok) {
-            const data = await vidRes.json().catch(() => ({}));
             // generate-videos is now async (QStash) — returns batchId, not immediate results
-            if (data.async && data.batchId) {
+            if (data.async && typeof data.batchId === 'string') {
+              operations.push({
+                target: 'video',
+                status: 'queued',
+                jobId: data.batchId,
+              });
               results.push(`Video regeneration started (batch: ${data.batchId}). The new video will appear after processing (~1-3 minutes).`);
-            } else if (data.success) {
-              results.push(`Video clip regenerated successfully`);
+            } else if (data.success === true) {
+              const jobId = typeof data.batchId === 'string'
+                ? data.batchId
+                : `storyboard:${storyboardId}:scene:${input.sceneIndex}:video:completed`;
+              operations.push({ target: 'video', status: 'completed', jobId });
+              results.push('Video clip regeneration completed');
             } else {
-              results.push(`Video regeneration failed: ${data.error || 'unknown'}`);
+              failures.push({
+                target: 'video',
+                message: regenerationFailureMessage('Video regeneration', vidRes.status, data),
+              });
             }
           } else {
-            results.push(`Video regeneration failed: ${(await vidRes.text().catch(() => '')).substring(0, 100)}`);
+            failures.push({
+              target: 'video',
+              message: regenerationFailureMessage('Video regeneration', vidRes.status, data),
+            });
           }
         }
 
@@ -4319,18 +4488,62 @@ NEVER ask the user which clips — default to applyToAll: true.`,
               sceneIndices: [input.sceneIndex],
             }),
           });
-          if (voRes.ok) {
-            results.push(`Voiceover regenerated`);
+          const data = await readRegenerationResponse(voRes);
+          if (voRes.ok && data.success === true) {
+            const afterAssetId = Array.isArray(data.results)
+              ? data.results
+                .map((result: any) => result?.audioAssetId)
+                .find((assetId: unknown): assetId is string => typeof assetId === 'string')
+              : undefined;
+            const jobId = `storyboard:${storyboardId}:scene:${input.sceneIndex}:voiceover:${afterAssetId || 'completed'}`;
+            operations.push({
+              target: 'voiceover',
+              status: 'completed',
+              jobId,
+              ...(afterAssetId ? { afterAssetId } : {}),
+            });
+            results.push('Voiceover regenerated');
           } else {
-            results.push(`Voiceover regeneration failed`);
+            failures.push({
+              target: 'voiceover',
+              message: regenerationFailureMessage('Voiceover regeneration', voRes.status, data),
+            });
           }
         }
 
+        if (operations.length === 0) {
+          return JSON.stringify({
+            status: 'error',
+            message: failures.map((failure) => failure.message).join('; ') || 'No regeneration operation completed.',
+          });
+        }
+        const queuedOperation = operations.find((operation) => operation.status === 'queued');
+        const jobId = queuedOperation?.jobId ?? operations[0].jobId;
+        if (failures.length > 0) {
+          return JSON.stringify({
+            status: 'advisory',
+            data: {
+              sceneIndex: input.sceneIndex,
+              target: input.target,
+              storyboardId,
+              queueStatus: queuedOperation ? 'queued' : 'completed',
+              jobId,
+              operations,
+              failures,
+              results,
+            },
+            message: `Some scene regeneration work completed, but ${failures.length} operation(s) failed.`,
+            nextAction: 'stop',
+          });
+        }
         return JSON.stringify({
           status: "success",
           sceneIndex: input.sceneIndex,
           target: input.target,
           storyboardId, // Needed by frontend for polling video regen status
+          queueStatus: queuedOperation ? 'queued' : 'completed',
+          jobId,
+          operations,
           results,
           message: `Scene ${input.sceneIndex} ${input.target} regeneration complete. ${results.join('. ')}`,
           nextAction: "continue",
@@ -4855,213 +5068,41 @@ NEVER ask the user which clips — default to applyToAll: true.`,
   // ─── Beat Sync Tool ───────────────────────────────────────────────
   const syncCutsToBeatsSchema = z.object({
     audioOverlayId: z.coerce.number().optional().describe(
-      'ID of the sound overlay to use for beat detection. If omitted, uses the first sound overlay.'
+      'ID of the music overlay to use for beat alignment. If omitted, uses the strongest persisted music/beat-grid evidence.'
     ),
     videoOverlayId: z.coerce.number().optional().describe(
-      'ID of the video overlay to cut. If omitted, cuts the longest video overlay.'
+      'Optional video overlay whose visual track should be aligned. If omitted, uses the primary contiguous visual track.'
     ),
     beatFilter: z.enum(['all', 'downbeats', 'strong']).optional().default('downbeats').describe(
-      'Which beats to use as cut points: all beats, only downbeats (default), or only strong beats'
+      'Which analyzed beats may license an existing boundary alignment.'
     ),
-    strengthThreshold: z.coerce.number().optional().default(0.6).describe(
-      'Minimum beat strength (0-1) when beatFilter is strong'
+    strengthThreshold: z.coerce.number().min(0).max(1).optional().default(0.6).describe(
+      'Measured beat-strength floor when beatFilter is strong.'
     ),
-    includeEnergyPeaks: z.coerce.boolean().optional().default(false).describe(
-      'Also add cuts at energy peak moments (drops, impacts)'
-    ),
-    maxCuts: z.coerce.number().optional().default(50).describe(
-      'Maximum number of cuts to create'
-    ),
-    downbeatTransition: z.enum(['zoom_punch', 'hard_cut', 'fade', 'none']).optional().default('hard_cut').describe(
-      'Transition style to apply at downbeat cuts'
-    ),
-    regularBeatTransition: z.enum(['hard_cut', 'fade', 'none']).optional().default('hard_cut').describe(
-      'Transition style to apply at regular beat cuts'
-    ),
-  });
+  }).strict();
 
   const syncCutsToBeats = tool(
     async (rawInput: z.infer<typeof syncCutsToBeatsSchema>) => {
       try {
         const input = coerceInput(rawInput);
-        const project = await loadProject();
-
-        // Find audio overlay
-        let audioOverlay: any;
-        if (input.audioOverlayId) {
-          audioOverlay = project.overlays.find((o: any) => o.id === input.audioOverlayId);
-        } else {
-          audioOverlay = project.overlays.find((o: any) => o.type === 'sound' && o.assetId);
-        }
-        if (!audioOverlay?.assetId) {
-          return JSON.stringify({ status: 'error', message: 'No audio overlay with an asset found. Add a music track first.' });
-        }
-
-        // Find video overlay
-        let videoOverlay: any;
-        if (input.videoOverlayId) {
-          videoOverlay = project.overlays.find((o: any) => o.id === input.videoOverlayId);
-        } else {
-          // Find longest video overlay
-          const videos = project.overlays
-            .filter((o: any) => o.type === 'video' && o.assetId)
-            .sort((a: any, b: any) => (b.durationInFrames || 0) - (a.durationInFrames || 0));
-          videoOverlay = videos[0];
-        }
-        if (!videoOverlay) {
-          return JSON.stringify({ status: 'error', message: 'No video overlay found to cut.' });
-        }
-
-        // Call beat analysis API route — use VERCEL_URL for internal calls
-        const baseUrl = process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
-
-        const analysisRes = await fetch(`${baseUrl}/api/services/editron/audio/analyze-beats`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ assetId: audioOverlay.assetId, userId }),
-        });
-
-        if (!analysisRes.ok) {
-          const err = await analysisRes.json().catch(() => ({}));
-          return JSON.stringify({ status: 'error', message: `Beat analysis failed: ${err.error || analysisRes.status}` });
-        }
-
-        const { analysis } = await analysisRes.json();
-        if (!analysis?.beats?.length) {
-          return JSON.stringify({ status: 'error', message: 'No beats detected in the audio track.' });
-        }
-
-        // Calculate audio start offset on timeline (in ms)
-        const fps = project.fps || 30;
-        const audioStartOffsetMs = (audioOverlay.from / fps) * 1000;
-
-        // Filter beats based on user preferences
-        let cutBeats = analysis.beats.filter((b: any) => {
-          if (input.beatFilter === 'downbeats') return b.isDownbeat;
-          if (input.beatFilter === 'strong') return b.strength >= (input.strengthThreshold || 0.6);
-          return true; // 'all'
-        });
-
-        // Add energy peaks if requested
-        if (input.includeEnergyPeaks && analysis.energyPeaks?.length) {
-          for (const peak of analysis.energyPeaks) {
-            // Only add if not already near a cut beat
-            const nearExisting = cutBeats.some((b: any) => Math.abs(b.timeMs - peak.timeMs) < 50);
-            if (!nearExisting) {
-              cutBeats.push({ timeMs: peak.timeMs, strength: peak.magnitude, isDownbeat: false });
-            }
-          }
-        }
-
-        // Apply maxCuts distribution: downbeats first, then strong, then evenly spaced
-        if (cutBeats.length > (input.maxCuts || 50)) {
-          const maxCuts = input.maxCuts || 50;
-          const downbeats = cutBeats.filter((b: any) => b.isDownbeat);
-          const strong = cutBeats
-            .filter((b: any) => !b.isDownbeat && b.strength >= 0.6)
-            .sort((a: any, b: any) => b.strength - a.strength);
-          const regular = cutBeats.filter(
-            (b: any) => !b.isDownbeat && b.strength < 0.6,
-          );
-
-          const selected: any[] = [];
-          // 1. Always include downbeats
-          selected.push(...downbeats.slice(0, maxCuts));
-          // 2. Then strong beats
-          if (selected.length < maxCuts) {
-            selected.push(...strong.slice(0, maxCuts - selected.length));
-          }
-          // 3. Fill with regular beats evenly spaced
-          if (selected.length < maxCuts && regular.length > 0) {
-            const remaining = maxCuts - selected.length;
-            const step = Math.max(1, Math.floor(regular.length / remaining));
-            for (let i = 0; i < regular.length && selected.length < maxCuts; i += step) {
-              selected.push(regular[i]);
-            }
-          }
-          cutBeats = selected;
-        }
-
-        // Convert beat timestamps to timeline frames
-        const cutFrames = cutBeats
-          .map((b: any) => ({
-            frame: Math.round(((b.timeMs + audioStartOffsetMs) / 1000) * fps),
-            isDownbeat: b.isDownbeat,
-          }))
-          .filter((c: any) => {
-            // Only cut within the video overlay's range
-            return c.frame > videoOverlay.from && c.frame < videoOverlay.from + videoOverlay.durationInFrames;
-          })
-          .sort((a: any, b: any) => b.frame - a.frame); // Sort descending (split from end to preserve frame positions)
-
-        if (cutFrames.length === 0) {
-          return JSON.stringify({
-            status: 'success',
-            message: `Detected ${analysis.bpm} BPM but no beat positions fall within the video overlay range.`,
-            bpm: analysis.bpm,
-            cutsCreated: 0,
-          });
-        }
-
-        // Execute splits from end to start
-        let currentOverlayId = videoOverlay.id;
-        let cutsCreated = 0;
-
-        for (const cut of cutFrames) {
-          // Reload project to get current overlay state after each split
-          const currentProject = await loadProject();
-          const currentOverlay = currentProject.overlays.find((o: any) => {
-            // Find the overlay that contains this frame
-            return o.type === 'video' && o.from <= cut.frame && (o.from + o.durationInFrames) > cut.frame;
-          });
-
-          if (!currentOverlay) continue;
-
-          const overlayEnd = currentOverlay.from + currentOverlay.durationInFrames;
-          if (cut.frame <= currentOverlay.from || cut.frame >= overlayEnd) continue;
-
-          const firstDuration = cut.frame - currentOverlay.from;
-          const secondDuration = overlayEnd - cut.frame;
-
-          // Update original (first part)
-          await projectService.updateOverlay(userId, projectId, currentOverlay.id, {
-            durationInFrames: firstDuration,
-          });
-
-          // Create second part
-          const newId = Date.now() + Math.floor(Math.random() * 10000) + cutsCreated;
-          const secondOverlay = {
-            ...currentOverlay,
-            id: newId,
-            from: cut.frame,
-            durationInFrames: secondDuration,
-            videoStartTime: ((currentOverlay as any).videoStartTime || 0) + firstDuration,
-          };
-
-          await projectService.addOverlay(userId, projectId, secondOverlay as any);
-          cutsCreated++;
-        }
-
-        await recalculateProjectDuration();
-
-        return JSON.stringify({
-          status: 'success',
-          message: `Synced ${cutsCreated} cuts to ${input.beatFilter} at ${analysis.bpm} BPM (confidence: ${(analysis.bpmConfidence * 100).toFixed(0)}%)`,
-          bpm: analysis.bpm,
-          bpmConfidence: analysis.bpmConfidence,
-          cutsCreated,
-          totalBeats: analysis.beats.length,
-          beatFilter: input.beatFilter,
-        });
+        const { executeChatBeatSync } = await import('../services/chat-beat-sync');
+        return JSON.stringify(await executeChatBeatSync({ userId, projectId, input }));
       } catch (err: any) {
-        return JSON.stringify({ status: 'error', message: err.message || 'Beat sync failed' });
+        return JSON.stringify({
+          status: 'error',
+          data: null,
+          error: {
+            code: 'BEAT_SYNC_FAILED',
+            message: err.message || 'Beat sync failed',
+          },
+          nextAction: 'stop',
+          message: err.message || 'Beat sync failed',
+        });
       }
     },
     {
       name: 'sync_cuts_to_beats',
-      description: 'Detect beats in an audio/music track and automatically split video clips at beat positions for music-synced editing. Supports filtering by downbeats only (default), strong beats, or all beats. Can apply transition styles at cut points. Use this when the user wants to sync cuts to music, create beat-matched edits, or make rhythm-driven video cuts.',
+      description: 'Align eligible existing visual cut boundaries to measured music beats without inventing new cuts. Speech boundaries, source handles, transition linkage, and anti-metronomic spacing remain protected.',
       schema: syncCutsToBeatsSchema,
     },
   );
@@ -5599,16 +5640,58 @@ Examples:
           durationFrames: sfxOverlay.durationInFrames,
           sceneRemainingFrames: sfxOverlay.durationInFrames,
         });
-        const newSfx = await searchAndDownloadSFX(
+        const librarySfx = await searchAndDownloadSFX(
           input.query,
           userId,
           Math.max(1, Math.ceil(sfxOverlay.durationInFrames / fps)),
           atomicSfxForm,
         );
+        let generatedSfx: SFXResult | null = null;
 
-        if (!newSfx) {
-          return JSON.stringify({ status: 'error', message: `No SFX found for "${input.query}". Try different keywords.` });
+        if (!librarySfx) {
+          const { generateSFX } = await import('@/lib/pipeline/sfx-service');
+          generatedSfx = await generateSFX(
+            input.query,
+            userId,
+            Math.max(1, Math.ceil(sfxOverlay.durationInFrames / fps)),
+            undefined,
+            undefined,
+            { skipLibrary: true },
+          );
+          const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
+          const db = await getDatabase();
+          const storage = generatedSfx.storage;
+          const persisted = await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+            { assetId: generatedSfx.audioAssetId, userId },
+            {
+              $set: {
+                audioRights: generatedSfx.audioRights,
+                cachedUrl: generatedSfx.audioUrl,
+                lastUsedAt: new Date(),
+              },
+              $setOnInsert: {
+                assetId: generatedSfx.audioAssetId,
+                userId,
+                type: 'audio',
+                filename: `${generatedSfx.audioAssetId}.${storage?.contentType === 'audio/wav' ? 'wav' : 'mp3'}`,
+                source: generatedSfx.source,
+                gcsPath: generatedSfx.gcsPath,
+                r2Key: storage?.r2Key ?? null,
+                duration: generatedSfx.durationMs / 1000,
+                size: storage?.size ?? 0,
+                contentType: storage?.contentType ?? 'audio/mpeg',
+                urlExpiresAt: storage?.urlExpiresAt ?? null,
+                uploadedAt: new Date(),
+              },
+            },
+            { upsert: true },
+          );
+          if (!persisted.acknowledged) {
+            throw new Error('Generated SFX media receipt write was not acknowledged');
+          }
         }
+        const newSfx = librarySfx ?? generatedSfx;
+        if (!newSfx) throw new Error('SFX providers returned no usable asset');
 
         // Replace the complete asset identity so hydration cannot restore the old source.
         await projectService.updateOverlay(userId, projectId, sfxOverlay.id, {
@@ -5678,6 +5761,7 @@ Examples:
         let audioRights: import('@/lib/editron/shared/render-request-payload').AudioRightsContract | null = null;
         let sfxTitle = input.query;
         let sfxSource = 'unknown';
+        let sfxFilename: string | null = null;
 
         // Resolve scene video URL and duration if sceneIndex provided
         const project = await loadProject();
@@ -5750,110 +5834,185 @@ Examples:
         if (!audioUrl && falKey && targetSceneVideo) {
           const videoSrc = targetSceneVideo.src || targetSceneVideo.content;
           if (videoSrc) {
+            const mireloModel = 'mirelo-ai/sfx-v1.5/video-to-audio';
+            const mireloDuration = Math.min(Math.max(Math.round(durationSec), 1), 10);
+            const mireloStartedAt = Date.now();
+            let mireloOutputProduced = false;
+            let mireloOutputCount = 0;
             try {
-              const mireloDuration = Math.min(Math.max(Math.round(durationSec), 1), 10);
               console.log(`[add_sfx] P1: mirelo video-to-audio for scene ${input.sceneIndex}, prompt="${input.query}" (${mireloDuration}s)`);
-              const mireloResult: any = await fal.subscribe('mirelo-ai/sfx-v1.5/video-to-audio', {
+              const mireloResult: any = await fal.subscribe(mireloModel, {
                 input: {
                   video_url: videoSrc,
                   text_prompt: input.query || undefined,
                   duration: mireloDuration,
-                  num_samples: 2,
+                  num_samples: 1,
                 },
                 logs: true,
                 pollInterval: 2000,
               });
               const data = mireloResult?.data || mireloResult;
               const audioArr = data?.audio || data?.audio_files || data?.audios || [];
-              if (audioArr.length > 0 && audioArr[0]?.url) {
-                const audioRes = await fetch(audioArr[0].url);
-                if (audioRes.ok) {
-                  const buffer = Buffer.from(await audioRes.arrayBuffer());
-                  // Validate audio headers to prevent render crashes
-                  const validAudio = buffer.length > 12 && (
-                    (buffer[0] === 0x52 && buffer[1] === 0x49) || // WAV
-                    (buffer[0] === 0x49 && buffer[1] === 0x44) || // MP3 ID3
-                    (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG
-                    (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
-                  );
-                  if (!validAudio) throw new Error('mirelo returned invalid audio');
-                  const uploadResult = await uploadMedia(buffer, userId, `${assetId}.wav`, 'audio/wav', { customAssetId: assetId });
-                  if (uploadResult?.signedUrl) {
-                    audioUrl = uploadResult.signedUrl;
-                    gcsPath = uploadResult.gcsPath;
-                    sfxSource = 'mirelo-video-to-audio';
-                    sfxDuration = mireloDuration;
-                    audioRights = {
-                      mediaRole: 'sfx',
-                      source: 'generated',
-                      userChoice: 'attested',
-                      licensed: true,
-                      evidence: {
-                        kind: 'generated-provider',
-                        sourceAssetId: uploadResult.assetId,
-                        licenseId: 'fal-ai:mirelo-ai/sfx-v1.5/video-to-audio:commercial-use',
-                      },
-                    };
-                    console.log(`[add_sfx] mirelo success: ${assetId}`);
-                  }
-                }
+              const validOutputs = audioArr.filter((candidate: any) => typeof candidate?.url === 'string');
+              if (validOutputs.length === 0) {
+                throw new Error('mirelo returned no usable audio output');
               }
+              mireloOutputProduced = true;
+              mireloOutputCount = validOutputs.length;
+              const audioRes = await fetch(validOutputs[0].url);
+              if (!audioRes.ok) {
+                throw new Error(`mirelo SFX download failed with ${audioRes.status}`);
+              }
+              const buffer = Buffer.from(await audioRes.arrayBuffer());
+              // Validate audio headers to prevent render crashes
+              const validAudio = buffer.length > 12 && (
+                (buffer[0] === 0x52 && buffer[1] === 0x49) || // WAV
+                (buffer[0] === 0x49 && buffer[1] === 0x44) || // MP3 ID3
+                (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG
+                (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
+              );
+              if (!validAudio) throw new Error('mirelo returned invalid audio');
+              const uploadResult = await uploadMedia(buffer, userId, `${assetId}.wav`, 'audio/wav', { customAssetId: assetId });
+              if (!uploadResult?.signedUrl) {
+                throw new Error('mirelo SFX upload returned no signed URL');
+              }
+              assetId = uploadResult.assetId;
+              audioUrl = uploadResult.signedUrl;
+              gcsPath = uploadResult.gcsPath;
+              sfxSource = 'mirelo-video-to-audio';
+              sfxFilename = `${assetId}.wav`;
+              sfxDuration = mireloDuration;
+              audioRights = {
+                mediaRole: 'sfx',
+                source: 'generated',
+                userChoice: 'attested',
+                licensed: true,
+                evidence: {
+                  kind: 'generated-provider',
+                  sourceAssetId: uploadResult.assetId,
+                  licenseId: 'fal-ai:mirelo-ai/sfx-v1.5/video-to-audio:commercial-use',
+                },
+              };
+              await recordChatSfxProviderCost({
+                status: 'success',
+                userId,
+                projectId,
+                assetId,
+                providerBranch: 'mirelo_video_to_audio',
+                model: mireloModel,
+                requestedDurationSec: mireloDuration,
+                generatedMediaSeconds: mireloDuration * mireloOutputCount,
+                outputCount: mireloOutputCount,
+                providerOutputProduced: true,
+                bytesOut: buffer.length,
+                functionMs: Date.now() - mireloStartedAt,
+              });
+              console.log(`[add_sfx] mirelo success: ${assetId}`);
             } catch (mireloErr: any) {
+              await recordChatSfxProviderCost({
+                status: 'failed',
+                userId,
+                projectId,
+                assetId,
+                providerBranch: 'mirelo_video_to_audio',
+                model: mireloModel,
+                requestedDurationSec: mireloDuration,
+                generatedMediaSeconds: mireloDuration * mireloOutputCount,
+                outputCount: mireloOutputCount,
+                providerOutputProduced: mireloOutputProduced,
+                functionMs: Date.now() - mireloStartedAt,
+                error: mireloErr,
+              });
               console.warn(`[add_sfx] mirelo failed: ${mireloErr.message}, trying CassetteAI`);
             }
           }
         }
 
-        // ─── Priority 3: CassetteAI text-to-SFX (always available) ─
-        // Text-only generation. Works for any query, $0.02/min.
+        // ─── Priority 3: CassetteAI's dedicated text-to-SFX model ─
         if (!audioUrl && falKey) {
+          const cassetteStartedAt = Date.now();
+          let cassetteOutputProduced = false;
+          let cassetteDuration = Math.min(Math.max(Math.round(durationSec), 1), 30);
+          let cassetteModel = 'cassetteai/sound-effects-generator';
           try {
-            const cassDuration = Math.min(Math.max(Math.round(durationSec), 10), 180);
-            console.log(`[add_sfx] P2: CassetteAI gen for: "${input.query}" (${cassDuration}s)`);
-            const cassResult: any = await fal.subscribe('cassetteai/music-generator', {
-              input: {
-                prompt: `${input.query}, sound effect, ambient audio, no vocals, no music`,
-                duration: cassDuration,
-              },
+            const cassetteRequest = buildCassetteSfxRequest(
+              `${input.query}, sound effect, ambient audio, no vocals, no music`,
+              durationSec,
+            );
+            cassetteDuration = cassetteRequest.input.duration;
+            cassetteModel = cassetteRequest.model;
+            console.log(`[add_sfx] P3: CassetteAI gen for: "${input.query}" (${cassetteDuration}s)`);
+            const cassResult: any = await fal.subscribe(cassetteRequest.model, {
+              input: cassetteRequest.input,
               logs: true,
               pollInterval: 3000,
             });
-            const data = cassResult?.data || cassResult;
-            const firstAudio = data?.audio_file?.url || data?.audio?.url || data?.audio?.[0]?.url || data?.output?.url || data?.url;
-            if (firstAudio) {
-              const audioRes = await fetch(firstAudio);
-              if (audioRes.ok) {
-                const buffer = Buffer.from(await audioRes.arrayBuffer());
-                // Validate audio headers
-                const validAudio = buffer.length > 12 && (
-                  (buffer[0] === 0x52 && buffer[1] === 0x49) || // WAV
-                  (buffer[0] === 0x49 && buffer[1] === 0x44) || // MP3 ID3
-                  (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) || // MPEG
-                  (buffer[0] === 0x4F && buffer[1] === 0x67)    // OGG
-                );
-                if (!validAudio) throw new Error('CassetteAI returned invalid audio');
-                const uploadResult = await uploadMedia(buffer, userId, `${assetId}.mp3`, 'audio/mpeg', { customAssetId: assetId });
-                if (uploadResult?.signedUrl) {
-                  audioUrl = uploadResult.signedUrl;
-                  gcsPath = uploadResult.gcsPath;
-                  sfxSource = 'cassetteai';
-                  audioRights = {
-                    mediaRole: 'sfx',
-                    source: 'generated',
-                    userChoice: 'attested',
-                    licensed: true,
-                    evidence: {
-                      kind: 'generated-provider',
-                      sourceAssetId: uploadResult.assetId,
-                      licenseId: 'fal-ai:cassetteai/music-generator:commercial-use',
-                    },
-                  };
-                  console.log(`[add_sfx] CassetteAI success: ${assetId}`);
-                }
-              }
+            const firstAudio = extractCassetteSfxAudioUrl(cassResult);
+            cassetteOutputProduced = true;
+            const audioRes = await fetch(firstAudio);
+            if (!audioRes.ok) {
+              throw new Error(`CassetteAI SFX download failed with ${audioRes.status}`);
             }
+            const buffer = Buffer.from(await audioRes.arrayBuffer());
+            assertCassetteSfxWav(buffer);
+            const uploadResult = await uploadMedia(
+              buffer,
+              userId,
+              `${assetId}.wav`,
+              'audio/wav',
+              { customAssetId: assetId },
+            );
+            if (!uploadResult?.signedUrl) {
+              throw new Error('CassetteAI SFX upload returned no signed URL');
+            }
+            assetId = uploadResult.assetId;
+            audioUrl = uploadResult.signedUrl;
+            gcsPath = uploadResult.gcsPath;
+            sfxSource = 'cassetteai';
+            sfxFilename = `${assetId}.wav`;
+            sfxDuration = cassetteDuration;
+            audioRights = {
+              mediaRole: 'sfx',
+              source: 'generated',
+              userChoice: 'attested',
+              licensed: true,
+              evidence: {
+                kind: 'generated-provider',
+                sourceAssetId: assetId,
+                licenseId: CASSETTE_SFX_LICENSE_ID,
+              },
+            };
+            await recordChatSfxProviderCost({
+              status: 'success',
+              userId,
+              projectId,
+              assetId,
+              providerBranch: 'cassetteai_fallback',
+              model: cassetteModel,
+              requestedDurationSec: cassetteDuration,
+              generatedMediaSeconds: cassetteDuration,
+              outputCount: 1,
+              providerOutputProduced: true,
+              bytesOut: buffer.length,
+              functionMs: Date.now() - cassetteStartedAt,
+            });
+            console.log(`[add_sfx] CassetteAI success: ${assetId}`);
           } catch (cassErr: any) {
-            console.warn(`[add_sfx] CassetteAI failed: ${cassErr.message}, trying Freesound`);
+            await recordChatSfxProviderCost({
+              status: 'failed',
+              userId,
+              projectId,
+              assetId,
+              providerBranch: 'cassetteai_fallback',
+              model: cassetteModel,
+              requestedDurationSec: cassetteDuration,
+              generatedMediaSeconds: cassetteOutputProduced ? cassetteDuration : 0,
+              outputCount: cassetteOutputProduced ? 1 : 0,
+              providerOutputProduced: cassetteOutputProduced,
+              functionMs: Date.now() - cassetteStartedAt,
+              error: cassErr,
+            });
+            console.warn(`[add_sfx] CassetteAI failed: ${cassErr.message}; all SFX providers exhausted`);
           }
         }
 
@@ -5872,7 +6031,7 @@ Examples:
             $set: { audioRights },
             $setOnInsert: {
               assetId, userId, type: 'audio',
-              filename: `${assetId}.mp3`, source: sfxSource,
+              filename: sfxFilename ?? `${assetId}.mp3`, source: sfxSource,
               gcsPath, cachedUrl: audioUrl,
               urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               uploadedAt: new Date(),
@@ -5949,18 +6108,20 @@ Examples:
 
   // ─── Batch Caption Edit Tool ─────────────────────────────────────
   const batchEditCaptionsSchema = z.object({
-    style: z.string().optional().describe("Caption style to apply to ALL captions (e.g., 'tiktok', 'subtitle', 'karaoke', 'kinetic')"),
-    fontSize: z.string().optional().describe("Font size for all captions (e.g., '24px', '32px')"),
-    color: z.string().optional().describe("Text color for all captions (e.g., '#ffffff', 'yellow')"),
-    backgroundColor: z.string().optional().describe("Background color (e.g., 'rgba(0,0,0,0.7)', 'transparent')"),
-    position: z.string().optional().describe("Position: 'top', 'center', 'bottom'"),
-    fontFamily: z.string().optional().describe("Font family (e.g., 'font-bold', 'font-mono')"),
-    fontWeight: z.string().optional().describe("Font weight (e.g., '400', '600', '700', '900')"),
-  });
+    style: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle', 'hormozi', 'mrbeast', 'ali-abdaal', 'corporate', 'kinetic', 'sentence']).optional().describe("Requested caption aesthetic for every track"),
+    fontSize: z.string().max(16).regex(/^\d+(?:\.\d+)?px$/i).optional().describe("Preferred font size in pixels; canonical text fitting remains authoritative"),
+    color: z.string().max(64).optional().describe("Preferred text color; canonical contrast remains authoritative"),
+    backgroundColor: z.string().max(64).optional().describe("Preferred caption surface color; canonical contrast remains authoritative"),
+    position: z.enum(['top', 'center', 'bottom']).optional().describe("Preferred safe region; protected-region avoidance remains authoritative"),
+    fontFamily: z.string().max(80).optional().describe("Preferred readable font family"),
+    fontWeight: z.coerce.number().int().min(100).max(900).optional().describe("Preferred font weight"),
+    textCase: z.enum(['sentence', 'uppercase', 'lowercase', 'capitalize']).optional().describe("Requested caption casing"),
+  }).strict();
 
   const batchEditCaptions = tool(
-    async (input: z.infer<typeof batchEditCaptionsSchema>) => {
+    async (rawInput: z.infer<typeof batchEditCaptionsSchema>) => {
       try {
+        const input = coerceInput(rawInput);
         const project = await loadProject();
         const captions = (project as any).overlays?.filter((o: any) => o.type === 'caption') || [];
 
@@ -5968,41 +6129,63 @@ Examples:
           return JSON.stringify({ status: 'error', message: 'No captions found in this project. Add captions first.' });
         }
 
-        const updates: Record<string, any> = {};
-        if (input.fontSize) updates['styles.fontSize'] = input.fontSize;
-        if (input.color) updates['styles.color'] = input.color;
-        if (input.backgroundColor) updates['styles.backgroundColor'] = input.backgroundColor;
-        if (input.fontFamily) updates['styles.fontFamily'] = input.fontFamily;
-        if (input.fontWeight) updates['styles.fontWeight'] = input.fontWeight;
-
-        // Style preset overrides
-        if (input.style) updates['template'] = input.style;
-
-        let modified = 0;
-        for (const caption of captions) {
-          try {
-            const styleUpdate: any = { ...caption.styles };
-            if (input.fontSize) styleUpdate.fontSize = input.fontSize;
-            if (input.color) styleUpdate.color = input.color;
-            if (input.backgroundColor) styleUpdate.backgroundColor = input.backgroundColor;
-            if (input.fontFamily) styleUpdate.fontFamily = input.fontFamily;
-            if (input.fontWeight) styleUpdate.fontWeight = input.fontWeight;
-
-            await projectService.updateOverlay(userId, projectId, caption.id, {
-              styles: styleUpdate,
-              ...(input.style ? { template: input.style } : {}),
-              ...(input.position ? { position: input.position } : {}),
-            } as any);
-            modified++;
-          } catch (err: any) {
-            console.warn(`[batch_edit_captions] Failed for caption ${caption.id}: ${err.message}`);
-          }
+        const { planChatCanonicalCaptionRestyle } = await import(
+          '../services/chat-canonical-caption-adapter'
+        );
+        const plan = planChatCanonicalCaptionRestyle(project as any, {
+          requestedStyle: input.style,
+          fontSize: input.fontSize,
+          color: input.color,
+          backgroundColor: input.backgroundColor,
+          position: input.position,
+          fontFamily: input.fontFamily,
+          fontWeight: input.fontWeight,
+          textCase: input.textCase,
+        });
+        if (plan.status !== 'updated') {
+          return JSON.stringify({
+            status: plan.status,
+            data: { reason: plan.reason, message: plan.message },
+            error: null,
+            nextAction: 'stop',
+          });
         }
 
-        return JSON.stringify({
-          status: 'success',
-          data: { modified, total: captions.length },
-          message: `Updated ${modified}/${captions.length} captions`,
+        const revision = project.updatedAt instanceof Date
+          ? project.updatedAt
+          : new Date(project.updatedAt);
+        if (Number.isNaN(revision.getTime())) {
+          return JSON.stringify({
+            status: 'error',
+            data: null,
+            error: {
+              code: 'CHAT_CAPTION_PROJECT_REVISION_MISSING',
+              message: 'The canonical project revision is unavailable; caption styling was not written.',
+            },
+            nextAction: 'retry',
+          });
+        }
+        const replaced = await projectService.replaceOverlayFamilyAtomic(
+          userId,
+          projectId,
+          { expectedUpdatedAt: revision, overlays: plan.overlays },
+        );
+        if (!replaced) {
+          return JSON.stringify({
+            status: 'replan-required',
+            data: { reason: 'project-revision-changed' },
+            error: null,
+            nextAction: 'Re-read the current timeline and retry caption styling once.',
+          });
+        }
+
+        return successEnvelope({
+          modified: plan.result.updated,
+          total: captions.length,
+          style: plan.presentation.style,
+          producer: 'canonical-caption-track',
+          styleAudit: plan.result.styleAudit,
+          message: `Updated ${plan.result.updated}/${captions.length} caption tracks through the canonical caption owner.`,
         });
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });

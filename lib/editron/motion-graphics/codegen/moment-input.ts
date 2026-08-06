@@ -90,6 +90,8 @@ export interface BuildMgMomentInputArgs {
    *  Overrides the coarse region-derived subject on `screen.subject` so the coder places clear of the ACTUAL
    *  subject and the judge verifies obstruction against real coordinates. Absent → the coarse derivation holds. */
   subjectBox?: { x: number; y: number; width: number; height: number };
+  /** Phase 4b: the video taste contract (compact direction + hash) the judge verifies fidelity against (§11). */
+  tasteContract?: { hash: string; direction: string } | null;
 }
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
@@ -101,9 +103,25 @@ function toTier(tier: MgExpressionSource['qualityTier']): MgExpressiveness['tier
   return tier === 'suppressed' ? 'subtle' : tier;
 }
 
-/** Map a placement box to a title-safe MgRegionBox, clamping each fraction to the [0,1] the type declares. */
+function toCanvasRect(rect: { x: number; y: number; width: number; height: number }): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const x = clamp01(rect.x);
+  const y = clamp01(rect.y);
+  return {
+    x,
+    y,
+    width: Math.min(clamp01(rect.width), 1 - x),
+    height: Math.min(clamp01(rect.height), 1 - y),
+  };
+}
+
+/** Map a placement box to an in-canvas MgRegionBox, clipping extents after its origin is clamped. */
 function toRegionBox(b: MgBoxSource): MgRegionBox {
-  return { x: clamp01(b.x), y: clamp01(b.y), width: clamp01(b.width), height: clamp01(b.height), reason: b.reason };
+  return { ...toCanvasRect(b), reason: b.reason };
 }
 
 /** Derive coarse screen context from the placement's OWN boxes: the main-subject avoid box is the subject;
@@ -113,7 +131,7 @@ function deriveScreen(placement: MgPlacementSource): MgScreenContext | undefined
   const room = placement.placementHints.prefer[0];
   const screen: MgScreenContext = {};
   if (subjectBox) {
-    screen.subject = { x: clamp01(subjectBox.x), y: clamp01(subjectBox.y), width: clamp01(subjectBox.width), height: clamp01(subjectBox.height) };
+    screen.subject = toCanvasRect(subjectBox);
   }
   if (room) {
     screen.negativeSpace = { region: placement.candidateRegion ?? 'full-frame', strength: 1 };
@@ -126,7 +144,7 @@ function deriveScreen(placement: MgPlacementSource): MgScreenContext | undefined
  * zero/negative-length clip or non-positive fps is a caller bug — fail loud, do not silently "fix" it).
  */
 export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput {
-  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals, videoSignals, motionIntensity, design, subjectBox } = args;
+  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals, videoSignals, motionIntensity, design, subjectBox, tasteContract } = args;
 
   if (!Number.isFinite(window.fps) || window.fps <= 0) {
     throw new Error(`buildMgMomentInput: fps must be positive, got ${window.fps}`);
@@ -168,11 +186,15 @@ export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput 
     && Number.isFinite(subjectBox.x) && Number.isFinite(subjectBox.y)
     && Number.isFinite(subjectBox.width) && Number.isFinite(subjectBox.height)
     && subjectBox.width > 0 && subjectBox.height > 0) {
-    input.screen = {
-      ...(input.screen ?? {}),
-      subject: { x: clamp01(subjectBox.x), y: clamp01(subjectBox.y), width: clamp01(subjectBox.width), height: clamp01(subjectBox.height) },
-    };
+    const boundedSubject = toCanvasRect(subjectBox);
+    if (boundedSubject.width > 0 && boundedSubject.height > 0) {
+      input.screen = {
+        ...(input.screen ?? {}),
+        subject: boundedSubject,
+      };
+    }
   }
+  if (tasteContract) input.tasteContract = tasteContract;
   if (visualEvidence) input.visualEvidence = visualEvidence;
   if (anchors) input.anchors = anchors;
   const trimmedNotes = notes?.trim();

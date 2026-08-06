@@ -7,8 +7,9 @@ export interface RenderItem {
   url?: string;
   timestamp: Date;
   id: string;
-  status: "success" | "error";
+  status: "success" | "error" | "finalizing";
   error?: string;
+  canRetryFinalization?: boolean;
   expiresAt?: Date;
   deliveryManifest?: RenderDeliveryManifest;
 }
@@ -18,12 +19,14 @@ export function parseRenderHistoryItem(value: unknown): RenderItem | null {
   if (!record) return null;
 
   const id = nonEmptyString(record.id);
-  const timestamp = parseDate(record.completedAt);
+  const timestamp = parseDate(record.completedAt) ?? parseDate(record.startedAt);
   const status = record.status === "done"
     ? "success"
     : record.status === "error"
       ? "error"
-      : null;
+      : record.status === "finalizing"
+        ? "finalizing"
+        : null;
   if (!id || !timestamp || !status) return null;
 
   const url = nonEmptyString(record.url);
@@ -40,6 +43,9 @@ export function parseRenderHistoryItem(value: unknown): RenderItem | null {
     status,
     ...(url ? { url } : {}),
     ...(nonEmptyString(record.error) ? { error: nonEmptyString(record.error)! } : {}),
+    ...(status === "error" && record.canRetryFinalization === true
+      ? { canRetryFinalization: true }
+      : {}),
     ...(expiresAt ? { expiresAt } : {}),
     ...(manifestResult.success
       ? { deliveryManifest: manifestResult.data }

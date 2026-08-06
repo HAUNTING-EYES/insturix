@@ -229,6 +229,26 @@ function makeModelOutput(overrides: Partial<ScriptWriterModelOutput> = {}): Scri
   };
 }
 
+/** A minimal uncast brief with only a runtime target — isolates the runtime-contract gate. */
+function productionBriefWithDuration(targetDurationSec: number): ProductionBrief {
+  return {
+    entryPoint: 'thinkforge',
+    output: {
+      format: 'reel',
+      platform: 'youtube',
+      aspectRatio: '16:9',
+      targetDurationSec,
+      count: 1,
+      voiceLanguages: ['en'],
+    },
+    resolution: {
+      fieldConfidence: {},
+      inferred: [],
+      confirmed: [],
+    },
+  };
+}
+
 function productionBriefWithCasting(): ProductionBrief {
   return {
     entryPoint: 'thinkforge',
@@ -660,6 +680,30 @@ describe('assertUsableScriptWriterResult', () => {
           }),
         }),
         { productionBrief: productionBriefWithCasting() },
+      ),
+    ).not.toThrow();
+  });
+
+  // Regression guard for the live incident: a 7-minute (420s) request silently produced a
+  // ~60s five-scene script because the runtime contract never gated output. The gate must
+  // reject BOTH the runtime shortfall and the long-form scene-count floor — loudly, never
+  // shipping a short script as success.
+  it('rejects a short sidecar against a 7-minute runtime contract (420s ask, 42s script)', () => {
+    const call = () =>
+      assertUsableScriptWriterResult(
+        makeResult(), // default fixture: 2 scenes summing 42s
+        { productionBrief: productionBriefWithDuration(420) },
+      );
+    expect(call).toThrow(/runtime_duration_mismatch:42s\/420s/);
+    expect(call).toThrow(/scene_count_under_runtime_floor:2\/10/);
+  });
+
+  it('accepts a script whose scene durations land inside the runtime tolerance', () => {
+    const scenes = makeSidecar().scenes.map((scene) => ({ ...scene, durationSeconds: 30 }));
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({ sidecar: makeSidecar({ scenes }) }), // 60s total for a 60s ask
+        { productionBrief: productionBriefWithDuration(60) },
       ),
     ).not.toThrow();
   });

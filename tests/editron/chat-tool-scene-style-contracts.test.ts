@@ -8,8 +8,10 @@ const mocks = vi.hoisted(() => ({
   extractEditDNA: vi.fn(),
   getStoryboard: vi.fn(),
   getStoryboardByProjectId: vi.fn(),
+  getStoryboardForProjectContext: vi.fn(),
   loadProfile: vi.fn(),
   queueReferenceStyleJob: vi.fn(),
+  regenerateStoryboardSceneImage: vi.fn(),
 }));
 
 const agentFixture = vi.hoisted(() => ({
@@ -79,6 +81,11 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
 vi.mock('@/lib/pipeline/storyboard-db', () => ({
   getStoryboard: mocks.getStoryboard,
   getStoryboardByProjectId: mocks.getStoryboardByProjectId,
+  getStoryboardForProjectContext: mocks.getStoryboardForProjectContext,
+}));
+
+vi.mock('@/lib/pipeline/storyboard-scene-regeneration', () => ({
+  regenerateStoryboardSceneImage: mocks.regenerateStoryboardSceneImage,
 }));
 
 vi.mock('@/lib/editron/services/style-transfer-service', () => ({
@@ -124,6 +131,7 @@ vi.mock('@/lib/editron/agent/chat-editorial-intent-tools', () => ({
 
 import { createTools } from '@/lib/editron/agent/tools';
 import { createAgent } from '@/lib/editron/agent/agent-graph';
+import { enforceChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
 import { projectService } from '@/lib/editron/services/project-service';
 
 const BASE_PROJECT = {
@@ -184,8 +192,7 @@ describe('chat scene and style tool contracts', () => {
   });
 
   it('dispatches requested scene video regeneration with feedback to the linked storyboard', async () => {
-    mocks.getStoryboardByProjectId.mockResolvedValue({ storyboardId: 'sb-1' });
-    mocks.getStoryboard.mockResolvedValue({
+    mocks.getStoryboardForProjectContext.mockResolvedValue({
       storyboardId: 'sb-1',
       scenes: [{ sceneIndex: 0 }, { sceneIndex: 1 }, { sceneIndex: 2 }],
     });
@@ -207,6 +214,8 @@ describe('chat scene and style tool contracts', () => {
         sceneIndex: 1,
         target: 'video',
         storyboardId: 'sb-1',
+        queueStatus: 'queued',
+        jobId: 'video-batch-1',
         results: [expect.stringContaining('video-batch-1')],
       },
     });
@@ -217,7 +226,85 @@ describe('chat scene and style tool contracts', () => {
         body: JSON.stringify({ sceneIndices: [1], userId: 'user_scene_style' }),
       }),
     );
-    expect(mocks.getStoryboard).toHaveBeenCalledWith('sb-1', 'user_scene_style');
+  });
+
+  it('reports completed storyboard image regeneration as a durable cross-resource receipt', async () => {
+    mocks.getStoryboardForProjectContext.mockResolvedValue({
+      storyboardId: 'sb-1',
+      scenes: [
+        { sceneIndex: 0, imageAssetId: 'old-0' },
+        { sceneIndex: 1, imageAssetId: 'old-1' },
+      ],
+    });
+    mocks.regenerateStoryboardSceneImage.mockResolvedValue({
+      sceneIndex: 1,
+      imageAssetId: 'new-1',
+      imageUrl: 'https://cdn.example.com/new-1.png',
+    });
+
+    const output = await toolNamed('regenerate_scene').invoke({
+      sceneIndex: 1,
+      target: 'image',
+      feedback: 'Use warmer light.',
+    });
+    const result = parseEnvelope(output);
+
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        storyboardId: 'sb-1',
+        queueStatus: 'completed',
+        jobId: 'storyboard:sb-1:scene:1:image:new-1',
+        operations: [{
+          target: 'image',
+          status: 'completed',
+          beforeAssetId: 'old-1',
+          afterAssetId: 'new-1',
+        }],
+      },
+    });
+    expect(mocks.regenerateStoryboardSceneImage).toHaveBeenCalledWith({
+      storyboardId: 'sb-1',
+      sceneIndex: 1,
+      userId: 'user_scene_style',
+      feedback: 'Use warmer light.',
+    });
+
+    const enforced = enforceChatToolPostcondition({
+      toolName: 'regenerate_scene',
+      args: { sceneIndex: 1, target: 'image' },
+      output,
+      beforeProject: BASE_PROJECT,
+      afterProject: BASE_PROJECT,
+    });
+    expect(enforced.verification).toMatchObject({
+      status: 'pass',
+      stateChanged: false,
+      renderVerification: { status: 'deferred', required: false },
+    });
+  });
+
+  it('fails visibly when the storyboard regeneration provider rejects the request', async () => {
+    mocks.getStoryboardForProjectContext.mockResolvedValue({
+      storyboardId: 'sb-1',
+      scenes: [{ sceneIndex: 1, imageAssetId: 'old-1' }],
+    });
+    mocks.regenerateStoryboardSceneImage.mockRejectedValue(
+      new Error('Scene regeneration failed: provider unavailable'),
+    );
+
+    const result = parseEnvelope(await toolNamed('regenerate_scene').invoke({
+      sceneIndex: 1,
+      target: 'image',
+    }));
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: {
+        code: 'TOOL_HANDLER_ERROR',
+        message: expect.stringContaining('provider unavailable'),
+      },
+    });
   });
 
   it('extracts a named reference profile from the requested overlay', async () => {

@@ -114,7 +114,7 @@ describe('audio conditioning', () => {
     expect(decoded.channelData[0]).toHaveLength(130 * 48_000);
     expect(result.wasLooped).toBe(true);
     expect(result.wasTrimmed).toBe(false);
-    expect(Math.abs(result.measuredOutputLufs - (-14))).toBeLessThanOrEqual(1);
+    expect(Math.abs(result.measuredOutputLufs - (-14))).toBeLessThanOrEqual(0.3);
     expect(result.truePeakDbtp).toBeLessThanOrEqual(-0.9);
   }, 60_000);
 

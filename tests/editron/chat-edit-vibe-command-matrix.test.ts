@@ -33,6 +33,7 @@ describe('Editron vibe-editing command matrix', () => {
       .sort();
 
     expect(shadowAuthority).toEqual([
+      'add_fancy_captions',
       'add_motion_graphic',
       'add_transition',
       'analyze_clip_audio',
@@ -42,6 +43,7 @@ describe('Editron vibe-editing command matrix', () => {
       'auto_motion_graphics',
       'extract_style',
       'generate_html_scene',
+      'refresh_fancy_captions',
     ]);
     expect(shadowAuthority.filter((tool) => required.has(tool))).toEqual([]);
   });

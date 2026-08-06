@@ -144,8 +144,11 @@
     const roleFilter = document.getElementById('role-filter');
     const statusFilter = document.getElementById('status-filter');
     const message = document.getElementById('message');
+    const modelIdentity = report.sourceEvidence
+      ? ` / ${report.sourceEvidence.model.modelId}@${report.sourceEvidence.model.revision.slice(0, 12)}`
+      : '';
     document.getElementById('build-id').textContent =
-      `${report.generatedAt} / ${report.sourceSetHashSha256.slice(0, 16)}`;
+      `${report.generatedAt} / ${report.sourceSetHashSha256.slice(0, 16)}${modelIdentity}`;
 
     for (const item of report.coverage) {
       const node = document.createElement('span');
@@ -172,15 +175,33 @@
       const source = document.createElement('div');
       source.className = 'path';
       source.textContent = candidate.originalSourcePath;
+      const evidence = document.createElement('div');
+      evidence.className = 'metrics';
+      if (candidate.reviewEvidence) {
+        const item = candidate.reviewEvidence;
+        const nearest = item.nearestNeighbor
+          ? ` / nearest ${item.nearestNeighbor.sourceId} ${item.nearestNeighbor.cosineSimilarity.toFixed(3)}`
+          : '';
+        evidence.textContent =
+          `assigned ${item.assignedRole} #${item.assignedRoleRank} ${item.assignedRoleScore.toFixed(3)} / ` +
+          `top ${item.topRole} ${item.topRoleScore.toFixed(3)} / ` +
+          `cluster ${item.cluster.memberSourceIds.length}${nearest} / ` +
+          `profile E${candidate.curation.energy} B${candidate.curation.brightness} ` +
+          `W${candidate.curation.weight} T${candidate.curation.transientSharpness} ${candidate.curation.material}/${candidate.curation.motionSpeed}`;
+      }
       const tags = document.createElement('div');
       tags.className = 'tags';
-      [...candidate.curation.eventRoles, ...candidate.curation.surfaces].forEach(value => {
+      [...new Set([
+        ...candidate.curation.eventRoles,
+        ...candidate.curation.surfaces,
+        ...candidate.curation.tags.slice(0, 8),
+      ])].forEach(value => {
         const tag = document.createElement('span');
         tag.className = 'tag';
         tag.textContent = value;
         tags.append(tag);
       });
-      identity.append(title, source, tags);
+      identity.append(title, source, evidence, tags);
 
       const audition = document.createElement('div');
       const audio = document.createElement('audio');
@@ -298,12 +319,14 @@
       downloadJson('sfx-catalog-review-receipt.json', {
         version: 'sfx-catalog-review-decisions-v1',
         sourceSetHashSha256: report.sourceSetHashSha256,
+        sourceEvidence: report.sourceEvidence,
         reviewerId: reviewer,
         reviewedAt: new Date().toISOString(),
         decisions: report.candidates.map(candidate => ({
           reviewId: candidate.reviewId,
           providerAssetId: candidate.curation.provenance.providerAssetId,
           conditionedHashSha256: candidate.conditionedHashSha256,
+          reviewEvidence: candidate.reviewEvidence,
           status: decisions[candidate.reviewId].status,
           note: decisions[candidate.reviewId].note.trim(),
         })),

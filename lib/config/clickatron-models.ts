@@ -1,6 +1,10 @@
 
 import { ClickatronR2Manager } from '@/lib/clickatron-r2';
 import { GENERATIVE_FILL_SYSTEM_PROMPT, IMAGE_TO_IMAGE_SYSTEM_PROMPT } from '@/lib/clickatron/fill-prompts';
+import {
+  ClickatronAspectRatioError,
+  resolveClickatronImageGeometry,
+} from '@/lib/clickatron/image-geometry';
 
 /**
  * Defines the type of model.
@@ -39,6 +43,8 @@ export interface ParameterMapping {
 export interface ModelConstraints {
   promptMaxLength?: number;
   allowedAspectRatios?: string[];
+  aspectRatioMode?: 'allowlist' | 'custom_dimensions';
+  customImageLongEdge?: number;
   minImages?: number;
   maxImages?: number;
 }
@@ -141,6 +147,8 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
     constraints: {
       promptMaxLength: 1024,
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      aspectRatioMode: 'custom_dimensions',
+      customImageLongEdge: 3072,
       minImages: 0,
       maxImages: 0,
     }
@@ -239,6 +247,8 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       minImages: 1,
       maxImages: 4,
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      aspectRatioMode: 'custom_dimensions',
+      customImageLongEdge: 3072,
     },
   },
   'fal-ai/nano-banana-pro/edit': {
@@ -412,11 +422,32 @@ export interface ClickatronModelResolution {
   modelId: string;
   model: ModelConfig;
   requestedModelId?: string;
-  reason: 'requested' | 'default' | 'aspect-ratio-fallback' | 'missing-model-fallback';
+  reason: 'requested' | 'default' | 'aspect-ratio-fallback';
+}
+
+export class ClickatronModelCompatibilityError extends Error {
+  readonly code = 'NO_COMPATIBLE_IMAGE_MODEL';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ClickatronModelCompatibilityError';
+  }
 }
 
 export function modelSupportsAspectRatio(model: ModelConfig | undefined, aspectRatio?: string | null): boolean {
   if (!model || !aspectRatio) return Boolean(model);
+  if (model.constraints.aspectRatioMode === 'custom_dimensions') {
+    try {
+      resolveClickatronImageGeometry(
+        aspectRatio,
+        model.constraints.customImageLongEdge,
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof ClickatronAspectRatioError) return false;
+      throw error;
+    }
+  }
   const allowedAspectRatios = model.constraints.allowedAspectRatios;
   return !allowedAspectRatios || allowedAspectRatios.includes(aspectRatio);
 }
@@ -434,6 +465,10 @@ export function resolveClickatronModelForGeneration({
   hasParentImage?: boolean;
   aspectRatio?: string | null;
 } = {}): ClickatronModelResolution {
+  if (aspectRatio) {
+    resolveClickatronImageGeometry(aspectRatio);
+  }
+
   const generationType: ClickatronDefaultGenerationType =
     referenceImageCount > 0 || hasParentImage ? 'image-to-image' : 'text-to-image';
   const availableModels = getAvailableModels(context, referenceImageCount);
@@ -483,24 +518,9 @@ export function resolveClickatronModelForGeneration({
     };
   }
 
-  const fallbackCandidates: Array<ModelConfig | undefined> = [
-    defaultModel,
-    availableModels.find((model) => model.types.includes(generationType)),
-    CLICKATRON_MODELS[getDefaultClickatronModelId(generationType)],
-    Object.values(CLICKATRON_MODELS).find((model) => !model.isDeprecated),
-  ];
-  const fallbackModel = fallbackCandidates.find((model): model is ModelConfig => Boolean(model));
-
-  if (!fallbackModel) {
-    throw new Error('No Clickatron generation models are configured');
-  }
-
-  return {
-    modelId: fallbackModel.id,
-    model: fallbackModel,
-    requestedModelId: requestedModelId ?? undefined,
-    reason: requestedModel ? 'aspect-ratio-fallback' : 'missing-model-fallback',
-  };
+  throw new ClickatronModelCompatibilityError(
+    `No Clickatron ${generationType} model supports aspect ratio ${aspectRatio ?? 'unspecified'}`,
+  );
 }
 /**
  * Get available models for a specific context

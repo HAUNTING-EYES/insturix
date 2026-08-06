@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { ROW_HEIGHT, SNAPPING_CONFIG } from '../../constants';
+import { ROW_HEIGHT, SNAPPING_CONFIG, FPS } from '../../constants';
 import { useTimeline } from '../../contexts/timeline-context';
 import { useEditorContext } from '../../contexts/editor-context';
 import { Overlay } from '../../types';
@@ -170,7 +170,7 @@ export function V2TimelineGrid({
         const y = e.clientY - rect.top;
         const dropFrame = Math.round((x / e.currentTarget.scrollWidth) * totalDuration);
         const targetRow = Math.max(0, Math.min(visibleRows - 1, Math.floor(y / ROW_HEIGHT)));
-        const fps = 30;
+        const fps = FPS;
         const durationFrames = asset.duration ? Math.round(asset.duration * fps) : 150;
         const segmentStart = asset.segmentStart || 0;
         const segmentEnd = asset.segmentEnd || undefined;

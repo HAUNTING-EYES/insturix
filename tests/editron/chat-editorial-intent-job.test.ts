@@ -283,7 +283,19 @@ describe('durable chat editorial-intent jobs', () => {
     const loadChildJobs = vi.fn(async () => [{
       _id: 'mgr_aaaaaaaaaaaaaaaaaaaaaaaa',
       status: 'completed' as const,
-      result: { status: 'generated', sequence: { address: { sequenceId: 'seq-1' } } },
+      result: {
+        status: 'generated',
+        sequence: { address: { sequenceId: 'seq-1' } },
+        receipt: {
+          outcome: 'generated',
+          promptHash: 'prompt-hash-1',
+          attempts: 1,
+          compiled: true,
+          scans: [{ passed: true }],
+          judgeScore: 8.75,
+          judgeIssues: [],
+        },
+      },
       lastError: null,
     }]);
 
@@ -324,6 +336,13 @@ describe('durable chat editorial-intent jobs', () => {
           jobId: 'mgr_aaaaaaaaaaaaaaaaaaaaaaaa',
           jobStatus: 'completed',
           outcome: 'generated',
+          receipt: {
+            promptHash: 'prompt-hash-1',
+            attempts: 1,
+            compiled: true,
+            scans: [{ passed: true }],
+            judgeScore: 8.75,
+          },
         }],
       },
     });
@@ -387,6 +406,127 @@ describe('durable chat editorial-intent jobs', () => {
       'operation-intent-1:editorial-intent:attempt:1',
       { operationStatus: 'no-op', mutatingToolNames: [] },
     );
+  });
+
+  it('tracks the deferred MG design job as a pending child instead of declining mid-chain', async () => {
+    const store = new MemoryStore(queuedJob());
+    let loadCount = 0;
+    const checkpoint = checkpointRuntime([]);
+
+    const result = await runChatEditorialIntentJob(workerPayload(), {
+      store,
+      loadProject: async () => {
+        loadCount += 1;
+        return loadCount === 1
+          ? project('before')
+          : {
+            ...project('before'),
+            intelligence: {
+              mgDesignJob: {
+                version: 1,
+                jobId: 'mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                status: 'queued',
+                decisionCount: 1,
+              },
+            },
+          };
+      },
+      executeDirector: async () => directorResult(0),
+      loadChildJobs: async (jobIds) => jobIds.map((jobId) => ({
+        _id: jobId,
+        status: 'queued' as const,
+        result: null,
+        lastError: null,
+        kind: 'design' as const,
+      })),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({
+      status: 'waiting_children',
+      jobId: 'job-intent-1',
+      reason: 'waiting-for-async-mg-render:1',
+    });
+    expect(store.jobs.get('job-intent-1')).toMatchObject({
+      status: 'waiting_children',
+      pendingChildJobIds: ['mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
+    });
+  });
+
+  it('adopts the render jobs a completed MG design child queued', async () => {
+    const parent = waitingParentJob(['mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']);
+    const store = new MemoryStore(parent);
+    const checkpoint = checkpointRuntime([]);
+    checkpoint.seedBeforeCheckpoint(parent, project('before'));
+
+    const result = await reconcileChatEditorialIntentMgChild({
+      jobId: 'mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      projectId: 'project-1',
+      userId: 'user-1',
+    }, {
+      store,
+      loadChildJobs: async () => [{
+        _id: 'mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        status: 'completed' as const,
+        result: { renderJobsQueued: 1, approvedCount: 1 },
+        lastError: null,
+        kind: 'design' as const,
+      }],
+      loadProject: async () => ({
+        ...project('before'),
+        intelligence: {
+          mgDesignJob: { jobId: 'mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', status: 'completed' },
+          mgCodegenRun: {
+            outcomes: [{ status: 'queued', jobId: 'mgr_bbbbbbbbbbbbbbbbbbbbbbbbbbbb' }],
+          },
+        },
+      }),
+      dispatchRenderEvidence: vi.fn(),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({ reconciled: 0, waiting: 1 });
+    expect(store.jobs.get(parent._id)).toMatchObject({
+      status: 'waiting_children',
+      pendingChildJobIds: [
+        'mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'mgr_bbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      ],
+    });
+  });
+
+  it('declines when the design child completes without queueing any render job', async () => {
+    const parent = waitingParentJob(['mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']);
+    const store = new MemoryStore(parent);
+    const checkpoint = checkpointRuntime([]);
+    checkpoint.seedBeforeCheckpoint(parent, project('before'));
+
+    const result = await reconcileChatEditorialIntentMgChild({
+      jobId: 'mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      projectId: 'project-1',
+      userId: 'user-1',
+    }, {
+      store,
+      loadChildJobs: async () => [{
+        _id: 'mgd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        status: 'completed' as const,
+        result: { renderJobsQueued: 0, approvedCount: 0, declinedCount: 1 },
+        lastError: null,
+        kind: 'design' as const,
+      }],
+      loadProject: async () => project('before'),
+      dispatchRenderEvidence: vi.fn(),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({ reconciled: 1, waiting: 0 });
+    expect(store.jobs.get(parent._id)).toMatchObject({
+      status: 'declined',
+      result: { lifecycle: 'async-mg-render-reconciled' },
+    });
   });
 
   it('keeps the internal worker signed and fails closed outside tests when signing keys are absent', () => {

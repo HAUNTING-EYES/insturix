@@ -94,8 +94,11 @@ export function resolveRenderDeliveryPlan(input: {
   durationInFrames?: unknown;
   destinationPlatform?: unknown;
 }): RenderDeliveryPlan {
-  const mode = resolveMode(input.requestedMode);
   const overlays = Array.isArray(input.overlays) ? input.overlays : [];
+  const musicOverlays = overlays.filter(isCanonicalMusicOverlay);
+  const mode = musicOverlays.some(isReferenceOnlyMusicOverlay)
+    ? 'platform-native'
+    : resolveMode(input.requestedMode);
   if (mode === 'embedded') {
     return {
       mode,
@@ -108,7 +111,6 @@ export function resolveRenderDeliveryPlan(input: {
     };
   }
 
-  const musicOverlays = overlays.filter(isCanonicalMusicOverlay);
   const removedOverlayIds = musicOverlays.flatMap((overlay) => {
     const id = asRecord(overlay)?.id;
     return typeof id === 'string' || typeof id === 'number' ? [id] : [];
@@ -133,6 +135,17 @@ export function resolveRenderDeliveryPlan(input: {
       },
     },
   };
+}
+
+function isReferenceOnlyMusicOverlay(overlay: unknown): boolean {
+  const record = asRecord(overlay);
+  const metadata = asRecord(record?.metadata);
+  const assignment = asRecord(metadata?.assignment);
+  const rights = asRecord(record?.musicRights ?? record?.audioRights);
+  return (
+    rights?.source === 'preview-only'
+    || assignment?.usageMode === 'reference-only'
+  );
 }
 
 export function buildRenderDeliveryManifest(input: {

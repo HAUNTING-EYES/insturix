@@ -6,6 +6,7 @@ import { getCollections as getAlyzitronCollections } from '@/app/api/services/al
 import { logger } from '@/app/api/services/alyzitron/utils/logger';
 import { CreditsService } from '@/lib/services/creditsService';
 import { getCreditCost } from '@/lib/config/creditCosts';
+import { reconcileExpiredCalosImageClaims } from '@/lib/calos/reconcile-image-claims';
 import { Types } from 'mongoose';
 
 export async function GET(request: Request) {
@@ -26,7 +27,23 @@ export async function GET(request: Request) {
     details: [] as string[],
   };
 
-  // 2. Handle Clickatron Timeouts
+  // 2. Recover CalOS image work before the generic Clickatron sweep. CalOS owns
+  // exact billing evidence and card terminal state, so it must not use the legacy
+  // guessed-cost refund path below.
+  try {
+    const calos = await reconcileExpiredCalosImageClaims();
+    results.processed += calos.completed + calos.failed + calos.released;
+    results.errors += calos.errors;
+    results.details.push(
+      `CalOS image recovery scanned ${calos.scanned}: ${calos.completed} completed, ${calos.failed} failed, ${calos.released} released, ${calos.pending} pending`,
+    );
+  } catch (e) {
+    results.errors++;
+    logger.error('Error reconciling CalOS image claims in timeout cron', { error: e });
+    results.details.push(`Error in CalOS image recovery: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // 3. Handle Clickatron Timeouts
   //
   // Clickatron stuck-ness lives at the VARIATION level, not the task level. The
   // ClickatronTask schema has no top-level `status` field - only each variation in
@@ -49,6 +66,8 @@ export async function GET(request: Request) {
     const refundPerVariation = getCreditCost('clickatron', 'variation', {});
 
     const tasksWithStuckVariations = await ClickatronTask.find({
+      'metadata.sourceContext.calosDeliverableId': { $exists: false },
+      'metadata.clickatronHandoff.contentCardId': { $exists: false },
       'details.canvas.variations': {
         $elemMatch: { status: 'generating', updatedAt: { $lt: variationStuckTimeout } },
       },
@@ -137,7 +156,7 @@ export async function GET(request: Request) {
     results.details.push(`Error in Clickatron cron: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // 3. Handle Alyzitron Timeouts
+  // 4. Handle Alyzitron Timeouts
   try {
     const { analyses } = await getAlyzitronCollections();
     const alyzitronTimeout = new Date(Date.now() - 60 * 15 * 1000); // 15 minutes
@@ -183,7 +202,7 @@ export async function GET(request: Request) {
     results.details.push(`Error in Alyzitron cron: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // 4. Handle Editron Video Pipeline Timeouts
+  // 5. Handle Editron Video Pipeline Timeouts
   try {
     const { getDatabase } = await import('@/lib/editron/db/mongodb');
     const { reconcileVideoBatchStatus } = await import('@/lib/pipeline/video-queue-service');

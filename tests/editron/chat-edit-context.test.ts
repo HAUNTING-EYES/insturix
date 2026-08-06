@@ -12,6 +12,7 @@ import {
   applyAudioDuckingToProject,
   buildAudioEditResolutionEnvelope,
   findAudioMomentCandidates,
+  findStrongestImpactEmphasisCandidates,
   resolveAudioEditTiming,
 } from '@/lib/editron/agent/chat-audio-tools';
 import {
@@ -358,10 +359,61 @@ describe('chat edit context bundle', () => {
     const addOverlay = plan.useWith?.add_overlay;
     expect(addOverlay).toBeDefined();
     if (!addOverlay) throw new Error('Expected placement resolution to authorize add_overlay.');
+    expect(addOverlay.styles).not.toHaveProperty('animation');
     expect(addOverlay.x).toBeGreaterThan(900);
     expect(addOverlay.y).toBeGreaterThan(500);
     expect(addOverlay.width).toBeGreaterThanOrEqual(96);
     expect(addOverlay.height).toBeGreaterThanOrEqual(36);
+
+    const constrainedPlan = resolveUserAssetOverlayPlacement(project, [logoCandidate], {
+      query: 'a_portrait123',
+      placement: 'corner',
+      horizontal: 'right',
+      vertical: 'bottom',
+      startSeconds: 2,
+      endSeconds: 6,
+    });
+    expect(constrainedPlan).toMatchObject({
+      status: 'ready',
+      useWith: {
+        add_overlay: {
+          assetId: 'asset_logo',
+          start: 60,
+          duration: 120,
+        },
+      },
+    });
+    expect(constrainedPlan.useWith?.add_overlay?.x).toBeGreaterThan(900);
+    expect(constrainedPlan.useWith?.add_overlay?.y).toBeGreaterThan(500);
+
+    const clippedPlan = resolveUserAssetOverlayPlacement(project, [logoCandidate], {
+      query: 'a_portrait123',
+      startSeconds: 9,
+      endSeconds: 20,
+    });
+    expect(clippedPlan).toMatchObject({
+      status: 'ready',
+      useWith: {
+        add_overlay: {
+          start: 270,
+          duration: 30,
+        },
+      },
+    });
+
+    const entirePlan = resolveUserAssetOverlayPlacement(project, [logoCandidate], {
+      query: 'a_portrait123',
+      timingAnchor: 'entire',
+    });
+    expect(entirePlan).toMatchObject({
+      status: 'ready',
+      useWith: {
+        add_overlay: {
+          start: 0,
+          duration: 300,
+        },
+      },
+    });
 
     const ambiguous = resolveUserAssetOverlayPlacement(project, [
       logoCandidate,
@@ -1044,6 +1096,114 @@ describe('chat edit context bundle', () => {
     expect(captionBlocked.message).toContain('captions/subtitles');
   });
 
+  it('clamps a duration-derived zoom window to the selected clip but rejects an explicit overflow', () => {
+    const shortProject = {
+      durationInFrames: 57,
+      overlays: [{
+        id: 21,
+        type: 'video',
+        from: 0,
+        durationInFrames: 57,
+        row: 0,
+      }],
+    };
+
+    const clamped = resolveKeyframeEditParams(shortProject, {
+      overlayId: 21,
+      direction: 'in',
+      startFrame: 0,
+      durationFrames: 60,
+      scaleDelta: 0.08,
+    });
+    const explicitOverflow = resolveKeyframeEditParams(shortProject, {
+      overlayId: 21,
+      direction: 'in',
+      startFrame: 0,
+      endFrame: 60,
+      scaleDelta: 0.08,
+    });
+
+    expect(clamped).toMatchObject({
+      status: 'ready',
+      targetOverlayId: 21,
+      startFrame: 0,
+      endFrame: 57,
+      localStartFrame: 0,
+      localEndFrame: 57,
+      warnings: [
+        'Requested 60-frame zoom was clamped to overlay 21 ending at frame 57.',
+      ],
+      useWith: {
+        set_keyframes: {
+          overlayId: 21,
+          property: 'scale',
+          keyframes: [
+            { frame: 0, value: 1, easing: 'ease-in-out' },
+            { frame: 57, value: 1.08, easing: 'ease-out' },
+          ],
+        },
+      },
+    });
+    expect(explicitOverflow).toMatchObject({
+      status: 'no-target',
+      targetOverlayId: 21,
+    });
+    expect(explicitOverflow.message).toContain('outside overlay 21 frames 0-57');
+  });
+
+  it('resolves a grounded zoom frame through the atomic zoom-form owner', () => {
+    const plan = resolveKeyframeEditParams(project, {
+      targetFrame: 96,
+      direction: 'in',
+      evidenceModality: 'transcript',
+      evidenceStrength: 0.86,
+    });
+    const keyframes = plan.useWith?.set_keyframes.keyframes ?? [];
+
+    expect(plan).toMatchObject({
+      status: 'ready',
+      targetOverlayId: 1,
+      direction: 'in',
+      useWith: {
+        set_keyframes: {
+          overlayId: 1,
+          property: 'scale',
+        },
+      },
+    });
+    expect(plan.message).toContain('atomic zoom-form owner');
+    expect(keyframes.length).toBeGreaterThanOrEqual(2);
+    expect(keyframes[0].frame).toBeLessThanOrEqual(96);
+    expect(keyframes[keyframes.length - 1].value).toBeGreaterThan(1);
+  });
+
+  it('fails closed when a grounded zoom frame has no unique active visual source', () => {
+    const noSource = resolveKeyframeEditParams(project, {
+      targetFrame: 240,
+      direction: 'in',
+      evidenceModality: 'visual',
+      evidenceStrength: 0.9,
+    });
+    const ambiguous = resolveKeyframeEditParams({
+      overlays: [
+        { id: 10, type: 'video', row: 0, from: 0, durationInFrames: 120 },
+        { id: 11, type: 'video', row: 0, from: 0, durationInFrames: 120 },
+      ],
+    }, {
+      targetFrame: 60,
+      direction: 'in',
+      evidenceModality: 'audio',
+      evidenceStrength: 0.9,
+    });
+
+    expect(noSource).toMatchObject({ status: 'no-target' });
+    expect(noSource.message).toContain('No visual source is active');
+    expect(noSource.useWith).toBeUndefined();
+    expect(ambiguous).toMatchObject({ status: 'no-target' });
+    expect(ambiguous.message).toContain('Multiple visual sources are active');
+    expect(ambiguous.useWith).toBeUndefined();
+  });
+
   it('plans camera shake as bounded x/y tracks on the active video overlay', () => {
     const plan = applyCameraShakeToProject(project, {
       targetFrame: 90,
@@ -1140,7 +1300,15 @@ describe('chat edit context bundle', () => {
   });
 
   it('refuses speed ramp across caption dialogue unless explicitly allowed', () => {
-    const plan = applySpeedRampToProject(project, {
+    const plan = applySpeedRampToProject({
+      ...project,
+      overlays: project.overlays.map((overlay) => overlay.type === 'caption'
+        ? {
+            ...overlay,
+            words: [{ word: 'Dialogue', startMs: 1000, endMs: 2000 }],
+          }
+        : overlay),
+    }, {
       startFrame: 90,
       endFrame: 120,
       targetSpeed: 0.5,
@@ -1154,6 +1322,45 @@ describe('chat edit context bundle', () => {
       updates: [],
     });
     expect(plan.message).toContain('overlap captions/dialogue');
+  });
+
+  it('allows speed ramp inside a silent interval of a longer caption track', () => {
+    const plan = applySpeedRampToProject({
+      ...project,
+      overlays: project.overlays.map((overlay) => overlay.type === 'caption'
+        ? {
+            ...overlay,
+            words: [{ word: 'Earlier', startMs: 0, endMs: 500 }],
+          }
+        : overlay),
+    }, {
+      startFrame: 90,
+      endFrame: 120,
+      targetSpeed: 0.5,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      startFrame: 90,
+      endFrame: 120,
+      targetOverlayId: 1,
+    });
+  });
+
+  it('keeps untimed legacy caption tracks fail-closed', () => {
+    const plan = applySpeedRampToProject(project, {
+      startFrame: 90,
+      endFrame: 120,
+      targetSpeed: 0.5,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'conflict',
+      startFrame: 90,
+      endFrame: 120,
+      targetOverlayId: 1,
+      updates: [],
+    });
   });
 
   it('refuses speed ramp when existing speed motion would be overwritten', () => {
@@ -1215,6 +1422,72 @@ describe('chat edit context bundle', () => {
     });
   });
 
+  it('plans fade in and out as one atomic opacity envelope', () => {
+    const plan = applyFadeToProject(project, {
+      overlayId: 4,
+      direction: 'both',
+      durationFrames: 12,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'changed',
+      startFrame: 90,
+      endFrame: 135,
+      targetOverlayId: 4,
+      updates: [{
+        overlayId: 4,
+        localStartFrame: 0,
+        localEndFrame: 45,
+        previousKeyframeTrackCount: 0,
+        fromOpacity: 0,
+        toOpacity: 1,
+        reason: 'semantic-fade-both',
+      }],
+    });
+
+    const opacityTrack = plan.updates[0].nextKeyframeTracks.find((track: any) => track.property === 'opacity');
+    expect(opacityTrack).toEqual({
+      property: 'opacity',
+      keyframes: [
+        { frame: 0, value: 0, easing: 'ease-out' },
+        { frame: 12, value: 1, easing: 'linear' },
+        { frame: 33, value: 1, easing: 'ease-in' },
+        { frame: 45, value: 0, easing: 'linear' },
+      ],
+      metadata: { family: 'fade', source: 'apply_fade', direction: 'both' },
+    });
+  });
+
+  it('caps a two-sided fade to short overlays and refuses an impossible one-frame envelope', () => {
+    const shortPlan = applyFadeToProject({
+      durationInFrames: 2,
+      overlays: [{ id: 40, type: 'text', from: 0, durationInFrames: 2, content: 'Cut' }],
+    }, {
+      overlayId: 40,
+      direction: 'both',
+      durationFrames: 20,
+    });
+
+    expect(shortPlan.status).toBe('changed');
+    expect(shortPlan.updates[0].nextKeyframeTracks[0].keyframes).toEqual([
+      { frame: 0, value: 0, easing: 'ease-out' },
+      { frame: 1, value: 1, easing: 'ease-in' },
+      { frame: 2, value: 0, easing: 'linear' },
+    ]);
+
+    expect(applyFadeToProject({
+      durationInFrames: 1,
+      overlays: [{ id: 41, type: 'text', from: 0, durationInFrames: 1, content: 'Cut' }],
+    }, {
+      overlayId: 41,
+      direction: 'both',
+    })).toMatchObject({
+      status: 'no-target',
+      targetOverlayId: 41,
+      updates: [],
+    });
+  });
+
   it('refuses fade on caption overlays unless explicitly allowed', () => {
     const plan = applyFadeToProject(project, {
       overlayId: 2,
@@ -1258,10 +1531,55 @@ describe('chat edit context bundle', () => {
     expect(plan.message).toContain('already has opacity keyframes');
   });
 
-  it('plans layer reorder as a row-only move behind a reference overlay', () => {
+  it('does not stack a second opacity owner over renderer-owned fade motion', () => {
+    const projectWithRendererFade = {
+      durationInFrames: 80,
+      overlays: [{
+        id: 21,
+        type: 'text',
+        from: 10,
+        durationInFrames: 40,
+        content: 'CTA',
+        styles: {
+          color: '#ffffff',
+          animation: { enter: 'fade', exit: 'fade', duration: 15 },
+        },
+      }],
+    };
+
+    expect(applyFadeToProject(projectWithRendererFade, {
+      overlayId: 21,
+      direction: 'both',
+    })).toMatchObject({
+      status: 'no-target',
+      targetOverlayId: 21,
+      updates: [],
+      message: 'Overlay 21 already has the requested renderer fade.',
+    });
+
+    const replacement = applyFadeToProject(projectWithRendererFade, {
+      overlayId: 21,
+      direction: 'both',
+      durationFrames: 10,
+      replaceExistingOpacityKeyframes: true,
+    });
+    expect(replacement).toMatchObject({
+      status: 'changed',
+      targetOverlayId: 21,
+      updates: [{
+        overlayId: 21,
+        nextStyles: {
+          color: '#ffffff',
+          animation: { duration: 15 },
+        },
+      }],
+    });
+  });
+
+  it('plans layer reorder as a row-only move when the requested relation is not satisfied', () => {
     const plan = applyLayerReorderToProject({
       overlays: [
-        { id: 30, type: 'image', from: 90, durationInFrames: 60, row: 4, content: 'Logo mark' },
+        { id: 30, type: 'image', from: 90, durationInFrames: 60, row: 0, content: 'Logo mark' },
         { id: 31, type: 'text', from: 90, durationInFrames: 60, row: 1, content: 'Main title' },
         { id: 32, type: 'shape', from: 180, durationInFrames: 30, row: 2, content: 'Later card' },
       ],
@@ -1277,20 +1595,52 @@ describe('chat edit context bundle', () => {
       referenceOverlayId: 31,
       updates: [{
         overlayId: 30,
-        previousRow: 4,
+        previousRow: 0,
         nextRow: 2,
         referenceOverlayId: 31,
         relation: 'behind',
         reason: 'semantic-layer-reorder',
       }],
     });
-    expect(plan.message).toContain('Moved overlay 30 from row 4 to row 2');
+    expect(plan.message).toContain('Moved overlay 30 from row 0 to row 2');
+  });
+
+  it('returns a semantic no-op when the requested layer relation is already true', () => {
+    const projectWithSatisfiedRelations = {
+      overlays: [
+        { id: 30, type: 'text', from: 0, durationInFrames: 60, row: 0, content: 'Title' },
+        { id: 31, type: 'image', from: 0, durationInFrames: 60, row: 2, content: 'Photo' },
+        { id: 32, type: 'shape', from: 0, durationInFrames: 60, row: 4, content: 'Background' },
+      ],
+    };
+
+    expect(applyLayerReorderToProject(projectWithSatisfiedRelations, {
+      overlayId: 30,
+      referenceOverlayId: 31,
+      relation: 'in-front-of',
+    })).toMatchObject({
+      status: 'no-target',
+      targetOverlayId: 30,
+      referenceOverlayId: 31,
+      updates: [],
+      message: 'Overlay 30 is already in front of reference overlay 31.',
+    });
+
+    expect(applyLayerReorderToProject(projectWithSatisfiedRelations, {
+      overlayId: 32,
+      relation: 'back',
+    })).toMatchObject({
+      status: 'no-target',
+      targetOverlayId: 32,
+      updates: [],
+      message: 'Overlay 32 is already behind every other ordinary layer.',
+    });
   });
 
   it('refuses layer reorder into an occupied overlapping row unless explicitly allowed', () => {
     const plan = applyLayerReorderToProject({
       overlays: [
-        { id: 30, type: 'image', from: 90, durationInFrames: 70, row: 4, content: 'Logo mark' },
+        { id: 30, type: 'image', from: 90, durationInFrames: 70, row: 0, content: 'Logo mark' },
         { id: 31, type: 'text', from: 90, durationInFrames: 70, row: 1, content: 'Main title' },
         { id: 32, type: 'shape', from: 120, durationInFrames: 20, row: 2, content: 'Badge' },
       ],
@@ -1640,6 +1990,127 @@ describe('chat edit context bundle', () => {
       status: 'no-match',
       action: 'add_sfx',
       searchedCandidateCount: 0,
+    });
+  });
+
+  it('resolves the first qualifying downbeat after a server-resolved reference frame', () => {
+    const relativeProject = {
+      ...project,
+      analysis: {
+        ...project.analysis,
+        audio: {
+          ...project.analysis.audio,
+          beats: [
+            { timestampMs: 1000, strength: 0.96, beatType: 'downbeat' },
+            { timestampMs: 3000, strength: 0.95, beatType: 'downbeat' },
+            { timestampMs: 5000, strength: 0.94, beatType: 'downbeat' },
+          ],
+        },
+      },
+    };
+
+    const resolution = resolveAudioEditTiming(relativeProject, 'strong downbeat', {
+      action: 'add_sfx',
+      sfxQuery: 'restrained impact sound',
+      temporalConstraint: {
+        referenceFrame: 100,
+        relation: 'after',
+        occurrence: 'first',
+      },
+    });
+    const missing = resolveAudioEditTiming(relativeProject, 'strong downbeat', {
+      action: 'add_sfx',
+      temporalConstraint: {
+        referenceFrame: 200,
+        relation: 'after',
+        occurrence: 'first',
+      },
+    });
+
+    expect(resolution).toMatchObject({
+      status: 'ready',
+      candidate: { audioKind: 'downbeat', frame: 150 },
+      useWith: {
+        add_sfx: {
+          query: 'restrained impact sound',
+          frame: 150,
+        },
+      },
+    });
+    expect(resolution.warnings).toContain(
+      'Selected the first qualifying audio candidate after reference frame 100.',
+    );
+    expect(missing).toMatchObject({
+      status: 'no-match',
+      candidates: [],
+    });
+  });
+
+  it('ranks measured impact strength without lexical ambiguity or confidence-as-intensity', () => {
+    const rankedProject = {
+      fps: 30,
+      durationInFrames: 600,
+      overlays: [{
+        id: 'audio-evidence',
+        type: 'sound',
+        from: 0,
+        durationInFrames: 600,
+        metadata: {
+          audioAnalysis: {
+            transients: [
+              { timestampMs: 3000, strength: 0.72, confidence: 0.99 },
+              { timestampMs: 7000, strength: 1, confidence: 0.81 },
+            ],
+          },
+          beatGrid: {
+            beats: [
+              { frame: 30, confidence: 1 },
+              { frame: 60, strength: 0.64 },
+            ],
+          },
+        },
+      }],
+    };
+
+    const candidates = findStrongestImpactEmphasisCandidates(rankedProject);
+    expect(candidates[0]).toMatchObject({
+      frame: 210,
+      audioKind: 'transient',
+      signalStrength: 1,
+      matchType: 'signal-ranked',
+      safeForAutoEdit: true,
+      useWith: {
+        apply_camera_shake: {
+          targetFrame: 210,
+        },
+      },
+    });
+    expect(candidates.some((candidate) => candidate.frame === 30)).toBe(false);
+  });
+
+  it('refuses an exact tie between distinct strongest measured impacts', () => {
+    const tiedProject = {
+      fps: 30,
+      durationInFrames: 300,
+      analysis: {
+        audio: {
+          transients: [
+            { frame: 60, strength: 0.9 },
+            { frame: 180, strength: 0.9 },
+          ],
+        },
+      },
+    };
+
+    const candidates = findStrongestImpactEmphasisCandidates(tiedProject);
+    expect(candidates).toHaveLength(2);
+    expect(candidates[0]).toMatchObject({
+      signalStrength: 0.9,
+      safeForAutoEdit: false,
+    });
+    expect(candidates[1]).toMatchObject({
+      signalStrength: 0.9,
+      safeForAutoEdit: false,
     });
   });
 

@@ -1,11 +1,52 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import {
+  assertCassetteSfxWav,
+  buildCassetteSfxRequest,
+  CASSETTE_SFX_LICENSE_ID,
+  CASSETTE_SFX_MODEL,
+  extractCassetteSfxAudioUrl,
+} from '../../lib/pipeline/cassette-sfx-provider';
 
 function readSource(path: string): string {
   return readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
 }
 
 describe('pipeline audio and Musitron provider cost telemetry', () => {
+  it('uses the dedicated CassetteAI SFX contract with strict duration and output parsing', () => {
+    expect(buildCassetteSfxRequest('  directional whoosh  ', 45.6)).toEqual({
+      model: 'cassetteai/sound-effects-generator',
+      input: {
+        prompt: 'directional whoosh',
+        duration: 30,
+      },
+    });
+    expect(buildCassetteSfxRequest('soft click', 0.2).input.duration).toBe(1);
+    expect(() => buildCassetteSfxRequest(' ', 3)).toThrow(/non-empty prompt/);
+    expect(() => buildCassetteSfxRequest('click', Number.NaN)).toThrow(/finite duration/);
+    expect(extractCassetteSfxAudioUrl({
+      data: {
+        audio_file: {
+          url: 'https://v3.fal.media/files/test/generated.wav',
+        },
+      },
+    })).toBe('https://v3.fal.media/files/test/generated.wav');
+    expect(() => extractCassetteSfxAudioUrl({
+      data: { audio: { url: 'https://example.com/legacy.wav' } },
+    })).toThrow(/audio_file\.url/);
+    expect(() => extractCassetteSfxAudioUrl({
+      audio_file: { url: 'http://example.com/generated.wav' },
+    })).toThrow(/must use HTTPS/);
+    expect(() => assertCassetteSfxWav(Buffer.from('RIFF0000WAVE'))).not.toThrow();
+    expect(() => assertCassetteSfxWav(Buffer.from('RIFF0000MP3!'))).toThrow(
+      /invalid WAV audio/,
+    );
+    expect(CASSETTE_SFX_MODEL).toBe('cassetteai/sound-effects-generator');
+    expect(CASSETTE_SFX_LICENSE_ID).toBe(
+      'fal-ai:cassetteai/sound-effects-generator:commercial-use',
+    );
+  });
+
   it('records TTS voiceover and voice-preview provider spend without storing raw text', () => {
     const source = readSource('lib/pipeline/tts-service.ts');
     const helperStart = source.indexOf('async function recordPipelineTTSProviderCost');
@@ -59,7 +100,8 @@ describe('pipeline audio and Musitron provider cost telemetry', () => {
 
     expect(source).toContain('recordPipelineSFXProviderCost({');
     expect(source).toContain("const mireloModel = 'mirelo-ai/sfx-v1.5/video-to-audio'");
-    expect(source).toContain("const cassetteModel = 'cassetteai/music-generator'");
+    expect(source).toContain('const cassetteModel = cassetteRequest.model');
+    expect(source).toContain('input: cassetteRequest.input');
     expect(source).toContain("providerBranch: 'mirelo_video_to_audio'");
     expect(source).toContain("providerBranch: 'cassetteai_fallback'");
     expect(source).toContain("action: 'sfx_generation'");

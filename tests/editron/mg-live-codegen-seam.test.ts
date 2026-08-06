@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   captureMgVisualEvidence: vi.fn(),
   recordStorageUsage: vi.fn(async () => undefined),
   deleteR2Prefix: vi.fn(async () => 0),
+  designerGenerate: vi.fn(),
 }));
 
 vi.mock('@/lib/pipeline/sfx-library-service', () => ({
@@ -33,6 +34,10 @@ vi.mock('@/lib/editron/motion-graphics/codegen/mg-render-job-runner', () => ({
 
 vi.mock('@/lib/editron/motion-graphics/codegen/visual-evidence', () => ({
   captureMgVisualEvidence: mocks.captureMgVisualEvidence,
+}));
+
+vi.mock('@/lib/editron/motion-graphics/codegen/design/designer-client', () => ({
+  defaultGeminiDesignerGenerate: vi.fn(() => mocks.designerGenerate),
 }));
 
 vi.mock('@/lib/services/storage-quota-service', () => ({
@@ -72,6 +77,60 @@ const VISUAL_EVIDENCE = {
     { role: 'context-after' as const, coordinate: { kind: 'edited-timeline' as const, timelineFrame: 119 }, imageDataUrl: 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAUAAAAdQiirUo/+BiOh/AAA=' },
   ],
 };
+
+const DESIGN_PLAN = JSON.stringify({
+  brief: {
+    styleName: 'measured conversion lift',
+    motifLanguage: 'one resolving accent line',
+    paletteMoves: 'brand foreground and accent over footage',
+    motionPersonality: 'decisive build, quiet hold',
+    formVariety: 'one relational reveal for this sole moment',
+  },
+  moments: [{
+    momentId: 'beat-0',
+    lane: 'overlay-kit',
+    concept: 'conversion lift resolves from claim to measured outcome',
+    targetBar: 'clarity',
+    primaryCommunicativeJob: 'quantify',
+    structure: {
+      placement: 'open area clear of the subject',
+      grouping: 'outcome label connected to a resolving reveal',
+      readingOrder: 'label, relationship reveal, outcome',
+    },
+    elements: [
+      { kind: 'headline', role: 'the measured outcome label', dataProps: ['label'] },
+      { kind: 'reveal', role: 'the relationship landing on the outcome', dataProps: [] },
+    ],
+    motion: {
+      enterOrder: [1, 0],
+      build: 'relationship reveals before the outcome lands',
+      hold: 'the resolved relationship continues a gentle float',
+      syncTo: 'landing',
+    },
+    look: 'integrated',
+  }],
+  declined: [],
+});
+
+const ACCEPTED_DESIGN_REVIEW = JSON.stringify({
+  accepted: true,
+  packageFailures: { repetitiveWithinVideo: false },
+  moments: [{
+    momentId: 'beat-0',
+    accepted: true,
+    hardFailures: {
+      decorativeFormOnly: false,
+      primitiveChecklist: false,
+      genericPrimitiveStack: false,
+      missingVisualEncoding: false,
+      flatHierarchy: false,
+      decorativeMotionOnly: false,
+      footageConflict: false,
+    },
+    issues: [],
+  }],
+  issues: [],
+});
 
 function sourceOverlays(): Overlay[] {
   return [{
@@ -140,6 +199,11 @@ beforeEach(() => {
   mocks.projectsFindOne.mockResolvedValue({ projectId: 'mg-live-project', orgId: 'org-1' });
   mocks.projectsUpdateOne.mockResolvedValue({ matchedCount: 1 });
   mocks.captureMgVisualEvidence.mockResolvedValue(VISUAL_EVIDENCE);
+  mocks.designerGenerate.mockImplementation(async (parts: Array<{ kind: string; text?: string }>) => (
+    parts.some((part) => part.kind === 'text' && part.text?.includes('independent motion-design PLAN critic'))
+      ? ACCEPTED_DESIGN_REVIEW
+      : DESIGN_PLAN
+  ));
   mocks.enqueueDurableMgRenderJob.mockResolvedValue({
     jobId: 'mgr_0123456789abcdef0123456789abcdef',
     status: 'queued',
@@ -176,6 +240,7 @@ describe('live MG codegen seam', () => {
       canvas: { width: 1920, height: 1080 },
     }));
     expect(jobInput.input.visualEvidence).toEqual(VISUAL_EVIDENCE);
+    expect(jobInput.input.design).toMatchObject({ plan: { momentId: 'beat-0' } });
     expect(jobInput.input.candidate).toMatchObject({ factKind: 'bounded-stat', content: expect.objectContaining({ label: 'conversion lift' }) });
     expect(jobInput.input.window).toMatchObject({ startFrame: 30, fps: 30 });
     expect(jobInput).toMatchObject({ projectId: 'mg-live-project', userId: 'user-1', orgId: 'org-1', sequenceNamespace: 'user-1' });
@@ -191,6 +256,68 @@ describe('live MG codegen seam', () => {
         }),
       }),
     );
+  });
+
+  it('fails closed before durable dispatch when the video-level designer is unavailable', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.designerGenerate.mockRejectedValue(new Error('designer quota exhausted'));
+    const overlays = sourceOverlays();
+    const edl = graphicEdl();
+
+    const result = await executeEDL(
+      edl,
+      'mg-live-project',
+      'user-1',
+      overlays,
+      { width: 1920, height: 1080 },
+    );
+
+    expect(result.overlaysCreated).toBe(0);
+    expect(mocks.enqueueDurableMgRenderJob).not.toHaveBeenCalled();
+    expect(edl.decisions[0]?.params.mgCodegenOutcome).toMatchObject({
+      status: 'fallback',
+      reason: expect.stringContaining('designer model call failed'),
+    });
+  });
+
+  it('does not let late caption-emphasis promotion bypass the video-level designer', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const overlays = sourceOverlays();
+    const edl: EditDecisionList = {
+      ...graphicEdl(),
+      decisions: [{
+        type: 'caption-emphasis',
+        frame: 30,
+        durationFrames: 60,
+        priority: 2,
+        source: 'signal-planner:test',
+        signal: 'phrase_emphasis',
+        reason: 'emphasize a measured result',
+        confidence: 0.9,
+        params: {
+          emphasisWord: '47%',
+          value: '47%',
+          label: 'conversion lift',
+        },
+      }],
+    };
+
+    const result = await executeEDL(
+      edl,
+      'mg-live-project',
+      'user-1',
+      overlays,
+      { width: 1920, height: 1080 },
+    );
+
+    expect(result.overlaysCreated).toBe(0);
+    expect(mocks.enqueueDurableMgRenderJob).not.toHaveBeenCalled();
+    expect(edl.decisions[0]?.params.mgCodegenOutcome).toMatchObject({
+      status: 'declined',
+      reason: expect.stringContaining('cannot become an MG after the video-level designer'),
+    });
   });
 
   it('does not fall back to a legacy card when durable dispatch fails', async () => {

@@ -279,6 +279,43 @@ describe('chat tool turn protocol', () => {
     });
   });
 
+  it('does not require a localized resolver receipt for a declared caption family refresh', () => {
+    const captionRefreshLicense: ChatRequestOwnerLicense = {
+      ...LOCALIZED_LICENSE,
+      requestDigest: 'caption-refresh-request',
+      routingFacts: {
+        requestsMutation: true,
+        requestsAnalysis: false,
+        requiresContentLocalization: true,
+        requiresEditorialJudgment: false,
+        requestsReferenceStyle: false,
+        requestsBroadEditorialOutcome: false,
+        durableOperation: 'none',
+        operationFullySpecified: true,
+        targetFullySpecified: true,
+        localizedReads: [],
+        localizedEdits: [],
+        requestedCapabilities: ['caption-refresh'],
+        capabilityEvidence: [{
+          capability: 'caption-refresh',
+          sourceSpan: 'Realign the existing animated captions',
+        }],
+        familyDirectives: [{ family: 'captions', mode: 'prefer' }],
+        familyScopeExclusive: true,
+      },
+    };
+
+    expect(decideChatToolExecution({
+      toolName: 'refresh_captions',
+      args: { captionOverlayId: 1784566794878 },
+      ledger: ledger([currentProjectRead()]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: captionRefreshLicense,
+    })).toEqual({ action: 'execute' });
+  });
+
   it('reconstructs canonical resolver arguments instead of trusting model rewrites', () => {
     const resolvedArgs = {
       type: 'image',
@@ -606,6 +643,70 @@ describe('chat tool turn protocol', () => {
     })).toMatchObject({ action: 'block', reason: 'missing-evidence' });
   });
 
+  it('authorizes only the exact keyframes returned by the keyframe resolver', () => {
+    const resolvedArgs = {
+      overlayId: 1783964668040,
+      property: 'scale',
+      keyframes: [
+        { frame: 0, value: 1, easing: 'ease-in-out' },
+        { frame: 57, value: 1.08, easing: 'ease-out' },
+      ],
+    };
+    const resolverOutput = JSON.stringify({
+      status: 'success',
+      data: { useWith: { set_keyframes: resolvedArgs } },
+      error: null,
+    });
+    const resolved = execution('resolve_keyframe_edit', resolverOutput, {
+      args: {
+        query: 'Add a subtle push-in across the selected clip',
+        overlayId: resolvedArgs.overlayId,
+        property: resolvedArgs.property,
+      },
+      evidenceReceipts: buildChatEvidenceReceipts({
+        toolName: 'resolve_keyframe_edit',
+        args: {
+          query: 'Add a subtle push-in across the selected clip',
+          overlayId: resolvedArgs.overlayId,
+          property: resolvedArgs.property,
+        },
+        output: resolverOutput,
+        projectId: PROJECT_ID,
+        projectRevision: REVISION,
+      }),
+    });
+
+    expect(resolved.evidenceReceipts).toHaveLength(1);
+    expect(resolved.evidenceReceipts[0]?.authorizedMutations).toEqual([{
+      toolName: 'set_keyframes',
+      args: resolvedArgs,
+    }]);
+    expect(decideChatToolExecution({
+      toolName: 'set_keyframes',
+      args: resolvedArgs,
+      ledger: ledger([currentProjectRead(), resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toEqual({ action: 'execute' });
+    expect(decideChatToolExecution({
+      toolName: 'set_keyframes',
+      args: {
+        ...resolvedArgs,
+        keyframes: [
+          resolvedArgs.keyframes[0],
+          { ...resolvedArgs.keyframes[1], value: 1.2 },
+        ],
+      },
+      ledger: ledger([currentProjectRead(), resolved]),
+      projectId: PROJECT_ID,
+      projectRevision: REVISION,
+      canonicalProjectEvidence: true,
+      requestOwnerLicense: LOCALIZED_LICENSE,
+    })).toMatchObject({ action: 'block', reason: 'missing-evidence' });
+  });
+
   it('persists evidence receipts through tool-message ledger reconstruction', () => {
     const receipt: ChatToolEvidenceReceipt = {
       version: 'editron-chat-evidence-v1',
@@ -818,7 +919,7 @@ describe('chat tool turn protocol', () => {
       reason: 'effect-already-satisfied',
     });
     expect(JSON.parse(decision.action === 'shadow' ? decision.output : '{}')).toMatchObject({
-      status: 'advisory',
+      status: 'no-op',
       data: {
         executionPolicy: {
           code: 'CHAT_TOOL_EFFECT_ALREADY_SATISFIED',

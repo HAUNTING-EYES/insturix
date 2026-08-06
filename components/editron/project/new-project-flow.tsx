@@ -26,6 +26,7 @@ import { collectFootageFiles } from '@/components/editron/project/footage-select
 import { AutoEditDialog, type AutoEditOptions } from '@/components/editron/project/auto-edit-dialog';
 import { FootageBatchIntakeDialog } from '@/components/editron/project/footage-batch-intake-dialog';
 import { AutoEditProcessing } from '@/components/editron/project/auto-edit/auto-edit-processing';
+import { isAssistLaneVisible } from '@/lib/editron/services/assist-lane-flag';
 
 type Screen = 'idle' | 'upload' | 'generate' | 'script' | 'onair';
 
@@ -101,7 +102,8 @@ const CSS = `
 .enp .recent .rcard:hover{border-color:rgba(212,166,82,.35)}
 .enp .recent .rthumb{width:34px;height:22px;border-radius:4px;background:#050505 center/cover no-repeat;border:1px solid var(--border);flex-shrink:0}
 .enp .recent .rname{font-size:12px;color:var(--text);max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.enp .drop{position:absolute;inset:0;border:2px dashed var(--bs);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;cursor:pointer;transition:border-color .3s;background:transparent;color:inherit;width:100%}
+.enp .panel.up{display:flex;flex-direction:column}
+.enp .drop{position:relative;flex:1;min-height:0;border:2px dashed var(--bs);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;cursor:pointer;transition:border-color .3s;background:transparent;color:inherit;width:100%}
 .enp .drop:hover{border-color:var(--gold)}
 .enp .drop .ar{width:48px;height:48px;border-radius:11px;border:1px solid var(--gold);display:flex;align-items:center;justify-content:center;color:var(--gold);font-size:22px}
 .enp .drop .t{font-weight:700;font-size:19px}
@@ -183,8 +185,7 @@ export default function NewProjectFlow() {
   // Director Mode (assist lane): the toggle renders only when the deploy flag is
   // on. The intake routes enforce the same flag server-side — hiding the toggle
   // alone is never the gate.
-  const assistAvailable = process.env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED === 'true'
-    || process.env.NEXT_PUBLIC_DIRECTOR_MODE_ENABLED === '1';
+  const assistAvailable = isAssistLaneVisible();
   const [laneMode, setLaneMode] = useState<'auto' | 'assist'>('auto');
 
   // Beta notice — dismissible, remembered per browser. Starts hidden until the
@@ -390,7 +391,7 @@ export default function NewProjectFlow() {
             </div>
 
             {/* upload — inline footage auto-edit */}
-            <div className={screen === 'upload' ? 'panel on' : 'panel'}>
+            <div className={screen === 'upload' ? 'panel up on' : 'panel up'}>
               {assistAvailable ? (
                 <label className="fld" style={{ marginBottom: 10 }}>
                   <span className="l">Editing mode</span>

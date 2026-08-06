@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   deliverableFindOne: vi.fn(),
   connectedAccountFind: vi.fn(),
   queueFindOneAndUpdate: vi.fn(),
+  queueUpdateMany: vi.fn(),
   queueUpdateOne: vi.fn(),
   toContentCard: vi.fn(),
   emitBrandEvent: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("@/schemas/calos-connected-account", () => ({
 vi.mock("@/schemas/calos-scheduled-publish", () => ({
   default: {
     findOneAndUpdate: mocks.queueFindOneAndUpdate,
+    updateMany: mocks.queueUpdateMany,
     updateOne: mocks.queueUpdateOne,
   },
 }));
@@ -51,6 +53,7 @@ vi.mock("@/schemas/user", () => ({
 }));
 
 import { POST as postDecision } from "@/app/api/services/calos/deliverables/[id]/decision/route";
+import { encryptToken } from "@/lib/calos/publish/token-crypto";
 
 type DecisionRequest = Parameters<typeof postDecision>[0];
 type DecisionContext = Parameters<typeof postDecision>[1];
@@ -67,32 +70,40 @@ function makeDeliverable() {
     approvals: [] as Array<Record<string, unknown>>,
     plannedDates: ["2026-08-05T09:00:00.000Z"],
     assetText: "Launch copy",
-    assetUrl: null,
+    assetUrl: null as string | null,
     card: {
       id: "card_1",
       date: "2026-08-05T09:00:00.000Z",
       title: "Launch",
       scriptPreview: "Launch preview",
+      contentFormat: "text",
     },
     save: vi.fn().mockResolvedValue(undefined),
   };
 }
 
-function setAssignments(accountRefs: string[]) {
+function setAssignments(
+  accountRefs: string[],
+  ownerUserId = "owner_1",
+  overrides: Record<string, unknown> = {},
+) {
   const lean = vi.fn().mockResolvedValue(
     accountRefs.map((accountRef) => ({
       platform: "linkedin",
       accountRef,
       accountType: "organization",
       displayName: `Account ${accountRef}`,
-      ownerUserId: "owner_1",
+      ownerUserId,
       accessTokenEnc: null,
       refreshTokenEnc: null,
       expiresAt: null,
+      scopes: [],
+      ...overrides,
     })),
   );
   const select = vi.fn().mockReturnValue({ lean });
   mocks.connectedAccountFind.mockReturnValue({ select });
+  return select;
 }
 
 function decisionRequest(decision = "approved"): DecisionRequest {
@@ -129,10 +140,22 @@ describe("CalOS approval publish-target snapshot", () => {
     });
     mocks.deliverableFindOne.mockResolvedValue(deliverable);
     mocks.queueFindOneAndUpdate.mockResolvedValue(null);
+    mocks.queueUpdateMany.mockResolvedValue({ acknowledged: true, modifiedCount: 0 });
     mocks.queueUpdateOne.mockResolvedValue({ acknowledged: true });
     mocks.toContentCard.mockReturnValue({ id: "card_1", stage: "approved" });
     mocks.createDecisionLearningEvent.mockReturnValue({ type: "decision" });
     mocks.emitBrandEvent.mockResolvedValue(undefined);
+    vi.stubEnv(
+      "CALOS_TOKEN_ENCRYPTION_KEY",
+      Buffer.alloc(32, 7).toString("base64"),
+    );
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      elements: [{
+        organization: "urn:li:organization:linkedin_org_1",
+        role: "ADMINISTRATOR",
+        state: "APPROVED",
+      }],
+    })));
     mocks.userFind.mockReturnValue({
       select: vi.fn(() => ({
         lean: vi.fn(async () => [{
@@ -141,6 +164,9 @@ describe("CalOS approval publish-target snapshot", () => {
             accessToken: "linkedin_token",
             userId: "linkedin_member_1",
             expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+            scopes: ["w_organization_social", "rw_organization_admin"],
+            missingScopes: [],
+            organizations: [{ id: "linkedin_org_1" }],
           },
         }]),
       })),
@@ -149,10 +175,12 @@ describe("CalOS approval publish-target snapshot", () => {
 
   afterEach(() => {
     consoleError.mockRestore();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
-  it("refreshes the current snapshot on an untouched pending publish row", async () => {
-    setAssignments(["linkedin_org_1"]);
+  it("creates an immutable version occurrence and supersedes only older untouched rows", async () => {
+    const assignmentSelect = setAssignments(["linkedin_org_1"]);
 
     const response = await postDecision(decisionRequest(), decisionContext);
     const payload = await response.json();
@@ -166,35 +194,84 @@ describe("CalOS approval publish-target snapshot", () => {
       brandId: "brand_1",
       platform: "linkedin",
     });
+    expect(assignmentSelect).toHaveBeenCalledWith(
+      expect.stringContaining("scopes"),
+    );
     expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledWith(
-      { idempotencyKey: "card_1:linkedin" },
+      { idempotencyKey: "card_1:linkedin:v2" },
       expect.objectContaining({
         $setOnInsert: expect.objectContaining({
+          approvalVersion: 2,
           accountRef: "linkedin_org_1",
           ownerUserId: "owner_1",
           brandId: "brand_1",
           platform: "linkedin",
+          idempotencyKey: "card_1:linkedin:v2",
         }),
       }),
       { upsert: true, new: false, session: mocks.session },
     );
-    expect(mocks.queueUpdateOne).toHaveBeenCalledWith(
-      { idempotencyKey: "card_1:linkedin", status: "pending", attempts: 0, postId: null },
+    expect(mocks.queueUpdateMany).toHaveBeenCalledWith(
+      {
+        deliverableId: "card_1",
+        orgId: null,
+        brandId: "brand_1",
+        platform: "linkedin",
+        status: "pending",
+        attempts: 0,
+        postId: null,
+        idempotencyKey: { $ne: "card_1:linkedin:v2" },
+        $or: [
+          { approvalVersion: { $lt: 2 } },
+          { approvalVersion: null },
+        ],
+      },
       {
         $set: {
-          ownerUserId: "owner_1",
-          orgId: null,
-          brandId: "brand_1",
-          accountRef: "linkedin_org_1",
-          payload: { caption: "Launch copy", imageUrl: null },
-          publishAt: new Date("2026-08-05T09:00:00.000Z"),
+          status: "superseded",
+          lockedAt: null,
+          lastError: "Superseded by approval version 2.",
         },
       },
       { session: mocks.session },
     );
+    expect(mocks.queueUpdateOne).not.toHaveBeenCalled();
     expect(deliverable.editorialStatus).toBe("approved");
     expect(deliverable.save).toHaveBeenCalledWith({ session: mocks.session });
     expect(mocks.transaction).toHaveBeenCalledOnce();
+  });
+
+  it("snapshots the assigned account token owner instead of the deliverable creator", async () => {
+    setAssignments(["linkedin_org_1"], "publisher_1");
+    mocks.userFind.mockReturnValue({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => [{
+          clerkUserId: "publisher_1",
+          linkedinTokens: {
+            accessToken: "publisher_token",
+            expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+            scopes: ["w_organization_social", "rw_organization_admin"],
+            missingScopes: [],
+            organizations: [{ id: "linkedin_org_1" }],
+          },
+        }]),
+      })),
+    });
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+
+    expect(response.status).toBe(200);
+    expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledWith(
+      { idempotencyKey: "card_1:linkedin:v2" },
+      expect.objectContaining({
+        $setOnInsert: expect.objectContaining({
+          ownerUserId: "publisher_1",
+          accountRef: "linkedin_org_1",
+        }),
+      }),
+      { upsert: true, new: false, session: mocks.session },
+    );
+    expect(mocks.queueUpdateOne).not.toHaveBeenCalled();
   });
 
   it("blocks approval when the platform has no assigned account", async () => {
@@ -223,6 +300,113 @@ describe("CalOS approval publish-target snapshot", () => {
     expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
+  it("blocks approval when the selected format is unsupported by the publisher", async () => {
+    deliverable.card.contentFormat = "image";
+    deliverable.assetUrl = "https://cdn.example.com/card.png";
+    setAssignments(["linkedin_org_1"]);
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("text posts only");
+    expect(deliverable.editorialStatus).toBe("in_review");
+    expect(deliverable.approvals).toEqual([]);
+    expect(deliverable.save).not.toHaveBeenCalled();
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("blocks LinkedIn organization approval without organization publishing permission", async () => {
+    setAssignments(["linkedin_org_1"]);
+    mocks.userFind.mockReturnValue({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => [{
+          clerkUserId: "owner_1",
+          linkedinTokens: {
+            accessToken: "linkedin_token",
+            expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+            scopes: ["w_member_social"],
+            missingScopes: ["w_organization_social"],
+            organizations: [{ id: "linkedin_org_1" }],
+          },
+        }]),
+      })),
+    });
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("w_organization_social");
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("blocks Model-B organization approval without live authorization scope", async () => {
+    setAssignments(["linkedin_org_1"], "owner_1", {
+      accessTokenEnc: encryptToken("brand_linkedin_token"),
+      expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      scopes: ["w_organization_social"],
+    });
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("rw_organization_admin");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("blocks Model-B organization approval when its approved live role is gone", async () => {
+    setAssignments(["linkedin_org_1"], "owner_1", {
+      accessTokenEnc: encryptToken("brand_linkedin_token"),
+      expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      scopes: ["w_organization_social", "rw_organization_admin"],
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ elements: [] }));
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("no longer has an approved publishing role");
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("organizationAcls?q=roleAssignee"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer brand_linkedin_token",
+          "X-Restli-Protocol-Version": "2.0.0",
+        }),
+      }),
+    );
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("blocks LinkedIn organization approval when the owner no longer controls that destination", async () => {
+    setAssignments(["linkedin_org_1"]);
+    mocks.userFind.mockReturnValue({
+      select: vi.fn(() => ({
+        lean: vi.fn(async () => [{
+          clerkUserId: "owner_1",
+          linkedinTokens: {
+            accessToken: "linkedin_token",
+            expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+            scopes: ["w_organization_social", "rw_organization_admin"],
+            missingScopes: [],
+            organizations: [{ id: "different_org" }],
+          },
+        }]),
+      })),
+    });
+
+    const response = await postDecision(decisionRequest(), decisionContext);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain("no longer available");
+    expect(mocks.queueFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it("blocks approval when the token expires before the planned publish and cannot refresh", async () => {
     setAssignments(["linkedin_org_1"]);
     mocks.userFind.mockReturnValue({
@@ -232,6 +416,9 @@ describe("CalOS approval publish-target snapshot", () => {
           linkedinTokens: {
             accessToken: "expiring_token",
             expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+            scopes: ["w_organization_social", "rw_organization_admin"],
+            missingScopes: [],
+            organizations: [{ id: "linkedin_org_1" }],
           },
         }]),
       })),
@@ -292,5 +479,11 @@ describe("CalOS approval publish-target snapshot", () => {
     expect(response.status).toBe(200);
     expect(deliverable.approvals).toHaveLength(1);
     expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledOnce();
+    expect(mocks.queueFindOneAndUpdate).toHaveBeenCalledWith(
+      { idempotencyKey: "card_1:linkedin:v2" },
+      expect.objectContaining({ $setOnInsert: expect.any(Object) }),
+      { upsert: true, new: false, session: mocks.session },
+    );
+    expect(mocks.queueUpdateOne).not.toHaveBeenCalled();
   });
 });

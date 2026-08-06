@@ -13,6 +13,11 @@ import { auth } from '@clerk/nextjs/server';
 import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
 import { persistMediaUploadBatchAsset } from '@/lib/editron/services/media-upload-batch';
+import {
+  NativeVideoAudioRightsError,
+  buildNativeVideoAudioRights,
+} from '@/lib/editron/services/native-video-audio-rights';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 
 export const runtime = 'nodejs';
 
@@ -73,6 +78,7 @@ export async function POST(request: NextRequest) {
       isProxy,
       uploadBatchId,
       uploadBatchIntake,
+      sourceMediaRightsAttestation,
     } = body;
 
     // Validate required fields — gcsPath is optional (R2 uploads don't have one)
@@ -215,6 +221,57 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Server-side audio byte verification ──
+    // The client's declared content-type is untrusted: a corrupt, non-audio, or
+    // mislabeled file must never be persisted as an audio asset. Verify the actual
+    // stored bytes are a recognized audio container before registering.
+    let verifiedAudio: { mime: string; extension: string; bytesChecked: number } | null = null;
+    if (fileType === 'audio') {
+      const { verifyUploadedAudioPrefix } = await import('@/lib/editron/services/media/verify-uploaded-audio');
+      const verification = await verifyUploadedAudioPrefix(readUrl);
+      if (!verification.verified) {
+        try {
+          await deleteUploadedObject(gcsPath, assetId);
+        } catch (delErr: unknown) {
+          console.error('[Upload] failed to delete non-audio object:', delErr instanceof Error ? delErr.message : delErr);
+        }
+        return NextResponse.json(
+          {
+            success: false,
+            error: verification.reason === 'not-audio'
+              ? 'Uploaded file is not a recognized audio format'
+              : 'Uploaded audio could not be read from storage',
+            code: verification.reason === 'not-audio' ? 'audio_verification_failed' : 'audio_read_failed',
+          },
+          { status: 422 },
+        );
+      }
+      verifiedAudio = {
+        mime: verification.mime,
+        extension: verification.extension,
+        bytesChecked: verification.bytesChecked,
+      };
+      console.log(`[Upload] Server-verified audio ${assetId} as ${verification.mime} (${verification.bytesChecked} bytes checked)`);
+    }
+    let nativeVideoAudioRights: AudioRightsContract | undefined;
+    if (fileType === 'video' && sourceMediaRightsAttestation !== undefined) {
+      try {
+        nativeVideoAudioRights = buildNativeVideoAudioRights({
+          sourceAssetId: assetId,
+          userId,
+          attestation: sourceMediaRightsAttestation,
+        });
+      } catch (error) {
+        if (error instanceof NativeVideoAudioRightsError) {
+          return NextResponse.json(
+            { success: false, error: error.message, code: error.code },
+            { status: 400 },
+          );
+        }
+        throw error;
+      }
+    }
+
     // ── Server-side video duration verification ──
     // Browser's HTMLVideoElement.duration is unreliable for improperly indexed MP4s.
     // Parse the moov/mvhd atom from R2 to get the real duration.
@@ -279,7 +336,9 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
-    const mediaAsset: MediaAsset & ThumbnailStorageFields = {
+    const mediaAsset: MediaAsset & ThumbnailStorageFields & {
+      audioRights?: AudioRightsContract;
+    } = {
       assetId,
       userId,
       orgId: orgId || undefined, // org-shared storage pool (undefined for solo users)
@@ -300,6 +359,15 @@ export async function POST(request: NextRequest) {
       dimensions: parsedDimensions,
       uploadedAt: now,
       lastUsedAt: now, // seed the LRU signal at upload time
+      ...(nativeVideoAudioRights && { audioRights: nativeVideoAudioRights }),
+      ...(verifiedAudio && {
+        serverVerifiedAudio: {
+          mime: verifiedAudio.mime,
+          extension: verifiedAudio.extension,
+          bytesChecked: verifiedAudio.bytesChecked,
+          verifiedAt: now.toISOString(),
+        },
+      }),
       ...(cleanUploadBatchId && { uploadBatchId: cleanUploadBatchId }),
       ...(!gcsPath && { r2Key: assetId }),
       ...(isProxy && { isProxy: true }),
@@ -502,6 +570,7 @@ export async function POST(request: NextRequest) {
       thumbnail: uploadedThumbnail?.url,
       analysisQueued,
       uploadBatchId: cleanUploadBatchId,
+      ...(verifiedAudio ? { serverVerifiedAudio: verifiedAudio } : {}),
     });
   } catch (error: any) {
     if (uploadedThumbnail && !mediaAssetInserted) {

@@ -71,9 +71,35 @@ describe('buildMgMomentInput - fuses the seam context into one validated input',
     expect(nan.screen?.subject).toEqual({ x: 0.3, y: 0.1, width: 0.4, height: 0.6 });
   });
 
-  it('P5-2(b): subjectBox fractions clamp to [0,1]', () => {
-    const mi = buildMgMomentInput(args({ subjectBox: { x: 1.4, y: -0.2, width: 0.3, height: 0.5 } }));
-    expect(mi.screen?.subject).toEqual({ x: 1, y: 0, width: 0.3, height: 0.5 });
+  it('P5-2(b): subjectBox clips to the canvas and ignores a fully off-canvas override', () => {
+    const clipped = buildMgMomentInput(args({ subjectBox: { x: 0.8, y: 0.7, width: 0.4, height: 0.5 } }));
+    expect(clipped.screen?.subject?.x).toBe(0.8);
+    expect(clipped.screen?.subject?.y).toBe(0.7);
+    expect(clipped.screen?.subject?.width).toBeCloseTo(0.2);
+    expect(clipped.screen?.subject?.height).toBeCloseTo(0.3);
+
+    const offCanvas = buildMgMomentInput(args({ subjectBox: { x: 1.4, y: -0.2, width: 0.3, height: 0.5 } }));
+    expect(offCanvas.screen?.subject).toEqual({ x: 0.3, y: 0.1, width: 0.4, height: 0.6 });
+  });
+
+  it('clips expanded placement boxes to the remaining canvas extent before worker validation', () => {
+    const mi = buildMgMomentInput(args({
+      placement: {
+        candidateRegion: 'middle-right',
+        placementHints: {
+          avoid: [{ x: 0.0075, y: 0.0561, width: 0.8022, height: 1, reason: 'main-subject' }],
+          prefer: [],
+        },
+      },
+    }));
+    expect(mi.placement.avoid[0]).toEqual({
+      x: 0.0075,
+      y: 0.0561,
+      width: 0.8022,
+      height: 0.9439,
+      reason: 'main-subject',
+    });
+    expect(mi.placement.avoid[0].y + mi.placement.avoid[0].height).toBeCloseTo(1);
   });
 
   it('★ resolves the video STYLE IDENTITY from the brand font (always), intent overrides, footageSignals pass through', () => {

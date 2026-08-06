@@ -9,6 +9,7 @@ import { refreshSignedUrl } from './gcs-service';
 import { OverlayType, type MgSequenceOverlay, type Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { normalizeSequenceCdnBaseUrl } from '@/lib/editron/motion-graphics/codegen/render/sequence-playback';
 import type { TranscriptionData } from './media/types';
+import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 
 export interface MediaAsset {
   _id?: any;
@@ -44,6 +45,43 @@ export interface MediaAsset {
   originalR2Key?: string;
   /** Cached transcription data (0-based timestamps relative to video start) */
   transcription?: TranscriptionData;
+  /** Canonical source receipt for an embedded user-uploaded audio stream. */
+  audioRights?: AudioRightsContract;
+  /** Canonical source provenance for a reference video (youtube/instagram/remote-url). */
+  referenceSource?: Record<string, unknown>;
+  /** R1 canonical reference envelope: content hash, audio usage mode, demux receipt. */
+  referenceEnvelope?: ReferenceCanonicalEnvelope;
+  /** R1 content hash — SHA-256 of the original uploaded/fetched source bytes. */
+  contentHash?: string;
+}
+
+/** How a reference's demuxed audio may be used (Reference Template Plan Constraint #7). */
+export type ReferenceAudioUsageMode =
+  /** Default: audio drives preview, waveform, beats, timing — stripped from clean export. */
+  | 'preview-waveform-only'
+  /** User chose to include the reference song in export AND supplied required attestation. */
+  | 'export-attested';
+
+/** R1 canonical demux envelope stored on the reference video MediaAsset. */
+export interface ReferenceCanonicalEnvelope {
+  /** Version of the canonical envelope contract. */
+  version: string;
+  /** SHA-256 of the original source bytes (dedup + integrity key). */
+  contentHash: string;
+  /** Constraint #7 audio usage mode. */
+  audioUsageMode: ReferenceAudioUsageMode;
+  /** Demux receipt summary; null when not yet demuxed. */
+  demux: {
+    /** Demux receipt contract version. */
+    version: string;
+    demuxedAt: string;
+    durationMs: number | null;
+    /** SHA-256 of demuxed video bytes. */
+    videoSha256: string;
+    /** SHA-256 of demuxed audio bytes; null when no audio track. */
+    audioSha256: string | null;
+    audioPresent: boolean;
+  } | null;
 }
 
 /** Persisted generated MG sequence. Kept distinct from searchable user media. */
@@ -370,7 +408,8 @@ export class AssetResolver {
     // The Cloudflare Worker handles R2 caching + GCS fallback transparently.
     const cdnWorkerUrl = process.env.CDN_WORKER_URL;
     if (cdnWorkerUrl && asset.assetId) {
-      return `https://${cdnWorkerUrl.replace(/^https?:\/\//, '')}/asset/${asset.assetId}`;
+      const storageKey = asset.r2Key?.trim() || asset.assetId;
+      return `https://${cdnWorkerUrl.replace(/^https?:\/\//, '')}/asset/${storageKey}`;
     }
 
     // Fallback: GCS signed URL flow (when CDN not configured)

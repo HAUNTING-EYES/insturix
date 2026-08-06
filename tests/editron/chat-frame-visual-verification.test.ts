@@ -43,6 +43,7 @@ describe('chat frame visual verification', () => {
     expect(result).toMatchObject({
       status: 'confirmed',
       frame: 549,
+      frames: [549],
       query: 'garment sketch being measured',
       provider: 'gemini',
       model: 'test-vision-model',
@@ -78,6 +79,80 @@ describe('chat frame visual verification', () => {
       matchQuality: 'partial',
     });
     expect(result.boundingBox).toBeUndefined();
+  });
+
+  it('retries one malformed provider response within the same verification deadline', async () => {
+    const generate = vi.fn()
+      .mockResolvedValueOnce('not-json')
+      .mockResolvedValueOnce(JSON.stringify({
+        targetVisible: true,
+        matchQuality: 'exact',
+        evidence: 'The garment sketch and measuring ruler are directly visible.',
+        reasoning: 'The requested object and action are both present in the frame.',
+      }));
+
+    const result = await verifyChatFrameVisualMatch({
+      query: 'garment sketch being measured',
+      evidence: evidence(),
+    }, { generate });
+
+    expect(result.status).toBe('confirmed');
+    expect(generate).toHaveBeenNthCalledWith(1, expect.any(Array), 1);
+    expect(generate).toHaveBeenNthCalledWith(2, expect.any(Array), 2);
+  });
+
+  it('verifies temporal events from ordered rendered frames and receipts every frame', async () => {
+    const generate = vi.fn(async (parts: Array<{ text?: string; inlineData?: unknown }>) => {
+      expect(parts[0]?.text).toContain('chronological sequence');
+      expect(parts.filter((part) => part.inlineData)).toHaveLength(3);
+      return JSON.stringify({
+        targetVisible: true,
+        matchQuality: 'exact',
+        evidence: 'The subject grows smaller while more of the artisan and workspace become visible.',
+        reasoning: 'Across the ordered frames, the camera visibly pulls back from macro to medium framing.',
+      });
+    });
+
+    const result = await verifyChatFrameVisualMatch({
+      query: 'camera pulls back from a macro view to reveal the artisan',
+      evidence: evidence({
+        frame: 443,
+        question: 'Verify canonical visual match for: camera pulls back from a macro view to reveal the artisan',
+        contextFrames: [
+          { frame: 412, dataUrl: JPEG_DATA_URL, width: 960, height: 540 },
+          { frame: 472, dataUrl: JPEG_DATA_URL, width: 960, height: 540 },
+        ],
+      }),
+    }, { generate });
+
+    expect(result).toMatchObject({
+      status: 'confirmed',
+      frame: 443,
+      frames: [412, 443, 472],
+      matchQuality: 'exact',
+    });
+    expect(result.receiptId).toMatch(/^frame-visual-[a-f0-9]{24}$/);
+  });
+
+  it('fails after two malformed responses without leaking provider output', async () => {
+    const sensitiveProviderOutput = 'not-json-secret-provider-payload';
+    const generate = vi.fn(async () => sensitiveProviderOutput);
+
+    let failure: unknown;
+    try {
+      await verifyChatFrameVisualMatch({
+        query: 'garment sketch being measured',
+        evidence: evidence(),
+      }, { generate });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain('after 2 attempt(s)');
+    expect((failure as Error).message).toContain('sha256=');
+    expect((failure as Error).message).not.toContain(sensitiveProviderOutput);
+    expect(generate).toHaveBeenCalledTimes(2);
   });
 
   it('refuses evidence captured for a different query', async () => {

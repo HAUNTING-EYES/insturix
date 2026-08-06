@@ -15,9 +15,12 @@
  */
 
 import { renderMediaOnLambda, getRenderProgress } from '@remotion/lambda/client';
-import { REMOTION_COMPOSITION_ID, REMOTION_FRAMES_PER_LAMBDA } from './remotion-constants';
+import {
+  REMOTION_AUDIO_CODEC,
+  REMOTION_COMPOSITION_ID,
+  REMOTION_FRAMES_PER_LAMBDA,
+} from './remotion-constants';
 import { getDatabase } from '@/lib/editron/db/mongodb';
-import { nanoid } from 'nanoid';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { setAWSCredentials } from '@/lib/editron/utils/aws-credentials';
@@ -232,7 +235,7 @@ async function startSingleChapterRender(
       framesPerLambda: REMOTION_FRAMES_PER_LAMBDA,
       privacy: 'public',
       timeoutInMilliseconds: 600000, // 10 min per chapter
-      audioCodec: 'mp3',
+      audioCodec: REMOTION_AUDIO_CODEC,
       frameRange: [chapter.startFrame, Math.max(chapter.startFrame, chapter.endFrame - 1)],
     });
     await db.collection(CHAPTERS_COLLECTION).updateOne(
@@ -310,6 +313,7 @@ export async function startPendingChapters(
 }
 
 export async function startChapterRender(
+  jobId: string,
   projectId: string,
   userId: string,
   overlays: Overlay[],
@@ -320,8 +324,10 @@ export async function startChapterRender(
   serveUrl: string,
   functionName: string,
 ): Promise<{ jobId: string; chapters: number }> {
+  if (!/^chr_[A-Za-z0-9_-]{12}$/.test(jobId)) {
+    throw new Error('Chapter rendering requires a caller-owned chr_ admission ID');
+  }
   const db = await getDatabase();
-  const jobId = `chr_${nanoid(12)}`;
 
   // Detect chapter boundaries
   const boundaries = detectChapterBoundaries(overlays, totalFrames, fps);

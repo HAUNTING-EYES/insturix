@@ -7,13 +7,13 @@
  *   "Could not find composition with ID <x>. Available compositions: TestComponent"
  * — that exact 500 is what the chapter renderer's hardcoded 'EditronComposition' produced.
  *
- * Every `renderMediaOnLambda` call site (chapter-renderer, cloudrun/render, render-queue) imports this,
- * so the three can never silently disagree again.
+ * Every full-composition `renderMediaOnLambda` call site (chapter-renderer and cloudrun/render)
+ * imports this, so the two cannot silently disagree.
  */
 export const REMOTION_COMPOSITION_ID = 'TestComponent';
 
 /**
- * Frames per renderer Lambda for full-composition renders (chapter, cloudrun, render-queue).
+ * Frames per renderer Lambda for full-composition renders (chapter and cloudrun).
  *
  * Lower = smaller chunks that finish well under the Lambda function timeout, plus more parallelism
  * across the AWS concurrency quota. 100 is derived from production data: on 2GB-memory renderer
@@ -25,3 +25,9 @@ export const REMOTION_COMPOSITION_ID = 'TestComponent';
  * grabs, not full composites.
  */
 export const REMOTION_FRAMES_PER_LAMBDA = 100;
+
+/**
+ * MP3 accumulated an audible 1.552s tail beyond a frame-exact 38s production
+ * canary. AAC is the canonical H.264/MP4 delivery codec on both render paths.
+ */
+export const REMOTION_AUDIO_CODEC = 'aac' as const;
