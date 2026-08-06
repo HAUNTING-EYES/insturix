@@ -6,6 +6,7 @@ import { tasteContractLiveEnabled } from '@/lib/editron/motion-graphics/codegen/
 import {
   buildDesignerParts,
   buildDesignerPrompt,
+  formatTasteContractForPrompt,
   type MgDesignerInput,
 } from '@/lib/editron/motion-graphics/codegen/design/designer-prompt';
 import { resolveVideoStyle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
@@ -43,5 +44,12 @@ describe('Phase 4a - the taste contract DIRECTS the designer (art-director mode)
     expect(tasteContractLiveEnabled({})).toBe(false);
     expect(tasteContractLiveEnabled({ MG_TASTE_CONTRACT_ENABLED: '1' })).toBe(true);
     expect(tasteContractLiveEnabled({ MG_TASTE_CONTRACT_ENABLED: 'true' })).toBe(true);
+  });
+
+  it('Phase 4b: the judge-direction text stays within the worker-contract 6k bound (worker-contract tasteContract.direction)', () => {
+    const direction = formatTasteContractForPrompt(vtc);
+    expect(direction.length).toBeGreaterThan(50);
+    expect(direction.length).toBeLessThan(6_000);
+    expect(direction).toContain('ART DIRECTION');
   });
 });

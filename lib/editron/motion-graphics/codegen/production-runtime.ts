@@ -937,6 +937,9 @@ async function defaultJudgeRendered(
     content: moment.candidate.content,
     sourceText: moment.candidate.sourceSpan.text,
     placement: moment.placement,
+    // Phase 4b (§11): the video taste contract (hash + compact direction) — the judge verifies CONTRACT FIDELITY
+    // (execution of the established art direction) instead of substituting its own taste. Absent → fidelity N/A.
+    tasteContract: moment.tasteContract ?? null,
     // Fix-2: GROUNDED geometry, code-measured (not eyeballed) per brief §10.1. subjectOverlap.collision is a hard
     // failure ONLY when hardVeto=true (calibrated veto ENABLED + opaque cover). hardVeto=false (coarse box, default,
     // or below threshold) → subject proximity is composition negative-space, never an auto-reject.

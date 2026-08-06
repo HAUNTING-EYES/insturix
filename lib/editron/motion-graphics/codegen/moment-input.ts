@@ -90,6 +90,8 @@ export interface BuildMgMomentInputArgs {
    *  Overrides the coarse region-derived subject on `screen.subject` so the coder places clear of the ACTUAL
    *  subject and the judge verifies obstruction against real coordinates. Absent → the coarse derivation holds. */
   subjectBox?: { x: number; y: number; width: number; height: number };
+  /** Phase 4b: the video taste contract (compact direction + hash) the judge verifies fidelity against (§11). */
+  tasteContract?: { hash: string; direction: string } | null;
 }
 
 const clamp01 = (v: number): number => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
@@ -142,7 +144,7 @@ function deriveScreen(placement: MgPlacementSource): MgScreenContext | undefined
  * zero/negative-length clip or non-positive fps is a caller bug — fail loud, do not silently "fix" it).
  */
 export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput {
-  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals, videoSignals, motionIntensity, design, subjectBox } = args;
+  const { momentId, candidate, brand, window, expression, placement, anchors, visualEvidence, notes, intent, footageSignals, videoSignals, motionIntensity, design, subjectBox, tasteContract } = args;
 
   if (!Number.isFinite(window.fps) || window.fps <= 0) {
     throw new Error(`buildMgMomentInput: fps must be positive, got ${window.fps}`);
@@ -192,6 +194,7 @@ export function buildMgMomentInput(args: BuildMgMomentInputArgs): MgMomentInput 
       };
     }
   }
+  if (tasteContract) input.tasteContract = tasteContract;
   if (visualEvidence) input.visualEvidence = visualEvidence;
   if (anchors) input.anchors = anchors;
   const trimmedNotes = notes?.trim();

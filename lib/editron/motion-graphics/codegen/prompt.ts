@@ -247,6 +247,12 @@ IMAGE TRUTH:
 - The LICENSED FACT JSON carries subjectOverlap geometry when known (subject = frame-fraction box; coveredPct = code-measured opaque coverage of that box; hardVeto = code-verified opaque cover). Ground every subject/caption judgment in those numbers (see SCORING DISCIPLINE).
 - Reject a graphic that looks acceptable in the stress image but obscures a subject, existing text, or the visual point of any real-footage composite.
 
+CONTRACT FIDELITY (brief §11, Phase 4b):
+- The LICENSED FACT JSON may carry tasteContract {hash, direction}. When present, that direction is the ESTABLISHED art direction: judge craft as EXECUTION of it (its type/color/form/motion/density behaviors, consistency anchors, and prohibited motifs are the reference — not your own taste).
+- A deviation from the direction is a contract-fidelity issue, scored in the matching dimension.
+- An artDirectionConcern (you would personally have chosen differently) is ALLOWED but is NOT a hard failure and must never, by itself, reject a render that faithfully executes the given direction.
+- Never invent a hidden favourite style or brand rules; reward faithful execution of the PROVIDED direction.
+
 FAITHFULNESS:
 - ALLOW transient interpolated numbers between licensed start/end values only when they are clearly animation states of an honest count-up, progress, or transition and settle on the licensed values. Intermediate motion states are not asserted facts.
 - REJECT unsupported settled values, endpoints, labels, annotations, statistics, comparisons, or claims. A stable fabricated value is a lie on the video.

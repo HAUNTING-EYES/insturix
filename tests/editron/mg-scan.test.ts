@@ -201,7 +201,8 @@ describe('prompt scaffolding - well-formed for E0', () => {
     expect(GROUNDING_RULE).toMatch(/read them from `?data`?/i); // values are props, never baked
   });
   it('judge prompt returns scored JSON and judges over footage', () => {
-    expect(JUDGE_PROMPT).toMatch(/score/);
-    expect(JUDGE_PROMPT).toMatch(/footage|over a real video/i);
+expect(JUDGE_PROMPT).toMatch(/score/);
+expect(JUDGE_PROMPT).toMatch(/footage|over a real video/i);
+expect(JUDGE_PROMPT).toMatch(/CONTRACT FIDELITY/);
   });
 });

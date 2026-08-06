@@ -67,6 +67,7 @@ import { computeMgMotionIntensity } from '@/lib/editron/motion-graphics/codegen/
 import { computeMgDensityBudget } from '@/lib/editron/motion-graphics/codegen/design/density-budget';
 import { buildVideoTasteContract } from '@/lib/editron/motion-graphics/codegen/taste/contract-resolver';
 import { tasteContractLiveEnabled } from '@/lib/editron/motion-graphics/codegen/taste/shadow';
+import { formatTasteContractForPrompt } from '@/lib/editron/motion-graphics/codegen/design/designer-prompt';
 import { resolveVideoStyle } from '@/lib/editron/motion-graphics/codegen/style/style-resolver';
 import {
   runDesignPrepass,
@@ -507,6 +508,9 @@ interface EDLSignalContext {
   /** The project's motionGraphics family preference (the user's dial: mode/frequency/intensity) — feeds the
    *  density budget + motion-intensity resolver. Absent = 'auto' (no user push). */
   motionGraphicsPref?: EditorialFamilyPreference;
+  /** Phase 4b: the resolved video taste contract in judge-ready compact form ({hash, direction}). Set at the
+   *  design pre-pass when live taste contracts are enabled; applyGraphic forwards it to each moment's judge. */
+  tasteContractForJudge?: { hash: string; direction: string } | null;
   kineticSfxPolicy?: {
     policy: 'full' | 'subtle' | 'off';
     profileId: string;
@@ -4418,6 +4422,10 @@ async function runMgDesignPrepass(
         videoSignals: projectSignalContext.videoSignals,
       }).contract
     : undefined;
+  // Phase 4b: expose the compact art direction to the judge on every rendered moment (edl-executor forwards it).
+  projectSignalContext.tasteContractForJudge = tasteContract
+    ? { hash: tasteContract.contractHash, direction: formatTasteContractForPrompt(tasteContract) }
+    : undefined;
 
   // P5-1 Phase D: sample a few real footage frames across the video so the designer designs for the ACTUAL palette
   // and negative space (buildDesignerParts.footageFrames). Best-effort — any failure → a valid text-only session.
@@ -4805,6 +4813,8 @@ async function applyGraphic(
           // The exact approved disposition for this decision. The guard above rejects absence, decline, or failure.
           design: approvedDesign,
           subjectBox: mgSubjectBox, // P5-2(b): real V-JEPA subject box → screen.subject (coder + judge context)
+          // Phase 4b: the video's taste contract (hash + compact direction) → judge contract-fidelity check (§11).
+          tasteContract: projectSignalContext.tasteContractForJudge,
         });
         const signalSpeechEnergy = readNumber(rawSignals, 'speech_energy', 'speech.energy');
         const segmentSpeechEnergy = mgWav2vec ? readNumber(mgWav2vec, 'energy', 'speech_energy') : undefined;
