@@ -227,14 +227,6 @@ const SoundsPanel: React.FC = () => {
     }
   };
 
-  const selectView = (view: AudioLibraryView) => {
-    if (view !== "references" && playingTrack) {
-      audioRefs.current[playingTrack]?.pause();
-      setPlayingTrack(null);
-    }
-    setActiveView(view);
-  };
-
   const renderSoundCard = (sound: LocalSound) => (
     <div
       key={sound.id}
@@ -509,6 +501,7 @@ function ReferenceSongSection({
   assigningTrackId,
   onAssign,
 }: ReferenceSongSectionProps) {
+  if (!identity) return null;
   const primary = sameSong?.candidate ?? candidates[0];
   return (
     <div className="space-y-3">

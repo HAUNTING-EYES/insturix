@@ -4,6 +4,7 @@ import {
   mgMomentDesignPlanSchema,
   validateDesignPlan,
   type MgDesignPlanMomentContext,
+  type MgMomentDesignPlan,
 } from '@/lib/editron/motion-graphics/codegen/design/design-plan';
 
 const brief = {
@@ -26,7 +27,7 @@ const baseMoment = () => ({
 
 describe('Phase-3 plan extension (brief §6.6)', () => {
   it('primaryCommunicativeJob is REQUIRED on every designed moment', () => {
-    const noJob = baseMoment();
+    const noJob: Partial<ReturnType<typeof baseMoment>> = { ...baseMoment() };
     delete noJob.primaryCommunicativeJob;
     expect(() => mgMomentDesignPlanSchema.parse(noJob)).toThrow(/primaryCommunicativeJob/);
   });
@@ -57,11 +58,11 @@ describe('Phase-3 plan extension (brief §6.6)', () => {
   });
 
   it('validation enforces tasteContract id+hash pairing (both or neither, §6.6/§21)', () => {
-    const half = { ...baseMoment(), tasteContractId: 'vtc-x', tasteContractHash: undefined };
+    const half = { ...baseMoment(), tasteContractId: 'vtc-x', tasteContractHash: undefined, intentionalDeviations: [] } as unknown as MgMomentDesignPlan;
     const r = validateDesignPlan({ brief, moments: [half], declined: [] }, [ctxA]);
     expect(r.ok).toBe(false);
     expect(r.problems.some((p) => /tasteContractId and tasteContractHash/.test(p))).toBe(true);
-    const both = { ...baseMoment(), tasteContractId: 'vtc-x', tasteContractHash: 'h' };
+    const both = { ...baseMoment(), tasteContractId: 'vtc-x', tasteContractHash: 'h', intentionalDeviations: [] } as unknown as MgMomentDesignPlan;
     expect(validateDesignPlan({ brief, moments: [both], declined: [] }, [ctxA]).ok).toBe(true);
   });
 });

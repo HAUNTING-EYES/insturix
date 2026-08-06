@@ -25,6 +25,7 @@ const validPlan: MgVideoDesignPlan = {
   moments: [{
     momentId: 'b0', lane: 'overlay-kit', concept: 'kinetic line, quality dominates quantity', targetBar: 'energy',
     primaryCommunicativeJob: 'emphasize', semanticPayload: 'quality outruns quantity',
+    intentionalDeviations: [],
     structure: { placement: 'center-right', grouping: 'headline + underline', readingOrder: 'headline then rule' },
     elements: [
       { kind: 'headline', role: 'the spoken line', dataProps: ['line'] },

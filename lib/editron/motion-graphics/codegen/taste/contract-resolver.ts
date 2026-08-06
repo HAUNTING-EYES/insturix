@@ -45,7 +45,8 @@ const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
 export function buildVideoTasteContract(input: TasteContractBuildInput): TasteContractBuildResult {
   const house = input.house ?? houseTastePrior();
-  const brand = input.hasConfiguredBrand && input.brand && !input.brand.isDefault
+  // hasConfiguredBrand already encodes "default/unconfigured brand ⇒ house only" (see input docs).
+  const brand = input.hasConfiguredBrand && input.brand
     ? brandTasteProfileFromKit(input.brand)
     : null;
   const evidence: TasteEvidenceRef[] = [];

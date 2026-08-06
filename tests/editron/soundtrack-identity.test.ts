@@ -99,7 +99,8 @@ describe('R3 soundtrack identity', () => {
       cueOffsetMs: 3_200,
       provider: { name: 'audd', receipt: 'r' },
       recognizedAt: '2026-08-06T00:00:00.000Z',
-    } as const;
+    };
+
     const recognition = identityToFingerprintRecognition(identity);
     expect(recognition).toEqual({
       trackIdentity: 'isrc:USRC17607839',

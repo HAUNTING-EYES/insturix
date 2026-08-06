@@ -924,7 +924,9 @@ function activeRenderedOverlayEvidence(
   return overlays
     .filter((overlay) => isAuditedOverlay(overlay) && isActiveAtFrame(overlay, frame))
     .flatMap((overlay) => {
-      const fallbackBox = renderedOverlayBoxAtFrame(overlay, frame, input.width, input.height);
+      const renderW = renderEvidence.baselineImage?.width ?? renderEvidence.fallbackImage?.width ?? 0;
+      const renderH = renderEvidence.baselineImage?.height ?? renderEvidence.fallbackImage?.height ?? 0;
+      const fallbackBox = renderedOverlayBoxAtFrame(overlay, frame, renderW, renderH);
       const isolatedImage = overlay.id !== undefined ? renderEvidence.isolatedImages?.get(String(overlay.id)) : undefined;
       const paintedBox = isolatedImage && renderEvidence.baselineImage ? changedPixelBounds(isolatedImage, renderEvidence.baselineImage) : undefined;
       const box = paintedBox ? { ...fallbackBox, ...paintedBox } : fallbackBox;

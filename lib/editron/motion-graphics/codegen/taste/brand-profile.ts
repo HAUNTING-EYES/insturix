@@ -8,8 +8,8 @@ import type { BrandTasteProfile } from './taste-schemas';
 
 export function brandTasteProfileFromKit(brand: Brand, opts: { updatedAt?: string } = {}): BrandTasteProfile {
   const colorPairs: Array<[string, string]> = [
-    ['bg', brand.bg], ['surface', brand.surface], ['surfaceAlt', brand.surfaceAlt],
-    ['muted', brand.muted], ['accent', brand.accent], ['accentText', brand.accentText],
+    ['bg', brand.colors.bg], ['surface', brand.colors.surface], ['surfaceAlt', brand.colors.surfaceAlt],
+    ['muted', brand.colors.muted], ['accent', brand.colors.accent], ['accentText', brand.colors.accentText],
   ];
   return {
     brandId: (brand.name || 'brand').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
