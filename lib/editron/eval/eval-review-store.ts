@@ -24,6 +24,22 @@ export function evalCorpusDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.MG_EVAL_CORPUS_DIR?.trim() || path.resolve('.calibration-temp');
 }
 
+/** 'local' = gitignored .calibration-temp (dev). 'public' = committed public/mg-eval + Mongo labels (deployed).
+ *  Env override wins; otherwise AUTO: a deployed bundle has public/mg-eval but NO local .calibration-temp seed →
+ *  public; a local dev machine has both → local. */
+export function corpusMode(env: NodeJS.ProcessEnv = process.env): 'local' | 'public' {
+  const m = (env.MG_EVAL_CORPUS_MODE ?? '').trim().toLowerCase();
+  if (m === 'public' || m === 'local') return m === 'public' ? 'public' : 'local';
+  try {
+    if (existsSync(publicSeedPath()) && !existsSync(path.resolve('.calibration-temp/mg-eval-seed.jsonl'))) return 'public';
+  } catch { /* ignore */ }
+  return 'local';
+}
+
+export function publicSeedPath(): string {
+  return path.join(process.cwd(), 'public', 'mg-eval', 'seed.jsonl');
+}
+
 export function seedFileFor(corpusDir: string): string {
   return path.join(corpusDir, 'mg-eval-seed.jsonl');
 }
@@ -63,8 +79,16 @@ export function saveEvalLabel(
   return { saved: true, count: items.filter((i) => i.human).length };
 }
 
-/** Map a render ref to viewable media URLs (purely by pattern — the media ROUTE does the file existence check). */
-export function resolveEvalMedia(item: EvalItem, corpusDir: string): EvalReviewMedia[] {
+/** Map a render ref to viewable media URLs. Local mode: files/composites in corpusDir. Public (deployed) mode:
+ *  a committed per-item review image served statically. Pure by pattern (the media ROUTE does file existence). */
+export function resolveEvalMedia(
+  item: EvalItem,
+  corpusDir: string,
+  opts: { mode?: 'local' | 'public' } = {},
+): EvalReviewMedia[] {
+  if ((opts.mode ?? 'local') === 'public') {
+    return [{ kind: 'image', url: `/mg-eval/${item.id}.png`, caption: 'review composite (deployed)' }];
+  }
   const ref = (item.renderRef ?? '').replace(/\\/g, '/').trim();
   const rel = (p: string) => path.relative(corpusDir, p).replace(/\\/g, '/');
   const base = '/api/services/editron/mg-eval/media';

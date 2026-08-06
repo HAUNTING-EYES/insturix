@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
+  corpusMode,
   evalCorpusDir,
   labelsFileFor,
   loadEvalCorpus,
@@ -70,5 +71,13 @@ describe('eval review store', () => {
     expect(resolveEvalMedia(item('c', ''), tmp)).toHaveLength(0);
     expect(existsSync(seedFileFor(tmp))).toBe(true);
     void mkdirSync;
+  });
+
+  it('public (deployed) mode: committed per-item review image + local default off', () => {
+    expect(corpusMode({ MG_EVAL_CORPUS_MODE: 'public' })).toBe('public');
+    expect(corpusMode({})).toBe('local');
+    const m = resolveEvalMedia(item('a', '.calibration-temp/mg-vlog-eval/lower-third/'), tmp, { mode: 'public' });
+    expect(m[0].kind).toBe('image');
+    expect(m[0].url).toBe('/mg-eval/a.png');
   });
 });

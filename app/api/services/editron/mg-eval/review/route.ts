@@ -1,21 +1,59 @@
 import { NextResponse } from 'next/server';
 
 import { MIN_CALIBRATION_LABELS } from '@/lib/editron/motion-graphics/eval/eval-dataset';
+import type { EvalItem } from '@/lib/editron/motion-graphics/eval/eval-dataset';
 import {
+  corpusMode,
   evalCorpusDir,
   labelsFileFor,
   loadEvalCorpus,
   loadEvalLabels,
+  publicSeedPath,
   resolveEvalMedia,
   saveEvalLabel,
   seedFileFor,
+  type EvalReviewLabel,
 } from '@/lib/editron/eval/eval-review-store';
+
+const MODE = corpusMode();
+
+interface LabelDoc { itemId: string; human: EvalReviewLabel; }
+
+async function loadLabels(): Promise<Map<string, EvalReviewLabel>> {
+  if (MODE === 'public') {
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const docs = await (await getDatabase()).collection<LabelDoc>('editron_mg_eval_labels').find({}).toArray();
+    return new Map(docs.map((d) => [d.itemId, d.human]));
+  }
+  return loadEvalLabels(labelsFileFor(evalCorpusDir()));
+}
+
+function loadSeed(): EvalItem[] {
+  return MODE === 'public'
+    ? loadEvalCorpus(publicSeedPath())
+    : loadEvalCorpus(seedFileFor(evalCorpusDir()));
+}
+
+async function saveLabel(itemId: string, label: EvalReviewLabel): Promise<number> {
+  if (MODE === 'public') {
+    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const col = (await getDatabase()).collection<LabelDoc>('editron_mg_eval_labels');
+    await col.updateOne(
+      { itemId },
+      { $set: { itemId, human: label, updatedAt: new Date().toISOString() } },
+      { upsert: true },
+    );
+    return col.countDocuments();
+  }
+  const base = loadSeed().find((i) => i.id === itemId);
+  if (!base) throw new Error(`unknown item ${itemId}`);
+  return saveEvalLabel(labelsFileFor(evalCorpusDir()), itemId, label, base).count;
+}
 
 /** GET: the review corpus (renders + judge verdicts + current labels). POST: save a human label. */
 export async function GET() {
-  const corpusDir = evalCorpusDir();
-  const items = loadEvalCorpus(seedFileFor(corpusDir));
-  const labels = loadEvalLabels(labelsFileFor(corpusDir));
+  const items = loadSeed();
+  const labels = await loadLabels();
   const review = items.map((it) => ({
     id: it.id,
     source: it.source,
@@ -30,10 +68,10 @@ export async function GET() {
       form: it.judge.form,
     },
     geometry: it.geometry ?? null,
-    media: resolveEvalMedia(it, corpusDir),
+    media: resolveEvalMedia(it, evalCorpusDir(), { mode: MODE }),
     human: labels.get(it.id) ?? null,
   }));
-  return NextResponse.json({ items: review, labeled: labels.size, min: MIN_CALIBRATION_LABELS, ready: labels.size >= MIN_CALIBRATION_LABELS });
+  return NextResponse.json({ mode: MODE, items: review, labeled: labels.size, min: MIN_CALIBRATION_LABELS, ready: labels.size >= MIN_CALIBRATION_LABELS });
 }
 
 export async function POST(request: Request) {
@@ -47,15 +85,15 @@ export async function POST(request: Request) {
     if (!body.itemId || !['accept', 'watchlist', 'reject'].includes(body.accept)) {
       return NextResponse.json({ ok: false, error: 'itemId + accept required' }, { status: 400 });
     }
-    const corpusDir = evalCorpusDir();
-    const items = loadEvalCorpus(seedFileFor(corpusDir));
-    const base = items.find((i) => i.id === body.itemId);
-    if (!base) return NextResponse.json({ ok: false, error: `unknown item ${body.itemId}` }, { status: 404 });
-    const { count } = saveEvalLabel(labelsFileFor(corpusDir), body.itemId, {
+    const items = loadSeed();
+    if (!items.some((i) => i.id === body.itemId)) {
+      return NextResponse.json({ ok: false, error: `unknown item ${body.itemId}` }, { status: 404 });
+    }
+    const count = await saveLabel(body.itemId, {
       accept: body.accept,
       reasonCodes: body.reasonCodes,
       notes: body.notes,
-    }, base);
+    });
     return NextResponse.json({ ok: true, count, ready: count >= MIN_CALIBRATION_LABELS });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : 'bad request' }, { status: 500 });
