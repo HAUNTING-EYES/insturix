@@ -3,6 +3,7 @@ import { parseOrgWalletFlag } from '@/lib/services/org-wallet-flag';
 import {
   resolveCreationVisibility,
   resolveProjectBillingOwnerType,
+  resolveBillingOwner,
 } from '@/lib/editron/services/project-ownership';
 
 describe('parseOrgWalletFlag (plan D7 — default off, case-sensitive)', () => {
@@ -52,5 +53,40 @@ describe('resolveProjectBillingOwnerType (P0/D9 — the single billing predicate
     expect(resolveProjectBillingOwnerType({ visibility: 'private' })).toBe('personal');
     expect(resolveProjectBillingOwnerType({ orgId: null, visibility: 'org' })).toBe('personal');
     expect(resolveProjectBillingOwnerType({})).toBe('personal');
+  });
+});
+
+describe('resolveBillingOwner (P2 — the single wallet-routing authority)', () => {
+  const orgProject = { projectId: 'p1', orgId: 'org_1', visibility: 'org' };
+
+  it('flag OFF => personal wallet even for an org-owned project (today\'s behavior exactly)', () => {
+    expect(resolveBillingOwner('user_9', orgProject, false)).toEqual({
+      type: 'user',
+      clerkUserId: 'user_9',
+    });
+  });
+
+  it('flag ON + org-owned project => org wallet, carrying the actor', () => {
+    expect(resolveBillingOwner('user_9', orgProject, true)).toEqual({
+      type: 'org',
+      clerkOrgId: 'org_1',
+      actorUserId: 'user_9',
+    });
+  });
+
+  it('flag ON + GRANDFATHERED ambiguous shape (orgId set, visibility!=="org") => personal', () => {
+    expect(resolveBillingOwner('user_9', { projectId: 'p2', orgId: 'org_1', visibility: 'private' }, true)).toEqual({
+      type: 'user',
+      clerkUserId: 'user_9',
+    });
+  });
+
+  it('flag ON + personal project or no project => personal', () => {
+    expect(resolveBillingOwner('user_9', { visibility: 'private' }, true)).toEqual({
+      type: 'user',
+      clerkUserId: 'user_9',
+    });
+    expect(resolveBillingOwner('user_9', null, true)).toEqual({ type: 'user', clerkUserId: 'user_9' });
+    expect(resolveBillingOwner('user_9', undefined, true)).toEqual({ type: 'user', clerkUserId: 'user_9' });
   });
 });

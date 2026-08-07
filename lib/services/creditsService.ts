@@ -21,6 +21,7 @@ import { nanoid } from "nanoid";
 import { Organization, type IOrganization } from "@/schemas/Organization";
 import { OrgCreditTransaction } from "@/schemas/OrgCreditTransaction";
 import { buildOrgPoolDeduct } from "@/lib/services/org-wallet-ops";
+import type { WalletRef } from "@/lib/editron/services/project-ownership";
 import type { FilterQuery, UpdateQuery } from "mongoose";
 
 // Maximum transactions to keep in history (to prevent unbounded growth)
@@ -595,6 +596,35 @@ export class CreditsService {
       balance: updated.creditsBalance,
       transactionId: transaction.id,
     };
+  }
+
+  /**
+   * Route a deduct to the correct wallet (plan §3, P2). The SINGLE dispatch point every editron
+   * charge point calls once it has resolved a WalletRef via resolveBillingOwner: an org-owned
+   * project bills the org wallet (with the actor recorded), everything else the personal wallet.
+   * Keeps CreditsService the sole writer of both wallets — routes never touch a balance directly.
+   */
+  static async deductForWallet(
+    wallet: WalletRef,
+    service: string,
+    action: string,
+    options?: {
+      model?: string;
+      requestType?: string;
+      tokenCount?: number;
+      characterCount?: number;
+      durationMinutes?: number;
+      durationSeconds?: number;
+      taskId?: string;
+      idempotencyKey?: string;
+      quantity?: number;
+      projectId?: string;
+    }
+  ): Promise<CreditsDeductResult> {
+    if (wallet.type === 'org') {
+      return this.deductOrgCredits(wallet.clerkOrgId, wallet.actorUserId, service, action, options);
+    }
+    return this.deductCredits(wallet.clerkUserId, service, action, options);
   }
 
   /**
