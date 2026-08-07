@@ -93,7 +93,7 @@ function shortModelOutput(): ScriptWriterModelOutput {
       qualityScore: 90,
     },
     visualMetadata: { motionInfo: 'Restrained documentary pacing.' },
-    metadata: { platform: 'youtube', voiceLanguage: 'en' },
+    metadata: { platform: 'youtube', voiceLanguage: 'en', estimatedTimeSeconds: 40 },
     sidecar: shortSidecar(),
   };
 }

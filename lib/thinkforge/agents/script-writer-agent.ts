@@ -275,15 +275,54 @@ function countMatches(text: string, pattern: RegExp): number {
 }
 
 /**
- * Runtime-contract gate thresholds (R19N: an editor trims an over-long script but never pads a short one).
- * - Undershoot tolerance: allow the writer to land within ~30s of the asked runtime before flagging — a small
- *   shortfall is compression, not a dropped runtime contract. 30s ← domain allowance (calibrated; pinned by the
- *   420s/42s test).
- * - Scene-count floor: long-form pacing ≈ 1 scene per 42s, so a 420s ask demands ~10 scenes (7-min ≈ 10 beats).
- *   42s/scene ← domain pacing (calibrated; test pins 420s -> floor 10, 30s/60s asks pass short counts).
+ * Runtime-contract construction (R19N: an editor trims an over-long script but never pads a short one).
+ * Pacing standards: ~135 wpm narration (target), 95–165 wpm acceptable band; a ±5% runtime window allows
+ * compression/overage without dropping the contract; long-form scene floor ≈ 1 scene per 42s.
  */
-const RUNTIME_MISMATCH_TOLERANCE_SEC = 30;
 const RUNTIME_SCENE_FLOOR_STEP_SEC = 42;
+const NARRATION_WORDS_PER_MINUTE = 135;
+const NARRATION_WORDS_PER_MINUTE_MIN = 95;
+const NARRATION_WORDS_PER_MINUTE_MAX = 165;
+/** Output-token budget per second of target runtime (long-form scripts need the room; 7-min ⇒ 16_800). */
+const OUTPUT_TOKENS_PER_RUNTIME_SECOND = 40;
+const SCRIPT_WRITER_DEFAULT_MAX_TOKENS = 8192;
+
+export interface ScriptRuntimeContract {
+  targetDurationSeconds: number;
+  minimumDurationSeconds: number;
+  maximumDurationSeconds: number;
+  targetSpokenWords: number;
+  minimumSpokenWords: number;
+  maximumSpokenWords: number;
+  minimumSceneCount: number;
+}
+
+/** Derive the enforceable runtime contract from a production brief (or a {@link ProductionBrief}-shaped object). */
+export function resolveScriptRuntimeContract(
+  brief: { output?: { targetDurationSec?: number | null } } | null | undefined,
+): ScriptRuntimeContract {
+  const targetDurationSeconds = Math.max(0, brief?.output?.targetDurationSec ?? 0);
+  const minimumDurationSeconds = Math.round(targetDurationSeconds * 0.95);
+  const maximumDurationSeconds = Math.round(targetDurationSeconds * 1.05);
+  const targetSpokenWords = Math.round((targetDurationSeconds / 60) * NARRATION_WORDS_PER_MINUTE);
+  return {
+    targetDurationSeconds,
+    minimumDurationSeconds,
+    maximumDurationSeconds,
+    targetSpokenWords,
+    minimumSpokenWords: Math.round(targetSpokenWords * (NARRATION_WORDS_PER_MINUTE_MIN / NARRATION_WORDS_PER_MINUTE)),
+    maximumSpokenWords: Math.round(targetSpokenWords * (NARRATION_WORDS_PER_MINUTE_MAX / NARRATION_WORDS_PER_MINUTE)),
+    minimumSceneCount: Math.max(1, Math.round(targetDurationSeconds / RUNTIME_SCENE_FLOOR_STEP_SEC)),
+  };
+}
+
+/** Duration-aware output budget: a stated runtime gets ~40 output tokens/sec, else the script-writer default. */
+export function durationAwareMaxTokens(productionBrief: { output?: { targetDurationSec?: number | null } } | null | undefined): number {
+  const targetSec = productionBrief?.output?.targetDurationSec;
+  return typeof targetSec === 'number' && Number.isFinite(targetSec) && targetSec > 0
+    ? Math.round(targetSec * OUTPUT_TOKENS_PER_RUNTIME_SECOND)
+    : SCRIPT_WRITER_DEFAULT_MAX_TOKENS;
+}
 
 export function assertUsableScriptWriterResult(
   result: ScriptWriterResult,
@@ -312,16 +351,25 @@ export function assertUsableScriptWriterResult(
     validateCastingBriefCompliance(sidecar, options.productionBrief, failures);
 
     // Runtime contract: a script that undershoots the asked runtime must never ship as success (an editor trims
-    // overages, but a 42s script for a 7-minute ask is a silent contract break — regression guard for the 420s repair).
+    // overages, but a 42s script for a 7-minute ask is a silent contract break).
     const runtimeTargetSec = options.productionBrief?.output.targetDurationSec;
     if (typeof runtimeTargetSec === 'number' && Number.isFinite(runtimeTargetSec) && runtimeTargetSec > 0) {
+      const contract = resolveScriptRuntimeContract(options.productionBrief);
       const totalSceneSec = sidecar.scenes.reduce((sum, scene) => sum + (scene.durationSeconds ?? 0), 0);
-      if (totalSceneSec < runtimeTargetSec - RUNTIME_MISMATCH_TOLERANCE_SEC) {
+      const spokenWords = sidecar.scenes.reduce(
+        (sum, scene) => sum + (scene.narration ?? '').split(/\s+/).filter(Boolean).length,
+        0,
+      );
+      // Compound guard: scene-count floor + spoken-word band only fire together with a runtime UNDERSHOOT, so a
+      // runtime-complete long-form layout (e.g. 9 scenes filling ~420s) is never rejected (production 9/10 regression).
+      if (totalSceneSec < contract.minimumDurationSeconds) {
         failures.push(`runtime_duration_mismatch:${totalSceneSec}s/${runtimeTargetSec}s`);
-      }
-      const sceneFloor = Math.max(1, Math.round(runtimeTargetSec / RUNTIME_SCENE_FLOOR_STEP_SEC));
-      if (sidecar.scenes.length < sceneFloor) {
-        failures.push(`scene_count_under_runtime_floor:${sidecar.scenes.length}/${sceneFloor}`);
+        if (sidecar.scenes.length < contract.minimumSceneCount) {
+          failures.push(`scene_count_under_runtime_floor:${sidecar.scenes.length}/${contract.minimumSceneCount}`);
+        }
+        if (spokenWords < contract.minimumSpokenWords || spokenWords > contract.maximumSpokenWords) {
+          failures.push(`spoken_word_count_mismatch:${spokenWords}/${contract.targetSpokenWords}`);
+        }
       }
     }
     failures.push(...findSourceLedgerIssuesForSidecar(sidecar, options.sourceLedger));
@@ -528,6 +576,9 @@ Return your response strictly adhering to the JSON schema.`;
         summary: fact.summary,
       })),
       trendBrief: formatTrendBriefForPrompt(productionBrief) || null,
+      productionContract: productionBrief?.output?.targetDurationSec
+        ? resolveScriptRuntimeContract(productionBrief)
+        : null,
       castingBrief: formatCastingBriefForPrompt(productionBrief) || null,
       sourceLedger: sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : null,
       voiceLanguageRequest: {
@@ -554,7 +605,10 @@ Return your response strictly adhering to the JSON schema.`;
     abortSignal?: AbortSignal,
   ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
     const promptParts = this.buildPromptParts(input);
-    const gen = this.resolveGenConfig(overrides);
+    const gen = this.resolveGenConfig({
+      ...overrides,
+      maxTokens: overrides?.maxTokens ?? durationAwareMaxTokens(input.productionBrief),
+    });
     const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
       systemInstruction: promptParts.systemInstruction,

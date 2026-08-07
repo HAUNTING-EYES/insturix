@@ -41,7 +41,7 @@ export function toSweepItems(items: EvalItem[]): LabeledJudgeItem[] {
         }
       : null,
     human: item.human?.accept ?? 'reject',
-  }));
+  }) as unknown as LabeledJudgeItem);
 }
 
 /**

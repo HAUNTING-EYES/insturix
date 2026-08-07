@@ -368,6 +368,7 @@ describe('look-axis deterministic repair in salvageDesignPlan (live-repro: integ
   const plateMoment = (look: 'integrated' | 'panel'): MgMomentDesignPlan => ({
     momentId: 'm_repair', lane: 'overlay-kit', concept: 'a framed claim over the scene', targetBar: 'clarity',
     primaryCommunicativeJob: 'emphasize',
+    intentionalDeviations: [],
     structure: { placement: 'center', grouping: 'card + rule', readingOrder: 'card then rule' },
     elements: [
       { kind: 'headline', role: 'the spoken line', dataProps: [] },

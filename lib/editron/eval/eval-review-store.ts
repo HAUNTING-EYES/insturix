@@ -20,14 +20,14 @@ export interface EvalReviewMedia {
   caption: string;
 }
 
-export function evalCorpusDir(env: NodeJS.ProcessEnv = process.env): string {
+export function evalCorpusDir(env: Record<string, string | undefined> = process.env): string {
   return env.MG_EVAL_CORPUS_DIR?.trim() || path.resolve('.calibration-temp');
 }
 
 /** 'local' = gitignored .calibration-temp (dev). 'public' = committed public/mg-eval + Mongo labels (deployed).
  *  Env override wins; otherwise AUTO: a deployed bundle has public/mg-eval but NO local .calibration-temp seed →
  *  public; a local dev machine has both → local. */
-export function corpusMode(env: NodeJS.ProcessEnv = process.env): 'local' | 'public' {
+export function corpusMode(env: Record<string, string | undefined> = process.env): 'local' | 'public' {
   const m = (env.MG_EVAL_CORPUS_MODE ?? '').trim().toLowerCase();
   if (m === 'public' || m === 'local') return m === 'public' ? 'public' : 'local';
   try {

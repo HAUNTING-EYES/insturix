@@ -31,7 +31,7 @@ export interface TastePreferenceEvent {
   metadata?: Record<string, unknown>;
 }
 
-export function preferenceMemoryEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+export function preferenceMemoryEnabled(env: Record<string, string | undefined> = process.env): boolean {
   const v = (env.MG_PREFERENCE_MEMORY_ENABLED ?? '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
 }

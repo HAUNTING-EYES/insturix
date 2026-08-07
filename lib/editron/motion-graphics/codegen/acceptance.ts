@@ -49,7 +49,7 @@ export interface WatchlistPolicy {
 }
 
 /** §13.4/§20 unsafe-combination guard: watchlist SHIPPING requires a calibration version. Fails closed. */
-export function resolveWatchlistPolicy(env: NodeJS.ProcessEnv = process.env): WatchlistPolicy {
+export function resolveWatchlistPolicy(env: Record<string, string | undefined> = process.env): WatchlistPolicy {
   const ship = ['1', 'true', 'yes'].includes((env.MG_WATCHLIST_SHIP_ENABLED ?? '').trim().toLowerCase());
   const calVersion = (env.MG_JUDGE_CALIBRATION_VERSION ?? '').trim();
   if (ship && !calVersion) {

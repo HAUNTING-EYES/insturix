@@ -16,7 +16,7 @@ export interface PairwisePlanDecision {
   confidence: 'high' | 'medium' | 'low';
 }
 
-export function pairPlanSelectionEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+export function pairPlanSelectionEnabled(env: Record<string, string | undefined> = process.env): boolean {
   const v = (env.MG_PAIRWISE_PLAN_SELECTION_ENABLED ?? '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
 }

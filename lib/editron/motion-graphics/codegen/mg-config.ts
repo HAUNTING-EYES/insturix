@@ -21,13 +21,13 @@ export interface MgRuntimeConfigSnapshot {
   preferenceMemoryEnabled: boolean;
 }
 
-const flag = (env: NodeJS.ProcessEnv, name: string): boolean => ['1', 'true', 'yes'].includes((env[name] ?? '').trim().toLowerCase());
-const num = (env: NodeJS.ProcessEnv, name: string, fallback: number): number => {
+const flag = (env: Record<string, string | undefined>, name: string): boolean => ['1', 'true', 'yes'].includes((env[name] ?? '').trim().toLowerCase());
+const num = (env: Record<string, string | undefined>, name: string, fallback: number): number => {
   const raw = Number(env[name]);
   return Number.isFinite(raw) && raw > 0 ? raw : fallback;
 };
 
-export function mgRuntimeConfigSnapshot(env: NodeJS.ProcessEnv = process.env): MgRuntimeConfigSnapshot {
+export function mgRuntimeConfigSnapshot(env: Record<string, string | undefined> = process.env): MgRuntimeConfigSnapshot {
   return {
     judgeCompositeWidth: num(env, 'MG_JUDGE_COMPOSITE_WIDTH', 960),
     judgeStressWidth: num(env, 'MG_JUDGE_STRESS_WIDTH', 480),
@@ -45,7 +45,7 @@ export function mgRuntimeConfigSnapshot(env: NodeJS.ProcessEnv = process.env): M
   };
 }
 
-export function validateMgConfig(env: NodeJS.ProcessEnv = process.env): { ok: boolean; errors: string[] } {
+export function validateMgConfig(env: Record<string, string | undefined> = process.env): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
   const s = mgRuntimeConfigSnapshot(env);
   if (s.watchlistShipEnabled && !s.calibrationVersion) {

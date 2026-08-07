@@ -80,7 +80,7 @@ export async function persistMGDeliveryRecord(
       await projects.updateOne(
         { projectId, userId, 'intelligence.mgDeliveryRecords.momentId': { $ne: record.momentId } },
         {
-          $push: { 'intelligence.mgDeliveryRecords': { $each: [record], $slice: -200 } },
+          $push: { 'intelligence.mgDeliveryRecords': { $each: [record], $slice: -200 } } as never,
           $set: { updatedAt: new Date() },
         },
       );

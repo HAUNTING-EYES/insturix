@@ -29,7 +29,7 @@ export interface TasteBankExemplar {
   evidence?: TasteEvidenceRef[];
 }
 
-export function houseTasteBankEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+export function houseTasteBankEnabled(env: Record<string, string | undefined> = process.env): boolean {
   const v = (env.MG_HOUSE_TASTE_BANK_ENABLED ?? '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
 }

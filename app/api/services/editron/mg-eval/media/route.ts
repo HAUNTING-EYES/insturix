@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     try {
       const overlayBuf = await sharp(overlay).webp().toBuffer();
       const png = await sharp(footage).composite([{ input: overlayBuf }]).png().toBuffer();
-      return new Response(png, { headers: { 'content-type': 'image/png', 'cache-control': 'no-store' } });
+      return new Response(png as unknown as BodyInit, { headers: { 'content-type': 'image/png', 'cache-control': 'no-store' } });
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : 'composite failed' }, { status: 500 });
     }

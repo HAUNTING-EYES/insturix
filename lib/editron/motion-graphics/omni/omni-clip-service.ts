@@ -114,6 +114,6 @@ export function realOmniDeps(): OmniClipDeps {
   return {
     subscribe: (endpoint, input) =>
       fal.subscribe(endpoint as never, input as never) as Promise<{ data: unknown; requestId?: string }>,
-    upload: async (bytes, name, mimeType) => fal.storage.upload(new Blob([bytes]) as never) as Promise<string>,
+    upload: async (bytes, name, mimeType) => fal.storage.upload(new Blob([bytes as unknown as BlobPart]) as never) as Promise<string>,
   };
 }

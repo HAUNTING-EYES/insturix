@@ -13,6 +13,7 @@ import type { MgMomentDesignPlan } from '@/lib/editron/motion-graphics/codegen/d
 const plan = (over: Partial<MgMomentDesignPlan> = {}): MgMomentDesignPlan => ({
   momentId: 'b0', lane: 'overlay-kit', concept: 'a kinetic line lands the claim', targetBar: 'energy',
   primaryCommunicativeJob: 'emphasize',
+  intentionalDeviations: [],
   structure: { placement: 'center', grouping: 'headline + rule', readingOrder: 'headline then rule' },
   elements: [
     { kind: 'headline', role: 'the spoken line', dataProps: ['line'] },

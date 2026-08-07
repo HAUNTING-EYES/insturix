@@ -698,6 +698,18 @@ describe('assertUsableScriptWriterResult', () => {
     expect(call).toThrow(/scene_count_under_runtime_floor:2\/10/);
   });
 
+  it('accepts a runtime-complete script whose scene count is below the nominal floor (production 9/10 regression)', () => {
+    // A 7-minute ask that came back with 9 scenes but a full ~420s runtime was wrongly rejected by the standalone
+    // scene-count floor. The floor must only fire together with a runtime UNDERSHOOT.
+    const scenes = makeSidecar().scenes.map((scene, i) => ({ ...scene, durationSeconds: 200 + i, generationUnitId: `scene_${i + 1}` }));
+    expect(() =>
+      assertUsableScriptWriterResult(
+        makeResult({ sidecar: makeSidecar({ scenes }) }), // 401s total across 2 scenes
+        { productionBrief: productionBriefWithDuration(420) },
+      ),
+    ).not.toThrow(/runtime_duration_mismatch|scene_count_under_runtime_floor/);
+  });
+
   it('accepts a script whose scene durations land inside the runtime tolerance', () => {
     const scenes = makeSidecar().scenes.map((scene) => ({ ...scene, durationSeconds: 30 }));
     expect(() =>
