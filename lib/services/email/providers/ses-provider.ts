@@ -1,35 +1,52 @@
 import { env } from 'node:process';
 import {
-  SESClient,
+  SESv2Client,
   SendEmailCommand,
   type SendEmailCommandInput,
-  SESServiceException,
-} from '@aws-sdk/client-ses';
+  SESv2ServiceException,
+} from '@aws-sdk/client-sesv2';
 
 import { loadMailerConfig, type MailerConfig } from '../config';
 import { RateLimiter } from './rate-limiter';
-import type { MailMessage, MailProvider, Recipient, SendResult, BatchOptions, BatchResult } from '../types';
+import type { MailMessage, MailProvider, Recipient, SendResult, BatchOptions } from '../types';
+
+const SES_UNSUBSCRIBE_PLACEHOLDER = '{{amazonSESUnsubscribeUrl}}';
+const ONE_CLICK_UNSUBSCRIBE_VALUE = 'List-Unsubscribe=One-Click';
 
 function resolveCredentials() {
   if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
     return {
       accessKeyId: env.AWS_ACCESS_KEY_ID,
       secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+      ...(env.AWS_SESSION_TOKEN ? { sessionToken: env.AWS_SESSION_TOKEN } : {}),
     };
   }
   return undefined;
 }
 
+function assertHeaderSafe(value: string, field: string): void {
+  if (/[\r\n]/.test(value)) {
+    throw new Error(`${field} cannot contain line breaks.`);
+  }
+}
+
 function formatRecipient(recipient: Recipient): string {
   if (typeof recipient === 'string') {
-    return recipient;
+    const value = recipient.trim();
+    assertHeaderSafe(value, 'Recipient');
+    return value;
   }
+
+  const email = recipient.email.trim();
+  assertHeaderSafe(email, 'Recipient email');
 
   if (recipient.name) {
-    return `${recipient.name} <${recipient.email}>`;
+    const name = recipient.name.trim();
+    assertHeaderSafe(name, 'Recipient name');
+    return `${name} <${email}>`;
   }
 
-  return recipient.email;
+  return email;
 }
 
 function toAddressList(value?: Recipient | Recipient[]): string[] | undefined {
@@ -47,11 +64,23 @@ function toTags(tags?: Record<string, string>) {
 }
 
 function isRetryable(error: unknown): boolean {
-  if (error instanceof SESServiceException) {
-    const retryable = ['Throttling', 'TooManyRequests', 'ServiceUnavailable', 'RequestTimeout'];
+  if (error instanceof SESv2ServiceException) {
+    const retryable = [
+      'ThrottlingException',
+      'TooManyRequestsException',
+      'ServiceUnavailableException',
+      'RequestTimeout',
+    ];
     return retryable.includes(error.name) || error.$metadata?.httpStatusCode === 429;
   }
   return false;
+}
+
+function hasUnsubscribePlaceholder(message: MailMessage): boolean {
+  return Boolean(
+    message.htmlBody?.includes(SES_UNSUBSCRIBE_PLACEHOLDER) ||
+      message.textBody?.includes(SES_UNSUBSCRIBE_PLACEHOLDER)
+  );
 }
 
 async function delay(ms: number) {
@@ -62,15 +91,15 @@ async function delay(ms: number) {
 
 export class SESProvider implements MailProvider {
   private readonly config: MailerConfig;
-  private readonly client: SESClient;
+  private readonly client: SESv2Client;
   private readonly rateLimiter: RateLimiter;
 
   constructor(config: MailerConfig = loadMailerConfig()) {
     this.config = config;
-    this.client = new SESClient({
+    this.client = new SESv2Client({
       region: config.region,
       credentials: resolveCredentials(),
-      maxAttempts: config.maxRetries,
+      maxAttempts: 1,
     });
     this.rateLimiter = new RateLimiter(config.maxRatePerSecond);
   }
@@ -82,6 +111,10 @@ export class SESProvider implements MailProvider {
     if (!htmlBody && !textBody) {
       throw new Error('Email payload must include htmlBody or textBody.');
     }
+    if (!message.subject.trim()) {
+      throw new Error('Email payload must include a subject.');
+    }
+    assertHeaderSafe(message.subject, 'Email subject');
 
     const destination = {
       ToAddresses: toAddressList(message.to) ?? [],
@@ -93,8 +126,89 @@ export class SESProvider implements MailProvider {
       throw new Error('Email payload must include at least one recipient.');
     }
 
-  type EmailBody = NonNullable<SendEmailCommandInput['Message']>['Body'];
-  const body: EmailBody = {};
+    const delivery = message.delivery ?? { stream: 'transactional' as const };
+    const includesUnsubscribePlaceholder = hasUnsubscribePlaceholder(message);
+    let fromAddress = this.config.fromAddress;
+    let configurationSetName = this.config.transactionalConfigurationSet;
+    let headers: NonNullable<
+      NonNullable<SendEmailCommandInput['Content']>['Simple']
+    >['Headers'];
+
+    if (includesUnsubscribePlaceholder) {
+      throw new Error(
+        `${SES_UNSUBSCRIBE_PLACEHOLDER} is not supported by the custom unsubscribe flow.`
+      );
+    }
+
+    if (delivery.stream === 'marketing') {
+      const recipientCount =
+        destination.ToAddresses.length +
+        (destination.CcAddresses?.length ?? 0) +
+        (destination.BccAddresses?.length ?? 0);
+      if (recipientCount !== 1) {
+        throw new Error('Marketing email must have exactly one recipient.');
+      }
+
+      const topicName = delivery.topicName.trim();
+      if (!topicName) {
+        throw new Error('Marketing email must include a non-empty topicName.');
+      }
+      if (!this.config.marketingFromAddress) {
+        throw new Error('AWS_SES_MARKETING_FROM_EMAIL is not configured.');
+      }
+      if (!this.config.marketingConfigurationSet) {
+        throw new Error(
+          'AWS_SES_MARKETING_CONFIGURATION_SET is not configured.'
+        );
+      }
+      const unsubscribeUrl = delivery.unsubscribeUrl?.trim();
+      if (!unsubscribeUrl) {
+        throw new Error(
+          'Marketing email must pass the centralized eligibility policy.'
+        );
+      }
+      assertHeaderSafe(unsubscribeUrl, 'Unsubscribe URL');
+
+      let parsedUnsubscribeUrl: URL;
+      try {
+        parsedUnsubscribeUrl = new URL(unsubscribeUrl);
+      } catch {
+        throw new Error('Marketing email has an invalid unsubscribe URL.');
+      }
+      if (parsedUnsubscribeUrl.protocol !== 'https:') {
+        throw new Error('Marketing unsubscribe URL must use HTTPS.');
+      }
+      if (
+        !message.htmlBody?.includes(unsubscribeUrl) &&
+        !message.textBody?.includes(unsubscribeUrl)
+      ) {
+        throw new Error(
+          'Marketing email must include a visible unsubscribe link.'
+        );
+      }
+
+      fromAddress = this.config.marketingFromAddress;
+      configurationSetName = this.config.marketingConfigurationSet;
+      headers = [
+        {
+          Name: 'List-Unsubscribe',
+          Value: `<${unsubscribeUrl}>`,
+        },
+        {
+          Name: 'List-Unsubscribe-Post',
+          Value: ONE_CLICK_UNSUBSCRIBE_VALUE,
+        },
+      ];
+    }
+
+    assertHeaderSafe(fromAddress, 'From address');
+
+    type EmailBody = NonNullable<
+      NonNullable<
+        NonNullable<SendEmailCommandInput['Content']>['Simple']
+      >['Body']
+    >;
+    const body: EmailBody = {};
     if (htmlBody) {
       body.Html = {
         Data: htmlBody,
@@ -109,17 +223,24 @@ export class SESProvider implements MailProvider {
     }
 
     return {
-      Source: this.config.fromAddress,
+      FromEmailAddress: fromAddress,
       Destination: destination,
-      Message: {
-        Subject: {
-          Data: message.subject,
-          Charset: 'UTF-8',
+      Content: {
+        Simple: {
+          Subject: {
+            Data: message.subject,
+            Charset: 'UTF-8',
+          },
+          Body: body,
+          Headers: headers,
         },
-        Body: body,
       },
       ReplyToAddresses: toAddressList(message.replyTo),
-      Tags: toTags(message.tags),
+      EmailTags: toTags({
+        ...message.tags,
+        email_stream: delivery.stream,
+      }),
+      ConfigurationSetName: configurationSetName,
     };
   }
 
@@ -162,24 +283,15 @@ export class SESProvider implements MailProvider {
     const maxConcurrent = options.maxConcurrent ?? 3;
     const results: SendResult[] = [];
 
-    const totalBatches = Math.ceil(messages.length / batchSize);
-    
     for (let i = 0; i < messages.length; i += batchSize) {
-      const batchNumber = Math.floor(i / batchSize) + 1;
       const chunk = messages.slice(i, i + batchSize);
-      
-      console.log(`📧 Batch ${batchNumber}/${totalBatches}: Processing ${chunk.length} emails...`);
-      
+
       // Send up to maxConcurrent emails concurrently within the batch
       const chunkResults = await this.sendBatchConcurrent(chunk, maxConcurrent);
       results.push(...chunkResults);
-      
-      const successCount = chunkResults.filter(r => r.success).length;
-      console.log(`✅ Batch ${batchNumber}/${totalBatches}: ${successCount}/${chunk.length} successful`);
-      
+
       // Wait between batches to give AWS SES time to reset quota
       if (i + batchSize < messages.length && delayBetweenBatches > 0) {
-        console.log(`⏳ Waiting ${delayBetweenBatches}ms before next batch...`);
         await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
       }
     }
@@ -195,7 +307,7 @@ export class SESProvider implements MailProvider {
     let index = 0;
     let inProgress = 0;
 
-    return new Promise((resolve, reject) => {
+    return new Promise(resolve => {
       const sendNext = async () => {
         if (index >= messages.length && inProgress === 0) {
           resolve(results);
@@ -228,36 +340,17 @@ export class SESProvider implements MailProvider {
     });
   }
 
-  async sendBatchManaged(
-    messages: MailMessage[],
-    options: BatchOptions & { onProgress?: (progress: any) => void } = {}
-  ): Promise<BatchResult> {
-    const startTime = Date.now();
-    const results = await this.sendBatch(messages, options);
-    const duration = Date.now() - startTime;
-
-    const successful = results.filter(r => r.success).length;
-    const failed = results.length - successful;
-
-    return {
-      results,
-      summary: {
-        total: results.length,
-        successful,
-        failed,
-        duration,
-      },
-    };
-  }
-
   async verifyConfiguration(): Promise<boolean> {
-    if (!env.AWS_ACCESS_KEY_ID || !env.AWS_SECRET_ACCESS_KEY) {
+    if (!this.config.fromAddress.trim() || !this.config.region.trim()) {
       return false;
     }
-    if (!this.config.fromAddress) {
+
+    try {
+      await this.client.config.credentials();
+      return true;
+    } catch {
       return false;
     }
-    return true;
   }
 }
 

@@ -38,8 +38,6 @@ const WriterMetadataSchema = z.object({
   voiceLanguage: z.string().default(WRITER_CAPABILITIES.voiceLanguages[0] ?? 'en'),
 });
 
-const ScriptWriterModelMetadataSchema = WriterMetadataSchema.omit({ estimatedTimeSeconds: true });
-
 const ScriptVisualMetadataSchema = z.object({
   motionInfo: z.string().describe('General motion graphic styling instructions'),
   scenePrompts: z.array(z.string()).describe('One deterministic visual prompt per Script Sidecar scene.'),
@@ -52,7 +50,7 @@ export const ScriptWriterModelOutputSchema = z.object({
   visualMetadata: z.object({
     motionInfo: z.string().describe('General motion graphic styling instructions'),
   }),
-  metadata: ScriptWriterModelMetadataSchema,
+  metadata: WriterMetadataSchema,
   sidecar: ScriptSidecarSchema.describe('Canonical Script Sidecar v1 emitted in the single writer pass'),
 });
 
@@ -114,51 +112,7 @@ const SCHEMA_ARTIFACT_PATTERNS = [
 
 const RELIP_UNSAFE_OCCLUSION_PATTERN = /\b(masked|mask covering|face covered|covered face|hidden face|occluded face|heavy occlusion|silhouette|back turned|turned away|profile only)\b/i;
 const RELIP_UNSAFE_MOTION_PATTERN = /\b(rapid|chaotic|whip pan|spinning|running|shaky|handheld chase|fast motion)\b/i;
-const CAPABILITY_REPAIR_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|on_camera_ratio_exceeded|unsupported_voice_language|missing_shot_intent|shot_intent_[a-z_]+|runtime_duration_mismatch|spoken_word_count_mismatch|scene_count_under_runtime_floor)\b/;
-const LONG_FORM_THRESHOLD_SECONDS = 120;
-const MIN_LONG_FORM_WORDS_PER_MINUTE = 95;
-const TARGET_WORDS_PER_MINUTE = 135;
-const MAX_LONG_FORM_WORDS_PER_MINUTE = 165;
-const MAX_SCRIPT_OUTPUT_TOKENS = 32_768;
-
-export interface ScriptRuntimeContract {
-  targetDurationSeconds: number;
-  minimumDurationSeconds: number;
-  maximumDurationSeconds: number;
-  targetSpokenWords: number;
-  minimumSpokenWords: number | null;
-  maximumSpokenWords: number | null;
-  minimumSceneCount: number | null;
-}
-
-export function resolveScriptRuntimeContract(
-  productionBrief?: ProductionBrief | null,
-): ScriptRuntimeContract | null {
-  const target = productionBrief?.output.targetDurationSec;
-  if (typeof target !== 'number' || !Number.isFinite(target) || target <= 0) return null;
-
-  const tolerance = Math.max(3, target * 0.05);
-  const isLongForm = target >= LONG_FORM_THRESHOLD_SECONDS;
-  return {
-    targetDurationSeconds: target,
-    minimumDurationSeconds: Math.max(1, target - tolerance),
-    maximumDurationSeconds: target + tolerance,
-    targetSpokenWords: Math.round((target / 60) * TARGET_WORDS_PER_MINUTE),
-    minimumSpokenWords: isLongForm
-      ? Math.floor((target / 60) * MIN_LONG_FORM_WORDS_PER_MINUTE)
-      : null,
-    maximumSpokenWords: isLongForm
-      ? Math.ceil((target / 60) * MAX_LONG_FORM_WORDS_PER_MINUTE)
-      : null,
-    minimumSceneCount: isLongForm ? Math.ceil(target / 45) : null,
-  };
-}
-
-function resolveScriptOutputTokenBudget(baseTokens: number, contract: ScriptRuntimeContract | null): number {
-  if (!contract) return baseTokens;
-  const durationAwareBudget = Math.ceil(contract.targetDurationSeconds * 40);
-  return Math.min(MAX_SCRIPT_OUTPUT_TOKENS, Math.max(baseTokens, durationAwareBudget));
-}
+const CAPABILITY_REPAIR_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|on_camera_ratio_exceeded|unsupported_voice_language|missing_shot_intent|shot_intent_[a-z_]+)\b/;
 
 function narrationForScene(scene: ScriptSidecar['scenes'][number]): string {
   const narration = scene.narration.trim();
@@ -186,7 +140,6 @@ function promptForScene(scene: ScriptSidecar['scenes'][number], index: number): 
 
 export function materializeScriptWriterResult(modelOutput: ScriptWriterModelOutput): ScriptWriterResult {
   const sidecar = parseScriptSidecar(modelOutput.sidecar);
-  const estimatedTimeSeconds = sidecar.scenes.reduce((total, scene) => total + scene.durationSeconds, 0);
   const content = sidecar.scenes
     .map((scene, index) => [
       `## Scene ${index + 1}: ${scene.title.trim()}`,
@@ -202,7 +155,7 @@ export function materializeScriptWriterResult(modelOutput: ScriptWriterModelOutp
       motionInfo: modelOutput.visualMetadata.motionInfo,
       scenePrompts: sidecar.scenes.map(promptForScene),
     },
-    metadata: { ...modelOutput.metadata, estimatedTimeSeconds },
+    metadata: modelOutput.metadata,
     sidecar,
   };
 }
@@ -278,12 +231,11 @@ function buildCapabilityRepairSystemInstruction(systemInstruction: string, failu
 The previous structured output failed a production writer contract:
 ${failure.message}
 
-Return a complete replacement object using the same JSON schema. Preserve the brief's facts, brand intent, source references, casting, and overall narrative. Repair the reported production-contract violations.
+Return a complete replacement object using the same JSON schema. Preserve the brief's facts, brand intent, source references, casting, and overall narrative. Repair only the capability or shot-intent violations.
 
 Critical rules:
 - Every scene requires a complete shotIntent that matches its visible performers and sync-dialogue lines. shotIntent.spokenAudio means speech captured on set; it is false for voiceover-only scenes.
 - Every scene that contains on-camera sync-dialogue is one actual relip job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. Do not use subShots to bypass this limit. Split an overlong on-camera beat into multiple consecutive sidecar.scenes instead, each with its own duration, visual direction, lines, relip safety data, and shot intent. Do not silently turn required on-camera cast speech into voiceover.
-- When runtime, spoken-word, or scene-count failures are reported, rebuild the complete script to satisfy tf_untrusted_data.productionSpec. Add substantive narration and visual progression; never fix runtime by inflating durationSeconds around sparse copy.
 </writer_capability_repair>`;
 }
 
@@ -322,38 +274,16 @@ function countMatches(text: string, pattern: RegExp): number {
   return Array.from(text.matchAll(pattern)).length;
 }
 
-function validateRuntimeCompliance(
-  sidecar: ScriptSidecar,
-  productionBrief: ProductionBrief | null | undefined,
-  failures: string[],
-): void {
-  const contract = resolveScriptRuntimeContract(productionBrief);
-  if (!contract) return;
-
-  const actualDuration = sidecar.scenes.reduce((total, scene) => total + scene.durationSeconds, 0);
-  if (actualDuration < contract.minimumDurationSeconds || actualDuration > contract.maximumDurationSeconds) {
-    failures.push(`runtime_duration_mismatch:${Math.round(actualDuration)}s/${Math.round(contract.targetDurationSeconds)}s`);
-  }
-
-  if (contract.minimumSceneCount !== null && sidecar.scenes.length < contract.minimumSceneCount) {
-    failures.push(`scene_count_under_runtime_floor:${sidecar.scenes.length}/${contract.minimumSceneCount}`);
-  }
-
-  if (contract.minimumSpokenWords !== null && contract.maximumSpokenWords !== null) {
-    const spokenWords = sidecar.scenes
-      .map(narrationForScene)
-      .join(' ')
-      .trim()
-      .split(/\s+/u)
-      .filter(Boolean)
-      .length;
-    if (spokenWords < contract.minimumSpokenWords || spokenWords > contract.maximumSpokenWords) {
-      failures.push(
-        `spoken_word_count_mismatch:${spokenWords}/${contract.minimumSpokenWords}-${contract.maximumSpokenWords}`,
-      );
-    }
-  }
-}
+/**
+ * Runtime-contract gate thresholds (R19N: an editor trims an over-long script but never pads a short one).
+ * - Undershoot tolerance: allow the writer to land within ~30s of the asked runtime before flagging — a small
+ *   shortfall is compression, not a dropped runtime contract. 30s ← domain allowance (calibrated; pinned by the
+ *   420s/42s test).
+ * - Scene-count floor: long-form pacing ≈ 1 scene per 42s, so a 420s ask demands ~10 scenes (7-min ≈ 10 beats).
+ *   42s/scene ← domain pacing (calibrated; test pins 420s -> floor 10, 30s/60s asks pass short counts).
+ */
+const RUNTIME_MISMATCH_TOLERANCE_SEC = 30;
+const RUNTIME_SCENE_FLOOR_STEP_SEC = 42;
 
 export function assertUsableScriptWriterResult(
   result: ScriptWriterResult,
@@ -378,9 +308,22 @@ export function assertUsableScriptWriterResult(
   try {
     const sidecar = parseScriptSidecar(result.sidecar);
     sidecarSceneCount = sidecar.scenes.length;
-    validateRuntimeCompliance(sidecar, options.productionBrief, failures);
     validateWriterCapabilityCompliance(result, sidecar, failures);
     validateCastingBriefCompliance(sidecar, options.productionBrief, failures);
+
+    // Runtime contract: a script that undershoots the asked runtime must never ship as success (an editor trims
+    // overages, but a 42s script for a 7-minute ask is a silent contract break — regression guard for the 420s repair).
+    const runtimeTargetSec = options.productionBrief?.output.targetDurationSec;
+    if (typeof runtimeTargetSec === 'number' && Number.isFinite(runtimeTargetSec) && runtimeTargetSec > 0) {
+      const totalSceneSec = sidecar.scenes.reduce((sum, scene) => sum + (scene.durationSeconds ?? 0), 0);
+      if (totalSceneSec < runtimeTargetSec - RUNTIME_MISMATCH_TOLERANCE_SEC) {
+        failures.push(`runtime_duration_mismatch:${totalSceneSec}s/${runtimeTargetSec}s`);
+      }
+      const sceneFloor = Math.max(1, Math.round(runtimeTargetSec / RUNTIME_SCENE_FLOOR_STEP_SEC));
+      if (sidecar.scenes.length < sceneFloor) {
+        failures.push(`scene_count_under_runtime_floor:${sidecar.scenes.length}/${sceneFloor}`);
+      }
+    }
     failures.push(...findSourceLedgerIssuesForSidecar(sidecar, options.sourceLedger));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'unknown';
@@ -507,10 +450,6 @@ Your task is to write a high-retention, engaging video script.
    - \`performance\` contains only characters physically visible in the shot. Use each visible character once, copy its exact \`characterId\`, and describe stance, emotion, intensity, gaze, posture, gesture, and movement. Set \`simultaneousPerformers\` to the number of these unique visible characters. Use an empty array and 0 for object/B-roll/graphics scenes with no visible character.
    - Set \`spokenAudio: true\` only when the scene captures on-camera sync dialogue. Set it false for voiceover, music, ambient sound, on-screen text, and silent B-roll.
    - Use \`continuity\` only for wardrobe, props, screen direction, and links to earlier scenes. Do not turn creative preferences into claimed physical capabilities; the deterministic production resolver will adapt or block infeasible intent later.
-9. **Runtime contract:** Read \`tf_untrusted_data.productionSpec\` as the authoritative output runtime when present.
-   - Make all scene \`durationSeconds\` values add up inside its minimum/maximum duration range; do not merely report the target in metadata.
-   - For long-form scripts, write spoken narration within its minimum/maximum word range and use at least its minimum scene count. Build a real long-form argument with enough substance and visual progression; never stretch a short script by assigning long durations to sparse scenes.
-   - Aim for \`targetSpokenWords\`. The server derives \`metadata.estimatedTimeSeconds\` from scene durations, so do not author that estimate.
 
 Return your response strictly adhering to the JSON schema.`;
 
@@ -548,8 +487,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read Brand Vault and learned voice evidence only from tf_untrusted_data.brandContext.
 - Read retrieved facts only from tf_untrusted_data.databankFacts.
 - Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
-- Read actual requested and unsupported spoken languages from tf_untrusted_data.voiceLanguageRequest; enforce the supported-language list above.
-- Read the authoritative duration, spoken-word, and scene-count requirements only from tf_untrusted_data.productionSpec.`;
+- Read actual requested and unsupported spoken languages from tf_untrusted_data.voiceLanguageRequest; enforce the supported-language list above.`;
 
     return buildIsolatedPromptParts({
       systemInstruction: this.applyGlobalConstraints(
@@ -592,7 +530,6 @@ Return your response strictly adhering to the JSON schema.`;
       trendBrief: formatTrendBriefForPrompt(productionBrief) || null,
       castingBrief: formatCastingBriefForPrompt(productionBrief) || null,
       sourceLedger: sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : null,
-      productionSpec: resolveScriptRuntimeContract(productionBrief),
       voiceLanguageRequest: {
         requested: requestedVoiceLanguages,
         unsupported: unsupportedVoiceLanguages,
@@ -610,7 +547,7 @@ Return your response strictly adhering to the JSON schema.`;
   }
 
   // One schema-constrained completion is the canonical source of a script. A single,
-  // low-temperature replacement is allowed after a proven production-contract failure.
+  // low-temperature replacement is allowed after a proven capability or shot-intent failure.
   async runStructured(
     input: ScriptWriterInput,
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
@@ -618,17 +555,13 @@ Return your response strictly adhering to the JSON schema.`;
   ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
     const promptParts = this.buildPromptParts(input);
     const gen = this.resolveGenConfig(overrides);
-    const maxTokens = resolveScriptOutputTokenBudget(
-      gen.maxTokens,
-      resolveScriptRuntimeContract(input.productionBrief),
-    );
     const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
       systemInstruction: promptParts.systemInstruction,
       schema: ScriptWriterModelOutputSchema,
       modelName: this.config.modelName,
       temperature: gen.temperature,
-      maxTokens,
+      maxTokens: gen.maxTokens,
       abortSignal,
     });
 
@@ -656,7 +589,7 @@ Return your response strictly adhering to the JSON schema.`;
         schema: ScriptWriterModelOutputSchema,
         modelName: this.config.modelName,
         temperature: Math.min(gen.temperature, 0.25),
-        maxTokens,
+        maxTokens: gen.maxTokens,
         abortSignal,
       });
       modelOutput = repairedGeneration.result;

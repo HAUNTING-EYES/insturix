@@ -408,7 +408,7 @@ describe('rendered aesthetic harness helpers', () => {
     });
 
     const box = renderedOverlayBoxAtFrame(overlay, 30, 1920, 1080);
-    const workerBox = renderedWorkerOverlayBoxAtFrame(overlay, 30, 1920, 1080);
+    const workerBox = renderedWorkerOverlayBoxAtFrame(overlay as unknown as Parameters<typeof renderedWorkerOverlayBoxAtFrame>[0], 30, 1920, 1080);
 
     expect(box).toEqual(expect.objectContaining({
       x: 192,

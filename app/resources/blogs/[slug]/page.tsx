@@ -37,7 +37,23 @@ export async function generateMetadata({
   return {
     title: `${post.title} | Insturix Blog`,
     description: post.excerpt,
+    // Self-referencing canonical. Without it these posts inherited the root
+    // layout's canonical and pointed at the homepage, which told crawlers every
+    // post was a duplicate. Explicit also collapses ?utm_* share links onto the
+    // clean post URL.
+    alternates: {
+      canonical: `/resources/blogs/${post.id}`,
+    },
     openGraph: {
+      type: "article",
+      // Next.js REPLACES the parent openGraph object rather than merging it, so the
+      // root layout's siteName is dropped on any page that declares its own. Repeat
+      // it here or these pages ship an incomplete Open Graph card.
+      siteName: "Insturix",
+      url: `/resources/blogs/${post.id}`,
+      publishedTime: post.publishedAt,
+      authors: [post.author.name],
+      tags: post.tags,
       title: post.title,
       description: post.excerpt,
       images: [
@@ -70,6 +86,22 @@ export default async function BlogPost({ params }: { params: tParams }) {
   ) {
     notFound();
   }
+
+  // Related posts for internal linking. Every post used to have exactly ONE
+  // incoming internal link (the blog index), which starves crawlers of paths
+  // into the content and hides the topical relationship between posts.
+  // Ranked by shared tags, falling back to recency — getAllBlogPosts() returns
+  // newest-first and Array.prototype.sort is stable, so equal scores keep that
+  // order. Deterministic: no randomness, no date math at render time.
+  const relatedPosts = (await getAllBlogPosts())
+    .filter((candidate) => candidate.id !== post.id)
+    .map((candidate) => ({
+      candidate,
+      sharedTags: candidate.tags.filter((tag) => post.tags.includes(tag)).length,
+    }))
+    .sort((a, b) => b.sharedTags - a.sharedTags)
+    .slice(0, 3)
+    .map(({ candidate }) => candidate);
 
   return (
     <>
@@ -332,6 +364,72 @@ export default async function BlogPost({ params }: { params: tParams }) {
               </div>
             </div>
           </article>
+
+          {relatedPosts.length > 0 && (
+            <section
+              aria-labelledby="related-reading"
+              style={{
+                marginTop: 64,
+                paddingTop: 32,
+                borderTop: "1px solid var(--border-subtle)",
+              }}
+            >
+              <h2
+                id="related-reading"
+                style={{
+                  fontSize: 18,
+                  fontWeight: 800,
+                  letterSpacing: "-0.02em",
+                  color: "var(--text-primary)",
+                  margin: "0 0 20px",
+                }}
+              >
+                Related reading
+              </h2>
+              <ul
+                style={{
+                  listStyle: "none",
+                  margin: 0,
+                  padding: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 20,
+                }}
+              >
+                {relatedPosts.map((related) => (
+                  <li key={related.id}>
+                    <Link
+                      href={`/resources/blogs/${related.id}`}
+                      style={{ textDecoration: "none", display: "block" }}
+                    >
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: 15,
+                          fontWeight: 500,
+                          lineHeight: 1.4,
+                          color: "var(--text-primary)",
+                          marginBottom: 6,
+                        }}
+                      >
+                        {related.title}
+                      </span>
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: 13,
+                          lineHeight: 1.5,
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        {related.excerpt}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
       </main>
       <SiteFooter />

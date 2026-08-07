@@ -3,7 +3,8 @@ import { SiteFooter } from "@/components/shared/site-footer";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Refund Policy | Insturix",
+  alternates: { canonical: "/legal/refund-policy" },
+  title: "Refund Policy",
 };
 
 export default function RefundPolicy() {

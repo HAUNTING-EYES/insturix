@@ -4,10 +4,26 @@
  * to keep the provider and template layers decoupled.
  */
 
+import type { EmailTopic } from './contact-policy';
+
 export type Recipient = string | {
   email: string;
   name?: string;
 };
+
+export type MailDelivery =
+  | {
+      stream: 'transactional';
+    }
+  | {
+      stream: 'marketing';
+      topicName: EmailTopic;
+      /**
+       * Added by the eligibility policy after consent has been verified.
+       * Callers should provide only stream and topicName.
+       */
+      unsubscribeUrl?: string;
+    };
 
 export interface MailMessage {
   to: Recipient | Recipient[];
@@ -18,6 +34,7 @@ export interface MailMessage {
   cc?: Recipient[];
   bcc?: Recipient[];
   tags?: Record<string, string>;
+  delivery?: MailDelivery;
 }
 
 export interface SendResult {
@@ -25,6 +42,11 @@ export interface SendResult {
   messageId?: string;
   error?: string;
   retriesUsed?: number;
+  skipped?: boolean;
+  skipReason?:
+    | 'not_subscribed'
+    | 'unsubscribed'
+    | 'suppressed';
 }
 
 export interface BatchOptions {
@@ -38,6 +60,7 @@ export interface BatchProgress {
   total: number;
   sent: number;
   failed: number;
+  skipped: number;
   inProgress: number;
   remainingTime?: number;
 }
@@ -48,6 +71,7 @@ export interface BatchResult {
     total: number;
     successful: number;
     failed: number;
+    skipped: number;
     duration: number;
   };
 }
@@ -81,4 +105,5 @@ export interface SendTemplateOptions<TPayload> {
   cc?: Recipient[];
   bcc?: Recipient[];
   tags?: Record<string, string>;
+  delivery?: MailDelivery;
 }

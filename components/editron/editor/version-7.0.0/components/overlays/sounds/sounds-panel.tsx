@@ -501,6 +501,7 @@ function ReferenceSongSection({
   assigningTrackId,
   onAssign,
 }: ReferenceSongSectionProps) {
+  if (!identity) return null;
   const primary = sameSong?.candidate ?? candidates[0];
   return (
     <div className="space-y-3">

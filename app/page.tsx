@@ -11,6 +11,10 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/",
+    siteName: "Insturix",
     title: "Insturix | Automated Content Production Platform",
     description:
       "Plan, script, edit, analyze, design, add sound, publish, and share content from one automated production workflow.",

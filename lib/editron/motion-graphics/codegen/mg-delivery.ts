@@ -16,7 +16,7 @@
 export type MgRenderIntegrityPolicy = 'preview' | 'degraded_allowed' | 'strict';
 
 /** Default = degraded_allowed for the client-facing auto-edit path (§24.3); strict is opt-in via env. */
-export function renderIntegrityPolicy(env: NodeJS.ProcessEnv = process.env): MgRenderIntegrityPolicy {
+export function renderIntegrityPolicy(env: Record<string, string | undefined> = process.env): MgRenderIntegrityPolicy {
   const raw = (env.MG_RENDER_INTEGRITY_POLICY ?? 'degraded_allowed').trim().toLowerCase();
   if (raw === 'preview' || raw === 'strict') return raw;
   return 'degraded_allowed';

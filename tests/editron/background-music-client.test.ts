@@ -429,7 +429,7 @@ describe('reference-song bridge client', () => {
       await import('@/components/editron/editor/version-7.0.0/utils/background-music-assignment')
     ).fetchReferenceSong({ projectId: 'proj_123', fetchImpl });
 
-    const [url] = vi.mocked(fetchImpl).mock.calls[0];
+    const url = (vi.mocked(fetchImpl).mock.calls[0] as unknown[])[0];
     expect(String(url)).toContain('/api/services/editron/music-catalog/reference-song');
     expect(String(url)).toContain('projectId=proj_123');
     expect(payload.referenceAudio?.identity?.title).toBe('Nightcall');

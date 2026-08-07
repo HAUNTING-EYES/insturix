@@ -3,7 +3,8 @@ import { SiteFooter } from "@/components/shared/site-footer";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Cancellation Policy | Insturix",
+  alternates: { canonical: "/legal/cancellation-policy" },
+  title: "Cancellation Policy",
 };
 
 export default function CancellationPolicy() {

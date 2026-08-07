@@ -7,12 +7,16 @@ export const metadata: Metadata = {
   keywords:
     "automated content production, AI content workflow, content production automation, brand-consistent content, Insturix blog",
   openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/resources/blogs",
+    siteName: "Insturix",
     title: "Insturix Blog | Automated Content Production Insights",
     description:
       "Guides and insights on AI-assisted content workflows, brand consistency, and scaling production output.",
     images: [
       {
-        url: "/icons/blog-og-image.jpg",
+        url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "Insturix blog for automated content production",
@@ -24,7 +28,7 @@ export const metadata: Metadata = {
     title: "Insturix Blog | Automated Content Production Insights",
     description:
       "Guides and insights on AI-assisted content workflows, brand consistency, and scaling production output.",
-    images: ["/icons/blog-twitter-image.jpg"],
+    images: ["/icons/twitter-image.jpg"],
   },
 };
 

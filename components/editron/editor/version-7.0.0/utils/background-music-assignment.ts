@@ -521,5 +521,5 @@ export async function fetchReferenceSong(
   if (!response.ok || payload.success !== true) {
     throw responseFailure(payload, response, 'Reference song lookup failed');
   }
-  return payload as ReferenceSongPickerPayload;
+  return payload as unknown as ReferenceSongPickerPayload;
 }

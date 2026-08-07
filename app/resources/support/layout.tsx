@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Insturix Support | Help and Troubleshooting",
+  alternates: { canonical: "/resources/support" },
+  title: "Support | Help and Troubleshooting",
   description:
     "Get help with Insturix. Find support for accounts, billing, credits, uploading footage, rendering, publishing, and automated content production workflows.",
   keywords: [
@@ -12,6 +13,18 @@ export const metadata: Metadata = {
     "automated content production help",
   ],
   openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/resources/support",
+    images: [
+      {
+        url: "/icons/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Insturix - Automated Content Production Platform",
+      },
+    ],
+    siteName: "Insturix",
     title: "Insturix Support | Help and Troubleshooting",
     description:
       "Support for Insturix accounts, billing, uploads, rendering, publishing, and content production workflows.",

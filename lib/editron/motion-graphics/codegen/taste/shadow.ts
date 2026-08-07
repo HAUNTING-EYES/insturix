@@ -6,13 +6,13 @@
  */
 import { buildVideoTasteContract, type TasteContractBuildInput, type TasteContractBuildResult } from './contract-resolver';
 
-export function tasteContractShadowEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+export function tasteContractShadowEnabled(env: Record<string, string | undefined> = process.env): boolean {
   const v = (env.MG_TASTE_CONTRACT_SHADOW ?? env.MG_TASTE_CONTRACT_ENABLED ?? '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
 }
 
 /** Phase 4a live gate: when ON, the resolved contract actually DIRECTS the designer (art-director mode). */
-export function tasteContractLiveEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+export function tasteContractLiveEnabled(env: Record<string, string | undefined> = process.env): boolean {
   const v = (env.MG_TASTE_CONTRACT_ENABLED ?? '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
 }

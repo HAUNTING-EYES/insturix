@@ -7,12 +7,16 @@ export const metadata: Metadata = {
   keywords:
     "Terms of Service Insturix , Insturix terms , Insturix terms of service , Insturix terms of use , Insturix terms of conditions",
   openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/legal/terms",
+    siteName: "Insturix",
     title: "Terms of Service | Insturix",
     description:
       "Read our Terms of Service to understand how you can use Insturix's services and products.",
     images: [
       {
-        url: "/icons/contact-og-image.jpg",
+        url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
         alt: "Terms of Service Insturix",
@@ -24,7 +28,7 @@ export const metadata: Metadata = {
     title: "Terms of Service | Insturix",
     description:
       "Read our Terms of Service to understand how you can use Insturix's services and products.",
-    images: ["/icons/terms-twitter-image.jpg"],
+    images: ["/icons/twitter-image.jpg"],
   },
 };
 

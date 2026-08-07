@@ -69,7 +69,8 @@ const CSS = `
   mask-image:radial-gradient(circle 200px at var(--mx,-999px) var(--my,-999px),#000 0 42%,transparent 100%)}
 .ikin .hero .inner{position:relative;z-index:1}
 .ikin .hero .kick{margin-bottom:30px}
-.ikin .kline{font-weight:800;letter-spacing:-.05em;line-height:.86;white-space:nowrap;transform-origin:left center;will-change:transform}
+.ikin .ktitle{margin:0;font-size:inherit;font-weight:inherit;line-height:inherit}
+.ikin .kline{display:block;font-weight:800;letter-spacing:-.05em;line-height:.86;white-space:nowrap;transform-origin:left center;will-change:transform}
 .ikin .kline.l1{font-size:clamp(52px,16vw,210px);color:var(--text)}
 .ikin .kline.l2{font-size:clamp(52px,16vw,210px);color:var(--gold)}
 .ikin .hero .sub{margin-top:38px;max-width:46ch;color:var(--soft);font-size:clamp(15px,1.7vw,18px);line-height:1.6}
@@ -190,6 +191,22 @@ function StartupBaseBadges() {
   );
 }
 
+// The hero headline. <Content /> is rendered TWICE — once normally and once inside
+// the aria-hidden `.kinv` cursor-masked overlay — so only the primary copy may be an
+// <h1>. aria-hidden keeps the duplicate away from screen readers but NOT from
+// crawlers, which parse both copies out of the HTML and would report two h1 tags.
+// The overlay copy renders the same markup as a div: identical `.ktitle` styling,
+// just not a heading.
+const Headline: React.FC<{ primary?: boolean }> = ({ primary }) => {
+  const Tag = primary ? "h1" : "div";
+  return (
+    <Tag className="ktitle">
+      <span className="kline l1">YOUR ENTIRE</span>
+      <span className="kline l2">STUDIO.</span>
+    </Tag>
+  );
+};
+
 const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
   <>
     <header className="hero">
@@ -199,8 +216,7 @@ const Content: React.FC<{ ids?: boolean }> = ({ ids }) => (
       </div>
       <div className="wrap inner">
         <span className="kick">One platform · entire production</span>
-        <div className="kline l1">YOUR ENTIRE</div>
-        <div className="kline l2">STUDIO.</div>
+        <Headline primary={ids} />
         <p className="sub">Hand it a brief. Every cut comes back <b>shaped for its channel — and on brand.</b> The whole studio runs in one browser tab. Nothing to install.</p>
         <div className="acts"><Link className="btn go" href="/signup">Start free →</Link><Link className="btn ghost" href="/contactus">Talk to sales</Link></div>
         <StartupBaseBadges />

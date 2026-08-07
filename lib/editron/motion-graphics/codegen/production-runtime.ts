@@ -543,7 +543,7 @@ export async function measureJudgeFrameGeometry(
   const opaqueAt = opts.opaqueAlpha ?? GEOMETRY_THRESHOLDS.opaqueAlpha;
   const faintAt = opts.faintAlpha ?? GEOMETRY_THRESHOLDS.faintAlpha;
 
-  const rawFrames: { data: Buffer; width: number; height: number; channels: number }[] = [];
+  const rawFrames: { data: Buffer; info: { width: number; height: number; channels: number } }[] = [];
   for (const buf of frameBuffers) {
     rawFrames.push(await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true }));
   }
@@ -569,12 +569,15 @@ export async function measureJudgeFrameGeometry(
       }
     }
     if (maxX >= 0) {
-      bboxPx = {
-        x: Math.min(minX, bboxPx?.x ?? minX),
-        y: Math.min(minY, bboxPx?.y ?? minY),
-        width: Math.max(maxX - minX + 1, bboxPx?.width ?? 0),
-        height: Math.max(maxY - minY + 1, bboxPx?.height ?? 0),
-      };
+      const candidate = { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+      bboxPx = bboxPx
+        ? {
+            x: Math.min(bboxPx.x, candidate.x),
+            y: Math.min(bboxPx.y, candidate.y),
+            width: Math.max(bboxPx.width, candidate.width),
+            height: Math.max(bboxPx.height, candidate.height),
+          }
+        : candidate;
     }
   }
 
@@ -903,9 +906,10 @@ export function parseJudgeResponse(
     dims.set(dim, clamped);
     if (clamped < WEAK_DIMENSION_SCORE) weak.push(`weak ${dim} (${clamped}/10)`);
   }
-  if (!isRecord(parsed.hardFailures)) throw new Error('hardFailures must be an object');
+  const hardFailures = parsed.hardFailures;
+  if (!isRecord(hardFailures)) throw new Error('hardFailures must be an object');
   const hard = Object.fromEntries(
-    JUDGE_HARD_FAILURES.map((f) => [f, parsed.hardFailures[f]]),
+    JUDGE_HARD_FAILURES.map((f) => [f, hardFailures[f]]),
   ) as Record<(typeof JUDGE_HARD_FAILURES)[number], boolean>;
   for (const failure of JUDGE_HARD_FAILURES) {
     if (typeof hard[failure] !== 'boolean') throw new Error(`hardFailures.${failure} must be a boolean`);

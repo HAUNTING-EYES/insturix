@@ -3,19 +3,39 @@ import { fetchBlogPosts } from "./lib/blog-posts.js";
 
 const SITE_URL = process.env.SITE_URL || "https://www.insturix.com";
 
+// Private app surfaces: blocked in robots.txt AND kept out of the sitemap.
+//
+// NOTE: "/_next/*" deliberately does NOT belong here. It used to, which blocked
+// Googlebot from fetching the site's own JS, CSS and optimised images - an Ahrefs
+// crawl found 1,014 blocked /_next/static and /_next/image resources. Search engines
+// RENDER pages to understand them, so blocking stylesheets and scripts stops them
+// judging layout and mobile-friendliness, and blocking /_next/image keeps every
+// optimised image out of image search. Nothing under /_next/ is private: these are
+// the exact files every visitor's browser already fetches anonymously.
 const appSurfaceDisallow = [
   "/api/*",
   "/admin/*",
-  "/_next/*",
   "/_static/*",
   "/auth/*",
   "/dashboard/*",
-  "/profile/*",
   "/settings/*",
   "/checkout/*",
   "/cart/*",
   "/search/*",
 ];
+
+// Public, but not enumerated in the sitemap.
+//
+// /profile/:username is the PUBLIC link-in-bio page (see
+// app/profile/[uniqueUsername]/layout.tsx — it builds a "<name> Public Profile"
+// title plus OpenGraph share tags, and only sets noindex when the profile does
+// not exist). It used to sit in appSurfaceDisallow, so robots.txt told crawlers
+// never to fetch it: a share-oriented product that search engines could not see.
+// /socialize/:username also 308s into /profile/:username, so that redirect landed
+// in the blocked zone too.
+//
+// These stay out of the sitemap only because usernames are not enumerated here.
+const crawlableNotInSitemap = ["/profile/*"];
 
 const archivedOrUtilityRoutes = [
   "/manifest.json",
@@ -49,6 +69,7 @@ const config = {
   priority: 0.9,
   exclude: [
     ...appSurfaceDisallow,
+    ...crawlableNotInSitemap,
     ...archivedOrUtilityRoutes,
     "/404",
     "/500",

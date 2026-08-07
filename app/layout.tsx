@@ -39,16 +39,26 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   keywords: keywords,
   metadataBase: new URL(getBaseUrl()),
-  alternates: {
-    canonical: "/",
-    languages: {
-      "en-US": "/en-US",
-    },
-  },
+  // NOTE (2026-07): no `alternates` here on purpose.
+  //
+  // Next.js metadata is INHERITED, so a root-level `canonical: "/"` was emitted on
+  // every page that didn't override it — /upgrade, /showcase, /about, /contactus,
+  // /newsroom, /resources/* and every blog post all told crawlers "the canonical
+  // version of this page is the homepage", which suppresses them from search and
+  // from answer-engine retrieval. The `languages: { "en-US": "/en-US" }` hreflang
+  // also pointed at a URL that 404s.
+  //
+  // Pages that need a canonical declare their own (see app/page.tsx,
+  // app/products/page.tsx, app/resources/blogs/[slug]/page.tsx). Pages that don't
+  // are self-canonical by default, which is the correct signal.
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: getBaseUrl(),
+    // NOTE: no `url` here, on purpose — same trap as the canonical above. Next.js
+    // metadata is inherited, so a root-level absolute og:url was emitted by every
+    // page that does not declare its own openGraph, telling crawlers and social
+    // platforms that /upgrade, /showcase and /support-us were all the homepage.
+    // og:url must be the page's OWN url, so each page declares it.
     title: "Insturix | Automated Content Production Platform",
     description:
       "Automate content production from planning and editing to analysis, creative assets, and publishing workflows.",

@@ -60,7 +60,7 @@ export async function enrichReferenceWithMeasuredEvidence(
   input: ReferenceEnrichmentInput,
   deps: {
     fetchAudioBytes?: typeof fetchBytesFromArtifact;
-    recognize?: (audioBytes: Uint8Array) => Promise<unknown>;
+    recognize?: (audioBytes: Uint8Array) => Promise<import('./soundtrack-identity').RecognizedTrack | null>;
     /** Decode audio bytes to PCM (defaults to audio-decode). Injectable for tests. */
     decodeAudio?: (bytes: Uint8Array) => Promise<{
       channelData?: Float32Array[];
@@ -154,6 +154,9 @@ export async function enrichReferenceWithMeasuredEvidence(
       try {
         const { buildCanonicalFingerprintFromEvidence } = await import('./build-canonic-fingerprint');
         const { MEASURED_EVIDENCE_VERSION } = await import('./measure-reference-evidence');
+        const identityFull = (out.audioEvidence as { identity?: unknown }).identity as
+          | import('./soundtrack-identity').SoundtrackIdentity
+          | undefined;
         const measured: import('./measure-reference-evidence').MeasuredReferenceEvidence = {
           version: MEASURED_EVIDENCE_VERSION,
           referenceAssetId: input.referenceAssetId,
@@ -162,13 +165,10 @@ export async function enrichReferenceWithMeasuredEvidence(
           beats,
           silence,
           sections: derivedSections,
-          soundtrackIdentity: out.soundtrackIdentity ?? null,
+          soundtrackIdentity: identityFull ?? null,
           warnings: [],
           rhythm: { avgCutsPerMinute: 0, avgClipDurationMs: 0, bpm: beats.bpm || 0 },
         };
-        const identityFull = (out.audioEvidence as { identity?: unknown }).identity as
-          | import('./soundtrack-identity').SoundtrackIdentity
-          | undefined;
         out.canonicalFingerprint = buildCanonicalFingerprintFromEvidence(
           input.referenceAssetId,
           measured,

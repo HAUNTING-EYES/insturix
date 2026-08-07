@@ -509,6 +509,7 @@ describe('generateMoment - design-then-code prompt switch (P5-1 Phase C)', () =>
   const overlayPlan: MgMomentDesignPlan = {
     momentId: 'm1', lane: 'overlay-kit', concept: 'kinetic figure, growth dominates', targetBar: 'energy',
     primaryCommunicativeJob: 'quantify',
+    intentionalDeviations: [],
     structure: { placement: 'center-right', grouping: 'figure + underline', readingOrder: 'figure then rule' },
     elements: [
       { kind: 'headline', role: 'the growth figure', dataProps: ['value'] },

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Insturix FAQ | Automated Content Production Answers",
+  alternates: { canonical: "/resources/faq" },
+  title: "FAQ | Automated Content Production Answers",
   description:
     "Answers about Insturix, automated content production workflows, uploaded footage, brand profiles, publishing, pricing, and support.",
   keywords: [
@@ -14,6 +15,18 @@ export const metadata: Metadata = {
     "brand profile content production",
   ],
   openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/resources/faq",
+    images: [
+      {
+        url: "/icons/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Insturix - Automated Content Production Platform",
+      },
+    ],
+    siteName: "Insturix",
     title: "Insturix FAQ | Automated Content Production Answers",
     description:
       "Common questions about Insturix and its automated content production workflow for agencies, teams, businesses, filmmakers, and enterprises.",

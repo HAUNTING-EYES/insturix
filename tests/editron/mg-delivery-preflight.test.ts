@@ -28,7 +28,7 @@ describe('renderIntegrityPolicy (brief §16.4/§24.3)', () => {
     expect(renderIntegrityPolicy({ MG_RENDER_INTEGRITY_POLICY: 'strict' })).toBe('strict');
     expect(renderIntegrityPolicy({ MG_RENDER_INTEGRITY_POLICY: 'preview' })).toBe('preview');
   });
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => { vi.unstubAllEnvs(); });
 });
 
 describe('computeMGRenderPreflight (Fix-4 consolidation of the existing ledger)', () => {

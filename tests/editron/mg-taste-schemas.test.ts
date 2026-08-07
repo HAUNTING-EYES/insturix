@@ -46,6 +46,10 @@ const baseContract = {
   contractHash: '',
 };
 
+// The fixture is a plain object literal (string-widened kinds/confidence); the hash fn expects the strict
+// contract type. Casting here is safe — lines 51/69/81 already validate this exact fixture through the schema.
+const asContractHashInput = (c: object) => c as unknown as Parameters<typeof contractHashOf>[0];
+
 describe('taste schemas (brief §6, phase 1)', () => {
   it('parses a fully concrete contract and accepts it', () => {
     const parsed = parseVideoTasteContract(JSON.stringify({ ...baseContract, contractHash: 'x' }));
@@ -70,10 +74,10 @@ describe('taste schemas (brief §6, phase 1)', () => {
   });
 
   it('contract hash is deterministic and changes with content', () => {
-    const a = contractHashOf(baseContract);
-    const b = contractHashOf(baseContract);
+    const a = contractHashOf(asContractHashInput(baseContract));
+    const b = contractHashOf(asContractHashInput(baseContract));
     expect(a).toBe(b);
-    const changed = contractHashOf({ ...baseContract, consistencyAnchors: ['other'] });
+    const changed = contractHashOf(asContractHashInput({ ...baseContract, consistencyAnchors: ['other'] }));
     expect(changed).not.toBe(a);
   });
 
