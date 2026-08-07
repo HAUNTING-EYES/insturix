@@ -227,14 +227,6 @@ const SoundsPanel: React.FC = () => {
     }
   };
 
-  const selectView = (view: AudioLibraryView) => {
-    if (view !== "references" && playingTrack) {
-      audioRefs.current[playingTrack]?.pause();
-      setPlayingTrack(null);
-    }
-    setActiveView(view);
-  };
-
   const renderSoundCard = (sound: LocalSound) => (
     <div
       key={sound.id}
