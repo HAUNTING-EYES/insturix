@@ -362,3 +362,37 @@ describe('P3.5 door — prompt contract snapshot (KIT e1.11)', () => {
     expect(JUDGE_PROMPT).toMatch(/BOXLESS IS THE PROFESSIONAL DEFAULT/);
   });
 });
+
+describe('look-axis deterministic repair in salvageDesignPlan (live-repro: integrated + plate = 0 MGs)', () => {
+  const ctx: MgDesignPlanMomentContext = { momentId: 'm_repair', factKind: 'concept', contentProps: [], numericProps: [], startMs: 0 };
+  const plateMoment = (look: 'integrated' | 'panel'): MgMomentDesignPlan => ({
+    momentId: 'm_repair', lane: 'overlay-kit', concept: 'a framed claim over the scene', targetBar: 'clarity',
+    primaryCommunicativeJob: 'emphasize',
+    structure: { placement: 'center', grouping: 'card + rule', readingOrder: 'card then rule' },
+    elements: [
+      { kind: 'headline', role: 'the spoken line', dataProps: [] },
+      { kind: 'plate', role: 'backing card', dataProps: [] },
+    ],
+    motion: { enterOrder: [0, 1], build: 'card in, text in', hold: 'float', syncTo: 'word-onsets' },
+    look,
+  });
+
+  it('refuses integrated+plate at validation, then repairs it to panel+reason instead of voiding the moment', () => {
+    const plan: MgVideoDesignPlan = { brief, moments: [plateMoment('integrated')], declined: [] };
+    expect(validateDesignPlan(plan, [ctx]).ok).toBe(false);
+    const s = salvageDesignPlan(plan, [ctx]);
+    expect(s).not.toBeNull();
+    if (s) {
+      expect(s.plan.moments).toHaveLength(1);
+      expect(s.plan.moments[0].look).toBe('panel');
+      expect(s.plan.moments[0].panelReason).toContain('plate');
+    }
+  });
+
+  it('panel without a stated reason gets a default repair reason', () => {
+    const m = plateMoment('panel');
+    delete m.panelReason;
+    const s = salvageDesignPlan({ brief, moments: [m], declined: [] }, [ctx]);
+    expect(s?.plan.moments[0].panelReason).toBeTruthy();
+  });
+});

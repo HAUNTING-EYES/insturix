@@ -345,6 +345,23 @@ export function salvageDesignPlan(
 ): { plan: MgVideoDesignPlan; dropped: string[] } | null {
   if (validateDesignPlan(plan, moments, budget).ok) return { plan, dropped: [] };
 
+  // Deterministic LOOK-AXIS repair (2026-08-07, live-repro: "look 'integrated' cannot contain a 'plate' element"):
+  // the designer commonly emits internally-contradictory look forms that a designer would trivially fix. Repair
+  // them so the beat VALIDATES and gets designed instead of being dropped as unavailable. Both repairs are honest
+  // and bounded; only contradiction/missing-reason cases are touched.
+  const repairedMoments = plan.moments.map((mp) => {
+    const nextMp = { ...mp };
+    if (nextMp.look === 'integrated' && (nextMp.elements ?? []).some((e) => e.kind === 'plate')) {
+      nextMp.look = 'panel';
+      nextMp.panelReason = 'plate element present — salvaged from integrated (integrated cannot contain a plate)';
+    } else if (nextMp.look === 'panel' && !nextMp.panelReason) {
+      nextMp.panelReason = 'surfaced card — salvaged (panel requires a stated design reason)';
+    }
+    return nextMp;
+  });
+  const repairedPlan: MgVideoDesignPlan = { ...plan, moments: repairedMoments };
+  if (validateDesignPlan(repairedPlan, moments, budget).ok) return { plan: repairedPlan, dropped: [] };
+
   const knownIds = new Set(moments.map((m) => m.momentId));
   // Map each problem to the moment that caused it (prefix before the first ':'), keeping the first reason seen.
   const bad = new Map<string, string>();
