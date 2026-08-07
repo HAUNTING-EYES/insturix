@@ -15,6 +15,8 @@ import {
 } from '@/lib/editron/shared/project-save-payload';
 import { orgMemberService } from '@/lib/services/orgMemberService';
 import { removeProjectFromLinks } from '@/lib/shared/project-links';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
+import { resolveCreationVisibility } from './project-ownership';
 
 export interface EditorState {
   overlays: Overlay[];
@@ -117,7 +119,9 @@ export class ProjectService {
       },
       fps: 30,
       durationInFrames: 0,
-      visibility: 'private',
+      // P0/D9: orgId present ⇒ explicit org context (OrgSwitcher setActive) ⇒ org-owned
+      // when the flag is on; else personal. Flag off = the legacy hardcoded 'private'.
+      visibility: resolveCreationVisibility(options?.orgId, isOrgWalletBillingEnabled()),
       orgId: options?.orgId ?? null,
       pipelineStage: 'edit',
       projectStatus: 'active',
