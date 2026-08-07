@@ -20,7 +20,7 @@ import {
 import { nanoid } from "nanoid";
 import { Organization, type IOrganization } from "@/schemas/Organization";
 import { OrgCreditTransaction } from "@/schemas/OrgCreditTransaction";
-import { buildOrgPoolDeduct } from "@/lib/services/org-wallet-ops";
+import { buildOrgPoolDeduct, buildOrgPoolRefund } from "@/lib/services/org-wallet-ops";
 import type { WalletRef } from "@/lib/editron/services/project-ownership";
 import type { FilterQuery, UpdateQuery } from "mongoose";
 
@@ -835,6 +835,193 @@ export class CreditsService {
       success: true,
       balance: updated.creditsBalance,
     };
+  }
+
+  /**
+   * Refund credits to an ORG wallet (plan §3/D5, P2) — the org analogue of refundCredits. Returns
+   * the charge to the SAME pool split it left (read from the original org deduct's recorded
+   * fromSubscription/fromTopup), atomically on the single Organization doc, idempotent on the
+   * original transaction so a double auto-refund credits the wallet only ONCE. Writes a separate
+   * best-effort org_credit_transactions 'refund' row (D4). Never seeds a wallet.
+   *
+   * @param actorUserId WHO the refund is attributed to (the per-member report key, never a
+   *                    billing signal — D9)
+   */
+  static async refundOrgCredits(
+    clerkOrgId: string,
+    actorUserId: string,
+    amount: number,
+    reason: string,
+    options?: {
+      service?: string;
+      action?: string;
+      originalTransactionId?: string;
+      projectId?: string;
+    }
+  ): Promise<CreditsPurchaseResult> {
+    await connectToDatabase();
+
+    let pool: CreditPool = options?.service && options?.action
+      ? getCreditPool(options.service, options.action)
+      : 'main';
+    let fromSubscription = amount;
+    let fromTopup = 0;
+
+    if (options?.originalTransactionId) {
+      const chargedOrg = await Organization.findOne({
+        clerkOrgId,
+        'creditsBalance.creditHistory': {
+          $elemMatch: { type: 'usage', id: options.originalTransactionId },
+        },
+      }).select('creditsBalance.creditHistory').lean<IOrganization>();
+      const originalCharge = chargedOrg?.creditsBalance?.creditHistory?.find(
+        (entry: ICreditTransaction) => entry.type === 'usage' && entry.id === options.originalTransactionId,
+      );
+      if (!originalCharge) {
+        return {
+          success: false,
+          error: `Original org credit transaction not found: ${options.originalTransactionId}`,
+        };
+      }
+
+      const metadata = originalCharge.metadata || {};
+      if (metadata.pool === 'main' || metadata.pool === 'media') {
+        pool = metadata.pool;
+      }
+      fromSubscription = Number(metadata.fromSubscription ?? amount);
+      fromTopup = Number(metadata.fromTopup ?? 0);
+      if (
+        fromSubscription < 0
+        || fromTopup < 0
+        || Math.abs((fromSubscription + fromTopup) - amount) > 1e-9
+      ) {
+        return {
+          success: false,
+          error: `Original org credit transaction has an invalid refund split: ${options.originalTransactionId}`,
+        };
+      }
+    }
+
+    const subscriptionPath = `creditsBalance.${POOL_FIELDS[pool].subscription}`;
+    const topupPath = `creditsBalance.${POOL_FIELDS[pool].topup}`;
+
+    const transaction: ICreditTransaction = {
+      id: `txn_${nanoid(12)}`,
+      type: 'refund',
+      amount: amount,
+      service: options?.service,
+      action: options?.action,
+      timestamp: new Date(),
+      balanceAfter: 0,
+      metadata: {
+        pool,
+        reason,
+        originalTransactionId: options?.originalTransactionId,
+        fromSubscription,
+        fromTopup,
+        actorUserId,
+      },
+    };
+
+    const { filter, update } = buildOrgPoolRefund({
+      clerkOrgId,
+      subPath: subscriptionPath,
+      topupPath,
+      fromSubscription,
+      fromTopup,
+      transaction,
+      originalTransactionId: options?.originalTransactionId,
+      historyCap: MAX_CREDIT_HISTORY,
+    });
+
+    const updated = await Organization.findOneAndUpdate(
+      filter as unknown as FilterQuery<IOrganization>,
+      update as unknown as UpdateQuery<IOrganization>,
+      { new: true },
+    );
+
+    if (!updated) {
+      // Either the org/wallet doesn't exist, or (with originalTransactionId) this charge was
+      // already refunded — return the existing refund idempotently rather than double-crediting.
+      if (options?.originalTransactionId) {
+        const existing = await Organization.findOne({
+          clerkOrgId,
+          'creditsBalance.creditHistory': {
+            $elemMatch: {
+              type: 'refund',
+              'metadata.originalTransactionId': options.originalTransactionId,
+            },
+          },
+        }).select('creditsBalance').lean<IOrganization>();
+        if (existing) {
+          return { success: true, duplicate: true, balance: existing.creditsBalance };
+        }
+      }
+      return { success: false, error: `Organization not found or no credits balance: ${clerkOrgId}` };
+    }
+
+    // Accurate post-write pool total (serialized order) for the durable ledger's audit field.
+    const updatedBalance = updated.creditsBalance as unknown as Record<string, number>;
+    const balanceAfter = (updatedBalance[POOL_FIELDS[pool].subscription] ?? 0) + (updatedBalance[POOL_FIELDS[pool].topup] ?? 0);
+
+    // Durable per-member ledger row (D4). Best-effort by design: the balance + embedded refund txn
+    // are already correct, so a ledger failure fails LOUD (R18N) and stays reconcilable — it never
+    // rolls back a completed refund.
+    try {
+      await OrgCreditTransaction.create({
+        clerkOrgId,
+        actorUserId,
+        projectId: options?.projectId,
+        pool,
+        type: 'refund',
+        amount: amount,
+        balanceAfter,
+        operationId: options?.originalTransactionId,
+        metadata: {
+          reason,
+          originalTransactionId: options?.originalTransactionId,
+          fromSubscription,
+          fromTopup,
+          service: options?.service,
+          action: options?.action,
+        },
+      });
+    } catch (ledgerError) {
+      console.error(
+        `[CreditsService] ORG REFUND LEDGER WRITE FAILED (balance already refunded; reconcile from creditHistory) org=${clerkOrgId} actor=${actorUserId} original=${options?.originalTransactionId ?? 'none'}:`,
+        ledgerError,
+      );
+    }
+
+    console.log(`[CreditsService] Refunded ${amount} ${pool} org credits to org ${clerkOrgId} (actor ${actorUserId}): ${reason}`);
+
+    return {
+      success: true,
+      balance: updated.creditsBalance,
+    };
+  }
+
+  /**
+   * Route a refund to the correct wallet (plan §3, P2) — the mirror of deductForWallet. A charge
+   * billed to an org MUST refund to that SAME org, or the org wallet leaks credits into the
+   * actor's personal wallet. Route failure paths (and creditsMiddleware.refund()) call this with
+   * the exact WalletRef the deduct used.
+   */
+  static async refundForWallet(
+    wallet: WalletRef,
+    amount: number,
+    reason: string,
+    options?: {
+      service?: string;
+      action?: string;
+      originalTransactionId?: string;
+      projectId?: string;
+    }
+  ): Promise<CreditsPurchaseResult> {
+    if (wallet.type === 'org') {
+      return this.refundOrgCredits(wallet.clerkOrgId, wallet.actorUserId, amount, reason, options);
+    }
+    return this.refundCredits(wallet.clerkUserId, amount, reason, options);
   }
 
   /**

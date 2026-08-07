@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { ICreditTransaction } from '@/schemas/user';
-import { buildOrgPoolDeduct, type OrgPoolDeductInput } from '@/lib/services/org-wallet-ops';
+import {
+  buildOrgPoolDeduct,
+  buildOrgPoolRefund,
+  type OrgPoolDeductInput,
+  type OrgPoolRefundInput,
+} from '@/lib/services/org-wallet-ops';
 
 /**
  * Decision 2-B, step 1 — the pure WIRING proof.
@@ -102,5 +107,78 @@ describe('buildOrgPoolDeduct — shared-wallet race guard', () => {
         },
       },
     });
+  });
+});
+
+const refundTxn: ICreditTransaction = {
+  id: 'txn_refund',
+  type: 'refund',
+  amount: 40,
+  service: 'editron',
+  action: 'render',
+  timestamp: new Date(0),
+  balanceAfter: 0,
+  metadata: { pool: 'main', fromSubscription: 30, fromTopup: 10, originalTransactionId: 'txn_orig' },
+};
+
+const refundBase: OrgPoolRefundInput = {
+  clerkOrgId: 'org_1',
+  subPath: 'creditsBalance.subscriptionCredits',
+  topupPath: 'creditsBalance.topupCredits',
+  fromSubscription: 30,
+  fromTopup: 10,
+  transaction: refundTxn,
+  originalTransactionId: 'txn_orig',
+  historyCap: 100,
+};
+
+describe('buildOrgPoolRefund — money returns to the same pool split, at most once', () => {
+  it('update returns the exact split as a POSITIVE $inc on the two pool paths', () => {
+    const { update } = buildOrgPoolRefund(refundBase);
+    expect(update).toMatchObject({
+      $inc: {
+        'creditsBalance.subscriptionCredits': 30,
+        'creditsBalance.topupCredits': 10,
+      },
+    });
+  });
+
+  it('the returned split sums to exactly the refunded amount', () => {
+    const { update } = buildOrgPoolRefund(refundBase);
+    const inc = update.$inc as Record<string, number>;
+    expect(inc['creditsBalance.subscriptionCredits'] + inc['creditsBalance.topupCredits']).toBe(
+      refundTxn.amount,
+    );
+  });
+
+  it('filter never seeds a wallet and dedupes on the original charge (at-most-once refund)', () => {
+    const { filter } = buildOrgPoolRefund(refundBase);
+    expect(filter).toMatchObject({
+      clerkOrgId: 'org_1',
+      creditsBalance: { $exists: true },
+      'creditsBalance.creditHistory': {
+        $not: {
+          $elemMatch: {
+            type: 'refund',
+            'metadata.originalTransactionId': 'txn_orig',
+          },
+        },
+      },
+    });
+  });
+
+  it('WITHOUT an originalTransactionId, no dedup clause is added (but the wallet must exist)', () => {
+    const { filter } = buildOrgPoolRefund({ ...refundBase, originalTransactionId: undefined });
+    expect('creditsBalance.creditHistory' in filter).toBe(false);
+    expect(filter).toMatchObject({ clerkOrgId: 'org_1', creditsBalance: { $exists: true } });
+  });
+
+  it('update appends the refund txn to the capped embedded history ($push $slice)', () => {
+    const { update } = buildOrgPoolRefund(refundBase);
+    const push = (update.$push as Record<string, { $each: unknown[]; $slice: number }>)[
+      'creditsBalance.creditHistory'
+    ];
+    expect(push.$slice).toBe(-100);
+    expect(push.$each).toEqual([refundTxn]);
   });
 });

@@ -115,3 +115,80 @@ export function buildOrgPoolDeduct(input: OrgPoolDeductInput): {
 
   return { filter, update };
 }
+
+export interface OrgPoolRefundInput {
+  clerkOrgId: string;
+  /** Dotted path to the pool's subscription balance the split returns to. */
+  subPath: string;
+  /** Dotted path to the pool's top-up balance the split returns to. */
+  topupPath: string;
+  /** Credits to return to the subscription pool (the original charge's recorded split). */
+  fromSubscription: number;
+  /** Credits to return to the top-up pool (the original charge's recorded split). */
+  fromTopup: number;
+  /** The embedded 'refund' transaction pushed onto the wallet's capped creditHistory. */
+  transaction: ICreditTransaction;
+  /** When present, the write is a no-op if this charge was already refunded (idempotency). */
+  originalTransactionId?: string;
+  /** Embedded-history cap (pass creditsService.MAX_CREDIT_HISTORY — the single source). */
+  historyCap: number;
+}
+
+/**
+ * Produce the atomic filter + update for an org-wallet REFUND — the mirror of buildOrgPoolDeduct.
+ * Pure: no I/O, no clock. The caller runs it via Organization.findOneAndUpdate(filter, update,
+ * { new: true }) after looking up the original charge's pool + split.
+ *
+ * The filter carries the at-most-once guard: `creditsBalance: { $exists: true }` (never seed a
+ * wallet on a refund) plus, when originalTransactionId is set, a $not $elemMatch that makes a
+ * replayed refund of the same charge match nothing — so a double auto-refund credits the wallet
+ * only once. The update $inc is POSITIVE (credits returned), returning each pool exactly the split
+ * that left it, so the money lands back where it came from and the wallet cannot leak.
+ */
+export function buildOrgPoolRefund(input: OrgPoolRefundInput): {
+  filter: Record<string, unknown>;
+  update: Record<string, unknown>;
+} {
+  const {
+    clerkOrgId,
+    subPath,
+    topupPath,
+    fromSubscription,
+    fromTopup,
+    transaction,
+    originalTransactionId,
+    historyCap,
+  } = input;
+
+  const filter: Record<string, unknown> = {
+    clerkOrgId,
+    creditsBalance: { $exists: true },
+    ...(originalTransactionId
+      ? {
+          'creditsBalance.creditHistory': {
+            $not: {
+              $elemMatch: {
+                type: 'refund',
+                'metadata.originalTransactionId': originalTransactionId,
+              },
+            },
+          },
+        }
+      : {}),
+  };
+
+  const update: Record<string, unknown> = {
+    $inc: {
+      [subPath]: fromSubscription,
+      [topupPath]: fromTopup,
+    },
+    $push: {
+      'creditsBalance.creditHistory': {
+        $each: [transaction],
+        $slice: -historyCap,
+      },
+    },
+  };
+
+  return { filter, update };
+}

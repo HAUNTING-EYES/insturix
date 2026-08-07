@@ -81,6 +81,7 @@ async function main(): Promise<void> {
   const stamp = `${Date.now()}`;
   const orgRace = `org_test_conc_race_${stamp}`;
   const orgIdem = `org_test_conc_idem_${stamp}`;
+  const orgRefund = `org_test_conc_refund_${stamp}`;
 
   const poolTotal = (bal: ICreditsBalance | null): number => {
     const b = (bal ?? {}) as unknown as Record<string, number>;
@@ -162,9 +163,51 @@ async function main(): Promise<void> {
     check(usageCount(orgIdemDoc) === 1, `exactly one embedded usage txn after replay (got ${usageCount(orgIdemDoc)})`);
     const ledgerIdem = await OrgCreditTransaction.countDocuments({ clerkOrgId: orgIdem, type: 'deduct' });
     check(ledgerIdem === 1, `exactly one durable ledger row after replay (got ${ledgerIdem})`);
+
+    // ── Scenario 3: REFUND returns money to the same wallet, exactly once ────
+    console.log('\nScenario 3 — deduct then refund (and a double-refund) on the org wallet:');
+    await Organization.create({
+      clerkOrgId: orgRefund,
+      name: 'Concurrency Test (refund)',
+      slug: orgRefund.toLowerCase(),
+      createdBy: 'user_test',
+      creditsBalance: fundedBalance(subField, cost),
+    });
+    const orgWallet = { type: 'org' as const, clerkOrgId: orgRefund, actorUserId: 'user_A' };
+    const refDeduct = await CreditsService.deductOrgCredits(orgRefund, 'user_A', SERVICE, ACTION);
+    check(
+      !!refDeduct.success && poolTotal(await CreditsService.getOrgCreditsBalance(orgRefund)) === 0,
+      'deduct drains the wallet to 0 before the refund',
+    );
+    const refund1 = await CreditsService.refundForWallet(orgWallet, refDeduct.creditsDeducted, 'test refund', {
+      service: SERVICE,
+      action: ACTION,
+      originalTransactionId: refDeduct.transactionId,
+    });
+    check(!!refund1.success, 'refund reports success');
+    check(
+      poolTotal(await CreditsService.getOrgCreditsBalance(orgRefund)) === cost,
+      `refund returns the pool to exactly ${cost} — money lands back in the ORG wallet`,
+    );
+    const refund2 = await CreditsService.refundForWallet(orgWallet, refDeduct.creditsDeducted, 'test refund dup', {
+      service: SERVICE,
+      action: ACTION,
+      originalTransactionId: refDeduct.transactionId,
+    });
+    check(!!refund2.duplicate, 'a second refund of the same charge is flagged duplicate');
+    check(
+      poolTotal(await CreditsService.getOrgCreditsBalance(orgRefund)) === cost,
+      `double-refund does NOT double-credit (pool still ${cost})`,
+    );
+    const refDeductRows = await OrgCreditTransaction.countDocuments({ clerkOrgId: orgRefund, type: 'deduct' });
+    const refRefundRows = await OrgCreditTransaction.countDocuments({ clerkOrgId: orgRefund, type: 'refund' });
+    check(
+      refDeductRows === 1 && refRefundRows === 1,
+      `ledger has exactly 1 deduct + 1 refund row (got ${refDeductRows}+${refRefundRows})`,
+    );
   } finally {
     // Tear down ONLY these two uniquely-named throwaway orgs + their ledger rows.
-    const ids = [orgRace, orgIdem];
+    const ids = [orgRace, orgIdem, orgRefund];
     try {
       await Organization.deleteMany({ clerkOrgId: { $in: ids } });
       await OrgCreditTransaction.deleteMany({ clerkOrgId: { $in: ids } });
