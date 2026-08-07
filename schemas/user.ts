@@ -323,8 +323,8 @@ const creditTransactionSchema = new Schema<ICreditTransaction>({
   metadata: { type: Schema.Types.Mixed },
 }, { _id: false });
 
-// Credits balance schema
-const creditsBalanceSchema = new Schema<ICreditsBalance>({
+// Credits balance schema — exported so the Organization wallet reuses it verbatim (plan D3).
+export const creditsBalanceSchema = new Schema<ICreditsBalance>({
   // MAIN pool
   subscriptionCredits: { type: Number, required: true, default: 0, min: 0 },
   topupCredits: { type: Number, required: true, default: 0, min: 0 },

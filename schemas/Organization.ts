@@ -1,4 +1,5 @@
 import mongoose, { Document, Schema } from "mongoose";
+import { creditsBalanceSchema, type ICreditsBalance } from "./user";
 
 /**
  * Organization Schema
@@ -20,6 +21,7 @@ export interface IOrganization extends Document {
   createdBy: string;         // clerkUserId of creator
   memberCount: number;       // Cached count for performance
   settings: IOrgSettings;
+  creditsBalance?: ICreditsBalance;  // Org wallet (plan D3) — seeded lazily, absent until first funded/charged
   createdAt: Date;
   updatedAt: Date;
 }
@@ -76,6 +78,12 @@ const organizationSchema = new Schema<IOrganization>({
       allowMemberProjects: true,
       defaultRole: 'member',
     }),
+  },
+  // Org wallet (plan D3): the SAME subdocument schema the User wallet uses. Optional (no
+  // default) so existing org docs are untouched; the credit service seeds it via
+  // emptyCreditsBalance() on first funding/charge.
+  creditsBalance: {
+    type: creditsBalanceSchema,
   },
 }, {
   timestamps: true,
