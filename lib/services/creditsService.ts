@@ -184,6 +184,65 @@ export class CreditsService {
   }
 
   /**
+   * Pre-flight balance check for an ORG wallet (plan §3, P2) — the org analogue of hasCredits.
+   * Read-only: an org with no wallet yet reports available 0 (the typed-402 empty-org case, D2).
+   * Routes on the same pool rule as the charge (media action => media pool).
+   */
+  static async hasOrgCredits(
+    clerkOrgId: string,
+    service: string,
+    action: string,
+    options?: {
+      model?: string;
+      requestType?: string;
+      tokenCount?: number;
+      characterCount?: number;
+      durationMinutes?: number;
+      durationSeconds?: number;
+      quantity?: number;
+    }
+  ): Promise<{ hasCredits: boolean; required: number; available: number; pool: CreditPool }> {
+    const balance = await this.getOrgCreditsBalance(clerkOrgId);
+    const required = getCreditCost(service, action, options);
+    const pool = getCreditPool(service, action);
+    const b = (balance ?? {}) as unknown as Record<string, number>;
+    const available = pool === 'media'
+      ? (b.mediaCredits ?? 0) + (b.mediaTopupCredits ?? 0)
+      : (b.subscriptionCredits ?? 0) + (b.topupCredits ?? 0);
+
+    return {
+      hasCredits: available >= required,
+      required,
+      available,
+      pool,
+    };
+  }
+
+  /**
+   * Pre-flight balance check routed to the correct wallet (plan §3, P2) — the mirror of
+   * deductForWallet/refundForWallet, so a route's gate checks the SAME wallet it will bill.
+   */
+  static async hasCreditsForWallet(
+    wallet: WalletRef,
+    service: string,
+    action: string,
+    options?: {
+      model?: string;
+      requestType?: string;
+      tokenCount?: number;
+      characterCount?: number;
+      durationMinutes?: number;
+      durationSeconds?: number;
+      quantity?: number;
+    }
+  ): Promise<{ hasCredits: boolean; required: number; available: number; pool: CreditPool }> {
+    if (wallet.type === 'org') {
+      return this.hasOrgCredits(wallet.clerkOrgId, service, action, options);
+    }
+    return this.hasCredits(wallet.clerkUserId, service, action, options);
+  }
+
+  /**
    * Deduct credits for a service usage
    * Consumes subscription credits first, then top-up credits
    * Uses atomic MongoDB operations to prevent race conditions

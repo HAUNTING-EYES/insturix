@@ -134,6 +134,11 @@ async function main(): Promise<void> {
     check(usageCount(orgRaceDoc) === 1, `exactly one embedded usage txn (got ${usageCount(orgRaceDoc)})`);
     const ledgerRace = await OrgCreditTransaction.countDocuments({ clerkOrgId: orgRace, type: 'deduct' });
     check(ledgerRace === 1, `exactly one durable ledger row (got ${ledgerRace})`);
+    const drainedPreflight = await CreditsService.hasOrgCredits(orgRace, SERVICE, ACTION);
+    check(
+      drainedPreflight.hasCredits === false,
+      `drained org wallet pre-flight reports no credits (available ${drainedPreflight.available})`,
+    );
 
     // ── Scenario 2: IDEMPOTENT REPLAY ───────────────────────────────────────
     console.log('\nScenario 2 — two concurrent deducts with the SAME idempotencyKey, funded for two:');
@@ -204,6 +209,11 @@ async function main(): Promise<void> {
     check(
       refDeductRows === 1 && refRefundRows === 1,
       `ledger has exactly 1 deduct + 1 refund row (got ${refDeductRows}+${refRefundRows})`,
+    );
+    const refundedPreflight = await CreditsService.hasCreditsForWallet(orgWallet, SERVICE, ACTION);
+    check(
+      refundedPreflight.hasCredits === true,
+      `refunded org wallet pre-flight reports credits available (${refundedPreflight.available})`,
     );
   } finally {
     // Tear down ONLY these two uniquely-named throwaway orgs + their ledger rows.
