@@ -58,6 +58,7 @@ export async function GET() {
     id: it.id,
     source: it.source,
     score: it.judge.score,
+    scored: !(it.judge.issues ?? [])[0]?.startsWith?.('__UNSCORED__'),
     issues: (it.judge.issues ?? []).slice(0, 6),
     dims: {
       hierarchy: it.judge.hierarchy,

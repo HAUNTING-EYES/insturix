@@ -8,6 +8,7 @@ interface ReviewItem {
   id: string;
   source: string;
   score: number;
+  scored: boolean;
   issues: string[];
   dims: Record<string, number | undefined>;
   geometry: { coveredPct?: number; hardVeto?: boolean } | null;
@@ -98,20 +99,23 @@ export default function MgReviewPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className={`rounded px-2 py-0.5 text-sm font-bold ${chosen === 'accept' ? 'bg-emerald-600 text-white' : chosen === 'watchlist' ? 'bg-amber-500 text-black' : chosen === 'reject' ? 'bg-red-600 text-white' : 'bg-neutral-200'}`}>
-                      judge {item.score}/10
+                    <span className={`rounded px-2 py-0.5 text-sm font-bold ${!item.scored ? 'bg-neutral-200 text-neutral-600' : chosen === 'accept' ? 'bg-emerald-600 text-white' : chosen === 'watchlist' ? 'bg-amber-500 text-black' : chosen === 'reject' ? 'bg-red-600 text-white' : 'bg-neutral-200'}`}>
+                      {item.scored ? `judge ${item.score}/10` : 'judge pending'}
                     </span>
                     <span className="truncate text-sm text-neutral-500">{item.source}</span>
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
-                    {Object.entries(item.dims).filter(([, v]) => v != null).map(([k, v]) => (
-                      <span key={k} className="rounded bg-neutral-100 px-1.5 py-0.5">{k} {v}</span>
-                    ))}
-                    {item.geometry ? <span className="rounded bg-sky-100 px-1.5 py-0.5 text-sky-800">cover {(item.geometry.coveredPct ?? 0).toFixed(3)}</span> : null}
-                  </div>
+                  {item.scored ? (
+                    <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
+                      {Object.entries(item.dims).filter(([, v]) => v != null && v > 0).map(([k, v]) => (
+                        <span key={k} className="rounded bg-neutral-100 px-1.5 py-0.5">{k} {v}</span>
+                      ))}
+                      {item.geometry ? <span className="rounded bg-sky-100 px-1.5 py-0.5 text-sky-800">cover {(item.geometry.coveredPct ?? 0).toFixed(3)}</span> : null}
+                    </div>
+                  ) : null}
                   <ul className="mt-2 list-disc pl-5 text-xs text-neutral-600">
-                    {item.issues.slice(0, 5).map((issue, idx) => <li key={idx}>{issue}</li>)}
+                    {item.issues.filter((issue) => !issue.startsWith('__UNSCORED__')).slice(0, 5).map((issue, idx) => <li key={idx}>{issue}</li>)}
                   </ul>
+                  {!item.scored ? <p className="mt-2 text-xs text-neutral-400">No judge verdict yet (Gemini quota today) — your accept/watchlist/reject label IS the ground truth for calibration. Judge verdicts get re-scored later.</p> : null}
 
                   <div className="mt-3 flex gap-2">
                     {ACCEPT_OPTIONS.map((opt) => (
