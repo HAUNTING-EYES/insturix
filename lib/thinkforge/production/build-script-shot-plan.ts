@@ -98,7 +98,21 @@ function addPlanLimitIssues(
 }
 
 export function buildScriptShotPlan(input: BuildScriptShotPlanInput): ScriptShotPlanBuildResult {
-  const sidecar = parseScriptSidecar(input.sidecar);
+  let sidecar: ReturnType<typeof parseScriptSidecar>;
+  try {
+    sidecar = parseScriptSidecar(input.sidecar);
+  } catch (error) {
+    console.error('[ThinkForge:ShootKit] Stored script sidecar is invalid:', error);
+    return {
+      status: 'needs-user-input',
+      plan: null,
+      issues: [{
+        code: 'invalid_script_sidecar',
+        message: 'This script has incomplete or outdated production data.',
+        questions: ['Regenerate this script once before creating its Shoot Kit.'],
+      }],
+    };
+  }
   const profile = parseProductionCapabilityProfile(input.profile);
   const tier = input.tier ?? profile.preferences.defaultPlanTier;
   const issues: ScriptShotPlanIssue[] = [];

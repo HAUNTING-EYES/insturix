@@ -34,7 +34,10 @@ import { createThinkForgeModelForRoute } from '../agents/model-factory';
 import { buildIsolatedPromptParts } from '../agents/prompt-boundary';
 import { resolveThinkForgeDocumentIntent, resolveThinkForgeGenerationDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
-import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
+import {
+  resolveThinkForgeAuthoringPrompt,
+  resolveThinkForgeProductionBrief,
+} from '../brief/resolve-production-brief';
 import { resolveThinkForgeAvatarCasting, type ThinkForgeCastingMetadata } from '../casting/resolve-casting';
 import { buildKnobParserSystemInstruction, parsePromptUnderstanding } from '../intake/prompt-knob-parser';
 import { buildThinkForgeSourceLedger } from '../provenance/source-ledger';
@@ -877,12 +880,17 @@ CRITICAL: You are editing a SELECTION from a larger document.
         const contentPath = documentIntent.contentPath;
         const generatedDocumentType = documentIntent.documentType;
         const generatedDocumentLabel = documentIntent.documentLabel;
+        const authoringPrompt = resolveThinkForgeAuthoringPrompt(
+          effectivePrompt,
+          sessionState.metadata,
+          documentIntentOrigin === 'initial_draft_claim',
+        );
         
         // FEATURE FLAG: Only run Thinking Agent for scripts, skip for posts to reduce latency
         if (contentPath !== 'post') {
           try {
             const thinking = await runThinkingAgent({
-              userPrompt: effectivePrompt,
+              userPrompt: authoringPrompt,
               projectSummary: sessionState.metadata.idea
                 || sessionState.metadata.title
                 || sessionState.metadata.projectName
@@ -927,7 +935,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         let promptUnderstanding: Awaited<ReturnType<typeof resolveScriptPromptUnderstanding>> | undefined;
         try {
           const contentSignalProfile = resolveContentSignalProfile({
-            userPrompt: effectivePrompt,
+            userPrompt: authoringPrompt,
             documentType: documentIntent.documentType,
             brandId: sessionState.metadata.brandId,
             sessionId: sessionState.sessionId,
@@ -946,7 +954,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         if (!hasCompletedSelectedTrend) {
           try {
             const trendContext = await resolveThinkForgeTrendContext({
-              userPrompt: effectivePrompt,
+              userPrompt: authoringPrompt,
               project: sessionState.metadata,
               brandId: sessionState.metadata.brandId,
               contentPath,
@@ -965,13 +973,14 @@ CRITICAL: You are editing a SELECTION from a larger document.
         }
 
         if (contentPath !== 'post') {
-          promptUnderstanding = await resolveScriptPromptUnderstanding(effectivePrompt);
+          promptUnderstanding = await resolveScriptPromptUnderstanding(authoringPrompt);
         }
 
         try {
           briefSnapshot = resolveThinkForgeProductionBrief({
-            userPrompt: effectivePrompt,
+            userPrompt: authoringPrompt,
             project: sessionState.metadata,
+            requested: promptUnderstanding?.requested,
             documentType: generatedDocumentType,
             contentPath,
             brandId: sessionState.metadata.brandId,
@@ -996,7 +1005,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
         try {
           const sourceLedger = buildThinkForgeSourceLedger({
-            userPrompt: effectivePrompt,
+            userPrompt: authoringPrompt,
             retrievedContext: retrievedCtx || undefined,
             brandId: sessionState.metadata.brandId,
             sessionId: sessionState.sessionId,
@@ -1011,7 +1020,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               null,
               groundedSystemBrief
             ),
-            userPrompt: effectivePrompt,
+            userPrompt: authoringPrompt,
             retrievedContext: retrievedCtx || undefined,
             project: sessionState.metadata,
             sessionId: sessionState.sessionId,

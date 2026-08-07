@@ -72,7 +72,7 @@ export const RemotionRoot: React.FC = () => {
       {/* ★★ GLM-DIRECTED film — GLM chose the forms/order/copy; the brick engine renders it. */}
       <Composition id="Film-Generated" component={Film} durationInFrames={filmDuration(GENERATED_GRAPH)} fps={60} width={1920} height={1080} defaultProps={{graph: GENERATED_GRAPH}} />
       {/* TEST: GLM writes this scene's bespoke motion code itself (harness: compile→render-proof→repair). */}
-      <Composition id="GLM-Scene" component={GlmScene} durationInFrames={150} fps={60} width={1920} height={1080} defaultProps={{brand: INSTURIX}} />
+      <Composition id="GLM-Scene" component={GlmScene} durationInFrames={210} fps={60} width={1920} height={1080} defaultProps={{brand: INSTURIX}} />
       {/* Per-scene render-proof target (harness writes each scene into gen/_proof.tsx) */}
       <Composition id="Gen-Proof" component={ProofScene} durationInFrames={400} fps={60} width={1920} height={1080} defaultProps={{brand: INSTURIX}} />
       {/* ★★★ Full GLM-AUTHORED film — every scene's motion code written by GLM, assembled from the manifest. */}

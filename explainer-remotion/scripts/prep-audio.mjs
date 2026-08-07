@@ -9,7 +9,7 @@
 // No Anthropic/craft creds are spent here — VO is edge-tts (free).
 
 import {spawnSync} from 'node:child_process';
-import {existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync} from 'node:fs';
+import {existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, rmSync} from 'node:fs';
 import {dirname} from 'node:path';
 
 const CONFIG = 'src/bricks/gen/audio-config.ts';
@@ -27,10 +27,44 @@ if (!existsSync('out/plan.json')) { console.error('prep-audio: out/plan.json mis
 // Reset to SILENT first, so a prep failure below leaves a clean silent film (never stale VO from a prior video).
 write('', []);
 
+// 0) resolve the music bed BEFORE fitting: its beat grid decides where the cuts land, so the fit step
+// needs it up front (previously music was picked last, which is why generated cuts ignored the track).
+const music = existsSync('public/music.mp3') ? 'music.mp3' : (existsSync('public/music-leskea.mp3') ? 'music-leskea.mp3' : '');
+
+// Measure the bed's tempo + first-beat offset by reusing scripts/detect-bpm.mjs (its contract is JSON on
+// stdout). Soft-fail everywhere: no ffmpeg / no music / undetectable tempo → no grid → plain VO-fitted
+// timing, exactly as before. A render must never die because a tempo could not be measured.
+const detectBeatGrid = (rel) => {
+  if (!rel) return null;
+  const pcm = 'out/.beat-detect.pcm';
+  try {
+    const dec = spawnSync('ffmpeg', ['-i', `public/${rel}`, '-ac', '1', '-ar', '22050', '-f', 's16le', '-y', pcm], {stdio: 'ignore'});
+    if (dec.status !== 0 || !existsSync(pcm)) return null;
+    const det = spawnSync(process.execPath, ['scripts/detect-bpm.mjs', pcm], {encoding: 'utf8'});
+    if (det.status !== 0 || !det.stdout) return null;
+    const grid = JSON.parse(det.stdout);
+    return grid && grid.beatPeriodSec > 0 ? grid : null;
+  } catch {
+    return null;
+  } finally {
+    try { rmSync(pcm, {force: true}); } catch {}
+  }
+};
+const grid = detectBeatGrid(music);
+if (grid) console.log(`prep-audio: ${music} → ${grid.bpm} BPM (beat ${grid.beatPeriodSec}s, first beat ${grid.firstBeatSec}s) — cuts will land on the grid`);
+else if (music) console.warn(`prep-audio: could not measure a beat grid for ${music} — VO-fitted timing only.`);
+
 // 1) synth + fit durations (try python3 then python). Soft-fail: no python/edge-tts → silent video, not a dead job.
+// The beat grid + a stable per-video seed (for humanize jitter) ride in via env; absent → unchanged behaviour.
+const fitEnv = {...process.env};
+if (grid) {
+  fitEnv.BEAT_PERIOD_SEC = String(grid.beatPeriodSec);
+  fitEnv.FIRST_BEAT_SEC = String(grid.firstBeatSec);
+  fitEnv.BEAT_SEED = process.argv[2] || process.env.EXPLAINER_VIDEO_ID || '';
+}
 let ran = null;
 for (const py of [process.env.PYTHON, 'python3', 'python'].filter(Boolean)) {
-  const r = spawnSync(py, ['scripts/glm-voice-fit.py'], {stdio: 'inherit'});
+  const r = spawnSync(py, ['scripts/glm-voice-fit.py'], {stdio: 'inherit', env: fitEnv});
   if (r.error && r.error.code === 'ENOENT') continue; // interpreter not found, try next
   ran = r; break;
 }
@@ -47,8 +81,7 @@ scenes.forEach((s, i) => {
   if ((s.vo || '').trim() && existsSync(src)) { copyFileSync(src, `public/audio/vo-${i}.mp3`); voScenes.push(i); }
 });
 
-// 3) music bed (ship a royalty-free loop in public/; CassetteAI-generated beds are the production upgrade).
-const music = existsSync('public/music.mp3') ? 'music.mp3' : (existsSync('public/music-leskea.mp3') ? 'music-leskea.mp3' : '');
-
+// 3) mount the music bed resolved in step 0 (ship a royalty-free loop in public/; CassetteAI-generated
+// beds are the production upgrade — per-video music is what makes every film sound different).
 write(music, voScenes);
-console.log(`prep-audio: ${voScenes.length} VO clip(s) + music=${music || 'none'} → ${CONFIG}`);
+console.log(`prep-audio: ${voScenes.length} VO clip(s) + music=${music || 'none'}${grid ? ` @ ${grid.bpm} BPM (beat-snapped)` : ''} → ${CONFIG}`);

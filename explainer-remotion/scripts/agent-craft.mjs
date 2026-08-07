@@ -40,9 +40,13 @@ const MODEL = process.env.CRAFT_MODEL || 'glm-5v-turbo';
 const IS_GLM = /^glm/i.test(MODEL);
 const IS_GROK = /^grok/i.test(MODEL);
 const IS_GEMINI = /^gemini/i.test(MODEL);
-const IS_OPENAI_COMPAT = IS_GLM || IS_GROK;
+const IS_KIMI = /^kimi/i.test(MODEL);
+const IS_OPENAI_COMPAT = IS_GLM || IS_GROK || IS_KIMI;
 const GLM_ENDPOINT = 'https://api.z.ai/api/paas/v4/chat/completions';
 const GROK_ENDPOINT = 'https://api.x.ai/v1/chat/completions';
+// Moonshot Kimi (K3): OpenAI-compatible chat/completions with NATIVE vision (base64 image_url — the shape img()
+// already produces for OpenAI-compat providers). Key = MOONSHOT_API_KEY.
+const KIMI_ENDPOINT = 'https://api.moonshot.ai/v1/chat/completions';
 // Gemini is the ONLY craft model that ingests VIDEO (+ audio) natively, so a reference *video* — not just frames —
 // can drive scene MOTION (pacing, transitions, easing, cut rhythm). It uses Google's native generateContent API,
 // NOT the OpenAI-compat shim (which only takes images). Two auth paths: Vertex AI (OAuth via the Cloud Run service
@@ -61,13 +65,14 @@ let MOTION_BRIEF = '';
 const KEY = IS_GROK ? process.env.XAI_API_KEY
   : IS_GLM ? (process.env.GLM_KEY || process.env.ZAI_API_KEY)
   : IS_GEMINI ? process.env.GEMINI_API_KEY
+  : IS_KIMI ? process.env.MOONSHOT_API_KEY
   : process.env.ANTHROPIC_API_KEY;
 // Vertex mints an OAuth token at call time (no static key), so it needs no KEY here. SMOKE (CRAFT_SMOKE=1) makes
 // ZERO model calls, so it must NOT require a key either — else the free health check aborts before proving bundle.
 const NEEDS_KEY = !(IS_GEMINI && HAS_VERTEX);
 if (!KEY && NEEDS_KEY && process.env.CRAFT_SMOKE !== '1') {
   const want = IS_GROK ? 'XAI_API_KEY' : IS_GLM ? 'GLM_KEY / ZAI_API_KEY'
-    : IS_GEMINI ? 'GEMINI_API_KEY (or set GOOGLE_CLOUD_PROJECT to use Vertex)' : 'ANTHROPIC_API_KEY';
+    : IS_GEMINI ? 'GEMINI_API_KEY (or set GOOGLE_CLOUD_PROJECT to use Vertex)' : IS_KIMI ? 'MOONSHOT_API_KEY' : 'ANTHROPIC_API_KEY';
   console.error(`✗ ${want} unset. Add it to .env.local and:  set -a; . ./.env.local; set +a`);
   process.exit(1);
 }
@@ -366,13 +371,15 @@ async function ask(userBlocks, maxTokens = 16000) {
     return geminiGenerate(MODEL, parts, SYSTEM, maxTokens + 8000);
   }
   if (IS_OPENAI_COMPAT) {
-    // z.ai + xAI are both OpenAI-compatible chat/completions. userBlocks are already OpenAI-shaped:
-    // {type:'text',text} + {type:'image_url',image_url:{url}}. `thinking` is a z.ai-only param — omit it for Grok.
-    const endpoint = IS_GROK ? GROK_ENDPOINT : GLM_ENDPOINT;
-    const body = {model: MODEL, max_tokens: maxTokens, temperature: 0.6, messages: [{role: 'system', content: SYSTEM}, {role: 'user', content: userBlocks}]};
+    // z.ai + xAI + Moonshot(Kimi) are all OpenAI-compatible chat/completions. userBlocks are already OpenAI-shaped:
+    // {type:'text',text} + {type:'image_url',image_url:{url}} (base64 data URL — what Kimi vision requires too).
+    // `thinking` is a z.ai-only param — omit it for Grok/Kimi.
+    const endpoint = IS_KIMI ? KIMI_ENDPOINT : IS_GROK ? GROK_ENDPOINT : GLM_ENDPOINT;
+    // Kimi K3 rejects any temperature other than 1 (400 "only 1 is allowed for this model"); grok/glm want 0.6.
+    const body = {model: MODEL, max_tokens: maxTokens, temperature: IS_KIMI ? 1 : 0.6, messages: [{role: 'system', content: SYSTEM}, {role: 'user', content: userBlocks}]};
     if (IS_GLM) body.thinking = {type: 'enabled'};
     const res = await fetch(endpoint, {method: 'POST', headers: {Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-    if (!res.ok) throw new Error(`${IS_GROK ? 'Grok' : 'GLM'} ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (!res.ok) throw new Error(`${IS_KIMI ? 'Kimi' : IS_GROK ? 'Grok' : 'GLM'} ${res.status}: ${(await res.text()).slice(0, 300)}`);
     return (await res.json()).choices?.[0]?.message?.content ?? '';
   }
   const stream = client.messages.stream({model: MODEL, max_tokens: maxTokens, thinking: {type: 'adaptive'}, system: SYSTEM, messages: [{role: 'user', content: userBlocks}]});

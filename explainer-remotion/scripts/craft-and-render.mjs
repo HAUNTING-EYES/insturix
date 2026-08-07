@@ -34,7 +34,10 @@ function run(script, args = []) {
 
 (async () => {
   console.log(`\n=== [1/3] VO + music prep (synth Ava + fit scene durations) ===`);
-  await run('scripts/prep-audio.mjs'); // runs BEFORE craft: it rewrites out/plan.json durations to hold the VO
+  // runs BEFORE craft: rewrites out/plan.json durations to hold the VO (and snaps the seams to the music's
+  // beat grid). VIDEO_ID rides along as the stable seed for humanize jitter, so a given video's cut
+  // pattern is reproducible across re-renders instead of shifting every run.
+  await run('scripts/prep-audio.mjs', [VIDEO_ID]);
 
   console.log(`\n=== [2/3] CRAFT scenes for ${VIDEO_ID} ===`);
   await run('scripts/agent-craft.mjs');

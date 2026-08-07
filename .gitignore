@@ -105,3 +105,10 @@ docs/agents/
 /.codex-digest/
 /tmp_*.txt
 *.local-bak
+
+# Downloaded YouTube player scripts (junk — embed Google API keys, never ship)
+*-player-script.js
+# Local artifacts / audit output / backups — kept on disk, never committed
+/.artifacts/
+/audit/
+.semantic-artifacts-*-backup-*/

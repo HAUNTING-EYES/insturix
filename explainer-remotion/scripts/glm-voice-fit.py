@@ -1,13 +1,22 @@
 # VO-DRIVEN TIMING. The correct order: synth the narration FIRST, measure each line, then make each scene
 # long enough to HOLD its own line (+ a reading pad). Rewrites out/plan.json durations and regenerates
 # src/bricks/generated-plan.ts so the render matches. Fixes the "all voices overlap" bug at the root.
-import json, os, subprocess, asyncio, math
+import json, os, subprocess, asyncio, math, sys
 import edge_tts
+
+# scripts/ isn't guaranteed to be on sys.path depending on how this is launched — add it explicitly so
+# the beat-snap module always resolves.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from beat_snap import snap_durations
 
 VOICE = os.environ.get('EXPLAINER_VOICE', 'en-US-AvaNeural')   # any edge-tts voice id (see vo-voices catalog)
 RATE = os.environ.get('EXPLAINER_VOICE_RATE', '-4%')
 MIN_SEC = 2.6   # floor so short lines still breathe
 PAD_SEC = 0.9   # silence after a line before the next scene (a beat to land)
+# Beat grid measured from the actual music bed by prep-audio.mjs (0 = none → plain VO-fitted timing).
+BEAT_PERIOD_SEC = float(os.environ.get('BEAT_PERIOD_SEC') or 0)
+FIRST_BEAT_SEC = float(os.environ.get('FIRST_BEAT_SEC') or 0)
+BEAT_SEED = os.environ.get('BEAT_SEED', '')
 
 plan = json.load(open('out/plan.json', encoding='utf-8'))
 fps, scenes = plan['fps'], plan['scenes']
@@ -16,17 +25,33 @@ os.makedirs('out/vo/glm', exist_ok=True)
 def dur(p):
     return float(subprocess.check_output(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', p]).decode().strip())
 
-async def main():
+async def synth_minimums():
+    """Synth every line first, then report the MINIMUM frames each scene needs to hold it (audio-first)."""
+    mins = []
     for i, s in enumerate(scenes):
         vo = (s.get('vo') or '').strip()
         if vo:
             p = 'out/vo/glm/%d.mp3' % i
             await edge_tts.Communicate(vo, VOICE, rate=RATE).save(p)
-            s['durationInFrames'] = int(math.ceil(max(MIN_SEC, dur(p) + PAD_SEC) * fps))
+            mins.append(max(MIN_SEC, dur(p) + PAD_SEC) * fps)
         else:
-            s['durationInFrames'] = int(math.ceil(MIN_SEC * fps))
+            mins.append(MIN_SEC * fps)
+    return mins
 
-asyncio.run(main())
+mins = asyncio.run(synth_minimums())
+
+# Land the seams on the music's beat grid when prep-audio measured one — otherwise cuts fall wherever a
+# sentence happened to end, which is why generated films never felt locked to the track the way the
+# hand-authored ones do. Scenes only ever GROW (narration is never truncated), and the snapping is
+# humanized so cuts don't machine-lock (constraint:temporal.metronomic_beat_sync). See beat_snap.py.
+if BEAT_PERIOD_SEC > 0:
+    durations = snap_durations(mins, fps, plan['transitionFrames'], BEAT_PERIOD_SEC, FIRST_BEAT_SEC, BEAT_SEED)
+    print('Beat-snapped seams to a %.1f BPM grid (seed=%s)' % (60.0 / BEAT_PERIOD_SEC, BEAT_SEED or 'none'))
+else:
+    durations = [int(math.ceil(m)) for m in mins]
+    print('No beat grid supplied — VO-fitted timing only.')
+for s, d in zip(scenes, durations):
+    s['durationInFrames'] = d
 
 json.dump(plan, open('out/plan.json', 'w', encoding='utf-8'), indent=2)
 

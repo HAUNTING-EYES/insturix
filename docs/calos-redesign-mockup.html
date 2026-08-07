@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CalOS — Calendar Redesign (Production Floor)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.5.0/dist/tabler-icons.min.css" />
+<style>
+  :root {
+    --canvas: #0B0B0A; --raised: #0F0F0E; --deeper: #131312; --well: #1B1A18;
+    --border: #1C1B19; --border-strong: #282724;
+    --text: #ECE9E1; --text-2: #B5B2A8; --muted: #7A776E; --dim: #5F5E5A; --faint: #454340;
+    --gold: #D4A652;                /* decisions / wayfinding only */
+    --success: #5EC97E; --danger: #D46A5C;
+    --purple: #9088D4; --pink: #D088B4; --cyan: #5CB8CC;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    /* depth = layered surfaces, never gradients on marks. ONE whisper-faint gold field wash up top. */
+    background: radial-gradient(1100px 460px at 50% -12%, rgba(212,166,82,0.035), transparent 62%), var(--canvas);
+    background-attachment: fixed;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased; min-height: 100vh; padding-bottom: 72px;
+    font-size: 14px; font-weight: 400; position: relative;
+  }
+  /* editorial film grain — invisible-but-present, the texture the real app ships */
+  body::after {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 1; opacity: 0.016;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .mono { font-family: 'JetBrains Mono', monospace; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; }
+  .num  { font-family: 'JetBrains Mono', monospace; font-weight: 500; letter-spacing: -0.02em; }
+
+  /* ── sticky topbar (production-floor chrome) ───────────────────────── */
+  .topbar {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; align-items: center; gap: 14px;
+    height: 56px; padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(11,11,10,0.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  .dots { display: flex; gap: 6px; }
+  .dots i { width: 8px; height: 8px; border-radius: 4px; border: 1px solid var(--border-strong); }
+  .wordmark { font-size: 14px; font-weight: 800; letter-spacing: -0.01em; color: var(--text); }
+  .crumb { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
+  .crumb .sep { color: var(--faint); }
+  .spacer { flex: 1; }
+  .pill {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase;
+    display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 5px;
+    background: rgba(212,166,82,0.08); border: 1px solid rgba(212,166,82,0.28); color: var(--gold);
+  }
+  .pill .pdot { width: 6px; height: 6px; border-radius: 4px; background: var(--gold); }
+
+  /* ── controls ──────────────────────────────────────────────────────── */
+  .btn {
+    min-height: 32px; padding: 7px 12px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--well); color: var(--text);
+    font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    transition: all .2s var(--ease);
+  }
+  .btn:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .btn i { font-size: 14px; color: var(--muted); }
+  .btn .chev { font-size: 13px; color: var(--dim); margin-left: 2px; }
+  .btn-primary {
+    min-height: 34px; padding: 8px 13px; border-radius: 7px;
+    border: 1px solid var(--gold); background: var(--gold); color: var(--canvas);
+    font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    transition: all .2s var(--ease);
+  }
+  .btn-primary:hover { transform: translateY(-1px); filter: brightness(1.04); }
+  .btn-primary i { font-size: 14px; }
+  .ibtn {
+    width: 32px; height: 32px; border-radius: 7px; border: 1px solid var(--border); background: var(--well);
+    color: var(--muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+    transition: all .2s var(--ease);
+  }
+  .ibtn:hover { color: var(--text); border-color: var(--border-strong); transform: translateY(-1px); }
+
+  /* ── layout ────────────────────────────────────────────────────────── */
+  .wrap { position: relative; z-index: 2; max-width: 1320px; margin: 0 auto; padding: 28px 24px 0; }
+  .eyebrow { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--dim); margin-bottom: 12px; }
+  .eyebrow .lead { width: 6px; height: 6px; border-radius: 4px; }
+
+  /* ── stat row ──────────────────────────────────────────────────────── */
+  .statrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .stat {
+    position: relative; overflow: hidden; background: var(--raised); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px 22px; transition: border-color .2s var(--ease), transform .2s var(--ease);
+  }
+  .stat:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .stat::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent, var(--muted)); }
+  .stat .v { font-size: 32px; line-height: 1; color: var(--text); }
+  .stat .l { font-size: 10px; color: var(--dim); margin-top: 10px; }
+  .stat .s { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* ── sub-toolbar (plan controls live in content, not in chrome) ──────── */
+  .subbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .group .tag { font-size: 10px; color: var(--dim); margin-right: 4px; }
+
+  /* ── month header ──────────────────────────────────────────────────── */
+  .monthrow { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  .monthnav { display: flex; align-items: center; gap: 12px; }
+  .month { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; }
+  .hint { font-size: 10px; color: var(--dim); }
+  .legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; color: var(--dim); }
+  .ldot { width: 6px; height: 6px; border-radius: 4px; }
+
+  /* ── calendar grid ─────────────────────────────────────────────────── */
+  .weekhead { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-bottom: 8px; }
+  .weekhead div { font-size: 10px; color: var(--faint); padding-left: 2px; }
+  .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+  .cell {
+    min-height: 138px; background: var(--raised); border: 1px solid var(--border); border-radius: 12px;
+    padding: 9px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .cell.empty { background: transparent; border-color: transparent; }
+  .cell.today { border-color: rgba(212,166,82,0.32); box-shadow: inset 0 1px 0 rgba(212,166,82,0.18); }
+  .daynum { font-size: 11px; color: var(--faint); padding: 0 1px; }
+  .cell.today .daynum { color: var(--gold); }
+
+  /* ── mini-post card ────────────────────────────────────────────────── */
+  .card {
+    background: var(--deeper); border: 1px solid var(--border); border-left: 3px solid var(--stage, var(--dim));
+    border-radius: 10px; padding: 9px; display: flex; flex-direction: column; gap: 8px; cursor: pointer;
+    transition: border-color .2s var(--ease), transform .2s var(--ease);
+  }
+  .card:hover { border-color: var(--border-strong); border-left-color: var(--stage, var(--dim)); transform: translateY(-1px); }
+  .card.sel { border-color: rgba(212,166,82,0.4); border-left-color: var(--stage, var(--dim)); }
+  .ctop { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .plat { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-2); }
+  .plat i { font-size: 13px; color: var(--muted); }
+  .stag { font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 7px; border-radius: 5px; white-space: nowrap; }
+  .ctitle { font-size: 13px; font-weight: 500; line-height: 1.35; color: var(--text); }
+  .thumb { height: 58px; border-radius: 7px; background: var(--well); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; color: var(--dim); }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chip { font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--border); padding: 3px 7px; border-radius: 5px; }
+
+  /* ── card detail (in-flow panel, not a popup) ──────────────────────── */
+  .detail {
+    position: relative; overflow: hidden; margin-top: 28px; margin-bottom: 8px;
+    background: var(--raised); border: 1px solid var(--border); border-radius: 14px; padding: 28px;
+    display: flex; gap: 28px; flex-wrap: wrap;
+  }
+  .detail::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--purple); }
+  .dleft { flex: 1; min-width: 320px; }
+  .dright { width: 360px; max-width: 100%; }
+  .dhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  .dtitle { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+  .post { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--deeper); }
+  .phead { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+  .avatar { width: 40px; height: 40px; border-radius: 6px; background: var(--well); border: 1px solid var(--border-strong); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; color: var(--text); }
+  .pname { font-size: 13px; font-weight: 500; }
+  .psub { font-size: 11px; color: var(--faint); }
+  .pcopy { padding: 0 16px 16px; font-size: 13px; line-height: 1.6; color: var(--text-2); }
+  .pcopy .h { color: var(--muted); }
+  .pimg { height: 176px; background: var(--well); border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: center; color: var(--dim); }
+
+  .acts { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+  .acts .approve { border-color: rgba(94,201,126,0.35); background: rgba(94,201,126,0.08); color: var(--success); }
+  .acts .approve i { color: var(--success); }
+  .acts .regen { margin-left: auto; background: transparent; }
+  .meta { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+  .meta .row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-2); }
+  .meta .row i { font-size: 14px; color: var(--muted); width: 16px; text-align: center; }
+  .meta .k { color: var(--dim); }
+
+  .note { position: relative; z-index: 2; max-width: 1320px; margin: 28px auto 0; padding: 0 24px; color: var(--faint); font-size: 11px; line-height: 1.7; font-family: 'JetBrains Mono', monospace; }
+
+  /* ── entrance choreography (computed-feeling stagger) ───────────────── */
+  .rise { animation: rise .55s var(--ease) both; animation-delay: calc(var(--i, 0) * 55ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .rise { animation: none; } }
+</style>
+</head>
+<body>
+
+  <!-- sticky production-floor chrome -->
+  <div class="topbar">
+    <span class="dots"><i></i><i></i><i></i></span>
+    <span class="wordmark">Calendar</span>
+    <span class="crumb">Forklift <span class="sep">/</span> June 2026</span>
+    <span class="spacer"></span>
+    <span class="pill"><span class="pdot"></span>5 need you</span>
+    <span class="btn-primary"><i class="ti ti-sparkles"></i> AI plan</span>
+  </div>
+
+  <div class="wrap">
+
+    <!-- stat row: the at-a-glance pulse of the brand's month -->
+    <div class="eyebrow"><span class="lead" style="background:var(--gold)"></span><span class="mono">This period</span><span class="num" style="color:var(--muted)">· next 30 days</span></div>
+    <div class="statrow">
+      <div class="stat rise" style="--accent:var(--muted); --i:0">
+        <div class="v num">18</div><div class="l mono">Planned</div><div class="s">6 platforms</div>
+      </div>
+      <div class="stat rise" style="--accent:var(--pink); --i:1">
+        <div class="v num">5</div><div class="l mono">Needs review</div><div class="s">2 due this week</div>
+      </div>
+      <div class="stat rise" style="--accent:var(--success); --i:2">
+        <div class="v num">7</div><div class="l mono">Approved</div><div class="s">ready to publish</div>
+      </div>
+      <div class="stat rise" style="--accent:var(--cyan); --i:3">
+        <div class="v num">4</div><div class="l mono">Published</div><div class="s">this period</div>
+      </div>
+    </div>
+
+    <!-- plan controls (in content, keeping the chrome calm) -->
+    <div class="subbar">
+      <div class="group">
+        <span class="tag mono">Plan</span>
+        <span class="btn"><i class="ti ti-stack-2"></i> Q3 launch <i class="ti ti-chevron-down chev"></i></span>
+        <span class="btn"><i class="ti ti-plus"></i> Campaign</span>
+        <span class="btn"><i class="ti ti-adjustments"></i> Cadence</span>
+      </div>
+      <div class="group">
+        <span class="btn">Next 30 days <i class="ti ti-chevron-down chev"></i></span>
+        <span class="btn"><i class="ti ti-wand"></i> Auto-fill</span>
+      </div>
+    </div>
+
+    <!-- month header + stage legend -->
+    <div class="monthrow">
+      <div class="monthnav">
+        <span class="ibtn"><i class="ti ti-chevron-left"></i></span>
+        <span class="month">June 2026</span>
+        <span class="ibtn"><i class="ti ti-chevron-right"></i></span>
+        <span class="hint mono" style="margin-left:4px">18 planned</span>
+      </div>
+      <div class="legend">
+        <span><i class="ldot" style="background:var(--muted)"></i>Idea</span>
+        <span><i class="ldot" style="background:var(--cyan)"></i>Drafting</span>
+        <span><i class="ldot" style="background:var(--purple)"></i>Draft ready</span>
+        <span><i class="ldot" style="background:var(--pink)"></i>In review</span>
+        <span><i class="ldot" style="background:var(--success)"></i>Approved</span>
+      </div>
+    </div>
+
+    <div class="weekhead mono"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div>
+    <div class="grid">
+
+      <div class="cell rise" style="--i:0"><span class="daynum num">1</span>
+        <div class="card sel" style="--stage:var(--purple)">
+          <div class="ctop"><span class="plat"><i class="ti ti-brand-linkedin"></i>LinkedIn</span><span class="stag" style="background:rgba(144,136,212,0.14); color:var(--purple)">draft ready</span></div>
+          <div class="ctitle">5 skills AI can't replace (and how to master them)</div>
+          <div class="chips"><span class="chip">text</span><span class="chip">tofu</span></div>
+        </div>
+      </div>
+      <div class="cell empty"></div>
+      <div class="cell rise" style="--i:1"><span class="daynum num">3</span>
+        <div class="card" style="--stage:var(--pink)">
+          <div class="ctop"><span class="plat"><i class="ti ti-brand-instagram"></i>Instagram</span><span class="stag" style="background:rgba(208,136,180,0.12); color:var(--pink)">in review</span></div>
+          <div class="thumb"><i class="ti ti-photo" style="font-size:18px"></i></div>
+          <div class="ctitle">The hidden cost of "move fast" culture</div>
+          <div class="chips"><span class="chip">carousel</span></div>
+        </div>
+      </div>
+      <div class="cell empty"></div>
+      <div class="cell rise" style="--i:2"><span class="daynum num">5</span>
+        <div class="card" style="--stage:var(--success)">
+          <div class="ctop"><span class="plat"><i class="ti ti-brand-x"></i>X</span><span class="stag" style="background:rgba(94,201,126,0.12); color:var(--success)">approved</span></div>
+          <div class="ctitle">Unpopular opinion: the best engineers ship less code</div>
+          <div class="chips"><span class="chip">thread</span><span class="chip">mofu</span></div>
+        </div>
+      </div>
+      <div class="cell empty"></div>
+      <div class="cell empty"></div>
+
+      <div class="cell today rise" style="--i:3"><span class="daynum num">8</span>
+        <div class="card" style="--stage:var(--cyan)">
+          <div class="ctop"><span class="plat"><i class="ti ti-brand-youtube"></i>YouTube</span><span class="stag" style="background:rgba(92,184,204,0.12); color:var(--cyan)">drafting</span></div>
+          <div class="thumb"><i class="ti ti-player-play" style="font-size:18px"></i></div>
+          <div class="ctitle">How to survive the next platform rollout</div>
+          <div class="chips"><span class="chip">short video</span><span class="chip">tofu</span></div>
+        </div>
+      </div>
+      <div class="cell empty"></div>
+      <div class="cell rise" style="--i:4"><span class="daynum num">10</span>
+        <div class="card" style="--stage:var(--muted)">
+          <div class="ctop"><span class="plat"><i class="ti ti-brand-linkedin"></i>LinkedIn</span><span class="stag" style="background:rgba(122,119,110,0.16); color:var(--text-2)">idea</span></div>
+          <div class="ctitle">The anatomy of a resilient tech team</div>
+          <div class="chips"><span class="chip">text</span><span class="chip">tofu</span></div>
+        </div>
+      </div>
+      <div class="cell empty"></div>
+      <div class="cell rise" style="--i:5"><span class="daynum num">12</span>
+        <div class="card" style="--stage:var(--pink)">
+          <div class="ctop"><span class="plat"><i class="ti ti-brand-instagram"></i>Instagram</span><span class="stag" style="background:rgba(208,136,180,0.12); color:var(--pink)">in review</span></div>
+          <div class="thumb"><i class="ti ti-photo" style="font-size:18px"></i></div>
+          <div class="ctitle">We asked 500 founders their #1 AI fear</div>
+          <div class="chips"><span class="chip">carousel</span><span class="chip">mofu</span></div>
+        </div>
+      </div>
+      <div class="cell empty"></div>
+      <div class="cell empty"></div>
+
+    </div>
+
+    <!-- card detail — opens inline when a card is clicked (selected: Jun 1) -->
+    <div class="detail">
+      <div class="dleft">
+        <div class="eyebrow"><span class="mono">Generated draft</span><span class="num" style="color:var(--muted)">· LinkedIn</span></div>
+        <div class="post">
+          <div class="phead">
+            <div class="avatar">FW</div>
+            <div><div class="pname">Forklift</div><div class="psub">2,431 followers · now</div></div>
+          </div>
+          <div class="pcopy">AI is redefining work. But here's what it can't do: genuinely connect, innovate from nothing, or navigate the messy human stuff.<br><br>Stop fearing obsolescence. Future-proof your career by mastering what makes you uniquely human.<br><br><span class="h">#FutureOfWork #HumanSkills #CareerDevelopment</span></div>
+          <div class="pimg"><i class="ti ti-photo" style="font-size:24px"></i></div>
+        </div>
+        <div class="acts">
+          <span class="btn">Request changes</span>
+          <span class="btn approve"><i class="ti ti-check"></i> Approve</span>
+          <span class="btn regen"><i class="ti ti-refresh"></i> Regenerate</span>
+        </div>
+      </div>
+
+      <div class="dright">
+        <div class="dhead">
+          <div class="dtitle">5 skills AI can't replace
+            <span class="stag" style="background:rgba(144,136,212,0.14); color:var(--purple)">draft ready</span>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <span class="ibtn"><i class="ti ti-chevron-left"></i></span>
+            <span class="ibtn"><i class="ti ti-chevron-right"></i></span>
+          </div>
+        </div>
+        <div class="eyebrow"><span class="mono">Details</span></div>
+        <div class="meta">
+          <div class="row"><i class="ti ti-calendar"></i><span class="k">Scheduled</span> Jun 1, 2026</div>
+          <div class="row"><i class="ti ti-template"></i><span class="k">Format</span> Text post · TOFU</div>
+          <div class="row"><i class="ti ti-bulb"></i><span class="k">Theme</span> Ladders up to "the human edge"</div>
+          <div class="row"><i class="ti ti-target"></i><span class="k">Objective</span> Awareness</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="note">Mockup follows DESIGN_BIBLE.md and the shipped Brand&nbsp;Vault execution — warm editorial dark (#0B0B0A), Plus Jakarta Sans + JetBrains Mono labels, gold reserved for the AI-plan CTA + "needs you" + today, stage colours from the room palette, 2px accent bars + 1px borders for depth (no shadows), stagger entrance, mono micro-eyebrows. One concession to the live app over the strict bible: backdrop-blur on the sticky topbar only.</div>
+
+</body>
+</html>

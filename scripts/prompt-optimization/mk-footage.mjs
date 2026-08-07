@@ -1,0 +1,5 @@
+import sharp from 'sharp';
+const W = 1280, H = 720, bg = 18, panel = 36;
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="rgb(${bg},${bg + 3},${bg + 8})"/><rect x="90" y="250" width="330" height="430" rx="14" fill="rgb(${panel + 20},${panel + 24},${panel + 30})"/><circle cx="255" cy="360" r="70" fill="rgb(${panel + 45},${panel + 50},${panel + 58})"/><rect x="40" y="45" width="470" height="120" rx="10" fill="rgb(${panel},${panel + 4},${panel + 10})"/><text x="60" y="120" font-family="Arial" font-size="54" fill="#aab2bd">TITLE TEXT</text><rect x="720" y="60" width="500" height="250" rx="12" fill="rgb(${panel - 8},${panel + 2},${panel + 14})"/><rect x="60" y="620" width="1160" height="70" rx="8" fill="rgb(${bg + 2},${bg + 10},${bg + 4})"/><text x="90" y="668" font-family="Arial" font-size="40" fill="#8fd6a6">caption line of subtitles here</text></svg>`;
+await sharp(Buffer.from(svg)).jpeg({ quality: 80 }).toFile(process.argv[2]);
+console.log('footage frame written');

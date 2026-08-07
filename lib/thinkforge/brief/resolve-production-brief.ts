@@ -16,6 +16,7 @@ type ProjectRecord = Record<string, unknown>;
 export interface ThinkForgeProductionBriefInput {
   userPrompt: string;
   project?: ProjectMeta | null;
+  requested?: IntakeSignals['requested'];
   documentType?: string | null;
   contentPath?: string | null;
   brandId?: string | null;
@@ -82,6 +83,15 @@ function firstString(...values: unknown[]): string | undefined {
     if (trimmed.length > 0) return trimmed;
   }
   return undefined;
+}
+
+export function resolveThinkForgeAuthoringPrompt(
+  effectivePrompt: string,
+  project: ProjectMeta | null | undefined,
+  isInitialDraft: boolean,
+): string {
+  const originalPrompt = firstString((project as ProjectRecord | null | undefined)?.originalPrompt);
+  return isInitialDraft && originalPrompt ? originalPrompt : effectivePrompt;
 }
 
 function normalizePlatform(value: unknown): Platform | undefined {
@@ -159,6 +169,23 @@ function buildRequested(project?: ProjectMeta | null): IntakeSignals['requested'
   return Object.keys(requested).length > 0 ? requested : undefined;
 }
 
+function mergeRequested(
+  project?: ProjectMeta | null,
+  explicit?: IntakeSignals['requested'],
+): IntakeSignals['requested'] | undefined {
+  const requested: NonNullable<IntakeSignals['requested']> = {
+    ...(buildRequested(project) ?? {}),
+  };
+
+  for (const [key, value] of Object.entries(explicit ?? {})) {
+    if (value !== undefined) {
+      (requested as Record<string, unknown>)[key] = value;
+    }
+  }
+
+  return Object.keys(requested).length > 0 ? requested : undefined;
+}
+
 function buildBrandDefaults(project?: ProjectMeta | null): BrandDefaults | null {
   const preferredPlatform = normalizePlatform(firstPresent(project, ['preferredPlatform']));
   const preferredAspectRatio = normalizeAspectRatio(firstPresent(project, ['preferredAspectRatio']));
@@ -195,7 +222,7 @@ export function resolveThinkForgeProductionBrief(input: ThinkForgeProductionBrie
     connectedPlatforms: normalizePlatformList(firstPresent(project, ['connectedPlatforms', 'postingPlatforms'])),
     brand,
     prompt: input.userPrompt,
-    requested: buildRequested(project),
+    requested: mergeRequested(project, input.requested),
   });
 
   const resolvedBrief = {
