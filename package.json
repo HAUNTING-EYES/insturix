@@ -29,6 +29,7 @@
     "canary:creative-chain": "node scripts/creative-chain-canary.mjs",
     "test:email": "tsx --test lib/services/email/__tests__/*.test.ts",
     "test:intent": "tsx --test lib/thinkforge/tests/intent-gate.test.ts",
+    "test:org-wallet": "tsx scripts/org-wallet-concurrency-check.ts",
     "calibrate:editron": "tsx scripts/calibrate/calibrate.ts",
     "calibrate:editron:auto": "tsx scripts/calibrate/calibrate.ts --shuffle",
     "calibrate:vjepa": "tsx scripts/probe-vjepa-coverage.ts",

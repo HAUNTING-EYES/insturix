@@ -18,6 +18,10 @@ import {
   type CreditPool,
 } from "@/lib/config/creditCosts";
 import { nanoid } from "nanoid";
+import { Organization, type IOrganization } from "@/schemas/Organization";
+import { OrgCreditTransaction } from "@/schemas/OrgCreditTransaction";
+import { buildOrgPoolDeduct } from "@/lib/services/org-wallet-ops";
+import type { FilterQuery, UpdateQuery } from "mongoose";
 
 // Maximum transactions to keep in history (to prevent unbounded growth)
 const MAX_CREDIT_HISTORY = 100;
@@ -359,6 +363,231 @@ export class CreditsService {
     }
 
     console.log(`[CreditsService] Deducted ${cost} ${pool} credits from user ${clerkUserId} for ${service}.${action}`);
+
+    return {
+      success: true,
+      creditsDeducted: cost,
+      balance: updated.creditsBalance,
+      transactionId: transaction.id,
+    };
+  }
+
+  /**
+   * Read an ORG wallet's balance (both pools). Read-only — never seeds. Returns null when the
+   * org has no wallet yet (never funded/charged); callers treat null as zero available, i.e.
+   * the typed-402 empty-org-wallet case (plan D2).
+   */
+  static async getOrgCreditsBalance(clerkOrgId: string): Promise<ICreditsBalance | null> {
+    await connectToDatabase();
+    const org = await Organization.findOne({ clerkOrgId }).lean<IOrganization>();
+    return ((org?.creditsBalance as ICreditsBalance | undefined) ?? null);
+  }
+
+  /**
+   * Deduct credits from an ORG wallet (plan §3, Decision 1). The org analogue of
+   * deductCredits: the SAME single-document atomic guard, now on the Organization doc, so
+   * concurrent member spends against one shared wallet can never lose an update or overshoot
+   * zero (MongoDB serializes writes to a single document). On success it also writes a SEPARATE
+   * durable row to org_credit_transactions for unbounded per-member spend reporting (plan D4).
+   *
+   * Deliberately a parallel method, not a refactor of deductCredits: the proven user money
+   * path stays untouched. The atomic filter/update is shared via the pure buildOrgPoolDeduct
+   * leaf so the concurrency guard is unit-testable without a database.
+   *
+   * @param clerkOrgId  the org being billed — its single wallet document is the serialization point
+   * @param actorUserId WHO spent (the per-member report key); never the billing signal (plan D9)
+   */
+  static async deductOrgCredits(
+    clerkOrgId: string,
+    actorUserId: string,
+    service: string,
+    action: string,
+    options?: {
+      model?: string;
+      requestType?: string;
+      tokenCount?: number;
+      characterCount?: number;
+      durationMinutes?: number;
+      durationSeconds?: number;
+      taskId?: string;
+      idempotencyKey?: string;
+      /** Batch/fan-out multiplier (e.g., 4 scenes means 4 priced units). */
+      quantity?: number;
+      /** Recorded on the ledger row for per-project spend reporting. */
+      projectId?: string;
+    }
+  ): Promise<CreditsDeductResult> {
+    await connectToDatabase();
+
+    const org = await Organization.findOne({ clerkOrgId });
+    if (!org) {
+      return { success: false, creditsDeducted: 0, error: `Organization not found: ${clerkOrgId}` };
+    }
+
+    // Seed an empty wallet on first touch (mirrors the user path). An unfunded org wallet then
+    // fails the insufficient-credits check below — that is the typed-402 empty-org case (D2).
+    if (!org.creditsBalance) {
+      await Organization.findOneAndUpdate(
+        { clerkOrgId },
+        { $set: { creditsBalance: emptyCreditsBalance() } },
+      );
+      return { success: false, creditsDeducted: 0, error: 'Org credits initialized, please retry' };
+    }
+
+    const idempotencyKey = options?.idempotencyKey;
+    if (idempotencyKey) {
+      const existingTransaction = org.creditsBalance.creditHistory?.find(
+        (entry: ICreditTransaction) => (
+          entry.type === 'usage'
+          && entry.service === service
+          && entry.action === action
+          && entry.metadata?.idempotencyKey === idempotencyKey
+        ),
+      );
+      if (existingTransaction) {
+        return {
+          success: true,
+          creditsDeducted: Math.abs(existingTransaction.amount),
+          balance: org.creditsBalance,
+          transactionId: existingTransaction.id,
+          duplicate: true,
+        };
+      }
+    }
+
+    const cost = getCreditCost(service, action, options);
+    // Route to the correct pool: media generation debits the media pool, everything else main.
+    const pool = getCreditPool(service, action);
+    const fields = POOL_FIELDS[pool];
+    const balance = org.creditsBalance;
+    // Legacy docs predate the media pool; treat missing balances as 0.
+    const poolSubscription = (balance as unknown as Record<string, number>)[fields.subscription] ?? 0;
+    const poolTopup = (balance as unknown as Record<string, number>)[fields.topup] ?? 0;
+    const totalAvailable = poolSubscription + poolTopup;
+
+    if (totalAvailable < cost) {
+      return {
+        success: false,
+        creditsDeducted: 0,
+        error: `Insufficient ${pool} org credits. Required: ${cost}, Available: ${totalAvailable}`,
+      };
+    }
+
+    // Calculate split: subscription first (expires), then topup (never expires)
+    const fromSubscription = Math.min(poolSubscription, cost);
+    const fromTopup = cost - fromSubscription;
+    const newTotal = totalAvailable - cost;
+
+    // Embedded transaction (fast-path idempotency + immediate audit). actorUserId is stamped so
+    // the embedded history alone can reconstruct WHO spent if the durable ledger row is lost.
+    const transaction: ICreditTransaction = {
+      id: `txn_${nanoid(12)}`,
+      type: 'usage',
+      amount: -cost,
+      service,
+      action,
+      model: options?.model,
+      taskId: options?.taskId,
+      timestamp: new Date(),
+      balanceAfter: newTotal,
+      metadata: {
+        pool,
+        fromSubscription,
+        fromTopup,
+        actorUserId,
+        ...options,
+      },
+    };
+
+    const subPath = `creditsBalance.${fields.subscription}`;
+    const topupPath = `creditsBalance.${fields.topup}`;
+
+    // Atomic single-document deduct on the Organization doc (the shared-wallet race guard).
+    const { filter, update } = buildOrgPoolDeduct({
+      clerkOrgId,
+      service,
+      action,
+      subPath,
+      topupPath,
+      cost,
+      fromSubscription,
+      fromTopup,
+      transaction,
+      idempotencyKey,
+      historyCap: MAX_CREDIT_HISTORY,
+    });
+
+    const updated = await Organization.findOneAndUpdate(
+      filter as unknown as FilterQuery<IOrganization>,
+      update as unknown as UpdateQuery<IOrganization>,
+      { new: true },
+    );
+
+    if (!updated) {
+      // The write matched nothing: either a concurrent deduct exhausted the pool, or (with an
+      // idempotencyKey) a concurrent replay already applied this exact op.
+      if (idempotencyKey) {
+        const concurrentOrg = await Organization.findOne({ clerkOrgId });
+        const existingTransaction = concurrentOrg?.creditsBalance?.creditHistory?.find(
+          (entry: ICreditTransaction) => (
+            entry.type === 'usage'
+            && entry.service === service
+            && entry.action === action
+            && entry.metadata?.idempotencyKey === idempotencyKey
+          ),
+        );
+        if (existingTransaction) {
+          return {
+            success: true,
+            creditsDeducted: Math.abs(existingTransaction.amount),
+            balance: concurrentOrg?.creditsBalance,
+            transactionId: existingTransaction.id,
+            duplicate: true,
+          };
+        }
+      }
+      return {
+        success: false,
+        creditsDeducted: 0,
+        error: `Insufficient ${pool} org credits (concurrent deduction). Required: ${cost}`,
+      };
+    }
+
+    // Accurate post-write pool total (reflects the serialized order), for the ledger's audit field.
+    const updatedBalance = updated.creditsBalance as unknown as Record<string, number>;
+    const balanceAfter = (updatedBalance[fields.subscription] ?? 0) + (updatedBalance[fields.topup] ?? 0);
+
+    // Durable per-member ledger row (plan D4). SEPARATE from the balance write by design: the
+    // money is already deducted AND recorded in the embedded creditHistory above, so a ledger
+    // failure must NOT roll back the charge — it fails LOUD (R18N) and stays reconcilable from
+    // creditHistory. This is why no cross-collection transaction is needed (Decision 1).
+    try {
+      await OrgCreditTransaction.create({
+        clerkOrgId,
+        actorUserId,
+        projectId: options?.projectId,
+        pool,
+        type: 'deduct',
+        amount: -cost,
+        balanceAfter,
+        operationId: idempotencyKey,
+        metadata: {
+          fromSubscription,
+          fromTopup,
+          service,
+          action,
+          model: options?.model,
+          taskId: options?.taskId,
+        },
+      });
+    } catch (ledgerError) {
+      console.error(
+        `[CreditsService] ORG LEDGER WRITE FAILED (balance already deducted; reconcile from creditHistory) org=${clerkOrgId} actor=${actorUserId} txn=${transaction.id} ${service}.${action}:`,
+        ledgerError,
+      );
+    }
+
+    console.log(`[CreditsService] Deducted ${cost} ${pool} org credits from org ${clerkOrgId} (actor ${actorUserId}) for ${service}.${action}`);
 
     return {
       success: true,
