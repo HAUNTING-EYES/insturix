@@ -1,0 +1,92 @@
+{
+  "version": "editron-sfx-evaluation-corpus-v1",
+  "sequences": [
+    {
+      "canaryId": "seq-01",
+      "scenario": "talking-head interview with 3 hard cuts + lower-third MG",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "cut ticks audible under speech",
+        "MG landing impact not masking dialogue",
+        "no repetition across 3 cuts"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-02",
+      "scenario": "product explainer: count-up stats with 4 MG landings",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "settle ticks audible",
+        "no density fatigue",
+        "dialogue intelligible"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-03",
+      "scenario": "event recap: music-driven montage, 8 whooshes + impacts",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "transition whooshes fit",
+        "impacts on beats",
+        "no mask"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-04",
+      "scenario": "testimonial: 2 speakers, dialogue-heavy, 2 foley moments",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "foley under dialogue must be quiet",
+        "silence in pauses",
+        "no speech masking"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-05",
+      "scenario": "commercial short: 12 hard cuts, whip-pan transitions",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "fast whooshes on whips",
+        "right/left direction respected",
+        "no overlap"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-06",
+      "scenario": "logo reveal with sting + MG shimmer",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "logo sting lands",
+        "shimmer subtle",
+        "no clipping"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-07",
+      "scenario": "silence-required passage: pause before reveal stays silent",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "no SFX injected into charged silence",
+        "reveal impact on cue"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-08",
+      "scenario": "dense-montage overuse test: 20 rapid cuts each with SFX",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "density acceptable",
+        "repetition low",
+        "taste preserved"
+      ],
+      "judgement": null
+    }
+  ]
+}

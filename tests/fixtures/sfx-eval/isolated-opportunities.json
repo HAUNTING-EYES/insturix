@@ -1,0 +1,1294 @@
+{
+  "version": "editron-sfx-evaluation-corpus-v1",
+  "isolated": [
+    {
+      "context": {
+        "opportunityId": "s2-001-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "left"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "wipe-left on a scene change, gentle"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-002-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "right"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "wipe-right, matter-of-fact"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-003-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "hard whip-pan cut, high speed"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-004-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "neutral"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "slow"
+        },
+        "contextualNote": "slow crossfade, minimal"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-005-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "snappy motion cut, quick"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-006-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "neutral"
+        },
+        "contextualNote": "dissolve, no perceptible direction"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-007-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "neutral"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "generic transition whoosh"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-008-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "left"
+        },
+        "contextualNote": "acknowledge direction cue present but weak evidence"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-009-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "slow"
+        },
+        "contextualNote": "slow calm transition"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-010-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "fast tech-y whoosh (AI) "
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-011-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "right"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "fast rightward wipe"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-012-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "up"
+        },
+        "contextualNote": "upward slide transition"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-013-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "down"
+        },
+        "contextualNote": "downward slide transition"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-014-transition-whoosh",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "neutral"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "neutral swoosh"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-015-impact",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "hard cut impact, restrained"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-016-impact",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "bass impact for a drop"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-017-impact",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "contextualNote": "soft impact, low energy"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-018-impact",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "sharp impact"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-019-impact",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "MG landing impact"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-020-impact",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "contextualNote": "MG reveal impact"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-021-impact",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "contextualNote": "cinematic impact"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-022-impact",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "contextualNote": "heavy thud"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-023-impact",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "contextualNote": "generic impact"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-024-impact",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "medium-energy impact"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-025-mg-landing",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "left"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "lower-third slide in, left"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-026-mg-landing",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "right"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "stat counter slide, right"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-027-mg-landing",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "tick"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "count-up settle tick (MG)"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-028-mg-landing",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "tick"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "MG tick"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-029-mg-landing",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "pop"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "MG pop"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-030-mg-landing",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "shimmer"
+        },
+        "contextualNote": "MG shimmer"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-031-mg-landing",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "neutral"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "MG neutral whoosh"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-032-mg-landing",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "tick"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "MG fast tick"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-033-mg-landing",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "direction": {
+          "state": "label",
+          "value": "up"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "MG rise"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-034-mg-landing",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "MG landing impact"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-035-mg-landing",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "pop"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "MG quick pop"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-036-ui-tick",
+        "surface": {
+          "state": "label",
+          "value": "ui"
+        },
+        "role": {
+          "state": "label",
+          "value": "tick"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "UI tick"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-037-ui-tick",
+        "surface": {
+          "state": "label",
+          "value": "ui"
+        },
+        "role": {
+          "state": "label",
+          "value": "tick"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "clean UI tick"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-038-ui-tick",
+        "surface": {
+          "state": "label",
+          "value": "ui"
+        },
+        "role": {
+          "state": "label",
+          "value": "tick"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "UI click"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-039-ui-tick",
+        "surface": {
+          "state": "label",
+          "value": "ui"
+        },
+        "role": {
+          "state": "label",
+          "value": "tick"
+        },
+        "contextualNote": "subtle UI tick"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-040-ui-tick",
+        "surface": {
+          "state": "label",
+          "value": "caption"
+        },
+        "role": {
+          "state": "label",
+          "value": "tick"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "caption tick"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-041-ui-tick",
+        "surface": {
+          "state": "label",
+          "value": "ui"
+        },
+        "role": {
+          "state": "label",
+          "value": "pop"
+        },
+        "contextualNote": "UI pop"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-042-ui-tick",
+        "surface": {
+          "state": "label",
+          "value": "caption"
+        },
+        "role": {
+          "state": "label",
+          "value": "pop"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "caption pop"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-043-ambience-foley",
+        "surface": {
+          "state": "label",
+          "value": "scene"
+        },
+        "role": {
+          "state": "label",
+          "value": "ambience"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "still"
+        },
+        "material": {
+          "state": "label",
+          "value": "environmental"
+        },
+        "contextualNote": "scene ambience bed"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-044-ambience-foley",
+        "surface": {
+          "state": "label",
+          "value": "scene"
+        },
+        "role": {
+          "state": "label",
+          "value": "ambience"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "still"
+        },
+        "material": {
+          "state": "label",
+          "value": "environmental"
+        },
+        "contextualNote": "nature ambience"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-045-ambience-foley",
+        "surface": {
+          "state": "label",
+          "value": "scene"
+        },
+        "role": {
+          "state": "label",
+          "value": "foley"
+        },
+        "material": {
+          "state": "label",
+          "value": "paper"
+        },
+        "contextualNote": "paper handling foley"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-046-ambience-foley",
+        "surface": {
+          "state": "label",
+          "value": "scene"
+        },
+        "role": {
+          "state": "label",
+          "value": "foley"
+        },
+        "material": {
+          "state": "label",
+          "value": "physical"
+        },
+        "contextualNote": "wood knock"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-047-ambience-foley",
+        "surface": {
+          "state": "label",
+          "value": "scene"
+        },
+        "role": {
+          "state": "label",
+          "value": "foley"
+        },
+        "material": {
+          "state": "label",
+          "value": "cloth"
+        },
+        "contextualNote": "cloth foley"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-048-ambience-foley",
+        "surface": {
+          "state": "label",
+          "value": "scene"
+        },
+        "role": {
+          "state": "label",
+          "value": "ambience"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "still"
+        },
+        "material": {
+          "state": "label",
+          "value": "environmental"
+        },
+        "contextualNote": "city ambience"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-049-ambience-foley",
+        "surface": {
+          "state": "label",
+          "value": "scene"
+        },
+        "role": {
+          "state": "label",
+          "value": "foley"
+        },
+        "contextualNote": "footsteps foley"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-050-ambience-foley",
+        "surface": {
+          "state": "label",
+          "value": "chapter"
+        },
+        "role": {
+          "state": "label",
+          "value": "ambience"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "still"
+        },
+        "material": {
+          "state": "label",
+          "value": "environmental"
+        },
+        "contextualNote": "chapter ambience"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-051-speed-diff",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "fast"
+        },
+        "contextualNote": "compare against slow whoosh"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-052-speed-diff",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "slow"
+        },
+        "contextualNote": "compare against fast whoosh"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-053-speed-diff",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "medium"
+        },
+        "contextualNote": "mid-speed whoosh"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-054-weak-evidence",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "contextualNote": "weak evidence, no direction/speed"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-055-weak-evidence",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "tick"
+        },
+        "contextualNote": "weak evidence, generic tick"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-056-silence",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "contextualNote": "silence preferred after a hard dip"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-057-absurd",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "contextualNote": "must not pick a jingle/music-bed (absurd)"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-058-absurd",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "contextualNote": "must not pick a voice/speech clip (absurd)"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-059-dialogue",
+        "surface": {
+          "state": "label",
+          "value": "scene"
+        },
+        "role": {
+          "state": "label",
+          "value": "ambience"
+        },
+        "motionSpeed": {
+          "state": "label",
+          "value": "still"
+        },
+        "material": {
+          "state": "label",
+          "value": "environmental"
+        },
+        "contextualNote": "low bed under dialogue, must not mask"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-060-dialogue",
+        "surface": {
+          "state": "label",
+          "value": "scene"
+        },
+        "role": {
+          "state": "label",
+          "value": "foley"
+        },
+        "contextualNote": "soft foley, must not mask speech"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-061-density",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "tick"
+        },
+        "contextualNote": "series of ticks - judge overuse/repetition"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-062-runtime",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "impact"
+        },
+        "contextualNote": "rights-denied asset must degrade to silence not fail edit"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-063-runtime",
+        "surface": {
+          "state": "label",
+          "value": "transition"
+        },
+        "role": {
+          "state": "label",
+          "value": "whoosh"
+        },
+        "contextualNote": "provider outage -> deterministic/offline path or silence"
+      },
+      "label": null
+    },
+    {
+      "context": {
+        "opportunityId": "s2-064-runtime",
+        "surface": {
+          "state": "label",
+          "value": "motion-graphic"
+        },
+        "role": {
+          "state": "label",
+          "value": "tick"
+        },
+        "contextualNote": "configured semantic outage must NOT alter edit completion"
+      },
+      "label": null
+    }
+  ],
+  "sequences": [
+    {
+      "canaryId": "seq-01",
+      "scenario": "talking-head interview with 3 hard cuts + lower-third MG",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "cut ticks audible under speech",
+        "MG landing impact not masking dialogue",
+        "no repetition across 3 cuts"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-02",
+      "scenario": "product explainer: count-up stats with 4 MG landings",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "settle ticks audible",
+        "no density fatigue",
+        "dialogue intelligible"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-03",
+      "scenario": "event recap: music-driven montage, 8 whooshes + impacts",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "transition whooshes fit",
+        "impacts on beats",
+        "no mask"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-04",
+      "scenario": "testimonial: 2 speakers, dialogue-heavy, 2 foley moments",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "foley under dialogue must be quiet",
+        "silence in pauses",
+        "no speech masking"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-05",
+      "scenario": "commercial short: 12 hard cuts, whip-pan transitions",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "fast whooshes on whips",
+        "right/left direction respected",
+        "no overlap"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-06",
+      "scenario": "logo reveal with sting + MG shimmer",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "logo sting lands",
+        "shimmer subtle",
+        "no clipping"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-07",
+      "scenario": "silence-required passage: pause before reveal stays silent",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "no SFX injected into charged silence",
+        "reveal impact on cue"
+      ],
+      "judgement": null
+    },
+    {
+      "canaryId": "seq-08",
+      "scenario": "dense-montage overuse test: 20 rapid cuts each with SFX",
+      "renderedArtifactRefs": [],
+      "expectations": [
+        "density acceptable",
+        "repetition low",
+        "taste preserved"
+      ],
+      "judgement": null
+    }
+  ]
+}
