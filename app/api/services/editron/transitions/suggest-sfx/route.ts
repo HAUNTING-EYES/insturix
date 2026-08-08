@@ -13,15 +13,15 @@ import { auth } from '@clerk/nextjs/server';
 
 export const runtime = 'nodejs';
 
-const TRANSITION_SFX_MAP: Record<string, { token: string; query: string; volume: number }> = {
+const TRANSITION_SFX_MAP: Record<string, { token: string; query: string; volume: number; direction?: 'left' | 'right' | 'up' | 'down'; motionSpeed?: 'fast' }> = {
   'dissolve': { token: 'whoosh', query: 'soft whoosh transition', volume: 0.30 },
-  'wipe-left': { token: 'whoosh', query: 'swoosh left transition', volume: 0.30 },
-  'wipe-right': { token: 'whoosh', query: 'swoosh right transition', volume: 0.30 },
-  'slide-up': { token: 'whoosh', query: 'upward swoosh transition', volume: 0.30 },
-  'slide-down': { token: 'whoosh', query: 'downward swoosh transition', volume: 0.30 },
+  'wipe-left': { token: 'whoosh', query: 'swoosh left transition', volume: 0.30, direction: 'left' },
+  'wipe-right': { token: 'whoosh', query: 'swoosh right transition', volume: 0.30, direction: 'right' },
+  'slide-up': { token: 'whoosh', query: 'upward swoosh transition', volume: 0.30, direction: 'up' },
+  'slide-down': { token: 'whoosh', query: 'downward swoosh transition', volume: 0.30, direction: 'down' },
   'iris-wipe': { token: 'whoosh', query: 'circular swoosh transition', volume: 0.30 },
   'blur-transition': { token: 'whoosh', query: 'blur whoosh transition', volume: 0.25 },
-  'whip-pan': { token: 'whoosh', query: 'fast whip pan swoosh', volume: 0.40 },
+  'whip-pan': { token: 'whoosh', query: 'fast whip pan swoosh', volume: 0.40, motionSpeed: 'fast' },
   'zoom-punch': { token: 'impact', query: 'bass impact hit thud', volume: 0.55 },
   'flash': { token: 'impact', query: 'camera flash impact stinger', volume: 0.55 },
   'glitch': { token: 'impact', query: 'digital glitch impact', volume: 0.40 },
@@ -66,7 +66,16 @@ export async function POST(request: NextRequest) {
     try {
       const { searchAndDownloadSFX, isSFXLibraryAvailable } = await import('@/lib/pipeline/sfx-library-service');
       if (isSFXLibraryAvailable()) {
-        const result = await searchAndDownloadSFX(mapping.query, userId, 3);
+        // S1: realized evidence from the transition type — surface=transition; real
+        // direction only for directional wipes/slides; whip-pan carries real speed.
+        const evidence = {
+          surface: 'transition' as const,
+          ...(mapping.direction ? { direction: mapping.direction } : {}),
+          ...(mapping.motionSpeed ? { motionSpeed: mapping.motionSpeed } : {}),
+          evidenceKeys: [`suggest-sfx-transition:${transitionType}`],
+          confidence: 0.8,
+        };
+        const result = await searchAndDownloadSFX(mapping.query, userId, 3, undefined, undefined, undefined, undefined, evidence);
         if (result) {
           previewUrl = result.audioUrl;
           sfxAssetId = result.audioAssetId;

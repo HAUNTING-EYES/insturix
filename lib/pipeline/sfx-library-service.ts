@@ -522,6 +522,7 @@ export async function searchAndDownloadSFX(
   reportSearch?: SFXLibrarySearchReporter,
   catalogManifest: SfxCatalogManifest = BUNDLED_SFX_CATALOG,
   dependencies: SfxLibrarySearchDependencies = {},
+  selectionEvidence?: import('./sfx-selection-evidence').SfxSelectionEvidenceV1,
 ): Promise<SFXLibraryResult | null> {
   const semanticRetrieval = atomicForm
     && (!atomicForm.shouldPlace || atomicForm.compatibilityToken === 'none')
@@ -534,6 +535,11 @@ export async function searchAndDownloadSFX(
     query,
     maxDurationSec,
     form: atomicForm,
+    surface: selectionEvidence?.surface,
+    direction: selectionEvidence?.direction,
+    motionSpeed: selectionEvidence?.motionSpeed,
+    material: selectionEvidence?.material,
+    evidence: selectionEvidence,
     semanticSimilarityByAssetId: semanticRetrieval?.similarityByAssetId,
   });
   if (catalogSelection.entry) {

@@ -14,7 +14,16 @@ import {
   type SFXLibraryResult,
   type SFXLibrarySearchReport,
 } from '@/lib/pipeline/sfx-library-service';
+import { deriveSfxSelectionEvidence } from '@/lib/pipeline/sfx-selection-evidence';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
+
+/** S1: event kinds that imply REAL realized movement → legitimate motion-speed evidence.
+ *  Static settles (tick), rustles and stings carry no motion speed (never fabricated). */
+const KINETIC_MOVEMENT_EVENT_KINDS: ReadonlySet<string> = new Set(['entrance-pop', 'directional-swipe']);
+
+function isKineticMovementEvent(kind: string | undefined): boolean {
+  return Boolean(kind && KINETIC_MOVEMENT_EVENT_KINDS.has(kind));
+}
 
 export type KineticSfxEventKind =
   | 'entrance-pop'
@@ -293,12 +302,24 @@ export async function placeMotionGraphicKineticSFX(
     let accepted = cache.get(query);
     if (accepted === undefined) {
       let report: SFXLibrarySearchReport | undefined;
+      // S1: realized evidence — surface=motion-graphic; real motionSpeed only for
+      // genuinely kinetic event kinds (directional swipes), none for static settles.
+      const evidence = deriveSfxSelectionEvidence({
+        surface: 'motion-graphic',
+        ...(isKineticMovementEvent(event.kind)
+          ? { motion: { magnitude: 0.5 }, durationMs: (form.timing.durationFrames / 30) * 1000 }
+          : {}),
+        receiptKeys: [`mg-kinetic-event:${event.kind ?? 'unknown'}`],
+      });
       const libraryResult = await searchAndDownloadSFX(
         query,
         userId,
         form.asset.maxDurationSec,
         form,
         value => { report = value; },
+        undefined,
+        undefined,
+        evidence,
       );
       const quality = evaluateAtomicSfxAssetCandidate(form, libraryResult);
       accepted = libraryResult && quality.accepted ? { result: libraryResult, quality, report } : null;

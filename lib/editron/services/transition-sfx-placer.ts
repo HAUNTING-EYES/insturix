@@ -44,6 +44,7 @@ import {
   type SFXLibraryResult,
   type SFXLibrarySearchReport,
 } from '@/lib/pipeline/sfx-library-service';
+import { deriveSfxSelectionEvidence } from '@/lib/pipeline/sfx-selection-evidence';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import type { EditProfile } from '@/lib/editron/data/edit-profile-types';
 import type { PipelineWarningCollector } from '@/lib/editron/services/pipeline-warnings';
@@ -80,6 +81,10 @@ interface SFXPlacementSpec {
   rule: string;        // KB/atomic bridge rule ID for traceability
   role?: TransitionSFXRole;
   form: AtomicSfxForm;
+  /** S1: realized transition direction label (from the resolved atomic transition form). */
+  directionLabel?: 'left' | 'right' | 'up' | 'down' | 'center';
+  /** S1: receipt keys proving the evidence source. */
+  evidenceKeys?: string[];
 }
 
 interface AcceptedTransitionSFX {
@@ -141,6 +146,10 @@ function resolveTransitionSFXSpec(transition: TransitionOverlayShape, overlays: 
   if (!form.shouldPlace || form.compatibilityToken === 'none') return null;
 
   const token = sfxTokenFromForm(form, hint);
+  // S1: realized transition direction from the resolved atomic transition form, if present.
+  const transitionMeta = (transition as unknown as Record<string, unknown>)?.metadata as Record<string, unknown> | undefined;
+  const atomicForm = transitionMeta?.atomicTransitionForm as { direction?: { label?: 'left' | 'right' | 'up' | 'down' | 'center' } } | undefined;
+  const directionLabel = atomicForm?.direction?.label;
   return {
     token,
     searchQuery: searchQueryForAtomicSFX(form, token),
@@ -148,6 +157,8 @@ function resolveTransitionSFXSpec(transition: TransitionOverlayShape, overlays: 
     rule: hint.rule,
     role: hint.role,
     form,
+    ...(directionLabel && { directionLabel }),
+    ...(directionLabel ? { evidenceKeys: [`atomic-transition-direction:${directionLabel}`] } : {}),
   };
 }
 
@@ -161,6 +172,15 @@ function sfxTokenFromForm(form: AtomicSfxForm, hint: TransitionSFXHint): SFXToke
 function searchQueryForAtomicSFX(form: AtomicSfxForm, token: SFXToken): string {
   if (form.asset.queryTerms.length > 0) return form.asset.queryTerms.join(' ');
   return token === 'digital-tick' ? 'digital glitch tick' : token;
+}
+
+/** S1: realized SFX selection evidence for a transition placement (surface + genuine direction only). */
+function transitionSfxSelectionEvidence(spec: SFXPlacementSpec): import('@/lib/pipeline/sfx-selection-evidence').SfxSelectionEvidenceV1 {
+  return deriveSfxSelectionEvidence({
+    surface: 'transition',
+    transitionDirectionLabel: spec.directionLabel,
+    receiptKeys: spec.evidenceKeys ?? ['transition-surface'],
+  });
 }
 
 function validateTransitionSFXPlacement(
@@ -638,6 +658,7 @@ export async function placeTransitionSFX(
   async function getOrFetchSFX(spec: SFXPlacementSpec): Promise<AcceptedTransitionSFX | null> {
     if (sfxCache.has(spec.searchQuery)) return sfxCache.get(spec.searchQuery) ?? null;
     let providerSearchReport: SFXLibrarySearchReport | undefined;
+    const evidence = transitionSfxSelectionEvidence(spec);
     const res = await searchAndDownloadSFX(
       spec.searchQuery,
       userId,
@@ -647,6 +668,9 @@ export async function placeTransitionSFX(
         providerSearchReport = report;
         providerSearchReports.set(spec.searchQuery, report);
       },
+      undefined,
+      undefined,
+      evidence,
     );
     const assetQuality = evaluateAtomicSfxAssetCandidate(spec.form, res);
     const accepted = res && assetQuality.accepted ? { result: res, assetQuality, providerSearchReport } : null;

@@ -249,6 +249,15 @@ export interface SfxCatalogSelectionRequest {
   direction?: SfxCatalogDirection;
   motionSpeed?: SfxCatalogEntry['motionSpeed'];
   material?: string;
+  /** S1: derived evidence with provenance keys, surfaced in the report. */
+  evidence?: {
+    surface?: SfxCatalogSurface;
+    direction?: SfxCatalogDirection;
+    motionSpeed?: SfxCatalogEntry['motionSpeed'];
+    material?: string;
+    evidenceKeys: string[];
+    confidence: number;
+  };
   semanticSimilarityByAssetId?: ReadonlyMap<string, number>;
 }
 
@@ -266,6 +275,15 @@ export interface SfxCatalogSelectionReport {
   decision: 'selected' | 'silence' | 'no-match';
   requestedRole?: SfxCatalogEventRole;
   requestedSurface?: SfxCatalogSurface;
+  /** S1: surface/direction/motionSpeed/material + evidence keys that reached the selector. */
+  requestedEvidence?: {
+    surface?: SfxCatalogSurface;
+    direction?: SfxCatalogDirection;
+    motionSpeed?: SfxCatalogEntry['motionSpeed'];
+    material?: string;
+    evidenceKeys: string[];
+    confidence: number;
+  };
   catalogEntryCount: number;
   acceptedCandidateCount: number;
   rejectedCandidateCount: number;
@@ -307,17 +325,27 @@ export function selectSfxCatalogEntry(
   const manifest = parseSfxCatalogManifest(manifestValue);
   const requestedRole = requestedEventRole(request.form?.compatibilityToken, request.query);
   const requestedSurface = request.surface ?? inferSurface(request.form);
+  const requestedEvidence = request.evidence
+    ? {
+        surface: request.evidence.surface ?? requestedSurface,
+        direction: request.evidence.direction ?? request.direction,
+        motionSpeed: request.evidence.motionSpeed ?? request.motionSpeed,
+        material: request.evidence.material ?? request.material,
+        evidenceKeys: request.evidence.evidenceKeys,
+        confidence: request.evidence.confidence,
+      }
+    : undefined;
 
   if (request.form && (!request.form.shouldPlace || request.form.compatibilityToken === 'none')) {
     return {
       entry: null,
-      report: emptySelectionReport(manifest, 'silence', requestedRole, requestedSurface),
+      report: emptySelectionReport(manifest, 'silence', requestedRole, requestedSurface, requestedEvidence),
     };
   }
   if (!requestedRole) {
     return {
       entry: null,
-      report: emptySelectionReport(manifest, 'no-match', undefined, requestedSurface),
+      report: emptySelectionReport(manifest, 'no-match', undefined, requestedSurface, requestedEvidence),
     };
   }
 
@@ -333,6 +361,7 @@ export function selectSfxCatalogEntry(
       decision: selected ? 'selected' : 'no-match',
       requestedRole,
       requestedSurface,
+      ...(requestedEvidence ? { requestedEvidence } : {}),
       catalogEntryCount: manifest.entries.length,
       acceptedCandidateCount: ranked.filter(candidate => candidate.accepted).length,
       rejectedCandidateCount: ranked.filter(candidate => !candidate.accepted).length,
@@ -560,12 +589,14 @@ function emptySelectionReport(
   decision: SfxCatalogSelectionReport['decision'],
   requestedRole?: SfxCatalogEventRole,
   requestedSurface?: SfxCatalogSurface,
+  requestedEvidence?: SfxCatalogSelectionReport['requestedEvidence'],
 ): SfxCatalogSelectionReport {
   return {
     version: 'sfx-catalog-selection-report-v2',
     decision,
     requestedRole,
     requestedSurface,
+    ...(requestedEvidence ? { requestedEvidence } : {}),
     catalogEntryCount: manifest.entries.length,
     acceptedCandidateCount: 0,
     rejectedCandidateCount: 0,
