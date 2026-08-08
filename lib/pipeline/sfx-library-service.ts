@@ -535,10 +535,11 @@ export async function searchAndDownloadSFX(
     query,
     maxDurationSec,
     form: atomicForm,
-    surface: selectionEvidence?.surface,
-    direction: selectionEvidence?.direction,
-    motionSpeed: selectionEvidence?.motionSpeed,
-    material: selectionEvidence?.material,
+    // S1-R SHADOW: the derived evidence is surfaced in the report only. It must
+    // NOT populate the live scored request fields (surface/direction/motionSpeed/
+    // material) until S2 calibrates the classifiers — those fields already
+    // participate in eligibility/scoring, so populating them changes selection
+    // even with unchanged weights (S1-R decision-parity: 11/11 items changed).
     evidence: selectionEvidence,
     semanticSimilarityByAssetId: semanticRetrieval?.similarityByAssetId,
   });
