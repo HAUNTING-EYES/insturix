@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { NextRequest } from 'next/server';
+import { GET } from '@/app/api/dev/sfx-labelling/route';
 import { BUNDLED_SFX_CATALOG } from '@/lib/pipeline/sfx-catalog';
 import {
   adjudicateObservations,
@@ -111,5 +113,21 @@ describe('S2-L1 frozen label mapping', () => {
     const frozen = toFrozenOpportunityLabel(adjudicateObservations([a, b]), a, ['B']);
     expect(frozen?.adjudication?.conflictingReviewerIds).toHaveLength(0);
     expect(frozen?.adjudication?.result).toBe('accepted-consensus');
+  });
+});
+
+describe('S2-L1 dev route guard', () => {
+  it('denies outside development unless explicitly allowed (default: 403)', async () => {
+    // vitest runs with NODE_ENV=test; SFX_LABELLING_ALLOW is unset in CI.
+    const prev = process.env.SFX_LABELLING_ALLOW;
+    delete process.env.SFX_LABELLING_ALLOW;
+    try {
+      const res = await GET(new NextRequest('http://localhost/api/dev/sfx-labelling'));
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { code?: string };
+      expect(body.code).toBe('DEV_ONLY');
+    } finally {
+      if (prev !== undefined) process.env.SFX_LABELLING_ALLOW = prev;
+    }
   });
 });
