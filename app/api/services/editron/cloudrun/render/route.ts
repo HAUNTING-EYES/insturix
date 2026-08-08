@@ -34,6 +34,8 @@ import {
 } from '@/lib/editron/services/render-delivery-manifest';
 import { resolveRenderFinalizationPipelineConfig } from '@/lib/editron/services/render-finalization-dispatch';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
+import { resolveBillingOwner } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 
 export async function POST(request: Request) {
   let renderCreditCheck: CreditCheckResult | null = null;
@@ -112,6 +114,11 @@ export async function POST(request: Request) {
         { status: 404 }
       );
     }
+    // Route the render/export charge to the org wallet when this project is org-owned AND the flag
+    // is on (P2). resolveBillingOwner reads the project's persisted ownership only — flag off, or a
+    // personal/grandfathered project, bills the member's personal wallet exactly as before. Deduct
+    // and the refund-on-early-fail below both use this same wallet.
+    const billingWallet = resolveBillingOwner(userId, project, isOrgWalletBillingEnabled());
     // MG delivery integrity preflight (brief §16, Fix-4): an expected-but-undelivered codegen MG must NEVER silently
     // vanish. This surfaces missingMGs; it NEVER inserts a plain card / deterministic replacement (non-negotiable
     // §3.2/§3.3). strict → block; preview / degraded_allowed → proceed with the warning surfaced in `mgIntegrity`.
@@ -193,7 +200,7 @@ export async function POST(request: Request) {
     renderCreditCheck = await checkCredits(userId, 'editron', 'render_export', {
       durationMinutes: getBillableRenderMinutes(totalFrames, renderFps),
       requestType: getRenderExportRequestType(resolvedProps, usesChapterRendering),
-    });
+    }, billingWallet);
     if (!renderCreditCheck.allowed) {
       return renderCreditCheck.errorResponse!;
     }

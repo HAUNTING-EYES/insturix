@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { CreditsService } from "./creditsService";
 import { CreditCostConfigurationError, getCreditCost } from "@/lib/config/creditCosts";
+import type { WalletRef } from "@/lib/editron/services/project-ownership";
 
 export interface CreditCheckResult {
   allowed: boolean;
@@ -33,8 +34,17 @@ export async function checkCredits(
     taskId?: string;
     /** Batch/fan-out multiplier (e.g. N carousel slides => N image variations). Defaults to 1. */
     quantity?: number;
-  }
+  },
+  /**
+   * Optional billing target (plan §3, P2). Omit => the user's personal wallet — today's behavior
+   * EXACTLY. An org-owned editron project passes resolveBillingOwner(...) here so the pre-flight
+   * check, deduct, AND refund all route to the org wallet together (a charge billed to an org must
+   * refund to that org, never the actor's personal wallet).
+   */
+  wallet?: WalletRef
 ): Promise<CreditCheckResult> {
+  const effectiveWallet: WalletRef = wallet ?? { type: 'user', clerkUserId };
+
   let cost: number;
   try {
     cost = getCreditCost(service, action, options);
@@ -57,7 +67,7 @@ export async function checkCredits(
     }
     throw error;
   }
-  
+
   // If cost is 0, allow without deduction
   if (cost === 0) {
     return {
@@ -67,7 +77,7 @@ export async function checkCredits(
     };
   }
 
-  const check = await CreditsService.hasCredits(clerkUserId, service, action, options);
+  const check = await CreditsService.hasCreditsForWallet(effectiveWallet, service, action, options);
 
   if (!check.hasCredits) {
     return {
@@ -77,6 +87,9 @@ export async function checkCredits(
           error: "Insufficient credits",
           required: check.required,
           available: check.available,
+          // Which wallet is short (plan D2): 'org' => the shared org wallet is empty, not the
+          // member's personal one, so the UI can say "the team is out of credits".
+          walletOwner: effectiveWallet.type,
           code: "INSUFFICIENT_CREDITS",
         },
         { status: 402 } // Payment Required
@@ -91,8 +104,8 @@ export async function checkCredits(
   return {
     allowed: true,
     deduct: async () => {
-      const result = await CreditsService.deductCredits(
-        clerkUserId,
+      const result = await CreditsService.deductForWallet(
+        effectiveWallet,
         service,
         action,
         options
@@ -105,8 +118,8 @@ export async function checkCredits(
     },
     refund: async (reason: string) => {
       if (transactionId && transactionId !== 'no_charge') {
-        await CreditsService.refundCredits(
-          clerkUserId,
+        await CreditsService.refundForWallet(
+          effectiveWallet,
           cost,
           reason,
           { service, action, originalTransactionId: transactionId }
