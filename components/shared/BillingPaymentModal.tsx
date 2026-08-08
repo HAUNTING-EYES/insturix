@@ -39,7 +39,7 @@ export function BillingPaymentModal({ isOpen, onClose, onSuccess, initialPackage
   const [error, setError] = useState<string | null>(null);
   const [scriptLoaded, setScriptLoaded] = useState(false);
   
-  const { invalidateCredits } = useCredits();
+  const { invalidateCredits, walletOwner } = useCredits();
   const { toast } = useToast();
 
   // Load Razorpay script
@@ -343,6 +343,14 @@ export function BillingPaymentModal({ isOpen, onClose, onSuccess, initialPackage
               <h2 className="text-[18px] font-bold text-white tracking-tight">
                 {isSubscription ? 'Upgrade Plan' : 'Refuel Account'}
               </h2>
+              {/* P2 org UX: purchases here fund the PERSONAL wallet (org funding lands in P3) —
+                  say so whenever the user is standing in a team context so the org balance they
+                  just saw isn't the wallet this payment tops up. */}
+              {walletOwner === 'org' && !isSubscription && (
+                <p className="text-[10px] text-amber-500/80 font-medium mt-0.5">
+                  Top-ups are added to your personal wallet — team wallet funding is coming soon.
+                </p>
+              )}
               <p className="text-[10px] text-white/20 font-bold uppercase tracking-widest mt-0.5">
                 {isSubscription ? 'Monthly Benefits • Higher Priority' : 'Instant Activation • No Expiry'}
               </p>

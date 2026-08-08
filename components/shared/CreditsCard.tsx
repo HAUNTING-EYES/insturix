@@ -22,8 +22,9 @@ const transactionLabels = {
 };
 
 export function CreditsCard({ variant = 'compact', className, onTopupClick }: CreditsCardProps) {
-  const { balance, transactions, isLoading, error } = useCredits();
+  const { balance, transactions, isLoading, error, walletOwner, orgName } = useCredits();
   const [expanded, setExpanded] = useState(false);
+  const isOrgWallet = walletOwner === 'org';
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -83,6 +84,10 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
         <div className="p-4 flex items-center gap-4">
           {/* Balance */}
           <div className="flex-1 min-w-0">
+            {/* Wallet context (P2 org UX): which wallet you're standing in */}
+            <p className="text-[11px] text-muted-foreground truncate mb-0.5">
+              {isOrgWallet ? `Team wallet${orgName ? ` · ${orgName}` : ''}` : 'Personal wallet'}
+            </p>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-semibold tabular-nums">
                 {balance.totalCredits.toLocaleString()}
@@ -159,7 +164,9 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
             >
               {/* Header */}
               <div className="p-4 border-b border-border flex items-center justify-between">
-                <h3 className="text-sm font-medium">Credits Balance</h3>
+                <h3 className="text-sm font-medium">
+                  {isOrgWallet ? `Team credits${orgName ? ` · ${orgName}` : ''}` : 'Credits Balance'}
+                </h3>
                 <button
                   onClick={(e) => { e.stopPropagation(); setExpanded(false); }}
                   className="p-1 rounded-md hover:bg-muted transition-colors"
