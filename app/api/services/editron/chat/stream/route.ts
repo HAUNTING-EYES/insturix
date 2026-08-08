@@ -21,6 +21,8 @@ import { getChatToolMetadata } from '@/lib/editron/agent/chat-tool-registry';
 import type { ChatEditRenderVerificationRequest } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 import { checkRateLimit } from '@/lib/editron/utils/rate-limiter';
 import { CreditsService } from '@/lib/services/creditsService';
+import { resolveBillingOwner } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import { TokenTracker } from '@/lib/editron/utils/token-tracker';
 import { CHAT_MODEL_NAME } from '@/lib/editron/utils/gemini-model-factory';
 import {
@@ -199,24 +201,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Credits check - ensure user has minimum credits available
-    // We use post-hoc billing based on actual token usage
-    const creditsCheck = await CreditsService.hasCredits(userId, 'editron', 'ai_chat', {
-      tokenCount: MINIMUM_CREDITS_REQUIRED * 1000, // Check if they have at least minimum credits
-      model: CHAT_MODEL_NAME,
-    });
-    if (!creditsCheck.hasCredits) {
-      return NextResponse.json(
-        { 
-          error: 'Insufficient credits',
-          creditsInfo: {
-            required: MINIMUM_CREDITS_REQUIRED,
-            available: creditsCheck.available,
-          }
-        },
-        { status: 402 }
-      );
-    }
+    // (Credits pre-flight moved below, after loadProject, so it checks the BILLED wallet — P2.)
 
     const {
       message,
@@ -262,6 +247,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'This project\'s scan failed and its credits were refunded. Start a new project to edit this footage.', code: 'assist_scan_failed' },
         { status: 403 },
+      );
+    }
+
+    // Billing wallet for this chat (P2): an org-owned project bills the org wallet, else the
+    // member's personal wallet. The post-hoc deduct below uses the SAME wallet. Flag off /
+    // personal project => personal, exactly as before.
+    const billingWallet = resolveBillingOwner(userId, project, isOrgWalletBillingEnabled());
+    // Credits pre-flight — post-hoc billing, so this only gates that the BILLED wallet holds at
+    // least the minimum. Checks the org wallet for an org project (D2), so an org member with an
+    // empty personal wallet is not wrongly blocked from a funded org project.
+    const creditsCheck = await CreditsService.hasCreditsForWallet(billingWallet, 'editron', 'ai_chat', {
+      tokenCount: MINIMUM_CREDITS_REQUIRED * 1000,
+      model: CHAT_MODEL_NAME,
+    });
+    if (!creditsCheck.hasCredits) {
+      return NextResponse.json(
+        {
+          error: 'Insufficient credits',
+          creditsInfo: {
+            required: MINIMUM_CREDITS_REQUIRED,
+            available: creditsCheck.available,
+          },
+          walletOwner: billingWallet.type,
+        },
+        { status: 402 },
       );
     }
     let attachments;
@@ -634,7 +644,7 @@ export async function POST(req: NextRequest) {
         const creditsConsumed = tokenTracker.getCreditsConsumed();
         
         if (creditsConsumed > 0) {
-          const deductResult = await CreditsService.deductCredits(userId, 'editron', 'ai_chat', {
+          const deductResult = await CreditsService.deductForWallet(billingWallet, 'editron', 'ai_chat', {
             tokenCount: tokensUsed,
             model: tokenTracker.getModel(),
           });
