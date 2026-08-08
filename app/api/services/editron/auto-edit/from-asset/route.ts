@@ -23,6 +23,8 @@ import { assetResolver } from '@/lib/editron/services/asset-resolver';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { validateReferenceVideoUrlForAutoEditIntake } from '@/lib/editron/reference-video/reference-video-source';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
+import { resolveBillingOwner, resolveCreationVisibility } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import { normalizeEditorialPreferences, type EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 import { ASSIST_STATUS_READY, isAssistIntakeEnabled, parseEditMode } from '@/lib/editron/services/assist-lane';
 import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
@@ -171,7 +173,16 @@ export async function POST(request: NextRequest) {
       durationMinutes: getBillableAutoEditMinutes(durationSec),
       requestType: getAutoEditAnalysisRequestType({ durationSec, referenceAssetId, imageAssetIds }),
     };
-    autoEditCreditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', autoEditCreditOptions);
+    // Org-wallet routing (P2): this project is created (below) org-owned when the user is in an
+    // org context and the flag is on, so derive the billing wallet from that same ownership. The
+    // deduct AND the refund-on-failure both use it. Flag off / no org => personal, exactly as before.
+    const orgWalletEnabled = isOrgWalletBillingEnabled();
+    const billingWallet = resolveBillingOwner(
+      userId,
+      { orgId: orgId ?? null, visibility: resolveCreationVisibility(orgId ?? null, orgWalletEnabled) },
+      orgWalletEnabled,
+    );
+    autoEditCreditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', autoEditCreditOptions, billingWallet);
     if (!autoEditCreditCheck.allowed) {
       return autoEditCreditCheck.errorResponse!;
     }
@@ -194,7 +205,7 @@ export async function POST(request: NextRequest) {
 
     // 4. Create Editron project
     const projectName = title || `Auto-Edit: ${asset.filename}`;
-    const project = await projectService.createProject(userId, projectName, { brandId });
+    const project = await projectService.createProject(userId, projectName, { brandId, orgId: orgId ?? null });
     const projectId = project.projectId;
 
     console.log(`[auto-edit/from-asset] Created project ${projectId}`);
