@@ -29,6 +29,8 @@ import {
 } from '@/lib/editron/storyline/storyline-llm';
 import { readProjectAssetAnalyses } from '@/lib/editron/storyline/asset-analysis-reader';
 import { checkCredits, type CreditCheckResult } from '@/lib/services/creditsMiddleware';
+import { resolveBillingOwner, resolveCreationVisibility } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
 import { hydrateStorylineAnalysesForBatch } from '@/lib/editron/services/batch-storyline-analysis-bridge';
 import { buildMultiAssetDirectorContext } from '@/lib/editron/services/multi-asset-director-context';
@@ -1002,6 +1004,17 @@ export async function POST(request: NextRequest) {
     if (!batch) {
       return NextResponse.json({ success: false, error: 'Upload batch not found' }, { status: 404 });
     }
+    // Org-wallet routing (P2): derive the billing owner from the SAME ownership createProject
+    // stamps (orgId ?? batch.orgId + the flag), so the pre-flight gate, the compose-time deduct,
+    // and every refund path bill the same wallet. Flag off / no org context => the member's
+    // personal wallet, exactly as before.
+    const orgWalletEnabled = isOrgWalletBillingEnabled();
+    const batchEffectiveOrgId = orgId ?? batch.orgId ?? null;
+    const billingWallet = resolveBillingOwner(
+      userId,
+      { orgId: batchEffectiveOrgId, visibility: resolveCreationVisibility(batchEffectiveOrgId, orgWalletEnabled) },
+      orgWalletEnabled,
+    );
     if (hasMultiOutputRequest(body) || hasMultiOutputRequest(batch.productionBriefIntake)) {
       return NextResponse.json({
         success: false,
@@ -1167,7 +1180,7 @@ export async function POST(request: NextRequest) {
         }, { status: 503 });
       }
 
-      creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions);
+      creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions, billingWallet);
       if (!creditCheck.allowed) return creditCheck.errorResponse!;
 
       if (resumeCoverage) {
@@ -1600,7 +1613,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, projectId: activeProjectId, status: 'processing', skipped: 'orchestration-lease-held' });
     }
 
-    creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions);
+    creditCheck = await checkCredits(userId, 'editron', 'auto_edit_analysis', creditOptions, billingWallet);
     if (!creditCheck.allowed) {
       await db.collection(COLLECTIONS.MEDIA_UPLOAD_BATCHES).updateOne(
         { uploadBatchId, userId, projectId: activeProjectId },
@@ -1683,9 +1696,9 @@ export async function POST(request: NextRequest) {
         // deduction is refunded (idempotent at the service via originalTransactionId)
         // and never mark the batch ready.
         const { CreditsService } = await import('@/lib/services/creditsService');
-        await CreditsService.refundCredits(
-          userId, assistCharged, 'Director Mode scan cancelled during lay-down — full refund',
-          { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: deduction.transactionId },
+        await CreditsService.refundForWallet(
+          billingWallet, assistCharged, 'Director Mode scan cancelled during lay-down — full refund',
+          { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: deduction.transactionId, projectId: activeProjectId ?? undefined },
         ).then(() => db.collection(COLLECTIONS.PROJECTS).updateOne(
           { projectId: activeProjectId },
           { $set: { assistRefundedAt: new Date() }, $unset: { assistCreditTransactionId: '', assistChargedCredits: '' } },

@@ -1499,6 +1499,8 @@ describe('from-batch storyline route handoff', () => {
       'editron',
       'auto_edit_analysis',
       expect.objectContaining({ requestType: 'standard' }),
+      // P2: the resolved billing wallet — personal here (flag off in tests).
+      { type: 'user', clerkUserId: 'user_1' },
     );
     expect(mocks.updateBatch).toHaveBeenCalledWith(
       { uploadBatchId: 'batch_1', userId: 'user_1', projectId: 'proj_batch_1' },

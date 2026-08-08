@@ -82,7 +82,7 @@ export async function settleAssistScanFailure(
 ): Promise<'refunded' | 'transition-lost' | 'refund-pending' | 'not-assist'> {
   const laneDoc = await db.collection('projects').findOne(
     { projectId },
-    { projection: { editMode: 1, assistCreditTransactionId: 1, assistChargedCredits: 1, userId: 1 } },
+    { projection: { editMode: 1, assistCreditTransactionId: 1, assistChargedCredits: 1, userId: 1, orgId: 1, visibility: 1 } },
   );
   if (!isAssistProject(laneDoc)) return 'not-assist';
 
@@ -111,11 +111,21 @@ export async function settleAssistScanFailure(
   }
   try {
     const { CreditsService } = await import('@/lib/services/creditsService');
-    const result = await CreditsService.refundCredits(
+    const { resolveBillingOwner } = await import('./project-ownership');
+    const { isOrgWalletBillingEnabled } = await import('@/lib/services/org-wallet-flag');
+    // Refund the SAME wallet the assist scan was billed to (P2/D5). laneDoc carries the project's
+    // persisted ownership, so an org-billed Director Mode scan refunds the org — never the actor's
+    // personal wallet. Flag off / personal project => the member's wallet, exactly as before.
+    const wallet = resolveBillingOwner(
       String(laneDoc?.userId ?? ''),
+      { projectId, orgId: laneDoc?.orgId, visibility: laneDoc?.visibility },
+      isOrgWalletBillingEnabled(),
+    );
+    const result = await CreditsService.refundForWallet(
+      wallet,
       charged,
       reason,
-      { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: txId },
+      { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: txId, projectId },
     );
     if (result && result.success === false) {
       console.error('[DirectorMode][REFUND-FAILED][MONEY] refundCredits returned failure — flagging for support:', { projectId, error: (result as { error?: unknown }).error });

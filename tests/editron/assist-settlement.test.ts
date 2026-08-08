@@ -8,9 +8,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   findOne: vi.fn(),
   updateOne: vi.fn(),
-  refundCredits: vi.fn(),
+  refundForWallet: vi.fn(),
 }));
-vi.mock('@/lib/services/creditsService', () => ({ CreditsService: { refundCredits: mocks.refundCredits } }));
+vi.mock('@/lib/services/creditsService', () => ({ CreditsService: { refundForWallet: mocks.refundForWallet } }));
 
 import { settleAssistScanFailure } from '@/lib/editron/services/assist-lane';
 
@@ -19,21 +19,21 @@ const db = { collection: () => ({ findOne: mocks.findOne, updateOne: mocks.updat
 beforeEach(() => {
   for (const m of Object.values(mocks)) m.mockReset();
   mocks.updateOne.mockResolvedValue({ modifiedCount: 1, matchedCount: 1 });
-  mocks.refundCredits.mockResolvedValue({ success: true });
+  mocks.refundForWallet.mockResolvedValue({ success: true });
 });
 
 describe('settleAssistScanFailure', () => {
   it('returns not-assist for auto projects and never refunds', async () => {
     mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'auto' });
     expect(await settleAssistScanFailure(db as never, 'p', 'boom')).toBe('not-assist');
-    expect(mocks.refundCredits).not.toHaveBeenCalled();
+    expect(mocks.refundForWallet).not.toHaveBeenCalled();
   });
 
   it('refunds once when it wins the atomic transition, then consumes the tx', async () => {
     mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' });
     expect(await settleAssistScanFailure(db as never, 'p', 'boom')).toBe('refunded');
-    expect(mocks.refundCredits).toHaveBeenCalledWith('u', 20, 'boom',
-      { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: 'tx_1' });
+    expect(mocks.refundForWallet).toHaveBeenCalledWith({ type: 'user', clerkUserId: 'u' }, 20, 'boom',
+      { service: 'editron', action: 'auto_edit_analysis', originalTransactionId: 'tx_1', projectId: 'p' });
     const consumed = mocks.updateOne.mock.calls.some(([, u]) => (u as { $unset?: Record<string, unknown> })?.$unset?.assistCreditTransactionId !== undefined);
     expect(consumed).toBe(true);
   });
@@ -42,27 +42,27 @@ describe('settleAssistScanFailure', () => {
     mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' });
     mocks.updateOne.mockResolvedValueOnce({ modifiedCount: 0, matchedCount: 0 }); // the transition
     expect(await settleAssistScanFailure(db as never, 'p', 'boom')).toBe('transition-lost');
-    expect(mocks.refundCredits).not.toHaveBeenCalled();
+    expect(mocks.refundForWallet).not.toHaveBeenCalled();
   });
 
   it('no persisted transaction → refund-pending + support flag, tx NOT consumed', async () => {
     mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'assist', userId: 'u' });
     expect(await settleAssistScanFailure(db as never, 'p', 'boom')).toBe('refund-pending');
-    expect(mocks.refundCredits).not.toHaveBeenCalled();
+    expect(mocks.refundForWallet).not.toHaveBeenCalled();
     expect(mocks.updateOne).toHaveBeenCalledWith({ projectId: 'p' }, { $set: { assistRefundPending: true } });
   });
 
-  it('refundCredits returning success:false → refund-pending, tx pointer preserved', async () => {
+  it('refundForWallet returning success:false → refund-pending, tx pointer preserved', async () => {
     mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' });
-    mocks.refundCredits.mockResolvedValue({ success: false, error: 'txn not found' });
+    mocks.refundForWallet.mockResolvedValue({ success: false, error: 'txn not found' });
     expect(await settleAssistScanFailure(db as never, 'p', 'boom')).toBe('refund-pending');
     const consumed = mocks.updateOne.mock.calls.some(([, u]) => (u as { $unset?: Record<string, unknown> })?.$unset?.assistCreditTransactionId !== undefined);
     expect(consumed).toBe(false);
   });
 
-  it('refundCredits throwing → refund-pending + support flag', async () => {
+  it('refundForWallet throwing → refund-pending + support flag', async () => {
     mocks.findOne.mockResolvedValue({ projectId: 'p', editMode: 'assist', assistCreditTransactionId: 'tx_1', assistChargedCredits: 20, userId: 'u' });
-    mocks.refundCredits.mockRejectedValue(new Error('infra down'));
+    mocks.refundForWallet.mockRejectedValue(new Error('infra down'));
     expect(await settleAssistScanFailure(db as never, 'p', 'boom')).toBe('refund-pending');
     expect(mocks.updateOne).toHaveBeenCalledWith({ projectId: 'p' }, { $set: { assistRefundPending: true } });
   });

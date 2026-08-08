@@ -22,8 +22,8 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
 }));
 vi.mock('@/lib/editron/services/r2-service', () => ({ isR2Available: () => false, getR2PublicUrl: (id: string) => `https://r2/${id}` }));
 vi.mock('@/lib/pipeline/scene-to-editron', () => ({ ROW: { VIDEO: 2 } }));
-const refundCredits = vi.fn(async () => ({ success: true }));
-vi.mock('@/lib/services/creditsService', () => ({ CreditsService: { refundCredits } }));
+const refundForWallet = vi.fn(async () => ({ success: true }));
+vi.mock('@/lib/services/creditsService', () => ({ CreditsService: { refundForWallet } }));
 vi.mock('@/lib/editron/services/multi-asset-director-context', () => ({
   buildMultiAssetDirectorContext: vi.fn(() => ({
     rawFootageAnalysis: { timelineCoordinateSpace: 'canonical-edited-v1', silenceGaps: [{ startMs: 0, endMs: 400 }] },
@@ -99,7 +99,7 @@ async function layDownAssist(db: ReturnType<typeof makeDb>['db'], projectId: str
   return { timeline, hydration, readyWrite };
 }
 
-beforeEach(() => refundCredits.mockClear());
+beforeEach(() => refundForWallet.mockClear());
 
 describe('DIRECTOR MODE journey (real service logic, shared state)', () => {
   const analyses = [
@@ -140,7 +140,7 @@ describe('DIRECTOR MODE journey (real service logic, shared state)', () => {
     const outcome = await settleAssistScanFailure(db as never, 'p3', 'gpu exploded');
     expect(outcome).toBe('refunded');
     expect(projects[0].autoEditStatus).toBe('scan_failed');
-    expect(refundCredits).toHaveBeenCalledOnce();
+    expect(refundForWallet).toHaveBeenCalledOnce();
     // tx consumed so nothing can refund it again
     expect(projects[0].assistCreditTransactionId).toBeUndefined();
   });
@@ -149,7 +149,7 @@ describe('DIRECTOR MODE journey (real service logic, shared state)', () => {
     const { db } = makeDb([{ projectId: 'p4', editMode: 'assist', autoEditStatus: 'directing_queued', assistCreditTransactionId: 'tx4', assistChargedCredits: 15, userId: 'user_1' }]);
     expect(await settleAssistScanFailure(db as never, 'p4', 'fail')).toBe('refunded');
     expect(await settleAssistScanFailure(db as never, 'p4', 'fail-redelivered')).toBe('transition-lost');
-    expect(refundCredits).toHaveBeenCalledOnce(); // exactly one refund across both deliveries
+    expect(refundForWallet).toHaveBeenCalledOnce(); // exactly one refund across both deliveries
   });
 
   it('5. GATE: once scan_failed + refunded, the project is inert to chat/mutation', () => {
