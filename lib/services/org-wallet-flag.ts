@@ -14,9 +14,14 @@
  * copy can drift.
  */
 
-/** The one accepted-values rule. Case-sensitive by design ('TRUE' is not 'true'). */
+/**
+ * The one accepted-values rule. Case-sensitive by design ('TRUE' is not 'true') but tolerant of
+ * surrounding whitespace/newlines — deploy platforms (Vercel env, .env files) routinely store a
+ * trailing '\n', which strict equality would silently read as OFF.
+ */
 export function parseOrgWalletFlag(value: string | undefined): boolean {
-  return value === 'true' || value === '1';
+  const v = value?.trim();
+  return v === 'true' || v === '1';
 }
 
 /** Server gate: is org-wallet billing active on this deploy? Default false. */

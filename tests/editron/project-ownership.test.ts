@@ -11,6 +11,11 @@ describe('parseOrgWalletFlag (plan D7 — default off, case-sensitive)', () => {
     expect(parseOrgWalletFlag('true')).toBe(true);
     expect(parseOrgWalletFlag('1')).toBe(true);
   });
+  it('tolerates surrounding whitespace/newlines (deploy env values often carry a trailing \\n)', () => {
+    expect(parseOrgWalletFlag(' true ')).toBe(true);
+    expect(parseOrgWalletFlag('true\n')).toBe(true);
+    expect(parseOrgWalletFlag('1\n')).toBe(true);
+  });
   it('rejects everything else, including case variants and undefined', () => {
     expect(parseOrgWalletFlag('false')).toBe(false);
     expect(parseOrgWalletFlag('TRUE')).toBe(false);
