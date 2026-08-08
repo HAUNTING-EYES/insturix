@@ -601,6 +601,13 @@ export class ProjectService {
         orgId: 1,
         visibility: 1,
         userId: 1,
+        // Same display fields listProjects projects (P2 org UX) — the dashboard renders these,
+        // so an org-scoped list must not show blank brand/status chips.
+        brand: 1,
+        pipelineStage: 1,
+        qualityScore: 1,
+        projectStatus: 1,
+        sourceSessionId: 1,
       })
       .sort(sortOrder)
       .allowDiskUse(true)
