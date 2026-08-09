@@ -16,6 +16,10 @@
  *                                            (independent per reviewer; never
  *                                            overwrite another reviewer)
  *
+ * The page embeds the single-source client script from
+ * lib/pipeline/sfx-labelling-ui.ts (REVIEWER_PAGE_SCRIPT) — the same string
+ * the browser test executes, so UI behavior is covered by tests.
+ *
  * No selector access, no scoring, no semantic. This is a human-labelling
  * input channel only — it never reads or writes selector behavior.
  */
@@ -26,6 +30,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { BUNDLED_SFX_CATALOG } from '@/lib/pipeline/sfx-catalog';
 import { buildLabellingCandidateSet, isValidOpportunityObservation } from '@/lib/pipeline/sfx-labelling';
+import { REVIEWER_PAGE_SCRIPT } from '@/lib/pipeline/sfx-labelling-ui';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -137,111 +142,30 @@ h1{font-size:18px;margin:0 0 4px}.hint{color:#9a978f;font-size:12px;margin-botto
 #list{display:grid;gap:14px;max-width:760px}
 .opp{border:1px solid #2c2b29;border-radius:8px;padding:12px;background:#16161a}
 .opp h2{font-size:14px;margin:0 0 4px}.meta{color:#9a978f;font-size:12px;margin-bottom:8px}
-.audition{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}
-.audition audio{height:34px;max-width:230px}
 .cand{display:flex;gap:6px;align-items:center;border:1px solid #2c2b29;border-radius:6px;padding:6px;margin:4px 0}
 .cand .name{flex:1;font-size:12px}
 .lbl{font-size:12px}.lbl label{margin-right:6px}
 input[type=checkbox]{accent-color:#d4a652}
 textarea{width:100%;box-sizing:border-box;background:#0e0e10;color:#e8e6e1;border:1px solid #2c2b29;border-radius:6px;font:12px monospace;padding:6px}
 button{margin-top:8px;background:#d4a652;color:#0b0b0a;border:0;border-radius:6px;padding:8px 12px;font-weight:600;cursor:pointer}
-button:disabled{opacity:.4}
 .status{font-size:11px;color:#7a776f}
 </style></head><body>
 <h1>SFX labelling — internal reviewer</h1>
-<div class="hint">Review each opportunity independently. Do not reveal the selector's choice — it is not shown. Mark UNKNOWN where a field is not perceptible. Save separate reviewer observations; adjudication is done separately.</div>
+<div class="hint">Review each opportunity independently. The selector's choice is not shown. Mark UNKNOWN where a field is not perceptible. Save separate reviewer observations; adjudication is done separately.</div>
 <section id="list"></section>
 <script>
-const OPS = ${JSON.stringify(opportunities)};
-let reviewerId = localStorage.getItem('sfx-reviewer') || '';
-while (!/^[A-Za-z0-9_.@-]{1,80}$/.test(reviewerId)) { reviewerId = prompt('Reviewer ID') || ''; }
-localStorage.setItem('sfx-reviewer', reviewerId);
-const root = document.getElementById('list');
-for (const op of OPS) root.append(renderOpp(op, reviewerId));
-
-function renderOpp(op, reviewerId) {
-  const box = document.createElement('div'); box.className='opp';
-  box.innerHTML = '<h2>' + op.opportunityId + '</h2><div class="meta">role ' + (op.role??'?') + ' · surface ' + (op.surface??'?') + (op.note ? ' · ' + op.note : '') + '</div><div class="hint">loading candidates…</div>';
-  fetch('/api/dev/sfx-labelling/candidates?opportunityId=' + encodeURIComponent(op.opportunityId)).then(r=>r.json()).then(load)
-    .catch(()=>{ box.querySelector('.hint').textContent = 'failed to load candidates'; });
-  return box;
-
-  function load(data) {
-    box.innerHTML = '';
-    const h = document.createElement('div'); h.className='meta';
-    h.textContent = 'role ' + (data.context.role??'?') + ' · surface ' + (data.context.surface??'?') + (data.context.note? ' · ' + data.context.note : '');
-    box.append(h);
-
-    const cands = document.createElement('div'); cands.className='cands';
-    const vals = {};
-    for (const c of data.candidates) {
-      const row = document.createElement('div'); row.className='cand';
-      const name = document.createElement('span'); name.className='name';
-      name.textContent = (c.isSilence ? '🔇 ' : '') + c.title + (c.matchesRole ? '' : '  [decoy/' + c.role + ']');
-      row.append(name);
-      if (!c.isSilence) {
-        const audio = document.createElement('audio'); audio.controls = true; audio.preload='none'; audio.src = c.audioUrl;
-        row.append(audio);
-      }
-      const lbl = document.createElement('div'); lbl.className='lbl';
-      ['acc','unacc','absurd'].forEach(kind => {
-        const id = k + '_' + c.assetId;
-        const lab = document.createElement('label');
-        const cb = document.createElement('input'); cb.type='checkbox'; cb.dataset.kind = kind; cb.dataset.asset = c.assetId;
-        cb.onchange = persist;
-        vals[c.assetId] = { acc: false, unacc: false, absurd: false };
-        lab.append(cb); lab.append(kind==='acc'?'ok':kind==='unacc'?'✗':'!!'); lbl.append(lab);
-      });
-      row.append(lbl); cands.append(row);
-    }
-    box.append(cands);
-
-    const fields = document.createElement('div'); fields.className='lbl';
-    fields.innerHTML = '<div>SILENCE: <label><input type="checkbox" id="silOk"> acceptable</label> <label><input type="checkbox" id="silReq"> required (no sound)</label></div>'
-      + '<div>role <select id="roleState"><option>reviewed</option><option>unknown</option><option>not-perceptible</option></select></div>'
-      + '<div>surface <select id="surfaceState"><option>reviewed</option><option>unknown</option><option>not-perceptible</option></select></div>'
-      + '<div>direction <select id="directionState"><option>reviewed</option><option>unknown</option><option>not-perceptible</option><option>not-meaningful</option></select></div>'
-      + '<div>motion speed <select id="motionSpeedState"><option>reviewed</option><option>unknown</option><option>not-perceptible</option><option>not-meaningful</option></select></div>'
-      + '<div>material <select id="materialState"><option>reviewed</option><option>unknown</option><option>not-perceptible</option><option>not-meaningful</option></select></div>'
-      + '<textarea id="note" rows="2" placeholder="contextual note"></textarea>'
-      + '<button onclick="save(' + JSON.stringify(op.opportunityId) + ')">Save my review</button>'
-      + '<div class="status" id="status"></div>';
-    box.append(fields);
-
-    function persist() {
-      const id = this.dataset.asset;
-      vals[id][this.dataset.kind] = this.checked;
-    }
-    function readState(id) { return (document.getElementById(id)?.value || 'reviewed'); }
-    window.save = (oppId) => {
-      const acc = [], unacc = [], absurd = [];
-      for (const [asset, v] of Object.entries(vals)) {
-        if (v.acc) acc.push(asset);
-        if (v.unacc) unacc.push(asset);
-        if (v.absurd) absurd.push(asset);
-      }
-      const obs = {
-        version: 'editron-sfx-observation-v1',
-        opportunityId: oppId,
-        reviewerId,
-        reviewedAt: new Date().toISOString(),
-        acceptableAssetIds: acc,
-        unacceptableAssetIds: unacc,
-        absurdAssetIds: absurd,
-        silenceAcceptable: document.getElementById('silOk').checked,
-        silenceRequired: document.getElementById('silReq').checked,
-        roleState: readState('roleState'),
-        surfaceState: readState('surfaceState'),
-        directionState: readState('directionState'),
-        motionSpeedState: readState('motionSpeedState'),
-        materialState: readState('materialState'),
-        contextualNote: document.getElementById('note').value || undefined,
-      };
-      fetch('/api/dev/sfx-labelling/observation', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(obs) })
-        .then(r=>r.json()).then(d=>{ document.getElementById('status').textContent = 'saved · reviewers: ' + (d.reviewed||[]).join(', '); })
-        .catch(()=>{ document.getElementById('status').textContent = 'save FAILED'; });
-    };
-  }
-}
+window.__SFX_LABELLING_OPPORTUNITIES__ = ${JSON.stringify(opportunities)};
+</script>
+<script>${REVIEWER_PAGE_SCRIPT}</script>
+<script>
+(function () {
+  var container = document.getElementById('list');
+  window.renderReviewerPage(container, {
+    opportunities: window.__SFX_LABELLING_OPPORTUNITIES__,
+    fetchImpl: window.fetch.bind(window),
+    storage: window.localStorage,
+    promptImpl: window.prompt
+  });
+})();
 </script></body></html>`;
 }
