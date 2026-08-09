@@ -72,3 +72,23 @@ export function resolveBillingOwner(
   }
   return { type: 'user', clerkUserId };
 }
+
+/**
+ * The creation-time billing rule for surfaces WITHOUT a persisted ownership stamp (plan §3, P3).
+ * "The active context at WORK-START decides who pays": when org-wallet billing is active AND the
+ * request carries an explicit org context (the OrgSwitcher's Clerk setActive, surfaced as
+ * auth().orgId), the org wallet pays and that decision is STAMPED on the billable record at
+ * creation. Ambient org context alone never implies org billing (D9) — the flag must also be on.
+ * Flag off, or no org context, => the member's personal wallet — today's behavior EXACTLY (D7).
+ * Mirrors resolveCreationVisibility's empty-string rule: an '' orgId is NOT an org context.
+ */
+export function resolveContextBillingOwner(
+  clerkUserId: string,
+  orgId: string | null | undefined,
+  orgWalletEnabled: boolean,
+): WalletRef {
+  if (orgWalletEnabled && typeof orgId === 'string' && orgId.trim()) {
+    return { type: 'org', clerkOrgId: orgId, actorUserId: clerkUserId };
+  }
+  return { type: 'user', clerkUserId };
+}

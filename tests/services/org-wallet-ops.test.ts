@@ -3,6 +3,7 @@ import type { ICreditTransaction } from '@/schemas/user';
 import {
   buildOrgPoolDeduct,
   buildOrgPoolRefund,
+  resolveStampedWallet,
   type OrgPoolDeductInput,
   type OrgPoolRefundInput,
 } from '@/lib/services/org-wallet-ops';
@@ -180,5 +181,50 @@ describe('buildOrgPoolRefund — money returns to the same pool split, at most o
     ];
     expect(push.$slice).toBe(-100);
     expect(push.$each).toEqual([refundTxn]);
+  });
+});
+
+describe('resolveStampedWallet (P3.1 — deferred refunds read the stamp, never re-resolve)', () => {
+  it('ABSENT stamp => personal wallet keyed by the fallback user (grandfathered legacy rows)', () => {
+    expect(resolveStampedWallet(undefined, 'user_9', 'ThinkForge generation')).toEqual({
+      type: 'user',
+      clerkUserId: 'user_9',
+    });
+    expect(resolveStampedWallet(null, 'user_9', 'ThinkForge generation')).toEqual({
+      type: 'user',
+      clerkUserId: 'user_9',
+    });
+  });
+
+  it('org stamp => the org wallet, with the STAMPED actor (never the fallback)', () => {
+    expect(resolveStampedWallet(
+      { type: 'org', clerkOrgId: 'org_1', actorUserId: 'user_9' },
+      'user_OTHER',
+      'ThinkForge generation',
+    )).toEqual({ type: 'org', clerkOrgId: 'org_1', actorUserId: 'user_9' });
+  });
+
+  it('org stamp WITHOUT an actor => org wallet with the fallback actor (report-only, D9)', () => {
+    expect(resolveStampedWallet(
+      { type: 'org', clerkOrgId: 'org_1' },
+      'user_9',
+      'ThinkForge generation',
+    )).toEqual({ type: 'org', clerkOrgId: 'org_1', actorUserId: 'user_9' });
+  });
+
+  it('user stamp => the stamped personal wallet (not the fallback)', () => {
+    expect(resolveStampedWallet(
+      { type: 'user', clerkUserId: 'user_7' },
+      'user_9',
+      'ThinkForge generation',
+    )).toEqual({ type: 'user', clerkUserId: 'user_7' });
+  });
+
+  it('MALFORMED stamps fail LOUD instead of guessing a wallet (money code never guesses)', () => {
+    expect(() => resolveStampedWallet('org_1', 'user_9', 'ThinkForge generation')).toThrow(/Invalid billedWallet stamp/);
+    expect(() => resolveStampedWallet({ type: 'org' }, 'user_9', 'ThinkForge generation')).toThrow(/Invalid billedWallet stamp/);
+    expect(() => resolveStampedWallet({ type: 'org', clerkOrgId: '' }, 'user_9', 'ThinkForge generation')).toThrow(/Invalid billedWallet stamp/);
+    expect(() => resolveStampedWallet({ type: 'user', clerkUserId: '' }, 'user_9', 'ThinkForge generation')).toThrow(/Invalid billedWallet stamp/);
+    expect(() => resolveStampedWallet({ type: 'team', clerkOrgId: 'org_1' }, 'user_9', 'ThinkForge generation')).toThrow(/Invalid billedWallet stamp/);
   });
 });

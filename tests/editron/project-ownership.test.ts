@@ -4,6 +4,7 @@ import {
   resolveCreationVisibility,
   resolveProjectBillingOwnerType,
   resolveBillingOwner,
+  resolveContextBillingOwner,
 } from '@/lib/editron/services/project-ownership';
 
 describe('parseOrgWalletFlag (plan D7 — default off, case-sensitive)', () => {
@@ -93,5 +94,31 @@ describe('resolveBillingOwner (P2 — the single wallet-routing authority)', () 
     });
     expect(resolveBillingOwner('user_9', null, true)).toEqual({ type: 'user', clerkUserId: 'user_9' });
     expect(resolveBillingOwner('user_9', undefined, true)).toEqual({ type: 'user', clerkUserId: 'user_9' });
+  });
+});
+
+describe('resolveContextBillingOwner (P3.1 — the work-start stamp rule for stamped surfaces)', () => {
+  it('flag OFF => personal wallet even with an explicit org context (today\'s behavior exactly)', () => {
+    expect(resolveContextBillingOwner('user_9', 'org_1', false)).toEqual({
+      type: 'user',
+      clerkUserId: 'user_9',
+    });
+  });
+
+  it('flag ON + explicit org context => org wallet, carrying the actor (the stamp that gets persisted)', () => {
+    expect(resolveContextBillingOwner('user_9', 'org_1', true)).toEqual({
+      type: 'org',
+      clerkOrgId: 'org_1',
+      actorUserId: 'user_9',
+    });
+  });
+
+  it('flag ON + no org context => personal (ambient context, not billing)', () => {
+    expect(resolveContextBillingOwner('user_9', null, true)).toEqual({ type: 'user', clerkUserId: 'user_9' });
+    expect(resolveContextBillingOwner('user_9', undefined, true)).toEqual({ type: 'user', clerkUserId: 'user_9' });
+  });
+
+  it('flag ON + empty-string orgId => personal (mirrors resolveCreationVisibility)', () => {
+    expect(resolveContextBillingOwner('user_9', '', true)).toEqual({ type: 'user', clerkUserId: 'user_9' });
   });
 });

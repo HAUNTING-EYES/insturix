@@ -17,6 +17,7 @@
  */
 
 import type { ICreditTransaction } from "@/schemas/user";
+import type { WalletRef } from "@/lib/editron/services/project-ownership";
 
 export interface OrgPoolDeductInput {
   /** The org whose single wallet document is updated (the serialization point). */
@@ -191,4 +192,57 @@ export function buildOrgPoolRefund(input: OrgPoolRefundInput): {
   };
 
   return { filter, update };
+}
+
+/**
+ * Read a persisted billing stamp (plan §3, P3 — "every later charge and refund reads the
+ * stamp"). The recorded WalletRef decides who a deferred/headless refund pays — it is NEVER
+ * re-resolved from ambient context at refund time (D5), so a member leaving the org between
+ * charge and refund cannot leak org money into a personal wallet. Pure leaf: no I/O, no clock.
+ *
+ * - ABSENT stamp => personal wallet keyed by `fallbackUserId` — the grandfathered rule for
+ *   legacy rows created before stamps existed.
+ * - MALFORMED stamp => throws (fail LOUD). Money code never guesses a wallet: a guessed
+ *   org-wallet refund could credit the wrong org, a guessed personal one could leak.
+ *
+ * @param stamp         the stamped WalletRef as persisted on the billable record (raw DB JSON)
+ * @param fallbackUserId key for personal stamps and the ledger actor when the stamp omits it
+ * @param contextLabel  human-readable origin for error messages (e.g. "ThinkForge generation")
+ */
+export function resolveStampedWallet(
+  stamp: unknown,
+  fallbackUserId: string,
+  contextLabel: string,
+): WalletRef {
+  if (stamp == null) {
+    return { type: 'user', clerkUserId: fallbackUserId };
+  }
+  if (typeof stamp !== 'object' || Array.isArray(stamp)) {
+    throw new Error(`Invalid billedWallet stamp on ${contextLabel}: ${JSON.stringify(stamp)}`);
+  }
+  const record = stamp as Record<string, unknown>;
+  if (
+    record.type === 'org'
+    && typeof record.clerkOrgId === 'string'
+    && record.clerkOrgId.trim()
+  ) {
+    return {
+      type: 'org',
+      clerkOrgId: record.clerkOrgId,
+      // WHO the refund is attributed to on the org ledger — the stamped actor if present, else
+      // the caller's fallback. Reporting only (D9); the wallet is identified by clerkOrgId alone.
+      actorUserId:
+        typeof record.actorUserId === 'string' && record.actorUserId.trim()
+          ? record.actorUserId
+          : fallbackUserId,
+    };
+  }
+  if (
+    record.type === 'user'
+    && typeof record.clerkUserId === 'string'
+    && record.clerkUserId.trim()
+  ) {
+    return { type: 'user', clerkUserId: record.clerkUserId };
+  }
+  throw new Error(`Invalid billedWallet stamp on ${contextLabel}: ${JSON.stringify(stamp)}`);
 }
