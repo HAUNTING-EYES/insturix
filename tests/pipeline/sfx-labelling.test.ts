@@ -6,10 +6,13 @@ import { BUNDLED_SFX_CATALOG } from '@/lib/pipeline/sfx-catalog';
 import {
   adjudicateObservations,
   buildLabellingCandidateSet,
+  filterToolingValidationObservations,
+  isToolingValidationEntry,
   isValidOpportunityObservation,
   sameReviewerAssessment,
   toFrozenOpportunityLabel,
   type OpportunityObservationV1,
+  type ToolingValidationManifestV1,
 } from '@/lib/pipeline/sfx-labelling';
 
 function observation(over: Partial<OpportunityObservationV1>): OpportunityObservationV1 {
@@ -28,11 +31,17 @@ function observation(over: Partial<OpportunityObservationV1>): OpportunityObserv
     directionState: 'not-perceptible',
     motionSpeedState: 'not-perceptible',
     materialState: 'not-meaningful',
-    source: 'human-listening',
-    listeningVerified: true,
     ...over,
   };
 }
+
+const TV_MANIFEST: ToolingValidationManifestV1 = {
+  version: 'editron-sfx-tooling-validation-manifest-v1',
+  entries: [
+    { opportunityId: 's2-001-transition-whoosh', reviewerId: 'reviewer-a', reason: 'persona-generated', generatedAt: '2026-08-08T00:00:00.000Z' },
+    { opportunityId: 's2-001-transition-whoosh', reviewerId: 'reviewer-b', reason: 'persona-generated', generatedAt: '2026-08-08T00:00:00.000Z' },
+  ],
+};
 
 describe('S2-L1 candidate builder (reviewer audition set)', () => {
   it('is deterministic for the same opportunity + role', () => {
@@ -93,45 +102,78 @@ describe('S2-L1 observation validation + reviewer independence', () => {
     expect(sameReviewerAssessment(observation({ silenceRequired: true }), observation({ silenceRequired: false }))).toBe(false);
   });
 
-  it('rejects an observation missing provenance source', () => {
-    const raw = observation({});
-    delete (raw as Partial<OpportunityObservationV1>).source;
-    expect(isValidOpportunityObservation(raw)).toBe(false);
+  it('rejects not-meaningful for role/surface (field-specific enum domain)', () => {
+    expect(isValidOpportunityObservation(observation({ roleState: 'not-meaningful' as never }))).toBe(false);
+    expect(isValidOpportunityObservation(observation({ surfaceState: 'not-meaningful' as never }))).toBe(false);
   });
 
-  it('rejects a human-listening observation without listeningVerified', () => {
-    expect(isValidOpportunityObservation(observation({ source: 'human-listening', listeningVerified: false }))).toBe(false);
+  it('accepts not-meaningful for direction/motionSpeed/material only', () => {
+    expect(isValidOpportunityObservation(observation({ directionState: 'not-meaningful' }))).toBe(true);
+    expect(isValidOpportunityObservation(observation({ motionSpeedState: 'not-meaningful' }))).toBe(true);
+    expect(isValidOpportunityObservation(observation({ materialState: 'not-meaningful' }))).toBe(true);
   });
 
-  it('accepts a tooling-validation observation as valid but non-authoritative', () => {
-    const tv = observation({ source: 'tooling-validation', listeningVerified: false });
-    expect(isValidOpportunityObservation(tv)).toBe(true);
+  it('rejects invalid enum values for any state field', () => {
+    expect(isValidOpportunityObservation(observation({ roleState: 'definitely' as never }))).toBe(false);
+    expect(isValidOpportunityObservation(observation({ directionState: 'diagonal' as never }))).toBe(false);
+    expect(isValidOpportunityObservation(observation({ materialState: '' as never }))).toBe(false);
   });
 
-  it('adjudication excludes tooling-validation observations BY CONSTRUCTION', () => {
+  it('rejects malformed asset-id arrays', () => {
+    expect(isValidOpportunityObservation(observation({ acceptableAssetIds: [42] as never }))).toBe(false);
+    expect(isValidOpportunityObservation(observation({ absurdAssetIds: ['bad id with space'] as never }))).toBe(false);
+  });
+
+  it('rejects contradictory silence-required with accepted/unacceptable assets', () => {
+    expect(isValidOpportunityObservation(observation({ silenceRequired: true, acceptableAssetIds: ['sfx_1'] }))).toBe(false);
+    expect(isValidOpportunityObservation(observation({ silenceRequired: true, unacceptableAssetIds: ['sfx_1'] }))).toBe(false);
+    // absurd may still be recorded for audit; placement sets must be empty.
+    expect(isValidOpportunityObservation(observation({ silenceRequired: true, absurdAssetIds: ['sfx_bad'] }))).toBe(true);
+  });
+
+  it('adjudication excludes tooling-validation observations BY CONSTRUCTION (sidecar manifest)', () => {
     // Only persona/tooling observations exist -> adjudication must NOT freeze.
-    const tv = observation({ source: 'tooling-validation', listeningVerified: false, acceptableAssetIds: ['sfx_1'] });
-    const out = adjudicateObservations([tv]);
+    const tv = observation({ acceptableAssetIds: ['sfx_1'], reviewerId: 'reviewer-a' });
+    const out = adjudicateObservations([tv], TV_MANIFEST);
     expect(out?.resolved).toBe(false);
     expect(out?.result).toBe('unresolved');
-    expect(out?.note).toContain('tooling-validation excluded by construction');
-    expect(toFrozenOpportunityLabel(out, tv)).toBeNull();
+    expect(out?.note).toContain('tooling-validation entries excluded by construction');
+    expect(toFrozenOpportunityLabel(out, tv, [], TV_MANIFEST)).toBeNull();
   });
 
   it('a mix of authoritative + tooling observations adjudicates only the authoritative ones', () => {
     const human = observation({ acceptableAssetIds: ['sfx_1'], reviewerId: 'H' });
-    const tv = observation({ source: 'tooling-validation', listeningVerified: false, acceptableAssetIds: ['sfx_bad'], reviewerId: 'T' });
-    const out = adjudicateObservations([human, tv]);
+    const tv = observation({ acceptableAssetIds: ['sfx_bad'], reviewerId: 'T' });
+    const manifest: ToolingValidationManifestV1 = {
+      version: 'editron-sfx-tooling-validation-manifest-v1',
+      entries: [{ opportunityId: 's2-001-transition-whoosh', reviewerId: 'T', reason: 'persona', generatedAt: 't' }],
+    };
+    const out = adjudicateObservations([human, tv], manifest);
     // Human-only consensus on its own asset set.
     expect(out?.resolved).toBe(true);
     expect(out?.consensus).toBe(true);
     expect(out?.reviewers).toEqual(['H']);
   });
 
-  it('toFrozenOpportunityLabel refuses tooling-validation by construction', () => {
-    const tv = observation({ source: 'tooling-validation', listeningVerified: false });
-    const frozen = toFrozenOpportunityLabel({ opportunityId: 'x', status: 'adjudicated', consensus: true, reviewers: ['T'], resolved: true, result: 'accepted-consensus' }, tv);
+  it('toFrozenOpportunityLabel refuses tooling-validation by construction (sidecar manifest)', () => {
+    const tv = observation({ reviewerId: 'reviewer-a' });
+    const frozen = toFrozenOpportunityLabel(
+      { opportunityId: 'x', status: 'adjudicated', consensus: true, reviewers: ['T'], resolved: true, result: 'accepted-consensus' },
+      tv,
+      [],
+      TV_MANIFEST,
+    );
     expect(frozen).toBeNull();
+  });
+
+  it('isToolingValidationEntry + filterToolingValidationObservations honor the sidecar manifest', () => {
+    expect(isToolingValidationEntry(TV_MANIFEST, 's2-001-transition-whoosh', 'reviewer-a')).toBe(true);
+    expect(isToolingValidationEntry(TV_MANIFEST, 's2-001-transition-whoosh', 'someone-else')).toBe(false);
+    const kept = filterToolingValidationObservations(
+      [observation({ reviewerId: 'reviewer-a' }), observation({ reviewerId: 'human-1' })],
+      TV_MANIFEST,
+    );
+    expect(kept.map((o) => o.reviewerId)).toEqual(['human-1']);
   });
 });
 

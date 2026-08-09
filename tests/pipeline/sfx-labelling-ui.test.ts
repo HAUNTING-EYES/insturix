@@ -118,6 +118,21 @@ function findAuditionGate(opp: Record<string, unknown> & { children: unknown[] }
   return gate.children[0] as Record<string, unknown> & { fire: (t: string) => void };
 }
 
+function findSelects(opp: Record<string, unknown> & { children: unknown[] }) {
+  const fields = (opp.children as unknown[]).find((c) => (c as Record<string, unknown>).className === 'lbl') as Record<string, unknown> & { children: unknown[] };
+  const out: Array<Record<string, unknown> & { children: Array<Record<string, unknown> & { value: string }> }> = [];
+  for (const child of fields.children) {
+    const item = child as Record<string, unknown> & { children?: unknown[] };
+    if (item.tagName === 'SELECT') out.push(item as never);
+    if (item.children) {
+      for (const sub of item.children) {
+        if ((sub as Record<string, unknown>).tagName === 'SELECT') out.push(sub as never);
+      }
+    }
+  }
+  return out;
+}
+
 const OPS = [
   { opportunityId: 's2-001-transition-whoosh', role: 'whoosh', surface: 'transition', note: 'wipe-left' },
   { opportunityId: 's2-015-impact', role: 'impact', surface: 'transition', note: 'impact' },
@@ -200,12 +215,12 @@ describe('S2-L1-R reviewer UI (browser-level, exact shipped script)', () => {
   });
 
   it('saving reviewer A does not overwrite reviewer B (per-reviewer POST)', async () => {
-    const posts: Array<{ reviewerId: string; opportunityId: string; source: string; listeningVerified: boolean }> = [];
+    const posts: Array<{ reviewerId: string; opportunityId: string }> = [];
     const { container } = runPage({
       opportunities: OPS,
       fetchImpl: async (url, init) => {
         if (String(url).includes('/candidates')) return { json: async () => candidatePayload('x') };
-        const body = JSON.parse(String((init as { body: string }).body)) as { reviewerId: string; opportunityId: string; source: string; listeningVerified: boolean };
+        const body = JSON.parse(String((init as { body: string }).body)) as { reviewerId: string; opportunityId: string };
         posts.push(body);
         return { json: async () => ({ saved: true, reviewed: [body.reviewerId] }) };
       },
@@ -219,9 +234,9 @@ describe('S2-L1-R reviewer UI (browser-level, exact shipped script)', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(posts[0].reviewerId).toBe('reviewer-a');
     expect(posts[0].opportunityId).toBe('s2-001-transition-whoosh');
-    // Human-listening provenance emitted by the UI (audition gate passed).
-    expect(posts[0].source).toBe('human-listening');
-    expect(posts[0].listeningVerified).toBe(true);
+    // Observations stay pure contract: no provenance fields in the payload.
+    expect('source' in posts[0]).toBe(false);
+    expect('listeningVerified' in posts[0]).toBe(false);
   });
 
   it('refuses to save until the reviewer affirms audible audition (gate)', async () => {
@@ -240,6 +255,26 @@ describe('S2-L1-R reviewer UI (browser-level, exact shipped script)', () => {
     findButton(oppA)!.fire('click'); // gate unchecked
     await new Promise((r) => setTimeout(r, 0));
     expect(posts).toHaveLength(0); // no POST fired
+  });
+
+  it('emits field-specific state options from the shipped script', async () => {
+    const { container } = runPage({
+      opportunities: OPS,
+      fetchImpl: async () => ({ json: async () => candidatePayload('x') }),
+      reviewerId: 'reviewer-test',
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    const selects = findSelects(findOpp(container, 0));
+    expect(selects).toHaveLength(5);
+    const optionsOf = (sel: Record<string, unknown> & { children: Array<Record<string, unknown> & { value: string }> }) =>
+      (sel.children as unknown[]).map((o) => (o as { value: string }).value);
+    // role and surface: no 'not-meaningful'.
+    expect(optionsOf(selects[0])).toEqual(['reviewed', 'unknown', 'not-perceptible']);
+    expect(optionsOf(selects[1])).toEqual(['reviewed', 'unknown', 'not-perceptible']);
+    // direction / motion speed / material: include 'not-meaningful'.
+    expect(optionsOf(selects[2])).toEqual(['reviewed', 'unknown', 'not-perceptible', 'not-meaningful']);
+    expect(optionsOf(selects[3])).toEqual(['reviewed', 'unknown', 'not-perceptible', 'not-meaningful']);
+    expect(optionsOf(selects[4])).toEqual(['reviewed', 'unknown', 'not-perceptible', 'not-meaningful']);
   });
 
   it('candidate audition controls are correctly scoped per candidate', async () => {

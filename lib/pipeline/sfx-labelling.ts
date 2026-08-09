@@ -44,6 +44,20 @@ export interface LabellingCandidateSet {
   candidates: AssessableCandidate[];
 }
 
+/**
+ * Field-specific state vocabulary (S2-L1-R follow-up).
+ * role/surface: reviewed | unknown | not-perceptible.
+ * direction/motionSpeed/material: additionally may be 'not-meaningful'.
+ */
+export type LabellingFieldState =
+  | 'reviewed'
+  | 'unknown'
+  | 'not-perceptible'
+  | 'not-meaningful';
+
+export type RoleSurfaceState = 'reviewed' | 'unknown' | 'not-perceptible';
+export type DirectionMotionMaterialState = RoleSurfaceState | 'not-meaningful';
+
 /** Reviewer's field judgements; explicitly unknown where not perceptible. */
 export interface OpportunityObservationV1 {
   version: 'editron-sfx-observation-v1';
@@ -54,19 +68,51 @@ export interface OpportunityObservationV1 {
   unacceptableAssetIds: string[];
   absurdAssetIds: string[];
   silenceAcceptable: boolean;
-  /** true when no sound may be placed. If true, acceptable/unacceptable should be empty. */
+  /** true when no sound may be placed. If true, acceptable/unacceptable must be empty. */
   silenceRequired: boolean;
-  /** Matches the opportunity context; reviewer may downgrade to unknown. */
-  roleState: 'unknown' | 'not-perceptible' | CorpusState;
-  surfaceState: 'unknown' | 'not-perceptible' | CorpusState;
-  directionState: 'unknown' | 'not-perceptible' | 'not-meaningful' | CorpusState;
-  motionSpeedState: 'unknown' | 'not-perceptible' | 'not-meaningful' | CorpusState;
-  materialState: 'unknown' | 'not-perceptible' | 'not-meaningful' | CorpusState;
+  /** role/surface may NOT be 'not-meaningful'. */
+  roleState: RoleSurfaceState;
+  surfaceState: RoleSurfaceState;
+  /** direction/motionSpeed/material may additionally be 'not-meaningful'. */
+  directionState: DirectionMotionMaterialState;
+  motionSpeedState: DirectionMotionMaterialState;
+  materialState: DirectionMotionMaterialState;
   contextualNote?: string;
-  /** REQUIRED provenance. tooling-validation observations are excluded by construction. */
-  source: ObservationSource;
-  /** For human-listening records: reviewer affirmed audible audition of candidates + silence. */
-  listeningVerified: boolean;
+}
+
+/**
+ * Sidecar manifest of NON-AUTHORITATIVE observations (tooling-validation /
+ * persona-generated). Kept OUTSIDE the observation schema so observations stay
+ * pure contract. Adjudication excludes every entry listed here BY CONSTRUCTION:
+ * a listed (opportunityId, reviewerId) can never contribute to a frozen label.
+ */
+export interface ToolingValidationManifestV1 {
+  version: 'editron-sfx-tooling-validation-manifest-v1';
+  entries: Array<{
+    opportunityId: string;
+    reviewerId: string;
+    reason: string;
+    generatedAt: string;
+  }>;
+}
+
+export function isToolingValidationEntry(
+  manifest: ToolingValidationManifestV1 | null | undefined,
+  opportunityId: string,
+  reviewerId: string,
+): boolean {
+  if (!manifest) return false;
+  return manifest.entries.some(
+    (e) => e.opportunityId === opportunityId && e.reviewerId === reviewerId,
+  );
+}
+
+/** By-construction filter: drop every observation listed in the sidecar manifest. */
+export function filterToolingValidationObservations(
+  observations: OpportunityObservationV1[],
+  manifest: ToolingValidationManifestV1 | null | undefined,
+): OpportunityObservationV1[] {
+  return observations.filter((o) => !isToolingValidationEntry(manifest, o.opportunityId, o.reviewerId));
 }
 
 export interface AdjudicationOutcome {
@@ -101,27 +147,6 @@ export interface FrozenOpportunityLabel {
     result: 'accepted-consensus' | 'adjudicated-choice' | 'unresolved';
     note?: string;
   };
-}
-
-/**
- * Observation provenance. `source` is REQUIRED:
- *   - 'human-listening'   — a real reviewer auditioned candidates + silence.
- *   - 'tooling-validation'— machine/persona-generated during tooling validation
- *                           (NEVER authoritative; excluded by construction).
- * `listeningVerified` must be true for human-listening records (the reviewer
- * affirmed audible audition of at least candidates and the silence control).
- */
-export type ObservationSource = 'human-listening' | 'tooling-validation';
-
-export function isAuthoritativeObservationSource(source: unknown): source is 'human-listening' {
-  return source === 'human-listening';
-}
-
-/** By-construction filter: only authoritative (human-listening) observations pass. */
-export function filterAuthoritativeObservations(
-  observations: OpportunityObservationV1[],
-): OpportunityObservationV1[] {
-  return observations.filter((o) => isAuthoritativeObservationSource(o.source));
 }
 
 export function sameReviewerAssessment(a: OpportunityObservationV1, b: OpportunityObservationV1): boolean {
@@ -213,39 +238,56 @@ function deterministicShuffle<T>(items: T[], seed: string): T[] {
 
 // ── Observation validation ─────────────────────────────────────────────────
 
+const ROLE_SURFACE_STATES = new Set(['reviewed', 'unknown', 'not-perceptible']);
+const DIRECTION_MOTION_MATERIAL_STATES = new Set(['reviewed', 'unknown', 'not-perceptible', 'not-meaningful']);
+
+const ASSET_ID_PATTERN = /^[a-zA-Z0-9_-]{1,120}$/;
+
+function isValidAssetIdArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((id) => typeof id === 'string' && ASSET_ID_PATTERN.test(id));
+}
+
+/** Field-specific enum + structural validation; no policy change, only enforcement. */
 export function isValidOpportunityObservation(value: unknown): value is OpportunityObservationV1 {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
-  return (
-    v.version === 'editron-sfx-observation-v1'
-    && typeof v.opportunityId === 'string'
-    && typeof v.reviewerId === 'string'
-    && typeof v.reviewedAt === 'string'
-    && Array.isArray(v.acceptableAssetIds)
-    && Array.isArray(v.unacceptableAssetIds)
-    && Array.isArray(v.absurdAssetIds)
-    && typeof v.silenceAcceptable === 'boolean'
-    && typeof v.silenceRequired === 'boolean'
-    && (v.source === 'human-listening' || v.source === 'tooling-validation')
-    && typeof v.listeningVerified === 'boolean'
-    && (v.source !== 'human-listening' || v.listeningVerified === true)
-  );
+  if (v.version !== 'editron-sfx-observation-v1') return false;
+  if (typeof v.opportunityId !== 'string' || typeof v.reviewerId !== 'string' || typeof v.reviewedAt !== 'string') return false;
+  if (!isValidAssetIdArray(v.acceptableAssetIds)) return false;
+  if (!isValidAssetIdArray(v.unacceptableAssetIds)) return false;
+  if (!isValidAssetIdArray(v.absurdAssetIds)) return false;
+  if (typeof v.silenceAcceptable !== 'boolean' || typeof v.silenceRequired !== 'boolean') return false;
+  // Contradictory silence-required: no asset may be accepted/unacceptable when
+  // silence is required (absurd can still be marked for audit, but placement
+  // sets must be empty).
+  if (v.silenceRequired === true && ((v.acceptableAssetIds as string[]).length > 0 || (v.unacceptableAssetIds as string[]).length > 0)) {
+    return false;
+  }
+  // Field-specific enum domains (role/surface exclude 'not-meaningful').
+  if (typeof v.roleState !== 'string' || !ROLE_SURFACE_STATES.has(v.roleState)) return false;
+  if (typeof v.surfaceState !== 'string' || !ROLE_SURFACE_STATES.has(v.surfaceState)) return false;
+  if (typeof v.directionState !== 'string' || !DIRECTION_MOTION_MATERIAL_STATES.has(v.directionState)) return false;
+  if (typeof v.motionSpeedState !== 'string' || !DIRECTION_MOTION_MATERIAL_STATES.has(v.motionSpeedState)) return false;
+  if (typeof v.materialState !== 'string' || !DIRECTION_MOTION_MATERIAL_STATES.has(v.materialState)) return false;
+  if (v.contextualNote !== undefined && typeof v.contextualNote !== 'string') return false;
+  return true;
 }
 
 /**
  * Adjudication operates ONLY on authoritative observations. This is enforced
- * BY CONSTRUCTION: non-authoritative (tooling-validation) observations are
- * filtered out before any agreement/consensus computation. A
+ * BY CONSTRUCTION: every observation listed in the tooling-validation sidecar
+ * manifest is filtered out before any agreement/consensus computation. A
  * tooling-validation observation can never produce a frozen label, regardless
  * of how the caller passes it in.
  */
 export function adjudicateObservations(
   observations: OpportunityObservationV1[],
+  toolingValidationManifest?: ToolingValidationManifestV1 | null,
 ): AdjudicationOutcome | null {
-  // BY CONSTRUCTION: only authoritative (human-listening) observations may be
-  // adjudicated. tooling-validation observations are excluded here, so they can
-  // never contribute to a frozen label regardless of caller behavior.
-  const authoritative = filterAuthoritativeObservations(observations);
+  // BY CONSTRUCTION: only observations NOT in the tooling-validation manifest
+  // may be adjudicated. Listed entries are excluded here, so they can never
+  // contribute to a frozen label regardless of caller behavior.
+  const authoritative = filterToolingValidationObservations(observations, toolingValidationManifest);
   if (authoritative.length === 0) {
     return {
       opportunityId: observations[0]?.opportunityId ?? 'unknown',
@@ -254,7 +296,7 @@ export function adjudicateObservations(
       reviewers: [],
       resolved: false,
       result: 'unresolved',
-      note: 'no authoritative (human-listening) observations — tooling-validation excluded by construction',
+      note: 'no authoritative observations — tooling-validation entries excluded by construction',
     };
   }
   observations = authoritative;
@@ -302,9 +344,11 @@ export function toFrozenOpportunityLabel(
   adjudication: AdjudicationOutcome | null,
   observation: OpportunityObservationV1,
   otherReviewerIds: string[] = [],
+  toolingValidationManifest?: ToolingValidationManifestV1 | null,
 ): FrozenOpportunityLabel | null {
-  // BY CONSTRUCTION: only human-listening observations can become frozen labels.
-  if (!isAuthoritativeObservationSource(observation.source) || observation.listeningVerified !== true) {
+  // BY CONSTRUCTION: observations listed in the tooling-validation manifest can
+  // never become frozen labels.
+  if (isToolingValidationEntry(toolingValidationManifest, observation.opportunityId, observation.reviewerId)) {
     return null;
   }
   if (!adjudication || !adjudication.resolved) return null;

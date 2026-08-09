@@ -138,11 +138,11 @@ export const REVIEWER_PAGE_SCRIPT = `
     silReqLab.appendChild(document.createTextNode(' silence required (no sound)'));
     fields.appendChild(silReqLab);
 
-    fields.appendChild(makeSelect('role', function (v) { roleState = v; }));
-    fields.appendChild(makeSelect('surface', function (v) { surfaceState = v; }));
-    fields.appendChild(makeSelect('direction', function (v) { directionState = v; }));
-    fields.appendChild(makeSelect('motion speed', function (v) { motionSpeedState = v; }));
-    fields.appendChild(makeSelect('material', function (v) { materialState = v; }));
+    fields.appendChild(makeSelect('role', ['reviewed', 'unknown', 'not-perceptible'], function (v) { roleState = v; }));
+    fields.appendChild(makeSelect('surface', ['reviewed', 'unknown', 'not-perceptible'], function (v) { surfaceState = v; }));
+    fields.appendChild(makeSelect('direction', ['reviewed', 'unknown', 'not-perceptible', 'not-meaningful'], function (v) { directionState = v; }));
+    fields.appendChild(makeSelect('motion speed', ['reviewed', 'unknown', 'not-perceptible', 'not-meaningful'], function (v) { motionSpeedState = v; }));
+    fields.appendChild(makeSelect('material', ['reviewed', 'unknown', 'not-perceptible', 'not-meaningful'], function (v) { materialState = v; }));
 
     var noteEl = document.createElement('textarea');
     noteEl.rows = 2;
@@ -190,9 +190,7 @@ export const REVIEWER_PAGE_SCRIPT = `
         directionState: directionState,
         motionSpeedState: motionSpeedState,
         materialState: materialState,
-        contextualNote: note || undefined,
-        source: 'human-listening',
-        listeningVerified: true
+        contextualNote: note || undefined
       };
       fetchImpl('/api/dev/sfx-labelling/observation', {
         method: 'POST',
@@ -213,13 +211,13 @@ export const REVIEWER_PAGE_SCRIPT = `
     box.appendChild(fields);
   }
 
-  function makeSelect(label, onchange) {
+  function makeSelect(label, options, onchange) {
     var wrap = document.createElement('div');
     var lab = document.createElement('span');
     lab.textContent = label + ' ';
     wrap.appendChild(lab);
     var sel = document.createElement('select');
-    ['reviewed', 'unknown', 'not-perceptible', 'not-meaningful'].forEach(function (opt) {
+    options.forEach(function (opt) {
       var o = document.createElement('option');
       o.value = opt;
       o.textContent = opt;
