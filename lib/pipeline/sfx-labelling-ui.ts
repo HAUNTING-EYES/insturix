@@ -150,9 +150,25 @@ export const REVIEWER_PAGE_SCRIPT = `
     noteEl.addEventListener('input', function () { note = noteEl.value; });
     fields.appendChild(noteEl);
 
+    // Listening gate: save is refused until the reviewer affirms they audited
+    // the candidates AND the silence control. This is the honest audible
+    // audition gate for a human-listening observation.
+    var heardOk = false;
+    var heardCb = document.createElement('input');
+    heardCb.type = 'checkbox';
+    heardCb.addEventListener('change', function () { heardOk = heardCb.checked; });
+    var heardLab = document.createElement('label');
+    heardLab.appendChild(heardCb);
+    heardLab.appendChild(document.createTextNode(' I auditioned the candidates and the silence control'));
+    fields.appendChild(heardLab);
+
     var saveBtn = document.createElement('button');
     saveBtn.textContent = 'Save my review';
     saveBtn.addEventListener('click', function () {
+      if (!heardOk) {
+        if (statusEl) statusEl.textContent = 'AUDITION REQUIRED: listen to candidates and silence before saving';
+        return;
+      }
       var acc = [], unacc = [], absurd = [];
       Object.keys(vals).forEach(function (asset) {
         if (vals[asset].acc) acc.push(asset);
@@ -174,7 +190,9 @@ export const REVIEWER_PAGE_SCRIPT = `
         directionState: directionState,
         motionSpeedState: motionSpeedState,
         materialState: materialState,
-        contextualNote: note || undefined
+        contextualNote: note || undefined,
+        source: 'human-listening',
+        listeningVerified: true
       };
       fetchImpl('/api/dev/sfx-labelling/observation', {
         method: 'POST',

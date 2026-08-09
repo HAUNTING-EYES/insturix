@@ -28,6 +28,8 @@ function observation(over: Partial<OpportunityObservationV1>): OpportunityObserv
     directionState: 'not-perceptible',
     motionSpeedState: 'not-perceptible',
     materialState: 'not-meaningful',
+    source: 'human-listening',
+    listeningVerified: true,
     ...over,
   };
 }
@@ -89,6 +91,47 @@ describe('S2-L1 observation validation + reviewer independence', () => {
     expect(sameReviewerAssessment(observation({ acceptableAssetIds: ['a'] }), observation({ acceptableAssetIds: ['a'] }))).toBe(true);
     expect(sameReviewerAssessment(observation({ acceptableAssetIds: ['a'] }), observation({ acceptableAssetIds: ['b'] }))).toBe(false);
     expect(sameReviewerAssessment(observation({ silenceRequired: true }), observation({ silenceRequired: false }))).toBe(false);
+  });
+
+  it('rejects an observation missing provenance source', () => {
+    const raw = observation({});
+    delete (raw as Partial<OpportunityObservationV1>).source;
+    expect(isValidOpportunityObservation(raw)).toBe(false);
+  });
+
+  it('rejects a human-listening observation without listeningVerified', () => {
+    expect(isValidOpportunityObservation(observation({ source: 'human-listening', listeningVerified: false }))).toBe(false);
+  });
+
+  it('accepts a tooling-validation observation as valid but non-authoritative', () => {
+    const tv = observation({ source: 'tooling-validation', listeningVerified: false });
+    expect(isValidOpportunityObservation(tv)).toBe(true);
+  });
+
+  it('adjudication excludes tooling-validation observations BY CONSTRUCTION', () => {
+    // Only persona/tooling observations exist -> adjudication must NOT freeze.
+    const tv = observation({ source: 'tooling-validation', listeningVerified: false, acceptableAssetIds: ['sfx_1'] });
+    const out = adjudicateObservations([tv]);
+    expect(out?.resolved).toBe(false);
+    expect(out?.result).toBe('unresolved');
+    expect(out?.note).toContain('tooling-validation excluded by construction');
+    expect(toFrozenOpportunityLabel(out, tv)).toBeNull();
+  });
+
+  it('a mix of authoritative + tooling observations adjudicates only the authoritative ones', () => {
+    const human = observation({ acceptableAssetIds: ['sfx_1'], reviewerId: 'H' });
+    const tv = observation({ source: 'tooling-validation', listeningVerified: false, acceptableAssetIds: ['sfx_bad'], reviewerId: 'T' });
+    const out = adjudicateObservations([human, tv]);
+    // Human-only consensus on its own asset set.
+    expect(out?.resolved).toBe(true);
+    expect(out?.consensus).toBe(true);
+    expect(out?.reviewers).toEqual(['H']);
+  });
+
+  it('toFrozenOpportunityLabel refuses tooling-validation by construction', () => {
+    const tv = observation({ source: 'tooling-validation', listeningVerified: false });
+    const frozen = toFrozenOpportunityLabel({ opportunityId: 'x', status: 'adjudicated', consensus: true, reviewers: ['T'], resolved: true, result: 'accepted-consensus' }, tv);
+    expect(frozen).toBeNull();
   });
 });
 

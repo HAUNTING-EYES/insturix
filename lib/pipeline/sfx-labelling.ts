@@ -63,6 +63,10 @@ export interface OpportunityObservationV1 {
   motionSpeedState: 'unknown' | 'not-perceptible' | 'not-meaningful' | CorpusState;
   materialState: 'unknown' | 'not-perceptible' | 'not-meaningful' | CorpusState;
   contextualNote?: string;
+  /** REQUIRED provenance. tooling-validation observations are excluded by construction. */
+  source: ObservationSource;
+  /** For human-listening records: reviewer affirmed audible audition of candidates + silence. */
+  listeningVerified: boolean;
 }
 
 export interface AdjudicationOutcome {
@@ -97,6 +101,44 @@ export interface FrozenOpportunityLabel {
     result: 'accepted-consensus' | 'adjudicated-choice' | 'unresolved';
     note?: string;
   };
+}
+
+/**
+ * Observation provenance. `source` is REQUIRED:
+ *   - 'human-listening'   — a real reviewer auditioned candidates + silence.
+ *   - 'tooling-validation'— machine/persona-generated during tooling validation
+ *                           (NEVER authoritative; excluded by construction).
+ * `listeningVerified` must be true for human-listening records (the reviewer
+ * affirmed audible audition of at least candidates and the silence control).
+ */
+export type ObservationSource = 'human-listening' | 'tooling-validation';
+
+export function isAuthoritativeObservationSource(source: unknown): source is 'human-listening' {
+  return source === 'human-listening';
+}
+
+/** By-construction filter: only authoritative (human-listening) observations pass. */
+export function filterAuthoritativeObservations(
+  observations: OpportunityObservationV1[],
+): OpportunityObservationV1[] {
+  return observations.filter((o) => isAuthoritativeObservationSource(o.source));
+}
+
+export function sameReviewerAssessment(a: OpportunityObservationV1, b: OpportunityObservationV1): boolean {
+  if (a.opportunityId !== b.opportunityId) return false;
+  if (a.silenceAcceptable !== b.silenceAcceptable) return false;
+  if (a.silenceRequired !== b.silenceRequired) return false;
+  return (
+    sameSet(a.acceptableAssetIds, b.acceptableAssetIds)
+    && sameSet(a.unacceptableAssetIds, b.unacceptableAssetIds)
+    && sameSet(a.absurdAssetIds, b.absurdAssetIds)
+  );
+}
+
+function sameSet(x: string[], y: string[]): boolean {
+  const a = new Set(x);
+  const b = new Set(y);
+  return a.size === b.size && [...a].every((item) => b.has(item));
 }
 
 // ── Candidate builder ───────────────────────────────────────────────────────
@@ -184,37 +226,39 @@ export function isValidOpportunityObservation(value: unknown): value is Opportun
     && Array.isArray(v.absurdAssetIds)
     && typeof v.silenceAcceptable === 'boolean'
     && typeof v.silenceRequired === 'boolean'
+    && (v.source === 'human-listening' || v.source === 'tooling-validation')
+    && typeof v.listeningVerified === 'boolean'
+    && (v.source !== 'human-listening' || v.listeningVerified === true)
   );
-}
-
-// ── Reviewer independence + adjudication ─────────────────────────────────────
-
-export function sameReviewerAssessment(a: OpportunityObservationV1, b: OpportunityObservationV1): boolean {
-  if (a.opportunityId !== b.opportunityId) return false;
-  if (a.silenceAcceptable !== b.silenceAcceptable) return false;
-  if (a.silenceRequired !== b.silenceRequired) return false;
-  return (
-    sameSet(a.acceptableAssetIds, b.acceptableAssetIds)
-    && sameSet(a.unacceptableAssetIds, b.unacceptableAssetIds)
-    && sameSet(a.absurdAssetIds, b.absurdAssetIds)
-  );
-}
-
-function sameSet(x: string[], y: string[]): boolean {
-  const a = new Set(x);
-  const b = new Set(y);
-  return a.size === b.size && [...a].every((item) => b.has(item));
 }
 
 /**
- * Adjudicate the set of independent observations for one opportunity.
- * Each observation is kept intact (never fused destructively into another
- * reviewer's record); the outcome is a separate, ordered result.
+ * Adjudication operates ONLY on authoritative observations. This is enforced
+ * BY CONSTRUCTION: non-authoritative (tooling-validation) observations are
+ * filtered out before any agreement/consensus computation. A
+ * tooling-validation observation can never produce a frozen label, regardless
+ * of how the caller passes it in.
  */
 export function adjudicateObservations(
   observations: OpportunityObservationV1[],
 ): AdjudicationOutcome | null {
-  if (observations.length === 0) return null;
+  // BY CONSTRUCTION: only authoritative (human-listening) observations may be
+  // adjudicated. tooling-validation observations are excluded here, so they can
+  // never contribute to a frozen label regardless of caller behavior.
+  const authoritative = filterAuthoritativeObservations(observations);
+  if (authoritative.length === 0) {
+    return {
+      opportunityId: observations[0]?.opportunityId ?? 'unknown',
+      status: 'unlabelled',
+      consensus: false,
+      reviewers: [],
+      resolved: false,
+      result: 'unresolved',
+      note: 'no authoritative (human-listening) observations — tooling-validation excluded by construction',
+    };
+  }
+  observations = authoritative;
+
   const first = observations[0];
   const reviewers = observations.map((o) => o.reviewerId);
 
@@ -259,6 +303,10 @@ export function toFrozenOpportunityLabel(
   observation: OpportunityObservationV1,
   otherReviewerIds: string[] = [],
 ): FrozenOpportunityLabel | null {
+  // BY CONSTRUCTION: only human-listening observations can become frozen labels.
+  if (!isAuthoritativeObservationSource(observation.source) || observation.listeningVerified !== true) {
+    return null;
+  }
   if (!adjudication || !adjudication.resolved) return null;
   return {
     labelVersion: 'editron-sfx-evaluation-corpus-v1',

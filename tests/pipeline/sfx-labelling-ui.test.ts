@@ -111,6 +111,13 @@ function findSilenceCheckbox(opp: Record<string, unknown> & { children: unknown[
   return target.children[0] as Record<string, unknown> & { fire: (t: string) => void };
 }
 
+function findAuditionGate(opp: Record<string, unknown> & { children: unknown[] }) {
+  const fields = (opp.children as unknown[]).find((c) => (c as Record<string, unknown>).className === 'lbl') as Record<string, unknown> & { children: unknown[] };
+  const labels = fields.children.filter((c) => (c as Record<string, unknown>).tagName === 'LABEL') as Array<Record<string, unknown> & { children: unknown[] }>;
+  const gate = labels[2];
+  return gate.children[0] as Record<string, unknown> & { fire: (t: string) => void };
+}
+
 const OPS = [
   { opportunityId: 's2-001-transition-whoosh', role: 'whoosh', surface: 'transition', note: 'wipe-left' },
   { opportunityId: 's2-015-impact', role: 'impact', surface: 'transition', note: 'impact' },
@@ -180,6 +187,8 @@ describe('S2-L1-R reviewer UI (browser-level, exact shipped script)', () => {
     findCheckbox(oppA, 'sfx_a', 'acc')!.fire('change');
     findCheckbox(oppB, 'sfx_b', 'absurd')!.checked = true;
     findCheckbox(oppB, 'sfx_b', 'absurd')!.fire('change');
+    findAuditionGate(oppA)!.checked = true;
+    findAuditionGate(oppA)!.fire('change');
 
     findButton(oppA)!.fire('click');
     await new Promise((r) => setTimeout(r, 0));
@@ -191,22 +200,46 @@ describe('S2-L1-R reviewer UI (browser-level, exact shipped script)', () => {
   });
 
   it('saving reviewer A does not overwrite reviewer B (per-reviewer POST)', async () => {
-    const posts: Array<{ reviewerId: string; opportunityId: string }> = [];
+    const posts: Array<{ reviewerId: string; opportunityId: string; source: string; listeningVerified: boolean }> = [];
     const { container } = runPage({
       opportunities: OPS,
       fetchImpl: async (url, init) => {
         if (String(url).includes('/candidates')) return { json: async () => candidatePayload('x') };
-        const body = JSON.parse(String((init as { body: string }).body)) as { reviewerId: string; opportunityId: string };
+        const body = JSON.parse(String((init as { body: string }).body)) as { reviewerId: string; opportunityId: string; source: string; listeningVerified: boolean };
         posts.push(body);
         return { json: async () => ({ saved: true, reviewed: [body.reviewerId] }) };
       },
       reviewerId: 'reviewer-a',
     });
     await new Promise((r) => setTimeout(r, 0));
-    findButton(findOpp(container, 0))!.fire('click');
+    const oppA = findOpp(container, 0);
+    findAuditionGate(oppA)!.checked = true;
+    findAuditionGate(oppA)!.fire('change');
+    findButton(oppA)!.fire('click');
     await new Promise((r) => setTimeout(r, 0));
     expect(posts[0].reviewerId).toBe('reviewer-a');
     expect(posts[0].opportunityId).toBe('s2-001-transition-whoosh');
+    // Human-listening provenance emitted by the UI (audition gate passed).
+    expect(posts[0].source).toBe('human-listening');
+    expect(posts[0].listeningVerified).toBe(true);
+  });
+
+  it('refuses to save until the reviewer affirms audible audition (gate)', async () => {
+    const posts: unknown[] = [];
+    const { container } = runPage({
+      opportunities: OPS,
+      fetchImpl: async (url, init) => {
+        if (String(url).includes('/candidates')) return { json: async () => candidatePayload('x') };
+        posts.push(init);
+        return { json: async () => ({ saved: true, reviewed: ['reviewer-test'] }) };
+      },
+      reviewerId: 'reviewer-test',
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    const oppA = findOpp(container, 0);
+    findButton(oppA)!.fire('click'); // gate unchecked
+    await new Promise((r) => setTimeout(r, 0));
+    expect(posts).toHaveLength(0); // no POST fired
   });
 
   it('candidate audition controls are correctly scoped per candidate', async () => {
@@ -259,6 +292,8 @@ describe('S2-L1-R reviewer UI (browser-level, exact shipped script)', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect((container.children as unknown[]).length).toBe(11);
     for (let i = 0; i < 11; i++) {
+      findAuditionGate(findOpp(container, i))!.checked = true;
+      findAuditionGate(findOpp(container, i))!.fire('change');
       findButton(findOpp(container, i))!.fire('click');
     }
     await new Promise((r) => setTimeout(r, 0));
