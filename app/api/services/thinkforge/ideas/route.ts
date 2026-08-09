@@ -5,6 +5,8 @@ import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
 import { fetchContextSources, formatSystemBrief } from '@/lib/thinkforge/context';
 import { listUnifiedBrands, type UnifiedBrand } from '@/lib/shared/brand-registry';
+import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import {
 	getDefaultBrandVaultRefineryStore,
 	type BrandVaultAcceptedBrandSummary,
@@ -187,7 +189,10 @@ export async function POST(req: Request) {
 
 	await CreditsMigrationService.ensureMigrated(userId);
 
-	const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message');
+	// P3.1: the active context at WORK-START decides who pays (stamped surfaces).
+	const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());
+
+	const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message', undefined, billingWallet);
 
 	if (!creditCheck.allowed) {
 		return creditCheck.errorResponse;

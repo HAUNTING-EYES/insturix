@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { runRefineryAgent } from '@/lib/thinkforge/agents/refinery-agent';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
+import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,7 +25,7 @@ export const maxDuration = 60;
  * or via QStash for production-grade background processing.
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   let body: any;
@@ -53,7 +55,10 @@ export async function POST(req: Request) {
     }
   }
 
-  const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message', { taskId: sessionId });
+  // P3.1: the active context at WORK-START decides who pays (stamped surfaces).
+  const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());
+
+  const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message', { taskId: sessionId }, billingWallet);
   if (!creditCheck.allowed) return creditCheck.errorResponse;
   await creditCheck.deduct();
 

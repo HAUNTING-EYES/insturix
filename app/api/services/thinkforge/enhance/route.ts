@@ -6,11 +6,13 @@ import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { readAiSdkUsage, recordThinkForgeDirectCost } from '@/lib/thinkforge/services/provider-cost-telemetry';
 import { buildIsolatedPromptParts } from '@/lib/thinkforge/agents/prompt-boundary';
 import { assertProviderPromptAllowed } from '@/lib/thinkforge/privacy/provider-privacy-gateway';
+import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 
 export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
     const { prompt } = await req.json();
@@ -18,8 +20,11 @@ export async function POST(req: NextRequest) {
         return new NextResponse('Prompt is required', { status: 400 });
     }
 
+    // P3.1: the active context at WORK-START decides who pays (stamped surfaces).
+    const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());
+
     // Check and deduct credits for generation
-    const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message');
+    const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message', undefined, billingWallet);
     if (!creditCheck.allowed) {
         return creditCheck.errorResponse || new NextResponse('Insufficient credits', { status: 402 });
     }
