@@ -54,6 +54,7 @@ function blockMutation(collection: string, operation: string): never {
 
 import type { ChatMessage, ProjectMeta, ScriptState } from '../state/types';
 import type { SelectedTrend } from '../trends/selected-trend';
+import type { WalletRef } from '@/lib/editron/services/project-ownership';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import type { CIRDocument, CIRSection } from '../schemas/cir';
 import {
@@ -171,6 +172,13 @@ export interface GenerationBilling {
   action: 'chat_message';
   status: 'reserved' | 'refund_pending' | 'refunding' | 'refunded' | 'settled';
   updatedAt: Date;
+  /**
+   * P3.1 stamp: the WalletRef this charge was billed to, resolved at WORK-START from the
+   * request's org context + ORG_WALLET_BILLING flag. settleGenerationRefund routes the refund
+   * through this stamp (D5) — never re-resolved from ambient context. Absent on legacy rows
+   * (created before P3.1) => personal, the grandfathered rule.
+   */
+  billedWallet?: WalletRef;
 }
 
 export class GenerationStateConflictError extends Error {
@@ -1238,8 +1246,18 @@ async function settleGenerationRefund(
 
   if (!refundSucceeded && claimedBilling && hasRefundableCharge) {
     const { CreditsService } = await import('@/lib/services/creditsService');
-    const refund = await CreditsService.refundCredits(
+    const { resolveStampedWallet } = await import('@/lib/services/org-wallet-ops');
+    // P3.1: refund the SAME wallet the charge was billed to, read from the persisted stamp
+    // (D5). A generation stamped org bills the org wallet even if the member left the org by
+    // now; a legacy row with no stamp bills personal (grandfathered). A malformed stamp
+    // THROWS (fail loud) — the refund is retried after intervention, never guessed.
+    const wallet = resolveStampedWallet(
+      claimedBilling.billedWallet,
       claimedBilling.userId,
+      `ThinkForge generation ${claimedGeneration.id}`,
+    );
+    const refund = await CreditsService.refundForWallet(
+      wallet,
       claimedBilling.amount,
       claimedGeneration.message || `ThinkForge generation ${claimedGeneration.status}`,
       {

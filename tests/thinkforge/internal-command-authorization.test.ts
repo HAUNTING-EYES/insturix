@@ -99,11 +99,14 @@ describe('ThinkForge internal command authorization', () => {
     const response = await POST(chatRequest());
 
     expect(response?.status).toBe(200);
+    // P3.1: the 5th arg is the billing wallet resolved at work-start. ORG_WALLET_BILLING is
+    // unset in this test env => personal wallet, today's behavior exactly (D7).
     expect(mocks.checkCredits).toHaveBeenCalledWith(
       'user_1',
       'thinkforge',
       'chat_message',
       { taskId: 'session_canonical' },
+      { type: 'user', clerkUserId: 'user_1' },
     );
     expect(mocks.setActiveGeneration).toHaveBeenCalledWith(
       'session_canonical',
@@ -115,6 +118,34 @@ describe('ThinkForge internal command authorization', () => {
       userId: 'user_1',
       orgId: 'org_1',
     }));
+  });
+
+  it('stamps the org wallet on the generation billing record when the flag is ON and an org context is active', async () => {
+    const previous = process.env.ORG_WALLET_BILLING;
+    process.env.ORG_WALLET_BILLING = 'true';
+    try {
+      const { POST } = await import('@/app/api/services/thinkforge/chat/route');
+
+      const response = await POST(chatRequest());
+
+      expect(response?.status).toBe(200);
+      expect(mocks.checkCredits).toHaveBeenCalledWith(
+        'user_1',
+        'thinkforge',
+        'chat_message',
+        { taskId: 'session_canonical' },
+        { type: 'org', clerkOrgId: 'org_1', actorUserId: 'user_1' },
+      );
+      const generation = mocks.setActiveGeneration.mock.calls[0][2] as { billing?: Record<string, unknown> };
+      expect(generation?.billing?.billedWallet).toEqual({
+        type: 'org',
+        clerkOrgId: 'org_1',
+        actorUserId: 'user_1',
+      });
+    } finally {
+      if (previous === undefined) delete process.env.ORG_WALLET_BILLING;
+      else process.env.ORG_WALLET_BILLING = previous;
+    }
   });
 
   it('keeps org identity in CalOS persistence and never links an unsaved session', async () => {

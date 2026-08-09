@@ -34,6 +34,8 @@ import { createThinkForgeModelForRoute } from '../agents/model-factory';
 import { buildIsolatedPromptParts } from '../agents/prompt-boundary';
 import { resolveThinkForgeDocumentIntent, resolveThinkForgeGenerationDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
+import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import {
   resolveThinkForgeAuthoringPrompt,
   resolveThinkForgeProductionBrief,
@@ -207,6 +209,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     silent: isSilent = false,
   } = request;
   const threadId = providedThreadId || 'default';
+
+  // P3.1: the chat request is the work; its org context decides who pays. Resolved ONCE at
+  // work-start and reused for every downstream charge of this stream (the blueprint
+  // per-document deductions below) — the flag/context can never flip mid-stream.
+  const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());
 
   // STEP 5: Explicit session existence verification before processing
   // Load session - require it to exist (no auto-create for chat operations)
@@ -484,10 +491,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             await emitEvent('script_created', { scriptId: newScriptId, title: draft.title || title, documentType: docType });
             if (!(await emitEvent('token', { content: `\n✓ ${draft.title || title}\n` }))) return;
 
-            // Deduct credits per document
+            // Deduct credits per document (P3.1: routed to the wallet resolved at work-start —
+            // an org-context blueprint bills the org wallet, flag off bills personal as before)
             try {
               const { CreditsService } = await import('@/lib/services/creditsService');
-              await CreditsService.deductCredits(userId, 'thinkforge', 'document_creation');
+              await CreditsService.deductForWallet(billingWallet, 'thinkforge', 'document_creation');
             } catch (creditErr) {
               console.warn('[chat-service] Credit deduction failed for blueprint doc:', creditErr);
             }

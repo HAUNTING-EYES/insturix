@@ -6,6 +6,8 @@ import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
 import { getCreditCost } from '@/lib/config/creditCosts';
+import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import * as db from '@/lib/thinkforge/services/db';
 
 export const runtime = 'nodejs';
@@ -86,11 +88,16 @@ export async function POST(req: Request) {
   // Ensure user exists and is migrated
   await CreditsMigrationService.ensureMigrated(userId);
 
+  // P3.1: the active context at WORK-START decides who pays. Resolve the billing wallet ONCE
+  // from this request's org context + flag, then stamp it on the generation record below so
+  // every later refund (settleGenerationRefund, headless) reads the stamp — never re-resolves.
+  const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());
+
   // Check credits before processing
   // TODO: Add model detection from intentContext or processChat response
   const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message', {
     taskId: canonicalSessionId,
-  });
+  }, billingWallet);
 
   if (!creditCheck.allowed) {
     return creditCheck.errorResponse;
@@ -117,6 +124,9 @@ export async function POST(req: Request) {
         action: 'chat_message',
         status: 'reserved',
         updatedAt: now,
+        // P3.1 stamp: the wallet this charge was billed to. settleGenerationRefund reads it to
+        // route the refund to the SAME wallet (D5) — even if the member left the org by then.
+        billedWallet: billingWallet,
       },
     });
     if (!generationAdmitted) {
