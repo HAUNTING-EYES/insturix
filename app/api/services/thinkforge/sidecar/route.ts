@@ -12,6 +12,8 @@ import * as db from '@/lib/thinkforge/services/db';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
+import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import { parseMarkdownToBlocks } from '@/lib/thinkforge/normalization/markdown-parser';
 import { validateThinkForgeBlocks } from '@/lib/thinkforge/schemas/thinkforge-block';
 import { thinkForgeBlocksToTiptapJSON } from '@/lib/thinkforge/mappers/thinkforge-to-tiptap';
@@ -100,11 +102,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'No draft content to analyze' }, { status: 400 });
   }
 
+  // P3.1: the active context at WORK-START decides who pays (stamped surfaces).
+  const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());
+
   const creditCheck = await checkCredits(
     userId,
     'thinkforge',
     'document_creation',
     { taskId: canonicalSessionId },
+    billingWallet,
   );
   if (!creditCheck.allowed) return creditCheck.errorResponse;
   await creditCheck.deduct();

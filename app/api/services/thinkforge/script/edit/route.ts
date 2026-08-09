@@ -8,6 +8,8 @@ import type { SessionState } from '@/lib/thinkforge/state/types';
 import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
+import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -55,7 +57,10 @@ export async function POST(req: Request) {
     }
   }
 
-  const creditCheck = await checkCredits(userId, 'thinkforge', 'document_creation', { taskId: sessionId });
+  // P3.1: the active context at WORK-START decides who pays (stamped surfaces).
+  const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());
+
+  const creditCheck = await checkCredits(userId, 'thinkforge', 'document_creation', { taskId: sessionId }, billingWallet);
   if (!creditCheck.allowed) return creditCheck.errorResponse;
   await creditCheck.deduct();
 

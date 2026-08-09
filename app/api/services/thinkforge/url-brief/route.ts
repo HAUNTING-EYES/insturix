@@ -3,6 +3,8 @@ import { auth } from '@clerk/nextjs/server';
 import { createUrlBriefAgent, extractUrlContent } from '@/lib/thinkforge/agents/url-brief-agent';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
+import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,7 +16,7 @@ export const maxDuration = 30;
  * for content ideation.
  */
 export async function POST(req: Request) {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
     let url: string = '';
@@ -39,8 +41,11 @@ export async function POST(req: Request) {
     // Ensure user exists and is migrated
     await CreditsMigrationService.ensureMigrated(userId);
 
+    // P3.1: the active context at WORK-START decides who pays (stamped surfaces).
+    const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());
+
     // Check and prepare credit deduction
-    const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message');
+    const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message', undefined, billingWallet);
     if (!creditCheck.allowed) {
         return creditCheck.errorResponse;
     }
