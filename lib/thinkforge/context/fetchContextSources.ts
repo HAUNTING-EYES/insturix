@@ -24,12 +24,20 @@ import {
 } from '../services/db';
 import { queryRelevantFacts } from '../services/embedding-service';
 import type { BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
+import { brandSignalProfileToBrandDNA } from '@/lib/shared/brand-signal-profile-adapter';
+import { buildRichBrandContextBlock } from '@/lib/shared/brand-context-block';
+import {
+  resolveThinkForgeBrandAuthority,
+  type ThinkForgeBrandAuthority,
+} from './brand-authoring-context';
 
 // ==================== Types ====================
 
 export interface RetrievedContext {
   brandDNA: BrandDNA;
   brandSignalProfile?: BrandSignalProfile | null;
+  /** Current, ACL-authorized Brand Vault record used for this authoring request. */
+  brandAuthority?: ThinkForgeBrandAuthority | null;
   projectFacts: SemanticFact[];
   globalFacts: SemanticFact[];
   /** @deprecated Use projectFacts + globalFacts */
@@ -59,6 +67,8 @@ export interface FetchContextOptions {
   brandId?: string;
   /** Active org for Brand Vault scoping; null/undefined keeps personal behavior. */
   orgId?: string | null;
+  /** Agency admins may author from restricted brands in their active organization. */
+  isOrgAdmin?: boolean;
   /** The current user prompt – used to match relevant facts by keyword overlap */
   currentPrompt?: string;
   /** Current script content – used for keyword extraction */
@@ -124,14 +134,34 @@ async function fetchColdContext(
   projectId?: string,
   brandId?: string,
   orgId?: string | null,
-): Promise<EffectiveBrandDNAResolution> {
+  isOrgAdmin?: boolean,
+): Promise<EffectiveBrandDNAResolution & { brandAuthority?: ThinkForgeBrandAuthority | null }> {
+  if (brandId) {
+    const brandAuthority = await resolveThinkForgeBrandAuthority({
+      userId,
+      orgId: orgId ?? null,
+      isOrgAdmin,
+      brandId,
+    });
+    if (!brandAuthority) {
+      throw new Error('A selected Brand Vault profile could not be resolved.');
+    }
+    return {
+      brandDNA: brandSignalProfileToBrandDNA<BrandDNA>(brandAuthority.profile, {}),
+      brandSignalProfile: brandAuthority.profile,
+      source: 'brand_vault',
+      brandAuthority,
+    };
+  }
+
   try {
-    return orgId !== undefined
-      ? await resolveEffectiveBrandDNAWithProfile(userId, projectId, brandId, { orgId })
-      : await resolveEffectiveBrandDNAWithProfile(userId, projectId, brandId);
+    const legacyResolution = orgId !== undefined
+      ? await resolveEffectiveBrandDNAWithProfile(userId, projectId, undefined, { orgId })
+      : await resolveEffectiveBrandDNAWithProfile(userId, projectId, undefined);
+    return { ...legacyResolution, brandAuthority: null };
   } catch (error) {
     console.warn('[fetchContextSources] Cold fetch failed, using empty BrandDNA:', error);
-    return { brandDNA: {}, brandSignalProfile: null, source: 'legacy' };
+    return { brandDNA: {}, brandSignalProfile: null, source: 'legacy', brandAuthority: null };
   }
 }
 
@@ -384,6 +414,7 @@ export async function fetchContextSources(
     sessionId,
     brandId,
     orgId,
+    isOrgAdmin,
     currentPrompt,
     currentScript,
     maxFacts = 5,
@@ -394,7 +425,7 @@ export async function fetchContextSources(
   const keywords = extractKeywords(combinedText);
 
   const [brandResolution, projectFacts, globalFacts, interactionPatterns] = await Promise.all([
-    fetchColdContext(userId, projectId, brandId, orgId),
+    fetchColdContext(userId, projectId, brandId, orgId, isOrgAdmin),
     withTimeout(
       sessionId ? fetchProjectContext(userId, sessionId, maxFacts) : Promise.resolve([]),
       [],
@@ -412,6 +443,7 @@ export async function fetchContextSources(
   return {
     brandDNA: brandResolution.brandDNA,
     brandSignalProfile: brandResolution.brandSignalProfile,
+    brandAuthority: brandResolution.brandAuthority,
     projectFacts,
     globalFacts,
     semanticFacts: [...projectFacts, ...globalFacts],
@@ -426,16 +458,27 @@ export async function fetchContextSources(
 export function formatSystemBrief(ctx: RetrievedContext): string {
   const parts: string[] = [];
 
-  // BrandDNA section
+  // A selected brand always comes from its current accepted Brand Vault record. The legacy
+  // projection remains only for deliberately unbranded authoring, where no scoped profile exists.
   const dna = ctx.brandDNA;
-  const dnaLines: string[] = [];
-  if (dna.voiceLock) dnaLines.push(`Voice: ${dna.voiceLock}`);
-  if (dna.nicheMap) dnaLines.push(`Audience: ${dna.nicheMap}`);
-  if (dna.killList?.length) dnaLines.push(`Never mention: ${dna.killList.join(', ')}`);
-  if (dna.hookArchetypes?.length) dnaLines.push(`Hook styles: ${dna.hookArchetypes.join(', ')}`);
-  if (dna.structuralHabits?.length) dnaLines.push(`Structure: ${dna.structuralHabits.join(', ')}`);
-  if (dnaLines.length > 0) {
-    parts.push(`## Brand DNA\n${dnaLines.join('\n')}`);
+  if (ctx.brandAuthority) {
+    parts.push(
+      [
+        '## Accepted Brand Vault Profile',
+        buildRichBrandContextBlock(ctx.brandAuthority.profile),
+        `Profile provenance: ${ctx.brandAuthority.recordId}; current as of ${ctx.brandAuthority.profileUpdatedAt}.`,
+      ].join('\n'),
+    );
+  } else {
+    const dnaLines: string[] = [];
+    if (dna.voiceLock) dnaLines.push(`Voice: ${dna.voiceLock}`);
+    if (dna.nicheMap) dnaLines.push(`Audience: ${dna.nicheMap}`);
+    if (dna.killList?.length) dnaLines.push(`Never mention: ${dna.killList.join(', ')}`);
+    if (dna.hookArchetypes?.length) dnaLines.push(`Hook styles: ${dna.hookArchetypes.join(', ')}`);
+    if (dna.structuralHabits?.length) dnaLines.push(`Structure: ${dna.structuralHabits.join(', ')}`);
+    if (dnaLines.length > 0) {
+      parts.push(`## Brand DNA\n${dnaLines.join('\n')}`);
+    }
   }
 
   // Layer 2: Voice Fingerprint (statistical patterns from reference samples)

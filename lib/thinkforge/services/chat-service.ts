@@ -12,13 +12,13 @@ import { ScriptWriterAgent, type ScriptWriterInput } from '../agents/script-writ
 import { runThinkingAgent } from '../agents/thinking-agent';
 import { createScriptRefinementAgent } from '../agents/script-refinement-agent';
 import { quickAssembleContext, fetchContextSources, formatSystemBrief } from '../context';
+import { resolveThinkForgeAuthoringProjectMetadata } from '../context/brand-authoring-context';
 import { classifyIntent, intentRequiresSelection, type Intent, type IntentContextSignals } from '../intent/intent-gate';
 import * as db from './db';
 import { applyCommand } from './command-service';
 import { collectExemplarPassively } from './exemplar-collector';
 import { appendEvent } from './event-log';
 import {
-  mergeThinkForgeProjectMetadata,
   resolveProjectMetaBrandId,
   type SessionState,
   type ProjectMeta,
@@ -163,6 +163,7 @@ export interface ChatRequest {
   selection?: string;
   userId: string;
   orgId?: string | null;
+  isOrgAdmin?: boolean;
   script?: { title?: string; content?: string; blocks?: ThinkForgeBlock[] | any[] } | null;
   project?: ProjectMeta | null;
   blockIds?: string[];
@@ -195,6 +196,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     selection,
     userId,
     orgId,
+    isOrgAdmin,
     script: providedScript,
     project: providedProject,
     blockIds: providedBlockIds,
@@ -245,7 +247,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
   // Load chat history, user preferences, and multi-hop context in parallel
   const scriptContent = providedScript?.content || '';
-  const baseProjectMeta = mergeThinkForgeProjectMetadata(session.projectMeta, providedProject);
+  const baseProjectMeta = resolveThinkForgeAuthoringProjectMetadata(session.projectMeta, providedProject);
   const retrievalBrandId = resolveProjectMetaBrandId(baseProjectMeta);
   const [chatHistory, preferences, retrievedCtx] = await Promise.all([
     session ? db.getChatHistory(canonicalSessionId, 50, threadId) : Promise.resolve([]),
@@ -256,12 +258,14 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       sessionId: canonicalSessionId,
       brandId: retrievalBrandId,
       orgId: session.orgId ?? null,
+      isOrgAdmin,
       currentPrompt: prompt,
       currentScript: scriptContent,
       maxFacts: 5,
       interactionWindowDays: 30,
     }).catch((err) => {
       console.warn('[ThinkForge] Multi-hop retrieval failed, proceeding without:', err);
+      if (retrievalBrandId) throw err;
       return null;
     }),
   ]);
@@ -282,7 +286,10 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     script: currentScriptState,
     documents: currentScriptState ? [currentScriptState] : [],
     ideas: [],
-    metadata: mergeThinkForgeProjectMetadata(session.projectMeta, providedProject, preferences),
+    metadata: {
+      ...baseProjectMeta,
+      preferences,
+    },
     version: 1,
     lastUpdated: new Date()
   };

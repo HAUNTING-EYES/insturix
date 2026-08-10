@@ -22,7 +22,7 @@ export const maxDuration = 300;
  * Uses SSE format like Editron for consistent streaming
  */
 export async function POST(req: Request) {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, has } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -136,6 +136,7 @@ export async function POST(req: Request) {
     const stream = await retryOnceOnOverload(() => processChat({
       sessionId: canonicalSessionId,
       orgId,
+      isOrgAdmin: orgId ? has({ role: 'org:admin' }) : false,
       prompt,
       selection,
       userId,
