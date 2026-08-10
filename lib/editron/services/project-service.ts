@@ -300,10 +300,6 @@ export class ProjectService {
       'project-service-save',
     );
 
-    if (missingWorkerOverlays.length > 0) {
-      console.log(`[saveProject] Preserved ${missingWorkerOverlays.length} worker-added overlays (BGM/SFX/captions)`);
-    }
-
     // Update existing project only - project must exist
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
       { projectId }, // Filter by unique projectId
@@ -430,7 +426,6 @@ export class ProjectService {
     if (currentProject?.directorLock) {
       const lockAge = Date.now() - new Date(currentProject.directorLockAt).getTime();
       if (lockAge < 5 * 60 * 1000) { // Lock valid for up to 5 minutes
-        console.log(`[Autosave] Skipped — Director Agent is running (locked ${Math.round(lockAge / 1000)}s ago)`);
         return;
       }
       // Lock expired (>5 min) — Director probably crashed. Release and continue.
