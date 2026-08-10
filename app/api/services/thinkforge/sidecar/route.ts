@@ -17,6 +17,7 @@ import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import { parseMarkdownToBlocks } from '@/lib/thinkforge/normalization/markdown-parser';
 import { validateThinkForgeBlocks } from '@/lib/thinkforge/schemas/thinkforge-block';
 import { thinkForgeBlocksToTiptapJSON } from '@/lib/thinkforge/mappers/thinkforge-to-tiptap';
+import { resolveThinkForgeAuthoringProjectMetadata } from '@/lib/thinkforge/context/brand-authoring-context';
 import crypto from 'crypto';
 import { z } from 'zod';
 
@@ -116,14 +117,15 @@ export async function POST(req: Request) {
   await creditCheck.deduct();
 
   try {
+    const authoringProjectMeta = resolveThinkForgeAuthoringProjectMetadata(session.projectMeta);
     const [preferences, retrievedCtx] = await Promise.all([
       db.getUserPreferences(userId),
       fetchContextSources({
         userId,
         projectId: canonicalSessionId,
         sessionId: canonicalSessionId,
-        brandId: typeof session.projectMeta?.brandId === 'string'
-          ? session.projectMeta.brandId
+        brandId: typeof authoringProjectMeta.brandId === 'string'
+          ? authoringProjectMeta.brandId
           : undefined,
         orgId: session.orgId ?? null,
         currentPrompt: actionContent,
@@ -134,7 +136,7 @@ export async function POST(req: Request) {
     ]);
 
     const systemBrief = retrievedCtx ? formatSystemBrief(retrievedCtx) : null;
-    const projectContext = { ...(session.projectMeta || {}), preferences };
+    const projectContext = { ...authoringProjectMeta, preferences };
 
     const context = quickAssembleContext(
       'chat',

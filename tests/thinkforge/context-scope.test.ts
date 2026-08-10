@@ -430,6 +430,15 @@ describe('fetchContextSources scoped DataBank reads', () => {
     });
   });
 
+  it('never treats a legacy free-text scan as authoring context for an unbound session', () => {
+    const metadata = resolveThinkForgeAuthoringProjectMetadata(
+      { brandBrief: 'Old scan: call this a founder-led exclusivity brand.', idea: 'Write a launch post.' },
+      { brandBrief: 'Replacement browser scan that must not enter the writer.' },
+    );
+
+    expect(metadata).toEqual({ idea: 'Write a launch post.' });
+  });
+
   it('preserves persisted brand, campaign, and selected trend state during a partial session refresh', () => {
     const metadata = resolvePersistedThinkForgeProjectMetadata(
       {

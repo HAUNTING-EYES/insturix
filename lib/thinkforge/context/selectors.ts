@@ -170,7 +170,6 @@ export function selectProjectSummary(
   if (project.format) parts.push(`Format: ${project.format}`);
   if (project.platform) parts.push(`Platform: ${project.platform}`);
   if (project.tone) parts.push(`Tone: ${project.tone}`);
-  if ((project as any).brandBrief) parts.push(`Brand context: ${(project as any).brandBrief}`);
 
   const content = parts.join('\n');
   

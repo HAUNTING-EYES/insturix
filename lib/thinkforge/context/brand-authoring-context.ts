@@ -141,10 +141,11 @@ export function resolveThinkForgeAuthoringProjectMetadata(
   }
 
   const merged = mergeThinkForgeProjectMetadata(sessionProjectMeta, providedProject);
-  const brandId = sessionBrandId ?? providedBrandId;
-  if (!brandId) return merged;
-
+  // brandBrief is a legacy browser snapshot, not an authoring source of truth.
+  // Original user/source material remains in the separately isolated brief fields.
   const { brandBrief: _legacyBrandBrief, ...authoringMetadata } = merged;
+  const brandId = sessionBrandId ?? providedBrandId;
+  if (!brandId) return authoringMetadata;
   return { ...authoringMetadata, brandId };
 }
 

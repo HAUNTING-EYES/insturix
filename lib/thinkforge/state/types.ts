@@ -70,7 +70,6 @@ export interface ProjectMeta {
 
 const SOURCE_OF_TRUTH_PROJECT_META_KEYS: Array<keyof ProjectMeta> = [
   'brandId',
-  'brandBrief',
   'clientId',
   'clientName',
   'campaignId',
@@ -160,12 +159,12 @@ export function resolvePersistedThinkForgeProjectMetadata(
   }
 
   const merged = mergeThinkForgeProjectMetadata(existingProjectMeta, incomingProjectMeta);
-  const authoritativeBrandId = existingBrandId ?? incomingBrandId;
-  if (!authoritativeBrandId) return merged;
-
-  // A resolved Brand Vault profile is the authority for bound sessions. Never
-  // keep a browser-provided free-text scan that can become stale beside it.
+  // Never persist an unversioned browser scan as brand authority. Existing rows
+  // are normalized on their next write; the accepted Brand Vault record wins.
   const { brandBrief: _legacyBrandBrief, ...metadata } = merged;
+  const authoritativeBrandId = existingBrandId ?? incomingBrandId;
+  if (!authoritativeBrandId) return metadata;
+
   return { ...metadata, brandId: authoritativeBrandId };
 }
 
