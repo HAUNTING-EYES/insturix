@@ -37,6 +37,8 @@ export interface ChatEditRenderVerificationLifecycle {
   attemptCount: number;
   qstashMessageId: string | null;
   workerRequestId: string | null;
+  /** Server-generated token for the one worker attempt allowed to finish this record. */
+  attemptToken: string | null;
   reason: string | null;
   requestedAt: string;
   dispatchedAt: string | null;
@@ -144,6 +146,7 @@ export function buildRequestedChatEditRenderVerification(
       attemptCount: 0,
       qstashMessageId: null,
       workerRequestId: null,
+      attemptToken: null,
       reason: null,
       requestedAt: request.requestedAt,
       dispatchedAt: null,
@@ -187,6 +190,10 @@ export function ensureChatEditRenderVerificationLifecycle<Visual, Audio>(
       issues: normalizedIssues,
       lifecycle: {
         ...record.lifecycle,
+        attemptToken: cleanText(
+          (record.lifecycle as { attemptToken?: unknown }).attemptToken,
+          240,
+        ),
         reason: cleanText(record.lifecycle.reason, 500) ?? normalizedReasons[0] ?? null,
       },
     } as ChatEditRenderVerificationRecord<Visual, Audio>;
@@ -222,6 +229,7 @@ export function ensureChatEditRenderVerificationLifecycle<Visual, Audio>(
       attemptCount: record.status === 'running' || completed || failed ? 1 : 0,
       qstashMessageId: record.dispatchMessageId,
       workerRequestId: null,
+      attemptToken: null,
       reason: record.reasons[0] ?? null,
       requestedAt: record.requestedAt,
       dispatchedAt: record.dispatchMessageId ? record.requestedAt : null,
@@ -284,7 +292,12 @@ export function markChatEditRenderVerificationDispatched<Visual, Audio>(
 
 export function markChatEditRenderVerificationDelivered<Visual, Audio>(
   record: ChatEditRenderVerificationRecord<Visual, Audio>,
-  input: { attemptCount: number; workerRequestId: string; now?: Date | string },
+  input: {
+    attemptCount: number;
+    workerRequestId: string;
+    attemptToken?: string | null;
+    now?: Date | string;
+  },
 ): ChatEditRenderVerificationRecord<Visual, Audio> {
   const updatedAt = toIso(input.now ?? new Date());
   const attemptCount = Math.max(record.lifecycle.attemptCount, normalizeAttempt(input.attemptCount));
@@ -310,6 +323,7 @@ export function markChatEditRenderVerificationDelivered<Visual, Audio>(
       terminalStatus: null,
       attemptCount,
       workerRequestId: cleanText(input.workerRequestId, 240),
+      attemptToken: cleanText(input.attemptToken, 240),
       reason: null,
       deliveredAt: updatedAt,
       terminalAt: null,

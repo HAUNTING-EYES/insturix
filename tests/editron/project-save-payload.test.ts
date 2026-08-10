@@ -687,6 +687,7 @@ describe("Editron project save payload compaction", () => {
         attemptCount: 0,
         qstashMessageId: null,
         workerRequestId: null,
+        attemptToken: null,
         reason: null,
         requestedAt: updatedAt,
         dispatchedAt: null,
@@ -703,6 +704,7 @@ describe("Editron project save payload compaction", () => {
       subjectReceipt,
       record,
       expectedLifecycleStates: ["requested"],
+      expectedAttemptToken: null,
       allowReplacePriorSubject: true,
     });
 
@@ -712,6 +714,13 @@ describe("Editron project save payload compaction", () => {
         userId: "user_1",
         $and: expect.arrayContaining([
           expect.objectContaining({ projectRevision: 11, updatedAt: new Date(updatedAt) }),
+          expect.objectContaining({
+            $or: expect.arrayContaining([
+              expect.objectContaining({
+                "intelligence.latestChatEditRenderVerification.lifecycle.attemptToken": null,
+              }),
+            ]),
+          }),
         ]),
       }),
       expect.objectContaining({

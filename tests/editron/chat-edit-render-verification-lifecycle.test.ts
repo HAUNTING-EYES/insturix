@@ -4,6 +4,7 @@ import { extractPersistedChatBattleRenderEvidence } from '@/lib/editron/services
 import {
   buildRequestedChatEditRenderVerification,
   ensureChatEditRenderVerificationLifecycle,
+  markChatEditRenderVerificationDelivered,
 } from '@/lib/editron/services/chat-edit-render-verification-lifecycle';
 
 const requestedAt = '2026-07-30T10:00:00.000Z';
@@ -75,5 +76,35 @@ describe('chat edit render-verification diagnostic truth', () => {
       message: 'visual_gate_needs_review',
       source: 'chat-edit-render-verification-reason',
     })]);
+  });
+
+  it('persists a server-issued attempt token and normalizes older records without one', () => {
+    const requested = buildRequestedChatEditRenderVerification({
+      version: 'editron-chat-render-verification-v1',
+      operationId: 'op_render_attempt',
+      sessionId: 'session_render_attempt',
+      beforeCheckpointId: 'checkpoint_before',
+      afterCheckpointId: 'checkpoint_after',
+      requestedAt,
+      modalities: ['visual'],
+      targets: [],
+      sampleFrames: [40],
+    }, requestedAt);
+    const delivered = markChatEditRenderVerificationDelivered(requested, {
+      attemptCount: 1,
+      workerRequestId: 'worker-request-1',
+      attemptToken: 'attempt-token-1',
+      now: completedAt,
+    });
+    const legacy = structuredClone(delivered) as unknown as {
+      lifecycle: { attemptToken?: unknown };
+    };
+    delete legacy.lifecycle.attemptToken;
+
+    expect(delivered.lifecycle.attemptToken).toBe('attempt-token-1');
+    expect(ensureChatEditRenderVerificationLifecycle(
+      legacy as Parameters<typeof ensureChatEditRenderVerificationLifecycle>[0],
+      completedAt,
+    ).lifecycle.attemptToken).toBeNull();
   });
 });

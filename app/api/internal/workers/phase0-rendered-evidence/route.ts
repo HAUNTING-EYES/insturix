@@ -305,6 +305,7 @@ async function handleChatEditRenderVerification(input: {
   const deliveredRecord = markChatEditRenderVerificationDelivered(requestedRecord, {
     attemptCount: input.attemptCount,
     workerRequestId: input.workerRequestId,
+    attemptToken: randomUUID(),
     now,
   });
   const runningRecord = markChatEditRenderVerificationRendering(deliveredRecord, now);
@@ -352,6 +353,7 @@ async function handleChatEditRenderVerification(input: {
         subjectReceipt: runningRecord.subjectReceipt,
         record: runningRecord,
         expectedLifecycleStates: ['requested', 'dispatched', 'delivered'],
+        expectedAttemptToken: requestedRecord.lifecycle.attemptToken,
         allowReplacePriorSubject: true,
       });
     } catch (error: unknown) {
@@ -613,6 +615,19 @@ async function handleQstashFailureCallback(input: {
       projectId,
       operationId: verification.operationId,
       skipped: 'already-completed',
+      status: existingRecord.status,
+    });
+  }
+  if (
+    failure.sourceMessageId
+    && existingRecord.lifecycle.qstashMessageId
+    && existingRecord.lifecycle.qstashMessageId !== failure.sourceMessageId
+  ) {
+    return NextResponse.json({
+      success: true,
+      projectId,
+      operationId: verification.operationId,
+      skipped: 'stale-delivery-failure',
       status: existingRecord.status,
     });
   }
@@ -953,6 +968,7 @@ async function persistChatEditVerificationResult(input: {
       record: input.record,
       expectedLifecycleStates:
         input.expectedProjectionLifecycleStates ?? input.expectedCheckpointLifecycleStates,
+      expectedAttemptToken: input.record.lifecycle.attemptToken,
       appendHistory: input.appendHistory,
     });
   }
@@ -962,6 +978,10 @@ async function persistChatEditVerificationResult(input: {
       projectId: input.projectId,
       userId: input.userId,
       'chatEditRenderVerification.operationId': input.record.operationId,
+      'chatEditRenderVerification.sessionId': input.record.sessionId,
+      'chatEditRenderVerification.beforeCheckpointId': input.checkpointId,
+      'chatEditRenderVerification.afterCheckpointId': input.record.afterCheckpointId,
+      'chatEditRenderVerification.lifecycle.attemptToken': input.record.lifecycle.attemptToken,
       'chatEditRenderVerification.lifecycle.state': { $in: input.expectedCheckpointLifecycleStates },
     },
     { $set: { chatEditRenderVerification: input.record, updatedAt: new Date() } },

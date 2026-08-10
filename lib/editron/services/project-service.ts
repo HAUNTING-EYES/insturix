@@ -150,6 +150,8 @@ export interface ProjectChatRenderVerificationProjectionInputV1 {
   subjectReceipt: ProjectMutationReceiptV1;
   record: ChatEditRenderVerificationRecord;
   expectedLifecycleStates: ChatEditRenderVerificationLifecycleState[];
+  /** The persisted worker-attempt token required before this derived projection may advance. */
+  expectedAttemptToken?: string | null;
   allowReplacePriorSubject?: boolean;
   appendHistory?: boolean;
 }
@@ -1024,12 +1026,20 @@ export class ProjectService {
 
     const currentProjection = {
       "intelligence.latestChatEditRenderVerification.operationId": input.record.operationId,
+      "intelligence.latestChatEditRenderVerification.sessionId": input.record.sessionId,
+      "intelligence.latestChatEditRenderVerification.beforeCheckpointId": input.record.beforeCheckpointId,
+      "intelligence.latestChatEditRenderVerification.afterCheckpointId": input.record.afterCheckpointId,
       "intelligence.latestChatEditRenderVerification.subjectReceipt.projectId": projectId,
       "intelligence.latestChatEditRenderVerification.subjectReceipt.revision.value": input.subjectReceipt.revision.value,
       "intelligence.latestChatEditRenderVerification.subjectReceipt.revision.compatibilityUpdatedAt": input.subjectReceipt.revision.compatibilityUpdatedAt,
       "intelligence.latestChatEditRenderVerification.lifecycle.state": {
         $in: input.expectedLifecycleStates,
       },
+      ...(input.expectedAttemptToken !== undefined
+        ? {
+            "intelligence.latestChatEditRenderVerification.lifecycle.attemptToken": input.expectedAttemptToken,
+          }
+        : {}),
     };
     const projectionScope = input.allowReplacePriorSubject
       ? {
@@ -1874,6 +1884,15 @@ function assertChatRenderVerificationProjection(
     || !Array.isArray(input.expectedLifecycleStates)
     || input.expectedLifecycleStates.length === 0
     || input.expectedLifecycleStates.some((state) => !expectedStates.has(state))
+    || (
+      input.expectedAttemptToken !== undefined
+      && input.expectedAttemptToken !== null
+      && (typeof input.expectedAttemptToken !== "string" || !input.expectedAttemptToken.trim())
+    )
+    || (
+      input.record.lifecycle.attemptToken !== null
+      && (typeof input.record.lifecycle.attemptToken !== "string" || !input.record.lifecycle.attemptToken.trim())
+    )
   ) {
     throw new ProjectMutationWriteError(
       "Chat render-verification projection must bind one valid writer receipt and lifecycle state.",
