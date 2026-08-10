@@ -4,6 +4,8 @@
  * Service layer for project CRUD operations
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
 import type {
@@ -58,6 +60,11 @@ export interface ProjectMutationReceiptV1 {
   committedAt: string;
 }
 
+export interface CapturedProjectMutationReceiptsV1<T> {
+  value: T;
+  receipts: ProjectMutationReceiptV1[];
+}
+
 export interface ProjectCheckpointRestoreInputV1 {
   expectedRevision: ProjectRevisionV1;
   setFields: Record<string, unknown>;
@@ -68,6 +75,8 @@ export interface ProjectCheckpointRestoreReceiptV1 {
   receipt: ProjectMutationReceiptV1;
   project: Record<string, unknown>;
 }
+
+const projectMutationReceiptStorage = new AsyncLocalStorage<ProjectMutationReceiptV1[]>();
 
 export class ProjectMutationConflictError extends Error {
   readonly code = "PROJECT_REVISION_CONFLICT";
@@ -547,6 +556,29 @@ export class ProjectService {
   }
 
   /**
+   * Captures receipts emitted by ProjectService writers while one async
+   * operation runs. The receipt is produced by the writer itself, so callers
+   * do not need a post-write current-revision read to bind a rollback.
+   */
+  async captureMutationReceipts<T>(
+    callback: () => Promise<T> | T,
+  ): Promise<CapturedProjectMutationReceiptsV1<T>> {
+    const activeReceipts = projectMutationReceiptStorage.getStore();
+    if (activeReceipts) {
+      const receiptOffset = activeReceipts.length;
+      const value = await callback();
+      return { value, receipts: activeReceipts.slice(receiptOffset) };
+    }
+
+    return projectMutationReceiptStorage.run([], async () => {
+      const receipts = projectMutationReceiptStorage.getStore();
+      if (!receipts) throw new ProjectMutationWriteError();
+      const value = await callback();
+      return { value, receipts: [...receipts] };
+    });
+  }
+
+  /**
    * Checkpoint-only exact-state restore. The checkpoint store owns state
    * capture and hashing; ProjectService alone owns the final project write.
    * Its returned postimage is the state that must be fingerprinted as proof.
@@ -592,19 +624,18 @@ export class ProjectService {
       throw new ProjectMutationConflictError(projectRevisionFor(latest));
     }
 
-    return {
-      receipt: {
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
         schemaVersion: 1,
-        projectId,
-        revision: {
-          schemaVersion: 1,
-          value: input.expectedRevision.value + 1,
-          compatibilityUpdatedAt: committedAt.toISOString(),
-        },
-        committedAt: committedAt.toISOString(),
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
       },
-      project: restoredProject,
+      committedAt: committedAt.toISOString(),
     };
+    this.publishMutationReceipt(receipt);
+    return { receipt, project: restoredProject };
   }
 
   /**
@@ -718,7 +749,7 @@ export class ProjectService {
     }
     if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
 
-    return {
+    const receipt: ProjectMutationReceiptV1 = {
       schemaVersion: 1,
       projectId: input.projectId,
       revision: {
@@ -728,6 +759,12 @@ export class ProjectService {
       },
       committedAt: committedAt.toISOString(),
     };
+    this.publishMutationReceipt(receipt);
+    return receipt;
+  }
+
+  private publishMutationReceipt(receipt: ProjectMutationReceiptV1): void {
+    projectMutationReceiptStorage.getStore()?.push(receipt);
   }
 
   /**
