@@ -75,6 +75,10 @@
     {
       "path": "/api/cron/process-thinkforge-databank",
       "schedule": "43 */6 * * *"
+    },
+    {
+      "path": "/api/cron/process-thinkforge-refinery",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

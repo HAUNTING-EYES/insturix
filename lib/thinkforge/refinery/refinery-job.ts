@@ -10,6 +10,7 @@ export const THINKFORGE_REFINERY_JOB_COLLECTION = 'thinkforge_refinery_jobs';
 const MAX_ATTEMPTS = 3;
 const LEASE_MS = 3 * 60_000;
 const JOB_TTL_MS = 14 * 24 * 60 * 60_000;
+const RECOVERY_STALE_MS = 2 * 60_000;
 
 export type ThinkForgeRefineryJobStatus = 'queued' | 'running' | 'completed' | 'failed';
 
@@ -402,8 +403,35 @@ export async function dispatchThinkForgeRefineryJob(job: ThinkForgeRefineryJobSn
     url: `${base}/api/internal/workers/thinkforge/refinery`,
     body: { jobId: job.id },
     retries: MAX_ATTEMPTS - 1,
-    deduplicationId: job.id,
+    // The Mongo lease is the execution authority. A unique QStash dispatch key
+    // lets recovery safely redeliver a job when an earlier delivery was lost.
+    deduplicationId: `${job.id}:${randomUUID()}`,
   });
   await setThinkForgeRefineryJobQueueMessage(job.id, dispatch.messageId);
   return dispatch.messageId;
+}
+
+export async function recoverStalledThinkForgeRefineryJobs(limit = 25): Promise<{
+  candidates: number;
+  dispatched: number;
+  failed: number;
+}> {
+  if (!isThinkForgeRefineryWorkerConfigured()) {
+    throw new Error('ThinkForge refinery worker is not configured.');
+  }
+  const collection = await jobCollection();
+  const staleBefore = new Date(Date.now() - RECOVERY_STALE_MS).toISOString();
+  const candidates = await collection.find({
+    $or: [
+      { status: 'queued', updatedAt: { $lte: staleBefore } },
+      { status: 'running', leaseExpiresAt: { $lte: staleBefore } },
+    ],
+  }).sort({ updatedAt: 1 }).limit(Math.max(1, Math.min(limit, 100))).toArray();
+
+  const results = await Promise.allSettled(candidates.map((candidate) => dispatchThinkForgeRefineryJob(toSnapshot(candidate))));
+  return {
+    candidates: candidates.length,
+    dispatched: results.filter((result) => result.status === 'fulfilled').length,
+    failed: results.filter((result) => result.status === 'rejected').length,
+  };
 }
