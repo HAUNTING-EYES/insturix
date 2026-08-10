@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   checkCredits: vi.fn(),
+  authorizeBrandScope: vi.fn(),
+  createIdeasAgent: vi.fn(),
   deductCredits: vi.fn(),
   deleteScript: vi.fn(),
   getChatHistory: vi.fn(),
@@ -10,9 +12,15 @@ const mocks = vi.hoisted(() => ({
   getScript: vi.fn(),
   getSession: vi.fn(),
   getUserPreferences: vi.fn(),
+  fetchContextSources: vi.fn(),
+  formatSystemBrief: vi.fn(),
+  ensureMigrated: vi.fn(),
+  isOrgWalletBillingEnabled: vi.fn(),
+  listAuthorizedBrandScopes: vi.fn(),
   listChatThreads: vi.fn(),
   refundCredits: vi.fn(),
   reviseDocument: vi.fn(),
+  resolveContextBillingOwner: vi.fn(),
   saveScriptWithVersion: vi.fn(),
 }));
 
@@ -30,6 +38,22 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
 vi.mock('@/lib/services/creditsMiddleware', () => ({
   checkCredits: mocks.checkCredits,
 }));
+vi.mock('@/lib/services/creditsMigrationService', () => ({
+  CreditsMigrationService: { ensureMigrated: mocks.ensureMigrated },
+}));
+vi.mock('@/lib/thinkforge/agents/ideas-agent', () => ({
+  createIdeasAgent: mocks.createIdeasAgent,
+}));
+vi.mock('@/lib/thinkforge/context', () => ({
+  fetchContextSources: mocks.fetchContextSources,
+  formatSystemBrief: mocks.formatSystemBrief,
+}));
+vi.mock('@/lib/editron/services/project-ownership', () => ({
+  resolveContextBillingOwner: mocks.resolveContextBillingOwner,
+}));
+vi.mock('@/lib/services/org-wallet-flag', () => ({
+  isOrgWalletBillingEnabled: mocks.isOrgWalletBillingEnabled,
+}));
 vi.mock('@/lib/thinkforge/services/flat-writer-edit', () => ({
   reviseDocumentViaFlatWriter: mocks.reviseDocument,
 }));
@@ -41,6 +65,14 @@ vi.mock('@/lib/shared/project-links', () => ({
   createProjectLink: vi.fn(),
   findLinkBySessionId: vi.fn(),
 }));
+vi.mock('@/lib/shared/brand-scope', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/shared/brand-scope')>();
+  return {
+    ...actual,
+    authorizeBrandScope: mocks.authorizeBrandScope,
+    listAuthorizedBrandScopes: mocks.listAuthorizedBrandScopes,
+  };
+});
 
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
 
@@ -123,19 +155,41 @@ async function callAiEditRoutes() {
   ]);
 }
 
-async function callSessionHydrate() {
+async function callSessionHydrate(body: Record<string, unknown> = {
+  sessionId: 'session_requested',
+  scriptId: 'script_2',
+}) {
   const { POST } = await import('@/app/api/services/thinkforge/session/route');
   return POST(new Request('http://localhost/api/services/thinkforge/session', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId: 'session_requested', scriptId: 'script_2' }),
+    body: JSON.stringify(body),
+  }));
+}
+
+async function callIdeas(body: Record<string, unknown>) {
+  const { POST } = await import('@/app/api/services/thinkforge/ideas/route');
+  return POST(new Request('http://localhost/api/services/thinkforge/ideas', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
   }));
 }
 
 describe('ThinkForge session route authorization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1' });
+    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1', has: vi.fn(() => false) });
+    mocks.authorizeBrandScope.mockResolvedValue({
+      brandId: 'brand_allowed',
+      brandName: 'Allowed Brand',
+      recordId: 'record_allowed',
+    });
+    mocks.listAuthorizedBrandScopes.mockResolvedValue([{
+      brandId: 'brand_allowed',
+      brandName: 'Allowed Brand',
+      recordId: 'record_allowed',
+    }]);
     mocks.getSession.mockResolvedValue({
       _id: 'session_canonical',
       userId: 'session_owner',
@@ -157,6 +211,21 @@ describe('ThinkForge session route authorization', () => {
       allowed: true,
       deduct: mocks.deductCredits,
       refund: mocks.refundCredits,
+    });
+    mocks.ensureMigrated.mockResolvedValue(undefined);
+    mocks.fetchContextSources.mockResolvedValue({});
+    mocks.formatSystemBrief.mockReturnValue('Resolved brand context');
+    mocks.isOrgWalletBillingEnabled.mockReturnValue(false);
+    mocks.resolveContextBillingOwner.mockReturnValue({ type: 'personal', userId: 'user_1' });
+    mocks.createIdeasAgent.mockReturnValue({
+      generateIdeas: vi.fn().mockResolvedValue([{
+        idea: 'A grounded idea',
+        purpose: 'A useful purpose',
+        style: 'Direct',
+        format: 'LinkedIn post',
+        platform: 'linkedin',
+        tone: 'blue',
+      }]),
     });
     mocks.reviseDocument.mockResolvedValue({
       title: 'Draft',
@@ -248,6 +317,92 @@ describe('ThinkForge session route authorization', () => {
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'script_2');
     expect(mocks.getChatHistory).toHaveBeenCalledWith('session_canonical', 50, 'default');
     expect(mocks.getUserPreferences).toHaveBeenCalledWith('user_1');
+  });
+
+  it('authorizes and normalizes the brand binding before creating a session', async () => {
+    const response = await callSessionHydrate({
+      sessionId: 'session_requested',
+      scriptId: 'script_2',
+      projectMeta: { brandId: ' brand_allowed ' },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.authorizeBrandScope).toHaveBeenCalledWith({
+      userId: 'user_1',
+      orgId: 'org_1',
+      isOrgAdmin: false,
+      brandId: 'brand_allowed',
+    });
+    expect(mocks.getOrCreateSession).toHaveBeenCalledWith(
+      'user_1',
+      'session_requested',
+      { brandId: 'brand_allowed' },
+      'org_1',
+      undefined,
+    );
+  });
+
+  it('rejects an attempt to change a session brand binding', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_original' },
+    });
+
+    const response = await callSessionHydrate({
+      sessionId: 'session_requested',
+      projectMeta: { brandId: 'brand_replacement' },
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'brand_binding_immutable' });
+    expect(mocks.authorizeBrandScope).not.toHaveBeenCalled();
+    expect(mocks.getOrCreateSession).not.toHaveBeenCalled();
+  });
+
+  it('denies a requested brand that is absent from the caller\'s authorized Vault scope', async () => {
+    const actual = await vi.importActual<typeof import('@/lib/shared/brand-scope')>('@/lib/shared/brand-scope');
+    const listAcceptedBrands = vi.fn().mockResolvedValue([]);
+
+    await expect(actual.authorizeBrandScope({
+      userId: 'user_1',
+      orgId: 'org_1',
+      brandId: 'brand_restricted',
+      store: { listAcceptedBrands },
+    })).rejects.toMatchObject({ code: 'brand_not_found' });
+
+    expect(listAcceptedBrands).toHaveBeenCalledWith({
+      orgId: 'org_1',
+      userId: 'user_1',
+      isOrgAdmin: false,
+    });
+  });
+
+  it('uses only the authorized selected Vault brand when generating ideas', async () => {
+    const response = await callIdeas({
+      prompt: 'Create a post for my brand about product adoption.',
+      brandId: 'brand_allowed',
+    });
+
+    if (!response) throw new Error('Ideas route did not return a response');
+    expect(response.status).toBe(200);
+    expect(mocks.listAuthorizedBrandScopes).toHaveBeenCalledWith({
+      userId: 'user_1',
+      orgId: 'org_1',
+      isOrgAdmin: false,
+    });
+    expect(mocks.fetchContextSources).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user_1',
+      orgId: 'org_1',
+      brandId: 'brand_allowed',
+    }));
+    const body = await response.json();
+    expect(body.grounding).toMatchObject({
+      brandId: 'brand_allowed',
+      brandName: 'Allowed Brand',
+    });
+    expect(body.ideas[0]).toMatchObject({ brandId: 'brand_allowed' });
   });
 
   it('rejects foreign-session AI edits before credits or model work', async () => {

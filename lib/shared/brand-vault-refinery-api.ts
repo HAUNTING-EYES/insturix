@@ -90,6 +90,7 @@ export interface BrandVaultApiErrorBody {
       | 'invalid_url'
       | 'validation_failed'
       | 'not_draft'
+      | 'conflict'
       | 'fetch_failed'
       | 'draft_creation_failed';
     message: string;
@@ -139,7 +140,23 @@ export interface BrandVaultAcceptedBrandSummary {
   updatedAt: string;
 }
 
+/**
+ * The only fields the slow visual-enrichment worker is allowed to add after a
+ * draft has been persisted. Keeping this narrow prevents a stale scan result
+ * from replacing reviewed brand truth.
+ */
+export type BrandVaultDraftProductUiPatch = {
+  productUiModel?: BrandSignalProfile['productUiModel'];
+  productUiModelDecodeAttemptedAt?: string;
+};
+
 export interface BrandVaultRefineryStore extends BrandVaultSignalProfileStore {
+  patchDraftProductUi(input: {
+    recordId: string;
+    expectedUpdatedAt: string;
+    patch: BrandVaultDraftProductUiPatch;
+    options?: BrandSignalLifecycleOptions;
+  }): BrandVaultStoreResult<BrandSignalProfileRecord | null>;
   getLatestAcceptedRecord(filter: BrandVaultAcceptedProfileFilter): BrandVaultStoreResult<BrandSignalProfileRecord | null>;
   listAcceptedBrands?(filter?: BrandVaultAcceptedBrandListFilter): BrandVaultStoreResult<BrandVaultAcceptedBrandSummary[]>;
   /** Agency ACL: assign a brand to specific org users ([] clears). Optional — stores omitting it grant all. */
@@ -277,6 +294,28 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
 
   saveRecord(record: BrandSignalProfileRecord, options: BrandSignalLifecycleOptions = {}): BrandSignalProfileRecord {
     return this.profiles.saveRecord(record, options);
+  }
+
+  patchDraftProductUi(input: {
+    recordId: string;
+    expectedUpdatedAt: string;
+    patch: BrandVaultDraftProductUiPatch;
+    options?: BrandSignalLifecycleOptions;
+  }): BrandSignalProfileRecord | null {
+    const current = this.profiles.getRecord(input.recordId);
+    if (!current || current.status !== 'draft' || current.updatedAt !== input.expectedUpdatedAt) return null;
+
+    return this.profiles.saveRecord(
+      {
+        ...current,
+        profile: {
+          ...current.profile,
+          ...input.patch,
+        },
+        updatedAt: input.options?.now ?? new Date().toISOString(),
+      },
+      input.options,
+    );
   }
 
   getRecord(id: string): BrandSignalProfileRecord | null {
@@ -423,9 +462,17 @@ export function getDefaultBrandVaultRefineryStore(): BrandVaultRefineryStore {
   const globalStore = globalThis as typeof globalThis & {
     __brandVaultRefineryStore?: BrandVaultRefineryStore;
   };
-  globalStore.__brandVaultRefineryStore ??=
-    createBrandVaultMongoRefineryStoreFromEnvironment() ?? createInMemoryBrandVaultRefineryStore();
+  globalStore.__brandVaultRefineryStore ??= createBrandVaultMongoRefineryStoreFromEnvironment() ?? createDefaultRefineryStore();
   return globalStore.__brandVaultRefineryStore;
+}
+
+function createDefaultRefineryStore(): BrandVaultRefineryStore {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Brand Vault persistence is not configured. Set BRAND_VAULT_MONGODB_URI and BRAND_VAULT_MONGODB_DB_NAME before serving production traffic.',
+    );
+  }
+  return createInMemoryBrandVaultRefineryStore();
 }
 
 export async function createBrandVaultRefineryJobFromWebsite(
@@ -516,20 +563,21 @@ export async function createBrandVaultRefineryJobFromWebsite(
   // Vision DECODE runs HERE — after the draft record + snapshot are persisted and the scan is already
   // reviewable — because it is slow (~45-100s, GLM vision) and pure enrichment. Keeping it off the scan's
   // critical path means a decode timeout can never lose the whole draft (it did, before). Fail-soft.
-  await runProductUiDecodeFollowUp({
+  const enrichedRecord = await runProductUiDecodeFollowUp({
     decoder: resolveVisionDecoder(dependencies),
     store: dependencies.store,
     record: result.record,
     sourceUrl: result.normalizedUrl,
     options: { actorId: args.actorId ?? args.userId, now: dependencies.clock?.() },
   });
+  const currentRecord = enrichedRecord ?? await dependencies.store.getRecord(result.record.id) ?? result.record;
 
   return {
     status: 201,
     body: {
       ok: true,
       job,
-      record: result.record,
+      record: currentRecord,
       reviewPayload,
       candidates: result.candidates,
     },
@@ -537,7 +585,7 @@ export async function createBrandVaultRefineryJobFromWebsite(
 }
 
 /**
- * Decode the draft's stored UI screenshots into a Product UI Model and attach it to the persisted record.
+ * Decode the draft's stored UI screenshots into a Product UI Model and attach it to the exact persisted draft.
  * Runs AFTER the draft is saved (so it never blocks review) and is best-effort: no decoder, no screenshots,
  * a null model, or any error all leave the already-saved draft untouched.
  */
@@ -547,20 +595,25 @@ async function runProductUiDecodeFollowUp(args: {
   record: BrandSignalProfileRecord;
   sourceUrl: string;
   options?: BrandSignalLifecycleOptions;
-}): Promise<void> {
-  if (!args.decoder) return;
+}): Promise<BrandSignalProfileRecord | null> {
+  if (!args.decoder) return null;
   const screenshotUrls = args.record.profile.assets?.uiScreenshots?.value;
-  if (!Array.isArray(screenshotUrls) || screenshotUrls.length === 0) return;
+  if (!Array.isArray(screenshotUrls) || screenshotUrls.length === 0) return null;
   try {
     const productUiModel = await args.decoder({ url: args.sourceUrl, screenshotUrls });
-    if (!productUiModel) return;
-    args.record.profile.productUiModel = productUiModel;
-    await args.store.saveRecord(args.record, args.options);
+    if (!productUiModel) return null;
+    return await args.store.patchDraftProductUi({
+      recordId: args.record.id,
+      expectedUpdatedAt: args.record.updatedAt,
+      patch: { productUiModel },
+      options: args.options,
+    });
   } catch (error) {
     console.warn(
       '[BrandVault:visionDecode] product UI decode follow-up skipped:',
       error instanceof Error ? error.message : String(error),
     );
+    return null;
   }
 }
 
@@ -605,17 +658,22 @@ export async function processNextPendingProductUiDecode(
 
     // Stamp + persist the attempt BEFORE decoding: a kill mid-decode still applies the cooldown.
     const options: BrandSignalLifecycleOptions = { actorId: record.profile.userId ?? 'system', now };
-    record.profile.productUiModelDecodeAttemptedAt = now;
-    await dependencies.store.saveRecord(record, options);
+    const marked = await dependencies.store.patchDraftProductUi({
+      recordId: record.id,
+      expectedUpdatedAt: record.updatedAt,
+      patch: { productUiModelDecodeAttemptedAt: now },
+      options,
+    });
+    if (!marked) continue;
 
-    await runProductUiDecodeFollowUp({
+    const decoded = await runProductUiDecodeFollowUp({
       decoder,
       store: dependencies.store,
-      record,
+      record: marked,
       sourceUrl: snapshot.normalizedUrl ?? snapshot.job.inputs.websiteUrl ?? '',
       options,
     });
-    return { processed: true, recordId: snapshot.recordId, decoded: Boolean(record.profile.productUiModel) };
+    return { processed: true, recordId: snapshot.recordId, decoded: Boolean(decoded?.profile.productUiModel) };
   }
   return { processed: false, reason: 'nothing_pending' };
 }
@@ -1034,7 +1092,7 @@ export async function reviewBrandVaultSignalProfileDraft(
   if (!result) return invalidRequest('Action must be "accept" or "reject".');
   if (!result.ok) {
     return {
-      status: result.code === 'not_draft' ? 409 : 422,
+      status: result.code === 'not_draft' || result.code === 'conflict' ? 409 : 422,
       body: {
         ok: false,
         error: {

@@ -26,6 +26,7 @@ import type {
   BrandAccessAssignmentInput,
   BrandVaultAcceptedBrandListFilter,
   BrandVaultAcceptedBrandSummary,
+  BrandVaultDraftProductUiPatch,
   BrandVaultRefineryJobListFilter,
   BrandVaultRefineryJobSnapshot,
   BrandVaultRefineryStore,
@@ -52,6 +53,7 @@ export interface BrandVaultMongoProfileDocument {
   _id: string;
   record: BrandSignalProfileRecord;
   status: BrandSignalProfileRecord['status'];
+  acceptedScopeKey?: string;
   brandId?: string;
   userId?: string;
   orgId?: string;
@@ -122,6 +124,35 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     return clone(record);
   }
 
+  async patchDraftProductUi(input: {
+    recordId: string;
+    expectedUpdatedAt: string;
+    patch: BrandVaultDraftProductUiPatch;
+    options?: BrandSignalLifecycleOptions;
+  }): Promise<BrandSignalProfileRecord | null> {
+    const collections = await this.getCollections();
+    const filter = {
+      _id: input.recordId,
+      status: 'draft',
+      updatedAt: input.expectedUpdatedAt,
+    } as Filter<BrandVaultMongoProfileDocument>;
+    const current = await collections.profiles.findOne(filter);
+    if (!current) return null;
+
+    const next: BrandSignalProfileRecord = {
+      ...current.record,
+      profile: {
+        ...current.record.profile,
+        ...input.patch,
+      },
+      updatedAt: input.options?.now ?? new Date().toISOString(),
+    };
+    const update = await collections.profiles.updateOne(filter, { $set: profileDocument(next) });
+    if (!wasMatched(update)) return null;
+    await appendEvent(collections.events, 'draft_saved', next, input.options ?? {});
+    return clone(next);
+  }
+
   async getRecord(id: string): Promise<BrandSignalProfileRecord | null> {
     const collections = await this.getCollections();
     const doc = await collections.profiles.findOne({ _id: id } as Filter<BrandVaultMongoProfileDocument>);
@@ -146,7 +177,19 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     }
 
     const superseded = await this.supersedeExistingAccepted(collections, accepted.record, options);
-    await upsertRecord(collections.profiles, accepted.record);
+    try {
+      await upsertRecord(collections.profiles, accepted.record);
+    } catch (error) {
+      if (!isDuplicateKeyError(error)) throw error;
+      const issues = [{
+        severity: 'error' as const,
+        code: 'review_required' as const,
+        path: 'scope',
+        message: 'Another reviewer accepted a profile for this brand scope first. Refresh the Brand Vault before accepting this draft.',
+      }];
+      await appendEvent(collections.events, 'draft_accept_failed', draft, options, { issues });
+      return { ok: false, code: 'conflict', issues };
+    }
     await appendEvent(collections.events, 'draft_accepted', accepted.record, options);
     return { ok: true, record: clone(accepted.record), superseded: superseded.map(clone) };
   }
@@ -310,12 +353,7 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     options: BrandSignalLifecycleOptions,
   ): Promise<BrandSignalProfileRecord[]> {
     const docs = await collections.profiles
-      .find(toProfileFilter({
-        brandId: accepted.profile.brandId,
-        userId: accepted.profile.userId,
-        orgId: accepted.profile.orgId ?? null,
-        status: 'accepted',
-      }))
+      .find(toAcceptedScopeFilter(accepted))
       .sort({ updatedAt: -1 })
       .toArray();
     const superseded: BrandSignalProfileRecord[] = [];
@@ -390,6 +428,12 @@ async function ensureIndexes(collections: BrandVaultMongoCollections): Promise<v
     { key: { brandId: 1, userId: 1, status: 1, updatedAt: -1 }, name: 'brand_user_status_updatedAt' },
     { key: { orgId: 1, brandId: 1, userId: 1, status: 1, updatedAt: -1 }, name: 'org_brand_user_status_updatedAt' },
     { key: { orgId: 1, status: 1, updatedAt: -1 }, name: 'org_status_updatedAt' },
+    {
+      key: { acceptedScopeKey: 1 },
+      name: 'accepted_scope_unique',
+      unique: true,
+      partialFilterExpression: { status: 'accepted', acceptedScopeKey: { $exists: true } },
+    },
   ]);
   await collections.jobs.createIndexes?.([
     { key: { userId: 1, status: 1, updatedAt: -1 }, name: 'user_status_updatedAt' },
@@ -442,12 +486,48 @@ function profileDocument(record: BrandSignalProfileRecord): BrandVaultMongoProfi
     _id: record.id,
     record: clone(record),
     status: record.status,
+    acceptedScopeKey: acceptedScopeKey(record),
     brandId: record.profile.brandId,
     userId: record.profile.userId,
     orgId: record.profile.orgId,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+function toAcceptedScopeFilter(record: BrandSignalProfileRecord): Filter<BrandVaultMongoProfileDocument> {
+  const brandId = record.profile.brandId;
+  const orgId = record.profile.orgId;
+  return toProfileFilter({
+    brandId,
+    userId: orgId ? undefined : record.profile.userId,
+    orgId: orgId ?? null,
+    status: 'accepted',
+  });
+}
+
+function acceptedScopeKey(record: BrandSignalProfileRecord): string | undefined {
+  if (record.status !== 'accepted') return undefined;
+  const brandId = record.profile.brandId?.trim();
+  const orgId = record.profile.orgId?.trim();
+  const userId = record.profile.userId?.trim();
+  if (!brandId || (!orgId && !userId)) return undefined;
+  return orgId ? `org:${orgId}:brand:${brandId}` : `user:${userId}:brand:${brandId}`;
+}
+
+function wasMatched(result: unknown): boolean {
+  if (!result || typeof result !== 'object' || !('matchedCount' in result)) return true;
+  const matchedCount = (result as { matchedCount?: unknown }).matchedCount;
+  return typeof matchedCount !== 'number' || matchedCount > 0;
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 11000,
+  );
 }
 
 function summarizeAcceptedBrandRecords(

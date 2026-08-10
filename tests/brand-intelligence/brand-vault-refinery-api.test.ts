@@ -73,6 +73,7 @@ function createPromiseBackedStore(): BrandVaultRefineryStore {
   const store = createInMemoryBrandVaultRefineryStore();
   return {
     saveRecord: async (record, options) => store.saveRecord(record, options),
+    patchDraftProductUi: async (input) => store.patchDraftProductUi(input),
     getRecord: async (id) => store.getRecord(id),
     acceptDraft: async (id, options) => store.acceptDraft(id, options),
     rejectDraft: async (id, reason, options) => store.rejectDraft(id, reason, options),
@@ -282,6 +283,7 @@ describe('Brand Vault refinery API boundary', () => {
     const backingStore = createInMemoryBrandVaultRefineryStore();
     const store: BrandVaultRefineryStore = {
       saveRecord: (record, options) => backingStore.saveRecord(record, options),
+      patchDraftProductUi: (input) => backingStore.patchDraftProductUi(input),
       getRecord: (id) => backingStore.getRecord(id),
       acceptDraft: (id, options) => backingStore.acceptDraft(id, options),
       rejectDraft: (id, reason, options) => backingStore.rejectDraft(id, reason, options),
@@ -2514,6 +2516,36 @@ describe('Brand Vault refinery API boundary', () => {
     expect(result.body.record.profile.productUiModel?.brand).toMatchObject({ accent: '#ffcc33', theme: 'light' });
     const stored = await store.getRecord(result.body.record.id);
     expect(stored?.profile.productUiModel?.screens?.[0]?.name).toBe('hero');
+  });
+
+  it('does not let a late vision decode overwrite an accepted profile', async () => {
+    const store = createPromiseBackedStore();
+    const result = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_decode_race', body: { websiteUrl: 'vaultline.example' }, jobId: 'job_decode_race' },
+      {
+        store,
+        fetchOptions: { fetchFn: async () => htmlResponse() },
+        captureSectionScreenshots: async () => [{ source: 'url', url: 'https://raw.example/s1.png' }],
+        visualAssetStorage: {
+          mirrorAsset: async (input) => ({ ok: true, provider: 'test_r2', storageKey: input.assetId, publicUrl: `https://cdn.ui.example/${input.assetId}`, contentType: 'image/png', sizeBytes: 100, storedAt: NOW }),
+        },
+        decodeProductUiModel: async () => {
+          const snapshot = await store.getJobSnapshot('job_decode_race');
+          if (!snapshot?.recordId) throw new Error('Expected the draft to be persisted before decode.');
+          const accepted = await store.acceptDraft(snapshot.recordId, { now: '2026-06-09T06:05:00.000Z' });
+          if (!accepted.ok) throw new Error('Expected concurrent draft acceptance to succeed.');
+          return { brand: { accent: '#ffcc33', theme: 'light' }, screens: [{ name: 'hero' }] };
+        },
+        clock: () => NOW,
+      },
+    );
+
+    expect(result.status).toBe(201);
+    if (!result.body.ok) throw new Error(result.body.error.message);
+    expect(result.body.record.status).toBe('accepted');
+    expect(result.body.record.profile.productUiModel).toBeUndefined();
+    expect((await store.getRecord(result.body.record.id))?.status).toBe('accepted');
+    expect((await store.getRecord(result.body.record.id))?.profile.productUiModel).toBeUndefined();
   });
 
   it('leaves the saved draft fully intact when the vision decode follow-up throws', async () => {

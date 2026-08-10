@@ -26,6 +26,7 @@ import {
 } from "@/lib/thinkforge/schemas/document-contract";
 import { matchesThinkForgeDocumentIdentity } from "@/lib/thinkforge/client-document-identity";
 import { resolveThinkForgeSessionOpenAction } from "@/lib/thinkforge/session-open-policy";
+import { getActiveBrandIdFromStorage } from "@/components/dashboard/ActiveBrand/ActiveBrandProvider";
 const PROJECT_META_PASSTHROUGH_KEYS = [
 	'brandId',
 	'brandBrief',
@@ -97,12 +98,20 @@ const buildIdeaGenerationPayload = (
 	rejectedIdeas: Array<{ title: string; purpose: string; style: string }> = [],
 ): Record<string, unknown> => {
 	const scopedMeta = pickProjectMetaPassthrough(projectMeta);
+	const brandId = toNonEmptyString(scopedMeta.brandId) ?? getActiveBrandIdFromStorage();
 	return {
 		prompt,
 		variationIndex,
 		rejectedIdeas,
+		...(brandId ? { brandId } : {}),
 		...(Object.keys(scopedMeta).length > 0 ? { projectMeta: scopedMeta } : {}),
 	};
+};
+
+const bindActiveBrandToNewSession = (projectMeta: Record<string, unknown>): Record<string, unknown> => {
+	if (toNonEmptyString(projectMeta.brandId)) return projectMeta;
+	const brandId = getActiveBrandIdFromStorage();
+	return brandId ? { ...projectMeta, brandId } : projectMeta;
 };
 
 
@@ -445,7 +454,7 @@ export default function ThinkForgeLanding() {
 			return null;
 		}
 		const created = await session.hydrate({
-			projectMeta: {
+			projectMeta: bindActiveBrandToNewSession({
 				idea: 'Create a ' + target + ' using the analyzed trend: ' + title,
 				purpose: 'Apply an analyzed public trend format to a brand-specific original draft.',
 				style: 'Original, brand-safe adaptation of the analyzed trend mechanics.',
@@ -456,7 +465,7 @@ export default function ThinkForgeLanding() {
 				sessionName: ('Trend - ' + title).slice(0, 100),
 				originalPrompt: 'Create a ' + target + ' using the analyzed trend: ' + title,
 				initialDraftIntent: { status: 'pending', requestedAt: new Date().toISOString() },
-			},
+			}),
 		});
 		if (created?.sessionId) {
 			setPendingSessionId(created.sessionId);
@@ -659,7 +668,9 @@ export default function ThinkForgeLanding() {
 					? { status: 'pending', requestedAt: new Date().toISOString() }
 					: undefined;
 				const created = await session.hydrate({
-					projectMeta: buildProjectMetaPayload(selectedIdea, initialDraftIntent)
+					projectMeta: bindActiveBrandToNewSession(
+						buildProjectMetaPayload(selectedIdea, initialDraftIntent),
+					),
 				});
 				// Check mount state after async operations
 				if (!isMountedRef.current) {

@@ -4,13 +4,12 @@ import { createIdeasAgent } from '@/lib/thinkforge/agents/ideas-agent';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
 import { fetchContextSources, formatSystemBrief } from '@/lib/thinkforge/context';
-import { listUnifiedBrands, type UnifiedBrand } from '@/lib/shared/brand-registry';
 import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import {
-	getDefaultBrandVaultRefineryStore,
-	type BrandVaultAcceptedBrandSummary,
-} from '@/lib/shared/brand-vault-refinery-api';
+	BrandScopeAuthorizationError,
+	listAuthorizedBrandScopes,
+} from '@/lib/shared/brand-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,8 +17,6 @@ export const dynamic = 'force-dynamic';
 type BrandCandidate = {
 	brandId: string;
 	name: string;
-	source: 'registry' | 'brand_vault';
-	updatedAt?: string;
 };
 
 type RejectedIdeaEvidence = {
@@ -40,39 +37,6 @@ function toProjectMeta(value: unknown): Record<string, unknown> {
 	return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
 
-function candidateFromRegistry(brand: UnifiedBrand): BrandCandidate {
-	return {
-		brandId: brand.brandId,
-		name: brand.name || brand.brandId,
-		source: 'registry',
-		updatedAt: brand.updatedAt?.toISOString(),
-	};
-}
-
-function candidateFromVault(brand: BrandVaultAcceptedBrandSummary): BrandCandidate {
-	return {
-		brandId: brand.brandId,
-		name: brand.name || brand.brandId,
-		source: 'brand_vault',
-		updatedAt: brand.updatedAt,
-	};
-}
-
-function mergeCandidates(...groups: BrandCandidate[][]): BrandCandidate[] {
-	const byId = new Map<string, BrandCandidate>();
-	for (const group of groups) {
-		for (const candidate of group) {
-			const id = candidate.brandId.trim();
-			if (!id) continue;
-			const existing = byId.get(id);
-			if (!existing || existing.source !== 'brand_vault') {
-				byId.set(id, { ...candidate, brandId: id });
-			}
-		}
-	}
-	return [...byId.values()].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-}
-
 function promptMentionsBrandName(prompt: string, name: string): boolean {
 	const trimmed = name.trim();
 	if (trimmed.length < 3) return false;
@@ -85,18 +49,8 @@ async function listBrandCandidates(
 	orgId: string | null,
 	isOrgAdmin: boolean,
 ): Promise<BrandCandidate[]> {
-	const registryBrands = (await listUnifiedBrands(userId)).map(candidateFromRegistry);
-
-	let vaultBrands: BrandCandidate[] = [];
-	const store = getDefaultBrandVaultRefineryStore();
-	if (store.listAcceptedBrands) {
-		const accepted = await store.listAcceptedBrands(
-			orgId ? { orgId, userId, isOrgAdmin } : { orgId: null, userId },
-		);
-		vaultBrands = accepted.map(candidateFromVault);
-	}
-
-	return mergeCandidates(vaultBrands, registryBrands);
+	const scopes = await listAuthorizedBrandScopes({ userId, orgId, isOrgAdmin });
+	return scopes.map((scope) => ({ brandId: scope.brandId, name: scope.brandName }));
 }
 
 function resolveBrandScope(
@@ -205,6 +159,16 @@ export async function POST(req: Request) {
 		try {
 			candidates = await listBrandCandidates(userId, orgId ?? null, orgId ? has({ role: 'org:admin' }) : false);
 		} catch (brandListError) {
+			if (brandListError instanceof BrandScopeAuthorizationError && requiresBrandContext) {
+				return NextResponse.json(
+					{
+						error: 'Brand Vault unavailable',
+						code: brandListError.code,
+						message: brandListError.message,
+					},
+					{ status: 503 },
+				);
+			}
 			if (requiresBrandContext) {
 				throw new Error(`Brand context lookup failed: ${brandListError instanceof Error ? brandListError.message : String(brandListError)}`);
 			}

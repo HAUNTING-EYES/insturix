@@ -4,6 +4,10 @@ import * as db from '@/lib/thinkforge/services/db';
 import type { ProjectMeta } from '@/lib/thinkforge/state/types';
 import { projectService } from '@/lib/editron/services/project-service';
 import {
+  authorizeBrandScope,
+  BrandScopeAuthorizationError,
+} from '@/lib/shared/brand-scope';
+import {
   addProjectToLinkBySessionId,
   createProjectLink,
   findLinkBySessionId,
@@ -18,7 +22,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(req: Request) {
   const requestStartedAt = performance.now();
-  const { userId, orgId } = await auth();
+  const { userId, orgId, has } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -55,6 +59,34 @@ export async function POST(req: Request) {
         initialDraftClaimed,
       });
     }
+
+    const requestedBrandId = typeof projectMeta?.brandId === 'string'
+      ? projectMeta.brandId.trim()
+      : '';
+    if (requestedBrandId) {
+      const existingSession = sessionId
+        ? await db.getSession(sessionId, userId, orgId)
+        : null;
+      const existingBrandId = typeof existingSession?.projectMeta?.brandId === 'string'
+        ? existingSession.projectMeta.brandId.trim()
+        : '';
+
+      if (existingBrandId && existingBrandId !== requestedBrandId) {
+        return NextResponse.json({
+          error: 'Brand binding cannot be changed for an existing ThinkForge session.',
+          code: 'brand_binding_immutable',
+        }, { status: 409 });
+      }
+
+      const authorizedBrand = await authorizeBrandScope({
+        userId,
+        orgId: orgId ?? null,
+        isOrgAdmin: orgId ? has({ role: 'org:admin' }) : false,
+        brandId: requestedBrandId,
+      });
+      projectMeta = { ...projectMeta, brandId: authorizedBrand.brandId };
+    }
+
     // Get creator name for org context display (only for new sessions)
     let createdByName: string | undefined;
     if (orgId && !sessionId) {
@@ -144,6 +176,12 @@ export async function POST(req: Request) {
       },
     });
   } catch (error: any) {
+    if (error instanceof BrandScopeAuthorizationError) {
+      return NextResponse.json({
+        error: error.message,
+        code: error.code,
+      }, { status: error.code === 'brand_scope_unavailable' ? 503 : 404 });
+    }
     console.error('Error in session endpoint:', error);
     
     return NextResponse.json(

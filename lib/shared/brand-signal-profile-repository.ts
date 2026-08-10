@@ -44,7 +44,7 @@ export interface BrandSignalProfileRepositorySnapshot {
 
 export type BrandSignalProfileRepositoryResult =
   | { ok: true; record: BrandSignalProfileRecord; superseded: BrandSignalProfileRecord[] }
-  | { ok: false; code: 'not_found' | 'not_draft' | 'validation_failed'; issues: BrandSignalProfileIssue[] };
+  | { ok: false; code: 'not_found' | 'not_draft' | 'validation_failed' | 'conflict'; issues: BrandSignalProfileIssue[] };
 
 export class InMemoryBrandSignalProfileRepository {
   private readonly records = new Map<string, BrandSignalProfileRecord>();
@@ -152,13 +152,7 @@ export class InMemoryBrandSignalProfileRepository {
     const superseded: BrandSignalProfileRecord[] = [];
     for (const record of this.records.values()) {
       if (record.id === accepted.id || record.status !== 'accepted') continue;
-      if (
-        record.profile.brandId !== accepted.profile.brandId ||
-        record.profile.userId !== accepted.profile.userId ||
-        record.profile.orgId !== accepted.profile.orgId
-      ) {
-        continue;
-      }
+      if (!sharesAcceptedScope(record, accepted)) continue;
       const next = supersedeBrandSignalProfileRecord(record, options);
       this.records.set(next.id, cloneRecord(next));
       this.appendEvent('record_superseded', next, options);
@@ -186,6 +180,14 @@ export class InMemoryBrandSignalProfileRepository {
       ...extra,
     });
   }
+}
+
+function sharesAcceptedScope(left: BrandSignalProfileRecord, right: BrandSignalProfileRecord): boolean {
+  if (left.profile.brandId !== right.profile.brandId) return false;
+  const leftOrgId = left.profile.orgId?.trim();
+  const rightOrgId = right.profile.orgId?.trim();
+  if (leftOrgId || rightOrgId) return Boolean(leftOrgId) && leftOrgId === rightOrgId;
+  return left.profile.userId === right.profile.userId;
 }
 
 export function createInMemoryBrandSignalProfileRepository(

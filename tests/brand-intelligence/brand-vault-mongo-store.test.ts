@@ -152,6 +152,62 @@ describe('Brand Vault Mongo refinery store', () => {
     );
   });
 
+  it('keeps one accepted organization profile across collaborating members', async () => {
+    const collections = createMemoryCollections();
+    const store = createBrandVaultMongoRefineryStore({ collections });
+
+    await store.saveRecord(draftRecord({ id: 'org_team_a', orgId: 'org_team', userId: 'member_a', name: 'Member A', now: '2026-06-10T08:00:00.000Z' }));
+    const first = await store.acceptDraft('org_team_a', { now: '2026-06-10T08:01:00.000Z', actorId: 'member_a' });
+    if (!first.ok) throw new Error('Expected the first organization draft to be accepted.');
+
+    await store.saveRecord(draftRecord({ id: 'org_team_b', orgId: 'org_team', userId: 'member_b', name: 'Member B', now: '2026-06-10T08:02:00.000Z' }));
+    const second = await store.acceptDraft('org_team_b', { now: '2026-06-10T08:03:00.000Z', actorId: 'member_b' });
+
+    expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error('Expected the second organization draft to be accepted.');
+    expect(second.superseded.map((record) => record.id)).toEqual(['org_team_a']);
+    expect((await store.getRecord('org_team_a'))?.status).toBe('superseded');
+    expect((await store.getRecord('org_team_b'))?.status).toBe('accepted');
+    expect(collections.profiles.indexes.flat()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'accepted_scope_unique', unique: true })]),
+    );
+  });
+
+  it('rejects a stale product-UI patch after a draft is accepted', async () => {
+    const store = createBrandVaultMongoRefineryStore({ collections: createMemoryCollections() });
+    const record = draftRecord({ id: 'decode_race', name: 'Decode race', now: '2026-06-10T09:00:00.000Z' });
+    await store.saveRecord(record);
+    const accepted = await store.acceptDraft(record.id, { now: '2026-06-10T09:01:00.000Z' });
+    if (!accepted.ok) throw new Error('Expected the draft to be accepted.');
+
+    await expect(store.patchDraftProductUi({
+      recordId: record.id,
+      expectedUpdatedAt: record.updatedAt,
+      patch: { productUiModelDecodeAttemptedAt: '2026-06-10T09:02:00.000Z' },
+    })).resolves.toBeNull();
+    expect((await store.getRecord(record.id))?.status).toBe('accepted');
+  });
+
+  it('returns a controlled conflict when the accepted-scope invariant rejects a concurrent accept', async () => {
+    const collections = createMemoryCollections();
+    const originalUpdateOne = collections.profiles.updateOne.bind(collections.profiles);
+    collections.profiles.updateOne = async (filter, update, options) => {
+      if ((update.$set as Partial<BrandVaultMongoProfileDocument> | undefined)?.status === 'accepted') {
+        throw Object.assign(new Error('duplicate accepted scope'), { code: 11000 });
+      }
+      return originalUpdateOne(filter, update, options);
+    };
+    const store = createBrandVaultMongoRefineryStore({ collections });
+    const record = draftRecord({ id: 'accept_conflict', name: 'Accept conflict', now: '2026-06-10T09:10:00.000Z' });
+    await store.saveRecord(record);
+
+    await expect(store.acceptDraft(record.id, { now: '2026-06-10T09:11:00.000Z' })).resolves.toMatchObject({
+      ok: false,
+      code: 'conflict',
+    });
+    expect((await store.getRecord(record.id))?.status).toBe('draft');
+  });
+
   it('surfaces a pre-stack (null-org) brand for an org member until backfill, org row winning (R5 fallback)', async () => {
     const collections = createMemoryCollections();
     const store = createBrandVaultMongoRefineryStore({ collections });
@@ -333,11 +389,11 @@ describe('Brand Vault Mongo refinery store', () => {
   });
 });
 
-function draftRecord(input: { id: string; orgId?: string; name: string; now: string }) {
+function draftRecord(input: { id: string; orgId?: string; userId?: string; name: string; now: string }) {
   const profile = deriveBrandSignalProfile(
     {
       brandId: 'shared_brand',
-      userId: 'shared_user',
+      userId: input.userId ?? 'shared_user',
       orgId: input.orgId,
       name: input.name,
       voice: {
