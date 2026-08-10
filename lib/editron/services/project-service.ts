@@ -99,6 +99,45 @@ export interface ProjectPhase0ProofFactsV1 {
   fixtureArtifact: Record<string, unknown>;
 }
 
+/**
+ * The exact ProjectService-owned facts written after an asynchronous Phase-0
+ * still render. The worker may produce these facts, but it never writes a
+ * project document directly.
+ */
+export interface ProjectPhase0RenderedEvidenceFactsV1 {
+  renderedStillEvidence: object;
+  fixtureArtifact: {
+    materialization: string;
+    renderedStillEvidenceStatus: string;
+    renderedStillEvidenceReason: string | null;
+    renderedStillFrameCount: number;
+    renderedStillFailedFrameCount: number;
+    renderedStillCompletedAt: string | null;
+    renderedAestheticStatus: string;
+    renderedAestheticScore: number | null;
+    renderedAestheticIssueCount: number;
+    renderedAestheticFailFrameCount: number;
+    renderedAestheticWarnFrameCount: number;
+    renderedAestheticSampledFrames: number;
+  };
+  renderedQualityEvidence: object;
+  renderedQualityGate: object;
+  renderedAestheticReport?: object;
+  liveTruth?: object;
+  reviewDisposition?: {
+    autoEditStatus: "needs_review";
+    projectStatus: "needs-attention";
+    autoEditHealth: "needs_review";
+    autoEditWarning: string | null;
+  };
+}
+
+export interface ProjectPhase0RenderedEvidenceClaimV1 {
+  project: Project;
+  targetReceipt: ProjectMutationReceiptV1;
+  claimReceipt: ProjectMutationReceiptV1;
+}
+
 const projectMutationReceiptStorage = new AsyncLocalStorage<ProjectMutationReceiptV1[]>();
 const DIRECTOR_LEASE_DURATION_MS = 5 * 60 * 1000;
 
@@ -757,6 +796,175 @@ export class ProjectService {
           "intelligence.phase0ProofTargetReceipt": structuredClone(input.targetReceipt),
           updatedAt: committedAt,
         },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) throw new ProjectNotFoundOrForbiddenError();
+      throw new ProjectMutationConflictError(projectRevisionFor(latest));
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return receipt;
+  }
+
+  /**
+   * Claims exactly the project revision named by a Director-issued receipt.
+   * Claiming itself advances the revision, so duplicate QStash deliveries and
+   * any concurrent editor mutation both fail closed before a Lambda render is
+   * started.
+   */
+  async claimPhase0RenderedEvidence(
+    userId: string,
+    projectId: string,
+    input: {
+      targetReceipt: ProjectMutationReceiptV1;
+      requestedAt: string;
+    },
+  ): Promise<ProjectPhase0RenderedEvidenceClaimV1> {
+    assertReceiptForProjectRevision(projectId, input.targetReceipt, input.targetReceipt.revision);
+    if (Number.isNaN(new Date(input.requestedAt).getTime())) {
+      throw new ProjectMutationWriteError("Phase-0 rendered evidence requires a valid request time.");
+    }
+
+    const claimedAt = new Date();
+    const claimReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.targetReceipt.revision.value + 1,
+        compatibilityUpdatedAt: claimedAt.toISOString(),
+      },
+      committedAt: claimedAt.toISOString(),
+    };
+    const db = await getDatabase();
+    const claimedProject = (await db.collection(COLLECTIONS.PROJECTS).findOneAndUpdate(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.targetReceipt.revision),
+      },
+      {
+        $set: {
+          "intelligence.phase0RenderedEvidenceTargetReceipt": structuredClone(input.targetReceipt),
+          "intelligence.phase0RenderedEvidenceClaim": {
+            version: "editron-phase0-rendered-evidence-claim-v1",
+            requestedAt: input.requestedAt,
+            claimedAt: claimedAt.toISOString(),
+          },
+          "intelligence.phase0RenderedEvidenceClaimReceipt": structuredClone(claimReceipt),
+          updatedAt: claimedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+      { returnDocument: "after", includeResultMetadata: false },
+    )) as Project | null;
+
+    if (!claimedProject) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) throw new ProjectNotFoundOrForbiddenError();
+      throw new ProjectMutationConflictError(projectRevisionFor(latest));
+    }
+
+    if (
+      claimedProject.projectRevision !== claimReceipt.revision.value
+      || new Date(claimedProject.updatedAt).toISOString() !== claimReceipt.revision.compatibilityUpdatedAt
+    ) {
+      throw new ProjectMutationWriteError("Phase-0 rendered evidence claim did not return its writer revision.");
+    }
+    this.publishMutationReceipt(claimReceipt);
+    return {
+      project: structuredClone(claimedProject),
+      targetReceipt: structuredClone(input.targetReceipt),
+      claimReceipt,
+    };
+  }
+
+  /**
+   * Attaches rendered evidence only to the snapshot previously claimed by
+   * `claimPhase0RenderedEvidence`. A newer edit wins: stale evidence is
+   * rejected instead of being written onto newer project state.
+   */
+  async recordPhase0RenderedEvidence(
+    userId: string,
+    projectId: string,
+    input: {
+      expectedRevision: ProjectRevisionV1;
+      targetReceipt: ProjectMutationReceiptV1;
+      claimReceipt: ProjectMutationReceiptV1;
+      facts: ProjectPhase0RenderedEvidenceFactsV1;
+    },
+  ): Promise<ProjectMutationReceiptV1> {
+    assertReceiptForProjectRevision(projectId, input.targetReceipt, input.targetReceipt.revision);
+    assertReceiptForProjectRevision(projectId, input.claimReceipt, input.expectedRevision);
+    assertPhase0RenderedEvidenceFacts(input.facts);
+
+    const committedAt = new Date();
+    const setFields: Record<string, unknown> = {
+      "intelligence.phase0RenderedStillEvidence": structuredClone(input.facts.renderedStillEvidence),
+      "intelligence.phase0FixtureArtifact.materialization": input.facts.fixtureArtifact.materialization,
+      "intelligence.phase0FixtureArtifact.renderedStillEvidenceStatus": input.facts.fixtureArtifact.renderedStillEvidenceStatus,
+      "intelligence.phase0FixtureArtifact.renderedStillEvidenceReason": input.facts.fixtureArtifact.renderedStillEvidenceReason,
+      "intelligence.phase0FixtureArtifact.renderedStillFrameCount": input.facts.fixtureArtifact.renderedStillFrameCount,
+      "intelligence.phase0FixtureArtifact.renderedStillFailedFrameCount": input.facts.fixtureArtifact.renderedStillFailedFrameCount,
+      "intelligence.phase0FixtureArtifact.renderedStillCompletedAt": input.facts.fixtureArtifact.renderedStillCompletedAt,
+      "intelligence.phase0FixtureArtifact.renderedAestheticStatus": input.facts.fixtureArtifact.renderedAestheticStatus,
+      "intelligence.phase0FixtureArtifact.renderedAestheticScore": input.facts.fixtureArtifact.renderedAestheticScore,
+      "intelligence.phase0FixtureArtifact.renderedAestheticIssueCount": input.facts.fixtureArtifact.renderedAestheticIssueCount,
+      "intelligence.phase0FixtureArtifact.renderedAestheticFailFrameCount": input.facts.fixtureArtifact.renderedAestheticFailFrameCount,
+      "intelligence.phase0FixtureArtifact.renderedAestheticWarnFrameCount": input.facts.fixtureArtifact.renderedAestheticWarnFrameCount,
+      "intelligence.phase0FixtureArtifact.renderedAestheticSampledFrames": input.facts.fixtureArtifact.renderedAestheticSampledFrames,
+      "intelligence.renderedQualityEvidence": structuredClone(input.facts.renderedQualityEvidence),
+      "intelligence.phase0RenderedQualityGate": structuredClone(input.facts.renderedQualityGate),
+      "intelligence.phase0RenderedEvidenceTargetReceipt": structuredClone(input.targetReceipt),
+      "intelligence.phase0RenderedEvidenceClaimReceipt": structuredClone(input.claimReceipt),
+      updatedAt: committedAt,
+    };
+    if (input.facts.renderedAestheticReport) {
+      setFields["intelligence.phase0RenderedAestheticReport"] = structuredClone(input.facts.renderedAestheticReport);
+    }
+    if (input.facts.liveTruth) {
+      setFields["intelligence.phase0LiveTruth"] = structuredClone(input.facts.liveTruth);
+    }
+    if (input.facts.reviewDisposition) {
+      setFields.autoEditStatus = input.facts.reviewDisposition.autoEditStatus;
+      setFields.projectStatus = input.facts.reviewDisposition.projectStatus;
+      setFields.autoEditHealth = input.facts.reviewDisposition.autoEditHealth;
+      setFields.autoEditWarning = input.facts.reviewDisposition.autoEditWarning;
+    }
+
+    const db = await getDatabase();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+        "intelligence.phase0RenderedEvidenceTargetReceipt.revision.value": input.targetReceipt.revision.value,
+        "intelligence.phase0RenderedEvidenceTargetReceipt.revision.compatibilityUpdatedAt": input.targetReceipt.revision.compatibilityUpdatedAt,
+        "intelligence.phase0RenderedEvidenceClaimReceipt.revision.value": input.claimReceipt.revision.value,
+        "intelligence.phase0RenderedEvidenceClaimReceipt.revision.compatibilityUpdatedAt": input.claimReceipt.revision.compatibilityUpdatedAt,
+      },
+      {
+        $set: setFields,
         $inc: { projectRevision: 1 },
       },
     );
@@ -1530,6 +1738,67 @@ function assertProjectRevision(revision: ProjectRevisionV1): void {
       "Project revision must be a non-negative ProjectRevisionV1 value.",
     );
   }
+}
+
+function assertReceiptForProjectRevision(
+  projectId: string,
+  receipt: ProjectMutationReceiptV1,
+  expectedRevision: ProjectRevisionV1,
+): void {
+  assertProjectRevision(expectedRevision);
+  if (
+    receipt.schemaVersion !== 1
+    || receipt.projectId !== projectId
+    || receipt.revision.schemaVersion !== expectedRevision.schemaVersion
+    || receipt.revision.value !== expectedRevision.value
+    || receipt.revision.compatibilityUpdatedAt !== expectedRevision.compatibilityUpdatedAt
+    || Number.isNaN(new Date(receipt.committedAt).getTime())
+  ) {
+    throw new ProjectMutationWriteError("Phase-0 rendered evidence must bind one valid writer receipt.");
+  }
+}
+
+function assertPhase0RenderedEvidenceFacts(
+  facts: ProjectPhase0RenderedEvidenceFactsV1,
+): void {
+  const fixture = facts.fixtureArtifact;
+  const nonNegativeIntegerFields = [
+    fixture.renderedStillFrameCount,
+    fixture.renderedStillFailedFrameCount,
+    fixture.renderedAestheticIssueCount,
+    fixture.renderedAestheticFailFrameCount,
+    fixture.renderedAestheticWarnFrameCount,
+    fixture.renderedAestheticSampledFrames,
+  ];
+  const optionalRecordFields = [facts.renderedAestheticReport, facts.liveTruth]
+    .filter((value) => value !== undefined);
+  if (
+    !isPlainRecord(facts.renderedStillEvidence)
+    || !isPlainRecord(facts.renderedQualityEvidence)
+    || !isPlainRecord(facts.renderedQualityGate)
+    || optionalRecordFields.some((value) => !isPlainRecord(value))
+    || [
+      fixture.materialization,
+      fixture.renderedStillEvidenceStatus,
+      fixture.renderedAestheticStatus,
+    ].some((value) => typeof value !== "string" || value.length === 0)
+    || ![fixture.renderedStillEvidenceReason, fixture.renderedStillCompletedAt]
+      .every((value) => value === null || typeof value === "string")
+    || (fixture.renderedAestheticScore !== null && !Number.isFinite(fixture.renderedAestheticScore))
+    || nonNegativeIntegerFields.some((value) => !Number.isSafeInteger(value) || value < 0)
+    || (facts.reviewDisposition !== undefined && (
+      facts.reviewDisposition.autoEditStatus !== "needs_review"
+      || facts.reviewDisposition.projectStatus !== "needs-attention"
+      || facts.reviewDisposition.autoEditHealth !== "needs_review"
+      || (facts.reviewDisposition.autoEditWarning !== null && typeof facts.reviewDisposition.autoEditWarning !== "string")
+    ))
+  ) {
+    throw new ProjectMutationWriteError("Phase-0 rendered evidence facts are invalid.");
+  }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function projectRevisionPredicate(

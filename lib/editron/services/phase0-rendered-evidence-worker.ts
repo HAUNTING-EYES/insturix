@@ -38,9 +38,12 @@ import {
   buildLambdaRenderInputProps,
   isCanonicalMusicOverlay,
 } from '@/lib/editron/shared/render-request-payload';
+import type {
+  ProjectMutationReceiptV1,
+  ProjectPhase0RenderedEvidenceFactsV1,
+} from './project-service';
 
 export const PHASE0_RENDERED_STILL_EVIDENCE_VERSION = 'editron-phase0-rendered-still-evidence-v1' as const;
-const DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS = 20 * 60 * 1000;
 const PHASE0_RENDER_STILL_TIMEOUT_MS = 90_000;
 const PHASE0_RENDER_STILL_TRANSIENT_REPAIR_BUDGET = 2;
 const PHASE0_RENDER_STILL_LAMBDA_RETRIES = 0;
@@ -61,6 +64,8 @@ export interface Phase0RenderedEvidenceDispatchPayload {
   projectId: string;
   userId: string;
   requestedAt?: string;
+  /** Required for the generic Director path; chat verification is migrated separately. */
+  targetReceipt?: ProjectMutationReceiptV1;
   chatEditVerification?: ChatEditRenderVerificationRequest;
 }
 
@@ -176,16 +181,6 @@ export interface Phase0RenderedEvidenceDispatchResult {
   messageId?: string;
 }
 
-export interface Phase0RenderedEvidenceDispatchRecord {
-  version: 'editron-phase0-rendered-evidence-dispatch-v1';
-  status: 'dispatched' | 'not_dispatched';
-  requestedAt: string;
-  updatedAt: string;
-  workerPath: '/api/internal/workers/phase0-rendered-evidence';
-  messageId: string | null;
-  reason: string | null;
-}
-
 export interface Phase0RenderedStillFrameEvidence {
   frame: number;
   url: string;
@@ -227,63 +222,6 @@ export interface Phase0RenderedStillEvidence {
   phase0LiveTruth?: Phase0LiveTruthSnapshot;
 }
 
-export function buildPhase0RenderedEvidenceClaimFilter(input: {
-  projectId: string;
-  now?: Date;
-  staleMs?: number;
-}): Record<string, unknown> {
-  const now = input.now ?? new Date();
-  const staleMs = input.staleMs ?? DEFAULT_PHASE0_RENDERED_EVIDENCE_LOCK_STALE_MS;
-  const staleBefore = new Date(now.getTime() - staleMs);
-
-  return {
-    projectId: input.projectId,
-    $and: [
-      {
-        $or: [
-          { 'intelligence.phase0RenderedEvidenceLockAt': { $exists: false } },
-          { 'intelligence.phase0RenderedEvidenceLockAt': null },
-          { 'intelligence.phase0RenderedEvidenceLockAt': { $lt: staleBefore } },
-        ],
-      },
-      {
-        $or: [
-          { 'intelligence.phase0RenderedStillEvidence.status': { $exists: false } },
-          { 'intelligence.phase0RenderedStillEvidence.version': { $ne: PHASE0_RENDERED_STILL_EVIDENCE_VERSION } },
-          { 'intelligence.phase0RenderedStillEvidence.status': { $nin: ['completed', 'partial'] } },
-          {
-            $and: [
-              { 'intelligence.phase0RenderedStillEvidence.status': { $in: ['completed', 'partial'] } },
-              { 'intelligence.renderedQualityEvidence.qualityEvidenceSource': { $ne: 'rendered-aesthetic' } },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-}
-
-export function buildPhase0RenderedEvidenceClaimUpdate(input: {
-  now?: Date;
-  requestedAt?: string;
-} = {}): Record<string, unknown> {
-  const now = input.now ?? new Date();
-  return {
-    $set: {
-      'intelligence.phase0RenderedEvidenceLockAt': now,
-      'intelligence.phase0RenderedEvidenceLockRequestedAt': input.requestedAt ?? now.toISOString(),
-    },
-  };
-}
-
-export function buildPhase0RenderedEvidenceClaimRelease(): Record<string, unknown> {
-  return {
-    $unset: {
-      'intelligence.phase0RenderedEvidenceLockAt': '',
-      'intelligence.phase0RenderedEvidenceLockRequestedAt': '',
-    },
-  };
-}
 type RenderStill = typeof renderStillOnLambda;
 
 export function resolvePhase0RenderedEvidenceConfig(env: EnvLike = process.env) {
@@ -352,34 +290,6 @@ export async function dispatchPhase0RenderedEvidenceJob(
   return {
     dispatched: true,
     messageId: (result as { messageId?: string })?.messageId,
-  };
-}
-
-export function buildPhase0RenderedEvidenceDispatchPersistSet(
-  result: Phase0RenderedEvidenceDispatchResult,
-  input: { requestedAt?: string; updatedAt?: string } = {},
-): Record<string, unknown> {
-  const updatedAt = input.updatedAt ?? new Date().toISOString();
-  const requestedAt = input.requestedAt ?? updatedAt;
-  const status: Phase0RenderedEvidenceDispatchRecord['status'] = result.dispatched
-    ? 'dispatched'
-    : 'not_dispatched';
-  const record: Phase0RenderedEvidenceDispatchRecord = {
-    version: 'editron-phase0-rendered-evidence-dispatch-v1',
-    status,
-    requestedAt,
-    updatedAt,
-    workerPath: '/api/internal/workers/phase0-rendered-evidence',
-    messageId: result.messageId ?? null,
-    reason: result.dispatched ? null : String(result.reason ?? 'unknown').slice(0, 240),
-  };
-
-  return {
-    'intelligence.phase0RenderedEvidenceDispatch': record,
-    'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchStatus': status,
-    'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchReason': record.reason,
-    'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchMessageId': record.messageId,
-    'intelligence.phase0FixtureArtifact.renderedEvidenceRequestedAt': requestedAt,
   };
 }
 
@@ -1629,54 +1539,52 @@ function buildMissingPhase0RenderedQualityEvidence(
   };
 }
 
-export function buildPhase0RenderedStillEvidencePersistSet(
+/**
+ * Converts render output into the narrow fact set ProjectService is allowed
+ * to persist. The worker produces facts; it never owns a project write.
+ */
+export function toProjectPhase0RenderedEvidenceFacts(
   evidence: Phase0RenderedStillEvidence,
-): Record<string, unknown> {
-  const renderedQualityEvidence = evidence.renderedQualityEvidence ?? buildMissingPhase0RenderedQualityEvidence(evidence);
-  const setPayload: Record<string, unknown> = {
-    'intelligence.phase0RenderedStillEvidence': evidence,
-    'intelligence.phase0FixtureArtifact.materialization': evidence.renderedFrames.length > 0
-      ? 'lambda-stills-rendered'
-      : 'lambda-stills-missing',
-    'intelligence.phase0FixtureArtifact.renderedStillEvidenceStatus': evidence.status,
-    'intelligence.phase0FixtureArtifact.renderedStillEvidenceReason': evidence.statusReason,
-    'intelligence.phase0FixtureArtifact.renderedStillFrameCount': evidence.renderedFrames.length,
-    'intelligence.phase0FixtureArtifact.renderedStillFailedFrameCount': evidence.failedFrames.length,
-    'intelligence.phase0FixtureArtifact.renderedStillCompletedAt': evidence.completedAt,
+): ProjectPhase0RenderedEvidenceFactsV1 {
+  const renderedQualityEvidence = evidence.renderedQualityEvidence
+    ?? buildMissingPhase0RenderedQualityEvidence(evidence);
+  const renderedQualityGate = buildPhase0RenderedQualityGate({
+    qualityEvidence: renderedQualityEvidence,
+    evaluatedAt: evidence.completedAt ?? evidence.capturedAt,
+    hasQualityReview: renderedQualityEvidence.qualityEvidenceSource === 'rendered-aesthetic',
+  });
+
+  return {
+    renderedStillEvidence: evidence,
+    fixtureArtifact: {
+      materialization: evidence.renderedFrames.length > 0
+        ? 'lambda-stills-rendered'
+        : 'lambda-stills-missing',
+      renderedStillEvidenceStatus: evidence.status,
+      renderedStillEvidenceReason: evidence.statusReason,
+      renderedStillFrameCount: evidence.renderedFrames.length,
+      renderedStillFailedFrameCount: evidence.failedFrames.length,
+      renderedStillCompletedAt: evidence.completedAt,
+      renderedAestheticStatus: renderedQualityEvidence.renderedAestheticStatus,
+      renderedAestheticScore: renderedQualityEvidence.renderedAestheticScore,
+      renderedAestheticIssueCount: renderedQualityEvidence.renderedAestheticIssueCount,
+      renderedAestheticFailFrameCount: renderedQualityEvidence.renderedAestheticFailFrameCount,
+      renderedAestheticWarnFrameCount: renderedQualityEvidence.renderedAestheticWarnFrameCount,
+      renderedAestheticSampledFrames: renderedQualityEvidence.renderedAestheticSampledFrames,
+    },
+    renderedQualityEvidence,
+    renderedQualityGate,
+    ...(evidence.renderedAestheticReport ? { renderedAestheticReport: evidence.renderedAestheticReport } : {}),
+    ...(evidence.phase0LiveTruth ? { liveTruth: evidence.phase0LiveTruth } : {}),
+    ...(renderedQualityGate.status === 'needs_review' ? {
+      reviewDisposition: {
+        autoEditStatus: 'needs_review',
+        projectStatus: 'needs-attention',
+        autoEditHealth: 'needs_review',
+        autoEditWarning: renderedQualityGate.warning,
+      },
+    } : {}),
   };
-
-  if (evidence.renderedAestheticReport) {
-    setPayload['intelligence.phase0RenderedAestheticReport'] = evidence.renderedAestheticReport;
-  }
-
-  if (evidence.phase0LiveTruth) {
-    setPayload['intelligence.phase0LiveTruth'] = evidence.phase0LiveTruth;
-  }
-
-  if (renderedQualityEvidence) {
-    const renderedQualityGate = buildPhase0RenderedQualityGate({
-      qualityEvidence: renderedQualityEvidence,
-      evaluatedAt: evidence.completedAt ?? evidence.capturedAt,
-      hasQualityReview: renderedQualityEvidence.qualityEvidenceSource === 'rendered-aesthetic',
-    });
-    setPayload['intelligence.renderedQualityEvidence'] = renderedQualityEvidence;
-    setPayload['intelligence.phase0RenderedQualityGate'] = renderedQualityGate;
-    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticStatus'] = renderedQualityEvidence.renderedAestheticStatus;
-    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticScore'] = renderedQualityEvidence.renderedAestheticScore;
-    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticIssueCount'] = renderedQualityEvidence.renderedAestheticIssueCount;
-    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticFailFrameCount'] = renderedQualityEvidence.renderedAestheticFailFrameCount;
-    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticWarnFrameCount'] = renderedQualityEvidence.renderedAestheticWarnFrameCount;
-    setPayload['intelligence.phase0FixtureArtifact.renderedAestheticSampledFrames'] = renderedQualityEvidence.renderedAestheticSampledFrames;
-
-    if (renderedQualityGate.status === 'needs_review') {
-      setPayload.autoEditStatus = 'needs_review';
-      setPayload.projectStatus = 'needs-attention';
-      setPayload.autoEditHealth = 'needs_review';
-      setPayload.autoEditWarning = renderedQualityGate.warning;
-    }
-  }
-
-  return setPayload;
 }
 
 function baseEvidence(input: {

@@ -4,14 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildChatEditRenderedAudioEvidence,
-  buildPhase0RenderedEvidenceClaimFilter,
-  buildPhase0RenderedEvidenceClaimRelease,
-  buildPhase0RenderedEvidenceClaimUpdate,
-  buildPhase0RenderedEvidenceDispatchPersistSet,
   buildPhase0RenderedStillEvidenceFailure,
   buildPhase0RenderedStillEvidence,
-  buildPhase0RenderedStillEvidencePersistSet,
   resolvePhase0RenderedEvidenceConfig,
+  toProjectPhase0RenderedEvidenceFacts,
 } from '../../lib/editron/services/phase0-rendered-evidence-worker';
 import {
   buildPhase0RenderedAestheticEvidence,
@@ -35,20 +31,20 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.renderedFrames).toHaveLength(0);
     expect(evidence.requestedSampleFrames.length).toBeGreaterThan(0);
 
-    const set = buildPhase0RenderedStillEvidencePersistSet(evidence);
-    expect(set['intelligence.renderedQualityEvidence']).toMatchObject({
+    const facts = toProjectPhase0RenderedEvidenceFacts(evidence);
+    expect(facts.renderedQualityEvidence).toMatchObject({
       qualityEvidenceSource: 'metadata-only',
       renderedAestheticStatus: 'missing',
       renderedAestheticArtifactAccess: 'missing',
       renderedAestheticArtifactNote: expect.stringContaining('missing_remotion_lambda_function_name'),
     });
-    expect(set['intelligence.phase0FixtureArtifact.renderedStillEvidenceReason']).toBe('missing_remotion_lambda_function_name');
-    expect(set['intelligence.phase0RenderedQualityGate']).toMatchObject({
+    expect(facts.fixtureArtifact.renderedStillEvidenceReason).toBe('missing_remotion_lambda_function_name');
+    expect(facts.renderedQualityGate).toMatchObject({
       status: 'missing_rendered_evidence',
       reason: 'missing_rendered_evidence',
       qualityEvidenceSource: 'metadata-only',
     });
-    expect(set).not.toHaveProperty('autoEditStatus');
+    expect(facts.reviewDisposition).toBeUndefined();
   });
 
   it('blocks unlicensed music before credentials or the Phase-0 audio renderer', async () => {
@@ -321,19 +317,19 @@ describe('phase0 rendered evidence worker service', () => {
       ]),
     );
 
-    const set = buildPhase0RenderedStillEvidencePersistSet(evidence);
-    expect(set['intelligence.phase0RenderedQualityGate']).toMatchObject({
+    const facts = toProjectPhase0RenderedEvidenceFacts(evidence);
+    expect(facts.renderedQualityGate).toMatchObject({
       status: 'needs_review',
       reason: 'rendered_quality_failed',
       qualityEvidenceSource: 'rendered-aesthetic',
     });
-    expect(set).toMatchObject({
+    expect(facts.reviewDisposition).toMatchObject({
       autoEditStatus: 'needs_review',
       projectStatus: 'needs-attention',
       autoEditHealth: 'needs_review',
     });
-    expect(String(set.autoEditWarning)).toContain('Rendered Phase 0 quality failed');
-    expect(set['intelligence.phase0LiveTruth']).toMatchObject({
+    expect(String(facts.reviewDisposition?.autoEditWarning)).toContain('Rendered Phase 0 quality failed');
+    expect(facts.liveTruth).toMatchObject({
       source: 'phase0-rendered-evidence-worker',
       renderArtifacts: { renderedSummary: { status: 'fail' } },
       qualityEvidence: { renderedAestheticStatus: 'fail' },
@@ -376,7 +372,7 @@ describe('phase0 rendered evidence worker service', () => {
       expect.objectContaining({ renderKind: 'baseline', error: 'lambda baseline still failed' }),
     ]);
     expect(evidence.renderedQualityEvidence?.qualityEvidenceSource).toBe('rendered-aesthetic');
-    expect(buildPhase0RenderedStillEvidencePersistSet(evidence)['intelligence.phase0FixtureArtifact.renderedStillEvidenceReason']).toBe('rendered_still_partial');
+    expect(toProjectPhase0RenderedEvidenceFacts(evidence).fixtureArtifact.renderedStillEvidenceReason).toBe('rendered_still_partial');
   });
 
   it('resolves disabled and sample-limit configuration deterministically', () => {
@@ -404,9 +400,9 @@ describe('phase0 rendered evidence worker service', () => {
     expect(evidence.failedFrames).toEqual([{ frame: -1, renderKind: 'worker', error: 'asset resolution failed' }]);
     expect(evidence.artifactPackIssues).toEqual(['worker-error:asset resolution failed']);
 
-    const set = buildPhase0RenderedStillEvidencePersistSet(evidence);
-    expect(set['intelligence.phase0FixtureArtifact.renderedStillEvidenceReason']).toBe('worker_error');
-    expect(set['intelligence.renderedQualityEvidence']).toMatchObject({
+    const facts = toProjectPhase0RenderedEvidenceFacts(evidence);
+    expect(facts.fixtureArtifact.renderedStillEvidenceReason).toBe('worker_error');
+    expect(facts.renderedQualityEvidence).toMatchObject({
       renderedAestheticArtifactNote: expect.stringContaining('worker_error'),
     });
   });
@@ -513,36 +509,23 @@ describe('phase0 rendered evidence worker service', () => {
     expect(source).toContain('...(mutationRanges.length > 0 ? { mutationRanges } : {})');
   });
 
-  it('builds durable dispatch breadcrumbs for Phase 0 rendered evidence requests', () => {
-    expect(buildPhase0RenderedEvidenceDispatchPersistSet(
-      { dispatched: true, messageId: 'msg_123' },
-      { requestedAt: '2026-07-03T12:00:00.000Z', updatedAt: '2026-07-03T12:00:01.000Z' },
-    )).toMatchObject({
-      'intelligence.phase0RenderedEvidenceDispatch': {
-        version: 'editron-phase0-rendered-evidence-dispatch-v1',
-        status: 'dispatched',
-        requestedAt: '2026-07-03T12:00:00.000Z',
-        updatedAt: '2026-07-03T12:00:01.000Z',
-        workerPath: '/api/internal/workers/phase0-rendered-evidence',
-        messageId: 'msg_123',
-        reason: null,
-      },
-      'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchStatus': 'dispatched',
-      'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchMessageId': 'msg_123',
-    });
+  it('requires a writer receipt and routes generic evidence through ProjectService', () => {
+    const serviceSource = readFileSync('lib/editron/services/phase0-rendered-evidence-worker.ts', 'utf8');
+    const routeSource = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
+    const genericHandler = routeSource.slice(
+      routeSource.indexOf('async function handler'),
+      routeSource.indexOf('async function handleChatEditRenderVerification'),
+    );
 
-    expect(buildPhase0RenderedEvidenceDispatchPersistSet(
-      { dispatched: false, reason: 'missing_qstash_token' },
-      { requestedAt: '2026-07-03T12:00:00.000Z', updatedAt: '2026-07-03T12:00:02.000Z' },
-    )).toMatchObject({
-      'intelligence.phase0RenderedEvidenceDispatch': {
-        status: 'not_dispatched',
-        reason: 'missing_qstash_token',
-        messageId: null,
-      },
-      'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchStatus': 'not_dispatched',
-      'intelligence.phase0FixtureArtifact.renderedEvidenceDispatchReason': 'missing_qstash_token',
-    });
+    expect(serviceSource).toContain('targetReceipt?: ProjectMutationReceiptV1');
+    expect(serviceSource).not.toContain('buildPhase0RenderedEvidenceDispatchPersistSet');
+    expect(serviceSource).not.toContain('buildPhase0RenderedEvidenceClaimFilter');
+    expect(genericHandler).toContain('parseProjectMutationReceipt(body.targetReceipt)');
+    expect(genericHandler).toContain('projectService.claimPhase0RenderedEvidence');
+    expect(genericHandler).toContain('projectService.recordPhase0RenderedEvidence');
+    expect(genericHandler).toContain("skipped: 'stale-target'");
+    expect(genericHandler).not.toContain("collection('projects').updateOne");
+    expect(genericHandler).not.toContain('persistPhase0RenderedStillEvidence');
   });
 
   it('prefers the bounded Phase 0 still-render function over the long media-render function', () => {
@@ -587,56 +570,6 @@ describe('phase0 rendered evidence worker service', () => {
       .toBeLessThan(handlerSource.indexOf("'intelligence.latestChatEditRenderVerification': runningRecord"));
   });
 
-  it('builds a project-level claim for the expensive rendered-evidence worker', () => {
-    const now = new Date('2026-07-03T12:00:00.000Z');
-
-    expect(buildPhase0RenderedEvidenceClaimFilter({
-      projectId: 'proj_phase0_claim',
-      now,
-      staleMs: 20 * 60 * 1000,
-    })).toEqual({
-      projectId: 'proj_phase0_claim',
-      $and: [
-        {
-          $or: [
-            { 'intelligence.phase0RenderedEvidenceLockAt': { $exists: false } },
-            { 'intelligence.phase0RenderedEvidenceLockAt': null },
-            { 'intelligence.phase0RenderedEvidenceLockAt': { $lt: new Date('2026-07-03T11:40:00.000Z') } },
-          ],
-        },
-        {
-          $or: [
-            { 'intelligence.phase0RenderedStillEvidence.status': { $exists: false } },
-            { 'intelligence.phase0RenderedStillEvidence.version': { $ne: 'editron-phase0-rendered-still-evidence-v1' } },
-            { 'intelligence.phase0RenderedStillEvidence.status': { $nin: ['completed', 'partial'] } },
-            {
-              $and: [
-                { 'intelligence.phase0RenderedStillEvidence.status': { $in: ['completed', 'partial'] } },
-                { 'intelligence.renderedQualityEvidence.qualityEvidenceSource': { $ne: 'rendered-aesthetic' } },
-              ],
-            },
-          ],
-        },
-      ],
-    });
-
-    expect(buildPhase0RenderedEvidenceClaimUpdate({
-      now,
-      requestedAt: '2026-07-03T11:59:00.000Z',
-    })).toEqual({
-      $set: {
-        'intelligence.phase0RenderedEvidenceLockAt': now,
-        'intelligence.phase0RenderedEvidenceLockRequestedAt': '2026-07-03T11:59:00.000Z',
-      },
-    });
-
-    expect(buildPhase0RenderedEvidenceClaimRelease()).toEqual({
-      $unset: {
-        'intelligence.phase0RenderedEvidenceLockAt': '',
-        'intelligence.phase0RenderedEvidenceLockRequestedAt': '',
-      },
-    });
-  });
 });
 
 function configuredEnv(extra: Record<string, string> = {}) {

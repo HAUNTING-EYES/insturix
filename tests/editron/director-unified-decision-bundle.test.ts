@@ -75,8 +75,8 @@ describe('director unified decision bundle control flow', () => {
 
   it('persists final Phase-0 truth from the saved overlay set before completion events', () => {
     const source = directorSource();
-    const saveIndex = source.indexOf('await projectService.saveProject');
-    const phase0Index = source.indexOf('await persistFinalPhase0LiveTruth');
+    const saveIndex = source.indexOf('await projectService.saveProjectWithReceipt');
+    const phase0Index = source.indexOf('await projectService.recordPhase0ProofFacts');
     const brandEventIndex = source.indexOf('Brand Intelligence: emit director_completed');
 
     expect(saveIndex).toBeGreaterThan(0);
@@ -85,12 +85,14 @@ describe('director unified decision bundle control flow', () => {
     expect(source).toContain('overlays: persistableOverlays');
     expect(source).toContain('buildPhase0RenderArtifactPack(truthProject, artifactManifest');
     expect(source).toContain('artifactPack,');
-    expect(source).toContain("'intelligence.phase0LiveTruth': snapshot");
-    expect(source).toContain("'intelligence.renderedQualityEvidence': snapshot.qualityEvidence");
-    expect(source).toContain("'intelligence.phase0FixtureArtifact': buildLivePhase0FixtureArtifact(snapshot, artifactPack)");
+    expect(source).toContain('facts: {');
+    expect(source).toContain('liveTruth: snapshot as unknown as Record<string, unknown>');
+    expect(source).toContain('renderedQualityEvidence: snapshot.qualityEvidence as unknown as Record<string, unknown>');
+    expect(source).toContain('fixtureArtifact: buildLivePhase0FixtureArtifact(');
     expect(source).toContain("materialization: 'planned-not-rendered'");
-    expect(source).toContain('buildPhase0RenderedEvidenceDispatchPersistSet');
-    expect(source).toContain('persistPhase0RenderedEvidenceDispatchState');
+    expect(source).toContain('targetReceipt: phase0ProofReceipt');
+    expect(source).not.toContain('buildPhase0RenderedEvidenceDispatchPersistSet');
+    expect(source).not.toContain('persistPhase0RenderedEvidenceDispatchState');
     expect(source).toContain('requestedAt: renderedEvidenceRequestedAt');
     expect(source).toContain('dispatch_error:');
   });

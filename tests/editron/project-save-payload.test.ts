@@ -650,6 +650,132 @@ describe("Editron project save payload compaction", () => {
     expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
   });
 
+  it("claims and records rendered evidence through one receipt-bound CAS chain", async () => {
+    const targetAt = "2026-08-11T06:00:00.000Z";
+    const claimedAt = "2026-08-11T06:00:01.000Z";
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(claimedAt));
+    try {
+      const targetReceipt = {
+        schemaVersion: 1 as const,
+        projectId: "proj_1",
+        revision: {
+          schemaVersion: 1 as const,
+          value: 9,
+          compatibilityUpdatedAt: targetAt,
+        },
+        committedAt: targetAt,
+      };
+      persistenceMocks.findOneAndUpdate.mockResolvedValueOnce({
+        projectId: "proj_1",
+        userId: "user_1",
+        overlays: [],
+        projectRevision: 10,
+        updatedAt: new Date(claimedAt),
+      });
+      persistenceMocks.updateOne.mockResolvedValueOnce({
+        matchedCount: 1,
+        modifiedCount: 1,
+      });
+      const { projectService } = await import(
+        "@/lib/editron/services/project-service",
+      );
+
+      const captured = await projectService.captureMutationReceipts(async () => {
+        const claim = await projectService.claimPhase0RenderedEvidence("user_1", "proj_1", {
+          targetReceipt,
+          requestedAt: targetAt,
+        });
+        const evidenceReceipt = await projectService.recordPhase0RenderedEvidence("user_1", "proj_1", {
+          expectedRevision: claim.claimReceipt.revision,
+          targetReceipt: claim.targetReceipt,
+          claimReceipt: claim.claimReceipt,
+          facts: phase0RenderedEvidenceFacts(),
+        });
+        return { claim, evidenceReceipt };
+      });
+
+      expect(captured.value.claim.claimReceipt.revision).toEqual({
+        schemaVersion: 1,
+        value: 10,
+        compatibilityUpdatedAt: claimedAt,
+      });
+      expect(captured.value.evidenceReceipt.revision).toEqual({
+        schemaVersion: 1,
+        value: 11,
+        compatibilityUpdatedAt: claimedAt,
+      });
+      expect(captured.receipts).toHaveLength(2);
+      expect(persistenceMocks.findOneAndUpdate).toHaveBeenCalledWith(
+        {
+          projectId: "proj_1",
+          userId: "user_1",
+          projectRevision: 9,
+          updatedAt: new Date(targetAt),
+        },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            "intelligence.phase0RenderedEvidenceTargetReceipt": targetReceipt,
+            "intelligence.phase0RenderedEvidenceClaimReceipt": expect.objectContaining({
+              revision: expect.objectContaining({ value: 10 }),
+            }),
+          }),
+          $inc: { projectRevision: 1 },
+        }),
+        { returnDocument: "after", includeResultMetadata: false },
+      );
+      expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: "proj_1",
+          userId: "user_1",
+          projectRevision: 10,
+          updatedAt: new Date(claimedAt),
+          "intelligence.phase0RenderedEvidenceTargetReceipt.revision.value": 9,
+          "intelligence.phase0RenderedEvidenceClaimReceipt.revision.value": 10,
+        }),
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            "intelligence.phase0RenderedStillEvidence": { status: "completed" },
+            "intelligence.phase0RenderedEvidenceTargetReceipt": targetReceipt,
+          }),
+          $inc: { projectRevision: 1 },
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses a stale Phase-0 render target before rendering can start", async () => {
+    const targetAt = "2026-08-11T06:00:00.000Z";
+    persistenceMocks.findOneAndUpdate.mockResolvedValueOnce(null);
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      projectRevision: 10,
+      updatedAt: new Date("2026-08-11T06:00:01.000Z"),
+    });
+    const { ProjectMutationConflictError, projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(projectService.claimPhase0RenderedEvidence("user_1", "proj_1", {
+      targetReceipt: {
+        schemaVersion: 1,
+        projectId: "proj_1",
+        revision: {
+          schemaVersion: 1,
+          value: 9,
+          compatibilityUpdatedAt: targetAt,
+        },
+        committedAt: targetAt,
+      },
+      requestedAt: targetAt,
+    })).rejects.toBeInstanceOf(ProjectMutationConflictError);
+
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
   it("captures the writer-issued save receipt without a post-write revision read", async () => {
     const updatedAt = "2026-08-11T01:00:00.000Z";
     persistenceMocks.findOne.mockResolvedValueOnce({
@@ -1262,3 +1388,25 @@ describe("Editron project save payload compaction", () => {
     ).rejects.toBeInstanceOf(ProjectMutationWriteError);
   });
 });
+
+function phase0RenderedEvidenceFacts() {
+  return {
+    renderedStillEvidence: { status: "completed" },
+    fixtureArtifact: {
+      materialization: "lambda-stills-rendered",
+      renderedStillEvidenceStatus: "completed",
+      renderedStillEvidenceReason: null,
+      renderedStillFrameCount: 3,
+      renderedStillFailedFrameCount: 0,
+      renderedStillCompletedAt: "2026-08-11T06:00:01.000Z",
+      renderedAestheticStatus: "pass",
+      renderedAestheticScore: 98,
+      renderedAestheticIssueCount: 0,
+      renderedAestheticFailFrameCount: 0,
+      renderedAestheticWarnFrameCount: 0,
+      renderedAestheticSampledFrames: 3,
+    },
+    renderedQualityEvidence: { qualityEvidenceSource: "rendered-aesthetic" },
+    renderedQualityGate: { status: "pass" },
+  };
+}

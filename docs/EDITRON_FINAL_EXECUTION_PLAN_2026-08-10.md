@@ -769,3 +769,39 @@ The remaining 1-B1b work is **1-B1b2**: carry the target receipt through the
 asynchronous rendered-evidence dispatch and worker, render only that target
 revision, and persist the worker result through a receipt-bound owner path.
 This correction takes precedence over the older 1-B1b table row above.
+
+#### Execution-status correction: 1-B1b2 complete - 2026-08-11
+
+The Director proof-worker race is now closed for the non-chat Phase-0 rendered
+evidence path.  This is a narrow ProjectService migration, not a new proof or
+job authority:
+
+- Director passes the `phase0ProofReceipt` returned by
+  `recordPhase0ProofFacts` into the QStash payload.  A dispatch failure is a
+  visible Director warning; it is no longer raw-written into the project as a
+  misleading breadcrumb.
+- The generic worker requires that target receipt and a valid request time.
+  It asks ProjectService to atomically claim exactly that revision, which
+  advances the revision and returns the precise snapshot to render.  A replay
+  or stale delivery returns the explicit `stale-target` disposition before it
+  invokes Remotion.
+- The worker returns only typed evidence facts.  ProjectService persists them
+  only if its claim receipt is still current and still names the original
+  target receipt.  A manual edit during the render therefore wins; stale
+  evidence is not attached to the newer edit.
+- The old raw Mongo generic-project claim, lock release, dispatch-breadcrumb
+  and evidence-persist helpers were deleted.  The worker may still own render
+  execution and QStash delivery; it no longer owns a project document write.
+
+Proof added for this slice covers the claim/result receipt chain, stale target
+rejection before render, the absence of a generic raw worker writer, and
+Director propagation of the target receipt.  The focused suite passed 66
+tests and repository lint passed.  Full typecheck has no errors from this
+slice; it remains blocked by the pre-existing SES dependency, untracked SFX
+scripts, and an unrelated concurrent ThinkForge test type error.
+
+**Next P0 slice: 1-B2, chat render-proof atomicity.**  Its checkpoint-backed
+render path is intentionally separate and still has raw project proof writes.
+It must receive its own receipt-bound ProjectService port and recovery rule;
+do not reuse this Director-only evidence contract or merge the two proof
+authorities.

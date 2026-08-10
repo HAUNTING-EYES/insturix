@@ -67,7 +67,6 @@ import { buildPhase0RenderArtifactPack } from '@/lib/editron/services/phase0-ren
 import { buildStorylineSeamTransitionEdl } from '@/lib/editron/services/storyline-seam-transitions';
 import { buildCreativeBriefGroundedContext } from '@/lib/editron/services/creative-brief-grounding';
 import {
-  buildPhase0RenderedEvidenceDispatchPersistSet,
   dispatchPhase0RenderedEvidenceJob,
   type Phase0RenderedEvidenceDispatchResult,
 } from '@/lib/editron/services/phase0-rendered-evidence-worker';
@@ -359,24 +358,6 @@ async function buildFinalPhase0LiveTruthFacts(options: {
       ) as unknown as Record<string, unknown>,
     },
   };
-}
-
-async function persistPhase0RenderedEvidenceDispatchState(
-  projectId: string,
-  dispatchResult: Phase0RenderedEvidenceDispatchResult,
-  requestedAt: string,
-): Promise<void> {
-  try {
-    const dispatchDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-    await dispatchDb.collection('projects').updateOne(
-      { projectId },
-      {
-        $set: buildPhase0RenderedEvidenceDispatchPersistSet(dispatchResult, { requestedAt }),
-      },
-    );
-  } catch (err: unknown) {
-    console.warn('[Director] non-fatal Phase0 rendered evidence dispatch persistence:', err instanceof Error ? err.message : err);
-  }
 }
 
 function buildLivePhase0ArtifactDir(projectId: string, capturedAt: string): string {
@@ -2946,6 +2927,7 @@ export async function executeDirectorPlan(
           projectId,
           userId,
           requestedAt: renderedEvidenceRequestedAt,
+          targetReceipt: phase0ProofReceipt,
         });
       } catch (dispatchErr: unknown) {
         const reason = dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr);
@@ -2954,17 +2936,15 @@ export async function executeDirectorPlan(
           reason: `dispatch_error:${reason}`,
         };
       }
-      await persistPhase0RenderedEvidenceDispatchState(
-        projectId,
-        renderedEvidenceDispatch,
-        renderedEvidenceRequestedAt,
-      );
       if (renderedEvidenceDispatch.dispatched) {
         console.log(
           `[Director] Phase0 rendered evidence dispatched` +
           `${renderedEvidenceDispatch.messageId ? ` (messageId=${renderedEvidenceDispatch.messageId})` : ''}`,
         );
       } else {
+        result.warnings.push(
+          `Phase0 rendered evidence was not dispatched: ${renderedEvidenceDispatch.reason ?? 'unknown'}`,
+        );
         console.log(`[Director] Phase0 rendered evidence not dispatched: ${renderedEvidenceDispatch.reason}`);
       }
     } catch (truthErr: unknown) {

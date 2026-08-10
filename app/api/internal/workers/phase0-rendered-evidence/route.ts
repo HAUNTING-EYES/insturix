@@ -21,18 +21,21 @@ import {
 import { buildPhase0RenderedQualityGate } from '@/lib/editron/services/editron-learning-gate';
 import {
   buildChatEditRenderedAudioEvidence,
-  buildPhase0RenderedEvidenceClaimFilter,
-  buildPhase0RenderedEvidenceClaimRelease,
-  buildPhase0RenderedEvidenceClaimUpdate,
   buildPhase0RenderedStillEvidence,
   buildPhase0RenderedStillEvidenceFailure,
-  buildPhase0RenderedStillEvidencePersistSet,
   normalizeChatEditInheritedRenderEligibilityOverlayIds,
   omitInheritedRenderDebtFromChatDeltaProject,
+  toProjectPhase0RenderedEvidenceFacts,
   type ChatEditRenderedAudioEvidence,
   type ChatEditRenderVerificationRequest,
   type Phase0RenderedStillEvidence,
 } from '@/lib/editron/services/phase0-rendered-evidence-worker';
+import {
+  ProjectMutationConflictError,
+  ProjectNotFoundOrForbiddenError,
+  projectService,
+  type ProjectMutationReceiptV1,
+} from '@/lib/editron/services/project-service';
 import type { Checkpoint, RestorableProjectState } from '@/lib/editron/services/checkpoint-service';
 import {
   buildRequestedChatEditRenderVerification,
@@ -54,6 +57,7 @@ interface Phase0RenderedEvidencePayload {
   projectId?: string;
   userId?: string;
   requestedAt?: string;
+  targetReceipt?: unknown;
   chatEditVerification?: ChatEditRenderVerificationRequest;
 }
 
@@ -89,22 +93,21 @@ async function handler(request: NextRequest) {
     );
   }
 
-  const db = await getDatabase();
-  const project = await db.collection('projects').findOne({ projectId });
-  if (!project) {
-    return NextResponse.json(
-      { success: false, error: 'Project not found' },
-      { status: 404 },
-    );
-  }
-  if (project.userId && project.userId !== userId) {
-    return NextResponse.json(
-      { success: false, error: 'Project/user mismatch' },
-      { status: 403 },
-    );
-  }
-
   if (body.chatEditVerification) {
+    const db = await getDatabase();
+    const project = await db.collection('projects').findOne({ projectId });
+    if (!project) {
+      return NextResponse.json(
+        { success: false, error: 'Project not found' },
+        { status: 404 },
+      );
+    }
+    if (project.userId && project.userId !== userId) {
+      return NextResponse.json(
+        { success: false, error: 'Project/user mismatch' },
+        { status: 403 },
+      );
+    }
     const verification = validateChatEditVerificationRequest(body.chatEditVerification);
     if (!verification) {
       return NextResponse.json(
@@ -123,40 +126,74 @@ async function handler(request: NextRequest) {
     });
   }
 
-  const claimNow = new Date();
-  const claim = await db.collection('projects').updateOne(
-    buildPhase0RenderedEvidenceClaimFilter({ projectId, now: claimNow }),
-    buildPhase0RenderedEvidenceClaimUpdate({ now: claimNow, requestedAt: body.requestedAt }),
-  );
-  if (claim.matchedCount === 0) {
-    console.log(`[Phase0RenderedEvidence] ${projectId}: duplicate delivery skipped; rendered evidence already claimed`);
-    return NextResponse.json({
-      success: true,
-      projectId,
-      skipped: 'duplicate-delivery',
-      stage: 'phase0-rendered-evidence',
-    });
+  const targetReceipt = parseProjectMutationReceipt(body.targetReceipt);
+  const requestedAt = parseIsoTimestamp(body.requestedAt);
+  if (!targetReceipt || !requestedAt) {
+    return NextResponse.json(
+      { success: false, error: 'Missing valid targetReceipt or requestedAt for Phase-0 rendered evidence' },
+      { status: 400 },
+    );
   }
+
+  let claim;
+  try {
+    claim = await projectService.claimPhase0RenderedEvidence(userId, projectId, {
+      targetReceipt,
+      requestedAt,
+    });
+  } catch (error) {
+    if (error instanceof ProjectMutationConflictError) {
+      console.warn(`[Phase0RenderedEvidence] ${projectId}: stale target skipped before render`);
+      return NextResponse.json({
+        success: false,
+        projectId,
+        skipped: 'stale-target',
+        stage: 'phase0-rendered-evidence',
+      });
+    }
+    if (error instanceof ProjectNotFoundOrForbiddenError) {
+      return NextResponse.json(
+        { success: false, error: 'Project not found or forbidden' },
+        { status: 404 },
+      );
+    }
+    throw error;
+  }
+
   let evidence: Phase0RenderedStillEvidence;
   try {
-    const overlays = Array.isArray(project.overlays) ? project.overlays : [];
+    const overlays = Array.isArray(claim.project.overlays) ? claim.project.overlays : [];
     const resolvedOverlays = await assetResolver.resolveProjectAssets(overlays as any[]);
     evidence = await buildPhase0RenderedStillEvidence({
-      ...project,
+      ...claim.project,
       overlays: resolvedOverlays,
     } as any, {
-      capturedAt: body.requestedAt,
+      capturedAt: requestedAt,
     });
   } catch (err: unknown) {
     evidence = buildPhase0RenderedStillEvidenceFailure({
       projectId,
-      capturedAt: body.requestedAt,
+      capturedAt: requestedAt,
       error: err instanceof Error ? err.message : String(err),
     });
     try {
-      await persistPhase0RenderedStillEvidence(db, projectId, evidence);
-    } finally {
-      await releasePhase0RenderedEvidenceClaim(db, projectId);
+      await projectService.recordPhase0RenderedEvidence(userId, projectId, {
+        expectedRevision: claim.claimReceipt.revision,
+        targetReceipt: claim.targetReceipt,
+        claimReceipt: claim.claimReceipt,
+        facts: toProjectPhase0RenderedEvidenceFacts(evidence),
+      });
+    } catch (error) {
+      if (error instanceof ProjectMutationConflictError) {
+        console.warn(`[Phase0RenderedEvidence] ${projectId}: stale target skipped while recording failure evidence`);
+        return NextResponse.json({
+          success: false,
+          projectId,
+          skipped: 'stale-target',
+          stage: 'phase0-rendered-evidence',
+        });
+      }
+      throw error;
     }
     console.error(`[Phase0RenderedEvidence] ${projectId}: failed reason=${evidence.statusReason ?? 'unknown'}: ${evidence.failedFrames[0]?.error}`);
     return NextResponse.json(
@@ -172,9 +209,23 @@ async function handler(request: NextRequest) {
   }
 
   try {
-    await persistPhase0RenderedStillEvidence(db, projectId, evidence);
-  } finally {
-    await releasePhase0RenderedEvidenceClaim(db, projectId);
+    await projectService.recordPhase0RenderedEvidence(userId, projectId, {
+      expectedRevision: claim.claimReceipt.revision,
+      targetReceipt: claim.targetReceipt,
+      claimReceipt: claim.claimReceipt,
+      facts: toProjectPhase0RenderedEvidenceFacts(evidence),
+    });
+  } catch (error) {
+    if (error instanceof ProjectMutationConflictError) {
+      console.warn(`[Phase0RenderedEvidence] ${projectId}: stale target skipped while recording rendered evidence`);
+      return NextResponse.json({
+        success: false,
+        projectId,
+        skipped: 'stale-target',
+        stage: 'phase0-rendered-evidence',
+      });
+    }
+    throw error;
   }
 
   console.log(
@@ -963,6 +1014,44 @@ function numericValue(value: unknown): number | null {
   return Number.isSafeInteger(numberValue) && numberValue >= 0 ? numberValue : null;
 }
 
+function parseProjectMutationReceipt(value: unknown): ProjectMutationReceiptV1 | null {
+  const receipt = asRecord(value);
+  const revision = receipt ? asRecord(receipt.revision) : null;
+  const revisionValue = revision?.value;
+  if (
+    !receipt
+    || !revision
+    || receipt.schemaVersion !== 1
+    || typeof receipt.projectId !== 'string'
+    || !receipt.projectId.trim()
+    || revision.schemaVersion !== 1
+    || typeof revisionValue !== 'number'
+    || !Number.isSafeInteger(revisionValue)
+    || revisionValue < 0
+  ) {
+    return null;
+  }
+
+  const compatibilityUpdatedAt = parseIsoTimestamp(revision.compatibilityUpdatedAt);
+  const committedAt = parseIsoTimestamp(receipt.committedAt);
+  if (!compatibilityUpdatedAt || !committedAt) return null;
+  return {
+    schemaVersion: 1,
+    projectId: receipt.projectId.trim(),
+    revision: {
+      schemaVersion: 1,
+      value: revisionValue,
+      compatibilityUpdatedAt,
+    },
+    committedAt,
+  };
+}
+
+function parseIsoTimestamp(value: unknown): string | null {
+  const timestamp = boundedText(value, 80);
+  return timestamp && !Number.isNaN(new Date(timestamp).getTime()) ? timestamp : null;
+}
+
 function boundedIdentifier(value: unknown, min: number, max: number): string | null {
   const text = boundedText(value, max);
   return text && text.length >= min && /^[A-Za-z0-9:_-]+$/.test(text) ? text : null;
@@ -981,33 +1070,6 @@ function nullableFrame(value: unknown): number | null {
   return Number.isSafeInteger(frame) && frame >= 0 && frame <= 100_000_000 ? frame : null;
 }
 
-async function persistPhase0RenderedStillEvidence(
-  db: { collection(name: string): { updateOne(filter: unknown, update: unknown): Promise<unknown> } },
-  projectId: string,
-  evidence: Phase0RenderedStillEvidence,
-) {
-  await db.collection('projects').updateOne(
-    { projectId },
-    { $set: buildPhase0RenderedStillEvidencePersistSet(evidence) },
-  );
-}
-
-async function releasePhase0RenderedEvidenceClaim(
-  db: { collection(name: string): { updateOne(filter: unknown, update: unknown): Promise<unknown> } },
-  projectId: string,
-) {
-  try {
-    await db.collection('projects').updateOne(
-      { projectId },
-      buildPhase0RenderedEvidenceClaimRelease(),
-    );
-  } catch (err) {
-    console.warn(
-      `[Phase0RenderedEvidence] ${projectId}: failed to release rendered evidence claim`,
-      err,
-    );
-  }
-}
 export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.QSTASH_NEXT_SIGNING_KEY
   ? verifySignatureAppRouter(handler)
   : handler;
