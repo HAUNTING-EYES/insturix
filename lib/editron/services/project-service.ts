@@ -102,8 +102,10 @@ export class ProjectNotFoundOrForbiddenError extends Error {
 export class ProjectMutationWriteError extends Error {
   readonly code = "PROJECT_MUTATION_WRITE_FAILED";
 
-  constructor() {
-    super("Project mutation did not produce exactly one durable update.");
+  constructor(
+    message = "Project mutation did not produce exactly one durable update.",
+  ) {
+    super(message);
     this.name = "ProjectMutationWriteError";
   }
 }
@@ -987,18 +989,43 @@ export class ProjectService {
     overlay: Overlay,
   ): Promise<void> {
     const db = await getDatabase();
+    const expectedRevision = await this.getProjectRevision(userId, projectId);
     const overlayWithReceipt = ensureAtomicOverlayReceipt(overlay, {
       source: "project-service-add-overlay",
       intent: `persist-${overlay.type}`,
       reason: "overlay persisted through ProjectService.addOverlay",
     });
-    await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId, userId },
+    const committedAt = new Date();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(expectedRevision),
+      },
       {
         $push: { overlays: overlayWithReceipt } as any,
-        $set: { updatedAt: new Date() },
+        $set: { updatedAt: committedAt },
+        $inc: { projectRevision: 1 },
       },
     );
+    if (result.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
   }
 
   /**
@@ -1016,18 +1043,23 @@ export class ProjectService {
       .collection(COLLECTIONS.PROJECTS)
       .findOne(
         { projectId, userId },
-        { projection: { overlays: 1 } },
-      )) as unknown as Pick<Project, "overlays"> | null;
+        { projection: { overlays: 1, projectRevision: 1, updatedAt: 1 } },
+      )) as unknown as Pick<
+      Project,
+      "overlays" | "projectRevision" | "updatedAt"
+    > | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
     const currentOverlay = project?.overlays?.find(
       (overlay) => overlay.id === overlayId,
     );
 
     if (!currentOverlay) {
-      console.warn(
-        `[ProjectService] updateOverlay skipped: overlay ${overlayId} not found in ${projectId}`,
+      throw new ProjectMutationWriteError(
+        `Overlay ${overlayId} was not found in project ${projectId}.`,
       );
-      return;
     }
+
+    const expectedRevision = projectRevisionFor(project);
 
     const updatedOverlay = withAtomicOverlayUpdateReceipt(
       currentOverlay,
@@ -1039,16 +1071,41 @@ export class ProjectService {
       },
     );
 
-    await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId, userId },
+    const committedAt = new Date();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        "overlays.id": overlayId,
+        ...projectRevisionPredicate(expectedRevision),
+      },
       {
         $set: {
           "overlays.$[elem]": updatedOverlay,
-          updatedAt: new Date(),
+          updatedAt: committedAt,
         },
+        $inc: { projectRevision: 1 },
       },
       { arrayFilters: [{ "elem.id": overlayId }] },
     );
+    if (result.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
   }
 
   /**
@@ -1120,13 +1177,55 @@ export class ProjectService {
     overlayId: number,
   ): Promise<void> {
     const db = await getDatabase();
-    await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId, userId },
+    const project = (await db
+      .collection(COLLECTIONS.PROJECTS)
+      .findOne(
+        { projectId, userId },
+        { projection: { overlays: 1, projectRevision: 1, updatedAt: 1 } },
+      )) as unknown as Pick<
+      Project,
+      "overlays" | "projectRevision" | "updatedAt"
+    > | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    if (!project.overlays?.some((overlay) => overlay.id === overlayId)) {
+      throw new ProjectMutationWriteError(
+        `Overlay ${overlayId} was not found in project ${projectId}.`,
+      );
+    }
+
+    const expectedRevision = projectRevisionFor(project);
+    const committedAt = new Date();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        "overlays.id": overlayId,
+        ...projectRevisionPredicate(expectedRevision),
+      },
       {
         $pull: { overlays: { id: overlayId } } as any,
-        $set: { updatedAt: new Date() },
+        $set: { updatedAt: committedAt },
+        $inc: { projectRevision: 1 },
       },
     );
+    if (result.matchedCount === 0) {
+      throw new ProjectMutationConflictError(
+        await this.getProjectRevision(userId, projectId),
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
   }
 }
 

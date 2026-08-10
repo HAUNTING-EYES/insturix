@@ -453,6 +453,200 @@ describe("Editron project save payload compaction", () => {
     expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
   });
 
+  it("captures writer-issued receipts from direct overlay writes with CAS predicates", async () => {
+    const addedAt = "2026-08-11T02:00:00.000Z";
+    const updatedAt = "2026-08-11T02:00:01.000Z";
+    const deletedAt = "2026-08-11T02:00:02.000Z";
+    persistenceMocks.findOne
+      .mockResolvedValueOnce({
+        projectId: "proj_1",
+        userId: "user_1",
+        updatedAt: new Date(addedAt),
+        projectRevision: 7,
+      })
+      .mockResolvedValueOnce({
+        projectId: "proj_1",
+        userId: "user_1",
+        overlays: [{ id: 1, type: "text", content: "before" }],
+        updatedAt: new Date(updatedAt),
+        projectRevision: 8,
+      })
+      .mockResolvedValueOnce({
+        projectId: "proj_1",
+        userId: "user_1",
+        overlays: [{ id: 1, type: "text", content: "after" }],
+        updatedAt: new Date(deletedAt),
+        projectRevision: 9,
+      });
+    persistenceMocks.updateOne.mockResolvedValue({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const captured = await projectService.captureMutationReceipts(async () => {
+      await projectService.addOverlay("user_1", "proj_1", {
+        id: 2,
+        type: "text",
+        from: 0,
+        row: 0,
+        durationInFrames: 30,
+        content: "added",
+      } as any);
+      await projectService.updateOverlay("user_1", "proj_1", 1, {
+        content: "after",
+      } as any);
+      await projectService.deleteOverlay("user_1", "proj_1", 1);
+    });
+
+    expect(captured.receipts.map((receipt) => receipt.revision.value)).toEqual([
+      8,
+      9,
+      10,
+    ]);
+    expect(persistenceMocks.updateOne.mock.calls[0][0]).toMatchObject({
+      projectId: "proj_1",
+      userId: "user_1",
+      projectRevision: 7,
+      updatedAt: new Date(addedAt),
+    });
+    expect(persistenceMocks.updateOne.mock.calls[1][0]).toMatchObject({
+      projectId: "proj_1",
+      userId: "user_1",
+      "overlays.id": 1,
+      projectRevision: 8,
+      updatedAt: new Date(updatedAt),
+    });
+    expect(persistenceMocks.updateOne.mock.calls[2][0]).toMatchObject({
+      projectId: "proj_1",
+      userId: "user_1",
+      "overlays.id": 1,
+      projectRevision: 9,
+      updatedAt: new Date(deletedAt),
+    });
+    for (const [, update] of persistenceMocks.updateOne.mock.calls) {
+      expect(update).toEqual(expect.objectContaining({
+        $inc: { projectRevision: 1 },
+      }));
+    }
+  });
+
+  it("rejects a lost direct overlay write without publishing a receipt", async () => {
+    const before = "2026-08-11T03:00:00.000Z";
+    const after = "2026-08-11T03:00:01.000Z";
+    persistenceMocks.findOne
+      .mockResolvedValueOnce({
+        projectId: "proj_1",
+        userId: "user_1",
+        overlays: [{ id: 1, type: "text", content: "before" }],
+        updatedAt: new Date(before),
+        projectRevision: 7,
+      })
+      .mockResolvedValueOnce({
+        projectId: "proj_1",
+        userId: "user_1",
+        updatedAt: new Date(after),
+        projectRevision: 8,
+      });
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 0,
+      modifiedCount: 0,
+    });
+    const { ProjectMutationConflictError, projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const captured = await projectService.captureMutationReceipts(async () => {
+      await expect(
+        projectService.updateOverlay("user_1", "proj_1", 1, {
+          content: "lost",
+        } as any),
+      ).rejects.toBeInstanceOf(ProjectMutationConflictError);
+    });
+
+    expect(captured.receipts).toEqual([]);
+    expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
+    expect(persistenceMocks.updateOne.mock.calls[0][0]).toMatchObject({
+      projectRevision: 7,
+      updatedAt: new Date(before),
+    });
+  });
+
+  it("rejects a missing direct overlay before it writes", async () => {
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      overlays: [],
+      updatedAt: new Date("2026-08-11T04:00:00.000Z"),
+      projectRevision: 7,
+    });
+    const { ProjectMutationWriteError, projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(
+      projectService.updateOverlay("user_1", "proj_1", 404, {
+        content: "missing",
+      } as any),
+    ).rejects.toMatchObject({
+      code: "PROJECT_MUTATION_WRITE_FAILED",
+      message: expect.stringContaining("404"),
+    } satisfies Partial<InstanceType<typeof ProjectMutationWriteError>>);
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("rejects a direct overlay update outside the project owner without writing", async () => {
+    persistenceMocks.findOne.mockResolvedValueOnce(null);
+    const { ProjectNotFoundOrForbiddenError, projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(
+      projectService.updateOverlay("attacker", "proj_1", 1, {
+        content: "blocked",
+      } as any),
+    ).rejects.toBeInstanceOf(ProjectNotFoundOrForbiddenError);
+    expect(persistenceMocks.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("does not publish a direct writer receipt when Mongo makes no durable change", async () => {
+    const updatedAt = "2026-08-11T05:00:00.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 1,
+      modifiedCount: 0,
+    });
+    const { ProjectMutationWriteError, projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+    let observedReceipts: readonly unknown[] = [];
+
+    await expect(
+      projectService.captureMutationReceipts(
+        () => projectService.addOverlay("user_1", "proj_1", {
+          id: 2,
+          type: "text",
+          from: 0,
+          row: 0,
+          durationInFrames: 30,
+          content: "uncommitted",
+        } as any),
+        (receipts) => {
+          observedReceipts = receipts;
+        },
+      ),
+    ).rejects.toBeInstanceOf(ProjectMutationWriteError);
+
+    expect(observedReceipts).toEqual([]);
+  });
+
   it("retains writer-issued receipts for rollback when the surrounding operation throws", async () => {
     const updatedAt = "2026-08-11T01:00:00.000Z";
     persistenceMocks.findOne.mockResolvedValueOnce({
