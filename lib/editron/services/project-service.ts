@@ -1130,22 +1130,61 @@ export class ProjectService {
         "replaceOverlayFamilyAtomic requires a valid project revision timestamp",
       );
     }
+    const db = await getDatabase();
+    const currentProject = (await db
+      .collection(COLLECTIONS.PROJECTS)
+      .findOne(
+        { projectId, userId },
+        { projection: { projectRevision: 1, updatedAt: 1 } },
+      )) as unknown as Pick<
+      Project,
+      "projectRevision" | "updatedAt"
+    > | null;
+    if (!currentProject) return false;
+
+    const expectedRevision = projectRevisionFor(currentProject);
+    if (
+      expectedRevision.compatibilityUpdatedAt !==
+      input.expectedUpdatedAt.toISOString()
+    ) {
+      return false;
+    }
+
     const cleanOverlays = stampPersistedOverlays(
       assetResolver.stripUrlsForLLM(input.overlays),
       "project-service-replace-overlay-family",
     );
-    const db = await getDatabase();
+    const committedAt = new Date();
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId, userId, updatedAt: input.expectedUpdatedAt },
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(expectedRevision),
+      },
       {
         $set: {
           ...(input.projectUpdates ?? {}),
           overlays: cleanOverlays,
-          updatedAt: new Date(),
+          updatedAt: committedAt,
         },
+        $inc: { projectRevision: 1 },
       },
     );
-    return result.matchedCount === 1;
+    if (result.matchedCount === 0) return false;
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return true;
   }
 
   /**
