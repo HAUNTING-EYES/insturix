@@ -218,7 +218,9 @@ export function resolveThinkForgeProductionBrief(input: ThinkForgeProductionBrie
     totalDurationSec: null,
     contentType: firstString(project?.format, input.documentType, input.contentPath) ?? null,
     speechCoverage: null,
-    hasBrand: Boolean(brandId || project?.brandBrief),
+    // A brand attachment is a server-authorized Brand Vault identity, never a
+    // legacy browser snapshot that happened to contain free-text context.
+    hasBrand: Boolean(brandId),
     connectedPlatforms: normalizePlatformList(firstPresent(project, ['connectedPlatforms', 'postingPlatforms'])),
     brand,
     prompt: input.userPrompt,

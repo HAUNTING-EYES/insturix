@@ -145,6 +145,16 @@ describe('resolveThinkForgeProductionBrief', () => {
     expect(brief.resolution.confirmed).not.toContain('targetDurationSec');
   });
 
+  it('does not treat a legacy brandBrief as a Brand Vault attachment', () => {
+    const brief = resolveThinkForgeProductionBrief({
+      userPrompt: 'Create a product story',
+      project: { brandBrief: 'Old scan: premium, founder-led, exclusive.' },
+      contentPath: 'script',
+    });
+
+    expect(brief.brand).toBeNull();
+  });
+
   it('uses Brand Vault/session defaults as overridable inferred knobs', () => {
     const project: ProjectMeta = {
       brandId: 'brand_abc',
