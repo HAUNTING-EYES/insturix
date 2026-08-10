@@ -4,6 +4,7 @@ import {
   resolveThinkForgeAuthoringProjectMetadata,
   ThinkForgeBrandAuthorityError,
 } from '@/lib/thinkforge/context/brand-authoring-context';
+import { resolvePersistedThinkForgeProjectMetadata } from '@/lib/thinkforge/state/types';
 import type { DataBankEntry } from '@/lib/thinkforge/services/db';
 import type { BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 
@@ -388,6 +389,38 @@ describe('fetchContextSources scoped DataBank reads', () => {
       brandId: 'brand_1',
       idea: 'Refined current brief',
     });
+  });
+
+  it('preserves persisted brand, campaign, and selected trend state during a partial session refresh', () => {
+    const metadata = resolvePersistedThinkForgeProjectMetadata(
+      {
+        brandId: 'brand_1',
+        brandBrief: 'Stale pre-acceptance scan that must not survive.',
+        campaignId: 'campaign_1',
+        selectedTrend: {
+          candidate: { candidateId: 'trend_1' },
+          analysis: { status: 'completed' },
+        } as any,
+      },
+      { title: 'Fresh browser title' },
+    );
+
+    expect(metadata).toEqual({
+      brandId: 'brand_1',
+      campaignId: 'campaign_1',
+      selectedTrend: {
+        candidate: { candidateId: 'trend_1' },
+        analysis: { status: 'completed' },
+      },
+      title: 'Fresh browser title',
+    });
+  });
+
+  it('rejects a persistence update that attempts to replace a bound brand', () => {
+    expect(() => resolvePersistedThinkForgeProjectMetadata(
+      { brandId: 'brand_1' },
+      { brandId: 'brand_2' },
+    )).toThrow('ThinkForge session brand binding cannot be changed');
   });
 
   it('rejects a request that tries to switch the brand of an existing session', () => {

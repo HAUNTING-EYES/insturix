@@ -52,7 +52,12 @@ function blockMutation(collection: string, operation: string): never {
   throw new ImmutabilityError(collection, operation);
 }
 
-import type { ChatMessage, ProjectMeta, ScriptState } from '../state/types';
+import {
+  resolvePersistedThinkForgeProjectMetadata,
+  type ChatMessage,
+  type ProjectMeta,
+  type ScriptState,
+} from '../state/types';
 import type { SelectedTrend } from '../trends/selected-trend';
 import type { WalletRef } from '@/lib/editron/services/project-ownership';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
@@ -1128,18 +1133,24 @@ export async function getOrCreateSession(
 
       const existing = await SessionModel.findOne(query).lean() as any;
       if (existing) {
-        // Update projectMeta if provided
+        // Session refreshes carry partial browser state. Merge it with the
+        // persisted authority instead of replacing it and losing brand/trend
+        // lineage between opening a session and generating content.
         if (projectMeta) {
+          const persistedProjectMeta = resolvePersistedThinkForgeProjectMetadata(
+            existing.projectMeta || {},
+            projectMeta,
+          );
           await SessionModel.updateOne(
             { _id: sessionId },
-            { $set: { projectMeta, updatedAt: new Date() } }
+            { $set: { projectMeta: persistedProjectMeta, updatedAt: new Date() } }
           );
           return {
             _id: String(existing._id),
             userId: existing.userId,
             orgId: existing.orgId,
             createdByName: existing.createdByName,
-            projectMeta,
+            projectMeta: persistedProjectMeta,
             activeGeneration: existing.activeGeneration || null,
             createdAt: existing.createdAt,
             updatedAt: new Date()

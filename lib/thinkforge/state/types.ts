@@ -142,6 +142,33 @@ export function resolveProjectMetaBrandId(projectMeta?: ProjectMeta | null): str
   return firstNonEmptyString(projectMeta?.brandId);
 }
 
+/**
+ * Produces the only project metadata shape that may be persisted for an
+ * existing ThinkForge session. Session refreshes routinely send partial
+ * client state; replacing the stored object would silently discard its brand
+ * authority, selected trend, and campaign lineage.
+ */
+export function resolvePersistedThinkForgeProjectMetadata(
+  existingProjectMeta?: ProjectMeta | null,
+  incomingProjectMeta?: ProjectMeta | null,
+): ProjectMeta {
+  const existingBrandId = resolveProjectMetaBrandId(existingProjectMeta);
+  const incomingBrandId = resolveProjectMetaBrandId(incomingProjectMeta);
+
+  if (existingBrandId && incomingBrandId && existingBrandId !== incomingBrandId) {
+    throw new Error('ThinkForge session brand binding cannot be changed. Create a new session to select a different brand.');
+  }
+
+  const merged = mergeThinkForgeProjectMetadata(existingProjectMeta, incomingProjectMeta);
+  const authoritativeBrandId = existingBrandId ?? incomingBrandId;
+  if (!authoritativeBrandId) return merged;
+
+  // A resolved Brand Vault profile is the authority for bound sessions. Never
+  // keep a browser-provided free-text scan that can become stale beside it.
+  const { brandBrief: _legacyBrandBrief, ...metadata } = merged;
+  return { ...metadata, brandId: authoritativeBrandId };
+}
+
 // ---------------------------------------------------------------------------
 // Document Type & Complexity (Dynamic Blueprints)
 // ---------------------------------------------------------------------------
