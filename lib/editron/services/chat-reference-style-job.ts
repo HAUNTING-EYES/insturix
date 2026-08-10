@@ -13,6 +13,7 @@ import type {
 import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
 import type { Phase0RenderedEvidenceDispatchResult } from '@/lib/editron/services/phase0-rendered-evidence-worker';
+import type { ProjectMutationReceiptV1 } from '@/lib/editron/services/project-service';
 import type { EditDNA } from '@/lib/editron/services/style-transfer-service';
 
 export const CHAT_REFERENCE_STYLE_JOB_VERSION = 'editron-chat-reference-style-job-v1' as const;
@@ -165,11 +166,17 @@ interface QueueDependencies {
   now(): Date;
 }
 
+type ProjectMutationReceiptCapture = <T>(
+  callback: () => Promise<T> | T,
+  onSettled?: (receipts: readonly ProjectMutationReceiptV1[]) => void,
+) => Promise<{ value: T; receipts: ProjectMutationReceiptV1[] }>;
+
 interface RunDependencies {
   store: ChatReferenceStyleJobStore;
   loadProject(userId: string, projectId: string): Promise<Record<string, unknown> | null>;
   extractProfile(job: ChatReferenceStyleJob): Promise<string>;
   applyProfile(job: ChatReferenceStyleJob, profileId: string): Promise<StyleExecutionResult>;
+  captureMutationReceipts: ProjectMutationReceiptCapture;
   checkpointService: Pick<
     CheckpointService,
     | 'claimChatEditOperation'
@@ -286,6 +293,7 @@ export async function runChatReferenceStyleJob(
 
   let checkpoint: Checkpoint | null = null;
   let rollbackReceipt: CheckpointRollbackReceiptV1 | null = null;
+  let writerIssuedReceipt: ProjectMutationReceiptV1 | undefined;
   let attemptOperationId = '';
   try {
     if (job.beforeCheckpointId) {
@@ -364,7 +372,13 @@ export async function runChatReferenceStyleJob(
     rollbackReceipt = null;
     await deps.store.markCheckpointStarted(job._id, job.userId, beforeCheckpointId, deps.now());
 
-    const applied = await deps.applyProfile(job, profileId);
+    const capturedApplication = await deps.captureMutationReceipts(
+      () => deps.applyProfile(job, profileId),
+      (receipts) => {
+        writerIssuedReceipt = latestWriterReceiptForProject(receipts, job.projectId);
+      },
+    );
+    const applied = capturedApplication.value;
     if (applied.status === 'declined') {
       const declineReason = applied.reason ?? 'unified-planner-declined';
       await deps.checkpointService.updateChatEditOperationScoped(
@@ -381,12 +395,20 @@ export async function runChatReferenceStyleJob(
       return { status: 'declined', jobId: job._id, profileId, reason: declineReason };
     }
 
-    rollbackReceipt = await deps.checkpointService.recordRollbackExpectedRevision(
-      checkpoint.checkpointId,
-      job.userId,
-      job.projectId,
-      referenceStyleRollbackReceiptId(job),
-    );
+    rollbackReceipt = writerIssuedReceipt
+      ? await deps.checkpointService.recordRollbackExpectedRevision(
+          checkpoint.checkpointId,
+          job.userId,
+          job.projectId,
+          referenceStyleRollbackReceiptId(job),
+          writerIssuedReceipt,
+        )
+      : await deps.checkpointService.recordRollbackExpectedRevision(
+          checkpoint.checkpointId,
+          job.userId,
+          job.projectId,
+          referenceStyleRollbackReceiptId(job),
+        );
 
     const afterProject = await deps.loadProject(job.userId, job.projectId);
     if (!afterProject) throw new Error('project-not-found-after-style-application');
@@ -477,6 +499,15 @@ export async function runChatReferenceStyleJob(
     const message = errorMessage(error);
     let rolledBack = false;
     if (checkpoint && attemptOperationId) {
+      if (!rollbackReceipt && writerIssuedReceipt) {
+        rollbackReceipt = await deps.checkpointService.recordRollbackExpectedRevision(
+          checkpoint.checkpointId,
+          job.userId,
+          job.projectId,
+          referenceStyleRollbackReceiptId(job),
+          writerIssuedReceipt,
+        );
+      }
       const expectedRevision = rollbackReceipt?.expectedRevision ?? checkpoint.capturedProjectRevision;
       const restored = expectedRevision
         ? await deps.checkpointService.restoreProjectCheckpoint(checkpoint.checkpointId, job.userId, {
@@ -763,17 +794,33 @@ async function resolveRunDependencies(overrides: Partial<RunDependencies>): Prom
       await import('@/lib/editron/agent/chat-ai-edit-transaction-runtime')
     ).buildChatEditRenderVerificationRequest;
   }
+  const captureMutationReceipts = overrides.captureMutationReceipts
+    ?? (overrides.applyProfile
+      ? captureInjectedStyleApplicationWithoutWriterReceipts
+      : await resolveProjectMutationReceiptCapture());
   return {
     store: overrides.store ?? new MongoChatReferenceStyleJobStore(),
     loadProject,
     extractProfile: overrides.extractProfile ?? extractProfileThroughLiveTool,
     applyProfile: overrides.applyProfile ?? applyReferenceStyleProfileThroughUnifiedPlanner,
+    captureMutationReceipts,
     checkpointService,
     captureProjectState,
     buildRenderVerificationRequest,
     dispatchRenderEvidence,
     now: overrides.now ?? (() => new Date()),
   };
+}
+
+async function resolveProjectMutationReceiptCapture(): Promise<ProjectMutationReceiptCapture> {
+  const { projectService } = await import('@/lib/editron/services/project-service');
+  return projectService.captureMutationReceipts.bind(projectService);
+}
+
+async function captureInjectedStyleApplicationWithoutWriterReceipts<T>(
+  callback: () => Promise<T> | T,
+): Promise<{ value: T; receipts: ProjectMutationReceiptV1[] }> {
+  return { value: await callback(), receipts: [] };
 }
 
 async function referenceStyleJobsCollection() {
@@ -1058,6 +1105,17 @@ function referenceStyleRollbackReceiptId(
   attemptCount = job.attemptCount,
 ): string {
   return `chat-reference-style:${job._id}:attempt:${attemptCount}`;
+}
+
+function latestWriterReceiptForProject(
+  receipts: readonly ProjectMutationReceiptV1[],
+  projectId: string,
+): ProjectMutationReceiptV1 | undefined {
+  for (let index = receipts.length - 1; index >= 0; index -= 1) {
+    const receipt = receipts[index];
+    if (receipt?.projectId === projectId) return receipt;
+  }
+  return undefined;
 }
 
 async function resolveUnclaimableJob(

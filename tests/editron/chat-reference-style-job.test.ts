@@ -20,7 +20,10 @@ import type {
   RestorableProjectState,
   RestoreProjectCheckpointResult,
 } from '@/lib/editron/services/checkpoint-service';
-import type { ProjectRevisionV1 } from '@/lib/editron/services/project-service';
+import type {
+  ProjectMutationReceiptV1,
+  ProjectRevisionV1,
+} from '@/lib/editron/services/project-service';
 
 const NOW = new Date('2026-07-18T10:00:00.000Z');
 const ROLLBACK_RECEIPT: CheckpointRollbackReceiptV1 = {
@@ -117,12 +120,27 @@ describe('durable chat reference-style jobs', () => {
       return { status: 'mutated' as const, rawOutput: '{}', data: { profileId: 'style-profile-1' } };
     });
     const dispatchRenderEvidence = vi.fn(async () => ({ dispatched: true, messageId: 'render-1' }));
+    const writerIssuedReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId: 'project-1',
+      revision: { ...ROLLBACK_RECEIPT.expectedRevision, value: 5 },
+      committedAt: '2026-07-18T10:00:02.000Z',
+    };
 
     const result = await runChatReferenceStyleJob(workerPayload(), {
       store,
       loadProject: async () => structuredClone(currentProject),
       extractProfile,
       applyProfile,
+      captureMutationReceipts: async <T,>(
+        callback: () => Promise<T> | T,
+        onSettled?: (receipts: readonly ProjectMutationReceiptV1[]) => void,
+      ) => {
+        const receipts = [writerIssuedReceipt];
+        const value = await callback();
+        onSettled?.(receipts);
+        return { value, receipts };
+      },
       dispatchRenderEvidence,
       ...checkpoint.dependencies,
       now: () => NOW,
@@ -148,6 +166,7 @@ describe('durable chat reference-style jobs', () => {
       'user-1',
       'project-1',
       'chat-reference-style:job-style-1:attempt:1',
+      writerIssuedReceipt,
     );
     expect(dispatchRenderEvidence).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'project-1',
@@ -158,6 +177,54 @@ describe('durable chat reference-style jobs', () => {
         targets: [expect.objectContaining({ overlayId: 'title-1', state: 'updated' })],
       }),
     }));
+  });
+
+  it('binds a style error-after-write rollback to the writer-issued revision', async () => {
+    const store = new MemoryStore(queuedJob());
+    const checkpoint = installCheckpointSpies([]);
+    const writerIssuedReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId: 'project-1',
+      revision: { ...ROLLBACK_RECEIPT.expectedRevision, value: 5 },
+      committedAt: '2026-07-18T10:00:02.000Z',
+    };
+
+    const result = await runChatReferenceStyleJob(workerPayload(), {
+      store,
+      loadProject: async () => project('before'),
+      extractProfile: async () => 'style-profile-1',
+      applyProfile: async () => {
+        throw new Error('Style application crashed after its project write');
+      },
+      captureMutationReceipts: async <T,>(
+        callback: () => Promise<T> | T,
+        onSettled?: (receipts: readonly ProjectMutationReceiptV1[]) => void,
+      ) => {
+        const receipts = [writerIssuedReceipt];
+        try {
+          return { value: await callback(), receipts };
+        } finally {
+          onSettled?.(receipts);
+        }
+      },
+      dispatchRenderEvidence: vi.fn(),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toMatchObject({ status: 'failed' });
+    expect(checkpoint.recordRollbackExpectedRevision).toHaveBeenCalledWith(
+      expect.any(String),
+      'user-1',
+      'project-1',
+      'chat-reference-style:job-style-1:attempt:1',
+      writerIssuedReceipt,
+    );
+    expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
+      expect.any(String),
+      'user-1',
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision },
+    );
   });
 
   it('records a safe planner decline as a no-op without an after checkpoint or render dispatch', async () => {
@@ -817,12 +884,17 @@ function installCheckpointSpies(order: string[]) {
     userId: string,
     projectId: string,
     receiptId: string,
+    writerIssuedReceipt?: ProjectMutationReceiptV1,
   ) => {
     const value = checkpoints.get(checkpointId);
     if (!value || value.userId !== userId || value.projectId !== projectId) {
       throw new Error('checkpoint identity mismatch');
     }
-    const receipt = rollbackReceipts.get(receiptId) ?? { ...ROLLBACK_RECEIPT, receiptId };
+    const receipt = rollbackReceipts.get(receiptId) ?? {
+      ...ROLLBACK_RECEIPT,
+      receiptId,
+      expectedRevision: writerIssuedReceipt?.revision ?? ROLLBACK_RECEIPT.expectedRevision,
+    };
     rollbackReceipts.set(receiptId, receipt);
     return receipt;
   });
