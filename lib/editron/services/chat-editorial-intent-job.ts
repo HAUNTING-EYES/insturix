@@ -128,7 +128,7 @@ export interface ChatEditorialIntentJobStore {
   markCompleted(input: {
     jobId: string;
     userId: string;
-    afterCheckpointId: string;
+    afterCheckpointId?: string;
     renderVerification: Phase0RenderedEvidenceDispatchResult;
     result: Record<string, unknown>;
     now: Date;
@@ -372,6 +372,7 @@ export async function runChatEditorialIntentJob(
       afterProject,
       resultData,
       postcondition,
+      writerIssuedReceipt,
       deps,
     });
   } catch (error) {
@@ -612,14 +613,14 @@ class MongoChatEditorialIntentJobStore implements ChatEditorialIntentJobStore {
   async markCompleted(input: {
     jobId: string;
     userId: string;
-    afterCheckpointId: string;
+    afterCheckpointId?: string;
     renderVerification: Phase0RenderedEvidenceDispatchResult;
     result: Record<string, unknown>;
     now: Date;
   }) {
     await this.finish(input.jobId, input.userId, {
       status: input.renderVerification.dispatched ? 'completed' : 'completed_unverified',
-      afterCheckpointId: input.afterCheckpointId,
+      ...(input.afterCheckpointId ? { afterCheckpointId: input.afterCheckpointId } : {}),
       renderVerification: input.renderVerification,
       result: input.result,
       error: input.renderVerification.dispatched
@@ -1089,10 +1090,51 @@ async function completeEditorialIntentMutation(input: {
   afterProject: Record<string, unknown>;
   resultData: Record<string, unknown>;
   postcondition: ChatEditPostconditionVerification;
+  writerIssuedReceipt?: ProjectMutationReceiptV1;
   deps: CompletionDependencies;
 }): Promise<RunChatEditorialIntentJobResult> {
-  const { job, beforeCheckpointId, afterProject, resultData, postcondition, deps } = input;
+  const {
+    job,
+    beforeCheckpointId,
+    afterProject,
+    resultData,
+    postcondition,
+    writerIssuedReceipt,
+    deps,
+  } = input;
   const attemptOperationId = attemptOperationKey(job);
+  const completionResult = { ...resultData, postconditionVerification: postcondition };
+  if (!writerIssuedReceipt) {
+    const reason = 'editorial-intent-mg-child-writer-receipt-missing';
+    const renderVerification: Phase0RenderedEvidenceDispatchResult = {
+      dispatched: false,
+      reason,
+    };
+    await deps.checkpointService.updateChatEditOperationScoped(
+      beforeCheckpointId,
+      job.userId,
+      job.projectId,
+      attemptOperationId,
+      {
+        operationStatus: 'completed',
+        mutatingToolNames: ['apply_editorial_intent'],
+        operationError: reason,
+      },
+    );
+    await deps.store.markCompleted({
+      jobId: job._id,
+      userId: job.userId,
+      renderVerification,
+      result: completionResult,
+      now: deps.now(),
+    });
+    return {
+      status: 'completed_unverified',
+      jobId: job._id,
+      renderVerification,
+      reason,
+    };
+  }
   const expectedAfterCheckpointId = checkpointId(job, 'after');
   let afterCheckpoint = await deps.checkpointService.getCheckpoint(
     expectedAfterCheckpointId,
@@ -1116,6 +1158,7 @@ async function completeEditorialIntentMutation(input: {
     projectState: deps.captureProjectState(afterProject),
     description: `After durable editorial intent ${job.operationId}`,
     type: 'after-llm',
+    capturedWriterReceipt: writerIssuedReceipt,
     force: true,
   });
   if (!afterCheckpoint) throw new Error('editorial-intent-after-checkpoint-not-created');
@@ -1141,6 +1184,7 @@ async function completeEditorialIntentMutation(input: {
   const renderRequest = deps.buildRenderVerificationRequest({
     transaction,
     afterCheckpointId: afterCheckpoint.checkpointId,
+    subjectReceipt: writerIssuedReceipt,
     project: afterProject,
     successfulCalls: [{
       call: {
@@ -1169,7 +1213,7 @@ async function completeEditorialIntentMutation(input: {
     userId: job.userId,
     afterCheckpointId: afterCheckpoint.checkpointId,
     renderVerification,
-    result: { ...resultData, postconditionVerification: postcondition },
+    result: completionResult,
     now: deps.now(),
   });
   return {

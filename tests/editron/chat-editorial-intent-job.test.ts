@@ -152,6 +152,9 @@ describe('durable chat editorial-intent jobs', () => {
     const attemptOperationId = checkpoint.claimChatEditOperation.mock.calls[0]?.[0].operationId;
     expect(attemptOperationId).toBe('operation-intent-1:editorial-intent:attempt:1');
     expect(checkpoint.createCheckpoint.mock.calls[0]?.[0].operationId).toBe(attemptOperationId);
+    expect(checkpoint.createCheckpoint.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      capturedWriterReceipt: writerIssuedReceipt,
+    }));
     expect(checkpoint.recordRollbackExpectedRevision).toHaveBeenCalledWith(
       'job-intent-1:before:attempt:1',
       'user-1',
@@ -164,6 +167,7 @@ describe('durable chat editorial-intent jobs', () => {
       userId: 'user-1',
       chatEditVerification: expect.objectContaining({
         operationId: attemptOperationId,
+        subjectReceipt: writerIssuedReceipt,
         modalities: ['visual'],
       }),
     }));
@@ -401,7 +405,7 @@ describe('durable chat editorial-intent jobs', () => {
     expect(checkpoint.dependencies.checkpointService.updateChatEditOperationScoped).not.toHaveBeenCalled();
   });
 
-  it('reconciles a generated MG child into the parent checkpoint and rendered proof exactly once', async () => {
+  it('leaves a generated MG child unverified until it has its own writer receipt', async () => {
     const parent = waitingParentJob(['mgr_aaaaaaaaaaaaaaaaaaaaaaaa']);
     const store = new MemoryStore(parent);
     const checkpoint = checkpointRuntime([]);
@@ -471,8 +475,13 @@ describe('durable chat editorial-intent jobs', () => {
     expect(first).toEqual({ reconciled: 1, waiting: 0 });
     expect(replay).toEqual({ reconciled: 0, waiting: 0 });
     expect(store.jobs.get(parent._id)).toMatchObject({
-      status: 'completed',
-      afterCheckpointId: `${parent._id}:after:attempt:1`,
+      status: 'completed_unverified',
+      afterCheckpointId: undefined,
+      error: 'editorial-intent-mg-child-writer-receipt-missing',
+      renderVerification: {
+        dispatched: false,
+        reason: 'editorial-intent-mg-child-writer-receipt-missing',
+      },
       result: {
         lifecycle: 'async-mg-render-reconciled',
         generatedChildJobIds: ['mgr_aaaaaaaaaaaaaaaaaaaaaaaa'],
@@ -490,8 +499,8 @@ describe('durable chat editorial-intent jobs', () => {
         }],
       },
     });
-    expect(checkpoint.createCheckpoint).toHaveBeenCalledTimes(1);
-    expect(dispatchRenderEvidence).toHaveBeenCalledTimes(1);
+    expect(checkpoint.createCheckpoint).not.toHaveBeenCalled();
+    expect(dispatchRenderEvidence).not.toHaveBeenCalled();
   });
 
   it('declines only after every MG child is terminal and none changed canonical project state', async () => {
@@ -939,7 +948,7 @@ class MemoryStore implements ChatEditorialIntentJobStore {
   async markCompleted(input: {
     jobId: string;
     userId: string;
-    afterCheckpointId: string;
+    afterCheckpointId?: string;
     renderVerification: { dispatched: boolean; messageId?: string; reason?: string };
     result: Record<string, unknown>;
     now: Date;
@@ -1171,12 +1180,14 @@ function checkpointRuntime(order: string[]) {
       buildRenderVerificationRequest: (input: {
         transaction: { operationId: string; sessionId: string; beforeCheckpointId: string };
         afterCheckpointId: string;
+        subjectReceipt?: ProjectMutationReceiptV1;
       }) => ({
         version: 'editron-chat-render-verification-v1' as const,
         operationId: input.transaction.operationId,
         sessionId: input.transaction.sessionId,
         beforeCheckpointId: input.transaction.beforeCheckpointId,
         afterCheckpointId: input.afterCheckpointId,
+        subjectReceipt: input.subjectReceipt,
         requestedAt: NOW.toISOString(),
         modalities: ['visual' as const],
         targets: [{
@@ -1206,6 +1217,7 @@ interface CheckpointRuntime {
     checkpointId?: string;
     operationId?: string;
     projectState?: RestorableProjectState;
+    capturedWriterReceipt?: ProjectMutationReceiptV1;
   }): Promise<Checkpoint | null>;
 }
 
