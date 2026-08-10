@@ -3020,6 +3020,7 @@ export type DataBankEntryType =
 
 export type EmbeddingStatus = 'pending' | 'processing' | 'success' | 'failed';
 export type DataBankScope = 'project' | 'global';
+export type DataBankMemoryScope = 'project' | 'brand' | 'universal';
 
 export interface DataBankEntry {
   _id: string;
@@ -3028,6 +3029,9 @@ export interface DataBankEntry {
   userId: string;
   type: DataBankEntryType;
   scope: DataBankScope;
+  /** First-class provenance for entries that can cross a session boundary. */
+  memoryScope?: DataBankMemoryScope;
+  brandId?: string;
   title: string;
   content: Record<string, any>;
   sourceUrl?: string;
@@ -3045,6 +3049,7 @@ const DataBankSchema = new Schema({
   sessionId: { type: String, index: true },
   projectId: { type: String, index: true },
   userId: { type: String, required: true, index: true },
+  brandId: { type: String, index: true },
   type: {
     type: String,
     required: true,
@@ -3064,6 +3069,7 @@ const DataBankSchema = new Schema({
   vectorId: { type: String },
   embedding: { type: [Number], default: undefined },
   scope: { type: String, enum: ['project', 'global'], default: 'project', index: true },
+  memoryScope: { type: String, enum: ['project', 'brand', 'universal'], index: true },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 }, { collection: COLL_DATABANK, timestamps: false });
@@ -3071,11 +3077,64 @@ const DataBankSchema = new Schema({
 DataBankSchema.index({ userId: 1, type: 1 });
 DataBankSchema.index({ userId: 1, embeddingStatus: 1 });
 DataBankSchema.index({ userId: 1, scope: 1 });
+DataBankSchema.index({ userId: 1, scope: 1, memoryScope: 1, brandId: 1 });
 DataBankSchema.index({ sessionId: 1, userId: 1 });
 DataBankSchema.index({ projectId: 1, type: 1 });
 DataBankSchema.index({ tags: 1 });
 
 let DataBankModel: Model<any>;
+
+function dataBankString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function trustedPostMortemMetadata(content: Record<string, any>): {
+  brandId?: string;
+  memoryScope?: DataBankMemoryScope;
+} {
+  if (content?.source !== 'post-mortem') return {};
+  const memoryScope = content.memoryScope;
+  return {
+    ...(dataBankString(content.brandId) ? { brandId: dataBankString(content.brandId) } : {}),
+    ...(memoryScope === 'project' || memoryScope === 'brand' || memoryScope === 'universal'
+      ? { memoryScope }
+      : {}),
+  };
+}
+
+export function resolveDataBankEntryProvenance(entry: {
+  content: Record<string, any>;
+  scope?: DataBankScope;
+  memoryScope?: DataBankMemoryScope;
+  brandId?: string;
+  tags?: string[];
+}): { scope: DataBankScope; memoryScope: DataBankMemoryScope; brandId?: string; tags: string[] } {
+  const scope = entry.scope ?? 'project';
+  const trustedMetadata = trustedPostMortemMetadata(entry.content);
+  const memoryScope = entry.memoryScope ?? trustedMetadata.memoryScope ?? (scope === 'project' ? 'project' : undefined);
+  const brandId = dataBankString(entry.brandId) ?? trustedMetadata.brandId;
+
+  if (!memoryScope) {
+    throw new Error('Global DataBank entries require an explicit brand or universal memory scope.');
+  }
+  if (scope === 'project' && memoryScope !== 'project') {
+    throw new Error('Project-scoped DataBank entries must use project memory scope.');
+  }
+  if (scope === 'global' && memoryScope === 'project') {
+    throw new Error('Global DataBank entries require brand or universal memory scope.');
+  }
+  if (memoryScope === 'brand' && !brandId) {
+    throw new Error('Brand memory requires a brandId.');
+  }
+  if (memoryScope === 'universal' && brandId) {
+    throw new Error('Universal memory cannot be assigned to a brand.');
+  }
+
+  const tags = new Set((entry.tags ?? []).map((tag) => tag.trim()).filter(Boolean));
+  tags.add(`memory:${memoryScope}`);
+  if (brandId) tags.add(`brand:${brandId}`);
+  return { scope, memoryScope, ...(brandId ? { brandId } : {}), tags: [...tags] };
+}
 
 export function getDataBankModel(): Model<any> {
   if (!DataBankModel) {
@@ -3097,23 +3156,28 @@ export async function addDataBankEntry(
     tags?: string[];
     projectId?: string;
     scope?: DataBankScope;
+    memoryScope?: DataBankMemoryScope;
+    brandId?: string;
   }
 ): Promise<DataBankEntry> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
   const now = new Date();
+  const provenance = resolveDataBankEntryProvenance(entry);
   const doc = await model.create({
     _id: crypto.randomUUID(),
     sessionId: sessionId || undefined,
     projectId: entry.projectId || undefined,
     userId,
     type: entry.type,
-    scope: entry.scope || 'project',
+    scope: provenance.scope,
+    memoryScope: provenance.memoryScope,
+    brandId: provenance.brandId,
     title: entry.title,
     content: entry.content,
     sourceUrl: entry.sourceUrl,
     sourceEntryId: entry.sourceEntryId,
-    tags: entry.tags || [],
+    tags: provenance.tags,
     embeddingStatus: 'pending',
     createdAt: now,
     updatedAt: now,
@@ -3510,11 +3574,37 @@ export async function logInteractionEvent(
   }
 }
 
-/** Promote a DataBank entry from project to global scope */
+/**
+ * Owner-approved promotion is the only path that can turn an otherwise
+ * unscoped project note into universal memory. Brand-bound entries retain
+ * their brand provenance; no inferred brand crosses this boundary.
+ */
 export async function promoteEntryToGlobal(entryId: string): Promise<void> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
-  await model.updateOne({ _id: entryId }, { $set: { scope: 'global', updatedAt: new Date() } });
+  const existing = await model.findOne({ _id: entryId }).lean() as DataBankEntry | null;
+  if (!existing) return;
+
+  const trustedMetadata = trustedPostMortemMetadata(existing.content);
+  const brandId = existing.brandId ?? trustedMetadata.brandId;
+  const memoryScope: DataBankMemoryScope = brandId ? 'brand' : 'universal';
+  const tags = new Set((existing.tags ?? []).map((tag) => tag.trim()).filter(Boolean));
+  tags.delete('memory:project');
+  tags.add(`memory:${memoryScope}`);
+  if (brandId) tags.add(`brand:${brandId}`);
+
+  await model.updateOne(
+    { _id: entryId },
+    {
+      $set: {
+        scope: 'global',
+        memoryScope,
+        ...(brandId ? { brandId } : {}),
+        tags: [...tags],
+        updatedAt: new Date(),
+      },
+    },
+  );
 }
 
 /** Delete all interaction events for a session (used by Post-Mortem agent) */

@@ -10,6 +10,7 @@ import {
   updateDataBankEmbeddingStatus,
   getDataBankEntriesPendingEmbedding,
   type DataBankEntry,
+  type DataBankMemoryScope,
 } from './db';
 
 export function getVectorIndex() {
@@ -53,6 +54,9 @@ export async function embedDataBankEntry(entry: DataBankEntry): Promise<void> {
         userId: entry.userId,
         type: entry.type,
         scope: entry.scope || 'project',
+        memoryScope: entry.memoryScope || 'project',
+        brandId: entry.brandId || '',
+        projectId: entry.projectId || '',
         sourceUrl: entry.sourceUrl || '',
       }
     });
@@ -101,13 +105,16 @@ export async function queryRelevantFacts(
   queryText: string,
   topK: number = 5,
   scope?: 'project' | 'global',
+  options?: { brandId?: string; memoryScope?: DataBankMemoryScope },
 ): Promise<VectorQueryResult[]> {
   if (!queryText.trim()) return [];
 
   const index = getVectorIndex();
-  const filter = scope
-    ? `userId = '${userId}' AND scope = '${scope}'`
-    : `userId = '${userId}'`;
+  const filterParts = [`userId = '${escapeVectorFilterValue(userId)}'`];
+  if (scope) filterParts.push(`scope = '${scope}'`);
+  if (options?.memoryScope) filterParts.push(`memoryScope = '${options.memoryScope}'`);
+  if (options?.brandId) filterParts.push(`brandId = '${escapeVectorFilterValue(options.brandId)}'`);
+  const filter = filterParts.join(' AND ');
 
   const results = await index.query({
     data: queryText,
@@ -123,6 +130,10 @@ export async function queryRelevantFacts(
       score: r.score,
       metadata: (r.metadata as Record<string, unknown>) || {},
     }));
+}
+
+function escapeVectorFilterValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 const DEDUP_THRESHOLD = 0.95;

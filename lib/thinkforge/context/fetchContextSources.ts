@@ -202,9 +202,12 @@ async function fetchGlobalContext(
 ): Promise<SemanticFact[]> {
   try {
     const vectorResults = await fetchWarmVectorContext(userId, queryText, maxFacts, 'global', brandId);
-    if (vectorResults.length > 0) return vectorResults;
-
-    return await fetchWarmKeywordContext(userId, keywords, maxFacts, brandId);
+    const keywordResults = await fetchWarmKeywordContext(userId, keywords, maxFacts, brandId);
+    return prioritizeGlobalFacts(
+      dedupeSemanticFacts([...vectorResults, ...keywordResults]),
+      brandId,
+      maxFacts,
+    );
   } catch (error) {
     console.warn('[fetchContextSources] Global fetch failed:', error);
     return [];
@@ -218,10 +221,21 @@ async function fetchWarmVectorContext(
   scope?: 'project' | 'global',
   brandId?: string,
 ): Promise<SemanticFact[]> {
-  if (!queryText.trim()) return [];
+  const normalizedQueryText = queryText.trim();
+  if (!normalizedQueryText) return [];
 
   try {
-    const vectorResults = await queryRelevantFacts(userId, queryText, maxFacts, scope);
+    const vectorPlans = scope === 'global'
+      ? [
+          ...(brandId ? [{ brandId, memoryScope: 'brand' as const }] : []),
+          { memoryScope: 'universal' as const },
+        ]
+      : [undefined];
+    const vectorResults = dedupeVectorResults(
+      (await Promise.all(
+        vectorPlans.map((plan) => queryRelevantFacts(userId, normalizedQueryText, maxFacts, scope, plan)),
+      )).flat(),
+    );
     if (vectorResults.length === 0) return [];
 
     const matchedIds = vectorResults.map((r) => r.id);
@@ -238,7 +252,7 @@ async function fetchWarmVectorContext(
       ? orderedEntries.filter((entry) => isVisibleGlobalEntry(entry, brandId))
       : orderedEntries;
 
-    return visibleEntries.map((entry) => ({
+    return visibleEntries.slice(0, maxFacts).map((entry) => ({
       id: entry._id.toString(),
       title: entry.title,
       summary: extractSummary(entry),
@@ -249,6 +263,35 @@ async function fetchWarmVectorContext(
     console.warn('[fetchContextSources] Upstash Vector query failed:', error);
     return [];
   }
+}
+
+function dedupeVectorResults<T extends { id: string; score: number }>(results: T[]): T[] {
+  const highestById = new Map<string, T>();
+  for (const result of results) {
+    const existing = highestById.get(result.id);
+    if (!existing || result.score > existing.score) highestById.set(result.id, result);
+  }
+  return [...highestById.values()].sort((a, b) => b.score - a.score);
+}
+
+function dedupeSemanticFacts(facts: SemanticFact[]): SemanticFact[] {
+  const seen = new Set<string>();
+  return facts.filter((fact) => {
+    if (seen.has(fact.id)) return false;
+    seen.add(fact.id);
+    return true;
+  });
+}
+
+function prioritizeGlobalFacts(
+  facts: SemanticFact[],
+  brandId: string | undefined,
+  maxFacts: number,
+): SemanticFact[] {
+  if (!brandId) return facts.slice(0, maxFacts);
+  const activeBrandFacts = facts.filter((fact) => fact.tags.includes(`brand:${brandId}`));
+  const universalFacts = facts.filter((fact) => !fact.tags.includes(`brand:${brandId}`));
+  return [...activeBrandFacts, ...universalFacts].slice(0, maxFacts);
 }
 
 function scoreEntryByKeywords(entry: DataBankEntry, keywords: string[]): number {
@@ -304,14 +347,24 @@ function extractSummary(entry: DataBankEntry): string {
 
 function isVisibleGlobalEntry(entry: DataBankEntry, brandId?: string): boolean {
   if (entry.scope !== 'global') return false;
-  const entryBrandId = getEntryBrandId(entry);
-  const isBrandScoped = Boolean(entryBrandId)
-    || Boolean(entry.tags?.some((tag) => tag === 'memory:brand' || tag.startsWith('brand:')));
-  if (!isBrandScoped) return true;
-  return Boolean(brandId && entryBrandId === brandId);
+  const memoryScope = getEntryMemoryScope(entry);
+  if (memoryScope === 'universal') return true;
+  if (memoryScope !== 'brand') return false;
+  return Boolean(brandId && getEntryBrandId(entry) === brandId);
+}
+
+function getEntryMemoryScope(entry: DataBankEntry): 'brand' | 'universal' | undefined {
+  if (entry.memoryScope === 'brand' || entry.memoryScope === 'universal') return entry.memoryScope;
+  if (entry.tags?.includes('memory:brand')) return 'brand';
+  if (entry.tags?.includes('memory:universal')) return 'universal';
+  const content = entry.content as Record<string, unknown> | undefined;
+  return content?.memoryScope === 'brand' || content?.memoryScope === 'universal'
+    ? content.memoryScope
+    : undefined;
 }
 
 function getEntryBrandId(entry: DataBankEntry): string | undefined {
+  if (typeof entry.brandId === 'string' && entry.brandId.trim()) return entry.brandId.trim();
   const taggedBrandId = entry.tags
     ?.find((tag) => tag.startsWith('brand:'))
     ?.slice('brand:'.length)

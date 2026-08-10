@@ -141,6 +141,13 @@ describe('fetchContextSources scoped DataBank reads', () => {
         tags: ['memory:brand', 'brand:brand_2'],
       }),
       entry({
+        _id: 'entry_universal',
+        title: 'Universal caption rule',
+        content: { claim: 'Use accessible captions.' },
+        memoryScope: 'universal',
+        tags: ['memory:universal'],
+      }),
+      entry({
         _id: 'entry_project',
         title: 'Old project note',
         scope: 'project',
@@ -166,8 +173,8 @@ describe('fetchContextSources scoped DataBank reads', () => {
       brandId: 'brand_1',
     });
     expect(ctx.globalFacts.map((fact) => fact.id)).toEqual([
-      'entry_generic',
       'entry_brand_1',
+      'entry_universal',
     ]);
   });
 
@@ -199,7 +206,68 @@ describe('fetchContextSources scoped DataBank reads', () => {
     });
 
     expect(ctx.globalFacts.map((fact) => fact.id)).toEqual(['entry_brand_1']);
-    expect(mocks.getDataBankEntriesByUser).not.toHaveBeenCalled();
+    expect(mocks.getDataBankEntriesByUser).toHaveBeenCalledWith('user_1', {
+      limit: 200,
+      scope: 'global',
+    });
+    expect(mocks.queryRelevantFacts).toHaveBeenCalledWith(
+      'user_1',
+      'voice preference',
+      10,
+      'global',
+      { brandId: 'brand_1', memoryScope: 'brand' },
+    );
+    expect(mocks.queryRelevantFacts).toHaveBeenCalledWith(
+      'user_1',
+      'voice preference',
+      10,
+      'global',
+      { memoryScope: 'universal' },
+    );
+  });
+
+  it('fills incomplete vector results with explicitly scoped legacy memory', async () => {
+    mocks.queryRelevantFacts.mockImplementation(async (_userId, _queryText, _maxFacts, _scope, plan) => (
+      plan?.memoryScope === 'universal'
+        ? [{ id: 'entry_universal', score: 0.95 }]
+        : []
+    ));
+    mocks.getDataBankEntriesByIds.mockResolvedValue([
+      entry({
+        _id: 'entry_universal',
+        title: 'Universal proof rule',
+        content: { claim: 'Show proof clearly.' },
+        memoryScope: 'universal',
+        tags: ['memory:universal'],
+      }),
+    ]);
+    mocks.getDataBankEntriesByUser.mockResolvedValue([
+      entry({
+        _id: 'entry_brand_1',
+        title: 'Brand proof rule',
+        content: { claim: 'Lead with customer proof.', brandId: 'brand_1' },
+        tags: ['memory:brand', 'brand:brand_1'],
+      }),
+      entry({
+        _id: 'entry_universal',
+        title: 'Universal proof rule',
+        content: { claim: 'Show proof clearly.' },
+        memoryScope: 'universal',
+        tags: ['memory:universal'],
+      }),
+    ]);
+
+    const ctx = await fetchContextSources({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      currentPrompt: 'show proof',
+      maxFacts: 5,
+    });
+
+    expect(ctx.globalFacts.map((fact) => fact.id)).toEqual([
+      'entry_brand_1',
+      'entry_universal',
+    ]);
   });
 
   it('does not expose brand-scoped global memory when no brand is selected', async () => {
@@ -215,6 +283,13 @@ describe('fetchContextSources scoped DataBank reads', () => {
         content: { claim: 'Use warm voice.', brandId: 'brand_1' },
         tags: ['memory:brand', 'brand:brand_1'],
       }),
+      entry({
+        _id: 'entry_universal',
+        title: 'Universal caption rule',
+        content: { claim: 'Use accessible captions.' },
+        memoryScope: 'universal',
+        tags: ['memory:universal'],
+      }),
     ]);
 
     const ctx = await fetchContextSources({
@@ -223,7 +298,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
       maxFacts: 10,
     });
 
-    expect(ctx.globalFacts.map((fact) => fact.id)).toEqual(['entry_generic']);
+    expect(ctx.globalFacts.map((fact) => fact.id)).toEqual(['entry_universal']);
     expect(mocks.resolveEffectiveBrandDNAWithProfile).toHaveBeenCalledWith('user_1', undefined, undefined);
     expect(mocks.resolveThinkForgeBrandAuthority).not.toHaveBeenCalled();
   });
