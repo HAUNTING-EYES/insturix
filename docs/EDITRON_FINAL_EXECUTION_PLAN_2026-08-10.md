@@ -756,3 +756,16 @@ proved; no successful status without durable state plus its required proof.
 The later caption, transition, AI-MG, SFX/music and long-form stages remain
 part of the programme, but their implementation starts only after the relevant
 writer path has passed this safety sequence.
+
+#### Execution-status correction - 2026-08-11
+
+`3a4d05fc6` completes the deterministic half of 1-B1b.  Director now builds
+its final quality/live-truth/fixture facts without raw persistence and records
+them through `ProjectService.recordPhase0ProofFacts` only when the final edit
+receipt is still current.  The stale case records no facts and emits a visible
+unbound-proof warning.
+
+The remaining 1-B1b work is **1-B1b2**: carry the target receipt through the
+asynchronous rendered-evidence dispatch and worker, render only that target
+revision, and persist the worker result through a receipt-bound owner path.
+This correction takes precedence over the older 1-B1b table row above.
