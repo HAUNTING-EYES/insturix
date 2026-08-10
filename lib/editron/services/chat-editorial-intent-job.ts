@@ -17,6 +17,7 @@ import type {
   RestorableProjectState,
 } from '@/lib/editron/services/checkpoint-service';
 import type { Phase0RenderedEvidenceDispatchResult } from '@/lib/editron/services/phase0-rendered-evidence-worker';
+import type { ProjectMutationReceiptV1 } from '@/lib/editron/services/project-service';
 
 export const CHAT_EDITORIAL_INTENT_JOB_VERSION = 'editron-chat-editorial-intent-job-v1' as const;
 export const CHAT_EDITORIAL_INTENT_MAX_ATTEMPTS = 3;
@@ -175,8 +176,14 @@ interface MgRenderChildJobSnapshot {
   kind?: 'design' | 'render';
 }
 
+type ProjectMutationReceiptCapture = <T>(
+  callback: () => Promise<T> | T,
+  onSettled?: (receipts: readonly ProjectMutationReceiptV1[]) => void,
+) => Promise<{ value: T; receipts: ProjectMutationReceiptV1[] }>;
+
 interface RunDependencies extends CompletionDependencies {
   executeDirector(job: ChatEditorialIntentJob): Promise<DirectorExecutionResult>;
+  captureMutationReceipts: ProjectMutationReceiptCapture;
   loadChildJobs(jobIds: string[], projectId: string, userId: string): Promise<MgRenderChildJobSnapshot[]>;
 }
 
@@ -261,6 +268,7 @@ export async function runChatEditorialIntentJob(
 
   let checkpoint: Checkpoint | null = null;
   let rollbackReceipt: CheckpointRollbackReceiptV1 | null = null;
+  let writerIssuedReceipt: ProjectMutationReceiptV1 | undefined;
   let attemptOperationId = '';
   try {
     const beforeProject = await deps.loadProject(job.userId, job.projectId);
@@ -285,16 +293,30 @@ export async function runChatEditorialIntentJob(
     checkpoint = claim.checkpoint;
     await deps.store.markCheckpointStarted(job._id, job.userId, beforeCheckpointId, deps.now());
 
-    const director = await deps.executeDirector(job);
+    const capturedDirector = await deps.captureMutationReceipts(
+      () => deps.executeDirector(job),
+      (receipts) => {
+        writerIssuedReceipt = latestWriterReceiptForProject(receipts, job.projectId);
+      },
+    );
+    const director = capturedDirector.value;
     if (!director.success) {
       throw new Error(`director-failed:${directorFailureReason(director)}`);
     }
-    rollbackReceipt = await deps.checkpointService.recordRollbackExpectedRevision(
-      checkpoint.checkpointId,
-      job.userId,
-      job.projectId,
-      editorialIntentRollbackReceiptId(job),
-    );
+    rollbackReceipt = writerIssuedReceipt
+      ? await deps.checkpointService.recordRollbackExpectedRevision(
+          checkpoint.checkpointId,
+          job.userId,
+          job.projectId,
+          editorialIntentRollbackReceiptId(job),
+          writerIssuedReceipt,
+        )
+      : await deps.checkpointService.recordRollbackExpectedRevision(
+          checkpoint.checkpointId,
+          job.userId,
+          job.projectId,
+          editorialIntentRollbackReceiptId(job),
+        );
 
     const afterProject = await deps.loadProject(job.userId, job.projectId);
     if (!afterProject) throw new Error('project-not-found-after-editorial-intent');
@@ -358,6 +380,15 @@ export async function runChatEditorialIntentJob(
     const message = errorMessage(error);
     let rolledBack = false;
     if (checkpoint && attemptOperationId) {
+      if (!rollbackReceipt && writerIssuedReceipt) {
+        rollbackReceipt = await deps.checkpointService.recordRollbackExpectedRevision(
+          checkpoint.checkpointId,
+          job.userId,
+          job.projectId,
+          editorialIntentRollbackReceiptId(job),
+          writerIssuedReceipt,
+        );
+      }
       const expectedRevision = rollbackReceipt?.expectedRevision
         ?? checkpoint.capturedProjectRevision;
       const restored = expectedRevision
@@ -675,11 +706,27 @@ async function resolveCompletionDependencies(
 }
 
 async function resolveRunDependencies(overrides: Partial<RunDependencies>): Promise<RunDependencies> {
+  const captureMutationReceipts = overrides.captureMutationReceipts
+    ?? (overrides.executeDirector
+      ? captureInjectedDirectorWithoutWriterReceipts
+      : await resolveProjectMutationReceiptCapture());
   return {
     ...await resolveCompletionDependencies(overrides),
     executeDirector: overrides.executeDirector ?? executeDirectorThroughLivePlanner,
+    captureMutationReceipts,
     loadChildJobs: overrides.loadChildJobs ?? loadMgRenderChildJobs,
   };
+}
+
+async function resolveProjectMutationReceiptCapture(): Promise<ProjectMutationReceiptCapture> {
+  const { projectService } = await import('@/lib/editron/services/project-service');
+  return projectService.captureMutationReceipts.bind(projectService);
+}
+
+async function captureInjectedDirectorWithoutWriterReceipts<T>(
+  callback: () => Promise<T> | T,
+): Promise<{ value: T; receipts: ProjectMutationReceiptV1[] }> {
+  return { value: await callback(), receipts: [] };
 }
 
 async function resolveReconcileDependencies(
@@ -793,6 +840,17 @@ function attemptOperationKey(job: ChatEditorialIntentJob) {
 
 function editorialIntentRollbackReceiptId(job: ChatEditorialIntentJob) {
   return `chat-editorial-intent:${job._id}:attempt:${job.attemptCount}`;
+}
+
+function latestWriterReceiptForProject(
+  receipts: readonly ProjectMutationReceiptV1[],
+  projectId: string,
+): ProjectMutationReceiptV1 | undefined {
+  for (let index = receipts.length - 1; index >= 0; index -= 1) {
+    const receipt = receipts[index];
+    if (receipt?.projectId === projectId) return receipt;
+  }
+  return undefined;
 }
 
 function checkpointId(job: ChatEditorialIntentJob, stage: 'before' | 'after') {
