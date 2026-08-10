@@ -119,18 +119,39 @@ async function persistChatEditVerificationRequested(input: {
   const db = await getDatabase();
   const now = new Date();
   const record = buildRequestedChatEditRenderVerification(input.request, now);
-  const [checkpointWrite, projectWrite] = await Promise.all([
-    db.collection(COLLECTIONS.CHECKPOINTS).updateOne(
-      { checkpointId: input.request.beforeCheckpointId, projectId: input.projectId, userId: input.userId },
-      { $set: { chatEditRenderVerification: record, updatedAt: now } },
-    ),
-    db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId: input.projectId, userId: input.userId },
-      { $set: { 'intelligence.latestChatEditRenderVerification': record } },
-    ),
-  ]);
-  if (checkpointWrite.matchedCount !== 1 || projectWrite.matchedCount !== 1) {
+  if (!input.request.subjectReceipt) {
+    throw new Error('A chat render-verification request requires its writer-issued subject receipt.');
+  }
+  const checkpointWrite = await db.collection(COLLECTIONS.CHECKPOINTS).updateOne(
+    { checkpointId: input.request.beforeCheckpointId, projectId: input.projectId, userId: input.userId },
+    { $set: { chatEditRenderVerification: record, updatedAt: now } },
+  );
+  if (checkpointWrite.matchedCount !== 1) {
     throw new Error('Unable to persist the requested chat render-verification job.');
+  }
+  try {
+    await projectService.recordChatRenderVerificationProjection(input.userId, input.projectId, {
+      subjectReceipt: input.request.subjectReceipt,
+      record,
+      expectedLifecycleStates: ['requested'],
+      allowReplacePriorSubject: true,
+    });
+  } catch (error: unknown) {
+    const failedRecord = markChatEditRenderVerificationDispatched(record, {
+      dispatched: false,
+      reason: error instanceof Error ? error.message : String(error),
+    }, now);
+    await db.collection(COLLECTIONS.CHECKPOINTS).updateOne(
+      {
+        checkpointId: input.request.beforeCheckpointId,
+        projectId: input.projectId,
+        userId: input.userId,
+        'chatEditRenderVerification.operationId': input.request.operationId,
+        'chatEditRenderVerification.lifecycle.state': 'requested',
+      },
+      { $set: { chatEditRenderVerification: failedRecord, updatedAt: now } },
+    );
+    throw error;
   }
   return record;
 }
@@ -141,7 +162,7 @@ async function persistChatEditVerificationDispatch(input: {
   request: ChatEditRenderVerificationRequest;
   requestedRecord: ChatEditRenderVerificationRecord;
   result: { dispatched: boolean; reason?: string; messageId?: string };
-}) {
+}): Promise<{ dispatched: boolean; reason?: string; messageId?: string }> {
   const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
   const db = await getDatabase();
   const now = new Date();
@@ -152,42 +173,38 @@ async function persistChatEditVerificationDispatch(input: {
     userId: input.userId,
     'chatEditRenderVerification.operationId': input.request.operationId,
   };
-  const projectBase = {
-    projectId: input.projectId,
-    userId: input.userId,
-    'intelligence.latestChatEditRenderVerification.operationId': input.request.operationId,
-  };
+  if (input.result.dispatched && input.request.subjectReceipt) {
+    try {
+      await projectService.recordChatRenderVerificationProjection(input.userId, input.projectId, {
+        subjectReceipt: input.request.subjectReceipt,
+        record,
+        expectedLifecycleStates: ['requested'],
+      });
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : String(error);
+      const failedRecord = markChatEditRenderVerificationDispatched(input.requestedRecord, {
+        dispatched: false,
+        reason,
+      }, now);
+      const failedWrite = await db.collection(COLLECTIONS.CHECKPOINTS).updateOne(
+        { ...checkpointBase, 'chatEditRenderVerification.lifecycle.state': 'requested' },
+        { $set: { chatEditRenderVerification: failedRecord, updatedAt: now } },
+      );
+      if (failedWrite.matchedCount !== 1) {
+        throw new Error('Unable to record the stale chat render-verification dispatch disposition.');
+      }
+      return { dispatched: false, reason };
+    }
+  }
 
-  await Promise.all([
-    db.collection(COLLECTIONS.CHECKPOINTS).updateOne(checkpointBase, {
-      $set: {
-        'chatEditRenderVerification.dispatchMessageId': record.dispatchMessageId,
-        'chatEditRenderVerification.lifecycle.qstashMessageId': record.lifecycle.qstashMessageId,
-        'chatEditRenderVerification.lifecycle.dispatchedAt': record.lifecycle.dispatchedAt,
-        'chatEditRenderVerification.lifecycle.updatedAt': record.lifecycle.updatedAt,
-        updatedAt: now,
-      },
-    }),
-    db.collection(COLLECTIONS.PROJECTS).updateOne(projectBase, {
-      $set: {
-        'intelligence.latestChatEditRenderVerification.dispatchMessageId': record.dispatchMessageId,
-        'intelligence.latestChatEditRenderVerification.lifecycle.qstashMessageId': record.lifecycle.qstashMessageId,
-        'intelligence.latestChatEditRenderVerification.lifecycle.dispatchedAt': record.lifecycle.dispatchedAt,
-        'intelligence.latestChatEditRenderVerification.lifecycle.updatedAt': record.lifecycle.updatedAt,
-      },
-    }),
-  ]);
-
-  await Promise.all([
-    db.collection(COLLECTIONS.CHECKPOINTS).updateOne(
-      { ...checkpointBase, 'chatEditRenderVerification.lifecycle.state': 'requested' },
-      { $set: { chatEditRenderVerification: record, updatedAt: now } },
-    ),
-    db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { ...projectBase, 'intelligence.latestChatEditRenderVerification.lifecycle.state': 'requested' },
-      { $set: { 'intelligence.latestChatEditRenderVerification': record } },
-    ),
-  ]);
+  const checkpointWrite = await db.collection(COLLECTIONS.CHECKPOINTS).updateOne(
+    { ...checkpointBase, 'chatEditRenderVerification.lifecycle.state': 'requested' },
+    { $set: { chatEditRenderVerification: record, updatedAt: now } },
+  );
+  if (checkpointWrite.matchedCount !== 1) {
+    throw new Error('Unable to persist the chat render-verification dispatch disposition.');
+  }
+  return input.result;
 }
 
 export async function POST(req: NextRequest) {
@@ -608,12 +625,13 @@ export async function POST(req: NextRequest) {
             const { dispatchPhase0RenderedEvidenceJob } = await import(
               '@/lib/editron/services/phase0-rendered-evidence-worker'
             );
-            renderVerificationDispatch = await dispatchPhase0RenderedEvidenceJob({
+            const dispatched = await dispatchPhase0RenderedEvidenceJob({
               projectId,
               userId,
               requestedAt: editTransactionSummary.renderVerification.requestedAt,
               chatEditVerification: editTransactionSummary.renderVerification,
             });
+            renderVerificationDispatch = dispatched;
           } catch (error: unknown) {
             renderVerificationDispatch = {
               dispatched: false,
@@ -621,7 +639,7 @@ export async function POST(req: NextRequest) {
             };
           }
           if (requestedRecord) {
-            await persistChatEditVerificationDispatch({
+            renderVerificationDispatch = await persistChatEditVerificationDispatch({
               projectId,
               userId,
               request: editTransactionSummary.renderVerification,

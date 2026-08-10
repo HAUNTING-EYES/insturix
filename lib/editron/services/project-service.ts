@@ -25,6 +25,10 @@ import { orgMemberService } from "@/lib/services/orgMemberService";
 import { removeProjectFromLinks } from "@/lib/shared/project-links";
 import { isOrgWalletBillingEnabled } from "@/lib/services/org-wallet-flag";
 import { resolveCreationVisibility } from "./project-ownership";
+import type {
+  ChatEditRenderVerificationLifecycleState,
+  ChatEditRenderVerificationRecord,
+} from "./chat-edit-render-verification-lifecycle";
 
 export interface EditorState {
   overlays: Overlay[];
@@ -136,6 +140,18 @@ export interface ProjectPhase0RenderedEvidenceClaimV1 {
   project: Project;
   targetReceipt: ProjectMutationReceiptV1;
   claimReceipt: ProjectMutationReceiptV1;
+}
+
+/**
+ * A receipt-guarded UI projection of checkpoint-owned chat proof. This is not
+ * a second proof store and does not advance the canonical editor revision.
+ */
+export interface ProjectChatRenderVerificationProjectionInputV1 {
+  subjectReceipt: ProjectMutationReceiptV1;
+  record: ChatEditRenderVerificationRecord;
+  expectedLifecycleStates: ChatEditRenderVerificationLifecycleState[];
+  allowReplacePriorSubject?: boolean;
+  appendHistory?: boolean;
 }
 
 const projectMutationReceiptStorage = new AsyncLocalStorage<ProjectMutationReceiptV1[]>();
@@ -993,6 +1009,81 @@ export class ProjectService {
   }
 
   /**
+   * Mirrors checkpoint-owned chat-proof state only while the editor revision
+   * named by `subjectReceipt` remains current. This is intentionally a
+   * revision-preserving derived projection: a proof lifecycle update is not a
+   * new timeline mutation and must not manufacture a receipt for one.
+   */
+  async recordChatRenderVerificationProjection(
+    userId: string,
+    projectId: string,
+    input: ProjectChatRenderVerificationProjectionInputV1,
+  ): Promise<void> {
+    assertReceiptForProjectRevision(projectId, input.subjectReceipt, input.subjectReceipt.revision);
+    assertChatRenderVerificationProjection(input, projectId);
+
+    const currentProjection = {
+      "intelligence.latestChatEditRenderVerification.operationId": input.record.operationId,
+      "intelligence.latestChatEditRenderVerification.subjectReceipt.projectId": projectId,
+      "intelligence.latestChatEditRenderVerification.subjectReceipt.revision.value": input.subjectReceipt.revision.value,
+      "intelligence.latestChatEditRenderVerification.subjectReceipt.revision.compatibilityUpdatedAt": input.subjectReceipt.revision.compatibilityUpdatedAt,
+      "intelligence.latestChatEditRenderVerification.lifecycle.state": {
+        $in: input.expectedLifecycleStates,
+      },
+    };
+    const projectionScope = input.allowReplacePriorSubject
+      ? {
+          $or: [
+            { "intelligence.latestChatEditRenderVerification": { $exists: false } },
+            {
+              "intelligence.latestChatEditRenderVerification.subjectReceipt.revision.value": {
+                $ne: input.subjectReceipt.revision.value,
+              },
+            },
+            currentProjection,
+          ],
+        }
+      : currentProjection;
+    const update: Record<string, unknown> = {
+      $set: {
+        "intelligence.latestChatEditRenderVerification": structuredClone(input.record),
+      },
+    };
+    if (input.appendHistory) {
+      update.$push = {
+        "intelligence.chatEditRenderVerificationHistory": {
+          $each: [structuredClone(input.record)],
+          $slice: -20,
+        },
+      };
+    }
+
+    const db = await getDatabase();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        $and: [
+          projectRevisionPredicate(input.subjectReceipt.revision),
+          projectionScope,
+        ],
+      },
+      update,
+    );
+    if (result.matchedCount === 1) return;
+
+    const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!latest) throw new ProjectNotFoundOrForbiddenError();
+    throw new ProjectMutationConflictError(
+      projectRevisionFor(latest),
+      "The chat render-verification projection is stale for this project revision.",
+    );
+  }
+
+  /**
    * Captures receipts emitted by ProjectService writers while one async
    * operation runs. The receipt is produced by the writer itself, so callers
    * do not need a post-write current-revision read to bind a rollback.
@@ -1755,6 +1846,38 @@ function assertReceiptForProjectRevision(
     || Number.isNaN(new Date(receipt.committedAt).getTime())
   ) {
     throw new ProjectMutationWriteError("Phase-0 rendered evidence must bind one valid writer receipt.");
+  }
+}
+
+function assertChatRenderVerificationProjection(
+  input: ProjectChatRenderVerificationProjectionInputV1,
+  projectId: string,
+): void {
+  const recordReceipt = input.record.subjectReceipt;
+  const expectedStates = new Set([
+    "requested",
+    "dispatched",
+    "delivered",
+    "rendering",
+    "completed",
+    "failed",
+  ] satisfies ChatEditRenderVerificationLifecycleState[]);
+  if (
+    input.record.version !== "editron-chat-render-verification-result-v1"
+    || !input.record.operationId.trim()
+    || !recordReceipt
+    || recordReceipt.schemaVersion !== input.subjectReceipt.schemaVersion
+    || recordReceipt.projectId !== projectId
+    || recordReceipt.revision.value !== input.subjectReceipt.revision.value
+    || recordReceipt.revision.compatibilityUpdatedAt
+      !== input.subjectReceipt.revision.compatibilityUpdatedAt
+    || !Array.isArray(input.expectedLifecycleStates)
+    || input.expectedLifecycleStates.length === 0
+    || input.expectedLifecycleStates.some((state) => !expectedStates.has(state))
+  ) {
+    throw new ProjectMutationWriteError(
+      "Chat render-verification projection must bind one valid writer receipt and lifecycle state.",
+    );
   }
 }
 

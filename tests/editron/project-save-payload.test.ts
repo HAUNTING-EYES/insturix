@@ -650,6 +650,96 @@ describe("Editron project save payload compaction", () => {
     expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
   });
 
+  it("projects checkpoint-owned chat proof only while its writer receipt remains current", async () => {
+    const updatedAt = "2026-08-11T07:00:00.000Z";
+    const subjectReceipt = {
+      schemaVersion: 1 as const,
+      projectId: "proj_1",
+      revision: { schemaVersion: 1 as const, value: 11, compatibilityUpdatedAt: updatedAt },
+      committedAt: updatedAt,
+    };
+    const record = {
+      version: "editron-chat-render-verification-result-v1" as const,
+      operationId: "chatop_projection",
+      sessionId: "sess_1",
+      beforeCheckpointId: "ckpt_before",
+      afterCheckpointId: "ckpt_after",
+      subjectReceipt,
+      status: "pending" as const,
+      requestedAt: updatedAt,
+      startedAt: null,
+      completedAt: null,
+      modalities: ["visual"] as Array<"visual">,
+      targets: [],
+      projectRenderEligibility: null,
+      sampleFrames: [20],
+      visual: null,
+      audio: null,
+      reasons: [],
+      issues: [],
+      dispatchMessageId: null,
+      notificationStatus: "pending" as const,
+      notificationSentAt: null,
+      lifecycle: {
+        version: "editron-chat-render-verification-lifecycle-v1" as const,
+        state: "requested" as const,
+        terminalStatus: null,
+        attemptCount: 0,
+        qstashMessageId: null,
+        workerRequestId: null,
+        reason: null,
+        requestedAt: updatedAt,
+        dispatchedAt: null,
+        deliveredAt: null,
+        renderingAt: null,
+        terminalAt: null,
+        updatedAt,
+      },
+    };
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import("@/lib/editron/services/project-service");
+
+    await projectService.recordChatRenderVerificationProjection("user_1", "proj_1", {
+      subjectReceipt,
+      record,
+      expectedLifecycleStates: ["requested"],
+      allowReplacePriorSubject: true,
+    });
+
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "proj_1",
+        userId: "user_1",
+        $and: expect.arrayContaining([
+          expect.objectContaining({ projectRevision: 11, updatedAt: new Date(updatedAt) }),
+        ]),
+      }),
+      expect.objectContaining({
+        $set: {
+          "intelligence.latestChatEditRenderVerification": record,
+        },
+      }),
+    );
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.not.objectContaining({ $inc: expect.anything() }),
+    );
+
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      projectRevision: 12,
+      updatedAt: new Date("2026-08-11T07:00:01.000Z"),
+    });
+    const { ProjectMutationConflictError } = await import("@/lib/editron/services/project-service");
+    await expect(projectService.recordChatRenderVerificationProjection("user_1", "proj_1", {
+      subjectReceipt,
+      record,
+      expectedLifecycleStates: ["requested"],
+    })).rejects.toBeInstanceOf(ProjectMutationConflictError);
+  });
+
   it("claims and records rendered evidence through one receipt-bound CAS chain", async () => {
     const targetAt = "2026-08-11T06:00:00.000Z";
     const claimedAt = "2026-08-11T06:00:01.000Z";

@@ -1682,6 +1682,13 @@ describe('chat AI edit transaction runtime', () => {
     expect(route.match(/writerIssuedReceipt,/g)).toHaveLength(2);
     expect(route).toContain("code: 'CHAT_EDIT_OPERATION_REPLAY'");
     expect(route).toContain('rollbackChatAiEditTransaction({');
+    expect(route).toContain('projectService.recordChatRenderVerificationProjection(');
+    const chatProofProducer = route.slice(
+      route.indexOf('async function persistChatEditVerificationRequested'),
+      route.indexOf('export async function POST'),
+    );
+    expect(chatProofProducer).not.toContain('COLLECTIONS.PROJECTS');
+    expect(chatProofProducer).not.toContain("collection(COLLECTIONS.PROJECTS)");
     expect(panel).toContain('const operationId = crypto.randomUUID();');
     expect(panel).toContain('const requestSessionId = currentSessionId;');
     expect(panel.indexOf('const requestSessionId = currentSessionId;')).toBeLessThan(
