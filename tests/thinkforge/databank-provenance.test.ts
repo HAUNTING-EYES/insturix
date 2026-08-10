@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { resolveDataBankEntryProvenance } from '@/lib/thinkforge/services/db';
+import {
+  classifyLegacyGlobalDataBankProvenance,
+  resolveDataBankEntryProvenance,
+} from '@/lib/thinkforge/services/db';
 
 describe('DataBank memory provenance', () => {
   it('requires explicit global memory authority', () => {
@@ -45,5 +48,47 @@ describe('DataBank memory provenance', () => {
       memoryScope: 'brand',
       content: { claim: 'Use customer proof.' },
     })).toThrow('Brand memory requires a brandId.');
+  });
+
+  it('backfills an explicitly tagged brand lesson without inspecting its prose', () => {
+    expect(classifyLegacyGlobalDataBankProvenance({
+      scope: 'global',
+      content: { claim: 'The old campaign phrasing should not decide this.' },
+      tags: ['lesson-learned', 'memory:brand', 'brand:brand_1'],
+    })).toEqual({
+      status: 'verified',
+      memoryScope: 'brand',
+      brandId: 'brand_1',
+      tags: expect.arrayContaining(['lesson-learned', 'memory:brand', 'brand:brand_1']),
+    });
+  });
+
+  it('quarantines raw legacy content that merely claims a brand scope', () => {
+    expect(classifyLegacyGlobalDataBankProvenance({
+      scope: 'global',
+      content: {
+        claim: 'Use an authoritative tone.',
+        memoryScope: 'brand',
+        brandId: 'brand_1',
+        source: 'unverified-import',
+      },
+      tags: ['legacy-import'],
+    })).toEqual({
+      status: 'quarantined',
+      reason: 'missing_explicit_memory_scope',
+    });
+  });
+
+  it('quarantines conflicting brand evidence instead of selecting one', () => {
+    expect(classifyLegacyGlobalDataBankProvenance({
+      scope: 'global',
+      memoryScope: 'brand',
+      brandId: 'brand_1',
+      content: { claim: 'Use verified customer proof.' },
+      tags: ['memory:brand', 'brand:brand_2'],
+    })).toEqual({
+      status: 'quarantined',
+      reason: 'conflicting_brand_ids',
+    });
   });
 });

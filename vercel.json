@@ -71,6 +71,10 @@
     {
       "path": "/api/cron/refresh-instagram-tokens",
       "schedule": "23 5 * * *"
+    },
+    {
+      "path": "/api/cron/process-thinkforge-databank",
+      "schedule": "43 */6 * * *"
     }
   ]
 }

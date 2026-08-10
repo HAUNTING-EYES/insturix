@@ -3021,6 +3021,16 @@ export type DataBankEntryType =
 export type EmbeddingStatus = 'pending' | 'processing' | 'success' | 'failed';
 export type DataBankScope = 'project' | 'global';
 export type DataBankMemoryScope = 'project' | 'brand' | 'universal';
+export type DataBankProvenanceStatus = 'verified' | 'quarantined';
+export type DataBankProvenanceReason =
+  | 'missing_explicit_memory_scope'
+  | 'conflicting_memory_scopes'
+  | 'missing_brand_id'
+  | 'conflicting_brand_ids'
+  | 'universal_memory_has_brand';
+
+/** Bump when vector metadata changes in a retrieval-relevant way. */
+export const DATA_BANK_EMBEDDING_METADATA_VERSION = 1;
 
 export interface DataBankEntry {
   _id: string;
@@ -3032,12 +3042,19 @@ export interface DataBankEntry {
   /** First-class provenance for entries that can cross a session boundary. */
   memoryScope?: DataBankMemoryScope;
   brandId?: string;
+  provenanceStatus?: DataBankProvenanceStatus;
+  provenanceReason?: DataBankProvenanceReason;
   title: string;
   content: Record<string, any>;
   sourceUrl?: string;
   sourceEntryId?: string;
   tags?: string[];
   embeddingStatus?: EmbeddingStatus;
+  embeddingAttempts?: number;
+  embeddingLastAttemptAt?: Date;
+  embeddingNextRetryAt?: Date;
+  embeddingLeaseExpiresAt?: Date;
+  embeddingMetadataVersion?: number;
   vectorId?: string;
   embedding?: number[];
   createdAt: Date;
@@ -3050,6 +3067,17 @@ const DataBankSchema = new Schema({
   projectId: { type: String, index: true },
   userId: { type: String, required: true, index: true },
   brandId: { type: String, index: true },
+  provenanceStatus: { type: String, enum: ['verified', 'quarantined'], index: true },
+  provenanceReason: {
+    type: String,
+    enum: [
+      'missing_explicit_memory_scope',
+      'conflicting_memory_scopes',
+      'missing_brand_id',
+      'conflicting_brand_ids',
+      'universal_memory_has_brand',
+    ],
+  },
   type: {
     type: String,
     required: true,
@@ -3066,6 +3094,11 @@ const DataBankSchema = new Schema({
     enum: ['pending', 'processing', 'success', 'failed'],
     default: 'pending',
   },
+  embeddingAttempts: { type: Number, default: 0 },
+  embeddingLastAttemptAt: { type: Date },
+  embeddingNextRetryAt: { type: Date, index: true },
+  embeddingLeaseExpiresAt: { type: Date, index: true },
+  embeddingMetadataVersion: { type: Number },
   vectorId: { type: String },
   embedding: { type: [Number], default: undefined },
   scope: { type: String, enum: ['project', 'global'], default: 'project', index: true },
@@ -3078,6 +3111,7 @@ DataBankSchema.index({ userId: 1, type: 1 });
 DataBankSchema.index({ userId: 1, embeddingStatus: 1 });
 DataBankSchema.index({ userId: 1, scope: 1 });
 DataBankSchema.index({ userId: 1, scope: 1, memoryScope: 1, brandId: 1 });
+DataBankSchema.index({ embeddingStatus: 1, embeddingNextRetryAt: 1, createdAt: 1 });
 DataBankSchema.index({ sessionId: 1, userId: 1 });
 DataBankSchema.index({ projectId: 1, type: 1 });
 DataBankSchema.index({ tags: 1 });
@@ -3099,6 +3133,106 @@ function trustedPostMortemMetadata(content: Record<string, any>): {
     ...(memoryScope === 'project' || memoryScope === 'brand' || memoryScope === 'universal'
       ? { memoryScope }
       : {}),
+  };
+}
+
+function explicitTaggedMemoryScope(tags: string[] | undefined): 'brand' | 'universal' | undefined | 'conflict' {
+  const scopes = new Set(
+    (tags ?? [])
+      .filter((tag) => tag === 'memory:brand' || tag === 'memory:universal')
+      .map((tag) => tag.slice('memory:'.length)),
+  );
+  if (scopes.size > 1) return 'conflict';
+  const [scope] = scopes;
+  return scope === 'brand' || scope === 'universal' ? scope : undefined;
+}
+
+function explicitTaggedBrandIds(tags: string[] | undefined): string[] {
+  return [...new Set(
+    (tags ?? [])
+      .filter((tag) => tag.startsWith('brand:'))
+      .map((tag) => dataBankString(tag.slice('brand:'.length)))
+      .filter((brandId): brandId is string => Boolean(brandId)),
+  )];
+}
+
+function normalizedMemoryTags(
+  tags: string[] | undefined,
+  memoryScope: 'brand' | 'universal',
+  brandId?: string,
+): string[] {
+  const normalized = new Set(
+    (tags ?? []).map((tag) => tag.trim()).filter(Boolean)
+      .filter((tag) => !tag.startsWith('memory:') && !tag.startsWith('brand:')),
+  );
+  normalized.add(`memory:${memoryScope}`);
+  if (brandId) normalized.add(`brand:${brandId}`);
+  return [...normalized];
+}
+
+export type LegacyDataBankProvenanceClassification =
+  | {
+      status: 'verified';
+      memoryScope: 'brand' | 'universal';
+      brandId?: string;
+      tags: string[];
+    }
+  | {
+      status: 'quarantined';
+      reason: DataBankProvenanceReason;
+    };
+
+/**
+ * Classifies legacy global memory using only provenance that already exists in
+ * the record. This deliberately does not infer a brand from its prose.
+ */
+export function classifyLegacyGlobalDataBankProvenance(
+  entry: Pick<DataBankEntry, 'scope' | 'memoryScope' | 'brandId' | 'content' | 'tags'>,
+): LegacyDataBankProvenanceClassification {
+  const firstClassScope = entry.memoryScope === 'brand' || entry.memoryScope === 'universal'
+    ? entry.memoryScope
+    : undefined;
+  const trustedMetadata = trustedPostMortemMetadata(entry.content);
+  const taggedScope = explicitTaggedMemoryScope(entry.tags);
+
+  if (taggedScope === 'conflict') {
+    return { status: 'quarantined', reason: 'conflicting_memory_scopes' };
+  }
+
+  const memoryScopes = new Set(
+    [firstClassScope, trustedMetadata.memoryScope, taggedScope]
+      .filter((scope): scope is 'brand' | 'universal' => scope === 'brand' || scope === 'universal'),
+  );
+  if (memoryScopes.size === 0) {
+    return { status: 'quarantined', reason: 'missing_explicit_memory_scope' };
+  }
+  if (memoryScopes.size > 1) {
+    return { status: 'quarantined', reason: 'conflicting_memory_scopes' };
+  }
+
+  const [memoryScope] = memoryScopes;
+  const brandIds = new Set([
+    dataBankString(entry.brandId),
+    trustedMetadata.brandId,
+    ...explicitTaggedBrandIds(entry.tags),
+  ].filter((brandId): brandId is string => Boolean(brandId)));
+
+  if (brandIds.size > 1) {
+    return { status: 'quarantined', reason: 'conflicting_brand_ids' };
+  }
+  const [brandId] = brandIds;
+  if (memoryScope === 'brand' && !brandId) {
+    return { status: 'quarantined', reason: 'missing_brand_id' };
+  }
+  if (memoryScope === 'universal' && brandId) {
+    return { status: 'quarantined', reason: 'universal_memory_has_brand' };
+  }
+
+  return {
+    status: 'verified',
+    memoryScope,
+    ...(brandId ? { brandId } : {}),
+    tags: normalizedMemoryTags(entry.tags, memoryScope, brandId),
   };
 }
 
@@ -3173,6 +3307,7 @@ export async function addDataBankEntry(
     scope: provenance.scope,
     memoryScope: provenance.memoryScope,
     brandId: provenance.brandId,
+    provenanceStatus: 'verified',
     title: entry.title,
     content: entry.content,
     sourceUrl: entry.sourceUrl,
@@ -3342,6 +3477,219 @@ export async function getDataBankEntriesPendingEmbedding(
     .limit(limit)
     .lean();
   return docs as unknown as DataBankEntry[];
+}
+
+const EMBEDDING_MAX_ATTEMPTS = 3;
+const EMBEDDING_LEASE_MS = 5 * 60 * 1000;
+
+function retryableEmbeddingQuery(now: Date, maxAttempts: number): Record<string, any> {
+  return {
+    $or: [
+      { embeddingStatus: 'pending' },
+      {
+        embeddingStatus: 'failed',
+        $and: [
+          { $or: [{ embeddingAttempts: { $lt: maxAttempts } }, { embeddingAttempts: { $exists: false } }] },
+          { $or: [{ embeddingNextRetryAt: { $lte: now } }, { embeddingNextRetryAt: { $exists: false } }] },
+        ],
+      },
+      {
+        embeddingStatus: 'processing',
+        $or: [
+          { embeddingLeaseExpiresAt: { $lte: now } },
+          { embeddingLeaseExpiresAt: { $exists: false } },
+          { embeddingLeaseExpiresAt: null },
+        ],
+      },
+    ],
+  };
+}
+
+async function claimDataBankEmbedding(
+  filter: Record<string, any>,
+  now: Date,
+): Promise<DataBankEntry | null> {
+  const model = getDataBankModel();
+  const doc = await model.findOneAndUpdate(
+    filter,
+    {
+      $set: {
+        embeddingStatus: 'processing',
+        embeddingLastAttemptAt: now,
+        embeddingLeaseExpiresAt: new Date(now.getTime() + EMBEDDING_LEASE_MS),
+        updatedAt: now,
+      },
+      $unset: { embeddingNextRetryAt: '' },
+      $inc: { embeddingAttempts: 1 },
+    },
+    { new: true },
+  ).lean();
+  return doc as DataBankEntry | null;
+}
+
+/** Claim one entry atomically before an immediate embedding attempt. */
+export async function claimDataBankEntryForEmbedding(
+  entryId: string,
+  maxAttempts: number = EMBEDDING_MAX_ATTEMPTS,
+): Promise<DataBankEntry | null> {
+  await connectToThinkForgeDb();
+  const now = new Date();
+  return claimDataBankEmbedding({ _id: entryId, ...retryableEmbeddingQuery(now, maxAttempts) }, now);
+}
+
+/** Claim a bounded batch for a worker without duplicate concurrent embedding. */
+export async function claimDataBankEntriesForEmbedding(
+  limit: number = 50,
+  maxAttempts: number = EMBEDDING_MAX_ATTEMPTS,
+): Promise<DataBankEntry[]> {
+  await connectToThinkForgeDb();
+  const entries: DataBankEntry[] = [];
+  const cappedLimit = Math.max(1, Math.min(limit, 200));
+
+  for (let index = 0; index < cappedLimit; index++) {
+    const now = new Date();
+    const entry = await claimDataBankEmbedding(retryableEmbeddingQuery(now, maxAttempts), now);
+    if (!entry) break;
+    entries.push(entry);
+  }
+  return entries;
+}
+
+export async function completeDataBankEmbedding(
+  entryId: string,
+  vectorId: string,
+): Promise<void> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  await model.updateOne(
+    { _id: entryId },
+    {
+      $set: {
+        embeddingStatus: 'success',
+        embeddingMetadataVersion: DATA_BANK_EMBEDDING_METADATA_VERSION,
+        vectorId,
+        updatedAt: new Date(),
+      },
+      $unset: { embeddingLeaseExpiresAt: '', embeddingNextRetryAt: '' },
+    },
+  );
+}
+
+export async function failDataBankEmbedding(
+  entryId: string,
+  attempt: number,
+): Promise<void> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const cappedAttempt = Math.max(1, attempt);
+  const retryDelayMs = Math.min(60 * 60 * 1000, 60 * 1000 * 2 ** (cappedAttempt - 1));
+  await model.updateOne(
+    { _id: entryId },
+    {
+      $set: {
+        embeddingStatus: 'failed',
+        embeddingNextRetryAt: new Date(Date.now() + retryDelayMs),
+        updatedAt: new Date(),
+      },
+      $unset: { embeddingLeaseExpiresAt: '' },
+    },
+  );
+}
+
+export interface DataBankProvenanceBackfillResult {
+  scanned: number;
+  verified: number;
+  quarantined: number;
+  reembeddingQueued: number;
+}
+
+/**
+ * Incrementally stamps trusted legacy global records and queues only those
+ * records for vector metadata refresh. Ambiguous records are explicitly
+ * quarantined so subsequent cron runs progress rather than revisiting them.
+ */
+export async function backfillDataBankProvenanceAndQueueEmbeddings(
+  limit: number = 50,
+): Promise<DataBankProvenanceBackfillResult> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const cappedLimit = Math.max(1, Math.min(limit, 200));
+  const legacyProvenanceQuery = {
+    scope: 'global',
+    $or: [
+      {
+        $and: [
+          { memoryScope: { $nin: ['brand', 'universal'] } },
+          { $or: [{ provenanceStatus: { $exists: false } }, { provenanceStatus: null }] },
+        ],
+      },
+      {
+        $and: [
+          { memoryScope: { $in: ['brand', 'universal'] } },
+          { embeddingMetadataVersion: { $ne: DATA_BANK_EMBEDDING_METADATA_VERSION } },
+          { embeddingStatus: { $in: ['pending', 'success'] } },
+        ],
+      },
+    ],
+  };
+  const candidates = await model.find(legacyProvenanceQuery)
+    .sort({ createdAt: 1, _id: 1 })
+    .limit(cappedLimit)
+    .lean() as unknown as DataBankEntry[];
+
+  if (candidates.length === 0) {
+    return { scanned: 0, verified: 0, quarantined: 0, reembeddingQueued: 0 };
+  }
+
+  let verified = 0;
+  let quarantined = 0;
+  let reembeddingQueued = 0;
+  const now = new Date();
+  const operations = candidates.map((entry) => {
+    const classification = classifyLegacyGlobalDataBankProvenance(entry);
+    if (classification.status === 'quarantined') {
+      quarantined++;
+      return {
+        updateOne: {
+          filter: { _id: entry._id },
+          update: {
+            $set: {
+              provenanceStatus: 'quarantined',
+              provenanceReason: classification.reason,
+              updatedAt: now,
+            },
+          },
+        },
+      };
+    }
+
+    verified++;
+    reembeddingQueued++;
+    return {
+      updateOne: {
+        filter: { _id: entry._id },
+        update: {
+          $set: {
+            memoryScope: classification.memoryScope,
+            ...(classification.brandId ? { brandId: classification.brandId } : {}),
+            provenanceStatus: 'verified',
+            embeddingStatus: 'pending',
+            tags: classification.tags,
+            updatedAt: now,
+          },
+          $unset: {
+            provenanceReason: '',
+            embeddingMetadataVersion: '',
+            embeddingNextRetryAt: '',
+            embeddingLeaseExpiresAt: '',
+          },
+        },
+      },
+    };
+  });
+
+  await model.bulkWrite(operations, { ordered: false });
+  return { scanned: candidates.length, verified, quarantined, reembeddingQueued };
 }
 
 /** Delete a DataBank entry (owner only) */
