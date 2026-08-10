@@ -1,4 +1,13 @@
-import { MongoClient, type Db, type Filter, type IndexDescription } from 'mongodb';
+import {
+  MongoClient,
+  type ClientSession,
+  type Collection,
+  type Db,
+  type Document,
+  type Filter,
+  type IndexDescription,
+  type UpdateFilter,
+} from 'mongodb';
 import type { BrandSignalProfile } from './brand-signal-profile';
 import {
   acceptBrandSignalProfileDraft,
@@ -105,6 +114,12 @@ export interface BrandVaultMongoCursor<TDocument> {
 
 export interface BrandVaultMongoStoreOptions {
   collections: BrandVaultMongoCollections | (() => Promise<BrandVaultMongoCollections>);
+  /**
+   * Production Mongo passes a transaction-bound collection set here. Keeping it
+   * injectable lets the store remain testable without making in-memory tests pretend
+   * to provide database isolation.
+   */
+  withTransaction?: <T>(operation: (collections: BrandVaultMongoCollections) => Promise<T>) => Promise<T>;
 }
 
 let cachedMongoClient: Promise<MongoClient> | null = null;
@@ -163,22 +178,29 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     id: string,
     options: BrandSignalLifecycleOptions = {},
   ): Promise<BrandSignalProfileRepositoryResult> {
-    const collections = await this.getCollections();
-    const draft = await this.getRecord(id);
-    if (!draft) return failure('not_found', 'record', `Brand signal profile record "${id}" was not found.`);
-    if (draft.status !== 'draft') {
-      return failure('not_draft', 'status', `Only draft profiles can be accepted. Current status: ${draft.status}.`);
-    }
-
-    const accepted = acceptBrandSignalProfileDraft(draft, options);
-    if (!accepted.ok) {
-      await appendEvent(collections.events, 'draft_accept_failed', draft, options, { issues: accepted.issues });
-      return { ok: false, code: 'validation_failed', issues: accepted.issues };
-    }
-
-    const superseded = await this.supersedeExistingAccepted(collections, accepted.record, options);
     try {
-      await upsertRecord(collections.profiles, accepted.record);
+      await this.getCollections();
+      return await this.runInTransaction(async (collections) => {
+        const current = await collections.profiles.findOne({ _id: id } as Filter<BrandVaultMongoProfileDocument>);
+        const draft = current?.record;
+        if (!draft) return failure('not_found', 'record', `Brand signal profile record "${id}" was not found.`);
+        if (draft.status !== 'draft') {
+          return failure('not_draft', 'status', `Only draft profiles can be accepted. Current status: ${draft.status}.`);
+        }
+
+        const accepted = acceptBrandSignalProfileDraft(draft, options);
+        if (!accepted.ok) {
+          await appendEvent(collections.events, 'draft_accept_failed', draft, options, { issues: accepted.issues });
+          return { ok: false, code: 'validation_failed', issues: accepted.issues };
+        }
+
+        // The unique accepted-scope index requires the old record to be superseded
+        // first. A Mongo transaction makes that intermediate state invisible to readers.
+        const superseded = await this.supersedeExistingAccepted(collections, accepted.record, options);
+        await upsertRecord(collections.profiles, accepted.record);
+        await appendEvent(collections.events, 'draft_accepted', accepted.record, options);
+        return { ok: true, record: clone(accepted.record), superseded: superseded.map(clone) };
+      });
     } catch (error) {
       if (!isDuplicateKeyError(error)) throw error;
       const issues = [{
@@ -187,11 +209,13 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
         path: 'scope',
         message: 'Another reviewer accepted a profile for this brand scope first. Refresh the Brand Vault before accepting this draft.',
       }];
-      await appendEvent(collections.events, 'draft_accept_failed', draft, options, { issues });
+      const collections = await this.getCollections();
+      const draft = await this.getRecord(id);
+      if (draft?.status === 'draft') {
+        await appendEvent(collections.events, 'draft_accept_failed', draft, options, { issues });
+      }
       return { ok: false, code: 'conflict', issues };
     }
-    await appendEvent(collections.events, 'draft_accepted', accepted.record, options);
-    return { ok: true, record: clone(accepted.record), superseded: superseded.map(clone) };
   }
 
   async rejectDraft(
@@ -379,6 +403,11 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     }
     return collections;
   }
+
+  private async runInTransaction<T>(operation: (collections: BrandVaultMongoCollections) => Promise<T>): Promise<T> {
+    if (this.options.withTransaction) return this.options.withTransaction(operation);
+    return operation(await this.getCollections());
+  }
 }
 
 export function createBrandVaultMongoRefineryStore(
@@ -393,6 +422,7 @@ export function createBrandVaultMongoRefineryStoreFromEnvironment(): BrandVaultM
   if (!uri || !dbName || process.env.BRAND_VAULT_PERSISTENCE === 'memory') return null;
   return createBrandVaultMongoRefineryStore({
     collections: async () => getMongoCollections(uri, dbName),
+    withTransaction: async (operation) => runMongoTransaction(uri, dbName, operation),
   });
 }
 
@@ -404,10 +434,60 @@ async function getMongoCollections(uri: string, dbName: string): Promise<BrandVa
 
 function collectionsFromDb(db: Db): BrandVaultMongoCollections {
   return {
-    profiles: db.collection<BrandVaultMongoProfileDocument>(BRAND_VAULT_COLLECTIONS.profiles),
-    events: db.collection<BrandVaultMongoEventDocument>(BRAND_VAULT_COLLECTIONS.events),
-    jobs: db.collection<BrandVaultMongoJobDocument>(BRAND_VAULT_COLLECTIONS.jobs),
-    brandAccess: db.collection<BrandVaultMongoBrandAccessDocument>(BRAND_VAULT_COLLECTIONS.brandAccess),
+    profiles: bindMongoCollection(db.collection<BrandVaultMongoProfileDocument>(BRAND_VAULT_COLLECTIONS.profiles)),
+    events: bindMongoCollection(db.collection<BrandVaultMongoEventDocument>(BRAND_VAULT_COLLECTIONS.events)),
+    jobs: bindMongoCollection(db.collection<BrandVaultMongoJobDocument>(BRAND_VAULT_COLLECTIONS.jobs)),
+    brandAccess: bindMongoCollection(db.collection<BrandVaultMongoBrandAccessDocument>(BRAND_VAULT_COLLECTIONS.brandAccess)),
+  };
+}
+
+async function runMongoTransaction<T>(
+  uri: string,
+  dbName: string,
+  operation: (collections: BrandVaultMongoCollections) => Promise<T>,
+): Promise<T> {
+  const client = await getMongoClient(uri);
+  const session = client.startSession();
+  try {
+    let result!: T;
+    await session.withTransaction(async () => {
+      result = await operation(collectionsFromDbWithSession(client.db(dbName), session));
+    }, {
+      readConcern: { level: 'snapshot' },
+      writeConcern: { w: 'majority' },
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+}
+
+function collectionsFromDbWithSession(db: Db, session: ClientSession): BrandVaultMongoCollections {
+  return {
+    profiles: bindMongoCollection(db.collection<BrandVaultMongoProfileDocument>(BRAND_VAULT_COLLECTIONS.profiles), session),
+    events: bindMongoCollection(db.collection<BrandVaultMongoEventDocument>(BRAND_VAULT_COLLECTIONS.events), session),
+    jobs: bindMongoCollection(db.collection<BrandVaultMongoJobDocument>(BRAND_VAULT_COLLECTIONS.jobs), session),
+    brandAccess: bindMongoCollection(db.collection<BrandVaultMongoBrandAccessDocument>(BRAND_VAULT_COLLECTIONS.brandAccess), session),
+  };
+}
+
+function bindMongoCollection<TDocument extends { _id: string }>(
+  collection: Collection<TDocument & Document>,
+  session?: ClientSession,
+): BrandVaultMongoCollection<TDocument> {
+  const sessionOptions = session ? { session } : {};
+  return {
+    createIndexes: (indexes) => collection.createIndexes(indexes),
+    findOne: async (filter) => (
+      await collection.findOne(filter as Filter<TDocument & Document>, sessionOptions)
+    ) as TDocument | null,
+    find: (filter) => collection.find(filter as Filter<TDocument & Document>, sessionOptions) as unknown as BrandVaultMongoCursor<TDocument>,
+    updateOne: (filter, update, options) => collection.updateOne(
+      filter as Filter<TDocument & Document>,
+      update as UpdateFilter<TDocument & Document>,
+      { ...options, ...sessionOptions },
+    ),
+    deleteOne: (filter) => collection.deleteOne(filter as Filter<TDocument & Document>, sessionOptions),
   };
 }
 

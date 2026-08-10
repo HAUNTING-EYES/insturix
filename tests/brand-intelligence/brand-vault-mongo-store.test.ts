@@ -208,6 +208,43 @@ describe('Brand Vault Mongo refinery store', () => {
     expect((await store.getRecord(record.id))?.status).toBe('draft');
   });
 
+  it('keeps the prior accepted profile visible when an atomic replacement aborts', async () => {
+    let active = createMemoryCollections();
+    let rejectReplacement = false;
+    const store = createBrandVaultMongoRefineryStore({
+      collections: async () => active,
+      withTransaction: async (operation) => {
+        const staged = await cloneMemoryCollections(active);
+        if (rejectReplacement) {
+          const updateOne = staged.profiles.updateOne.bind(staged.profiles);
+          staged.profiles.updateOne = async (filter, update, options) => {
+            if ((update.$set as Partial<BrandVaultMongoProfileDocument> | undefined)?.status === 'accepted') {
+              throw Object.assign(new Error('duplicate accepted scope'), { code: 11000 });
+            }
+            return updateOne(filter, update, options);
+          };
+        }
+        const result = await operation(staged);
+        active = staged;
+        return result;
+      },
+    });
+
+    await store.saveRecord(draftRecord({ id: 'atomic_v1', name: 'Atomic V1', now: '2026-06-10T09:20:00.000Z' }));
+    const first = await store.acceptDraft('atomic_v1', { now: '2026-06-10T09:21:00.000Z' });
+    if (!first.ok) throw new Error('Expected first accepted profile.');
+    await store.saveRecord(draftRecord({ id: 'atomic_v2', name: 'Atomic V2', now: '2026-06-10T09:22:00.000Z' }));
+
+    rejectReplacement = true;
+    await expect(store.acceptDraft('atomic_v2', { now: '2026-06-10T09:23:00.000Z' })).resolves.toMatchObject({
+      ok: false,
+      code: 'conflict',
+    });
+
+    expect((await store.getLatestAcceptedRecord({ brandId: 'shared_brand', userId: 'shared_user' }))?.id).toBe('atomic_v1');
+    expect((await store.getRecord('atomic_v2'))?.status).toBe('draft');
+  });
+
   it('surfaces a pre-stack (null-org) brand for an org member until backfill, org row winning (R5 fallback)', async () => {
     const collections = createMemoryCollections();
     const store = createBrandVaultMongoRefineryStore({ collections });
@@ -430,6 +467,22 @@ function createMemoryCollections(): {
     events: new MemoryMongoCollection<BrandVaultMongoEventDocument>(),
     jobs: new MemoryMongoCollection<BrandVaultMongoJobDocument>(),
   };
+}
+
+async function cloneMemoryCollections(
+  source: ReturnType<typeof createMemoryCollections>,
+): Promise<ReturnType<typeof createMemoryCollections>> {
+  const cloned = createMemoryCollections();
+  for (const document of source.profiles.values()) {
+    await cloned.profiles.updateOne({ _id: document._id }, { $set: document }, { upsert: true });
+  }
+  for (const document of source.events.values()) {
+    await cloned.events.updateOne({ _id: document._id }, { $set: document }, { upsert: true });
+  }
+  for (const document of source.jobs.values()) {
+    await cloned.jobs.updateOne({ _id: document._id }, { $set: document }, { upsert: true });
+  }
+  return cloned;
 }
 
 class MemoryMongoCollection<TDocument extends { _id: string }> implements BrandVaultMongoCollection<TDocument> {
