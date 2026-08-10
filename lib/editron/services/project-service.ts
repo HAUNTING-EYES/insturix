@@ -58,6 +58,17 @@ export interface ProjectMutationReceiptV1 {
   committedAt: string;
 }
 
+export interface ProjectCheckpointRestoreInputV1 {
+  expectedRevision: ProjectRevisionV1;
+  setFields: Record<string, unknown>;
+  unsetFields: string[];
+}
+
+export interface ProjectCheckpointRestoreReceiptV1 {
+  receipt: ProjectMutationReceiptV1;
+  project: Record<string, unknown>;
+}
+
 export class ProjectMutationConflictError extends Error {
   readonly code = "PROJECT_REVISION_CONFLICT";
 
@@ -515,6 +526,85 @@ export class ProjectService {
       overlayAuthority: "server",
       mode: "autosave",
     });
+  }
+
+  /**
+   * Return the current opaque ProjectService revision only when the caller is
+   * the project owner. Checkpoint authorization uses this before every
+   * checkpoint-store operation.
+   */
+  async getProjectRevision(
+    userId: string,
+    projectId: string,
+  ): Promise<ProjectRevisionV1> {
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId, userId },
+      { projection: { projectRevision: 1, updatedAt: 1 } },
+    )) as Pick<Project, "projectRevision" | "updatedAt"> | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    return projectRevisionFor(project);
+  }
+
+  /**
+   * Checkpoint-only exact-state restore. The checkpoint store owns state
+   * capture and hashing; ProjectService alone owns the final project write.
+   * Its returned postimage is the state that must be fingerprinted as proof.
+   */
+  async restoreCheckpointState(
+    userId: string,
+    projectId: string,
+    input: ProjectCheckpointRestoreInputV1,
+  ): Promise<ProjectCheckpointRestoreReceiptV1> {
+    assertProjectRevision(input.expectedRevision);
+    assertCheckpointRestoreFields(input.setFields, input.unsetFields);
+
+    const committedAt = new Date();
+    const update: Record<string, unknown> = {
+      $set: { ...input.setFields, updatedAt: committedAt },
+      $inc: { projectRevision: 1 },
+    };
+    if (input.unsetFields.length > 0) {
+      update.$unset = Object.fromEntries(
+        input.unsetFields.map((field) => [field, ""]),
+      );
+    }
+
+    const db = await getDatabase();
+    const restoredProject = (await db
+      .collection(COLLECTIONS.PROJECTS)
+      .findOneAndUpdate(
+        {
+          projectId,
+          userId,
+          ...projectRevisionPredicate(input.expectedRevision),
+        },
+        update,
+        { returnDocument: "after", includeResultMetadata: false },
+      )) as Record<string, unknown> | null;
+
+    if (!restoredProject) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) throw new ProjectNotFoundOrForbiddenError();
+      throw new ProjectMutationConflictError(projectRevisionFor(latest));
+    }
+
+    return {
+      receipt: {
+        schemaVersion: 1,
+        projectId,
+        revision: {
+          schemaVersion: 1,
+          value: input.expectedRevision.value + 1,
+          compatibilityUpdatedAt: committedAt.toISOString(),
+        },
+        committedAt: committedAt.toISOString(),
+      },
+      project: restoredProject,
+    };
   }
 
   /**
@@ -1033,6 +1123,31 @@ function projectRevisionPredicate(
     ...revisionCounterPredicate,
     updatedAt: new Date(expectedRevision.compatibilityUpdatedAt),
   };
+}
+
+function assertCheckpointRestoreFields(
+  setFields: Record<string, unknown>,
+  unsetFields: string[],
+): void {
+  const protectedFields = new Set([
+    "_id",
+    "projectId",
+    "userId",
+    "orgId",
+    "sharedWith",
+    "visibility",
+    "createdAt",
+    "updatedAt",
+    "projectRevision",
+    "lastAutosaveAt",
+  ]);
+  const fieldNames = [...Object.keys(setFields), ...unsetFields];
+  if (
+    fieldNames.some((field) => protectedFields.has(field)) ||
+    new Set(fieldNames).size !== fieldNames.length
+  ) {
+    throw new ProjectMutationWriteError();
+  }
 }
 
 function validDimensions(

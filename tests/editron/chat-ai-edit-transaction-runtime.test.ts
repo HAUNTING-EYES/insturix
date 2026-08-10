@@ -8,6 +8,7 @@ const infrastructureMocks = vi.hoisted(() => ({
   findOne: vi.fn(),
   getDatabase: vi.fn(),
   insertOne: vi.fn(),
+  findOneAndUpdate: vi.fn(),
   updateOne: vi.fn(),
 }));
 
@@ -48,6 +49,7 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
 }));
 
 import { POST as restoreCheckpointRoute } from '@/app/api/services/editron/checkpoints/restore/route';
+import { GET as listCheckpointsRoute } from '@/app/api/services/editron/checkpoints/list/route';
 import { createTools } from '@/lib/editron/agent/tools';
 import {
   buildChatEditRenderVerificationRequest,
@@ -71,7 +73,12 @@ import {
   type ChatEditOperationUpdate,
   type RestoreProjectCheckpointResult,
 } from '@/lib/editron/services/checkpoint-service';
-import { projectService } from '@/lib/editron/services/project-service';
+import {
+  ProjectMutationConflictError,
+  ProjectNotFoundOrForbiddenError,
+  projectService,
+  type ProjectRevisionV1,
+} from '@/lib/editron/services/project-service';
 
 class MemoryCheckpointStore {
   readonly checkpoints = new Map<string, Checkpoint>();
@@ -201,6 +208,7 @@ afterEach(() => {
   infrastructureMocks.findOne.mockReset();
   infrastructureMocks.getDatabase.mockReset();
   infrastructureMocks.insertOne.mockReset();
+  infrastructureMocks.findOneAndUpdate.mockReset();
   infrastructureMocks.updateOne.mockReset();
 });
 
@@ -547,34 +555,40 @@ describe('chat AI edit transaction runtime', () => {
       metadata: { title: 'Mutated' },
       sourceAssetIds: ['asset_2'],
     };
+    const expectedRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+    };
 
     infrastructureMocks.insertOne.mockImplementation(async (checkpoint: Checkpoint) => {
       insertedCheckpoint = emulateMongoRoundTrip(checkpoint);
       return { acknowledged: true, insertedId: checkpoint.checkpointId };
     });
-    infrastructureMocks.updateOne.mockImplementation(async (
-      filter: Record<string, unknown>,
-      update: { $set?: Record<string, unknown>; $unset?: Record<string, unknown> },
-    ) => {
-      expect(filter).toEqual({ projectId: 'proj_1', userId: 'user_1' });
-      Object.assign(persistedProject, emulateMongoRoundTrip(update.$set ?? {}));
-      for (const field of Object.keys(update.$unset ?? {})) delete persistedProject[field];
-      return { matchedCount: 1, modifiedCount: 1 };
-    });
-    infrastructureMocks.findOne.mockImplementation(async () => emulateMongoRoundTrip(persistedProject));
     infrastructureMocks.getDatabase.mockResolvedValue({
       collection: (name: string) => {
         if (name === COLLECTIONS.CHECKPOINTS) {
           return { insertOne: infrastructureMocks.insertOne };
         }
-        if (name === COLLECTIONS.PROJECTS) {
-          return {
-            updateOne: infrastructureMocks.updateOne,
-            findOne: infrastructureMocks.findOne,
-          };
-        }
         throw new Error(`Unexpected collection ${name}`);
       },
+    });
+    vi.spyOn(projectService, 'getProjectRevision').mockResolvedValue(expectedRevision);
+    vi.spyOn(projectService, 'restoreCheckpointState').mockImplementation(async (_userId, _projectId, input) => {
+      Object.assign(persistedProject, emulateMongoRoundTrip(input.setFields));
+      for (const field of input.unsetFields) delete persistedProject[field];
+      const committedAt = '2026-08-09T01:00:01.000Z';
+      persistedProject.projectRevision = input.expectedRevision.value + 1;
+      persistedProject.updatedAt = new Date(committedAt);
+      return {
+        receipt: {
+          schemaVersion: 1,
+          projectId: 'proj_1',
+          revision: { schemaVersion: 1, value: 8, compatibilityUpdatedAt: committedAt },
+          committedAt,
+        },
+        project: emulateMongoRoundTrip(persistedProject),
+      };
     });
 
     const created = await service.createCheckpoint({
@@ -595,9 +609,9 @@ describe('chat AI edit transaction runtime', () => {
     expect(insertedCheckpoint?.stateHashVersion).toBe(2);
     vi.spyOn(service, 'getCheckpoint').mockResolvedValue(insertedCheckpoint ?? null);
 
-    const result = await service.restoreProjectCheckpoint('ckpt_full_state', 'user_1');
+    const result = await service.restoreProjectCheckpoint('ckpt_full_state', 'user_1', { expectedRevision });
 
-    expect(result).toMatchObject({ restored: true, reason: undefined });
+    expect(result).toMatchObject({ restored: true, restoredRevision: { value: 8 } });
     expect(projectStateFingerprint(captureRestorableProjectState(persistedProject))).toBe(
       created?.stateHash,
     );
@@ -613,6 +627,156 @@ describe('chat AI edit transaction runtime', () => {
       null,
       'kept',
     ]);
+  });
+
+  it('rejects checkpoint list, create, clear, and prune for a principal outside the actual project', async () => {
+    vi.spyOn(projectService, 'getProjectRevision').mockRejectedValue(new ProjectNotFoundOrForbiddenError());
+    const service = new CheckpointService();
+
+    const listResponse = await listCheckpointsRoute(new NextRequest(
+      'http://localhost/api/services/editron/checkpoints/list?sessionId=sess_b&projectId=proj_b',
+    ));
+    expect(listResponse.status).toBe(404);
+    await expect(service.createCheckpoint({
+      sessionId: 'sess_b', projectId: 'proj_b', userId: 'user_1', overlays: [],
+      description: 'unauthorized', type: 'user-edit',
+    })).rejects.toBeInstanceOf(ProjectNotFoundOrForbiddenError);
+    await expect(service.clearCheckpoints('sess_b', 'user_1', 'proj_b')).rejects.toBeInstanceOf(ProjectNotFoundOrForbiddenError);
+    await expect(service.pruneCheckpoints('sess_b', 'user_1', 'proj_b')).rejects.toBeInstanceOf(ProjectNotFoundOrForbiddenError);
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+  });
+
+  it('uses the owner-and-revision predicate for an exact checkpoint restore and rotates the revision', async () => {
+    const expectedRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+    };
+    const persistedProject: Record<string, any> = {
+      ...structuredClone(ORIGINAL_PROJECT),
+      projectRevision: 7,
+      updatedAt: new Date(expectedRevision.compatibilityUpdatedAt),
+      metadata: { title: 'mutated' },
+      unrelatedWorkerReceipt: { preserved: true },
+    };
+    infrastructureMocks.findOneAndUpdate.mockImplementation(async (
+      filter: Record<string, unknown>,
+      update: { $set: Record<string, unknown>; $unset?: Record<string, unknown>; $inc: Record<string, number> },
+      options: Record<string, unknown>,
+    ) => {
+      expect(filter).toEqual({
+        projectId: 'proj_1', userId: 'user_1', projectRevision: 7,
+        updatedAt: new Date(expectedRevision.compatibilityUpdatedAt),
+      });
+      expect(options).toMatchObject({ returnDocument: 'after', includeResultMetadata: false });
+      Object.assign(persistedProject, emulateMongoRoundTrip(update.$set));
+      for (const field of Object.keys(update.$unset ?? {})) delete persistedProject[field];
+      persistedProject.projectRevision += update.$inc.projectRevision;
+      return emulateMongoRoundTrip(persistedProject);
+    });
+    infrastructureMocks.getDatabase.mockResolvedValue({
+      collection: (name: string) => {
+        if (name !== COLLECTIONS.PROJECTS) throw new Error(`Unexpected collection ${name}`);
+        return { findOneAndUpdate: infrastructureMocks.findOneAndUpdate, findOne: infrastructureMocks.findOne };
+      },
+    });
+
+    const restored = await projectService.restoreCheckpointState('user_1', 'proj_1', {
+      expectedRevision,
+      setFields: { overlays: structuredClone(ORIGINAL_PROJECT.overlays), fps: 30 },
+      unsetFields: ['metadata'],
+    });
+
+    expect(restored.receipt.revision).toMatchObject({ schemaVersion: 1, value: 8 });
+    expect(restored.project).toMatchObject({ projectRevision: 8, unrelatedWorkerReceipt: { preserved: true } });
+    expect(restored.project.metadata).toBeUndefined();
+  });
+
+  it('rejects a stale browser-selected restore with zero project or checkpoint mutation', async () => {
+    const expectedRevision: ProjectRevisionV1 = {
+      schemaVersion: 1, value: 7, compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+    };
+    const checkpointState = captureRestorableProjectState(ORIGINAL_PROJECT);
+    const checkpoint: Checkpoint = {
+      checkpointId: 'ckpt_stale_browser', sessionId: 'sess_1', projectId: 'proj_1', userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any, projectState: checkpointState,
+      stateHash: projectStateFingerprint(checkpointState), stateHashVersion: 2,
+      timestamp: new Date(), description: 'stale browser', type: 'before-llm', createdAt: new Date(),
+    };
+    const projectAfterBrowserMutation = { ...structuredClone(ORIGINAL_PROJECT), projectRevision: 8 };
+    const checkpointBefore = structuredClone(checkpoint);
+    const service = new CheckpointService();
+    vi.spyOn(service, 'getCheckpoint').mockResolvedValue(checkpoint);
+    vi.spyOn(projectService, 'restoreCheckpointState').mockRejectedValue(new ProjectMutationConflictError({
+      schemaVersion: 1, value: 8, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z',
+    }));
+
+    const result = await service.restoreProjectCheckpoint('ckpt_stale_browser', 'user_1', { expectedRevision });
+
+    expect(result).toMatchObject({ restored: false, reason: 'project-revision-conflict', currentRevision: { value: 8 } });
+    expect(projectAfterBrowserMutation).toMatchObject({ projectRevision: 8 });
+    expect(checkpoint).toEqual(checkpointBefore);
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale restore after a chat or worker mutation changes only the compatibility timestamp', async () => {
+    const expectedRevision: ProjectRevisionV1 = {
+      schemaVersion: 1, value: 7, compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+    };
+    const checkpointState = captureRestorableProjectState(ORIGINAL_PROJECT);
+    const service = new CheckpointService();
+    vi.spyOn(service, 'getCheckpoint').mockResolvedValue({
+      checkpointId: 'ckpt_stale_worker', sessionId: 'sess_1', projectId: 'proj_1', userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any, projectState: checkpointState,
+      stateHash: projectStateFingerprint(checkpointState), stateHashVersion: 2,
+      timestamp: new Date(), description: 'stale worker', type: 'before-llm', createdAt: new Date(),
+    });
+    vi.spyOn(projectService, 'restoreCheckpointState').mockRejectedValue(new ProjectMutationConflictError({
+      schemaVersion: 1, value: 7, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z',
+    }));
+
+    const result = await service.restoreProjectCheckpoint('ckpt_stale_worker', 'user_1', { expectedRevision });
+
+    expect(result).toMatchObject({
+      restored: false,
+      reason: 'project-revision-conflict',
+      currentRevision: { value: 7, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z' },
+    });
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+  });
+
+  it('makes a duplicate restore retry deterministic after the first exact restore rotates the revision', async () => {
+    const expectedRevision: ProjectRevisionV1 = {
+      schemaVersion: 1, value: 7, compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+    };
+    const checkpointState = captureRestorableProjectState(ORIGINAL_PROJECT);
+    const checkpoint: Checkpoint = {
+      checkpointId: 'ckpt_retry', sessionId: 'sess_1', projectId: 'proj_1', userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any, projectState: checkpointState,
+      stateHash: projectStateFingerprint(checkpointState), stateHashVersion: 2,
+      timestamp: new Date(), description: 'retry', type: 'before-llm', createdAt: new Date(),
+    };
+    const service = new CheckpointService();
+    vi.spyOn(service, 'getCheckpoint').mockResolvedValue(checkpoint);
+    const restoreSpy = vi.spyOn(projectService, 'restoreCheckpointState')
+      .mockResolvedValueOnce({
+        receipt: {
+          schemaVersion: 1, projectId: 'proj_1',
+          revision: { schemaVersion: 1, value: 8, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z' },
+          committedAt: '2026-08-09T01:00:01.000Z',
+        },
+        project: structuredClone(ORIGINAL_PROJECT),
+      })
+      .mockRejectedValueOnce(new ProjectMutationConflictError({
+        schemaVersion: 1, value: 8, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z',
+      }));
+
+    const first = await service.restoreProjectCheckpoint('ckpt_retry', 'user_1', { expectedRevision });
+    const duplicate = await service.restoreProjectCheckpoint('ckpt_retry', 'user_1', { expectedRevision });
+
+    expect(first).toMatchObject({ restored: true, restoredRevision: { value: 8 } });
+    expect(duplicate).toMatchObject({ restored: false, reason: 'project-revision-conflict', currentRevision: { value: 8 } });
+    expect(restoreSpy).toHaveBeenCalledTimes(2);
   });
 
   it('rejects legacy overlay-only checkpoints before any project mutation', async () => {
@@ -667,6 +831,11 @@ describe('chat AI edit transaction runtime', () => {
   });
 
   it('keeps the authenticated restore route project-scoped and verification-gated', async () => {
+    const expectedRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+    };
     const projectState = captureRestorableProjectState(ORIGINAL_PROJECT);
     const checkpoint: Checkpoint = {
       checkpointId: 'ckpt_route',
@@ -687,18 +856,19 @@ describe('chat AI edit transaction runtime', () => {
       checkpointId: checkpoint.checkpointId,
       expectedStateHash: checkpoint.stateHash!,
       actualStateHash: checkpoint.stateHash,
+      restoredRevision: { ...expectedRevision, value: 8, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z' },
     });
 
     const mismatch = await restoreCheckpointRoute(new NextRequest(
       'http://localhost/api/services/editron/checkpoints/restore',
-      { method: 'POST', body: JSON.stringify({ checkpointId: 'ckpt_route', projectId: 'proj_other' }) },
+      { method: 'POST', body: JSON.stringify({ checkpointId: 'ckpt_route', projectId: 'proj_other', expectedRevision }) },
     ));
     expect(mismatch.status).toBe(409);
     expect(restoreSpy).not.toHaveBeenCalled();
 
     const response = await restoreCheckpointRoute(new NextRequest(
       'http://localhost/api/services/editron/checkpoints/restore',
-      { method: 'POST', body: JSON.stringify({ checkpointId: 'ckpt_route', projectId: 'proj_1' }) },
+      { method: 'POST', body: JSON.stringify({ checkpointId: 'ckpt_route', projectId: 'proj_1', expectedRevision }) },
     ));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -707,10 +877,29 @@ describe('chat AI edit transaction runtime', () => {
       projectId: 'proj_1',
       reloadProject: true,
     });
-    expect(restoreSpy).toHaveBeenCalledWith('ckpt_route', 'user_1');
+    expect(restoreSpy).toHaveBeenCalledWith('ckpt_route', 'user_1', { projectId: 'proj_1', expectedRevision });
+
+    restoreSpy.mockResolvedValueOnce({
+      restored: false,
+      checkpointId: checkpoint.checkpointId,
+      expectedStateHash: checkpoint.stateHash!,
+      reason: 'project-revision-conflict',
+      currentRevision: { schemaVersion: 1, value: 8, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z' },
+    });
+    const staleResponse = await restoreCheckpointRoute(new NextRequest(
+      'http://localhost/api/services/editron/checkpoints/restore',
+      { method: 'POST', body: JSON.stringify({ checkpointId: 'ckpt_route', projectId: 'proj_1', expectedRevision }) },
+    ));
+    expect(staleResponse.status).toBe(409);
+    await expect(staleResponse.json()).resolves.toMatchObject({
+      success: false,
+      code: 'CHECKPOINT_RESTORE_UNSAFE_UNDO',
+      reason: 'project-revision-conflict',
+      currentRevision: { value: 8 },
+    });
   });
 
-  it('routes the chat undo tool through full-state restore and returns a reload receipt', async () => {
+  it('makes the un-migrated chat undo tool fail closed pending caller migration', async () => {
     const projectState = captureRestorableProjectState(ORIGINAL_PROJECT);
     const checkpoint: Checkpoint = {
       checkpointId: 'ckpt_tool',
@@ -727,10 +916,10 @@ describe('chat AI edit transaction runtime', () => {
     };
     vi.spyOn(checkpointService, 'getCheckpoint').mockResolvedValue(checkpoint);
     const restoreSpy = vi.spyOn(checkpointService, 'restoreProjectCheckpoint').mockResolvedValue({
-      restored: true,
+      restored: false,
       checkpointId: checkpoint.checkpointId,
       expectedStateHash: checkpoint.stateHash!,
-      actualStateHash: checkpoint.stateHash,
+      reason: 'expected-revision-required',
     });
     vi.spyOn(projectService, 'loadProject').mockResolvedValue(ORIGINAL_PROJECT as any);
 
@@ -740,11 +929,9 @@ describe('chat AI edit transaction runtime', () => {
     const envelope = JSON.parse(await restoreTool!.invoke({ checkpointId: 'ckpt_tool' }));
 
     expect(envelope).toMatchObject({
-      status: 'success',
-      data: {
-        checkpointId: 'ckpt_tool',
-        reloadProject: true,
-        verification: { expectedStateHash: checkpoint.stateHash },
+      status: 'error',
+      error: {
+        code: 'CHECKPOINT_RESTORE_NOT_VERIFIED',
       },
     });
     expect(restoreSpy).toHaveBeenCalledWith('ckpt_tool', 'user_1');

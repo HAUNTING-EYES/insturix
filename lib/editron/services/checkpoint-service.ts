@@ -9,6 +9,12 @@ import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { assetResolver } from './asset-resolver';
+import {
+  ProjectMutationConflictError,
+  ProjectNotFoundOrForbiddenError,
+  projectService,
+  type ProjectRevisionV1,
+} from './project-service';
 
 export type CheckpointType = 'initial' | 'before-llm' | 'after-llm' | 'user-edit';
 export type ChatEditOperationStatus = 'running' | 'completed' | 'no-op' | 'rolled-back' | 'failed';
@@ -67,6 +73,7 @@ export interface Checkpoint {
   projectState?: RestorableProjectState;
   stateHash?: string;
   stateHashVersion?: 2;
+  capturedProjectRevision?: ProjectRevisionV1;
   operationId?: string;
   operationStatus?: ChatEditOperationStatus;
   mutatingToolNames?: string[];
@@ -106,6 +113,14 @@ export interface RestoreProjectCheckpointResult {
   expectedStateHash: string;
   actualStateHash?: string;
   reason?: string;
+  beforeRevision?: ProjectRevisionV1;
+  restoredRevision?: ProjectRevisionV1;
+  currentRevision?: ProjectRevisionV1;
+}
+
+export interface RestoreProjectCheckpointOptions {
+  projectId?: string;
+  expectedRevision?: ProjectRevisionV1;
 }
 
 const CURRENT_STATE_HASH_VERSION = 2 as const;
@@ -139,6 +154,10 @@ export function projectStateFingerprint(state: RestorableProjectState): string {
 
 export class CheckpointService {
   async createCheckpoint(input: CheckpointInput): Promise<Checkpoint | null> {
+    const capturedProjectRevision = await projectService.getProjectRevision(
+      input.userId,
+      input.projectId,
+    );
     const db = await getDatabase();
     const cleanState = this.cleanProjectState(
       input.projectState ?? captureRestorableProjectState({ overlays: input.overlays }),
@@ -148,7 +167,11 @@ export class CheckpointService {
     if (!input.force) {
       const lastCheckpoint = await db
         .collection(COLLECTIONS.CHECKPOINTS)
-        .find({ sessionId: input.sessionId })
+        .find({
+          sessionId: input.sessionId,
+          projectId: input.projectId,
+          userId: input.userId,
+        })
         .sort({ timestamp: -1 })
         .limit(1)
         .toArray() as unknown as Checkpoint[];
@@ -170,6 +193,7 @@ export class CheckpointService {
       projectState: cleanState,
       stateHash,
       stateHashVersion: CURRENT_STATE_HASH_VERSION,
+      capturedProjectRevision,
       operationId: input.operationId,
       operationStatus: input.operationStatus,
       timestamp: now,
@@ -198,7 +222,11 @@ export class CheckpointService {
       return { claimed: true, checkpoint };
     } catch (error: unknown) {
       if (!isDuplicateKeyError(error)) throw error;
-      const existing = await this.getCheckpoint(input.checkpointId, input.userId);
+      const existing = await this.getCheckpoint(
+        input.checkpointId,
+        input.userId,
+        input.projectId,
+      );
       if (
         !existing
         || existing.projectId !== input.projectId
@@ -217,9 +245,13 @@ export class CheckpointService {
     operationId: string,
     update: ChatEditOperationUpdate,
   ): Promise<void> {
+    const checkpoint = await this.getCheckpoint(checkpointId, userId);
+    if (!checkpoint) {
+      throw new Error(`Chat edit operation checkpoint ${checkpointId} could not be updated.`);
+    }
     const db = await getDatabase();
     const result = await db.collection(COLLECTIONS.CHECKPOINTS).updateOne(
-      { checkpointId, userId, operationId },
+      { checkpointId, userId, projectId: checkpoint.projectId, operationId },
       { $set: { ...update, updatedAt: new Date() } },
     );
     if (result.matchedCount !== 1) {
@@ -227,19 +259,29 @@ export class CheckpointService {
     }
   }
 
-  async getCheckpoints(sessionId: string): Promise<Checkpoint[]> {
+  async getCheckpoints(sessionId: string, userId?: string, projectId?: string): Promise<Checkpoint[]> {
+    const scope = checkpointScope(sessionId, userId, projectId);
+    await projectService.getProjectRevision(scope.userId, scope.projectId);
     const db = await getDatabase();
     return db
       .collection(COLLECTIONS.CHECKPOINTS)
-      .find({ sessionId })
+      .find(scope)
       .sort({ timestamp: 1 })
       .toArray() as unknown as Checkpoint[];
   }
 
-  async getCheckpoint(checkpointId: string, userId: string): Promise<Checkpoint | null> {
+  async getCheckpoint(checkpointId: string, userId: string, projectId?: string): Promise<Checkpoint | null> {
     const db = await getDatabase();
-    return db.collection(COLLECTIONS.CHECKPOINTS)
-      .findOne({ checkpointId, userId }) as unknown as Checkpoint | null;
+    const checkpoint = await db.collection(COLLECTIONS.CHECKPOINTS)
+      .findOne({ checkpointId, userId, ...(projectId ? { projectId } : {}) }) as unknown as Checkpoint | null;
+    if (!checkpoint) return null;
+    try {
+      await projectService.getProjectRevision(userId, checkpoint.projectId);
+    } catch (error) {
+      if (error instanceof ProjectNotFoundOrForbiddenError) return null;
+      throw error;
+    }
+    return checkpoint;
   }
 
   async restoreCheckpoint(checkpointId: string, userId: string): Promise<Overlay[] | null> {
@@ -251,8 +293,9 @@ export class CheckpointService {
   async restoreProjectCheckpoint(
     checkpointId: string,
     userId: string,
+    options: RestoreProjectCheckpointOptions = {},
   ): Promise<RestoreProjectCheckpointResult> {
-    const checkpoint = await this.getCheckpoint(checkpointId, userId);
+    const checkpoint = await this.getCheckpoint(checkpointId, userId, options.projectId);
     if (!checkpoint) {
       return { restored: false, checkpointId, expectedStateHash: '', reason: 'checkpoint-not-found' };
     }
@@ -286,76 +329,108 @@ export class CheckpointService {
         reason: 'checkpoint-state-hash-mismatch',
       };
     }
+    if (!options.expectedRevision) {
+      return {
+        restored: false,
+        checkpointId,
+        expectedStateHash,
+        reason: 'expected-revision-required',
+      };
+    }
     const setFields: Record<string, unknown> = {};
-    const unsetFields: Record<string, ''> = {};
+    const unsetFields: string[] = [];
 
     for (const field of CHAT_RESTORABLE_PROJECT_FIELDS) {
       if (projectState.presentFields.includes(field)) {
         setFields[field] = cloneValue(projectState.fields[field]);
       } else {
-        unsetFields[field] = '';
+        unsetFields.push(field);
       }
     }
 
-    const db = await getDatabase();
-    const update: Record<string, unknown> = { $set: { ...setFields, updatedAt: new Date() } };
-    if (Object.keys(unsetFields).length > 0) update.$unset = unsetFields;
-
-    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId: checkpoint.projectId, userId },
-      update,
-    );
-    if (result.matchedCount !== 1) {
-      return {
-        restored: false,
-        checkpointId,
-        expectedStateHash,
-        reason: 'project-not-found-or-not-owned',
-      };
-    }
-
-    const restoredProject = await db.collection(COLLECTIONS.PROJECTS).findOne({
-      projectId: checkpoint.projectId,
-      userId,
-    });
-    if (!restoredProject) {
-      return {
-        restored: false,
-        checkpointId,
-        expectedStateHash,
-        reason: 'project-missing-after-restore',
-      };
+    let restoreReceipt;
+    try {
+      restoreReceipt = await projectService.restoreCheckpointState(
+        userId,
+        checkpoint.projectId,
+        {
+          expectedRevision: options.expectedRevision,
+          setFields,
+          unsetFields,
+        },
+      );
+    } catch (error) {
+      if (error instanceof ProjectMutationConflictError) {
+        return {
+          restored: false,
+          checkpointId,
+          expectedStateHash,
+          reason: 'project-revision-conflict',
+          beforeRevision: options.expectedRevision,
+          currentRevision: error.currentRevision,
+        };
+      }
+      if (error instanceof ProjectNotFoundOrForbiddenError) {
+        return {
+          restored: false,
+          checkpointId,
+          expectedStateHash,
+          reason: 'project-not-found-or-not-owned',
+          beforeRevision: options.expectedRevision,
+        };
+      }
+      throw error;
     }
 
     const actualState = this.cleanProjectState(
-      captureRestorableProjectState(restoredProject as Record<string, unknown>),
+      captureRestorableProjectState(restoreReceipt.project),
     );
     const actualStateHash = projectStateFingerprint(actualState);
+    if (actualStateHash !== expectedStateHash) {
+      return {
+        restored: false,
+        checkpointId,
+        expectedStateHash,
+        actualStateHash,
+        reason: 'state-fingerprint-mismatch',
+        beforeRevision: options.expectedRevision,
+        restoredRevision: restoreReceipt.receipt.revision,
+      };
+    }
     return {
-      restored: actualStateHash === expectedStateHash,
+      restored: true,
       checkpointId,
       expectedStateHash,
       actualStateHash,
-      reason: actualStateHash === expectedStateHash ? undefined : 'state-fingerprint-mismatch',
+      beforeRevision: options.expectedRevision,
+      restoredRevision: restoreReceipt.receipt.revision,
     };
   }
 
-  async clearCheckpoints(sessionId: string): Promise<void> {
+  async clearCheckpoints(sessionId: string, userId: string, projectId: string): Promise<void> {
+    const scope = checkpointScope(sessionId, userId, projectId);
+    await projectService.getProjectRevision(scope.userId, scope.projectId);
     const db = await getDatabase();
-    await db.collection(COLLECTIONS.CHECKPOINTS).deleteMany({ sessionId });
+    await db.collection(COLLECTIONS.CHECKPOINTS).deleteMany(scope);
   }
 
-  async pruneCheckpoints(sessionId: string, keepLast = 50): Promise<void> {
+  async pruneCheckpoints(sessionId: string, userId: string, projectId: string, keepLast = 50): Promise<void> {
+    const scope = checkpointScope(sessionId, userId, projectId);
+    await projectService.getProjectRevision(scope.userId, scope.projectId);
+    if (!Number.isSafeInteger(keepLast) || keepLast < 0) {
+      throw new Error('keepLast must be a non-negative integer.');
+    }
     const db = await getDatabase();
     const checkpoints = await db
       .collection(COLLECTIONS.CHECKPOINTS)
-      .find({ sessionId })
+      .find(scope)
       .sort({ timestamp: -1 })
       .skip(keepLast)
       .toArray();
 
     if (checkpoints.length > 0) {
       await db.collection(COLLECTIONS.CHECKPOINTS).deleteMany({
+        ...scope,
         _id: { $in: checkpoints.map((checkpoint) => checkpoint._id) },
       });
     }
@@ -368,6 +443,17 @@ export class CheckpointService {
     const presentFields = Array.from(new Set<ChatRestorableProjectField>(['overlays', ...state.presentFields]));
     return mongoStableValue({ presentFields, fields });
   }
+}
+
+function checkpointScope(sessionId: string, userId?: string, projectId?: string): {
+  sessionId: string;
+  userId: string;
+  projectId: string;
+} {
+  if (!sessionId || !userId || !projectId) {
+    throw new Error('Checkpoint operations require sessionId, projectId, and authenticated userId.');
+  }
+  return { sessionId, userId, projectId };
 }
 
 function checkpointStateHash(checkpoint: Checkpoint): string {

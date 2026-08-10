@@ -6,8 +6,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkpointService } from '@/lib/editron/services/checkpoint-service';
 import { auth } from '@clerk/nextjs/server';
+import { z } from 'zod';
 
 export const runtime = 'nodejs';
+
+const RestoreCheckpointSchema = z.object({
+  checkpointId: z.string().trim().min(1),
+  projectId: z.string().trim().min(1),
+  expectedRevision: z.object({
+    schemaVersion: z.literal(1),
+    value: z.number().int().nonnegative(),
+    compatibilityUpdatedAt: z.string().datetime(),
+  }).strict(),
+}).strict();
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,18 +29,16 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
-    const body = await request.json() as { checkpointId?: unknown; projectId?: unknown };
-    const checkpointId = typeof body.checkpointId === 'string' ? body.checkpointId.trim() : '';
-    const projectId = typeof body.projectId === 'string' ? body.projectId.trim() : '';
-
-    if (!checkpointId || !projectId) {
+    const validation = RestoreCheckpointSchema.safeParse(await request.json());
+    if (!validation.success) {
       return NextResponse.json(
-        { success: false, error: 'checkpointId and projectId are required' },
+        { success: false, error: 'Invalid checkpoint restore request', details: validation.error.issues },
         { status: 400 }
       );
     }
+    const { checkpointId, projectId, expectedRevision } = validation.data;
 
-    const checkpoint = await checkpointService.getCheckpoint(checkpointId, userId);
+    const checkpoint = await checkpointService.getCheckpoint(checkpointId, userId, projectId);
     if (!checkpoint) {
       return NextResponse.json(
         { success: false, error: 'Checkpoint not found' },
@@ -47,21 +56,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const verification = await checkpointService.restoreProjectCheckpoint(checkpointId, userId);
+    const verification = await checkpointService.restoreProjectCheckpoint(checkpointId, userId, {
+      projectId,
+      expectedRevision,
+    });
     if (!verification.restored) {
-      console.error('[CheckpointRestore] Full-state restore was not verified', {
-        checkpointId,
-        projectId,
-        reason: verification.reason,
-        expectedStateHash: verification.expectedStateHash,
-        actualStateHash: verification.actualStateHash,
-      });
       return NextResponse.json(
         {
           success: false,
-          error: 'Checkpoint restore could not be verified',
-          code: 'CHECKPOINT_RESTORE_NOT_VERIFIED',
+          error: 'Checkpoint restore is unsafe or could not be verified',
+          code: 'CHECKPOINT_RESTORE_UNSAFE_UNDO',
           reason: verification.reason,
+          currentRevision: verification.currentRevision,
         },
         { status: 409 }
       );
@@ -73,6 +79,7 @@ export async function POST(request: NextRequest) {
       projectId,
       restoredFields: checkpoint.projectState?.presentFields ?? [],
       reloadProject: true,
+      revision: verification.restoredRevision,
       verification: {
         expectedStateHash: verification.expectedStateHash,
         actualStateHash: verification.actualStateHash,
