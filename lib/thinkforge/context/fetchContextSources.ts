@@ -11,14 +11,12 @@
 
 import { serializeFingerprint, serializeExemplars } from '../data/voice-signature';
 import {
-  resolveEffectiveBrandDNAWithProfile,
   getDataBankEntriesByUser,
   getDataBankEntriesByIds,
   getProjectScopedEntries,
   getRecentInteractionEvents,
   type BrandDNA,
   type DataBankEntry,
-  type EffectiveBrandDNAResolution,
   type ThinkForgeEvent,
   type EventType,
 } from '../services/db';
@@ -131,11 +129,14 @@ function withTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
 
 async function fetchColdContext(
   userId: string,
-  projectId?: string,
   brandId?: string,
   orgId?: string | null,
   isOrgAdmin?: boolean,
-): Promise<EffectiveBrandDNAResolution & { brandAuthority?: ThinkForgeBrandAuthority | null }> {
+): Promise<{
+  brandDNA: BrandDNA;
+  brandSignalProfile: BrandSignalProfile | null;
+  brandAuthority: ThinkForgeBrandAuthority | null;
+}> {
   if (brandId) {
     const brandAuthority = await resolveThinkForgeBrandAuthority({
       userId,
@@ -149,20 +150,13 @@ async function fetchColdContext(
     return {
       brandDNA: brandSignalProfileToBrandDNA<BrandDNA>(brandAuthority.profile, {}),
       brandSignalProfile: brandAuthority.profile,
-      source: 'brand_vault',
       brandAuthority,
     };
   }
 
-  try {
-    const legacyResolution = orgId !== undefined
-      ? await resolveEffectiveBrandDNAWithProfile(userId, projectId, undefined, { orgId })
-      : await resolveEffectiveBrandDNAWithProfile(userId, projectId, undefined);
-    return { ...legacyResolution, brandAuthority: null };
-  } catch (error) {
-    console.warn('[fetchContextSources] Cold fetch failed, using empty BrandDNA:', error);
-    return { brandDNA: {}, brandSignalProfile: null, source: 'legacy', brandAuthority: null };
-  }
+  // A brand is an explicit session decision. The legacy BrandDNA projection can
+  // describe a past scan and must never be guessed into a new, unbound request.
+  return { brandDNA: {}, brandSignalProfile: null, brandAuthority: null };
 }
 
 // ==================== Warm Tier: Semantic Facts ====================
@@ -506,7 +500,7 @@ export async function fetchContextSources(
   const keywords = extractKeywords(combinedText);
 
   const [brandResolution, projectFacts, globalFacts, interactionPatterns] = await Promise.all([
-    fetchColdContext(userId, projectId, brandId, orgId, isOrgAdmin),
+    fetchColdContext(userId, brandId, orgId, isOrgAdmin),
     withTimeout(
       sessionId ? fetchProjectContext(userId, sessionId, maxFacts) : Promise.resolve([]),
       [],
@@ -539,8 +533,8 @@ export async function fetchContextSources(
 export function formatSystemBrief(ctx: RetrievedContext): string {
   const parts: string[] = [];
 
-  // A selected brand always comes from its current accepted Brand Vault record. The legacy
-  // projection remains only for deliberately unbranded authoring, where no scoped profile exists.
+  // A selected brand always comes from its current accepted Brand Vault record.
+  // Unbound authoring intentionally has no inferred brand context.
   const dna = ctx.brandDNA;
   if (ctx.brandAuthority) {
     parts.push(

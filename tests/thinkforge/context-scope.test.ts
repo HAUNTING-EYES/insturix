@@ -15,7 +15,6 @@ const mocks = vi.hoisted(() => ({
   getProjectScopedEntries: vi.fn(),
   getRecentInteractionEvents: vi.fn(),
   queryRelevantFacts: vi.fn(),
-  resolveEffectiveBrandDNAWithProfile: vi.fn(),
   resolveThinkForgeBrandAuthority: vi.fn(),
 }));
 
@@ -24,7 +23,6 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
   getDataBankEntriesByUser: mocks.getDataBankEntriesByUser,
   getProjectScopedEntries: mocks.getProjectScopedEntries,
   getRecentInteractionEvents: mocks.getRecentInteractionEvents,
-  resolveEffectiveBrandDNAWithProfile: mocks.resolveEffectiveBrandDNAWithProfile,
 }));
 
 vi.mock('@/lib/thinkforge/services/embedding-service', () => ({
@@ -106,10 +104,8 @@ describe('fetchContextSources scoped DataBank reads', () => {
     mocks.getProjectScopedEntries.mockReset();
     mocks.getRecentInteractionEvents.mockReset();
     mocks.queryRelevantFacts.mockReset();
-    mocks.resolveEffectiveBrandDNAWithProfile.mockReset();
     mocks.resolveThinkForgeBrandAuthority.mockReset();
 
-    mocks.resolveEffectiveBrandDNAWithProfile.mockResolvedValue({ brandDNA: {}, brandSignalProfile: null, source: 'legacy' });
     mocks.resolveThinkForgeBrandAuthority.mockResolvedValue({
       brandId: 'brand_1',
       brandName: 'Current Brand',
@@ -272,7 +268,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
     ]);
   });
 
-  it('does not expose brand-scoped global memory when no brand is selected', async () => {
+  it('does not infer a legacy BrandDNA profile when no brand is selected', async () => {
     mocks.getDataBankEntriesByUser.mockResolvedValue([
       entry({
         _id: 'entry_generic',
@@ -301,7 +297,8 @@ describe('fetchContextSources scoped DataBank reads', () => {
     });
 
     expect(ctx.globalFacts.map((fact) => fact.id)).toEqual(['entry_universal']);
-    expect(mocks.resolveEffectiveBrandDNAWithProfile).toHaveBeenCalledWith('user_1', undefined, undefined);
+    expect(ctx.brandDNA).toEqual({});
+    expect(formatSystemBrief(ctx)).not.toContain('## Brand DNA');
     expect(mocks.resolveThinkForgeBrandAuthority).not.toHaveBeenCalled();
   });
 
