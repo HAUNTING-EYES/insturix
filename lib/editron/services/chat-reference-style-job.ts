@@ -319,14 +319,26 @@ export async function runChatReferenceStyleJob(
         job.projectId,
         referenceStyleRollbackReceiptId(job, interruptedAttempt),
       );
-      const expectedRevision = rollbackReceipt?.expectedRevision
-        ?? interruptedCheckpoint.capturedProjectRevision;
-      const restored = expectedRevision
-        ? await deps.checkpointService.restoreProjectCheckpoint(job.beforeCheckpointId, job.userId, {
-            projectId: job.projectId,
-            expectedRevision,
-          })
-        : null;
+      if (!rollbackReceipt) {
+        const failure = 'reference-style-interrupted-attempt-rollback-not-attempted:writer-issued-receipt-missing';
+        await deps.checkpointService.updateChatEditOperationScoped(
+          job.beforeCheckpointId,
+          job.userId,
+          job.projectId,
+          interruptedOperationId,
+          {
+            operationStatus: 'failed',
+            mutatingToolNames: ['apply_style'],
+            operationError: failure,
+          },
+        );
+        await deps.store.markFailed(job._id, job.userId, failure, false, deps.now());
+        return { status: 'failed', jobId: job._id, reason: failure };
+      }
+      const restored = await deps.checkpointService.restoreProjectCheckpoint(job.beforeCheckpointId, job.userId, {
+        projectId: job.projectId,
+        expectedRevision: rollbackReceipt.expectedRevision,
+      });
       if (!restored?.restored) {
         const failure = `reference-style-interrupted-attempt-rollback-failed:${restored?.reason ?? 'rollback-revision-receipt-missing'}`;
         await deps.store.markFailed(job._id, job.userId, failure, false, deps.now());
@@ -395,20 +407,14 @@ export async function runChatReferenceStyleJob(
       return { status: 'declined', jobId: job._id, profileId, reason: declineReason };
     }
 
-    rollbackReceipt = writerIssuedReceipt
-      ? await deps.checkpointService.recordRollbackExpectedRevision(
-          checkpoint.checkpointId,
-          job.userId,
-          job.projectId,
-          referenceStyleRollbackReceiptId(job),
-          writerIssuedReceipt,
-        )
-      : await deps.checkpointService.recordRollbackExpectedRevision(
-          checkpoint.checkpointId,
-          job.userId,
-          job.projectId,
-          referenceStyleRollbackReceiptId(job),
-        );
+    if (!writerIssuedReceipt) throw new Error('reference-style-writer-issued-receipt-missing');
+    rollbackReceipt = await deps.checkpointService.recordRollbackExpectedRevision(
+      checkpoint.checkpointId,
+      job.userId,
+      job.projectId,
+      referenceStyleRollbackReceiptId(job),
+      writerIssuedReceipt,
+    );
 
     const afterProject = await deps.loadProject(job.userId, job.projectId);
     if (!afterProject) throw new Error('project-not-found-after-style-application');
@@ -508,13 +514,26 @@ export async function runChatReferenceStyleJob(
           writerIssuedReceipt,
         );
       }
-      const expectedRevision = rollbackReceipt?.expectedRevision ?? checkpoint.capturedProjectRevision;
-      const restored = expectedRevision
-        ? await deps.checkpointService.restoreProjectCheckpoint(checkpoint.checkpointId, job.userId, {
-            projectId: job.projectId,
-            expectedRevision,
-          })
-        : null;
+      if (!rollbackReceipt) {
+        const failure = 'reference-style-rollback-not-attempted:writer-issued-receipt-missing';
+        await deps.checkpointService.updateChatEditOperationScoped(
+          checkpoint.checkpointId,
+          job.userId,
+          job.projectId,
+          attemptOperationId,
+          {
+            operationStatus: 'failed',
+            mutatingToolNames: ['apply_style'],
+            operationError: `${failure}:${message}`,
+          },
+        );
+        await deps.store.markFailed(job._id, job.userId, failure, false, deps.now());
+        return { status: 'failed', jobId: job._id, reason: failure };
+      }
+      const restored = await deps.checkpointService.restoreProjectCheckpoint(checkpoint.checkpointId, job.userId, {
+        projectId: job.projectId,
+        expectedRevision: rollbackReceipt.expectedRevision,
+      });
       rolledBack = restored?.restored === true;
       await deps.checkpointService.updateChatEditOperationScoped(
         checkpoint.checkpointId,

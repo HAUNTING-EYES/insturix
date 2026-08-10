@@ -409,6 +409,7 @@ describe('durable chat reference-style jobs', () => {
         currentProject = project('after');
         return { status: 'mutated', rawOutput: '{}', data: {} };
       },
+      captureMutationReceipts: captureWriterReceipt,
       dispatchRenderEvidence: async () => ({ dispatched: true, messageId: 'render-recovered' }),
       ...checkpoint.dependencies,
       now: () => NOW,
@@ -428,6 +429,46 @@ describe('durable chat reference-style jobs', () => {
       'user-1',
       { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision },
     );
+  });
+
+  it('fails an interrupted attempt without a persisted writer receipt and never restores it', async () => {
+    const interrupted = {
+      ...queuedJob(),
+      status: 'running' as const,
+      attemptCount: 1,
+      leaseId: 'expired-lease',
+      leaseExpiresAt: new Date(NOW.getTime() - 1),
+      beforeCheckpointId: 'ckpt-interrupted',
+    };
+    const store = new MemoryStore(interrupted);
+    const checkpoint = installCheckpointSpies([]);
+    const extractProfile = vi.fn();
+    checkpoint.seedCheckpoint(
+      'ckpt-interrupted',
+      'style_17f18699eb3b408d0d81bcf234f73a4c',
+      'chat-reference-style:job-style-1:attempt:1',
+      false,
+    );
+
+    const result = await runChatReferenceStyleJob(workerPayload(), {
+      store,
+      loadProject: async () => project('before'),
+      extractProfile,
+      applyProfile: vi.fn(),
+      dispatchRenderEvidence: vi.fn(),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({
+      status: 'failed',
+      jobId: 'job-style-1',
+      reason: 'reference-style-interrupted-attempt-rollback-not-attempted:writer-issued-receipt-missing',
+    });
+    expect(extractProfile).not.toHaveBeenCalled();
+    expect(checkpoint.recordRollbackExpectedRevision).not.toHaveBeenCalled();
+    expect(checkpoint.restoreProjectCheckpoint).not.toHaveBeenCalled();
+    expect(store.jobs.get('job-style-1')).toMatchObject({ status: 'failed' });
   });
 
   it('fails loudly when a pending job has exhausted its retry deadline', async () => {
@@ -529,6 +570,7 @@ describe('durable chat reference-style jobs', () => {
       loadProject: async () => project('before'),
       extractProfile: async () => 'style-profile-1',
       applyProfile: async () => ({ status: 'mutated', rawOutput: '{}', data: {} }),
+      captureMutationReceipts: captureWriterReceipt,
       dispatchRenderEvidence,
       ...checkpoint.dependencies,
       now: () => NOW,
@@ -541,13 +583,51 @@ describe('durable chat reference-style jobs', () => {
       'user-1',
       'project-1',
       'chat-reference-style:job-style-1:attempt:1',
+      writerIssuedReceipt(),
     );
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       expect.any(String),
       'user-1',
-      { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt().revision },
     );
     expect(store.jobs.get('job-style-1')?.status).toBe('rolled_back');
+    expect(dispatchRenderEvidence).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a style write has no captured receipt and never records or restores a guessed revision', async () => {
+    const store = new MemoryStore(queuedJob());
+    const checkpoint = installCheckpointSpies([]);
+    const dispatchRenderEvidence = vi.fn();
+
+    const result = await runChatReferenceStyleJob(workerPayload(), {
+      store,
+      loadProject: async () => project('before'),
+      extractProfile: async () => 'style-profile-1',
+      applyProfile: async () => ({ status: 'mutated', rawOutput: '{}', data: {} }),
+      dispatchRenderEvidence,
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toEqual({
+      status: 'failed',
+      jobId: 'job-style-1',
+      reason: 'reference-style-rollback-not-attempted:writer-issued-receipt-missing',
+    });
+    expect(checkpoint.recordRollbackExpectedRevision).not.toHaveBeenCalled();
+    expect(checkpoint.restoreProjectCheckpoint).not.toHaveBeenCalled();
+    expect(checkpoint.createCheckpoint).not.toHaveBeenCalled();
+    expect(checkpoint.updateChatEditOperationScoped).toHaveBeenCalledWith(
+      expect.any(String),
+      'user-1',
+      'project-1',
+      expect.any(String),
+      expect.objectContaining({
+        operationStatus: 'failed',
+        operationError: expect.stringContaining('reference-style-writer-issued-receipt-missing'),
+      }),
+    );
+    expect(store.jobs.get('job-style-1')).toMatchObject({ status: 'failed' });
     expect(dispatchRenderEvidence).not.toHaveBeenCalled();
   });
 
@@ -571,6 +651,7 @@ describe('durable chat reference-style jobs', () => {
       loadProject: async () => project('before'),
       extractProfile: async () => 'style-profile-1',
       applyProfile: async () => ({ status: 'mutated', rawOutput: '{}', data: {} }),
+      captureMutationReceipts: captureWriterReceipt,
       dispatchRenderEvidence: vi.fn(),
       ...checkpoint.dependencies,
       now: () => NOW,
@@ -584,7 +665,7 @@ describe('durable chat reference-style jobs', () => {
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       expect.any(String),
       'user-1',
-      { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt().revision },
     );
     expect(store.jobs.get('job-style-1')).toMatchObject({ status: 'failed' });
   });
@@ -602,6 +683,7 @@ describe('durable chat reference-style jobs', () => {
         currentProject = project('after');
         return { status: 'mutated', rawOutput: '{}', data: {} };
       },
+      captureMutationReceipts: captureWriterReceipt,
       dispatchRenderEvidence: async () => ({ dispatched: false, reason: 'missing-remotion-site' }),
       ...checkpoint.dependencies,
       now: () => NOW,
@@ -890,10 +972,13 @@ function installCheckpointSpies(order: string[]) {
     if (!value || value.userId !== userId || value.projectId !== projectId) {
       throw new Error('checkpoint identity mismatch');
     }
-    const receipt = rollbackReceipts.get(receiptId) ?? {
+    const existing = rollbackReceipts.get(receiptId);
+    if (existing) return existing;
+    if (!writerIssuedReceipt) throw new Error('writer-issued rollback receipt is required');
+    const receipt = {
       ...ROLLBACK_RECEIPT,
       receiptId,
-      expectedRevision: writerIssuedReceipt?.revision ?? ROLLBACK_RECEIPT.expectedRevision,
+      expectedRevision: writerIssuedReceipt.revision,
     };
     rollbackReceipts.set(receiptId, receipt);
     return receipt;
@@ -936,13 +1021,14 @@ function installCheckpointSpies(order: string[]) {
       checkpointId: string,
       operationId: string,
       receiptId: string,
+      withRollbackReceipt = true,
     ) => {
       const value = checkpoint(checkpointId, operationId, {
         presentFields: ['overlays'],
         fields: { overlays: project('before').overlays },
       });
       checkpoints.set(checkpointId, value);
-      rollbackReceipts.set(receiptId, { ...ROLLBACK_RECEIPT, receiptId });
+      if (withRollbackReceipt) rollbackReceipts.set(receiptId, { ...ROLLBACK_RECEIPT, receiptId });
     },
     dependencies: {
       checkpointService,
@@ -972,6 +1058,27 @@ function installCheckpointSpies(order: string[]) {
       }),
     },
   };
+}
+
+function writerIssuedReceipt(): ProjectMutationReceiptV1 {
+  return {
+    schemaVersion: 1,
+    projectId: 'project-1',
+    revision: { ...ROLLBACK_RECEIPT.expectedRevision, value: 5 },
+    committedAt: '2026-07-18T10:00:02.000Z',
+  };
+}
+
+async function captureWriterReceipt<T>(
+  callback: () => Promise<T> | T,
+  onSettled?: (receipts: readonly ProjectMutationReceiptV1[]) => void,
+): Promise<{ value: T; receipts: ProjectMutationReceiptV1[] }> {
+  const receipts = [writerIssuedReceipt()];
+  try {
+    return { value: await callback(), receipts };
+  } finally {
+    onSettled?.(receipts);
+  }
 }
 
 interface CheckpointRuntime {
