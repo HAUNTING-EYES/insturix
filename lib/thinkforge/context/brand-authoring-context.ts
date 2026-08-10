@@ -12,6 +12,8 @@ import {
   resolveProjectMetaBrandId,
   type ProjectMeta,
 } from '../state/types';
+import type { RetrievedContext } from './fetchContextSources';
+import { createHash } from 'crypto';
 
 export type ThinkForgeBrandAuthority = {
   brandId: string;
@@ -19,6 +21,34 @@ export type ThinkForgeBrandAuthority = {
   recordId: string;
   profileUpdatedAt: string;
   profile: BrandSignalProfile;
+};
+
+export const THINKFORGE_AUTHORING_CONTEXT_SNAPSHOT_VERSION = 1;
+
+/**
+ * Server-only provenance for a generated document. It identifies the accepted
+ * Brand Vault revision and the retrieval set without persisting any raw prompt
+ * text, Brand Vault values, or DataBank content alongside the artifact.
+ */
+export type ThinkForgeAuthoringContextSnapshot = {
+  version: typeof THINKFORGE_AUTHORING_CONTEXT_SNAPSHOT_VERSION;
+  resolvedAt: string;
+  scope: {
+    kind: 'personal' | 'organization';
+    brandId?: string;
+  };
+  brand?: {
+    brandId: string;
+    recordId: string;
+    profileUpdatedAt: string;
+    profileFingerprint: string;
+  };
+  retrieval: {
+    projectFactIds: string[];
+    globalFactIds: string[];
+    interactionPatternTypes: string[];
+  };
+  writingKnowledgeVersion: string | null;
 };
 
 export class ThinkForgeBrandAuthorityError extends Error {
@@ -29,6 +59,66 @@ export class ThinkForgeBrandAuthorityError extends Error {
     super(message);
     this.name = 'ThinkForgeBrandAuthorityError';
   }
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return JSON.stringify(value);
+  }
+  if (value instanceof Date) return JSON.stringify(value.toISOString());
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(String(value));
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))].sort();
+}
+
+export function buildThinkForgeAuthoringContextSnapshot(input: {
+  orgId?: string | null;
+  retrievedContext?: Pick<
+    RetrievedContext,
+    'brandAuthority' | 'projectFacts' | 'globalFacts' | 'interactionPatterns'
+  > | null;
+  writingKnowledgeVersion?: string | null;
+  resolvedAt?: Date;
+}): ThinkForgeAuthoringContextSnapshot {
+  const context = input.retrievedContext;
+  const authority = context?.brandAuthority ?? null;
+  const brand = authority
+    ? {
+        brandId: authority.brandId,
+        recordId: authority.recordId,
+        profileUpdatedAt: authority.profileUpdatedAt,
+        profileFingerprint: createHash('sha256')
+          .update(stableSerialize(authority.profile))
+          .digest('hex'),
+      }
+    : undefined;
+
+  return {
+    version: THINKFORGE_AUTHORING_CONTEXT_SNAPSHOT_VERSION,
+    resolvedAt: (input.resolvedAt ?? new Date()).toISOString(),
+    scope: {
+      kind: input.orgId ? 'organization' : 'personal',
+      ...(authority ? { brandId: authority.brandId } : {}),
+    },
+    ...(brand ? { brand } : {}),
+    retrieval: {
+      projectFactIds: uniqueSorted(context?.projectFacts.map((fact) => fact.id) ?? []),
+      globalFactIds: uniqueSorted(context?.globalFacts.map((fact) => fact.id) ?? []),
+      interactionPatternTypes: uniqueSorted(context?.interactionPatterns.map((pattern) => pattern.type) ?? []),
+    },
+    writingKnowledgeVersion: input.writingKnowledgeVersion ?? null,
+  };
 }
 
 /**

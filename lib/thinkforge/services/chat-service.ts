@@ -12,7 +12,10 @@ import { ScriptWriterAgent, type ScriptWriterInput } from '../agents/script-writ
 import { runThinkingAgent } from '../agents/thinking-agent';
 import { createScriptRefinementAgent } from '../agents/script-refinement-agent';
 import { quickAssembleContext, fetchContextSources, formatSystemBrief } from '../context';
-import { resolveThinkForgeAuthoringProjectMetadata } from '../context/brand-authoring-context';
+import {
+  buildThinkForgeAuthoringContextSnapshot,
+  resolveThinkForgeAuthoringProjectMetadata,
+} from '../context/brand-authoring-context';
 import { classifyIntent, intentRequiresSelection, type Intent, type IntentContextSignals } from '../intent/intent-gate';
 import * as db from './db';
 import { applyCommand } from './command-service';
@@ -52,6 +55,7 @@ import {
   type ThinkForgeContentSignalProfile,
 } from '../signals';
 import { buildThinkForgeSignalTrace } from '../signals/signal-trace';
+import { getVersion as getWritingKnowledgeVersion } from '../data/writing-graph-query';
 import crypto from 'crypto';
 
 const PROMPT_UNDERSTANDING_SEED = 7;
@@ -935,6 +939,11 @@ CRITICAL: You are editing a SELECTION from a larger document.
         let signalTrace: any = undefined;
         let briefSnapshot: ReturnType<typeof resolveThinkForgeProductionBrief> | undefined;
         let writerOutputMetadata: Record<string, any> | undefined;
+        const authoringContextSnapshot = buildThinkForgeAuthoringContextSnapshot({
+          orgId: session.orgId ?? null,
+          retrievedContext: retrievedCtx,
+          writingKnowledgeVersion: getWritingKnowledgeVersion(),
+        });
 
         // Phase 4: resolve the content signal profile and fold it into systemBrief so the writers
         // ground (proof points, forbidden terms, source-ledger) and signalTrace persists for the
@@ -1156,6 +1165,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
                 workflow: 'create',
                 source: 'ai',
                 documentType: generatedDocumentType,
+                authoringContextSnapshot,
                 ...(signalTrace ? { signalTrace } : {}),
                 ...(briefSnapshot ? { briefSnapshot } : {}),
                 ...(writerOutputMetadata ? { writerOutput: writerOutputMetadata } : {}),

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fetchContextSources, formatSystemBrief } from '@/lib/thinkforge/context/fetchContextSources';
 import {
+  buildThinkForgeAuthoringContextSnapshot,
   resolveThinkForgeAuthoringProjectMetadata,
   ThinkForgeBrandAuthorityError,
 } from '@/lib/thinkforge/context/brand-authoring-context';
@@ -369,6 +370,47 @@ describe('fetchContextSources scoped DataBank reads', () => {
     expect(brief).toContain('NEVER use these words/phrases: cheap');
     expect(brief).toContain('Profile provenance: record_brand_1; current as of 2026-08-11T00:00:00.000Z.');
     expect(brief).not.toContain('## Brand DNA');
+  });
+
+  it('records a privacy-safe authoring context snapshot for the accepted profile and retrieved facts', () => {
+    const profile = acceptedProfile();
+    const snapshot = buildThinkForgeAuthoringContextSnapshot({
+      orgId: 'org_1',
+      retrievedContext: {
+        brandAuthority: {
+          brandId: 'brand_1',
+          brandName: 'Current Brand',
+          recordId: 'record_brand_1',
+          profileUpdatedAt: '2026-08-11T00:00:00.000Z',
+          profile,
+        },
+        projectFacts: [{ id: 'project_fact_2' }, { id: 'project_fact_1' }] as any,
+        globalFacts: [{ id: 'global_fact_1' } as any],
+        interactionPatterns: [{ type: 'hook_rejected' } as any],
+      },
+      writingKnowledgeVersion: '1.0.0',
+      resolvedAt: new Date('2026-08-11T09:00:00.000Z'),
+    });
+
+    expect(snapshot).toMatchObject({
+      version: 1,
+      resolvedAt: '2026-08-11T09:00:00.000Z',
+      scope: { kind: 'organization', brandId: 'brand_1' },
+      brand: {
+        brandId: 'brand_1',
+        recordId: 'record_brand_1',
+        profileUpdatedAt: '2026-08-11T00:00:00.000Z',
+      },
+      retrieval: {
+        projectFactIds: ['project_fact_1', 'project_fact_2'],
+        globalFactIds: ['global_fact_1'],
+        interactionPatternTypes: ['hook_rejected'],
+      },
+      writingKnowledgeVersion: '1.0.0',
+    });
+    expect(snapshot.brand?.profileFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(snapshot)).not.toContain('Show the operational proof');
+    expect(JSON.stringify(snapshot)).not.toContain('cheap');
   });
 
   it('keeps a session-bound brand authoritative and removes its stale free-text brief', () => {
