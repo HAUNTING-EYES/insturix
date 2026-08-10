@@ -6417,11 +6417,32 @@ Example: use_matching_footage({ overlayId: 42, assetId: "a_Xk7pqR2m", sourceStar
             'stop',
           );
         }
-        const expectedRevision = await projectService.getProjectRevision(userId, projectId);
+        if (!checkpoint.operationId) {
+          return errorEnvelope(
+            'Checkpoint restore was not attempted because this checkpoint has no operation-scoped rollback receipt.',
+            'CHECKPOINT_RESTORE_RECEIPT_MISSING',
+            { checkpointId: checkpoint.checkpointId },
+            'stop',
+          );
+        }
+        const rollbackReceipt = await checkpointService.getRollbackReceipt(
+          checkpoint.checkpointId,
+          userId,
+          projectId,
+          checkpoint.operationId,
+        );
+        if (!rollbackReceipt) {
+          return errorEnvelope(
+            'Checkpoint restore was not attempted because the original operation receipt is unavailable.',
+            'CHECKPOINT_RESTORE_RECEIPT_MISSING',
+            { checkpointId: checkpoint.checkpointId, operationId: checkpoint.operationId },
+            'stop',
+          );
+        }
         const verification = await checkpointService.restoreProjectCheckpoint(
           checkpoint.checkpointId,
           userId,
-          { projectId, expectedRevision },
+          { projectId, expectedRevision: rollbackReceipt.expectedRevision },
         );
         if (!verification.restored) {
           return errorEnvelope(

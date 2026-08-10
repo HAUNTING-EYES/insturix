@@ -1272,6 +1272,7 @@ describe('chat AI edit transaction runtime', () => {
       overlays: ORIGINAL_PROJECT.overlays as any,
       projectState,
       stateHash: projectStateFingerprint(projectState),
+      operationId: 'chatop_restore_tool',
       timestamp: new Date(),
       description: 'Tool restore',
       type: 'before-llm',
@@ -1294,7 +1295,12 @@ describe('chat AI edit transaction runtime', () => {
         compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z',
       },
     });
-    vi.spyOn(projectService, 'getProjectRevision').mockResolvedValue(expectedRevision);
+    const getRevisionSpy = vi.spyOn(projectService, 'getProjectRevision');
+    vi.spyOn(checkpointService, 'getRollbackReceipt').mockResolvedValue({
+      schemaVersion: 1,
+      receiptId: checkpoint.operationId!,
+      expectedRevision,
+    });
 
     const restoreTool = createTools('user_1', 'proj_1')
       .find((candidate) => candidate.name === 'restore_ai_edit_checkpoint');
@@ -1314,6 +1320,44 @@ describe('chat AI edit transaction runtime', () => {
       projectId: 'proj_1',
       expectedRevision,
     });
+    expect(checkpointService.getRollbackReceipt).toHaveBeenCalledWith(
+      'ckpt_tool',
+      'user_1',
+      'proj_1',
+      'chatop_restore_tool',
+    );
+    expect(getRevisionSpy).not.toHaveBeenCalled();
+  });
+
+  it('refuses a chat checkpoint restore without the original operation receipt', async () => {
+    const projectState = captureRestorableProjectState(ORIGINAL_PROJECT);
+    const checkpoint: Checkpoint = {
+      checkpointId: 'ckpt_tool_missing_receipt',
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      projectState,
+      stateHash: projectStateFingerprint(projectState),
+      operationId: 'chatop_restore_missing_receipt',
+      timestamp: new Date(),
+      description: 'Tool restore without receipt',
+      type: 'before-llm',
+      createdAt: new Date(),
+    };
+    vi.spyOn(checkpointService, 'getCheckpoint').mockResolvedValue(checkpoint);
+    vi.spyOn(checkpointService, 'getRollbackReceipt').mockResolvedValue(null);
+    const restoreSpy = vi.spyOn(checkpointService, 'restoreProjectCheckpoint');
+
+    const restoreTool = createTools('user_1', 'proj_1')
+      .find((candidate) => candidate.name === 'restore_ai_edit_checkpoint');
+    const envelope = JSON.parse(await restoreTool!.invoke({ checkpointId: checkpoint.checkpointId }));
+
+    expect(envelope).toMatchObject({
+      status: 'error',
+      error: { code: 'CHECKPOINT_RESTORE_RECEIPT_MISSING' },
+    });
+    expect(restoreSpy).not.toHaveBeenCalled();
   });
 
   it('keeps the legacy client helper on compact receipt plus canonical project reload', () => {
