@@ -13,6 +13,7 @@ import {
   ProjectMutationConflictError,
   ProjectNotFoundOrForbiddenError,
   projectService,
+  type ProjectMutationReceiptV1,
   type ProjectRevisionV1,
 } from './project-service';
 
@@ -64,9 +65,9 @@ export interface RestorableProjectState {
 }
 
 /**
- * The revision observed for one named rollback attempt. It is persisted so a
- * retry cannot silently adopt a newer project state. Phase 2C later replaces
- * this observation with the actual writer-issued post-write receipt.
+ * The revision bound to one named rollback attempt. A supplied writer-issued
+ * post-write receipt is used directly; the temporary observed-revision path
+ * remains only for callers that D3 has not migrated yet.
  */
 export interface CheckpointRollbackReceiptV1 {
   schemaVersion: 1;
@@ -297,6 +298,7 @@ export class CheckpointService {
     userId: string,
     projectId: string,
     receiptId: string,
+    writerIssuedReceipt?: ProjectMutationReceiptV1,
   ): Promise<CheckpointRollbackReceiptV1> {
     assertRollbackReceiptId(receiptId);
     const checkpoint = await this.getCheckpoint(checkpointId, userId, projectId);
@@ -309,7 +311,9 @@ export class CheckpointService {
     const receipt: CheckpointRollbackReceiptV1 = {
       schemaVersion: 1,
       receiptId,
-      expectedRevision: await projectService.getProjectRevision(userId, projectId),
+      expectedRevision: writerIssuedReceipt
+        ? revisionFromWriterReceipt(writerIssuedReceipt, projectId)
+        : await projectService.getProjectRevision(userId, projectId),
     };
     const db = await getDatabase();
     const persisted = await db.collection<Checkpoint>(COLLECTIONS.CHECKPOINTS).findOneAndUpdate(
@@ -578,6 +582,22 @@ function isProjectRevisionV1(value: unknown): value is ProjectRevisionV1 {
     && revision.value >= 0
     && typeof revision.compatibilityUpdatedAt === 'string'
     && !Number.isNaN(new Date(revision.compatibilityUpdatedAt).getTime());
+}
+
+function revisionFromWriterReceipt(
+  receipt: ProjectMutationReceiptV1,
+  projectId: string,
+): ProjectRevisionV1 {
+  if (
+    receipt.schemaVersion !== 1
+    || receipt.projectId !== projectId
+    || !isProjectRevisionV1(receipt.revision)
+    || typeof receipt.committedAt !== 'string'
+    || Number.isNaN(new Date(receipt.committedAt).getTime())
+  ) {
+    throw new Error('Rollback writer receipt is invalid or belongs to another project.');
+  }
+  return cloneValue(receipt.revision);
 }
 
 function cloneValue<T>(value: T): T {

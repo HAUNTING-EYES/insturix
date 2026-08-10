@@ -10,7 +10,10 @@ import {
   type ChatEditOperationUpdate,
   type RestoreProjectCheckpointResult,
 } from '@/lib/editron/services/checkpoint-service';
-import type { ProjectRevisionV1 } from '@/lib/editron/services/project-service';
+import type {
+  ProjectMutationReceiptV1,
+  ProjectRevisionV1,
+} from '@/lib/editron/services/project-service';
 import type {
   ChatEditRenderVerificationModality,
   ChatEditRenderVerificationExpectation,
@@ -52,6 +55,7 @@ interface ChatEditCheckpointStore {
     userId: string,
     projectId: string,
     operationId: string,
+    writerIssuedReceipt?: ProjectMutationReceiptV1,
   ): Promise<CheckpointRollbackReceiptV1>;
   restoreProjectCheckpoint(
     checkpointId: string,
@@ -159,6 +163,7 @@ export async function completeChatAiEditTransaction(
     transaction: ChatAiEditTransaction;
     toolCalls: ChatAiToolCall[];
     toolResults: ChatAiToolResult[];
+    writerIssuedReceipt?: ProjectMutationReceiptV1;
   },
   dependencies: RuntimeDependencies = {},
 ): Promise<ChatAiEditTransactionSummary> {
@@ -195,20 +200,19 @@ export async function completeChatAiEditTransaction(
       mutatingToolNames: batch.attemptedToolNames,
       failedToolNames: batch.failedToolNames,
       reason: `Mutating tool batch failed: ${batch.failedToolNames.join(', ')}`,
+      writerIssuedReceipt: input.writerIssuedReceipt,
     }, dependencies);
   }
 
   try {
     const project = await services.loadProject(input.transaction.userId, input.transaction.projectId);
     if (!project) throw new Error('Project could not be loaded after AI edit execution.');
-    // This is an idempotent, project-scoped snapshot of the revision observed
-    // for this transaction. The later writer-issued receipt phase removes the
-    // remaining interval between the write and this observation.
     await services.checkpointStore.recordRollbackExpectedRevision(
       input.transaction.beforeCheckpointId,
       input.transaction.userId,
       input.transaction.projectId,
       input.transaction.operationId,
+      input.writerIssuedReceipt,
     );
     const afterCheckpointId = buildChatEditCheckpointId(input.transaction, 'after');
     const afterCheckpoint = await services.checkpointStore.createCheckpoint({
@@ -264,6 +268,7 @@ export async function completeChatAiEditTransaction(
       mutatingToolNames: batch.successfulToolNames,
       failedToolNames: [],
       reason: error instanceof Error ? error.message : 'AI edit transaction finalization failed.',
+      writerIssuedReceipt: input.writerIssuedReceipt,
     }, dependencies);
   }
 }
@@ -274,6 +279,7 @@ export async function rollbackChatAiEditTransaction(
     mutatingToolNames?: string[];
     failedToolNames?: string[];
     reason: string;
+    writerIssuedReceipt?: ProjectMutationReceiptV1;
   },
   dependencies: RuntimeDependencies = {},
 ): Promise<ChatAiEditTransactionSummary> {
@@ -283,6 +289,7 @@ export async function rollbackChatAiEditTransaction(
     input.transaction.userId,
     input.transaction.projectId,
     input.transaction.operationId,
+    input.writerIssuedReceipt,
   );
   const restore = await services.checkpointStore.restoreProjectCheckpoint(
     input.transaction.beforeCheckpointId,

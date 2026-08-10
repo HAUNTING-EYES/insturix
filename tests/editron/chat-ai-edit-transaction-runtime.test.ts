@@ -79,6 +79,7 @@ import {
   ProjectMutationConflictError,
   ProjectNotFoundOrForbiddenError,
   projectService,
+  type ProjectMutationReceiptV1,
   type ProjectRevisionV1,
 } from '@/lib/editron/services/project-service';
 
@@ -91,6 +92,7 @@ class MemoryCheckpointStore {
     userId: string;
     projectId: string;
     operationId: string;
+    writerIssuedReceipt?: ProjectMutationReceiptV1;
   }> = [];
   readonly restoreRequests: Array<{
     checkpointId: string;
@@ -159,8 +161,15 @@ class MemoryCheckpointStore {
     userId: string,
     projectId: string,
     operationId: string,
+    writerIssuedReceipt?: ProjectMutationReceiptV1,
   ): Promise<CheckpointRollbackReceiptV1> {
-    this.rollbackReceiptCalls.push({ checkpointId, userId, projectId, operationId });
+    this.rollbackReceiptCalls.push({
+      checkpointId,
+      userId,
+      projectId,
+      operationId,
+      ...(writerIssuedReceipt ? { writerIssuedReceipt } : {}),
+    });
     const checkpoint = this.checkpoints.get(checkpointId);
     if (
       !checkpoint
@@ -171,7 +180,12 @@ class MemoryCheckpointStore {
       throw new Error('missing or out-of-scope rollback checkpoint');
     }
     const existing = this.rollbackReceipts.get(checkpointId);
-    const expectedRevision = existing ?? structuredClone(this.issuedRollbackRevision);
+    if (writerIssuedReceipt && writerIssuedReceipt.projectId !== projectId) {
+      throw new Error('writer receipt belongs to another project');
+    }
+    const expectedRevision = existing ?? structuredClone(
+      writerIssuedReceipt?.revision ?? this.issuedRollbackRevision,
+    );
     this.rollbackReceipts.set(checkpointId, expectedRevision);
     return { schemaVersion: 1, receiptId: operationId, expectedRevision: structuredClone(expectedRevision) };
   }
@@ -560,6 +574,81 @@ describe('chat AI edit transaction runtime', () => {
       },
     ]);
     expect(projectStateFingerprint(captureRestorableProjectState(store.project))).toBe(competingStateHash);
+  });
+
+  it('binds rollback to the writer-issued revision before a competing mutation can be observed', async () => {
+    const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+    const ready = await prepare(store, 'chatop_writer_receipt_race');
+    const transaction = ready.transaction!;
+    const writerIssuedReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId: transaction.projectId,
+      revision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: '2026-08-09T00:00:07.000Z',
+      },
+      committedAt: '2026-08-09T00:00:07.000Z',
+    };
+
+    store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'newer competing change' }];
+    const competingStateHash = projectStateFingerprint(captureRestorableProjectState(store.project));
+    store.rejectRestoreAsStale = true;
+
+    const result = await rollbackChatAiEditTransaction({
+      transaction,
+      mutatingToolNames: ['update_overlay'],
+      reason: 'writer receipt race probe',
+      writerIssuedReceipt,
+    }, { checkpointStore: store, loadProject: store.loadProject });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('project-revision-conflict'),
+    });
+    expect(store.rollbackReceiptCalls).toEqual([{
+      checkpointId: transaction.beforeCheckpointId,
+      userId: transaction.userId,
+      projectId: transaction.projectId,
+      operationId: transaction.operationId,
+      writerIssuedReceipt,
+    }]);
+    expect(store.restoreRequests[0]?.expectedRevision).toEqual(writerIssuedReceipt.revision);
+    expect(store.rollbackReceipts.get(transaction.beforeCheckpointId)).toEqual(writerIssuedReceipt.revision);
+    expect(projectStateFingerprint(captureRestorableProjectState(store.project))).toBe(competingStateHash);
+  });
+
+  it('rejects a writer receipt from another project before mutating the checkpoint', async () => {
+    const service = new CheckpointService();
+    vi.spyOn(service, 'getCheckpoint').mockResolvedValue({
+      checkpointId: 'ckpt_writer_receipt_scope',
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: [],
+      timestamp: new Date(),
+      description: 'writer receipt scope check',
+      type: 'before-llm',
+      createdAt: new Date(),
+    });
+
+    await expect(service.recordRollbackExpectedRevision(
+      'ckpt_writer_receipt_scope',
+      'user_1',
+      'proj_1',
+      'chatop_writer_receipt_scope',
+      {
+        schemaVersion: 1,
+        projectId: 'proj_other',
+        revision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: '2026-08-09T00:00:07.000Z',
+        },
+        committedAt: '2026-08-09T00:00:07.000Z',
+      },
+    )).rejects.toThrow('belongs to another project');
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
   });
 
   it('returns the new revision after a successful exact chat rollback', async () => {
