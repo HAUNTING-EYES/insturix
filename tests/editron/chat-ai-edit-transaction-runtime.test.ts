@@ -183,9 +183,10 @@ class MemoryCheckpointStore {
     if (writerIssuedReceipt && writerIssuedReceipt.projectId !== projectId) {
       throw new Error('writer receipt belongs to another project');
     }
-    const expectedRevision = existing ?? structuredClone(
-      writerIssuedReceipt?.revision ?? this.issuedRollbackRevision,
-    );
+    if (!existing && !writerIssuedReceipt) {
+      throw new Error('writer-issued rollback receipt required');
+    }
+    const expectedRevision = existing ?? structuredClone(writerIssuedReceipt!.revision);
     this.rollbackReceipts.set(checkpointId, expectedRevision);
     return { schemaVersion: 1, receiptId: operationId, expectedRevision: structuredClone(expectedRevision) };
   }
@@ -302,6 +303,19 @@ async function prepare(store: MemoryCheckpointStore, operationId = 'chatop_12345
   }, { checkpointStore: store, loadProject: store.loadProject });
 }
 
+function writerReceipt(projectId = 'proj_1'): ProjectMutationReceiptV1 {
+  return {
+    schemaVersion: 1,
+    projectId,
+    revision: {
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: '2026-08-09T00:00:07.000Z',
+    },
+    committedAt: '2026-08-09T00:00:07.000Z',
+  };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   infrastructureMocks.auth.mockReset().mockResolvedValue({ userId: 'user_1' });
@@ -355,6 +369,7 @@ describe('chat AI edit transaction runtime', () => {
       transaction: ready.transaction!,
       toolCalls: [{ id: 'call_1', name: 'update_overlay' }],
       toolResults: [{ toolCallId: 'call_1', toolName: 'update_overlay', result: '{"status":"success"}' }],
+      writerIssuedReceipt: writerReceipt(),
     }, { checkpointStore: store, loadProject: store.loadProject });
 
     expect(result).toMatchObject({
@@ -364,6 +379,29 @@ describe('chat AI edit transaction runtime', () => {
     });
     expect(result.checkpointIds).toHaveLength(2);
     expect(store.events).toEqual(['claim', 'create:after-llm', 'status:completed']);
+  });
+
+  it('fails a mutating completion without creating a rollback receipt, restore, or after checkpoint', async () => {
+    const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+    const ready = await prepare(store, 'chatop_missing_writer_receipt');
+    store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'persisted mutation' }];
+    const postMutationHash = projectStateFingerprint(captureRestorableProjectState(store.project));
+
+    const result = await completeChatAiEditTransaction({
+      transaction: ready.transaction!,
+      toolCalls: [{ id: 'call_1', name: 'update_overlay' }],
+      toolResults: [{ toolCallId: 'call_1', toolName: 'update_overlay', result: '{"status":"success"}' }],
+    }, { checkpointStore: store, loadProject: store.loadProject });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      mutatingToolNames: ['update_overlay'],
+      error: expect.stringContaining('no writer-issued mutation receipt'),
+    });
+    expect(store.rollbackReceiptCalls).toEqual([]);
+    expect(store.restoreRequests).toEqual([]);
+    expect(store.events).toEqual(['claim', 'status:failed']);
+    expect(projectStateFingerprint(captureRestorableProjectState(store.project))).toBe(postMutationHash);
   });
 
   it('commits an atomic cut when a redundant close_gaps follow-up is shadowed', async () => {
@@ -400,6 +438,7 @@ describe('chat AI edit transaction runtime', () => {
           }),
         },
       ],
+      writerIssuedReceipt: writerReceipt(),
     }, { checkpointStore: store, loadProject: store.loadProject });
 
     expect(result).toMatchObject({
@@ -443,6 +482,7 @@ describe('chat AI edit transaction runtime', () => {
           result: JSON.stringify({ status: 'success', data: { id: 2 } }),
         },
       ],
+      writerIssuedReceipt: writerReceipt(),
     }, { checkpointStore: store, loadProject: store.loadProject });
 
     expect(result).toMatchObject({
@@ -484,6 +524,7 @@ describe('chat AI edit transaction runtime', () => {
           result: JSON.stringify({ status: 'success', data: { id: 2 } }),
         },
       ],
+      writerIssuedReceipt: writerReceipt(),
     }, { checkpointStore: store, loadProject: store.loadProject });
 
     expect(result).toMatchObject({
@@ -518,6 +559,7 @@ describe('chat AI edit transaction runtime', () => {
           toolName: 'add_overlay',
           result: JSON.stringify({ status: 'error', error }),
         }],
+        writerIssuedReceipt: writerReceipt(),
       }, { checkpointStore: store, loadProject: store.loadProject });
 
       expect(result).toMatchObject({ status: 'rolled-back', failedToolNames: ['add_overlay'] });
@@ -529,16 +571,18 @@ describe('chat AI edit transaction runtime', () => {
     const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
     const ready = await prepare(store, 'chatop_receipt_123');
     const transaction = ready.transaction!;
+    const writerIssuedReceipt = writerReceipt(transaction.projectId);
     store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'transaction change' }];
 
     const completed = await completeChatAiEditTransaction({
       transaction,
       toolCalls: [{ id: 'call_1', name: 'update_overlay' }],
       toolResults: [{ toolCallId: 'call_1', toolName: 'update_overlay', result: '{"status":"success"}' }],
+      writerIssuedReceipt,
     }, { checkpointStore: store, loadProject: store.loadProject });
     expect(completed.status).toBe('created');
 
-    const expectedRevision = store.issuedRollbackRevision;
+    const expectedRevision = writerIssuedReceipt.revision;
     store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'newer competing change' }];
     const competingStateHash = projectStateFingerprint(captureRestorableProjectState(store.project));
     store.rejectRestoreAsStale = true;
@@ -547,6 +591,7 @@ describe('chat AI edit transaction runtime', () => {
       transaction,
       mutatingToolNames: ['update_overlay'],
       reason: 'postcondition failed after a competing mutation',
+      writerIssuedReceipt,
     }, { checkpointStore: store, loadProject: store.loadProject });
 
     expect(result).toMatchObject({
@@ -565,12 +610,14 @@ describe('chat AI edit transaction runtime', () => {
         userId: transaction.userId,
         projectId: transaction.projectId,
         operationId: transaction.operationId,
+        writerIssuedReceipt,
       },
       {
         checkpointId: transaction.beforeCheckpointId,
         userId: transaction.userId,
         projectId: transaction.projectId,
         operationId: transaction.operationId,
+        writerIssuedReceipt,
       },
     ]);
     expect(projectStateFingerprint(captureRestorableProjectState(store.project))).toBe(competingStateHash);
@@ -651,6 +698,29 @@ describe('chat AI edit transaction runtime', () => {
     expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
   });
 
+  it('requires a writer-issued receipt before binding a new rollback revision', async () => {
+    const service = new CheckpointService();
+    vi.spyOn(service, 'getCheckpoint').mockResolvedValue({
+      checkpointId: 'ckpt_writer_receipt_required',
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: [],
+      timestamp: new Date(),
+      description: 'writer receipt required',
+      type: 'before-llm',
+      createdAt: new Date(),
+    });
+
+    await expect(service.recordRollbackExpectedRevision(
+      'ckpt_writer_receipt_required',
+      'user_1',
+      'proj_1',
+      'chatop_writer_receipt_required',
+    )).rejects.toThrow('requires a writer-issued rollback receipt');
+    expect(infrastructureMocks.getDatabase).not.toHaveBeenCalled();
+  });
+
   it('returns the new revision after a successful exact chat rollback', async () => {
     const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
     const ready = await prepare(store, 'chatop_rollback_123');
@@ -660,6 +730,7 @@ describe('chat AI edit transaction runtime', () => {
       transaction: ready.transaction!,
       mutatingToolNames: ['update_overlay'],
       reason: 'tool failed after a project mutation',
+      writerIssuedReceipt: writerReceipt(),
     }, { checkpointStore: store, loadProject: store.loadProject });
 
     expect(result).toMatchObject({
@@ -698,6 +769,7 @@ describe('chat AI edit transaction runtime', () => {
         { toolCallId: 'call_1', toolName: 'update_overlay', result: '{"status":"success"}' },
         { toolCallId: 'call_2', toolName: 'delete_overlay', result: '{"status":"error","error":"failed"}' },
       ],
+      writerIssuedReceipt: writerReceipt(),
     }, { checkpointStore: store, loadProject: store.loadProject });
 
     // KEEP-BEST (founder-ruled after the C1 matrix): the parsed-envelope failure
@@ -732,6 +804,7 @@ describe('chat AI edit transaction runtime', () => {
         { toolCallId: 'call_1', toolName: 'add_captions', result: JSON.stringify({ status: 'error', error: { code: 'TOOL_HANDLER_ERROR', message: 'Valid video overlay with asset not found' } }) },
         { toolCallId: 'call_2', toolName: 'add_captions', result: '{"status":"success"}' },
       ],
+      writerIssuedReceipt: writerReceipt(),
     }, { checkpointStore: store, loadProject: store.loadProject });
 
     expect(result).toMatchObject({
@@ -752,6 +825,7 @@ describe('chat AI edit transaction runtime', () => {
       transaction: ready.transaction!,
       toolCalls: [{ id: 'missing', name: 'trim_overlay' }],
       toolResults: [],
+      writerIssuedReceipt: writerReceipt(),
     }, { checkpointStore: store, loadProject: store.loadProject });
 
     expect(result).toMatchObject({
@@ -762,7 +836,7 @@ describe('chat AI edit transaction runtime', () => {
     expect(store.events).toEqual(['claim', 'restore', 'status:failed']);
   });
 
-  it('rolls back a mutating result without explicit success instead of guessing', async () => {
+  it('fails an ambiguous mutating result without attempting rollback when the writer receipt is missing', async () => {
     const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
     const ready = await prepare(store);
     store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'must not survive' }];
@@ -777,9 +851,19 @@ describe('chat AI edit transaction runtime', () => {
       }],
     }, { checkpointStore: store, loadProject: store.loadProject });
 
-    expect(result).toMatchObject({ status: 'rolled-back', failedToolNames: ['update_overlay'] });
+    expect(result).toMatchObject({
+      status: 'failed',
+      failedToolNames: ['update_overlay'],
+      error: expect.stringContaining('no writer-issued mutation receipt'),
+    });
+    expect(store.rollbackReceiptCalls).toEqual([]);
+    expect(store.restoreRequests).toEqual([]);
+    expect(store.events).toEqual(['claim', 'status:failed']);
     expect(projectStateFingerprint(captureRestorableProjectState(store.project))).toBe(
-      projectStateFingerprint(captureRestorableProjectState(ORIGINAL_PROJECT)),
+      projectStateFingerprint(captureRestorableProjectState({
+        ...ORIGINAL_PROJECT,
+        overlays: [{ ...ORIGINAL_PROJECT.overlays[0], content: 'must not survive' }],
+      })),
     );
   });
 
@@ -1344,6 +1428,7 @@ describe('chat AI edit transaction runtime', () => {
           result: replan!,
         },
       ],
+      writerIssuedReceipt: writerReceipt(),
     }, { checkpointStore: store, loadProject: store.loadProject });
 
     expect(result).toMatchObject({

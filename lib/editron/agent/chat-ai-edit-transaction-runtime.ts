@@ -181,6 +181,15 @@ export async function completeChatAiEditTransaction(
     return summary(input.transaction, 'not-needed', [], [], undefined);
   }
 
+  if (!input.writerIssuedReceipt) {
+    return failChatAiEditWithoutWriterReceipt({
+      transaction: input.transaction,
+      mutatingToolNames: batch.attemptedToolNames,
+      failedToolNames: batch.failedToolNames,
+      reason: 'A mutating chat edit completed without a writer-issued mutation receipt.',
+    }, services.checkpointStore);
+  }
+
   // KEEP-BEST (founder-ruled after the C1 matrix wiped 3 verified edits over one
   // failed sibling): a failure only forces a full rollback when the project state
   // is genuinely unknown — a 'missing' result (tool started, never completed) —
@@ -284,6 +293,9 @@ export async function rollbackChatAiEditTransaction(
   dependencies: RuntimeDependencies = {},
 ): Promise<ChatAiEditTransactionSummary> {
   const services = await resolveServices(dependencies);
+  if (!input.writerIssuedReceipt) {
+    return failChatAiEditWithoutWriterReceipt(input, services.checkpointStore);
+  }
   const rollbackReceipt = await services.checkpointStore.recordRollbackExpectedRevision(
     input.transaction.beforeCheckpointId,
     input.transaction.userId,
@@ -333,6 +345,28 @@ export async function rollbackChatAiEditTransaction(
     [],
     restore.restoredRevision,
   );
+}
+
+async function failChatAiEditWithoutWriterReceipt(
+  input: {
+    transaction: ChatAiEditTransaction;
+    mutatingToolNames?: string[];
+    failedToolNames?: string[];
+    reason: string;
+  },
+  checkpointStore: ChatEditCheckpointStore,
+): Promise<ChatAiEditTransactionSummary> {
+  const mutatingToolNames = input.mutatingToolNames ?? [];
+  const failedToolNames = input.failedToolNames ?? [];
+  const error = `Rollback was not attempted because no writer-issued mutation receipt was captured: ${input.reason}`;
+  await checkpointStore.updateChatEditOperationScoped(
+    input.transaction.beforeCheckpointId,
+    input.transaction.userId,
+    input.transaction.projectId,
+    input.transaction.operationId,
+    { operationStatus: 'failed', mutatingToolNames, operationError: error },
+  );
+  return summary(input.transaction, 'failed', mutatingToolNames, failedToolNames, undefined, error);
 }
 
 function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiToolResult[]) {

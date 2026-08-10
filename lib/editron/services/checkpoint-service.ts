@@ -307,13 +307,14 @@ export class CheckpointService {
     }
     const existing = rollbackReceiptFor(checkpoint, receiptId);
     if (existing) return existing;
+    if (!writerIssuedReceipt) {
+      throw new Error(`Chat edit operation checkpoint ${checkpointId} requires a writer-issued rollback receipt.`);
+    }
 
     const receipt: CheckpointRollbackReceiptV1 = {
       schemaVersion: 1,
       receiptId,
-      expectedRevision: writerIssuedReceipt
-        ? revisionFromWriterReceipt(writerIssuedReceipt, projectId)
-        : await projectService.getProjectRevision(userId, projectId),
+      expectedRevision: revisionFromWriterReceipt(writerIssuedReceipt, projectId),
     };
     const db = await getDatabase();
     const persisted = await db.collection<Checkpoint>(COLLECTIONS.CHECKPOINTS).findOneAndUpdate(
