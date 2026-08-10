@@ -521,6 +521,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       timestamp: new Date(),
     });
 
+    let researchReady = false;
     try {
       const res = await fetch('/api/services/thinkforge/refinery', {
         method: 'POST',
@@ -528,9 +529,30 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         body: JSON.stringify({ sessionId, urls }),
       });
 
-      if (!res.ok) throw new Error('Refinery request failed');
-      const data = await res.json();
-      const result = data.result;
+      const queued = await res.json().catch(() => null);
+      if (!res.ok || !queued?.job?.id) {
+        throw new Error(queued?.error || 'Research processing could not be started.');
+      }
+
+      const deadline = Date.now() + 10 * 60_000;
+      let job = queued.job;
+      while (job.status === 'queued' || job.status === 'running') {
+        if (Date.now() >= deadline) {
+          throw new Error('Research processing is taking longer than expected. Please try again shortly.');
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+        const status = await fetch(`/api/services/thinkforge/refinery?jobId=${encodeURIComponent(job.id)}`);
+        const payload = await status.json().catch(() => null);
+        if (!status.ok || !payload?.job) {
+          throw new Error(payload?.error || 'Research processing status could not be loaded.');
+        }
+        job = payload.job;
+      }
+      if (job.status !== 'completed' || !job.result || job.result.processed < 1) {
+        throw new Error(job.error?.message || 'None of the supplied research sources could be analyzed.');
+      }
+
+      const result = job.result;
       const successCount = result?.processed ?? 0;
       const failCount = result?.failed ?? 0;
       const titles = (result?.entries || []).map((e: any) => e.title).filter(Boolean);
@@ -545,12 +567,13 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         content: msg,
         timestamp: new Date(),
       });
+      researchReady = true;
     } catch (err) {
       console.error('[Refinery] Processing failed:', err);
       chat.appendMessage({
         id: `url-fail-${Date.now()}`,
         role: 'assistant',
-        content: 'Could not analyze the links. Sending your message as-is.',
+        content: err instanceof Error ? `Could not analyze the links: ${err.message}` : 'Could not analyze the links.',
         timestamp: new Date(),
       });
     } finally {
@@ -560,8 +583,8 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     // Now send the prompt — the Databank has been populated, so
     // fetchContextSources will pick up the newly ingested facts.
     const textWithoutUrls = urls.reduce((text, url) => text.replace(url, '').trim(), originalPrompt);
-    if (textWithoutUrls.length > 5) {
-      sendChatMessage(originalPrompt);
+    if (researchReady && textWithoutUrls.length > 5) {
+      sendChatMessage(textWithoutUrls);
     }
   }, [sessionId, chat, sendChatMessage]);
 
