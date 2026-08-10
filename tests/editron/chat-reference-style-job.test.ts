@@ -14,9 +14,24 @@ import {
   type ChatReferenceStyleJob,
   type ChatReferenceStyleJobStore,
 } from '@/lib/editron/services/chat-reference-style-job';
-import type { Checkpoint, RestorableProjectState } from '@/lib/editron/services/checkpoint-service';
+import type {
+  Checkpoint,
+  CheckpointRollbackReceiptV1,
+  RestorableProjectState,
+  RestoreProjectCheckpointResult,
+} from '@/lib/editron/services/checkpoint-service';
+import type { ProjectRevisionV1 } from '@/lib/editron/services/project-service';
 
 const NOW = new Date('2026-07-18T10:00:00.000Z');
+const ROLLBACK_RECEIPT: CheckpointRollbackReceiptV1 = {
+  schemaVersion: 1,
+  receiptId: 'test-style-receipt',
+  expectedRevision: {
+    schemaVersion: 1,
+    value: 4,
+    compatibilityUpdatedAt: '2026-07-18T10:00:01.000Z',
+  },
+};
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -128,6 +143,12 @@ describe('durable chat reference-style jobs', () => {
     expect(attemptOperationId).toMatch(/^style_[a-f0-9]{32}$/);
     expect(store.jobs.get('job-style-1')?.renderOperationId).toBe(attemptOperationId);
     expect(checkpoint.createCheckpoint.mock.calls[0]?.[0].operationId).toBe(attemptOperationId);
+    expect(checkpoint.recordRollbackExpectedRevision).toHaveBeenCalledWith(
+      expect.any(String),
+      'user-1',
+      'project-1',
+      'chat-reference-style:job-style-1:attempt:1',
+    );
     expect(dispatchRenderEvidence).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'project-1',
       userId: 'user-1',
@@ -163,9 +184,10 @@ describe('durable chat reference-style jobs', () => {
     expect(result).toMatchObject({ status: 'declined', reason: 'no-safe-opportunity' });
     expect(store.jobs.get('job-style-1')?.status).toBe('declined');
     expect(checkpoint.createCheckpoint).not.toHaveBeenCalled();
-    expect(checkpoint.updateChatEditOperation).toHaveBeenCalledWith(
+    expect(checkpoint.updateChatEditOperationScoped).toHaveBeenCalledWith(
       expect.any(String),
       'user-1',
+      'project-1',
       expect.any(String),
       { operationStatus: 'no-op', mutatingToolNames: [] },
     );
@@ -297,6 +319,11 @@ describe('durable chat reference-style jobs', () => {
     let currentProject = project('before');
     const order: string[] = [];
     const checkpoint = installCheckpointSpies(order);
+    checkpoint.seedCheckpoint(
+      'ckpt-interrupted',
+      'style_17f18699eb3b408d0d81bcf234f73a4c',
+      'chat-reference-style:job-style-1:attempt:1',
+    );
     checkpoint.restoreProjectCheckpoint.mockImplementationOnce(async () => {
       order.push('restore-interrupted');
       return {
@@ -329,6 +356,11 @@ describe('durable chat reference-style jobs', () => {
     });
     expect(completed?.beforeCheckpointId).toMatch(/^ckpt_chat_style_before_/);
     expect(completed?.beforeCheckpointId).not.toBe('ckpt-interrupted');
+    expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
+      'ckpt-interrupted',
+      'user-1',
+      { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision },
+    );
   });
 
   it('fails loudly when a pending job has exhausted its retry deadline', async () => {
@@ -437,8 +469,57 @@ describe('durable chat reference-style jobs', () => {
 
     expect(result).toMatchObject({ status: 'failed', reason: expect.stringContaining('reference-style-postcondition-failed') });
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledTimes(1);
+    expect(checkpoint.recordRollbackExpectedRevision).toHaveBeenCalledWith(
+      expect.any(String),
+      'user-1',
+      'project-1',
+      'chat-reference-style:job-style-1:attempt:1',
+    );
+    expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
+      expect.any(String),
+      'user-1',
+      { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision },
+    );
     expect(store.jobs.get('job-style-1')?.status).toBe('rolled_back');
     expect(dispatchRenderEvidence).not.toHaveBeenCalled();
+  });
+
+  it('refuses a stale rollback receipt without a second restore or mutation retry', async () => {
+    const store = new MemoryStore(queuedJob());
+    const checkpoint = installCheckpointSpies([]);
+    checkpoint.restoreProjectCheckpoint.mockResolvedValueOnce({
+      restored: false,
+      checkpointId: 'stale',
+      expectedStateHash: 'before',
+      reason: 'project-revision-conflict',
+      beforeRevision: ROLLBACK_RECEIPT.expectedRevision,
+      currentRevision: {
+        ...ROLLBACK_RECEIPT.expectedRevision,
+        value: ROLLBACK_RECEIPT.expectedRevision.value + 1,
+      },
+    });
+
+    const result = await runChatReferenceStyleJob(workerPayload(), {
+      store,
+      loadProject: async () => project('before'),
+      extractProfile: async () => 'style-profile-1',
+      applyProfile: async () => ({ status: 'mutated', rawOutput: '{}', data: {} }),
+      dispatchRenderEvidence: vi.fn(),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      reason: expect.stringContaining('reference-style-rollback-failed:project-revision-conflict'),
+    });
+    expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledTimes(1);
+    expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
+      expect.any(String),
+      'user-1',
+      { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision },
+    );
+    expect(store.jobs.get('job-style-1')).toMatchObject({ status: 'failed' });
   });
 
   it('persists completed-unverified instead of claiming success when the render worker cannot start', async () => {
@@ -713,29 +794,84 @@ function project(content: 'before' | 'after') {
 }
 
 function installCheckpointSpies(order: string[]) {
+  const checkpoints = new Map<string, Checkpoint>();
   const claimChatEditOperation = vi.fn(async (input: Parameters<CheckpointRuntime['claimChatEditOperation']>[0]) => {
     order.push('before-checkpoint');
-    return { claimed: true, checkpoint: checkpoint(input.checkpointId, input.operationId, input.projectState) };
+    const value = checkpoint(input.checkpointId, input.operationId, input.projectState);
+    checkpoints.set(value.checkpointId, value);
+    return { claimed: true, checkpoint: value };
   });
   const createCheckpoint = vi.fn(async (input: Parameters<CheckpointRuntime['createCheckpoint']>[0]) => {
     order.push('after-checkpoint');
-    return checkpoint(input.checkpointId!, input.operationId!, input.projectState!);
+    const value = checkpoint(input.checkpointId!, input.operationId!, input.projectState!);
+    checkpoints.set(value.checkpointId, value);
+    return value;
   });
-  const updateChatEditOperation = vi.fn(async () => undefined);
-  const restoreProjectCheckpoint = vi.fn(async (checkpointId: string) => ({
+  const getCheckpoint = vi.fn(async (checkpointId: string, userId: string, projectId: string) => {
+    const value = checkpoints.get(checkpointId);
+    return value?.userId === userId && value.projectId === projectId ? structuredClone(value) : null;
+  });
+  const rollbackReceipts = new Map<string, CheckpointRollbackReceiptV1>();
+  const recordRollbackExpectedRevision = vi.fn(async (
+    checkpointId: string,
+    userId: string,
+    projectId: string,
+    receiptId: string,
+  ) => {
+    const value = checkpoints.get(checkpointId);
+    if (!value || value.userId !== userId || value.projectId !== projectId) {
+      throw new Error('checkpoint identity mismatch');
+    }
+    const receipt = rollbackReceipts.get(receiptId) ?? { ...ROLLBACK_RECEIPT, receiptId };
+    rollbackReceipts.set(receiptId, receipt);
+    return receipt;
+  });
+  const getRollbackReceipt = vi.fn(async (
+    checkpointId: string,
+    userId: string,
+    projectId: string,
+    receiptId: string,
+  ) => {
+    const value = checkpoints.get(checkpointId);
+    if (!value || value.userId !== userId || value.projectId !== projectId) return null;
+    return rollbackReceipts.get(receiptId) ?? null;
+  });
+  const updateChatEditOperationScoped = vi.fn(async () => undefined);
+  const restoreProjectCheckpoint = vi.fn(async (
+    checkpointId: string,
+    _userId: string,
+    options: { projectId?: string; expectedRevision?: ProjectRevisionV1 },
+  ): Promise<RestoreProjectCheckpointResult> => ({
     restored: true,
     checkpointId,
     expectedStateHash: 'before',
     actualStateHash: 'before',
+    beforeRevision: options.expectedRevision,
+    restoredRevision: options.expectedRevision,
   }));
   const checkpointService = {
     claimChatEditOperation,
     createCheckpoint,
-    updateChatEditOperation,
+    getCheckpoint,
+    getRollbackReceipt,
+    recordRollbackExpectedRevision,
+    updateChatEditOperationScoped,
     restoreProjectCheckpoint,
   };
   return {
     ...checkpointService,
+    seedCheckpoint: (
+      checkpointId: string,
+      operationId: string,
+      receiptId: string,
+    ) => {
+      const value = checkpoint(checkpointId, operationId, {
+        presentFields: ['overlays'],
+        fields: { overlays: project('before').overlays },
+      });
+      checkpoints.set(checkpointId, value);
+      rollbackReceipts.set(receiptId, { ...ROLLBACK_RECEIPT, receiptId });
+    },
     dependencies: {
       checkpointService,
       captureProjectState: (value: Record<string, unknown>): RestorableProjectState => ({
@@ -793,6 +929,7 @@ function checkpoint(
       ? projectState.fields.overlays as Checkpoint['overlays']
       : [],
     projectState,
+    capturedProjectRevision: ROLLBACK_RECEIPT.expectedRevision,
     operationId,
     operationStatus: 'running',
     timestamp: NOW,
