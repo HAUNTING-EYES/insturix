@@ -12,6 +12,7 @@ import type { ProjectBrief } from '@/lib/editron/data/edit-profile-types';
 import { normalizeEditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 import type {
   Checkpoint,
+  CheckpointRollbackReceiptV1,
   CheckpointService,
   RestorableProjectState,
 } from '@/lib/editron/services/checkpoint-service';
@@ -151,7 +152,8 @@ interface CompletionDependencies {
     | 'claimChatEditOperation'
     | 'createCheckpoint'
     | 'getCheckpoint'
-    | 'updateChatEditOperation'
+    | 'recordRollbackExpectedRevision'
+    | 'updateChatEditOperationScoped'
     | 'restoreProjectCheckpoint'
   >;
   captureProjectState(project: Record<string, unknown>): RestorableProjectState;
@@ -258,6 +260,7 @@ export async function runChatEditorialIntentJob(
   }
 
   let checkpoint: Checkpoint | null = null;
+  let rollbackReceipt: CheckpointRollbackReceiptV1 | null = null;
   let attemptOperationId = '';
   try {
     const beforeProject = await deps.loadProject(job.userId, job.projectId);
@@ -286,6 +289,12 @@ export async function runChatEditorialIntentJob(
     if (!director.success) {
       throw new Error(`director-failed:${directorFailureReason(director)}`);
     }
+    rollbackReceipt = await deps.checkpointService.recordRollbackExpectedRevision(
+      checkpoint.checkpointId,
+      job.userId,
+      job.projectId,
+      editorialIntentRollbackReceiptId(job),
+    );
 
     const afterProject = await deps.loadProject(job.userId, job.projectId);
     if (!afterProject) throw new Error('project-not-found-after-editorial-intent');
@@ -317,9 +326,10 @@ export async function runChatEditorialIntentJob(
 
     if (postcondition.status !== 'pass') {
       if (director.overlaysModified === 0) {
-        await deps.checkpointService.updateChatEditOperation(
+        await deps.checkpointService.updateChatEditOperationScoped(
           checkpoint.checkpointId,
           job.userId,
+          job.projectId,
           attemptOperationId,
           { operationStatus: 'no-op', mutatingToolNames: [] },
         );
@@ -348,25 +358,31 @@ export async function runChatEditorialIntentJob(
     const message = errorMessage(error);
     let rolledBack = false;
     if (checkpoint && attemptOperationId) {
-      const restored = await deps.checkpointService.restoreProjectCheckpoint(
+      const expectedRevision = rollbackReceipt?.expectedRevision
+        ?? checkpoint.capturedProjectRevision;
+      const restored = expectedRevision
+        ? await deps.checkpointService.restoreProjectCheckpoint(
+            checkpoint.checkpointId,
+            job.userId,
+            { projectId: job.projectId, expectedRevision },
+          )
+        : null;
+      rolledBack = restored?.restored === true;
+      await deps.checkpointService.updateChatEditOperationScoped(
         checkpoint.checkpointId,
         job.userId,
-      );
-      rolledBack = restored.restored;
-      await deps.checkpointService.updateChatEditOperation(
-        checkpoint.checkpointId,
-        job.userId,
+        job.projectId,
         attemptOperationId,
         {
           operationStatus: rolledBack ? 'rolled-back' : 'failed',
           mutatingToolNames: ['apply_editorial_intent'],
           operationError: rolledBack
             ? message
-            : `rollback-failed:${restored.reason ?? 'unknown'}:${message}`,
+            : `rollback-failed:${restored?.reason ?? 'revision-receipt-missing'}:${message}`,
         },
       );
       if (!rolledBack) {
-        const failure = `editorial-intent-rollback-failed:${restored.reason ?? 'unknown'}:${message}`;
+        const failure = `editorial-intent-rollback-failed:${restored?.reason ?? 'revision-receipt-missing'}:${message}`;
         await deps.store.markFailed(job._id, job.userId, failure, false, deps.now());
         return { status: 'failed', jobId: job._id, reason: failure };
       }
@@ -775,6 +791,10 @@ function attemptOperationKey(job: ChatEditorialIntentJob) {
   return `${job.operationId}:editorial-intent:attempt:${job.attemptCount}`;
 }
 
+function editorialIntentRollbackReceiptId(job: ChatEditorialIntentJob) {
+  return `chat-editorial-intent:${job._id}:attempt:${job.attemptCount}`;
+}
+
 function checkpointId(job: ChatEditorialIntentJob, stage: 'before' | 'after') {
   return `${job._id}:${stage}:attempt:${job.attemptCount}`;
 }
@@ -907,6 +927,7 @@ async function reconcileWaitingParent(
     const beforeCheckpoint = await deps.checkpointService.getCheckpoint(
       beforeCheckpointId,
       claimed.userId,
+      claimed.projectId,
     );
     if (!beforeCheckpoint) throw new Error('editorial-intent-before-checkpoint-not-found');
     const afterProject = await deps.loadProject(claimed.userId, claimed.projectId);
@@ -934,9 +955,10 @@ async function reconcileWaitingParent(
     const attemptOperationId = attemptOperationKey(claimed);
     if (missingGeneratedOverlays.length > 0) {
       const reason = `generated-mg-child-missing-canonical-overlay:${missingGeneratedOverlays.join(',')}`;
-      await deps.checkpointService.updateChatEditOperation(
+      await deps.checkpointService.updateChatEditOperationScoped(
         beforeCheckpointId,
         claimed.userId,
+        claimed.projectId,
         attemptOperationId,
         {
           operationStatus: 'failed',
@@ -956,9 +978,10 @@ async function reconcileWaitingParent(
       afterProject,
     });
     if (postcondition.status !== 'pass') {
-      await deps.checkpointService.updateChatEditOperation(
+      await deps.checkpointService.updateChatEditOperationScoped(
         beforeCheckpointId,
         claimed.userId,
+        claimed.projectId,
         attemptOperationId,
         { operationStatus: 'no-op', mutatingToolNames: [] },
       );
@@ -1007,6 +1030,7 @@ async function completeEditorialIntentMutation(input: {
   let afterCheckpoint = await deps.checkpointService.getCheckpoint(
     expectedAfterCheckpointId,
     job.userId,
+    job.projectId,
   );
   if (afterCheckpoint && (
     afterCheckpoint.operationId !== attemptOperationId
@@ -1028,9 +1052,10 @@ async function completeEditorialIntentMutation(input: {
     force: true,
   });
   if (!afterCheckpoint) throw new Error('editorial-intent-after-checkpoint-not-created');
-  await deps.checkpointService.updateChatEditOperation(
+  await deps.checkpointService.updateChatEditOperationScoped(
     beforeCheckpointId,
     job.userId,
+    job.projectId,
     attemptOperationId,
     {
       operationStatus: 'completed',

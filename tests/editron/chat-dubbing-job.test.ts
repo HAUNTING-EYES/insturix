@@ -19,9 +19,11 @@ import {
 import type {
   ChatEditOperationUpdate,
   Checkpoint,
+  CheckpointRollbackReceiptV1,
   CheckpointInput,
   RestorableProjectState,
 } from '@/lib/editron/services/checkpoint-service';
+import type { ProjectRevisionV1 } from '@/lib/editron/services/project-service';
 import type { ChatEditRenderVerificationRequest } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 
 class MemoryStore implements ChatDubbingJobStore {
@@ -60,6 +62,11 @@ class MemoryStore implements ChatDubbingJobStore {
 }
 
 const now = new Date('2026-07-23T00:00:00.000Z');
+const ROLLBACK_REVISION: ProjectRevisionV1 = {
+  schemaVersion: 1,
+  value: 2,
+  compatibilityUpdatedAt: '2026-07-23T00:00:01.000Z',
+};
 const project = {
   projectId: 'proj-1',
   userId: 'user-1',
@@ -126,6 +133,7 @@ function createCheckpointHarness(job: ChatDubbingJob, beforeProject = project) {
     projectState: beforeState,
     stateHash: fingerprintProjectState(beforeState),
     stateHashVersion: 2,
+    capturedProjectRevision: ROLLBACK_REVISION,
     timestamp: now,
     description: 'before dubbing',
     type: 'before-llm',
@@ -135,9 +143,11 @@ function createCheckpointHarness(job: ChatDubbingJob, beforeProject = project) {
   checkpoints.set(beforeCheckpoint.checkpointId, beforeCheckpoint);
 
   const checkpointService = {
-    getCheckpoint: vi.fn(async (checkpointId: string, userId: string) => {
+    getCheckpoint: vi.fn(async (checkpointId: string, userId: string, projectId?: string) => {
       const checkpoint = checkpoints.get(checkpointId);
-      return checkpoint?.userId === userId ? checkpoint : null;
+      return checkpoint?.userId === userId && (!projectId || checkpoint.projectId === projectId)
+        ? checkpoint
+        : null;
     }),
     createCheckpoint: vi.fn(async (input: CheckpointInput) => {
       const state = input.projectState ?? captureProjectState({ overlays: input.overlays });
@@ -160,22 +170,52 @@ function createCheckpointHarness(job: ChatDubbingJob, beforeProject = project) {
       checkpoints.set(checkpoint.checkpointId, checkpoint);
       return checkpoint;
     }),
-    updateChatEditOperation: vi.fn(async (
+    getRollbackReceipt: vi.fn(async (
       checkpointId: string,
       userId: string,
+      projectId: string,
+      receiptId: string,
+    ): Promise<CheckpointRollbackReceiptV1 | null> => {
+      const checkpoint = checkpoints.get(checkpointId);
+      return checkpoint?.userId === userId && checkpoint.projectId === projectId
+        ? { schemaVersion: 1, receiptId, expectedRevision: ROLLBACK_REVISION }
+        : null;
+    }),
+    recordRollbackExpectedRevision: vi.fn(async (
+      checkpointId: string,
+      userId: string,
+      projectId: string,
+      receiptId: string,
+    ): Promise<CheckpointRollbackReceiptV1> => {
+      const checkpoint = checkpoints.get(checkpointId);
+      if (!checkpoint || checkpoint.userId !== userId || checkpoint.projectId !== projectId) {
+        throw new Error('checkpoint rollback receipt scope mismatch');
+      }
+      return { schemaVersion: 1, receiptId, expectedRevision: ROLLBACK_REVISION };
+    }),
+    updateChatEditOperationScoped: vi.fn(async (
+      checkpointId: string,
+      userId: string,
+      projectId: string,
       operationId: string,
       update: ChatEditOperationUpdate,
     ) => {
       const checkpoint = checkpoints.get(checkpointId);
-      if (!checkpoint || checkpoint.userId !== userId || checkpoint.operationId !== operationId) {
+      if (!checkpoint || checkpoint.userId !== userId || checkpoint.projectId !== projectId || checkpoint.operationId !== operationId) {
         throw new Error('checkpoint identity mismatch');
       }
       Object.assign(checkpoint, update);
     }),
-    restoreProjectCheckpoint: vi.fn(async (checkpointId: string) => ({
+    restoreProjectCheckpoint: vi.fn(async (
+      checkpointId: string,
+      _userId: string,
+      options: { projectId: string; expectedRevision: ProjectRevisionV1 },
+    ) => ({
       restored: true,
       checkpointId,
       expectedStateHash: checkpoints.get(checkpointId)?.stateHash ?? '',
+      beforeRevision: options.expectedRevision,
+      restoredRevision: options.expectedRevision,
     })),
   };
   return {
@@ -468,6 +508,43 @@ describe('durable chat dubbing job', () => {
       reason: expect.stringContaining('dubbing-before-checkpoint-identity-mismatch'),
     });
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('uses one scoped rollback receipt for an exact postcondition rollback', async () => {
+    const store = new MemoryStore();
+    const { jobId } = await resolved(store);
+    const job = store.jobs.get(jobId)!;
+    Object.assign(job, { status: 'queued', progress: { stage: 'commit', generatedAssetIds: [] } });
+    const checkpoint = createCheckpointHarness(job);
+
+    const result = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
+      store,
+      loadProject: vi.fn(async () => project),
+      buildProjectRevision: vi.fn(() => 'revision-1'),
+      buildCheckpointId,
+      now: () => now,
+      publish: vi.fn(async () => ({ messageId: 'unused' })),
+      execute: vi.fn(async () => ({ status: 'completed' as const, result: { committed: true } })),
+      cleanup: vi.fn(),
+      ...checkpoint,
+    });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      reason: expect.stringContaining('dubbing-postcondition-failed'),
+    });
+    expect(checkpoint.checkpointService.recordRollbackExpectedRevision).toHaveBeenCalledWith(
+      job.beforeCheckpointId,
+      'user-1',
+      'proj-1',
+      `chat-dubbing:${job._id}:run:1`,
+    );
+    expect(checkpoint.checkpointService.restoreProjectCheckpoint).toHaveBeenCalledWith(
+      job.beforeCheckpointId,
+      'user-1',
+      { projectId: 'proj-1', expectedRevision: ROLLBACK_REVISION },
+    );
+    expect(checkpoint.checkpointService.getRollbackReceipt).not.toHaveBeenCalled();
   });
 
   it('keeps a valid mutation completed but explicitly unverified when render dispatch fails', async () => {

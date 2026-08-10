@@ -246,7 +246,12 @@ interface RunDependencies extends QueueDependencies {
   cleanup(job: ChatDubbingJob): Promise<void>;
   checkpointService: Pick<
     CheckpointService,
-    'createCheckpoint' | 'getCheckpoint' | 'updateChatEditOperation' | 'restoreProjectCheckpoint'
+    | 'createCheckpoint'
+    | 'getCheckpoint'
+    | 'getRollbackReceipt'
+    | 'recordRollbackExpectedRevision'
+    | 'updateChatEditOperationScoped'
+    | 'restoreProjectCheckpoint'
   >;
   captureProjectState(project: Record<string, unknown>): RestorableProjectState;
   fingerprintProjectState(state: RestorableProjectState): string;
@@ -418,8 +423,9 @@ export async function runChatDubbingJob(
   }
 
   let cleanupJob = job;
+  let beforeCheckpoint: Checkpoint | null = null;
   try {
-    const beforeCheckpoint = job.version === CHAT_DUBBING_JOB_VERSION && job.progress.stage === 'commit'
+    beforeCheckpoint = job.version === CHAT_DUBBING_JOB_VERSION && job.progress.stage === 'commit'
       ? await requireDubbingBeforeCheckpoint(job, deps)
       : null;
     const step = await deps.execute(job);
@@ -448,6 +454,51 @@ export async function runChatDubbingJob(
     return { status: 'continuing', jobId: job._id, reason: step.reason };
   } catch (error) {
     const message = errorMessage(error);
+    let rollbackFailure: string | null = null;
+    if (
+      beforeCheckpoint
+      && !(error instanceof TerminalDubbingError && error.code === 'dubbing-postcondition-failed')
+    ) {
+      const operationId = requiredCurrentJobField(job.operationId, 'operationId');
+      try {
+        const receipt = await deps.checkpointService.getRollbackReceipt(
+          beforeCheckpoint.checkpointId,
+          job.userId,
+          job.projectId,
+          dubbingRollbackReceiptId(job),
+        );
+        const expectedRevision = receipt?.expectedRevision ?? beforeCheckpoint.capturedProjectRevision;
+        const restored = expectedRevision
+          ? await deps.checkpointService.restoreProjectCheckpoint(beforeCheckpoint.checkpointId, job.userId, {
+              projectId: job.projectId,
+              expectedRevision,
+            })
+          : null;
+        await deps.checkpointService.updateChatEditOperationScoped(
+          beforeCheckpoint.checkpointId,
+          job.userId,
+          job.projectId,
+          operationId,
+          {
+            operationStatus: restored?.restored ? 'rolled-back' : 'failed',
+            mutatingToolNames: ['dub_selected_dialogue'],
+            operationError: restored?.restored
+              ? message
+              : `rollback-failed:${restored?.reason ?? 'rollback-revision-receipt-missing'}:${message}`,
+          },
+        );
+        if (!restored?.restored) {
+          rollbackFailure = `dubbing-rollback-failed:${restored?.reason ?? 'rollback-revision-receipt-missing'}:${message}`;
+        }
+      } catch (rollbackError) {
+        rollbackFailure = `dubbing-rollback-failed:${errorMessage(rollbackError)}:${message}`;
+      }
+    }
+    if (rollbackFailure) {
+      await safeCleanup(deps, cleanupJob);
+      await deps.store.markFailed(job._id, job.userId, 'failed', rollbackFailure, deps.now());
+      return { status: 'failed', jobId: job._id, reason: rollbackFailure };
+    }
     const retryable = isRetryableDubbingError(error);
     if (retryable && job.failureCount + 1 < CHAT_DUBBING_MAX_FAILURES) {
       await deps.store.markRetry(job._id, job.userId, message, deps.now());
@@ -477,6 +528,12 @@ async function completeDubbingMutation(input: {
     );
   }
 
+  const rollbackReceipt = await deps.checkpointService.recordRollbackExpectedRevision(
+    beforeCheckpoint.checkpointId,
+    job.userId,
+    job.projectId,
+    dubbingRollbackReceiptId(job),
+  );
   const afterProject = await deps.loadProject(job.userId, job.projectId);
   if (!afterProject) {
     throw new TerminalDubbingError('project-not-found-after-dubbing', 'Project disappeared after dubbing commit.');
@@ -493,10 +550,15 @@ async function completeDubbingMutation(input: {
     const restore = await deps.checkpointService.restoreProjectCheckpoint(
       beforeCheckpoint.checkpointId,
       job.userId,
+      {
+        projectId: job.projectId,
+        expectedRevision: rollbackReceipt.expectedRevision,
+      },
     );
-    await deps.checkpointService.updateChatEditOperation(
+    await deps.checkpointService.updateChatEditOperationScoped(
       beforeCheckpoint.checkpointId,
       job.userId,
+      job.projectId,
       requiredCurrentJobField(job.operationId, 'operationId'),
       {
         operationStatus: restore.restored ? 'rolled-back' : 'failed',
@@ -518,9 +580,10 @@ async function completeDubbingMutation(input: {
   const operationId = requiredCurrentJobField(job.operationId, 'operationId');
   const sessionId = requiredCurrentJobField(job.sessionId, 'sessionId');
   const beforeCheckpointId = requiredCurrentJobField(job.beforeCheckpointId, 'beforeCheckpointId');
-  await deps.checkpointService.updateChatEditOperation(
+  await deps.checkpointService.updateChatEditOperationScoped(
     beforeCheckpointId,
     job.userId,
+    job.projectId,
     operationId,
     {
       operationStatus: 'completed',
@@ -589,7 +652,11 @@ async function requireDubbingBeforeCheckpoint(
   const operationId = requiredCurrentJobField(job.operationId, 'operationId');
   const sessionId = requiredCurrentJobField(job.sessionId, 'sessionId');
   const beforeCheckpointId = requiredCurrentJobField(job.beforeCheckpointId, 'beforeCheckpointId');
-  const checkpoint = await deps.checkpointService.getCheckpoint(beforeCheckpointId, job.userId);
+  const checkpoint = await deps.checkpointService.getCheckpoint(
+    beforeCheckpointId,
+    job.userId,
+    job.projectId,
+  );
   if (
     !checkpoint
     || checkpoint.operationId !== operationId
@@ -618,7 +685,11 @@ async function createDubbingAfterCheckpoint(
     .slice(0, 32)}`;
   const projectState = deps.captureProjectState(afterProject);
   const expectedStateHash = deps.fingerprintProjectState(projectState);
-  const existing = await deps.checkpointService.getCheckpoint(checkpointId, job.userId);
+  const existing = await deps.checkpointService.getCheckpoint(
+    checkpointId,
+    job.userId,
+    job.projectId,
+  );
   if (existing) {
     if (
       existing.operationId !== operationId
@@ -896,6 +967,10 @@ function projectFromCheckpoint(checkpoint: Checkpoint): ProjectLike {
       checkpoint.projectState?.fields[field],
     ]),
   ) as ProjectLike;
+}
+
+function dubbingRollbackReceiptId(job: ChatDubbingJob): string {
+  return `chat-dubbing:${job._id}:run:${job.runCount}`;
 }
 
 function requiredCurrentJobField(value: unknown, field: string): string {

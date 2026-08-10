@@ -18,10 +18,26 @@ import {
   type ChatEditorialIntentJob,
   type ChatEditorialIntentJobStore,
 } from '@/lib/editron/services/chat-editorial-intent-job';
-import type { Checkpoint, RestorableProjectState } from '@/lib/editron/services/checkpoint-service';
+import type {
+  Checkpoint,
+  CheckpointRollbackReceiptV1,
+  RestorableProjectState,
+  RestoreProjectCheckpointResult,
+} from '@/lib/editron/services/checkpoint-service';
+import type { ProjectRevisionV1 } from '@/lib/editron/services/project-service';
 import { planUnifiedDecisionBundleFromCandidates } from '@/lib/editron/services/unified-decision-bundle';
 
 const NOW = new Date('2026-07-24T10:00:00.000Z');
+const CAPTURED_REVISION: ProjectRevisionV1 = {
+  schemaVersion: 1,
+  value: 7,
+  compatibilityUpdatedAt: '2026-07-24T10:00:01.000Z',
+};
+const ROLLBACK_RECEIPT: CheckpointRollbackReceiptV1 = {
+  schemaVersion: 1,
+  receiptId: 'test-editorial-rollback-receipt',
+  expectedRevision: CAPTURED_REVISION,
+};
 
 describe('durable chat editorial-intent jobs', () => {
   it('queues an owned project intent once and returns the existing receipt on replay', async () => {
@@ -119,6 +135,12 @@ describe('durable chat editorial-intent jobs', () => {
     const attemptOperationId = checkpoint.claimChatEditOperation.mock.calls[0]?.[0].operationId;
     expect(attemptOperationId).toBe('operation-intent-1:editorial-intent:attempt:1');
     expect(checkpoint.createCheckpoint.mock.calls[0]?.[0].operationId).toBe(attemptOperationId);
+    expect(checkpoint.recordRollbackExpectedRevision).toHaveBeenCalledWith(
+      'job-intent-1:before:attempt:1',
+      'user-1',
+      'project-1',
+      'chat-editorial-intent:job-intent-1:attempt:1',
+    );
     expect(dispatchRenderEvidence).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'project-1',
       userId: 'user-1',
@@ -168,11 +190,56 @@ describe('durable chat editorial-intent jobs', () => {
     })).rejects.toBeInstanceOf(ChatEditorialIntentRetryableError);
 
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledTimes(1);
+    expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
+      'job-intent-1:before:attempt:1',
+      'user-1',
+      { projectId: 'project-1', expectedRevision: CAPTURED_REVISION },
+    );
+    expect(checkpoint.recordRollbackExpectedRevision).not.toHaveBeenCalled();
     expect(store.jobs.get('job-intent-1')).toMatchObject({
       status: 'retry_wait',
       attemptCount: 1,
       error: 'Gemini timeout while planning',
     });
+  });
+
+  it('refuses a stale post-Director rollback receipt without a second mutation', async () => {
+    const store = new MemoryStore(queuedJob());
+    const checkpoint = checkpointRuntime([]);
+    checkpoint.restoreProjectCheckpoint.mockResolvedValueOnce({
+      restored: false,
+      checkpointId: 'job-intent-1:before:attempt:1',
+      expectedStateHash: 'before',
+      reason: 'project-revision-conflict',
+      beforeRevision: ROLLBACK_RECEIPT.expectedRevision,
+      currentRevision: { ...ROLLBACK_RECEIPT.expectedRevision, value: 8 },
+    });
+
+    const result = await runChatEditorialIntentJob(workerPayload(), {
+      store,
+      loadProject: async () => project('before'),
+      executeDirector: async () => directorResult(1),
+      dispatchRenderEvidence: vi.fn(),
+      ...checkpoint.dependencies,
+      now: () => NOW,
+    });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      reason: expect.stringContaining('editorial-intent-rollback-failed:project-revision-conflict'),
+    });
+    expect(checkpoint.recordRollbackExpectedRevision).toHaveBeenCalledWith(
+      'job-intent-1:before:attempt:1',
+      'user-1',
+      'project-1',
+      'chat-editorial-intent:job-intent-1:attempt:1',
+    );
+    expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
+      'job-intent-1:before:attempt:1',
+      'user-1',
+      { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision },
+    );
+    expect(store.jobs.get('job-intent-1')).toMatchObject({ status: 'failed' });
   });
 
   it('persists completed-unverified when rendered evidence cannot be dispatched', async () => {
@@ -254,7 +321,7 @@ describe('durable chat editorial-intent jobs', () => {
       },
     });
     expect(store.jobs.get('job-intent-1')?.completedAt).toBeUndefined();
-    expect(checkpoint.dependencies.checkpointService.updateChatEditOperation).not.toHaveBeenCalled();
+    expect(checkpoint.dependencies.checkpointService.updateChatEditOperationScoped).not.toHaveBeenCalled();
   });
 
   it('reconciles a generated MG child into the parent checkpoint and rendered proof exactly once', async () => {
@@ -399,10 +466,11 @@ describe('durable chat editorial-intent jobs', () => {
     });
     expect(checkpoint.createCheckpoint).not.toHaveBeenCalled();
     expect(
-      checkpoint.dependencies.checkpointService.updateChatEditOperation,
+      checkpoint.dependencies.checkpointService.updateChatEditOperationScoped,
     ).toHaveBeenCalledWith(
       parent.beforeCheckpointId,
       'user-1',
+      'project-1',
       'operation-intent-1:editorial-intent:attempt:1',
       { operationStatus: 'no-op', mutatingToolNames: [] },
     );
@@ -950,27 +1018,49 @@ function checkpointRuntime(order: string[]) {
     checkpoints.set(value.checkpointId, value);
     return value;
   });
-  const getCheckpoint = vi.fn(async (checkpointId: string, userId: string) => {
+  const getCheckpoint = vi.fn(async (checkpointId: string, userId: string, projectId?: string) => {
     const value = checkpoints.get(checkpointId);
-    return value?.userId === userId ? structuredClone(value) : null;
+    return value?.userId === userId && (!projectId || value.projectId === projectId)
+      ? structuredClone(value)
+      : null;
   });
-  const updateChatEditOperation = vi.fn(async () => undefined);
-  const restoreProjectCheckpoint = vi.fn(async (checkpointId: string) => ({
+  const recordRollbackExpectedRevision = vi.fn(async (
+    checkpointId: string,
+    userId: string,
+    projectId: string,
+    receiptId: string,
+  ) => {
+    const value = checkpoints.get(checkpointId);
+    if (!value || value.userId !== userId || value.projectId !== projectId) {
+      throw new Error('checkpoint-not-found-for-rollback-receipt');
+    }
+    return { ...ROLLBACK_RECEIPT, receiptId };
+  });
+  const updateChatEditOperationScoped = vi.fn(async () => undefined);
+  const restoreProjectCheckpoint = vi.fn(async (
+    checkpointId: string,
+    _userId: string,
+    options: { projectId: string; expectedRevision: ProjectRevisionV1 },
+  ): Promise<RestoreProjectCheckpointResult> => ({
     restored: true,
     checkpointId,
     expectedStateHash: 'before',
     actualStateHash: 'before',
+    beforeRevision: options.expectedRevision,
+    restoredRevision: options.expectedRevision,
   }));
   const checkpointService = {
     claimChatEditOperation,
     createCheckpoint,
     getCheckpoint,
-    updateChatEditOperation,
+    recordRollbackExpectedRevision,
+    updateChatEditOperationScoped,
     restoreProjectCheckpoint,
   };
   return {
     claimChatEditOperation,
     createCheckpoint,
+    recordRollbackExpectedRevision,
     seedBeforeCheckpoint,
     restoreProjectCheckpoint,
     dependencies: {
@@ -1034,6 +1124,7 @@ function checkpoint(
       ? projectState.fields.overlays as Checkpoint['overlays']
       : [],
     projectState,
+    capturedProjectRevision: CAPTURED_REVISION,
     operationId,
     operationStatus: 'running',
     timestamp: NOW,
