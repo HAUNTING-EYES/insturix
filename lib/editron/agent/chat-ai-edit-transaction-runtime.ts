@@ -4,11 +4,13 @@ import {
   captureRestorableProjectState,
   checkpointService,
   type ChatEditOperationStatus,
+  type CheckpointRollbackReceiptV1,
   type Checkpoint,
   type CheckpointInput,
   type ChatEditOperationUpdate,
   type RestoreProjectCheckpointResult,
 } from '@/lib/editron/services/checkpoint-service';
+import type { ProjectRevisionV1 } from '@/lib/editron/services/project-service';
 import type {
   ChatEditRenderVerificationModality,
   ChatEditRenderVerificationExpectation,
@@ -38,13 +40,24 @@ interface ChatEditCheckpointStore {
     projectState: ReturnType<typeof captureRestorableProjectState>;
   }): Promise<{ claimed: boolean; checkpoint: Checkpoint }>;
   createCheckpoint(input: CheckpointInput): Promise<Checkpoint | null>;
-  updateChatEditOperation(
+  updateChatEditOperationScoped(
     checkpointId: string,
     userId: string,
+    projectId: string,
     operationId: string,
     update: ChatEditOperationUpdate,
   ): Promise<void>;
-  restoreProjectCheckpoint(checkpointId: string, userId: string): Promise<RestoreProjectCheckpointResult>;
+  recordRollbackExpectedRevision(
+    checkpointId: string,
+    userId: string,
+    projectId: string,
+    operationId: string,
+  ): Promise<CheckpointRollbackReceiptV1>;
+  restoreProjectCheckpoint(
+    checkpointId: string,
+    userId: string,
+    options: { projectId: string; expectedRevision: ProjectRevisionV1 },
+  ): Promise<RestoreProjectCheckpointResult>;
 }
 
 type LoadProject = (
@@ -79,6 +92,7 @@ export interface ChatAiEditTransactionSummary {
   checkpointIds: string[];
   beforeCheckpointId: string;
   afterCheckpointId?: string;
+  restoredRevision?: ProjectRevisionV1;
   renderVerification?: ChatEditRenderVerificationRequest;
   error?: string;
 }
@@ -152,9 +166,10 @@ export async function completeChatAiEditTransaction(
   const batch = classifyMutatingBatch(input.toolCalls, input.toolResults);
 
   if (batch.attemptedToolNames.length === 0 || batch.successfulToolNames.length === 0 && batch.failedToolNames.length === 0) {
-    await services.checkpointStore.updateChatEditOperation(
+    await services.checkpointStore.updateChatEditOperationScoped(
       input.transaction.beforeCheckpointId,
       input.transaction.userId,
+      input.transaction.projectId,
       input.transaction.operationId,
       { operationStatus: 'no-op', mutatingToolNames: [] },
     );
@@ -186,6 +201,15 @@ export async function completeChatAiEditTransaction(
   try {
     const project = await services.loadProject(input.transaction.userId, input.transaction.projectId);
     if (!project) throw new Error('Project could not be loaded after AI edit execution.');
+    // This is an idempotent, project-scoped snapshot of the revision observed
+    // for this transaction. The later writer-issued receipt phase removes the
+    // remaining interval between the write and this observation.
+    await services.checkpointStore.recordRollbackExpectedRevision(
+      input.transaction.beforeCheckpointId,
+      input.transaction.userId,
+      input.transaction.projectId,
+      input.transaction.operationId,
+    );
     const afterCheckpointId = buildChatEditCheckpointId(input.transaction, 'after');
     const afterCheckpoint = await services.checkpointStore.createCheckpoint({
       checkpointId: afterCheckpointId,
@@ -201,9 +225,10 @@ export async function completeChatAiEditTransaction(
     });
     if (!afterCheckpoint) throw new Error('Durable post-mutation checkpoint was not created.');
 
-    await services.checkpointStore.updateChatEditOperation(
+    await services.checkpointStore.updateChatEditOperationScoped(
       input.transaction.beforeCheckpointId,
       input.transaction.userId,
+      input.transaction.projectId,
       input.transaction.operationId,
       {
         operationStatus: 'completed',
@@ -253,31 +278,54 @@ export async function rollbackChatAiEditTransaction(
   dependencies: RuntimeDependencies = {},
 ): Promise<ChatAiEditTransactionSummary> {
   const services = await resolveServices(dependencies);
+  const rollbackReceipt = await services.checkpointStore.recordRollbackExpectedRevision(
+    input.transaction.beforeCheckpointId,
+    input.transaction.userId,
+    input.transaction.projectId,
+    input.transaction.operationId,
+  );
   const restore = await services.checkpointStore.restoreProjectCheckpoint(
     input.transaction.beforeCheckpointId,
     input.transaction.userId,
+    {
+      projectId: input.transaction.projectId,
+      expectedRevision: rollbackReceipt.expectedRevision,
+    },
   );
   const mutatingToolNames = input.mutatingToolNames ?? [];
   const failedToolNames = input.failedToolNames ?? [];
 
   if (!restore.restored) {
     const error = `Rollback failed (${restore.reason ?? 'unknown'}): ${input.reason}`;
-    await services.checkpointStore.updateChatEditOperation(
+    await services.checkpointStore.updateChatEditOperationScoped(
       input.transaction.beforeCheckpointId,
       input.transaction.userId,
+      input.transaction.projectId,
       input.transaction.operationId,
       { operationStatus: 'failed', mutatingToolNames, operationError: error },
     );
     return summary(input.transaction, 'failed', mutatingToolNames, failedToolNames, undefined, error);
   }
 
-  await services.checkpointStore.updateChatEditOperation(
+  await services.checkpointStore.updateChatEditOperationScoped(
     input.transaction.beforeCheckpointId,
     input.transaction.userId,
+    input.transaction.projectId,
     input.transaction.operationId,
     { operationStatus: 'rolled-back', mutatingToolNames, operationError: input.reason },
   );
-  return summary(input.transaction, 'rolled-back', mutatingToolNames, failedToolNames, undefined, input.reason);
+  return summary(
+    input.transaction,
+    'rolled-back',
+    mutatingToolNames,
+    failedToolNames,
+    undefined,
+    input.reason,
+    undefined,
+    [],
+    [],
+    restore.restoredRevision,
+  );
 }
 
 function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiToolResult[]) {
@@ -819,6 +867,7 @@ function summary(
   renderVerification?: ChatEditRenderVerificationRequest,
   recoveredInputToolNames: string[] = [],
   recoveredPreconditionToolNames: string[] = [],
+  restoredRevision?: ProjectRevisionV1,
 ): ChatAiEditTransactionSummary {
   return {
     status,
@@ -832,6 +881,7 @@ function summary(
       : [transaction.beforeCheckpointId],
     beforeCheckpointId: transaction.beforeCheckpointId,
     afterCheckpointId,
+    restoredRevision,
     renderVerification,
     error,
   };

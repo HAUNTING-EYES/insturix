@@ -63,6 +63,17 @@ export interface RestorableProjectState {
   fields: Partial<Record<ChatRestorableProjectField, unknown>>;
 }
 
+/**
+ * The revision observed for one named rollback attempt. It is persisted so a
+ * retry cannot silently adopt a newer project state. Phase 2C later replaces
+ * this observation with the actual writer-issued post-write receipt.
+ */
+export interface CheckpointRollbackReceiptV1 {
+  schemaVersion: 1;
+  receiptId: string;
+  expectedRevision: ProjectRevisionV1;
+}
+
 export interface Checkpoint {
   _id?: string;
   checkpointId: string;
@@ -74,6 +85,7 @@ export interface Checkpoint {
   stateHash?: string;
   stateHashVersion?: 2;
   capturedProjectRevision?: ProjectRevisionV1;
+  rollbackReceipts?: CheckpointRollbackReceiptV1[];
   operationId?: string;
   operationStatus?: ChatEditOperationStatus;
   mutatingToolNames?: string[];
@@ -257,6 +269,84 @@ export class CheckpointService {
     if (result.matchedCount !== 1) {
       throw new Error(`Chat edit operation checkpoint ${checkpointId} could not be updated.`);
     }
+  }
+
+  async updateChatEditOperationScoped(
+    checkpointId: string,
+    userId: string,
+    projectId: string,
+    operationId: string,
+    update: ChatEditOperationUpdate,
+  ): Promise<void> {
+    const checkpoint = await this.getCheckpoint(checkpointId, userId, projectId);
+    if (!checkpoint || checkpoint.operationId !== operationId) {
+      throw new Error(`Chat edit operation checkpoint ${checkpointId} could not be updated.`);
+    }
+    const db = await getDatabase();
+    const result = await db.collection(COLLECTIONS.CHECKPOINTS).updateOne(
+      { checkpointId, userId, projectId, operationId },
+      { $set: { ...update, updatedAt: new Date() } },
+    );
+    if (result.matchedCount !== 1) {
+      throw new Error(`Chat edit operation checkpoint ${checkpointId} could not be updated.`);
+    }
+  }
+
+  async recordRollbackExpectedRevision(
+    checkpointId: string,
+    userId: string,
+    projectId: string,
+    receiptId: string,
+  ): Promise<CheckpointRollbackReceiptV1> {
+    assertRollbackReceiptId(receiptId);
+    const checkpoint = await this.getCheckpoint(checkpointId, userId, projectId);
+    if (!checkpoint) {
+      throw new Error(`Chat edit operation checkpoint ${checkpointId} could not be bound to a rollback revision.`);
+    }
+    const existing = rollbackReceiptFor(checkpoint, receiptId);
+    if (existing) return existing;
+
+    const receipt: CheckpointRollbackReceiptV1 = {
+      schemaVersion: 1,
+      receiptId,
+      expectedRevision: await projectService.getProjectRevision(userId, projectId),
+    };
+    const db = await getDatabase();
+    const persisted = await db.collection<Checkpoint>(COLLECTIONS.CHECKPOINTS).findOneAndUpdate(
+      {
+        checkpointId,
+        userId,
+        projectId,
+        rollbackReceipts: { $not: { $elemMatch: { receiptId } } },
+      },
+      {
+        $push: { rollbackReceipts: receipt },
+        $set: { updatedAt: new Date() },
+      },
+      { returnDocument: 'after', includeResultMetadata: false },
+    ) as unknown as Checkpoint | null;
+    const persistedReceipt = persisted && rollbackReceiptFor(persisted, receiptId);
+    if (persistedReceipt) return persistedReceipt;
+
+    const concurrentReceipt = await this.getRollbackReceipt(
+      checkpointId,
+      userId,
+      projectId,
+      receiptId,
+    );
+    if (concurrentReceipt) return concurrentReceipt;
+    throw new Error(`Chat edit operation checkpoint ${checkpointId} could not persist a rollback revision.`);
+  }
+
+  async getRollbackReceipt(
+    checkpointId: string,
+    userId: string,
+    projectId: string,
+    receiptId: string,
+  ): Promise<CheckpointRollbackReceiptV1 | null> {
+    const checkpoint = await this.getCheckpoint(checkpointId, userId, projectId);
+    if (!checkpoint) return null;
+    return rollbackReceiptFor(checkpoint, receiptId);
   }
 
   async getCheckpoints(sessionId: string, userId?: string, projectId?: string): Promise<Checkpoint[]> {
@@ -461,6 +551,33 @@ function checkpointStateHash(checkpoint: Checkpoint): string {
   return projectStateFingerprint(
     checkpoint.projectState ?? captureRestorableProjectState({ overlays: checkpoint.overlays ?? [] }),
   );
+}
+
+function rollbackReceiptFor(
+  checkpoint: Checkpoint,
+  receiptId: string,
+): CheckpointRollbackReceiptV1 | null {
+  const receipt = checkpoint.rollbackReceipts?.find((candidate) => candidate.receiptId === receiptId);
+  if (!receipt || receipt.schemaVersion !== 1 || !isProjectRevisionV1(receipt.expectedRevision)) {
+    return null;
+  }
+  return receipt;
+}
+
+function assertRollbackReceiptId(receiptId: string): void {
+  if (!receiptId || receiptId.trim() !== receiptId || receiptId.length > 200) {
+    throw new Error('A non-empty rollback receiptId is required.');
+  }
+}
+
+function isProjectRevisionV1(value: unknown): value is ProjectRevisionV1 {
+  if (!value || typeof value !== 'object') return false;
+  const revision = value as ProjectRevisionV1;
+  return revision.schemaVersion === 1
+    && Number.isSafeInteger(revision.value)
+    && revision.value >= 0
+    && typeof revision.compatibilityUpdatedAt === 'string'
+    && !Number.isNaN(new Date(revision.compatibilityUpdatedAt).getTime());
 }
 
 function cloneValue<T>(value: T): T {

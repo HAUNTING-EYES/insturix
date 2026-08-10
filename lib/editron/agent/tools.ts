@@ -6404,7 +6404,11 @@ Example: use_matching_footage({ overlayId: 42, assetId: "a_Xk7pqR2m", sourceStar
     async (rawInput: z.infer<typeof restoreAiEditCheckpointSchema>) => {
       try {
         const input = coerceInput(rawInput);
-        const checkpoint = await checkpointService.getCheckpoint(input.checkpointId, userId);
+        const checkpoint = await checkpointService.getCheckpoint(
+          input.checkpointId,
+          userId,
+          projectId,
+        );
         if (!checkpoint) {
           return errorEnvelope(
             `Checkpoint ${input.checkpointId} was not found or is not accessible.`,
@@ -6413,18 +6417,11 @@ Example: use_matching_footage({ overlayId: 42, assetId: "a_Xk7pqR2m", sourceStar
             'stop',
           );
         }
-        if (checkpoint.projectId !== projectId) {
-          return errorEnvelope(
-            'Checkpoint belongs to a different project and cannot be restored here.',
-            'CHECKPOINT_PROJECT_MISMATCH',
-            { checkpointId: checkpoint.checkpointId, checkpointProjectId: checkpoint.projectId, projectId },
-            'stop',
-          );
-        }
-
+        const expectedRevision = await projectService.getProjectRevision(userId, projectId);
         const verification = await checkpointService.restoreProjectCheckpoint(
           checkpoint.checkpointId,
           userId,
+          { projectId, expectedRevision },
         );
         if (!verification.restored) {
           return errorEnvelope(
@@ -6435,6 +6432,7 @@ Example: use_matching_footage({ overlayId: 42, assetId: "a_Xk7pqR2m", sourceStar
               reason: verification.reason,
               expectedStateHash: verification.expectedStateHash,
               actualStateHash: verification.actualStateHash,
+              currentRevision: verification.currentRevision,
             },
             'stop',
           );
@@ -6448,6 +6446,7 @@ Example: use_matching_footage({ overlayId: 42, assetId: "a_Xk7pqR2m", sourceStar
           restoredOverlayCount: Array.isArray(restoredOverlays) ? restoredOverlays.length : 0,
           restoredFields: checkpoint.projectState?.presentFields ?? [],
           reloadProject: true,
+          revision: verification.restoredRevision,
           verification: {
             expectedStateHash: verification.expectedStateHash,
             actualStateHash: verification.actualStateHash,

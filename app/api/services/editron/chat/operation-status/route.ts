@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     operationId,
     userId,
   }, 'before');
-  const checkpoint = await checkpointService.getCheckpoint(beforeCheckpointId, userId);
+  const checkpoint = await checkpointService.getCheckpoint(beforeCheckpointId, userId, projectId);
   if (!checkpoint) {
     return json({
       success: false,

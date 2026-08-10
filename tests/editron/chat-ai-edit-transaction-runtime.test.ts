@@ -55,6 +55,7 @@ import {
   buildChatEditRenderVerificationRequest,
   completeChatAiEditTransaction,
   prepareChatAiEditTransaction,
+  rollbackChatAiEditTransaction,
 } from '@/lib/editron/agent/chat-ai-edit-transaction-runtime';
 import { enforceChatToolPostcondition } from '@/lib/editron/agent/chat-edit-postconditions';
 import {
@@ -69,6 +70,7 @@ import {
   checkpointService,
   projectStateFingerprint,
   type Checkpoint,
+  type CheckpointRollbackReceiptV1,
   type CheckpointInput,
   type ChatEditOperationUpdate,
   type RestoreProjectCheckpointResult,
@@ -83,9 +85,28 @@ import {
 class MemoryCheckpointStore {
   readonly checkpoints = new Map<string, Checkpoint>();
   readonly events: string[] = [];
+  readonly rollbackReceipts = new Map<string, ProjectRevisionV1>();
+  readonly rollbackReceiptCalls: Array<{
+    checkpointId: string;
+    userId: string;
+    projectId: string;
+    operationId: string;
+  }> = [];
+  readonly restoreRequests: Array<{
+    checkpointId: string;
+    userId: string;
+    projectId: string;
+    expectedRevision: ProjectRevisionV1;
+  }> = [];
   project: Record<string, unknown>;
   failClaim = false;
   failRestore = false;
+  rejectRestoreAsStale = false;
+  readonly issuedRollbackRevision: ProjectRevisionV1 = {
+    schemaVersion: 1,
+    value: 7,
+    compatibilityUpdatedAt: '2026-08-09T00:00:07.000Z',
+  };
 
   constructor(project: Record<string, unknown>) {
     this.project = structuredClone(project);
@@ -113,26 +134,86 @@ class MemoryCheckpointStore {
     return checkpoint;
   }
 
-  async updateChatEditOperation(
+  async updateChatEditOperationScoped(
     checkpointId: string,
-    _userId: string,
-    _operationId: string,
+    userId: string,
+    projectId: string,
+    operationId: string,
     update: ChatEditOperationUpdate,
   ) {
     this.events.push(`status:${update.operationStatus}`);
     const checkpoint = this.checkpoints.get(checkpointId);
-    if (!checkpoint) throw new Error('missing operation checkpoint');
+    if (
+      !checkpoint
+      || checkpoint.userId !== userId
+      || checkpoint.projectId !== projectId
+      || checkpoint.operationId !== operationId
+    ) {
+      throw new Error('missing or out-of-scope operation checkpoint');
+    }
     Object.assign(checkpoint, update);
   }
 
-  async restoreProjectCheckpoint(checkpointId: string): Promise<RestoreProjectCheckpointResult> {
+  async recordRollbackExpectedRevision(
+    checkpointId: string,
+    userId: string,
+    projectId: string,
+    operationId: string,
+  ): Promise<CheckpointRollbackReceiptV1> {
+    this.rollbackReceiptCalls.push({ checkpointId, userId, projectId, operationId });
+    const checkpoint = this.checkpoints.get(checkpointId);
+    if (
+      !checkpoint
+      || checkpoint.userId !== userId
+      || checkpoint.projectId !== projectId
+      || checkpoint.operationId !== operationId
+    ) {
+      throw new Error('missing or out-of-scope rollback checkpoint');
+    }
+    const existing = this.rollbackReceipts.get(checkpointId);
+    const expectedRevision = existing ?? structuredClone(this.issuedRollbackRevision);
+    this.rollbackReceipts.set(checkpointId, expectedRevision);
+    return { schemaVersion: 1, receiptId: operationId, expectedRevision: structuredClone(expectedRevision) };
+  }
+
+  async restoreProjectCheckpoint(
+    checkpointId: string,
+    userId: string,
+    options: { projectId: string; expectedRevision: ProjectRevisionV1 },
+  ): Promise<RestoreProjectCheckpointResult> {
     this.events.push('restore');
     const checkpoint = this.checkpoints.get(checkpointId);
-    if (this.failRestore || !checkpoint?.projectState) {
+    this.restoreRequests.push({ checkpointId, userId, ...options });
+    const expectedRevision = this.rollbackReceipts.get(checkpointId);
+    if (
+      !checkpoint
+      || checkpoint.userId !== userId
+      || checkpoint.projectId !== options.projectId
+      || !expectedRevision
+      || JSON.stringify(expectedRevision) !== JSON.stringify(options.expectedRevision)
+      || this.rejectRestoreAsStale
+    ) {
       return {
         restored: false,
         checkpointId,
         expectedStateHash: checkpoint?.stateHash ?? '',
+        reason: 'project-revision-conflict',
+        ...(this.rejectRestoreAsStale
+          ? {
+            currentRevision: {
+              schemaVersion: 1 as const,
+              value: options.expectedRevision.value + 1,
+              compatibilityUpdatedAt: '2026-08-09T00:00:08.000Z',
+            },
+          }
+          : {}),
+      };
+    }
+    if (this.failRestore || !checkpoint.projectState) {
+      return {
+        restored: false,
+        checkpointId: checkpoint.checkpointId,
+        expectedStateHash: checkpoint.stateHash ?? '',
         reason: this.failRestore ? 'forced-restore-failure' : 'missing-state',
       };
     }
@@ -145,6 +226,11 @@ class MemoryCheckpointStore {
       checkpointId,
       expectedStateHash: checkpoint.stateHash ?? '',
       actualStateHash: checkpoint.stateHash,
+      restoredRevision: {
+        schemaVersion: 1,
+        value: options.expectedRevision.value + 1,
+        compatibilityUpdatedAt: '2026-08-09T00:00:08.000Z',
+      },
     };
   }
 
@@ -425,6 +511,81 @@ describe('chat AI edit transaction runtime', () => {
     }
   });
 
+  it('uses one persisted transaction revision and refuses a later competing mutation', async () => {
+    const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+    const ready = await prepare(store, 'chatop_receipt_123');
+    const transaction = ready.transaction!;
+    store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'transaction change' }];
+
+    const completed = await completeChatAiEditTransaction({
+      transaction,
+      toolCalls: [{ id: 'call_1', name: 'update_overlay' }],
+      toolResults: [{ toolCallId: 'call_1', toolName: 'update_overlay', result: '{"status":"success"}' }],
+    }, { checkpointStore: store, loadProject: store.loadProject });
+    expect(completed.status).toBe('created');
+
+    const expectedRevision = store.issuedRollbackRevision;
+    store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'newer competing change' }];
+    const competingStateHash = projectStateFingerprint(captureRestorableProjectState(store.project));
+    store.rejectRestoreAsStale = true;
+
+    const result = await rollbackChatAiEditTransaction({
+      transaction,
+      mutatingToolNames: ['update_overlay'],
+      reason: 'postcondition failed after a competing mutation',
+    }, { checkpointStore: store, loadProject: store.loadProject });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('project-revision-conflict'),
+    });
+    expect(store.restoreRequests).toEqual([{
+      checkpointId: transaction.beforeCheckpointId,
+      userId: transaction.userId,
+      projectId: transaction.projectId,
+      expectedRevision,
+    }]);
+    expect(store.rollbackReceiptCalls).toEqual([
+      {
+        checkpointId: transaction.beforeCheckpointId,
+        userId: transaction.userId,
+        projectId: transaction.projectId,
+        operationId: transaction.operationId,
+      },
+      {
+        checkpointId: transaction.beforeCheckpointId,
+        userId: transaction.userId,
+        projectId: transaction.projectId,
+        operationId: transaction.operationId,
+      },
+    ]);
+    expect(projectStateFingerprint(captureRestorableProjectState(store.project))).toBe(competingStateHash);
+  });
+
+  it('returns the new revision after a successful exact chat rollback', async () => {
+    const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
+    const ready = await prepare(store, 'chatop_rollback_123');
+    store.project.overlays = [{ ...ORIGINAL_PROJECT.overlays[0], content: 'must be undone' }];
+
+    const result = await rollbackChatAiEditTransaction({
+      transaction: ready.transaction!,
+      mutatingToolNames: ['update_overlay'],
+      reason: 'tool failed after a project mutation',
+    }, { checkpointStore: store, loadProject: store.loadProject });
+
+    expect(result).toMatchObject({
+      status: 'rolled-back',
+      restoredRevision: {
+        schemaVersion: 1,
+        value: 8,
+        compatibilityUpdatedAt: '2026-08-09T00:00:08.000Z',
+      },
+    });
+    expect(projectStateFingerprint(captureRestorableProjectState(store.project))).toBe(
+      projectStateFingerprint(captureRestorableProjectState(ORIGINAL_PROJECT)),
+    );
+  });
+
   it('restores overlays, timing, dimensions, metadata, and asset references after partial failure', async () => {
     const store = new MemoryCheckpointStore(ORIGINAL_PROJECT);
     const ready = await prepare(store);
@@ -609,7 +770,10 @@ describe('chat AI edit transaction runtime', () => {
     expect(insertedCheckpoint?.stateHashVersion).toBe(2);
     vi.spyOn(service, 'getCheckpoint').mockResolvedValue(insertedCheckpoint ?? null);
 
-    const result = await service.restoreProjectCheckpoint('ckpt_full_state', 'user_1', { expectedRevision });
+    const result = await service.restoreProjectCheckpoint('ckpt_full_state', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision,
+    });
 
     expect(result).toMatchObject({ restored: true, restoredRevision: { value: 8 } });
     expect(projectStateFingerprint(captureRestorableProjectState(persistedProject))).toBe(
@@ -711,7 +875,10 @@ describe('chat AI edit transaction runtime', () => {
       schemaVersion: 1, value: 8, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z',
     }));
 
-    const result = await service.restoreProjectCheckpoint('ckpt_stale_browser', 'user_1', { expectedRevision });
+    const result = await service.restoreProjectCheckpoint('ckpt_stale_browser', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision,
+    });
 
     expect(result).toMatchObject({ restored: false, reason: 'project-revision-conflict', currentRevision: { value: 8 } });
     expect(projectAfterBrowserMutation).toMatchObject({ projectRevision: 8 });
@@ -735,7 +902,10 @@ describe('chat AI edit transaction runtime', () => {
       schemaVersion: 1, value: 7, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z',
     }));
 
-    const result = await service.restoreProjectCheckpoint('ckpt_stale_worker', 'user_1', { expectedRevision });
+    const result = await service.restoreProjectCheckpoint('ckpt_stale_worker', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision,
+    });
 
     expect(result).toMatchObject({
       restored: false,
@@ -771,8 +941,14 @@ describe('chat AI edit transaction runtime', () => {
         schemaVersion: 1, value: 8, compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z',
       }));
 
-    const first = await service.restoreProjectCheckpoint('ckpt_retry', 'user_1', { expectedRevision });
-    const duplicate = await service.restoreProjectCheckpoint('ckpt_retry', 'user_1', { expectedRevision });
+    const first = await service.restoreProjectCheckpoint('ckpt_retry', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision,
+    });
+    const duplicate = await service.restoreProjectCheckpoint('ckpt_retry', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision,
+    });
 
     expect(first).toMatchObject({ restored: true, restoredRevision: { value: 8 } });
     expect(duplicate).toMatchObject({ restored: false, reason: 'project-revision-conflict', currentRevision: { value: 8 } });
@@ -793,7 +969,14 @@ describe('chat AI edit transaction runtime', () => {
       createdAt: new Date(),
     });
 
-    const result = await service.restoreProjectCheckpoint('ckpt_legacy', 'user_1');
+    const result = await service.restoreProjectCheckpoint('ckpt_legacy', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+      },
+    });
 
     expect(result).toMatchObject({
       restored: false,
@@ -820,7 +1003,14 @@ describe('chat AI edit transaction runtime', () => {
       createdAt: new Date(),
     });
 
-    const result = await service.restoreProjectCheckpoint('ckpt_corrupt', 'user_1');
+    const result = await service.restoreProjectCheckpoint('ckpt_corrupt', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+      },
+    });
 
     expect(result).toMatchObject({
       restored: false,
@@ -899,7 +1089,7 @@ describe('chat AI edit transaction runtime', () => {
     });
   });
 
-  it('makes the un-migrated chat undo tool fail closed pending caller migration', async () => {
+  it('routes the chat undo tool through an exact scoped restore and returns the new revision', async () => {
     const projectState = captureRestorableProjectState(ORIGINAL_PROJECT);
     const checkpoint: Checkpoint = {
       checkpointId: 'ckpt_tool',
@@ -915,13 +1105,23 @@ describe('chat AI edit transaction runtime', () => {
       createdAt: new Date(),
     };
     vi.spyOn(checkpointService, 'getCheckpoint').mockResolvedValue(checkpoint);
+    const expectedRevision: ProjectRevisionV1 = {
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: '2026-08-09T01:00:00.000Z',
+    };
     const restoreSpy = vi.spyOn(checkpointService, 'restoreProjectCheckpoint').mockResolvedValue({
-      restored: false,
+      restored: true,
       checkpointId: checkpoint.checkpointId,
       expectedStateHash: checkpoint.stateHash!,
-      reason: 'expected-revision-required',
+      actualStateHash: checkpoint.stateHash,
+      restoredRevision: {
+        schemaVersion: 1,
+        value: 8,
+        compatibilityUpdatedAt: '2026-08-09T01:00:01.000Z',
+      },
     });
-    vi.spyOn(projectService, 'loadProject').mockResolvedValue(ORIGINAL_PROJECT as any);
+    vi.spyOn(projectService, 'getProjectRevision').mockResolvedValue(expectedRevision);
 
     const restoreTool = createTools('user_1', 'proj_1')
       .find((candidate) => candidate.name === 'restore_ai_edit_checkpoint');
@@ -929,12 +1129,18 @@ describe('chat AI edit transaction runtime', () => {
     const envelope = JSON.parse(await restoreTool!.invoke({ checkpointId: 'ckpt_tool' }));
 
     expect(envelope).toMatchObject({
-      status: 'error',
-      error: {
-        code: 'CHECKPOINT_RESTORE_NOT_VERIFIED',
+      status: 'success',
+      data: {
+        checkpointId: 'ckpt_tool',
+        reloadProject: true,
+        revision: { value: 8 },
+        verification: { expectedStateHash: checkpoint.stateHash },
       },
     });
-    expect(restoreSpy).toHaveBeenCalledWith('ckpt_tool', 'user_1');
+    expect(restoreSpy).toHaveBeenCalledWith('ckpt_tool', 'user_1', {
+      projectId: 'proj_1',
+      expectedRevision,
+    });
   });
 
   it('keeps the legacy client helper on compact receipt plus canonical project reload', () => {
