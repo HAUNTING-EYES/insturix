@@ -88,6 +88,17 @@ export interface ProjectDirectorMutationLeaseV1 {
   acquiredAt: string;
 }
 
+/**
+ * Director's deterministic, pre-render proof facts. They are persisted only
+ * against the writer receipt for the edit they describe.
+ */
+export interface ProjectPhase0ProofFactsV1 {
+  qualityReview: Record<string, unknown>;
+  liveTruth: Record<string, unknown>;
+  renderedQualityEvidence: Record<string, unknown>;
+  fixtureArtifact: Record<string, unknown>;
+}
+
 const projectMutationReceiptStorage = new AsyncLocalStorage<ProjectMutationReceiptV1[]>();
 const DIRECTOR_LEASE_DURATION_MS = 5 * 60 * 1000;
 
@@ -699,6 +710,78 @@ export class ProjectService {
       },
     );
     return result.modifiedCount === 1;
+  }
+
+  /**
+   * Persists Director's deterministic pre-render proof facts only if the
+   * project is still at the final edit receipt. A newer mutation makes the
+   * proof facts unrecordable rather than attaching them to the wrong state.
+   */
+  async recordPhase0ProofFacts(
+    userId: string,
+    projectId: string,
+    input: {
+      expectedRevision: ProjectRevisionV1;
+      targetReceipt: ProjectMutationReceiptV1;
+      facts: ProjectPhase0ProofFactsV1;
+    },
+  ): Promise<ProjectMutationReceiptV1> {
+    assertProjectRevision(input.expectedRevision);
+    if (
+      input.targetReceipt.schemaVersion !== 1 ||
+      input.targetReceipt.projectId !== projectId ||
+      input.targetReceipt.revision.schemaVersion !== input.expectedRevision.schemaVersion ||
+      input.targetReceipt.revision.value !== input.expectedRevision.value ||
+      input.targetReceipt.revision.compatibilityUpdatedAt !== input.expectedRevision.compatibilityUpdatedAt ||
+      !Object.values(input.facts).every(
+        (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value),
+      )
+    ) {
+      throw new ProjectMutationWriteError("Phase-0 proof facts must bind one valid writer receipt.");
+    }
+
+    const committedAt = new Date();
+    const db = await getDatabase();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(input.expectedRevision),
+      },
+      {
+        $set: {
+          qualityReview: input.facts.qualityReview,
+          "intelligence.phase0LiveTruth": input.facts.liveTruth,
+          "intelligence.renderedQualityEvidence": input.facts.renderedQualityEvidence,
+          "intelligence.phase0FixtureArtifact": input.facts.fixtureArtifact,
+          "intelligence.phase0ProofTargetReceipt": structuredClone(input.targetReceipt),
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!latest) throw new ProjectNotFoundOrForbiddenError();
+      throw new ProjectMutationConflictError(projectRevisionFor(latest));
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return receipt;
   }
 
   /**

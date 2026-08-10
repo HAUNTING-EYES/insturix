@@ -25,7 +25,10 @@ import type { EditProfile, EditProfileAction, DirectorResult, ProjectBrief, Prof
 import type { GateResult } from '@/lib/editron/services/quality-gate';
 import type { ExecutionResult } from '@/lib/editron/services/edl-executor';
 import { getProfileById } from '@/lib/editron/data/edit-profiles';
-import { projectService } from '@/lib/editron/services/project-service';
+import {
+  projectService,
+  type ProjectPhase0ProofFactsV1,
+} from '@/lib/editron/services/project-service';
 import { ROW } from '@/lib/pipeline/scene-to-editron';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import { getFilterPresetById } from '@/lib/editron/data/filter-presets';
@@ -287,14 +290,17 @@ async function persistPostBundleProfileActionPolicy(
   }
 }
 
-async function persistFinalPhase0LiveTruth(options: {
+async function buildFinalPhase0LiveTruthFacts(options: {
   projectId: string;
   project: any;
   projectDoc: any;
   overlays: any[];
   constraintViolations?: any[];
   genreParams?: any;
-}): Promise<ReturnType<typeof buildPhase0LiveTruthSnapshot>> {
+}): Promise<{
+  snapshot: ReturnType<typeof buildPhase0LiveTruthSnapshot>;
+  facts: ProjectPhase0ProofFactsV1;
+}> {
   const { runQualityReview } = await import('@/lib/editron/services/quality-review-service');
   const reviewedAt = new Date();
   const fps = options.project?.fps || 30;
@@ -308,23 +314,7 @@ async function persistFinalPhase0LiveTruth(options: {
     options.genreParams,
   );
   const persistedQualityReview = buildPersistedQualityReview(finalQualityReport, reviewedAt);
-  const truthDb = await (await import('@/lib/editron/db/mongodb')).getDatabase();
-  const persistedProjectDoc = await truthDb.collection('projects').findOne(
-    { projectId: options.projectId },
-    {
-      projection: {
-        projectId: 1,
-        id: 1,
-        durationInFrames: 1,
-        fps: 1,
-        playerDimensions: 1,
-        aspectRatio: 1,
-        rawFootageAnalysis: 1,
-        vjepaAnalysis: 1,
-        intelligence: 1,
-      },
-    },
-  );
+  const persistedProjectDoc = options.projectDoc ?? options.project ?? {};
 
   const truthProject = {
     ...(persistedProjectDoc ?? {}),
@@ -357,19 +347,18 @@ async function persistFinalPhase0LiveTruth(options: {
     artifactPack,
   });
 
-  await truthDb.collection('projects').updateOne(
-    { projectId: options.projectId },
-    {
-      $set: {
-        qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
-        'intelligence.phase0LiveTruth': snapshot,
-        'intelligence.renderedQualityEvidence': snapshot.qualityEvidence,
-        'intelligence.phase0FixtureArtifact': buildLivePhase0FixtureArtifact(snapshot, artifactPack),
-      },
+  return {
+    snapshot,
+    facts: {
+      qualityReview: persistedQualityReview as unknown as Record<string, unknown>,
+      liveTruth: snapshot as unknown as Record<string, unknown>,
+      renderedQualityEvidence: snapshot.qualityEvidence as unknown as Record<string, unknown>,
+      fixtureArtifact: buildLivePhase0FixtureArtifact(
+        snapshot,
+        artifactPack,
+      ) as unknown as Record<string, unknown>,
     },
-  );
-
-  return snapshot;
+  };
 }
 
 async function persistPhase0RenderedEvidenceDispatchState(
@@ -2899,7 +2888,7 @@ export async function executeDirectorPlan(
     } catch (choreographyErr: unknown) {
       console.warn('[Director] non-fatal final overlay choreography audit:', choreographyErr instanceof Error ? choreographyErr.message : choreographyErr);
     }
-    await projectService.saveProjectWithReceipt(
+    const finalReceipt = await projectService.saveProjectWithReceipt(
       userId,
       projectId,
       {
@@ -2920,7 +2909,7 @@ export async function executeDirectorPlan(
     }
 
     try {
-      const phase0Truth = await persistFinalPhase0LiveTruth({
+      const phase0Proof = await buildFinalPhase0LiveTruthFacts({
         projectId,
         project,
         projectDoc,
@@ -2928,12 +2917,23 @@ export async function executeDirectorPlan(
         constraintViolations: pathDConstraintViolations,
         genreParams: pathDGenreParams,
       });
+      const phase0ProofReceipt = await projectService.recordPhase0ProofFacts(
+        userId,
+        projectId,
+        {
+          expectedRevision: finalReceipt.revision,
+          targetReceipt: finalReceipt,
+          facts: phase0Proof.facts,
+        },
+      );
+      const phase0Truth = phase0Proof.snapshot;
       (result as any).phase0LiveTruth = {
         version: phase0Truth.version,
         status: phase0Truth.status,
         summary: phase0Truth.summary,
         qualityEvidence: phase0Truth.qualityEvidence,
       };
+      (result as any).phase0ProofReceipt = phase0ProofReceipt;
       console.log(
         `[Director] Phase0 live truth: status=${phase0Truth.status}, ` +
         `fail=${phase0Truth.summary.fail}, warn=${phase0Truth.summary.warn}, ` +
@@ -2968,7 +2968,9 @@ export async function executeDirectorPlan(
         console.log(`[Director] Phase0 rendered evidence not dispatched: ${renderedEvidenceDispatch.reason}`);
       }
     } catch (truthErr: unknown) {
-      console.warn('[Director] non-fatal Phase0 live truth persistence:', truthErr instanceof Error ? truthErr.message : truthErr);
+      const message = truthErr instanceof Error ? truthErr.message : String(truthErr);
+      result.warnings.push(`Phase0 proof facts were not bound to the final edit: ${message}`);
+      console.warn('[Director] non-fatal Phase0 live truth persistence:', message);
     }
     result.success = true;
     onProgress?.(totalSteps, totalSteps, 'Director Agent execution complete');

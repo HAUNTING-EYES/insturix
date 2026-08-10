@@ -553,6 +553,103 @@ describe("Editron project save payload compaction", () => {
     );
   });
 
+  it("binds Director phase-0 facts to the final writer receipt", async () => {
+    const updatedAt = "2026-08-11T05:00:00.000Z";
+    const finalReceipt = {
+      schemaVersion: 1 as const,
+      projectId: "proj_1",
+      revision: {
+        schemaVersion: 1 as const,
+        value: 9,
+        compatibilityUpdatedAt: updatedAt,
+      },
+      committedAt: updatedAt,
+    };
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const captured = await projectService.captureMutationReceipts(() =>
+      projectService.recordPhase0ProofFacts("user_1", "proj_1", {
+        expectedRevision: finalReceipt.revision,
+        targetReceipt: finalReceipt,
+        facts: {
+          qualityReview: { overallScore: 98 },
+          liveTruth: { status: "pass" },
+          renderedQualityEvidence: { renderedQualityStatus: "pending" },
+          fixtureArtifact: { version: "fixture-v1" },
+        },
+      }),
+    );
+
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      {
+        projectId: "proj_1",
+        userId: "user_1",
+        projectRevision: 9,
+        updatedAt: new Date(updatedAt),
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          qualityReview: { overallScore: 98 },
+          "intelligence.phase0ProofTargetReceipt": finalReceipt,
+        }),
+        $inc: { projectRevision: 1 },
+      }),
+    );
+    expect(captured.value.revision).toEqual(
+      expect.objectContaining({ value: 10 }),
+    );
+    expect(captured.receipts).toEqual([
+      expect.objectContaining({ revision: captured.value.revision }),
+    ]);
+  });
+
+  it("does not attach Director phase-0 facts after a newer edit", async () => {
+    const finalRevision = {
+      schemaVersion: 1 as const,
+      value: 9,
+      compatibilityUpdatedAt: "2026-08-11T05:00:00.000Z",
+    };
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 0,
+      modifiedCount: 0,
+    });
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      updatedAt: new Date("2026-08-11T05:00:01.000Z"),
+      projectRevision: 10,
+    });
+    const { ProjectMutationConflictError, projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(
+      projectService.recordPhase0ProofFacts("user_1", "proj_1", {
+        expectedRevision: finalRevision,
+        targetReceipt: {
+          schemaVersion: 1,
+          projectId: "proj_1",
+          revision: finalRevision,
+          committedAt: finalRevision.compatibilityUpdatedAt,
+        },
+        facts: {
+          qualityReview: { overallScore: 98 },
+          liveTruth: { status: "pass" },
+          renderedQualityEvidence: { renderedQualityStatus: "pending" },
+          fixtureArtifact: { version: "fixture-v1" },
+        },
+      }),
+    ).rejects.toBeInstanceOf(ProjectMutationConflictError);
+
+    expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
+  });
+
   it("captures the writer-issued save receipt without a post-write revision read", async () => {
     const updatedAt = "2026-08-11T01:00:00.000Z";
     persistenceMocks.findOne.mockResolvedValueOnce({
