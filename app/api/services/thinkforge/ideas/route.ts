@@ -109,7 +109,6 @@ export async function POST(req: Request) {
 
 	let prompt: string = '';
 	let requestedBrandId: string | undefined;
-	let brandBrief: string | undefined;
 	let variationIndex = 0;
 	let rejectedIdeas: RejectedIdeaEvidence[] = [];
 	try {
@@ -117,7 +116,6 @@ export async function POST(req: Request) {
 		prompt = String(body?.prompt || '');
 		const projectMeta = toProjectMeta(body?.projectMeta);
 		requestedBrandId = toNonEmptyString(body?.brandId) || toNonEmptyString(projectMeta.brandId);
-		brandBrief = toNonEmptyString(body?.brandBrief) || toNonEmptyString(projectMeta.brandBrief);
 		if (Number.isInteger(body?.variationIndex) && body.variationIndex >= 0 && body.variationIndex <= 1000) {
 			variationIndex = body.variationIndex;
 		}
@@ -207,13 +205,6 @@ export async function POST(req: Request) {
 			].filter(Boolean).join('\n\n');
 		}
 
-		if (brandBrief) {
-			systemBrief = [
-				systemBrief,
-				`## User-Supplied Source Brief\n${brandBrief}`,
-			].filter(Boolean).join('\n\n');
-		}
-
 		const agent = createIdeasAgent();
 		const ideas = await agent.generateIdeas(prompt, {
 			systemBrief: systemBrief || undefined,
@@ -226,7 +217,6 @@ export async function POST(req: Request) {
 		const scopedIdeas = ideas.map((idea) => ({
 			...idea,
 			...(brandScope.brandId ? { brandId: brandScope.brandId } : {}),
-			...(brandBrief ? { brandBrief } : {}),
 		}));
 		return NextResponse.json({
 			ideas: scopedIdeas,

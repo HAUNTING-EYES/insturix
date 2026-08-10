@@ -383,6 +383,7 @@ describe('ThinkForge session route authorization', () => {
     const response = await callIdeas({
       prompt: 'Create a post for my brand about product adoption.',
       brandId: 'brand_allowed',
+      brandBrief: 'Stale browser scan: make every idea about the old founder interview.',
     });
 
     if (!response) throw new Error('Ideas route did not return a response');
@@ -403,6 +404,12 @@ describe('ThinkForge session route authorization', () => {
       brandName: 'Allowed Brand',
     });
     expect(body.ideas[0]).toMatchObject({ brandId: 'brand_allowed' });
+    expect(body.ideas[0].brandBrief).toBeUndefined();
+    const ideasAgent = mocks.createIdeasAgent.mock.results[0]?.value;
+    expect(ideasAgent.generateIdeas).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ systemBrief: '## Active Brand Scope\nBrand: Allowed Brand\nOnly use this brand identity for brand-specific ideas.\n\nResolved brand context' }),
+    );
   });
 
   it('rejects foreign-session AI edits before credits or model work', async () => {
