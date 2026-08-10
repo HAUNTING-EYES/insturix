@@ -255,7 +255,6 @@ interface RunDependencies extends QueueDependencies {
     CheckpointService,
     | 'createCheckpoint'
     | 'getCheckpoint'
-    | 'getRollbackReceipt'
     | 'recordRollbackExpectedRevision'
     | 'updateChatEditOperationScoped'
     | 'restoreProjectCheckpoint'
@@ -450,14 +449,16 @@ export async function runChatDubbingJob(
           `The provider completed from ${job.progress.stage}; only the commit stage may mutate the project.`,
         );
       }
+      const completedWriterReceipt = reconcileDubbingWriterReceipt(
+        writerIssuedReceipt,
+        writerIssuedReceiptFromDubbingResult(step.result, job.projectId),
+      );
+      writerIssuedReceipt = completedWriterReceipt;
       const completed = await completeDubbingMutation({
         job,
         result: step.result,
         beforeCheckpoint,
-        writerIssuedReceipt: reconcileDubbingWriterReceipt(
-          writerIssuedReceipt,
-          writerIssuedReceiptFromDubbingResult(step.result, job.projectId),
-        ),
+        writerIssuedReceipt: completedWriterReceipt,
         deps,
       });
       return { status: 'completed', jobId: job._id, result: completed };
@@ -478,28 +479,29 @@ export async function runChatDubbingJob(
       && !(error instanceof TerminalDubbingError && error.code === 'dubbing-postcondition-failed')
     ) {
       const operationId = requiredCurrentJobField(job.operationId, 'operationId');
+      if (!writerIssuedReceipt) {
+        const receiptFailure = await markDubbingWriterReceiptMissing(
+          beforeCheckpoint,
+          job,
+          operationId,
+          message,
+          deps,
+        );
+        await deps.store.markFailed(job._id, job.userId, 'failed', receiptFailure, deps.now());
+        return { status: 'failed', jobId: job._id, reason: receiptFailure };
+      }
       try {
-        const receipt = writerIssuedReceipt
-          ? await deps.checkpointService.recordRollbackExpectedRevision(
-              beforeCheckpoint.checkpointId,
-              job.userId,
-              job.projectId,
-              dubbingRollbackReceiptId(job),
-              writerIssuedReceipt,
-            )
-          : await deps.checkpointService.getRollbackReceipt(
-              beforeCheckpoint.checkpointId,
-              job.userId,
-              job.projectId,
-              dubbingRollbackReceiptId(job),
-            );
-        const expectedRevision = receipt?.expectedRevision ?? beforeCheckpoint.capturedProjectRevision;
-        const restored = expectedRevision
-          ? await deps.checkpointService.restoreProjectCheckpoint(beforeCheckpoint.checkpointId, job.userId, {
-              projectId: job.projectId,
-              expectedRevision,
-            })
-          : null;
+        const receipt = await deps.checkpointService.recordRollbackExpectedRevision(
+          beforeCheckpoint.checkpointId,
+          job.userId,
+          job.projectId,
+          dubbingRollbackReceiptId(job),
+          writerIssuedReceipt,
+        );
+        const restored = await deps.checkpointService.restoreProjectCheckpoint(beforeCheckpoint.checkpointId, job.userId, {
+          projectId: job.projectId,
+          expectedRevision: receipt.expectedRevision,
+        });
         await deps.checkpointService.updateChatEditOperationScoped(
           beforeCheckpoint.checkpointId,
           job.userId,
@@ -554,21 +556,20 @@ async function completeDubbingMutation(input: {
       'The durable dubbing mutation has no canonical before-state.',
     );
   }
+  if (!writerIssuedReceipt) {
+    throw new TerminalDubbingError(
+      'dubbing-writer-receipt-missing',
+      'The durable dubbing mutation has no ProjectService-issued writer receipt.',
+    );
+  }
 
-  const rollbackReceipt = writerIssuedReceipt
-    ? await deps.checkpointService.recordRollbackExpectedRevision(
-        beforeCheckpoint.checkpointId,
-        job.userId,
-        job.projectId,
-        dubbingRollbackReceiptId(job),
-        writerIssuedReceipt,
-      )
-    : await deps.checkpointService.recordRollbackExpectedRevision(
-        beforeCheckpoint.checkpointId,
-        job.userId,
-        job.projectId,
-        dubbingRollbackReceiptId(job),
-      );
+  const rollbackReceipt = await deps.checkpointService.recordRollbackExpectedRevision(
+    beforeCheckpoint.checkpointId,
+    job.userId,
+    job.projectId,
+    dubbingRollbackReceiptId(job),
+    writerIssuedReceipt,
+  );
   const afterProject = await deps.loadProject(job.userId, job.projectId);
   if (!afterProject) {
     throw new TerminalDubbingError('project-not-found-after-dubbing', 'Project disappeared after dubbing commit.');
@@ -1076,6 +1077,34 @@ function reconcileDubbingWriterReceipt(
 
 function dubbingRollbackReceiptId(job: ChatDubbingJob): string {
   return `chat-dubbing:${job._id}:run:${job.runCount}`;
+}
+
+async function markDubbingWriterReceiptMissing(
+  beforeCheckpoint: Checkpoint,
+  job: ChatDubbingJob,
+  operationId: string,
+  cause: string,
+  deps: RunDependencies,
+): Promise<string> {
+  const failure = cause.startsWith('dubbing-writer-receipt-missing:')
+    ? cause
+    : `dubbing-writer-receipt-missing:${cause}`;
+  try {
+    await deps.checkpointService.updateChatEditOperationScoped(
+      beforeCheckpoint.checkpointId,
+      job.userId,
+      job.projectId,
+      operationId,
+      {
+        operationStatus: 'failed',
+        mutatingToolNames: ['dub_selected_dialogue'],
+        operationError: `rollback-not-attempted:writer-issued-receipt-missing:${cause}`,
+      },
+    );
+  } catch (error) {
+    return `${failure}:operation-status-update-failed:${errorMessage(error)}`;
+  }
+  return failure;
 }
 
 function requiredCurrentJobField(value: unknown, field: string): string {

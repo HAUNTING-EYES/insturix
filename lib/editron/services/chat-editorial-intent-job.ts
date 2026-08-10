@@ -303,20 +303,18 @@ export async function runChatEditorialIntentJob(
     if (!director.success) {
       throw new Error(`director-failed:${directorFailureReason(director)}`);
     }
-    rollbackReceipt = writerIssuedReceipt
-      ? await deps.checkpointService.recordRollbackExpectedRevision(
-          checkpoint.checkpointId,
-          job.userId,
-          job.projectId,
-          editorialIntentRollbackReceiptId(job),
-          writerIssuedReceipt,
-        )
-      : await deps.checkpointService.recordRollbackExpectedRevision(
-          checkpoint.checkpointId,
-          job.userId,
-          job.projectId,
-          editorialIntentRollbackReceiptId(job),
-        );
+    if (director.overlaysModified > 0 && !writerIssuedReceipt) {
+      throw new Error('A mutating editorial intent completed without a writer-issued mutation receipt.');
+    }
+    if (writerIssuedReceipt) {
+      rollbackReceipt = await deps.checkpointService.recordRollbackExpectedRevision(
+        checkpoint.checkpointId,
+        job.userId,
+        job.projectId,
+        editorialIntentRollbackReceiptId(job),
+        writerIssuedReceipt,
+      );
+    }
 
     const afterProject = await deps.loadProject(job.userId, job.projectId);
     if (!afterProject) throw new Error('project-not-found-after-editorial-intent');
@@ -380,24 +378,35 @@ export async function runChatEditorialIntentJob(
     const message = errorMessage(error);
     let rolledBack = false;
     if (checkpoint && attemptOperationId) {
-      if (!rollbackReceipt && writerIssuedReceipt) {
-        rollbackReceipt = await deps.checkpointService.recordRollbackExpectedRevision(
+      if (!writerIssuedReceipt) {
+        const failure = `Rollback was not attempted because no writer-issued mutation receipt was captured: ${message}`;
+        await deps.checkpointService.updateChatEditOperationScoped(
+          checkpoint.checkpointId,
+          job.userId,
+          job.projectId,
+          attemptOperationId,
+          {
+            operationStatus: 'failed',
+            mutatingToolNames: ['apply_editorial_intent'],
+            operationError: failure,
+          },
+        );
+        await deps.store.markFailed(job._id, job.userId, failure, false, deps.now());
+        return { status: 'failed', jobId: job._id, reason: failure };
+      }
+      const receipt = rollbackReceipt ?? await deps.checkpointService.recordRollbackExpectedRevision(
           checkpoint.checkpointId,
           job.userId,
           job.projectId,
           editorialIntentRollbackReceiptId(job),
           writerIssuedReceipt,
         );
-      }
-      const expectedRevision = rollbackReceipt?.expectedRevision
-        ?? checkpoint.capturedProjectRevision;
-      const restored = expectedRevision
-        ? await deps.checkpointService.restoreProjectCheckpoint(
-            checkpoint.checkpointId,
-            job.userId,
-            { projectId: job.projectId, expectedRevision },
-          )
-        : null;
+      rollbackReceipt = receipt;
+      const restored = await deps.checkpointService.restoreProjectCheckpoint(
+        checkpoint.checkpointId,
+        job.userId,
+        { projectId: job.projectId, expectedRevision: receipt.expectedRevision },
+      );
       rolledBack = restored?.restored === true;
       await deps.checkpointService.updateChatEditOperationScoped(
         checkpoint.checkpointId,

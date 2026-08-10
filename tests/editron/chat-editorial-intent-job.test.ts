@@ -10,7 +10,6 @@ import {
 } from '@/lib/editron/agent/post-edl-action-policy';
 import {
   CHAT_EDITORIAL_INTENT_JOB_VERSION,
-  ChatEditorialIntentRetryableError,
   buildChatEditorialIntentProjectBrief,
   queueChatEditorialIntentJob,
   reconcileChatEditorialIntentMgChild,
@@ -193,11 +192,11 @@ describe('durable chat editorial-intent jobs', () => {
     expect(dispatchRenderEvidence).not.toHaveBeenCalled();
   });
 
-  it('rolls back a transient Director timeout and exposes a retryable worker failure', async () => {
+  it('fails closed without restoring when a Director timeout has no writer receipt', async () => {
     const store = new MemoryStore(queuedJob());
     const checkpoint = checkpointRuntime([]);
 
-    await expect(runChatEditorialIntentJob(workerPayload(), {
+    const result = await runChatEditorialIntentJob(workerPayload(), {
       store,
       loadProject: async () => project('before'),
       executeDirector: async () => {
@@ -206,19 +205,17 @@ describe('durable chat editorial-intent jobs', () => {
       dispatchRenderEvidence: vi.fn(),
       ...checkpoint.dependencies,
       now: () => NOW,
-    })).rejects.toBeInstanceOf(ChatEditorialIntentRetryableError);
+    });
 
-    expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledTimes(1);
-    expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
-      'job-intent-1:before:attempt:1',
-      'user-1',
-      { projectId: 'project-1', expectedRevision: CAPTURED_REVISION },
-    );
+    expect(result).toMatchObject({
+      status: 'failed',
+      reason: expect.stringContaining('Rollback was not attempted because no writer-issued mutation receipt was captured'),
+    });
+    expect(checkpoint.restoreProjectCheckpoint).not.toHaveBeenCalled();
     expect(checkpoint.recordRollbackExpectedRevision).not.toHaveBeenCalled();
     expect(store.jobs.get('job-intent-1')).toMatchObject({
-      status: 'retry_wait',
-      attemptCount: 1,
-      error: 'Gemini timeout while planning',
+      status: 'failed',
+      error: expect.stringContaining('Gemini timeout while planning'),
     });
   });
 
@@ -271,6 +268,12 @@ describe('durable chat editorial-intent jobs', () => {
   it('refuses a stale post-Director rollback receipt without a second mutation', async () => {
     const store = new MemoryStore(queuedJob());
     const checkpoint = checkpointRuntime([]);
+    const writerIssuedReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId: 'project-1',
+      revision: { ...CAPTURED_REVISION, value: 8 },
+      committedAt: '2026-07-24T10:00:02.000Z',
+    };
     checkpoint.restoreProjectCheckpoint.mockResolvedValueOnce({
       restored: false,
       checkpointId: 'job-intent-1:before:attempt:1',
@@ -284,6 +287,7 @@ describe('durable chat editorial-intent jobs', () => {
       store,
       loadProject: async () => project('before'),
       executeDirector: async () => directorResult(1),
+      captureMutationReceipts: captureWriterReceipt(writerIssuedReceipt),
       dispatchRenderEvidence: vi.fn(),
       ...checkpoint.dependencies,
       now: () => NOW,
@@ -298,11 +302,12 @@ describe('durable chat editorial-intent jobs', () => {
       'user-1',
       'project-1',
       'chat-editorial-intent:job-intent-1:attempt:1',
+      writerIssuedReceipt,
     );
     expect(checkpoint.restoreProjectCheckpoint).toHaveBeenCalledWith(
       'job-intent-1:before:attempt:1',
       'user-1',
-      { projectId: 'project-1', expectedRevision: ROLLBACK_RECEIPT.expectedRevision },
+      { projectId: 'project-1', expectedRevision: writerIssuedReceipt.revision },
     );
     expect(store.jobs.get('job-intent-1')).toMatchObject({ status: 'failed' });
   });
@@ -311,6 +316,12 @@ describe('durable chat editorial-intent jobs', () => {
     const store = new MemoryStore(queuedJob());
     let currentProject = project('before');
     const checkpoint = checkpointRuntime([]);
+    const writerIssuedReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId: 'project-1',
+      revision: { ...CAPTURED_REVISION, value: 8 },
+      committedAt: '2026-07-24T10:00:02.000Z',
+    };
 
     const result = await runChatEditorialIntentJob(workerPayload(), {
       store,
@@ -319,6 +330,7 @@ describe('durable chat editorial-intent jobs', () => {
         currentProject = project('after');
         return directorResult(1);
       },
+      captureMutationReceipts: captureWriterReceipt(writerIssuedReceipt),
       dispatchRenderEvidence: async () => ({ dispatched: false, reason: 'render-worker-unavailable' }),
       ...checkpoint.dependencies,
       now: () => NOW,
@@ -1048,6 +1060,20 @@ function project(content: 'before' | 'after') {
   };
 }
 
+function captureWriterReceipt(receipt: ProjectMutationReceiptV1) {
+  return async <T>(
+    callback: () => Promise<T> | T,
+    onSettled?: (receipts: readonly ProjectMutationReceiptV1[]) => void,
+  ): Promise<{ value: T; receipts: ProjectMutationReceiptV1[] }> => {
+    const receipts = [receipt];
+    try {
+      return { value: await callback(), receipts };
+    } finally {
+      onSettled?.(receipts);
+    }
+  };
+}
+
 function checkpointRuntime(order: string[]) {
   const checkpoints = new Map<string, Checkpoint>();
   const seedBeforeCheckpoint = (
@@ -1100,10 +1126,13 @@ function checkpointRuntime(order: string[]) {
     if (!value || value.userId !== userId || value.projectId !== projectId) {
       throw new Error('checkpoint-not-found-for-rollback-receipt');
     }
+    if (!writerIssuedReceipt) {
+      throw new Error('writer-issued-mutation-receipt-required-for-rollback');
+    }
     return {
       ...ROLLBACK_RECEIPT,
       receiptId,
-      expectedRevision: writerIssuedReceipt?.revision ?? CAPTURED_REVISION,
+      expectedRevision: writerIssuedReceipt.revision,
     };
   });
   const updateChatEditOperationScoped = vi.fn(async () => undefined);

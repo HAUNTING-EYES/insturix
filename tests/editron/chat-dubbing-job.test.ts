@@ -70,6 +70,16 @@ const ROLLBACK_REVISION: ProjectRevisionV1 = {
   value: 2,
   compatibilityUpdatedAt: '2026-07-23T00:00:01.000Z',
 };
+const WRITER_ISSUED_RECEIPT: ProjectMutationReceiptV1 = {
+  schemaVersion: 1,
+  projectId: 'proj-1',
+  revision: {
+    schemaVersion: 1,
+    value: 3,
+    compatibilityUpdatedAt: '2026-07-23T00:00:02.000Z',
+  },
+  committedAt: '2026-07-23T00:00:02.000Z',
+};
 const project = {
   projectId: 'proj-1',
   userId: 'user-1',
@@ -195,10 +205,13 @@ function createCheckpointHarness(job: ChatDubbingJob, beforeProject = project) {
       if (!checkpoint || checkpoint.userId !== userId || checkpoint.projectId !== projectId) {
         throw new Error('checkpoint rollback receipt scope mismatch');
       }
+      if (!writerIssuedReceipt) {
+        throw new Error('writer-issued rollback receipt required');
+      }
       return {
         schemaVersion: 1,
         receiptId,
-        expectedRevision: writerIssuedReceipt?.revision ?? ROLLBACK_REVISION,
+        expectedRevision: writerIssuedReceipt.revision,
       };
     }),
     updateChatEditOperationScoped: vi.fn(async (
@@ -451,7 +464,14 @@ describe('durable chat dubbing job', () => {
       publish: vi.fn(async () => ({ messageId: 'unused' })),
       execute: vi.fn(async () => {
         currentProject = afterProject;
-        return { status: 'completed' as const, result: { committed: true, audioOverlayIds: [] } };
+        return {
+          status: 'completed' as const,
+          result: {
+            committed: true,
+            audioOverlayIds: [],
+            projectMutationReceipt: WRITER_ISSUED_RECEIPT,
+          },
+        };
       }),
       cleanup: vi.fn(),
       ...checkpoint,
@@ -627,6 +647,47 @@ describe('durable chat dubbing job', () => {
     );
   });
 
+  it('fails closed when a provider crashes after a project write without a writer receipt', async () => {
+    const store = new MemoryStore();
+    const { jobId } = await resolved(store);
+    const job = store.jobs.get(jobId)!;
+    Object.assign(job, { status: 'queued', progress: { stage: 'commit', generatedAssetIds: [] } });
+    const checkpoint = createCheckpointHarness(job);
+    const cleanup = vi.fn();
+
+    const result = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
+      store,
+      loadProject: vi.fn(async () => project),
+      buildProjectRevision: vi.fn(() => 'revision-1'),
+      buildCheckpointId,
+      now: () => now,
+      publish: vi.fn(async () => ({ messageId: 'unused' })),
+      execute: vi.fn(async () => {
+        throw new Error('provider crashed after its project write');
+      }),
+      cleanup,
+      ...checkpoint,
+    });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      reason: expect.stringContaining('dubbing-writer-receipt-missing:provider crashed after its project write'),
+    });
+    expect(checkpoint.checkpointService.recordRollbackExpectedRevision).not.toHaveBeenCalled();
+    expect(checkpoint.checkpointService.getRollbackReceipt).not.toHaveBeenCalled();
+    expect(checkpoint.checkpointService.restoreProjectCheckpoint).not.toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(checkpoint.checkpoints.get(job.beforeCheckpointId!)).toMatchObject({
+      operationStatus: 'failed',
+      mutatingToolNames: ['dub_selected_dialogue'],
+      operationError: expect.stringContaining('rollback-not-attempted:writer-issued-receipt-missing'),
+    });
+    expect(await store.find(jobId, 'user-1')).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('dubbing-writer-receipt-missing'),
+    });
+  });
+
   it('rejects a provider receipt that disagrees with the writer-issued receipt', async () => {
     const store = new MemoryStore();
     const { jobId } = await resolved(store);
@@ -707,7 +768,10 @@ describe('durable chat dubbing job', () => {
           ...structuredClone(project),
           overlays: [{ ...project.overlays[0], sourceAudioMuted: true }],
         };
-        return { status: 'completed' as const, result: { committed: true } };
+        return {
+          status: 'completed' as const,
+          result: { committed: true, projectMutationReceipt: WRITER_ISSUED_RECEIPT },
+        };
       }),
       cleanup: vi.fn(),
       ...checkpoint,
