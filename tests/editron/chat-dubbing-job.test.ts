@@ -23,7 +23,10 @@ import type {
   CheckpointInput,
   RestorableProjectState,
 } from '@/lib/editron/services/checkpoint-service';
-import type { ProjectRevisionV1 } from '@/lib/editron/services/project-service';
+import type {
+  ProjectMutationReceiptV1,
+  ProjectRevisionV1,
+} from '@/lib/editron/services/project-service';
 import type { ChatEditRenderVerificationRequest } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 
 class MemoryStore implements ChatDubbingJobStore {
@@ -186,12 +189,17 @@ function createCheckpointHarness(job: ChatDubbingJob, beforeProject = project) {
       userId: string,
       projectId: string,
       receiptId: string,
+      writerIssuedReceipt?: ProjectMutationReceiptV1,
     ): Promise<CheckpointRollbackReceiptV1> => {
       const checkpoint = checkpoints.get(checkpointId);
       if (!checkpoint || checkpoint.userId !== userId || checkpoint.projectId !== projectId) {
         throw new Error('checkpoint rollback receipt scope mismatch');
       }
-      return { schemaVersion: 1, receiptId, expectedRevision: ROLLBACK_REVISION };
+      return {
+        schemaVersion: 1,
+        receiptId,
+        expectedRevision: writerIssuedReceipt?.revision ?? ROLLBACK_REVISION,
+      };
     }),
     updateChatEditOperationScoped: vi.fn(async (
       checkpointId: string,
@@ -517,6 +525,17 @@ describe('durable chat dubbing job', () => {
     Object.assign(job, { status: 'queued', progress: { stage: 'commit', generatedAssetIds: [] } });
     const checkpoint = createCheckpointHarness(job);
 
+    const writerIssuedReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId: 'proj-1',
+      revision: {
+        schemaVersion: 1,
+        value: 3,
+        compatibilityUpdatedAt: '2026-07-23T00:00:02.000Z',
+      },
+      committedAt: '2026-07-23T00:00:02.000Z',
+    };
+
     const result = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
       store,
       loadProject: vi.fn(async () => project),
@@ -524,7 +543,10 @@ describe('durable chat dubbing job', () => {
       buildCheckpointId,
       now: () => now,
       publish: vi.fn(async () => ({ messageId: 'unused' })),
-      execute: vi.fn(async () => ({ status: 'completed' as const, result: { committed: true } })),
+      execute: vi.fn(async () => ({
+        status: 'completed' as const,
+        result: { committed: true, projectMutationReceipt: writerIssuedReceipt },
+      })),
       cleanup: vi.fn(),
       ...checkpoint,
     });
@@ -538,11 +560,12 @@ describe('durable chat dubbing job', () => {
       'user-1',
       'proj-1',
       `chat-dubbing:${job._id}:run:1`,
+      writerIssuedReceipt,
     );
     expect(checkpoint.checkpointService.restoreProjectCheckpoint).toHaveBeenCalledWith(
       job.beforeCheckpointId,
       'user-1',
-      { projectId: 'proj-1', expectedRevision: ROLLBACK_REVISION },
+      { projectId: 'proj-1', expectedRevision: writerIssuedReceipt.revision },
     );
     expect(checkpoint.checkpointService.getRollbackReceipt).not.toHaveBeenCalled();
   });

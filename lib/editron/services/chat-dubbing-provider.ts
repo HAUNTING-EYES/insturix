@@ -5,6 +5,10 @@ import type { Overlay, SoundOverlay } from '@/components/editron/editor/version-
 import { OverlayType } from '@/components/editron/editor/version-7.0.0/types';
 import { withAtomicOverlayReceipt, withAtomicOverlayUpdateReceipt } from '@/lib/editron/engine/overlay-atomic-receipts';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import {
+  ProjectMutationConflictError,
+  projectService,
+} from '@/lib/editron/services/project-service';
 import { sampleAudioClip } from '@/lib/editron/services/media/analysis-service';
 import { getTranscription } from '@/lib/editron/services/media/transcription-service';
 import { segmentTimedSpeechPhrases } from '@/lib/editron/services/spoken-phrase-segmentation';
@@ -406,9 +410,7 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
       'All phrase audio, generated-audio provenance, and the background stem are required before commit.',
     );
   }
-  const db = await getDatabase();
-  const project = await db.collection(COLLECTIONS.PROJECTS).findOne({ projectId: job.projectId, userId: job.userId });
-  if (!project) throw new TerminalDubbingError('project-not-found', 'Project disappeared before dubbing commit.');
+  const { project, revision } = await projectService.loadProjectForMutation(job.userId, job.projectId);
   const overlays = Array.isArray(project.overlays) ? project.overlays as Overlay[] : [];
   const selectedIndex = overlays.findIndex((overlay) => String(overlay.id) === job.overlayId);
   if (selectedIndex < 0) throw new TerminalDubbingError('dubbing-target-missing', 'Selected video overlay disappeared before commit.');
@@ -479,28 +481,44 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
   }, 'phrase-aligned-translated-dialogue'));
   const nextOverlays = overlays.map((overlay, index) => index === selectedIndex ? updatedSelected : overlay).concat(backgroundOverlay, ...voiceOverlays);
   const now = new Date();
-  const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-    { projectId: job.projectId, userId: job.userId, updatedAt: project.updatedAt },
-    {
-      $set: {
+  let projectMutationReceipt;
+  try {
+    projectMutationReceipt = await projectService.saveProjectWithReceipt(
+      job.userId,
+      job.projectId,
+      {
         overlays: nextOverlays,
-        'intelligence.lastDubbingJob': {
-          jobId: job._id,
-          overlayId: job.overlayId,
-          targetLanguage: job.targetLanguage,
-          speechCapability: resolveChatDubbingSpeechCapability(job),
-          phraseCount: phrases.length,
-          backgroundAssetId: background.assetId,
-          audioSeparationReceipt: background.audioSeparationReceipt,
-          voiceAssetIds: phrases.map((phrase) => phrase.voiceAssetId),
-          committedAt: now,
-        },
-        updatedAt: now,
+        aspectRatio: project.aspectRatio,
+        playerDimensions: project.playerDimensions,
+        fps: project.fps,
+        durationInFrames: project.durationInFrames,
       },
-    },
-  );
-  if (result.modifiedCount !== 1) {
-    throw new TerminalDubbingError('project-concurrent-write', 'Project changed before dubbing could be committed; generated assets were not attached.');
+      {
+        expectedRevision: revision,
+        overlayAuthority: 'server',
+        projectUpdates: {
+          'intelligence.lastDubbingJob': {
+            jobId: job._id,
+            overlayId: job.overlayId,
+            targetLanguage: job.targetLanguage,
+            speechCapability: resolveChatDubbingSpeechCapability(job),
+            phraseCount: phrases.length,
+            backgroundAssetId: background.assetId,
+            audioSeparationReceipt: background.audioSeparationReceipt,
+            voiceAssetIds: phrases.map((phrase) => phrase.voiceAssetId),
+            committedAt: now,
+          },
+        },
+      },
+    );
+  } catch (error) {
+    if (error instanceof ProjectMutationConflictError) {
+      throw new TerminalDubbingError(
+        'project-concurrent-write',
+        'Project changed before dubbing could be committed; generated assets were not attached.',
+      );
+    }
+    throw error;
   }
   return {
     status: 'completed',
@@ -512,6 +530,7 @@ async function commitDubbing(job: ChatDubbingJob): Promise<ChatDubbingStepResult
       backgroundAssetId: background.assetId,
       voiceAssetIds: phrases.map((phrase) => phrase.voiceAssetId),
       audioOverlayIds: [backgroundOverlay.id, ...voiceOverlays.map((overlay) => overlay.id)],
+      projectMutationReceipt,
     },
   };
 }

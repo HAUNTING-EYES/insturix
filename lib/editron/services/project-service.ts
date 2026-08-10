@@ -410,6 +410,7 @@ export class ProjectService {
     options: {
       expectedRevision?: ProjectRevisionV1;
       overlayAuthority?: OverlaySaveAuthority;
+      projectUpdates?: Record<string, unknown>;
     } = {},
   ): Promise<ProjectMutationReceiptV1> {
     return this.persistEditorState({
@@ -418,6 +419,7 @@ export class ProjectService {
       state,
       expectedRevision: options.expectedRevision,
       overlayAuthority: options.overlayAuthority ?? "server",
+      projectUpdates: options.projectUpdates,
       mode: "manual",
     });
   }
@@ -556,6 +558,26 @@ export class ProjectService {
   }
 
   /**
+   * Returns one owner-scoped project snapshot paired with the exact revision
+   * that describes it. A writer must carry this revision into its later CAS
+   * instead of separately sampling a newer revision for an older snapshot.
+   */
+  async loadProjectForMutation(
+    userId: string,
+    projectId: string,
+  ): Promise<{ project: Project; revision: ProjectRevisionV1 }> {
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+      { projectId, userId },
+    )) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    return {
+      project: structuredClone(project),
+      revision: projectRevisionFor(project),
+    };
+  }
+
+  /**
    * Captures receipts emitted by ProjectService writers while one async
    * operation runs. The receipt is produced by the writer itself, so callers
    * do not need a post-write current-revision read to bind a rollback.
@@ -661,6 +683,7 @@ export class ProjectService {
     state: EditorState;
     expectedRevision?: ProjectRevisionV1;
     overlayAuthority: OverlaySaveAuthority;
+    projectUpdates?: Record<string, unknown>;
     mode: "manual" | "autosave";
   }): Promise<ProjectMutationReceiptV1> {
     const cleanOverlays = assetResolver.stripUrlsForLLM(input.state.overlays);
@@ -678,6 +701,7 @@ export class ProjectService {
     const currentRevision = projectRevisionFor(currentProject);
     const expectedRevision = input.expectedRevision ?? currentRevision;
     assertProjectRevision(expectedRevision);
+    assertCheckpointRestoreFields(input.projectUpdates ?? {}, []);
     if (
       expectedRevision.value !== currentRevision.value ||
       expectedRevision.compatibilityUpdatedAt !==
@@ -726,6 +750,7 @@ export class ProjectService {
     const committedAt = new Date();
     const update: Record<string, unknown> = {
       $set: {
+        ...(input.projectUpdates ?? {}),
         overlays: mergedOverlays,
         aspectRatio: input.state.aspectRatio,
         playerDimensions: dimensions,

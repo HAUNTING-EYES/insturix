@@ -14,6 +14,7 @@ import type {
 import type { Phase0RenderedEvidenceDispatchResult } from '@/lib/editron/services/phase0-rendered-evidence-worker';
 import type { AudioRightsContract } from '@/lib/editron/shared/render-request-payload';
 import type { GeneratedAudioReceipt } from '@/lib/pipeline/tts-service';
+import type { ProjectMutationReceiptV1 } from '@/lib/editron/services/project-service';
 import {
   listSupportedSpeechLanguages,
   resolveSpeechSynthesisCapability,
@@ -440,6 +441,7 @@ export async function runChatDubbingJob(
         job,
         result: step.result,
         beforeCheckpoint,
+        writerIssuedReceipt: writerIssuedReceiptFromDubbingResult(step.result, job.projectId),
         deps,
       });
       return { status: 'completed', jobId: job._id, result: completed };
@@ -514,9 +516,10 @@ async function completeDubbingMutation(input: {
   job: ChatDubbingJob;
   result: Record<string, unknown>;
   beforeCheckpoint: Checkpoint | null;
+  writerIssuedReceipt?: ProjectMutationReceiptV1;
   deps: RunDependencies;
 }): Promise<Record<string, unknown>> {
-  const { job, result, beforeCheckpoint, deps } = input;
+  const { job, result, beforeCheckpoint, writerIssuedReceipt, deps } = input;
   if (job.version !== CHAT_DUBBING_JOB_VERSION) {
     await deps.store.markCompleted({ jobId: job._id, userId: job.userId, result, now: deps.now() });
     return result;
@@ -528,12 +531,20 @@ async function completeDubbingMutation(input: {
     );
   }
 
-  const rollbackReceipt = await deps.checkpointService.recordRollbackExpectedRevision(
-    beforeCheckpoint.checkpointId,
-    job.userId,
-    job.projectId,
-    dubbingRollbackReceiptId(job),
-  );
+  const rollbackReceipt = writerIssuedReceipt
+    ? await deps.checkpointService.recordRollbackExpectedRevision(
+        beforeCheckpoint.checkpointId,
+        job.userId,
+        job.projectId,
+        dubbingRollbackReceiptId(job),
+        writerIssuedReceipt,
+      )
+    : await deps.checkpointService.recordRollbackExpectedRevision(
+        beforeCheckpoint.checkpointId,
+        job.userId,
+        job.projectId,
+        dubbingRollbackReceiptId(job),
+      );
   const afterProject = await deps.loadProject(job.userId, job.projectId);
   if (!afterProject) {
     throw new TerminalDubbingError('project-not-found-after-dubbing', 'Project disappeared after dubbing commit.');
@@ -967,6 +978,31 @@ function projectFromCheckpoint(checkpoint: Checkpoint): ProjectLike {
       checkpoint.projectState?.fields[field],
     ]),
   ) as ProjectLike;
+}
+
+function writerIssuedReceiptFromDubbingResult(
+  result: Record<string, unknown>,
+  projectId: string,
+): ProjectMutationReceiptV1 | undefined {
+  const receipt = result.projectMutationReceipt;
+  if (!receipt || typeof receipt !== 'object') return undefined;
+  const candidate = receipt as Partial<ProjectMutationReceiptV1>;
+  const revision = candidate.revision;
+  if (
+    candidate.schemaVersion !== 1
+    || candidate.projectId !== projectId
+    || !revision
+    || revision.schemaVersion !== 1
+    || !Number.isSafeInteger(revision.value)
+    || revision.value < 0
+    || typeof revision.compatibilityUpdatedAt !== 'string'
+    || Number.isNaN(new Date(revision.compatibilityUpdatedAt).getTime())
+    || typeof candidate.committedAt !== 'string'
+    || Number.isNaN(new Date(candidate.committedAt).getTime())
+  ) {
+    return undefined;
+  }
+  return candidate as ProjectMutationReceiptV1;
 }
 
 function dubbingRollbackReceiptId(job: ChatDubbingJob): string {

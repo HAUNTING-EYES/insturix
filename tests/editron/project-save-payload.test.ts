@@ -346,6 +346,67 @@ describe("Editron project save payload compaction", () => {
     );
   });
 
+  it("carries an owner-scoped mutation snapshot revision into the canonical writer", async () => {
+    const updatedAt = "2026-08-11T03:00:00.000Z";
+    const currentProject = {
+      projectId: "proj_1",
+      userId: "user_1",
+      name: "Dubbing fixture",
+      overlays: [],
+      aspectRatio: "16:9" as const,
+      playerDimensions: { width: 1920, height: 1080 },
+      fps: 30,
+      durationInFrames: 300,
+      visibility: "private" as const,
+      createdAt: new Date(updatedAt),
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    };
+    persistenceMocks.findOne.mockResolvedValue(currentProject);
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const snapshot = await projectService.loadProjectForMutation("user_1", "proj_1");
+    await projectService.saveProjectWithReceipt(
+      "user_1",
+      "proj_1",
+      {
+        overlays: [],
+        aspectRatio: snapshot.project.aspectRatio,
+        playerDimensions: snapshot.project.playerDimensions,
+        fps: snapshot.project.fps,
+        durationInFrames: snapshot.project.durationInFrames,
+      },
+      {
+        expectedRevision: snapshot.revision,
+        projectUpdates: {
+          "intelligence.lastDubbingJob": { jobId: "dub_job_1" },
+        },
+      },
+    );
+
+    expect(snapshot.revision).toEqual({
+      schemaVersion: 1,
+      value: 7,
+      compatibilityUpdatedAt: updatedAt,
+    });
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({ projectRevision: 7, updatedAt: new Date(updatedAt) }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          "intelligence.lastDubbingJob": { jobId: "dub_job_1" },
+          overlays: [],
+        }),
+        $inc: { projectRevision: 1 },
+      }),
+    );
+  });
+
   it("captures the writer-issued save receipt without a post-write revision read", async () => {
     const updatedAt = "2026-08-11T01:00:00.000Z";
     persistenceMocks.findOne.mockResolvedValueOnce({
