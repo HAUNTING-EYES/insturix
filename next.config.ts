@@ -77,6 +77,9 @@ const nextConfig: NextConfig = {
   },
   // Performance optimizations
   experimental: {
+    // Keep the production compiler below Vercel's standard 8 GB builder ceiling.
+    // Next documents this as a low-risk optimization for large Webpack graphs.
+    webpackMemoryOptimizations: true,
     optimizePackageImports: [
       '@radix-ui/react-icons',
       '@tabler/icons-react',
