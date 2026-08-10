@@ -622,24 +622,25 @@ The owner has authorised execution of the staged programme on
 standing approval to continue to the next verified bounded slice; it does not
 change the ownership, proof, or no-second-runtime rules above.
 
-### Current code truth
+### Current code truth at subplan creation (historical baseline)
 
-The accepted IF1 artifact is frozen on its own tagged history.  It is not yet
-the live command contract in this worktree.  The current branch instead has a
-smaller `ProjectService` revision/receipt mechanism:
+The accepted IF1 artifact was frozen on its own tagged history and was not the
+live command contract in this worktree.  At the time this subplan was written,
+the current branch instead had a smaller `ProjectService` revision/receipt
+mechanism:
 
 - manual save, autosave and checkpoint restore use a ProjectService CAS and
   publish a writer-issued `ProjectMutationReceiptV1`;
 - the chat stream captures those receipts and the transaction runtime refuses
   to perform automatic rollback without one; and
 - direct `addOverlay`, `updateOverlay`, `deleteOverlay` and
-  `replaceOverlayFamilyAtomic` calls still bypass that receipt mechanism.
+  `replaceOverlayFamilyAtomic` calls bypassed that receipt mechanism.
 
-This is **partial convergence**, not a unified editing core.  In particular,
-a real chat tool can persist an overlay through a direct writer, then the
-transaction runtime sees no receipt and returns a terminal failure without
-undoing that already-persisted change.  That safe non-destructive failure is
-better than an unsafe rollback, but it is unacceptable product behaviour.
+This was **partial convergence**, not a unified editing core.  In particular,
+a real chat tool could persist an overlay through a direct writer, then the
+transaction runtime saw no receipt and returned a terminal failure without
+undoing that already-persisted change.  That safe non-destructive failure was
+better than an unsafe rollback, but it was unacceptable product behaviour.
 
 The audit also established that automatic rollback callers in the chat,
 dubbing, editorial and reference-style paths do not fall back to a current
@@ -686,3 +687,71 @@ caption audit (four effective style authorities), transition audit (two
 materially different execution paths), media audit (generic raw form strings
 and no visual rights/proof binding), and MG audit remain the Stage 4 vertical
 backlog.  They are not declared solved by this hardening work.
+
+### Code-grounded progress and corrected writer order - 2026-08-11
+
+The preceding 1-A table is the design of the receipt-hardening subplan.  The
+following is the later, code-verified execution record and takes precedence
+where it differs from the earlier future-tense wording.
+
+#### Completed bounded slices
+
+- **1-A1 complete:** `bd4f9e79f` moved direct `ProjectService`
+  `addOverlay`, `updateOverlay` and `deleteOverlay` calls to project-revision
+  CAS, durable-write result checking, and writer-issued receipt publication.
+  A missing overlay no longer silently succeeds.
+- **1-A2 complete:** `8150e994f` gave
+  `replaceOverlayFamilyAtomic` the same post-write receipt/revision semantics
+  while retaining its compatibility timestamp guard.
+- **1-A3 complete:** `e8b21937e` exercises the real `createTools` chat path
+  against the real receipt-capture boundary.  A successful direct
+  `update_overlay` produces one receipt; a missing overlay writes nothing and
+  produces none.
+
+These commits fix the four named **ProjectService overlay entry points**.  They
+do **not** mean that all project mutations are unified, that IF1 is live in
+this worktree, or that the historical writer census is complete.
+
+#### Raw project-writer census
+
+The follow-up audit searched concrete `projects` collection write sites rather
+than inferring ownership from names.  Every row below still bypasses the
+canonical `ProjectService` revision/receipt path at the time of this record.
+
+| Risk | Existing writer and concrete effect | Why it is unsafe today | Required destination |
+|---|---|---|---|
+| **P0** | `lib/editron/agent/director-agent.ts` (11 raw project updates): Director lock, final quality/proof and lifecycle metadata | The lock is neither lease/CAS nor token-bound.  Director reads a project, later saves against a newly sampled revision, so a manual change can be overwritten.  Several post-save facts are revision-invisible and can bind proof to a different state. | A narrow ProjectService-owned Director command/lease boundary, with an expected revision from the input snapshot and a receipt/proof binding.  Do not create a Director project store. |
+| **P0** | `app/api/services/editron/chat/stream/route.ts` (three raw render-proof/dispatch updates) | Checkpoint and project-document updates can split on a fan-out failure; proof metadata has no writer revision/receipt. | Persist a receipt-bound proof disposition through the existing canonical owner; keep job dispatch separate from project-state success. |
+| **P1** | `lib/editron/services/native-video-audio-rights-attestation.ts`, `uploaded-export-audio-rights-attestation.ts`, and `uploaded-audio-assignment.ts` | Two replace the overlay array and one pushes an audio overlay directly.  Guards are useful but none advances canonical revision or emits a receipt. | Route a narrowly typed audio attachment/attestation command through ProjectService; the audio worker may retain analysis and external asset ownership. |
+| **P1** | `lib/editron/motion-graphics/codegen/mg-render-job-runner.ts` successful delivery | A durable MG job directly pushes an `MG_SEQUENCE` overlay.  Its nested MG rendering receipt is not a canonical transaction receipt, and the project write is not revision fenced. | The job produces a typed candidate/artifact; ProjectService attaches it through CAS and emits the canonical receipt/proof state. |
+| **P1** | Director proof persistence, MG design/delivery/taste mirrors, auto-edit planner/evidence writes, auto-BGM, assist-lane and EDL evidence writes | Some change `updatedAt`, which makes legacy timestamp callers conflict, but none has revision/receipt semantics; several ignore `matchedCount`. | Classify each as canonical editor state, derived evidence, or job-local state.  Migrate only canonical project state; retain execution-local records outside the project document. |
+| **P2** | `projects/import-from-script`, auto-edit rescue/cancel and constrained fixture cleanup | These are metadata, workflow, billing, or disposable-fixture paths, not direct timeline writes. | Preserve their current scopes while the evidence/workflow record is designed; do not accidentally route billing or job leases into the timeline owner. |
+
+This census also corrects the frozen IF1 manifest reading: its named legacy
+Director lock and chat render-proof examples do **not** enumerate every live
+raw Director project update in this branch.  The manifest is not evidence that
+the migration is complete.
+
+#### Revised production order
+
+The next work is deliberately reordered by production-loss risk, without
+skipping the receipt-hardening goals:
+
+| Order | Bounded slice | Scope and proof required before advancing |
+|---|---|---|
+| **1-B0 (done)** | Direct ProjectService overlay receipt parity and live chat proof | The three commits above; direct tool success has a receipt and missing-target failure changes nothing. |
+| **1-B1 (next, P0)** | Director snapshot/lock and final-save race closure | First write a source-to-consumer/lock-token map and adversarial stale-save tests.  Before a structural edit to the large Director file, do any real dead-code/debug cleanup in a separate verified commit as required by repository policy.  The implementation must prove a stale Director cannot overwrite a newer manual edit, a lock holder is token-bound, and quality/proof facts bind to the writer-issued revision. |
+| **1-B2 (P0)** | Chat render-proof atomicity | Make the project proof disposition receipt-bound and ensure a failed project persistence cannot be reported as a dispatched/verified edit.  The checkpoint and project representations must have an explicit recovery rule, not a best-effort `Promise.all`. |
+| **1-B3 (P1)** | One raw timeline family at a time: audio attachment/attestation, then MG attachment | Each family gets its own five-file-or-fewer phase, a real ProjectService command, conflict/idempotency fixtures, undo/proof disposition, and a producer-to-renderer trace.  Do not migrate job leases or media-asset persistence into ProjectService. |
+| **1-B4 (P1)** | Classify and close raw evidence/lifecycle mirrors | Move a fact only after deciding whether it is canonical project state, derived evidence, or execution-local job state.  A legacy mirror must not be called canonical merely because it lives in the project document. |
+| **1-B5 (P1)** | User-commanded receipt-bound undo/redo | Replace the direct checkpoint undo's current-revision sampling.  Redo remains unsupported unless an original command and post-state receipt make it safe. |
+| **1-B6 (P1)** | Exposed authority hardening | Require a real cron secret and prevent selected Brand Vault scope from silently degrading to unscoped ThinkForge generation. |
+| **1-B7 (decision)** | IF1 compatibility/wiring decision | Compare the tagged artifact against the working ProjectService path only after the relevant live writers are accounted for.  Wire it only if it remains the one command/revision/receipt owner; otherwise publish the exact delta and leave the freeze artifact unchanged. |
+
+All further slices retain the global constraints: no second project, timeline,
+checkpoint, media, proof, registry, journal, or job authority; no legacy
+pruning until imports, saved-project compatibility and rendered consumers are
+proved; no successful status without durable state plus its required proof.
+The later caption, transition, AI-MG, SFX/music and long-form stages remain
+part of the programme, but their implementation starts only after the relevant
+writer path has passed this safety sequence.
