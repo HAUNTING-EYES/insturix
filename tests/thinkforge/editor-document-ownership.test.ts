@@ -35,7 +35,7 @@ describe('ThinkForge editor document ownership', () => {
     expect(createThinkForgeDocumentKey(identity)).toBe('session_new:post_new');
   });
 
-  it('resets document ownership before loading and aborts stale async work', () => {
+  it('resets document ownership before loading and isolates stale async work', () => {
     const editor = read('components/dashboard/ThinkForge/ScriptEditor.tsx');
     const resetIndex = editor.indexOf('activeDocumentKeyRef.current = activeDocumentKey');
     const loadIndex = editor.indexOf('const loadBlocks = async');
@@ -43,9 +43,10 @@ describe('ThinkForge editor document ownership', () => {
     expect(resetIndex).toBeGreaterThan(-1);
     expect(loadIndex).toBeGreaterThan(resetIndex);
     expect(editor).toContain('loadAbortControllerRef.current?.abort()');
-    expect(editor).toContain('saveAbortControllerRef.current?.abort()');
+    expect(editor).toContain('enqueueThinkForgeDocumentSave');
+    expect(editor).toContain('flushPendingDocumentSaveRef.current?.(previousDocumentKey)');
     expect(editor).toContain('matchesThinkForgeDocumentIdentity(script, activeIdentity)');
-    expect(editor).toContain('activeDocumentKeyRef.current !== scheduledDocumentKey');
+    expect(editor).toContain('activeDocumentKeyRef.current !== pending.documentKey');
   });
 
   it('rejects stale remote updates and recovers the server-created document id', () => {

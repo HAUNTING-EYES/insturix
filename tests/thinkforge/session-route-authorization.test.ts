@@ -159,6 +159,10 @@ async function callSessionHydrate(body: Record<string, unknown> = {
   sessionId: 'session_requested',
   scriptId: 'script_2',
 }) {
+  // This route is dynamically imported because its reads begin immediately.
+  // Resetting the route module keeps its mocked collaborators local to this spec
+  // when the full ThinkForge suite runs files in parallel.
+  vi.resetModules();
   const { POST } = await import('@/app/api/services/thinkforge/session/route');
   return POST(new Request('http://localhost/api/services/thinkforge/session', {
     method: 'POST',

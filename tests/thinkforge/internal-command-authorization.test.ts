@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   applyCommand: vi.fn(),
   auth: vi.fn(),
+  has: vi.fn(),
   checkCredits: vi.fn(),
   deduct: vi.fn(),
   ensureMigrated: vi.fn(),
@@ -55,7 +56,8 @@ function chatRequest() {
 describe('ThinkForge internal command authorization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1' });
+    mocks.has.mockReturnValue(false);
+    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1', has: mocks.has });
     mocks.getSession.mockResolvedValue({
       _id: 'session_canonical',
       userId: 'owner_1',

@@ -59,4 +59,28 @@ describe('ThinkForge document save queue', () => {
     await expect(second).resolves.toMatchObject({ status: 'saved', version: 8 });
     expect(transport).toHaveBeenLastCalledWith(expect.objectContaining({ baseVersion: 7, contentHash: 'hash_2' }));
   });
+
+  it('keeps saves for separate documents independent during a document switch', async () => {
+    let releaseFirst!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const started: string[] = [];
+    const transport: ThinkForgeDocumentSaveTransport = vi.fn(async (input) => {
+      started.push(`${input.sessionId}:${input.scriptId}`);
+      if (input.sessionId === 'session_1') await firstBlocked;
+      return { status: 'saved' as const, version: input.baseVersion + 1, contentHash: input.contentHash };
+    });
+
+    const original = enqueueThinkForgeDocumentSave(request('hash_original'), transport);
+    const next = enqueueThinkForgeDocumentSave({
+      ...request('hash_next'),
+      sessionId: 'session_2',
+      scriptId: 'script_2',
+    }, transport);
+
+    await Promise.resolve();
+    expect(started).toEqual(['session_1:default', 'session_2:script_2']);
+    await expect(next).resolves.toMatchObject({ status: 'saved', version: 2 });
+    releaseFirst();
+    await expect(original).resolves.toMatchObject({ status: 'saved', version: 2 });
+  });
 });
