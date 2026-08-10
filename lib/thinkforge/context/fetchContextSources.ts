@@ -347,34 +347,62 @@ function extractSummary(entry: DataBankEntry): string {
 
 function isVisibleGlobalEntry(entry: DataBankEntry, brandId?: string): boolean {
   if (entry.scope !== 'global') return false;
+  if (entry.provenanceStatus === 'quarantined') return false;
   const memoryScope = getEntryMemoryScope(entry);
-  if (memoryScope === 'universal') return true;
+  const entryBrandId = getEntryBrandId(entry);
+  if (memoryScope === 'universal') return !entryBrandId;
   if (memoryScope !== 'brand') return false;
-  return Boolean(brandId && getEntryBrandId(entry) === brandId);
+  return Boolean(brandId && entryBrandId === brandId);
 }
 
 function getEntryMemoryScope(entry: DataBankEntry): 'brand' | 'universal' | undefined {
-  if (entry.memoryScope === 'brand' || entry.memoryScope === 'universal') return entry.memoryScope;
-  if (entry.tags?.includes('memory:brand')) return 'brand';
-  if (entry.tags?.includes('memory:universal')) return 'universal';
-  const content = entry.content as Record<string, unknown> | undefined;
-  return content?.memoryScope === 'brand' || content?.memoryScope === 'universal'
-    ? content.memoryScope
+  const firstClassScope = entry.memoryScope === 'brand' || entry.memoryScope === 'universal'
+    ? entry.memoryScope
     : undefined;
+  const taggedScopes = new Set(
+    (entry.tags ?? [])
+      .filter((tag) => tag === 'memory:brand' || tag === 'memory:universal')
+      .map((tag) => tag.slice('memory:'.length)),
+  );
+  if (taggedScopes.size > 1) return undefined;
+  const taggedScope = taggedScopes.size === 1
+    ? [...taggedScopes][0] as 'brand' | 'universal'
+    : undefined;
+  const postMortemScope = trustedLegacyPostMortemMetadata(entry)?.memoryScope;
+  const scopes = new Set(
+    [firstClassScope, taggedScope, postMortemScope]
+      .filter((scope): scope is 'brand' | 'universal' => scope === 'brand' || scope === 'universal'),
+  );
+  if (scopes.size !== 1) return undefined;
+  return [...scopes][0];
+}
+
+function trustedLegacyPostMortemMetadata(entry: DataBankEntry): {
+  memoryScope: 'brand' | 'universal';
+  brandId?: string;
+} | undefined {
+  const content = entry.content as Record<string, unknown> | undefined;
+  if (content?.source !== 'post-mortem') return undefined;
+  const memoryScope = content.memoryScope;
+  const brandId = typeof content.brandId === 'string' && content.brandId.trim()
+    ? content.brandId.trim()
+    : undefined;
+  if (memoryScope === 'brand' && brandId) return { memoryScope, brandId };
+  if (memoryScope === 'universal' && !brandId) return { memoryScope };
+  return undefined;
 }
 
 function getEntryBrandId(entry: DataBankEntry): string | undefined {
-  if (typeof entry.brandId === 'string' && entry.brandId.trim()) return entry.brandId.trim();
-  const taggedBrandId = entry.tags
-    ?.find((tag) => tag.startsWith('brand:'))
-    ?.slice('brand:'.length)
-    .trim();
-  if (taggedBrandId) return taggedBrandId;
-
-  const content = entry.content as Record<string, unknown> | undefined;
-  return typeof content?.brandId === 'string' && content.brandId.trim()
-    ? content.brandId.trim()
-    : undefined;
+  const taggedBrandIds = (entry.tags ?? [])
+    .filter((tag) => tag.startsWith('brand:'))
+    .map((tag) => tag.slice('brand:'.length).trim())
+    .filter(Boolean);
+  const brandIds = new Set([
+    typeof entry.brandId === 'string' && entry.brandId.trim() ? entry.brandId.trim() : undefined,
+    ...taggedBrandIds,
+    trustedLegacyPostMortemMetadata(entry)?.brandId,
+  ].filter((brandId): brandId is string => Boolean(brandId)));
+  return brandIds.size === 1 ? [...brandIds][0] : undefined;
 }
 
 // ==================== Hot Tier: Interaction Patterns ====================

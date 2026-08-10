@@ -303,6 +303,57 @@ describe('fetchContextSources scoped DataBank reads', () => {
     expect(mocks.resolveThinkForgeBrandAuthority).not.toHaveBeenCalled();
   });
 
+  it('allows only trusted legacy metadata into global writer context', async () => {
+    mocks.getDataBankEntriesByUser.mockResolvedValue([
+      entry({
+        _id: 'entry_raw_spoof',
+        title: 'Raw imported proof',
+        content: {
+          claim: 'Use proof in every post.',
+          source: 'unverified-import',
+          memoryScope: 'brand',
+          brandId: 'brand_1',
+        },
+      }),
+      entry({
+        _id: 'entry_post_mortem',
+        title: 'Verified post-mortem proof',
+        content: {
+          claim: 'Use proof in every post.',
+          source: 'post-mortem',
+          memoryScope: 'brand',
+          brandId: 'brand_1',
+        },
+      }),
+      entry({
+        _id: 'entry_quarantined',
+        title: 'Quarantined proof',
+        memoryScope: 'brand',
+        brandId: 'brand_1',
+        provenanceStatus: 'quarantined',
+        content: { claim: 'Use proof in every post.' },
+        tags: ['memory:brand', 'brand:brand_1'],
+      }),
+      entry({
+        _id: 'entry_conflicting_tags',
+        title: 'Conflicting proof',
+        memoryScope: 'brand',
+        brandId: 'brand_1',
+        content: { claim: 'Use proof in every post.' },
+        tags: ['memory:brand', 'memory:universal', 'brand:brand_1'],
+      }),
+    ]);
+
+    const ctx = await fetchContextSources({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      currentPrompt: 'show proof',
+      maxFacts: 10,
+    });
+
+    expect(ctx.globalFacts.map((fact) => fact.id)).toEqual(['entry_post_mortem']);
+  });
+
   it('formats selected-brand writers from the accepted rich profile, not legacy BrandDNA', async () => {
     const ctx = await fetchContextSources({
       userId: 'user_1',
