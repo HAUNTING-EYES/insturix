@@ -13,7 +13,7 @@ export const EDITRON_IF1_INTEGRATION_MANIFEST_V1: IntegrationManifestV1 = Object
     'tests/editron/if1-freeze-v1.test.ts',
     'docs/editron/if1-freeze-v1.md',
   ],
-  ownerBoundaryPorts: ['ProjectServiceIF1RevisionIssuerV1'],
+  runtimeAdapters: ['projectServiceIf1RevisionAdapterV1'],
   externalBoundary: 'ExternalReferenceV1',
   prohibitedRuntimeAuthorities: [
     'MutationGateV0',
