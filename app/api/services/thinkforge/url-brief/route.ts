@@ -5,6 +5,7 @@ import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
 import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
+import { assertSafeAssetUrl } from '@/lib/shared/safe-asset-url';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,11 +32,15 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Missing url' }, { status: 400 });
     }
 
-    // Basic URL validation
+    // Validate before charging or fetching. The extractor repeats this at every
+    // redirect because a public URL may redirect to a private address.
     try {
-        new URL(url);
-    } catch {
-        return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 });
+        await assertSafeAssetUrl(url);
+    } catch (error) {
+        return NextResponse.json({
+            error: 'Unsafe or invalid URL format',
+            details: error instanceof Error ? error.message : String(error),
+        }, { status: 400 });
     }
 
     // Ensure user exists and is migrated

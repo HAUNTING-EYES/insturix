@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
+import { assertSafeAssetUrl } from '@/lib/shared/safe-asset-url';
 
 // =============================================================================
 // SCHEMA DEFINITIONS
@@ -46,6 +47,64 @@ interface ExtractedContent {
     contentType: 'video' | 'article' | 'social_post' | 'podcast' | 'other';
     ogImage?: string;
     author?: string;
+}
+
+const FETCH_TIMEOUT_MS = 10_000;
+const MAX_REDIRECTS = 3;
+const MAX_HTML_BYTES = 2_000_000;
+
+async function fetchSafePage(rawUrl: string): Promise<Response> {
+    let currentUrl = new URL(rawUrl);
+    for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+        await assertSafeAssetUrl(currentUrl.toString());
+        const response = await fetch(currentUrl, {
+            redirect: 'manual',
+            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ThinkForge/1.0)' },
+        });
+        if (response.status < 300 || response.status >= 400) return response;
+
+        const location = response.headers.get('location');
+        if (!location || redirectCount === MAX_REDIRECTS) {
+            throw new Error('URL redirect limit reached or redirect target was unavailable');
+        }
+        currentUrl = new URL(location, currentUrl);
+    }
+    throw new Error('URL redirect limit reached');
+}
+
+async function readPageText(response: Response): Promise<string> {
+    const declaredLength = Number(response.headers.get('content-length') || '0');
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_HTML_BYTES) {
+        throw new Error(`URL response exceeds the ${MAX_HTML_BYTES} byte limit`);
+    }
+    if (!response.body) return '';
+
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            totalBytes += value.byteLength;
+            if (totalBytes > MAX_HTML_BYTES) {
+                await reader.cancel('response_too_large');
+                throw new Error(`URL response exceeds the ${MAX_HTML_BYTES} byte limit`);
+            }
+            chunks.push(value);
+        }
+    } finally {
+        reader.releaseLock();
+    }
+
+    const body = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+        body.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(body);
 }
 
 /** Detect the platform from a URL */
@@ -120,15 +179,12 @@ async function extractYouTubeContent(url: string): Promise<Partial<ExtractedCont
         }
 
         // Also fetch the page for description
-        const pageRes = await fetch(url, {
-            signal: AbortSignal.timeout(10000),
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ThinkForge/1.0)' },
-        });
+        const pageRes = await fetchSafePage(url);
 
         let description = '';
         let bodyText = '';
         if (pageRes.ok) {
-            const html = await pageRes.text();
+            const html = await readPageText(pageRes);
             description = extractMeta(html, 'og:description') || extractMeta(html, 'description');
             if (!title) title = extractTitle(html);
             // For YouTube, the description IS the main content
@@ -145,16 +201,13 @@ async function extractYouTubeContent(url: string): Promise<Partial<ExtractedCont
 /** Fetch and extract content from a generic URL */
 async function extractGenericContent(url: string): Promise<Partial<ExtractedContent>> {
     try {
-        const res = await fetch(url, {
-            signal: AbortSignal.timeout(10000),
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ThinkForge/1.0)' },
-        });
+        const res = await fetchSafePage(url);
 
         if (!res.ok) {
             throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         }
 
-        const html = await res.text();
+        const html = await readPageText(res);
         const title = extractTitle(html);
         const description = extractMeta(html, 'og:description') || extractMeta(html, 'description');
         const ogImage = extractMeta(html, 'og:image');
@@ -187,6 +240,7 @@ async function extractGenericContent(url: string): Promise<Partial<ExtractedCont
 
 /** Main extraction function */
 export async function extractUrlContent(url: string): Promise<ExtractedContent> {
+    await assertSafeAssetUrl(url);
     const { platform, contentType } = detectPlatform(url);
 
     let extracted: Partial<ExtractedContent> = {};
