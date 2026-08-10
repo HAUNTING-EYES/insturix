@@ -511,35 +511,22 @@ export async function executeDirectorPlan(
     warnings: [],
   };
   let fatalDirectorError: Error | null = null;
+  let directorLeaseId: string | null = null;
 
   try {
-    // E2 FIX: Lock project during Director execution.
-    // Prevents browser autosave from clobbering Director changes.
-    const { getDatabase } = await import('@/lib/editron/db/mongodb');
-    const lockDb = await getDatabase();
     const kineticSfxPolicy = effectiveProfile.transitionSFXPolicy ?? 'full';
-    await lockDb.collection('projects').updateOne(
-      { projectId },
+    const directorLease = await projectService.acquireDirectorMutationLease(
+      userId,
+      projectId,
       {
-        $set: {
-          directorLock: true,
-          directorLockAt: new Date(),
-          'intelligence.kineticSfxPolicy': {
-            version: 'kinetic-sfx-policy-v1',
-            policy: kineticSfxPolicy,
-            profileId: effectiveProfile.profileId,
-            source: 'director-effective-profile',
-            resolvedAt: new Date(),
-          },
-        },
+        kineticSfxPolicy,
+        profileId: effectiveProfile.profileId,
       },
     );
+    directorLeaseId = directorLease.leaseId;
 
     // ─── Step 1: Load project state ──────────────────────────
-    const project = await projectService.loadProject(userId, projectId);
-    if (!project) {
-      throw new Error(`Project ${projectId} not found`);
-    }
+    const { project, revision: directorStartRevision } = directorLease;
 
     const directorProjectRecord = project as any;
     const overlays = project.overlays || [];
@@ -2912,13 +2899,22 @@ export async function executeDirectorPlan(
     } catch (choreographyErr: unknown) {
       console.warn('[Director] non-fatal final overlay choreography audit:', choreographyErr instanceof Error ? choreographyErr.message : choreographyErr);
     }
-    await projectService.saveProject(userId, projectId, {
-      overlays: persistableOverlays,
-      aspectRatio: project.aspectRatio,
-      playerDimensions: project.playerDimensions,
-      fps: project.fps,
-      durationInFrames: project.durationInFrames,
-    });
+    await projectService.saveProjectWithReceipt(
+      userId,
+      projectId,
+      {
+        overlays: persistableOverlays,
+        aspectRatio: project.aspectRatio,
+        playerDimensions: project.playerDimensions,
+        fps: project.fps,
+        durationInFrames: project.durationInFrames,
+      },
+      {
+        expectedRevision: directorStartRevision,
+        directorLeaseId,
+      },
+    );
+    directorLeaseId = null;
     if (postBundleProfileActionPolicy) {
       await persistPostBundleProfileActionPolicy(projectId, postBundleProfileActionPolicy);
     }
@@ -3124,15 +3120,11 @@ export async function executeDirectorPlan(
     } catch (err: unknown) { console.warn('[Director] best-effort status transition failed:', err instanceof Error ? err.message : err); }
   }
 
-  // E2 FIX: Release project lock (always, even on error)
-  try {
-    const { getDatabase } = await import('@/lib/editron/db/mongodb');
-    const unlockDb = await getDatabase();
-    await unlockDb.collection('projects').updateOne(
-      { projectId },
-      { $unset: { directorLock: '', directorLockAt: '' } },
-    );
-  } catch (err: unknown) { console.warn('[Director] lock release failed:', err instanceof Error ? err.message : err); }
+  if (directorLeaseId) {
+    try {
+      await projectService.releaseDirectorMutationLease(userId, projectId, directorLeaseId);
+    } catch (err: unknown) { console.warn('[Director] lock release failed:', err instanceof Error ? err.message : err); }
+  }
 
   result.executionMs = Date.now() - startTime;
   const pwAll = pipelineWarnings.getAll();

@@ -9,6 +9,7 @@ import {
 const persistenceMocks = vi.hoisted(() => ({
   auth: vi.fn(),
   findOne: vi.fn(),
+  findOneAndUpdate: vi.fn(),
   updateOne: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
   getDatabase: vi.fn(async () => ({
     collection: vi.fn(() => ({
       findOne: persistenceMocks.findOne,
+      findOneAndUpdate: persistenceMocks.findOneAndUpdate,
       updateOne: persistenceMocks.updateOne,
     })),
   })),
@@ -45,6 +47,7 @@ describe("Editron project save payload compaction", () => {
   beforeEach(() => {
     persistenceMocks.auth.mockReset();
     persistenceMocks.findOne.mockReset();
+    persistenceMocks.findOneAndUpdate.mockReset();
     persistenceMocks.updateOne.mockReset();
   });
 
@@ -404,6 +407,149 @@ describe("Editron project save payload compaction", () => {
         }),
         $inc: { projectRevision: 1 },
       }),
+    );
+  });
+
+  it("acquires a Director lease with the paired snapshot revision and a writer receipt", async () => {
+    const acquiredAt = "2026-08-11T04:00:00.000Z";
+    persistenceMocks.findOneAndUpdate.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      name: "Director fixture",
+      overlays: [],
+      aspectRatio: "16:9",
+      playerDimensions: { width: 1920, height: 1080 },
+      fps: 30,
+      durationInFrames: 300,
+      visibility: "private",
+      createdAt: new Date(acquiredAt),
+      updatedAt: new Date(acquiredAt),
+      projectRevision: 8,
+      directorLock: true,
+      directorLockToken: "director_lease",
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const captured = await projectService.captureMutationReceipts(() =>
+      projectService.acquireDirectorMutationLease("user_1", "proj_1", {
+        kineticSfxPolicy: "full",
+        profileId: "G-01",
+      }),
+    );
+
+    expect(persistenceMocks.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "proj_1", userId: "user_1" }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          directorLock: true,
+          directorLockToken: expect.stringMatching(/^director_/),
+          "intelligence.kineticSfxPolicy": expect.objectContaining({
+            profileId: "G-01",
+            policy: "full",
+          }),
+        }),
+        $inc: { projectRevision: 1 },
+      }),
+      { returnDocument: "after", includeResultMetadata: false },
+    );
+    expect(captured.value.revision).toEqual(
+      expect.objectContaining({ value: 8 }),
+    );
+    expect(captured.receipts).toEqual([
+      expect.objectContaining({
+        projectId: "proj_1",
+        revision: captured.value.revision,
+      }),
+    ]);
+  });
+
+  it("requires the Director lease token when committing the paired snapshot", async () => {
+    const updatedAt = "2026-08-11T04:00:00.000Z";
+    const revision = {
+      schemaVersion: 1 as const,
+      value: 8,
+      compatibilityUpdatedAt: updatedAt,
+    };
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      overlays: [],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 8,
+      directorLock: true,
+      directorLockToken: "director_lease",
+    });
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await projectService.saveProjectWithReceipt(
+      "user_1",
+      "proj_1",
+      {
+        overlays: [],
+        aspectRatio: "16:9",
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 300,
+      },
+      { expectedRevision: revision, directorLeaseId: "director_lease" },
+    );
+
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "proj_1",
+        userId: "user_1",
+        projectRevision: 8,
+        updatedAt: new Date(updatedAt),
+        directorLockToken: "director_lease",
+      }),
+      expect.objectContaining({
+        $unset: {
+          directorLock: "",
+          directorLockAt: "",
+          directorLockToken: "",
+        },
+      }),
+    );
+  });
+
+  it("does not let an old Director cleanup release a newer lease", async () => {
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 0,
+      modifiedCount: 0,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(
+      projectService.releaseDirectorMutationLease(
+        "user_1",
+        "proj_1",
+        "expired_director_lease",
+      ),
+    ).resolves.toBe(false);
+
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      {
+        projectId: "proj_1",
+        userId: "user_1",
+        directorLockToken: "expired_director_lease",
+      },
+      {
+        $unset: {
+          directorLock: "",
+          directorLockAt: "",
+          directorLockToken: "",
+        },
+      },
     );
   });
 

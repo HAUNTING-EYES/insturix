@@ -76,7 +76,20 @@ export interface ProjectCheckpointRestoreReceiptV1 {
   project: Record<string, unknown>;
 }
 
+/**
+ * A short-lived coordination lease for one Director run. ProjectService owns
+ * the lease and the snapshot it returns; Director never obtains a separate
+ * project-write authority.
+ */
+export interface ProjectDirectorMutationLeaseV1 {
+  leaseId: string;
+  project: Project;
+  revision: ProjectRevisionV1;
+  acquiredAt: string;
+}
+
 const projectMutationReceiptStorage = new AsyncLocalStorage<ProjectMutationReceiptV1[]>();
+const DIRECTOR_LEASE_DURATION_MS = 5 * 60 * 1000;
 
 export class ProjectMutationConflictError extends Error {
   readonly code = "PROJECT_REVISION_CONFLICT";
@@ -150,6 +163,9 @@ export interface Project {
   brandId?: string;
   sourceSessionId?: string;
   lastError?: import("@/lib/shared/project-status").ProjectError;
+  directorLock?: boolean;
+  directorLockAt?: Date | string;
+  directorLockToken?: string;
 }
 
 export interface ProjectListItem {
@@ -413,6 +429,7 @@ export class ProjectService {
       expectedRevision?: ProjectRevisionV1;
       overlayAuthority?: OverlaySaveAuthority;
       projectUpdates?: Record<string, unknown>;
+      directorLeaseId?: string;
     } = {},
   ): Promise<ProjectMutationReceiptV1> {
     return this.persistEditorState({
@@ -422,6 +439,7 @@ export class ProjectService {
       expectedRevision: options.expectedRevision,
       overlayAuthority: options.overlayAuthority ?? "server",
       projectUpdates: options.projectUpdates,
+      directorLeaseId: options.directorLeaseId,
       mode: "manual",
     });
   }
@@ -580,6 +598,110 @@ export class ProjectService {
   }
 
   /**
+   * Acquires a token-bound Director lease while returning the exact project
+   * snapshot/revision that the Director must carry into its final save. The
+   * lease acquisition itself advances the project revision, so stale browser
+   * snapshots cannot silently apply around a Director run.
+   */
+  async acquireDirectorMutationLease(
+    userId: string,
+    projectId: string,
+    input: {
+      kineticSfxPolicy: string;
+      profileId: string;
+    },
+  ): Promise<ProjectDirectorMutationLeaseV1> {
+    const db = await getDatabase();
+    const acquiredAt = new Date();
+    const leaseId = `director_${nanoid(20)}`;
+    const staleBefore = new Date(
+      acquiredAt.getTime() - DIRECTOR_LEASE_DURATION_MS,
+    );
+    const leasedProject = (await db.collection(COLLECTIONS.PROJECTS).findOneAndUpdate(
+      {
+        projectId,
+        userId,
+        $or: [
+          { directorLock: { $ne: true } },
+          { directorLockAt: { $exists: false } },
+          { directorLockAt: null },
+          { directorLockAt: { $lt: staleBefore } },
+        ],
+      },
+      {
+        $set: {
+          directorLock: true,
+          directorLockAt: acquiredAt,
+          directorLockToken: leaseId,
+          "intelligence.kineticSfxPolicy": {
+            version: "kinetic-sfx-policy-v1",
+            policy: input.kineticSfxPolicy,
+            profileId: input.profileId,
+            source: "director-effective-profile",
+            resolvedAt: acquiredAt,
+          },
+          updatedAt: acquiredAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+      { returnDocument: "after", includeResultMetadata: false },
+    )) as Project | null;
+
+    if (!leasedProject) {
+      const current = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+        projectId,
+        userId,
+      })) as Project | null;
+      if (!current) throw new ProjectNotFoundOrForbiddenError();
+      throw new ProjectMutationConflictError(
+        projectRevisionFor(current),
+        "The project is already being edited by an active Director mutation.",
+      );
+    }
+
+    const revision = projectRevisionFor(leasedProject);
+    this.publishMutationReceipt({
+      schemaVersion: 1,
+      projectId,
+      revision,
+      committedAt: acquiredAt.toISOString(),
+    });
+
+    const project = structuredClone(leasedProject);
+    project.overlays = await assetResolver.resolveProjectAssets(project.overlays ?? []);
+    return {
+      leaseId,
+      project,
+      revision,
+      acquiredAt: acquiredAt.toISOString(),
+    };
+  }
+
+  /**
+   * Releases only the lease identified by its unguessable token. A successful
+   * Director save clears the lease atomically, so this is only the failure or
+   * cancellation cleanup path.
+   */
+  async releaseDirectorMutationLease(
+    userId: string,
+    projectId: string,
+    leaseId: string,
+  ): Promise<boolean> {
+    const db = await getDatabase();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { projectId, userId, directorLockToken: leaseId },
+      {
+        $unset: {
+          directorLock: "",
+          directorLockAt: "",
+          directorLockToken: "",
+        },
+      },
+    );
+    return result.modifiedCount === 1;
+  }
+
+  /**
    * Captures receipts emitted by ProjectService writers while one async
    * operation runs. The receipt is produced by the writer itself, so callers
    * do not need a post-write current-revision read to bind a rollback.
@@ -686,6 +808,7 @@ export class ProjectService {
     expectedRevision?: ProjectRevisionV1;
     overlayAuthority: OverlaySaveAuthority;
     projectUpdates?: Record<string, unknown>;
+    directorLeaseId?: string;
     mode: "manual" | "autosave";
   }): Promise<ProjectMutationReceiptV1> {
     const cleanOverlays = assetResolver.stripUrlsForLLM(input.state.overlays);
@@ -712,10 +835,7 @@ export class ProjectService {
       throw new ProjectMutationConflictError(currentRevision);
     }
 
-    const lock = currentProject as Project & {
-      directorLock?: boolean;
-      directorLockAt?: Date | string;
-    };
+    const lock = currentProject;
     const directorLockStartedAt = lock.directorLockAt
       ? new Date(lock.directorLockAt)
       : null;
@@ -763,8 +883,19 @@ export class ProjectService {
       },
       $inc: { projectRevision: 1 },
     };
+    const unsetFields: Record<string, ""> = {};
     if (input.mode === "autosave" && lock.directorLock === true) {
-      update.$unset = { directorLock: "", directorLockAt: "" };
+      unsetFields.directorLock = "";
+      unsetFields.directorLockAt = "";
+      unsetFields.directorLockToken = "";
+    }
+    if (input.directorLeaseId) {
+      unsetFields.directorLock = "";
+      unsetFields.directorLockAt = "";
+      unsetFields.directorLockToken = "";
+    }
+    if (Object.keys(unsetFields).length > 0) {
+      update.$unset = unsetFields;
     }
 
     const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
@@ -772,6 +903,9 @@ export class ProjectService {
         projectId: input.projectId,
         userId: input.userId,
         ...projectRevisionPredicate(expectedRevision),
+        ...(input.directorLeaseId
+          ? { directorLockToken: input.directorLeaseId }
+          : {}),
       },
       update,
     );
