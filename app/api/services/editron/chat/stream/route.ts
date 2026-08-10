@@ -3,7 +3,10 @@ import { auth } from '@clerk/nextjs/server';
 import { createAgent } from '@/lib/editron/agent/agent-graph';
 import { HumanMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
 import { chatService } from '@/lib/editron/services/chat-service';
-import { projectService } from '@/lib/editron/services/project-service';
+import {
+  projectService,
+  type ProjectMutationReceiptV1,
+} from '@/lib/editron/services/project-service';
 import { generateProjectSummary, formatSummaryForPrompt } from '@/lib/editron/utils/project-summary';
 import { buildChatEditContextBundle, formatChatEditContextForPrompt } from '@/lib/editron/agent/chat-edit-context';
 import {
@@ -64,6 +67,16 @@ export const maxDuration = 300; // Agent execution: apply_editorial_intent runs 
 // NEW: read from _summaryCache[cacheKey] when project hasn't changed
 const _summaryCache = new Map<string, string>();
 const SUMMARY_CACHE_MAX_SIZE = 50; // cap to avoid unbounded memory growth
+
+function latestWriterReceiptForProject(
+  receipts: readonly ProjectMutationReceiptV1[],
+  projectId: string,
+): ProjectMutationReceiptV1 | undefined {
+  for (let index = receipts.length - 1; index >= 0; index -= 1) {
+    if (receipts[index].projectId === projectId) return receipts[index];
+  }
+  return undefined;
+}
 
 function getCachedProjectContext(project: any): string {
   const cacheKey = `${project.projectId ?? project.id}:${project.updatedAt ?? ''}`;
@@ -460,6 +473,7 @@ export async function POST(req: NextRequest) {
     (async () => {
       let transactionSettled = false;
       let mutatingToolStarted = false;
+      let writerIssuedReceipt: ProjectMutationReceiptV1 | undefined;
       try {
         const inputs = {
           messages: [
@@ -482,20 +496,26 @@ export async function POST(req: NextRequest) {
           }
         };
 
-        const result = await agent.invoke(inputs, {
-          recursionLimit: 50, // Allow up to 50 tool calls per request
-          configurable: {
-            projectId,
-            projectFps: project.fps,
-            streamCallback,
-            tokenTracker,
-            chatFrameEvidence: visualEvidence,
-            // Structured Auto-Director confirmation (Director Mode). The tool ORs
-            // this into its wire input so a button-driven confirm executes without
-            // parsing "yes" from free text.
-            autoDirectorConfirmed,
-          }
-        });
+        const capturedAgentInvocation = await projectService.captureMutationReceipts(
+          () => agent.invoke(inputs, {
+            recursionLimit: 50, // Allow up to 50 tool calls per request
+            configurable: {
+              projectId,
+              projectFps: project.fps,
+              streamCallback,
+              tokenTracker,
+              chatFrameEvidence: visualEvidence,
+              // Structured Auto-Director confirmation (Director Mode). The tool ORs
+              // this into its wire input so a button-driven confirm executes without
+              // parsing "yes" from free text.
+              autoDirectorConfirmed,
+            }
+          }),
+          (receipts) => {
+            writerIssuedReceipt = latestWriterReceiptForProject(receipts, projectId);
+          },
+        );
+        const result = capturedAgentInvocation.value;
 
         // Extract tool calls and content from the result for saving to DB
         const messages = result.messages || [];
@@ -556,6 +576,7 @@ export async function POST(req: NextRequest) {
           transaction: editTransaction,
           toolCalls,
           toolResults,
+          writerIssuedReceipt,
         });
         transactionSettled = true;
         if (editTransactionSummary.status === 'failed') {
@@ -671,6 +692,7 @@ export async function POST(req: NextRequest) {
             const rollback = await rollbackChatAiEditTransaction({
               transaction: editTransaction,
               reason: errorMessage,
+              writerIssuedReceipt,
             });
             transactionSettled = true;
             if (rollback.status === 'failed') {

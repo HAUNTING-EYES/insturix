@@ -562,19 +562,28 @@ export class ProjectService {
    */
   async captureMutationReceipts<T>(
     callback: () => Promise<T> | T,
+    onSettled?: (receipts: readonly ProjectMutationReceiptV1[]) => void,
   ): Promise<CapturedProjectMutationReceiptsV1<T>> {
     const activeReceipts = projectMutationReceiptStorage.getStore();
     if (activeReceipts) {
       const receiptOffset = activeReceipts.length;
-      const value = await callback();
-      return { value, receipts: activeReceipts.slice(receiptOffset) };
+      try {
+        const value = await callback();
+        return { value, receipts: activeReceipts.slice(receiptOffset) };
+      } finally {
+        onSettled?.(activeReceipts.slice(receiptOffset).map((receipt) => structuredClone(receipt)));
+      }
     }
 
     return projectMutationReceiptStorage.run([], async () => {
       const receipts = projectMutationReceiptStorage.getStore();
       if (!receipts) throw new ProjectMutationWriteError();
-      const value = await callback();
-      return { value, receipts: [...receipts] };
+      try {
+        const value = await callback();
+        return { value, receipts: [...receipts] };
+      } finally {
+        onSettled?.(receipts.map((receipt) => structuredClone(receipt)));
+      }
     });
   }
 

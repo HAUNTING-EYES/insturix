@@ -392,6 +392,52 @@ describe("Editron project save payload compaction", () => {
     expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
   });
 
+  it("retains writer-issued receipts for rollback when the surrounding operation throws", async () => {
+    const updatedAt = "2026-08-11T01:00:00.000Z";
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectId: "proj_1",
+      userId: "user_1",
+      overlays: [],
+      updatedAt: new Date(updatedAt),
+      projectRevision: 7,
+    });
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+    let observedReceipts: readonly unknown[] = [];
+
+    await expect(projectService.captureMutationReceipts(async () => {
+      await projectService.saveProjectWithReceipt("user_1", "proj_1", {
+        overlays: [],
+        aspectRatio: "16:9",
+        playerDimensions: { width: 1920, height: 1080 },
+        fps: 30,
+        durationInFrames: 0,
+      }, {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+      });
+      throw new Error("agent failed after the write");
+    }, (receipts) => {
+      observedReceipts = receipts;
+    })).rejects.toThrow("agent failed after the write");
+
+    expect(observedReceipts).toMatchObject([{
+      schemaVersion: 1,
+      projectId: "proj_1",
+      revision: { schemaVersion: 1, value: 8 },
+    }]);
+    expect(persistenceMocks.findOne).toHaveBeenCalledTimes(1);
+    expect(persistenceMocks.updateOne).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a cross-user autosave without issuing a write", async () => {
     persistenceMocks.findOne.mockResolvedValueOnce(null);
     const { ProjectNotFoundOrForbiddenError, projectService } = await import(

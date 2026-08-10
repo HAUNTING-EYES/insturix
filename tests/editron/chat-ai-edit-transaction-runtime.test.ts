@@ -1489,6 +1489,9 @@ describe('chat AI edit transaction runtime', () => {
     ), 'utf8');
 
     expect(route.indexOf('prepareChatAiEditTransaction({')).toBeLessThan(route.indexOf('agent.invoke(inputs'));
+    expect(route.indexOf('projectService.captureMutationReceipts(')).toBeLessThan(route.indexOf('agent.invoke(inputs'));
+    expect(route).toContain('latestWriterReceiptForProject(receipts, projectId)');
+    expect(route.match(/writerIssuedReceipt,/g)).toHaveLength(2);
     expect(route).toContain("code: 'CHAT_EDIT_OPERATION_REPLAY'");
     expect(route).toContain('rollbackChatAiEditTransaction({');
     expect(panel).toContain('const operationId = crypto.randomUUID();');
