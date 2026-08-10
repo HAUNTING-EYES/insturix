@@ -570,6 +570,121 @@ describe('durable chat dubbing job', () => {
     expect(checkpoint.checkpointService.getRollbackReceipt).not.toHaveBeenCalled();
   });
 
+  it('captures the writer receipt when the provider throws after its project write', async () => {
+    const store = new MemoryStore();
+    const { jobId } = await resolved(store);
+    const job = store.jobs.get(jobId)!;
+    Object.assign(job, { status: 'queued', progress: { stage: 'commit', generatedAssetIds: [] } });
+    const checkpoint = createCheckpointHarness(job);
+    const writerIssuedReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId: 'proj-1',
+      revision: {
+        schemaVersion: 1,
+        value: 3,
+        compatibilityUpdatedAt: '2026-07-23T00:00:02.000Z',
+      },
+      committedAt: '2026-07-23T00:00:02.000Z',
+    };
+
+    const result = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
+      store,
+      loadProject: vi.fn(async () => project),
+      buildProjectRevision: vi.fn(() => 'revision-1'),
+      buildCheckpointId,
+      now: () => now,
+      publish: vi.fn(async () => ({ messageId: 'unused' })),
+      execute: vi.fn(async () => {
+        throw new Error('provider crashed after its project write');
+      }),
+      captureMutationReceipts: async <T,>(
+        callback: () => Promise<T> | T,
+        onSettled?: (receipts: readonly ProjectMutationReceiptV1[]) => void,
+      ) => {
+        const receipts = [writerIssuedReceipt];
+        try {
+          return { value: await callback(), receipts };
+        } finally {
+          onSettled?.(receipts);
+        }
+      },
+      cleanup: vi.fn(),
+      ...checkpoint,
+    });
+
+    expect(result).toMatchObject({ status: 'failed' });
+    expect(checkpoint.checkpointService.recordRollbackExpectedRevision).toHaveBeenCalledWith(
+      job.beforeCheckpointId,
+      'user-1',
+      'proj-1',
+      `chat-dubbing:${job._id}:run:1`,
+      writerIssuedReceipt,
+    );
+    expect(checkpoint.checkpointService.restoreProjectCheckpoint).toHaveBeenCalledWith(
+      job.beforeCheckpointId,
+      'user-1',
+      { projectId: 'proj-1', expectedRevision: writerIssuedReceipt.revision },
+    );
+  });
+
+  it('rejects a provider receipt that disagrees with the writer-issued receipt', async () => {
+    const store = new MemoryStore();
+    const { jobId } = await resolved(store);
+    const job = store.jobs.get(jobId)!;
+    Object.assign(job, { status: 'queued', progress: { stage: 'commit', generatedAssetIds: [] } });
+    const checkpoint = createCheckpointHarness(job);
+    const writerIssuedReceipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId: 'proj-1',
+      revision: {
+        schemaVersion: 1,
+        value: 3,
+        compatibilityUpdatedAt: '2026-07-23T00:00:02.000Z',
+      },
+      committedAt: '2026-07-23T00:00:02.000Z',
+    };
+    const conflictingReceipt: ProjectMutationReceiptV1 = {
+      ...writerIssuedReceipt,
+      revision: { ...writerIssuedReceipt.revision, value: 4 },
+    };
+
+    const result = await runChatDubbingJob({ jobId, projectId: 'proj-1', userId: 'user-1' }, {
+      store,
+      loadProject: vi.fn(async () => project),
+      buildProjectRevision: vi.fn(() => 'revision-1'),
+      buildCheckpointId,
+      now: () => now,
+      publish: vi.fn(async () => ({ messageId: 'unused' })),
+      execute: vi.fn(async () => ({
+        status: 'completed' as const,
+        result: { committed: true, projectMutationReceipt: conflictingReceipt },
+      })),
+      captureMutationReceipts: async <T,>(
+        callback: () => Promise<T> | T,
+        onSettled?: (receipts: readonly ProjectMutationReceiptV1[]) => void,
+      ) => {
+        const value = await callback();
+        const receipts = [writerIssuedReceipt];
+        onSettled?.(receipts);
+        return { value, receipts };
+      },
+      cleanup: vi.fn(),
+      ...checkpoint,
+    });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      reason: expect.stringContaining('dubbing-writer-receipt-mismatch'),
+    });
+    expect(checkpoint.checkpointService.recordRollbackExpectedRevision).toHaveBeenCalledWith(
+      job.beforeCheckpointId,
+      'user-1',
+      'proj-1',
+      `chat-dubbing:${job._id}:run:1`,
+      writerIssuedReceipt,
+    );
+  });
+
   it('keeps a valid mutation completed but explicitly unverified when render dispatch fails', async () => {
     const store = new MemoryStore();
     const { jobId } = await resolved(store, { operationId: 'operation-dispatch-failure' });

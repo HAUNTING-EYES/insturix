@@ -242,8 +242,14 @@ interface QueueDependencies extends SharedDependencies {
   publish(payload: { jobId: string; projectId: string; userId: string }): Promise<{ messageId?: string }>;
 }
 
+type ProjectMutationReceiptCapture = <T>(
+  callback: () => Promise<T> | T,
+  onSettled?: (receipts: readonly ProjectMutationReceiptV1[]) => void,
+) => Promise<{ value: T; receipts: ProjectMutationReceiptV1[] }>;
+
 interface RunDependencies extends QueueDependencies {
   execute(job: ChatDubbingJob): Promise<ChatDubbingStepResult>;
+  captureMutationReceipts: ProjectMutationReceiptCapture;
   cleanup(job: ChatDubbingJob): Promise<void>;
   checkpointService: Pick<
     CheckpointService,
@@ -425,11 +431,18 @@ export async function runChatDubbingJob(
 
   let cleanupJob = job;
   let beforeCheckpoint: Checkpoint | null = null;
+  let writerIssuedReceipt: ProjectMutationReceiptV1 | undefined;
   try {
     beforeCheckpoint = job.version === CHAT_DUBBING_JOB_VERSION && job.progress.stage === 'commit'
       ? await requireDubbingBeforeCheckpoint(job, deps)
       : null;
-    const step = await deps.execute(job);
+    const capturedStep = await deps.captureMutationReceipts(
+      () => deps.execute(job),
+      (receipts) => {
+        writerIssuedReceipt = latestWriterReceiptForProject(receipts, job.projectId);
+      },
+    );
+    const step = capturedStep.value;
     if (step.status === 'completed') {
       if (job.version === CHAT_DUBBING_JOB_VERSION && job.progress.stage !== 'commit') {
         throw new TerminalDubbingError(
@@ -441,7 +454,10 @@ export async function runChatDubbingJob(
         job,
         result: step.result,
         beforeCheckpoint,
-        writerIssuedReceipt: writerIssuedReceiptFromDubbingResult(step.result, job.projectId),
+        writerIssuedReceipt: reconcileDubbingWriterReceipt(
+          writerIssuedReceipt,
+          writerIssuedReceiptFromDubbingResult(step.result, job.projectId),
+        ),
         deps,
       });
       return { status: 'completed', jobId: job._id, result: completed };
@@ -463,12 +479,20 @@ export async function runChatDubbingJob(
     ) {
       const operationId = requiredCurrentJobField(job.operationId, 'operationId');
       try {
-        const receipt = await deps.checkpointService.getRollbackReceipt(
-          beforeCheckpoint.checkpointId,
-          job.userId,
-          job.projectId,
-          dubbingRollbackReceiptId(job),
-        );
+        const receipt = writerIssuedReceipt
+          ? await deps.checkpointService.recordRollbackExpectedRevision(
+              beforeCheckpoint.checkpointId,
+              job.userId,
+              job.projectId,
+              dubbingRollbackReceiptId(job),
+              writerIssuedReceipt,
+            )
+          : await deps.checkpointService.getRollbackReceipt(
+              beforeCheckpoint.checkpointId,
+              job.userId,
+              job.projectId,
+              dubbingRollbackReceiptId(job),
+            );
         const expectedRevision = receipt?.expectedRevision ?? beforeCheckpoint.capturedProjectRevision;
         const restored = expectedRevision
           ? await deps.checkpointService.restoreProjectCheckpoint(beforeCheckpoint.checkpointId, job.userId, {
@@ -882,9 +906,14 @@ async function resolveRunDependencies(overrides: Partial<RunDependencies>): Prom
   const postconditionModule = !overrides.verifyPostcondition
     ? await import('@/lib/editron/agent/chat-edit-postconditions')
     : null;
+  const captureMutationReceipts = overrides.captureMutationReceipts
+    ?? (overrides.execute
+      ? captureInjectedDubbingExecutionWithoutWriterReceipts
+      : await resolveProjectMutationReceiptCapture());
   return {
     ...queue,
     execute: overrides.execute ?? provider!.executeChatDubbingStep,
+    captureMutationReceipts,
     cleanup: overrides.cleanup ?? provider!.cleanupChatDubbingAssets,
     checkpointService: overrides.checkpointService ?? checkpointModule!.checkpointService,
     captureProjectState: overrides.captureProjectState ?? checkpointModule!.captureRestorableProjectState,
@@ -897,6 +926,17 @@ async function resolveRunDependencies(overrides: Partial<RunDependencies>): Prom
     verifyPostcondition:
       overrides.verifyPostcondition ?? postconditionModule!.verifyChatToolPostcondition,
   };
+}
+
+async function resolveProjectMutationReceiptCapture(): Promise<ProjectMutationReceiptCapture> {
+  const { projectService } = await import('@/lib/editron/services/project-service');
+  return projectService.captureMutationReceipts.bind(projectService);
+}
+
+async function captureInjectedDubbingExecutionWithoutWriterReceipts<T>(
+  callback: () => Promise<T> | T,
+): Promise<{ value: T; receipts: ProjectMutationReceiptV1[] }> {
+  return { value: await callback(), receipts: [] };
 }
 
 async function publishChatDubbingJob(payload: { jobId: string; projectId: string; userId: string }) {
@@ -1003,6 +1043,35 @@ function writerIssuedReceiptFromDubbingResult(
     return undefined;
   }
   return candidate as ProjectMutationReceiptV1;
+}
+
+function latestWriterReceiptForProject(
+  receipts: readonly ProjectMutationReceiptV1[],
+  projectId: string,
+): ProjectMutationReceiptV1 | undefined {
+  for (let index = receipts.length - 1; index >= 0; index -= 1) {
+    const receipt = receipts[index];
+    if (receipt?.projectId === projectId) return receipt;
+  }
+  return undefined;
+}
+
+function reconcileDubbingWriterReceipt(
+  capturedReceipt: ProjectMutationReceiptV1 | undefined,
+  returnedReceipt: ProjectMutationReceiptV1 | undefined,
+): ProjectMutationReceiptV1 | undefined {
+  if (capturedReceipt && returnedReceipt && (
+    capturedReceipt.projectId !== returnedReceipt.projectId
+    || capturedReceipt.revision.value !== returnedReceipt.revision.value
+    || capturedReceipt.revision.compatibilityUpdatedAt !== returnedReceipt.revision.compatibilityUpdatedAt
+    || capturedReceipt.committedAt !== returnedReceipt.committedAt
+  )) {
+    throw new TerminalDubbingError(
+      'dubbing-writer-receipt-mismatch',
+      'The provider receipt does not match the ProjectService-issued mutation receipt.',
+    );
+  }
+  return capturedReceipt ?? returnedReceipt;
 }
 
 function dubbingRollbackReceiptId(job: ChatDubbingJob): string {
