@@ -612,7 +612,12 @@ async function completeDubbingMutation(input: {
     );
   }
 
-  const afterCheckpoint = await createDubbingAfterCheckpoint(job, afterProject, deps);
+  const afterCheckpoint = await createDubbingAfterCheckpoint(
+    job,
+    afterProject,
+    writerIssuedReceipt,
+    deps,
+  );
   const operationId = requiredCurrentJobField(job.operationId, 'operationId');
   const sessionId = requiredCurrentJobField(job.sessionId, 'sessionId');
   const beforeCheckpointId = requiredCurrentJobField(job.beforeCheckpointId, 'beforeCheckpointId');
@@ -641,6 +646,7 @@ async function completeDubbingMutation(input: {
     const renderRequest = deps.buildRenderVerificationRequest({
       transaction,
       afterCheckpointId: afterCheckpoint.checkpointId,
+      subjectReceipt: writerIssuedReceipt,
       project: afterProject,
       successfulCalls: [{
         call: {
@@ -711,6 +717,7 @@ async function requireDubbingBeforeCheckpoint(
 async function createDubbingAfterCheckpoint(
   job: ChatDubbingJob,
   afterProject: ProjectLike,
+  writerIssuedReceipt: ProjectMutationReceiptV1,
   deps: RunDependencies,
 ): Promise<Checkpoint> {
   const operationId = requiredCurrentJobField(job.operationId, 'operationId');
@@ -751,6 +758,7 @@ async function createDubbingAfterCheckpoint(
     projectState,
     description: `After durable selected-dialogue dubbing ${operationId}`,
     type: 'after-llm',
+    capturedWriterReceipt: writerIssuedReceipt,
     force: true,
   });
   if (!created) {

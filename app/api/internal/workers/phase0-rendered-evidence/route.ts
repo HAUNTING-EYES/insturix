@@ -352,6 +352,7 @@ async function handleChatEditRenderVerification(input: {
         subjectReceipt: runningRecord.subjectReceipt,
         record: runningRecord,
         expectedLifecycleStates: ['requested', 'dispatched', 'delivered'],
+        allowReplacePriorSubject: true,
       });
     } catch (error: unknown) {
       if (!(error instanceof ProjectMutationConflictError)) throw error;

@@ -440,6 +440,7 @@ export async function runChatReferenceStyleJob(
       projectState: deps.captureProjectState(afterProject),
       description: `After durable reference-style application ${job.operationId}`,
       type: 'after-llm',
+      capturedWriterReceipt: writerIssuedReceipt,
       force: true,
     });
     if (!afterCheckpoint) throw new Error('reference-style-after-checkpoint-not-created');
@@ -465,6 +466,7 @@ export async function runChatReferenceStyleJob(
     const renderRequest = deps.buildRenderVerificationRequest({
       transaction,
       afterCheckpointId: afterCheckpoint.checkpointId,
+      subjectReceipt: writerIssuedReceipt,
       project: afterProject,
       successfulCalls: [{
         call: { name: 'apply_style', args: { profileId, strength: job.strength } },

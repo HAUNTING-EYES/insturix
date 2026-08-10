@@ -161,6 +161,10 @@ describe('durable chat reference-style jobs', () => {
     expect(attemptOperationId).toMatch(/^style_[a-f0-9]{32}$/);
     expect(store.jobs.get('job-style-1')?.renderOperationId).toBe(attemptOperationId);
     expect(checkpoint.createCheckpoint.mock.calls[0]?.[0].operationId).toBe(attemptOperationId);
+    const afterCheckpointInput = checkpoint.createCheckpoint.mock.calls[0]?.[0];
+    expect(afterCheckpointInput).toEqual(expect.objectContaining({
+      capturedWriterReceipt: writerIssuedReceipt,
+    }));
     expect(checkpoint.recordRollbackExpectedRevision).toHaveBeenCalledWith(
       expect.any(String),
       'user-1',
@@ -173,6 +177,7 @@ describe('durable chat reference-style jobs', () => {
       userId: 'user-1',
       chatEditVerification: expect.objectContaining({
         operationId: attemptOperationId,
+        subjectReceipt: writerIssuedReceipt,
         modalities: ['visual'],
         targets: [expect.objectContaining({ overlayId: 'title-1', state: 'updated' })],
       }),
@@ -1039,12 +1044,14 @@ function installCheckpointSpies(order: string[]) {
       buildRenderVerificationRequest: (input: {
         transaction: { operationId: string; sessionId: string; beforeCheckpointId: string };
         afterCheckpointId: string;
+        subjectReceipt?: ProjectMutationReceiptV1;
       }) => ({
         version: 'editron-chat-render-verification-v1' as const,
         operationId: input.transaction.operationId,
         sessionId: input.transaction.sessionId,
         beforeCheckpointId: input.transaction.beforeCheckpointId,
         afterCheckpointId: input.afterCheckpointId,
+        subjectReceipt: input.subjectReceipt,
         requestedAt: NOW.toISOString(),
         modalities: ['visual' as const],
         targets: [{

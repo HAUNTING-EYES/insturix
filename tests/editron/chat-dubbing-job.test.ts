@@ -246,12 +246,14 @@ function createCheckpointHarness(job: ChatDubbingJob, beforeProject = project) {
     buildRenderVerificationRequest: vi.fn((input: {
       transaction: ChatAiEditTransaction;
       afterCheckpointId: string;
+      subjectReceipt?: ProjectMutationReceiptV1;
     }): ChatEditRenderVerificationRequest => ({
       version: 'editron-chat-render-verification-v1',
       operationId: input.transaction.operationId,
       sessionId: input.transaction.sessionId,
       beforeCheckpointId: input.transaction.beforeCheckpointId,
       afterCheckpointId: input.afterCheckpointId,
+      subjectReceipt: input.subjectReceipt,
       requestedAt: now.toISOString(),
       modalities: ['audio'],
       expectedEffect: 'mutation-delta',
@@ -498,6 +500,7 @@ describe('durable chat dubbing job', () => {
       chatEditVerification: expect.objectContaining({
         operationId: 'operation-1',
         sessionId: 'session-1',
+        subjectReceipt: WRITER_ISSUED_RECEIPT,
         modalities: ['audio'],
         beforeCheckpointId: job.beforeCheckpointId,
         afterCheckpointId: stored?.afterCheckpointId,
@@ -508,6 +511,12 @@ describe('durable chat dubbing job', () => {
       mutatingToolNames: ['dub_selected_dialogue'],
       afterCheckpointId: stored?.afterCheckpointId,
     });
+    const afterCheckpointInput = checkpoint.checkpointService.createCheckpoint.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.type === 'after-llm');
+    expect(afterCheckpointInput).toEqual(expect.objectContaining({
+      capturedWriterReceipt: WRITER_ISSUED_RECEIPT,
+    }));
   });
 
   it('blocks provider commit when the originating chat checkpoint is missing', async () => {
