@@ -3,48 +3,109 @@
  * Autosave project (background save)
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { projectService } from '@/lib/editron/services/project-service';
-import { auth } from '@clerk/nextjs/server';
+import { NextRequest, NextResponse } from "next/server";
+import {
+  ProjectMutationConflictError,
+  ProjectMutationWriteError,
+  ProjectNotFoundOrForbiddenError,
+  projectService,
+} from "@/lib/editron/services/project-service";
+import { auth } from "@clerk/nextjs/server";
+import { z } from "zod";
 
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
+
+const AutosaveProjectSchema = z
+  .object({
+    expectedRevision: z
+      .object({
+        schemaVersion: z.literal(1),
+        value: z.number().int().nonnegative(),
+        compatibilityUpdatedAt: z.string().datetime(),
+      })
+      .strict(),
+    overlays: z.array(z.any()),
+    aspectRatio: z.string(),
+    playerDimensions: z.object({
+      width: z.number().positive(),
+      height: z.number().positive(),
+    }),
+    fps: z.number().positive().optional(),
+    durationInFrames: z.number().nonnegative().optional(),
+  })
+  .strict();
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ projectId: string }> }
+  { params }: { params: Promise<{ projectId: string }> },
 ) {
   try {
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
+        { success: false, error: "Unauthorized" },
+        { status: 401 },
       );
     }
     const { projectId } = await params;
-    
-    // Check if body exists
-    const text = await request.text();
-    if (!text) {
+
+    const validation = AutosaveProjectSchema.safeParse(await request.json());
+    if (!validation.success) {
       return NextResponse.json(
-        { success: false, error: 'Empty request body' },
-        { status: 400 }
+        {
+          success: false,
+          error: "Invalid autosave data",
+          details: validation.error.issues,
+        },
+        { status: 400 },
       );
     }
-    
-    const state = JSON.parse(text);
+    const { expectedRevision, ...state } = validation.data;
 
-    await projectService.autosaveProject(userId, projectId, state);
+    const receipt = await projectService.autosaveProject(
+      userId,
+      projectId,
+      state as Parameters<typeof projectService.autosaveProject>[2],
+      { expectedRevision },
+    );
 
     return NextResponse.json({
       success: true,
-      autosavedAt: new Date().toISOString(),
+      autosavedAt: receipt.committedAt,
+      revision: receipt.revision,
     });
-  } catch (error: any) {
-    console.error('Error autosaving project:', error);
+  } catch (error: unknown) {
+    if (error instanceof ProjectMutationConflictError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: error.code,
+            message: error.message,
+            currentRevision: error.currentRevision,
+          },
+        },
+        { status: 409 },
+      );
+    }
+    if (error instanceof ProjectNotFoundOrForbiddenError) {
+      return NextResponse.json(
+        { success: false, error: { code: error.code, message: error.message } },
+        { status: 404 },
+      );
+    }
+    if (error instanceof ProjectMutationWriteError) {
+      return NextResponse.json(
+        { success: false, error: { code: error.code, message: error.message } },
+        { status: 500 },
+      );
+    }
+    const message =
+      error instanceof Error ? error.message : "Failed to autosave project";
+    console.error("Error autosaving project:", error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to autosave project' },
-      { status: 500 }
+      { success: false, error: message },
+      { status: 500 },
     );
   }
 }

@@ -3,121 +3,160 @@
  * Manual save project
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { projectService } from '@/lib/editron/services/project-service';
+import { NextRequest, NextResponse } from "next/server";
+import {
+  ProjectMutationConflictError,
+  ProjectMutationWriteError,
+  ProjectNotFoundOrForbiddenError,
+  projectService,
+} from "@/lib/editron/services/project-service";
 import {
   createEditronUserOverrideLearningEvent,
   type EditronUserOverrideKind,
-} from '@/lib/editron/services/editron-brand-learning-events';
-import { auth } from '@clerk/nextjs/server';
-import { z } from 'zod';
+} from "@/lib/editron/services/editron-brand-learning-events";
+import { auth } from "@clerk/nextjs/server";
+import { z } from "zod";
 
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
 // Input validation schema
-const SaveProjectSchema = z.object({
-  overlays: z.array(z.any()),
-  aspectRatio: z.string(),
-  playerDimensions: z.object({
-    width: z.number().positive(),
-    height: z.number().positive()
-  }),
-  fps: z.number().positive().optional(),
-  durationInFrames: z.number().nonnegative().optional()
-});
+const SaveProjectSchema = z
+  .object({
+    expectedRevision: z
+      .object({
+        schemaVersion: z.literal(1),
+        value: z.number().int().nonnegative(),
+        compatibilityUpdatedAt: z.string().datetime(),
+      })
+      .strict(),
+    overlays: z.array(z.any()),
+    aspectRatio: z.string(),
+    playerDimensions: z.object({
+      width: z.number().positive(),
+      height: z.number().positive(),
+    }),
+    fps: z.number().positive().optional(),
+    durationInFrames: z.number().nonnegative().optional(),
+  })
+  .strict();
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ projectId: string }> }
+  { params }: { params: Promise<{ projectId: string }> },
 ) {
   try {
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
+        { success: false, error: "Unauthorized" },
+        { status: 401 },
       );
     }
     const { projectId } = await params;
 
     // Validate projectId format
-    if (!projectId || projectId.trim() === '') {
+    if (!projectId || projectId.trim() === "") {
       return NextResponse.json(
-        { success: false, error: 'Invalid project ID' },
-        { status: 400 }
+        { success: false, error: "Invalid project ID" },
+        { status: 400 },
       );
     }
 
     const body = await request.json();
-    
+
     // Validate input
     const validationResult = SaveProjectSchema.safeParse(body);
     if (!validationResult.success) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Invalid project data', 
-          details: validationResult.error.issues
+        {
+          success: false,
+          error: "Invalid project data",
+          details: validationResult.error.issues,
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const state = validationResult.data;
+    const { expectedRevision, ...state } = validationResult.data;
 
     // ─── Overlay diff: detect added/removed assets + overrides ─────
     // Load previous state BEFORE save so we can diff
-    let graphDispatchPromise: Promise<void> | null = null;
+    let previousOverlays: OverlayLike[] | null = null;
     try {
       const prev = await projectService.loadProject(userId, projectId);
       if (prev?.overlays) {
         // Safe upcast: Overlay[] → OverlayLike[] (OverlayLike is a subset of Overlay's shape)
-        graphDispatchPromise = dispatchOverlayDiff(
-          userId, projectId, prev.overlays as OverlayLike[], state.overlays as OverlayLike[],
-        );
+        previousOverlays = prev.overlays as OverlayLike[];
       }
     } catch (diffLoadErr: unknown) {
       // Save MUST proceed even if diff loading fails, but make the failure visible.
-      const msg = diffLoadErr instanceof Error ? diffLoadErr.message : String(diffLoadErr);
-      console.warn(`[Save] Overlay diff pre-load failed: ${msg}. Save proceeds without graph diff.`);
+      const msg =
+        diffLoadErr instanceof Error
+          ? diffLoadErr.message
+          : String(diffLoadErr);
+      console.warn(
+        `[Save] Overlay diff pre-load failed: ${msg}. Save proceeds without graph diff.`,
+      );
     }
 
     // Zod's z.any() overlays can't express the full EditorState type.
     // This is the one legitimate cast — the Zod schema validates structure,
-    // but saveProject expects the full EditorState interface.
-    await projectService.saveProject(
+    // but saveProjectWithReceipt expects the full EditorState interface.
+    const receipt = await projectService.saveProjectWithReceipt(
       userId,
       projectId,
-      state as Parameters<typeof projectService.saveProject>[2],
-      { overlayAuthority: 'client' },
+      state as Parameters<typeof projectService.saveProjectWithReceipt>[2],
+      { expectedRevision, overlayAuthority: "client" },
     );
 
     // Await graph dispatch after save (non-blocking pattern — errors don't fail save)
-    if (graphDispatchPromise) {
-      graphDispatchPromise.catch((err: Error) =>
-        console.warn(`[Save] Graph diff dispatch failed: ${err.message}`)
+    if (previousOverlays) {
+      void dispatchOverlayDiff(
+        userId,
+        projectId,
+        previousOverlays,
+        state.overlays as OverlayLike[],
+      ).catch((err: Error) =>
+        console.warn(`[Save] Graph diff dispatch failed: ${err.message}`),
       );
     }
 
     return NextResponse.json({
       success: true,
-      savedAt: new Date().toISOString(),
+      savedAt: receipt.committedAt,
+      revision: receipt.revision,
     });
   } catch (error: unknown) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    console.error('Error saving project:', errMsg);
-
-    // Handle specific errors
-    if (errMsg === 'Project not found') {
+    if (error instanceof ProjectMutationConflictError) {
       return NextResponse.json(
-        { success: false, error: 'Project not found' },
-        { status: 404 }
+        {
+          success: false,
+          error: {
+            code: error.code,
+            message: error.message,
+            currentRevision: error.currentRevision,
+          },
+        },
+        { status: 409 },
       );
     }
-    
+    if (error instanceof ProjectNotFoundOrForbiddenError) {
+      return NextResponse.json(
+        { success: false, error: { code: error.code, message: error.message } },
+        { status: 404 },
+      );
+    }
+    if (error instanceof ProjectMutationWriteError) {
+      return NextResponse.json(
+        { success: false, error: { code: error.code, message: error.message } },
+        { status: 500 },
+      );
+    }
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error("Error saving project:", errMsg);
     return NextResponse.json(
-      { success: false, error: errMsg || 'Failed to save project' },
-      { status: 500 }
+      { success: false, error: errMsg || "Failed to save project" },
+      { status: 500 },
     );
   }
 }
@@ -162,36 +201,48 @@ async function dispatchOverlayDiff(
   const qstashToken = process.env.QSTASH_TOKEN;
   const baseUrl = process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
-    : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+    : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const graphSyncUrl = `${baseUrl}/api/internal/workers/graph-sync`;
 
-  const getAssetIds = (overlays: OverlayLike[]) => new Set(
-    overlays
-      .filter(o => (o.type === 'video' || o.type === 'image') && o.metadata?.assetId)
-      .map(o => o.metadata!.assetId as string)
-  );
+  const getAssetIds = (overlays: OverlayLike[]) =>
+    new Set(
+      overlays
+        .filter(
+          (o) =>
+            (o.type === "video" || o.type === "image") && o.metadata?.assetId,
+        )
+        .map((o) => o.metadata!.assetId as string),
+    );
 
   const prevAssets = getAssetIds(prevOverlays);
   const newAssets = getAssetIds(newOverlays);
 
-  const dispatchGraphSync = async (action: string, data: Record<string, unknown>) => {
-    await fetch(`${process.env.QSTASH_URL || 'https://qstash.upstash.io'}/v2/publish/${graphSyncUrl}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${qstashToken}`,
-        'Content-Type': 'application/json',
-        'Upstash-Retries': '2',
+  const dispatchGraphSync = async (
+    action: string,
+    data: Record<string, unknown>,
+  ) => {
+    await fetch(
+      `${process.env.QSTASH_URL || "https://qstash.upstash.io"}/v2/publish/${graphSyncUrl}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${qstashToken}`,
+          "Content-Type": "application/json",
+          "Upstash-Retries": "2",
+        },
+        body: JSON.stringify({ action, data }),
       },
-      body: JSON.stringify({ action, data }),
-    });
+    );
   };
 
   if (qstashToken) {
     for (const assetId of newAssets) {
       if (!prevAssets.has(assetId)) {
-        const overlay = newOverlays.find(o => o.metadata?.assetId === assetId);
+        const overlay = newOverlays.find(
+          (o) => o.metadata?.assetId === assetId,
+        );
         try {
-          await dispatchGraphSync('asset_used', {
+          await dispatchGraphSync("asset_used", {
             assetId,
             projectId,
             props: {
@@ -199,7 +250,7 @@ async function dispatchOverlayDiff(
               sceneIndex: overlay?.metadata?.sceneIndex ?? 0,
               trimStart: null,
               trimEnd: null,
-              role: 'hero',
+              role: "hero",
               filterApplied: null,
               wasKept: true,
             },
@@ -213,9 +264,11 @@ async function dispatchOverlayDiff(
 
     for (const assetId of prevAssets) {
       if (!newAssets.has(assetId)) {
-        const prevOverlay = prevOverlays.find(o => o.metadata?.assetId === assetId);
+        const prevOverlay = prevOverlays.find(
+          (o) => o.metadata?.assetId === assetId,
+        );
         try {
-          await dispatchGraphSync('asset_removed', {
+          await dispatchGraphSync("asset_removed", {
             assetId,
             projectId,
             sceneIndex: prevOverlay?.metadata?.sceneIndex ?? null,
@@ -223,7 +276,9 @@ async function dispatchOverlayDiff(
           });
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
-          console.warn(`[Save] REMOVED_FROM dispatch failed for ${assetId}: ${msg}`);
+          console.warn(
+            `[Save] REMOVED_FROM dispatch failed for ${assetId}: ${msg}`,
+          );
         }
       }
     }
@@ -232,19 +287,21 @@ async function dispatchOverlayDiff(
   const overrides: DetectedEditronOverride[] = [];
 
   const getTransitions = (overlays: OverlayLike[]) =>
-    overlays.filter(o => o.type === 'transition').map(o => ({
-      id: o.id,
-      type: o.transitionStyle || o.metadata?.transitionType || null,
-    }));
+    overlays
+      .filter((o) => o.type === "transition")
+      .map((o) => ({
+        id: o.id,
+        type: o.transitionStyle || o.metadata?.transitionType || null,
+      }));
 
   const prevTrans = getTransitions(prevOverlays);
   const newTrans = getTransitions(newOverlays);
 
   for (const nt of newTrans) {
-    const pt = prevTrans.find(p => p.id === nt.id);
+    const pt = prevTrans.find((p) => p.id === nt.id);
     if (pt && pt.type !== nt.type) {
       overrides.push({
-        kind: 'transition_style',
+        kind: "transition_style",
         label: `transition changed from ${pt.type} to ${nt.type}`,
         beforeValue: pt.type,
         afterValue: nt.type,
@@ -254,15 +311,21 @@ async function dispatchOverlayDiff(
   }
 
   const getFilter = (overlays: OverlayLike[]) =>
-    overlays.filter(o => o.type === 'video' && o.filterPresetId).map(o => ({
-      id: o.id,
-      type: o.filterPresetId!,
-    }));
+    overlays
+      .filter((o) => o.type === "video" && o.filterPresetId)
+      .map((o) => ({
+        id: o.id,
+        type: o.filterPresetId!,
+      }));
   const prevFilters = getFilter(prevOverlays);
   const newFilters = getFilter(newOverlays);
-  if (prevFilters.length > 0 && newFilters.length > 0 && prevFilters[0].type !== newFilters[0].type) {
+  if (
+    prevFilters.length > 0 &&
+    newFilters.length > 0 &&
+    prevFilters[0].type !== newFilters[0].type
+  ) {
     overrides.push({
-      kind: 'filter_preset',
+      kind: "filter_preset",
       label: `filter changed from ${prevFilters[0].type} to ${newFilters[0].type}`,
       beforeValue: prevFilters[0].type,
       afterValue: newFilters[0].type,
@@ -278,27 +341,33 @@ async function dispatchOverlayDiff(
   let groupId = userId;
 
   try {
-    const { getDatabase } = await import('@/lib/editron/db/mongodb');
+    const { getDatabase } = await import("@/lib/editron/db/mongodb");
     const db = await getDatabase();
-    const projDoc = await db.collection('projects').findOne(
-      { projectId },
-      { projection: { brandId: 1 } },
-    );
-    if (typeof projDoc?.brandId === 'string' && projDoc.brandId.trim().length > 0) {
+    const projDoc = await db
+      .collection("projects")
+      .findOne({ projectId }, { projection: { brandId: 1 } });
+    if (
+      typeof projDoc?.brandId === "string" &&
+      projDoc.brandId.trim().length > 0
+    ) {
       brandId = projDoc.brandId;
       groupId = brandId;
     }
   } catch {
-    console.warn(`[Save] brandId lookup failed for project ${projectId}, falling back to userId`);
+    console.warn(
+      `[Save] brandId lookup failed for project ${projectId}, falling back to userId`,
+    );
   }
 
   try {
-    const { addGraphitiEpisode } = await import('@/lib/editron/services/graph-service');
+    const { addGraphitiEpisode } = await import(
+      "@/lib/editron/services/graph-service"
+    );
     await addGraphitiEpisode({
-      type: 'user_override',
+      type: "user_override",
       name: `override_${projectId}_${Date.now()}`,
-      body: `User made ${overrides.length} editing overrides on project ${projectId}: ${overrideLabels.join('. ')}.`,
-      sourceDescription: 'user_override',
+      body: `User made ${overrides.length} editing overrides on project ${projectId}: ${overrideLabels.join(". ")}.`,
+      sourceDescription: "user_override",
       groupId,
     });
   } catch (err: unknown) {
@@ -307,27 +376,29 @@ async function dispatchOverlayDiff(
   }
 
   try {
-    const { emitBrandEvent } = await import('@/lib/shared/brand-events');
-    const learningEvents = overrides.map((override) => createEditronUserOverrideLearningEvent({
-      userId,
-      brandId,
-      projectId,
-      observedAt,
-      kind: override.kind,
-      beforeValue: override.beforeValue,
-      afterValue: override.afterValue,
-      overlayId: override.overlayId,
-      note: override.label,
-    }));
+    const { emitBrandEvent } = await import("@/lib/shared/brand-events");
+    const learningEvents = overrides.map((override) =>
+      createEditronUserOverrideLearningEvent({
+        userId,
+        brandId,
+        projectId,
+        observedAt,
+        kind: override.kind,
+        beforeValue: override.beforeValue,
+        afterValue: override.afterValue,
+        overlayId: override.overlayId,
+        note: override.label,
+      }),
+    );
 
     await emitBrandEvent({
       userId,
       brandId,
       projectId,
-      service: 'editron',
-      type: 'user_override',
+      service: "editron",
+      type: "user_override",
       payload: {
-        shadowEventType: 'save_overlay_diff',
+        shadowEventType: "save_overlay_diff",
         overrideCount: overrides.length,
         overrides: overrides.map((override) => ({
           kind: override.kind,

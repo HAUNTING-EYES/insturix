@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { getUserId } from "../utils/user-id";
 import { serializeEditorStateForSave } from "@/lib/editron/shared/project-save-payload";
 import { bindAbortToPageLifecycle } from "../utils/request-lifecycle";
+import type { ProjectRevisionV1 } from "@/lib/editron/services/project-service";
 
 interface AutosaveOptions {
   /**
@@ -36,6 +37,43 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
+function isProjectRevision(value: unknown): value is ProjectRevisionV1 {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      (value as ProjectRevisionV1).schemaVersion === 1 &&
+      Number.isSafeInteger((value as ProjectRevisionV1).value) &&
+      (value as ProjectRevisionV1).value >= 0 &&
+      typeof (value as ProjectRevisionV1).compatibilityUpdatedAt === "string" &&
+      !Number.isNaN(
+        new Date((value as ProjectRevisionV1).compatibilityUpdatedAt).getTime(),
+      ),
+  );
+}
+
+function projectRevisionFromLoadedProject(
+  project: unknown,
+): ProjectRevisionV1 | null {
+  if (!project || typeof project !== "object") return null;
+  const loadedProject = project as {
+    projectRevision?: unknown;
+    updatedAt?: unknown;
+  };
+  const revision = {
+    schemaVersion: 1 as const,
+    value: loadedProject.projectRevision,
+    compatibilityUpdatedAt: loadedProject.updatedAt,
+  };
+  return isProjectRevision(revision) ? revision : null;
+}
+
+function mutationPayload(
+  serializedState: string,
+  expectedRevision: ProjectRevisionV1,
+): string {
+  return JSON.stringify({ ...JSON.parse(serializedState), expectedRevision });
+}
+
 /**
  * Hook for automatically saving editor state to MongoDB via API
  *
@@ -47,15 +85,23 @@ function isAbortError(error: unknown): boolean {
 export const useAutosave = (
   projectId: string,
   state: any,
-  options: AutosaveOptions = {}
+  options: AutosaveOptions = {},
 ) => {
-  const { interval = 15000, pauseAutosave = false, onLoad, onSave, onAutosaveDetected } = options;
+  const {
+    interval = 15000,
+    pauseAutosave = false,
+    onLoad,
+    onSave,
+    onAutosaveDetected,
+  } = options;
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedStateRef = useRef<string>("");
   const hasLoadedRef = useRef(false);
   const checkedAutosaveProjectRef = useRef<string | null>(null);
   const loadControllerRef = useRef<AbortController | null>(null);
+  const loadStateRef = useRef<() => Promise<unknown>>(async () => null);
+  const revisionRef = useRef<ProjectRevisionV1 | null>(null);
   const stateRef = useRef(state);
   const pauseAutosaveRef = useRef(pauseAutosave);
   const callbacksRef = useRef({ onLoad, onSave, onAutosaveDetected });
@@ -69,6 +115,7 @@ export const useAutosave = (
   useEffect(() => {
     hasLoadedRef.current = false;
     lastSavedStateRef.current = "";
+    revisionRef.current = null;
     checkedAutosaveProjectRef.current = null;
     loadControllerRef.current?.abort();
     loadControllerRef.current = null;
@@ -87,17 +134,27 @@ export const useAutosave = (
 
     const checkForAutosave = async () => {
       try {
-        const response = await fetch(`/api/services/editron/projects/${projectId}`, {
-          signal: controller.signal,
-        });
+        const response = await fetch(
+          `/api/services/editron/projects/${projectId}`,
+          {
+            signal: controller.signal,
+          },
+        );
         if (response.ok) {
           const data = await response.json();
+          const revision = data.success
+            ? projectRevisionFromLoadedProject(data.project)
+            : null;
+          if (revision) {
+            revisionRef.current = revision;
+          }
           if (data.success && data.project?.lastAutosaveAt) {
             const timestamp = new Date(data.project.lastAutosaveAt).getTime();
             callbacksRef.current.onAutosaveDetected?.(timestamp);
           }
         }
-        if (!controller.signal.aborted) checkedAutosaveProjectRef.current = projectId;
+        if (!controller.signal.aborted)
+          checkedAutosaveProjectRef.current = projectId;
       } catch (error) {
         if (controller.signal.aborted || isAbortError(error)) return;
         console.error("Failed to check for autosave:", error);
@@ -133,22 +190,39 @@ export const useAutosave = (
 
       const body = serializeEditorStateForSave(stateRef.current);
       if (!body) return;
+      const expectedRevision = revisionRef.current;
+      if (!expectedRevision) {
+        await loadStateRef.current();
+        return;
+      }
 
       // Only save if state has changed since last save
       if (body !== lastSavedStateRef.current) {
         try {
-          const response = await fetch(`/api/services/editron/projects/${projectId}/autosave`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
+          const response = await fetch(
+            `/api/services/editron/projects/${projectId}/autosave`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: mutationPayload(body, expectedRevision),
+              signal: controller.signal,
             },
-            body,
-            signal: controller.signal,
-          });
+          );
 
           if (response.ok) {
+            const data = await response.json();
+            if (!isProjectRevision(data.revision)) {
+              throw new Error(
+                "Autosave response omitted its ProjectRevisionV1 receipt.",
+              );
+            }
+            revisionRef.current = data.revision;
             lastSavedStateRef.current = body;
             callbacksRef.current.onSave?.();
+          } else if (response.status === 409) {
+            await loadStateRef.current();
           } else {
             console.error("Autosave failed:", await response.text());
           }
@@ -183,20 +257,42 @@ export const useAutosave = (
     const controller = new AbortController();
     const detachPageLifecycle = bindAbortToPageLifecycle(controller);
     const body = serializeEditorStateForSave(stateRef.current);
+    const expectedRevision = revisionRef.current;
+    if (!body || !expectedRevision) {
+      try {
+        await loadStateRef.current();
+      } finally {
+        detachPageLifecycle();
+      }
+      return false;
+    }
     try {
-      const response = await fetch(`/api/services/editron/projects/${projectId}/save`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      const response = await fetch(
+        `/api/services/editron/projects/${projectId}/save`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: mutationPayload(body, expectedRevision),
+          signal: controller.signal,
         },
-        body,
-        signal: controller.signal,
-      });
+      );
 
       if (response.ok) {
+        const data = await response.json();
+        if (!isProjectRevision(data.revision)) {
+          throw new Error(
+            "Manual save response omitted its ProjectRevisionV1 receipt.",
+          );
+        }
+        revisionRef.current = data.revision;
         lastSavedStateRef.current = body;
         callbacksRef.current.onSave?.();
         return true;
+      } else if (response.status === 409) {
+        await loadStateRef.current();
+        return false;
       } else {
         console.error("Manual save failed:", await response.text());
         return false;
@@ -224,13 +320,21 @@ export const useAutosave = (
     hasLoadedRef.current = false;
 
     try {
-      const response = await fetch(`/api/services/editron/projects/${projectId}`, {
-        signal: controller.signal,
-      });
+      const response = await fetch(
+        `/api/services/editron/projects/${projectId}`,
+        {
+          signal: controller.signal,
+        },
+      );
 
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.project) {
+          const revision = projectRevisionFromLoadedProject(data.project);
+          if (!revision) {
+            throw new Error("PROJECT_LOAD_INVALID_REVISION");
+          }
+          revisionRef.current = revision;
           const loadedState = {
             overlays: data.project.overlays,
             aspectRatio: data.project.aspectRatio,
@@ -254,15 +358,15 @@ export const useAutosave = (
         }
       }
       if (response.status === 404) {
-        throw new Error('PROJECT_NOT_FOUND');
+        throw new Error("PROJECT_NOT_FOUND");
       }
       if (!response.ok) {
         throw new Error(`PROJECT_LOAD_FAILED_${response.status}`);
       }
-      throw new Error('PROJECT_LOAD_INVALID_RESPONSE');
+      throw new Error("PROJECT_LOAD_INVALID_RESPONSE");
     } catch (error) {
       if (controller.signal.aborted || isAbortError(error)) return null;
-      if (error instanceof Error && error.message === 'PROJECT_NOT_FOUND') {
+      if (error instanceof Error && error.message === "PROJECT_NOT_FOUND") {
         throw error;
       }
       console.error("Load failed:", error);
@@ -274,6 +378,8 @@ export const useAutosave = (
       }
     }
   }, [projectId, userId]);
+
+  loadStateRef.current = loadState;
 
   return {
     saveState,
