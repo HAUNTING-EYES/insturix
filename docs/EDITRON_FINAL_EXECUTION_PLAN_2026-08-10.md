@@ -805,3 +805,33 @@ render path is intentionally separate and still has raw project proof writes.
 It must receive its own receipt-bound ProjectService port and recovery rule;
 do not reuse this Director-only evidence contract or merge the two proof
 authorities.
+
+#### Execution sub-plan: 1-B2 chat render-proof atomicity - 2026-08-11
+
+This is a required part of the broader canonical-editing programme, not a
+separate chat architecture.  Its authority split is deliberately narrow:
+
+- The **before-operation checkpoint** owns the durable chat proof record and
+  its execution lifecycle.  It is the source of truth for the proof request,
+  rendered result and any later human-facing diagnosis.
+- **ProjectService** remains the sole revision/CAS owner.  It may write a
+  receipt-guarded *derived current projection* for the UI, but it must never
+  become a second chat-proof store and a worker must never write `projects`
+  directly.
+- A render request names the exact writer-issued receipt for the edit it is
+  proving.  It cannot be silently rebound to a newer project revision.
+
+| Slice | Status | Exact work and acceptance condition |
+|---|---|---|
+| **1-B2a** | **complete** (`eb92696dd`) | The normal synchronous chat transaction passes its writer-issued receipt into the after checkpoint and render-verification request.  `CheckpointService` captures that supplied revision instead of re-reading the current project revision; cross-project receipts fail before persistence.  The lifecycle record preserves the immutable receipt. |
+| **1-B2b** | next | Replace raw `projects` request/dispatch/result mirrors in the main chat stream and worker with a narrow ProjectService receipt-CAS projection port.  If the named receipt is no longer current, return a visible stale projection disposition and leave the newer project untouched.  The checkpoint record remains authoritative. |
+| **1-B2c** | pending | Migrate independent reference-style and dubbing chat producers only after their own writer receipt is carried end-to-end.  The editorial-intent MG child path has no child writer receipt today: it must be `completed_unverified` with no render dispatch until a real child ProjectService receipt exists; it must not reuse a parent/Director receipt. |
+| **1-B2d** | pending | Make checkpoint lifecycle transitions compare-and-set on a stable verification identity and attempt token.  Requested, dispatched, delivered, rendering and terminal transitions must reject stale workers; terminal evidence and notification delivery require idempotent durable records. |
+
+The adversarial proof set for this sub-plan must show: a manual edit after a
+chat edit cannot receive the older edit's proof; duplicate delivery cannot
+overwrite a terminal result; a failed dispatch cannot look verified; a
+cross-project receipt cannot create a checkpoint or projection; and every
+unmigrated producer reports `completed_unverified` rather than fabricated
+proof.  No slice may add a chat journal, a private checkpoint store, a worker
+Mongo writer, or a second project/proof authority.
