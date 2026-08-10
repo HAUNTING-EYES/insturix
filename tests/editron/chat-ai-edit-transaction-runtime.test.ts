@@ -86,6 +86,7 @@ import {
 class MemoryCheckpointStore {
   readonly checkpoints = new Map<string, Checkpoint>();
   readonly events: string[] = [];
+  readonly createInputs: CheckpointInput[] = [];
   readonly rollbackReceipts = new Map<string, ProjectRevisionV1>();
   readonly rollbackReceiptCalls: Array<{
     checkpointId: string;
@@ -131,6 +132,7 @@ class MemoryCheckpointStore {
 
   async createCheckpoint(input: CheckpointInput) {
     this.events.push(`create:${input.type}`);
+    this.createInputs.push(structuredClone(input));
     const checkpoint = this.makeCheckpoint(input);
     this.checkpoints.set(checkpoint.checkpointId, checkpoint);
     return checkpoint;
@@ -262,6 +264,9 @@ class MemoryCheckpointStore {
       overlays: structuredClone(input.overlays),
       projectState: structuredClone(projectState),
       stateHash: projectStateFingerprint(projectState),
+      ...(input.capturedWriterReceipt
+        ? { capturedProjectRevision: structuredClone(input.capturedWriterReceipt.revision) }
+        : {}),
       operationId: input.operationId,
       operationStatus: input.operationStatus,
       timestamp: new Date(),
@@ -378,6 +383,12 @@ describe('chat AI edit transaction runtime', () => {
       failedToolNames: [],
     });
     expect(result.checkpointIds).toHaveLength(2);
+    expect(store.createInputs).toEqual([expect.objectContaining({
+      type: 'after-llm',
+      capturedWriterReceipt: writerReceipt(),
+    })]);
+    expect(Array.from(store.checkpoints.values()).find((checkpoint) => checkpoint.type === 'after-llm'))
+      .toMatchObject({ capturedProjectRevision: writerReceipt().revision });
     expect(store.events).toEqual(['claim', 'create:after-llm', 'status:completed']);
   });
 
@@ -964,6 +975,52 @@ describe('chat AI edit transaction runtime', () => {
       null,
       'kept',
     ]);
+  });
+
+  it('binds a post-mutation checkpoint to its supplied writer receipt without rereading a newer revision', async () => {
+    const service = new CheckpointService();
+    const receipt = writerReceipt();
+    infrastructureMocks.insertOne.mockResolvedValue({ acknowledged: true, insertedId: 'ckpt_receipt_bound' });
+    infrastructureMocks.getDatabase.mockResolvedValue({
+      collection: (name: string) => {
+        if (name === COLLECTIONS.CHECKPOINTS) {
+          return { insertOne: infrastructureMocks.insertOne };
+        }
+        throw new Error(`Unexpected collection ${name}`);
+      },
+    });
+    const getRevision = vi.spyOn(projectService, 'getProjectRevision').mockRejectedValue(
+      new Error('checkpoint must not reread the revision when a writer receipt was supplied'),
+    );
+
+    const created = await service.createCheckpoint({
+      checkpointId: 'ckpt_receipt_bound',
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      projectState: captureRestorableProjectState(ORIGINAL_PROJECT),
+      description: 'Exact post-mutation state',
+      type: 'after-llm',
+      capturedWriterReceipt: receipt,
+      force: true,
+    });
+
+    expect(created?.capturedProjectRevision).toEqual(receipt.revision);
+    expect(getRevision).not.toHaveBeenCalled();
+
+    await expect(service.createCheckpoint({
+      checkpointId: 'ckpt_wrong_receipt_scope',
+      sessionId: 'sess_1',
+      projectId: 'proj_1',
+      userId: 'user_1',
+      overlays: ORIGINAL_PROJECT.overlays as any,
+      description: 'Must not persist',
+      type: 'after-llm',
+      capturedWriterReceipt: writerReceipt('proj_other'),
+      force: true,
+    })).rejects.toThrow('belongs to another project');
+    expect(infrastructureMocks.insertOne).toHaveBeenCalledTimes(1);
   });
 
   it('rejects checkpoint list, create, clear, and prune for a principal outside the actual project', async () => {
@@ -1588,6 +1645,7 @@ describe('chat AI edit transaction runtime', () => {
         beforeCheckpointId: 'checkpoint_before',
       },
       afterCheckpointId: 'checkpoint_after',
+      subjectReceipt: writerReceipt('proj_captionproof'),
       project: {
         durationInFrames: 300,
         fps: 30,
@@ -1608,6 +1666,7 @@ describe('chat AI edit transaction runtime', () => {
 
     expect(request.modalities).toEqual(['visual']);
     expect(request.sampleFrames).toEqual([45, 225]);
+    expect(request.subjectReceipt).toEqual(writerReceipt('proj_captionproof'));
   });
 
   it('keeps the live route and client ordered around durable preflight and stable operation IDs', () => {

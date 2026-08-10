@@ -110,6 +110,11 @@ export interface CheckpointInput {
   checkpointId?: string;
   operationId?: string;
   operationStatus?: ChatEditOperationStatus;
+  /**
+   * The exact ProjectService receipt for the state supplied to this checkpoint.
+   * When present, checkpoint capture must not re-observe a newer project revision.
+   */
+  capturedWriterReceipt?: ProjectMutationReceiptV1;
   force?: boolean;
 }
 
@@ -167,10 +172,9 @@ export function projectStateFingerprint(state: RestorableProjectState): string {
 
 export class CheckpointService {
   async createCheckpoint(input: CheckpointInput): Promise<Checkpoint | null> {
-    const capturedProjectRevision = await projectService.getProjectRevision(
-      input.userId,
-      input.projectId,
-    );
+    const capturedProjectRevision = input.capturedWriterReceipt
+      ? revisionFromWriterReceipt(input.capturedWriterReceipt, input.projectId)
+      : await projectService.getProjectRevision(input.userId, input.projectId);
     const db = await getDatabase();
     const cleanState = this.cleanProjectState(
       input.projectState ?? captureRestorableProjectState({ overlays: input.overlays }),

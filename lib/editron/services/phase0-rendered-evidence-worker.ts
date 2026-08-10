@@ -94,6 +94,11 @@ export interface ChatEditRenderVerificationRequest {
   sessionId: string;
   beforeCheckpointId: string;
   afterCheckpointId: string;
+  /**
+   * ProjectService receipt for the exact mutation this proof request describes.
+   * It is optional only while independent legacy chat producers are migrated.
+   */
+  subjectReceipt?: ProjectMutationReceiptV1;
   requestedAt: string;
   modalities: ChatEditRenderVerificationModality[];
   expectedEffect?: ChatEditRenderVerificationExpectation;

@@ -234,6 +234,7 @@ export async function completeChatAiEditTransaction(
       projectState: captureRestorableProjectState(project),
       description: `After AI chat edit: ${batch.successfulToolNames.join(', ')}`,
       type: 'after-llm',
+      capturedWriterReceipt: input.writerIssuedReceipt,
       force: true,
     });
     if (!afterCheckpoint) throw new Error('Durable post-mutation checkpoint was not created.');
@@ -253,6 +254,7 @@ export async function completeChatAiEditTransaction(
       ? buildChatEditRenderVerificationRequest({
           transaction: input.transaction,
           afterCheckpointId: afterCheckpoint.checkpointId,
+          subjectReceipt: input.writerIssuedReceipt,
           project,
           successfulCalls: batch.successfulCalls,
         })
@@ -458,6 +460,8 @@ function classifyMutatingBatch(toolCalls: ChatAiToolCall[], toolResults: ChatAiT
 export function buildChatEditRenderVerificationRequest(input: {
   transaction: ChatAiEditTransaction;
   afterCheckpointId: string;
+  /** The ProjectService receipt for the exact post-mutation state being proved. */
+  subjectReceipt?: ProjectMutationReceiptV1;
   project: Record<string, unknown>;
   successfulCalls: Array<{ call: ChatAiToolCall; result: ChatAiToolResult }>;
   requestedAt?: string;
@@ -543,6 +547,7 @@ export function buildChatEditRenderVerificationRequest(input: {
     sessionId: input.transaction.sessionId,
     beforeCheckpointId: input.transaction.beforeCheckpointId,
     afterCheckpointId: input.afterCheckpointId,
+    ...(input.subjectReceipt ? { subjectReceipt: input.subjectReceipt } : {}),
     requestedAt: input.requestedAt ?? new Date().toISOString(),
     modalities: Array.from(modalitySet),
     expectedEffect,

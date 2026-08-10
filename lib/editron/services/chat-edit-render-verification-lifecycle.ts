@@ -59,6 +59,8 @@ export interface ChatEditRenderVerificationRecord<Visual = unknown, Audio = Chat
   sessionId: string;
   beforeCheckpointId: string;
   afterCheckpointId: string;
+  /** Immutable ProjectService receipt for the post-mutation state under review. */
+  subjectReceipt?: ChatEditRenderVerificationRequest['subjectReceipt'];
   status: ChatEditRenderVerificationStatus;
   requestedAt: string;
   startedAt: string | null;
@@ -116,6 +118,7 @@ export function buildRequestedChatEditRenderVerification(
     sessionId: request.sessionId,
     beforeCheckpointId: request.beforeCheckpointId,
     afterCheckpointId: request.afterCheckpointId,
+    ...(request.subjectReceipt ? { subjectReceipt: request.subjectReceipt } : {}),
     status: 'pending',
     requestedAt: request.requestedAt,
     startedAt: null,
