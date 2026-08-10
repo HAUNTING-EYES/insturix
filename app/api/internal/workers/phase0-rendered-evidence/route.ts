@@ -45,6 +45,7 @@ import {
   markChatEditRenderVerificationRendering,
   markChatEditRenderVerificationTerminal,
   resolveChatEditRenderVerificationStatus,
+  type ChatEditRenderVerificationLifecycleState,
   type ChatEditRenderVerificationRecord,
   type PersistedChatEditRenderVerificationRecord,
 } from '@/lib/editron/services/chat-edit-render-verification-lifecycle';
@@ -112,6 +113,12 @@ async function handler(request: NextRequest) {
     if (!verification) {
       return NextResponse.json(
         { success: false, error: 'Invalid chat edit render verification request' },
+        { status: 400 },
+      );
+    }
+    if (verification.subjectReceipt?.projectId !== undefined && verification.subjectReceipt.projectId !== projectId) {
+      return NextResponse.json(
+        { success: false, error: 'Chat render-verification receipt/project mismatch' },
         { status: 400 },
       );
     }
@@ -288,9 +295,13 @@ async function handleChatEditRenderVerification(input: {
 
   const now = new Date();
   const staleBefore = new Date(now.getTime() - 20 * 60_000).toISOString();
-  const requestedRecord = beforeCheckpoint.chatEditRenderVerification
+  const storedRecord = beforeCheckpoint.chatEditRenderVerification
     ? ensureChatEditRenderVerificationLifecycle(beforeCheckpoint.chatEditRenderVerification, now)
     : buildRequestedChatEditRenderVerification(input.verification, now) as RenderVerificationRecord;
+  const requestedRecord = bindChatEditVerificationRecordToRequest(
+    storedRecord,
+    input.verification,
+  );
   const deliveredRecord = markChatEditRenderVerificationDelivered(requestedRecord, {
     attemptCount: input.attemptCount,
     workerRequestId: input.workerRequestId,
@@ -335,14 +346,45 @@ async function handleChatEditRenderVerification(input: {
     });
   }
 
-  await input.db.collection(COLLECTIONS.PROJECTS).updateOne(
-    {
-      projectId: input.projectId,
-      userId: input.userId,
-      'intelligence.latestChatEditRenderVerification.operationId': input.verification.operationId,
-    },
-    { $set: { 'intelligence.latestChatEditRenderVerification': runningRecord } },
-  );
+  if (runningRecord.subjectReceipt) {
+    try {
+      await projectService.recordChatRenderVerificationProjection(input.userId, input.projectId, {
+        subjectReceipt: runningRecord.subjectReceipt,
+        record: runningRecord,
+        expectedLifecycleStates: ['requested', 'dispatched', 'delivered'],
+      });
+    } catch (error: unknown) {
+      if (!(error instanceof ProjectMutationConflictError)) throw error;
+      const staleRecord = markChatEditRenderVerificationTerminal(runningRecord, {
+        status: 'error',
+        visual: runningRecord.visual,
+        audio: runningRecord.audio,
+        reasons: ['project_revision_stale_before_render_verification'],
+        issues: [{
+          modality: 'system',
+          severity: 'error',
+          code: 'project_revision_stale_before_render_verification',
+          message: 'The project changed after this chat edit, so its older render verification was not run.',
+        }],
+      });
+      await persistChatEditVerificationResult({
+        db: input.db,
+        projectId: input.projectId,
+        userId: input.userId,
+        checkpointId: input.verification.beforeCheckpointId,
+        record: staleRecord,
+        expectedCheckpointLifecycleStates: ['rendering'],
+        skipProjectProjection: true,
+      });
+      return NextResponse.json({
+        success: false,
+        projectId: input.projectId,
+        operationId: input.verification.operationId,
+        skipped: 'stale-projection',
+        status: staleRecord.status,
+      }, { status: 409 });
+    }
+  }
 
   try {
     const [beforeProject, afterProject] = await Promise.all([
@@ -436,6 +478,9 @@ async function handleChatEditRenderVerification(input: {
       userId: input.userId,
       checkpointId: input.verification.beforeCheckpointId,
       record: finalRecord,
+      expectedCheckpointLifecycleStates: ['rendering'],
+      expectedProjectionLifecycleStates: ['rendering'],
+      appendHistory: true,
     });
     await ensureVerificationNotification({
       db: input.db,
@@ -463,7 +508,10 @@ async function handleChatEditRenderVerification(input: {
       projectRenderEligibility: finalRecord.projectRenderEligibility,
     });
   } catch (error: unknown) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const projectionStale = error instanceof ProjectMutationConflictError;
+    const reason = projectionStale
+      ? 'project_revision_stale_before_terminal_render_verification'
+      : error instanceof Error ? error.message : String(error);
     const failedRecord = markChatEditRenderVerificationTerminal(runningRecord, {
       status: 'error',
       visual: runningRecord.visual,
@@ -482,11 +530,21 @@ async function handleChatEditRenderVerification(input: {
       userId: input.userId,
       checkpointId: input.verification.beforeCheckpointId,
       record: failedRecord,
+      expectedCheckpointLifecycleStates: ['rendering'],
+      expectedProjectionLifecycleStates: ['rendering'],
+      appendHistory: true,
+      skipProjectProjection: projectionStale,
     });
     console.error(`[ChatEditRenderVerification] ${input.projectId}/${input.verification.operationId}: ${reason}`);
     return NextResponse.json(
-      { success: false, projectId: input.projectId, operationId: input.verification.operationId, error: reason },
-      { status: 500 },
+      {
+        success: false,
+        projectId: input.projectId,
+        operationId: input.verification.operationId,
+        error: reason,
+        ...(projectionStale ? { skipped: 'stale-projection' } : {}),
+      },
+      { status: projectionStale ? 409 : 500 },
     );
   }
 }
@@ -504,6 +562,12 @@ async function handleQstashFailureCallback(input: {
   if (!projectId || !userId || !verification) {
     return NextResponse.json(
       { success: false, error: 'Invalid QStash failure callback payload' },
+      { status: 400 },
+    );
+  }
+  if (verification.subjectReceipt?.projectId !== undefined && verification.subjectReceipt.projectId !== projectId) {
+    return NextResponse.json(
+      { success: false, error: 'Chat render-verification receipt/project mismatch' },
       { status: 400 },
     );
   }
@@ -538,9 +602,10 @@ async function handleQstashFailureCallback(input: {
     );
   }
 
-  const existingRecord = beforeCheckpoint.chatEditRenderVerification
+  const storedRecord = beforeCheckpoint.chatEditRenderVerification
     ? ensureChatEditRenderVerificationLifecycle(beforeCheckpoint.chatEditRenderVerification)
     : buildRequestedChatEditRenderVerification(verification) as RenderVerificationRecord;
+  const existingRecord = bindChatEditVerificationRecordToRequest(storedRecord, verification);
   if (existingRecord.lifecycle.state === 'completed') {
     return NextResponse.json({
       success: true,
@@ -556,13 +621,36 @@ async function handleQstashFailureCallback(input: {
     attemptCount: failure.attemptCount,
     qstashMessageId: failure.sourceMessageId,
   });
-  await persistChatEditVerificationResult({
-    db,
-    projectId,
-    userId,
-    checkpointId: verification.beforeCheckpointId,
-    record: failedRecord,
-  });
+  try {
+    await persistChatEditVerificationResult({
+      db,
+      projectId,
+      userId,
+      checkpointId: verification.beforeCheckpointId,
+      record: failedRecord,
+      expectedCheckpointLifecycleStates: ['requested', 'dispatched', 'delivered', 'rendering'],
+      expectedProjectionLifecycleStates: ['requested', 'dispatched', 'delivered', 'rendering'],
+      appendHistory: true,
+    });
+  } catch (error: unknown) {
+    if (!(error instanceof ProjectMutationConflictError)) throw error;
+    await persistChatEditVerificationResult({
+      db,
+      projectId,
+      userId,
+      checkpointId: verification.beforeCheckpointId,
+      record: failedRecord,
+      expectedCheckpointLifecycleStates: ['requested', 'dispatched', 'delivered', 'rendering'],
+      skipProjectProjection: true,
+    });
+    return NextResponse.json({
+      success: false,
+      projectId,
+      operationId: verification.operationId,
+      skipped: 'stale-projection',
+      status: failedRecord.status,
+    }, { status: 409 });
+  }
   await ensureVerificationNotification({
     db,
     projectId,
@@ -599,6 +687,10 @@ function validateChatEditVerificationRequest(
     ? request.requestedAt
     : null;
   if (!operationId || !sessionId || !beforeCheckpointId || !afterCheckpointId || !requestedAt) return null;
+  const subjectReceipt = request.subjectReceipt === undefined
+    ? undefined
+    : parseProjectMutationReceipt(request.subjectReceipt);
+  if (request.subjectReceipt !== undefined && !subjectReceipt) return null;
 
   const modalities = Array.from(new Set(
     Array.isArray(request.modalities)
@@ -688,6 +780,7 @@ function validateChatEditVerificationRequest(
     sessionId,
     beforeCheckpointId,
     afterCheckpointId,
+    ...(subjectReceipt ? { subjectReceipt } : {}),
     requestedAt,
     modalities,
     expectedEffect,
@@ -848,27 +941,53 @@ async function persistChatEditVerificationResult(input: {
   userId: string;
   checkpointId: string;
   record: RenderVerificationRecord;
+  expectedCheckpointLifecycleStates: ChatEditRenderVerificationLifecycleState[];
+  expectedProjectionLifecycleStates?: ChatEditRenderVerificationLifecycleState[];
+  appendHistory?: boolean;
+  skipProjectProjection?: boolean;
 }) {
-  await Promise.all([
-    input.db.collection<VerificationCheckpoint>(COLLECTIONS.CHECKPOINTS).updateOne(
-      { checkpointId: input.checkpointId, projectId: input.projectId, userId: input.userId },
-      { $set: { chatEditRenderVerification: input.record, updatedAt: new Date() } },
-    ),
-    input.db.collection(COLLECTIONS.PROJECTS).updateOne(
-      { projectId: input.projectId, userId: input.userId },
-      {
-        $set: {
-          'intelligence.latestChatEditRenderVerification': input.record,
-        },
-        $push: {
-          'intelligence.chatEditRenderVerificationHistory': {
-            $each: [input.record],
-            $slice: -20,
-          },
-        } as any,
-      },
-    ),
-  ]);
+  if (input.record.subjectReceipt && !input.skipProjectProjection) {
+    await projectService.recordChatRenderVerificationProjection(input.userId, input.projectId, {
+      subjectReceipt: input.record.subjectReceipt,
+      record: input.record,
+      expectedLifecycleStates:
+        input.expectedProjectionLifecycleStates ?? input.expectedCheckpointLifecycleStates,
+      appendHistory: input.appendHistory,
+    });
+  }
+  const checkpointWrite = await input.db.collection<VerificationCheckpoint>(COLLECTIONS.CHECKPOINTS).updateOne(
+    {
+      checkpointId: input.checkpointId,
+      projectId: input.projectId,
+      userId: input.userId,
+      'chatEditRenderVerification.operationId': input.record.operationId,
+      'chatEditRenderVerification.lifecycle.state': { $in: input.expectedCheckpointLifecycleStates },
+    },
+    { $set: { chatEditRenderVerification: input.record, updatedAt: new Date() } },
+  );
+  if (checkpointWrite.matchedCount !== 1) {
+    throw new Error('Unable to persist the checkpoint-owned chat render-verification result.');
+  }
+}
+
+function bindChatEditVerificationRecordToRequest(
+  record: RenderVerificationRecord,
+  verification: ChatEditRenderVerificationRequest,
+): RenderVerificationRecord {
+  const subjectReceipt = verification.subjectReceipt;
+  if (!subjectReceipt) return record;
+  const current = record.subjectReceipt;
+  if (
+    current
+    && (
+      current.projectId !== subjectReceipt.projectId
+      || current.revision.value !== subjectReceipt.revision.value
+      || current.revision.compatibilityUpdatedAt !== subjectReceipt.revision.compatibilityUpdatedAt
+    )
+  ) {
+    throw new Error('Chat render-verification request does not match its durable checkpoint receipt.');
+  }
+  return { ...record, subjectReceipt: structuredClone(subjectReceipt) };
 }
 
 async function ensureVerificationNotification(input: {

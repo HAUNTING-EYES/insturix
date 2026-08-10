@@ -567,7 +567,26 @@ describe('phase0 rendered evidence worker service', () => {
     expect(handlerSource.indexOf('const claim = await checkpoints.updateOne')).toBeGreaterThan(-1);
     expect(handlerSource).not.toContain('persistChatEditVerificationProgress');
     expect(handlerSource.indexOf('const claim = await checkpoints.updateOne'))
-      .toBeLessThan(handlerSource.indexOf("'intelligence.latestChatEditRenderVerification': runningRecord"));
+      .toBeLessThan(handlerSource.indexOf('projectService.recordChatRenderVerificationProjection'));
+  });
+
+  it('routes every chat proof projection through ProjectService and rejects stale receipt payloads', () => {
+    const source = readFileSync('app/api/internal/workers/phase0-rendered-evidence/route.ts', 'utf8');
+    const chatHandler = source.slice(
+      source.indexOf('async function handleChatEditRenderVerification'),
+      source.indexOf('async function handleQstashFailureCallback'),
+    );
+    const resultWriter = source.slice(
+      source.indexOf('async function persistChatEditVerificationResult'),
+      source.indexOf('async function ensureVerificationNotification'),
+    );
+
+    expect(chatHandler).toContain('projectService.recordChatRenderVerificationProjection');
+    expect(chatHandler).toContain("skipped: 'stale-projection'");
+    expect(chatHandler).not.toContain("collection(COLLECTIONS.PROJECTS).updateOne");
+    expect(resultWriter).toContain('projectService.recordChatRenderVerificationProjection');
+    expect(resultWriter).not.toContain("collection(COLLECTIONS.PROJECTS).updateOne");
+    expect(source).toContain('parseProjectMutationReceipt(request.subjectReceipt)');
   });
 
 });
