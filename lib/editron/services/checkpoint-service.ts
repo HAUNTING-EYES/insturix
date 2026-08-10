@@ -154,7 +154,6 @@ export class CheckpointService {
         .toArray() as unknown as Checkpoint[];
 
       if (lastCheckpoint.length > 0 && checkpointStateHash(lastCheckpoint[0]) === stateHash) {
-        console.log(`[CHECKPOINT] Skipped "${input.description}" - no state changes detected`);
         return null;
       }
     }
@@ -181,7 +180,6 @@ export class CheckpointService {
     };
 
     await db.collection<Checkpoint>(COLLECTIONS.CHECKPOINTS).insertOne(checkpoint);
-    console.log(`[CHECKPOINT] Created "${input.description}" (${input.type})`);
     return checkpoint;
   }
 
@@ -360,7 +358,6 @@ export class CheckpointService {
       await db.collection(COLLECTIONS.CHECKPOINTS).deleteMany({
         _id: { $in: checkpoints.map((checkpoint) => checkpoint._id) },
       });
-      console.log(`[CHECKPOINT] Pruned ${checkpoints.length} old checkpoints for session ${sessionId}`);
     }
   }
 
