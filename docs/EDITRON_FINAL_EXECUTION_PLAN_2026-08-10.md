@@ -159,11 +159,14 @@ create the compound sequence; add and trim clip instances; resolve each
 panel's rectangle and crop; add gutters/background; resolve the title using a
 licensed font and legal distress treatment; add panel keyframes only when a
 video reference proves motion; render; compare against the blueprint; then
-apply the approved canonical commands through ProjectService.  If native
-operators cannot express a genuinely custom composition, the fallback is an
-isolated generated-composition artifact with immutable inputs and the same
-render/proof gates.  It is not permission for the model to mutate the project
-or execute arbitrary code.
+apply the approved canonical commands through ProjectService. If a custom
+spatial/temporal composite is better represented as code, use a first-class
+`GeneratedCompositionProgramV1`: an isolated, immutable, source-bound nested
+composition with exposed parameters and the same render/proof gates. It may
+combine footage layout, typography, masks, graphics and motion, but it is not
+permission for the model to mutate the project, shadow a family resolver or
+execute arbitrary code. Most difficult reference edits will be hybrid: native
+timeline/audio operations around one or more generated compositions.
 
 This explains how a coding agent can reproduce such a reference today: it can
 inspect the reference and source media, write a one-off composition, render it,
@@ -172,6 +175,11 @@ the structured blueprint, source mapping, certified operators, dependency
 compiler, canonical mutation and proof chain above so the result remains
 editable, repeatable, safe and usable by many customers rather than only in a
 single coding session.
+
+The forensic reconstruction, source-matching algorithm, generated-program
+contract, sandbox boundary, match-cut acquisition path and model evaluation
+programme are specified in
+[`EDITRON_REFERENCE_BACKTRACKING_AND_GENERATED_COMPOSITION_PROGRAM_2026-08-11.md`](./EDITRON_REFERENCE_BACKTRACKING_AND_GENERATED_COMPOSITION_PROGRAM_2026-08-11.md).
 
 ## CreativeDirection is not a preset
 
@@ -527,11 +535,15 @@ new resolver or a larger catalog will fix them.
 
 1. **Captions:** resolver + owned evaluation set + safe UI/chat overrides.
 2. **Transitions:** catalog + resolver + direct UI/chat/EDL convergence.
-3. **AI-generated MG:** repair stacking, strict delivery receipt, one codegen
-   owner; retain SaaS explainer as a separate scoped experience.  Generated
-   code executes only in the Stage 0 isolated worker: no network, allowlisted
-   packages, immutable inputs/outputs, per-tenant quotas and isolation,
-   artifact scanning and CPU/memory/wall-time limits.
+3. **Generated compositions and AI-generated MG:** repair stacking and strict
+   delivery receipts, then admit `GeneratedCompositionProgramV1` as a
+   first-class job-specific nested composition for footage layout, typography,
+   masks, graphics and motion. Keep one codegen/composition owner; retain SaaS
+   explainer as a separate scoped experience. Generated code executes only in
+   the Stage 0 isolated worker: no network, allowlisted packages, immutable
+   tokenised inputs/outputs, per-tenant quotas and isolation, artifact scanning
+   and CPU/memory/wall-time limits. Native family resolvers retain final-form
+   ownership for captions, transitions, masks/tracking, colour and audio.
 4. **SFX/music/dialogue:** licensed catalog, rights-aware resolver, human
    calibration, mix/ducking/beat evidence and audible proof.
 5. **B-roll/image/reframe and editorial effects:** placement/camera motion,
