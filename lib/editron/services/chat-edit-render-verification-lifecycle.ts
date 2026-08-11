@@ -35,7 +35,14 @@ export interface ChatEditRenderVerificationLifecycle {
   state: ChatEditRenderVerificationLifecycleState;
   terminalStatus: ChatEditRenderVerificationTerminalStatus | null;
   attemptCount: number;
+  /** Attempts to hand the durable request to queue transport; separate from worker attempts. */
+  dispatchAttemptCount?: number;
   qstashMessageId: string | null;
+  /** A short checkpoint-owned lease prevents concurrent recovery sweeps from publishing the same request. */
+  dispatchLeaseToken?: string | null;
+  dispatchLeaseExpiresAt?: string | null;
+  nextDispatchAttemptAt?: string | null;
+  lastDispatchError?: string | null;
   workerRequestId: string | null;
   /** Server-generated token for the one worker attempt allowed to finish this record. */
   attemptToken: string | null;
@@ -61,6 +68,8 @@ export interface ChatEditRenderVerificationRecord<Visual = unknown, Audio = Chat
   sessionId: string;
   beforeCheckpointId: string;
   afterCheckpointId: string;
+  /** Immutable worker input retained by the checkpoint for crash-safe redelivery. */
+  request?: ChatEditRenderVerificationRequest;
   /** Immutable ProjectService receipt for the post-mutation state under review. */
   subjectReceipt?: ChatEditRenderVerificationRequest['subjectReceipt'];
   status: ChatEditRenderVerificationStatus;
@@ -120,6 +129,7 @@ export function buildRequestedChatEditRenderVerification(
     sessionId: request.sessionId,
     beforeCheckpointId: request.beforeCheckpointId,
     afterCheckpointId: request.afterCheckpointId,
+    request: structuredClone(request),
     ...(request.subjectReceipt ? { subjectReceipt: request.subjectReceipt } : {}),
     status: 'pending',
     requestedAt: request.requestedAt,
@@ -144,7 +154,12 @@ export function buildRequestedChatEditRenderVerification(
       state: 'requested',
       terminalStatus: null,
       attemptCount: 0,
+      dispatchAttemptCount: 0,
       qstashMessageId: null,
+      dispatchLeaseToken: null,
+      dispatchLeaseExpiresAt: null,
+      nextDispatchAttemptAt: null,
+      lastDispatchError: null,
       workerRequestId: null,
       attemptToken: null,
       reason: null,
@@ -190,6 +205,23 @@ export function ensureChatEditRenderVerificationLifecycle<Visual, Audio>(
       issues: normalizedIssues,
       lifecycle: {
         ...record.lifecycle,
+        dispatchAttemptCount: normalizeDispatchAttempt(
+          (record.lifecycle as { dispatchAttemptCount?: unknown }).dispatchAttemptCount,
+        ),
+        dispatchLeaseToken: cleanText(
+          (record.lifecycle as { dispatchLeaseToken?: unknown }).dispatchLeaseToken,
+          240,
+        ),
+        dispatchLeaseExpiresAt: cleanIsoTimestamp(
+          (record.lifecycle as { dispatchLeaseExpiresAt?: unknown }).dispatchLeaseExpiresAt,
+        ),
+        nextDispatchAttemptAt: cleanIsoTimestamp(
+          (record.lifecycle as { nextDispatchAttemptAt?: unknown }).nextDispatchAttemptAt,
+        ),
+        lastDispatchError: cleanText(
+          (record.lifecycle as { lastDispatchError?: unknown }).lastDispatchError,
+          500,
+        ),
         attemptToken: cleanText(
           (record.lifecycle as { attemptToken?: unknown }).attemptToken,
           240,
@@ -227,7 +259,12 @@ export function ensureChatEditRenderVerificationLifecycle<Visual, Audio>(
             ? 'system-error'
             : null,
       attemptCount: record.status === 'running' || completed || failed ? 1 : 0,
+      dispatchAttemptCount: record.dispatchMessageId ? 1 : 0,
       qstashMessageId: record.dispatchMessageId,
+      dispatchLeaseToken: null,
+      dispatchLeaseExpiresAt: null,
+      nextDispatchAttemptAt: null,
+      lastDispatchError: null,
       workerRequestId: null,
       attemptToken: null,
       reason: record.reasons[0] ?? null,
@@ -279,12 +316,102 @@ export function markChatEditRenderVerificationDispatched<Visual, Audio>(
     : record.lifecycle.state;
   return {
     ...record,
+    status: 'pending',
+    completedAt: null,
+    reasons: [],
+    issues: [],
     dispatchMessageId: messageId,
     lifecycle: {
       ...record.lifecycle,
       state,
+      terminalStatus: null,
       qstashMessageId: messageId,
+      dispatchLeaseToken: null,
+      dispatchLeaseExpiresAt: null,
+      nextDispatchAttemptAt: null,
+      lastDispatchError: null,
+      reason: null,
       dispatchedAt: record.lifecycle.dispatchedAt ?? updatedAt,
+      updatedAt,
+    },
+  };
+}
+
+/**
+ * Moves an abandoned or explicitly failed queue dispatch back to a checkpoint-
+ * owned pending state. It does not claim a worker attempt or mutate a project.
+ */
+export function claimChatEditRenderVerificationDispatchRecovery<Visual, Audio>(
+  record: ChatEditRenderVerificationRecord<Visual, Audio>,
+  input: {
+    leaseToken: string;
+    now?: Date | string;
+    leaseDurationMs?: number;
+  },
+): ChatEditRenderVerificationRecord<Visual, Audio> {
+  const updatedAt = toIso(input.now ?? new Date());
+  const leaseToken = cleanText(input.leaseToken, 240);
+  if (!leaseToken) throw new Error('A chat render-verification dispatch recovery requires a lease token.');
+  const leaseDurationMs = Number.isSafeInteger(input.leaseDurationMs) && input.leaseDurationMs! > 0
+    ? Math.min(input.leaseDurationMs!, 10 * 60_000)
+    : 2 * 60_000;
+  const expiresAt = new Date(new Date(updatedAt).getTime() + leaseDurationMs).toISOString();
+  return {
+    ...record,
+    status: 'pending',
+    completedAt: null,
+    reasons: [],
+    issues: [],
+    lifecycle: {
+      ...record.lifecycle,
+      state: 'requested',
+      terminalStatus: null,
+      dispatchAttemptCount: Math.min(100, normalizeDispatchAttempt(record.lifecycle.dispatchAttemptCount) + 1),
+      dispatchLeaseToken: leaseToken,
+      dispatchLeaseExpiresAt: expiresAt,
+      nextDispatchAttemptAt: null,
+      reason: 'render_verification_dispatch_recovery_claimed',
+      terminalAt: null,
+      updatedAt,
+    },
+  };
+}
+
+/** Records a retryable queue-transport failure without pretending that proof ran. */
+export function deferChatEditRenderVerificationDispatch<Visual, Audio>(
+  record: ChatEditRenderVerificationRecord<Visual, Audio>,
+  input: {
+    reason: string;
+    now?: Date | string;
+    retryDelayMs?: number;
+  },
+): ChatEditRenderVerificationRecord<Visual, Audio> {
+  const updatedAt = toIso(input.now ?? new Date());
+  const reason = cleanText(input.reason, 500) ?? 'render_verification_dispatch_deferred';
+  const retryDelayMs = Number.isSafeInteger(input.retryDelayMs) && input.retryDelayMs! > 0
+    ? Math.min(input.retryDelayMs!, 60 * 60_000)
+    : 5 * 60_000;
+  return {
+    ...record,
+    status: 'pending',
+    completedAt: null,
+    reasons: [reason],
+    issues: [{
+      modality: 'system',
+      severity: 'warn',
+      code: 'render_verification_dispatch_deferred',
+      message: reason,
+    }],
+    lifecycle: {
+      ...record.lifecycle,
+      state: 'requested',
+      terminalStatus: null,
+      dispatchLeaseToken: null,
+      dispatchLeaseExpiresAt: null,
+      nextDispatchAttemptAt: new Date(new Date(updatedAt).getTime() + retryDelayMs).toISOString(),
+      lastDispatchError: reason,
+      reason,
+      terminalAt: null,
       updatedAt,
     },
   };
@@ -464,10 +591,21 @@ function normalizeAttempt(value: number): number {
   return Number.isSafeInteger(value) && value > 0 ? Math.min(value, 100) : 1;
 }
 
+function normalizeDispatchAttempt(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? Math.min(value, 100)
+    : 0;
+}
+
 function cleanText(value: unknown, maxLength: number): string | null {
   if (typeof value !== 'string') return null;
   const text = value.trim();
   return text ? text.slice(0, maxLength) : null;
+}
+
+function cleanIsoTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string' || Number.isNaN(new Date(value).getTime())) return null;
+  return value;
 }
 
 function sanitizeIssues(value: unknown): ChatEditRenderVerificationIssue[] {

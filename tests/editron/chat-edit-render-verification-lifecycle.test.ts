@@ -1,9 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.hoisted(() => {
+  process.env.MONGODB_URI ??= 'mongodb://localhost:27017/editron-test';
+  process.env.MONGODB_DB_NAME ??= 'editron-test';
+});
 
 import { extractPersistedChatBattleRenderEvidence } from '@/lib/editron/services/chat-edit-battle-harness';
+import { isEligibleForDispatchRecovery } from '@/lib/editron/services/chat-edit-render-verification-dispatch-recovery';
 import {
   buildRequestedChatEditRenderVerification,
+  claimChatEditRenderVerificationDispatchRecovery,
+  deferChatEditRenderVerificationDispatch,
   ensureChatEditRenderVerificationLifecycle,
+  markChatEditRenderVerificationDispatched,
   markChatEditRenderVerificationDelivered,
 } from '@/lib/editron/services/chat-edit-render-verification-lifecycle';
 
@@ -106,5 +115,69 @@ describe('chat edit render-verification diagnostic truth', () => {
       legacy as Parameters<typeof ensureChatEditRenderVerificationLifecycle>[0],
       completedAt,
     ).lifecycle.attemptToken).toBeNull();
+  });
+
+  it('recovers a failed queue dispatch with a lease without treating proof as complete', () => {
+    const requested = buildRequestedChatEditRenderVerification({
+      version: 'editron-chat-render-verification-v1',
+      operationId: 'op_dispatch_recovery',
+      sessionId: 'session_dispatch_recovery',
+      beforeCheckpointId: 'checkpoint_before',
+      afterCheckpointId: 'checkpoint_after',
+      subjectReceipt: {
+        schemaVersion: 1,
+        projectId: 'project_dispatch_recovery',
+        revision: { schemaVersion: 1, value: 4, compatibilityUpdatedAt: requestedAt },
+        committedAt: requestedAt,
+      },
+      requestedAt,
+      modalities: ['visual'],
+      targets: [],
+      sampleFrames: [40],
+    }, requestedAt);
+    const failedDispatch = markChatEditRenderVerificationDispatched(requested, {
+      dispatched: false,
+      reason: 'qstash_publish_timeout',
+    }, completedAt);
+    const claimed = claimChatEditRenderVerificationDispatchRecovery(failedDispatch, {
+      leaseToken: 'recovery-lease-1',
+      now: completedAt,
+      leaseDurationMs: 60_000,
+    });
+    const deferred = deferChatEditRenderVerificationDispatch(claimed, {
+      reason: 'qstash_still_unavailable',
+      now: completedAt,
+      retryDelayMs: 60_000,
+    });
+    const redispatched = markChatEditRenderVerificationDispatched(claimed, {
+      dispatched: true,
+      messageId: 'qstash-message-2',
+    }, completedAt);
+
+    expect(claimed.status).toBe('pending');
+    expect(claimed.lifecycle).toMatchObject({
+      state: 'requested',
+      terminalStatus: null,
+      dispatchAttemptCount: 1,
+      dispatchLeaseToken: 'recovery-lease-1',
+    });
+    expect(deferred.status).toBe('pending');
+    expect(deferred.lifecycle).toMatchObject({
+      state: 'requested',
+      dispatchLeaseToken: null,
+      lastDispatchError: 'qstash_still_unavailable',
+    });
+    expect(deferred.lifecycle.nextDispatchAttemptAt).toBe('2026-07-30T10:01:05.000Z');
+    expect(isEligibleForDispatchRecovery(failedDispatch, new Date(completedAt))).toBe(true);
+    expect(isEligibleForDispatchRecovery(deferred, new Date(completedAt))).toBe(false);
+    expect(isEligibleForDispatchRecovery(deferred, new Date('2026-07-30T10:01:05.000Z'))).toBe(true);
+    expect(redispatched.status).toBe('pending');
+    expect(redispatched.lifecycle).toMatchObject({
+      state: 'dispatched',
+      qstashMessageId: 'qstash-message-2',
+      dispatchLeaseToken: null,
+      nextDispatchAttemptAt: null,
+      lastDispatchError: null,
+    });
   });
 });

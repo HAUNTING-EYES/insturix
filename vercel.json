@@ -21,6 +21,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/recover-chat-render-verifications",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/check-plan-expiration",
       "schedule": "0 0 * * *"
     },
