@@ -88,6 +88,91 @@ The same separation applies to captions, crop/reframe, SFX, music and MG.
 The LLM can select, rank, explain and ask for a missing capability.  It cannot
 write an unbounded style object, arbitrary raw database mutation or a fake proof.
 
+## Reference-to-execution contract: from a visible result to real operations
+
+A reference is not converted directly into an effect name.  Editron first
+describes the observable result, independently of how it may have been made.
+For a still reference this includes canvas/aspect ratio, visible regions,
+layering, panel geometry, crops, subject placement, typography, colour,
+contrast and occlusion.  A video reference additionally supplies shot rhythm,
+panel entrances/exits, motion curves, transition boundaries and audible
+events.  A still image cannot reveal timing, easing or sound; those facts must
+remain unresolved, use explicit alternatives, or be supplied by the user.
+
+The resulting versioned `ReferenceBlueprint` contains cited measurements and
+confidence, not raw model prose.  For the vertical classroom collage example,
+it would describe a black 9:16 canvas, several repeated rectangular source
+windows with explicit normalised bounds and crop focus, black gutters, a
+central stacked uppercase yellow title, distressed glyph treatment and title
+safe-zone/contrast requirements.  The title is a graphics layer, but the whole
+result is a **reference-driven composite sequence**: media selection, trims,
+duplicate timeline instances, crops/reframes, layout, optional panel motion,
+colour harmonisation and typography.  It must not be collapsed into the
+generic MG selector.
+
+The source footage is analysed separately.  `SourceMatch` records map each
+reference role to one or more exact source ranges using people/objects, action,
+composition, dialogue, motion and crop viability.  Duplicating a shot in a
+collage creates multiple timeline references to the immutable source; it does
+not copy or transcode the master media.  A missing shot, font, licence or crop
+margin is reported as a constraint failure or visible approximation, never
+silently invented.
+
+The planner then creates an `ExecutionDAG`, not a free-form list of Adobe tool
+names.  Every capability operator declares:
+
+- required inputs and project/evidence preconditions;
+- typed outputs that later operators may consume;
+- declared timeline/media state effects and ordering constraints;
+- supported media/range/region forms and known incompatibilities;
+- cost, latency, privacy, reversibility and proof obligations.
+
+The LLM proposes goals and dependency edges; a deterministic plan compiler
+rejects missing inputs, cycles, unsupported effects, unsafe revision targets
+and undeclared state changes, then topologically orders the valid graph.  Each
+family resolver remains the sole owner of its concrete form.  The dependency
+planner may say that a background-only grade needs a mask, but it may not
+invent mask geometry, grade parameters or transform keyframes.
+
+For example, suppose the target says: keep the person natural, make only the
+background teal, and move the person from left to centre over 24 frames.  A
+whole-frame colour operator declares that it would also alter the person, so
+it cannot satisfy the target.  The supported graph is:
+
+```text
+source range -> subject tracking/mask resolver -> versioned mask asset
+source + inverse mask -> colour resolver -> background-only grade
+source + subject mask -> transform resolver -> 24-frame position curve
+graded background + animated subject -> composite renderer -> visual proof
+```
+
+The mask must exist before masked grading and compositing; the transform and
+background grade may be prepared in parallel after their inputs exist; the
+renderer consumes both.  Those data dependencies, not an LLM's storytelling,
+determine the legal sequence.  If several graphs can produce the target, rank
+certified native, reversible and cheaper graphs ahead of generated code, then
+compare actual preview renders against the blueprint's geometry, motion,
+colour, legibility and continuity constraints.
+
+For the collage example the graph is similarly explicit: map source ranges;
+create the compound sequence; add and trim clip instances; resolve each
+panel's rectangle and crop; add gutters/background; resolve the title using a
+licensed font and legal distress treatment; add panel keyframes only when a
+video reference proves motion; render; compare against the blueprint; then
+apply the approved canonical commands through ProjectService.  If native
+operators cannot express a genuinely custom composition, the fallback is an
+isolated generated-composition artifact with immutable inputs and the same
+render/proof gates.  It is not permission for the model to mutate the project
+or execute arbitrary code.
+
+This explains how a coding agent can reproduce such a reference today: it can
+inspect the reference and source media, write a one-off composition, render it,
+look at the output and revise the code.  Productising that behaviour requires
+the structured blueprint, source mapping, certified operators, dependency
+compiler, canonical mutation and proof chain above so the result remains
+editable, repeatable, safe and usable by many customers rather than only in a
+single coding session.
+
 ## CreativeDirection is not a preset
 
 `CreativeDirection` is a versioned project fact that captures what "good" means
@@ -236,6 +321,25 @@ Build an owned, rights-cleared **Caption Evaluation Set** instead:
    and prevent regressions.  Start with hundreds of high-quality, diverse,
    consented examples rather than chasing millions.  Fine-tuning is optional
    later and only if measured ranking failure remains.
+
+Caption variety comes from a tested `CaptionStyleGrammar`, not from a fixed
+user-facing preset list and not from arbitrary model-generated CSS.  Original
+or licensed design work supplies compatible atoms and bounded parameter ranges:
+licensed typefaces and weights; casing and line-break rules; anchors and safe
+zones; fills, strokes, shadows and backgrounds; per-word/phrase emphasis;
+entrance, hold and exit motion; speaker treatment; and accessibility limits.
+Designers may author new families, and an approved one-off client treatment may
+be promoted only after its rights, fixtures and failure envelope are recorded.
+
+At runtime, the resolver receives the word timings, reading rate, language,
+faces and existing text regions, background contrast/motion, aspect ratio and
+CreativeDirection.  It filters out incompatible atoms, constructs only valid
+combinations, resolves line breaks and placement, renders the best candidates,
+and rejects collisions, illegibility, unsafe flashing and timing overflow with
+deterministic checks.  A taste ranker may order the remaining real renders; it
+cannot make an invalid candidate legal.  Editor/client comparisons improve
+that ranking.  This creates broad style range through compatible composition
+while retaining one form owner and a reproducible reason for every choice.
 
 The product result is one resolver with an evidence-based default and a clear
 user override, not a pile of hard-coded defaults.  Today `subtitle`, `hormozi`,
