@@ -16,6 +16,23 @@ export interface CalosWriterContext extends ThinkForgeResolvedAuthoringContext {
   signalTrace: ReturnType<typeof buildThinkForgeSignalTrace>;
 }
 
+export type CalosWriterParams = GenerateParams & {
+  /** Server-preflighted only; never accepted from a browser request. */
+  authoringContext?: CalosWriterContext;
+};
+
+function assertPreflightedContextMatchesParams(
+  context: CalosWriterContext,
+  params: GenerateParams,
+): CalosWriterContext {
+  const resolvedBrandId = context.projectMeta.brandId?.trim();
+  const snapshotBrandId = context.snapshot.brand?.brandId?.trim();
+  if (resolvedBrandId !== params.brandId || snapshotBrandId !== params.brandId) {
+    throw new Error('CalOS preflighted authoring context does not match the requested brand.');
+  }
+  return context;
+}
+
 function buildCalosWriterPrompt(params: GenerateParams): string {
   return [
     params.title,
@@ -31,8 +48,12 @@ function buildCalosWriterPrompt(params: GenerateParams): string {
  * CalOS may not reduce that failure to a generic, brandless draft.
  */
 export async function resolveCalosWriterContext(
-  params: GenerateParams,
+  params: CalosWriterParams,
 ): Promise<CalosWriterContext> {
+  if (params.authoringContext) {
+    return assertPreflightedContextMatchesParams(params.authoringContext, params);
+  }
+
   const userPrompt = buildCalosWriterPrompt(params);
   const resolved = await resolveThinkForgeAuthoringContext({
     userId: params.ownerUserId,

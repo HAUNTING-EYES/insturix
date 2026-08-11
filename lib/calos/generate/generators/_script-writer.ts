@@ -1,5 +1,4 @@
-import type { GenerateParams } from "../contract";
-import { resolveCalosWriterContext } from "./_brand-brief";
+import { resolveCalosWriterContext, type CalosWriterParams } from "./_brand-brief";
 import { resolveReferenceBlock } from "./_campaign-references";
 
 /**
@@ -10,7 +9,7 @@ import { resolveReferenceBlock } from "./_campaign-references";
  * Editron for an AI-assisted edit, or take the script and shoot/upload their own footage. CalOS
  * never renders the video (Editron has no headless render entry point). Returns the script markdown.
  */
-export async function runScriptWriter(params: GenerateParams): Promise<string> {
+export async function runScriptWriter(params: CalosWriterParams): Promise<string> {
   const [authoringContext, referenceBlock] = await Promise.all([
     resolveCalosWriterContext(params),
     resolveReferenceBlock(params.campaignId, params.brandId),

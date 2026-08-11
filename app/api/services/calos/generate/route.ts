@@ -6,6 +6,8 @@ import { serviceForFormat } from "@/lib/calos/generate/route-map";
 import { getGenerator, type GenerateParams } from "@/lib/calos/generate/contract";
 import { calosScope } from "@/lib/calos/scope";
 import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
+import { resolveCalosWriterContext } from "@/lib/calos/generate/generators/_brand-brief";
+import { ThinkForgeBrandAuthorityError } from "@/lib/thinkforge/context/brand-authoring-context";
 import "@/lib/calos/generate/register"; // side-effect: wires the live generators
 
 export const dynamic = "force-dynamic";
@@ -82,6 +84,33 @@ export async function POST(req: NextRequest) {
       angle: deliverable.card.details,
     };
 
+    // Resolve the selected brand exactly once before billing. The same object is passed
+    // into the writer so generation cannot drift to a newer/different Brand Vault read.
+    let authoringContext;
+    if (service === "thinkforge" || service === "clickatron") {
+      try {
+        authoringContext = await resolveCalosWriterContext(params);
+      } catch (error) {
+        if (error instanceof ThinkForgeBrandAuthorityError) {
+          const status = error.code === "brand_not_found"
+            ? 404
+            : error.code === "brand_profile_unavailable"
+              ? 409
+              : 503;
+          return NextResponse.json({
+            error: "Brand context unavailable",
+            code: error.code,
+            message: error.message,
+          }, { status });
+        }
+        return NextResponse.json({
+          error: "Brand context unavailable",
+          code: "brand_context_unavailable",
+          message: "CalOS could not verify the selected Brand Vault context. Please try again before generating.",
+        }, { status: 503 });
+      }
+    }
+
     generationCreditCheck = await checkCredits(userId, "calos", "generate_deliverable", {
       requestType: service,
     });
@@ -89,7 +118,10 @@ export async function POST(req: NextRequest) {
     await generationCreditCheck.deduct();
     generationCreditsDeducted = true;
 
-    const result = await generator(params);
+    const generationParams = authoringContext
+      ? Object.assign({}, params, { authoringContext })
+      : params;
+    const result = await generator(generationParams);
     if (!result.ok) {
       deliverable.editorialStatus = "drafting";
       deliverable.errorMessage = result.error || "Generation failed";

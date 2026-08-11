@@ -1,5 +1,4 @@
-import type { GenerateParams } from "../contract";
-import { resolveCalosWriterContext } from "./_brand-brief";
+import { resolveCalosWriterContext, type CalosWriterParams } from "./_brand-brief";
 import { resolveReferenceBlock } from "./_campaign-references";
 
 export interface PostWriterOutput {
@@ -17,7 +16,7 @@ export interface PostWriterOutput {
  * single-image prompt PostWriter emits (previously discarded — now carried so CalOS can drive image
  * generation for graphics cards; the caption path simply ignores `imagePrompt`).
  */
-export async function runPostWriter(params: GenerateParams): Promise<PostWriterOutput> {
+export async function runPostWriter(params: CalosWriterParams): Promise<PostWriterOutput> {
   const [authoringContext, referenceBlock] = await Promise.all([
     resolveCalosWriterContext(params),
     resolveReferenceBlock(params.campaignId, params.brandId),
