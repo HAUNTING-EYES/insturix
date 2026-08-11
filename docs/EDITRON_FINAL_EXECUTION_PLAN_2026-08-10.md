@@ -341,10 +341,24 @@ state/render/proof semantics.  No direct writer can report a false success.
 - Define project-scoped compare-and-swap and multi-writer conflict semantics.
   Build no full NLE interface here; establish only the canonical target every
   overlay, command and proof must use.
+- Define non-blocking interaction semantics.  A chat request or long-running
+  analysis/render job is based on an immutable `R_base` revision and must never
+  lock playback, seeking, selection, inspection or a user's next timeline
+  command.  The player continues to use the last committed canonical revision;
+  a proposed change is a separately labelled preview/composition, not a second
+  persisted timeline.
+- At apply time, ProjectService compares the plan's declared read/write ranges
+  and `R_base` with the current revision.  Disjoint, still-valid operations may
+  be safely rebased through their declared command semantics; a same-object,
+  same-range, deleted-source, invalidated-evidence or dependent-plan conflict
+  must fail closed as `Needs review` and offer replan, side-by-side preview or
+  explicit user resolution.  It must never silently last-write-win over a
+  manual edit.  A background render and proof remain bound to the revision they
+  actually rendered; a later revision cannot inherit their result.
 
 **Exit:** every future vertical has a stable project-scoped target, timeline
-identity and conflict rule.  No overlay may mutate an unofficial intermediate
-timeline state.
+identity and conflict rule.  The user can continue editing while AI work is
+pending, and no overlay may mutate an unofficial intermediate timeline state.
 
 ### Stage 2 - media identity, evidence and workflow records
 
@@ -396,6 +410,16 @@ Admit one vertical at a time only after it has the Stage 1 command/proof path,
 the Stage 1.5 editorial target, project direction and rights/evidence bindings,
 a review state, and the Stage 3 action guard.  Each vertical then completes the
 whole contract:
+
+Before expanding any catalog or adding a new effect, run that vertical's
+**overlay recovery gate**: trace each active UI, chat, Director and automatic
+producer through its writer, saved-project projection, renderer and proof
+consumer; turn the observed broken behaviour into a representative end-to-end
+fixture; repair or retire duplicate form/writer paths; then prove the repaired
+path can save, reload, render, report a truthful proof state and safely undo.
+Expansion is blocked until the existing representative path works.  This gate
+addresses current failures in overlays themselves rather than assuming that a
+new resolver or a larger catalog will fix them.
 
 1. **Captions:** resolver + owned evaluation set + safe UI/chat overrides.
 2. **Transitions:** catalog + resolver + direct UI/chat/EDL convergence.
