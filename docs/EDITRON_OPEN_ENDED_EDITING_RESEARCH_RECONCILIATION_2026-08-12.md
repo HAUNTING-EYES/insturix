@@ -553,12 +553,15 @@ pretending general synthesis is solved.
 
 The research pack's model roster is plausible as an experiment list, not a
 winner declaration. The first cost-controlled screen is GPT-5.6 Luna,
-GPT-5.6 Terra, DeepSeek-V4-Flash, Gemini 3.5 Flash-Lite and Gemini 3.6 Flash.
+GPT-5.6 Terra, DeepSeek-V4-Flash-0731, Gemini 3.5 Flash-Lite and Gemini 3.6 Flash.
 The exact price snapshot, provider/privacy boundary, route role and staged
 trial counts live in the canonical final plan. Expensive frontier models may
 run on a small blinded subset as quality ceilings, not assumed production
-defaults. DeepSeek remains a structured-evidence planner candidate until its
-exact pinned route proves any required multimodal and privacy properties.
+defaults. DeepSeek's hosted API still uses `deepseek-v4-flash`, but its official
+July 31 change log says that alias now serves the post-trained 0731 release;
+open-weight/self-hosted trials pin `deepseek-ai/DeepSeek-V4-Flash-0731`.
+DeepSeek remains a structured-evidence planner candidate until that exact route
+proves any required multimodal and privacy properties.
 
 General coding or tool-use benchmarks do not answer the Editron question.
 VEBench itself reports a significant human gap in editing cognition, and
@@ -570,6 +573,8 @@ Primary references:
 - [OpenAI GPT-5.6 launch](https://openai.com/index/gpt-5-6/)
 - [OpenAI API pricing](https://openai.com/api/pricing/)
 - [DeepSeek models and pricing](https://api-docs.deepseek.com/quick_start/pricing/)
+- [DeepSeek July 31 API update](https://api-docs.deepseek.com/updates/)
+- [DeepSeek-V4-Flash-0731 model card](https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731)
 - [Gemini latest-model guide](https://ai.google.dev/gemini-api/docs/latest-model)
 - [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing)
 - [VEBench](https://arxiv.org/abs/2605.03276)

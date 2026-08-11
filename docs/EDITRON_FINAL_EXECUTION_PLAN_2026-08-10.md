@@ -447,7 +447,7 @@ standard API list prices verified on **2026-08-12** are:
 |---|---|---:|---|
 | GPT-5.6 Luna | low-cost graph planner | $1 / $6 | Test structured planning/tool use; do not assume it is the best visual judge. |
 | GPT-5.6 Terra | stronger affordable planner | $2.50 / $15 | Compare quality gained per accepted edit, not headline benchmark score. |
-| DeepSeek-V4-Flash | very-low-cost text/tool planner | $0.14 cache-miss input, $0.0028 cache-hit input / $0.28 output | Official API confirms JSON/tool calls; keep it on structured evidence unless its exact pinned route proves approved multimodal handling. Privacy/egress approval is mandatory. |
+| DeepSeek-V4-Flash-0731 | very-low-cost text/tool planner | $0.14 cache-miss input, $0.0028 cache-hit input / $0.28 output | Test the July 31 post-trained release specifically. DeepSeek's hosted API identifier remains `deepseek-v4-flash` and now routes to 0731; self-hosted/open-weight trials must pin `deepseek-ai/DeepSeek-V4-Flash-0731`. Official API confirms JSON/tool calls; keep it on structured evidence unless the tested route proves approved multimodal handling. Privacy/egress approval is mandatory. |
 | Gemini 3.5 Flash-Lite | low-cost multimodal observer and planner candidate | $0.30 / $2.50 | Officially accepts text, image, video, audio and PDF; useful for cheap evidence tasks, but must still prove graph quality. |
 | Gemini 3.6 Flash | higher-capability multimodal candidate | $1.50 / $7.50 | Compare only where the cheaper candidates fail; do not send ten hours per request. |
 
@@ -460,6 +460,12 @@ aliases are volatile; every run records the exact provider model/snapshot,
 region, service tier and retrieved price sheet. GPT-5.6 Sol and other expensive
 frontier models may run on a small blinded subset as a quality ceiling, not as
 the assumed production route.
+
+The DeepSeek snapshot identity is separately bound to the [official July 31
+change log](https://api-docs.deepseek.com/updates/) and the
+[`DeepSeek-V4-Flash-0731` model card](https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731),
+so a future update behind the hosted alias cannot silently change a benchmark
+run.
 
 The benchmark prevents API differences from becoming hidden assistance:
 
@@ -912,7 +918,7 @@ build a production router around it:
 2. **OE-1 — external planner-only harness:** implement the provider-neutral
    trial record and the first provider adapter in one five-file phase; add each
    additional provider adapter in its own five-file-or-fewer phase. Run Luna,
-   Terra, DeepSeek-V4-Flash, Gemini 3.5 Flash-Lite and Gemini 3.6 Flash under the
+   Terra, DeepSeek-V4-Flash-0731, Gemini 3.5 Flash-Lite and Gemini 3.6 Flash under the
    same envelopes. Store raw trials, verifier results, cost and latency. Do not
    render, write a project or reuse the production planner as an authority.
 3. **OE-2 — isolated verify/render/repair trial:** add the pure
@@ -1352,6 +1358,30 @@ web post-production system, but the currently authorised build surface is only
 K/OE-0, then OE-1 and OE-2 if each preceding slice verifies. The review does
 not authorise a production planner, model router, live project mutation, broad
 overlay expansion or an Adobe-replacement claim.
+
+This is **sequenced execution clearance**, not a decision to stop at K/OE-0.
+K/OE-0 freezes the fair test; OE-1 runs the models; OE-2 proves their proposed
+graphs against isolated renders. If the locked gate passes, the next proposal
+is production integration. Building the runtime first would make the benchmark
+measure our repair code, templates and hidden assistance instead of the model's
+ability to construct the graph.
+
+The restrictions also fall into two different classes:
+
+- **Permanent ownership/supply-chain boundaries:** ProjectService remains the
+  only project mutation owner; a model or research harness never becomes a
+  second authority. Web content never auto-installs executable capability.
+  Candidate code or knowledge must be isolated, licensed, reviewed, tested,
+  versioned and promoted through the normal capability process.
+- **Evidence-gated product work:** model-driven production planning, controlled
+  web research, live mutation and Adobe-class claims are deferred, not banned.
+  A production planner may proceed after OE-2 proves graph quality and the
+  auto-edit checkpoint defines interaction/conflict semantics. Controlled web
+  research may proceed through a separately permissioned, injection-resistant
+  research service that returns cited evidence or a capability-gap proposal;
+  the live project agent does not receive unrestricted browsing or executable
+  downloads. Adobe-class claims proceed capability family by capability family
+  after their real workflows and proof gates pass.
 
 **CEO verdict:** the bet is worth testing because successful graph synthesis
 could materially compress agency editing labour, but the commercial wedge is
