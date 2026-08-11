@@ -31,12 +31,16 @@ does not approve a new parallel runtime.
 3. The user says what they want in ordinary language: for example, "make a
    confident 45-second launch cut for this brand, use these references, remove
    the bad takes, add subtitles and restrained motion graphics."
-4. The AI reads a compact, cited project view rather than blindly watching every
-   frame on every request.  It creates an editorial plan containing proposed
-   moments, goals, evidence, alternatives, risk and expected visible changes.
-5. A deterministic capability layer checks that each proposed operation is
-   supported, allowed by the brand/rights/privacy rules, and safe in the current
-   project revision.  The correct owner resolves the concrete form.
+4. Before planning, Editron constructs a project-scoped `PlannerEnvelope` from
+   the current revision, rights, privacy, brand, media, cost and capability
+   facts. The AI sees the compact cited evidence and only the operators that are
+   eligible for this request; it does not receive a wish list of unavailable or
+   forbidden tools.
+5. The AI creates an editorial plan containing proposed moments, goals,
+   evidence, alternatives, risk and expected visible changes. An independent
+   graph verifier then rejects schema, type, range, state-effect, policy and
+   dependency errors. It never teaches the model how to make the edit or repairs
+   its creative decomposition.
 6. ProjectService applies the approved, canonical commands atomically and gives
    receipts with revision/undo/replay facts.  The renderer produces preview and
    final media.  Validators inspect the actual rendered frames and audio.
@@ -72,10 +76,12 @@ The model is a planner/ranker, not a magic effects engine.  Its decision is
 connected to evidence and constrained tools:
 
 ```text
-User goal + CreativeDirection + project evidence
-  -> typed intent proposal with citations and alternatives
-  -> Capability Registry: is this supported and permitted?
-  -> Resolver: chooses only legal concrete form
+Project revision + policy + Capability Registry
+  -> PlannerEnvelope: eligible operators + bound facts + hard constraints
+User goal + CreativeDirection + cited evidence + PlannerEnvelope
+  -> model-proposed typed intent/graph with alternatives
+  -> GraphVerifier: independently accept or reject; never invent topology
+  -> Resolver: chooses only legal concrete form for each accepted family node
   -> ProjectService command with expected revisions
   -> render + deterministic validator + proof/receipt
 ```
@@ -138,7 +144,9 @@ margin is reported as a constraint failure or visible approximation, never
 silently invented.
 
 The planner then creates an `ExecutionDAG`, not a free-form list of Adobe tool
-names.  Every capability operator declares:
+names. Before the model is called, Editron removes operators whose owner,
+certification, media support, policy, rights, budget or current-revision
+preconditions cannot hold. Every remaining capability operator declares:
 
 - required inputs and project/evidence preconditions;
 - typed outputs that later operators may consume;
@@ -146,12 +154,14 @@ names.  Every capability operator declares:
 - supported media/range/region forms and known incompatibilities;
 - cost, latency, privacy, reversibility and proof obligations.
 
-The LLM proposes goals and dependency edges; a deterministic plan compiler
+The LLM proposes goals and dependency edges. A deterministic `GraphVerifier`
 rejects missing inputs, cycles, unsupported effects, unsafe revision targets
-and undeclared state changes, then topologically orders the valid graph.  Each
-family resolver remains the sole owner of its concrete form.  The dependency
-planner may say that a background-only grade needs a mask, but it may not
-invent mask geometry, grade parameters or transform keyframes.
+and undeclared state changes. A separate mechanical `ExecutionScheduler`
+topologically orders a graph only after it passes. Neither component inserts a
+conceptual operator, chooses an edit, or changes the model's decomposition.
+Each family resolver remains the sole owner of its concrete form. The planner
+may say that a background-only grade needs a mask, but it may not invent mask
+geometry, grade parameters or transform keyframes.
 
 For example, suppose the target says: keep the person natural, make only the
 background teal, and move the person from left to centre over 24 frames.  A
@@ -216,6 +226,115 @@ It is versioned to make a later decision explainable and reproducible: "this
 caption was chosen under the brand snapshot and approved-reference set that
 existed then."  It is not a menu of presets and it never prevents a user from
 making a new creative request.
+
+## Editorial knowledge system: what teaches the planner
+
+There is no single authoritative document that contains all editorial craft,
+all post-production disciplines and the exact controls of every professional
+application. The closest lawful, structured spine found in the source review
+is Blackmagic Design's free official [DaVinci Resolve training
+curriculum](https://www.blackmagicdesign.com/products/davinciresolve/training/).
+Its Resolve 20 books, videos and lesson media cover editing, multicam, colour,
+Fairlight audio, Fusion/VFX and delivery through project-based exercises. It is
+substantial enough to organise the first curriculum, but it is Resolve-specific
+and cannot by itself define Editron or professional post.
+
+The owned **Editron Post-Production Knowledge Base** therefore uses a
+source-of-sources model:
+
+| Domain | Authoritative starting sources | What Editron extracts |
+|---|---|---|
+| Editorial and finishing spine | [Blackmagic official training](https://www.blackmagicdesign.com/products/davinciresolve/training/) | Project workflow, trims, multicam, colour, audio, Fusion/VFX and delivery concepts. |
+| Premiere/After Effects/Audition workflows | [Adobe Premiere Pro reference](https://helpx.adobe.com/pdf/premiere_pro_reference.pdf) and current official product help | Alternative tool semantics, dynamic-link-style composition and professional Adobe workflow terminology. |
+| Timeline and media organisation | [Final Cut Pro user guide](https://support.apple.com/guide/final-cut-pro/welcome/mac) and [Avid Media Composer learning resources](https://learn-cdn.avid.com/Affiliates/Learning_Resources_for_Media_Composer.pdf) | Source/record, magnetic and track-based alternatives; bins, ingest, trim and long-form practice. |
+| Compositing and VFX | [Foundry's Compositing with Nuke](https://learn.foundry.com/nuke/current/content/comp_environment/nuke/nuke_intro.html) | Node/dataflow semantics, channels, mattes, roto, merge, reformat and render concepts. |
+| Media execution | [FFmpeg documentation](https://ffmpeg.org/documentation.html) and [filter documentation](https://ffmpeg.org/ffmpeg-filters.html) | Actual codec, mux, filtergraph, frame/audio and command capabilities with version constraints. |
+| Interchange | [OpenTimelineIO feature matrix](https://opentimelineio.readthedocs.io/en/v0.14/tutorials/feature-matrix.html) | Explicit per-format preservation and loss; no fictional universal round trip. |
+
+We do not copy these manuals into the product and call that intelligence. For
+each source, legal review records the licence, allowed storage/use, attribution,
+version and retrieval date. Without a licence for persistent full-text use,
+Editron stores the link plus an original, reviewable synthesis—not a mirrored
+manual or scraped course. User-found videos are unnecessary for the first
+pass. After the official-source coverage map exposes real gaps, we may
+commission an original, rights-cleared Editron course with professional
+editors, colourists, sound editors and VFX artists specifically for those gaps.
+
+Each knowledge entry has one operator-neutral shape:
+
+```text
+KnowledgeEntryV1
+  concept and intended visible/audible result
+  when it helps and when it damages the edit
+  evidence required to decide
+  affected media/timeline state
+  legal operation relationships, not a mandatory template
+  preservation rules and common failure signatures
+  validation/proof methods
+  equivalent software examples and terminology
+  current Editron support mapping: certified/experimental/missing
+  citations, source version, author/reviewer and rights record
+```
+
+The entry for a match cut, for example, can explain that outgoing and incoming
+moments need a perceivable continuity relation and list geometric, action,
+semantic or audio evidence. It must not force one fixed graph. A model may use
+the principle to propose a new combination of certified operators; the graph
+still has to pass the same project and render checks.
+
+The live `creative-knowledge-graph.json` is not this finished guide. Code audit
+found 115 technique records, 95 mappings and 50 constraints, including many
+signal-to-technique aliases. Preserve it as optional, versioned program memory
+and benchmark material. Audit every record's source and current runtime truth;
+remove claims that are unsupported, and never let an alias match or historical
+mapping become production proof, a form owner or the limit of open-ended
+planning.
+
+At planning time retrieval is small and task-specific. The model gets the
+relevant principles and citations for the observable goal, not the entire
+course and not ten hours of raw media. The benchmark includes an ablation with
+and without these entries. If the model succeeds only when a near-identical
+recipe is retrieved, the measured result is recipe retrieval—not open-ended
+editing intelligence.
+
+## Pre-planning constraints and the verifier boundary
+
+The compiler is a check, not a guide rail. Constraints are made concrete before
+the model plans, and independently enforced again after it responds:
+
+```text
+canonical R_base + tenant/project policy + rights + media facts
+  + capability/owner/certification registry + budget
+      -> ConstraintMaterializer
+      -> PlannerEnvelope
+           eligible operator specs only
+           exact source/range/track/region facts
+           bound privacy/egress and brand constraints
+           preservation predicates and proof requirements
+           time/token/render budget and permitted preview scope
+      -> model proposes candidate graph
+      -> GraphVerifier accepts or rejects the graph exactly as proposed
+      -> ExecutionScheduler orders an accepted DAG mechanically
+      -> resolvers bind owned form -> isolated preview -> validators
+      -> ProjectService revalidates current revision before apply
+```
+
+`ConstraintMaterializer` does not select an edit. It intersects facts already
+owned elsewhere and produces an immutable, hashed envelope. It removes an
+operator when the operator is unsupported for the media, uncertified for the
+requested use, forbidden by policy, incompatible with rights/egress, missing a
+required source fact, or outside the reserved budget. The model cannot call an
+operator absent from the envelope because the tool broker also rejects it by
+envelope ID; prompt wording is not the security boundary.
+
+`GraphVerifier` performs no creative repair and never inserts a mask,
+conversion, transition or missing operation. It validates schema, ports, types,
+ranges, ownership, state effects, preservation, policy, cost and proof
+coverage. A graph with a conceptual gap returns a typed planner failure. Only
+`ExecutionScheduler` may perform deterministic ordering of an already-valid
+DAG. At apply time, ProjectService checks the current revision and declared
+read/write set again because an envelope valid at `R_base` may be stale after a
+manual edit. This last check is concurrency safety, not editorial guidance.
 
 ## Core architecture contracts
 
@@ -312,12 +431,102 @@ an optimisation - not state authority, correctness proof or a solution to
 retrieval.
 
 Gemini may be one model provider, but the architecture requires a model router
-and benchmark suite rather than a Gemini lock-in.  Benchmark candidate
-orchestrators and specialists on our own consented/reproducible project set:
-planning quality, citations, tool choice, visual taste, audio judgement,
-latency, cost, privacy and failure behaviour.  Keep the same CreativeDirection
-and evaluator rules across candidates, so model changes do not change the
-product's taste by accident.
+and benchmark suite rather than a Gemini lock-in. Today the code is not yet
+provider-neutral: Editron analysis and chat commonly default to
+`gemini-2.5-flash`, its higher-reasoning paths use
+`gemini-3.1-pro-preview`, MG uses those same Gemini families, and several model
+choices are spread across factories/configuration and direct call sites. That
+is current implementation truth, not the target router.
+
+### Affordable model benchmark before architecture commitment
+
+No provider is selected in advance. The initial planner candidates and public
+standard API list prices verified on **2026-08-12** are:
+
+| Candidate | Intended test role | Published standard price per 1M input/output tokens | Important boundary |
+|---|---|---:|---|
+| GPT-5.6 Luna | low-cost graph planner | $1 / $6 | Test structured planning/tool use; do not assume it is the best visual judge. |
+| GPT-5.6 Terra | stronger affordable planner | $2.50 / $15 | Compare quality gained per accepted edit, not headline benchmark score. |
+| DeepSeek-V4-Flash | very-low-cost text/tool planner | $0.14 cache-miss input, $0.0028 cache-hit input / $0.28 output | Official API confirms JSON/tool calls; keep it on structured evidence unless its exact pinned route proves approved multimodal handling. Privacy/egress approval is mandatory. |
+| Gemini 3.5 Flash-Lite | low-cost multimodal observer and planner candidate | $0.30 / $2.50 | Officially accepts text, image, video, audio and PDF; useful for cheap evidence tasks, but must still prove graph quality. |
+| Gemini 3.6 Flash | higher-capability multimodal candidate | $1.50 / $7.50 | Compare only where the cheaper candidates fail; do not send ten hours per request. |
+
+Sources: [OpenAI GPT-5.6 launch and
+pricing](https://openai.com/index/gpt-5-6/), [DeepSeek model and pricing
+documentation](https://api-docs.deepseek.com/quick_start/pricing/), [Gemini
+model guide](https://ai.google.dev/gemini-api/docs/latest-model) and [Gemini
+pricing](https://ai.google.dev/gemini-api/docs/pricing). Prices and model
+aliases are volatile; every run records the exact provider model/snapshot,
+region, service tier and retrieved price sheet. GPT-5.6 Sol and other expensive
+frontier models may run on a small blinded subset as a quality ceiling, not as
+the assumed production route.
+
+The benchmark prevents API differences from becoming hidden assistance:
+
+1. `ProviderTrialAdapter` sends the same hashed `BehaviourBrief`,
+   `PlannerEnvelope`, relevant knowledge entries and output schema. Provider
+   adapters translate transport only; hidden retries, prompt rewriting,
+   provider search and tool execution are disabled unless the condition
+   explicitly tests them.
+2. Ineligible/forbidden operators are removed before every call. The research
+   envelope still includes several **eligible but irrelevant** operators so a
+   model has to choose rather than simply echo the only available path.
+3. Round 1 runs all affordable candidates on four development tasks, three
+   independent trials each. Tasks span a native multi-operation edit, a
+   reference composite, an audio/visual dependency and an honest
+   clarify/decline case. Only routes clearing the locked safety floor enter
+   Round 2.
+4. Round 2 runs the best three routes on eight unseen tasks, five trials per
+   task. Names and operator ordering are randomised without changing semantics;
+   at least half contain no technique name or similar saved program.
+5. Round 3 gives only the best legal candidates to the isolated proxy renderer.
+   At most one predicate-specific planner repair is allowed. A second failure
+   becomes `NEEDS_REVIEW`/`DECLINED`, not an open-ended loop.
+6. Visual and audio observation are scored separately from graph planning. A
+   cheap multimodal specialist may produce cited evidence for a text/tool
+   planner; this composition is benchmarked as its own route with both costs
+   and both failure surfaces included.
+
+Every trial stores raw request/response, envelope and knowledge hashes, graph,
+verifier result, preview/proof result, timing, tokens, provider charge and
+failure category. The locked scorecard includes:
+
+- schema-valid and first-pass graph-valid rates;
+- hallucinated, absent and forbidden operator attempts;
+- target-predicate coverage and preservation violations;
+- correct clarification/decline when evidence or capability is missing;
+- render defects, false accepts and false-success rate;
+- blind editor preference against a strong manually authored/certified-family
+  baseline;
+- p50/p95 latency, tokens, provider charge, render charge, repair count and
+  human-review minutes; and
+- stability across trials, task families and pinned model revisions.
+
+The non-negotiable safety floor is zero accepted forbidden operations, zero
+accepted hard-predicate/preservation violations and zero false-success events.
+For the first planner-only screen, a route must additionally reach at least
+99% schema-valid output, 80% first-pass valid graphs, 95% after the single
+repair opportunity and a maximum **$0.25 model cost per accepted planner
+graph**. These are experiment thresholds, not future customer pricing. Before
+production rollout, Finance must bind a stricter per-edit budget to the actual
+plan price, gross-margin target, render/storage/egress cost and expected human
+review.
+
+The economic ranking is:
+
+```text
+cost_per_accepted_verified_edit =
+  (observer calls + planner calls + retries + renders + storage/egress
+   + priced human-review time)
+  / edits that pass hard proof and blind acceptance
+```
+
+A cheap call that needs repeated repair or manual rescue can lose to a more
+expensive first-pass model. The production router is a measured task-route
+matrix—not one universal “brain”: cheap default, evidence-based escalation,
+and a visible decline when no route clears its envelope. Keep the same
+CreativeDirection and evaluator rules across candidates so a provider change
+does not silently change product taste.
 
 ## Caption quality programme - solving taste legally
 
@@ -518,16 +727,22 @@ cancel work without inventing a second job owner.
 This gate is external and non-canonical. It must not mutate a live project or
 become a second planner/runtime authority.
 
-- Freeze one legal difficult-reference hero case as an observable
-  `BehaviourBrief` with target predicates and preservation constraints.
+- Freeze four development tasks and eight unseen holdouts. Include one legal
+  difficult-reference hero case, one native multi-operation edit, one
+  audio/visual dependency and honest clarify/decline cases. Every task has an
+  observable `BehaviourBrief`, target predicates and preservation constraints.
 - Adapt a focused 30–50-operation slice of existing capabilities into research
   `OperatorSpec` packets; adapters describe existing owners and do not create
   new resolvers or writers.
-- Test several provider routes for candidate-DAG proposal with distractor
-  operators, noisy/missing evidence and at least one condition containing no
+- Build a research-only `PlannerEnvelope` before each call. Remove forbidden
+  and technically ineligible operations, but retain eligible distractors so
+  tool choice is still measured.
+- Test the affordable provider routes and staged trial counts in the benchmark
+  above with noisy/missing evidence; at least half of holdouts contain no
   technique names, aliases or graph templates.
-- Compile every candidate deterministically; proxy-render only the best legal
-  candidates; limit predicate-specific repair attempts.
+- Verify every candidate deterministically without conceptual auto-repair;
+  proxy-render only the best legal candidates and allow at most one
+  predicate-specific planner repair.
 - Attribute every failure to observation, retrieval, planning, primitive,
   compiler/runtime or judge. Record validity, preservation, false-success,
   editor preference, latency and cost across repeated trials.
@@ -541,10 +756,15 @@ continues. No production control-plane contract is justified by a demo alone.
 
 ### Stage 3 - intelligence control plane
 
-- Implement `CreativeDirection`, `EditorialPlan`, capability registry, model
-  router, prompt/tool isolation, cost budgets and evaluation logs.
+- Begin only after Stage 2.5 returns `GO`. Implement `CreativeDirection`,
+  `EditorialPlan`, capability registry, `ConstraintMaterializer`, hashed
+  `PlannerEnvelope`, model router, prompt/tool isolation, cost budgets and
+  evaluation logs.
 - Let the planner propose typed intents with evidence citations, alternatives,
   expected effect and confidence/risk.  It never directly mutates documents.
+- Retrieve a small set of reviewed post-production knowledge entries by
+  observable goal and evidence need. Knowledge can explain principles and
+  failure modes; it cannot create missing support or bypass an owner.
 - Make capability contracts two-layered: a small mandatory safety envelope
   (owner, I/O, state effects, validation, proof, undo/replay, rights and
   policy) plus a family-specific extension.  Manual UI operations use the same
@@ -552,10 +772,12 @@ continues. No production control-plane contract is justified by a demo alone.
   a second automatic writer.
 - Isolate model lanes and tools by trust.  A model has no raw database,
   network or renderer access; an action guard checks the project, tenant,
-  capability, asset and declared permission before invoking a bounded tool.
-- Benchmark candidate multimodal orchestrators and specialist models against a
-  locked internal eval set.  Version models, prompts, catalog and direction
-  with every decision.
+  capability, asset, envelope and declared permission before invoking a bounded
+  tool. Web research may create a cited capability-gap proposal; it can never
+  install code or promote a capability in a customer job.
+- Productionise only the task routes that passed the locked benchmark. Version
+  models, prompts, catalog, knowledge entries, envelope and direction with
+  every decision; run shadow/canary evaluation before changing a route.
 
 **Exit:** model choice is empirically measured; every AI action is auditable,
 policy-bounded and only best-effort re-executable when every dependency is
@@ -670,33 +892,48 @@ Add and certify the additional post requirements:
 **Exit:** only after end-to-end productions pass these workflows should Editron
 claim production-house or film-post replacement.
 
-## Immediate approved implementation slices
+## Current position and next three bounded slices
 
-These are deliberately small and sequential; each gets its own reviewed,
-verified phase.
+The code-grounded record later in this document shows that the identified
+receipt-hardening sequence progressed through 1-B7. That does **not** complete
+the broader plan: IF1 remains deliberately un-wired, the complete editorial
+spine and scalable media/evidence exits are not met, the open-ended model bet is
+untested, and the caption/transition/MG/audio/B-roll verticals are not certified.
 
-1. **Overlay authority ledger and MG failure fixtures (read-only mapping plus
-   tests):** trace every active MG/text/HTML producer, source, importer,
-   mutation owner, renderer and proof consumer; add fixtures proving the
-   current z-order and degraded-delivery defects.  Decide the migration
-   boundary from facts.
-2. **Editorial-spine, command/proof and durable-workflow ADR (design only):**
-   specify the project/sequence graph, saved-project migration rule,
-   multi-writer CAS rule, visible proof state machine and durable-job record.
-   Assess QStash against that contract; no new queue or runtime is introduced.
-3. **Canonical caption vertical contract and evaluation data schema:** gated on
-   slices 1-2, define the one `CaptionFormResolver`, rights-cleared evaluation
-   record, legal data provenance, quality scorecard and chat/UI adapter plan.
-   No mass style import and no broad UX migration.
+The next three research slices test the load-bearing AI assumption before we
+build a production router around it:
 
-MG code removal comes only after slice 1 identifies exact producer/consumer
-edges and a canonical AI-codegen migration path.  This keeps the requested
-pruning safe rather than cosmetic.
+1. **K/OE-0 — knowledge map and frozen benchmark specification
+   (documentation/fixtures only):** create the official-source coverage and
+   rights ledger, `KnowledgeEntryV1` schema, four development tasks, eight
+   holdouts, gold target/preservation predicates, a 30–50-operator research
+   envelope, provider/privacy matrix, exact price snapshot and locked
+   go/modify/no-go thresholds. No provider call and no project mutation.
+2. **OE-1 — external planner-only harness:** implement the provider-neutral
+   trial record and the first provider adapter in one five-file phase; add each
+   additional provider adapter in its own five-file-or-fewer phase. Run Luna,
+   Terra, DeepSeek-V4-Flash, Gemini 3.5 Flash-Lite and Gemini 3.6 Flash under the
+   same envelopes. Store raw trials, verifier results, cost and latency. Do not
+   render, write a project or reuse the production planner as an authority.
+3. **OE-2 — isolated verify/render/repair trial:** add the pure
+   `GraphVerifier`, mechanical scheduler and proxy executor for the frozen task
+   surface. Render only legal candidates, permit one predicate-specific repair,
+   run blind editor scoring and publish the `GO`, `MODIFY` or `NO-GO` report.
+   It still cannot write ProjectService or become a production runtime.
 
-The TransitionCatalog begins immediately after these slices: first the licence
-ledger and contract, then one controlled temporal and one directional entry
-with video/image/alpha/audio fixtures.  It is intentionally not allowed to
-overtake the editorial spine or proof path.
+After OE-2, stop at a mandatory product checkpoint and return to the user to
+design the requested **simpler auto-edit experience**. This plan deliberately
+does not pre-empt that discussion. No existing or proposed auto-edit path may
+be expanded into Stage 3 before that checkpoint decides its user interaction,
+scope, authority, cancellation and conflict semantics.
+
+The overlay recovery programme is preserved, not replaced by research. After
+the OE verdict and auto-edit checkpoint, resume one production vertical at a
+time: repair representative caption, transition, generated-composition/MG,
+audio/SFX/music and B-roll/reframe paths before catalog expansion. MG pruning
+still requires zero live imports/callers plus saved-project compatibility; the
+TransitionCatalog still begins with a licence ledger and golden media fixtures,
+not a wholesale repository import.
 
 Every implementation slice is limited to an explicitly approved owner and no
 more than five touched files per phase.  After code changes, it must pass the
@@ -1105,3 +1342,508 @@ fields; finally show that UI, chat and worker callers consume that one result
 without retaining the native receipt as a competing public contract.  Until
 then, the tag remains frozen and un-wired; no IF1 V2 or merge is authorised by
 this decision.
+
+## Final CEO and engineering review - 2026-08-12
+
+### Review posture and decision
+
+Mode: **HOLD SCOPE**. The broad destination remains an AI-native, Adobe-class
+web post-production system, but the currently authorised build surface is only
+K/OE-0, then OE-1 and OE-2 if each preceding slice verifies. The review does
+not authorise a production planner, model router, live project mutation, broad
+overlay expansion or an Adobe-replacement claim.
+
+**CEO verdict:** the bet is worth testing because successful graph synthesis
+could materially compress agency editing labour, but the commercial wedge is
+still reliable agency production. Knowledge gathering and model cleverness are
+not sellable capability without working primitives, truthful proof and client
+acceptance.
+
+**Engineering verdict:** the plan is implementation-clear for the isolated
+research sequence only. Production integration remains gated by an OE-2 `GO`,
+the auto-edit checkpoint, canonical owner compatibility and repaired overlay
+verticals.
+
+### What already exists
+
+| Existing fact | Reuse decision |
+|---|---|
+| ProjectService CAS and writer-issued native receipts for migrated paths | Reuse as the only live project mutation owner; do not copy into the research harness. |
+| Frozen IF1 artifact and tag | Preserve un-wired until its documented re-entry conditions hold. |
+| Fixed chat tool contract/metadata registry | Adapt a focused subset into research `OperatorSpec` records; do not call it a general capability runtime. |
+| Six current editorial preference families | Preserve as current UI/chat preferences; do not treat them as the boundary of editing knowledge. |
+| Upload, proxy, analysis, evidence, Remotion and FFmpeg paths | Reuse only where producer, source identity, supported media and final consumer are verified. |
+| Creative knowledge graph (115 techniques, 95 mappings, 50 constraints) | Audit and use as optional knowledge/program memory and ablation input; never as authority or proof. |
+| Existing caption, transition, MG, SFX/music and B-roll paths | Recover one end-to-end representative per vertical before catalog expansion. |
+| Vitest and Playwright infrastructure | Reuse for contracts/integration and later user-flow tests; add a dedicated eval harness for stochastic model quality. |
+
+### CEO Section 1 - architecture review
+
+The accepted architecture has one creative proposer and multiple independent
+guards without creating a second project runtime:
+
+```text
+OFFICIAL/REVIEWED KNOWLEDGE                  CANONICAL PROJECT FACTS
+          |                                           |
+          v                                           v
+  KnowledgeRetriever                         ConstraintMaterializer
+          |                                           |
+          +-----------------> PlannerEnvelope <-------+
+                                      |
+                                      v
+                              replaceable model route
+                                      |
+                               candidate EditDAG
+                                      |
+                           GraphVerifier --reject--> typed failure
+                                      |
+                           ExecutionScheduler
+                                      |
+                       family resolvers / generated program
+                                      |
+                         isolated preview + hard proof
+                                      |
+                          human approval where required
+                                      |
+                   ProjectService CAS -> receipt -> later proof
+```
+
+The first 10x bottleneck is provider/render throughput and evidence retrieval,
+not graph verification. At 100x, derived-media storage, queue admission,
+per-tenant budgets and reviewer capacity become limiting. The plan addresses
+these by staged provider screening, compact evidence, sharded media work,
+durable jobs and explicit cost/human-minute accounting.
+
+Single points of failure are visible: ProjectService for canonical apply, each
+selected provider route for planning, the proxy renderer for preview and the
+evidence index for retrieval. ProjectService is intentionally singular for
+consistency; provider and worker failures degrade to visible unavailable or
+needs-review outcomes. No automatic failover may silently change privacy,
+price, model or quality semantics.
+
+Rollback posture is strong for the research sequence: it has no database
+migration and no live writer. Disable provider credentials and the research
+entry point, retain immutable trial artifacts, and revert the isolated commit.
+A future production route must be feature-flagged per task family and fall back
+to the already-certified manual/family path—not claim the AI edit succeeded.
+
+### CEO Section 2 - error and rescue map
+
+| Method/codepath | What can go wrong | Typed disposition | Rescue action | User/operator sees |
+|---|---|---|---|---|
+| Knowledge-source review | Licence absent, source moved, version changed | `KNOWLEDGE_SOURCE_UNAPPROVED` | Exclude entry; require legal/editor review | Coverage gap, not silent retrieval |
+| `ConstraintMaterializer` | Missing revision/media/right; registry mismatch | `ENVELOPE_UNSATISFIABLE` | Clarify, narrow or decline; zero provider call | Exact missing constraint |
+| Evidence retrieval | Empty, stale, wrong source range, index unavailable | `EVIDENCE_MISSING_OR_STALE` | Re-index/clarify or decline | Missing evidence and affected ranges |
+| Provider adapter | Timeout, 429, refusal, malformed/empty JSON | `PROVIDER_*` | Declared bounded retry or fail route | Unavailable/needs review; no edit claim |
+| Planner | Hallucinated operator, unbound port, unsupported assumption | `PLANNER_GRAPH_INVALID` | One bounded predicate-specific repair only after verifier feedback | Repaired preview or decline |
+| `GraphVerifier` | Cycle, type/range/effect/policy/proof violation | `GRAPH_REJECTED` | No internal creative repair | Exact node/edge violations |
+| Scheduler | Accepted graph cannot be ordered consistently | `SCHEDULER_INVARIANT_FAILED` | Quarantine trial as implementation defect | Internal failure; no render |
+| Proxy executor | Sandbox limit, missing asset/font, codec/render crash | `PREVIEW_FAILED` | Declared safe retry or needs review | Failed preview and reason |
+| Hard validators | Target/preservation/rights/accessibility failure | `PROOF_FAILED` | Reject candidate; never let model judge override | Failed predicates and frames/ranges |
+| Human/editor review | No reviewer, disagreement, rejected result | `REVIEW_PENDING/REJECTED` | Keep alternatives/original evidence | Pending or rejected, never consensus |
+| ProjectService apply | Stale revision, conflict, deleted source | IF1/native structured conflict | Replan/compare/explicit resolution | Current revision and conflict scope |
+
+Catch-all “log and continue” is forbidden in these paths. Error records bind
+tenant, project/task, envelope, provider/model, operation/trial, source ranges,
+attempt, cost reservation and causal error without logging secrets or raw
+private media.
+
+### CEO Section 3 - security and threat model
+
+| Threat | Likelihood | Impact | Required mitigation |
+|---|---|---|---|
+| Reference/transcript/stock metadata prompt injection | High | High | Treat all media-derived text as quoted evidence; fixed system/tool policy and structural envelope win. |
+| Model calls an absent or forbidden tool | High | High | Tool broker requires the hashed envelope and rejects missing IDs server-side. |
+| Cross-project ID/range substitution | Medium | High | Project-scoped opaque IDs, source/range validation and no raw provider-supplied database keys. |
+| Provider egress violates client policy | Medium | High | Provider/privacy matrix before eligibility; approved region/retention terms; redact/minimise evidence. |
+| Full manuals or creator videos are copied without rights | Medium | High | Rights ledger; original synthesis or explicitly licensed full-text ingestion only. |
+| Generated composition escapes sandbox | Medium | High | No network/secrets/database/ProjectService; allowlisted dependencies; immutable tokenised I/O; tenant quotas and artifact scan. |
+| Cost exhaustion through retry/long context | High | Medium | Reservation before dispatch, hard route budgets, one repair, cancellation and per-tenant concurrency. |
+| Eval leakage/overfitting | Medium | High | Hidden holdouts, randomised semantic-preserving operator names/order and separate task authors/reviewers. |
+
+No new public endpoint is authorised by K/OE-0. OE-1/OE-2 are operator-only
+research tools, disabled in production builds and scoped to approved test
+media. Secrets remain environment-managed and rotatable.
+
+### CEO Section 4 - data flow and interaction edge cases
+
+```text
+INPUT --------> VALIDATE --------> TRANSFORM --------> STORE --------> OUTPUT
+  |                 |                  |                  |                |
+  + nil goal        + invalid rights   + provider error   + duplicate run  + stale view
+  + empty evidence  + stale revision   + malformed graph  + partial write  + late result
+  + huge project    + no eligible op   + render OOM       + quota full     + user edited
+
+nil/empty -> clarify or decline
+invalid/forbidden -> fail before provider call
+provider/render error -> typed failed trial; no mutation
+duplicate -> same trial/idempotency identity; no double charge where supported
+user edits meanwhile -> preview stays bound to R_base; apply conflicts or rebases only by declared semantics
+```
+
+The eventual user interaction state map is explicit:
+
+| Flow | Loading | Empty | Error | Success | Partial/stale |
+|---|---|---|---|---|---|
+| Analyse | progress + cancel | no usable evidence | shard/job failure | cited evidence ready | missing ranges identified |
+| Plan | planning + budget | no legal graph | provider/verifier failure | proposal ready | clarification/decline |
+| Preview | render progress | no candidate | render/proof failure | comparable preview | rendered against older revision |
+| Apply | applying by CAS | no change warranted | conflict/failure | applied pending proof | needs review; never false success |
+
+Double-submit uses operation/trial idempotency. Navigation does not cancel by
+accident; cancellation is explicit. A late background result cannot overwrite
+a manual edit or inherit proof from another revision.
+
+### CEO Section 5 - code-quality review
+
+The plan avoids two over-engineering traps: building a universal production
+control plane before the model bet passes, and copying professional manuals
+into a giant ontology. It avoids under-engineering by requiring exact
+ownership, typed effects, verifier/proof coverage, provider records and real
+render/human outcomes.
+
+Naming now reflects responsibility: `ConstraintMaterializer` projects existing
+facts; `PlannerEnvelope` is immutable call scope; `GraphVerifier` rejects;
+`ExecutionScheduler` orders; `ProjectService` alone applies. “Compiler” may be
+used colloquially for verifier+scheduler tooling but cannot hide creative graph
+repair.
+
+Before any new module or type is created, search direct references, type
+references, string identifiers, dynamic imports, barrels, tests and mocks for
+an existing owner. The fixed chat registry, current resolvers and ProjectService
+are adapter sources, not systems to duplicate.
+
+### CEO Section 6 - test review
+
+```text
+K/OE-0
+  [UNIT] source/licence/version record validation
+  [UNIT] BehaviourBrief and OperatorSpec schema boundaries
+  [UNIT] forbidden vs eligible-distractor envelope fixtures
+  [EVAL] four development + eight hidden holdout task integrity
+
+OE-1
+  [INTEGRATION] identical envelope/schema hashes across provider adapters
+  [INTEGRATION] timeout, 429, refusal, empty/malformed JSON and cancellation
+  [UNIT] token/cost accounting and no hidden retry
+  [EVAL] three-trial development screen + five-trial hidden screen
+
+OE-2
+  [UNIT] cycles, unbound ports, incompatible types/ranges and state conflicts
+  [UNIT] policy/proof/preservation rejection and scheduler determinism
+  [INTEGRATION] sandbox missing asset/font, timeout/OOM and duplicate trial
+  [EVAL] hard predicates + blind editor preference + one-repair ceiling
+  [CHAOS] provider loss/render-worker crash/queue duplication during a trial
+
+PRODUCTION (not yet authorised)
+  [E2E] chat/UI parity -> proposal -> preview -> apply -> reload -> proof -> undo
+  [E2E] user edits during AI work; stale result changes nothing
+```
+
+The Friday-at-2am test is a duplicate/stale provider result during a concurrent
+manual edit: one canonical apply at most, correct revision-bound proof, no
+wrong-project data and a recoverable user state. The hostile test injects tool
+instructions through OCR/reference text and substitutes another project's
+asset/range. Both must fail before mutation. The plan uses many unit/contract
+tests, fewer integration tests, a small number of product E2E tests and a
+separate repeated eval suite; it does not invert the pyramid.
+
+### CEO Section 7 - performance review
+
+The three expected slow paths are initial media indexing, multimodal evidence
+inspection and preview rendering. Graph verification/scheduling should remain
+linear in the small candidate DAG and is not allowed to query a database per
+node. `PlannerEnvelope` construction performs batched, indexed reads and caps
+operator/evidence payload size. Knowledge/source/operator content is hashed and
+cached by version; trial-specific project facts are not globally cached.
+
+Ten-hour footage is indexed once in resumable adaptive shards. Per-decision
+work retrieves small source windows; model and renderer concurrency is bounded
+per tenant. Load tests measure queue age, shard retries, memory, storage/egress,
+provider rate limits and p95 end-to-end cost. No claim is made from context
+window size alone.
+
+### CEO Section 8 - observability and debuggability review
+
+Every trial/job carries trace, tenant, task, project/revision where applicable,
+envelope, model, knowledge-set, graph, render and proof IDs. Day-one metrics are
+schema/graph validity, forbidden attempts, decline accuracy, verifier reasons,
+render failures, hard-predicate failures, false accepts, repair count, latency,
+cost and human-review minutes. Alerts cover false success (page immediately),
+cross-tenant scope rejection, runaway spend, provider error spikes, queue age
+and verifier/runtime invariant failures.
+
+An operator can reconstruct a trial three weeks later from immutable hashes and
+sanitised records without requiring hidden model reasoning. Runbooks cover
+provider outage, price/model change, leaked holdout, renderer incident,
+knowledge-rights withdrawal and stale production preview.
+
+### CEO Section 9 - deployment and rollout review
+
+```text
+K/OE-0 fixtures -> review/legal sign-off -> OE-1 local/CI research flag
+  -> development screen -> holdout lock -> OE-2 isolated renderer
+  -> GO/MODIFY/NO-GO report -> mandatory auto-edit checkpoint
+  -> only then propose shadow production integration
+  -> canary per task family -> certified rollout
+```
+
+K/OE-0 has no migration. OE-1/OE-2 must be absent or disabled in production
+bundles, have separate credentials/budgets and write only research artifacts.
+Rollback is:
+
+```text
+incident -> disable research/route flag -> revoke provider credentials if needed
+         -> cancel queued trials -> retain audit artifacts -> revert slice
+         -> certified manual/family edit remains available
+```
+
+A future schema migration must be backward-compatible and deployed before any
+writer. Smoke tests verify the tool broker cannot reach ProjectService, a
+forbidden operation is rejected, a provider failure cannot mutate a project and
+the cost cap cancels further attempts.
+
+### CEO Section 10 - long-term trajectory review
+
+Reversibility is **4/5** for K/OE-0/OE-1/OE-2 because they are isolated,
+artifact-only experiments. A production planning control plane would drop to
+2/5 if its vocabulary leaked into saved projects before owner compatibility;
+the gate prevents that path dependency.
+
+The 12-month platform value is a provider-neutral, evidence-grounded planning
+surface that can serve manual UI, chat and future automation without owning
+timeline state. The main long-term debts to avoid are proprietary provider
+packets, an unlicensed knowledge corpus, stale operator specs, evaluation
+leakage and techniques that outlive their real renderer support.
+
+### CEO Section 11 - design and UX review
+
+The UX promise is not “watch an agent think.” Users first see their playable
+project, then a concise proposal with affected time ranges, evidence, visible
+change, cost/time and risk; comparison appears only when useful. Manual timeline
+interaction stays available while analysis/planning/rendering runs. Keyboard,
+screen-reader, contrast, reduced-motion and non-colour status cues are required
+for the future review surface.
+
+```text
+Project -> Ask/edit manually -> Background analysis/plan
+   |                              |
+   +---- keep playing/editing ----+
+                                  v
+                         Proposal / clarify / decline
+                                  |
+                         Compare preview(s)
+                                  |
+                  Apply by CAS / resolve conflict / cancel
+                                  |
+                       pending proof -> verified/needs review/failed
+```
+
+A dedicated `/plan-design-review` remains appropriate before Stage 5 UI work;
+there is no new UI in the next three research slices.
+
+### Deep engineering review
+
+#### Engineering Section 1 - architecture findings
+
+1. **[P0] (confidence 10/10) current planning surface is closed-world.**
+   `lib/editron/agent/chat-tool-registry.ts:340` says
+   `export const CHAT_TOOL_REGISTRY = {` and the object currently contains 66
+   concrete `defineTool` entries. `lib/editron/production-brief/editorial-preferences.ts:1-8`
+   exports only `captions`, `motionGraphics`, `zoom`, `transitions`, `sfx` and
+   `music`. These are useful adapter sources, not proof of open-ended editing.
+   **Disposition:** the research envelope adapts existing owners and adds no
+   production registry/dispatcher.
+2. **[P0] (confidence 10/10) named match-cut support is semantically partial.**
+   `lib/editron/services/intent-translator.ts:560` says
+   `'match-cut': 'hard-cut', // Match-cut is conceptual — executor does hard-cut`.
+   `lib/editron/services/continuity-service.ts:120` begins visual matching with
+   `// Keyword overlap (Jaccard similarity)`. **Disposition:** match cut is a
+   benchmark/capability-gap case; the product must not claim geometric/action/
+   semantic match selection from the name alone.
+3. **[P1] (confidence 9/10) provider choice is scattered and Gemini-heavy.**
+   `lib/editron/utils/gemini-model-factory.ts:34-35` defines analysis as
+   `gemini-2.5-flash` and chat as `gemini-3.1-flash-lite`; line 64 defaults
+   general work to `gemini-3.1-pro-preview`. **Disposition:** OE-1 normalises
+   trial transport only; production router work waits for a measured winner.
+4. **[P1] (confidence 9/10) the creative graph mixes memory with aspirational
+   authority.** `lib/editron/data/creative-knowledge-graph.json:23-25` reports
+   95 mappings, 115 techniques and 50 constraints, while lines 31-95 contain
+   direct technique aliases. **Disposition:** source/support audit plus
+   with/without-memory ablation; no alias-dependent competence claim.
+5. **[P0] (confidence 9/10) a verifier that inserts operations would become a
+   hidden planner.** This was present in the earlier draft and is now removed.
+   **Disposition:** pure `GraphVerifier`; separate mechanical scheduler; any
+   unbound/conceptually incomplete graph is planner failure.
+
+#### Engineering Section 2 - code-quality findings
+
+- Research contracts live outside production planner/runtime namespaces until
+  OE-2. Provider-specific types stop at adapters; the canonical trial record is
+  provider-neutral.
+- `ConstraintMaterializer` is a pure read/projection service. It cannot persist,
+  rank creative choices or become a second policy/rights owner.
+- Knowledge retrieval, operator adaptation, graph verification, scheduling,
+  rendering and judging remain separate modules with narrow inputs. No god
+  service may branch over providers, families and renderers together.
+- All new names/types require the full reference/type/string/dynamic-import/
+  barrel/test search before creation. Files over 300 lines receive a separate
+  dead-code/import/log cleanup only when executable code is actually changed.
+- Provider exceptions are normalised into explicit trial dispositions; raw
+  catch-all messages never become user-facing or success results.
+
+#### Engineering Section 3 - test findings
+
+The plan now covers every planned branch at the correct layer. The mandatory
+eval baselines are: manually authored legal graph, current certified-family
+path where one exists, with-knowledge vs without-knowledge, template-memory vs
+template-free and cheap route vs frontier ceiling subset. Seeds/trial identity,
+operator order and provider snapshot are recorded. Holdout task content is not
+written into production prompts or knowledge entries.
+
+Coverage gaps are intentionally blocking rather than deferred: no provider
+adapter lands without malformed/empty/refusal/429/timeout/cancellation tests;
+no verifier lands without every rejection class; no renderer trial lands
+without sandbox/resource/missing-asset tests; no `GO` exists without blind
+editor review and confidence intervals.
+
+#### Engineering Section 4 - performance findings
+
+- Model input is capped structured evidence, not raw long-form media. Multimodal
+  source windows are separately metered.
+- Operator specs and reviewed knowledge use content-addressed caches; project
+  revision/range facts remain request-scoped.
+- The harness streams trial artifacts, not all results into memory, and uses
+  bounded concurrency per provider/tenant.
+- Cost is reserved before each call/render; a failed reservation prevents
+  dispatch. Rate limiting, exponential backoff and circuit breaking are
+  provider-specific declared policy, never invisible unlimited retry.
+- Performance gates include p95 plan time, render time, queue age, peak memory,
+  provider and total accepted-edit cost. Short-form latency is measured
+  separately so long-form infrastructure cannot normalize a sluggish product.
+
+### Failure-modes registry
+
+| Codepath | Failure mode | Rescued? | Test? | User/operator sees? | Logged? |
+|---|---|---:|---:|---|---:|
+| Knowledge review | unlicensed/stale source | Yes | Yes | excluded + coverage gap | Yes |
+| Envelope | empty/no eligible operators | Yes | Yes | clarify/decline | Yes |
+| Evidence | stale or wrong range | Yes | Yes | re-index/decline | Yes |
+| Provider | timeout/429/refusal/empty/malformed | Yes | Yes | unavailable/declined | Yes |
+| Planner | absent/forbidden operator | Yes | Yes | graph rejected | Yes |
+| Verifier | cycle/type/range/effect/policy failure | Yes | Yes | exact violations | Yes |
+| Scheduler | invariant failure | Yes | Yes | internal failure | Yes |
+| Sandbox | escape/resource/codec/font/asset failure | Yes | Yes | preview failed | Yes |
+| Validator | hard target/preservation failure | Yes | Yes | failed predicates | Yes |
+| Human review | disagreement/rejection | Yes | Yes | unresolved/rejected | Yes |
+| Apply | stale revision/concurrent edit | Yes | Yes | conflict/replan options | Yes |
+
+There is no row with no rescue, no test and silent user impact. Therefore this
+review contains **zero unresolved critical failure gaps** at plan level.
+
+### NOT in scope
+
+- Production planner/router implementation before OE-2 `GO` — the core model
+  bet is unproved.
+- The simpler auto-edit design — deliberately reserved for the mandatory
+  post-OE-2 user checkpoint.
+- IF1 runtime wiring or V2 — existing re-entry conditions remain unmet.
+- Automatic capability installation from the web — research may only create a
+  cited gap proposal.
+- Full-text copying of manuals or scraped creator/course videos — rights and
+  original synthesis come first.
+- Broad caption/transition/SFX/MG catalog import or legacy pruning — current
+  representative paths must first recover end to end.
+- Ten-hour production infrastructure build — its measured sharded prototype and
+  the common media contracts precede product claims.
+- New branch, worktree, queue, journal, checkpoint, media, timeline, registry or
+  proof authority.
+
+### Dream-state delta
+
+This plan establishes the path and the falsifiable model experiment; it does
+not deliver the dream state. Remaining deltas include a canonical professional
+timeline, reliable overlay verticals, broad certified operations, long-form
+media/job infrastructure, client review/delivery, collaboration, interchange,
+colour/audio/VFX/conform/mastering and successful agency/production-house
+certification runs. The most important unknown—whether affordable models can
+compose valid unfamiliar edit graphs—is now measured before architecture is
+built around it.
+
+### Implementation tasks
+
+- [ ] **T1 (P1, human ~3d / Codex ~1d)** — K/OE-0 — freeze the knowledge rights/source map, task set, operator envelope and scorecard.
+  - Surfaced by: CEO architecture/security and engineering architecture.
+  - Files: final/reconciliation docs plus new research fixtures; exact paths are chosen only after the pre-creation owner search.
+  - Verify: schema/fixture tests, licence/source review, zero runtime imports.
+- [ ] **T2 (P1, human ~1d / Codex ~3h)** — knowledge audit — classify every selected creative-graph record as supported, aspirational, stale or rejected.
+  - Surfaced by: engineering finding 4.
+  - Files: knowledge audit artifact and selected fixtures; do not rewrite the runtime graph in K/OE-0.
+  - Verify: source/support evidence for every selected benchmark entry.
+- [ ] **T3 (P1, human ~5d / Codex ~2d)** — OE-1 — implement the provider-neutral trial record/envelope harness and provider adapters in five-file phases.
+  - Surfaced by: model bet and provider-coupling findings.
+  - Files: research-only modules/tests selected after owner search.
+  - Verify: adapter parity, failure tests, trial immutability, zero ProjectService import.
+- [ ] **T4 (P1, human ~5d / Codex ~2d)** — OE-2 — implement pure verification, scheduling and isolated proxy execution.
+  - Surfaced by: compiler-boundary and false-success findings.
+  - Verify: rejection matrix, sandbox/chaos tests, blind eval and GO/MODIFY/NO-GO report.
+- [ ] **T5 (P1, human workshop ~2h)** — product — run the promised auto-edit simplification checkpoint after OE-2.
+  - Surfaced by: explicit user deferral.
+  - Verify: user-approved interaction/authority/conflict scope before Stage 3.
+- [ ] **T6 (P1, staged)** — production verticals — resume representative overlay recovery, one family at a time.
+  - Surfaced by: current overlay capability gap.
+  - Verify: save/reload/render/truthful-proof/undo before catalog growth.
+
+### Execution parallelisation
+
+Conceptually, knowledge/source review and legal media/task preparation can run
+in parallel because they touch different evidence. Provider adapters can also
+be developed independently after the shared trial contract freezes. However,
+the approved operational lane is the existing `editron-worktree` on
+`infrastructure-improvs-+Editron`; this review authorises no new worktree.
+Within that lane: K/OE-0 must finish first; OE-1 core precedes provider adapter
+phases; OE-2 waits for OE-1; the auto-edit checkpoint waits for OE-2. Overlay
+runtime recovery remains sequential with research implementation to avoid
+shared owner/config/test conflicts.
+
+### Stale-diagram audit
+
+The earlier model flow and reference graph in this file were updated to put the
+envelope before planning and the verifier/scheduler after it. No diagram still
+claims that a compiler invents creative topology. Historical execution diagrams
+describe receipt-hardening rather than the new research pipeline and remain
+accurate within their dated sections.
+
+### Review completion summary
+
+| Review area | Result |
+|---|---|
+| Scope challenge | HOLD SCOPE; broad destination retained, immediate scope restricted to K/OE-0/OE-1/OE-2 |
+| CEO architecture | 4 material gates, all folded into plan |
+| Error/rescue | 11 paths mapped; 0 critical gaps |
+| Security | 8 threats mapped; prompt injection, egress, rights and sandbox boundaries explicit |
+| Data/UX | nil/empty/error/stale/concurrent paths and visible states mapped |
+| Code quality | verifier/scheduler split and pre-creation owner search required |
+| Tests | complete research coverage diagram; eval, integration and chaos gates explicit |
+| Performance | long-form evidence, provider cost and bounded concurrency gates explicit |
+| Observability | trace IDs, metrics, alerts and runbooks specified |
+| Deployment | research-only rollout and rollback specified |
+| Long-term | K/OE reversibility 4/5; production authority leakage blocked |
+| Design | no immediate UI; later proposal/review flow mapped |
+| Engineering | 5 architecture findings plus quality/test/performance review, all resolved in plan |
+| Outside voice | unavailable: installed Codex binary returned Windows access denied; no fallback subagent was started |
+| Unresolved decisions | 0 within current scope; auto-edit is an explicitly scheduled later checkpoint |
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|---|---|---|---:|---|---|
+| CEO Review | `/plan-ceo-review` | Scope and strategy | 1 | CLEAR FOR K/OE-0 | HOLD SCOPE; model bet and commercial claim gated |
+| Codex Review | `/codex review` | Independent second opinion | 0 | UNAVAILABLE | Local Codex executable denied access; no independent output claimed |
+| Eng Review | `/plan-eng-review` | Architecture and tests | 1 | CLEAR FOR K/OE-0 | 5 architecture findings; 0 unresolved critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | NOT RUN | No UI in next three research slices; required before Stage 5 |
+| DX Review | `/plan-devex-review` | Developer experience | 0 | NOT RUN | Not required for documentation/research-spec slice |
+
+**VERDICT:** CEO + ENGINEERING CLEARED K/OE-0 ONLY. OE-1 requires the frozen reviewed K/OE-0 artifact; OE-2 requires OE-1. No production runtime integration is cleared.
+
+NO UNRESOLVED DECISIONS

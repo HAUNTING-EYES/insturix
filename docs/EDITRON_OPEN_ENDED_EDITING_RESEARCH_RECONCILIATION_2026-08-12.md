@@ -64,17 +64,19 @@ continuity, upload and ProjectService paths were inspected in code.
 
 The sentence "reconstruct the target and synthesise an editing program" is a
 product objective. It is not the algorithm. The concrete near-term algorithm
-has five separate owners:
+has separate owners:
 
 ```text
 observer -> gold/derived BehaviourBrief
+ConstraintMaterializer -> project-scoped PlannerEnvelope
 model planner -> candidate operation graph
-deterministic compiler -> legal or rejected graph
+deterministic GraphVerifier -> accepted or rejected graph
+mechanical scheduler -> ordered accepted DAG
 isolated executor -> preview media
 comparators + hard validators -> evidence for accept, repair or decline
 ```
 
-Only the model planner invents a candidate graph. The other four stages stop it
+Only the model planner invents a candidate graph. The other stages stop it
 from getting away with an invalid or bad graph.
 
 ### 1. BehaviourBrief: state what the result must do
@@ -101,8 +103,13 @@ errors cannot be confused with graph-synthesis errors.
 
 ### 2. Operator surface: expose what Editron can actually execute
 
-The planner receives a focused slice of an operator catalog, not a list of
-Adobe menu names. Each operator declares at least:
+The planner receives a hashed `PlannerEnvelope`, not a list of Adobe menu
+names. Before the model call, `ConstraintMaterializer` intersects the exact
+project revision, tenant/privacy policy, asset rights, media compatibility,
+certification and budget with the operator catalog. Forbidden or ineligible
+operators never enter the envelope or tool broker. Eligible but irrelevant
+operators may remain in research trials as realistic distractors. Each exposed
+operator declares at least:
 
 ```text
 operator ID and version
@@ -154,9 +161,9 @@ Nothing deterministic in the current proposal discovers that decomposition.
 We are testing whether a strong model can do it from the target and operator
 semantics, including when no named technique or graph template is supplied.
 
-### 4. Compiler: reject; never pretend to be creative
+### 4. GraphVerifier: reject; never pretend to be creative
 
-The compiler checks:
+The verifier checks:
 
 - every required input is bound to a compatible output or project fact;
 - every range, track, region and asset belongs to the snapshot;
@@ -166,10 +173,11 @@ The compiler checks:
 - required preservation and proof obligations are still achievable;
 - unsupported, uncertified or policy-forbidden operators are not silently used.
 
-It may make mechanical repairs such as inserting a declared format conversion
-or resolving an unambiguous port. It may not invent the missing editorial plan.
-A planner graph that needs conceptual replacement is returned as a planner
-failure, not counted as compiler success.
+It does not insert a conversion, resolve an unbound port, add an operator or
+rewrite the graph. A separate scheduler may topologically order a graph only
+after every check passes. A planner graph that needs any conceptual or binding
+repair is returned as a planner failure. This keeps the verifier an independent
+check instead of a hidden recipe engine.
 
 ### 5. Render and compare
 
@@ -488,9 +496,12 @@ graphs are simply smaller.
 
 ### P1: isolate graph synthesis
 
-Use a gold `BehaviourBrief`, gold local source/effect evidence and a frozen set
-of 30–50 typed operators with realistic distractors. Require a roughly 10–15
-operation solution for the hero case. Test at least these conditions:
+Use four development tasks and eight unseen holdouts with gold
+`BehaviourBrief` values, gold local source/effect evidence and a frozen set of
+30–50 typed operators. Require a roughly 10–15-operation solution for the hero
+case; include native multi-operation, reference-composite, audio/visual and
+honest clarify/decline cases. Remove policy-forbidden operators before the call,
+then retain realistic eligible distractors. Test at least these conditions:
 
 ```text
 A: tool names + shallow descriptions
@@ -517,7 +528,8 @@ retrieval, planning, missing primitive, runtime or judging was responsible.
 ### Trial and scoring rules
 
 - Keep tasks, operator versions, media and judges locked.
-- Run at least five trials per model/condition for the initial screen.
+- Run three trials per development task for the initial affordable-model
+  screen, then five trials per unseen task for the best three routes.
 - Record every model response, tool packet, compiled graph, repair and render.
 - Use executable validators for topology, types, predicates and preservation.
 - Blind human/editor review for actual editorial quality.
@@ -540,14 +552,13 @@ pretending general synthesis is solved.
 ## Model facts and routing
 
 The research pack's model roster is plausible as an experiment list, not a
-winner declaration. Official sources currently confirm:
-
-- GPT-5.6 Sol/Terra/Luna are API-accessible tiers and support agentic tool use;
-- Gemini 3.1 Pro Preview accepts text, image, video, audio and PDF and supports
-  structured output/function calling with a one-million-token input limit;
-- Claude Fable 5/Mythos 5 exist and have current availability history;
-- Kimi K3 exists, but the live Editron Kimi adapter is only a narrow owner
-  classifier, not a multimodal planner route.
+winner declaration. The first cost-controlled screen is GPT-5.6 Luna,
+GPT-5.6 Terra, DeepSeek-V4-Flash, Gemini 3.5 Flash-Lite and Gemini 3.6 Flash.
+The exact price snapshot, provider/privacy boundary, route role and staged
+trial counts live in the canonical final plan. Expensive frontier models may
+run on a small blinded subset as quality ceilings, not assumed production
+defaults. DeepSeek remains a structured-evidence planner candidate until its
+exact pinned route proves any required multimodal and privacy properties.
 
 General coding or tool-use benchmarks do not answer the Editron question.
 VEBench itself reports a significant human gap in editing cognition, and
@@ -557,9 +568,10 @@ video editing. Editron must run its own locked operational benchmark.
 Primary references:
 
 - [OpenAI GPT-5.6 launch](https://openai.com/index/gpt-5-6/)
-- [Gemini 3.1 Pro Preview model documentation](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview)
-- [Anthropic Claude Fable 5 and Mythos 5](https://www.anthropic.com/news/claude-fable-5-mythos-5)
-- [Kimi K3 technical blog](https://www.kimi.com/tr/blog/kimi-k3)
+- [OpenAI API pricing](https://openai.com/api/pricing/)
+- [DeepSeek models and pricing](https://api-docs.deepseek.com/quick_start/pricing/)
+- [Gemini latest-model guide](https://ai.google.dev/gemini-api/docs/latest-model)
+- [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing)
 - [VEBench](https://arxiv.org/abs/2605.03276)
 - [CoVEBench](https://arxiv.org/abs/2606.08415)
 
@@ -575,7 +587,8 @@ it.
 4. In parallel, continue recovering one real overlay vertical at a time;
    models cannot plan primitives that do not work.
 5. If the experiment passes, productionise only the minimum proven
-   `BehaviourBrief`, operator-adapter, candidate-DAG and compiler contracts.
+   `BehaviourBrief`, `PlannerEnvelope`, operator-adapter, candidate-DAG,
+   verifier and scheduler contracts.
 6. Add Construction/Deployment behaviour evidence after the P1 planner result,
    then run placement tests.
 7. Treat GeneratedCompositionProgram as one first-class operator family for
@@ -592,23 +605,25 @@ supersede the active safety and overlay-recovery order.
 
 ### OE-0 — frozen battle-test specification
 
-Documentation/fixtures only. Select the legal hero media, freeze the gold
-BehaviourBrief, target predicates, preservation constraints, 30–50 operator
-specifications, distractors, conditions A–F and scoring thresholds. No live
-planner or ProjectService wiring.
+Documentation/fixtures only. Freeze four development tasks, eight unseen
+holdouts, legal media, gold BehaviourBriefs, target predicates, preservation
+constraints, 30–50 operator specifications, eligible distractors, conditions
+A–F, the post-production knowledge-source/rights map and scoring thresholds.
+No live planner or ProjectService wiring.
 
 ### OE-1 — external planner-only harness
 
-Build a non-production harness that sends the same frozen packets to several
-providers, validates returned DAG JSON, runs no project mutation and stores all
-trials/cost/latency/failures. Include the template-free condition from day one.
+Build a non-production harness that materialises the same research envelopes,
+sends the frozen packets to the five affordable candidates, validates returned
+DAG JSON, runs no project mutation and stores all trials/cost/latency/failures.
+Include the template-free condition from day one.
 
 ### OE-2 — isolated compile/render/repair trial
 
-Add deterministic compilation and a sandboxed proxy renderer for the hero
-case. Limit repair attempts, compare target/preservation predicates and produce
-the go/modify/no-go report. It still must not become a second runtime or write a
-project.
+Add the pure verifier, mechanical scheduler and sandboxed proxy renderer for
+the frozen task surface. Permit one predicate-specific planner repair, compare
+target/preservation predicates and produce the go/modify/no-go report. It still
+must not become a second runtime or write a project.
 
 Only a passing OE-2 authorises a proposal to integrate a general graph planner
 into the production architecture.
@@ -619,7 +634,8 @@ into the production architecture.
 - The existing family resolver remains the sole final-form owner where one is
   certified.
 - A planner proposes; it does not mutate or prove.
-- A compiler validates; it does not claim editorial intelligence.
+- A verifier validates and a scheduler orders; neither supplies editorial
+  intelligence or repairs a conceptual graph.
 - A generated program executes with no network/secrets/database/ProjectService.
 - A judge scores; it cannot waive hard constraints.
 - Program/technique memory advises; it cannot license missing capability.
