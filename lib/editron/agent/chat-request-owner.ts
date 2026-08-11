@@ -229,6 +229,7 @@ export function enforceTrustedTimelineTargetArgs(
 export interface ClassifyChatRequestOwnerInput {
   userMessage: string;
   restoreStatus: ChatRestoreResolutionStatus;
+  restoreAction?: 'undo' | 'redo';
   selectedOverlayPresent: boolean;
   visualEvidencePresent: boolean;
   selectedRangePresent?: boolean;
@@ -1091,6 +1092,17 @@ export async function classifyChatRequestOwner(
   dependencies: ChatRequestOwnerClassifierDependencies = {},
 ): Promise<ChatRequestOwnerLicense> {
   const requestDigest = digestRequest(input.userMessage);
+
+  if (input.restoreAction === 'redo') {
+    return {
+      version: 'editron-chat-request-owner-v1',
+      owner: 'conversation',
+      confidence: 1,
+      reason: 'The checkpoint resolver rejected redo because its receipt-bound replay chain is unavailable.',
+      requestDigest,
+      decidedBy: 'checkpoint-resolver',
+    };
+  }
 
   if (input.restoreStatus !== 'no-intent') {
     return {

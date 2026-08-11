@@ -354,6 +354,7 @@ export async function POST(req: NextRequest) {
       ?? await classifyChatRequestOwner({
         userMessage: message,
         restoreStatus: restoreTarget.status,
+        restoreAction: restoreTarget.action,
         selectedOverlayPresent: Boolean(selectedOverlayId),
         visualEvidencePresent: Boolean(visualEvidence),
         selectedRangePresent: Boolean(chatEditContext.selectedRange),

@@ -72,6 +72,30 @@ describe('chat request owner classification', () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
+  it('keeps a rejected redo request conversational and never exposes a checkpoint restore tool', async () => {
+    const generate = vi.fn(async () => {
+      throw new Error('must not run');
+    });
+
+    const result = await classifyChatRequestOwner({
+      ...baseInput,
+      userMessage: 'Redo that edit.',
+      restoreStatus: 'no-checkpoint',
+      restoreAction: 'redo',
+    }, { generate });
+
+    expect(result).toMatchObject({
+      owner: 'conversation',
+      confidence: 1,
+      decidedBy: 'checkpoint-resolver',
+    });
+    expect(filterChatToolsForRequestOwner([
+      { name: 'read_project_file' },
+      { name: 'restore_ai_edit_checkpoint' },
+    ], result).map((tool) => tool.name)).toEqual(['read_project_file']);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it('accepts one strict semantic classification and tracks its provider usage', async () => {
     const addUsage = vi.fn();
     const generate = vi.fn(async () => ({
