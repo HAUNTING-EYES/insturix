@@ -88,6 +88,31 @@ export interface ProjectAudioRightsAttestationCommitV1 {
   storyboardUpdates?: ProjectAudioRightsAttestationStoryboardUpdateV1[];
 }
 
+/**
+ * The durable MG worker's generated-result ledger entry. This is deliberately
+ * a narrow project mutation rather than a generic worker field-update port.
+ */
+export interface ProjectMgRenderDeliveryOutcomeV1 {
+  jobId: string;
+  status: "generated";
+  candidateId: string;
+  factKind: string;
+  frame: number;
+  sequenceId: string;
+  completedAt: Date;
+}
+
+/**
+ * The one ProjectService command that lands an asynchronous MG result. The
+ * rendered media asset and job lease remain owned by their existing services.
+ */
+export interface ProjectMgRenderDeliveryCommitV1 {
+  expectedRevision: ProjectRevisionV1;
+  jobId: string;
+  overlays: Overlay[];
+  outcome: ProjectMgRenderDeliveryOutcomeV1;
+}
+
 export interface CapturedProjectMutationReceiptsV1<T> {
   value: T;
   receipts: ProjectMutationReceiptV1[];
@@ -1637,6 +1662,97 @@ export class ProjectService {
     };
     this.publishMutationReceipt(receipt);
     return { attached: true, receipt };
+  }
+
+  /**
+   * Atomically land one generated MG delivery and its worker outcome at the
+   * caller's project snapshot. A replay that has already landed the same job
+   * is idempotent; a different concurrent project write is a real conflict.
+   */
+  async commitMgRenderDelivery(
+    userId: string,
+    projectId: string,
+    input: ProjectMgRenderDeliveryCommitV1,
+  ): Promise<{
+    delivered: boolean;
+    receipt?: ProjectMutationReceiptV1;
+  }> {
+    assertProjectRevision(input.expectedRevision);
+    const hasExactlyOneDeliveryOverlay = input.overlays.filter((overlay) => (
+      (overlay as { metadata?: { mgRenderJobId?: unknown } }).metadata?.mgRenderJobId === input.jobId
+    )).length === 1;
+    const overlayIds = input.overlays.map((overlay) => String(overlay.id));
+    if (
+      !input.jobId.trim()
+      || input.overlays.length === 0
+      || new Set(overlayIds).size !== overlayIds.length
+      || !hasExactlyOneDeliveryOverlay
+      || input.outcome.jobId !== input.jobId
+      || input.outcome.status !== "generated"
+      || !input.outcome.candidateId.trim()
+      || !input.outcome.factKind.trim()
+      || !Number.isSafeInteger(input.outcome.frame)
+      || !input.outcome.sequenceId.trim()
+      || !(input.outcome.completedAt instanceof Date)
+      || Number.isNaN(input.outcome.completedAt.getTime())
+    ) {
+      throw new ProjectMutationWriteError("MG render delivery input is invalid.");
+    }
+
+    const db = await getDatabase();
+    const committedAt = new Date();
+    const persistedOverlays = input.overlays.map((overlay) => (
+      ensureAtomicOverlayReceipt(overlay, {
+        source: "project-service-mg-render-delivery",
+        intent: `persist-${overlay.type}`,
+        reason: "generated MG delivery was attached through ProjectService",
+      })
+    ));
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        "overlays.metadata.mgRenderJobId": { $ne: input.jobId },
+        ...projectRevisionPredicate(input.expectedRevision),
+      },
+      {
+        $push: {
+          overlays: { $each: persistedOverlays } as never,
+          "intelligence.mgCodegenRun.asyncOutcomes": {
+            $each: [input.outcome],
+            $slice: -100,
+          } as never,
+        },
+        $set: { updatedAt: committedAt },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) {
+      const current = (await db.collection(COLLECTIONS.PROJECTS).findOne(
+        { projectId, userId },
+        { projection: { overlays: 1, projectRevision: 1, updatedAt: 1 } },
+      )) as Pick<Project, "overlays" | "projectRevision" | "updatedAt"> | null;
+      if (!current) throw new ProjectNotFoundOrForbiddenError();
+      const alreadyDelivered = current.overlays?.some((overlay) => (
+        (overlay as { metadata?: { mgRenderJobId?: unknown } }).metadata?.mgRenderJobId === input.jobId
+      ));
+      if (alreadyDelivered) return { delivered: false };
+      throw new ProjectMutationConflictError(projectRevisionFor(current));
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return { delivered: true, receipt };
   }
 
   /**

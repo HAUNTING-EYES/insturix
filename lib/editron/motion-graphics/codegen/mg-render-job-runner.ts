@@ -21,6 +21,15 @@ import { buildMgSequenceOverlay, upsertMgSequenceAsset } from './sequence-artifa
 import type { MgRenderWorkerResult } from './worker-contract';
 
 type EnvLike = Record<string, string | undefined>;
+type MgRenderProjectMutationPort = Pick<
+  typeof import('@/lib/editron/services/project-service').projectService,
+  'loadProjectForMutation' | 'commitMgRenderDelivery'
+>;
+
+async function resolveProjectMutationPort(): Promise<MgRenderProjectMutationPort> {
+  const { projectService } = await import('@/lib/editron/services/project-service');
+  return projectService;
+}
 
 const storageAuthorizationClaimsSchema = z.object({
   version: z.literal(1),
@@ -158,6 +167,10 @@ export interface MgRenderJobRunnerDependencies {
   executeSandbox?: typeof executeMgRenderInSandbox;
   dispatchJob?: typeof dispatchMgRenderJob;
   deliverResult?: typeof deliverMgRenderJobResult;
+  loadProjectForMutation?: MgRenderProjectMutationPort['loadProjectForMutation'];
+  commitMgRenderDelivery?: MgRenderProjectMutationPort['commitMgRenderDelivery'];
+  upsertSequenceAsset?: typeof upsertMgSequenceAsset;
+  buildSequenceOverlay?: typeof buildMgSequenceOverlay;
   getJobState?: typeof getMgRenderJobState;
   waitForProjectReady?: typeof waitForDirectorSaveBarrier;
   reconcileParent?: typeof reconcileChatEditorialIntentParent;
@@ -384,25 +397,30 @@ function resolveMgKineticSfxContext(
   return context as unknown as PersistedMgKineticSfxContext;
 }
 
-async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorkerResult): Promise<void> {
+async function deliverMgRenderJobResult(
+  job: MgRenderJob,
+  result: MgRenderWorkerResult,
+  dependencies: Pick<
+    MgRenderJobRunnerDependencies,
+    'loadProjectForMutation' | 'commitMgRenderDelivery' | 'upsertSequenceAsset' | 'buildSequenceOverlay'
+  > = {},
+): Promise<void> {
   if (!job.request) throw new Error(`MG render job ${job._id} is missing its executable request`);
   const request = job.request;
   const candidate = request.input.candidate;
-  const outcome = {
-    jobId: job._id,
-    status: result.status,
-    candidateId: candidate.id,
-    factKind: candidate.factKind,
-    frame: request.input.window.startFrame,
-    ...(result.status === 'generated'
-      ? { sequenceId: result.sequence.address.sequenceId }
-      : { reason: result.reason }),
-    completedAt: new Date(result.completedAt),
-  };
-  const db = await getDatabase();
-  const projects = db.collection(COLLECTIONS.PROJECTS);
 
   if (result.status !== 'generated') {
+    const outcome = {
+      jobId: job._id,
+      status: result.status,
+      candidateId: candidate.id,
+      factKind: candidate.factKind,
+      frame: request.input.window.startFrame,
+      reason: result.reason,
+      completedAt: new Date(result.completedAt),
+    };
+    const db = await getDatabase();
+    const projects = db.collection(COLLECTIONS.PROJECTS);
     const write = await projects.updateOne(
       {
         projectId: job.projectId,
@@ -423,7 +441,17 @@ async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorker
     return;
   }
 
-  const { assetId } = await upsertMgSequenceAsset({
+  const outcome = {
+    jobId: job._id,
+    status: 'generated' as const,
+    candidateId: candidate.id,
+    factKind: candidate.factKind,
+    frame: request.input.window.startFrame,
+    sequenceId: result.sequence.address.sequenceId,
+    completedAt: new Date(result.completedAt),
+  };
+
+  const { assetId } = await (dependencies.upsertSequenceAsset ?? upsertMgSequenceAsset)({
     sequence: result.sequence,
     receipt: result.receipt,
     candidate: { id: candidate.id, factKind: candidate.factKind },
@@ -437,11 +465,14 @@ async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorker
     },
   });
   const overlayId = asyncOverlayId(job._id);
-  const contextProject = await projects.findOne(
-    { projectId: job.projectId, userId: job.userId },
-    { projection: { 'intelligence.mgKineticSfxContexts': 1 } },
+  const projectMutationPort = dependencies.loadProjectForMutation && dependencies.commitMgRenderDelivery
+    ? null
+    : await resolveProjectMutationPort();
+  const mutationTarget = await (dependencies.loadProjectForMutation ?? projectMutationPort!.loadProjectForMutation)(
+    job.userId,
+    job.projectId,
   );
-  const kineticSfxContext = resolveMgKineticSfxContext(contextProject, request.input.momentId);
+  const kineticSfxContext = resolveMgKineticSfxContext(mutationTarget.project, request.input.momentId);
   let kineticService: typeof import('@/lib/editron/services/kinetic-sfx-service') | null = null;
   let kineticSfxEvents: import('@/lib/editron/services/kinetic-sfx-service').KineticSfxEvent[] = [];
   let kineticServiceError: string | null = null;
@@ -460,7 +491,7 @@ async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorker
       kineticServiceError = error instanceof Error ? error.message : String(error);
     }
   }
-  const overlay = buildMgSequenceOverlay({
+  const overlay = (dependencies.buildSequenceOverlay ?? buildMgSequenceOverlay)({
     sequence: result.sequence,
     receipt: result.receipt,
     candidate: { id: candidate.id, factKind: candidate.factKind },
@@ -517,30 +548,12 @@ async function deliverMgRenderJobResult(job: MgRenderJob, result: MgRenderWorker
     }
   }
 
-  const write = await projects.updateOne(
-    {
-      projectId: job.projectId,
-      userId: job.userId,
-      'overlays.metadata.mgRenderJobId': { $ne: job._id },
-    },
-    {
-      $push: {
-        overlays: { $each: deliveryOverlays } as never,
-        'intelligence.mgCodegenRun.asyncOutcomes': { $each: [outcome], $slice: -100 } as never,
-      },
-      $set: { updatedAt: new Date() },
-    },
-  );
-  if (write.matchedCount === 0) {
-    const project = await projects.findOne(
-      { projectId: job.projectId, userId: job.userId },
-      { projection: { 'overlays.metadata.mgRenderJobId': 1 } },
-    ) as { overlays?: Array<{ metadata?: { mgRenderJobId?: string } }> } | null;
-    if (!project) throw new Error('MG render delivery: project missing or ownership mismatch');
-    if (!project.overlays?.some((entry) => entry.metadata?.mgRenderJobId === job._id)) {
-      throw new Error(`MG render delivery: project ${job.projectId} rejected overlay ${overlay.id}`);
-    }
-  }
+  await (dependencies.commitMgRenderDelivery ?? projectMutationPort!.commitMgRenderDelivery)(job.userId, job.projectId, {
+    expectedRevision: mutationTarget.revision,
+    jobId: job._id,
+    overlays: deliveryOverlays,
+    outcome,
+  });
 }
 
 async function executeClaimedMgRenderJob(
@@ -554,7 +567,8 @@ async function executeClaimedMgRenderJob(
   const completeJob = dependencies.completeJob ?? completeMgRenderJob;
   const failJob = dependencies.failJob ?? failMgRenderJob;
   const executeSandbox = dependencies.executeSandbox ?? executeMgRenderInSandbox;
-  const deliverResult = dependencies.deliverResult ?? deliverMgRenderJobResult;
+  const deliverResult = dependencies.deliverResult
+    ?? ((job: MgRenderJob, result: MgRenderWorkerResult) => deliverMgRenderJobResult(job, result, dependencies));
   const reconcileParent = dependencies.reconcileParent ?? reconcileChatEditorialIntentParent;
   let result: MgRenderWorkerResult;
 

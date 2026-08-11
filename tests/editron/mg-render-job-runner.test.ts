@@ -248,6 +248,71 @@ describe('durable MG render job runner', () => {
     expect(completeJob.mock.invocationCallOrder[0]).toBeLessThan(reconcileParent.mock.invocationCallOrder[0]);
   });
 
+  it('commits a generated MG delivery through the revision-fenced ProjectService command', async () => {
+    const queued = job();
+    const running = { ...queued, status: 'running' as const, leaseId: 'mgl_worker' };
+    const result = generatedResult(queued._id);
+    const revision = {
+      schemaVersion: 1 as const,
+      value: 7,
+      compatibilityUpdatedAt: '2026-07-13T00:00:00.000Z',
+    };
+    const loadProjectForMutation = vi.fn(async () => ({
+      project: { overlays: [], intelligence: {} } as any,
+      revision,
+    }));
+    const commitMgRenderDelivery = vi.fn(async () => ({
+      delivered: true,
+      receipt: {
+        schemaVersion: 1 as const,
+        projectId: 'project-1',
+        revision: { ...revision, value: 8 },
+        committedAt: '2026-07-13T00:01:01.000Z',
+      },
+    }));
+    const buildSequenceOverlay = vi.fn((args: any) => ({
+      id: args.overlayId,
+      type: 'mg-sequence',
+      from: args.snappedFrame,
+      row: 5,
+      durationInFrames: args.sequence.address.frameCount,
+      metadata: {},
+    }) as any);
+    const completeJob = vi.fn(async () => true);
+
+    await expect(executeQueuedMgRenderJob(queued._id, {
+      env: ENV,
+      now: NOW,
+      dependencies: {
+        getJobState: vi.fn(async () => queuedJobState()),
+        waitForProjectReady: vi.fn(async () => true),
+        claimJob: vi.fn(async () => running),
+        executeSandbox: vi.fn(async () => result),
+        upsertSequenceAsset: vi.fn(async () => ({ assetId: 'mgseq_seq-1', inserted: true })),
+        buildSequenceOverlay,
+        loadProjectForMutation,
+        commitMgRenderDelivery,
+        completeJob,
+        failJob: vi.fn(),
+        reconcileParent: vi.fn(async () => undefined),
+      },
+    })).resolves.toEqual({ status: 'completed', result });
+
+    expect(loadProjectForMutation).toHaveBeenCalledWith('user-1', 'project-1');
+    expect(commitMgRenderDelivery).toHaveBeenCalledWith('user-1', 'project-1', expect.objectContaining({
+      expectedRevision: revision,
+      jobId: queued._id,
+      outcome: expect.objectContaining({
+        status: 'generated',
+        sequenceId: 'seq-1',
+      }),
+      overlays: [expect.objectContaining({
+        metadata: expect.objectContaining({ mgRenderJobId: queued._id }),
+      })],
+    }));
+    expect(commitMgRenderDelivery.mock.invocationCallOrder[0]).toBeLessThan(completeJob.mock.invocationCallOrder[0]);
+  });
+
   it('replays only parent reconciliation when a completed child worker delivery is retried', async () => {
     const completed = queuedJobState({ status: 'completed' });
     const reconcileParent = vi.fn(async () => undefined);

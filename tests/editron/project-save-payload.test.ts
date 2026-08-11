@@ -1105,6 +1105,167 @@ describe("Editron project save payload compaction", () => {
     expect(captured).toEqual({ value: { attached: false }, receipts: [] });
   });
 
+  it("commits an MG delivery, its selected SFX, and its worker outcome at one revision", async () => {
+    const updatedAt = "2026-08-11T06:02:00.000Z";
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const captured = await projectService.captureMutationReceipts(() => (
+      projectService.commitMgRenderDelivery("user_1", "proj_1", {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        jobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        overlays: [
+          {
+            id: 8_000_000_000_000_001,
+            type: "mg-sequence",
+            from: 45,
+            row: 5,
+            durationInFrames: 90,
+            metadata: { mgRenderJobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+          },
+          {
+            id: 800_000_001,
+            type: "sound",
+            from: 60,
+            row: 0,
+            durationInFrames: 12,
+          },
+        ] as any,
+        outcome: {
+          jobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          status: "generated",
+          candidateId: "candidate_1",
+          factKind: "comparison",
+          frame: 45,
+          sequenceId: "seq_1",
+          completedAt: new Date("2026-08-11T06:02:01.000Z"),
+        },
+      })
+    ));
+
+    expect(captured.value).toMatchObject({
+      delivered: true,
+      receipt: { projectId: "proj_1", revision: { value: 8 } },
+    });
+    expect(captured.receipts).toHaveLength(1);
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      {
+        projectId: "proj_1",
+        userId: "user_1",
+        "overlays.metadata.mgRenderJobId": { $ne: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        projectRevision: 7,
+        updatedAt: new Date(updatedAt),
+      },
+      expect.objectContaining({
+        $inc: { projectRevision: 1 },
+        $push: expect.objectContaining({
+          overlays: expect.objectContaining({ $each: expect.arrayContaining([
+            expect.objectContaining({ id: 8_000_000_000_000_001 }),
+            expect.objectContaining({ id: 800_000_001 }),
+          ]) }),
+          "intelligence.mgCodegenRun.asyncOutcomes": expect.objectContaining({
+            $each: [expect.objectContaining({
+              jobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              status: "generated",
+            })],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("treats an already-landed MG job as idempotent without a new receipt", async () => {
+    const updatedAt = "2026-08-11T06:03:00.000Z";
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectRevision: 8,
+      updatedAt: new Date(updatedAt),
+      overlays: [{ metadata: { mgRenderJobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } }],
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const captured = await projectService.captureMutationReceipts(() => (
+      projectService.commitMgRenderDelivery("user_1", "proj_1", {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        jobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        overlays: [{
+          id: 8_000_000_000_000_001,
+          type: "mg-sequence",
+          from: 45,
+          row: 5,
+          durationInFrames: 90,
+          metadata: { mgRenderJobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        }] as any,
+        outcome: {
+          jobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          status: "generated",
+          candidateId: "candidate_1",
+          factKind: "comparison",
+          frame: 45,
+          sequenceId: "seq_1",
+          completedAt: new Date("2026-08-11T06:03:01.000Z"),
+        },
+      })
+    ));
+
+    expect(captured).toEqual({ value: { delivered: false }, receipts: [] });
+  });
+
+  it("rejects a stale MG delivery without changing project state", async () => {
+    const expectedUpdatedAt = "2026-08-11T06:04:00.000Z";
+    persistenceMocks.updateOne.mockResolvedValueOnce({ matchedCount: 0, modifiedCount: 0 });
+    persistenceMocks.findOne.mockResolvedValueOnce({
+      projectRevision: 8,
+      updatedAt: new Date("2026-08-11T06:04:01.000Z"),
+      overlays: [],
+    });
+    const { ProjectMutationConflictError, projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    await expect(projectService.commitMgRenderDelivery("user_1", "proj_1", {
+      expectedRevision: {
+        schemaVersion: 1,
+        value: 7,
+        compatibilityUpdatedAt: expectedUpdatedAt,
+      },
+      jobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      overlays: [{
+        id: 8_000_000_000_000_001,
+        type: "mg-sequence",
+        from: 45,
+        row: 5,
+        durationInFrames: 90,
+        metadata: { mgRenderJobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+      }] as any,
+      outcome: {
+        jobId: "mgr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        status: "generated",
+        candidateId: "candidate_1",
+        factKind: "comparison",
+        frame: 45,
+        sequenceId: "seq_1",
+        completedAt: new Date("2026-08-11T06:04:02.000Z"),
+      },
+    })).rejects.toBeInstanceOf(ProjectMutationConflictError);
+    expect(persistenceMocks.updateOne).toHaveBeenCalledOnce();
+  });
+
   it("commits native-video rights and the timeline at one project revision", async () => {
     const updatedAt = new Date("2026-08-11T06:02:00.000Z");
     persistenceMocks.bulkWrite.mockResolvedValueOnce({ matchedCount: 1 });
