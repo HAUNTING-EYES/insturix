@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const projectServiceMock = vi.hoisted(() => ({
-  loadProject: vi.fn(),
-  saveProject: vi.fn(),
+  loadProjectForMutation: vi.fn(),
+  saveProjectWithReceipt: vi.fn(),
 }));
 
 vi.mock('@/lib/editron/services/project-service', () => ({
@@ -105,26 +105,40 @@ function visualSegment(overrides: Partial<VjepaSegmentResult>): VjepaSegmentResu
 }
 
 function mockProject(durationInFrames = 360) {
-  projectServiceMock.loadProject.mockResolvedValue({
-    fps: 30,
-    durationInFrames,
-    overlays: [{
-      id: 1,
-      type: 'video',
-      from: 0,
-      row: 0,
+  const revision = {
+    schemaVersion: 1 as const,
+    value: 4,
+    compatibilityUpdatedAt: '2026-08-11T00:00:00.000Z',
+  };
+  projectServiceMock.loadProjectForMutation.mockResolvedValue({
+    project: {
+      fps: 30,
       durationInFrames,
-      sourceStartFrame: 0,
-      videoStartTime: 0,
-      metadata: {},
-    }],
+      overlays: [{
+        id: 1,
+        type: 'video',
+        from: 0,
+        row: 0,
+        durationInFrames,
+        sourceStartFrame: 0,
+        videoStartTime: 0,
+        metadata: {},
+      }],
+    },
+    revision,
+  });
+  projectServiceMock.saveProjectWithReceipt.mockResolvedValue({
+    schemaVersion: 1,
+    projectId: 'proj_visual_e2e',
+    revision,
+    committedAt: '2026-08-11T00:00:01.000Z',
   });
 }
 
 describe('visual cut intelligence end-to-end timeline execution', () => {
   beforeEach(() => {
-    projectServiceMock.loadProject.mockReset();
-    projectServiceMock.saveProject.mockReset();
+    projectServiceMock.loadProjectForMutation.mockReset();
+    projectServiceMock.saveProjectWithReceipt.mockReset();
   });
 
   it('turns low-speech visual dead air into a real timeline cut with correct source offsets', async () => {
@@ -148,7 +162,7 @@ describe('visual cut intelligence end-to-end timeline execution', () => {
     expect(result.newDurationInFrames).toBe(285);
     expect(result.overlaysCreated).toBe(1);
 
-    const savedProject = projectServiceMock.saveProject.mock.calls[0][2];
+    const savedProject = projectServiceMock.saveProjectWithReceipt.mock.calls[0][2];
     const videos = savedProject.overlays.filter((overlay: any) => overlay.type === 'video');
     expect(videos).toEqual([
       expect.objectContaining({
@@ -197,7 +211,7 @@ describe('visual cut intelligence end-to-end timeline execution', () => {
     expect(result.newDurationInFrames).toBe(360);
     expect(result.overlaysCreated).toBe(1);
 
-    const savedProject = projectServiceMock.saveProject.mock.calls[0][2];
+    const savedProject = projectServiceMock.saveProjectWithReceipt.mock.calls[0][2];
     const videos = savedProject.overlays.filter((overlay: any) => overlay.type === 'video');
     expect(videos).toEqual([
       expect.objectContaining({

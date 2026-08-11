@@ -12,7 +12,10 @@
  *   4. MIN SEGMENT: 1.5 * clip.fps at runtime (never hardcoded frames).
  */
 
-import { projectService } from '@/lib/editron/services/project-service';
+import {
+  projectService,
+  type ProjectMutationReceiptV1,
+} from '@/lib/editron/services/project-service';
 import { DEFAULT_CONFIG } from '@/lib/editron/config/editron-config';
 import type { SilenceRemovalAction } from '@/lib/editron/services/raw-footage-processor';
 
@@ -60,6 +63,8 @@ export interface SilenceRemovalResult {
   ghostSegments: GhostSegment[];
   /** Warnings from execution */
   warnings: string[];
+  /** Writer-issued receipt for the committed timeline state, when an edit ran. */
+  receipt?: ProjectMutationReceiptV1;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -99,9 +104,9 @@ export async function executeSilenceRemoval(
     };
   }
 
-  // Load project
-  const project = await projectService.loadProject(userId, projectId);
-  if (!project) throw new Error(`Project ${projectId} not found`);
+  // The same snapshot supplies both the edit input and the CAS precondition.
+  const snapshot = await projectService.loadProjectForMutation(userId, projectId);
+  const project = snapshot.project;
 
   const fps = clipFps || project.fps || 30;
   const minSegmentFrames = Math.round(DEFAULT_CONFIG.rawFootage.minSegmentAfterCutSeconds * fps);
@@ -455,11 +460,13 @@ export async function executeSilenceRemoval(
     };
   }
 
-  // Save updated project (including ghost segments for restoration)
+  // Save the exact snapshot-derived timeline with its restorable ghost data.
   project.overlays = overlays;
   project.durationInFrames = newDuration;
-  (project as any).ghostSegments = ghostSegments;
-  await projectService.saveProject(userId, projectId, project);
+  const receipt = await projectService.saveProjectWithReceipt(userId, projectId, project, {
+    expectedRevision: snapshot.revision,
+    projectUpdates: { ghostSegments },
+  });
 
   console.log(`[SilenceRemoval] Executed ${reversedPlan.length} actions: removed ${totalFramesRemoved} frames (${Math.round(totalFramesRemoved / fps)}s), ${overlaysCreated} created, ${overlaysDeleted} deleted, ${ghostSegments.length} ghosts stored. Duration: ${originalDuration} → ${newDuration} frames`);
 
@@ -472,5 +479,6 @@ export async function executeSilenceRemoval(
     overlaysDeleted,
     ghostSegments,
     warnings,
+    receipt,
   };
 }

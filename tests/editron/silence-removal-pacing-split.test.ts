@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const projectServiceMock = vi.hoisted(() => ({
-  loadProject: vi.fn(),
-  saveProject: vi.fn(),
+  loadProjectForMutation: vi.fn(),
+  saveProjectWithReceipt: vi.fn(),
 }));
 
 vi.mock('@/lib/editron/services/project-service', () => ({
@@ -50,8 +50,8 @@ function segment(
 
 describe('raw footage pacing splits', () => {
   beforeEach(() => {
-    projectServiceMock.loadProject.mockReset();
-    projectServiceMock.saveProject.mockReset();
+    projectServiceMock.loadProjectForMutation.mockReset();
+    projectServiceMock.saveProjectWithReceipt.mockReset();
   });
 
   it('plans non-destructive split boundaries from overheld transcript segment evidence', () => {
@@ -155,19 +155,33 @@ describe('raw footage pacing splits', () => {
   });
 
   it('executes split actions without deleting frames or breaking source offsets', async () => {
-    projectServiceMock.loadProject.mockResolvedValue({
-      fps: 30,
-      durationInFrames: 300,
-      overlays: [{
-        id: 1,
-        type: 'video',
-        from: 0,
-        row: 0,
+    const revision = {
+      schemaVersion: 1 as const,
+      value: 4,
+      compatibilityUpdatedAt: '2026-08-11T00:00:00.000Z',
+    };
+    projectServiceMock.loadProjectForMutation.mockResolvedValue({
+      project: {
+        fps: 30,
         durationInFrames: 300,
-        sourceStartFrame: 0,
-        videoStartTime: 0,
-        metadata: {},
-      }],
+        overlays: [{
+          id: 1,
+          type: 'video',
+          from: 0,
+          row: 0,
+          durationInFrames: 300,
+          sourceStartFrame: 0,
+          videoStartTime: 0,
+          metadata: {},
+        }],
+      },
+      revision,
+    });
+    projectServiceMock.saveProjectWithReceipt.mockResolvedValue({
+      schemaVersion: 1,
+      projectId: 'proj_split',
+      revision,
+      committedAt: '2026-08-11T00:00:01.000Z',
     });
 
     const result = await executeSilenceRemoval('proj_split', 'user_1', [{
@@ -188,8 +202,12 @@ describe('raw footage pacing splits', () => {
     expect(result.newDurationInFrames).toBe(300);
     expect(result.overlaysCreated).toBe(1);
     expect(result.ghostSegments).toEqual([]);
+    expect(result.receipt).toMatchObject({
+      projectId: 'proj_split',
+      revision,
+    });
 
-    const savedProject = projectServiceMock.saveProject.mock.calls[0][2];
+    const savedProject = projectServiceMock.saveProjectWithReceipt.mock.calls[0][2];
     const videos = savedProject.overlays.filter((overlay: any) => overlay.type === 'video');
     expect(videos).toEqual([
       expect.objectContaining({
@@ -214,5 +232,11 @@ describe('raw footage pacing splits', () => {
       }),
     ]);
     expect(savedProject.durationInFrames).toBe(300);
+    expect(projectServiceMock.saveProjectWithReceipt).toHaveBeenCalledWith(
+      'user_1',
+      'proj_split',
+      expect.any(Object),
+      expect.objectContaining({ expectedRevision: revision, projectUpdates: { ghostSegments: [] } }),
+    );
   });
 });
