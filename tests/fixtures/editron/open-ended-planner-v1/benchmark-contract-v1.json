@@ -1,12 +1,18 @@
 {
   "fixtureType": "EditronOpenEndedPlannerBenchmarkContractV1",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "frozenAt": "2026-08-12T00:00:00.000Z",
-  "status": "FROZEN_PHASE_A",
+  "status": "FROZEN_PHASE_A_ERRATA_1",
+  "errata": {
+    "supersedes": "1.0.0",
+    "reason": "Freeze the previously unspecified C2 knowledge records, C3 format-only example, C4 evidence variants, and materialized-envelope bindings before OE-1 implementation.",
+    "semanticChange": "NO_TASK_GOAL_OPERATOR_OR_THRESHOLD_CHANGE"
+  },
   "authority": "RESEARCH_ONLY_NO_PROJECT_MUTATION",
   "canonicalPlan": "docs/EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md",
   "researchReconciliation": "docs/EDITRON_OPEN_ENDED_EDITING_RESEARCH_RECONCILIATION_2026-08-12.md",
   "knowledgeLedger": "docs/editron/open-ended-editing/knowledge-source-rights-ledger-v1.md",
+  "knowledgeEntries": "tests/fixtures/editron/open-ended-planner-v1/knowledge-entries-v1.json",
   "operatorCatalog": "tests/fixtures/editron/open-ended-planner-v1/operator-specs-v1.json",
   "taskPacks": {
     "development": "tests/fixtures/editron/open-ended-planner-v1/development-tasks-v1.json",
@@ -43,6 +49,45 @@
       "promptTemplateHash",
       "conditionId"
     ]
+  },
+  "materializedEnvelopeContract": {
+    "source": "task.plannerEnvelope",
+    "inject": {
+      "projectFacts": "task.project",
+      "evidenceBindings": "task.evidence entries named by plannerEnvelope.boundEvidenceIds, or the frozen C4 variant",
+      "missingEvidenceIds": "empty outside C4; the frozen omitted evidence IDs inside C4"
+    },
+    "conditionC4Transform": {
+      "omit": "Remove exactly conditionEvidence.C4_NOISY_OR_MISSING_EVIDENCE.omitEvidenceIds.",
+      "replace": "Replace matching clean records with the complete records in conditionEvidence.C4_NOISY_OR_MISSING_EVIDENCE.replaceEvidence.",
+      "omittedBindingDisposition": "Remove omitted IDs from boundEvidenceIds and place them in missingEvidenceIds.",
+      "forbidCleanLeak": true
+    },
+    "forbiddenTaskFields": [
+      "userRequest",
+      "title",
+      "techniqueNameInRequest",
+      "nearDuplicateKnowledgeAllowed",
+      "eligibleDistractorIds",
+      "evaluatorOnly"
+    ],
+    "assertions": [
+      "projectFacts.projectId and projectRevision agree with the source envelope except an intentionally declared stale-revision task",
+      "every materialized evidence record is named by boundEvidenceIds",
+      "no evaluator-prefixed field enters model context",
+      "networkPolicy remains DENY"
+    ]
+  },
+  "knowledgeSelectionContract": {
+    "eligibleRecords": "authority=EVIDENCE_ONLY and reviewStatus=REVIEWED_FOR_SYNTHETIC_BENCHMARK_V1",
+    "relevance": "At least one applicableOperatorId intersects plannerEnvelope.allowedOperatorIds.",
+    "ranking": [
+      "descending count of intersecting applicableOperatorIds",
+      "entryId ascending by UTF-16 code unit"
+    ],
+    "maximumEntries": 4,
+    "forbiddenInputs": ["taskId", "title", "userRequest", "evaluatorOnly", "gold graph", "same-task example"],
+    "emptyDisposition": "Fail C2 packet materialization; never silently run C2 as C1."
   },
   "schemas": {
     "knowledgeEntryV1": {
@@ -203,35 +248,60 @@
   "conditions": [
     {
       "conditionId": "C0_SIGNATURES_ONLY",
-      "modelReceives": ["behaviourBrief", "plannerEnvelope", "operatorNamesAndPorts"],
+      "modelReceives": ["behaviourBrief", "materializedPlannerEnvelope", "operatorNamesAndPorts"],
       "modelDoesNotReceive": ["knowledgeEntries", "examples", "counterexamples", "goldGraph"]
     },
     {
       "conditionId": "C1_FULL_OPERATOR_SPECS",
-      "modelReceives": ["behaviourBrief", "plannerEnvelope", "fullAllowedOperatorSpecs"],
+      "modelReceives": ["behaviourBrief", "materializedPlannerEnvelope", "fullAllowedOperatorSpecs"],
       "modelDoesNotReceive": ["knowledgeEntries", "examples", "goldGraph"]
     },
     {
       "conditionId": "C2_REVIEWED_KNOWLEDGE",
-      "modelReceives": ["behaviourBrief", "plannerEnvelope", "fullAllowedOperatorSpecs", "relevantReviewedKnowledgeEntries"],
+      "modelReceives": ["behaviourBrief", "materializedPlannerEnvelope", "fullAllowedOperatorSpecs", "relevantReviewedKnowledgeEntries"],
       "modelDoesNotReceive": ["nearDuplicateTaskExample", "goldGraph"]
     },
     {
       "conditionId": "C3_UNRELATED_FORMAT_EXAMPLE",
-      "modelReceives": ["behaviourBrief", "plannerEnvelope", "fullAllowedOperatorSpecs", "oneUnrelatedGraphForOutputFormatting"],
+      "modelReceives": ["behaviourBrief", "materializedPlannerEnvelope", "fullAllowedOperatorSpecs", "oneUnrelatedGraphForOutputFormatting"],
       "modelDoesNotReceive": ["sameTechniqueExample", "sameTaskExample", "goldGraph"]
     },
     {
       "conditionId": "C4_NOISY_OR_MISSING_EVIDENCE",
-      "modelReceives": ["behaviourBrief", "plannerEnvelope", "fullAllowedOperatorSpecs", "taskDeclaredNoisyEvidence"],
+      "modelReceives": ["behaviourBrief", "materializedPlannerEnvelopeWithTaskDeclaredNoisyEvidence", "fullAllowedOperatorSpecs"],
       "modelDoesNotReceive": ["hiddenCleanEvidence", "goldGraph"]
     },
     {
       "conditionId": "C5_CAPABILITY_GAP",
-      "modelReceives": ["behaviourBrief", "plannerEnvelope", "fullAllowedOperatorSpecs"],
+      "modelReceives": ["behaviourBrief", "materializedPlannerEnvelope", "fullAllowedOperatorSpecs"],
       "expectedBehaviour": "clarify-decline-or-gap-report-with-zero-invented-operator"
     }
   ],
+  "unrelatedFormatExample": {
+    "nonExecutable": true,
+    "instruction": "Formatting only. Placeholder identifiers are not operators and must never be copied into a candidate graph.",
+    "graphId": "FORMAT_ONLY_GRAPH_ID",
+    "taskId": "FORMAT_ONLY_TASK_ID",
+    "envelopeHash": "FORMAT_ONLY_ENVELOPE_HASH",
+    "projectRevision": "FORMAT_ONLY_REVISION",
+    "nodes": [
+      {
+        "nodeId": "FORMAT_ONLY_NODE_ID",
+        "operatorId": "FORMAT_ONLY_OPERATOR_ID",
+        "operatorVersion": "FORMAT_ONLY_OPERATOR_VERSION",
+        "inputs": {},
+        "evidenceIds": [],
+        "expectedOutputs": {},
+        "expectedStateEffects": [],
+        "failureDisposition": "FORMAT_ONLY_FAILURE_DISPOSITION"
+      }
+    ],
+    "edges": [],
+    "expectedOutcome": "FORMAT_ONLY_EXPECTED_OUTCOME",
+    "preservationClaims": [],
+    "clarifications": [],
+    "declines": []
+  },
   "providerCandidates": [
     {
       "provider": "openai",

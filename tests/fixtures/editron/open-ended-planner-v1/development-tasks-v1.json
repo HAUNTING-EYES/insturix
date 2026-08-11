@@ -1,6 +1,6 @@
 {
   "fixtureType": "EditronOpenEndedPlannerTaskPackV1",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "split": "DEVELOPMENT",
   "authority": "BENCHMARK_INPUT_NOT_PRODUCTION_PROJECT",
   "mediaPolicy": {
@@ -13,7 +13,7 @@
   "tasks": [
     {
       "taskId": "DEV-01",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "title": "Remove a pause, emphasize the product, and protect speech",
       "techniqueNameInRequest": false,
       "nearDuplicateKnowledgeAllowed": true,
@@ -43,6 +43,12 @@
         {"evidenceId": "EV-DEV01-V1", "kind": "VISUAL", "binding": "dev01-host@sha256:oe2-generated/R7", "value": {"label": "product-box", "revealFrame": 205, "box": [0.62, 0.24, 0.25, 0.52], "confidence": 1.0}},
         {"evidenceId": "EV-DEV01-A1", "kind": "AUDIO", "binding": "dev01-music@sha256:oe2-generated/R7", "value": {"speechRanges": [[60, 151], [196, 330]], "musicOverlayId": "ov-music", "confidence": 1.0}}
       ],
+      "conditionEvidence": {
+        "C4_NOISY_OR_MISSING_EVIDENCE": {
+          "omitEvidenceIds": ["EV-DEV01-V1"],
+          "replaceEvidence": []
+        }
+      },
       "plannerEnvelope": {
         "projectId": "oe-dev-01",
         "projectRevision": "R7",
@@ -68,7 +74,7 @@
     },
     {
       "taskId": "DEV-02",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "title": "Build a reference-driven moving panel collage from owned clips",
       "techniqueNameInRequest": false,
       "nearDuplicateKnowledgeAllowed": true,
@@ -99,6 +105,14 @@
         {"evidenceId": "EV-DEV02-S1", "kind": "SOURCE_WINDOWS", "binding": "asset-manifest-v1/R3", "value": {"dev02-wide": [[0, 180], [210, 330]], "dev02-close": [[15, 150], [180, 345]]}},
         {"evidenceId": "EV-DEV02-C1", "kind": "CONTINUITY", "binding": "timeline/R3", "value": {"nextOverlayId": "ov-next", "assetId": "dev02-close", "nextSourceStartFrame": 180}}
       ],
+      "conditionEvidence": {
+        "C4_NOISY_OR_MISSING_EVIDENCE": {
+          "omitEvidenceIds": [],
+          "replaceEvidence": [
+            {"evidenceId": "EV-DEV02-R1", "kind": "REFERENCE_LAYOUT", "binding": "dev02-reference@sha256:oe2-generated", "value": {"panelCountCandidates": [4, 5, 6], "centerTitle": true, "blackGutters": true, "motion": "uncertain-opposed-column-slides", "confidence": 0.55}}
+          ]
+        }
+      },
       "plannerEnvelope": {
         "projectId": "oe-dev-02",
         "projectRevision": "R3",
@@ -124,7 +138,7 @@
     },
     {
       "taskId": "DEV-03",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "title": "Move existing boundaries to measured beats without harming dialogue",
       "techniqueNameInRequest": true,
       "nearDuplicateKnowledgeAllowed": true,
@@ -154,6 +168,12 @@
         {"evidenceId": "EV-DEV03-D1", "kind": "PROTECTED_DIALOGUE", "binding": "dev03-beats@sha256:oe2-generated/R11", "value": {"range": [250, 350]}},
         {"evidenceId": "EV-DEV03-T1", "kind": "TIMELINE", "binding": "timeline/R11", "value": {"boundaryFrames": [114, 246, 472], "maximumShiftFrames": 12, "handleFrames": 18}}
       ],
+      "conditionEvidence": {
+        "C4_NOISY_OR_MISSING_EVIDENCE": {
+          "omitEvidenceIds": ["EV-DEV03-B1"],
+          "replaceEvidence": []
+        }
+      },
       "plannerEnvelope": {
         "projectId": "oe-dev-03",
         "projectRevision": "R11",
@@ -179,7 +199,7 @@
     },
     {
       "taskId": "DEV-04",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "title": "Recognize a missing moving matte capability",
       "techniqueNameInRequest": false,
       "nearDuplicateKnowledgeAllowed": true,
@@ -206,6 +226,14 @@
       "evidence": [
         {"evidenceId": "EV-DEV04-V1", "kind": "VISUAL", "binding": "dev04-crossing@sha256:oe2-generated/R2", "value": {"movingSubject": true, "staticBoxSufficient": false, "segmentationTrackAvailable": false}}
       ],
+      "conditionEvidence": {
+        "C4_NOISY_OR_MISSING_EVIDENCE": {
+          "omitEvidenceIds": [],
+          "replaceEvidence": [
+            {"evidenceId": "EV-DEV04-V1", "kind": "VISUAL", "binding": "dev04-crossing@sha256:oe2-generated/R2", "value": {"movingSubject": true, "staticBoxSufficient": "UNKNOWN", "segmentationTrackAvailable": "UNKNOWN", "confidence": 0.42}}
+          ]
+        }
+      },
       "plannerEnvelope": {
         "projectId": "oe-dev-04",
         "projectRevision": "R2",
