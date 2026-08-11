@@ -898,3 +898,49 @@ metadata into ProjectService" refactor.  It is a bounded repair of the next
 canonical mutation/proof path after its actual source owner and consumer are
 traced.  In particular, `mgDeliveryRecords` must not be used to authorize a
 late render until it has a real owner-bound freshness contract.
+
+#### Execution-status correction: 1-B5 and 1-B6 complete - 2026-08-11
+
+- **1-B5:** `26e9a2792` makes a chat redo request fail closed instead of
+  treating an after-edit checkpoint as a replay authority.  Undo continues to
+  use its writer-bound before checkpoint.  `ad5a99650` carries the resolver's
+  action to the request owner so a rejected redo receives no checkpoint-restore
+  tool at all.  A safe redo remains unimplemented: it needs an original command
+  plus a receipt chain that proves each post-undo state.
+- **1-B6:** selected ThinkForge Brand Vault authority was already fail-closed:
+  `resolveThinkForgeBrandAuthority` converts an unavailable selected profile or
+  scope into a typed error, and the context resolver does not substitute
+  unscoped brand data.  `18747de74` closes the remaining exposed route defect:
+  the DataBank maintenance cron now requires the configured bearer secret and
+  rejects a forged `vercel-cron` user-agent.
+
+#### 1-B7 IF1 compatibility decision: keep the freeze un-wired - 2026-08-11
+
+**Decision: do not import or wire IF1 into the active runtime yet.**  This is
+not a rejection of the frozen contract; it prevents a second command/revision
+authority while the live project writer is still narrower than IF1.
+
+Code and history evidence:
+
+- `editron-interface-freeze-1` targets `5a47e008…`, descends from the Phase
+  2C base `7e9b4dd7…`, and freezes only the five IF1 artifact files.  It is not
+  an ancestor of this active infrastructure branch.
+- The active tree has no `lib/editron/if1` module or runtime import of
+  `ProjectServiceIF1RevisionIssuerV1`; therefore the tagged adapter is not
+  secretly acting as a live authority.
+- Active `ProjectService` now issues native `ProjectMutationReceiptV1` values
+  containing project ID, numeric-plus-compatibility revision and commit time.
+  It does not yet issue IF1's opaque project reference, canonical actor/project
+  operation/replay identity, command hash, changed paths, timeline projection
+  revision, checkpoint/undo reference, or versioned proof disposition.
+- The IF1 adapter deliberately only projects an already-issued native receipt.
+  Adding its issuer without the missing command and receipt semantics would
+  create a parallel vocabulary, not a canonical migration.
+
+**Re-entry conditions:** first prove a single ProjectService-issued codec for
+opaque IF1 revisions; then map one live command family end-to-end from
+actor/project-scoped canonical command through its receipt, proof and undo
+fields; finally show that UI, chat and worker callers consume that one result
+without retaining the native receipt as a competing public contract.  Until
+then, the tag remains frozen and un-wired; no IF1 V2 or merge is authorised by
+this decision.
