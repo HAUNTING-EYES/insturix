@@ -16,7 +16,7 @@ import {
 } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
-import { projectThinkForgeAuthoringProvenance } from "@/lib/thinkforge/context/brand-authoring-context";
+import { projectThinkForgeAuthoringProvenance } from "@/lib/thinkforge/context/authoring-provenance";
 
 // Hard upper bound on carousel slides. The writers (carouselPrompts/scenePrompts)
 // and the creative contract do not cap slide count, so we clamp here at the point
