@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   processChat: vi.fn(),
   refund: vi.fn(),
+  resolveThinkForgeAuthoringContext: vi.fn(),
   setActiveGeneration: vi.fn(),
   updateGenerationState: vi.fn(),
 }));
@@ -40,6 +41,9 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
 }));
 vi.mock('@/lib/thinkforge/services/command-service', () => ({
   applyCommand: mocks.applyCommand,
+}));
+vi.mock('@/lib/thinkforge/context', () => ({
+  resolveThinkForgeAuthoringContext: mocks.resolveThinkForgeAuthoringContext,
 }));
 
 function chatRequest() {
@@ -78,6 +82,7 @@ describe('ThinkForge internal command authorization', () => {
     }));
     mocks.getOrCreateSession.mockResolvedValue({ _id: 'session_canonical' });
     mocks.applyCommand.mockResolvedValue({ ok: true, script: { version: 1 } });
+    mocks.resolveThinkForgeAuthoringContext.mockResolvedValue(null);
   });
 
   it('rejects a foreign chat session before migration, billing, or generation', async () => {
@@ -158,14 +163,68 @@ describe('ThinkForge internal command authorization', () => {
       brandId: 'brand_1',
       deliverableId: 'deliverable_1',
       campaignId: 'campaign_1',
+      format: 'linkedin_post',
       title: 'Launch post',
       content: 'A complete launch post with enough content to persist.',
+      authoringContextSnapshot: {
+        version: 1 as const,
+        resolvedAt: '2026-08-12T00:00:00.000Z',
+        scope: { kind: 'organization' as const, brandId: 'brand_1' },
+        brand: {
+          brandId: 'brand_1',
+          recordId: 'record_1',
+          profileUpdatedAt: '2026-08-12T00:00:00.000Z',
+          profileFingerprint: 'a'.repeat(64),
+        },
+        retrieval: { projectFactIds: [], globalFactIds: [], interactionPatternTypes: [] },
+        writingKnowledgeVersion: 'writing-knowledge-v3',
+      },
+      signalTrace: {
+        outputFormat: 'social_post',
+        goal: 'awareness',
+        angle: 'launch',
+        enforcedConstraints: {},
+        selectedIntent: {
+          proofPoints: [],
+          forbiddenTerms: [],
+          structuralHints: [],
+          visualNeeds: [],
+          clickatron: { requested: false, assetIntent: 'none' as const, rationale: [] },
+        },
+        sourceSummary: {
+          brandContextPresent: true,
+          brandVaultProfilePresent: true,
+          projectFactsUsed: 0,
+          globalFactsUsed: 0,
+          interactionPatternsUsed: 0,
+        },
+        provenanceSummary: [],
+        warnings: [],
+      },
     };
 
     await expect(createLinkedThinkForgeSession(params)).resolves.toBe('session_canonical');
-    expect(mocks.applyCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 'session_canonical' }),
+    const [savedCommand, savedUserId, savedOrgId] = mocks.applyCommand.mock.calls[0] ?? [];
+    expect(savedUserId).toBe('user_1');
+    expect(savedOrgId).toBe('org_1');
+    expect(savedCommand).toMatchObject({
+      sessionId: 'session_canonical',
+      payload: {
+        metadata: {
+          source: 'calos',
+          authoringContextSnapshot: { brand: { brandId: 'brand_1' } },
+          signalTrace: { outputFormat: 'social_post' },
+        },
+      },
+    });
+    expect(mocks.getOrCreateSession).toHaveBeenCalledWith(
       'user_1',
+      undefined,
+      expect.objectContaining({
+        brandId: 'brand_1',
+        brandBinding: expect.objectContaining({ brandId: 'brand_1', scope: 'organization' }),
+        format: 'linkedin_post',
+      }),
       'org_1',
     );
 

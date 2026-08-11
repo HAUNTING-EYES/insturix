@@ -6,7 +6,10 @@ import { serviceForFormat } from "@/lib/calos/generate/route-map";
 import { getGenerator, type GenerateParams } from "@/lib/calos/generate/contract";
 import { calosScope } from "@/lib/calos/scope";
 import { checkCredits, type CreditCheckResult } from "@/lib/services/creditsMiddleware";
-import { resolveCalosWriterContext } from "@/lib/calos/generate/generators/_brand-brief";
+import {
+  resolveCalosWriterContext,
+  type CalosWriterContext,
+} from "@/lib/calos/generate/generators/_brand-brief";
 import { ThinkForgeBrandAuthorityError } from "@/lib/thinkforge/context/brand-authoring-context";
 import "@/lib/calos/generate/register"; // side-effect: wires the live generators
 
@@ -86,7 +89,7 @@ export async function POST(req: NextRequest) {
 
     // Resolve the selected brand exactly once before billing. The same object is passed
     // into the writer so generation cannot drift to a newer/different Brand Vault read.
-    let authoringContext;
+    let authoringContext: CalosWriterContext | undefined;
     if (service === "thinkforge" || service === "clickatron") {
       try {
         authoringContext = await resolveCalosWriterContext(params);
@@ -151,8 +154,13 @@ export async function POST(req: NextRequest) {
         brandId,
         deliverableId,
         campaignId: deliverable.campaignId ?? null,
+        format,
         title: deliverable.card.title,
         content: result.assetText,
+        ...(authoringContext ? {
+          authoringContextSnapshot: authoringContext.snapshot,
+          signalTrace: authoringContext.signalTrace,
+        } : {}),
       });
       deliverable.card = {
         ...deliverable.card,

@@ -6,6 +6,11 @@ import {
   type ThinkForgeBlock,
   type ThinkForgeBlockKind,
 } from "@/lib/thinkforge/schemas/thinkforge-block";
+import {
+  createThinkForgeSessionBrandBinding,
+  type ThinkForgeAuthoringContextSnapshot,
+} from "@/lib/thinkforge/context/brand-authoring-context";
+import type { ThinkForgeSignalTrace } from "@/lib/thinkforge/signals/signal-trace";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 
 /**
@@ -43,15 +48,29 @@ export interface CreateLinkedSessionParams {
   brandId: string;
   deliverableId: string;
   campaignId: string | null;
+  format: string;
   title: string;
   content: string;
+  authoringContextSnapshot?: ThinkForgeAuthoringContextSnapshot;
+  signalTrace?: ThinkForgeSignalTrace;
 }
 
 /** Returns the new ThinkForge sessionId, or null on any failure (best-effort — never throws). */
 export async function createLinkedThinkForgeSession(
   params: CreateLinkedSessionParams,
 ): Promise<string | null> {
-  const { userId, orgId, brandId, deliverableId, campaignId, title, content } = params;
+  const {
+    userId,
+    orgId,
+    brandId,
+    deliverableId,
+    campaignId,
+    format,
+    title,
+    content,
+    authoringContextSnapshot,
+    signalTrace,
+  } = params;
   if (!content.trim()) return null;
 
   try {
@@ -62,6 +81,8 @@ export async function createLinkedThinkForgeSession(
     const projectMeta: ProjectMeta = {
       title: title.trim() || "Untitled",
       brandId,
+      brandBinding: createThinkForgeSessionBrandBinding({ brandId, orgId }),
+      format,
       contentCardId: deliverableId,
       ...(campaignId ? { campaignId } : {}),
     };
@@ -80,6 +101,16 @@ export async function createLinkedThinkForgeSession(
           title: title.trim() || "Untitled",
           content,
           blocks: textToParagraphBlocks(content),
+          metadata: {
+            workflow: "create",
+            source: "calos",
+            calos: {
+              deliverableId,
+              ...(campaignId ? { campaignId } : {}),
+            },
+            ...(authoringContextSnapshot ? { authoringContextSnapshot } : {}),
+            ...(signalTrace ? { signalTrace } : {}),
+          },
         },
       },
       userId,

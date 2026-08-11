@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getGenerator: vi.fn(),
   calosScope: vi.fn(),
   checkCredits: vi.fn(),
+  createLinkedThinkForgeSession: vi.fn(),
   resolveCalosWriterContext: vi.fn(),
   deduct: vi.fn(),
   generator: vi.fn(),
@@ -25,6 +26,9 @@ vi.mock('@/lib/services/creditsMiddleware', () => ({ checkCredits: mocks.checkCr
 vi.mock('@/lib/calos/generate/register', () => ({}));
 vi.mock('@/lib/calos/generate/generators/_brand-brief', () => ({
   resolveCalosWriterContext: mocks.resolveCalosWriterContext,
+}));
+vi.mock('@/lib/calos/create-thinkforge-session', () => ({
+  createLinkedThinkForgeSession: mocks.createLinkedThinkForgeSession,
 }));
 
 function request(): Request {
@@ -50,10 +54,12 @@ describe('CalOS generation authoring preflight', () => {
     mocks.getGenerator.mockReturnValue(mocks.generator);
     mocks.resolveCalosWriterContext.mockResolvedValue({
       projectMeta: { brandId: 'brand_b' },
-      snapshot: { brand: { brandId: 'brand_b' } },
+      snapshot: { version: 1, brand: { brandId: 'brand_b' } },
+      signalTrace: { outputFormat: 'social_post' },
     });
     mocks.checkCredits.mockResolvedValue({ allowed: true, deduct: mocks.deduct });
-    mocks.generator.mockResolvedValue({ ok: true });
+    mocks.generator.mockResolvedValue({ ok: true, assetText: 'A generated CalOS post.' });
+    mocks.createLinkedThinkForgeSession.mockResolvedValue('session_linked');
     mocks.save.mockResolvedValue(undefined);
   });
 
@@ -73,6 +79,12 @@ describe('CalOS generation authoring preflight', () => {
       .toBeLessThan(mocks.checkCredits.mock.invocationCallOrder[0]);
     expect(mocks.generator).toHaveBeenCalledWith(expect.objectContaining({
       authoringContext: expect.objectContaining({ projectMeta: { brandId: 'brand_b' } }),
+    }));
+    expect(mocks.createLinkedThinkForgeSession).toHaveBeenCalledWith(expect.objectContaining({
+      brandId: 'brand_b',
+      format: 'linkedin_post',
+      authoringContextSnapshot: { version: 1, brand: { brandId: 'brand_b' } },
+      signalTrace: { outputFormat: 'social_post' },
     }));
   });
 
