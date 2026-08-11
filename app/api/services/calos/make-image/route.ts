@@ -321,7 +321,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const referenceImageRefs = await collectImageReferenceUrls(brandId, claimed.campaignId);
+    const referenceImageRefs = await collectImageReferenceUrls({
+      brandId,
+      campaignId: claimed.campaignId,
+      userId,
+      orgId: orgId ?? null,
+    });
     const kickoff = await createClickatronImageJob({
       userId: generationOwnerUserId,
       orgId: orgId ?? null,

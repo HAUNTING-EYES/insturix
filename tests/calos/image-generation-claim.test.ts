@@ -184,6 +184,12 @@ describe("CalOS image generation claim", () => {
     expect(mocks.kickoff).toHaveBeenCalledWith(
       expect.objectContaining({ variationId: "claim_1" }),
     );
+    expect(mocks.collectReferences).toHaveBeenCalledWith({
+      brandId: "brand_1",
+      campaignId: "campaign_1",
+      userId: "user_1",
+      orgId: null,
+    });
   });
 
   it("reclaims an expired lease with its original billing identity", async () => {

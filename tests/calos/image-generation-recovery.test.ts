@@ -184,6 +184,12 @@ describe("CalOS image recovery", () => {
       expect.objectContaining({ idempotencyKey: expect.stringContaining("owner_user") }),
     );
     expect(mocks.kickoff).toHaveBeenCalledWith(expect.objectContaining({ userId: "owner_user" }));
+    expect(mocks.collectReferences).toHaveBeenCalledWith({
+      brandId: "brand_1",
+      campaignId: null,
+      userId: "member_user",
+      orgId: "org_1",
+    });
   });
 
   it("lands a completed job whose original callback was missed", async () => {
