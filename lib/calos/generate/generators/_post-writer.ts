@@ -19,7 +19,12 @@ export interface PostWriterOutput {
 export async function runPostWriter(params: CalosWriterParams): Promise<PostWriterOutput> {
   const [authoringContext, referenceBlock] = await Promise.all([
     resolveCalosWriterContext(params),
-    resolveReferenceBlock(params.campaignId, params.brandId),
+    resolveReferenceBlock({
+      campaignId: params.campaignId,
+      brandId: params.brandId,
+      ownerUserId: params.ownerUserId,
+      orgId: params.orgId,
+    }),
   ]);
 
   const userPrompt =

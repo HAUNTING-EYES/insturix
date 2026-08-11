@@ -79,6 +79,12 @@ describe('CalOS canonical ThinkForge authoring context', () => {
     });
 
     expect(mocks.resolveCalosWriterContext).toHaveBeenCalledWith(params);
+    expect(mocks.resolveReferenceBlock).toHaveBeenCalledWith({
+      campaignId: 'campaign_1',
+      brandId: 'brand_b',
+      ownerUserId: 'user_1',
+      orgId: 'org_1',
+    });
     expect(mocks.postRunStructured).toHaveBeenCalledWith(expect.objectContaining({
       brandId: 'brand_b',
       project: writerContext.projectMeta,
@@ -97,6 +103,12 @@ describe('CalOS canonical ThinkForge authoring context', () => {
 
     await expect(runScriptWriter({ ...params, format: 'youtube_video' })).resolves.toBe('A complete video script.');
 
+    expect(mocks.resolveReferenceBlock).toHaveBeenCalledWith({
+      campaignId: 'campaign_1',
+      brandId: 'brand_b',
+      ownerUserId: 'user_1',
+      orgId: 'org_1',
+    });
     expect(mocks.scriptRunStructured).toHaveBeenCalledWith(expect.objectContaining({
       brandId: 'brand_b',
       project: writerContext.projectMeta,

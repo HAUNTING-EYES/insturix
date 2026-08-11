@@ -1,6 +1,7 @@
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign, { type CalosCampaignReference } from "@/schemas/calos-campaign";
 import CalosBrandReferences from "@/schemas/calos-brand-references";
+import { calosScope } from "@/lib/calos/scope";
 
 /**
  * Resolve the reference material the CalOS writers generate FROM (Phase B — the payoff for uploaded
@@ -11,11 +12,18 @@ import CalosBrandReferences from "@/schemas/calos-brand-references";
  * the writer's userPrompt so posts/scripts are grounded in the user's actual source material.
  *
  * Best-effort by contract: any miss/error returns "" so generation proceeds reference-less (a missing
- * reference must never fail a write). brandId is trusted from the deliverable; the campaignId match
- * prevents cross-brand bleed.
+ * reference must never fail a write). The caller's authenticated CalOS scope is mandatory: brandId
+ * alone is never enough to retrieve reference material.
  */
 
 type RefDoc = { references?: CalosCampaignReference[] } | null;
+
+export interface ReferenceBlockParams {
+  campaignId?: string | null;
+  brandId: string;
+  ownerUserId: string;
+  orgId?: string | null;
+}
 
 const readyRefs = (refs: CalosCampaignReference[] | undefined): CalosCampaignReference[] =>
   (refs ?? []).filter((r) => r.status === "ready" && r.ingested);
@@ -31,16 +39,16 @@ function formatReference(r: CalosCampaignReference): string {
 }
 
 export async function resolveReferenceBlock(
-  campaignId: string | null | undefined,
-  brandId: string,
+  { campaignId, brandId, ownerUserId, orgId }: ReferenceBlockParams,
 ): Promise<string> {
-  if (!brandId) return "";
+  if (!brandId || !ownerUserId) return "";
   try {
     await connectToDatabase();
+    const scope = calosScope({ userId: ownerUserId, orgId }, brandId);
     const [brandDoc, campaignDoc] = await Promise.all([
-      CalosBrandReferences.findOne({ brandId }).select("references").lean<RefDoc>().catch(() => null),
+      CalosBrandReferences.findOne(scope).select("references").lean<RefDoc>().catch(() => null),
       campaignId
-        ? CalosCampaign.findOne({ _id: campaignId, brandId, deletedAt: null }).select("references").lean<RefDoc>().catch(() => null)
+        ? CalosCampaign.findOne({ _id: campaignId, ...scope, deletedAt: null }).select("references").lean<RefDoc>().catch(() => null)
         : Promise.resolve<RefDoc>(null),
     ]);
 

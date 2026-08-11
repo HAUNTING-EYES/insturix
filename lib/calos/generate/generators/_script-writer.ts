@@ -12,7 +12,12 @@ import { resolveReferenceBlock } from "./_campaign-references";
 export async function runScriptWriter(params: CalosWriterParams): Promise<string> {
   const [authoringContext, referenceBlock] = await Promise.all([
     resolveCalosWriterContext(params),
-    resolveReferenceBlock(params.campaignId, params.brandId),
+    resolveReferenceBlock({
+      campaignId: params.campaignId,
+      brandId: params.brandId,
+      ownerUserId: params.ownerUserId,
+      orgId: params.orgId,
+    }),
   ]);
 
   const userPrompt =

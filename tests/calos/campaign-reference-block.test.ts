@@ -16,6 +16,12 @@ vi.mock("@/schemas/calos-brand-references", () => ({ default: { findOne: brandFi
 
 import { resolveReferenceBlock } from "@/lib/calos/generate/generators/_campaign-references";
 
+const personalScope = {
+  brandId: "brand_1",
+  ownerUserId: "user_1",
+  orgId: null,
+};
+
 const ready = (name: string, fact: string) => ({
   id: name, type: "pdf", name, status: "ready",
   ingested: { summary: `About ${name}`, atomicFacts: [fact], viralHooks: [] },
@@ -30,46 +36,65 @@ beforeEach(() => {
 
 describe("resolveReferenceBlock", () => {
   it("returns empty (no query) when there is no brandId", async () => {
-    const block = await resolveReferenceBlock("camp_1", "");
+    const block = await resolveReferenceBlock({ ...personalScope, campaignId: "camp_1", brandId: "" });
+    expect(block).toBe("");
+    expect(brandFindOne).not.toHaveBeenCalled();
+  });
+
+  it("returns empty (no query) when the authenticated owner is missing", async () => {
+    const block = await resolveReferenceBlock({ ...personalScope, ownerUserId: "" });
     expect(block).toBe("");
     expect(brandFindOne).not.toHaveBeenCalled();
   });
 
   it("grounds on BRAND references even with no campaign (the no-campaign fix)", async () => {
     brandLean.mockResolvedValueOnce({ references: [ready("Brand Guide.pdf", "Founded in 2019")] });
-    const block = await resolveReferenceBlock(null, "brand_1");
+    const block = await resolveReferenceBlock(personalScope);
     expect(block).toContain("<reference_material>");
     expect(block).toContain("Source: Brand Guide.pdf");
     expect(block).toContain("- Founded in 2019");
-    // brand query keyed by brandId; campaign never queried when campaignId is null
-    expect(brandFindOne).toHaveBeenCalledWith({ brandId: "brand_1" });
+    // Personal references are always owner-scoped; campaign is not queried when absent.
+    expect(brandFindOne).toHaveBeenCalledWith({ brandId: "brand_1", ownerUserId: "user_1" });
     expect(campFindOne).not.toHaveBeenCalled();
   });
 
   it("merges brand + campaign references when the card has a campaign", async () => {
     brandLean.mockResolvedValueOnce({ references: [ready("Brand Guide.pdf", "Founded in 2019")] });
     campLean.mockResolvedValueOnce({ references: [ready("Launch Brief.pdf", "Ships Sept 12")] });
-    const block = await resolveReferenceBlock("camp_1", "brand_1");
+    const block = await resolveReferenceBlock({ ...personalScope, campaignId: "camp_1" });
     expect(block).toContain("Founded in 2019"); // brand
     expect(block).toContain("Ships Sept 12"); // campaign
-    expect(campFindOne).toHaveBeenCalledWith({ _id: "camp_1", brandId: "brand_1", deletedAt: null });
+    expect(campFindOne).toHaveBeenCalledWith({
+      _id: "camp_1",
+      brandId: "brand_1",
+      ownerUserId: "user_1",
+      deletedAt: null,
+    });
+  });
+
+  it("uses the active organization boundary instead of a user-global brand lookup", async () => {
+    brandLean.mockResolvedValueOnce({ references: [ready("Org Guide.pdf", "Shared only with this agency")] });
+    const block = await resolveReferenceBlock({ ...personalScope, orgId: "org_1" });
+
+    expect(block).toContain("Shared only with this agency");
+    expect(brandFindOne).toHaveBeenCalledWith({ brandId: "brand_1", orgId: "org_1" });
   });
 
   it("excludes non-ready / un-ingested references at both levels", async () => {
     brandLean.mockResolvedValueOnce({ references: [{ id: "p", type: "link", name: "x", status: "pending", ingested: null }] });
     campLean.mockResolvedValueOnce({ references: [{ id: "e", type: "text", name: "y", status: "ready", ingested: null }] });
-    expect(await resolveReferenceBlock("camp_1", "brand_1")).toBe("");
+    expect(await resolveReferenceBlock({ ...personalScope, campaignId: "camp_1" })).toBe("");
   });
 
   it("returns empty when neither level has references", async () => {
     brandLean.mockResolvedValueOnce(null);
     campLean.mockResolvedValueOnce({ references: [] });
-    expect(await resolveReferenceBlock("camp_1", "brand_1")).toBe("");
+    expect(await resolveReferenceBlock({ ...personalScope, campaignId: "camp_1" })).toBe("");
   });
 
   it("never throws — a DB error degrades to reference-less generation", async () => {
     brandLean.mockRejectedValueOnce(new Error("mongo down"));
     campLean.mockRejectedValueOnce(new Error("mongo down"));
-    expect(await resolveReferenceBlock("camp_1", "brand_1")).toBe("");
+    expect(await resolveReferenceBlock({ ...personalScope, campaignId: "camp_1" })).toBe("");
   });
 });
