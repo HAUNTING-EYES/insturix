@@ -16,13 +16,12 @@ const BACKFILL_BATCH_SIZE = 50;
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get('authorization');
-  const isVercelCron = request.headers.get('user-agent')?.includes('vercel-cron') ?? false;
 
   if (!cronSecret) {
     console.error('[cron/process-thinkforge-databank] CRON_SECRET is not configured');
     return NextResponse.json({ ok: false, error: 'Cron authentication is not configured.' }, { status: 503 });
   }
-  if (authHeader !== `Bearer ${cronSecret}` && !isVercelCron) {
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
   }
 
