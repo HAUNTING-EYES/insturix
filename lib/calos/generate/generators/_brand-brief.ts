@@ -1,31 +1,73 @@
+import { getVersion as getWritingKnowledgeVersion } from '@/lib/thinkforge/data/writing-graph-query';
+import {
+  resolveThinkForgeAuthoringContext,
+  type ThinkForgeResolvedAuthoringContext,
+} from '@/lib/thinkforge/context/resolved-authoring-context';
+import {
+  buildThinkForgeSignalTrace,
+  formatContentSignalProfileForPrompt,
+  resolveContentSignalProfile,
+  type ThinkForgeContentSignalProfile,
+} from '@/lib/thinkforge/signals';
+import type { GenerateParams } from '../contract';
+
+export interface CalosWriterContext extends ThinkForgeResolvedAuthoringContext {
+  contentSignalProfile: ThinkForgeContentSignalProfile;
+  signalTrace: ReturnType<typeof buildThinkForgeSignalTrace>;
+}
+
+function buildCalosWriterPrompt(params: GenerateParams): string {
+  return [
+    params.title,
+    params.angle ? `Brief: ${params.angle}` : '',
+    `Format: ${params.format}`,
+    `Platform: ${params.platform}`,
+  ].filter(Boolean).join('\n');
+}
+
 /**
- * Resolve the brand context block for a CalOS generation: the RICH accepted Brand Vault profile
- * (confidence-gated), falling back to the thin legacy brand, then to empty. Best-effort — a brand
- * resolve failure must never block generation. Shared by the post writer + the script writer so the
- * dead-wire fix (read the accepted profile, not the lossy projection) lives in one place.
+ * CalOS writes through ThinkForge's authoritative authoring-context resolver.
+ * A selected brand must resolve to its current accepted Brand Vault profile;
+ * CalOS may not reduce that failure to a generic, brandless draft.
  */
-export async function resolveSystemBrief(
-  ownerUserId: string,
-  brandId: string,
-  orgId?: string | null,
-): Promise<string> {
-  try {
-    const { resolveEffectiveBrandWithProfile } = await import("@/lib/shared/brand-effective-resolver");
-    const { buildBrandContextBlock, buildRichBrandContextBlock } = await import(
-      "@/lib/shared/brand-context-block"
-    );
-    // enabled:true forces the vault on regardless of the per-service rollout flag.
-    const { brand, acceptedProfile } = await resolveEffectiveBrandWithProfile(ownerUserId, brandId, {
-      service: "thinkforge",
-      enabled: true,
-      orgId: orgId ?? null,
-    });
-    return acceptedProfile
-      ? buildRichBrandContextBlock(acceptedProfile, brand)
-      : buildBrandContextBlock(brand);
-  } catch (e) {
-    // TODO(CALOS_LOUD): revert to warn once stable.
-    console.error("[CALOS_LOUD] _brand-brief resolveSystemBrief failed (generation proceeds BRAND-LESS):", e);
-    return "";
-  }
+export async function resolveCalosWriterContext(
+  params: GenerateParams,
+): Promise<CalosWriterContext> {
+  const userPrompt = buildCalosWriterPrompt(params);
+  const resolved = await resolveThinkForgeAuthoringContext({
+    userId: params.ownerUserId,
+    orgId: params.orgId ?? null,
+    providedProject: {
+      title: params.title,
+      idea: params.angle,
+      format: params.format,
+      platform: params.platform,
+      brandId: params.brandId,
+      contentCardId: params.deliverableId,
+      ...(params.campaignId ? { campaignId: params.campaignId } : {}),
+    },
+    currentPrompt: userPrompt,
+    maxFacts: 5,
+    interactionWindowDays: 30,
+    writingKnowledgeVersion: getWritingKnowledgeVersion(),
+  });
+  const contentSignalProfile = resolveContentSignalProfile({
+    userPrompt,
+    documentType: params.format,
+    medium: params.format,
+    platform: params.platform,
+    brandId: resolved.projectMeta.brandId,
+    project: resolved.projectMeta,
+    retrievedContext: resolved.retrievedContext,
+  });
+
+  return {
+    ...resolved,
+    systemBrief: [
+      resolved.systemBrief,
+      formatContentSignalProfileForPrompt(contentSignalProfile),
+    ].filter(Boolean).join('\n\n'),
+    contentSignalProfile,
+    signalTrace: buildThinkForgeSignalTrace(contentSignalProfile),
+  };
 }

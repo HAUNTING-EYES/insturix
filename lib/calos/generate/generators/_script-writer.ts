@@ -1,5 +1,5 @@
 import type { GenerateParams } from "../contract";
-import { resolveSystemBrief } from "./_brand-brief";
+import { resolveCalosWriterContext } from "./_brand-brief";
 import { resolveReferenceBlock } from "./_campaign-references";
 
 /**
@@ -11,8 +11,8 @@ import { resolveReferenceBlock } from "./_campaign-references";
  * never renders the video (Editron has no headless render entry point). Returns the script markdown.
  */
 export async function runScriptWriter(params: GenerateParams): Promise<string> {
-  const [systemBrief, referenceBlock] = await Promise.all([
-    resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId),
+  const [authoringContext, referenceBlock] = await Promise.all([
+    resolveCalosWriterContext(params),
     resolveReferenceBlock(params.campaignId, params.brandId),
   ]);
 
@@ -29,9 +29,14 @@ export async function runScriptWriter(params: GenerateParams): Promise<string> {
   const { ScriptWriterAgent } = await import("@/lib/thinkforge/agents/script-writer-agent");
   const writer = new ScriptWriterAgent();
   const { result } = await writer.runStructured({
-    context: { projectSummary: params.title, systemBrief },
+    context: {
+      projectSummary: authoringContext.projectMeta.title || params.title,
+      systemBrief: authoringContext.systemBrief,
+    },
     userPrompt,
-    brandId: params.brandId,
+    brandId: authoringContext.projectMeta.brandId,
+    project: authoringContext.projectMeta,
+    retrievedContext: authoringContext.retrievedContext,
   });
 
   return result?.content?.trim() ?? "";

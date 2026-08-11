@@ -1,5 +1,5 @@
 import type { GenerateParams } from "../contract";
-import { resolveSystemBrief } from "./_brand-brief";
+import { resolveCalosWriterContext } from "./_brand-brief";
 import { resolveReferenceBlock } from "./_campaign-references";
 
 export interface PostWriterOutput {
@@ -18,8 +18,8 @@ export interface PostWriterOutput {
  * generation for graphics cards; the caption path simply ignores `imagePrompt`).
  */
 export async function runPostWriter(params: GenerateParams): Promise<PostWriterOutput> {
-  const [systemBrief, referenceBlock] = await Promise.all([
-    resolveSystemBrief(params.ownerUserId, params.brandId, params.orgId),
+  const [authoringContext, referenceBlock] = await Promise.all([
+    resolveCalosWriterContext(params),
     resolveReferenceBlock(params.campaignId, params.brandId),
   ]);
 
@@ -35,9 +35,15 @@ export async function runPostWriter(params: GenerateParams): Promise<PostWriterO
   const { PostWriterAgent } = await import("@/lib/thinkforge/agents/post-writer-agent");
   const writer = new PostWriterAgent();
   const { result } = await writer.runStructured({
-    context: { projectSummary: params.title, systemBrief },
+    context: {
+      projectSummary: authoringContext.projectMeta.title || params.title,
+      systemBrief: authoringContext.systemBrief,
+    },
     userPrompt,
-    brandId: params.brandId,
+    brandId: authoringContext.projectMeta.brandId,
+    project: authoringContext.projectMeta,
+    retrievedContext: authoringContext.retrievedContext,
+    contentSignalProfile: authoringContext.contentSignalProfile,
   });
 
   const imagePrompt = result?.clickatron?.singleImagePrompt?.trim();
