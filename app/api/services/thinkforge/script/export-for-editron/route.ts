@@ -354,7 +354,6 @@ export async function POST(request: NextRequest) {
     // ─── Try LLM parser first (Gemini Flash) ───────────────────
     const llmAvailable = isLLMParserAvailable();
     const rawContentLength = rawContent.length;
-    console.log(`[export-for-editron] LLM available: ${llmAvailable}, rawContent length: ${rawContentLength}, blocks: ${blocks?.length ?? 0}, hasPlainText: ${!!plainText}, hasCir: ${!!cir}`);
 
     if (sidecarExport) {
       scenes = sidecarExport.scenes;
@@ -364,10 +363,8 @@ export async function POST(request: NextRequest) {
       environmentNotes = sidecarExport.environmentNotes;
       globalEditDirections = sidecarExport.globalEditDirections;
       suggestedProfileCategory = sidecarExport.suggestedProfileCategory;
-      console.log(`[export-for-editron] Used persisted script sidecar for ${scenes.length} scenes`);
     } else if (llmAvailable && rawContentLength > 0) {
       try {
-        console.log('[export-for-editron] Using LLM parser (Gemini Flash)');
         const llmResult = await parseScriptWithLLM(rawContent, {
           aspectRatio,
           artStyle,
@@ -412,7 +409,6 @@ export async function POST(request: NextRequest) {
         // LLM-suggested profile category for detection filtering (2026-04-17)
         suggestedProfileCategory = (llmResult as any).suggestedProfileCategory || '';
 
-        console.log(`[export-for-editron] LLM parsed ${parsedScenes.length} scenes`);
       } catch (llmError: any) {
         // Log the FULL error (not just message) so we can see 401s, model-not-found, rate limits, etc.
         console.error('[export-for-editron] LLM parsing FAILED:', {
@@ -430,7 +426,6 @@ export async function POST(request: NextRequest) {
 
     // ─── Fallback: regex-based parsing ─────────────────────────
     if (!scenes || scenes.length === 0) {
-      console.log('[export-for-editron] Using regex parser (fallback)');
       parserFallback = true;
 
       if (blocks && Array.isArray(blocks) && blocks.length > 0) {
