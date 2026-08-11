@@ -6,7 +6,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { getDatabase, COLLECTIONS } from "../db/mongodb";
+import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
 import type {
   Overlay,
@@ -29,6 +29,7 @@ import type {
   ChatEditRenderVerificationLifecycleState,
   ChatEditRenderVerificationRecord,
 } from "./chat-edit-render-verification-lifecycle";
+import type { AudioRightsContract } from "@/lib/editron/shared/render-request-payload";
 
 export interface EditorState {
   overlays: Overlay[];
@@ -62,6 +63,29 @@ export interface ProjectMutationReceiptV1 {
   projectId: string;
   revision: ProjectRevisionV1;
   committedAt: string;
+}
+
+export type ProjectAudioRightsAttestationKindV1 =
+  | "native-video"
+  | "uploaded-export-audio";
+
+export interface ProjectAudioRightsAttestationStoryboardUpdateV1 {
+  storyboardId: string;
+  scenes: unknown[];
+}
+
+/**
+ * The one ProjectService command that binds legacy audio-rights evidence to
+ * the project revision it changes. Asset and storyboard writes remain in the
+ * same Mongo transaction as the timeline update.
+ */
+export interface ProjectAudioRightsAttestationCommitV1 {
+  kind: ProjectAudioRightsAttestationKindV1;
+  expectedRevision: ProjectRevisionV1;
+  updatedAt: Date;
+  overlays: Overlay[];
+  rightsByAssetId: Record<string, AudioRightsContract>;
+  storyboardUpdates?: ProjectAudioRightsAttestationStoryboardUpdateV1[];
 }
 
 export interface CapturedProjectMutationReceiptsV1<T> {
@@ -188,6 +212,13 @@ export class ProjectMutationWriteError extends Error {
   ) {
     super(message);
     this.name = "ProjectMutationWriteError";
+  }
+}
+
+class ProjectAudioRightsAttestationConflictError extends Error {
+  constructor() {
+    super("The project changed before audio rights could be committed.");
+    this.name = "ProjectAudioRightsAttestationConflictError";
   }
 }
 
@@ -1606,6 +1637,122 @@ export class ProjectService {
     };
     this.publishMutationReceipt(receipt);
     return { attached: true, receipt };
+  }
+
+  /**
+   * Commit source-audio rights, any linked storyboard copies, and the project
+   * timeline in one transaction. A stale project revision rolls back all
+   * companion writes and returns no receipt.
+   */
+  async commitAudioRightsAttestation(
+    userId: string,
+    projectId: string,
+    input: ProjectAudioRightsAttestationCommitV1,
+  ): Promise<ProjectMutationReceiptV1 | null> {
+    assertProjectRevision(input.expectedRevision);
+    if (
+      !(input.updatedAt instanceof Date)
+      || Number.isNaN(input.updatedAt.getTime())
+      || Object.keys(input.rightsByAssetId).length === 0
+      || input.storyboardUpdates?.some((update) => (
+        typeof update.storyboardId !== "string"
+        || !update.storyboardId.trim()
+        || !Array.isArray(update.scenes)
+      ))
+    ) {
+      throw new ProjectMutationWriteError("Audio rights attestation input is invalid.");
+    }
+
+    const { client, db } = await connectToDatabase();
+    const session = client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const assetOperations = Object.entries(input.rightsByAssetId).map(
+          ([assetId, audioRights]) => ({
+            updateOne: {
+              filter: {
+                assetId,
+                type: input.kind === "native-video" ? "video" : "audio",
+                source: "user-upload",
+                ...(input.kind === "uploaded-export-audio"
+                  ? {
+                      audioRights: { $exists: false },
+                      musicRights: { $exists: false },
+                    }
+                  : {}),
+                $or: [{ userId }, { projectId }],
+              },
+              update: {
+                $set: {
+                  audioRights,
+                  rightsUpdatedAt: input.updatedAt,
+                },
+              },
+            },
+          }),
+        );
+        const assetResult = await db.collection(COLLECTIONS.MEDIA_ASSETS)
+          .bulkWrite(assetOperations, { ordered: true, session });
+        if (assetResult.matchedCount !== assetOperations.length) {
+          throw new ProjectMutationWriteError(
+            "One or more audio-rights source assets changed before the commit.",
+          );
+        }
+
+        for (const storyboard of input.storyboardUpdates ?? []) {
+          const result = await db.collection("storyboards").updateOne(
+            { storyboardId: storyboard.storyboardId, userId, projectId },
+            { $set: { scenes: storyboard.scenes, updatedAt: input.updatedAt } },
+            { session },
+          );
+          if (result.matchedCount !== 1) {
+            throw new ProjectMutationWriteError(
+              "A linked storyboard changed before audio rights could be committed.",
+            );
+          }
+        }
+
+        const cleanOverlays = assetResolver.stripUrlsForLLM(input.overlays);
+        const projectResult = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+          {
+            projectId,
+            userId,
+            ...projectRevisionPredicate(input.expectedRevision),
+          },
+          {
+            $set: { overlays: cleanOverlays, updatedAt: input.updatedAt },
+            $inc: { projectRevision: 1 },
+          },
+          { session },
+        );
+        if (projectResult.matchedCount === 0) {
+          throw new ProjectAudioRightsAttestationConflictError();
+        }
+        if (projectResult.modifiedCount !== 1) {
+          throw new ProjectMutationWriteError();
+        }
+      });
+    } catch (error) {
+      if (error instanceof ProjectAudioRightsAttestationConflictError) {
+        return null;
+      }
+      throw error;
+    } finally {
+      await session.endSession();
+    }
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: input.updatedAt.toISOString(),
+      },
+      committedAt: input.updatedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return receipt;
   }
 
   /**

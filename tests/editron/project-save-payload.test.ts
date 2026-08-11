@@ -8,9 +8,12 @@ import {
 
 const persistenceMocks = vi.hoisted(() => ({
   auth: vi.fn(),
+  bulkWrite: vi.fn(),
+  endSession: vi.fn(),
   findOne: vi.fn(),
   findOneAndUpdate: vi.fn(),
   updateOne: vi.fn(),
+  withTransaction: vi.fn(),
 }));
 
 vi.mock("@/lib/editron/db/mongodb", () => ({
@@ -20,7 +23,22 @@ vi.mock("@/lib/editron/db/mongodb", () => ({
       findOne: persistenceMocks.findOne,
       findOneAndUpdate: persistenceMocks.findOneAndUpdate,
       updateOne: persistenceMocks.updateOne,
+      bulkWrite: persistenceMocks.bulkWrite,
     })),
+  })),
+  connectToDatabase: vi.fn(async () => ({
+    client: {
+      startSession: () => ({
+        withTransaction: persistenceMocks.withTransaction,
+        endSession: persistenceMocks.endSession,
+      }),
+    },
+    db: {
+      collection: vi.fn(() => ({
+        bulkWrite: persistenceMocks.bulkWrite,
+        updateOne: persistenceMocks.updateOne,
+      })),
+    },
   })),
 }));
 
@@ -46,9 +64,13 @@ vi.mock("@/lib/shared/project-links", () => ({
 describe("Editron project save payload compaction", () => {
   beforeEach(() => {
     persistenceMocks.auth.mockReset();
+    persistenceMocks.bulkWrite.mockReset();
+    persistenceMocks.endSession.mockReset();
     persistenceMocks.findOne.mockReset();
     persistenceMocks.findOneAndUpdate.mockReset();
     persistenceMocks.updateOne.mockReset();
+    persistenceMocks.withTransaction.mockReset();
+    persistenceMocks.withTransaction.mockImplementation(async (work) => work());
   });
 
   it("removes server-owned generated evidence before autosave/manual save requests", () => {
@@ -1081,6 +1103,77 @@ describe("Editron project save payload compaction", () => {
     ));
 
     expect(captured).toEqual({ value: { attached: false }, receipts: [] });
+  });
+
+  it("commits native-video rights and the timeline at one project revision", async () => {
+    const updatedAt = new Date("2026-08-11T06:02:00.000Z");
+    persistenceMocks.bulkWrite.mockResolvedValueOnce({ matchedCount: 1 });
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const captured = await projectService.captureMutationReceipts(() => (
+      projectService.commitAudioRightsAttestation("user_1", "proj_1", {
+        kind: "native-video",
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: "2026-08-11T06:01:00.000Z",
+        },
+        updatedAt,
+        overlays: [{
+          id: 2,
+          type: "video",
+          from: 0,
+          row: 0,
+          durationInFrames: 30,
+          assetId: "video_1",
+        }] as any,
+        rightsByAssetId: {
+          video_1: {
+            mediaRole: "native-video",
+            source: "user-upload",
+            userChoice: "attested",
+            licensed: true,
+            evidence: { kind: "user-attestation" },
+          } as any,
+        },
+      })
+    ));
+
+    expect(captured.value).toMatchObject({
+      projectId: "proj_1",
+      revision: { value: 8 },
+    });
+    expect(captured.receipts).toHaveLength(1);
+    expect(persistenceMocks.bulkWrite).toHaveBeenCalledWith([
+      expect.objectContaining({
+        updateOne: expect.objectContaining({
+          filter: expect.objectContaining({
+            assetId: "video_1",
+            type: "video",
+            source: "user-upload",
+          }),
+        }),
+      }),
+    ], expect.objectContaining({ ordered: true }));
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      {
+        projectId: "proj_1",
+        userId: "user_1",
+        projectRevision: 7,
+        updatedAt: new Date("2026-08-11T06:01:00.000Z"),
+      },
+      expect.objectContaining({
+        $inc: { projectRevision: 1 },
+      }),
+      expect.objectContaining({ session: expect.anything() }),
+    );
+    expect(persistenceMocks.endSession).toHaveBeenCalledOnce();
   });
 
   it("captures a writer-issued receipt from a successful overlay-family replacement", async () => {

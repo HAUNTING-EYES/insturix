@@ -15,6 +15,7 @@ function project(overlays: Array<Record<string, unknown>>) {
     projectId: 'proj_legacy',
     userId: 'user_owner',
     updatedAt: PROJECT_UPDATED_AT,
+    projectRevision: 7,
     overlays,
   };
 }
@@ -25,9 +26,30 @@ function dependencies(
   commitResult = true,
 ): NativeVideoAudioRightsAttestationDependencies {
   return {
-    loadProject: vi.fn(async () => storedProject),
+    loadProjectForMutation: vi.fn(async () => ({
+      project: storedProject,
+      revision: {
+        schemaVersion: 1 as const,
+        value: 7,
+        compatibilityUpdatedAt: PROJECT_UPDATED_AT.toISOString(),
+      },
+    })),
     loadAssets: vi.fn(async () => assets),
-    commit: vi.fn(async () => commitResult),
+    commit: vi.fn(async () => commitResult
+      ? {
+          committed: true,
+          receipt: {
+            schemaVersion: 1 as const,
+            projectId: 'proj_legacy',
+            revision: {
+              schemaVersion: 1 as const,
+              value: 8,
+              compatibilityUpdatedAt: ATTESTED_AT.toISOString(),
+            },
+            committedAt: ATTESTED_AT.toISOString(),
+          },
+        }
+      : { committed: false }),
     now: () => ATTESTED_AT,
   };
 }
@@ -89,6 +111,10 @@ describe('legacy native-video audio rights attestation', () => {
         attestedAt: ATTESTED_AT.toISOString(),
         attestedBy: 'user_owner',
       },
+    });
+    expect(result.projectMutationReceipt).toMatchObject({
+      projectId: 'proj_legacy',
+      revision: { value: 8 },
     });
     expect(deps.commit).toHaveBeenCalledOnce();
     const commitInput = vi.mocked(deps.commit).mock.calls[0]?.[0];
