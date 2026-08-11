@@ -1,11 +1,11 @@
 {
   "fixtureType": "EditronOpenEndedPlannerBenchmarkContractV1",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "frozenAt": "2026-08-12T00:00:00.000Z",
-  "status": "FROZEN_PHASE_A_ERRATA_1",
+  "status": "FROZEN_PHASE_A_ERRATA_2",
   "errata": {
-    "supersedes": "1.0.0",
-    "reason": "Freeze the previously unspecified C2 knowledge records, C3 format-only example, C4 evidence variants, and materialized-envelope bindings before OE-1 implementation.",
+    "supersedes": "1.0.1",
+    "reason": "Freeze how task-declared eligible distractors enter the model-visible allowlist without entering knowledge selection or leaking evaluator metadata.",
     "semanticChange": "NO_TASK_GOAL_OPERATOR_OR_THRESHOLD_CHANGE"
   },
   "authority": "RESEARCH_ONLY_NO_PROJECT_MUTATION",
@@ -52,6 +52,17 @@
   },
   "materializedEnvelopeContract": {
     "source": "task.plannerEnvelope",
+    "eligibleDistractorProjection": {
+      "source": "task.eligibleDistractorIds",
+      "validation": [
+        "operator exists in the frozen operator catalog",
+        "plannerEligibility is not EXCLUDED_FROM_ENVELOPE",
+        "operator is absent from task.plannerEnvelope.deniedOperatorIds"
+      ],
+      "visibleDisposition": "Append validated distractor IDs to materializedPlannerEnvelope.allowedOperatorIds after the primary allowed IDs, preserving declared order and removing duplicates.",
+      "rawFieldDisposition": "The task field eligibleDistractorIds never enters model context.",
+      "knowledgeDisposition": "Knowledge selection uses only task.plannerEnvelope.allowedOperatorIds before distractor projection."
+    },
     "inject": {
       "projectFacts": "task.project",
       "evidenceBindings": "task.evidence entries named by plannerEnvelope.boundEvidenceIds, or the frozen C4 variant",
