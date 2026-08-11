@@ -49,6 +49,25 @@ graphic was delivered.
 
 ## How a model makes a specific editing decision
 
+### 2026-08-12 graph-synthesis correction
+
+The architecture below is proven for bounded, already-implemented families; it
+is **not** proof that an LLM can invent a correct multi-operation graph for an
+unseen edit. A deterministic compiler can type-check and reject a proposed
+graph, but it does not discover the decomposition. A finite technique/template
+library can accelerate known edits, but it cannot be the competence boundary
+for open-ended editing.
+
+For genuinely open-ended work, the graph proposer is an explicitly unproved
+model role. Before production Stage 3, Editron must run the frozen planner
+battle test defined in
+[`EDITRON_OPEN_ENDED_EDITING_RESEARCH_RECONCILIATION_2026-08-12.md`](./EDITRON_OPEN_ENDED_EDITING_RESEARCH_RECONCILIATION_2026-08-12.md): gold observable
+target, focused typed operator set, distractors, template-free condition,
+bounded compile/render repair and locked go/modify/no-go thresholds. Known
+programs are optional memories and certified fast paths, not the limit of what
+the model may propose. Until that test passes, open-ended graph synthesis is an
+R&D hypothesis rather than a production capability claim.
+
 The model is a planner/ranker, not a magic effects engine.  Its decision is
 connected to evidence and constrained tools:
 
@@ -493,6 +512,32 @@ pending, and no overlay may mutate an unofficial intermediate timeline state.
 **Exit:** the planner can retrieve exact, project-scoped evidence ranges for a
 20-second clip or a ten-hour project, relink source/proxy safely, and resume or
 cancel work without inventing a second job owner.
+
+### Stage 2.5 - open-ended planner experiment gate
+
+This gate is external and non-canonical. It must not mutate a live project or
+become a second planner/runtime authority.
+
+- Freeze one legal difficult-reference hero case as an observable
+  `BehaviourBrief` with target predicates and preservation constraints.
+- Adapt a focused 30–50-operation slice of existing capabilities into research
+  `OperatorSpec` packets; adapters describe existing owners and do not create
+  new resolvers or writers.
+- Test several provider routes for candidate-DAG proposal with distractor
+  operators, noisy/missing evidence and at least one condition containing no
+  technique names, aliases or graph templates.
+- Compile every candidate deterministically; proxy-render only the best legal
+  candidates; limit predicate-specific repair attempts.
+- Attribute every failure to observation, retrieval, planning, primitive,
+  compiler/runtime or judge. Record validity, preservation, false-success,
+  editor preference, latency and cost across repeated trials.
+- Decide `GO`, `MODIFY` or `NO-GO` against thresholds frozen before the runs.
+  Template-dependent success is not open-ended success.
+
+**Exit:** either a provider-neutral route demonstrates repeatable template-free
+graph synthesis within safety, quality, latency and cost limits, or the master
+plan explicitly narrows autonomy to certified known families while research
+continues. No production control-plane contract is justified by a demo alone.
 
 ### Stage 3 - intelligence control plane
 

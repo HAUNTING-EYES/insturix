@@ -352,10 +352,17 @@ next live shot must visually continue from the exit image
 
 It does not say “use After Effects” or “call Remotion.”
 
-### 6.2 Find graph templates that can satisfy those states
+### 6.2 Synthesise candidate graphs from target states and typed operators
 
-The capability registry exposes typed operators and technique templates. The
-compiler can form three candidate approaches:
+The capability registry exposes focused typed operators and the available
+native, generated-composition and hybrid execution forms. The **model planner**
+must propose candidate bindings and dependencies that could satisfy the target
+states. The compiler does not form those creative approaches; it rejects
+illegal proposals. Optional approved program memories may be offered in one
+benchmark condition, but a separate template-free condition must test whether
+the model can derive the graph without them.
+
+For this case the planner may propose three candidate approaches:
 
 1. native layers, crops and transform keyframes;
 2. a generated composition with exposed source/font/text parameters;
@@ -557,36 +564,55 @@ No model can promote its own program.
 
 ## How the model can propose a multi-tool editing graph
 
-We cannot guarantee that a general model “understands editing.” Current research
-explicitly shows a gap. Editron therefore supplies an external, versioned
-competence layer so the plan is not stored only inside model weights.
+We cannot guarantee that a general model “understands editing.” Current
+research explicitly shows a gap. More importantly, an external technique
+library does not solve that gap: a library of legal DAG templates can retrieve
+only decompositions that somebody already entered.
 
-### EditorialTechniqueLibrary
-
-Each technique definition contains:
+The near-term mechanism is therefore a falsifiable model bet, not a hidden
+template system:
 
 ```text
-technique ID, names and aliases
-observable result and editorial purpose
-required evidence
-one or more legal operator-DAG templates
-input/output types for every node
-hard preconditions and failure modes
-quality features and validators
-licensed examples and counterexamples
-support/certification status
+gold/derived observable BehaviourBrief
+  + focused typed OperatorSpecs
+  + exact project evidence
+  + post-production principles
+  -> model-proposed candidate DAGs
+  -> deterministic compile/reject
+  -> isolated proxy render
+  -> target + preservation comparison
+  -> bounded predicate-specific repair or decline
 ```
 
-For “background teal while the person moves to centre,” the technique library
-and operator types expose the only valid dependencies: subject mask/tracking,
-inverse-mask grade, subject transform and composite. The LLM selects a target
-and candidate template; declared input/output types force the order.
+Only the model proposes the conceptual decomposition. The compiler checks
+ports, types, preconditions, effects, invalidations, conflicts and proof
+requirements; it cannot manufacture the missing creative graph. The renderer
+and validators prove or disprove the proposal; they do not make it intelligent.
 
-The model's useful contribution is semantic: identifying that “keep the person
-natural” forbids whole-frame grading, that “background” requires region
-separation, and that “move to centre” requires a time-varying transform. The
-compiler's contribution is enforcing the valid graph and rejecting everything
-else.
+For “background teal while the person moves to centre,” the planner must infer
+that preserving the subject forbids whole-frame grading, that a background-only
+change requires region separation, and that movement over time requires a
+time-varying transform. A candidate can then bind tracking/mask, inverse-mask
+grade, subject transform and composite operators. The experiment must include a
+condition where no technique name or graph template supplies that answer.
+
+### Known techniques become optional program memory
+
+Approved technique/program records remain useful as certified fast paths,
+planner warm starts and evaluation baselines. Retrieval uses the full target
+behaviour and evidence, not literal alias matching. Aliases are only search
+metadata. A memory cannot license a missing primitive, waive compilation/render
+proof or define the finite boundary of possible edits.
+
+Unknown terms follow the same target-first path: derive an observable result,
+ask whether current operators can express it, compile and preview with an
+`EXPERIMENTAL` status, or record the exact missing primitive/evidence/validator.
+Runtime web search may provide cited knowledge, but it cannot install code or
+promote a system-wide capability.
+
+The full correction, current-code reconciliation, deliberate-footage-reuse
+policy, long-form latency cascade and experiment conditions are recorded in
+[`EDITRON_OPEN_ENDED_EDITING_RESEARCH_RECONCILIATION_2026-08-12.md`](./EDITRON_OPEN_ENDED_EDITING_RESEARCH_RECONCILIATION_2026-08-12.md).
 
 ### Replaceable model roles
 
@@ -614,7 +640,7 @@ Measure:
 
 ```text
 reference measurement error
-technique recognition and missing-evidence honesty
+target decomposition and missing-evidence honesty
 correct source-range selection
 valid graph rate before compiler repair
 compile and render success
@@ -786,22 +812,25 @@ and editorial-spine gates:
    blueprint, source roles and expected rendered frames as a legal internal
    evaluation case. Do not import the stock or reference media without a rights
    decision.
-2. **Typed design contracts:** specify `ReferenceObservationV1`,
-   `ReferenceBlueprintV1`, `SourceRoleV1`, `SourceAssignmentV1`,
-   `EditorialTechniqueV1` and `GeneratedCompositionProgramV1` without runtime
-   wiring or a new owner.
-3. **Sandbox feasibility spike:** prove pinned/allowlisted composition code can
-   render with no network or secrets, immutable tokenised inputs, resource
-   limits, cancellation, artifact scanning and tenant isolation.
-4. **Filmstrip product slice:** reproduce the filmstrip through the typed
-   pipeline, attach it as a nested composition through ProjectService, and
-   prove save/reload/render/undo plus stale-user-edit conflict behaviour.
-5. **Model benchmark:** compare candidate models by role on the locked fixture;
-   select routes from measured quality, latency, cost and failure data.
-6. **Technique lifecycle slice:** use match cut as the first partial-capability
-   recovery/certification case, then implement unknown-term detection,
-   experimental macro status and reviewed catalog promotion for genuinely new
-   techniques.
+2. **Frozen battle-test contracts:** specify a gold `BehaviourBrief`, target
+   and preservation predicates plus research-only `OperatorSpec` adapters for
+   30–50 existing operations. Include realistic distractors; do not wire a new
+   owner or runtime.
+3. **Planner-only model benchmark:** compare candidate models over repeated
+   trials, including a condition with no technique names or graph templates.
+   Decide whether graph synthesis works before productising its control plane.
+4. **Sandbox compile/render trial:** compile the best legal candidates and
+   prove pinned/allowlisted composition code can proxy-render with no network
+   or secrets, immutable tokenised inputs, resource limits, cancellation,
+   artifact scanning and tenant isolation. Bound repair attempts.
+5. **Conditional filmstrip product slice:** only after the experiment gate
+   passes, reproduce the filmstrip through the typed pipeline, attach it as a
+   nested composition through ProjectService, and prove save/reload/render/undo
+   plus stale-user-edit conflict behaviour.
+6. **Program-memory and gap lifecycle:** only after real approved programs
+   exist, use match cut as the first partial-capability recovery case, then add
+   semantic memory retrieval, experimental status, precise gap records and
+   reviewed promotion. Never make aliases/templates the competence boundary.
 
 ## External evidence
 
