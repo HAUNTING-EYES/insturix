@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { sweepChatEditRenderVerificationDispatches } from '@/lib/editron/services/chat-edit-render-verification-dispatch-recovery';
+import { sweepChatEditRenderVerificationNotifications } from '@/lib/editron/services/chat-edit-render-verification-notification-recovery';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -16,14 +17,19 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const result = await sweepChatEditRenderVerificationDispatches();
+    const [dispatch, notification] = await Promise.all([
+      sweepChatEditRenderVerificationDispatches(),
+      sweepChatEditRenderVerificationNotifications(),
+    ]);
+    const errors = dispatch.errors + notification.errors;
     console.log(
-      `[ChatRenderVerificationRecovery] scanned=${result.scanned} eligible=${result.eligible} `
-      + `claimed=${result.claimed} dispatched=${result.dispatched} deferred=${result.deferred} `
-      + `skipped=${result.skipped} errors=${result.errors}`,
+      `[ChatRenderVerificationRecovery] dispatch(scanned=${dispatch.scanned}, eligible=${dispatch.eligible}, `
+      + `claimed=${dispatch.claimed}, dispatched=${dispatch.dispatched}, deferred=${dispatch.deferred}) `
+      + `notification(scanned=${notification.scanned}, notified=${notification.notified}, `
+      + `skipped=${notification.skipped}) errors=${errors}`,
     );
-    return NextResponse.json({ success: result.errors === 0, ...result }, {
-      status: result.errors === 0 ? 200 : 207,
+    return NextResponse.json({ success: errors === 0, dispatch, notification }, {
+      status: errors === 0 ? 200 : 207,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

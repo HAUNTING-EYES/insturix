@@ -20,6 +20,7 @@ vi.mock('@/lib/editron/db/mongodb', () => ({
 }));
 
 import { ChatService } from '@/lib/editron/services/chat-service';
+import { chatEditRenderVerificationNotificationIdempotencyKey } from '@/lib/editron/services/chat-edit-render-verification-notification-recovery';
 import { GET as getSessionHistory } from '@/app/api/services/editron/chat/sessions/[sessionId]/history/route';
 
 const repoRoot = resolve(__dirname, '../..');
@@ -95,6 +96,38 @@ describe('Editron chat project isolation', () => {
 
     expect(mocks.updateOne).toHaveBeenCalledWith(
       { sessionId: 'sess-shared', userId: 'user-a', projectId: 'project-b' },
+      expect.any(Object),
+    );
+  });
+
+  it('treats a retried receipt notification as delivered when its scoped chat message already exists', async () => {
+    const idempotencyKey = chatEditRenderVerificationNotificationIdempotencyKey({
+      projectId: 'project-b',
+      sessionId: 'sess-shared',
+      operationId: 'operation-proof-1',
+    });
+    mocks.updateOne.mockResolvedValue({ matchedCount: 0, modifiedCount: 0 });
+    mocks.findOne.mockResolvedValue({
+      sessionId: 'sess-shared',
+      userId: 'user-a',
+      projectId: 'project-b',
+      messages: [{ role: 'assistant', idempotencyKey }],
+    });
+
+    const service = new ChatService();
+    await expect(service.saveMessage('sess-shared', 'user-a', 'project-b', {
+      role: 'assistant',
+      content: 'Rendered verification passed.',
+      idempotencyKey,
+    })).resolves.toBeUndefined();
+
+    expect(mocks.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'sess-shared',
+        userId: 'user-a',
+        projectId: 'project-b',
+        'messages.idempotencyKey': { $ne: idempotencyKey },
+      }),
       expect.any(Object),
     );
   });

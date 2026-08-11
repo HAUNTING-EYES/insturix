@@ -13,6 +13,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'tool';
   content: string;
   timestamp: Date;
+  /** Stable internal delivery key for messages that may be retried after a worker crash. */
+  idempotencyKey?: string;
   attachments?: AuthorizedChatAttachment[];
   requestOwnerLicense?: ChatRequestOwnerLicense;
   toolCalls?: Array<{
@@ -73,14 +75,22 @@ export class ChatService {
     message: Omit<ChatMessage, 'timestamp'>
   ): Promise<void> {
     const db = await getDatabase();
+    const idempotencyKey = typeof message.idempotencyKey === 'string'
+      ? message.idempotencyKey.trim().slice(0, 240) || undefined
+      : undefined;
+    const sessionScope = { sessionId, userId, projectId };
 
     const messageWithTimestamp: ChatMessage = {
       ...message,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       timestamp: new Date(),
     };
 
     const result = await db.collection(COLLECTIONS.CHAT_SESSIONS).updateOne(
-      { sessionId, userId, projectId },
+      {
+        ...sessionScope,
+        ...(idempotencyKey ? { 'messages.idempotencyKey': { $ne: idempotencyKey } } : {}),
+      },
       {
         $push: { messages: messageWithTimestamp } as any,
         $set: { updatedAt: new Date() },
@@ -88,6 +98,10 @@ export class ChatService {
     );
 
     if (result.matchedCount !== 1) {
+      if (idempotencyKey) {
+        const existingSession = await db.collection(COLLECTIONS.CHAT_SESSIONS).findOne(sessionScope);
+        if (existingSession) return;
+      }
       throw new Error('Chat session is not accessible for this project');
     }
 

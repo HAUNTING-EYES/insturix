@@ -13,7 +13,7 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 
 import { COLLECTIONS, getDatabase } from '@/lib/editron/db/mongodb';
 import { assetResolver } from '@/lib/editron/services/asset-resolver';
-import { chatService } from '@/lib/editron/services/chat-service';
+import { deliverChatEditRenderVerificationNotification } from '@/lib/editron/services/chat-edit-render-verification-notification-recovery';
 import {
   buildChatEditRenderIssue as renderIssue,
   sanitizeChatEditRenderDiagnostic,
@@ -1018,55 +1018,8 @@ async function ensureVerificationNotification(input: {
   checkpointId: string;
   record: ChatEditRenderVerificationRecord;
 }) {
-  const checkpoints = input.db.collection<VerificationCheckpoint>(COLLECTIONS.CHECKPOINTS);
-  const claim = await checkpoints.updateOne(
-    {
-      checkpointId: input.checkpointId,
-      projectId: input.projectId,
-      userId: input.userId,
-      $or: [
-        { 'chatEditRenderVerification.notificationStatus': 'pending' },
-        { 'chatEditRenderVerification.notificationStatus': { $exists: false } },
-      ],
-    },
-    { $set: { 'chatEditRenderVerification.notificationStatus': 'sending' } },
-  );
-  if (claim.matchedCount === 0) return;
-  try {
-    const operationContent = input.record.status === 'pass'
-      ? `Rendered verification passed for edit operation ${input.record.operationId}. The affected ${input.record.modalities.join(' and ')} output changed and passed the rendered quality checks.`
-      : input.record.status === 'warn'
-        ? `Rendered verification completed for edit operation ${input.record.operationId} with advisory quality warnings: ${input.record.reasons.join('; ') || 'review the persisted rendered evidence'}. The edit remains applied, and the warning evidence is available for review.`
-      : `The edit was saved, but rendered verification did not pass for operation ${input.record.operationId}: ${input.record.reasons.join('; ') || 'unknown verification failure'}. I am not marking this edit as successful; review the persisted before/after evidence for the affected frames or audio windows.`;
-    const eligibility = input.record.projectRenderEligibility;
-    const projectContent = eligibility?.status === 'blocked'
-      ? ` Final project rendering is still blocked by ${eligibility.issueCount} existing render-eligibility issue${eligibility.issueCount === 1 ? '' : 's'}: ${eligibility.issues.map((issue) => issue.reason).slice(0, 3).join('; ')}.`
-      : eligibility?.status === 'unknown'
-        ? ' Final project render eligibility could not be evaluated and remains unknown.'
-        : '';
-    const content = `${operationContent}${projectContent}`;
-    await chatService.saveMessage(input.record.sessionId, input.userId, input.projectId, {
-      role: 'assistant',
-      content,
-      checkpointIds: [input.record.beforeCheckpointId, input.record.afterCheckpointId],
-    });
-    const notificationSentAt = new Date().toISOString();
-    await checkpoints.updateOne(
-      { checkpointId: input.checkpointId, projectId: input.projectId, userId: input.userId },
-      {
-        $set: {
-          'chatEditRenderVerification.notificationStatus': 'sent',
-          'chatEditRenderVerification.notificationSentAt': notificationSentAt,
-        },
-      },
-    );
-  } catch (error) {
-    await checkpoints.updateOne(
-      { checkpointId: input.checkpointId, projectId: input.projectId, userId: input.userId },
-      { $set: { 'chatEditRenderVerification.notificationStatus': 'pending' } },
-    );
-    throw error;
-  }
+  // The canonical delivery service preserves the "Final project rendering is still blocked" diagnosis.
+  await deliverChatEditRenderVerificationNotification(input);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
