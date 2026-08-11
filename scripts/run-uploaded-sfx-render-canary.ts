@@ -91,16 +91,43 @@ export async function runUploadedSfxRenderCanary() {
         expiresAt: new Date(Date.now() + 60 * 60 * 1_000),
       }),
       now: () => new Date('2026-08-03T00:00:00.000Z'),
-      appendTimelineOverlayIfAbsent: async (_userId, _projectId, overlay) => {
+      loadProjectForTimelineMutation: async () => ({
+        project,
+        revision: {
+          schemaVersion: 1 as const,
+          value: 7,
+          compatibilityUpdatedAt: '2026-08-03T00:00:00.000Z',
+        },
+      }),
+      commitTimelineOverlayThroughProjectService: async (
+        _userId,
+        _projectId,
+        expectedRevision,
+        overlay,
+      ) => {
         const overlays = project.overlays as Array<Record<string, unknown>>;
-        if (overlays.some(candidate => candidate.id === overlay.id)) return false;
+        if (overlays.some(candidate => candidate.id === overlay.id)) {
+          return { attached: false };
+        }
         overlays.push(ensureAtomicOverlayReceipt(overlay as never, {
           source: 'uploaded-audio-assignment',
           intent: 'persist-uploaded-sfx',
           reason: 'uploaded audio was rights-attested and attached by the server',
         }) as unknown as Record<string, unknown>);
         appendCount++;
-        return true;
+        return {
+          attached: true,
+          receipt: {
+            schemaVersion: 1 as const,
+            projectId: PROJECT_ID,
+            revision: {
+              schemaVersion: 1 as const,
+              value: expectedRevision.value + 1,
+              compatibilityUpdatedAt: '2026-08-03T00:00:00.000Z',
+            },
+            committedAt: '2026-08-03T00:00:00.000Z',
+          },
+        };
       },
     };
     const input = {

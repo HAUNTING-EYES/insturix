@@ -1001,6 +1001,88 @@ describe("Editron project save payload compaction", () => {
     }
   });
 
+  it("attaches a stable overlay once through the writer and emits one receipt", async () => {
+    const updatedAt = "2026-08-11T06:00:00.000Z";
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 1,
+      modifiedCount: 1,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const captured = await projectService.captureMutationReceipts(() => (
+      projectService.addOverlayIfAbsent("user_1", "proj_1", {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        overlay: {
+          id: 2,
+          type: "sound",
+          from: 45,
+          row: 0,
+          durationInFrames: 30,
+        } as any,
+      })
+    ));
+
+    expect(captured.value).toMatchObject({
+      attached: true,
+      receipt: {
+        projectId: "proj_1",
+        revision: { value: 8 },
+      },
+    });
+    expect(captured.receipts).toMatchObject([{
+      projectId: "proj_1",
+      revision: { value: 8 },
+    }]);
+    expect(persistenceMocks.updateOne).toHaveBeenCalledWith(
+      {
+        projectId: "proj_1",
+        userId: "user_1",
+        "overlays.id": { $ne: 2 },
+        projectRevision: 7,
+        updatedAt: new Date(updatedAt),
+      },
+      expect.objectContaining({
+        $inc: { projectRevision: 1 },
+      }),
+    );
+  });
+
+  it("does not manufacture a receipt when a stable overlay is already present or stale", async () => {
+    const updatedAt = "2026-08-11T06:01:00.000Z";
+    persistenceMocks.updateOne.mockResolvedValueOnce({
+      matchedCount: 0,
+      modifiedCount: 0,
+    });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const captured = await projectService.captureMutationReceipts(() => (
+      projectService.addOverlayIfAbsent("user_1", "proj_1", {
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: updatedAt,
+        },
+        overlay: {
+          id: 2,
+          type: "sound",
+          from: 45,
+          row: 0,
+          durationInFrames: 30,
+        } as any,
+      })
+    ));
+
+    expect(captured).toEqual({ value: { attached: false }, receipts: [] });
+  });
+
   it("captures a writer-issued receipt from a successful overlay-family replacement", async () => {
     const expectedUpdatedAt = "2026-08-11T02:30:00.000Z";
     persistenceMocks.findOne.mockResolvedValueOnce({

@@ -1555,6 +1555,60 @@ export class ProjectService {
   }
 
   /**
+   * Attach one stable overlay identity only if the project is still at the
+   * caller's snapshot revision. A repeat delivery of the same command returns
+   * without a second write or a manufactured receipt.
+   */
+  async addOverlayIfAbsent(
+    userId: string,
+    projectId: string,
+    input: {
+      expectedRevision: ProjectRevisionV1;
+      overlay: Overlay;
+    },
+  ): Promise<{
+    attached: boolean;
+    receipt?: ProjectMutationReceiptV1;
+  }> {
+    assertProjectRevision(input.expectedRevision);
+    const db = await getDatabase();
+    const overlayWithReceipt = ensureAtomicOverlayReceipt(input.overlay, {
+      source: "project-service-add-overlay-if-absent",
+      intent: `persist-${input.overlay.type}`,
+      reason: "overlay was attached through ProjectService at one project revision",
+    });
+    const committedAt = new Date();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        "overlays.id": { $ne: input.overlay.id },
+        ...projectRevisionPredicate(input.expectedRevision),
+      },
+      {
+        $push: { overlays: overlayWithReceipt } as any,
+        $set: { updatedAt: committedAt },
+        $inc: { projectRevision: 1 },
+      },
+    );
+    if (result.matchedCount === 0) return { attached: false };
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: input.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return { attached: true, receipt };
+  }
+
+  /**
    * Update an overlay atomically
    */
   async updateOverlay(

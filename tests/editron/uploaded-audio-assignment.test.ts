@@ -150,12 +150,39 @@ function createTimelineDependencies():
     project,
     appendCount: () => appends,
     loadProject: vi.fn(async () => project),
-    appendTimelineOverlayIfAbsent: vi.fn(async (_userId, _projectId, overlay) => {
+    loadProjectForTimelineMutation: vi.fn(async () => ({
+      project,
+      revision: {
+        schemaVersion: 1 as const,
+        value: 7,
+        compatibilityUpdatedAt: NOW.toISOString(),
+      },
+    })),
+    commitTimelineOverlayThroughProjectService: vi.fn(async (
+      _userId,
+      _projectId,
+      _expectedRevision,
+      overlay,
+    ) => {
       const overlays = project.overlays as Array<Record<string, unknown>>;
-      if (overlays.some((candidate) => candidate.id === overlay.id)) return false;
+      if (overlays.some((candidate) => candidate.id === overlay.id)) {
+        return { attached: false };
+      }
       appends += 1;
       overlays.push(overlay);
-      return true;
+      return {
+        attached: true,
+        receipt: {
+          schemaVersion: 1 as const,
+          projectId: 'project_1',
+          revision: {
+            schemaVersion: 1 as const,
+            value: 8,
+            compatibilityUpdatedAt: NOW.toISOString(),
+          },
+          committedAt: NOW.toISOString(),
+        },
+      };
     }),
   };
 }
@@ -325,6 +352,10 @@ describe('uploaded audio assignment', () => {
     expect(result.overlays[0]).not.toMatchObject({
       assetId: 'audio_source_1',
     });
+    expect(result.projectMutationReceipt).toMatchObject({
+      projectId: 'project_1',
+      revision: { value: 8 },
+    });
     expect(dependencies.appendCount()).toBe(1);
 
     const replay = await assignUploadedAudioToTimeline(
@@ -334,6 +365,20 @@ describe('uploaded audio assignment', () => {
     expect(replay.replayed).toBe(true);
     expect(replay.overlayId).toBe(result.overlayId);
     expect(dependencies.appendCount()).toBe(1);
+  });
+
+  it('returns a revision conflict rather than reporting success when the prepared timeline is stale', async () => {
+    const dependencies = createTimelineDependencies();
+    dependencies.commitTimelineOverlayThroughProjectService = vi.fn()
+      .mockResolvedValue({ attached: false });
+
+    await expect(assignUploadedAudioToTimeline(
+      timelineAssignmentInput(),
+      dependencies,
+    )).rejects.toMatchObject({
+      code: 'PROJECT_REVISION_CONFLICT',
+      httpStatus: 409,
+    });
   });
 
   it('rejects idempotent replay when timeline placement changes', async () => {
