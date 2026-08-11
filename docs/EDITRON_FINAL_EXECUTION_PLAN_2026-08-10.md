@@ -859,3 +859,42 @@ cross-project receipt cannot create a checkpoint or projection; and every
 unmigrated producer reports `completed_unverified` rather than fabricated
 proof.  No slice may add a chat journal, a private checkpoint store, a worker
 Mongo writer, or a second project/proof authority.
+
+#### Execution-status correction: 1-B3 complete for the identified timeline writers - 2026-08-11
+
+The three audio writers and the successful async MG delivery no longer write
+timeline overlays through private Mongo paths.  In particular,
+`3035d74cc` routes a generated `MG_SEQUENCE`, any selected kinetic-SFX
+overlays, and the generated worker outcome through the narrow
+`ProjectService.commitMgRenderDelivery` command.  That command requires the
+exact snapshot revision, increments the canonical revision once, returns a
+writer receipt, rejects a stale snapshot without a project change, and treats
+an already-landed MG job as an idempotent replay without manufacturing a new
+receipt.  The MG worker retains sandbox execution, job leasing/retry and
+media-asset persistence; none became ProjectService responsibilities.
+
+Focused tests prove the worker calls that command before job completion, the
+full MG-plus-SFX delivery is one project mutation, and both stale and replay
+cases have the required dispositions.  This is not a claim that every
+`projects` write is now canonical.
+
+#### 1-B4 classification ledger - 2026-08-11
+
+The remaining project-document fields below are **not** a second timeline
+authority merely because they live beside the timeline.  They must not be
+silently promoted to canonical editing state either.
+
+| Live field family | Classification | Correct owner/destination | Current caveat |
+|---|---|---|---|
+| `intelligence.mgDesignJob` | Execution-local job lifecycle mirror | Existing MG design-job record is the lifecycle owner; project value is a disposable UI projection. | Its raw mirror is not revision-bound and must never prove an edit. |
+| `intelligence.mgDeliveryRecords`, `mgCodegenRun.outcomes`, `mgCodegenRun.asyncOutcomes` | Derived delivery/preflight evidence | Durable render job plus rendered overlay/receipt are the delivery facts; any project copy is derived UI/read-model evidence. | `mgDeliveryRecords` is best-effort and the worker does not read its `deliveryStaleGuard`; it is not a freshness or proof authority. |
+| `intelligence.mgKineticSfxContexts` | Worker handoff input | Typed render-job request/execution data, not project editing state. | It is currently a raw project handoff and can be absent; the worker must honestly suppress kinetic SFX rather than invent it. |
+| `intelligence.mgTasteContract` | Project-scoped creative-direction state | The future versioned CreativeDirection owner, not an MG shadow helper or a timeline mutation. | Current shadow/live persistence is unversioned and is not an undo/proof receipt. |
+| Director decision logs, V-JEPA coverage, auto-BGM decisions and quality summaries | Derived evidence | Their producing analysis/job records, with receipt-bound proof only where an item is claimed as proof of a specific edit. | A field changing root `updatedAt` can still disrupt legacy callers; no UI success claim may rely on it alone. |
+| Assist status, credit/refund flags and upload-batch orchestration | Billing/workflow state | Existing assist/billing and batch orchestration owners. | Never route billing, refunds or job leases through ProjectService's timeline command path. |
+
+The next implementation slice therefore is **not** a generic "move all
+metadata into ProjectService" refactor.  It is a bounded repair of the next
+canonical mutation/proof path after its actual source owner and consumer are
+traced.  In particular, `mgDeliveryRecords` must not be used to authorize a
+late render until it has a real owner-bound freshness contract.
