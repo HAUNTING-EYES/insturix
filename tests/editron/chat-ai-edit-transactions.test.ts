@@ -129,7 +129,7 @@ describe('chat AI edit transactions', () => {
     expect(summary.beforeCheckpointId).toBeUndefined();
   });
 
-  it('resolves undo and redo restore targets from the latest AI edit checkpoint', () => {
+  it('resolves undo from the latest AI edit checkpoint and refuses redo without a replay receipt chain', () => {
     const history = [
       {
         role: 'assistant',
@@ -159,15 +159,17 @@ describe('chat AI edit transactions', () => {
       },
     });
     expect(redo).toMatchObject({
-      status: 'ready',
+      status: 'no-checkpoint',
       action: 'redo',
-      checkpointId: 'ckpt_latest_after',
     });
+    expect(redo.checkpointId).toBeUndefined();
+    expect(redo.useWith).toBeUndefined();
     expect(formatChatAiEditRestoreTargetForPrompt(undo)).toContain('checkpointId=ckpt_latest_before');
     expect(formatChatAiEditRestoreTargetForPrompt(undo)).toContain('Call restore_ai_edit_checkpoint');
+    expect(formatChatAiEditRestoreTargetForPrompt(redo)).toContain('receipt-bound replay chain');
   });
 
-  it('resolves redo after an undo restore back to the state before that restore', () => {
+  it('refuses redo after an undo restore because that restore does not create a replay receipt chain', () => {
     const history = [{
       role: 'assistant',
       content: 'Restored the previous checkpoint',
@@ -178,11 +180,11 @@ describe('chat AI edit transactions', () => {
     const redo = resolveChatAiEditRestoreTarget(history, { userMessage: 'redo it' });
 
     expect(redo).toMatchObject({
-      status: 'ready',
+      status: 'no-checkpoint',
       action: 'redo',
-      checkpointId: 'ckpt_before_restore',
-      mutatingToolNames: ['restore_ai_edit_checkpoint'],
     });
+    expect(redo.checkpointId).toBeUndefined();
+    expect(redo.useWith).toBeUndefined();
   });
 
   it('refuses undo when no safe checkpoint target exists', () => {

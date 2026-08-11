@@ -480,7 +480,8 @@ Call exactly one of the attached functions. Supply only arguments grounded in th
       : '';
     const restoreGuidance = callableToolNames.has('restore_ai_edit_checkpoint')
       ? `**UNDO / RESTORE AI EDITS**:
-    - Use restore_ai_edit_checkpoint with the beforeCheckpointId to undo or afterCheckpointId to redo.
+    - Use restore_ai_edit_checkpoint with the beforeCheckpointId to undo.
+    - Redo is unavailable until Editron has a receipt-bound replay chain. Never restore afterCheckpointId to redo.
     - Never manually reverse a prior AI edit or guess a checkpoint ID.`
       : '';
     const deepAnalysisGuidance = callableToolNames.has('resolve_clip_analysis')
@@ -578,7 +579,7 @@ ${serverWorkflowPrompt}
 
     **UNDO / RESTORE AI EDITS**:
     - If the user asks to "undo", "revert", or "go back" after an AI edit, use \`restore_ai_edit_checkpoint\` with the prior turn's beforeCheckpointId.
-    - If the user asks to redo a restored edit, use the afterCheckpointId when it is available.
+    - If the user asks to redo a restored edit, explain that redo is unavailable until its receipt-bound replay chain is implemented. Never restore afterCheckpointId to redo.
     - Do NOT manually reverse edits by adding/removing overlays. If no checkpoint ID is available in the conversation, ask for the checkpoint ID instead of guessing.
 
     **DURABLE DEEP ANALYSIS PROTOCOL (COST-AWARE + REVISION-SAFE)**:

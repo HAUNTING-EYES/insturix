@@ -173,6 +173,15 @@ export function resolveChatAiEditRestoreTarget(
     };
   }
 
+  if (action === "redo") {
+    return {
+      status: "no-checkpoint",
+      action,
+      mutatingToolNames: [],
+      message: "Redo is unavailable because Editron does not yet have a receipt-bound replay chain that proves the post-undo state.",
+    };
+  }
+
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const message = history[index];
     if (message?.role !== "assistant") continue;
@@ -181,11 +190,7 @@ export function resolveChatAiEditRestoreTarget(
     const beforeCheckpointId = nonEmptyString(message.checkpointIds[0]);
     const afterCheckpointId = nonEmptyString(message.checkpointIds[1]);
     const mutatingToolNames = mutatingSuccessfulToolNames(message.toolResults ?? []);
-    const checkpointId = checkpointIdForRestoreAction(action, {
-      beforeCheckpointId,
-      afterCheckpointId,
-      mutatingToolNames,
-    });
+    const checkpointId = beforeCheckpointId;
 
     if (!checkpointId) {
       return {
@@ -224,6 +229,14 @@ export function resolveChatAiEditRestoreTarget(
 
 export function formatChatAiEditRestoreTargetForPrompt(resolution: ChatAiEditRestoreResolution): string {
   if (resolution.status === "no-intent") return "";
+  if (resolution.status === "no-checkpoint" && resolution.action === "redo") {
+    return [
+      "AI edit restore resolver:",
+      "status=no-checkpoint",
+      "intent=redo",
+      "Redo is unavailable because its receipt-bound replay chain has not been implemented. Do not restore afterCheckpointId or manually replay the edit.",
+    ].join("\n");
+  }
   if (resolution.status !== "ready" || !resolution.checkpointId || !resolution.action) {
     return [
       "AI edit restore resolver:",
@@ -306,21 +319,6 @@ function restoreActionFromText(text: string): ChatAiEditRestoreAction | null {
     return "undo";
   }
   return null;
-}
-
-function checkpointIdForRestoreAction(
-  action: ChatAiEditRestoreAction,
-  input: {
-    beforeCheckpointId?: string;
-    afterCheckpointId?: string;
-    mutatingToolNames: string[];
-  },
-): string | undefined {
-  if (action === "undo") return input.beforeCheckpointId;
-  if (input.mutatingToolNames.includes("restore_ai_edit_checkpoint")) {
-    return input.beforeCheckpointId;
-  }
-  return input.afterCheckpointId;
 }
 
 function nonEmptyString(value: unknown): string | undefined {

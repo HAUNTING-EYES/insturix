@@ -6397,7 +6397,7 @@ Example: use_matching_footage({ overlayId: 42, assetId: "a_Xk7pqR2m", sourceStar
 
 
   const restoreAiEditCheckpointSchema = z.object({
-    checkpointId: z.string().min(1).describe("Checkpoint ID to restore. Use beforeCheckpointId to undo an AI edit; use afterCheckpointId to redo it."),
+    checkpointId: z.string().min(1).describe("Checkpoint ID to restore. Use only beforeCheckpointId to undo an AI edit; redo is not yet supported."),
   });
 
   const restoreAiEditCheckpoint = tool(
@@ -6481,7 +6481,7 @@ Example: use_matching_footage({ overlayId: 42, assetId: "a_Xk7pqR2m", sourceStar
     {
       name: 'restore_ai_edit_checkpoint',
       description: `Restore the complete editor-owned project state from a checkpoint created around an AI chat edit.
-Use this for undo/revert requests. Prefer beforeCheckpointId to undo the previous AI edit. Use afterCheckpointId only when the user explicitly asks to redo a restored edit.
+Use this for undo/revert requests with beforeCheckpointId. Redo is unavailable until Editron has a receipt-bound replay chain; never use afterCheckpointId as a redo target.
 Never manually reverse edits when a checkpoint is available; restore the checkpoint snapshot instead.`,
       schema: restoreAiEditCheckpointSchema,
     },

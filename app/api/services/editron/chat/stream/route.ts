@@ -107,7 +107,7 @@ function appendCheckpointContextForAgent(content: string, checkpointIds?: string
   if (!parts.length) return content;
 
   const separator = content.trim() ? '\n\n' : '';
-  return `${content}${separator}[AI edit checkpoint context: ${parts.join('; ')}. Restore beforeCheckpointId to return to the state before this assistant edit. Restore afterCheckpointId only to return to the state after this assistant edit.]`;
+  return `${content}${separator}[AI edit checkpoint context: ${parts.join('; ')}. Restore beforeCheckpointId only to return to the state before this assistant edit. afterCheckpointId is retained as audit state and is not a safe redo target.]`;
 }
 
 async function persistChatEditVerificationRequested(input: {
