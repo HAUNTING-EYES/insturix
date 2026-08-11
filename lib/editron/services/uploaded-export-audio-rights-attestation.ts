@@ -6,6 +6,10 @@ import {
   isSoundOverlayWithRenderableSource,
   type AudioRightsContract,
 } from '@/lib/editron/shared/render-request-payload';
+import type {
+  ProjectMutationReceiptV1,
+  ProjectRevisionV1,
+} from './project-service';
 
 type UnknownRecord = Record<string, unknown>;
 type AttestableAudioRole = 'voiceover' | 'dubbing' | 'sfx' | 'other';
@@ -51,7 +55,7 @@ interface StoryboardUpdate {
 export interface UploadedExportAudioRightsAttestationCommit {
   userId: string;
   projectId: string;
-  expectedUpdatedAt: Date;
+  expectedRevision: ProjectRevisionV1;
   updatedAt: Date;
   overlays: UnknownRecord[];
   rightsByAssetId: Record<string, AudioRightsContract>;
@@ -59,10 +63,16 @@ export interface UploadedExportAudioRightsAttestationCommit {
 }
 
 export interface UploadedExportAudioRightsAttestationDependencies {
-  loadProject(userId: string, projectId: string): Promise<unknown | null>;
+  loadProjectForMutation(
+    userId: string,
+    projectId: string,
+  ): Promise<{ project: unknown; revision: ProjectRevisionV1 }>;
   loadAssets(assetIds: string[]): Promise<UnknownRecord[]>;
   loadStoryboards(userId: string, projectId: string): Promise<UnknownRecord[]>;
-  commit(input: UploadedExportAudioRightsAttestationCommit): Promise<boolean>;
+  commit(input: UploadedExportAudioRightsAttestationCommit): Promise<{
+    committed: boolean;
+    receipt?: ProjectMutationReceiptV1;
+  }>;
   now(): Date;
 }
 
@@ -70,12 +80,13 @@ export interface UploadedExportAudioRightsAttestationResult {
   replayed: boolean;
   attestedAssetIds: string[];
   rightsByAssetId: Record<string, AudioRightsContract>;
+  projectMutationReceipt?: ProjectMutationReceiptV1;
 }
 
 const defaultDependencies: UploadedExportAudioRightsAttestationDependencies = {
-  async loadProject(userId, projectId) {
+  async loadProjectForMutation(userId, projectId) {
     const { projectService } = await import('./project-service');
-    return projectService.loadProject(userId, projectId);
+    return projectService.loadProjectForMutation(userId, projectId);
   },
   async loadAssets(assetIds) {
     if (assetIds.length === 0) return [];
@@ -93,102 +104,22 @@ const defaultDependencies: UploadedExportAudioRightsAttestationDependencies = {
       .toArray() as Promise<UnknownRecord[]>;
   },
   async commit(input) {
-    const { COLLECTIONS, connectToDatabase } = await import('@/lib/editron/db/mongodb');
-    const { assetResolver } = await import('./asset-resolver');
-    const { client, db } = await connectToDatabase();
-    const session = client.startSession();
-    let committed = false;
-
-    try {
-      await session.withTransaction(async () => {
-        const assetOperations = Object.entries(input.rightsByAssetId).map(
-          ([assetId, audioRights]) => ({
-            updateOne: {
-              filter: {
-                assetId,
-                type: 'audio',
-                source: 'user-upload',
-                audioRights: { $exists: false },
-                musicRights: { $exists: false },
-                $or: [
-                  { userId: input.userId },
-                  { projectId: input.projectId },
-                ],
-              },
-              update: {
-                $set: {
-                  audioRights,
-                  rightsUpdatedAt: input.updatedAt,
-                },
-              },
-            },
-          }),
-        );
-        const assetResult = await db.collection(COLLECTIONS.MEDIA_ASSETS)
-          .bulkWrite(assetOperations, { ordered: true, session });
-        if (assetResult.matchedCount !== assetOperations.length) {
-          throw attestationError(
-            'ATTESTATION_PERSISTENCE_FAILED',
-            'One or more uploaded audio assets changed before rights could be stored',
-            409,
-          );
-        }
-
-        for (const storyboard of input.storyboardUpdates) {
-          const result = await db.collection('storyboards').updateOne(
-            {
-              storyboardId: storyboard.storyboardId,
-              userId: input.userId,
-              projectId: input.projectId,
-            },
-            {
-              $set: {
-                scenes: storyboard.scenes,
-                updatedAt: input.updatedAt,
-              },
-            },
-            { session },
-          );
-          if (result.matchedCount !== 1) {
-            throw attestationError(
-              'ATTESTATION_PERSISTENCE_FAILED',
-              'A linked storyboard changed before audio rights could be stored',
-              409,
-            );
-          }
-        }
-
-        const cleanOverlays = assetResolver.stripUrlsForLLM(
-          input.overlays as unknown as Overlay[],
-        );
-        const projectResult = await db.collection(COLLECTIONS.PROJECTS).updateOne(
-          {
-            projectId: input.projectId,
-            userId: input.userId,
-            updatedAt: input.expectedUpdatedAt,
-          },
-          {
-            $set: {
-              overlays: cleanOverlays,
-              updatedAt: input.updatedAt,
-            },
-          },
-          { session },
-        );
-        if (projectResult.matchedCount !== 1) {
-          throw attestationError(
-            'PROJECT_REVISION_CONFLICT',
-            'The project changed while audio rights were being confirmed. Review the latest timeline and retry.',
-            409,
-          );
-        }
-        committed = true;
-      });
-    } finally {
-      await session.endSession();
-    }
-
-    return committed;
+    const { projectService } = await import('./project-service');
+    const receipt = await projectService.commitAudioRightsAttestation(
+      input.userId,
+      input.projectId,
+      {
+        kind: 'uploaded-export-audio',
+        expectedRevision: input.expectedRevision,
+        updatedAt: input.updatedAt,
+        overlays: input.overlays as unknown as Overlay[],
+        rightsByAssetId: input.rightsByAssetId,
+        storyboardUpdates: input.storyboardUpdates,
+      },
+    );
+    return receipt
+      ? { committed: true, receipt }
+      : { committed: false };
   },
   now: () => new Date(),
 };
@@ -200,9 +131,11 @@ export async function reattestUploadedExportAudioRights(
   const input = validateInput(rawInput);
   validateAttestation(input.attestation);
   const dependencies = { ...defaultDependencies, ...dependencyOverrides };
-  const project = asRecord(
-    await dependencies.loadProject(input.userId, input.projectId),
+  const mutationTarget = await dependencies.loadProjectForMutation(
+    input.userId,
+    input.projectId,
   );
+  const project = asRecord(mutationTarget.project);
   if (!project) {
     throw attestationError('PROJECT_NOT_FOUND', 'Project not found', 404);
   }
@@ -220,15 +153,6 @@ export async function reattestUploadedExportAudioRights(
       500,
     );
   }
-  const expectedUpdatedAt = validDate(project.updatedAt);
-  if (!expectedUpdatedAt) {
-    throw attestationError(
-      'PROJECT_TIMELINE_INVALID',
-      'Project revision metadata is missing or malformed',
-      500,
-    );
-  }
-
   const overlays = project.overlays.flatMap((value) => {
     const overlay = asRecord(value);
     return overlay ? [overlay] : [];
@@ -307,16 +231,26 @@ export async function reattestUploadedExportAudioRights(
   });
   const storyboards = await dependencies.loadStoryboards(input.userId, input.projectId);
   const storyboardUpdates = buildStoryboardUpdates(storyboards, rightsByAssetId);
-  const committed = await dependencies.commit({
-    userId: input.userId,
-    projectId: input.projectId,
-    expectedUpdatedAt,
-    updatedAt: attestedAt,
-    overlays: updatedOverlays,
-    rightsByAssetId,
-    storyboardUpdates,
-  });
-  if (!committed) {
+  let commitResult: { committed: boolean; receipt?: ProjectMutationReceiptV1 };
+  try {
+    commitResult = await dependencies.commit({
+      userId: input.userId,
+      projectId: input.projectId,
+      expectedRevision: mutationTarget.revision,
+      updatedAt: attestedAt,
+      overlays: updatedOverlays,
+      rightsByAssetId,
+      storyboardUpdates,
+    });
+  } catch (error) {
+    throw attestationError(
+      'ATTESTATION_PERSISTENCE_FAILED',
+      'Uploaded audio rights could not be stored',
+      isProjectMutationWriteError(error) ? 409 : 500,
+      error,
+    );
+  }
+  if (!commitResult.committed) {
     throw attestationError(
       'PROJECT_REVISION_CONFLICT',
       'The project changed while audio rights were being confirmed. Review the latest timeline and retry.',
@@ -328,6 +262,9 @@ export async function reattestUploadedExportAudioRights(
     replayed: false,
     attestedAssetIds: assetIds,
     rightsByAssetId,
+    ...(commitResult.receipt
+      ? { projectMutationReceipt: commitResult.receipt }
+      : {}),
   };
 }
 
@@ -487,7 +424,6 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function validDate(value: unknown): Date | null {
-  const date = value instanceof Date ? value : new Date(String(value ?? ''));
-  return Number.isFinite(date.getTime()) ? date : null;
+function isProjectMutationWriteError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'ProjectMutationWriteError';
 }

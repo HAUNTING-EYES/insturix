@@ -1176,6 +1176,68 @@ describe("Editron project save payload compaction", () => {
     expect(persistenceMocks.endSession).toHaveBeenCalledOnce();
   });
 
+  it("commits uploaded-audio rights, storyboard copies, and timeline together", async () => {
+    const updatedAt = new Date("2026-08-11T06:03:00.000Z");
+    persistenceMocks.bulkWrite.mockResolvedValueOnce({ matchedCount: 1 });
+    persistenceMocks.updateOne
+      .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 })
+      .mockResolvedValueOnce({ matchedCount: 1, modifiedCount: 1 });
+    const { projectService } = await import(
+      "@/lib/editron/services/project-service",
+    );
+
+    const receipt = await projectService.commitAudioRightsAttestation(
+      "user_1",
+      "proj_1",
+      {
+        kind: "uploaded-export-audio",
+        expectedRevision: {
+          schemaVersion: 1,
+          value: 7,
+          compatibilityUpdatedAt: "2026-08-11T06:02:00.000Z",
+        },
+        updatedAt,
+        overlays: [] as any,
+        rightsByAssetId: {
+          audio_1: {
+            mediaRole: "voiceover",
+            source: "user-upload",
+            userChoice: "attested",
+            licensed: true,
+            evidence: { kind: "user-attestation" },
+          } as any,
+        },
+        storyboardUpdates: [{ storyboardId: "board_1", scenes: [] }],
+      },
+    );
+
+    expect(receipt).toMatchObject({ projectId: "proj_1", revision: { value: 8 } });
+    expect(persistenceMocks.bulkWrite).toHaveBeenCalledWith([
+      expect.objectContaining({
+        updateOne: expect.objectContaining({
+          filter: expect.objectContaining({
+            assetId: "audio_1",
+            type: "audio",
+            audioRights: { $exists: false },
+            musicRights: { $exists: false },
+          }),
+        }),
+      }),
+    ], expect.objectContaining({ ordered: true }));
+    expect(persistenceMocks.updateOne.mock.calls[0]?.[0]).toEqual({
+      storyboardId: "board_1",
+      userId: "user_1",
+      projectId: "proj_1",
+    });
+    expect(persistenceMocks.updateOne.mock.calls[1]?.[0]).toEqual({
+      projectId: "proj_1",
+      userId: "user_1",
+      projectRevision: 7,
+      updatedAt: new Date("2026-08-11T06:02:00.000Z"),
+    });
+    expect(persistenceMocks.endSession).toHaveBeenCalledOnce();
+  });
+
   it("captures a writer-issued receipt from a successful overlay-family replacement", async () => {
     const expectedUpdatedAt = "2026-08-11T02:30:00.000Z";
     persistenceMocks.findOne.mockResolvedValueOnce({
