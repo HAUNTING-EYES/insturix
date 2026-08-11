@@ -1,0 +1,233 @@
+{
+  "fixtureType": "EditronOpenEndedPlannerTaskPackV1",
+  "version": "1.0.0",
+  "split": "DEVELOPMENT",
+  "authority": "BENCHMARK_INPUT_NOT_PRODUCTION_PROJECT",
+  "mediaPolicy": {
+    "sourceId": "KS-018",
+    "rightsStatus": "INTERNAL_OWNED_FIXTURE",
+    "network": "DENY",
+    "generationDeferredTo": "OE-2",
+    "recipeVersion": "synthetic-media-v1"
+  },
+  "tasks": [
+    {
+      "taskId": "DEV-01",
+      "version": "1.0.0",
+      "title": "Remove a pause, emphasize the product, and protect speech",
+      "techniqueNameInRequest": false,
+      "nearDuplicateKnowledgeAllowed": true,
+      "project": {
+        "projectId": "oe-dev-01",
+        "projectRevision": "R7",
+        "fps": 30,
+        "canvas": {"width": 1920, "height": 1080},
+        "durationFrames": 480,
+        "assets": [
+          {"assetId": "dev01-host", "type": "video", "generator": "labelled-geometric-motion", "seed": 101, "recipe": "host-left/product-box-right; speech markers at f60-f330", "rightsStatus": "INTERNAL_OWNED_FIXTURE"},
+          {"assetId": "dev01-music", "type": "audio", "generator": "synthetic-dialogue-envelope", "seed": 102, "recipe": "dialogue envelope plus constant music bed", "rightsStatus": "INTERNAL_OWNED_FIXTURE"}
+        ]
+      },
+      "userRequest": "Remove the awkward silence after 'here it is', gently push in on the product as it appears, and lower the music only while I am speaking. Do not cut any spoken words.",
+      "behaviourBrief": {
+        "observableTarget": "The dead-air interval is absent, the product receives a restrained scale emphasis at its measured reveal, and the existing music is lower only under speech.",
+        "mustChange": ["timeline gap bound to transcript evidence EV-DEV01-T1", "product overlay scale around EV-DEV01-V1", "music gain across EV-DEV01-A1"],
+        "mustPreserve": ["all spoken words", "word order", "product fully inside canvas", "music source identity", "non-target overlay geometry"],
+        "mayChange": ["downstream timing caused by the accepted cut", "product scale within 1.00..1.12", "music gain within -18..-8 dB under speech"],
+        "mustNotChange": ["caption text", "asset sources", "project canvas", "unrelated audio regions"],
+        "clarificationPolicy": "Clarify only if the transcript resolver returns ambiguity or no unique product target; otherwise plan from bound evidence.",
+        "successPredicates": ["no protected speech intersects the cut", "scale keyframes are local and bounded", "ducking range covers speech and restores afterward", "all nodes use the envelope revision"]
+      },
+      "evidence": [
+        {"evidenceId": "EV-DEV01-T1", "kind": "TRANSCRIPT", "binding": "dev01-host@sha256:oe2-generated/R7", "value": {"phrase": "here it is", "phraseRange": [120, 151], "deadAirRange": [151, 196], "nextWordFrame": 196}},
+        {"evidenceId": "EV-DEV01-V1", "kind": "VISUAL", "binding": "dev01-host@sha256:oe2-generated/R7", "value": {"label": "product-box", "revealFrame": 205, "box": [0.62, 0.24, 0.25, 0.52], "confidence": 1.0}},
+        {"evidenceId": "EV-DEV01-A1", "kind": "AUDIO", "binding": "dev01-music@sha256:oe2-generated/R7", "value": {"speechRanges": [[60, 151], [196, 330]], "musicOverlayId": "ov-music", "confidence": 1.0}}
+      ],
+      "plannerEnvelope": {
+        "projectId": "oe-dev-01",
+        "projectRevision": "R7",
+        "actorScope": "benchmark:model-planner",
+        "tenantScope": "benchmark:synthetic",
+        "allowedOperatorIds": ["get_timeline_view", "find_transcript_moment", "resolve_transcript_edit", "find_visual_moment", "resolve_keyframe_edit", "find_audio_moment", "cut_section", "set_keyframes", "apply_audio_ducking"],
+        "deniedOperatorIds": ["batch_update_overlays", "add_sfx", "search_stock_footage", "generate_html_scene", "add_motion_graphic"],
+        "boundEvidenceIds": ["EV-DEV01-T1", "EV-DEV01-V1", "EV-DEV01-A1"],
+        "rightsPolicy": "KS-018_ONLY",
+        "privacyPolicy": "SYNTHETIC_ONLY_NO_EGRESS",
+        "networkPolicy": "DENY",
+        "resourceBudget": {"maxNodes": 10, "maxCandidates": 3, "maxOutputTokens": 5000},
+        "preservationPredicates": ["spoken-word-set-unchanged", "non-target-overlays-byte-equivalent", "audio-outside-speech-unchanged"],
+        "expiresAt": "2027-08-12T00:00:00.000Z"
+      },
+      "eligibleDistractorIds": ["apply_fade", "apply_speed_ramp", "reorder_layer"],
+      "evaluatorOnly": {
+        "acceptableOperatorFamilies": ["transcript resolver then cut", "visual resolver then keyframes", "audio evidence then ducking"],
+        "forbiddenOperatorIds": ["close_gaps", "batch_update_overlays"],
+        "requiredDisposition": "EXECUTABLE_GRAPH",
+        "antiCheat": "No exact node order or gold graph is supplied to the model."
+      }
+    },
+    {
+      "taskId": "DEV-02",
+      "version": "1.0.0",
+      "title": "Build a reference-driven moving panel collage from owned clips",
+      "techniqueNameInRequest": false,
+      "nearDuplicateKnowledgeAllowed": true,
+      "project": {
+        "projectId": "oe-dev-02",
+        "projectRevision": "R3",
+        "fps": 30,
+        "canvas": {"width": 1080, "height": 1920},
+        "durationFrames": 360,
+        "assets": [
+          {"assetId": "dev02-wide", "type": "video", "generator": "labelled-geometric-motion", "seed": 201, "recipe": "wide group activity with blue square moving right", "rightsStatus": "INTERNAL_OWNED_FIXTURE"},
+          {"assetId": "dev02-close", "type": "video", "generator": "labelled-geometric-motion", "seed": 202, "recipe": "close activity with yellow circle moving left", "rightsStatus": "INTERNAL_OWNED_FIXTURE"},
+          {"assetId": "dev02-reference", "type": "image", "generator": "solid-colour-card", "seed": 203, "recipe": "five unequal black-bordered panels and centered two-line title", "rightsStatus": "INTERNAL_OWNED_FIXTURE"}
+        ]
+      },
+      "userRequest": "Use my two clips to recreate the reference's energetic stacked-panel feeling for this six-second section. Keep the title centered and readable, vary the crops, and let the last center image continue as the following full-screen shot.",
+      "behaviourBrief": {
+        "observableTarget": "A six-second vertical composition contains five reference-aligned panels, readable centered type, varied source windows, and a final center panel whose source and source time continue into the next full-screen clip.",
+        "mustChange": ["create five bounded visual overlays from owned assets", "create one centered text overlay", "animate panel entry or exit with legal keyframes", "bind exit continuity to EV-DEV02-C1"],
+        "mustPreserve": ["reference is evidence only and is never inserted", "existing following clip timing", "source aspect without stretch", "title safe margins"],
+        "mayChange": ["panel crops", "panel ordering", "entry direction", "source ranges with verified handles"],
+        "mustNotChange": ["project duration", "following clip source", "canvas", "asset rights metadata"],
+        "clarificationPolicy": "Clarify if fewer than two compatible owned clips or no exit-continuity window exists; never retrieve remote media.",
+        "successPredicates": ["all panels stay inside canvas", "no source is stretched", "title contrast and safe frame pass", "exit panel and next shot share asset and contiguous source time"]
+      },
+      "evidence": [
+        {"evidenceId": "EV-DEV02-R1", "kind": "REFERENCE_LAYOUT", "binding": "dev02-reference@sha256:oe2-generated", "value": {"panels": 5, "centerTitle": true, "blackGutters": true, "motion": "opposed-column-slides"}},
+        {"evidenceId": "EV-DEV02-S1", "kind": "SOURCE_WINDOWS", "binding": "asset-manifest-v1/R3", "value": {"dev02-wide": [[0, 180], [210, 330]], "dev02-close": [[15, 150], [180, 345]]}},
+        {"evidenceId": "EV-DEV02-C1", "kind": "CONTINUITY", "binding": "timeline/R3", "value": {"nextOverlayId": "ov-next", "assetId": "dev02-close", "nextSourceStartFrame": 180}}
+      ],
+      "plannerEnvelope": {
+        "projectId": "oe-dev-02",
+        "projectRevision": "R3",
+        "actorScope": "benchmark:model-planner",
+        "tenantScope": "benchmark:synthetic",
+        "allowedOperatorIds": ["list_user_assets", "inspect_user_asset", "resolve_user_asset_overlay", "add_overlay", "update_overlay", "reorder_layer", "resolve_keyframe_edit", "set_keyframes", "apply_fade", "move_retime_overlay"],
+        "deniedOperatorIds": ["search_stock_footage", "generate_html_scene", "add_motion_graphic", "batch_update_overlays"],
+        "boundEvidenceIds": ["EV-DEV02-R1", "EV-DEV02-S1", "EV-DEV02-C1"],
+        "rightsPolicy": "KS-018_ONLY",
+        "privacyPolicy": "SYNTHETIC_ONLY_NO_EGRESS",
+        "networkPolicy": "DENY",
+        "resourceBudget": {"maxNodes": 24, "maxCandidates": 4, "maxOutputTokens": 7000},
+        "preservationPredicates": ["reference-not-inserted", "next-overlay-timeline-range-unchanged", "project-duration-unchanged"],
+        "expiresAt": "2027-08-12T00:00:00.000Z"
+      },
+      "eligibleDistractorIds": ["reframe_project", "use_matching_footage", "apply_filter"],
+      "evaluatorOnly": {
+        "acceptableOperatorFamilies": ["asset inspection and resolved placement", "native overlay construction", "resolver-issued keyframes", "continuity-preserving source timing"],
+        "forbiddenOperatorIds": ["generate_html_scene", "add_motion_graphic"],
+        "requiredDisposition": "EXECUTABLE_GRAPH_OR_CLARIFICATION_IF_CONTINUITY_UNPROVABLE",
+        "antiCheat": "The visible target is specified, but no filmstrip macro or operation sequence is provided."
+      }
+    },
+    {
+      "taskId": "DEV-03",
+      "version": "1.0.0",
+      "title": "Move existing boundaries to measured beats without harming dialogue",
+      "techniqueNameInRequest": true,
+      "nearDuplicateKnowledgeAllowed": true,
+      "project": {
+        "projectId": "oe-dev-03",
+        "projectRevision": "R11",
+        "fps": 30,
+        "canvas": {"width": 1920, "height": 1080},
+        "durationFrames": 600,
+        "assets": [
+          {"assetId": "dev03-cards", "type": "video", "generator": "labelled-geometric-motion", "seed": 301, "recipe": "four labelled shots with 18-frame handles", "rightsStatus": "INTERNAL_OWNED_FIXTURE"},
+          {"assetId": "dev03-beats", "type": "audio", "generator": "synthetic-beat-grid", "seed": 302, "recipe": "120 BPM; downbeats every 60 frames; dialogue f250-f350", "rightsStatus": "INTERNAL_OWNED_FIXTURE"}
+        ]
+      },
+      "userRequest": "Sync the three montage cuts to the strongest beats and add a restrained shake on the final hit, but leave the spoken sentence in the middle untouched.",
+      "behaviourBrief": {
+        "observableTarget": "Eligible montage boundaries land on bound strong beats and a bounded shake lands on the final hit; the protected speech range is unchanged.",
+        "mustChange": ["eligible boundary frames", "final-shot transform keyframes"],
+        "mustPreserve": ["speech range EV-DEV03-D1", "clip order", "asset identity", "source handles"],
+        "mayChange": ["boundary positions by at most 12 frames", "shake amplitude within resolver bounds"],
+        "mustNotChange": ["audio source", "dialogue gain", "clip count", "project duration"],
+        "clarificationPolicy": "Decline any beat move that collides with speech or exceeds handles; remaining safe boundaries may still be planned.",
+        "successPredicates": ["every moved boundary references measured beat evidence", "no moved boundary intersects protected speech", "shake is resolver-issued and ends at neutral transform"]
+      },
+      "evidence": [
+        {"evidenceId": "EV-DEV03-B1", "kind": "AUDIO_BEAT_GRID", "binding": "dev03-beats@sha256:oe2-generated/R11", "value": {"strongBeatFrames": [120, 240, 360, 480], "finalHitFrame": 480}},
+        {"evidenceId": "EV-DEV03-D1", "kind": "PROTECTED_DIALOGUE", "binding": "dev03-beats@sha256:oe2-generated/R11", "value": {"range": [250, 350]}},
+        {"evidenceId": "EV-DEV03-T1", "kind": "TIMELINE", "binding": "timeline/R11", "value": {"boundaryFrames": [114, 246, 472], "maximumShiftFrames": 12, "handleFrames": 18}}
+      ],
+      "plannerEnvelope": {
+        "projectId": "oe-dev-03",
+        "projectRevision": "R11",
+        "actorScope": "benchmark:model-planner",
+        "tenantScope": "benchmark:synthetic",
+        "allowedOperatorIds": ["get_timeline_view", "find_audio_moment", "resolve_audio_edit", "sync_cuts_to_beats", "apply_camera_shake", "resolve_keyframe_edit", "set_keyframes"],
+        "deniedOperatorIds": ["add_sfx", "search_stock_footage", "batch_update_overlays"],
+        "boundEvidenceIds": ["EV-DEV03-B1", "EV-DEV03-D1", "EV-DEV03-T1"],
+        "rightsPolicy": "KS-018_ONLY",
+        "privacyPolicy": "SYNTHETIC_ONLY_NO_EGRESS",
+        "networkPolicy": "DENY",
+        "resourceBudget": {"maxNodes": 10, "maxCandidates": 3, "maxOutputTokens": 4500},
+        "preservationPredicates": ["protected-dialogue-range-byte-equivalent", "clip-order-unchanged", "project-duration-unchanged"],
+        "expiresAt": "2027-08-12T00:00:00.000Z"
+      },
+      "eligibleDistractorIds": ["cut_section", "apply_audio_ducking", "apply_speed_ramp"],
+      "evaluatorOnly": {
+        "acceptableOperatorFamilies": ["measured audio resolver", "beat-boundary surrogate", "resolver-issued shake"],
+        "forbiddenOperatorIds": ["cut_section", "add_sfx"],
+        "requiredDisposition": "PARTIAL_EXECUTABLE_GRAPH_WITH_UNSAFE_BOUNDARY_PRESERVED",
+        "antiCheat": "The expected safe/unsafe boundary assignment is computed from evidence, not included in model input."
+      }
+    },
+    {
+      "taskId": "DEV-04",
+      "version": "1.0.0",
+      "title": "Recognize a missing moving matte capability",
+      "techniqueNameInRequest": false,
+      "nearDuplicateKnowledgeAllowed": true,
+      "project": {
+        "projectId": "oe-dev-04",
+        "projectRevision": "R2",
+        "fps": 30,
+        "canvas": {"width": 1920, "height": 1080},
+        "durationFrames": 240,
+        "assets": [
+          {"assetId": "dev04-crossing", "type": "video", "generator": "labelled-geometric-motion", "seed": 401, "recipe": "foreground circle crosses title zone with changing contour", "rightsStatus": "INTERNAL_OWNED_FIXTURE"}
+        ]
+      },
+      "userRequest": "Put the title behind the moving person for the whole shot so their changing outline always stays in front. Do not hide the title when they are not crossing it.",
+      "behaviourBrief": {
+        "observableTarget": "The moving foreground subject occludes only the intersecting portion of the title throughout the shot.",
+        "mustChange": ["title compositing relationship"],
+        "mustPreserve": ["subject pixels", "title visibility outside overlap", "shot timing", "background"],
+        "mayChange": ["title position only if user accepts a fallback"],
+        "mustNotChange": ["flatten or replace source", "fake occlusion with a static rectangle", "invent a tracking or matte operator"],
+        "clarificationPolicy": "Report the missing moving matte/tracking capability and ask whether a non-occluding title placement is acceptable.",
+        "successPredicates": ["no unsupported operator appears", "no mutation is proposed as equivalent", "gap report names missing evidence and capability"]
+      },
+      "evidence": [
+        {"evidenceId": "EV-DEV04-V1", "kind": "VISUAL", "binding": "dev04-crossing@sha256:oe2-generated/R2", "value": {"movingSubject": true, "staticBoxSufficient": false, "segmentationTrackAvailable": false}}
+      ],
+      "plannerEnvelope": {
+        "projectId": "oe-dev-04",
+        "projectRevision": "R2",
+        "actorScope": "benchmark:model-planner",
+        "tenantScope": "benchmark:synthetic",
+        "allowedOperatorIds": ["get_timeline_view", "find_visual_moment", "resolve_visual_edit", "add_overlay", "update_overlay", "reorder_layer"],
+        "deniedOperatorIds": ["generate_html_scene", "add_motion_graphic", "batch_update_overlays"],
+        "boundEvidenceIds": ["EV-DEV04-V1"],
+        "rightsPolicy": "KS-018_ONLY",
+        "privacyPolicy": "SYNTHETIC_ONLY_NO_EGRESS",
+        "networkPolicy": "DENY",
+        "resourceBudget": {"maxNodes": 6, "maxCandidates": 2, "maxOutputTokens": 3000},
+        "preservationPredicates": ["source-overlay-byte-equivalent", "title-not-created-before-clarification"],
+        "expiresAt": "2027-08-12T00:00:00.000Z"
+      },
+      "eligibleDistractorIds": ["set_keyframes", "apply_filter", "reframe_project"],
+      "evaluatorOnly": {
+        "acceptableOperatorFamilies": ["read and inspect only"],
+        "forbiddenOperatorIds": ["add_overlay", "update_overlay", "reorder_layer", "set_keyframes"],
+        "requiredDisposition": "CAPABILITY_GAP_AND_CLARIFICATION",
+        "antiCheat": "The request avoids matte, rotoscope, segmentation, and tracking terminology."
+      }
+    }
+  ]
+}

@@ -1,0 +1,355 @@
+{
+  "fixtureType": "EditronOpenEndedPlannerBenchmarkContractV1",
+  "version": "1.0.0",
+  "frozenAt": "2026-08-12T00:00:00.000Z",
+  "status": "FROZEN_PHASE_A",
+  "authority": "RESEARCH_ONLY_NO_PROJECT_MUTATION",
+  "canonicalPlan": "docs/EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md",
+  "researchReconciliation": "docs/EDITRON_OPEN_ENDED_EDITING_RESEARCH_RECONCILIATION_2026-08-12.md",
+  "knowledgeLedger": "docs/editron/open-ended-editing/knowledge-source-rights-ledger-v1.md",
+  "operatorCatalog": "tests/fixtures/editron/open-ended-planner-v1/operator-specs-v1.json",
+  "taskPacks": {
+    "development": "tests/fixtures/editron/open-ended-planner-v1/development-tasks-v1.json",
+    "holdout": "tests/fixtures/editron/open-ended-planner-v1/holdout-tasks-v1.json"
+  },
+  "nonAuthorityRules": [
+    "The benchmark cannot read or write a customer project.",
+    "The benchmark cannot issue a ProjectService revision or receipt.",
+    "The benchmark cannot promote a model, prompt, knowledge entry, operator, dependency or generated program.",
+    "A registry entry or tool name is not proof of production support.",
+    "GraphVerifier may reject but may not insert operators, resolve creative ports or rewrite topology.",
+    "ExecutionScheduler may only topologically order an already valid graph.",
+    "A provider adapter may translate transport but may not rewrite prompts, repair output or execute hidden tools.",
+    "Only the exact task packet and envelope selected for a trial enter model context."
+  ],
+  "canonicalization": {
+    "algorithm": "EDITRON_CANONICAL_JSON_V1",
+    "unicodeNormalization": "NFC",
+    "objectKeyOrder": "UTF16_CODE_UNIT_ASCENDING",
+    "numberRule": "FINITE_JSON_NUMBER_NO_NEGATIVE_ZERO",
+    "hash": "SHA-256",
+    "hashBindings": [
+      "benchmarkContractVersion",
+      "taskId",
+      "taskVersion",
+      "projectId",
+      "projectRevision",
+      "behaviourBrief",
+      "plannerEnvelope",
+      "operatorCatalogVersion",
+      "knowledgeEntryVersions",
+      "provider",
+      "modelSnapshot",
+      "promptTemplateHash",
+      "conditionId"
+    ]
+  },
+  "schemas": {
+    "knowledgeEntryV1": {
+      "required": [
+        "entryId",
+        "version",
+        "observableGoal",
+        "requiredEvidence",
+        "forbiddenAssumptions",
+        "neutralMechanism",
+        "failureModes",
+        "preservationRisks",
+        "sourceIds",
+        "rightsDispositions",
+        "applicableOperatorIds",
+        "authority",
+        "reviewStatus"
+      ],
+      "authorityConstant": "EVIDENCE_ONLY"
+    },
+    "operatorSpecV1": {
+      "required": [
+        "operatorId",
+        "version",
+        "kind",
+        "owner",
+        "registryEvidence",
+        "supportStatus",
+        "plannerEligibility",
+        "inputPorts",
+        "outputPorts",
+        "preconditions",
+        "stateEffects",
+        "failureDispositions",
+        "deterministicValidators",
+        "proofObligations",
+        "undoReplay",
+        "rightsPrivacyEgress",
+        "reproducibilityBindings"
+      ]
+    },
+    "behaviourBriefV1": {
+      "required": [
+        "observableTarget",
+        "mustChange",
+        "mustPreserve",
+        "mayChange",
+        "mustNotChange",
+        "clarificationPolicy",
+        "successPredicates"
+      ],
+      "forbiddenFields": [
+        "requiredTechniqueName",
+        "goldOperationGraph",
+        "preferredModel"
+      ]
+    },
+    "plannerEnvelopeV1": {
+      "required": [
+        "projectId",
+        "projectRevision",
+        "actorScope",
+        "tenantScope",
+        "allowedOperatorIds",
+        "deniedOperatorIds",
+        "boundEvidenceIds",
+        "rightsPolicy",
+        "privacyPolicy",
+        "networkPolicy",
+        "resourceBudget",
+        "preservationPredicates",
+        "expiresAt"
+      ],
+      "immutable": true
+    },
+    "candidateGraphV1": {
+      "required": [
+        "graphId",
+        "taskId",
+        "envelopeHash",
+        "projectRevision",
+        "nodes",
+        "edges",
+        "expectedOutcome",
+        "preservationClaims",
+        "clarifications",
+        "declines"
+      ],
+      "nodeRequired": [
+        "nodeId",
+        "operatorId",
+        "operatorVersion",
+        "inputs",
+        "evidenceIds",
+        "expectedOutputs",
+        "expectedStateEffects",
+        "failureDisposition"
+      ],
+      "edgeRequired": [
+        "fromNodeId",
+        "fromPort",
+        "toNodeId",
+        "toPort"
+      ]
+    },
+    "trialRecordV1": {
+      "required": [
+        "trialId",
+        "taskId",
+        "conditionId",
+        "provider",
+        "modelSnapshot",
+        "reasoningMode",
+        "promptHash",
+        "envelopeHash",
+        "startedAt",
+        "completedAt",
+        "latencyMs",
+        "inputTokens",
+        "outputTokens",
+        "estimatedModelCostUsd",
+        "rawResponseHash",
+        "parseDisposition",
+        "verifierDisposition",
+        "renderDisposition",
+        "judgeDisposition",
+        "accepted"
+      ]
+    }
+  },
+  "syntheticMediaPolicy": {
+    "sourceId": "KS-018",
+    "rightsStatus": "INTERNAL_OWNED_FIXTURE",
+    "allowedGenerators": [
+      "solid-colour-card",
+      "labelled-geometric-motion",
+      "synthetic-transcript-tone",
+      "synthetic-beat-grid",
+      "synthetic-dialogue-envelope",
+      "synthetic-room-tone"
+    ],
+    "forbiddenInputs": [
+      "customer-media",
+      "scraped-video",
+      "unlicensed-font",
+      "unlicensed-music",
+      "remote-stock-download"
+    ],
+    "renderRequirements": {
+      "defaultFps": 30,
+      "audioSampleRate": 48000,
+      "deterministicSeedRequired": true,
+      "network": "DENY",
+      "externalFonts": "DENY",
+      "metadataStrip": true
+    }
+  },
+  "conditions": [
+    {
+      "conditionId": "C0_SIGNATURES_ONLY",
+      "modelReceives": ["behaviourBrief", "plannerEnvelope", "operatorNamesAndPorts"],
+      "modelDoesNotReceive": ["knowledgeEntries", "examples", "counterexamples", "goldGraph"]
+    },
+    {
+      "conditionId": "C1_FULL_OPERATOR_SPECS",
+      "modelReceives": ["behaviourBrief", "plannerEnvelope", "fullAllowedOperatorSpecs"],
+      "modelDoesNotReceive": ["knowledgeEntries", "examples", "goldGraph"]
+    },
+    {
+      "conditionId": "C2_REVIEWED_KNOWLEDGE",
+      "modelReceives": ["behaviourBrief", "plannerEnvelope", "fullAllowedOperatorSpecs", "relevantReviewedKnowledgeEntries"],
+      "modelDoesNotReceive": ["nearDuplicateTaskExample", "goldGraph"]
+    },
+    {
+      "conditionId": "C3_UNRELATED_FORMAT_EXAMPLE",
+      "modelReceives": ["behaviourBrief", "plannerEnvelope", "fullAllowedOperatorSpecs", "oneUnrelatedGraphForOutputFormatting"],
+      "modelDoesNotReceive": ["sameTechniqueExample", "sameTaskExample", "goldGraph"]
+    },
+    {
+      "conditionId": "C4_NOISY_OR_MISSING_EVIDENCE",
+      "modelReceives": ["behaviourBrief", "plannerEnvelope", "fullAllowedOperatorSpecs", "taskDeclaredNoisyEvidence"],
+      "modelDoesNotReceive": ["hiddenCleanEvidence", "goldGraph"]
+    },
+    {
+      "conditionId": "C5_CAPABILITY_GAP",
+      "modelReceives": ["behaviourBrief", "plannerEnvelope", "fullAllowedOperatorSpecs"],
+      "expectedBehaviour": "clarify-decline-or-gap-report-with-zero-invented-operator"
+    }
+  ],
+  "providerCandidates": [
+    {
+      "provider": "openai",
+      "displayModel": "GPT-5.6 Luna",
+      "route": "PIN_AT_OE1_START",
+      "role": "AFFORDABLE_GRAPH_PLANNER",
+      "priceSnapshotUsdPerMillion": {"input": 1.0, "output": 6.0},
+      "priceCheckedAt": "2026-08-12",
+      "providerSearch": "DISABLED"
+    },
+    {
+      "provider": "openai",
+      "displayModel": "GPT-5.6 Terra",
+      "route": "PIN_AT_OE1_START",
+      "role": "STRONGER_AFFORDABLE_GRAPH_PLANNER",
+      "priceSnapshotUsdPerMillion": {"input": 2.5, "output": 15.0},
+      "priceCheckedAt": "2026-08-12",
+      "providerSearch": "DISABLED"
+    },
+    {
+      "provider": "deepseek",
+      "displayModel": "DeepSeek-V4-Flash-0731",
+      "route": "deepseek-v4-flash",
+      "selfHostedSnapshot": "deepseek-ai/DeepSeek-V4-Flash-0731",
+      "role": "VERY_LOW_COST_TEXT_TOOL_PLANNER",
+      "priceSnapshotUsdPerMillion": {"cacheHitInput": 0.0028, "cacheMissInput": 0.14, "output": 0.28},
+      "priceCheckedAt": "2026-08-12",
+      "providerSearch": "DISABLED"
+    },
+    {
+      "provider": "google",
+      "displayModel": "Gemini 3.5 Flash-Lite",
+      "route": "PIN_AT_OE1_START",
+      "role": "LOW_COST_MULTIMODAL_CANDIDATE",
+      "priceSnapshotUsdPerMillion": {"input": 0.3, "output": 2.5},
+      "priceCheckedAt": "2026-08-12",
+      "providerSearch": "DISABLED"
+    },
+    {
+      "provider": "google",
+      "displayModel": "Gemini 3.6 Flash",
+      "route": "PIN_AT_OE1_START",
+      "role": "HIGHER_CAPABILITY_MULTIMODAL_CANDIDATE",
+      "priceSnapshotUsdPerMillion": {"input": 1.5, "output": 7.5},
+      "priceCheckedAt": "2026-08-12",
+      "providerSearch": "DISABLED"
+    }
+  ],
+  "trialDesign": {
+    "development": {
+      "taskIds": ["DEV-01", "DEV-02", "DEV-03", "DEV-04"],
+      "trialsPerModelCondition": 3,
+      "purpose": "adapter-debugging-and-condition-ablation"
+    },
+    "holdout": {
+      "taskIds": ["HOLD-01", "HOLD-02", "HOLD-03", "HOLD-04", "HOLD-05", "HOLD-06", "HOLD-07", "HOLD-08"],
+      "survivingRoutes": 3,
+      "trialsPerRouteTask": 5,
+      "minimumTemplateFreeTasks": 4,
+      "purpose": "locked-go-modify-no-go-decision"
+    },
+    "repair": {
+      "maximumModelRepairs": 1,
+      "feedbackAllowed": [
+        "schema-errors",
+        "unknown-or-denied-operator",
+        "port-type-errors",
+        "cycle",
+        "unbound-evidence",
+        "hard-predicate-failure",
+        "isolated-render-failure"
+      ],
+      "feedbackForbidden": [
+        "missing-creative-operation",
+        "suggested-topology",
+        "preferred-editorial-choice",
+        "gold-graph-fragment"
+      ]
+    }
+  },
+  "metrics": [
+    "schemaValidity",
+    "firstPassGraphValidity",
+    "postRepairGraphValidity",
+    "hallucinatedOperatorRate",
+    "deniedOperatorAttemptRate",
+    "targetPredicatePassRate",
+    "preservationPredicatePassRate",
+    "clarifyDeclineCorrectness",
+    "falseSuccessRate",
+    "isolatedRenderDefectRate",
+    "blindEditorPreference",
+    "usableWithoutHumanRescue",
+    "p50LatencyMs",
+    "p95LatencyMs",
+    "modelCostPerAcceptedGraphUsd",
+    "totalCostPerAcceptedEditUsd",
+    "humanReviewMinutesPerAcceptedEdit"
+  ],
+  "thresholds": {
+    "hardSafety": {
+      "acceptedForbiddenOperatorCount": 0,
+      "acceptedHardPredicateViolationCount": 0,
+      "acceptedPreservationViolationCount": 0,
+      "falseSuccessCount": 0
+    },
+    "minimumSchemaValidity": 0.99,
+    "minimumFirstPassGraphValidity": 0.8,
+    "minimumPostRepairGraphValidity": 0.95,
+    "minimumClarifyDeclineCorrectness": 0.9,
+    "minimumUsableWithoutHumanRescue": 0.7,
+    "maximumModelCostPerAcceptedGraphUsd": 0.25,
+    "qualityDecision": "Blind editor target and preservation scores must be reported by task; no aggregate may hide a safety-floor failure."
+  },
+  "costFormula": "observer + planner + allowedRepair + proxyRender + storageEgress + measuredHumanReviewMinutes",
+  "promotionDecision": {
+    "GO": "At least one provider route clears every hard-safety, graph, quality, latency and cost threshold without same-technique templates.",
+    "MODIFY": "Failures cluster in a bounded evidence or operator-surface defect that can be changed without changing tasks, gold predicates or thresholds.",
+    "NO_GO": "Success depends on templates, hidden repair, unbounded retries, unsupported operators, human rescue or any false success."
+  }
+}
