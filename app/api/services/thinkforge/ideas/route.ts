@@ -3,7 +3,8 @@ import { auth } from '@clerk/nextjs/server';
 import { createIdeasAgent } from '@/lib/thinkforge/agents/ideas-agent';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
-import { fetchContextSources, formatSystemBrief } from '@/lib/thinkforge/context';
+import { resolveThinkForgeAuthoringContext } from '@/lib/thinkforge/context';
+import type { ThinkForgeAuthoringContextSnapshot } from '@/lib/thinkforge/context/brand-authoring-context';
 import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import {
@@ -106,6 +107,7 @@ function resolveBrandScope(
 export async function POST(req: Request) {
 	const { userId, orgId, has } = await auth();
 	if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+	const isOrgAdmin = Boolean(orgId && has({ role: 'org:admin' }));
 
 	let prompt: string = '';
 	let requestedBrandId: string | undefined;
@@ -155,7 +157,7 @@ export async function POST(req: Request) {
 	try {
 		let candidates: BrandCandidate[] = [];
 		try {
-			candidates = await listBrandCandidates(userId, orgId ?? null, orgId ? has({ role: 'org:admin' }) : false);
+			candidates = await listBrandCandidates(userId, orgId ?? null, isOrgAdmin);
 		} catch (brandListError) {
 			if (brandListError instanceof BrandScopeAuthorizationError && requiresBrandContext) {
 				return NextResponse.json(
@@ -178,25 +180,28 @@ export async function POST(req: Request) {
 			return NextResponse.json(brandScope.error.body, { status: brandScope.error.status });
 		}
 
-		await creditCheck.deduct();
-		deducted = true;
-
 		let systemBrief = '';
+		let authoringContextSnapshot: ThinkForgeAuthoringContextSnapshot | undefined;
 		try {
-			const ctx = await fetchContextSources({
+			const authoringContext = await resolveThinkForgeAuthoringContext({
 				userId,
-				brandId: brandScope.brandId,
 				orgId: orgId ?? null,
+				isOrgAdmin,
+				providedProject: brandScope.brandId ? { brandId: brandScope.brandId } : undefined,
 				currentPrompt: prompt,
 				maxFacts: 6,
 			});
-			systemBrief = formatSystemBrief(ctx);
+			systemBrief = authoringContext.systemBrief;
+			authoringContextSnapshot = authoringContext.snapshot;
 		} catch (contextError) {
 			if (brandScope.brandId || requiresBrandContext) {
 				throw new Error(`Brand context retrieval failed: ${contextError instanceof Error ? contextError.message : String(contextError)}`);
 			}
 			console.warn('[ThinkForge ideas] Context fetch failed for unbranded request:', contextError);
 		}
+
+		await creditCheck.deduct();
+		deducted = true;
 
 		if (brandScope.brandName || brandScope.brandId) {
 			systemBrief = [
@@ -227,6 +232,7 @@ export async function POST(req: Request) {
 			generation: {
 				variationIndex,
 				rejectedIdeaCount: rejectedIdeas.length,
+				authoringContextSnapshot,
 			},
 		});
 	} catch (error: any) {

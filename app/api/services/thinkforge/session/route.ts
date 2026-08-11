@@ -8,6 +8,10 @@ import {
   BrandScopeAuthorizationError,
 } from '@/lib/shared/brand-scope';
 import {
+  createThinkForgeSessionBrandBinding,
+} from '@/lib/thinkforge/context/brand-authoring-context';
+import { resolveThinkForgeSessionBrandBinding } from '@/lib/thinkforge/state/types';
+import {
   addProjectToLinkBySessionId,
   createProjectLink,
   findLinkBySessionId,
@@ -42,6 +46,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
+  // Bindings are server-issued session authority, never browser state. The
+  // browser sends a requested brandId; this route authorizes and stamps it.
+  if (projectMeta) {
+    const { brandBinding: _clientBrandBinding, ...clientProjectMeta } = projectMeta;
+    projectMeta = clientProjectMeta;
+  }
+
   try {
     if (claimInitialDraft) {
       if (!sessionId) {
@@ -60,18 +71,25 @@ export async function POST(req: Request) {
       });
     }
 
+    const existingSession = sessionId
+      ? await db.getSession(sessionId, userId, orgId)
+      : null;
+    if (sessionId && !existingSession) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
     const requestedBrandId = typeof projectMeta?.brandId === 'string'
       ? projectMeta.brandId.trim()
       : '';
-    if (requestedBrandId) {
-      const existingSession = sessionId
-        ? await db.getSession(sessionId, userId, orgId)
-        : null;
-      const existingBrandId = typeof existingSession?.projectMeta?.brandId === 'string'
+    const existingBinding = resolveThinkForgeSessionBrandBinding(existingSession?.projectMeta);
+    const existingBrandId = existingBinding?.brandId
+      ?? (typeof existingSession?.projectMeta?.brandId === 'string'
         ? existingSession.projectMeta.brandId.trim()
-        : '';
+        : '');
+    const effectiveBrandId = requestedBrandId || existingBrandId;
+    if (effectiveBrandId) {
 
-      if (existingBrandId && existingBrandId !== requestedBrandId) {
+      if (requestedBrandId && existingBrandId && existingBrandId !== requestedBrandId) {
         return NextResponse.json({
           error: 'Brand binding cannot be changed for an existing ThinkForge session.',
           code: 'brand_binding_immutable',
@@ -82,9 +100,16 @@ export async function POST(req: Request) {
         userId,
         orgId: orgId ?? null,
         isOrgAdmin: orgId ? has({ role: 'org:admin' }) : false,
-        brandId: requestedBrandId,
+        brandId: effectiveBrandId,
       });
-      projectMeta = { ...projectMeta, brandId: authorizedBrand.brandId };
+      projectMeta = {
+        ...projectMeta,
+        brandId: authorizedBrand.brandId,
+        brandBinding: existingBinding ?? createThinkForgeSessionBrandBinding({
+          brandId: authorizedBrand.brandId,
+          orgId: orgId ?? null,
+        }),
+      };
     }
 
     // Get creator name for org context display (only for new sessions)

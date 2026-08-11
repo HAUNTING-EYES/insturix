@@ -274,6 +274,54 @@ describe("ThinkForge to Clickatron context", () => {
     expect(JSON.stringify(context.metadata)).not.toContain("turn market news into a brand-safe carousel");
   });
 
+  it("carries only safe document provenance and rejects a cross-brand snapshot", () => {
+    const authoringContextSnapshot = {
+      version: 1,
+      resolvedAt: "2026-08-12T00:00:00.000Z",
+      scope: { kind: "organization", brandId: "brand_trace" },
+      brand: {
+        brandId: "brand_trace",
+        recordId: "brand_record_12",
+        profileUpdatedAt: "2026-08-11T12:00:00.000Z",
+        profileFingerprint: "abc123",
+      },
+      retrieval: {
+        projectFactIds: ["fact_private"],
+        globalFactIds: ["fact_global"],
+        interactionPatternTypes: ["preferred_hook"],
+      },
+      writingKnowledgeVersion: "writing-knowledge-v3",
+    };
+    const context = buildThinkToClickContext({
+      sessionId: "tf_session_provenance",
+      projectMeta: { brandId: "brand_trace" },
+      authoringContextSnapshot,
+    });
+    const thinkforge = context.metadata.thinkforge as Record<string, unknown>;
+
+    expect(thinkforge.authoringProvenance).toEqual({
+      version: 1,
+      resolvedAt: "2026-08-12T00:00:00.000Z",
+      brand: {
+        brandId: "brand_trace",
+        recordId: "brand_record_12",
+        profileUpdatedAt: "2026-08-11T12:00:00.000Z",
+        profileFingerprint: "abc123",
+      },
+      writingKnowledgeVersion: "writing-knowledge-v3",
+    });
+    expect(JSON.stringify(context.metadata)).not.toContain("fact_private");
+    expect(JSON.stringify(context.metadata)).not.toContain("preferred_hook");
+
+    expect(() => buildThinkToClickContext({
+      sessionId: "tf_session_wrong_brand",
+      projectMeta: { brandId: "brand_trace" },
+      authoringContextSnapshot: {
+        brand: { brandId: "brand_other", recordId: "brand_record_other" },
+      },
+    })).toThrow("document provenance does not match the session's bound brand");
+  });
+
   it("recovers invalid hidden carousel sidecars into review-required slide plans", () => {
     const blocks: ThinkForgeBlock[] = [
       {

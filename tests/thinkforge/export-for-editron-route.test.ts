@@ -165,7 +165,11 @@ describe('export-for-editron route', () => {
       block('blk_1', 'header', 'Same-pass Scene'),
       block('blk_2', 'paragraph', 'The workflow is clear from the first frame.'),
     ];
-    mocks.getSession.mockResolvedValue({ _id: 'tf_session_sidecar', userId: 'user_1' });
+    mocks.getSession.mockResolvedValue({
+      _id: 'tf_session_sidecar',
+      userId: 'user_1',
+      projectMeta: { brandId: 'brand_editron' },
+    });
     mocks.getScript.mockResolvedValue({
       _id: 'script_doc_sidecar',
       sessionId: 'tf_session_sidecar',
@@ -183,6 +187,22 @@ describe('export-for-editron route', () => {
               narrator: { avatarProfileId: 'avatar_123', voice: { mode: 'cloned', voiceReferenceUrl: 'https://private.example/voice.wav' } },
             },
           },
+        },
+        authoringContextSnapshot: {
+          version: 1,
+          resolvedAt: '2026-08-12T00:00:00.000Z',
+          brand: {
+            brandId: 'brand_editron',
+            recordId: 'brand_record_editron',
+            profileUpdatedAt: '2026-08-11T00:00:00.000Z',
+            profileFingerprint: 'profile_fingerprint_editron',
+          },
+          retrieval: {
+            projectFactIds: ['fact_private'],
+            globalFactIds: ['fact_global'],
+            interactionPatternTypes: ['hook'],
+          },
+          writingKnowledgeVersion: 'writing-knowledge-v3',
         },
         writerOutput: {
           writerType: 'script',
@@ -226,6 +246,17 @@ describe('export-for-editron route', () => {
     });
     expect(payload.productionManifest.thinkforgeContext).toEqual({
       version: 1,
+      authoringProvenance: {
+        version: 1,
+        resolvedAt: '2026-08-12T00:00:00.000Z',
+        brand: {
+          brandId: 'brand_editron',
+          recordId: 'brand_record_editron',
+          profileUpdatedAt: '2026-08-11T00:00:00.000Z',
+          profileFingerprint: 'profile_fingerprint_editron',
+        },
+        writingKnowledgeVersion: 'writing-knowledge-v3',
+      },
       briefSnapshot: expect.objectContaining({
         casting: { map: { narrator: expect.objectContaining({ avatarProfileId: 'avatar_123' }) } },
       }),
@@ -244,10 +275,53 @@ describe('export-for-editron route', () => {
       }],
     });
     expect(payload.productionManifest.thinkforgeContext.briefSnapshot.casting.map.narrator.voice).toEqual({ mode: 'cloned' });
-    expect(JSON.stringify(payload.productionManifest.thinkforgeContext)).not.toContain('private.example');
+    const thinkforgeContext = JSON.stringify(payload.productionManifest.thinkforgeContext);
+    expect(thinkforgeContext).not.toContain('private.example');
+    expect(thinkforgeContext).not.toContain('fact_private');
+    expect(thinkforgeContext).not.toContain('fact_global');
     expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
     expect(payload.scenes[0].sourceRefs).toBeUndefined();
     expect(payload.scenes[0].charactersPresent).toBeUndefined();
+  });
+  it('fails closed when saved authoring provenance conflicts with the session brand', async () => {
+    const savedBlocks = [
+      block('blk_1', 'header', 'Bound brand script'),
+      block('blk_2', 'paragraph', 'This export must not cross a brand boundary.'),
+    ];
+    mocks.getSession.mockResolvedValue({
+      _id: 'tf_session_brand_mismatch',
+      userId: 'user_1',
+      projectMeta: { brandId: 'brand_bound_to_session' },
+    });
+    mocks.getScript.mockResolvedValue({
+      _id: 'script_doc_brand_mismatch',
+      sessionId: 'tf_session_brand_mismatch',
+      scriptId: 'script_brand_mismatch',
+      title: 'Bound brand script',
+      content: '',
+      blocks: savedBlocks,
+      metadata: {
+        authoringContextSnapshot: {
+          version: 1,
+          brand: { brandId: 'brand_from_different_document' },
+        },
+      },
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_brand_mismatch',
+      scriptId: 'script_brand_mismatch',
+      blocks: savedBlocks,
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload).toMatchObject({
+      success: false,
+      reason: 'authoring-provenance-brand-mismatch',
+    });
+    expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
   });
   it('does not reuse a persisted sidecar after the export source was edited', async () => {
     mocks.getSession.mockResolvedValue({ _id: 'tf_session_edited', userId: 'user_1' });

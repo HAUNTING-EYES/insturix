@@ -43,6 +43,18 @@ export interface IdeaCardData {
   contentCardId?: string;
 }
 
+/**
+ * Server-issued identity binding for a ThinkForge session. The selected brand
+ * cannot change during the session; each document separately snapshots the
+ * accepted profile revision used at generation time.
+ */
+export interface ThinkForgeSessionBrandBinding {
+  version: 1;
+  brandId: string;
+  scope: 'personal' | 'organization';
+  boundAt: string;
+}
+
 export interface ProjectMeta {
   idea?: string;
   projectName?: string;
@@ -56,6 +68,7 @@ export interface ProjectMeta {
   durationSec?: number;
   sessionName?: string;
   brandId?: string;
+  brandBinding?: ThinkForgeSessionBrandBinding;
   brandBrief?: string;
   clientId?: string;
   clientName?: string;
@@ -70,6 +83,7 @@ export interface ProjectMeta {
 
 const SOURCE_OF_TRUTH_PROJECT_META_KEYS: Array<keyof ProjectMeta> = [
   'brandId',
+  'brandBinding',
   'clientId',
   'clientName',
   'campaignId',
@@ -138,7 +152,30 @@ export function mergeThinkForgeProjectMetadata(
 }
 
 export function resolveProjectMetaBrandId(projectMeta?: ProjectMeta | null): string | undefined {
-  return firstNonEmptyString(projectMeta?.brandId);
+  return resolveThinkForgeSessionBrandBinding(projectMeta)?.brandId
+    ?? firstNonEmptyString(projectMeta?.brandId);
+}
+
+export function resolveThinkForgeSessionBrandBinding(
+  projectMeta?: ProjectMeta | null,
+): ThinkForgeSessionBrandBinding | undefined {
+  const binding = projectMeta?.brandBinding;
+  if (
+    !binding
+    || binding.version !== 1
+    || !firstNonEmptyString(binding.brandId)
+    || (binding.scope !== 'personal' && binding.scope !== 'organization')
+    || !firstNonEmptyString(binding.boundAt)
+  ) {
+    return undefined;
+  }
+
+  return {
+    version: 1,
+    brandId: binding.brandId.trim(),
+    scope: binding.scope,
+    boundAt: binding.boundAt,
+  };
 }
 
 /**
@@ -151,21 +188,38 @@ export function resolvePersistedThinkForgeProjectMetadata(
   existingProjectMeta?: ProjectMeta | null,
   incomingProjectMeta?: ProjectMeta | null,
 ): ProjectMeta {
-  const existingBrandId = resolveProjectMetaBrandId(existingProjectMeta);
-  const incomingBrandId = resolveProjectMetaBrandId(incomingProjectMeta);
+  const existingBinding = resolveThinkForgeSessionBrandBinding(existingProjectMeta);
+  const incomingBinding = resolveThinkForgeSessionBrandBinding(incomingProjectMeta);
+  const existingDirectBrandId = firstNonEmptyString(existingProjectMeta?.brandId);
+  const incomingDirectBrandId = firstNonEmptyString(incomingProjectMeta?.brandId);
+  const existingBrandId = existingBinding?.brandId ?? existingDirectBrandId;
+  const incomingBrandId = incomingBinding?.brandId ?? incomingDirectBrandId;
+
+  if (existingBinding && existingDirectBrandId && existingBinding.brandId !== existingDirectBrandId) {
+    throw new Error('ThinkForge session contains conflicting brand authority. Re-open the session before editing metadata.');
+  }
+  if (incomingBinding && incomingDirectBrandId && incomingBinding.brandId !== incomingDirectBrandId) {
+    throw new Error('ThinkForge session metadata contains conflicting brand authority.');
+  }
 
   if (existingBrandId && incomingBrandId && existingBrandId !== incomingBrandId) {
     throw new Error('ThinkForge session brand binding cannot be changed. Create a new session to select a different brand.');
   }
 
-  const merged = mergeThinkForgeProjectMetadata(existingProjectMeta, incomingProjectMeta);
+  const { brandBinding: _incomingBinding, ...incomingWithoutBinding } = incomingProjectMeta || {};
+  const merged = mergeThinkForgeProjectMetadata(existingProjectMeta, incomingWithoutBinding);
   // Never persist an unversioned browser scan as brand authority. Existing rows
   // are normalized on their next write; the accepted Brand Vault record wins.
-  const { brandBrief: _legacyBrandBrief, ...metadata } = merged;
-  const authoritativeBrandId = existingBrandId ?? incomingBrandId;
+  const { brandBrief: _legacyBrandBrief, brandBinding: _mergedBinding, ...metadata } = merged;
+  const authoritativeBinding = existingBinding ?? incomingBinding;
+  const authoritativeBrandId = authoritativeBinding?.brandId ?? existingBrandId ?? incomingBrandId;
   if (!authoritativeBrandId) return metadata;
 
-  return { ...metadata, brandId: authoritativeBrandId };
+  return {
+    ...metadata,
+    brandId: authoritativeBrandId,
+    ...(authoritativeBinding ? { brandBinding: authoritativeBinding } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------

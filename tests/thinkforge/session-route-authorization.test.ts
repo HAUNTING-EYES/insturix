@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   checkCredits: vi.fn(),
+  clerkClient: vi.fn(),
   authorizeBrandScope: vi.fn(),
   createIdeasAgent: vi.fn(),
   deductCredits: vi.fn(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   getUserPreferences: vi.fn(),
   fetchContextSources: vi.fn(),
   formatSystemBrief: vi.fn(),
+  resolveThinkForgeAuthoringContext: vi.fn(),
   ensureMigrated: vi.fn(),
   isOrgWalletBillingEnabled: vi.fn(),
   listAuthorizedBrandScopes: vi.fn(),
@@ -24,7 +26,7 @@ const mocks = vi.hoisted(() => ({
   saveScriptWithVersion: vi.fn(),
 }));
 
-vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth, clerkClient: vi.fn() }));
+vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth, clerkClient: mocks.clerkClient }));
 vi.mock('@/lib/thinkforge/services/db', () => ({
   deleteScript: mocks.deleteScript,
   getChatHistory: mocks.getChatHistory,
@@ -47,6 +49,7 @@ vi.mock('@/lib/thinkforge/agents/ideas-agent', () => ({
 vi.mock('@/lib/thinkforge/context', () => ({
   fetchContextSources: mocks.fetchContextSources,
   formatSystemBrief: mocks.formatSystemBrief,
+  resolveThinkForgeAuthoringContext: mocks.resolveThinkForgeAuthoringContext,
 }));
 vi.mock('@/lib/editron/services/project-ownership', () => ({
   resolveContextBillingOwner: mocks.resolveContextBillingOwner,
@@ -171,6 +174,16 @@ async function callSessionHydrate(body: Record<string, unknown> = {
   }));
 }
 
+async function callSessionMetadataUpdate(body: Record<string, unknown>) {
+  vi.resetModules();
+  const { POST } = await import('@/app/api/services/thinkforge/session/update/route');
+  return POST(new Request('http://localhost/api/services/thinkforge/session/update', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  }));
+}
+
 async function callIdeas(body: Record<string, unknown>) {
   const { POST } = await import('@/app/api/services/thinkforge/ideas/route');
   return POST(new Request('http://localhost/api/services/thinkforge/ideas', {
@@ -184,6 +197,16 @@ describe('ThinkForge session route authorization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1', has: vi.fn(() => false) });
+    mocks.clerkClient.mockResolvedValue({
+      users: {
+        getUser: vi.fn().mockResolvedValue({
+          firstName: 'Session',
+          lastName: 'Owner',
+          username: 'session-owner',
+          emailAddresses: [],
+        }),
+      },
+    });
     mocks.authorizeBrandScope.mockResolvedValue({
       brandId: 'brand_allowed',
       brandName: 'Allowed Brand',
@@ -219,6 +242,26 @@ describe('ThinkForge session route authorization', () => {
     mocks.ensureMigrated.mockResolvedValue(undefined);
     mocks.fetchContextSources.mockResolvedValue({});
     mocks.formatSystemBrief.mockReturnValue('Resolved brand context');
+    mocks.resolveThinkForgeAuthoringContext.mockResolvedValue({
+      systemBrief: 'Resolved brand context',
+      snapshot: {
+        version: 1,
+        resolvedAt: '2026-08-11T00:00:00.000Z',
+        scope: { kind: 'organization', brandId: 'brand_allowed' },
+        brand: {
+          brandId: 'brand_allowed',
+          recordId: 'record_allowed',
+          profileUpdatedAt: '2026-08-11T00:00:00.000Z',
+          profileFingerprint: 'a'.repeat(64),
+        },
+        retrieval: {
+          projectFactIds: [],
+          globalFactIds: [],
+          interactionPatternTypes: [],
+        },
+        writingKnowledgeVersion: null,
+      },
+    });
     mocks.isOrgWalletBillingEnabled.mockReturnValue(false);
     mocks.resolveContextBillingOwner.mockReturnValue({ type: 'personal', userId: 'user_1' });
     mocks.createIdeasAgent.mockReturnValue({
@@ -323,7 +366,7 @@ describe('ThinkForge session route authorization', () => {
     expect(mocks.getUserPreferences).toHaveBeenCalledWith('user_1');
   });
 
-  it('authorizes and normalizes the brand binding before creating a session', async () => {
+  it('authorizes and stamps a server-owned binding before creating a session', async () => {
     const response = await callSessionHydrate({
       sessionId: 'session_requested',
       scriptId: 'script_2',
@@ -340,7 +383,14 @@ describe('ThinkForge session route authorization', () => {
     expect(mocks.getOrCreateSession).toHaveBeenCalledWith(
       'user_1',
       'session_requested',
-      { brandId: 'brand_allowed' },
+      expect.objectContaining({
+        brandId: 'brand_allowed',
+        brandBinding: expect.objectContaining({
+          version: 1,
+          brandId: 'brand_allowed',
+          scope: 'organization',
+        }),
+      }),
       'org_1',
       undefined,
     );
@@ -363,6 +413,143 @@ describe('ThinkForge session route authorization', () => {
     expect(await response.json()).toMatchObject({ code: 'brand_binding_immutable' });
     expect(mocks.authorizeBrandScope).not.toHaveBeenCalled();
     expect(mocks.getOrCreateSession).not.toHaveBeenCalled();
+  });
+
+  it('issues a server-owned binding when a selected brand creates a session', async () => {
+    const response = await callSessionHydrate({
+      projectMeta: {
+        brandId: 'brand_allowed',
+        brandBinding: {
+          version: 1,
+          brandId: 'forged_brand',
+          scope: 'personal',
+          boundAt: '2000-01-01T00:00:00.000Z',
+        },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.getOrCreateSession).toHaveBeenCalledWith(
+      'user_1',
+      undefined,
+      expect.objectContaining({
+        brandId: 'brand_allowed',
+        brandBinding: expect.objectContaining({
+          version: 1,
+          brandId: 'brand_allowed',
+          scope: 'organization',
+        }),
+      }),
+      'org_1',
+      'Session Owner',
+    );
+  });
+
+  it('backfills a server-owned binding for a legacy session on rehydration', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_allowed' },
+    });
+
+    const response = await callSessionHydrate();
+
+    expect(response.status).toBe(200);
+    expect(mocks.authorizeBrandScope).toHaveBeenCalledWith({
+      userId: 'user_1',
+      orgId: 'org_1',
+      isOrgAdmin: false,
+      brandId: 'brand_allowed',
+    });
+    expect(mocks.getOrCreateSession).toHaveBeenCalledWith(
+      'user_1',
+      'session_requested',
+      expect.objectContaining({
+        brandId: 'brand_allowed',
+        brandBinding: expect.objectContaining({
+          version: 1,
+          brandId: 'brand_allowed',
+          scope: 'organization',
+        }),
+      }),
+      'org_1',
+      undefined,
+    );
+  });
+
+  it('does not create an unknown session ID during hydration', async () => {
+    mocks.getSession.mockResolvedValue(null);
+
+    const response = await callSessionHydrate({ sessionId: 'session_foreign' });
+
+    expect(response.status).toBe(404);
+    expect(mocks.getOrCreateSession).not.toHaveBeenCalled();
+  });
+
+  it('denies a metadata update for a session outside the active organization', async () => {
+    mocks.getSession.mockResolvedValue(null);
+
+    const response = await callSessionMetadataUpdate({
+      sessionId: 'session_foreign',
+      projectMeta: { title: 'Attempted overwrite' },
+    });
+
+    expect(response.status).toBe(404);
+    expect(mocks.getOrCreateSession).not.toHaveBeenCalled();
+  });
+
+  it('preserves the server binding and ignores a forged browser binding on metadata update', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: {
+        brandId: 'brand_allowed',
+        brandBinding: {
+          version: 1,
+          brandId: 'brand_allowed',
+          scope: 'organization',
+          boundAt: '2026-08-01T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await callSessionMetadataUpdate({
+      sessionId: 'session_requested',
+      projectMeta: {
+        title: 'Safe metadata change',
+        brandBinding: {
+          version: 1,
+          brandId: 'brand_forged',
+          scope: 'personal',
+          boundAt: '2000-01-01T00:00:00.000Z',
+        },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.authorizeBrandScope).toHaveBeenCalledWith({
+      userId: 'user_1',
+      orgId: 'org_1',
+      isOrgAdmin: false,
+      brandId: 'brand_allowed',
+    });
+    expect(mocks.getOrCreateSession).toHaveBeenCalledWith(
+      'user_1',
+      'session_canonical',
+      expect.objectContaining({
+        title: 'Safe metadata change',
+        brandId: 'brand_allowed',
+        brandBinding: {
+          version: 1,
+          brandId: 'brand_allowed',
+          scope: 'organization',
+          boundAt: '2026-08-01T00:00:00.000Z',
+        },
+      }),
+      'org_1',
+    );
   });
 
   it('denies a requested brand that is absent from the caller\'s authorized Vault scope', async () => {
@@ -397,10 +584,10 @@ describe('ThinkForge session route authorization', () => {
       orgId: 'org_1',
       isOrgAdmin: false,
     });
-    expect(mocks.fetchContextSources).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mocks.resolveThinkForgeAuthoringContext).toHaveBeenCalledWith(expect.objectContaining({
       userId: 'user_1',
       orgId: 'org_1',
-      brandId: 'brand_allowed',
+      providedProject: { brandId: 'brand_allowed' },
     }));
     const body = await response.json();
     expect(body.grounding).toMatchObject({
@@ -409,6 +596,9 @@ describe('ThinkForge session route authorization', () => {
     });
     expect(body.ideas[0]).toMatchObject({ brandId: 'brand_allowed' });
     expect(body.ideas[0].brandBrief).toBeUndefined();
+    expect(body.generation.authoringContextSnapshot).toMatchObject({
+      brand: { brandId: 'brand_allowed', recordId: 'record_allowed' },
+    });
     const ideasAgent = mocks.createIdeasAgent.mock.results[0]?.value;
     expect(ideasAgent.generateIdeas).toHaveBeenCalledWith(
       expect.any(String),

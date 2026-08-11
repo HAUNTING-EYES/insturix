@@ -3,11 +3,16 @@ import {
   parseScriptSidecar,
   SCRIPT_SIDECAR_VERSION,
 } from '@/lib/thinkforge/schemas/script-sidecar';
+import {
+  projectThinkForgeAuthoringProvenance,
+  type ThinkForgeAuthoringProvenance,
+} from '@/lib/thinkforge/context/brand-authoring-context';
 
 export const THINKFORGE_EDITRON_HANDOFF_VERSION = 1 as const;
 
 export interface ThinkForgeEditronHandoffContext {
   version: typeof THINKFORGE_EDITRON_HANDOFF_VERSION;
+  authoringProvenance?: ThinkForgeAuthoringProvenance;
   briefSnapshot?: Record<string, unknown>;
   sourceLedger?: Record<string, unknown>;
   sidecarSourceRefs: string[];
@@ -45,21 +50,22 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 /** Preserve server-resolved ThinkForge context for the downstream Editron seam. */
 export function buildThinkForgeEditronHandoffContext(input: {
-  sidecar: unknown;
+  sidecar?: unknown;
   briefSnapshot?: unknown;
   sourceLedger?: unknown;
+  authoringContextSnapshot?: unknown;
+  expectedBrandId?: string;
 }): ThinkForgeEditronHandoffContext {
-  const sidecar = parseScriptSidecar(input.sidecar);
+  const sidecar = input.sidecar ? parseScriptSidecar(input.sidecar) : null;
   const briefSnapshot = sanitizeBriefSnapshotForEditron(input.briefSnapshot);
   const sourceLedger = asRecord(input.sourceLedger);
+  const authoringProvenance = projectThinkForgeAuthoringProvenance({
+    snapshot: input.authoringContextSnapshot,
+    expectedBrandId: input.expectedBrandId,
+  });
   const castingMap = asRecord(asRecord(briefSnapshot?.casting)?.map);
-
-  return {
-    version: THINKFORGE_EDITRON_HANDOFF_VERSION,
-    ...(briefSnapshot ? { briefSnapshot } : {}),
-    ...(sourceLedger ? { sourceLedger } : {}),
-    sidecarSourceRefs: [...sidecar.sourceRefs],
-    avatarDirectives: sidecar.scenes
+  const avatarDirectives = sidecar
+    ? sidecar.scenes
       .map((scene, sceneIndex) => {
         const speakers = scene.lines
           .filter((line) => line.onCamera && line.delivery === 'sync-dialogue')
@@ -83,7 +89,16 @@ export function buildThinkForgeEditronHandoffContext(input: {
             }
           : null;
       })
-      .filter((directive): directive is ThinkForgeAvatarSceneDirective => directive !== null),
+      .filter((directive): directive is ThinkForgeAvatarSceneDirective => directive !== null)
+    : [];
+
+  return {
+    version: THINKFORGE_EDITRON_HANDOFF_VERSION,
+    ...(authoringProvenance ? { authoringProvenance } : {}),
+    ...(briefSnapshot ? { briefSnapshot } : {}),
+    ...(sourceLedger ? { sourceLedger } : {}),
+    sidecarSourceRefs: sidecar ? [...sidecar.sourceRefs] : [],
+    avatarDirectives,
   };
 }
 

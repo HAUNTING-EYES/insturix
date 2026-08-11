@@ -42,3 +42,9 @@ export {
   type InteractionPattern,
   type FetchContextOptions,
 } from './fetchContextSources';
+
+export {
+  resolveThinkForgeAuthoringContext,
+  type ThinkForgeResolvedAuthoringContext,
+  type ResolveThinkForgeAuthoringContextInput,
+} from './resolved-authoring-context';

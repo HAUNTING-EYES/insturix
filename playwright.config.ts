@@ -2,17 +2,89 @@ import { defineConfig, devices } from '@playwright/test';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const authStatePath =
-  process.env.EDITRON_E2E_AUTH_STATE_PATH?.trim() ||
-  join(tmpdir(), 'editron-playwright', 'clerk-user.json');
+const thinkForgeE2EMode = process.env.THINKFORGE_E2E_MODE === '1';
+const thinkForgeBaseUrl = process.env.THINKFORGE_E2E_BASE_URL?.trim() || 'http://127.0.0.1:3101';
+const activeBaseUrl = thinkForgeE2EMode
+  ? thinkForgeBaseUrl
+  : process.env.EDITRON_E2E_BASE_URL?.trim() || 'http://127.0.0.1:3000';
+const testEnvironment = Object.fromEntries(
+  Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+);
+const thinkForgeE2EDatabaseUri = process.env.THINKFORGE_E2E_DATABASE_URI?.trim();
+const thinkForgeE2EBrandVaultDatabaseName = process.env.THINKFORGE_E2E_BRAND_VAULT_DATABASE_NAME?.trim();
+const thinkForgeE2EApplicationDatabaseName = process.env.THINKFORGE_E2E_RUN_ID?.trim()
+  ? `thinkforge_e2e_${process.env.THINKFORGE_E2E_RUN_ID.trim()}`
+  : '';
 
-process.env.EDITRON_E2E_AUTH_STATE_PATH = authStatePath;
+if (thinkForgeE2EMode) {
+  const parsed = new URL(activeBaseUrl);
+  if (!['127.0.0.1', 'localhost'].includes(parsed.hostname) || !parsed.port) {
+    throw new Error('ThinkForge E2E must use an explicit localhost base URL with a port.');
+  }
+  if (process.env.THINKFORGE_E2E_WRITER_FIXTURE?.trim() !== 'post') {
+    throw new Error('ThinkForge E2E requires THINKFORGE_E2E_WRITER_FIXTURE=post.');
+  }
+  if (!process.env.THINKFORGE_E2E_RUN_ID?.trim()) {
+    throw new Error('ThinkForge E2E requires THINKFORGE_E2E_RUN_ID.');
+  }
+  if (!thinkForgeE2EDatabaseUri) {
+    throw new Error('ThinkForge E2E requires THINKFORGE_E2E_DATABASE_URI for an isolated QA database.');
+  }
+  if (!thinkForgeE2EBrandVaultDatabaseName) {
+    throw new Error('ThinkForge E2E requires THINKFORGE_E2E_BRAND_VAULT_DATABASE_NAME for an isolated Brand Vault database.');
+  }
+}
+
+const thinkForgeE2EEnvironment = {
+  ...testEnvironment,
+  // Never inherit a developer's normal ThinkForge database or retrieval services.
+  MONGODB_URI: thinkForgeE2EDatabaseUri ?? '',
+  BRAND_VAULT_MONGODB_URI: thinkForgeE2EDatabaseUri ?? '',
+  BRAND_VAULT_MONGODB_DB_NAME: thinkForgeE2EBrandVaultDatabaseName ?? '',
+  // The ThinkForge shell loads the active-brand selector through Editron's brands route.
+  // Keep that dependency inside the same run-scoped database instead of disabling it.
+  EDITRON_MONGODB_DB_NAME: thinkForgeE2EApplicationDatabaseName,
+  // Startup instrumentation imports the shared database client, which fails closed without
+  // a database name. The run ID makes this database disposable and isolated from local data.
+  MONGODB_DB_NAME: thinkForgeE2EApplicationDatabaseName,
+  THINKFORGE_MONGODB_DB_NAME: thinkForgeE2EApplicationDatabaseName,
+  BRAND_VAULT_PERSISTENCE: 'mongo',
+  UPSTASH_VECTOR_REST_URL: '',
+  UPSTASH_VECTOR_REST_TOKEN: '',
+  UPSTASH_REDIS_REST_URL: '',
+  UPSTASH_REDIS_REST_TOKEN: '',
+  // The fixture returns before model generation. This invalid key makes any accidental
+  // direct provider call fail rather than using a developer or production credential.
+  GEMINI_API_KEY: '',
+  GOOGLE_GENERATIVE_AI_API_KEY: '',
+  GOOGLE_API_KEY: 'thinkforge-e2e-no-network',
+  OPENROUTER_API_KEY: '',
+  // Clerk validates the token's authorized-party claim. Match it to the isolated
+  // local origin instead of inheriting a deployment-only authorized-party list.
+  NEXT_PUBLIC_AUTHORIZED_PARTIES: new URL(activeBaseUrl).origin,
+};
+
+const authStatePath =
+  (thinkForgeE2EMode
+    ? process.env.THINKFORGE_E2E_AUTH_STATE_PATH?.trim()
+    : process.env.EDITRON_E2E_AUTH_STATE_PATH?.trim()) ||
+  join(tmpdir(), thinkForgeE2EMode ? 'thinkforge-playwright' : 'editron-playwright', 'clerk-user.json');
+
+if (thinkForgeE2EMode) {
+  process.env.THINKFORGE_E2E_AUTH_STATE_PATH = authStatePath;
+} else {
+  process.env.EDITRON_E2E_AUTH_STATE_PATH = authStatePath;
+}
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: /editron-chat-browser\.spec\.ts/,
+  testMatch: thinkForgeE2EMode
+    ? /thinkforge-browser\.spec\.ts/
+    : /editron-chat-browser\.spec\.ts/,
   outputDir: '.artifacts/playwright/results',
-  globalSetup: './tests/e2e/editron-clerk.setup.ts',
+  globalSetup: thinkForgeE2EMode
+    ? './tests/e2e/thinkforge-browser.setup.ts'
+    : './tests/e2e/editron-clerk.setup.ts',
   fullyParallel: false,
   forbidOnly: true,
   workers: 1,
@@ -26,18 +98,29 @@ export default defineConfig({
     ['html', { outputFolder: '.artifacts/playwright/report', open: 'never' }],
   ],
   use: {
-    baseURL: process.env.EDITRON_E2E_BASE_URL?.trim() || 'http://127.0.0.1:3000',
+    baseURL: activeBaseUrl,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
   projects: [
     {
-      name: 'editron-chat-chromium',
+      name: thinkForgeE2EMode ? 'thinkforge-chromium' : 'editron-chat-chromium',
       use: {
         ...devices['Desktop Chrome'],
-        storageState: authStatePath,
+        storageState: thinkForgeE2EMode ? undefined : authStatePath,
       },
     },
   ],
+  ...(thinkForgeE2EMode
+    ? {
+        webServer: {
+          command: `pnpm dev --port ${new URL(activeBaseUrl).port}`,
+          url: activeBaseUrl,
+          reuseExistingServer: false,
+          timeout: 180_000,
+          env: thinkForgeE2EEnvironment,
+        },
+      }
+    : {}),
 });

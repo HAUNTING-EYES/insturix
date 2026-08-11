@@ -43,6 +43,21 @@ describe('ThinkForge generation lifecycle', () => {
     expect(service).not.toContain('initializing: true');
   });
 
+  it('resolves one authorised authoring context before billing and reuses it in the writer service', () => {
+    const route = read('app/api/services/thinkforge/chat/route.ts');
+    const service = read('lib/thinkforge/services/chat-service.ts');
+
+    expect(route).toContain('resolveThinkForgeAuthoringContext({');
+    expect(route.indexOf('resolveThinkForgeAuthoringContext({'))
+      .toBeLessThan(route.indexOf('const creditCheck = await checkCredits('));
+    expect(route).toContain('authoringContext,');
+    expect(service).toContain('authoringContext?: ThinkForgeResolvedAuthoringContext | null;');
+    expect(service).toContain('authoringContext: providedAuthoringContext');
+    expect(service).toContain('resolveThinkForgeAuthoringContext({');
+    expect(service).not.toContain('fetchContextSources({');
+    expect(service).toContain('const authoringContextSnapshot = authoringContext?.snapshot');
+  });
+
   it('keeps the writer execution budget and stale-generation watchdog aligned', () => {
     const route = read('app/api/services/thinkforge/chat/route.ts');
     const statusRoute = read('app/api/services/thinkforge/generation/status/route.ts');

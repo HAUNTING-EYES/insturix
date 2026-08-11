@@ -42,7 +42,7 @@ import {
   getCreativeContentKnowledgeText,
 } from '@/lib/thinkforge/services/gemini-writing-context-cache';
 import { buildIsolatedPromptParts } from '@/lib/thinkforge/agents/prompt-boundary';
-import { PostWriterAgent } from '@/lib/thinkforge/agents/post-writer-agent';
+import { PostWriterAgent, PostWriterResultSchema } from '@/lib/thinkforge/agents/post-writer-agent';
 import { ScriptWriterAgent } from '@/lib/thinkforge/agents/script-writer-agent';
 
 describe('ThinkForge Gemini writing context cache helpers', () => {
@@ -148,6 +148,23 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
         abortSignal: controller.signal,
       }),
     ).rejects.toThrow('aborted before start');
+  });
+
+  it('uses a schema-validated post fixture only for an explicit non-production E2E run', async () => {
+    vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', 'post');
+    vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'tf-e2e-test-run');
+
+    const result = await generateStructuredWithWritingContextCache({
+      prompt: 'Create a LinkedIn post.',
+      schema: PostWriterResultSchema,
+    });
+
+    expect(result.modelName).toBe('thinkforge-e2e-stub');
+    expect(result.cacheStatus).toBe('inline');
+    expect(result.result.content).toContain('Most LinkedIn content teams');
+    expect(result.result.clickatron.singleImagePrompt).toContain('no readable text or logos');
+    expect(sdkMocks.createCache).not.toHaveBeenCalled();
+    expect(sdkMocks.generateObject).not.toHaveBeenCalled();
   });
 
   it('stores the trusted instruction in cached content and does not resend it during structured generation', async () => {

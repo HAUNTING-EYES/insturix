@@ -59,6 +59,60 @@ interface ResolvedWritingContext {
 
 let cachedDocText: string | null = null;
 
+const THINKFORGE_E2E_POST_FIXTURE = {
+  content: `Most LinkedIn content teams lose hours every week to scattered approval notes, duplicate feedback, and invisible ownership.
+
+When a launch moves through five people, the real delay is rarely the draft. It is the missing record of who decides, what changed, and what can ship today.
+
+A working review trail makes every approval visible before the next deadline arrives. The team spends less time chasing status and more time making the work useful.
+
+Reply WORKFLOW if you want the operating checklist for your next campaign.
+
+#ContentOperations #BrandSystems #MarketingWorkflow`,
+  contentAnalysis: {
+    tone: 'Direct and practical',
+    vibe: 'Calm operational clarity',
+    theme: 'Make approval ownership visible before a launch stalls.',
+    qualityScore: 92,
+    violations: [],
+  },
+  clickatron: {
+    singleImagePrompt: 'Overhead editorial desk scene with a simple paper approval trail, sticky notes as abstract shapes, a restrained dark-and-amber visual system, soft directional window light, generous empty space for later editable copy, no readable text or logos.',
+  },
+  metadata: {
+    platform: 'linkedin',
+    charCount: 0,
+  },
+};
+
+function resolveThinkForgeE2EStructuredFixture<TOutput>(
+  input: WritingContextStructuredGenerationInput<TOutput>,
+): WritingContextStructuredGenerationResult<TOutput> | null {
+  const fixture = process.env.THINKFORGE_E2E_WRITER_FIXTURE?.trim();
+  if (!fixture) return null;
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('THINKFORGE_E2E_WRITER_FIXTURE is forbidden when NODE_ENV is production.');
+  }
+  if (!process.env.THINKFORGE_E2E_RUN_ID?.trim()) {
+    throw new Error('THINKFORGE_E2E_WRITER_FIXTURE requires THINKFORGE_E2E_RUN_ID.');
+  }
+  if (fixture !== 'post') {
+    throw new Error(`Unsupported THINKFORGE_E2E_WRITER_FIXTURE: ${fixture}`);
+  }
+
+  const parsed = input.schema.safeParse(THINKFORGE_E2E_POST_FIXTURE);
+  if (!parsed.success) {
+    throw new Error(`ThinkForge E2E post fixture does not satisfy the requested writer schema: ${parsed.error.message}`);
+  }
+
+  return {
+    result: parsed.data,
+    cacheStatus: 'inline',
+    modelName: 'thinkforge-e2e-stub',
+  };
+}
+
 type GeminiWritingContextOperation =
   | 'context_cache_create'
   | 'llm_completion_cached_context'
@@ -476,6 +530,9 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
   if (input.abortSignal?.aborted) {
     throw new Error('ThinkForge writing generation aborted before start');
   }
+
+  const e2eFixture = resolveThinkForgeE2EStructuredFixture(input);
+  if (e2eFixture) return e2eFixture;
 
   const modelName = normalizeCacheModelName(input.modelName);
   const context = await resolveWritingContext(modelName, input.systemInstruction, input.abortSignal);

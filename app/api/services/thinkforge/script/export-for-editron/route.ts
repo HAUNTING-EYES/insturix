@@ -29,6 +29,8 @@ import {
   type ThinkForgeEditronHandoffContext,
   type ScriptSidecarEditronExport,
 } from '@/lib/thinkforge/export/script-sidecar-to-editron';
+import { ThinkForgeAuthoringProvenanceError } from '@/lib/thinkforge/context/brand-authoring-context';
+import { resolveProjectMetaBrandId } from '@/lib/thinkforge/state/types';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
 export const runtime = 'nodejs';
@@ -217,7 +219,18 @@ async function loadStoredScriptSource(
     const writerOutput = metadata?.writerOutput && typeof metadata.writerOutput === 'object' && !Array.isArray(metadata.writerOutput)
       ? metadata.writerOutput as Record<string, unknown>
       : undefined;
-    if (!writerOutput?.scriptSidecar) return storedSource;
+    const authoringContext = buildThinkForgeEditronHandoffContext({
+      authoringContextSnapshot: metadata?.authoringContextSnapshot,
+      expectedBrandId: resolveProjectMetaBrandId(session.projectMeta),
+    });
+    const authoringProvenanceContext = authoringContext.authoringProvenance
+      ? authoringContext
+      : undefined;
+    if (!writerOutput?.scriptSidecar) {
+      return authoringProvenanceContext
+        ? { ...storedSource, thinkforgeContext: authoringProvenanceContext }
+        : storedSource;
+    }
 
     try {
       return {
@@ -227,13 +240,19 @@ async function loadStoredScriptSource(
           sidecar: writerOutput.scriptSidecar,
           briefSnapshot: metadata?.briefSnapshot,
           sourceLedger: writerOutput.sourceLedger,
+          authoringContextSnapshot: metadata?.authoringContextSnapshot,
+          expectedBrandId: resolveProjectMetaBrandId(session.projectMeta),
         }),
       };
-    } catch {
+    } catch (error) {
+      if (error instanceof ThinkForgeAuthoringProvenanceError) throw error;
       console.warn('[export-for-editron] Ignoring an invalid persisted script sidecar');
-      return storedSource;
+      return authoringProvenanceContext
+        ? { ...storedSource, thinkforgeContext: authoringProvenanceContext }
+        : storedSource;
     }
   } catch (error: any) {
+    if (error instanceof ThinkForgeAuthoringProvenanceError) throw error;
     console.warn('[export-for-editron] Stored script recovery failed:', error?.message || error);
     return null;
   }
@@ -291,7 +310,22 @@ export async function POST(request: NextRequest) {
 
     // A generated script's sidecar is authoritative only when it describes the
     // exact script being exported. User edits intentionally fall back to parsing.
-    const storedSource = await loadStoredScriptSource(sessionId, scriptId, userId);
+    let storedSource: ExportSource | null;
+    try {
+      storedSource = await loadStoredScriptSource(sessionId, scriptId, userId);
+    } catch (error) {
+      if (error instanceof ThinkForgeAuthoringProvenanceError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: error.message,
+            reason: 'authoring-provenance-brand-mismatch',
+          },
+          { status: 409 },
+        );
+      }
+      throw error;
+    }
     let activeSource = requestSource;
     let storedScriptRecovered = false;
     if (requestSource.scenePreview.length === 0) {

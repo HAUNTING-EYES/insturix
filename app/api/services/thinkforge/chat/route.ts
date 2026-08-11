@@ -9,12 +9,35 @@ import { getCreditCost } from '@/lib/config/creditCosts';
 import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import * as db from '@/lib/thinkforge/services/db';
+import {
+  resolveThinkForgeAuthoringContext,
+  type ThinkForgeResolvedAuthoringContext,
+} from '@/lib/thinkforge/context';
+import {
+  resolveThinkForgeAuthoringProjectMetadata,
+  ThinkForgeBrandAuthorityError,
+} from '@/lib/thinkforge/context/brand-authoring-context';
+import { resolveProjectMetaBrandId } from '@/lib/thinkforge/state/types';
+import { getVersion as getWritingKnowledgeVersion } from '@/lib/thinkforge/data/writing-graph-query';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 // Structured writers routinely need longer than the platform's 60-second default.
 // Keep this aligned with the stale-generation watchdog in generation/status.
 export const maxDuration = 300;
+
+function authoringContextErrorResponse(error: ThinkForgeBrandAuthorityError): NextResponse {
+  const status = error.code === 'brand_not_found'
+    ? 404
+    : error.code === 'brand_profile_unavailable'
+      ? 409
+      : 503;
+  return NextResponse.json({
+    error: 'Brand context unavailable',
+    code: error.code,
+    message: error.message,
+  }, { status });
+}
 
 /**
  * Unified chat endpoint
@@ -84,6 +107,43 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
   const canonicalSessionId = authorizedSession._id;
+  const isOrgAdmin = Boolean(orgId && has({ role: 'org:admin' }));
+
+  // Resolve the authoring truth before reserving a credit. An explicit brand can
+  // never degrade into an unbranded generation when its accepted profile is gone.
+  let authoringContext: ThinkForgeResolvedAuthoringContext | null = null;
+  let requestedBrandId: string | undefined;
+  try {
+    const projectMeta = resolveThinkForgeAuthoringProjectMetadata(authorizedSession.projectMeta, project);
+    requestedBrandId = resolveProjectMetaBrandId(projectMeta);
+    authoringContext = await resolveThinkForgeAuthoringContext({
+      userId,
+      orgId: orgId ?? null,
+      isOrgAdmin,
+      sessionProjectMeta: authorizedSession.projectMeta,
+      providedProject: project,
+      projectId: canonicalSessionId,
+      sessionId: canonicalSessionId,
+      currentPrompt: prompt,
+      currentScript: typeof script?.content === 'string' ? script.content : undefined,
+      maxFacts: 5,
+      interactionWindowDays: 30,
+      writingKnowledgeVersion: getWritingKnowledgeVersion(),
+    });
+  } catch (error) {
+    if (error instanceof ThinkForgeBrandAuthorityError) {
+      return authoringContextErrorResponse(error);
+    }
+
+    if (requestedBrandId) {
+      return NextResponse.json({
+        error: 'Brand context unavailable',
+        code: 'brand_context_unavailable',
+        message: 'ThinkForge could not resolve the selected brand context. Please try again before generating.',
+      }, { status: 503 });
+    }
+    console.warn('[ThinkForge Chat] Unbranded context retrieval failed; continuing without retrieved context:', error);
+  }
 
   // Ensure user exists and is migrated
   await CreditsMigrationService.ensureMigrated(userId);
@@ -136,7 +196,7 @@ export async function POST(req: Request) {
     const stream = await retryOnceOnOverload(() => processChat({
       sessionId: canonicalSessionId,
       orgId,
-      isOrgAdmin: orgId ? has({ role: 'org:admin' }) : false,
+      isOrgAdmin,
       prompt,
       selection,
       userId,
@@ -151,6 +211,7 @@ export async function POST(req: Request) {
       intentContext,
       blueprintArtifacts,
       silent,
+      authoringContext,
     }));
 
     return new Response(stream, {

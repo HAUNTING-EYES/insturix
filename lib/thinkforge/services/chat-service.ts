@@ -11,7 +11,11 @@ import { PostWriterAgent, type PostWriterInput } from '../agents/post-writer-age
 import { ScriptWriterAgent, type ScriptWriterInput } from '../agents/script-writer-agent';
 import { runThinkingAgent } from '../agents/thinking-agent';
 import { createScriptRefinementAgent } from '../agents/script-refinement-agent';
-import { quickAssembleContext, fetchContextSources, formatSystemBrief } from '../context';
+import {
+  quickAssembleContext,
+  resolveThinkForgeAuthoringContext,
+  type ThinkForgeResolvedAuthoringContext,
+} from '../context';
 import {
   buildThinkForgeAuthoringContextSnapshot,
   resolveThinkForgeAuthoringProjectMetadata,
@@ -179,6 +183,8 @@ export interface ChatRequest {
   threadId?: string | null;
   intentContext?: IntentContextSignals;
   blueprintArtifacts?: Array<{ type: string; label: string; description?: string; priority?: string }>;
+  /** Route-resolved authoring truth. Undefined keeps direct server callers compatible. */
+  authoringContext?: ThinkForgeResolvedAuthoringContext | null;
   /** Silent generation (auto-starter draft): run the draft but do NOT persist the triggering
    *  prompt as a visible user chat message. The assistant progress + script still stream. */
   silent?: boolean;
@@ -212,6 +218,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     threadId: providedThreadId,
     intentContext: providedIntentContext,
     blueprintArtifacts: providedBlueprintArtifacts,
+    authoringContext: providedAuthoringContext,
     silent: isSilent = false,
   } = request;
   const threadId = providedThreadId || 'default';
@@ -249,31 +256,39 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     throw new Error('Script blocks are not valid ThinkForge blocks. Please migrate the script.');
   }
 
-  // Load chat history, user preferences, and multi-hop context in parallel
+  // Direct callers still resolve the same server-owned context. The HTTP route
+  // pre-resolves it before billing and passes it here to avoid divergent reads.
   const scriptContent = providedScript?.content || '';
   const baseProjectMeta = resolveThinkForgeAuthoringProjectMetadata(session.projectMeta, providedProject);
   const retrievalBrandId = resolveProjectMetaBrandId(baseProjectMeta);
-  const [chatHistory, preferences, retrievedCtx] = await Promise.all([
+  const authoringContextPromise = providedAuthoringContext !== undefined
+    ? Promise.resolve(providedAuthoringContext)
+    : resolveThinkForgeAuthoringContext({
+        userId,
+        orgId: session.orgId ?? null,
+        isOrgAdmin,
+        sessionProjectMeta: session.projectMeta,
+        providedProject,
+        projectId: canonicalSessionId,
+        sessionId: canonicalSessionId,
+        currentPrompt: prompt,
+        currentScript: scriptContent,
+        maxFacts: 5,
+        interactionWindowDays: 30,
+        writingKnowledgeVersion: getWritingKnowledgeVersion(),
+      }).catch((err) => {
+        console.warn('[ThinkForge] Multi-hop retrieval failed, proceeding without:', err);
+        if (retrievalBrandId) throw err;
+        return null;
+      });
+  const [chatHistory, preferences, authoringContext] = await Promise.all([
     session ? db.getChatHistory(canonicalSessionId, 50, threadId) : Promise.resolve([]),
     db.getUserPreferences(userId),
-    fetchContextSources({
-      userId,
-      projectId: canonicalSessionId,
-      sessionId: canonicalSessionId,
-      brandId: retrievalBrandId,
-      orgId: session.orgId ?? null,
-      isOrgAdmin,
-      currentPrompt: prompt,
-      currentScript: scriptContent,
-      maxFacts: 5,
-      interactionWindowDays: 30,
-    }).catch((err) => {
-      console.warn('[ThinkForge] Multi-hop retrieval failed, proceeding without:', err);
-      if (retrievalBrandId) throw err;
-      return null;
-    }),
+    authoringContextPromise,
   ]);
-  const systemBrief = retrievedCtx ? formatSystemBrief(retrievedCtx) : null;
+  const resolvedProjectMeta = authoringContext?.projectMeta ?? baseProjectMeta;
+  const retrievedCtx = authoringContext?.retrievedContext ?? null;
+  const systemBrief = authoringContext?.systemBrief ?? null;
   const currentScriptState: ScriptState | null = script ? {
     title: script.title || '',
     blocks: thinkforgeBlocks,
@@ -291,7 +306,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     documents: currentScriptState ? [currentScriptState] : [],
     ideas: [],
     metadata: {
-      ...baseProjectMeta,
+      ...resolvedProjectMeta,
       preferences,
     },
     version: 1,
@@ -939,11 +954,12 @@ CRITICAL: You are editing a SELECTION from a larger document.
         let signalTrace: any = undefined;
         let briefSnapshot: ReturnType<typeof resolveThinkForgeProductionBrief> | undefined;
         let writerOutputMetadata: Record<string, any> | undefined;
-        const authoringContextSnapshot = buildThinkForgeAuthoringContextSnapshot({
-          orgId: session.orgId ?? null,
-          retrievedContext: retrievedCtx,
-          writingKnowledgeVersion: getWritingKnowledgeVersion(),
-        });
+        const authoringContextSnapshot = authoringContext?.snapshot
+          ?? buildThinkForgeAuthoringContextSnapshot({
+            orgId: session.orgId ?? null,
+            retrievedContext: retrievedCtx,
+            writingKnowledgeVersion: getWritingKnowledgeVersion(),
+          });
 
         // Phase 4: resolve the content signal profile and fold it into systemBrief so the writers
         // ground (proof points, forbidden terms, source-ledger) and signalTrace persists for the

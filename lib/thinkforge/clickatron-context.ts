@@ -16,6 +16,7 @@ import {
 } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
+import { projectThinkForgeAuthoringProvenance } from "@/lib/thinkforge/context/brand-authoring-context";
 
 // Hard upper bound on carousel slides. The writers (carouselPrompts/scenePrompts)
 // and the creative contract do not cap slide count, so we clamp here at the point
@@ -55,6 +56,11 @@ export interface ThinkToClickContextInput {
   userVisualChoices?: ThinkToClickVisibleContentChoices | null;
   signalTrace?: unknown;
   writerOutput?: unknown;
+  /**
+   * Server-persisted document provenance. Only its safe brand-revision subset
+   * crosses the ThinkForge -> Clickatron boundary; retrieval IDs stay private.
+   */
+  authoringContextSnapshot?: unknown;
   title?: string;
   aspectRatio?: string;
   scenesCount?: number;
@@ -883,6 +889,10 @@ export function buildThinkToClickContext(input: ThinkToClickContextInput): Think
   const universalId = toNonEmptyString(input.projectLink?.universalId);
   const projectId = toNonEmptyString(input.projectId);
   const projectMeta = pickThinkForgeProjectMeta(input.projectMeta);
+  const authoringProvenance = projectThinkForgeAuthoringProvenance({
+    snapshot: input.authoringContextSnapshot,
+    expectedBrandId: brandId,
+  });
   const writerOutput = toPlainRecord(input.writerOutput);
   const visualPrompts = writerOutput && typeof writerOutput.visualPrompts === 'object' && writerOutput.visualPrompts !== null
     ? writerOutput.visualPrompts as Record<string, unknown>
@@ -931,6 +941,7 @@ export function buildThinkToClickContext(input: ThinkToClickContextInput): Think
       sessionId: sourceSessionId,
       scriptId: sourceScriptId,
       projectMeta,
+      authoringProvenance,
       // signalTrace/writerOutput intentionally NOT echoed to the client: internal
       // reasoning already baked into creativeSpec server-side (lines 292, 548-557).
       // Client handoff reads only sessionDraft + metadata.clickatron.creativeSpec.

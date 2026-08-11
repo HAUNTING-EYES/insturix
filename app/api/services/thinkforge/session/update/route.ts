@@ -1,7 +1,16 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
-import type { ProjectMeta } from '@/lib/thinkforge/state/types';
+import {
+  resolveProjectMetaBrandId,
+  resolveThinkForgeSessionBrandBinding,
+  type ProjectMeta,
+} from '@/lib/thinkforge/state/types';
+import { createThinkForgeSessionBrandBinding } from '@/lib/thinkforge/context/brand-authoring-context';
+import {
+  authorizeBrandScope,
+  BrandScopeAuthorizationError,
+} from '@/lib/shared/brand-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,7 +19,7 @@ export const dynamic = 'force-dynamic';
  * Updates project metadata for an existing ThinkForge session.
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId, has } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -31,18 +40,51 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Ensure the session belongs to the authenticated user
-    // If session doesn't exist, create it (upsert behavior for smoother UX)
-    let existing = await db.getSession(sessionId, userId);
+    const existing = await db.getSession(sessionId, userId, orgId);
     if (!existing) {
-      // Create the session first
-      existing = await db.getOrCreateSession(userId, sessionId, projectMeta);
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    const session = await db.updateSession(sessionId, {
-      projectMeta,
-      updatedAt: new Date()
-    });
+    // The browser cannot write a server-issued binding. Preserve the existing
+    // binding and require current ACL authorization before any brand mutation.
+    const { brandBinding: _clientBrandBinding, ...incomingProjectMeta } = projectMeta || {};
+    const existingBinding = resolveThinkForgeSessionBrandBinding(existing.projectMeta);
+    const existingBrandId = resolveProjectMetaBrandId(existing.projectMeta);
+    const requestedBrandId = typeof incomingProjectMeta.brandId === 'string'
+      ? incomingProjectMeta.brandId.trim()
+      : undefined;
+    if (existingBrandId && requestedBrandId && existingBrandId !== requestedBrandId) {
+      return NextResponse.json({
+        error: 'Brand binding cannot be changed for an existing ThinkForge session.',
+        code: 'brand_binding_immutable',
+      }, { status: 409 });
+    }
+
+    const effectiveBrandId = existingBrandId ?? requestedBrandId;
+    let persistedProjectMeta: ProjectMeta = incomingProjectMeta;
+    if (effectiveBrandId) {
+      const authorizedBrand = await authorizeBrandScope({
+        userId,
+        orgId: orgId ?? null,
+        isOrgAdmin: orgId ? has({ role: 'org:admin' }) : false,
+        brandId: effectiveBrandId,
+      });
+      persistedProjectMeta = {
+        ...incomingProjectMeta,
+        brandId: authorizedBrand.brandId,
+        brandBinding: existingBinding ?? createThinkForgeSessionBrandBinding({
+          brandId: authorizedBrand.brandId,
+          orgId: orgId ?? null,
+        }),
+      };
+    }
+
+    const session = await db.getOrCreateSession(
+      userId,
+      existing._id,
+      persistedProjectMeta,
+      orgId ?? null,
+    );
 
     return NextResponse.json({
       success: true,
@@ -50,6 +92,12 @@ export async function POST(req: Request) {
       projectMeta: session.projectMeta || {},
     });
   } catch (error: any) {
+    if (error instanceof BrandScopeAuthorizationError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.code === 'brand_scope_unavailable' ? 503 : 404 },
+      );
+    }
     console.error('Error updating session project meta:', error);
     return NextResponse.json(
       { error: 'Failed to update session', details: error?.message },

@@ -70,7 +70,8 @@ import {
 } from '../schemas/document-contract';
 
 // ==================== ThinkForge Database Connection ====================
-// All ThinkForge collections live in the 'thinkforge_db' database
+// Production uses the dedicated 'thinkforge_db' database. The explicit override is
+// reserved for isolated test environments, where every browser run needs its own DB.
 function enforceThinkForgeBlocks(input: any): ThinkForgeBlock[] {
   const candidate = Array.isArray(input) ? input : [];
   const validated = validateThinkForgeBlocks(candidate);
@@ -80,7 +81,7 @@ function enforceThinkForgeBlocks(input: any): ThinkForgeBlock[] {
   return validated;
 }
 
-const THINKFORGE_DB_NAME = 'thinkforge_db';
+const THINKFORGE_DB_NAME = process.env.THINKFORGE_MONGODB_DB_NAME?.trim() || 'thinkforge_db';
 
 /**
  * Cached connection specifically for ThinkForge database.
@@ -93,7 +94,7 @@ let thinkforgeDbCached: { conn: mongoose.Connection | null; promise: Promise<mon
 
 /**
  * Connect to the ThinkForge database specifically.
- * Uses 'thinkforge_db' as the database name.
+ * Uses the configured ThinkForge database name, defaulting to 'thinkforge_db'.
  */
 async function connectToThinkForgeDb(): Promise<mongoose.Connection> {
   // If already connected and ready, return immediately
