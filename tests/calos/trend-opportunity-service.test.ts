@@ -152,6 +152,23 @@ describe("CalOS Trend Opportunity private matcher", () => {
     expect(decision.matchedSignalPaths).toContain("identity.productServices");
   });
 
+  it("matches a live Sonar video-generation signal without private context leaving the matcher", () => {
+    const decision = evaluateTrendCandidate({
+      title: "Gemini and Veo video generation expansion",
+      platform: "youtube",
+    }, creativePlatformProfile());
+
+    expect(decision).toMatchObject({
+      status: "suggested",
+      reasonCodes: expect.arrayContaining(["industry_or_category", "product_or_service"]),
+      matchedSignalPaths: expect.arrayContaining([
+        "identity.category",
+        "identity.productServices",
+      ]),
+    });
+    expect(decision.relevanceScore).toBeGreaterThanOrEqual(MIN_TREND_OPPORTUNITY_SCORE);
+  });
+
   it("uses brand fit without inventing momentum when a provider did not supply a score", () => {
     const decision = evaluateTrendCandidate({
       title: "AI-powered localized video variants at scale",

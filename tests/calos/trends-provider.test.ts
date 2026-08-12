@@ -36,7 +36,7 @@ describe("PerplexityTrendsProvider", () => {
             {
               message: {
                 content:
-                  '[{"title":"Founder-led teardown posts","summary":"Operators are reacting to short teardown posts this week.","platform":"linkedin","url":"https://example.com/trend"}]',
+                  '{"trends":[{"title":"Founder-led teardown posts","summary":"Operators are reacting to short teardown posts this week.","platform":"linkedin","url":"https://example.com/trend"}]}',
               },
             },
           ],
@@ -79,11 +79,53 @@ describe("PerplexityTrendsProvider", () => {
       model: "sonar",
       temperature: 0,
       web_search_options: { search_context_size: "low" },
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "CalosTrendCandidates" },
+      },
+    });
+    expect(body.response_format.json_schema.schema).toMatchObject({
+      type: "object",
+      required: ["trends"],
+      additionalProperties: false,
+      properties: {
+        trends: {
+          type: "array",
+          maxItems: 25,
+          items: {
+            type: "object",
+            required: ["title", "summary", "platform", "url"],
+            additionalProperties: false,
+          },
+        },
+      },
     });
     expect(body.messages[1].content).toContain("<niche>B2B SaaS founders</niche>");
     expect(body.messages[1].content).toContain("<region>United States</region>");
     expect(body.messages[1].content).toContain(
       "platform must be one of: reddit, twitter, youtube, tiktok, linkedin, instagram, web",
+    );
+  });
+
+  it("keeps a valid empty structured result distinct from a malformed success payload", async () => {
+    const emptyFetch = vi.fn<FetchMockArgs, ReturnType<typeof fetch>>(async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: '{"trends":[]}' } }] }), { status: 200 }),
+    );
+    const emptyProvider = new PerplexityTrendsProvider({
+      apiKey: "pplx-test-key",
+      fetchImpl: emptyFetch as unknown as typeof fetch,
+    });
+    await expect(emptyProvider.getTrends({ niche: "creator tools" })).resolves.toEqual([]);
+
+    const malformedFetch = vi.fn<FetchMockArgs, ReturnType<typeof fetch>>(async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: "Here are five trends" } }] }), { status: 200 }),
+    );
+    const malformedProvider = new PerplexityTrendsProvider({
+      apiKey: "pplx-test-key",
+      fetchImpl: malformedFetch as unknown as typeof fetch,
+    });
+    await expect(malformedProvider.getTrends({ niche: "creator tools" })).rejects.toThrow(
+      "did not contain JSON",
     );
   });
 });
