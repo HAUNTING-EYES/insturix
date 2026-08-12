@@ -1,6 +1,6 @@
 # OE-1 development benchmark results
 
-- Status: **development screen complete; OE-2 not started**
+- Status: **historical OE-1 screen complete; OE-2A verifier complete; fair contract-corrected rerun pending**
 - Recorded: 2026-08-12
 - Branch: `infrastructure-improvs-+Editron`
 - Implementation commit: `ea9156a2b027f040841353d45577059260d11732`
@@ -33,16 +33,35 @@ editorial quality, or truthful proof.
 
 The governing fixture is
 [`benchmark-contract-v1.json`](../../../tests/fixtures/editron/open-ended-planner-v1/benchmark-contract-v1.json).
-Its administrative version is `1.0.6`; the model-visible planner packet remains
-frozen at `1.0.3`. That separation corrected a fairness defect discovered while
-adding the DeepSeek route without changing task goals, operators, conditions,
-or thresholds.
-
-The exact pinned `DEV-01`/`C0_SIGNATURES_ONLY` model packet hash is:
+The recorded OE-1 provider runs used administrative version `1.0.6` and
+model-visible planner packet `1.0.3`. Their exact historical packet hash is:
 
 ```text
 dcdfbd2362e4b59f06dfd5d51dd565d7c4f2ed17455c31b2ac4c600e0e62757a
 ```
+
+The later independent OE-2A verifier proved that packet `1.0.3` was ambiguous
+in three ways: it had no control-only dependency edge, required models to copy
+catalog-owned state-effect names even in the signatures-only condition, and did
+not define one normative graph failure action. The verifier also initially
+treated every possible operator output assertion as mandatory, although data
+edges bind declared operator ports directly.
+
+The corrected next-run contract is administrative version `1.0.7`,
+model-visible packet `1.0.4`, with pinned `DEV-01`/`C0_SIGNATURES_ONLY` hash:
+
+```text
+474b87ae725757468b0fec4a6c9bfcb1e9f3ce62fc585936fb95b2495e89aa4f
+```
+
+Its only model-visible differences are the packet version, candidate-graph
+schema/semantics, and the matching state/failure tokens in the explicitly
+non-executable format example: canonical port names, `$control` ordering edges,
+optional expected-output assertions, `NONE`/`DECLARED_OPERATOR_EFFECTS`
+acknowledgements, and `ABORT_GRAPH`. Task goals, evidence, operator eligibility,
+policies, budgets, conditions, and score thresholds are unchanged. Old model
+outputs are not rewritten or rescored as if they had seen this new contract; a
+new fair development run is required.
 
 The development split contains four synthetic, internally owned tasks:
 
@@ -166,6 +185,8 @@ detect later alteration without promoting them to production receipts.
 
 ## Decision
 
+### OE-1 decision at original closeout
+
 1. Advance **Gemini 3.5 Flash-Lite** and **GPT-5.6 Luna** into the OE-2
    development screen.
 2. Include **DeepSeek-V4-Flash-0731** as a specialist/comparison arm only if
@@ -178,11 +199,28 @@ detect later alteration without promoting them to production receipts.
 5. Do not run the holdout, choose a production router, or authorize model-driven
    project mutation from OE-1.
 
+### OE-2A verifier addendum
+
+The first strict pass over the historical model outputs accepted every explicit
+`DEV-04` capability-gap response—18 per fully bound route—but accepted **zero
+executable `DEV-01` through `DEV-03` graphs**. The raw failures included both
+the contract ambiguities corrected above and genuine candidate defects such as
+invented or incompatible ports, unbound evidence, wrong ranges, missing task
+operations, missing preservation claims, and unsafe or unordered mutations.
+
+This finding supersedes any interpretation that OE-1 established executable
+graph validity. It does not by itself prove the models cannot construct valid
+graphs, because they did not receive the clarified packet. The next authorized
+research action is a development-only rerun of Luna, Flash-Lite, and the
+DeepSeek specialist arm against exact packet `1.0.4`, followed by the same
+independent verifier. Holdouts and proxy rendering remain locked until at least
+one executable development graph passes without hidden repair.
+
 ## What happens next: OE-2
 
 OE-2 should remain three bounded research slices:
 
-1. **OE-2A — pure graph verifier.** Validate operator identity/version,
+1. **OE-2A — pure graph verifier: complete.** Validates operator identity/version,
    uniqueness, graph acyclicity, ports and schemas, evidence/revision binding,
    resource budgets, rights/privacy/network rules, state effects, preservation
    declarations, and task predicates. It may reject; it may not add nodes,

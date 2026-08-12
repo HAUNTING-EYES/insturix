@@ -122,8 +122,8 @@ export function verifyCandidateGraphV1(input: {
     validateOperatorPolicy(spec, envelope.networkPolicy, proofs, path, add);
     validateEvidence(node, evidence, path, add);
     validateEffectsAndFailure(node, spec, path, add);
-    validatePortValues(node.inputs, inputContract, duration, knownIds, `${path}.inputs`, add);
-    validatePortValues(node.expectedOutputs, outputContract, duration, knownIds, `${path}.expectedOutputs`, add);
+    validatePortValues(node.inputs, inputContract, duration, knownIds, `${path}.inputs`, 'INPUT_PORT_UNKNOWN', add);
+    validatePortValues(node.expectedOutputs, outputContract, duration, knownIds, `${path}.expectedOutputs`, 'OUTPUT_PORT_UNKNOWN', add);
     validateRangePairs(node.inputs, path, add);
     validateCandidateBudget(node, envelope.resourceBudget.maxCandidates, path, add);
   }
@@ -142,6 +142,16 @@ export function verifyCandidateGraphV1(input: {
     const source = contracts.get(edge.fromNodeId);
     const target = contracts.get(edge.toNodeId);
     if (!source || !target) { add('EDGE_NODE_MISSING', path, 'Edge references a missing or invalid node'); continue; }
+    const controlFrom = edge.fromPort === '$control';
+    const controlTo = edge.toPort === '$control';
+    if (controlFrom !== controlTo) {
+      add('CONTROL_EDGE_INVALID', path, 'Control dependency requires $control on both ports');
+      continue;
+    }
+    if (controlFrom) {
+      adjacency.get(edge.fromNodeId)?.add(edge.toNodeId);
+      continue;
+    }
     const sourcePort = source.outputs.byName.get(edge.fromPort);
     const targetPort = target.inputs.byName.get(edge.toPort);
     if (!sourcePort) add('OUTPUT_PORT_UNKNOWN', `${path}.fromPort`, `Unknown output port ${edge.fromPort}`);
@@ -149,7 +159,6 @@ export function verifyCandidateGraphV1(input: {
     if (!sourcePort || !targetPort) continue;
     const compatibility = comparePortTypesV1(sourcePort.typeExpression, targetPort.typeExpression);
     if (compatibility !== 'COMPATIBLE') add(compatibility === 'UNVERIFIABLE' ? 'PORT_TYPE_UNVERIFIABLE' : 'PORT_TYPE_MISMATCH', path, 'Edge port types are not verifiably compatible');
-    if (!(edge.fromPort in source.node.expectedOutputs)) add('OUTPUT_BINDING_MISSING', `${path}.fromPort`, 'Source expectedOutputs does not declare this port');
     const targetKey = `${edge.toNodeId}\0${edge.toPort}`;
     if (incoming.has(targetKey) || edge.toPort in target.node.inputs) add('INPUT_BINDING_CONFLICT', `${path}.toPort`, 'Input has multiple bindings');
     else incoming.set(targetKey, new Set([edge.fromNodeId]));
@@ -207,24 +216,32 @@ function validateEvidence(node: CandidateGraphNodeV1, evidence: Set<string>, pat
 }
 
 function validateEffectsAndFailure(node: CandidateGraphNodeV1, spec: OperatorSpecV1, path: string, add: AddIssue): void {
-  const actual = stringArray(node.expectedStateEffects); const declared = stringArray(spec.stateEffects);
-  if (!actual || !declared) add('STATE_EFFECT_INVALID', `${path}.expectedStateEffects`, 'State effects must be string arrays');
-  else if (!sameStringSet(actual, declared)) add('STATE_EFFECT_MISMATCH', `${path}.expectedStateEffects`, 'Expected state effects differ from operator declaration');
-  const failures = stringArray(spec.failureDispositions);
-  if (!failures || !failures.includes(node.failureDisposition)) add('FAILURE_DISPOSITION_INVALID', `${path}.failureDisposition`, 'Failure disposition is not declared by the operator');
+  const actual = stringArray(node.expectedStateEffects);
+  const expected = isMutating(spec) ? 'DECLARED_OPERATOR_EFFECTS' : 'NONE';
+  if (!actual || actual.length !== 1 || actual[0] !== expected) {
+    add('STATE_EFFECT_ACKNOWLEDGEMENT_INVALID', `${path}.expectedStateEffects`, `Expected exactly ${expected}`);
+  }
+  if (node.failureDisposition !== 'ABORT_GRAPH') {
+    add('FAILURE_DISPOSITION_INVALID', `${path}.failureDisposition`, 'Graph node failures must abort the graph');
+  }
 }
 
-function validatePortValues(values: unknown, contract: PortContractV1, duration: number | undefined, knownIds: Set<string>, path: string, add: AddIssue): void {
+function validatePortValues(
+  values: unknown,
+  contract: PortContractV1,
+  duration: number | undefined,
+  knownIds: Set<string>,
+  path: string,
+  unknownPortCode: 'INPUT_PORT_UNKNOWN' | 'OUTPUT_PORT_UNKNOWN',
+  add: AddIssue,
+): void {
   if (!isRecord(values)) { add('SCHEMA_INVALID', path, 'Port values must be an object'); return; }
   for (const [name, value] of Object.entries(values)) {
     const port = contract.byName.get(name);
-    if (!port) { add(path.endsWith('inputs') ? 'INPUT_PORT_UNKNOWN' : 'OUTPUT_PORT_UNKNOWN', `${path}.${name}`, `Undeclared port ${name}`); continue; }
+    if (!port) { add(unknownPortCode, `${path}.${name}`, `Undeclared port ${name}`); continue; }
     const error = validatePortValueV1(value, port.typeExpression, duration);
     if (error) add('PORT_VALUE_INVALID', `${path}.${name}`, error);
     if (port.typeExpression?.endsWith('-id') && typeof value === 'string' && !knownIds.has(value)) add('PROJECT_ID_UNBOUND', `${path}.${name}`, `Identifier ${value} is absent from project/evidence facts`);
-  }
-  if (path.endsWith('expectedOutputs')) for (const group of contract.groups) {
-    if (!group.optional && !group.names.some((name) => name in values)) add('OUTPUT_BINDING_MISSING', path, `Required output ${group.raw} is absent`);
   }
 }
 
@@ -285,7 +302,6 @@ function validateExactKeys(value: Record<string, unknown>, allowed: string[], pa
 
 function isMutating(spec: OperatorSpecV1): boolean { return !['READ', 'RESOLVE'].includes(spec.kind); }
 function stringArray(value: unknown): string[] | undefined { return Array.isArray(value) && value.every((entry) => typeof entry === 'string') ? value : undefined; }
-function sameStringSet(left: string[], right: string[]): boolean { return left.length === right.length && new Set(left).size === left.length && left.every((entry) => right.includes(entry)); }
 function uniqueIssues(issues: GraphVerificationIssueV1[]): GraphVerificationIssueV1[] { return [...new Map(issues.map((issue) => [`${issue.code}\0${issue.path}\0${issue.message}`, issue])).values()]; }
 function compareUtf16(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }

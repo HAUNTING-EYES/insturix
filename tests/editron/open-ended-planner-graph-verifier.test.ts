@@ -132,16 +132,26 @@ describe('OE-2A graph verifier', () => {
     const unordered = makeAudioGraph();
     unordered.nodes.push({ ...structuredClone(unordered.nodes[0]), nodeId: 'audio-2' });
     expect(codes(verify(unordered))).toContain('UNORDERED_STATE_EFFECTS');
+
+    const ordered = makeAudioGraph();
+    ordered.nodes.push({ ...structuredClone(ordered.nodes[0]), nodeId: 'audio-2' });
+    ordered.edges.push({ fromNodeId: 'apply_audio_ducking', fromPort: '$control', toNodeId: 'audio-2', toPort: '$control' });
+    expect(codes(verify(ordered))).not.toContain('UNORDERED_STATE_EFFECTS');
+
+    const invalidControl = makeAudioGraph();
+    invalidControl.nodes.push({ ...structuredClone(invalidControl.nodes[0]), nodeId: 'audio-2' });
+    invalidControl.edges.push({ fromNodeId: 'apply_audio_ducking', fromPort: '$control', toNodeId: 'audio-2', toPort: 'enabled' });
+    expect(codes(verify(invalidControl))).toContain('CONTROL_EDGE_INVALID');
   });
 
   it('rejects state-effect, failure, proof, policy, and preservation gaps', () => {
     const graph = makeAudioGraph();
-    graph.nodes[0].expectedStateEffects = ['ADVANCE_PROJECT_REVISION'];
+    graph.nodes[0].expectedStateEffects = ['NONE'];
     graph.nodes[0].failureDisposition = 'continue';
     graph.preservationClaims = [];
     const missing = verifyCandidateGraphV1({ ...verificationInput(graph), availableProofObligations: [] });
     expect(codes(missing)).toEqual(expect.arrayContaining([
-      'STATE_EFFECT_MISMATCH', 'FAILURE_DISPOSITION_INVALID', 'PROOF_UNAVAILABLE',
+      'STATE_EFFECT_ACKNOWLEDGEMENT_INVALID', 'FAILURE_DISPOSITION_INVALID', 'PROOF_UNAVAILABLE',
       'PRESERVATION_CLAIM_MISSING',
     ]));
 
@@ -251,8 +261,8 @@ function makeNode(
   return {
     nodeId: operatorId === 'read_project_file' ? 'read' : operatorId === 'resolve_transcript_edit' ? 'resolve' : operatorId,
     operatorId, operatorVersion: spec.version, inputs, evidenceIds, expectedOutputs,
-    expectedStateEffects: [...(stringArray(spec.stateEffects) ?? [])],
-    failureDisposition: (stringArray(spec.failureDispositions) ?? ['INVALID'])[0],
+    expectedStateEffects: ['READ', 'RESOLVE'].includes(spec.kind) ? ['NONE'] : ['DECLARED_OPERATOR_EFFECTS'],
+    failureDisposition: 'ABORT_GRAPH',
   };
 }
 

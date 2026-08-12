@@ -75,11 +75,11 @@ const holdoutTasks = holdoutTasksJson.tasks as unknown as TaskFixture[];
 const allTasks = [...developmentTasks, ...holdoutTasks];
 const knowledgeEntries = knowledgeEntriesJson.entries as KnowledgeEntryFixture[];
 
-describe('K/OE-0.6 frozen benchmark and OE-1 core integrity', () => {
+describe('K/OE-0.7 frozen benchmark and OE-1 core integrity', () => {
   it('makes all six conditions constructible from declared frozen inputs', () => {
-    expect(benchmarkContract.version).toBe('1.0.6');
-    expect(benchmarkContract.plannerPacketContractVersion).toBe('1.0.3');
-    expect(benchmarkContract.status).toBe('FROZEN_PHASE_A_ERRATA_6');
+    expect(benchmarkContract.version).toBe('1.0.7');
+    expect(benchmarkContract.plannerPacketContractVersion).toBe('1.0.4');
+    expect(benchmarkContract.status).toBe('FROZEN_PHASE_A_ERRATA_7');
     expect(benchmarkContract.knowledgeEntries).toBe(
       'tests/fixtures/editron/open-ended-planner-v1/knowledge-entries-v1.json',
     );
@@ -103,6 +103,16 @@ describe('K/OE-0.6 frozen benchmark and OE-1 core integrity', () => {
       additionalProperties: false,
       required: benchmarkContract.schemas.candidateGraphV1.required,
     });
+    expect(benchmarkContract.schemas.candidateGraphV1.semantics).toMatchObject({
+      controlDependency: expect.stringContaining("fromPort='$control'"),
+      expectedStateEffects: expect.stringContaining("['DECLARED_OPERATOR_EFFECTS']"),
+      failureDisposition: expect.stringContaining("'ABORT_GRAPH'"),
+    });
+    expect(benchmarkContract.schemas.candidateGraphV1.jsonSchema.properties.nodes.items.properties)
+      .toMatchObject({
+        expectedStateEffects: { minItems: 1, maxItems: 1 },
+        failureDisposition: { const: 'ABORT_GRAPH' },
+      });
     expect(benchmarkContract.providerCandidates.map(({ route }) => route)).toEqual([
       'gpt-5.6-luna',
       'gpt-5.6-terra',
@@ -111,8 +121,8 @@ describe('K/OE-0.6 frozen benchmark and OE-1 core integrity', () => {
       'gemini-3.6-flash',
     ]);
     const pinnedPacket = materializeDevelopmentArtifact('C0_SIGNATURES_ONLY');
-    expect(pinnedPacket.packet.benchmarkContractVersion).toBe('1.0.3');
-    expect(pinnedPacket.packetHash).toBe('dcdfbd2362e4b59f06dfd5d51dd565d7c4f2ed17455c31b2ac4c600e0e62757a');
+    expect(pinnedPacket.packet.benchmarkContractVersion).toBe('1.0.4');
+    expect(pinnedPacket.packetHash).toBe('474b87ae725757468b0fec4a6c9bfcb1e9f3ce62fc585936fb95b2495e89aa4f');
   });
 
   it('binds every task to one explicit C4 variant without leaking omitted clean evidence', () => {
@@ -296,7 +306,7 @@ describe('K/OE-0.6 frozen benchmark and OE-1 core integrity', () => {
       nodes: [{
         nodeId: 'node-1', operatorId: operator?.operatorId, operatorVersion: operator?.version,
         inputs: {}, evidenceIds: [artifact.packet.materializedPlannerEnvelope.boundEvidenceIds[0]],
-        expectedOutputs: {}, expectedStateEffects: [], failureDisposition: 'FAIL_TRIAL',
+        expectedOutputs: {}, expectedStateEffects: ['NONE'], failureDisposition: 'ABORT_GRAPH',
       }],
       edges: [], expectedOutcome: 'Research candidate only', preservationClaims: [], clarifications: [], declines: [],
     };

@@ -1,13 +1,13 @@
 {
   "fixtureType": "EditronOpenEndedPlannerBenchmarkContractV1",
-  "version": "1.0.6",
-  "plannerPacketContractVersion": "1.0.3",
+  "version": "1.0.7",
+  "plannerPacketContractVersion": "1.0.4",
   "frozenAt": "2026-08-12T00:00:00.000Z",
-  "status": "FROZEN_PHASE_A_ERRATA_6",
+  "status": "FROZEN_PHASE_A_ERRATA_7",
   "errata": {
-    "supersedes": "1.0.5",
-    "reason": "Freeze model-visible planner packet version 1.0.3 independently from administrative provider-route errata.",
-    "semanticChange": "NO_TASK_GOAL_OPERATOR_OR_THRESHOLD_CHANGE"
+    "supersedes": "1.0.6",
+    "reason": "Make control dependencies, state-effect acknowledgement, failure action, canonical port names, and expected-output semantics explicit after the first independent verifier pass.",
+    "semanticChange": "MODEL_VISIBLE_GRAPH_CONTRACT_CHANGE_NO_TASK_GOAL_OPERATOR_OR_THRESHOLD_CHANGE"
   },
   "authority": "RESEARCH_ONLY_NO_PROJECT_MUTATION",
   "canonicalPlan": "docs/EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md",
@@ -176,6 +176,14 @@
       "immutable": true
     },
     "candidateGraphV1": {
+      "semantics": {
+        "portNames": "Use only the canonical name before ':' in an operator port descriptor. For a '-or-' alias descriptor, use exactly one named alternative. Never copy the type suffix into an input key or edge port.",
+        "dataDependency": "A normal edge binds fromPort output data into toPort input data. Both ports must exist and have verifiably compatible declared types. The target input must not also contain a literal binding.",
+        "controlDependency": "Use fromPort='$control' and toPort='$control' only to declare ordering without data flow. Both sentinel values are required together and never bind an operator port.",
+        "expectedOutputs": "Optional evaluator assertions only. They need not repeat every possible operator output and do not bind graph edges.",
+        "expectedStateEffects": "Exactly ['NONE'] for READ or RESOLVE operators; exactly ['DECLARED_OPERATOR_EFFECTS'] for every other operator kind. The versioned operator catalog remains the detailed state-effect authority.",
+        "failureDisposition": "Exactly 'ABORT_GRAPH'. Node skipping, fallback, continue-on-error, prose, and operator failure codes are not graph failure actions."
+      },
       "required": [
         "graphId",
         "taskId",
@@ -226,8 +234,13 @@
                 "inputs": {"type": "object", "additionalProperties": true},
                 "evidenceIds": {"type": "array", "items": {"type": "string"}},
                 "expectedOutputs": {"type": "object", "additionalProperties": true},
-                "expectedStateEffects": {"type": "array", "items": {}},
-                "failureDisposition": {"type": "string"}
+                "expectedStateEffects": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": {"enum": ["NONE", "DECLARED_OPERATOR_EFFECTS"]}
+                },
+                "failureDisposition": {"const": "ABORT_GRAPH"}
               }
             }
           },
@@ -239,9 +252,9 @@
               "required": ["fromNodeId", "fromPort", "toNodeId", "toPort"],
               "properties": {
                 "fromNodeId": {"type": "string"},
-                "fromPort": {"type": "string"},
+                "fromPort": {"type": "string", "description": "Canonical output port name, or $control for an ordering-only edge."},
                 "toNodeId": {"type": "string"},
-                "toPort": {"type": "string"}
+                "toPort": {"type": "string", "description": "Canonical input port name, or $control for an ordering-only edge."}
               }
             }
           },
@@ -359,8 +372,8 @@
         "inputs": {},
         "evidenceIds": [],
         "expectedOutputs": {},
-        "expectedStateEffects": [],
-        "failureDisposition": "FORMAT_ONLY_FAILURE_DISPOSITION"
+        "expectedStateEffects": ["NONE"],
+        "failureDisposition": "ABORT_GRAPH"
       }
     ],
     "edges": [],
