@@ -1,11 +1,11 @@
 {
   "fixtureType": "EditronOpenEndedPlannerBenchmarkContractV1",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "frozenAt": "2026-08-12T00:00:00.000Z",
-  "status": "FROZEN_PHASE_A_ERRATA_2",
+  "status": "FROZEN_PHASE_A_ERRATA_3",
   "errata": {
-    "supersedes": "1.0.1",
-    "reason": "Freeze how task-declared eligible distractors enter the model-visible allowlist without entering knowledge selection or leaking evaluator metadata.",
+    "supersedes": "1.0.2",
+    "reason": "Pin verified provider routes and freeze condition applicability before paid OE-1 trials.",
     "semanticChange": "NO_TASK_GOAL_OPERATOR_OR_THRESHOLD_CHANGE"
   },
   "authority": "RESEARCH_ONLY_NO_PROJECT_MUTATION",
@@ -202,7 +202,54 @@
         "fromPort",
         "toNodeId",
         "toPort"
-      ]
+      ],
+      "jsonSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["graphId", "taskId", "envelopeHash", "projectRevision", "nodes", "edges", "expectedOutcome", "preservationClaims", "clarifications", "declines"],
+        "properties": {
+          "graphId": {"type": "string"},
+          "taskId": {"type": "string"},
+          "envelopeHash": {"type": "string"},
+          "projectRevision": {"type": "string"},
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["nodeId", "operatorId", "operatorVersion", "inputs", "evidenceIds", "expectedOutputs", "expectedStateEffects", "failureDisposition"],
+              "properties": {
+                "nodeId": {"type": "string"},
+                "operatorId": {"type": "string"},
+                "operatorVersion": {"type": "string"},
+                "inputs": {"type": "object", "additionalProperties": true},
+                "evidenceIds": {"type": "array", "items": {"type": "string"}},
+                "expectedOutputs": {"type": "object", "additionalProperties": true},
+                "expectedStateEffects": {"type": "array", "items": {}},
+                "failureDisposition": {"type": "string"}
+              }
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["fromNodeId", "fromPort", "toNodeId", "toPort"],
+              "properties": {
+                "fromNodeId": {"type": "string"},
+                "fromPort": {"type": "string"},
+                "toNodeId": {"type": "string"},
+                "toPort": {"type": "string"}
+              }
+            }
+          },
+          "expectedOutcome": {"type": "string"},
+          "preservationClaims": {"type": "array", "items": {"type": "string"}},
+          "clarifications": {"type": "array", "items": {}},
+          "declines": {"type": "array", "items": {}}
+        }
+      }
     },
     "trialRecordV1": {
       "required": [
@@ -288,6 +335,14 @@
       "expectedBehaviour": "clarify-decline-or-gap-report-with-zero-invented-operator"
     }
   ],
+  "conditionApplicability": {
+    "C0_SIGNATURES_ONLY": ["DEV-01", "DEV-02", "DEV-03", "DEV-04", "HOLD-01", "HOLD-02", "HOLD-03", "HOLD-04", "HOLD-05", "HOLD-06", "HOLD-07", "HOLD-08"],
+    "C1_FULL_OPERATOR_SPECS": ["DEV-01", "DEV-02", "DEV-03", "DEV-04", "HOLD-01", "HOLD-02", "HOLD-03", "HOLD-04", "HOLD-05", "HOLD-06", "HOLD-07", "HOLD-08"],
+    "C2_REVIEWED_KNOWLEDGE": ["DEV-01", "DEV-02", "DEV-03", "DEV-04", "HOLD-01", "HOLD-02", "HOLD-03", "HOLD-04", "HOLD-05", "HOLD-06", "HOLD-07", "HOLD-08"],
+    "C3_UNRELATED_FORMAT_EXAMPLE": ["DEV-01", "DEV-02", "DEV-03", "DEV-04", "HOLD-01", "HOLD-02", "HOLD-03", "HOLD-04", "HOLD-05", "HOLD-06", "HOLD-07", "HOLD-08"],
+    "C4_NOISY_OR_MISSING_EVIDENCE": ["DEV-01", "DEV-02", "DEV-03", "DEV-04", "HOLD-01", "HOLD-02", "HOLD-03", "HOLD-04", "HOLD-05", "HOLD-06", "HOLD-07", "HOLD-08"],
+    "C5_CAPABILITY_GAP": ["DEV-04", "HOLD-06", "HOLD-08"]
+  },
   "unrelatedFormatExample": {
     "nonExecutable": true,
     "instruction": "Formatting only. Placeholder identifiers are not operators and must never be copied into a candidate graph.",
@@ -317,7 +372,7 @@
     {
       "provider": "openai",
       "displayModel": "GPT-5.6 Luna",
-      "route": "PIN_AT_OE1_START",
+      "route": "gpt-5.6-luna",
       "role": "AFFORDABLE_GRAPH_PLANNER",
       "priceSnapshotUsdPerMillion": {"input": 1.0, "output": 6.0},
       "priceCheckedAt": "2026-08-12",
@@ -326,26 +381,28 @@
     {
       "provider": "openai",
       "displayModel": "GPT-5.6 Terra",
-      "route": "PIN_AT_OE1_START",
+      "route": "gpt-5.6-terra",
       "role": "STRONGER_AFFORDABLE_GRAPH_PLANNER",
       "priceSnapshotUsdPerMillion": {"input": 2.5, "output": 15.0},
       "priceCheckedAt": "2026-08-12",
       "providerSearch": "DISABLED"
     },
     {
-      "provider": "deepseek",
-      "displayModel": "DeepSeek-V4-Flash-0731",
-      "route": "deepseek-v4-flash",
+      "provider": "ollama",
+      "displayModel": "DeepSeek-V4-Flash-0731 via Ollama Cloud",
+      "route": "deepseek-v4-flash:0731",
+      "transport": "https://ollama.com/api",
+      "modelDigest": "4de9bf66c0eb",
       "selfHostedSnapshot": "deepseek-ai/DeepSeek-V4-Flash-0731",
       "role": "VERY_LOW_COST_TEXT_TOOL_PLANNER",
-      "priceSnapshotUsdPerMillion": {"cacheHitInput": 0.0028, "cacheMissInput": 0.14, "output": 0.28},
+      "priceSnapshotUsdPerMillion": {"status": "UNVERIFIED_FOR_OLLAMA_CLOUD"},
       "priceCheckedAt": "2026-08-12",
       "providerSearch": "DISABLED"
     },
     {
       "provider": "google",
       "displayModel": "Gemini 3.5 Flash-Lite",
-      "route": "PIN_AT_OE1_START",
+      "route": "gemini-3.5-flash-lite",
       "role": "LOW_COST_MULTIMODAL_CANDIDATE",
       "priceSnapshotUsdPerMillion": {"input": 0.3, "output": 2.5},
       "priceCheckedAt": "2026-08-12",
@@ -354,7 +411,7 @@
     {
       "provider": "google",
       "displayModel": "Gemini 3.6 Flash",
-      "route": "PIN_AT_OE1_START",
+      "route": "gemini-3.6-flash",
       "role": "HIGHER_CAPABILITY_MULTIMODAL_CANDIDATE",
       "priceSnapshotUsdPerMillion": {"input": 1.5, "output": 7.5},
       "priceCheckedAt": "2026-08-12",

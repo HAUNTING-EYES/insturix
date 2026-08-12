@@ -219,6 +219,7 @@ export interface PlannerTrialRecordV1 {
   outputTokens: number;
   estimatedModelCostUsd: number;
   rawResponseHash: string;
+  rawResponse?: string;
   providerDisposition: ProviderDispositionV1;
   parseDisposition: string;
   verifierDisposition: 'NOT_RUN_OE1';

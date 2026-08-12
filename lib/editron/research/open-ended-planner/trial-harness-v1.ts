@@ -177,6 +177,7 @@ function finishTrial(
     outputTokens: usage.outputTokens,
     estimatedModelCostUsd: estimateCost(usage, pricing),
     rawResponseHash: sha256TextV1(rawResponse),
+    ...(rawResponse ? { rawResponse } : {}),
     providerDisposition,
     parseDisposition,
     verifierDisposition: 'NOT_RUN_OE1',

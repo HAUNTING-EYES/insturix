@@ -13,6 +13,7 @@ import {
   type PlannerTaskFixtureV1,
 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { materializePlannerPacketV1 } from '@/lib/editron/research/open-ended-planner/materialize-packet-v1';
+import { createPlannerProviderAdapterV1 } from '@/lib/editron/research/open-ended-planner/provider-development-runner-v1';
 import { runPlannerTrialV1 } from '@/lib/editron/research/open-ended-planner/trial-harness-v1';
 import benchmarkContractJson from '@/tests/fixtures/editron/open-ended-planner-v1/benchmark-contract-v1.json';
 import developmentTasksJson from '@/tests/fixtures/editron/open-ended-planner-v1/development-tasks-v1.json';
@@ -74,10 +75,10 @@ const holdoutTasks = holdoutTasksJson.tasks as unknown as TaskFixture[];
 const allTasks = [...developmentTasks, ...holdoutTasks];
 const knowledgeEntries = knowledgeEntriesJson.entries as KnowledgeEntryFixture[];
 
-describe('K/OE-0.2 frozen benchmark and OE-1 core integrity', () => {
+describe('K/OE-0.3 frozen benchmark and OE-1 core integrity', () => {
   it('makes all six conditions constructible from declared frozen inputs', () => {
-    expect(benchmarkContract.version).toBe('1.0.2');
-    expect(benchmarkContract.status).toBe('FROZEN_PHASE_A_ERRATA_2');
+    expect(benchmarkContract.version).toBe('1.0.3');
+    expect(benchmarkContract.status).toBe('FROZEN_PHASE_A_ERRATA_3');
     expect(benchmarkContract.knowledgeEntries).toBe(
       'tests/fixtures/editron/open-ended-planner-v1/knowledge-entries-v1.json',
     );
@@ -94,6 +95,20 @@ describe('K/OE-0.2 frozen benchmark and OE-1 core integrity', () => {
     }
     expect(knowledgeEntries.length).toBeGreaterThan(0);
     expect(benchmarkContract.unrelatedFormatExample.nonExecutable).toBe(true);
+    expect(benchmarkContract.conditionApplicability.C5_CAPABILITY_GAP)
+      .toEqual(['DEV-04', 'HOLD-06', 'HOLD-08']);
+    expect(benchmarkContract.schemas.candidateGraphV1.jsonSchema).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      required: benchmarkContract.schemas.candidateGraphV1.required,
+    });
+    expect(benchmarkContract.providerCandidates.map(({ route }) => route)).toEqual([
+      'gpt-5.6-luna',
+      'gpt-5.6-terra',
+      'deepseek-v4-flash:0731',
+      'gemini-3.5-flash-lite',
+      'gemini-3.6-flash',
+    ]);
   });
 
   it('binds every task to one explicit C4 variant without leaking omitted clean evidence', () => {
@@ -303,6 +318,7 @@ describe('K/OE-0.2 frozen benchmark and OE-1 core integrity', () => {
       parseDisposition: 'PARSED_ENVELOPE_BOUND', latencyMs: 1_250,
       estimatedModelCostUsd: 0.002, verifierDisposition: 'NOT_RUN_OE1', accepted: false,
     });
+    expect(record.rawResponse).toBe(JSON.stringify(candidate));
     expect(Object.isFrozen(record)).toBe(true);
     expect(Object.isFrozen(record.candidateGraph)).toBe(true);
 
@@ -375,6 +391,49 @@ describe('K/OE-0.2 frozen benchmark and OE-1 core integrity', () => {
     });
     expect(invalidUsage.providerDisposition).toBe('PROVIDER_ERROR');
     expect(invalidUsage.failureDetail).toMatch(/token count/);
+  });
+
+  it('keeps provider transport translation exact and single-attempt', async () => {
+    const cases = [
+      {
+        kind: 'openai' as const, model: 'gpt-5.6-luna',
+        response: { output_text: '{}', usage: { input_tokens: 4, output_tokens: 2 } },
+        endpoint: 'https://api.openai.com/v1/responses',
+      },
+      {
+        kind: 'ollama' as const, model: 'deepseek-v4-flash:0731',
+        response: { response: '{}', prompt_eval_count: 4, eval_count: 2 },
+        endpoint: 'https://ollama.com/api/generate',
+      },
+      {
+        kind: 'google' as const, model: 'gemini-3.6-flash',
+        response: {
+          candidates: [{ content: { parts: [{ text: '{}' }] } }],
+          usageMetadata: { promptTokenCount: 4, candidatesTokenCount: 2 },
+        },
+        endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent',
+      },
+    ];
+    for (const testCase of cases) {
+      const requests: Array<{ url: string; body: string }> = [];
+      const adapter = createPlannerProviderAdapterV1({
+        kind: testCase.kind, apiKey: 'test-key', model: testCase.model,
+        fetchImpl: async (url, init) => {
+          requests.push({ url: String(url), body: String(init?.body) });
+          return new Response(JSON.stringify(testCase.response), { status: 200 });
+        },
+      });
+      const result = await adapter.invoke({ prompt: '{"packet":true}', promptHash: 'p', envelopeHash: 'e' });
+      expect(result).toMatchObject({ disposition: 'SUCCESS', text: '{}', usage: { inputTokens: 4, outputTokens: 2 } });
+      expect(requests).toHaveLength(1);
+      expect(requests[0].url).toBe(testCase.endpoint);
+      if (testCase.kind === 'google') expect(requests[0].url).toContain(testCase.model);
+      else expect(JSON.parse(requests[0].body).model).toBe(testCase.model);
+      const body = JSON.parse(requests[0].body);
+      if (testCase.kind === 'openai') expect(body.text.format.type).toBe('json_schema');
+      if (testCase.kind === 'ollama') expect(body.format.type).toBe('object');
+      if (testCase.kind === 'google') expect(body.generationConfig.responseJsonSchema.type).toBe('object');
+    }
   });
 });
 
