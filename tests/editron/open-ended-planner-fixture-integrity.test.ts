@@ -75,10 +75,10 @@ const holdoutTasks = holdoutTasksJson.tasks as unknown as TaskFixture[];
 const allTasks = [...developmentTasks, ...holdoutTasks];
 const knowledgeEntries = knowledgeEntriesJson.entries as KnowledgeEntryFixture[];
 
-describe('K/OE-0.3 frozen benchmark and OE-1 core integrity', () => {
+describe('K/OE-0.4 frozen benchmark and OE-1 core integrity', () => {
   it('makes all six conditions constructible from declared frozen inputs', () => {
-    expect(benchmarkContract.version).toBe('1.0.3');
-    expect(benchmarkContract.status).toBe('FROZEN_PHASE_A_ERRATA_3');
+    expect(benchmarkContract.version).toBe('1.0.4');
+    expect(benchmarkContract.status).toBe('FROZEN_PHASE_A_ERRATA_4');
     expect(benchmarkContract.knowledgeEntries).toBe(
       'tests/fixtures/editron/open-ended-planner-v1/knowledge-entries-v1.json',
     );
@@ -105,7 +105,7 @@ describe('K/OE-0.3 frozen benchmark and OE-1 core integrity', () => {
     expect(benchmarkContract.providerCandidates.map(({ route }) => route)).toEqual([
       'gpt-5.6-luna',
       'gpt-5.6-terra',
-      'deepseek-v4-flash:0731',
+      'deepseek-v4-flash-0731',
       'gemini-3.5-flash-lite',
       'gemini-3.6-flash',
     ]);
@@ -401,7 +401,7 @@ describe('K/OE-0.3 frozen benchmark and OE-1 core integrity', () => {
         endpoint: 'https://api.openai.com/v1/responses',
       },
       {
-        kind: 'ollama' as const, model: 'deepseek-v4-flash:0731',
+        kind: 'ollama' as const, model: 'deepseek-v4-flash-0731',
         response: { response: '{}', prompt_eval_count: 4, eval_count: 2 },
         endpoint: 'https://ollama.com/api/generate',
       },

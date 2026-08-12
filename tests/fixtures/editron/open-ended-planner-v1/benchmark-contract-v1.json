@@ -1,11 +1,11 @@
 {
   "fixtureType": "EditronOpenEndedPlannerBenchmarkContractV1",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "frozenAt": "2026-08-12T00:00:00.000Z",
-  "status": "FROZEN_PHASE_A_ERRATA_3",
+  "status": "FROZEN_PHASE_A_ERRATA_4",
   "errata": {
-    "supersedes": "1.0.2",
-    "reason": "Pin verified provider routes and freeze condition applicability before paid OE-1 trials.",
+    "supersedes": "1.0.3",
+    "reason": "Correct the user-confirmed Ollama inference route while retaining the separately observed catalog alias and blocked authorization status.",
     "semanticChange": "NO_TASK_GOAL_OPERATOR_OR_THRESHOLD_CHANGE"
   },
   "authority": "RESEARCH_ONLY_NO_PROJECT_MUTATION",
@@ -390,9 +390,11 @@
     {
       "provider": "ollama",
       "displayModel": "DeepSeek-V4-Flash-0731 via Ollama Cloud",
-      "route": "deepseek-v4-flash:0731",
+      "route": "deepseek-v4-flash-0731",
       "transport": "https://ollama.com/api",
-      "modelDigest": "4de9bf66c0eb",
+      "routeVerificationStatus": "INFERENCE_UNAUTHORIZED_HTTP_401",
+      "catalogAliasObserved": "deepseek-v4-flash:0731",
+      "catalogAliasDigest": "4de9bf66c0eb",
       "selfHostedSnapshot": "deepseek-ai/DeepSeek-V4-Flash-0731",
       "role": "VERY_LOW_COST_TEXT_TOOL_PLANNER",
       "priceSnapshotUsdPerMillion": {"status": "UNVERIFIED_FOR_OLLAMA_CLOUD"},
