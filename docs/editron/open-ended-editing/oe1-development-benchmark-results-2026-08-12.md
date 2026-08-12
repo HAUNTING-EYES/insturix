@@ -1,6 +1,6 @@
 # OE-1 development benchmark results
 
-- Status: **historical OE-1 screen complete; OE-2A verifier complete; fair contract-corrected rerun pending**
+- Status: **OE-2A fair rerun complete; one exact graph eligible for OE-2B proxy execution**
 - Recorded: 2026-08-12
 - Branch: `infrastructure-improvs-+Editron`
 - Implementation commit: `ea9156a2b027f040841353d45577059260d11732`
@@ -8,26 +8,15 @@
 
 ## Outcome in plain language
 
-The first affordable-model test produced two credible candidates for the next
-stage: **Gemini 3.5 Flash-Lite** and **GPT-5.6 Luna**. Both returned a
-schema-valid, envelope-bound response in all 63 development trials. Flash-Lite
-was materially cheaper and had tighter measured latency; Luna produced more
-non-empty proposals on the difficult reference reconstruction and noisy-input
-cases.
+The fair packet `1.0.4` rerun produced **one verifier-approved executable
+graph**: DeepSeek-V4-Flash-0731 on `DEV-01/C0/r2`. No model passed an executable
+`DEV-02` reference reconstruction or `DEV-03` audio/video timing graph. Luna and
+Flash-Lite also passed no `DEV-01` graph. Capability-gap handling remained much
+stronger: Luna passed 15/18, Flash-Lite 18/18, and DeepSeek 16/18 on `DEV-04`.
 
-**DeepSeek-V4-Flash-0731** showed strong task-specific promise, especially on
-the audio/timing task and the missing-capability case, but only 42 of 63
-responses parsed as envelope-bound graphs. It is therefore an OE-2 specialist
-or comparison arm, not the lead orchestrator from this result.
-
-**GPT-5.6 Terra** returned valid envelopes reliably but declined or clarified
-far more often than the other fully run candidates. **Gemini 3.6 Flash** is
-unranked because provider quota/rate limits prevented a comparable run.
-
-This is not a production model selection. OE-1 checked transport, JSON shape,
-envelope binding, rough operator coverage, cost, and latency. It did **not**
-verify graph semantics, port compatibility, renderability, preservation,
-editorial quality, or truthful proof.
+This authorizes isolated proxy execution of that exact accepted graph only. It
+does **not** select a production model, authorize ProjectService mutation, open
+the holdout, or establish renderability, editorial quality, or truthful proof.
 
 ## Frozen test contract
 
@@ -60,8 +49,8 @@ non-executable format example: canonical port names, `$control` ordering edges,
 optional expected-output assertions, `NONE`/`DECLARED_OPERATOR_EFFECTS`
 acknowledgements, and `ABORT_GRAPH`. Task goals, evidence, operator eligibility,
 policies, budgets, conditions, and score thresholds are unchanged. Old model
-outputs are not rewritten or rescored as if they had seen this new contract; a
-new fair development run is required.
+outputs were not rewritten or rescored as if they had seen this new contract;
+the completed fair rerun below used new responses to packet `1.0.4`.
 
 The development split contains four synthetic, internally owned tasks:
 
@@ -92,7 +81,7 @@ The locked holdout pack was not used. It remains reserved for the later
 go/modify/no-go decision after the OE-2 machinery and development screen are
 ready.
 
-## Aggregate results
+## Historical OE-1 aggregate results
 
 Latency percentiles use provider-successful trials. Cost is the run's recorded
 model-cost estimate and excludes later render, storage, and human-review cost.
@@ -178,6 +167,10 @@ The raw reports are intentionally gitignored under
 | `oe1-development-gemini-flash-paced-v1.json` | `af78528a315c0597cc4d67d0690fcc8f77bfa9069de3815790f83ed5436a079a` | Quota-limited Flash report; unranked. |
 | `oe1-development-deepseek-v4-flash-0731-fair-v1.json` | `6a71cee3caecc3331619206a711393cbba3e79f040bd8642554397a7d0fcb1a0` | Fair DeepSeek source report. |
 | `oe1-development-deepseek-v4-flash-0731-v1.json` | `9b0f32c16d8d06e526cb24ed21e5a014fa2240af98ceb58cdb30292379036df6` | Diagnostic packet-version mismatch; excluded. |
+| `oe2-development-rerun-packet-1.0.4-v1.json` | `c8f314993585c1aa9233354b88527aa34be09b5f5b745baa7c94193c7d90efa9` | Immutable 189-trial fair source report. |
+| `oe2-development-rerun-packet-1.0.4-v1.json.records.jsonl` | `de4ad2bca1722d34e36f9b7cab182159109c880c0584b60ba4bd2c38b32b53ec` | Append-only record stream; exactly matches the source report. |
+| `oe2-development-rerun-packet-1.0.4-verification-v1.json` | `207e60dd6ebbe703436e70ebf67d2c758e1d7ef841fc48146b0d5686974ff33e` | Retained initial scoring with two evaluator defects. |
+| `oe2-development-rerun-packet-1.0.4-verification-v2.json` | `7394301576f1266446f485c6e53d3492afa9fdd098795a28642d8f3bdea46f5d` | Corrected scoring, source- and V1-bound. |
 
 Because these reports contain raw model responses and operational cost/latency
 evidence, they remain local calibration artifacts. The hashes let a reviewer
@@ -199,22 +192,31 @@ detect later alteration without promoting them to production receipts.
 5. Do not run the holdout, choose a production router, or authorize model-driven
    project mutation from OE-1.
 
-### OE-2A verifier addendum
+### OE-2A fair rerun and corrected verification
 
-The first strict pass over the historical model outputs accepted every explicit
-`DEV-04` capability-gap response—18 per fully bound route—but accepted **zero
-executable `DEV-01` through `DEV-03` graphs**. The raw failures included both
-the contract ambiguities corrected above and genuine candidate defects such as
-invented or incompatible ports, unbound evidence, wrong ranges, missing task
-operations, missing preservation claims, and unsafe or unordered mutations.
+All 189 calls completed without retry, repair, web access, media rendering, or
+project mutation. Estimated model cost was `$1.539821`.
 
-This finding supersedes any interpretation that OE-1 established executable
-graph validity. It does not by itself prove the models cannot construct valid
-graphs, because they did not receive the clarified packet. The next authorized
-research action is a development-only rerun of Luna, Flash-Lite, and the
-DeepSeek specialist arm against exact packet `1.0.4`, followed by the same
-independent verifier. Holdouts and proxy rendering remain locked until at least
-one executable development graph passes without hidden repair.
+| Route | Structured candidate | `DEV-01` | `DEV-02` | `DEV-03` | `DEV-04` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GPT-5.6 Luna | 58/63; 5 envelope-rejected | 0/15 | 0/15 | 0/15 | 15/18 |
+| Gemini 3.5 Flash-Lite | 63/63 | 0/15 | 0/15 | 0/15 | 18/18 |
+| DeepSeek-V4-Flash-0731 | 45/63; 15 empty, 3 malformed | **1/15** | 0/15 | 0/15 | 16/18 |
+
+The initial scoring exposed two evaluator defects: numeric ranges such as
+`0..1` were silently treated as integer-only, and the `DEV-01` predicate ignored
+an exact resolver-to-cut data edge. Correcting those rules removed invalid
+issues from 58 records but changed exactly one disposition. Raw responses stayed
+byte-identical. The accepted trial is
+`oe1-deepseek-v4-flash-DEV-01-C0_SIGNATURES_ONLY-r2`, raw-response hash
+`69bd0556562a5597399297ce92f0f1d9435cf550d1de40c3b0922573aeb0ee2b`, graph hash
+`5bb707ca733f056433033db90da05790cd2e54caab82b9b14df60ab8fe592328`.
+
+Remaining failures are concrete: invented/aliased ports, double-bound inputs,
+unordered mutations, missing exact preservation claims, missing evidence,
+wrong ranges, absent task operations, and DeepSeek structured-output failures.
+OE-2B may proxy-execute only the accepted graph. Holdouts, production routing,
+model-driven product mutation, and claims of broad editing competence stay locked.
 
 ## What happens next: OE-2
 

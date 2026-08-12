@@ -189,6 +189,23 @@ describe('OE-2A graph verifier', () => {
     expect(() => getDevelopmentGraphPredicatesV1('HOLD-01')).toThrow(/No frozen OE-2 development predicates/);
     expect(JSON.stringify(artifact.packet)).not.toMatch(/DEV-01-REQUIRED-OPERATIONS|DEV-01-EVIDENCE-BOUND-CUT/);
   });
+
+  it('accepts an exact transcript-resolver data binding without requiring duplicate cut literals', () => {
+    const graph = makeGraph([
+      makeNode('resolve_transcript_edit', { query: 'here it is', action: 'cut_after_phrase', minGapFrames: 40, maxCutFrames: 60 }, { startFrame: 151, endFrame: 196 }, ['EV-DEV01-T1']),
+      makeNode('cut_section', {}, {}, ['EV-DEV01-T1']),
+      makeNode('set_keyframes', { overlayId: 'product-box', property: 'scale', keyframes: [{ frame: 0, value: 1 }, { frame: 5, value: 1.1 }] }, {}, ['EV-DEV01-V1']),
+      makeNode('apply_audio_ducking', { enabled: true, duckLevel: 0.4, rampDownMs: 80, rampUpMs: 120, lookAheadMs: 10 }, {}, ['EV-DEV01-A1']),
+    ]);
+    graph.edges = [
+      { fromNodeId: 'resolve', fromPort: 'startFrame', toNodeId: 'cut_section', toPort: 'startFrame' },
+      { fromNodeId: 'resolve', fromPort: 'endFrame', toNodeId: 'cut_section', toPort: 'endFrame' },
+    ];
+    const predicate = getDevelopmentGraphPredicatesV1('DEV-01').find(({ predicateId }) => predicateId === 'DEV-01-EVIDENCE-BOUND-CUT');
+    expect(predicate?.evaluate({ graph, artifact, operatorCatalog })).toBe(true);
+    graph.nodes[0].expectedOutputs.endFrame = 195;
+    expect(predicate?.evaluate({ graph, artifact, operatorCatalog })).toBe(false);
+  });
 });
 
 describe('OE-2A port-contract parser', () => {
@@ -196,6 +213,8 @@ describe('OE-2A port-contract parser', () => {
     const contract = parsePortContractV1(['overlayId-or-query', 'direction:in|out', 'level:0.1..0.8']);
     expect(contract.byName.get('overlayId')).toBe(contract.byName.get('query'));
     expect(validatePortValueV1('sideways', 'in|out', 100)).toMatch(/one of/);
+    expect(validatePortValueV1(0.2, '0..1', 100)).toBeUndefined();
+    expect(validatePortValueV1(2.5, 'integer', 100)).toMatch(/nonnegative integer/);
     expect(validatePortValueV1(2, '0.1..0.8', 100)).toMatch(/within/);
     expect(validatePortValueV1(101, 'global-frame', 100)).toMatch(/duration/);
     expect(validatePortValueV1([{ frame: 2 }, { frame: 1 }], 'local-keyframe[2+]', 100)).toMatch(/increasing/);

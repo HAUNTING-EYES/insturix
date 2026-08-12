@@ -54,9 +54,6 @@ export function validatePortValueV1(
   const range = parseNumericRange(typeExpression);
   if (range) {
     if (typeof value !== 'number' || !Number.isFinite(value)) return `must be a finite number in ${typeExpression}`;
-    if (Number.isInteger(range.minimum) && Number.isInteger(range.maximum) && !Number.isSafeInteger(value)) {
-      return `must be an integer in ${typeExpression}`;
-    }
     if (value < range.minimum || value > range.maximum) return `must be within ${typeExpression}`;
     return undefined;
   }

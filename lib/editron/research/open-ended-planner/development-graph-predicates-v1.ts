@@ -4,7 +4,7 @@ import {
 } from './contracts-v1';
 import { type GraphVerifierPredicateV1 } from './graph-verifier-v1';
 
-export const OE2_DEVELOPMENT_PREDICATE_VERSION_V1 = 'OE2_DEVELOPMENT_PREDICATES_V1';
+export const OE2_DEVELOPMENT_PREDICATE_VERSION_V1 = 'OE2_DEVELOPMENT_PREDICATES_V2';
 
 export function getDevelopmentGraphPredicatesV1(taskId: string): GraphVerifierPredicateV1[] {
   switch (taskId) {
@@ -21,8 +21,7 @@ function dev01Predicates(): GraphVerifierPredicateV1[] {
     predicate('DEV-01-REQUIRED-OPERATIONS', 'Pause removal, product emphasis, and speech ducking operations are required',
       (graph) => hasOperators(graph, ['cut_section', 'set_keyframes', 'apply_audio_ducking'])),
     predicate('DEV-01-EVIDENCE-BOUND-CUT', 'The cut must exactly use transcript-bound dead air [151,196)',
-      (graph) => nodes(graph, 'cut_section').some((node) =>
-        node.inputs.startFrame === 151 && node.inputs.endFrame === 196 && node.evidenceIds.includes('EV-DEV01-T1'))),
+      (graph) => nodes(graph, 'cut_section').some((node) => hasExactDev01CutBinding(graph, node))),
     predicate('DEV-01-BOUNDED-SCALE', 'Product scale keyframes must be local, evidence-bound, and remain within 1.00..1.12',
       (graph) => nodes(graph, 'set_keyframes').some((node) =>
         node.inputs.property === 'scale'
@@ -101,6 +100,21 @@ function nodes(graph: CandidateGraphV1, operatorId: string): CandidateGraphNodeV
 function hasOperators(graph: CandidateGraphV1, operatorIds: string[]): boolean {
   const present = new Set(graph.nodes.map(({ operatorId }) => operatorId));
   return operatorIds.every((operatorId) => present.has(operatorId));
+}
+
+function hasExactDev01CutBinding(graph: CandidateGraphV1, cut: CandidateGraphNodeV1): boolean {
+  if (!cut.evidenceIds.includes('EV-DEV01-T1')) return false;
+  if (cut.inputs.startFrame === 151 && cut.inputs.endFrame === 196) return true;
+  const startEdge = graph.edges.find((edge) =>
+    edge.toNodeId === cut.nodeId && edge.toPort === 'startFrame' && edge.fromPort === 'startFrame');
+  const endEdge = graph.edges.find((edge) =>
+    edge.toNodeId === cut.nodeId && edge.toPort === 'endFrame' && edge.fromPort === 'endFrame');
+  if (!startEdge || !endEdge || startEdge.fromNodeId !== endEdge.fromNodeId) return false;
+  const resolver = graph.nodes.find((node) => node.nodeId === startEdge.fromNodeId);
+  return resolver?.operatorId === 'resolve_transcript_edit'
+    && resolver.evidenceIds.includes('EV-DEV01-T1')
+    && resolver.expectedOutputs.startFrame === 151
+    && resolver.expectedOutputs.endFrame === 196;
 }
 
 function boundedKeyframes(value: unknown, minimum: number, maximum: number): boolean {
