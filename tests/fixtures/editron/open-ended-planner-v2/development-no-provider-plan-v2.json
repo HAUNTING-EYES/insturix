@@ -1,0 +1,1891 @@
+{
+  "planVersion": "EDITRON_OE_DEVELOPMENT_NO_PROVIDER_PLAN_V2",
+  "authority": "RESEARCH_ONLY_NO_PROVIDER_CALL_NO_PROJECT_MUTATION",
+  "stageOnePackets": [
+    {
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "packetHash": "b736df548135446f559ab1f41b7d4b233e3603dc12761218952e143dbc9a9974",
+      "transportHash": "2e05c79284903aeafb69de31c8be00b931b7f39836f717b093c7dff7f210bd93"
+    },
+    {
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "2cc6e88b206f1ccba79894fb588af8d3ba36cd37f531e68091498f544d28b14e",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "packetHash": "5170a82fc6bcde9ecf0954b56b5fc5cae51c722f40c3ef00ee7c7faf206ff8bf",
+      "transportHash": "2e05c79284903aeafb69de31c8be00b931b7f39836f717b093c7dff7f210bd93"
+    },
+    {
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "b89fb92e181b0504a212fe73c7c68d96561f0dfa23118b14d7fd47a479595107",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "packetHash": "fd796c0925bb87c446245549783d50ccdebf04e2982774c5d69334f0c9944fc9",
+      "transportHash": "70d15784cdc54174b821ebc6eaa440e262e5ba6d1fcad69eecf68d5e553c1817"
+    },
+    {
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "MULTIMODAL",
+      "packetHash": "5d3c6ee0d92fb55771eb5eb64afeb9d9da98cc67cfd07ed1d1c2a0f5b8e289fa",
+      "transportHash": "70d15784cdc54174b821ebc6eaa440e262e5ba6d1fcad69eecf68d5e553c1817"
+    },
+    {
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "1e7e408f413e1e6575f4b800517aa819fc109a9b144bb5dde75b1768d5d6d56e",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "packetHash": "f6832e7e48b17861d7f0bd79dada16fb2bd4b608e2a20edf34d6398ed23aeded",
+      "transportHash": "b8061a94abdc6b74e581846340ce2a905a84be4a4baaddcb8a0b0ae230f81ac0"
+    },
+    {
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "02c82fc2d33cd9929b1219124668350d86d24c3b37d8b5caf2284fa2034b4a1c",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "packetHash": "eaa62d5be9ff99c2dede7edbd6f5c460b0c3d6528e8244e29da0f12a82b4b169",
+      "transportHash": "b8061a94abdc6b74e581846340ce2a905a84be4a4baaddcb8a0b0ae230f81ac0"
+    },
+    {
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "635598a412ff3e62f12ba0dc0e6ec4edafa9df2ccc7683dcde7b8ff02ba06612",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "packetHash": "3391d62ed3650bf5111c03a7abc89c688c5a7e3f66d7da8343f3e041dd8f6d2d",
+      "transportHash": "6852b97afaf5a60b9b6852a23ab252708a91ebef3457c81dbe1108462e9985ea"
+    },
+    {
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "9bf10725454a7d7cf8b2ae8bb41d6e55d7713d86ee270eed4abd87c3f904036a",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "MULTIMODAL",
+      "packetHash": "79d7f75231e02360f4ee3ccdf75ec67cd98eb4e6e3078bedebda76ad54a427cf",
+      "transportHash": "6852b97afaf5a60b9b6852a23ab252708a91ebef3457c81dbe1108462e9985ea"
+    },
+    {
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "eeb0ad604ceabb5a85b75f1b2866c8f4e815a229e0a2c53c59c4dc55f8e43ac3",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "branches": [
+    {
+      "branchId": "oe-v2-dev-01-baseline-multimodal-free_choice",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "b736df548135446f559ab1f41b7d4b233e3603dc12761218952e143dbc9a9974",
+      "branchHash": "53068e490cc66020ddf0b44e4e78f3f7204f1e635d238a7b7a16d790436125d9",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-baseline-multimodal-forced_native",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "b736df548135446f559ab1f41b7d4b233e3603dc12761218952e143dbc9a9974",
+      "branchHash": "527e3c75e3ee1b5d83e16b600e221e8a6e86a5206b68755edd279df14d3c8b44",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-baseline-multimodal-forced_generated_composition",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "b736df548135446f559ab1f41b7d4b233e3603dc12761218952e143dbc9a9974",
+      "branchHash": "718e49559f6997daed82503f99992af9735221ee8fc55179905e898a59986b36",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-baseline-multimodal-forced_hybrid",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "b736df548135446f559ab1f41b7d4b233e3603dc12761218952e143dbc9a9974",
+      "branchHash": "dbd85bdb56288333cbe55a1c462557da86e02139167ad7faa7e8baf00bc3d660",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-baseline-multimodal-threshold_ablation",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "b736df548135446f559ab1f41b7d4b233e3603dc12761218952e143dbc9a9974",
+      "branchHash": "ac95016cd4f53b4f07c9e913191014010705bb9e6a5d19c7884ef900a255bbb8",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-baseline-multimodal-signal_ablation",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "b736df548135446f559ab1f41b7d4b233e3603dc12761218952e143dbc9a9974",
+      "branchHash": "73d1a277a0196167a90942d12bef656869ae75bbd146a3c15c9c97b3a029b180",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-baseline-text_evidence_only-free_choice",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "2cc6e88b206f1ccba79894fb588af8d3ba36cd37f531e68091498f544d28b14e",
+      "branchHash": "07f1696f39cc996850523e68530ff7d1c6a60704da0cdc0606d7f7c5cc1f47fb",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-baseline-text_evidence_only-forced_native",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "2cc6e88b206f1ccba79894fb588af8d3ba36cd37f531e68091498f544d28b14e",
+      "branchHash": "ae45b6be0c69dcc48f0a39c9ac95c897f5427a205964c77971bfdfbdf519c265",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-baseline-text_evidence_only-forced_generated_composition",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "2cc6e88b206f1ccba79894fb588af8d3ba36cd37f531e68091498f544d28b14e",
+      "branchHash": "b7b82f7d55a2d2d9a775eb000f0833e930322fe4c3c4bb2c8879d65943bdbb6b",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-baseline-text_evidence_only-forced_hybrid",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "2cc6e88b206f1ccba79894fb588af8d3ba36cd37f531e68091498f544d28b14e",
+      "branchHash": "82a84c8c5fb1596fd80b65d4c90f3a76abc96a6401f1a2abfb2761bf340f7fd5",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-baseline-text_evidence_only-threshold_ablation",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "2cc6e88b206f1ccba79894fb588af8d3ba36cd37f531e68091498f544d28b14e",
+      "branchHash": "12bcfd54eff0dfcdd0f299008d634ca7bd23baa09d9ef534fa31dbe71ae21fa2",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-baseline-text_evidence_only-signal_ablation",
+      "taskId": "DEV-01",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "2cc6e88b206f1ccba79894fb588af8d3ba36cd37f531e68091498f544d28b14e",
+      "branchHash": "c4147dd46cde8e292d116c303b526033661d72e24bd94b7740db522ee3ea9cb5",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-multimodal-free_choice",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "5170a82fc6bcde9ecf0954b56b5fc5cae51c722f40c3ef00ee7c7faf206ff8bf",
+      "branchHash": "713b5e8e4d56e72fb65b297d8a3a159540195398264e5d042d08c938c0328146",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-multimodal-forced_native",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "5170a82fc6bcde9ecf0954b56b5fc5cae51c722f40c3ef00ee7c7faf206ff8bf",
+      "branchHash": "cf62ed3b7d07e8772acce82371d79b9a41ff21d7702bc7a5f85f1864cc4a60af",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-multimodal-forced_generated_composition",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "5170a82fc6bcde9ecf0954b56b5fc5cae51c722f40c3ef00ee7c7faf206ff8bf",
+      "branchHash": "559d2fe2152d421a0586467c65a129c42c1bb218c2d48f67fc67b564f03df16c",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-multimodal-forced_hybrid",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "5170a82fc6bcde9ecf0954b56b5fc5cae51c722f40c3ef00ee7c7faf206ff8bf",
+      "branchHash": "b7404a26eb6d9b1f4b51976dda80ceadd18efd766a86ed8dd37071d5e594810c",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-multimodal-threshold_ablation",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "5170a82fc6bcde9ecf0954b56b5fc5cae51c722f40c3ef00ee7c7faf206ff8bf",
+      "branchHash": "d615ea0eda04d3745f3181b781e75ac7463f2c08eed6f477b82913230e4669f0",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-multimodal-signal_ablation",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "5170a82fc6bcde9ecf0954b56b5fc5cae51c722f40c3ef00ee7c7faf206ff8bf",
+      "branchHash": "6e9dd80dd636be8b24b9c795204e4fe03875163de3f3273816f3188a097c54dd",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-text_evidence_only-free_choice",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "b89fb92e181b0504a212fe73c7c68d96561f0dfa23118b14d7fd47a479595107",
+      "branchHash": "b4a21fdb6930dea68803f8e016770a07146d9ccd0ac19fff380db235114b74c1",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-text_evidence_only-forced_native",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "b89fb92e181b0504a212fe73c7c68d96561f0dfa23118b14d7fd47a479595107",
+      "branchHash": "cd18e46f5539325d893b3dfa22bd8e2c49630bba9a58299c9ff4904ef73f970a",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-text_evidence_only-forced_generated_composition",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "b89fb92e181b0504a212fe73c7c68d96561f0dfa23118b14d7fd47a479595107",
+      "branchHash": "67aa7ef8719f9f0efab019fe4c779bcd51b0556dd7aa38d2b8d3bb91af55b903",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-text_evidence_only-forced_hybrid",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "b89fb92e181b0504a212fe73c7c68d96561f0dfa23118b14d7fd47a479595107",
+      "branchHash": "f0bea58b055031a0ad2ec529d866fbabc61d8970ba374d80b0385cd49370b863",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-text_evidence_only-threshold_ablation",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "b89fb92e181b0504a212fe73c7c68d96561f0dfa23118b14d7fd47a479595107",
+      "branchHash": "493c0fa9b5504a6d8728631b93c0a4d1546cc4bd4778d4ad7b48a95677c57955",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-01-visual_evidence_withheld-text_evidence_only-signal_ablation",
+      "taskId": "DEV-01",
+      "conditionId": "VISUAL_EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "b89fb92e181b0504a212fe73c7c68d96561f0dfa23118b14d7fd47a479595107",
+      "branchHash": "1ed2f264ea033cfc4c790034be9e4c8f35316cacb00c4eca52b0fbe7a574d0fb",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-multimodal-free_choice",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "fd796c0925bb87c446245549783d50ccdebf04e2982774c5d69334f0c9944fc9",
+      "branchHash": "8bd196deaee23de759272cdb8cff6e030b236bd89b488e38413bc7b21b59156a",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-multimodal-forced_native",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "fd796c0925bb87c446245549783d50ccdebf04e2982774c5d69334f0c9944fc9",
+      "branchHash": "bf51d9c7438cdf152919d4b391721e5858e96a5ce32b4ca0dcfa6d692b547984",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-multimodal-forced_generated_composition",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "fd796c0925bb87c446245549783d50ccdebf04e2982774c5d69334f0c9944fc9",
+      "branchHash": "7c276ef30707c41cee3d786dfa9308c3a37fdf33524c9fe023428fd77565a47b",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-multimodal-forced_hybrid",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "fd796c0925bb87c446245549783d50ccdebf04e2982774c5d69334f0c9944fc9",
+      "branchHash": "ca09c93c9224c38f02f43c7c62ea13dee78525ac0ea6b766151fbd6a723ab8f3",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-multimodal-threshold_ablation",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "fd796c0925bb87c446245549783d50ccdebf04e2982774c5d69334f0c9944fc9",
+      "branchHash": "2e0883c0035b17728683b4a1f00298517b4600274719e1bbd485e8f79e2cecf4",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-multimodal-signal_ablation",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "fd796c0925bb87c446245549783d50ccdebf04e2982774c5d69334f0c9944fc9",
+      "branchHash": "d63e52027dcc252c71854c9eb0800b4d653820df0f68cd8a444a9ac5ba5e5e21",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-text_evidence_only-free_choice",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "branchHash": "7187e7d74713282f13698c917efe8a747b4f5f43f558241511561021b0dc1ec5",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-text_evidence_only-forced_native",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "branchHash": "5ab9715c586a7350cc943693f9d2ac4590e33681e970976240c2dc84307fc8a3",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-text_evidence_only-forced_generated_composition",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "branchHash": "6d41a5fdc1515a68663000f38eecd2b7162fcc500b7b127a82c2ef4e7a234f7f",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-text_evidence_only-forced_hybrid",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "branchHash": "6d38f87d5cba60a8d555aef53d0dabe8e1cecdd5c49821633b8a5993025041bc",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-text_evidence_only-threshold_ablation",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "branchHash": "b6d75f6468c1f53e0aa51b0622b766b4db2be344d1d297916aa1fa885fb6763c",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-baseline-text_evidence_only-signal_ablation",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "branchHash": "2c76ee742104c92d8de40ce385c531a8ab4628580bc28514d545f3f94790503f",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-multimodal-free_choice",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "5d3c6ee0d92fb55771eb5eb64afeb9d9da98cc67cfd07ed1d1c2a0f5b8e289fa",
+      "branchHash": "faef405425b7188f7e8b1266db103ea189d06783287841f9deb4bbdbc65b757c",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-multimodal-forced_native",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "5d3c6ee0d92fb55771eb5eb64afeb9d9da98cc67cfd07ed1d1c2a0f5b8e289fa",
+      "branchHash": "788da0f9dd9e4603c1b0a65a9ac8c04f5ffde25d93861d1e128f60fe011b74e0",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-multimodal-forced_generated_composition",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "5d3c6ee0d92fb55771eb5eb64afeb9d9da98cc67cfd07ed1d1c2a0f5b8e289fa",
+      "branchHash": "47d3b3eb95aa303d308367abd4d28edda52facbc0a10b62dc5ccc82e0ec65669",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-multimodal-forced_hybrid",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "5d3c6ee0d92fb55771eb5eb64afeb9d9da98cc67cfd07ed1d1c2a0f5b8e289fa",
+      "branchHash": "c3e413219487373f519c65b625643822f76124eaecb4af9efd1038e8026bc235",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-multimodal-threshold_ablation",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "5d3c6ee0d92fb55771eb5eb64afeb9d9da98cc67cfd07ed1d1c2a0f5b8e289fa",
+      "branchHash": "fd0ebc05b56b634ce0b753f9c6dde7d70d6d10beed5205e401cfb8b91ae3bd9a",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-multimodal-signal_ablation",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "5d3c6ee0d92fb55771eb5eb64afeb9d9da98cc67cfd07ed1d1c2a0f5b8e289fa",
+      "branchHash": "553bb71af358016554544b597484eeb531f1b53d88b9b75b78d3e37020ba6eab",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-text_evidence_only-free_choice",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "1e7e408f413e1e6575f4b800517aa819fc109a9b144bb5dde75b1768d5d6d56e",
+      "branchHash": "b15cb60bc9cd24704cecafb3a64284f4b3389f53fea26e16b011bd28c649c1ce",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-text_evidence_only-forced_native",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "1e7e408f413e1e6575f4b800517aa819fc109a9b144bb5dde75b1768d5d6d56e",
+      "branchHash": "4d43bb3ffe0d6e512e34908025b21151f06d6a867e20210e0756f484d5b92f16",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-text_evidence_only-forced_generated_composition",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "1e7e408f413e1e6575f4b800517aa819fc109a9b144bb5dde75b1768d5d6d56e",
+      "branchHash": "aa0f1df4fa72407c634af0735e94ffd8ab7598c2db5a8d8a43f83f4b79d9e744",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-text_evidence_only-forced_hybrid",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "1e7e408f413e1e6575f4b800517aa819fc109a9b144bb5dde75b1768d5d6d56e",
+      "branchHash": "43ce24e520b48f66d9dbe374e30e8129fa1d152f430049f9cbb5b86c6e63ef2f",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-text_evidence_only-threshold_ablation",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "1e7e408f413e1e6575f4b800517aa819fc109a9b144bb5dde75b1768d5d6d56e",
+      "branchHash": "177d77f6d6833efa3b39dd4314c3c0bcdcc26ab2264ccaea5aad6d49a2bfe632",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-02-noisy_reference-text_evidence_only-signal_ablation",
+      "taskId": "DEV-02",
+      "conditionId": "NOISY_REFERENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "1e7e408f413e1e6575f4b800517aa819fc109a9b144bb5dde75b1768d5d6d56e",
+      "branchHash": "ec8ff5303e8d826e8b800a993c5ca9a43c1b95057c8eb416c81bc63e9ec9a4fa",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-multimodal-free_choice",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "f6832e7e48b17861d7f0bd79dada16fb2bd4b608e2a20edf34d6398ed23aeded",
+      "branchHash": "282ed0cd08eaa6391b91a397c08e209ce1f5af541eaf29826f128e5d0d7ba925",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-multimodal-forced_native",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "f6832e7e48b17861d7f0bd79dada16fb2bd4b608e2a20edf34d6398ed23aeded",
+      "branchHash": "86bf1709ed743cdad2e8917021b0715eac2fc7944226dc5e5285c08459866410",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-multimodal-forced_generated_composition",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "f6832e7e48b17861d7f0bd79dada16fb2bd4b608e2a20edf34d6398ed23aeded",
+      "branchHash": "e2ae0f7e902681999c148897e68c649c7178b6567f5976fde7d85f24d5d3c1c2",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-multimodal-forced_hybrid",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "f6832e7e48b17861d7f0bd79dada16fb2bd4b608e2a20edf34d6398ed23aeded",
+      "branchHash": "95ae04818b56906645efb66d6e132ba497a9902643defa4a2595b81329e8df25",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-multimodal-threshold_ablation",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "f6832e7e48b17861d7f0bd79dada16fb2bd4b608e2a20edf34d6398ed23aeded",
+      "branchHash": "4cac47ae6201647c9ce63fca5940f0d4242976b6b7d4134a1a9b186b3c811486",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-multimodal-signal_ablation",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "f6832e7e48b17861d7f0bd79dada16fb2bd4b608e2a20edf34d6398ed23aeded",
+      "branchHash": "57da3179162d84431aeb0a32fa92f9958ae054c91b7bbc36be1abc1a404c0762",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-text_evidence_only-free_choice",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "02c82fc2d33cd9929b1219124668350d86d24c3b37d8b5caf2284fa2034b4a1c",
+      "branchHash": "e2674499d5f559e58b6d339196b8b57d9104c7b0a41a091fa3aba08b70a5e883",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-text_evidence_only-forced_native",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "02c82fc2d33cd9929b1219124668350d86d24c3b37d8b5caf2284fa2034b4a1c",
+      "branchHash": "ea60c9fdb13eaff8d95853b74532537457e98b34c66f609e6dd38f2ec450f5d0",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-text_evidence_only-forced_generated_composition",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "02c82fc2d33cd9929b1219124668350d86d24c3b37d8b5caf2284fa2034b4a1c",
+      "branchHash": "49bd72e90e335a0aa6c6c86dcc2a4e3365623169a018d083cf6029bbabdf2676",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-text_evidence_only-forced_hybrid",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "02c82fc2d33cd9929b1219124668350d86d24c3b37d8b5caf2284fa2034b4a1c",
+      "branchHash": "79538d0f4fb5ae3677e9de84d2a6520ed2308ed0d2ccccb1cc848fabc1387be9",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-text_evidence_only-threshold_ablation",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "02c82fc2d33cd9929b1219124668350d86d24c3b37d8b5caf2284fa2034b4a1c",
+      "branchHash": "1ce07d8022462914bfe139ef24779be755220de675f2752da4f7f75a22c28e7f",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-baseline-text_evidence_only-signal_ablation",
+      "taskId": "DEV-03",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "02c82fc2d33cd9929b1219124668350d86d24c3b37d8b5caf2284fa2034b4a1c",
+      "branchHash": "1a45a1ca3dab4bd351bad9c433a1a72ca63c7c5e86005cad3f66d17203e642ee",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-free_choice",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "eaa62d5be9ff99c2dede7edbd6f5c460b0c3d6528e8244e29da0f12a82b4b169",
+      "branchHash": "47007d56e830919aaa7b56f5f18fc9b9b3cb56085c853ebd92ab9dead1e296bc",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-forced_native",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "eaa62d5be9ff99c2dede7edbd6f5c460b0c3d6528e8244e29da0f12a82b4b169",
+      "branchHash": "e80d415d2805a2275ef6db5ed9c21b9c50a17b0e45c889331940facc364d9d51",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-forced_generated_composition",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "eaa62d5be9ff99c2dede7edbd6f5c460b0c3d6528e8244e29da0f12a82b4b169",
+      "branchHash": "c88c1949f9e4a3ec24b682b203e55b41da724e92904586ddd8c8262bda7d24db",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-forced_hybrid",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "eaa62d5be9ff99c2dede7edbd6f5c460b0c3d6528e8244e29da0f12a82b4b169",
+      "branchHash": "612a6243b361aac486399a5a9bd0fdcc8ad236a717beb84538c5a0a609702668",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-threshold_ablation",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "eaa62d5be9ff99c2dede7edbd6f5c460b0c3d6528e8244e29da0f12a82b4b169",
+      "branchHash": "700f2649d327e3dbbd5dc1be92564f03c411885632834a4a5c40579fcc58fa8a",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-signal_ablation",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "eaa62d5be9ff99c2dede7edbd6f5c460b0c3d6528e8244e29da0f12a82b4b169",
+      "branchHash": "692b10043e98273da40ae475d8d15a5eefb0ec9766cecc853d6b57e89e1ad766",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-free_choice",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "635598a412ff3e62f12ba0dc0e6ec4edafa9df2ccc7683dcde7b8ff02ba06612",
+      "branchHash": "fa46ddd7c5ae10759fe3df78bb061bb9e74034415eeaa9b3cf69237e1efa9c42",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-forced_native",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "635598a412ff3e62f12ba0dc0e6ec4edafa9df2ccc7683dcde7b8ff02ba06612",
+      "branchHash": "7081056a28a0730dafb9b25f5c0e0cc869accd2f4626f762fc5bfda981e46635",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-forced_generated_composition",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "635598a412ff3e62f12ba0dc0e6ec4edafa9df2ccc7683dcde7b8ff02ba06612",
+      "branchHash": "97000222500e596a6fa0c1fa3d6f4457e5cd25e2299edfac38aac5df7de76a8b",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-forced_hybrid",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "635598a412ff3e62f12ba0dc0e6ec4edafa9df2ccc7683dcde7b8ff02ba06612",
+      "branchHash": "842233c4923c52249d43654e2a828ce4eae7954c6dd49eed709c439f8848aa53",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-threshold_ablation",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "635598a412ff3e62f12ba0dc0e6ec4edafa9df2ccc7683dcde7b8ff02ba06612",
+      "branchHash": "1547e01dc065c3b89102e63c058e5e6dd97caf19fc264be65b8eacf893c16e3e",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-signal_ablation",
+      "taskId": "DEV-03",
+      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "635598a412ff3e62f12ba0dc0e6ec4edafa9df2ccc7683dcde7b8ff02ba06612",
+      "branchHash": "9606355bcae8f798e94939513aabda25a2b751c0a418e68baa1a876eab721898",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-multimodal-free_choice",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "3391d62ed3650bf5111c03a7abc89c688c5a7e3f66d7da8343f3e041dd8f6d2d",
+      "branchHash": "c3b8ea050c10131dcb8753bc35f1ff9a91f88d5341c60359d28cb13887bfb92c",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-multimodal-forced_native",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "3391d62ed3650bf5111c03a7abc89c688c5a7e3f66d7da8343f3e041dd8f6d2d",
+      "branchHash": "1677bb3d0a8895b11824fd01567ce97315060f6d51348b292e3f1753e841384b",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-multimodal-forced_generated_composition",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "3391d62ed3650bf5111c03a7abc89c688c5a7e3f66d7da8343f3e041dd8f6d2d",
+      "branchHash": "3a45a3f7ad84ab223c2073c103fe0b741639c2c9602d30c4588c2c60fb6428e4",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-multimodal-forced_hybrid",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "3391d62ed3650bf5111c03a7abc89c688c5a7e3f66d7da8343f3e041dd8f6d2d",
+      "branchHash": "07108da46e3187cb0d6f65dc5eb3a17da0e2a9defd6fbe3d39dcd371ef7d46e2",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-multimodal-threshold_ablation",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "3391d62ed3650bf5111c03a7abc89c688c5a7e3f66d7da8343f3e041dd8f6d2d",
+      "branchHash": "b0942c1163b95069451d1a7e58911a8f885b01f60a7c672cff486d87da4e4aa6",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-multimodal-signal_ablation",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "3391d62ed3650bf5111c03a7abc89c688c5a7e3f66d7da8343f3e041dd8f6d2d",
+      "branchHash": "80fb502afddee1f1a413c4ae07061bb7006a939834ee092e70ef67339aaeb1d2",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-text_evidence_only-free_choice",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "9bf10725454a7d7cf8b2ae8bb41d6e55d7713d86ee270eed4abd87c3f904036a",
+      "branchHash": "9b45b25d1ff6c0928200855264fa0f215164719d3d98337a6fecea895df389b1",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-text_evidence_only-forced_native",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "9bf10725454a7d7cf8b2ae8bb41d6e55d7713d86ee270eed4abd87c3f904036a",
+      "branchHash": "3fb5a40e49a732577908a7b8d89a8e99e8a1eaf01e5d35ac27aa2e77e13a89ed",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-text_evidence_only-forced_generated_composition",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "9bf10725454a7d7cf8b2ae8bb41d6e55d7713d86ee270eed4abd87c3f904036a",
+      "branchHash": "4916c5274e4ef13220e91d5049627c3b63f0a5f64ae0cdd88fb7d1cf0656819a",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-text_evidence_only-forced_hybrid",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "9bf10725454a7d7cf8b2ae8bb41d6e55d7713d86ee270eed4abd87c3f904036a",
+      "branchHash": "698ab34c97c146d0358c5fe576971ce4e047c80711aefad6cf01d2edaf0b4fe8",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-text_evidence_only-threshold_ablation",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "9bf10725454a7d7cf8b2ae8bb41d6e55d7713d86ee270eed4abd87c3f904036a",
+      "branchHash": "2caec9acb77b9aea1a991da6be16ae77c24636db359809dbec95a7553555793d",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-baseline-text_evidence_only-signal_ablation",
+      "taskId": "DEV-04",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "9bf10725454a7d7cf8b2ae8bb41d6e55d7713d86ee270eed4abd87c3f904036a",
+      "branchHash": "4c7622e9fcd79e909980e43c43ed959555c0ac4e0a012e3068f39a9552e2d328",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-multimodal-free_choice",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "79d7f75231e02360f4ee3ccdf75ec67cd98eb4e6e3078bedebda76ad54a427cf",
+      "branchHash": "4de7f675ca22e1654c28f902a0ab426d3470432e17cabb6155d933ff8c24251d",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-multimodal-forced_native",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "79d7f75231e02360f4ee3ccdf75ec67cd98eb4e6e3078bedebda76ad54a427cf",
+      "branchHash": "976f4b28b7cad5b02a5d0cd7facd5454576f46d784ce6a7439084c48ea1a340a",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-multimodal-forced_generated_composition",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "79d7f75231e02360f4ee3ccdf75ec67cd98eb4e6e3078bedebda76ad54a427cf",
+      "branchHash": "3239f465561141bbdfc9cd36a8a637180b4378ead07f39d94bb9c3026cb345ee",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-multimodal-forced_hybrid",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "79d7f75231e02360f4ee3ccdf75ec67cd98eb4e6e3078bedebda76ad54a427cf",
+      "branchHash": "622e2cf8b966899196e245bd3087bb96d5481924fd48fb0908ee310fa0b31657",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-multimodal-threshold_ablation",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "79d7f75231e02360f4ee3ccdf75ec67cd98eb4e6e3078bedebda76ad54a427cf",
+      "branchHash": "103db17a786cfd0875535519150d58e8d12bb3f5c4b86c82766d138f593f9f16",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-multimodal-signal_ablation",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "MULTIMODAL",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "79d7f75231e02360f4ee3ccdf75ec67cd98eb4e6e3078bedebda76ad54a427cf",
+      "branchHash": "9ce6a55cb303356187b05552a293a8ecfe1c8d2a5a4d96227ab6e8ba52a39c92",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-text_evidence_only-free_choice",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FREE_CHOICE",
+      "stageOnePacketHash": "eeb0ad604ceabb5a85b75f1b2866c8f4e815a229e0a2c53c59c4dc55f8e43ac3",
+      "branchHash": "9b8c224bde40ddea3e6a74167625850f9e2bd7a618d14b4d594c9abc0b90aa7a",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-text_evidence_only-forced_native",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_NATIVE",
+      "stageOnePacketHash": "eeb0ad604ceabb5a85b75f1b2866c8f4e815a229e0a2c53c59c4dc55f8e43ac3",
+      "branchHash": "e39c53511267c083109a1a5cd530a64edf2b633b329c6609488be8438ce225a4",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-text_evidence_only-forced_generated_composition",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_GENERATED_COMPOSITION",
+      "stageOnePacketHash": "eeb0ad604ceabb5a85b75f1b2866c8f4e815a229e0a2c53c59c4dc55f8e43ac3",
+      "branchHash": "2a7a317a321a8f3f94f14cc3343208124eef74dd4e948904987adb4e7af5f047",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-text_evidence_only-forced_hybrid",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "FORCED_HYBRID",
+      "stageOnePacketHash": "eeb0ad604ceabb5a85b75f1b2866c8f4e815a229e0a2c53c59c4dc55f8e43ac3",
+      "branchHash": "a444b6580bb56fc03d92b888796ead928824046dc24669fd20e3d28e63082274",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-text_evidence_only-threshold_ablation",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "THRESHOLD_ABLATION",
+      "stageOnePacketHash": "eeb0ad604ceabb5a85b75f1b2866c8f4e815a229e0a2c53c59c4dc55f8e43ac3",
+      "branchHash": "da4101085f97a007e3edbb14e0c51c10b731c956a7729b32a38b66f7b557e174",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    },
+    {
+      "branchId": "oe-v2-dev-04-noisy-visual-evidence-text_evidence_only-signal_ablation",
+      "taskId": "DEV-04",
+      "conditionId": "NOISY-VISUAL-EVIDENCE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "executionFormArm": "SIGNAL_ABLATION",
+      "stageOnePacketHash": "eeb0ad604ceabb5a85b75f1b2866c8f4e815a229e0a2c53c59c4dc55f8e43ac3",
+      "branchHash": "9fbad4accc5f899c8e70c027e13f53a1b130fdbdb3ca402f23e8e24a3f48f276",
+      "stageStatuses": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
+        "STAGE_3_BLOCKED_ON_EDITORIAL_INTENT",
+        "STAGE_4_BLOCKED_ON_EVIDENCE_BOUND_INTENT",
+        "STAGE_5_BLOCKED_ON_COMPILE_DIAGNOSTICS",
+        "STAGE_6_BLOCKED_V2_1B_NO_EXECUTOR",
+        "STAGE_7_BLOCKED_V2_1B_NO_RENDER"
+      ]
+    }
+  ],
+  "noProviderTelemetry": {
+    "provider": "NO_PROVIDER",
+    "model": "NO_MODEL",
+    "providerRequestId": null,
+    "inputArm": "VARIES_BY_PLAN_ROW",
+    "executionFormArm": "VARIES_BY_PLAN_ROW",
+    "attempt": 0,
+    "inputTokens": 0,
+    "cachedInputTokens": 0,
+    "visibleOutputTokens": 0,
+    "reasoningTokens": 0,
+    "totalTokens": 0,
+    "finishReason": "NOT_DISPATCHED_V2_1B",
+    "truncated": false,
+    "latencyMs": 0,
+    "providerCostUsd": 0,
+    "parseStatus": "NOT_ATTEMPTED",
+    "schemaDiagnostics": [],
+    "artifactSha256": null
+  },
+  "sourceBindings": [
+    {
+      "path": "tests/fixtures/editron/open-ended-planner-v2/benchmark-contract-v2.json",
+      "sha256": "92d6050cc1ad69bda95378893d5bc058f6180dffbe8af1dbc78d3611d1419b6a"
+    },
+    {
+      "path": "tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json",
+      "sha256": "0d92de22851ba3def9318b7d04538d514718e92a52848bc026457425fe4160ee"
+    },
+    {
+      "path": "tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json",
+      "sha256": "63df1812efd800d172f47a1fb3ae5700490bebf99bff249f9a8cfb0b7109c56c"
+    },
+    {
+      "path": "tests/fixtures/editron/open-ended-planner-v2/development-media-manifest-v2.json",
+      "sha256": "11b72b5923b8c6f027f994c0638fda9217cc004d537dfdd8a1d2c58b29d4d925"
+    },
+    {
+      "path": "lib/editron/research/open-ended-planner/staged-packet-v2.ts",
+      "sha256": "ace6cc34b37b9aaabea433bcb4149cdc6bf99075140fb81de97f050bb49955c3"
+    }
+  ],
+  "planHash": "2c48272a7c137b012ec23060d521516a383513c4cf3455f8623400b1b6146d01"
+}
