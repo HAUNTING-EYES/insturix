@@ -60,7 +60,7 @@ export function materializePlannerPacketV1(input: {
   const packet: PlannerPacketV1 = {
     packetVersion: 'OE1_PLANNER_PACKET_V1',
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION',
-    benchmarkContractVersion: benchmarkContract.version,
+    benchmarkContractVersion: benchmarkContract.plannerPacketContractVersion,
     taskId: task.taskId,
     taskVersion: task.version,
     conditionId,

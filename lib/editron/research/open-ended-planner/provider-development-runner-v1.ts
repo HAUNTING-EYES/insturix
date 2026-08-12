@@ -20,7 +20,7 @@ import { materializePlannerPacketV1 } from './materialize-packet-v1';
 import { runPlannerTrialV1 } from './trial-harness-v1';
 
 type FetchV1 = typeof fetch;
-type ProviderKindV1 = 'openai' | 'ollama' | 'google';
+type ProviderKindV1 = 'openai' | 'ollama' | 'google' | 'deepseek';
 
 const CANDIDATE_GRAPH_JSON_SCHEMA = (
   benchmarkJson.schemas.candidateGraphV1 as typeof benchmarkJson.schemas.candidateGraphV1 & {
@@ -74,7 +74,7 @@ export function createPlannerProviderAdapterV1(input: {
   return {
     provider: input.kind,
     modelSnapshot: input.modelSnapshot ?? input.model,
-    reasoningMode: input.kind === 'ollama' ? 'high' : 'medium',
+    reasoningMode: input.kind === 'ollama' || input.kind === 'deepseek' ? 'high' : 'medium',
     invoke: async ({ prompt, signal }) => {
       try {
         const response = await invokeProvider(input, prompt, fetchImpl, combineSignals(signal, timeoutMs));
@@ -122,6 +122,21 @@ async function invokeProvider(
       }),
     });
   }
+  if (input.kind === 'deepseek') {
+    return fetchImpl('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST', signal,
+      headers: { Authorization: `Bearer ${input.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: input.model,
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+        max_tokens: 16_384,
+        response_format: { type: 'json_object' },
+        thinking: { type: 'enabled' },
+        reasoning_effort: 'high',
+      }),
+    });
+  }
   return fetchImpl(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.model)}:generateContent`,
     {
@@ -148,6 +163,17 @@ function parseProviderSuccess(kind: ProviderKindV1, body: Record<string, unknown
   }
   if (kind === 'ollama') {
     return success(body.response, body.prompt_eval_count, body.eval_count);
+  }
+  if (kind === 'deepseek') {
+    const choices = Array.isArray(body.choices) ? body.choices : [];
+    const message = asRecord(asRecord(choices[0]).message);
+    const usage = asRecord(body.usage);
+    return success(
+      message.content,
+      usage.prompt_tokens,
+      usage.completion_tokens,
+      usage.prompt_cache_hit_tokens,
+    );
   }
   const usage = asRecord(body.usageMetadata);
   const candidates = Array.isArray(body.candidates) ? body.candidates : [];

@@ -75,10 +75,11 @@ const holdoutTasks = holdoutTasksJson.tasks as unknown as TaskFixture[];
 const allTasks = [...developmentTasks, ...holdoutTasks];
 const knowledgeEntries = knowledgeEntriesJson.entries as KnowledgeEntryFixture[];
 
-describe('K/OE-0.4 frozen benchmark and OE-1 core integrity', () => {
+describe('K/OE-0.6 frozen benchmark and OE-1 core integrity', () => {
   it('makes all six conditions constructible from declared frozen inputs', () => {
-    expect(benchmarkContract.version).toBe('1.0.4');
-    expect(benchmarkContract.status).toBe('FROZEN_PHASE_A_ERRATA_4');
+    expect(benchmarkContract.version).toBe('1.0.6');
+    expect(benchmarkContract.plannerPacketContractVersion).toBe('1.0.3');
+    expect(benchmarkContract.status).toBe('FROZEN_PHASE_A_ERRATA_6');
     expect(benchmarkContract.knowledgeEntries).toBe(
       'tests/fixtures/editron/open-ended-planner-v1/knowledge-entries-v1.json',
     );
@@ -105,10 +106,13 @@ describe('K/OE-0.4 frozen benchmark and OE-1 core integrity', () => {
     expect(benchmarkContract.providerCandidates.map(({ route }) => route)).toEqual([
       'gpt-5.6-luna',
       'gpt-5.6-terra',
-      'deepseek-v4-flash-0731',
+      'deepseek-v4-flash',
       'gemini-3.5-flash-lite',
       'gemini-3.6-flash',
     ]);
+    const pinnedPacket = materializeDevelopmentArtifact('C0_SIGNATURES_ONLY');
+    expect(pinnedPacket.packet.benchmarkContractVersion).toBe('1.0.3');
+    expect(pinnedPacket.packetHash).toBe('dcdfbd2362e4b59f06dfd5d51dd565d7c4f2ed17455c31b2ac4c600e0e62757a');
   });
 
   it('binds every task to one explicit C4 variant without leaking omitted clean evidence', () => {
@@ -406,6 +410,14 @@ describe('K/OE-0.4 frozen benchmark and OE-1 core integrity', () => {
         endpoint: 'https://ollama.com/api/generate',
       },
       {
+        kind: 'deepseek' as const, model: 'deepseek-v4-flash',
+        response: {
+          choices: [{ message: { content: '{}' } }],
+          usage: { prompt_tokens: 4, completion_tokens: 2, prompt_cache_hit_tokens: 1 },
+        },
+        endpoint: 'https://api.deepseek.com/v1/chat/completions',
+      },
+      {
         kind: 'google' as const, model: 'gemini-3.6-flash',
         response: {
           candidates: [{ content: { parts: [{ text: '{}' }] } }],
@@ -432,6 +444,12 @@ describe('K/OE-0.4 frozen benchmark and OE-1 core integrity', () => {
       const body = JSON.parse(requests[0].body);
       if (testCase.kind === 'openai') expect(body.text.format.type).toBe('json_schema');
       if (testCase.kind === 'ollama') expect(body.format.type).toBe('object');
+      if (testCase.kind === 'deepseek') {
+        expect(body.response_format.type).toBe('json_object');
+        expect(body.thinking.type).toBe('enabled');
+        expect(body.reasoning_effort).toBe('high');
+        expect(body.max_tokens).toBe(16_384);
+      }
       if (testCase.kind === 'google') expect(body.generationConfig.responseJsonSchema.type).toBe('object');
     }
   });

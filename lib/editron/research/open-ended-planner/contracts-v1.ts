@@ -86,6 +86,7 @@ export interface KnowledgeEntryV1 extends Record<string, unknown> {
 
 export interface BenchmarkContractV1 {
   version: string;
+  plannerPacketContractVersion: string;
   schemas: {
     candidateGraphV1: Record<string, unknown>;
   };
