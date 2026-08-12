@@ -1,0 +1,661 @@
+{
+  "planVersion": "EDITRON_OE_DEVELOPMENT_SMOKE_PREFLIGHT_V2",
+  "authority": "RESEARCH_ONLY_NO_PROVIDER_NETWORK_NO_PROJECT_MUTATION",
+  "evidenceAsOf": "2026-08-13",
+  "selectionRule": "Same DEV-02/BASELINE stage-one packet per eligible provider and supported input arm.",
+  "routes": [
+    {
+      "routeId": "OPENAI_LUNA",
+      "provider": "openai",
+      "requestModel": "gpt-5.6-luna",
+      "claimedBenchmarkIdentity": "gpt-5.6-luna",
+      "identityStatus": "PROVIDER_ROUTE_NO_DATED_SNAPSHOT",
+      "reasoningMode": "medium",
+      "supportedArms": [
+        "TEXT_EVIDENCE_ONLY"
+      ],
+      "pricing": {
+        "inputUsdPerMillion": 1,
+        "cachedInputUsdPerMillion": 0.1,
+        "cacheWriteUsdPerMillion": 1.25,
+        "outputUsdPerMillion": 6
+      },
+      "pricingSource": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "modelSource": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "counter": {
+        "method": "OFFLINE_UTF8_BYTE_UPPER_BOUND_PLUS_256",
+        "networkRequired": false,
+        "endpoint": null,
+        "evidenceStatus": "CONSERVATIVE_LOCAL_BOUND"
+      },
+      "nativeIdentityFields": [
+        "response.id",
+        "response.model"
+      ]
+    },
+    {
+      "routeId": "OPENAI_TERRA",
+      "provider": "openai",
+      "requestModel": "gpt-5.6-terra",
+      "claimedBenchmarkIdentity": "gpt-5.6-terra",
+      "identityStatus": "PROVIDER_ROUTE_NO_DATED_SNAPSHOT",
+      "reasoningMode": "medium",
+      "supportedArms": [
+        "TEXT_EVIDENCE_ONLY"
+      ],
+      "pricing": {
+        "inputUsdPerMillion": 2.5,
+        "cachedInputUsdPerMillion": 0.25,
+        "cacheWriteUsdPerMillion": 3.125,
+        "outputUsdPerMillion": 15
+      },
+      "pricingSource": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "modelSource": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "counter": {
+        "method": "OFFLINE_UTF8_BYTE_UPPER_BOUND_PLUS_256",
+        "networkRequired": false,
+        "endpoint": null,
+        "evidenceStatus": "CONSERVATIVE_LOCAL_BOUND"
+      },
+      "nativeIdentityFields": [
+        "response.id",
+        "response.model"
+      ]
+    },
+    {
+      "routeId": "GOOGLE_FLASH_LITE",
+      "provider": "google",
+      "requestModel": "gemini-3.5-flash-lite",
+      "claimedBenchmarkIdentity": "gemini-3.5-flash-lite",
+      "identityStatus": "PROVIDER_STABLE_ROUTE",
+      "reasoningMode": "minimal",
+      "supportedArms": [
+        "TEXT_EVIDENCE_ONLY",
+        "MULTIMODAL"
+      ],
+      "pricing": {
+        "inputUsdPerMillion": 0.3,
+        "cachedInputUsdPerMillion": null,
+        "cacheWriteUsdPerMillion": null,
+        "outputUsdPerMillion": 2.5
+      },
+      "pricingSource": "https://ai.google.dev/gemini-api/docs/latest-model",
+      "modelSource": "https://ai.google.dev/gemini-api/docs/latest-model",
+      "counter": {
+        "method": "PROVIDER_COUNT_TOKENS",
+        "networkRequired": true,
+        "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:countTokens",
+        "evidenceStatus": "OFFICIAL_PROVIDER_ENDPOINT"
+      },
+      "nativeIdentityFields": [
+        "response.responseId",
+        "response.modelVersion"
+      ]
+    },
+    {
+      "routeId": "GOOGLE_FLASH",
+      "provider": "google",
+      "requestModel": "gemini-3.6-flash",
+      "claimedBenchmarkIdentity": "gemini-3.6-flash",
+      "identityStatus": "PROVIDER_STABLE_ROUTE",
+      "reasoningMode": "medium",
+      "supportedArms": [
+        "TEXT_EVIDENCE_ONLY",
+        "MULTIMODAL"
+      ],
+      "pricing": {
+        "inputUsdPerMillion": 1.5,
+        "cachedInputUsdPerMillion": 0.15,
+        "cacheWriteUsdPerMillion": null,
+        "outputUsdPerMillion": 7.5
+      },
+      "pricingSource": "https://ai.google.dev/gemini-api/docs/pricing",
+      "modelSource": "https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash",
+      "counter": {
+        "method": "PROVIDER_COUNT_TOKENS",
+        "networkRequired": true,
+        "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:countTokens",
+        "evidenceStatus": "OFFICIAL_PROVIDER_ENDPOINT"
+      },
+      "nativeIdentityFields": [
+        "response.responseId",
+        "response.modelVersion"
+      ]
+    },
+    {
+      "routeId": "DEEPSEEK_FLASH",
+      "provider": "deepseek",
+      "requestModel": "deepseek-v4-flash",
+      "claimedBenchmarkIdentity": "DeepSeek-V4-Flash-0731",
+      "identityStatus": "CLAIMED_SNAPSHOT_NOT_REQUESTABLE",
+      "reasoningMode": "high",
+      "supportedArms": [
+        "TEXT_EVIDENCE_ONLY"
+      ],
+      "pricing": {
+        "inputUsdPerMillion": 0.14,
+        "cachedInputUsdPerMillion": 0.0028,
+        "cacheWriteUsdPerMillion": null,
+        "outputUsdPerMillion": 0.28
+      },
+      "pricingSource": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "modelSource": "https://api-docs.deepseek.com/api/create-chat-completion",
+      "counter": {
+        "method": "OFFLINE_UTF8_BYTE_UPPER_BOUND_PLUS_256",
+        "networkRequired": false,
+        "endpoint": null,
+        "evidenceStatus": "CONSERVATIVE_LOCAL_BOUND"
+      },
+      "nativeIdentityFields": [
+        "response.id",
+        "response.model",
+        "response.system_fingerprint"
+      ]
+    }
+  ],
+  "routeApplicability": [
+    {
+      "routeId": "OPENAI_LUNA",
+      "taskId": "DEV-01",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_LUNA",
+      "taskId": "DEV-01",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_LUNA",
+      "taskId": "DEV-02",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_LUNA",
+      "taskId": "DEV-02",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_LUNA",
+      "taskId": "DEV-03",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_LUNA",
+      "taskId": "DEV-03",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_LUNA",
+      "taskId": "DEV-04",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_LUNA",
+      "taskId": "DEV-04",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_TERRA",
+      "taskId": "DEV-01",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_TERRA",
+      "taskId": "DEV-01",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_TERRA",
+      "taskId": "DEV-02",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_TERRA",
+      "taskId": "DEV-02",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_TERRA",
+      "taskId": "DEV-03",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_TERRA",
+      "taskId": "DEV-03",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_TERRA",
+      "taskId": "DEV-04",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_TERRA",
+      "taskId": "DEV-04",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH_LITE",
+      "taskId": "DEV-01",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH_LITE",
+      "taskId": "DEV-01",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH_LITE",
+      "taskId": "DEV-02",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH_LITE",
+      "taskId": "DEV-02",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH_LITE",
+      "taskId": "DEV-03",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH_LITE",
+      "taskId": "DEV-03",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH_LITE",
+      "taskId": "DEV-04",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH_LITE",
+      "taskId": "DEV-04",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH",
+      "taskId": "DEV-01",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH",
+      "taskId": "DEV-01",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH",
+      "taskId": "DEV-02",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH",
+      "taskId": "DEV-02",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH",
+      "taskId": "DEV-03",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH",
+      "taskId": "DEV-03",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH",
+      "taskId": "DEV-04",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH",
+      "taskId": "DEV-04",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "DEEPSEEK_FLASH",
+      "taskId": "DEV-01",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_MODEL_IDENTITY"
+    },
+    {
+      "routeId": "DEEPSEEK_FLASH",
+      "taskId": "DEV-01",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_MODEL_IDENTITY"
+    },
+    {
+      "routeId": "DEEPSEEK_FLASH",
+      "taskId": "DEV-02",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_MODEL_IDENTITY"
+    },
+    {
+      "routeId": "DEEPSEEK_FLASH",
+      "taskId": "DEV-02",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_MODEL_IDENTITY"
+    },
+    {
+      "routeId": "DEEPSEEK_FLASH",
+      "taskId": "DEV-03",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_MODEL_IDENTITY"
+    },
+    {
+      "routeId": "DEEPSEEK_FLASH",
+      "taskId": "DEV-03",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_MODEL_IDENTITY"
+    },
+    {
+      "routeId": "DEEPSEEK_FLASH",
+      "taskId": "DEV-04",
+      "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_MODEL_IDENTITY"
+    },
+    {
+      "routeId": "DEEPSEEK_FLASH",
+      "taskId": "DEV-04",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "modalityStatus": "APPLICABLE",
+      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_MODEL_IDENTITY"
+    }
+  ],
+  "smokeRows": [
+    {
+      "rowId": "OPENAI_LUNA-TEXT_EVIDENCE_ONLY",
+      "routeId": "OPENAI_LUNA",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "localInputTokenUpperBound": 4734,
+      "providerTokenCountStatus": "NOT_REQUIRED_LOCAL_CONSERVATIVE_BOUND",
+      "maxProviderCostUsd": 0.08,
+      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "blockers": [
+        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
+        "OPERATOR_CONFIRMATION_MISSING"
+      ]
+    },
+    {
+      "rowId": "OPENAI_TERRA-TEXT_EVIDENCE_ONLY",
+      "routeId": "OPENAI_TERRA",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "localInputTokenUpperBound": 4735,
+      "providerTokenCountStatus": "NOT_REQUIRED_LOCAL_CONSERVATIVE_BOUND",
+      "maxProviderCostUsd": 0.08,
+      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "blockers": [
+        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
+        "OPERATOR_CONFIRMATION_MISSING"
+      ]
+    },
+    {
+      "rowId": "GOOGLE_FLASH_LITE-TEXT_EVIDENCE_ONLY",
+      "routeId": "GOOGLE_FLASH_LITE",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "localInputTokenUpperBound": null,
+      "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
+      "maxProviderCostUsd": 0.08,
+      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "blockers": [
+        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
+        "OPERATOR_CONFIRMATION_MISSING"
+      ]
+    },
+    {
+      "rowId": "GOOGLE_FLASH_LITE-MULTIMODAL",
+      "routeId": "GOOGLE_FLASH_LITE",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "packetHash": "fd796c0925bb87c446245549783d50ccdebf04e2982774c5d69334f0c9944fc9",
+      "transportHash": "70d15784cdc54174b821ebc6eaa440e262e5ba6d1fcad69eecf68d5e553c1817",
+      "localInputTokenUpperBound": null,
+      "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
+      "maxProviderCostUsd": 0.08,
+      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "blockers": [
+        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
+        "OPERATOR_CONFIRMATION_MISSING"
+      ]
+    },
+    {
+      "rowId": "GOOGLE_FLASH-TEXT_EVIDENCE_ONLY",
+      "routeId": "GOOGLE_FLASH",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "localInputTokenUpperBound": null,
+      "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
+      "maxProviderCostUsd": 0.08,
+      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "blockers": [
+        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
+        "OPERATOR_CONFIRMATION_MISSING"
+      ]
+    },
+    {
+      "rowId": "GOOGLE_FLASH-MULTIMODAL",
+      "routeId": "GOOGLE_FLASH",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "MULTIMODAL",
+      "packetHash": "fd796c0925bb87c446245549783d50ccdebf04e2982774c5d69334f0c9944fc9",
+      "transportHash": "70d15784cdc54174b821ebc6eaa440e262e5ba6d1fcad69eecf68d5e553c1817",
+      "localInputTokenUpperBound": null,
+      "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
+      "maxProviderCostUsd": 0.08,
+      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "blockers": [
+        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
+        "OPERATOR_CONFIRMATION_MISSING"
+      ]
+    }
+  ],
+  "excludedRows": [
+    {
+      "rowId": "DEEPSEEK_FLASH-TEXT_EVIDENCE_ONLY",
+      "routeId": "DEEPSEEK_FLASH",
+      "taskId": "DEV-02",
+      "conditionId": "BASELINE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "packetHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
+      "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "localInputTokenUpperBound": 3942,
+      "providerTokenCountStatus": "NOT_REQUIRED_LOCAL_CONSERVATIVE_BOUND",
+      "maxProviderCostUsd": 0.08,
+      "dispatchStatus": "BLOCKED_MODEL_IDENTITY",
+      "blockers": [
+        "CLAIMED_0731_SNAPSHOT_NOT_REQUESTABLE"
+      ]
+    }
+  ],
+  "spend": {
+    "plannedProviderCallsAfterAllGates": 6,
+    "maxCostPerStageOneRunUsd": 0.08,
+    "absoluteMaxSpendUsd": 0.48,
+    "rule": "The ceiling includes the one permitted repair inside each stage budget; no retry may exceed the row ceiling."
+  },
+  "persistencePolicy": {
+    "outputRoot": ".calibration-temp/open-ended-planner-v2/provider-smoke/",
+    "allowed": [
+      "planHash",
+      "packetHash",
+      "transportHash",
+      "requestHash",
+      "providerRequestId",
+      "nativeModelIdentity",
+      "nativeSystemFingerprintWhenProvided",
+      "usage",
+      "cost",
+      "finishReason",
+      "schemaDiagnostics",
+      "rawResponseHash",
+      "parsedArtifact"
+    ],
+    "forbidden": [
+      "apiKeyValue",
+      "authorizationHeader",
+      "rawMediaBytes",
+      "base64Media",
+      "rawProviderResponse",
+      "userProjectState"
+    ],
+    "secretEnvironmentVariables": [
+      "OPENAI_API_KEY",
+      "GEMINI_API_KEY",
+      "DEEPSEEK_API_KEY"
+    ]
+  },
+  "operatorConfirmationGate": {
+    "status": "NOT_CONFIRMED",
+    "appliesBefore": "ANY_PROVIDER_NETWORK_CALL_INCLUDING_COUNT_TOKENS",
+    "requiredEchoFields": [
+      "planHash",
+      "absoluteMaxSpendUsd",
+      "operatorId",
+      "confirmedAt"
+    ],
+    "confirmationDoesNotAuthorize": [
+      "projectMutation",
+      "holdoutRead",
+      "proxyExecution",
+      "render",
+      "productionRegistration"
+    ]
+  },
+  "globalBlockers": [
+    "V2_1C_DOES_NOT_PERSIST_NATIVE_RESPONSE_MODEL_IDENTITY",
+    "V2_1C_COST_MODEL_OMITS_OPENAI_CACHE_WRITE_RATE",
+    "GOOGLE_COUNT_TOKENS_NOT_YET_EXECUTED",
+    "OPERATOR_CONFIRMATION_NOT_RECORDED"
+  ],
+  "planHash": "c3fffb9e77146b07efcbb8e13e9993e8346a7a071cc2029499229c007a3f0525"
+}
