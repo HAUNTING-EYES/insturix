@@ -72,7 +72,7 @@ export interface DevelopmentSmokeReceiptV2 {
     transportHash: string;
     preflightCounts: ReadonlyArray<Readonly<{
       attempt: 1 | 2;
-      method: 'OFFLINE_UPPER_BOUND' | 'GOOGLE_COUNT_TOKENS';
+      method: 'OFFLINE_UPPER_BOUND' | 'OFFLINE_REPAIR_DELTA_UPPER_BOUND' | 'GOOGLE_COUNT_TOKENS';
       generationRequestHash: string;
       countRequestHash: string | null;
       inputTokens: number;
@@ -117,9 +117,9 @@ export async function runDevelopmentSmokeV2(
       artifact,
       route,
       pricing: pricing(routeFact),
-      preflightInputTokens: async ({ attempt, request }) => {
+      preflightInputTokens: async ({ attempt, request, priorRequest, priorInputTokens }) => {
         const count = await countExactRequest({
-          attempt, request, route, artifact, row, fetchImpl,
+          attempt, request, route, artifact, row, fetchImpl, priorRequest, priorInputTokens,
         });
         preflightCounts.push(count);
         return count.inputTokens;
@@ -160,6 +160,8 @@ async function countExactRequest(input: {
   artifact: HashedStagePacketV2;
   row: SmokeRowV2;
   fetchImpl: FetchV2;
+  priorRequest?: SerializedProviderRequestV2;
+  priorInputTokens?: number;
 }): Promise<DevelopmentSmokeReceiptV2['rows'][number]['preflightCounts'][number]> {
   if (input.route.kind === 'google') {
     const countRequest = serializeGoogleCountTokensRequestV2({ route: input.route, generationRequest: input.request });
@@ -184,16 +186,20 @@ async function countExactRequest(input: {
       inputTokens: Number(totalTokens),
     });
   }
-  const inputTokens = estimateOfflineInputTokensUpperBoundV2(
-    input.request,
-    input.artifact.transportAttachments.length,
-  );
+  let method: 'OFFLINE_UPPER_BOUND' | 'OFFLINE_REPAIR_DELTA_UPPER_BOUND' = 'OFFLINE_UPPER_BOUND';
+  let inputTokens: number;
+  if (input.attempt === 2 && input.priorRequest && input.priorInputTokens !== undefined) {
+    method = 'OFFLINE_REPAIR_DELTA_UPPER_BOUND';
+    inputTokens = estimateRepairInputTokensUpperBound(input.request, input.priorRequest, input.priorInputTokens);
+  } else {
+    inputTokens = estimateOfflineInputTokensUpperBoundV2(input.request, input.artifact.transportAttachments.length);
+  }
   if (input.attempt === 1 && inputTokens !== input.row.localInputTokenUpperBound) {
     throw new Error(`LOCAL_INPUT_COUNT_DRIFT:${input.row.rowId}`);
   }
   return deepFreezeV1({
     attempt: input.attempt,
-    method: 'OFFLINE_UPPER_BOUND' as const,
+    method,
     generationRequestHash: input.request.requestHash,
     countRequestHash: null,
     inputTokens,
@@ -239,4 +245,22 @@ function smokeArtifacts(): Map<InputArmV2, HashedStagePacketV2> {
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function estimateRepairInputTokensUpperBound(
+  request: SerializedProviderRequestV2,
+  priorRequest: SerializedProviderRequestV2,
+  priorInputTokens: number,
+): number {
+  const requestBytes = requestBodyBytesWithoutMedia(request);
+  const priorBytes = requestBodyBytesWithoutMedia(priorRequest);
+  return priorInputTokens + Math.max(0, requestBytes - priorBytes) + 256;
+}
+
+function requestBodyBytesWithoutMedia(request: SerializedProviderRequestV2): number {
+  const value = JSON.stringify(request.body, (key, entry: unknown) =>
+    key === 'image_url' && typeof entry === 'string' && entry.startsWith('data:')
+      ? '[HASH_BOUND_INLINE_IMAGE]'
+      : entry);
+  return Buffer.byteLength(value, 'utf8');
 }

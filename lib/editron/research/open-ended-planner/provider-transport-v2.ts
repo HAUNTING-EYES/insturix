@@ -64,6 +64,8 @@ export interface ProviderStageRunV2 {
 export type ProviderInputTokenCounterV2 = (input: {
   attempt: 1 | 2;
   request: SerializedProviderRequestV2;
+  priorRequest?: SerializedProviderRequestV2;
+  priorInputTokens?: number;
 }) => Promise<number>;
 export async function runProviderStageV2(input: {
   artifact: HashedStagePacketV2;
@@ -85,6 +87,8 @@ export async function runProviderStageV2(input: {
   };
   const attempts: ProviderAttemptRecordV2[] = [];
   let repair: { diagnostics: string[]; priorResponse: string } | undefined;
+  let priorRequest: SerializedProviderRequestV2 | undefined;
+  let priorInputTokens: number | undefined;
   let acceptedArtifact: Record<string, unknown> | undefined;
   for (const attempt of [1, 2] as const) {
     if (attempt === 2 && !repair) break;
@@ -104,20 +108,38 @@ export async function runProviderStageV2(input: {
       break;
     }
     let estimatedInput: number;
+    let preflightLatency = 0;
+    const preflightStarted = typeof input.preflightInputTokens === 'function' ? now() : 0;
     try {
-      estimatedInput = await resolvePreflightInputTokens(input.preflightInputTokens, attempt, request);
+      estimatedInput = await resolvePreflightInputTokens(
+        input.preflightInputTokens, attempt, request, priorRequest, priorInputTokens,
+      );
+      preflightLatency = typeof input.preflightInputTokens === 'function'
+        ? Math.max(0, now() - preflightStarted)
+        : 0;
     } catch (error) {
+      preflightLatency = typeof input.preflightInputTokens === 'function'
+        ? Math.max(0, now() - preflightStarted)
+        : 0;
       attempts.push(requestRecord(
-        input, attempt, request, 'TRANSPORT_INVALID', 'PREFLIGHT_INPUT_COUNT_FAILED', 0, {},
+        input, attempt, request, 'TRANSPORT_INVALID', 'PREFLIGHT_INPUT_COUNT_FAILED', preflightLatency, {},
         ['PREFLIGHT_INPUT_COUNT_FAILED'], undefined, errorDetail(error),
       ));
       break;
     }
+    if (preflightLatency > remaining.wall) {
+      attempts.push(requestRecord(
+        input, attempt, request, 'BUDGET_EXCEEDED', 'PREFLIGHT_BLOCKED', preflightLatency, {},
+        ['WALL_CLOCK_LIMIT'],
+      ));
+      break;
+    }
+    remaining.wall -= preflightLatency;
     const worstCost = estimateWorstCaseCost(
       estimatedInput, remaining.visible, remaining.reasoning, input.pricing,
     );
     if (estimatedInput > remaining.input || worstCost === undefined || worstCost > remaining.cost) {
-      attempts.push(requestRecord(input, attempt, request, 'BUDGET_EXCEEDED', 'PREFLIGHT_BLOCKED', 0, {}, [
+      attempts.push(requestRecord(input, attempt, request, 'BUDGET_EXCEEDED', 'PREFLIGHT_BLOCKED', preflightLatency, {}, [
         estimatedInput > remaining.input ? 'PREFLIGHT_INPUT_LIMIT' : 'PREFLIGHT_COST_LIMIT',
       ]));
       break;
@@ -131,12 +153,13 @@ export async function runProviderStageV2(input: {
       });
     } catch (error) {
       const disposition = isAbort(error) ? 'PROVIDER_TIMEOUT' : 'PROVIDER_ERROR';
-      attempts.push(requestRecord(input, attempt, request, disposition, 'NOT_ATTEMPTED', now() - started, {}, [], undefined, errorDetail(error)));
+      attempts.push(requestRecord(input, attempt, request, disposition, 'NOT_ATTEMPTED', preflightLatency + now() - started, {}, [], undefined, errorDetail(error)));
       break;
     }
-    const latency = Math.max(0, now() - started);
-    const wallExceeded = latency > remaining.wall;
-    remaining.wall = Math.max(0, remaining.wall - latency);
+    const providerLatency = Math.max(0, now() - started);
+    const latency = preflightLatency + providerLatency;
+    const wallExceeded = providerLatency > remaining.wall;
+    remaining.wall = Math.max(0, remaining.wall - providerLatency);
     if (wallExceeded) {
       attempts.push(requestRecord(input, attempt, request, 'BUDGET_EXCEEDED', 'NOT_ATTEMPTED', latency, {}, ['WALL_CLOCK_LIMIT']));
       break;
@@ -186,14 +209,24 @@ export async function runProviderStageV2(input: {
     } catch {
       const record = requestRecord(input, attempt, request, 'MALFORMED_JSON', 'MALFORMED_JSON', latency, usage, ['INVALID_JSON'], normalized, undefined, providerCost, raw);
       attempts.push(record);
-      if (attempt === 1) { repair = { diagnostics: record.schemaDiagnostics, priorResponse: raw }; continue; }
+      if (attempt === 1) {
+        repair = { diagnostics: record.schemaDiagnostics, priorResponse: raw };
+        priorRequest = request;
+        priorInputTokens = usage.inputTokens;
+        continue;
+      }
       break;
     }
     const schemaDiagnostics = validateSchema(parsed, input.artifact.packet.outputContract, '$');
     if (schemaDiagnostics.length) {
       const record = requestRecord(input, attempt, request, 'SCHEMA_INVALID', 'SCHEMA_INVALID', latency, usage, schemaDiagnostics, normalized, undefined, providerCost, raw);
       attempts.push(record);
-      if (attempt === 1) { repair = { diagnostics: schemaDiagnostics, priorResponse: raw }; continue; }
+      if (attempt === 1) {
+        repair = { diagnostics: schemaDiagnostics, priorResponse: raw };
+        priorRequest = request;
+        priorInputTokens = usage.inputTokens;
+        continue;
+      }
       break;
     }
     acceptedArtifact = parsed as Record<string, unknown>;
@@ -351,8 +384,12 @@ async function resolvePreflightInputTokens(
   source: readonly [number, number] | ProviderInputTokenCounterV2,
   attempt: 1 | 2,
   request: SerializedProviderRequestV2,
+  priorRequest?: SerializedProviderRequestV2,
+  priorInputTokens?: number,
 ): Promise<number> {
-  const value = typeof source === 'function' ? await source({ attempt, request }) : source[attempt - 1];
+  const value = typeof source === 'function'
+    ? await source({ attempt, request, priorRequest, priorInputTokens })
+    : source[attempt - 1];
   if (!Number.isSafeInteger(value) || value < 0) throw new TypeError('Invalid preflight token count');
   return value;
 }

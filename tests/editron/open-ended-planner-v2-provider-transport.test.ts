@@ -180,6 +180,22 @@ describe('open-ended planner V2 provider transport', () => {
     expect(result.attempts[0].schemaDiagnostics).toContain('PREFLIGHT_COST_LIMIT');
   });
 
+  it('charges dynamic provider counting against the same wall-clock budget', async () => {
+    let calls = 0;
+    const times = [0, 30_001];
+    const result = await run({
+      preflightInputTokens: async () => 100,
+      nowMs: () => times.shift() ?? 30_001,
+      fetchImpl: async () => { calls += 1; return jsonResponse(openAI(JSON.stringify(validArtifact()))); },
+    });
+    expect(calls).toBe(0);
+    expect(result.disposition).toBe('BUDGET_EXCEEDED');
+    expect(result.attempts[0]).toMatchObject({
+      parseStatus: 'PREFLIGHT_BLOCKED', latencyMs: 30_001,
+    });
+    expect(result.attempts[0].schemaDiagnostics).toContain('WALL_CLOCK_LIMIT');
+  });
+
   it('marks unsupported multimodal routes NOT_APPLICABLE before fetch', async () => {
     let calls = 0;
     const result = await runProviderStageV2({
