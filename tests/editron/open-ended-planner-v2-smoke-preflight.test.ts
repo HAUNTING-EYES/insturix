@@ -65,14 +65,19 @@ describe('open-ended planner V2 paid-smoke preflight', () => {
       .every(({ localInputTokenUpperBound }) => Number(localInputTokenUpperBound) <= 6000)).toBe(true);
   });
 
-  it('requires identity capture, provider counting, and an explicit operator echo before egress', async () => {
+  it('requires official Google counting and an explicit operator echo before egress', async () => {
     const plan = await buildDevelopmentSmokePreflightV2() as Plan;
-    expect(plan.globalBlockers).toEqual(expect.arrayContaining([
-      'V2_1C_DOES_NOT_PERSIST_NATIVE_RESPONSE_MODEL_IDENTITY',
-      'V2_1C_COST_MODEL_OMITS_OPENAI_CACHE_WRITE_RATE',
+    expect(plan.globalBlockers).toEqual([
       'GOOGLE_COUNT_TOKENS_NOT_YET_EXECUTED',
       'OPERATOR_CONFIRMATION_NOT_RECORDED',
-    ]));
+    ]);
+    const googleRows = plan.smokeRows.filter(({ routeId }) => routeId.startsWith('GOOGLE_'));
+    expect(googleRows).toHaveLength(4);
+    expect(googleRows.every((row) => row.providerCountTokensEndpoint?.endsWith(':countTokens'))).toBe(true);
+    expect(googleRows.every((row) => /^[a-f0-9]{64}$/.test(row.providerCountTokensRequestHash ?? ''))).toBe(true);
+    expect(googleRows.every((row) => row.dispatchStatus === 'BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION')).toBe(true);
+    const openAiRows = plan.smokeRows.filter(({ routeId }) => routeId.startsWith('OPENAI_'));
+    expect(openAiRows.every((row) => row.blockers.join(',') === 'OPERATOR_CONFIRMATION_MISSING')).toBe(true);
     expect(plan.operatorConfirmationGate).toMatchObject({
       status: 'NOT_CONFIRMED', appliesBefore: 'ANY_PROVIDER_NETWORK_CALL_INCLUDING_COUNT_TOKENS',
     });
@@ -94,7 +99,18 @@ describe('open-ended planner V2 paid-smoke preflight', () => {
 type Plan = Awaited<ReturnType<typeof buildDevelopmentSmokePreflightV2>> & {
   routes: Array<{ routeId: string; identityStatus: string; pricing: Record<string, number | null> }>;
   routeApplicability: Array<{ routeId: string; taskId: string; inputArm: string; modalityStatus: string }>;
-  smokeRows: Array<{ routeId: string; taskId: string; conditionId: string; inputArm: string; maxProviderCostUsd: number; localInputTokenUpperBound: number | null }>;
+  smokeRows: Array<{
+    routeId: string;
+    taskId: string;
+    conditionId: string;
+    inputArm: string;
+    maxProviderCostUsd: number;
+    localInputTokenUpperBound: number | null;
+    providerCountTokensEndpoint: string | null;
+    providerCountTokensRequestHash: string | null;
+    dispatchStatus: string;
+    blockers: string[];
+  }>;
   excludedRows: Array<{ routeId: string; dispatchStatus: string; blockers: string[] }>;
   spend: { plannedProviderCallsAfterAllGates: number; maxCostPerStageOneRunUsd: number; absoluteMaxSpendUsd: number };
   globalBlockers: string[];

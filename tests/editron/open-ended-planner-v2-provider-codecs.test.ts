@@ -6,6 +6,7 @@ import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/c
 import {
   normalizeProviderResponseV2,
   ProviderCodecErrorV2,
+  serializeGoogleCountTokensRequestV2,
   serializeProviderRequestV2,
   type ProviderKindV2,
   type ProviderRouteV2,
@@ -59,6 +60,44 @@ describe('open-ended planner V2 provider codecs', () => {
       const parts = (record((google.body.contents as unknown[])[0]).parts as unknown[]);
       expect(record(record(parts[1]).inlineData).mimeType).toBe(mimeType);
     }
+  });
+
+  it('derives Google countTokens from the exact multimodal generation request', async () => {
+    const media = mediaPacket('video/mp4', Buffer.from('verified-video'));
+    const googleRoute = route('google');
+    const generationRequest = await serializeProviderRequestV2({
+      route: googleRoute, artifact: media.artifact, attempt: 1,
+      outputBudget: { visible: 100, reasoning: 50 }, readAttachmentBytes: async () => media.bytes,
+    });
+    const countRequest = serializeGoogleCountTokensRequestV2({ route: googleRoute, generationRequest });
+
+    expect(countRequest.endpoint).toBe(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(googleRoute.model)}:countTokens`,
+    );
+    expect(countRequest.generationRequestHash).toBe(generationRequest.requestHash);
+    expect(countRequest.requestHash).toBe(hashCanonicalJsonV1({
+      endpoint: countRequest.endpoint,
+      body: countRequest.body,
+    }));
+    expect(countRequest.body.generateContentRequest).toEqual({
+      model: `models/${googleRoute.model}`,
+      ...generationRequest.body,
+    });
+    const contents = countRequest.body.generateContentRequest.contents as Array<{ parts: unknown[] }>;
+    expect(record(record(contents[0].parts[1]).inlineData).data).toBe(media.bytes.toString('base64'));
+  });
+
+  it('rejects countTokens requests that are not bound to the same Google route', async () => {
+    const generationRequest = await serializeProviderRequestV2({
+      route: route('google'), artifact: textPacket(), attempt: 1,
+      outputBudget: { visible: 100, reasoning: 50 },
+    });
+    expect(() => serializeGoogleCountTokensRequestV2({
+      route: route('openai'), generationRequest,
+    })).toThrowError(expect.objectContaining({ code: 'COUNT_TOKENS_PROVIDER_MISMATCH' }));
+    expect(() => serializeGoogleCountTokensRequestV2({
+      route: { ...route('google'), model: 'different-google-model' }, generationRequest,
+    })).toThrowError(expect.objectContaining({ code: 'COUNT_TOKENS_REQUEST_MISMATCH' }));
   });
 
   it('fails unsupported media and tampered bytes instead of degrading the input arm', async () => {

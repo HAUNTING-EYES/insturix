@@ -46,6 +46,14 @@ export interface SerializedProviderRequestV2 {
   schemaMode: SchemaModeV2;
 }
 
+export interface SerializedGoogleCountTokensRequestV2 {
+  endpoint: string;
+  headers: Readonly<Record<string, string>>;
+  body: Readonly<{ generateContentRequest: Readonly<Record<string, unknown>> }>;
+  generationRequestHash: string;
+  requestHash: string;
+}
+
 export class ProviderCodecErrorV2 extends Error {
   constructor(public readonly code: string, message: string) {
     super(message);
@@ -136,6 +144,36 @@ export async function serializeProviderRequestV2(input: {
     endpoint, headers: Object.freeze(headers), body: frozenBody,
     promptHash: hashCanonicalJsonV1(JSON.parse(prompt) as unknown),
     requestHash: hashCanonicalJsonV1({ endpoint, body: frozenBody }), schemaMode,
+  });
+}
+
+export function serializeGoogleCountTokensRequestV2(input: {
+  route: ProviderRouteV2;
+  generationRequest: SerializedProviderRequestV2;
+}): SerializedGoogleCountTokensRequestV2 {
+  if (input.route.kind !== 'google') {
+    throw new ProviderCodecErrorV2('COUNT_TOKENS_PROVIDER_MISMATCH', 'Google countTokens requires a Google provider route');
+  }
+  const encodedModel = encodeURIComponent(input.route.model);
+  const expectedGenerationEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodedModel}:generateContent`;
+  if (input.generationRequest.endpoint !== expectedGenerationEndpoint) {
+    throw new ProviderCodecErrorV2(
+      'COUNT_TOKENS_REQUEST_MISMATCH',
+      'Google countTokens must be derived from the generation request for the same model',
+    );
+  }
+  const generateContentRequest = Object.freeze({
+    model: `models/${input.route.model}`,
+    ...input.generationRequest.body,
+  });
+  const body = Object.freeze({ generateContentRequest });
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodedModel}:countTokens`;
+  return Object.freeze({
+    endpoint,
+    headers: Object.freeze({ 'x-goog-api-key': input.route.apiKey, 'Content-Type': 'application/json' }),
+    body,
+    generationRequestHash: input.generationRequest.requestHash,
+    requestHash: hashCanonicalJsonV1({ endpoint, body }),
   });
 }
 

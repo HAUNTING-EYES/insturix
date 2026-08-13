@@ -485,11 +485,12 @@
       "packetHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
       "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "localInputTokenUpperBound": 4734,
+      "providerCountTokensEndpoint": null,
+      "providerCountTokensRequestHash": null,
       "providerTokenCountStatus": "NOT_REQUIRED_LOCAL_CONSERVATIVE_BOUND",
       "maxProviderCostUsd": 0.08,
-      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "dispatchStatus": "BLOCKED_OPERATOR_CONFIRMATION",
       "blockers": [
-        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
         "OPERATOR_CONFIRMATION_MISSING"
       ]
     },
@@ -502,11 +503,12 @@
       "packetHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
       "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "localInputTokenUpperBound": 4735,
+      "providerCountTokensEndpoint": null,
+      "providerCountTokensRequestHash": null,
       "providerTokenCountStatus": "NOT_REQUIRED_LOCAL_CONSERVATIVE_BOUND",
       "maxProviderCostUsd": 0.08,
-      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "dispatchStatus": "BLOCKED_OPERATOR_CONFIRMATION",
       "blockers": [
-        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
         "OPERATOR_CONFIRMATION_MISSING"
       ]
     },
@@ -519,11 +521,13 @@
       "packetHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
       "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "localInputTokenUpperBound": null,
+      "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:countTokens",
+      "providerCountTokensRequestHash": "bb94b0ea57dfa3ce9927da157a3e54998226c2bb2d062dcb1cf1b91f38819fe4",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.08,
-      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
       "blockers": [
-        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
+        "GOOGLE_COUNT_TOKENS_REQUIRED",
         "OPERATOR_CONFIRMATION_MISSING"
       ]
     },
@@ -536,11 +540,13 @@
       "packetHash": "fd796c0925bb87c446245549783d50ccdebf04e2982774c5d69334f0c9944fc9",
       "transportHash": "70d15784cdc54174b821ebc6eaa440e262e5ba6d1fcad69eecf68d5e553c1817",
       "localInputTokenUpperBound": null,
+      "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:countTokens",
+      "providerCountTokensRequestHash": "b496e91a43b47b9cf65fc107ae8fc56754068f223eecad7ed67be04ca0fd7f41",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.08,
-      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
       "blockers": [
-        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
+        "GOOGLE_COUNT_TOKENS_REQUIRED",
         "OPERATOR_CONFIRMATION_MISSING"
       ]
     },
@@ -553,11 +559,13 @@
       "packetHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
       "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "localInputTokenUpperBound": null,
+      "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:countTokens",
+      "providerCountTokensRequestHash": "10e35ed83bc68227c2dbcbd83680a448f0854a6c3a1930747dcc5553a09f8f28",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.08,
-      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
       "blockers": [
-        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
+        "GOOGLE_COUNT_TOKENS_REQUIRED",
         "OPERATOR_CONFIRMATION_MISSING"
       ]
     },
@@ -570,11 +578,13 @@
       "packetHash": "fd796c0925bb87c446245549783d50ccdebf04e2982774c5d69334f0c9944fc9",
       "transportHash": "70d15784cdc54174b821ebc6eaa440e262e5ba6d1fcad69eecf68d5e553c1817",
       "localInputTokenUpperBound": null,
+      "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:countTokens",
+      "providerCountTokensRequestHash": "0fd0dea7a6e3f0e565c5274b830636297ffe1c52054e63ce5c878321a3d6e494",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.08,
-      "dispatchStatus": "BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION",
+      "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
       "blockers": [
-        "NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED",
+        "GOOGLE_COUNT_TOKENS_REQUIRED",
         "OPERATOR_CONFIRMATION_MISSING"
       ]
     }
@@ -589,6 +599,8 @@
       "packetHash": "d7a5a1e1fab92fd47438e12a31dbe6f32555831ca5b334852a62c9c6dcf97cc2",
       "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "localInputTokenUpperBound": 3942,
+      "providerCountTokensEndpoint": null,
+      "providerCountTokensRequestHash": null,
       "providerTokenCountStatus": "NOT_REQUIRED_LOCAL_CONSERVATIVE_BOUND",
       "maxProviderCostUsd": 0.08,
       "dispatchStatus": "BLOCKED_MODEL_IDENTITY",
@@ -610,6 +622,8 @@
       "packetHash",
       "transportHash",
       "requestHash",
+      "providerCountTokensRequestHash",
+      "providerInputTokenCount",
       "providerRequestId",
       "nativeModelIdentity",
       "nativeSystemFingerprintWhenProvided",
@@ -652,10 +666,8 @@
     ]
   },
   "globalBlockers": [
-    "V2_1C_DOES_NOT_PERSIST_NATIVE_RESPONSE_MODEL_IDENTITY",
-    "V2_1C_COST_MODEL_OMITS_OPENAI_CACHE_WRITE_RATE",
     "GOOGLE_COUNT_TOKENS_NOT_YET_EXECUTED",
     "OPERATOR_CONFIRMATION_NOT_RECORDED"
   ],
-  "planHash": "c3fffb9e77146b07efcbb8e13e9993e8346a7a071cc2029499229c007a3f0525"
+  "planHash": "336ae3e0c1d7b11a6baa102a1f005fed798e22f1ffd55a32cb65b6e432a8034a"
 }

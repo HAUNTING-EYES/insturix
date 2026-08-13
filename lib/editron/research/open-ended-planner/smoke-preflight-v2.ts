@@ -1,7 +1,11 @@
 import { Buffer } from 'node:buffer';
 
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
-import { serializeProviderRequestV2, type ProviderKindV2 } from './provider-codecs-v2';
+import {
+  serializeGoogleCountTokensRequestV2,
+  serializeProviderRequestV2,
+  type ProviderKindV2,
+} from './provider-codecs-v2';
 import { buildDevelopmentStageOnePacketsV2, type HashedStagePacketV2 } from './staged-packet-v2';
 
 type InputArmV2 = 'MULTIMODAL' | 'TEXT_EVIDENCE_ONLY';
@@ -93,9 +97,8 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
   for (const route of ROUTES) {
     for (const inputArm of route.supportedArms) {
       const artifact = selectPacket(packets, inputArm);
-      const localInputTokenUpperBound = route.counter.networkRequired
-        ? null
-        : await offlineInputTokenUpperBound(route, artifact);
+      const inputCount = await buildInputCountMaterial(route, artifact);
+      const countTokensRequired = route.counter.method === 'PROVIDER_COUNT_TOKENS';
       const row = {
         rowId: `${route.routeId}-${inputArm}`,
         routeId: route.routeId,
@@ -104,11 +107,17 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
         inputArm,
         packetHash: artifact.packetHash,
         transportHash: artifact.transportHash,
-        localInputTokenUpperBound,
-        providerTokenCountStatus: route.counter.networkRequired ? 'REQUIRED_BEFORE_GENERATION' : 'NOT_REQUIRED_LOCAL_CONSERVATIVE_BOUND',
+        localInputTokenUpperBound: inputCount.localInputTokenUpperBound,
+        providerCountTokensEndpoint: inputCount.providerCountTokensEndpoint,
+        providerCountTokensRequestHash: inputCount.providerCountTokensRequestHash,
+        providerTokenCountStatus: countTokensRequired ? 'REQUIRED_BEFORE_GENERATION' : 'NOT_REQUIRED_LOCAL_CONSERVATIVE_BOUND',
         maxProviderCostUsd: artifact.packet.stageBudget.maxProviderCostUsd,
-        dispatchStatus: 'BLOCKED_NATIVE_IDENTITY_CAPTURE_AND_OPERATOR_CONFIRMATION',
-        blockers: ['NATIVE_RESPONSE_MODEL_IDENTITY_NOT_PERSISTED', 'OPERATOR_CONFIRMATION_MISSING'],
+        dispatchStatus: countTokensRequired
+          ? 'BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION'
+          : 'BLOCKED_OPERATOR_CONFIRMATION',
+        blockers: countTokensRequired
+          ? ['GOOGLE_COUNT_TOKENS_REQUIRED', 'OPERATOR_CONFIRMATION_MISSING']
+          : ['OPERATOR_CONFIRMATION_MISSING'],
       };
       if (route.identityStatus === 'CLAIMED_SNAPSHOT_NOT_REQUESTABLE') {
         excludedRows.push({ ...row, dispatchStatus: 'BLOCKED_MODEL_IDENTITY', blockers: ['CLAIMED_0731_SNAPSHOT_NOT_REQUESTABLE'] });
@@ -143,7 +152,7 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
     },
     persistencePolicy: {
       outputRoot: '.calibration-temp/open-ended-planner-v2/provider-smoke/',
-      allowed: ['planHash', 'packetHash', 'transportHash', 'requestHash', 'providerRequestId', 'nativeModelIdentity', 'nativeSystemFingerprintWhenProvided', 'usage', 'cost', 'finishReason', 'schemaDiagnostics', 'rawResponseHash', 'parsedArtifact'],
+      allowed: ['planHash', 'packetHash', 'transportHash', 'requestHash', 'providerCountTokensRequestHash', 'providerInputTokenCount', 'providerRequestId', 'nativeModelIdentity', 'nativeSystemFingerprintWhenProvided', 'usage', 'cost', 'finishReason', 'schemaDiagnostics', 'rawResponseHash', 'parsedArtifact'],
       forbidden: ['apiKeyValue', 'authorizationHeader', 'rawMediaBytes', 'base64Media', 'rawProviderResponse', 'userProjectState'],
       secretEnvironmentVariables: ['OPENAI_API_KEY', 'GEMINI_API_KEY', 'DEEPSEEK_API_KEY'],
     },
@@ -154,8 +163,6 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
       confirmationDoesNotAuthorize: ['projectMutation', 'holdoutRead', 'proxyExecution', 'render', 'productionRegistration'],
     },
     globalBlockers: [
-      'V2_1C_DOES_NOT_PERSIST_NATIVE_RESPONSE_MODEL_IDENTITY',
-      'V2_1C_COST_MODEL_OMITS_OPENAI_CACHE_WRITE_RATE',
       'GOOGLE_COUNT_TOKENS_NOT_YET_EXECUTED',
       'OPERATOR_CONFIRMATION_NOT_RECORDED',
     ],
@@ -176,11 +183,30 @@ function uniqueTaskArms(packets: HashedStagePacketV2[]): Array<{ taskId: string;
   return [...rows.values()].sort((left, right) => `${left.taskId}/${left.inputArm}`.localeCompare(`${right.taskId}/${right.inputArm}`));
 }
 
-async function offlineInputTokenUpperBound(route: RouteFactV2, artifact: HashedStagePacketV2): Promise<number> {
+async function buildInputCountMaterial(route: RouteFactV2, artifact: HashedStagePacketV2): Promise<{
+  localInputTokenUpperBound: number | null;
+  providerCountTokensEndpoint: string | null;
+  providerCountTokensRequestHash: string | null;
+}> {
   const request = await serializeProviderRequestV2({
     route: { kind: route.provider, apiKey: 'NOT_A_REAL_KEY', model: route.requestModel, modelSnapshot: route.claimedBenchmarkIdentity, reasoningMode: route.reasoningMode },
     artifact, attempt: 1,
     outputBudget: { visible: artifact.packet.stageBudget.maxVisibleOutputTokens, reasoning: artifact.packet.stageBudget.maxReasoningTokens },
   });
-  return Buffer.byteLength(JSON.stringify(request.body), 'utf8') + LOCAL_TOKEN_OVERHEAD;
+  if (route.provider === 'google') {
+    const countRequest = serializeGoogleCountTokensRequestV2({
+      route: { kind: 'google', apiKey: 'NOT_A_REAL_KEY', model: route.requestModel, modelSnapshot: route.claimedBenchmarkIdentity, reasoningMode: route.reasoningMode },
+      generationRequest: request,
+    });
+    return {
+      localInputTokenUpperBound: null,
+      providerCountTokensEndpoint: countRequest.endpoint,
+      providerCountTokensRequestHash: countRequest.requestHash,
+    };
+  }
+  return {
+    localInputTokenUpperBound: Buffer.byteLength(JSON.stringify(request.body), 'utf8') + LOCAL_TOKEN_OVERHEAD,
+    providerCountTokensEndpoint: null,
+    providerCountTokensRequestHash: null,
+  };
 }
