@@ -115,10 +115,19 @@ export async function materializeDevelopmentMediaV2(
       await writeAtomic(artifactPath, wav);
       technical = { sampleRate: SAMPLE_RATE, channels: 1, sampleCount: Math.round(task.project.durationFrames / FPS * SAMPLE_RATE), durationSeconds: task.project.durationFrames / FPS };
     } else {
-      const rgb = renderSyntheticFrameV2(asset.assetId, 0, dimensions.width, dimensions.height, 1);
+      const imageDimensions = asset.assetId === 'dev02-reference'
+        ? { width: 270, height: 480 }
+        : dimensions;
+      const rgb = renderSyntheticFrameV2(asset.assetId, 0, imageDimensions.width, imageDimensions.height, 1);
       contentSha256 = sha256(rgb);
-      await encodePngV2(rgb, dimensions.width, dimensions.height, artifactPath, ffmpegPath);
-      technical = { width: dimensions.width, height: dimensions.height };
+      await encodePngV2(rgb, imageDimensions.width, imageDimensions.height, artifactPath, ffmpegPath);
+      technical = asset.assetId === 'dev02-reference'
+        ? {
+            width: imageDimensions.width,
+            height: imageDimensions.height,
+            order: 'ROW_MAJOR',
+          }
+        : { width: dimensions.width, height: dimensions.height };
     }
     const bytes = await readFile(artifactPath);
     artifacts.push({
@@ -212,14 +221,7 @@ export function renderSyntheticFrameV2(assetId: string, frame: number, width: nu
     rect(rgb, width, height, 0.08, 0.08, 0.84, 0.84, [72, 46, 88]);
     circle(rgb, width, height, Math.round(width * (0.8 - progress * 0.6)), Math.round(height * 0.52), Math.round(width * 0.18), [251, 205, 45]);
   } else if (assetId === 'dev02-reference') {
-    fill(rgb, 0, 0, 0);
-    rect(rgb, width, height, 0.03, 0.03, 0.28, 0.94, [60, 87, 120]);
-    rect(rgb, width, height, 0.34, 0.03, 0.34, 0.30, [118, 66, 95]);
-    rect(rgb, width, height, 0.34, 0.36, 0.34, 0.61, [52, 105, 90]);
-    rect(rgb, width, height, 0.71, 0.03, 0.26, 0.45, [117, 83, 53]);
-    rect(rgb, width, height, 0.71, 0.51, 0.26, 0.46, [67, 74, 118]);
-    rect(rgb, width, height, 0.23, 0.44, 0.54, 0.055, [252, 218, 45]);
-    rect(rgb, width, height, 0.30, 0.52, 0.40, 0.04, [252, 218, 45]);
+    return renderDev02ReferenceContactSheetV2(width, height);
   } else if (assetId === 'dev03-cards') {
     const section = Math.min(3, Math.floor(progress * 4));
     const colors: Array<[number, number, number]> = [[33, 82, 145], [111, 54, 124], [39, 121, 91], [151, 72, 48]];
@@ -231,6 +233,53 @@ export function renderSyntheticFrameV2(assetId: string, frame: number, width: nu
     circle(rgb, width, height, x, Math.round(height * 0.48), Math.round(height * (0.16 + 0.025 * Math.sin(progress * Math.PI * 4))), [235, 144, 72]);
   }
   return rgb;
+}
+
+function renderDev02ReferenceContactSheetV2(width: number, height: number): Buffer {
+  const sheet = Buffer.alloc(width * height * 3);
+  fill(sheet, 8, 10, 14);
+  const columns = 2;
+  const rows = 3;
+  const gutter = Math.max(4, Math.floor(Math.min(width, height) * 0.0125));
+  const tileWidth = Math.floor((width - gutter * (columns + 1)) / columns);
+  const tileHeight = Math.floor((height - gutter * (rows + 1)) / rows);
+  const samples = columns * rows;
+  for (let sample = 0; sample < samples; sample += 1) {
+    const tile = renderDev02ReferenceMomentV2(tileWidth, tileHeight, sample / (samples - 1));
+    const column = sample % columns;
+    const row = Math.floor(sample / columns);
+    blitRgbV2(sheet, width, tile, tileWidth, tileHeight, gutter + column * (tileWidth + gutter), gutter + row * (tileHeight + gutter));
+  }
+  return sheet;
+}
+
+function renderDev02ReferenceMomentV2(width: number, height: number, progress: number): Buffer {
+  const rgb = Buffer.alloc(width * height * 3);
+  fill(rgb, 0, 0, 0);
+  const entrance = 1 - (1 - Math.min(1, progress / 0.6)) ** 3;
+  const down = -0.94 + 0.97 * entrance;
+  const upTop = 0.67 - 0.64 * entrance;
+  const upBottom = 1 - 0.64 * entrance;
+  const exit = Math.max(0, Math.min(1, (progress - 0.8) / 0.2));
+  rect(rgb, width, height, 0.03, down, 0.28, 0.94, [60, 87, 120]);
+  rect(rgb, width, height, 0.34, upTop, 0.34, 0.30, [118, 66, 95]);
+  rect(rgb, width, height, 0.71, down, 0.26, 0.45, [117, 83, 53]);
+  rect(rgb, width, height, 0.71, down + 0.48, 0.26, 0.46, [67, 74, 118]);
+  rect(rgb, width, height, 0.34 * (1 - exit), upBottom * (1 - exit), 0.34 + 0.66 * exit, 0.61 + 0.39 * exit, [52, 105, 90]);
+  if (exit < 0.75) {
+    rect(rgb, width, height, 0.23, 0.44, 0.54, 0.055, [252, 218, 45]);
+    rect(rgb, width, height, 0.30, 0.52, 0.40, 0.04, [252, 218, 45]);
+  }
+  const sampleMarker = Math.round(progress * 5);
+  rect(rgb, width, height, 0.03 + sampleMarker * 0.012, 0.975, 0.008, 0.008, [232, 236, 242]);
+  return rgb;
+}
+
+function blitRgbV2(destination: Buffer, destinationWidth: number, source: Buffer, sourceWidth: number, sourceHeight: number, left: number, top: number): void {
+  const rowBytes = sourceWidth * 3;
+  for (let row = 0; row < sourceHeight; row += 1) {
+    source.copy(destination, ((top + row) * destinationWidth + left) * 3, row * rowBytes, (row + 1) * rowBytes);
+  }
 }
 
 export function synthesizeAudioWavV2(assetId: string, durationFrames: number): Buffer {

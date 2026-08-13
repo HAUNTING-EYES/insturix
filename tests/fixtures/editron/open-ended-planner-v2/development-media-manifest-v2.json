@@ -4,9 +4,18 @@
   "scope": "DEVELOPMENT_ONLY",
   "authority": "RESEARCH_ONLY_NO_PROVIDER_OR_PROJECT_AUTHORITY",
   "sourceBindings": [
-    {"path":"tests/fixtures/editron/open-ended-planner-v1/development-tasks-v1.json","sha256":"3ee82d4b6ec066cdaf69c74f7e260dd1e14a208e0ce6206adc9600046de95b00"},
-    {"path":"tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json","sha256":"0d92de22851ba3def9318b7d04538d514718e92a52848bc026457425fe4160ee"},
-    {"path":"lib/editron/research/open-ended-planner/media-materializer-v2.ts","sha256":"2c1619637a97eca0b7966380357285975f026ee6d68f965fcdd313efa319aa19"}
+    {
+      "path": "tests/fixtures/editron/open-ended-planner-v1/development-tasks-v1.json",
+      "sha256": "3ee82d4b6ec066cdaf69c74f7e260dd1e14a208e0ce6206adc9600046de95b00"
+    },
+    {
+      "path": "tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json",
+      "sha256": "0d92de22851ba3def9318b7d04538d514718e92a52848bc026457425fe4160ee"
+    },
+    {
+      "path": "lib/editron/research/open-ended-planner/media-materializer-v2.ts",
+      "sha256": "7ceb0e4fa7514b510bbcdbb0eae2b496282e639fa13afeb53cabb82ce39e5820"
+    }
   ],
   "toolchain": {
     "node": "v22.23.1",
@@ -18,44 +27,152 @@
   },
   "artifacts": [
     {
-      "assetId":"dev01-host","taskId":"DEV-01","type":"video","mimeType":"video/mp4","artifactPath":".calibration-temp/open-ended-planner-v2/development-media/dev01-host.mp4",
-      "recipeSha256":"sha256:efdf11311910a46a6ac5620cdc6ab968d9388759aca70d75d1a199927f849ae4","contentSha256":"sha256:7611f84efc8221333e2efcbff4e5c4a4776d6daf831854a2da1f13d39acf01f6","artifactSha256":"sha256:e1cb8b07ee2ca55794f014e674c451238a97832ef3ee085c973d5c9d8667931c","bytes":41073,"materializationStatus":"MATERIALIZED_AND_HASHED_V2_1A",
-      "technical":{"width":640,"height":360,"fps":30,"frames":480,"durationSeconds":16}
+      "assetId": "dev01-host",
+      "taskId": "DEV-01",
+      "type": "video",
+      "mimeType": "video/mp4",
+      "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev01-host.mp4",
+      "recipeSha256": "sha256:efdf11311910a46a6ac5620cdc6ab968d9388759aca70d75d1a199927f849ae4",
+      "contentSha256": "sha256:7611f84efc8221333e2efcbff4e5c4a4776d6daf831854a2da1f13d39acf01f6",
+      "artifactSha256": "sha256:e1cb8b07ee2ca55794f014e674c451238a97832ef3ee085c973d5c9d8667931c",
+      "bytes": 41073,
+      "materializationStatus": "MATERIALIZED_AND_HASHED_V2_1A",
+      "technical": {
+        "width": 640,
+        "height": 360,
+        "fps": 30,
+        "frames": 480,
+        "durationSeconds": 16
+      }
     },
     {
-      "assetId":"dev01-music","taskId":"DEV-01","type":"audio","mimeType":"audio/wav","artifactPath":".calibration-temp/open-ended-planner-v2/development-media/dev01-music.wav",
-      "recipeSha256":"sha256:911ce314530e6089dcfba582e2162b1cdd499a041cd2585100d0d3f119b11ca7","contentSha256":"sha256:083b442aea568e85d9c843bd88f8489ae4900918f496feb2fe14b25ee8b75184","artifactSha256":"sha256:99dec4af2c9537a46ec6983b1fd36e68fd3d4bb7973b9940918ef4ca5f0e931e","bytes":1536044,"materializationStatus":"MATERIALIZED_AND_HASHED_V2_1A",
-      "technical":{"sampleRate":48000,"channels":1,"sampleCount":768000,"durationSeconds":16}
+      "assetId": "dev01-music",
+      "taskId": "DEV-01",
+      "type": "audio",
+      "mimeType": "audio/wav",
+      "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev01-music.wav",
+      "recipeSha256": "sha256:911ce314530e6089dcfba582e2162b1cdd499a041cd2585100d0d3f119b11ca7",
+      "contentSha256": "sha256:083b442aea568e85d9c843bd88f8489ae4900918f496feb2fe14b25ee8b75184",
+      "artifactSha256": "sha256:99dec4af2c9537a46ec6983b1fd36e68fd3d4bb7973b9940918ef4ca5f0e931e",
+      "bytes": 1536044,
+      "materializationStatus": "MATERIALIZED_AND_HASHED_V2_1A",
+      "technical": {
+        "sampleRate": 48000,
+        "channels": 1,
+        "sampleCount": 768000,
+        "durationSeconds": 16
+      }
     },
     {
-      "assetId":"dev02-close","taskId":"DEV-02","type":"video","mimeType":"video/mp4","artifactPath":".calibration-temp/open-ended-planner-v2/development-media/dev02-close.mp4",
-      "recipeSha256":"sha256:e4dac2eb88de5912ab15136a9eb4b327a3282c3d7e7ab638e1a1d120526c8dc6","contentSha256":"sha256:9464c236fc5d1fd43911493beb1001c718786f53227242a194eed60bcd0b800b","artifactSha256":"sha256:645d5ecbf7cec49f837768cee0fa2469c9fec79f54f4928160920c3a1a22782a","bytes":64941,"materializationStatus":"MATERIALIZED_AND_HASHED_V2_1A",
-      "technical":{"width":360,"height":640,"fps":30,"frames":360,"durationSeconds":12}
+      "assetId": "dev02-close",
+      "taskId": "DEV-02",
+      "type": "video",
+      "mimeType": "video/mp4",
+      "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev02-close.mp4",
+      "recipeSha256": "sha256:e4dac2eb88de5912ab15136a9eb4b327a3282c3d7e7ab638e1a1d120526c8dc6",
+      "contentSha256": "sha256:9464c236fc5d1fd43911493beb1001c718786f53227242a194eed60bcd0b800b",
+      "artifactSha256": "sha256:645d5ecbf7cec49f837768cee0fa2469c9fec79f54f4928160920c3a1a22782a",
+      "bytes": 64941,
+      "materializationStatus": "MATERIALIZED_AND_HASHED_V2_1A",
+      "technical": {
+        "width": 360,
+        "height": 640,
+        "fps": 30,
+        "frames": 360,
+        "durationSeconds": 12
+      }
     },
     {
-      "assetId":"dev02-reference","taskId":"DEV-02","type":"image","mimeType":"image/png","artifactPath":".calibration-temp/open-ended-planner-v2/development-media/dev02-reference.png",
-      "recipeSha256":"sha256:d85d4bb6a245b52b97a9b68200695b7aa8ffa71f690ad63b2987f8115c89bc8a","contentSha256":"sha256:88526ccd53a25c2ec34f1cb2e348bc7c783c5fa0be941d56ab9e7e6713e19b2c","artifactSha256":"sha256:0fe7d564cae0c94d0b74f87c328ffc24edab9ac0b27c6d66bf6528e29dab0e46","bytes":4519,"materializationStatus":"MATERIALIZED_AND_HASHED_V2_1A",
-      "technical":{"width":360,"height":640}
+      "assetId": "dev02-reference",
+      "taskId": "DEV-02",
+      "type": "image",
+      "mimeType": "image/png",
+      "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev02-reference.png",
+      "recipeSha256": "sha256:d85d4bb6a245b52b97a9b68200695b7aa8ffa71f690ad63b2987f8115c89bc8a",
+      "contentSha256": "sha256:8ca3062ee8863ff24671b4321aac85ebe956d7dc56e025fc126759f5a5ffccaf",
+      "artifactSha256": "sha256:fb9f8c109108baa4b47ce4a0bd0fed4980ac470a8abff929b72d664233c21d4f",
+      "bytes": 3248,
+      "materializationStatus": "MATERIALIZED_AND_HASHED_V2_1A",
+      "technical": {
+        "width": 270,
+        "height": 480,
+        "order": "ROW_MAJOR"
+      }
     },
     {
-      "assetId":"dev02-wide","taskId":"DEV-02","type":"video","mimeType":"video/mp4","artifactPath":".calibration-temp/open-ended-planner-v2/development-media/dev02-wide.mp4",
-      "recipeSha256":"sha256:c06424b4f9dbdacc62bb5454009a1da810890c33eb1ea406d5b87b32b42efde2","contentSha256":"sha256:9468eeaae6364333f2e4c9a0b1992d30276d761f15c81c4150d804197698c151","artifactSha256":"sha256:dacb93870b9050251ebcd285fae783f378af66301813b47f074f44ed75b97219","bytes":58068,"materializationStatus":"MATERIALIZED_AND_HASHED_V2_1A",
-      "technical":{"width":360,"height":640,"fps":30,"frames":360,"durationSeconds":12}
+      "assetId": "dev02-wide",
+      "taskId": "DEV-02",
+      "type": "video",
+      "mimeType": "video/mp4",
+      "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev02-wide.mp4",
+      "recipeSha256": "sha256:c06424b4f9dbdacc62bb5454009a1da810890c33eb1ea406d5b87b32b42efde2",
+      "contentSha256": "sha256:9468eeaae6364333f2e4c9a0b1992d30276d761f15c81c4150d804197698c151",
+      "artifactSha256": "sha256:dacb93870b9050251ebcd285fae783f378af66301813b47f074f44ed75b97219",
+      "bytes": 58068,
+      "materializationStatus": "MATERIALIZED_AND_HASHED_V2_1A",
+      "technical": {
+        "width": 360,
+        "height": 640,
+        "fps": 30,
+        "frames": 360,
+        "durationSeconds": 12
+      }
     },
     {
-      "assetId":"dev03-beats","taskId":"DEV-03","type":"audio","mimeType":"audio/wav","artifactPath":".calibration-temp/open-ended-planner-v2/development-media/dev03-beats.wav",
-      "recipeSha256":"sha256:ff59bfd1fd791dfa50517fbe1f8ceedfd7721e3f48670d1ca6abc552517d78a7","contentSha256":"sha256:2e85ca62cbbc0f4df06e0847a3517af6d06bf0688aea73fa9aa0758afa03e114","artifactSha256":"sha256:62b685b0c90aeabe87bc695dfd7b0881386f2872b8fccd9020318056745ed3aa","bytes":1920044,"materializationStatus":"MATERIALIZED_AND_HASHED_V2_1A",
-      "technical":{"sampleRate":48000,"channels":1,"sampleCount":960000,"durationSeconds":20}
+      "assetId": "dev03-beats",
+      "taskId": "DEV-03",
+      "type": "audio",
+      "mimeType": "audio/wav",
+      "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev03-beats.wav",
+      "recipeSha256": "sha256:ff59bfd1fd791dfa50517fbe1f8ceedfd7721e3f48670d1ca6abc552517d78a7",
+      "contentSha256": "sha256:2e85ca62cbbc0f4df06e0847a3517af6d06bf0688aea73fa9aa0758afa03e114",
+      "artifactSha256": "sha256:62b685b0c90aeabe87bc695dfd7b0881386f2872b8fccd9020318056745ed3aa",
+      "bytes": 1920044,
+      "materializationStatus": "MATERIALIZED_AND_HASHED_V2_1A",
+      "technical": {
+        "sampleRate": 48000,
+        "channels": 1,
+        "sampleCount": 960000,
+        "durationSeconds": 20
+      }
     },
     {
-      "assetId":"dev03-cards","taskId":"DEV-03","type":"video","mimeType":"video/mp4","artifactPath":".calibration-temp/open-ended-planner-v2/development-media/dev03-cards.mp4",
-      "recipeSha256":"sha256:9d06460cbd6bcbe9a10be041d53cb9b7699a66a77bd1a152d5fb2f50a7d1811b","contentSha256":"sha256:3da8f85a1f320e0e76425309d878105201cb9097b0e1823610e4b65ce2990bd4","artifactSha256":"sha256:4e1050d3922a599b9354a3eb87a670acfdd4232e839058071e46081df4d9ebfd","bytes":28976,"materializationStatus":"MATERIALIZED_AND_HASHED_V2_1A",
-      "technical":{"width":640,"height":360,"fps":30,"frames":600,"durationSeconds":20}
+      "assetId": "dev03-cards",
+      "taskId": "DEV-03",
+      "type": "video",
+      "mimeType": "video/mp4",
+      "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev03-cards.mp4",
+      "recipeSha256": "sha256:9d06460cbd6bcbe9a10be041d53cb9b7699a66a77bd1a152d5fb2f50a7d1811b",
+      "contentSha256": "sha256:3da8f85a1f320e0e76425309d878105201cb9097b0e1823610e4b65ce2990bd4",
+      "artifactSha256": "sha256:4e1050d3922a599b9354a3eb87a670acfdd4232e839058071e46081df4d9ebfd",
+      "bytes": 28976,
+      "materializationStatus": "MATERIALIZED_AND_HASHED_V2_1A",
+      "technical": {
+        "width": 640,
+        "height": 360,
+        "fps": 30,
+        "frames": 600,
+        "durationSeconds": 20
+      }
     },
     {
-      "assetId":"dev04-crossing","taskId":"DEV-04","type":"video","mimeType":"video/mp4","artifactPath":".calibration-temp/open-ended-planner-v2/development-media/dev04-crossing.mp4",
-      "recipeSha256":"sha256:c6889fdbe2ef9423dbd7a9c1a594fb88b57c29a9c476ec393f68e73c9369d590","contentSha256":"sha256:207c65ee88e8c7468f7049fc7bc4ca61014fca2ccc2b2c85c04231b163ac8e0e","artifactSha256":"sha256:6bbcb3256143b02a968cf4795e3552f0869ea142ff98e6c9d15cbd9c0002ef6b","bytes":59050,"materializationStatus":"MATERIALIZED_AND_HASHED_V2_1A",
-      "technical":{"width":640,"height":360,"fps":30,"frames":240,"durationSeconds":8}
+      "assetId": "dev04-crossing",
+      "taskId": "DEV-04",
+      "type": "video",
+      "mimeType": "video/mp4",
+      "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev04-crossing.mp4",
+      "recipeSha256": "sha256:c6889fdbe2ef9423dbd7a9c1a594fb88b57c29a9c476ec393f68e73c9369d590",
+      "contentSha256": "sha256:207c65ee88e8c7468f7049fc7bc4ca61014fca2ccc2b2c85c04231b163ac8e0e",
+      "artifactSha256": "sha256:6bbcb3256143b02a968cf4795e3552f0869ea142ff98e6c9d15cbd9c0002ef6b",
+      "bytes": 59050,
+      "materializationStatus": "MATERIALIZED_AND_HASHED_V2_1A",
+      "technical": {
+        "width": 640,
+        "height": 360,
+        "fps": 30,
+        "frames": 240,
+        "durationSeconds": 8
+      }
     }
   ]
 }
