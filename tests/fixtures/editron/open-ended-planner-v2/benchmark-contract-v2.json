@@ -51,12 +51,12 @@
   "trialBudget": {
     "maxAttempts": 2,
     "maxRepairAttempts": 1,
-    "maxInputTokens": 30000,
-    "maxVisibleOutputTokens": 7000,
-    "maxReasoningTokens": 12000,
-    "maxTotalTokens": 49000,
-    "maxWallClockMs": 180000,
-    "maxProviderCostUsd": 0.5,
+    "maxInputTokens": 41000,
+    "maxVisibleOutputTokens": 9300,
+    "maxReasoningTokens": 14700,
+    "maxTotalTokens": 65000,
+    "maxWallClockMs": 240000,
+    "maxProviderCostUsd": 0.67,
     "enforcement": "A trial that exceeds a declared hard limit is BUDGET_EXCEEDED and cannot be counted executable."
   },
   "requiredTelemetry": ["provider", "model", "providerRequestId", "inputArm", "executionFormArm", "attempt", "inputTokens", "cachedInputTokens", "visibleOutputTokens", "reasoningTokens", "totalTokens", "finishReason", "truncated", "latencyMs", "providerCostUsd", "parseStatus", "schemaDiagnostics", "artifactSha256"],
