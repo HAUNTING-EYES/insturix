@@ -100,14 +100,14 @@ describe('open-ended planner V2 provider transport', () => {
   it('blocks preflight and post-response budget drift', async () => {
     let preflightCalls = 0;
     const preflight = await run({
-      preflightInputTokens: [6001, 100],
+      preflightInputTokens: [17_001, 100],
       fetchImpl: async () => { preflightCalls += 1; return jsonResponse(openAI(JSON.stringify(validArtifact()))); },
     });
     expect(preflightCalls).toBe(0);
     expect(preflight.attempts[0]).toMatchObject({ disposition: 'BUDGET_EXCEEDED', parseStatus: 'PREFLIGHT_BLOCKED' });
 
     const usageDrift = await run({
-      fetchImpl: async () => jsonResponse(openAI(JSON.stringify(validArtifact()), { inputTokens: 6001 })),
+      fetchImpl: async () => jsonResponse(openAI(JSON.stringify(validArtifact()), { inputTokens: 17_001 })),
     });
     expect(usageDrift.disposition).toBe('BUDGET_EXCEEDED');
     expect(usageDrift.attempts[0].schemaDiagnostics).toContain('INPUT_TOKEN_LIMIT');
@@ -170,7 +170,7 @@ describe('open-ended planner V2 provider transport', () => {
     const result = await run({
       pricing: {
         inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.1,
-        cacheWriteUsdPerMillion: 100, outputUsdPerMillion: 1,
+        cacheWriteUsdPerMillion: 200, outputUsdPerMillion: 1,
       },
       preflightInputTokens: [1000, 100],
       fetchImpl: async () => { calls += 1; return jsonResponse(openAI(JSON.stringify(validArtifact()))); },
@@ -219,8 +219,9 @@ function route() {
 function pricing(): ProviderPricingV2 { return { inputUsdPerMillion: 1, outputUsdPerMillion: 1 }; }
 function validArtifact() {
   return {
-    artifactType: 'ReferenceBlueprintV2', taskId: 'DEV-01', observableTargets: [], temporalStructure: [],
-    layoutAndMotion: [], audioIntent: [], uncertainties: [], evidenceIds: [],
+    artifactType: 'ReferenceBlueprintV2', taskId: 'DEV-01',
+    globalEditorialLanguage: [], recurringDesignGrammar: [], uniqueMoments: [], targetClaims: [],
+    temporalStructure: [], uncertainties: [], evidenceIds: [],
   };
 }
 function openAI(text: string, overrides: {

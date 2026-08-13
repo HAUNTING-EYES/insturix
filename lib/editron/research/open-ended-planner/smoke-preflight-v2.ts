@@ -1,7 +1,6 @@
-import { Buffer } from 'node:buffer';
-
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import {
+  estimateOfflineInputTokensUpperBoundV2,
   serializeGoogleCountTokensRequestV2,
   serializeProviderRequestV2,
   type ProviderKindV2,
@@ -37,10 +36,6 @@ interface RouteFactV2 {
 const EVIDENCE_DATE = '2026-08-14';
 const SMOKE_TASK = 'DEV-02';
 const SMOKE_CONDITION = 'BASELINE';
-const LOCAL_TOKEN_OVERHEAD = 256;
-// This smoke's only locally counted image is the frozen 360x640 DEV-02 PNG.
-// Larger images require a separately calibrated allowance or provider count.
-const LOCAL_IMAGE_TOKEN_ALLOWANCE = 768;
 
 const ROUTES: readonly RouteFactV2[] = [
   {
@@ -230,18 +225,8 @@ async function buildInputCountMaterial(route: RouteFactV2, artifact: HashedStage
     };
   }
   return {
-    localInputTokenUpperBound: localInputTokenUpperBound(request.body, artifact.transportAttachments.length),
+    localInputTokenUpperBound: estimateOfflineInputTokensUpperBoundV2(request, artifact.transportAttachments.length),
     providerCountTokensEndpoint: null,
     providerCountTokensRequestHash: null,
   };
-}
-
-function localInputTokenUpperBound(body: Readonly<Record<string, unknown>>, imageCount: number): number {
-  const withoutInlineMedia = JSON.stringify(body, (key, value: unknown) =>
-    key === 'image_url' && typeof value === 'string' && value.startsWith('data:')
-      ? '[HASH_BOUND_INLINE_IMAGE]'
-      : value);
-  return Buffer.byteLength(withoutInlineMedia, 'utf8')
-    + LOCAL_TOKEN_OVERHEAD
-    + imageCount * LOCAL_IMAGE_TOKEN_ALLOWANCE;
 }

@@ -5,6 +5,7 @@ import {
   ProviderCodecErrorV2,
   serializeProviderRequestV2,
   type ProviderRouteV2,
+  type SerializedProviderRequestV2,
   type ProviderUsageV2,
   type SchemaModeV2,
 } from './provider-codecs-v2';
@@ -60,11 +61,15 @@ export interface ProviderStageRunV2 {
   attempts: ReadonlyArray<Readonly<ProviderAttemptRecordV2>>;
   artifact?: Readonly<Record<string, unknown>>;
 }
+export type ProviderInputTokenCounterV2 = (input: {
+  attempt: 1 | 2;
+  request: SerializedProviderRequestV2;
+}) => Promise<number>;
 export async function runProviderStageV2(input: {
   artifact: HashedStagePacketV2;
   route: ProviderRouteV2;
   pricing: ProviderPricingV2;
-  preflightInputTokens: readonly [number, number];
+  preflightInputTokens: readonly [number, number] | ProviderInputTokenCounterV2;
   fetchImpl: FetchV2;
   readAttachmentBytes?: (path: string) => Promise<Uint8Array>;
   signal?: AbortSignal;
@@ -83,16 +88,6 @@ export async function runProviderStageV2(input: {
   let acceptedArtifact: Record<string, unknown> | undefined;
   for (const attempt of [1, 2] as const) {
     if (attempt === 2 && !repair) break;
-    const estimatedInput = input.preflightInputTokens[attempt - 1];
-    const worstCost = estimateWorstCaseCost(
-      estimatedInput, remaining.visible, remaining.reasoning, input.pricing,
-    );
-    if (estimatedInput > remaining.input || worstCost === undefined || worstCost > remaining.cost) {
-      attempts.push(emptyRecord(input, attempt, 'BUDGET_EXCEEDED', 'PREFLIGHT_BLOCKED', [
-        estimatedInput > remaining.input ? 'PREFLIGHT_INPUT_LIMIT' : 'PREFLIGHT_COST_LIMIT',
-      ]));
-      break;
-    }
     let request;
     try {
       request = await serializeProviderRequestV2({
@@ -106,6 +101,25 @@ export async function runProviderStageV2(input: {
         input, attempt, unsupported ? 'NOT_APPLICABLE' : 'TRANSPORT_INVALID', 'NOT_ATTEMPTED',
         [error instanceof ProviderCodecErrorV2 ? error.code : 'SERIALIZATION_ERROR'], errorDetail(error),
       ));
+      break;
+    }
+    let estimatedInput: number;
+    try {
+      estimatedInput = await resolvePreflightInputTokens(input.preflightInputTokens, attempt, request);
+    } catch (error) {
+      attempts.push(requestRecord(
+        input, attempt, request, 'TRANSPORT_INVALID', 'PREFLIGHT_INPUT_COUNT_FAILED', 0, {},
+        ['PREFLIGHT_INPUT_COUNT_FAILED'], undefined, errorDetail(error),
+      ));
+      break;
+    }
+    const worstCost = estimateWorstCaseCost(
+      estimatedInput, remaining.visible, remaining.reasoning, input.pricing,
+    );
+    if (estimatedInput > remaining.input || worstCost === undefined || worstCost > remaining.cost) {
+      attempts.push(requestRecord(input, attempt, request, 'BUDGET_EXCEEDED', 'PREFLIGHT_BLOCKED', 0, {}, [
+        estimatedInput > remaining.input ? 'PREFLIGHT_INPUT_LIMIT' : 'PREFLIGHT_COST_LIMIT',
+      ]));
       break;
     }
     const started = now();
@@ -329,7 +343,18 @@ function deriveTotal(usage: ProviderUsageV2): number | null {
 }
 function validateConfiguration(input: Parameters<typeof runProviderStageV2>[0]): void {
   for (const [name, value] of Object.entries(input.pricing)) if (!Number.isFinite(value) || value < 0) throw new TypeError(`Invalid ${name}`);
-  for (const value of input.preflightInputTokens) if (!Number.isSafeInteger(value) || value < 0) throw new TypeError('Invalid preflight token count');
+  if (Array.isArray(input.preflightInputTokens)) {
+    for (const value of input.preflightInputTokens) if (!Number.isSafeInteger(value) || value < 0) throw new TypeError('Invalid preflight token count');
+  } else if (typeof input.preflightInputTokens !== 'function') throw new TypeError('Invalid preflight token counter');
+}
+async function resolvePreflightInputTokens(
+  source: readonly [number, number] | ProviderInputTokenCounterV2,
+  attempt: 1 | 2,
+  request: SerializedProviderRequestV2,
+): Promise<number> {
+  const value = typeof source === 'function' ? await source({ attempt, request }) : source[attempt - 1];
+  if (!Number.isSafeInteger(value) || value < 0) throw new TypeError('Invalid preflight token count');
+  return value;
 }
 function combineSignals(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
   const timeout = AbortSignal.timeout(Math.max(1, timeoutMs));

@@ -67,6 +67,25 @@ const SUPPORTED_MEDIA: Record<ProviderKindV2, ReadonlySet<string>> = {
   deepseek: new Set(),
 };
 
+const OPENAI_LOCAL_TOKEN_OVERHEAD = 256;
+const OPENAI_FROZEN_IMAGE_TOKEN_ALLOWANCE = 768;
+
+export function estimateOfflineInputTokensUpperBoundV2(
+  request: SerializedProviderRequestV2,
+  imageCount: number,
+): number {
+  if (!Number.isSafeInteger(imageCount) || imageCount < 0) {
+    throw new ProviderCodecErrorV2('LOCAL_COUNTER_IMAGE_COUNT', 'Image count must be a non-negative safe integer');
+  }
+  const withoutInlineMedia = JSON.stringify(request.body, (key, value: unknown) =>
+    key === 'image_url' && typeof value === 'string' && value.startsWith('data:')
+      ? '[HASH_BOUND_INLINE_IMAGE]'
+      : value);
+  return Buffer.byteLength(withoutInlineMedia, 'utf8')
+    + OPENAI_LOCAL_TOKEN_OVERHEAD
+    + imageCount * OPENAI_FROZEN_IMAGE_TOKEN_ALLOWANCE;
+}
+
 export async function serializeProviderRequestV2(input: {
   route: ProviderRouteV2;
   artifact: HashedStagePacketV2;
