@@ -3,6 +3,11 @@
 **Status:** architecture correction and future implementation contract. This
 document does not claim that the described runtime exists today.
 
+The closed observable-target grammar and execution-form decision procedure are
+governed by [the V2 target reconstruction and routing contract](./editron/open-ended-editing/oe-v2-target-reconstruction-and-routing-contract-2026-08-13.md).
+The actual no-spend benchmark position and next paid-run gate are recorded in
+[the V2-1E2 closeout](./editron/open-ended-editing/oe-benchmark-v2-1e2-closeout-and-next-run-2026-08-13.md).
+
 ## Decision
 
 The phrase `evidence sufficiency check` is rejected unless it means a
@@ -838,6 +843,19 @@ Measure at least:
 Candidate counts, sample rates and thresholds are selected from these curves by
 content class and operation. They are versioned certification data, not prompt
 constants.
+
+## Current benchmark gate
+
+The V2 target-reconstruction smoke has not run. V2-1E and V2-1E2 repaired
+provider identity, OpenAI cache-write pricing and Google exact-request token
+counting, but produced no live provider receipt. The currently frozen
+`ReferenceBlueprintV2` still accepts arbitrary string targets and therefore
+cannot prove the target/evidence/routing contract in this document.
+
+The next bounded slice is V2-1F: close that stage-one/stage-two schema gap,
+including rational source/project/composition coordinates and the explicit
+filmstrip-island-generated/full-reel-hybrid evaluator case. Only then may the
+operator-confirmed six-row, $0.48-maximum V2-1G stage-one smoke dispatch.
 
 ## Required implementation order
 
