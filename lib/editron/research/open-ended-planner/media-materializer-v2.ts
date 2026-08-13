@@ -270,8 +270,6 @@ function renderDev02ReferenceMomentV2(width: number, height: number, progress: n
     rect(rgb, width, height, 0.23, 0.44, 0.54, 0.055, [252, 218, 45]);
     rect(rgb, width, height, 0.30, 0.52, 0.40, 0.04, [252, 218, 45]);
   }
-  const sampleMarker = Math.round(progress * 5);
-  rect(rgb, width, height, 0.03 + sampleMarker * 0.012, 0.975, 0.008, 0.008, [232, 236, 242]);
   return rgb;
 }
 

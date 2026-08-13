@@ -47,14 +47,14 @@ describe('open-ended planner V2 development media materializer', () => {
     );
   });
 
-  it('renders the DEV-02 reference as six distinct row-major temporal samples', () => {
+  it('renders the DEV-02 reference as ordered temporal samples with an honest settled hold', () => {
     const width = 270;
     const height = 480;
     const sheet = renderSyntheticFrameV2('dev02-reference', 0, width, height, 1);
     const gutter = Math.max(4, Math.floor(Math.min(width, height) * 0.0125));
     const tileWidth = Math.floor((width - gutter * 3) / 2);
     const tileHeight = Math.floor((height - gutter * 4) / 3);
-    const tileHashes = Array.from({ length: 6 }, (_, sample) => {
+    const tiles = Array.from({ length: 6 }, (_, sample) => {
       const column = sample % 2;
       const row = Math.floor(sample / 2);
       const tile = Buffer.alloc(tileWidth * tileHeight * 3);
@@ -62,9 +62,19 @@ describe('open-ended planner V2 development media materializer', () => {
         const start = ((gutter + row * (tileHeight + gutter) + y) * width + gutter + column * (tileWidth + gutter)) * 3;
         sheet.copy(tile, y * tileWidth * 3, start, start + tileWidth * 3);
       }
-      return sha256(tile);
+      return tile;
     });
-    expect(new Set(tileHashes).size).toBe(6);
+    const tileHashes = tiles.map(sha256);
+    expect(new Set(tileHashes).size).toBe(5);
+    expect(tileHashes[3]).toBe(tileHashes[4]);
+    expect(tileHashes[0]).not.toBe(tileHashes[1]);
+    expect(tileHashes[4]).not.toBe(tileHashes[5]);
+    expect(tiles.every((tile) => {
+      for (let offset = 0; offset < tile.length; offset += 3) {
+        if (tile[offset] === 232 && tile[offset + 1] === 236 && tile[offset + 2] === 242) return false;
+      }
+      return true;
+    })).toBe(true);
     expect(sheet.equals(renderSyntheticFrameV2('dev02-reference', 0, width, height, 1))).toBe(true);
   });
 

@@ -14,7 +14,7 @@
     },
     {
       "path": "lib/editron/research/open-ended-planner/media-materializer-v2.ts",
-      "sha256": "7ceb0e4fa7514b510bbcdbb0eae2b496282e639fa13afeb53cabb82ce39e5820"
+      "sha256": "879ae9c2ef9d81ea33207b6394d6b037e09f3c8bd2b953c8dacbf0d50903150e"
     }
   ],
   "toolchain": {
@@ -89,9 +89,9 @@
       "mimeType": "image/png",
       "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev02-reference.png",
       "recipeSha256": "sha256:d85d4bb6a245b52b97a9b68200695b7aa8ffa71f690ad63b2987f8115c89bc8a",
-      "contentSha256": "sha256:8ca3062ee8863ff24671b4321aac85ebe956d7dc56e025fc126759f5a5ffccaf",
-      "artifactSha256": "sha256:fb9f8c109108baa4b47ce4a0bd0fed4980ac470a8abff929b72d664233c21d4f",
-      "bytes": 3248,
+      "contentSha256": "sha256:ce49d7e92367ebdf7bed9daba366d7c410f9f780068bb62cf4fe5eef80e751f4",
+      "artifactSha256": "sha256:c760938baa62a23e479817687a39b816fe60672671e69d07a80d4863379973bd",
+      "bytes": 3193,
       "materializationStatus": "MATERIALIZED_AND_HASHED_V2_1A",
       "technical": {
         "width": 270,

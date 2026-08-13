@@ -34,28 +34,28 @@
       "taskId": "DEV-02",
       "conditionId": "BASELINE",
       "inputArm": "MULTIMODAL",
-      "packetHash": "3507a2791a37fbf2e042ce066bd443c41ac640159c59137d55892f3f35381085",
-      "transportHash": "eeb6043e7459bc855c0c6bfbada8c4284998ea927f0c8d361f6a06ec67c186de"
+      "packetHash": "1b429f0d9287715db486fc15bd9df52455494fe456f5c05773492787ae2ba059",
+      "transportHash": "617c6cb54a8ba7e0d4668b2ff56948c140a0b407dbb7e973ebdb256d14c1a4eb"
     },
     {
       "taskId": "DEV-02",
       "conditionId": "BASELINE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
-      "packetHash": "500c9f98dd0d901a84564268056f4825a5ff08943caa28f9935acdaaa6d1712f",
+      "packetHash": "83cd9556617b02778b39d19a32591dead3b79eaabb4d5eff39c83d5daa8d27dc",
       "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     {
       "taskId": "DEV-02",
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "MULTIMODAL",
-      "packetHash": "b7a33c37323ce9056374ae1b37953dd736b8b4d8474b607ca5dd7893b21a9f51",
-      "transportHash": "eeb6043e7459bc855c0c6bfbada8c4284998ea927f0c8d361f6a06ec67c186de"
+      "packetHash": "5ba4fe5d34816d22af2cdcb793e62b8bdb107bdc08ef6a0b69d3c0e58451f9b2",
+      "transportHash": "617c6cb54a8ba7e0d4668b2ff56948c140a0b407dbb7e973ebdb256d14c1a4eb"
     },
     {
       "taskId": "DEV-02",
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
-      "packetHash": "daf04824e1a735ed7b429236d4dcf354031532914783fa4cf51fe0a0d956a617",
+      "packetHash": "f30f14d773dcaea0b0bace58d5548721b3e1631afab110553ee95d8c14c1dc0a",
       "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     {
@@ -554,8 +554,8 @@
       "conditionId": "BASELINE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FREE_CHOICE",
-      "stageOnePacketHash": "3507a2791a37fbf2e042ce066bd443c41ac640159c59137d55892f3f35381085",
-      "branchHash": "85a843b5abf5efb2f19537980d60fc216d46fe8fb2947c8a287fc8ef7cfcd66c",
+      "stageOnePacketHash": "1b429f0d9287715db486fc15bd9df52455494fe456f5c05773492787ae2ba059",
+      "branchHash": "85c0ec2ff3cd86d27d55bd8a5983661e774abc9bb46d6e0d3321032312e4b62a",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -572,8 +572,8 @@
       "conditionId": "BASELINE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FORCED_NATIVE",
-      "stageOnePacketHash": "3507a2791a37fbf2e042ce066bd443c41ac640159c59137d55892f3f35381085",
-      "branchHash": "22d53c43a1b20c144d1388841af7500a5403da3c3c6763f5d088ec0bf27c743e",
+      "stageOnePacketHash": "1b429f0d9287715db486fc15bd9df52455494fe456f5c05773492787ae2ba059",
+      "branchHash": "f6c6bf3f5b57c04bba0f0f91f2d47a575403e59602c6f8845903d50f6d53a4d2",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -590,8 +590,8 @@
       "conditionId": "BASELINE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FORCED_GENERATED_COMPOSITION",
-      "stageOnePacketHash": "3507a2791a37fbf2e042ce066bd443c41ac640159c59137d55892f3f35381085",
-      "branchHash": "f73822276a58bbd190f549b393a206c1f51181d1fa5277fc8c34fca0a660498a",
+      "stageOnePacketHash": "1b429f0d9287715db486fc15bd9df52455494fe456f5c05773492787ae2ba059",
+      "branchHash": "755f860c6c198bf3154c537f81a60088cab481dc649e654403c4a5d8dedbd020",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -608,8 +608,8 @@
       "conditionId": "BASELINE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FORCED_HYBRID",
-      "stageOnePacketHash": "3507a2791a37fbf2e042ce066bd443c41ac640159c59137d55892f3f35381085",
-      "branchHash": "4eb4da70dbb30b10e8d3fc2d84033a1fb64af670d6e295b1aef9cffd79cdbc2f",
+      "stageOnePacketHash": "1b429f0d9287715db486fc15bd9df52455494fe456f5c05773492787ae2ba059",
+      "branchHash": "312741e2c0c5c7f09afc0afa3ada87269e3e71151b119e2ff62b04ac121d56b4",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -626,8 +626,8 @@
       "conditionId": "BASELINE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "THRESHOLD_ABLATION",
-      "stageOnePacketHash": "3507a2791a37fbf2e042ce066bd443c41ac640159c59137d55892f3f35381085",
-      "branchHash": "7ded54df03e0250a7df4583768f100390d52b1e856af1da6a4aabfdd1433ff7e",
+      "stageOnePacketHash": "1b429f0d9287715db486fc15bd9df52455494fe456f5c05773492787ae2ba059",
+      "branchHash": "95b9e80c29a369bfb094f3c2480a368cb7f407d051efb540ea25ad4be04293cd",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -644,8 +644,8 @@
       "conditionId": "BASELINE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "SIGNAL_ABLATION",
-      "stageOnePacketHash": "3507a2791a37fbf2e042ce066bd443c41ac640159c59137d55892f3f35381085",
-      "branchHash": "12146a5947f7ee13211604103ed3d8b9b3a8b810c7ffbd48cca743fcd8076c8e",
+      "stageOnePacketHash": "1b429f0d9287715db486fc15bd9df52455494fe456f5c05773492787ae2ba059",
+      "branchHash": "a70f7bb2851400cb786d77499bb4f2934c509357e5a11184e604201d01f6b620",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -662,8 +662,8 @@
       "conditionId": "BASELINE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FREE_CHOICE",
-      "stageOnePacketHash": "500c9f98dd0d901a84564268056f4825a5ff08943caa28f9935acdaaa6d1712f",
-      "branchHash": "0878053598ace4b29d3c38ed4eeb6f522170f0103fad408e0c4216b8bf2b6a4c",
+      "stageOnePacketHash": "83cd9556617b02778b39d19a32591dead3b79eaabb4d5eff39c83d5daa8d27dc",
+      "branchHash": "9cf1a6b25b12f5176a91f465fd9e3e9c09ab4892026a0cd384dfe0ae58c6470a",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -680,8 +680,8 @@
       "conditionId": "BASELINE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FORCED_NATIVE",
-      "stageOnePacketHash": "500c9f98dd0d901a84564268056f4825a5ff08943caa28f9935acdaaa6d1712f",
-      "branchHash": "c1288000c023bbe1d6ea9d6d3955dde0f7d185fc608fc4cb58b9f1d6b2bf8534",
+      "stageOnePacketHash": "83cd9556617b02778b39d19a32591dead3b79eaabb4d5eff39c83d5daa8d27dc",
+      "branchHash": "1b597ddb85fc0667b181257211628f5754bb69b1f1855c04773a22d86136a190",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -698,8 +698,8 @@
       "conditionId": "BASELINE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FORCED_GENERATED_COMPOSITION",
-      "stageOnePacketHash": "500c9f98dd0d901a84564268056f4825a5ff08943caa28f9935acdaaa6d1712f",
-      "branchHash": "3e156b8c36b8e559b58a6dd275f96c45fee93d21538be73f484c58af39a4d81c",
+      "stageOnePacketHash": "83cd9556617b02778b39d19a32591dead3b79eaabb4d5eff39c83d5daa8d27dc",
+      "branchHash": "863b1fb3f5407deefb39564689f998c286a836a1f0377a9f38ab53d491c5e0a8",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -716,8 +716,8 @@
       "conditionId": "BASELINE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FORCED_HYBRID",
-      "stageOnePacketHash": "500c9f98dd0d901a84564268056f4825a5ff08943caa28f9935acdaaa6d1712f",
-      "branchHash": "f4676d51edde9b0281cd4132148c94e0be25fb0d07e70da0fabe0d574a8365f1",
+      "stageOnePacketHash": "83cd9556617b02778b39d19a32591dead3b79eaabb4d5eff39c83d5daa8d27dc",
+      "branchHash": "9a34a81a3600319d6069cec80fcd6ab1948f408ba526dcad146f1e8e457e9f1d",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -734,8 +734,8 @@
       "conditionId": "BASELINE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "THRESHOLD_ABLATION",
-      "stageOnePacketHash": "500c9f98dd0d901a84564268056f4825a5ff08943caa28f9935acdaaa6d1712f",
-      "branchHash": "86f236d231be7b891f37ebaa20b013e0e8467afc489a059b2fc5d4f975032d57",
+      "stageOnePacketHash": "83cd9556617b02778b39d19a32591dead3b79eaabb4d5eff39c83d5daa8d27dc",
+      "branchHash": "24dce13067994ca30e7dc710a540e43c6663698f7127a0b856c355f163c9b538",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -752,8 +752,8 @@
       "conditionId": "BASELINE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "SIGNAL_ABLATION",
-      "stageOnePacketHash": "500c9f98dd0d901a84564268056f4825a5ff08943caa28f9935acdaaa6d1712f",
-      "branchHash": "825ae523e9aab5bed73649dcf6801f87c02c3561fddf9d34f0a712591ee25e65",
+      "stageOnePacketHash": "83cd9556617b02778b39d19a32591dead3b79eaabb4d5eff39c83d5daa8d27dc",
+      "branchHash": "5c0d140030cf80f46800257f29971516289135ad09a99c3572c4aee06ed58cc0",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -770,8 +770,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FREE_CHOICE",
-      "stageOnePacketHash": "b7a33c37323ce9056374ae1b37953dd736b8b4d8474b607ca5dd7893b21a9f51",
-      "branchHash": "79f7a4a28dcde4a94d043cd550d7807450ddb577f2ddd4d125e10d42a1bda8cf",
+      "stageOnePacketHash": "5ba4fe5d34816d22af2cdcb793e62b8bdb107bdc08ef6a0b69d3c0e58451f9b2",
+      "branchHash": "adad12e3a7e4a959e43d83040fcf5ccd0312ed7cd98b8d5848f74ba9ecebb2b0",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -788,8 +788,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FORCED_NATIVE",
-      "stageOnePacketHash": "b7a33c37323ce9056374ae1b37953dd736b8b4d8474b607ca5dd7893b21a9f51",
-      "branchHash": "550fcfd22bfa20773323ae70a38d63274b2f87c90706416c9f3c7e4408b7f5ba",
+      "stageOnePacketHash": "5ba4fe5d34816d22af2cdcb793e62b8bdb107bdc08ef6a0b69d3c0e58451f9b2",
+      "branchHash": "9f7dd5da2ce1bf815488ff1fe10ce30be59664f6706ae20b7b566b8370948b9e",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -806,8 +806,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FORCED_GENERATED_COMPOSITION",
-      "stageOnePacketHash": "b7a33c37323ce9056374ae1b37953dd736b8b4d8474b607ca5dd7893b21a9f51",
-      "branchHash": "c550543120adfd948bb512ac033b00bed943684aecf74a76235751dadaf0d4f3",
+      "stageOnePacketHash": "5ba4fe5d34816d22af2cdcb793e62b8bdb107bdc08ef6a0b69d3c0e58451f9b2",
+      "branchHash": "64c0abc9649290f97f37bc64002183083424c958f487c8ef1a99c7735db39737",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -824,8 +824,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FORCED_HYBRID",
-      "stageOnePacketHash": "b7a33c37323ce9056374ae1b37953dd736b8b4d8474b607ca5dd7893b21a9f51",
-      "branchHash": "17f568ec563f8cfd50ff2bc0226613b796c063d057fb8ce7787fc6a4af0b6fd4",
+      "stageOnePacketHash": "5ba4fe5d34816d22af2cdcb793e62b8bdb107bdc08ef6a0b69d3c0e58451f9b2",
+      "branchHash": "13f9facf5d115803b797aa5c7e6e88a0fdf38d7e8235f89d6a24cfa6522b7cad",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -842,8 +842,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "THRESHOLD_ABLATION",
-      "stageOnePacketHash": "b7a33c37323ce9056374ae1b37953dd736b8b4d8474b607ca5dd7893b21a9f51",
-      "branchHash": "361a3b2f98cd9d25f522ce93a9bf06f13b4318a5b742ae1763d0c06ad748e593",
+      "stageOnePacketHash": "5ba4fe5d34816d22af2cdcb793e62b8bdb107bdc08ef6a0b69d3c0e58451f9b2",
+      "branchHash": "0ed61ed3cc1e591f3cdb5c989b788e0c7ea2a525ba36b47ddcc563ee0e96eb2c",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -860,8 +860,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "SIGNAL_ABLATION",
-      "stageOnePacketHash": "b7a33c37323ce9056374ae1b37953dd736b8b4d8474b607ca5dd7893b21a9f51",
-      "branchHash": "67d576c89429bce528f2dee223f0d26497f47038aa4053e75d1c277330f088e3",
+      "stageOnePacketHash": "5ba4fe5d34816d22af2cdcb793e62b8bdb107bdc08ef6a0b69d3c0e58451f9b2",
+      "branchHash": "0f6b18bb7fde20942b94e567e4a980dabe69c755bed353e66ccecb87ecee7699",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -878,8 +878,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FREE_CHOICE",
-      "stageOnePacketHash": "daf04824e1a735ed7b429236d4dcf354031532914783fa4cf51fe0a0d956a617",
-      "branchHash": "95f4c77a83c86ce1aeb2e73fb0e69a1427faa65f94e805300ad10ff8fea5e321",
+      "stageOnePacketHash": "f30f14d773dcaea0b0bace58d5548721b3e1631afab110553ee95d8c14c1dc0a",
+      "branchHash": "e6583fd61ba1394237b0bb1cf7e11ae7d62fecc0577d2c587da5f62cdcf9a627",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -896,8 +896,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FORCED_NATIVE",
-      "stageOnePacketHash": "daf04824e1a735ed7b429236d4dcf354031532914783fa4cf51fe0a0d956a617",
-      "branchHash": "707436caf16bb8f06b9e95e05985bd3f02dca8d76c1186e501bea371854d27e6",
+      "stageOnePacketHash": "f30f14d773dcaea0b0bace58d5548721b3e1631afab110553ee95d8c14c1dc0a",
+      "branchHash": "5292acccfe8ead4adfcb29ed9311505554ff5e5bcf19158a48d571666c59e7a6",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -914,8 +914,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FORCED_GENERATED_COMPOSITION",
-      "stageOnePacketHash": "daf04824e1a735ed7b429236d4dcf354031532914783fa4cf51fe0a0d956a617",
-      "branchHash": "42f2dce0c5d0adcd9795f5418f4bd2c10a5da2d248f79570d738d0358be9b922",
+      "stageOnePacketHash": "f30f14d773dcaea0b0bace58d5548721b3e1631afab110553ee95d8c14c1dc0a",
+      "branchHash": "584c6ea67a45aa6bd2100db7d445fe684274e2b3feba36a1e414abba9881d258",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -932,8 +932,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FORCED_HYBRID",
-      "stageOnePacketHash": "daf04824e1a735ed7b429236d4dcf354031532914783fa4cf51fe0a0d956a617",
-      "branchHash": "0237b44636f67dae211f8803260c65580800f03ed97fd3b3f48c711e023cda24",
+      "stageOnePacketHash": "f30f14d773dcaea0b0bace58d5548721b3e1631afab110553ee95d8c14c1dc0a",
+      "branchHash": "89f3fd4d183cd910efd107f563fcc28435f02a17a013040c0948696c8176a8fd",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -950,8 +950,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "THRESHOLD_ABLATION",
-      "stageOnePacketHash": "daf04824e1a735ed7b429236d4dcf354031532914783fa4cf51fe0a0d956a617",
-      "branchHash": "1fd341b9471706ff3100b4a33f6b422f9656f594b7b13c3f598cef1e42fcc5cf",
+      "stageOnePacketHash": "f30f14d773dcaea0b0bace58d5548721b3e1631afab110553ee95d8c14c1dc0a",
+      "branchHash": "aa4a32f60203d9ee1d0d521441ad33d83080d4d5b2c473a0714805ad5dd14a0d",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -968,8 +968,8 @@
       "conditionId": "NOISY_REFERENCE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "SIGNAL_ABLATION",
-      "stageOnePacketHash": "daf04824e1a735ed7b429236d4dcf354031532914783fa4cf51fe0a0d956a617",
-      "branchHash": "b1ede43d5b61aa29ed7dea47f995f8313ad4c57f6042bd9236953ba7904fd0ec",
+      "stageOnePacketHash": "f30f14d773dcaea0b0bace58d5548721b3e1631afab110553ee95d8c14c1dc0a",
+      "branchHash": "211d7fdc992092d6c04ba7417093ffae730f4ad03700d13d450369b76262f9a1",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1880,12 +1880,12 @@
     },
     {
       "path": "tests/fixtures/editron/open-ended-planner-v2/development-media-manifest-v2.json",
-      "sha256": "0df832096c16ea105405711b119080a9f276e22c9a2176a5ab1b6c08fdd1a70c"
+      "sha256": "5cde8af1d4d3c854816a6aa88fddcf9d50b32c16ab8ecceeee4963156da9c931"
     },
     {
       "path": "lib/editron/research/open-ended-planner/staged-packet-v2.ts",
       "sha256": "9a712cbf4c64256d1d134ce142931ea349c3b37b2042bf7dda7c9a64f9ed3c5e"
     }
   ],
-  "planHash": "9693e58a9b3bcbc8c3d213b71d0c399449aa6b3df3701a4608058473f3742160"
+  "planHash": "ad63e4b56d657b9a0afbe9c352d669a006fd3fb60de8d6493f3f55e9f2981d76"
 }
