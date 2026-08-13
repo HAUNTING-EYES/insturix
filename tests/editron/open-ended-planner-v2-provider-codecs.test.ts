@@ -12,6 +12,7 @@ import {
   type ProviderRouteV2,
 } from '@/lib/editron/research/open-ended-planner/provider-codecs-v2';
 import {
+  buildDevelopmentReferenceImageSequenceStageOnePacketV2,
   buildDevelopmentStageOnePacketsV2,
   type HashedStagePacketV2,
 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
@@ -59,6 +60,41 @@ describe('open-ended planner V2 provider codecs', () => {
       });
       const parts = (record((google.body.contents as unknown[])[0]).parts as unknown[]);
       expect(record(record(parts[1]).inlineData).mimeType).toBe(mimeType);
+    }
+  });
+
+  it('pairs every ordered reference image with the same hash-bound timestamp label across providers', async () => {
+    const artifact = buildDevelopmentReferenceImageSequenceStageOnePacketV2('DEV-02', 'BASELINE');
+    const [openAI, google] = await Promise.all((['openai', 'google'] as const).map((kind) =>
+      serializeProviderRequestV2({
+        route: route(kind), artifact, attempt: 1,
+        outputBudget: { visible: 100, reasoning: 50 },
+      })));
+    const openAIContent = (openAI.body.input as Array<{ content: unknown[] }>)[0].content;
+    const googleParts = record((google.body.contents as unknown[])[0]).parts as unknown[];
+
+    expect(openAIContent).toHaveLength(13);
+    expect(googleParts).toHaveLength(13);
+    for (let sequenceIndex = 0; sequenceIndex < 6; sequenceIndex += 1) {
+      const openAILabel = JSON.parse(String(record(openAIContent[1 + sequenceIndex * 2]).text)) as Record<string, unknown>;
+      const googleLabel = JSON.parse(String(record(googleParts[1 + sequenceIndex * 2]).text)) as Record<string, unknown>;
+      const attachment = artifact.transportAttachments[sequenceIndex];
+      expect(openAILabel).toEqual(googleLabel);
+      expect(openAILabel).toMatchObject({
+        sampleId: attachment.assetId,
+        sequenceIndex,
+        referenceTick: attachment.referenceTick,
+        timestampMilliseconds: attachment.timestampMilliseconds,
+      });
+      const descriptor = (artifact.packet.modelInput.mediaDescriptors as Array<Record<string, unknown>>)
+        .find(({ assetId }) => assetId === openAILabel.sampleId);
+      expect(descriptor).toMatchObject({
+        artifactSha256: attachment.artifactSha256,
+        bundleSha256: attachment.bundleSha256,
+      });
+      expect(record(openAIContent[2 + sequenceIndex * 2]).type).toBe('input_image');
+      expect(record(record(googleParts[2 + sequenceIndex * 2]).inlineData).mimeType).toBe('image/png');
+      expect(JSON.stringify(openAILabel)).not.toMatch(/five panels|black gutters|opposed/i);
     }
   });
 

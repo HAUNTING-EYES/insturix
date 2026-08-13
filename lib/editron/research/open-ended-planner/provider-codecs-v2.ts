@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 import { canonicalizeJsonV1, hashCanonicalJsonV1 } from './contracts-v1';
-import type { HashedStagePacketV2 } from './staged-packet-v2';
+import type { HashedStagePacketV2, ProviderTransportAttachmentV2 } from './staged-packet-v2';
 
 export type ProviderKindV2 = 'openai' | 'google' | 'deepseek';
 export type SchemaModeV2 = 'NATIVE_JSON_SCHEMA' | 'NATIVE_JSON_SCHEMA_NON_STRICT' | 'NATIVE_JSON_OBJECT';
@@ -61,6 +61,12 @@ export class ProviderCodecErrorV2 extends Error {
   }
 }
 
+interface LoadedMediaV2 {
+  mimeType: string;
+  base64: string;
+  temporalReferenceLabel?: string;
+}
+
 const SUPPORTED_MEDIA: Record<ProviderKindV2, ReadonlySet<string>> = {
   openai: new Set(['image/png', 'image/jpeg', 'image/webp']),
   google: new Set(['image/png', 'image/jpeg', 'image/webp', 'audio/wav', 'video/mp4']),
@@ -106,6 +112,7 @@ export async function serializeProviderRequestV2(input: {
       'Return exactly one JSON object matching outputContract.',
       'Use only the packet evidence and declared public operators.',
       'Do not browse, call tools, mutate state, or claim rendered success.',
+      'For ordered reference samples, the JSON text immediately before each image identifies its sample and timestamp.',
     ],
     packet: input.artifact.packet,
     ...(input.repair ? { repair: input.repair } : {}),
@@ -128,9 +135,7 @@ export async function serializeProviderRequestV2(input: {
         role: 'user',
         content: [
           { type: 'input_text', text: prompt },
-          ...media.map(({ mimeType, base64 }) => ({
-            type: 'input_image', image_url: `data:${mimeType};base64,${base64}`, detail: 'auto',
-          })),
+          ...media.flatMap(openAIMediaParts),
         ],
       }],
       reasoning: { effort: input.route.reasoningMode },
@@ -142,7 +147,7 @@ export async function serializeProviderRequestV2(input: {
     headers = { 'x-goog-api-key': input.route.apiKey, 'Content-Type': 'application/json' };
     schemaMode = 'NATIVE_JSON_SCHEMA';
     body = {
-      contents: [{ role: 'user', parts: [{ text: prompt }, ...media.map(({ mimeType, base64 }) => ({ inlineData: { mimeType, data: base64 } }))] }],
+      contents: [{ role: 'user', parts: [{ text: prompt }, ...media.flatMap(googleMediaParts)] }],
       generationConfig: {
         responseMimeType: 'application/json', responseJsonSchema: input.artifact.packet.outputContract,
         maxOutputTokens: maximumOutput, thinkingConfig: { thinkingBudget: input.outputBudget.reasoning },
@@ -287,7 +292,7 @@ async function loadVerifiedMedia(
   artifact: HashedStagePacketV2,
   kind: ProviderKindV2,
   reader: (path: string) => Promise<Uint8Array>,
-): Promise<Array<{ mimeType: string; base64: string }>> {
+): Promise<LoadedMediaV2[]> {
   if (artifact.packet.inputArm === 'TEXT_EVIDENCE_ONLY' && artifact.transportAttachments.length) {
     throw new ProviderCodecErrorV2('TEXT_ARM_ATTACHMENT', 'Text-only packets cannot carry attachments');
   }
@@ -307,8 +312,60 @@ async function loadVerifiedMedia(
     if (bytes.byteLength !== attachment.bytes || digest !== attachment.artifactSha256) {
       throw new ProviderCodecErrorV2('ATTACHMENT_INTEGRITY', attachment.assetId);
     }
-    return { mimeType: attachment.mimeType, base64: Buffer.from(bytes).toString('base64') };
+    return {
+      mimeType: attachment.mimeType,
+      base64: Buffer.from(bytes).toString('base64'),
+      ...(attachment.evidenceRole === 'ORDERED_REFERENCE_SAMPLE'
+        ? { temporalReferenceLabel: temporalReferenceLabel(attachment, descriptor) }
+        : {}),
+    };
   }));
+}
+
+function temporalReferenceLabel(
+  attachment: ProviderTransportAttachmentV2,
+  descriptor: Record<string, unknown>,
+): string {
+  const sequenceIndex = attachment.sequenceIndex;
+  const referenceTick = attachment.referenceTick;
+  const timestampMilliseconds = attachment.timestampMilliseconds;
+  const bundleSha256 = attachment.bundleSha256;
+  if (typeof sequenceIndex !== 'number' || !Number.isSafeInteger(sequenceIndex) || sequenceIndex < 0
+    || typeof referenceTick !== 'string' || !referenceTick
+    || typeof timestampMilliseconds !== 'number' || !Number.isFinite(timestampMilliseconds) || timestampMilliseconds < 0
+    || typeof bundleSha256 !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(bundleSha256)
+    || descriptor.evidenceRole !== attachment.evidenceRole
+    || descriptor.bundleSha256 !== bundleSha256
+    || descriptor.sequenceIndex !== sequenceIndex
+    || descriptor.referenceTick !== referenceTick
+    || descriptor.timestampMilliseconds !== timestampMilliseconds) {
+    throw new ProviderCodecErrorV2(
+      'TEMPORAL_REFERENCE_BINDING_DRIFT',
+      `Ordered reference metadata is incomplete or inconsistent for ${attachment.assetId}`,
+    );
+  }
+  return canonicalizeJsonV1({
+    sampleId: attachment.assetId,
+    sequenceIndex,
+    referenceTick,
+    timestampMilliseconds,
+  });
+}
+
+function openAIMediaParts(media: LoadedMediaV2): Array<Record<string, unknown>> {
+  return [
+    ...(media.temporalReferenceLabel
+      ? [{ type: 'input_text', text: media.temporalReferenceLabel }]
+      : []),
+    { type: 'input_image', image_url: `data:${media.mimeType};base64,${media.base64}`, detail: 'auto' },
+  ];
+}
+
+function googleMediaParts(media: LoadedMediaV2): Array<Record<string, unknown>> {
+  return [
+    ...(media.temporalReferenceLabel ? [{ text: media.temporalReferenceLabel }] : []),
+    { inlineData: { mimeType: media.mimeType, data: media.base64 } },
+  ];
 }
 
 function schemaName(artifact: HashedStagePacketV2): string {
