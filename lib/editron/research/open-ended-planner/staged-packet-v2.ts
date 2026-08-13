@@ -63,7 +63,7 @@ export interface HashedStagePacketV2 {
 interface StageBudgetV2 { maxInputTokens: number; maxVisibleOutputTokens: number; maxReasoningTokens: number; maxWallClockMs: number; maxProviderCostUsd: number }
 
 const STAGE_BUDGETS: Record<StageV2, StageBudgetV2> = {
-  1: { maxInputTokens: 21000, maxVisibleOutputTokens: 10000, maxReasoningTokens: 2000, maxWallClockMs: 90000, maxProviderCostUsd: 0.25 },
+  1: { maxInputTokens: 25000, maxVisibleOutputTokens: 10000, maxReasoningTokens: 3000, maxWallClockMs: 90000, maxProviderCostUsd: 0.25 },
   2: { maxInputTokens: 7000, maxVisibleOutputTokens: 1600, maxReasoningTokens: 2400, maxWallClockMs: 40000, maxProviderCostUsd: 0.10 },
   3: { maxInputTokens: 6500, maxVisibleOutputTokens: 1400, maxReasoningTokens: 2200, maxWallClockMs: 35000, maxProviderCostUsd: 0.09 },
   4: { maxInputTokens: 7500, maxVisibleOutputTokens: 2000, maxReasoningTokens: 3800, maxWallClockMs: 45000, maxProviderCostUsd: 0.15 },
