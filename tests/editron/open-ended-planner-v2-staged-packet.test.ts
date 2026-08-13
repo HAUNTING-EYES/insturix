@@ -8,6 +8,7 @@ import {
   EXECUTION_FORM_ARMS_V2,
   assertNoEvaluatorLeakV2,
   buildDevelopmentNoProviderPlanV2,
+  buildDevelopmentReferenceImageStageOnePacketV2,
   buildDevelopmentStageOnePacketsV2,
   buildNextProviderStagePacketV2,
   type HashedStagePacketV2,
@@ -107,6 +108,29 @@ describe('open-ended planner V2 staged no-provider packets', () => {
       expect(packet.packet.taskId).toMatch(/^DEV-/);
       expect(JSON.stringify(packet.packet)).not.toMatch(/HOLD-0[1-8]/);
     }
+  });
+
+  it('builds a reference-image arm without leaking the pre-digested DEV-02 layout answer', () => {
+    const referenceOnly = buildDevelopmentReferenceImageStageOnePacketV2('DEV-02', 'BASELINE');
+    const input = modelInput(referenceOnly);
+    const serializedEvidence = JSON.stringify(input.evidence);
+
+    expect(referenceOnly.packet.inputArm).toBe('REFERENCE_IMAGE_EVIDENCE');
+    expect(referenceOnly.transportAttachments).toEqual([
+      expect.objectContaining({ assetId: 'dev02-reference', mimeType: 'image/png' }),
+    ]);
+    expect(input.mediaPolicy).toBe('ATTACH_HASH_BOUND_REFERENCE_IMAGES_ONLY');
+    expect(input.mediaDescriptors).toEqual([
+      expect.objectContaining({ assetId: 'dev02-reference', mimeType: 'image/png' }),
+    ]);
+    expect(serializedEvidence).toContain('REFERENCE_MEDIA_BINDING');
+    expect(serializedEvidence).toContain('observationRequired');
+    expect(serializedEvidence).not.toContain('"panels":5');
+    expect(serializedEvidence).not.toContain('blackGutters');
+    expect(serializedEvidence).not.toContain('opposed-column-slides');
+    expect(JSON.stringify(referenceOnly.packet)).not.toContain('artifactPath');
+    expect(referenceOnly.transportAttachments.map(({ assetId }) => assetId)).not.toContain('dev02-wide');
+    expect(referenceOnly.transportAttachments.map(({ assetId }) => assetId)).not.toContain('dev02-close');
   });
 
   it('uses explicit rational project/source coordinates instead of naked FPS or ambiguous frames', () => {

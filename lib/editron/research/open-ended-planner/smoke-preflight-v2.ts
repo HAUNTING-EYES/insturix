@@ -6,9 +6,7 @@ import {
   serializeProviderRequestV2,
   type ProviderKindV2,
 } from './provider-codecs-v2';
-import { buildDevelopmentStageOnePacketsV2, type HashedStagePacketV2 } from './staged-packet-v2';
-
-type InputArmV2 = 'MULTIMODAL' | 'TEXT_EVIDENCE_ONLY';
+import { buildDevelopmentStageOnePacketsV2, type HashedStagePacketV2, type InputArmV2 } from './staged-packet-v2';
 type RouteIdV2 = 'OPENAI_LUNA' | 'OPENAI_TERRA' | 'GOOGLE_FLASH_LITE' | 'GOOGLE_FLASH' | 'DEEPSEEK_FLASH';
 
 interface RouteFactV2 {

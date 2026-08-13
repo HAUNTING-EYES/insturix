@@ -7,12 +7,13 @@ import developmentV1Json from '@/tests/fixtures/editron/open-ended-planner-v1/de
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 
 export const INPUT_ARMS_V2 = ['MULTIMODAL', 'TEXT_EVIDENCE_ONLY'] as const;
+export const REFERENCE_IMAGE_INPUT_ARM_V2 = 'REFERENCE_IMAGE_EVIDENCE' as const;
 export const EXECUTION_FORM_ARMS_V2 = [
   'FREE_CHOICE', 'FORCED_NATIVE', 'FORCED_GENERATED_COMPOSITION',
   'FORCED_HYBRID', 'THRESHOLD_ABLATION', 'SIGNAL_ABLATION',
 ] as const;
 
-type InputArmV2 = typeof INPUT_ARMS_V2[number];
+export type InputArmV2 = typeof INPUT_ARMS_V2[number] | typeof REFERENCE_IMAGE_INPUT_ARM_V2;
 type ExecutionFormArmV2 = typeof EXECUTION_FORM_ARMS_V2[number];
 type StageV2 = 1 | 2 | 3 | 4 | 5;
 type JsonRecord = Record<string, unknown>;
@@ -97,6 +98,17 @@ export function buildDevelopmentStageOnePacketsV2(): HashedStagePacketV2[] {
   return results;
 }
 
+export function buildDevelopmentReferenceImageStageOnePacketV2(
+  taskId: string,
+  conditionId: string,
+): HashedStagePacketV2 {
+  const task = developmentTasksV2().find((candidate) => candidate.taskId === taskId)
+    ?? fail('TASK_MISSING', taskId);
+  const condition = task.conditionCases.find((candidate) => candidate.conditionId === conditionId)
+    ?? fail('CONDITION_MISSING', `${taskId}/${conditionId}`);
+  return buildStageOnePacket(task, condition, REFERENCE_IMAGE_INPUT_ARM_V2);
+}
+
 export function buildNextProviderStagePacketV2(input: {
   previousPacket: HashedStagePacketV2;
   stage: 2 | 3 | 4 | 5;
@@ -150,8 +162,14 @@ export function buildDevelopmentNoProviderPlanV2(): Readonly<{
 function buildStageOnePacket(task: SourceTaskV2, condition: ConditionCaseV2, inputArm: InputArmV2): HashedStagePacketV2 {
   const v1 = (developmentV1Json.tasks as unknown as SourceTaskV1[]).find(({ taskId }) => taskId === task.taskId) ?? fail('V1_TASK_MISSING', task.taskId);
   if (v1.project.projectId !== task.projectBinding.projectId || v1.project.projectRevision !== task.projectBinding.projectRevision) fail('PROJECT_BINDING_DRIFT', task.taskId);
-  const evidence = visibleEvidence(v1, condition);
   const media = mediaForTask(task);
+  const visible = visibleEvidence(v1, condition);
+  const attachedMedia = inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+    ? referenceImagesForEvidence(visible, media)
+    : inputArm === 'MULTIMODAL' ? media : [];
+  const evidence = inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+    ? withoutReferenceAnswerLeak(visible, attachedMedia)
+    : visible;
   const modelInput = {
     originalRequest: task.originalRequest,
     projectFacts: {
@@ -165,11 +183,13 @@ function buildStageOnePacket(task: SourceTaskV2, condition: ConditionCaseV2, inp
     sourceCoordinateFacts: media.map(sourceCoordinateFact),
     condition: publicCondition(condition),
     evidence,
-    mediaDescriptors: inputArm === 'MULTIMODAL' ? media.map(({ assetId, mimeType, artifactSha256, technical }) => ({ assetId, mimeType, artifactSha256, technical })) : [],
-    mediaPolicy: inputArm === 'MULTIMODAL' ? 'ATTACH_HASH_BOUND_MEDIA' : 'NO_MEDIA_BYTES_OR_PATHS',
+    mediaDescriptors: attachedMedia.map(({ assetId, mimeType, artifactSha256, technical }) => ({ assetId, mimeType, artifactSha256, technical })),
+    mediaPolicy: inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+      ? 'ATTACH_HASH_BOUND_REFERENCE_IMAGES_ONLY'
+      : inputArm === 'MULTIMODAL' ? 'ATTACH_HASH_BOUND_MEDIA' : 'NO_MEDIA_BYTES_OR_PATHS',
   };
   const packet = packetBase({ stage: 1, taskId: task.taskId, conditionId: condition.conditionId, inputArm, executionFormArm: 'NOT_APPLICABLE_PRE_ROUTING', modelInput });
-  const attachments = inputArm === 'MULTIMODAL' ? media.map(({ assetId, mimeType, artifactPath, artifactSha256, bytes }) => ({ assetId, mimeType, artifactPath, artifactSha256, bytes })) : [];
+  const attachments = attachedMedia.map(({ assetId, mimeType, artifactPath, artifactSha256, bytes }) => ({ assetId, mimeType, artifactPath, artifactSha256, bytes }));
   return hashPacket(packet, attachments);
 }
 
@@ -206,6 +226,29 @@ function mediaForTask(task: SourceTaskV2): MediaArtifactV2[] {
     const artifact = (mediaManifestJson.artifacts as MediaArtifactV2[]).find(({ assetId }) => assetId === binding.assetId) ?? fail('MEDIA_MISSING', binding.assetId);
     if (artifact.taskId !== task.taskId || artifact.recipeSha256 !== binding.recipeSha256) fail('MEDIA_BINDING_DRIFT', binding.assetId);
     return artifact;
+  });
+}
+
+function referenceImagesForEvidence(evidence: EvidenceV2[], media: MediaArtifactV2[]): MediaArtifactV2[] {
+  const referenceAssetIds = new Set(evidence
+    .filter(({ kind }) => kind.startsWith('REFERENCE_'))
+    .flatMap(({ binding }) => media.filter(({ assetId }) => binding.startsWith(`${assetId}@`)).map(({ assetId }) => assetId)));
+  const images = media.filter(({ assetId, mimeType }) => referenceAssetIds.has(assetId) && mimeType.startsWith('image/'));
+  if (!images.length) fail('REFERENCE_IMAGE_MISSING', 'Reference-image evidence arm requires a hash-bound reference image');
+  return images;
+}
+
+function withoutReferenceAnswerLeak(evidence: EvidenceV2[], referenceMedia: MediaArtifactV2[]): EvidenceV2[] {
+  const referenceAssetIds = new Set(referenceMedia.map(({ assetId }) => assetId));
+  return evidence.map((entry) => {
+    const boundReference = [...referenceAssetIds].some((assetId) => entry.binding.startsWith(`${assetId}@`));
+    if (!boundReference || !entry.kind.startsWith('REFERENCE_')) return entry;
+    return {
+      evidenceId: entry.evidenceId,
+      kind: 'REFERENCE_MEDIA_BINDING',
+      binding: entry.binding,
+      value: { observationRequired: true },
+    };
   });
 }
 
