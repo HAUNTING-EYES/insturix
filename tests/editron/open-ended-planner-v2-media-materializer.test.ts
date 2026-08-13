@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   encodeSyntheticVideoV2,
+  hashTemporalReferenceEvidenceV2,
   materializeDevelopmentMediaV2,
   renderSyntheticFrameV2,
   synthesizeAudioWavV2,
@@ -76,6 +77,48 @@ describe('open-ended planner V2 development media materializer', () => {
       return true;
     })).toBe(true);
     expect(sheet.equals(renderSyntheticFrameV2('dev02-reference', 0, width, height, 1))).toBe(true);
+  });
+
+  it('materializes separately hash-bound DEV-02 samples and native reference video', async () => {
+    const outputDirectory = join(await temporaryDirectory(), 'media');
+    const manifest = await materializeDevelopmentMediaV2(outputDirectory);
+    const reference = manifest.artifacts.find(({ assetId }) => assetId === 'dev02-reference');
+    const temporal = reference?.temporalReferenceEvidence;
+    if (!temporal) throw new Error('DEV-02 temporal reference evidence was not materialized');
+
+    expect(temporal.timebase).toEqual({
+      numerator: '30', denominator: '1', startTick: '0', endExclusiveTick: '181',
+    });
+    expect(temporal.order).toBe('ASCENDING_REFERENCE_TICK');
+    expect(temporal.samples.map(({ referenceTick }) => referenceTick)).toEqual([
+      '0', '36', '72', '108', '144', '180',
+    ]);
+    expect(temporal.samples.map(({ timestampMilliseconds }) => timestampMilliseconds)).toEqual([
+      0, 1_200, 2_400, 3_600, 4_800, 6_000,
+    ]);
+    expect(new Set(temporal.samples.map(({ contentSha256 }) => contentSha256)).size).toBe(5);
+    expect(temporal.samples[3].contentSha256).toBe(temporal.samples[4].contentSha256);
+    expect(temporal.samples[0].contentSha256).not.toBe(temporal.samples[1].contentSha256);
+    expect(temporal.samples[4].contentSha256).not.toBe(temporal.samples[5].contentSha256);
+
+    for (const artifact of [...temporal.samples, temporal.nativeVideo]) {
+      const bytes = await readFile(resolve(artifact.artifactPath));
+      expect(bytes).toHaveLength(artifact.bytes);
+      expect(`sha256:${sha256(bytes)}`).toBe(artifact.artifactSha256);
+    }
+    expect(temporal.nativeVideo).toMatchObject({
+      mimeType: 'video/mp4',
+      technical: {
+        width: 258,
+        height: 308,
+        editRateNumerator: '30',
+        editRateDenominator: '1',
+        startTick: '0',
+        endExclusiveTick: '181',
+      },
+    });
+    const { bundleSha256, ...material } = temporal;
+    expect(bundleSha256).toBe(`sha256:${hashTemporalReferenceEvidenceV2(material)}`);
   });
 
   it('synthesizes deterministic, non-silent PCM WAV evidence', () => {

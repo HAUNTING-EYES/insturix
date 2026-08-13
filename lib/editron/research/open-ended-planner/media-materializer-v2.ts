@@ -9,6 +9,8 @@ import { hashCanonicalJsonV1 } from './contracts-v1';
 
 const FPS = 30;
 const SAMPLE_RATE = 48_000;
+const DEV02_REFERENCE_SAMPLE_TICKS = [0, 36, 72, 108, 144, 180] as const;
+const DEV02_REFERENCE_FRAME_COUNT = 181;
 const MATERIALIZER_PATH = 'lib/editron/research/open-ended-planner/media-materializer-v2.ts';
 const V1_TASK_PATH = 'tests/fixtures/editron/open-ended-planner-v1/development-tasks-v1.json';
 const V2_TASK_PATH = 'tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json';
@@ -46,6 +48,51 @@ export interface MaterializedMediaArtifactV2 {
   bytes: number;
   materializationStatus: 'MATERIALIZED_AND_HASHED_V2_1A';
   technical: Record<string, number | string>;
+  temporalReferenceEvidence?: TemporalReferenceEvidenceV2;
+}
+
+export interface TemporalReferenceSampleV2 {
+  sampleId: string;
+  referenceTick: string;
+  timestampMilliseconds: number;
+  mimeType: 'image/png';
+  artifactPath: string;
+  contentSha256: string;
+  artifactSha256: string;
+  bytes: number;
+  technical: { width: number; height: number };
+}
+
+export interface TemporalReferenceVideoV2 {
+  evidenceId: string;
+  mimeType: 'video/mp4';
+  artifactPath: string;
+  contentSha256: string;
+  artifactSha256: string;
+  bytes: number;
+  technical: {
+    width: number;
+    height: number;
+    editRateNumerator: string;
+    editRateDenominator: string;
+    startTick: string;
+    endExclusiveTick: string;
+  };
+}
+
+export interface TemporalReferenceEvidenceV2 {
+  version: 'EDITRON_OE_TEMPORAL_REFERENCE_EVIDENCE_V1';
+  coordinateDomain: 'REFERENCE_TICK';
+  timebase: {
+    numerator: '30';
+    denominator: '1';
+    startTick: '0';
+    endExclusiveTick: '181';
+  };
+  order: 'ASCENDING_REFERENCE_TICK';
+  bundleSha256: string;
+  samples: TemporalReferenceSampleV2[];
+  nativeVideo: TemporalReferenceVideoV2;
 }
 
 export interface DevelopmentMediaManifestV2 {
@@ -130,6 +177,9 @@ export async function materializeDevelopmentMediaV2(
         : { width: dimensions.width, height: dimensions.height };
     }
     const bytes = await readFile(artifactPath);
+    const temporalReferenceEvidence = asset.assetId === 'dev02-reference'
+      ? await materializeDev02TemporalReferenceEvidenceV2(outputRoot, ffmpegPath)
+      : undefined;
     artifacts.push({
       assetId: asset.assetId,
       taskId: task.taskId,
@@ -142,6 +192,7 @@ export async function materializeDevelopmentMediaV2(
       bytes: bytes.length,
       materializationStatus: 'MATERIALIZED_AND_HASHED_V2_1A',
       technical,
+      ...(temporalReferenceEvidence ? { temporalReferenceEvidence } : {}),
     });
   }
   artifacts.sort((left, right) => left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0);
@@ -161,6 +212,80 @@ export async function materializeDevelopmentMediaV2(
     },
     artifacts,
   };
+}
+
+export function hashTemporalReferenceEvidenceV2(
+  evidence: Omit<TemporalReferenceEvidenceV2, 'bundleSha256'>,
+): string {
+  return hashCanonicalJsonV1({
+    version: evidence.version,
+    coordinateDomain: evidence.coordinateDomain,
+    timebase: evidence.timebase,
+    order: evidence.order,
+    samples: evidence.samples.map(({ artifactPath: _artifactPath, ...sample }) => sample),
+    nativeVideo: (({ artifactPath: _artifactPath, ...video }) => video)(evidence.nativeVideo),
+  });
+}
+
+async function materializeDev02TemporalReferenceEvidenceV2(
+  outputRoot: string,
+  ffmpegPath: string,
+): Promise<TemporalReferenceEvidenceV2> {
+  const samples: TemporalReferenceSampleV2[] = [];
+  for (const referenceTick of DEV02_REFERENCE_SAMPLE_TICKS) {
+    const timestampMilliseconds = referenceTick / FPS * 1_000;
+    const sampleId = `dev02-reference-t${String(timestampMilliseconds).padStart(4, '0')}ms`;
+    const outputPath = resolve(outputRoot, `${sampleId}.png`);
+    const rgb = renderDev02ReferenceMomentV2(129, 154, referenceTick / (DEV02_REFERENCE_FRAME_COUNT - 1));
+    await encodePngV2(rgb, 129, 154, outputPath, ffmpegPath);
+    const bytes = await readFile(outputPath);
+    samples.push({
+      sampleId,
+      referenceTick: String(referenceTick),
+      timestampMilliseconds,
+      mimeType: 'image/png',
+      artifactPath: normalizePath(relative(process.cwd(), outputPath)),
+      contentSha256: `sha256:${sha256(rgb)}`,
+      artifactSha256: `sha256:${sha256(bytes)}`,
+      bytes: bytes.length,
+      technical: { width: 129, height: 154 },
+    });
+  }
+
+  const videoPath = resolve(outputRoot, 'dev02-reference-native-video.mp4');
+  const videoContentSha256 = await encodeSyntheticVideoV2({
+    assetId: 'dev02-reference-motion',
+    outputPath: videoPath,
+    width: 258,
+    height: 308,
+    frameCount: DEV02_REFERENCE_FRAME_COUNT,
+    ffmpegPath,
+  });
+  const videoBytes = await readFile(videoPath);
+  const material: Omit<TemporalReferenceEvidenceV2, 'bundleSha256'> = {
+    version: 'EDITRON_OE_TEMPORAL_REFERENCE_EVIDENCE_V1',
+    coordinateDomain: 'REFERENCE_TICK',
+    timebase: { numerator: '30', denominator: '1', startTick: '0', endExclusiveTick: '181' },
+    order: 'ASCENDING_REFERENCE_TICK',
+    samples,
+    nativeVideo: {
+      evidenceId: 'dev02-reference-native-video',
+      mimeType: 'video/mp4',
+      artifactPath: normalizePath(relative(process.cwd(), videoPath)),
+      contentSha256: `sha256:${videoContentSha256}`,
+      artifactSha256: `sha256:${sha256(videoBytes)}`,
+      bytes: videoBytes.length,
+      technical: {
+        width: 258,
+        height: 308,
+        editRateNumerator: '30',
+        editRateDenominator: '1',
+        startTick: '0',
+        endExclusiveTick: '181',
+      },
+    },
+  };
+  return { ...material, bundleSha256: `sha256:${hashTemporalReferenceEvidenceV2(material)}` };
 }
 
 export async function encodeSyntheticVideoV2(input: {
@@ -205,7 +330,7 @@ export async function encodeSyntheticVideoV2(input: {
 }
 
 export function renderSyntheticFrameV2(assetId: string, frame: number, width: number, height: number, frameCount: number): Buffer {
-  if (!['dev01-host', 'dev02-wide', 'dev02-close', 'dev02-reference', 'dev03-cards', 'dev04-crossing'].includes(assetId)) fail('UNKNOWN_VISUAL_ASSET', `No visual recipe for ${assetId}`);
+  if (!['dev01-host', 'dev02-wide', 'dev02-close', 'dev02-reference', 'dev02-reference-motion', 'dev03-cards', 'dev04-crossing'].includes(assetId)) fail('UNKNOWN_VISUAL_ASSET', `No visual recipe for ${assetId}`);
   const rgb = Buffer.alloc(width * height * 3);
   fill(rgb, 18, 24, 38);
   const progress = frameCount <= 1 ? 0.5 : frame / (frameCount - 1);
@@ -222,6 +347,8 @@ export function renderSyntheticFrameV2(assetId: string, frame: number, width: nu
     circle(rgb, width, height, Math.round(width * (0.8 - progress * 0.6)), Math.round(height * 0.52), Math.round(width * 0.18), [251, 205, 45]);
   } else if (assetId === 'dev02-reference') {
     return renderDev02ReferenceContactSheetV2(width, height);
+  } else if (assetId === 'dev02-reference-motion') {
+    return renderDev02ReferenceMomentV2(width, height, progress);
   } else if (assetId === 'dev03-cards') {
     const section = Math.min(3, Math.floor(progress * 4));
     const colors: Array<[number, number, number]> = [[33, 82, 145], [111, 54, 124], [39, 121, 91], [151, 72, 48]];

@@ -1880,12 +1880,12 @@
     },
     {
       "path": "tests/fixtures/editron/open-ended-planner-v2/development-media-manifest-v2.json",
-      "sha256": "5cde8af1d4d3c854816a6aa88fddcf9d50b32c16ab8ecceeee4963156da9c931"
+      "sha256": "027fc3800a27627b3dc5653d1323485f05068e6182e59c0528c2cb89612b02cc"
     },
     {
       "path": "lib/editron/research/open-ended-planner/staged-packet-v2.ts",
       "sha256": "9a712cbf4c64256d1d134ce142931ea349c3b37b2042bf7dda7c9a64f9ed3c5e"
     }
   ],
-  "planHash": "ad63e4b56d657b9a0afbe9c352d669a006fd3fb60de8d6493f3f55e9f2981d76"
+  "planHash": "ae240dbf25d8fd501618987c3a9c8591eecccdff08101502192f50f4a4c34614"
 }

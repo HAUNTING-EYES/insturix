@@ -14,7 +14,7 @@
     },
     {
       "path": "lib/editron/research/open-ended-planner/media-materializer-v2.ts",
-      "sha256": "879ae9c2ef9d81ea33207b6394d6b037e09f3c8bd2b953c8dacbf0d50903150e"
+      "sha256": "a26c401d103ebc8c93b748fb5cba9920db20fa51251d95ffbb2e4804f6a39279"
     }
   ],
   "toolchain": {
@@ -97,6 +97,120 @@
         "width": 270,
         "height": 480,
         "order": "ROW_MAJOR"
+      },
+      "temporalReferenceEvidence": {
+        "version": "EDITRON_OE_TEMPORAL_REFERENCE_EVIDENCE_V1",
+        "coordinateDomain": "REFERENCE_TICK",
+        "timebase": {
+          "numerator": "30",
+          "denominator": "1",
+          "startTick": "0",
+          "endExclusiveTick": "181"
+        },
+        "order": "ASCENDING_REFERENCE_TICK",
+        "samples": [
+          {
+            "sampleId": "dev02-reference-t0000ms",
+            "referenceTick": "0",
+            "timestampMilliseconds": 0,
+            "mimeType": "image/png",
+            "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev02-reference-t0000ms.png",
+            "contentSha256": "sha256:5a127078939c13b4303d0734a8ccc80632ae07901cdd73b0515d4707e976bd4f",
+            "artifactSha256": "sha256:152582dbac6b334e0ee19a6867c854ee3685760d5d3950887d719e44ca0b348d",
+            "bytes": 358,
+            "technical": {
+              "width": 129,
+              "height": 154
+            }
+          },
+          {
+            "sampleId": "dev02-reference-t1200ms",
+            "referenceTick": "36",
+            "timestampMilliseconds": 1200,
+            "mimeType": "image/png",
+            "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev02-reference-t1200ms.png",
+            "contentSha256": "sha256:17b3edb1135285afcc7aaddee7621beba7135487b3da874a43d7a81fb6f54c45",
+            "artifactSha256": "sha256:4042ca9e845eec0c267bb9ae665138b538600a2c25f6c2b37703ee5fe88fa745",
+            "bytes": 540,
+            "technical": {
+              "width": 129,
+              "height": 154
+            }
+          },
+          {
+            "sampleId": "dev02-reference-t2400ms",
+            "referenceTick": "72",
+            "timestampMilliseconds": 2400,
+            "mimeType": "image/png",
+            "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev02-reference-t2400ms.png",
+            "contentSha256": "sha256:9e4230f3ef248e30969f4e9d5875285d9951a0732dd16858eef731c80892f20c",
+            "artifactSha256": "sha256:6a90455d4f720f2cc401523c62025ecb79610d3e972b21d1cb30a81d74511836",
+            "bytes": 511,
+            "technical": {
+              "width": 129,
+              "height": 154
+            }
+          },
+          {
+            "sampleId": "dev02-reference-t3600ms",
+            "referenceTick": "108",
+            "timestampMilliseconds": 3600,
+            "mimeType": "image/png",
+            "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev02-reference-t3600ms.png",
+            "contentSha256": "sha256:db08f1caf384fed403e2c2fda92d3910daf682a59c11cddcb28acec09fe73a32",
+            "artifactSha256": "sha256:10a51109739646cf28380b84b96725006718459a233ae3a102aae987bc3d7987",
+            "bytes": 463,
+            "technical": {
+              "width": 129,
+              "height": 154
+            }
+          },
+          {
+            "sampleId": "dev02-reference-t4800ms",
+            "referenceTick": "144",
+            "timestampMilliseconds": 4800,
+            "mimeType": "image/png",
+            "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev02-reference-t4800ms.png",
+            "contentSha256": "sha256:db08f1caf384fed403e2c2fda92d3910daf682a59c11cddcb28acec09fe73a32",
+            "artifactSha256": "sha256:10a51109739646cf28380b84b96725006718459a233ae3a102aae987bc3d7987",
+            "bytes": 463,
+            "technical": {
+              "width": 129,
+              "height": 154
+            }
+          },
+          {
+            "sampleId": "dev02-reference-t6000ms",
+            "referenceTick": "180",
+            "timestampMilliseconds": 6000,
+            "mimeType": "image/png",
+            "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev02-reference-t6000ms.png",
+            "contentSha256": "sha256:535123d0b781c6ca610706d5ceb2452269f23934d64fabea5f800eacefac21c8",
+            "artifactSha256": "sha256:4b9293e824ba316aa2cece8ceee8f51ee29d58760c0e989c92f5c67b2d703b48",
+            "bytes": 436,
+            "technical": {
+              "width": 129,
+              "height": 154
+            }
+          }
+        ],
+        "nativeVideo": {
+          "evidenceId": "dev02-reference-native-video",
+          "mimeType": "video/mp4",
+          "artifactPath": ".calibration-temp/open-ended-planner-v2/development-media/dev02-reference-native-video.mp4",
+          "contentSha256": "sha256:55631319262e256fe23efdc349a91a64a872d0324af050ff1806f3ee456c2efa",
+          "artifactSha256": "sha256:59ff43a1b7585a15386a0002e8c89e6ac23f04a604c2d8bd93dbac26e34d32e5",
+          "bytes": 27159,
+          "technical": {
+            "width": 258,
+            "height": 308,
+            "editRateNumerator": "30",
+            "editRateDenominator": "1",
+            "startTick": "0",
+            "endExclusiveTick": "181"
+          }
+        },
+        "bundleSha256": "sha256:14d0bb5dda7c63dff9c869c1645922a96d5bf6a88195ec36e7d08098786ade82"
       }
     },
     {
