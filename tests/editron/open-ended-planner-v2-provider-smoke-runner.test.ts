@@ -34,7 +34,8 @@ describe('open-ended planner V2 provider smoke runner', () => {
     expect(countCalls).toBe(4);
     expect(generationCalls).toBe(6);
     expect(receipt.rows).toHaveLength(6);
-    expect(receipt.rows.filter(({ comparisonPurpose }) => comparisonPurpose === 'FAIR_STATIC_REFERENCE_COMPARISON')).toHaveLength(4);
+    expect(receipt.rows.filter(({ comparisonPurpose }) => comparisonPurpose === 'FAIR_ORDERED_IMAGE_SEQUENCE_COMPARISON')).toHaveLength(4);
+    expect(receipt.rows.filter(({ comparisonPurpose }) => comparisonPurpose === 'NATIVE_REFERENCE_VIDEO_COMPARISON')).toHaveLength(2);
     expect(receipt.rows.every(({ run }) => run.disposition === 'ARTIFACT_ACCEPTED')).toBe(true);
     expect(receipt.rows.flatMap(({ preflightCounts }) => preflightCounts)
       .filter(({ method }) => method === 'GOOGLE_COUNT_TOKENS')).toHaveLength(4);

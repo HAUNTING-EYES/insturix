@@ -9,8 +9,8 @@ import {
 import { runProviderStageV2, type ProviderPricingV2 } from './provider-transport-v2';
 import { buildDevelopmentSmokePreflightV2 } from './smoke-preflight-v2';
 import {
-  buildDevelopmentReferenceImageStageOnePacketV2,
-  buildDevelopmentStageOnePacketsV2,
+  buildDevelopmentReferenceImageSequenceStageOnePacketV2,
+  buildDevelopmentReferenceNativeVideoStageOnePacketV2,
   type HashedStagePacketV2,
   type InputArmV2,
 } from './staged-packet-v2';
@@ -236,11 +236,12 @@ function pricing(route: SmokeRouteV2): ProviderPricingV2 {
 }
 
 function smokeArtifacts(): Map<InputArmV2, HashedStagePacketV2> {
-  const reference = buildDevelopmentReferenceImageStageOnePacketV2('DEV-02', 'BASELINE');
-  const multimodal = buildDevelopmentStageOnePacketsV2().find(({ packet }) =>
-    packet.taskId === 'DEV-02' && packet.conditionId === 'BASELINE' && packet.inputArm === 'MULTIMODAL');
-  if (!multimodal) throw new Error('SMOKE_MULTIMODAL_PACKET_MISSING');
-  return new Map([[reference.packet.inputArm, reference], [multimodal.packet.inputArm, multimodal]]);
+  const imageSequence = buildDevelopmentReferenceImageSequenceStageOnePacketV2('DEV-02', 'BASELINE');
+  const nativeVideo = buildDevelopmentReferenceNativeVideoStageOnePacketV2('DEV-02', 'BASELINE');
+  return new Map([
+    [imageSequence.packet.inputArm, imageSequence],
+    [nativeVideo.packet.inputArm, nativeVideo],
+  ]);
 }
 
 function isRecord(value: unknown): value is JsonRecord {

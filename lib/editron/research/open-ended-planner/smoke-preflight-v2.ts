@@ -6,7 +6,8 @@ import {
   type ProviderKindV2,
 } from './provider-codecs-v2';
 import {
-  buildDevelopmentReferenceImageStageOnePacketV2,
+  buildDevelopmentReferenceImageSequenceStageOnePacketV2,
+  buildDevelopmentReferenceNativeVideoStageOnePacketV2,
   buildDevelopmentStageOnePacketsV2,
   type HashedStagePacketV2,
   type InputArmV2,
@@ -41,7 +42,7 @@ const ROUTES: readonly RouteFactV2[] = [
   {
     routeId: 'OPENAI_LUNA', provider: 'openai', requestModel: 'gpt-5.6-luna',
     claimedBenchmarkIdentity: 'gpt-5.6-luna', identityStatus: 'PROVIDER_ROUTE_NO_DATED_SNAPSHOT',
-    reasoningMode: 'medium', supportedArms: ['REFERENCE_IMAGE_EVIDENCE'],
+    reasoningMode: 'medium', supportedArms: ['REFERENCE_IMAGE_SEQUENCE_EVIDENCE'],
     pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.1, cacheWriteUsdPerMillion: 1.25, outputUsdPerMillion: 6 },
     pricingSource: 'https://developers.openai.com/api/docs/models/gpt-5.6-luna',
     modelSource: 'https://developers.openai.com/api/docs/models/gpt-5.6-luna',
@@ -51,7 +52,7 @@ const ROUTES: readonly RouteFactV2[] = [
   {
     routeId: 'OPENAI_TERRA', provider: 'openai', requestModel: 'gpt-5.6-terra',
     claimedBenchmarkIdentity: 'gpt-5.6-terra', identityStatus: 'PROVIDER_ROUTE_NO_DATED_SNAPSHOT',
-    reasoningMode: 'medium', supportedArms: ['REFERENCE_IMAGE_EVIDENCE'],
+    reasoningMode: 'medium', supportedArms: ['REFERENCE_IMAGE_SEQUENCE_EVIDENCE'],
     pricing: { inputUsdPerMillion: 2.5, cachedInputUsdPerMillion: 0.25, cacheWriteUsdPerMillion: 3.125, outputUsdPerMillion: 15 },
     pricingSource: 'https://developers.openai.com/api/docs/models/gpt-5.6-terra',
     modelSource: 'https://developers.openai.com/api/docs/models/gpt-5.6-terra',
@@ -61,7 +62,7 @@ const ROUTES: readonly RouteFactV2[] = [
   {
     routeId: 'GOOGLE_FLASH_LITE', provider: 'google', requestModel: 'gemini-3.5-flash-lite',
     claimedBenchmarkIdentity: 'gemini-3.5-flash-lite', identityStatus: 'PROVIDER_STABLE_ROUTE',
-    reasoningMode: 'minimal', supportedArms: ['REFERENCE_IMAGE_EVIDENCE', 'MULTIMODAL'],
+    reasoningMode: 'minimal', supportedArms: ['REFERENCE_IMAGE_SEQUENCE_EVIDENCE', 'REFERENCE_NATIVE_VIDEO_EVIDENCE'],
     pricing: { inputUsdPerMillion: 0.3, cachedInputUsdPerMillion: null, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 2.5 },
     pricingSource: 'https://ai.google.dev/gemini-api/docs/latest-model',
     modelSource: 'https://ai.google.dev/gemini-api/docs/latest-model',
@@ -71,7 +72,7 @@ const ROUTES: readonly RouteFactV2[] = [
   {
     routeId: 'GOOGLE_FLASH', provider: 'google', requestModel: 'gemini-3.6-flash',
     claimedBenchmarkIdentity: 'gemini-3.6-flash', identityStatus: 'PROVIDER_STABLE_ROUTE',
-    reasoningMode: 'medium', supportedArms: ['REFERENCE_IMAGE_EVIDENCE', 'MULTIMODAL'],
+    reasoningMode: 'medium', supportedArms: ['REFERENCE_IMAGE_SEQUENCE_EVIDENCE', 'REFERENCE_NATIVE_VIDEO_EVIDENCE'],
     pricing: { inputUsdPerMillion: 0.75, cachedInputUsdPerMillion: 0.075, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 3.75 },
     pricingSource: 'https://ai.google.dev/gemini-api/docs/pricing',
     modelSource: 'https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash',
@@ -93,7 +94,8 @@ const ROUTES: readonly RouteFactV2[] = [
 export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Record<string, unknown>>> {
   const packets = [
     ...buildDevelopmentStageOnePacketsV2(),
-    buildDevelopmentReferenceImageStageOnePacketV2(SMOKE_TASK, SMOKE_CONDITION),
+    buildDevelopmentReferenceImageSequenceStageOnePacketV2(SMOKE_TASK, SMOKE_CONDITION),
+    buildDevelopmentReferenceNativeVideoStageOnePacketV2(SMOKE_TASK, SMOKE_CONDITION),
   ];
   const taskArms = uniqueTaskArms(packets);
   const smokeRows = [];
@@ -111,9 +113,11 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
         taskId: SMOKE_TASK,
         conditionId: SMOKE_CONDITION,
         inputArm,
-        comparisonPurpose: inputArm === 'REFERENCE_IMAGE_EVIDENCE'
-          ? 'FAIR_STATIC_REFERENCE_COMPARISON'
-          : 'NATIVE_MEDIA_TRANSPORT_PLUMBING_ONLY',
+        comparisonPurpose: inputArm === 'REFERENCE_IMAGE_SEQUENCE_EVIDENCE'
+          ? 'FAIR_ORDERED_IMAGE_SEQUENCE_COMPARISON'
+          : inputArm === 'REFERENCE_NATIVE_VIDEO_EVIDENCE'
+          ? 'NATIVE_REFERENCE_VIDEO_COMPARISON'
+          : 'TEXT_ONLY_CAPABILITY_GAP_CONTROL',
         packetHash: artifact.packetHash,
         transportHash: artifact.transportHash,
         maxInputTokens: artifact.packet.stageBudget.maxInputTokens,
@@ -158,7 +162,7 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
     planVersion: 'EDITRON_OE_DEVELOPMENT_SMOKE_PREFLIGHT_V2',
     authority: 'RESEARCH_ONLY_NO_PROVIDER_NETWORK_NO_PROJECT_MUTATION',
     evidenceAsOf: EVIDENCE_DATE,
-    selectionRule: 'Luna, Terra, Gemini Flash-Lite and Gemini Flash receive the same answer-leak-free DEV-02 reference image. Gemini full-media rows are transport plumbing only.',
+    selectionRule: 'Luna, Terra, Gemini Flash-Lite and Gemini Flash receive the same six answer-leak-free, hash-bound DEV-02 reference images in ascending timestamp order. Gemini native-video rows are a separate within-model temporal-evidence condition and are not ranked as cross-model parity rows.',
     routes: ROUTES,
     routeApplicability,
     smokeRows,

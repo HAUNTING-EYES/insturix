@@ -2,7 +2,7 @@
   "planVersion": "EDITRON_OE_DEVELOPMENT_SMOKE_PREFLIGHT_V2",
   "authority": "RESEARCH_ONLY_NO_PROVIDER_NETWORK_NO_PROJECT_MUTATION",
   "evidenceAsOf": "2026-08-14",
-  "selectionRule": "Luna, Terra, Gemini Flash-Lite and Gemini Flash receive the same answer-leak-free DEV-02 reference image. Gemini full-media rows are transport plumbing only.",
+  "selectionRule": "Luna, Terra, Gemini Flash-Lite and Gemini Flash receive the same six answer-leak-free, hash-bound DEV-02 reference images in ascending timestamp order. Gemini native-video rows are a separate within-model temporal-evidence condition and are not ranked as cross-model parity rows.",
   "routes": [
     {
       "routeId": "OPENAI_LUNA",
@@ -12,7 +12,7 @@
       "identityStatus": "PROVIDER_ROUTE_NO_DATED_SNAPSHOT",
       "reasoningMode": "medium",
       "supportedArms": [
-        "REFERENCE_IMAGE_EVIDENCE"
+        "REFERENCE_IMAGE_SEQUENCE_EVIDENCE"
       ],
       "pricing": {
         "inputUsdPerMillion": 1,
@@ -41,7 +41,7 @@
       "identityStatus": "PROVIDER_ROUTE_NO_DATED_SNAPSHOT",
       "reasoningMode": "medium",
       "supportedArms": [
-        "REFERENCE_IMAGE_EVIDENCE"
+        "REFERENCE_IMAGE_SEQUENCE_EVIDENCE"
       ],
       "pricing": {
         "inputUsdPerMillion": 2.5,
@@ -70,8 +70,8 @@
       "identityStatus": "PROVIDER_STABLE_ROUTE",
       "reasoningMode": "minimal",
       "supportedArms": [
-        "REFERENCE_IMAGE_EVIDENCE",
-        "MULTIMODAL"
+        "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
+        "REFERENCE_NATIVE_VIDEO_EVIDENCE"
       ],
       "pricing": {
         "inputUsdPerMillion": 0.3,
@@ -100,8 +100,8 @@
       "identityStatus": "PROVIDER_STABLE_ROUTE",
       "reasoningMode": "medium",
       "supportedArms": [
-        "REFERENCE_IMAGE_EVIDENCE",
-        "MULTIMODAL"
+        "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
+        "REFERENCE_NATIVE_VIDEO_EVIDENCE"
       ],
       "pricing": {
         "inputUsdPerMillion": 0.75,
@@ -181,9 +181,17 @@
     {
       "routeId": "OPENAI_LUNA",
       "taskId": "DEV-02",
-      "inputArm": "REFERENCE_IMAGE_EVIDENCE",
+      "inputArm": "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
       "modalityStatus": "APPLICABLE",
       "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_LUNA",
+      "taskId": "DEV-02",
+      "inputArm": "REFERENCE_NATIVE_VIDEO_EVIDENCE",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
     },
     {
@@ -253,9 +261,17 @@
     {
       "routeId": "OPENAI_TERRA",
       "taskId": "DEV-02",
-      "inputArm": "REFERENCE_IMAGE_EVIDENCE",
+      "inputArm": "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
       "modalityStatus": "APPLICABLE",
       "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "OPENAI_TERRA",
+      "taskId": "DEV-02",
+      "inputArm": "REFERENCE_NATIVE_VIDEO_EVIDENCE",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
     },
     {
@@ -302,8 +318,8 @@
       "routeId": "GOOGLE_FLASH_LITE",
       "taskId": "DEV-01",
       "inputArm": "MULTIMODAL",
-      "modalityStatus": "APPLICABLE",
-      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
     },
     {
@@ -318,6 +334,14 @@
       "routeId": "GOOGLE_FLASH_LITE",
       "taskId": "DEV-02",
       "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH_LITE",
+      "taskId": "DEV-02",
+      "inputArm": "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
       "modalityStatus": "APPLICABLE",
       "reason": "CODEC_ACCEPTS_FROZEN_ARM",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
@@ -325,7 +349,7 @@
     {
       "routeId": "GOOGLE_FLASH_LITE",
       "taskId": "DEV-02",
-      "inputArm": "REFERENCE_IMAGE_EVIDENCE",
+      "inputArm": "REFERENCE_NATIVE_VIDEO_EVIDENCE",
       "modalityStatus": "APPLICABLE",
       "reason": "CODEC_ACCEPTS_FROZEN_ARM",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
@@ -342,8 +366,8 @@
       "routeId": "GOOGLE_FLASH_LITE",
       "taskId": "DEV-03",
       "inputArm": "MULTIMODAL",
-      "modalityStatus": "APPLICABLE",
-      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
     },
     {
@@ -358,8 +382,8 @@
       "routeId": "GOOGLE_FLASH_LITE",
       "taskId": "DEV-04",
       "inputArm": "MULTIMODAL",
-      "modalityStatus": "APPLICABLE",
-      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
     },
     {
@@ -374,8 +398,8 @@
       "routeId": "GOOGLE_FLASH",
       "taskId": "DEV-01",
       "inputArm": "MULTIMODAL",
-      "modalityStatus": "APPLICABLE",
-      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
     },
     {
@@ -390,6 +414,14 @@
       "routeId": "GOOGLE_FLASH",
       "taskId": "DEV-02",
       "inputArm": "MULTIMODAL",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
+    },
+    {
+      "routeId": "GOOGLE_FLASH",
+      "taskId": "DEV-02",
+      "inputArm": "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
       "modalityStatus": "APPLICABLE",
       "reason": "CODEC_ACCEPTS_FROZEN_ARM",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
@@ -397,7 +429,7 @@
     {
       "routeId": "GOOGLE_FLASH",
       "taskId": "DEV-02",
-      "inputArm": "REFERENCE_IMAGE_EVIDENCE",
+      "inputArm": "REFERENCE_NATIVE_VIDEO_EVIDENCE",
       "modalityStatus": "APPLICABLE",
       "reason": "CODEC_ACCEPTS_FROZEN_ARM",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
@@ -414,8 +446,8 @@
       "routeId": "GOOGLE_FLASH",
       "taskId": "DEV-03",
       "inputArm": "MULTIMODAL",
-      "modalityStatus": "APPLICABLE",
-      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
     },
     {
@@ -430,8 +462,8 @@
       "routeId": "GOOGLE_FLASH",
       "taskId": "DEV-04",
       "inputArm": "MULTIMODAL",
-      "modalityStatus": "APPLICABLE",
-      "reason": "CODEC_ACCEPTS_FROZEN_ARM",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
       "dispatchStatus": "BLOCKED_PREFLIGHT_GATES"
     },
     {
@@ -469,7 +501,15 @@
     {
       "routeId": "DEEPSEEK_FLASH",
       "taskId": "DEV-02",
-      "inputArm": "REFERENCE_IMAGE_EVIDENCE",
+      "inputArm": "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
+      "modalityStatus": "NOT_APPLICABLE",
+      "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
+      "dispatchStatus": "BLOCKED_MODEL_IDENTITY"
+    },
+    {
+      "routeId": "DEEPSEEK_FLASH",
+      "taskId": "DEV-02",
+      "inputArm": "REFERENCE_NATIVE_VIDEO_EVIDENCE",
       "modalityStatus": "NOT_APPLICABLE",
       "reason": "CODEC_REJECTS_FROZEN_ARM_MEDIA",
       "dispatchStatus": "BLOCKED_MODEL_IDENTITY"
@@ -517,16 +557,16 @@
   ],
   "smokeRows": [
     {
-      "rowId": "OPENAI_LUNA-REFERENCE_IMAGE_EVIDENCE",
+      "rowId": "OPENAI_LUNA-REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
       "routeId": "OPENAI_LUNA",
       "taskId": "DEV-02",
       "conditionId": "BASELINE",
-      "inputArm": "REFERENCE_IMAGE_EVIDENCE",
-      "comparisonPurpose": "FAIR_STATIC_REFERENCE_COMPARISON",
-      "packetHash": "854850b4290b21f9c2b661d830f1754886a0216d467c9ef3b5dad0ffa2c611ca",
+      "inputArm": "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
+      "comparisonPurpose": "FAIR_ORDERED_IMAGE_SEQUENCE_COMPARISON",
+      "packetHash": "4e3d2b3f6598392127143b88c06ab7b5c097e656938c89f0c40ab504e08d5cd9",
       "transportHash": "0ddb33758a0d25c04299bfe919985421cd4d4694a990437cbc011b4b9e0ea919",
       "maxInputTokens": 25000,
-      "localInputTokenUpperBound": 23925,
+      "localInputTokenUpperBound": 23934,
       "providerCountTokensEndpoint": null,
       "providerCountTokensRequestHash": null,
       "providerTokenCountStatus": "LOCAL_UPPER_BOUND_PROVED_WITHIN_STAGE_BUDGET",
@@ -537,16 +577,16 @@
       ]
     },
     {
-      "rowId": "OPENAI_TERRA-REFERENCE_IMAGE_EVIDENCE",
+      "rowId": "OPENAI_TERRA-REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
       "routeId": "OPENAI_TERRA",
       "taskId": "DEV-02",
       "conditionId": "BASELINE",
-      "inputArm": "REFERENCE_IMAGE_EVIDENCE",
-      "comparisonPurpose": "FAIR_STATIC_REFERENCE_COMPARISON",
-      "packetHash": "854850b4290b21f9c2b661d830f1754886a0216d467c9ef3b5dad0ffa2c611ca",
+      "inputArm": "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
+      "comparisonPurpose": "FAIR_ORDERED_IMAGE_SEQUENCE_COMPARISON",
+      "packetHash": "4e3d2b3f6598392127143b88c06ab7b5c097e656938c89f0c40ab504e08d5cd9",
       "transportHash": "0ddb33758a0d25c04299bfe919985421cd4d4694a990437cbc011b4b9e0ea919",
       "maxInputTokens": 25000,
-      "localInputTokenUpperBound": 23926,
+      "localInputTokenUpperBound": 23935,
       "providerCountTokensEndpoint": null,
       "providerCountTokensRequestHash": null,
       "providerTokenCountStatus": "LOCAL_UPPER_BOUND_PROVED_WITHIN_STAGE_BUDGET",
@@ -557,18 +597,18 @@
       ]
     },
     {
-      "rowId": "GOOGLE_FLASH_LITE-REFERENCE_IMAGE_EVIDENCE",
+      "rowId": "GOOGLE_FLASH_LITE-REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
       "routeId": "GOOGLE_FLASH_LITE",
       "taskId": "DEV-02",
       "conditionId": "BASELINE",
-      "inputArm": "REFERENCE_IMAGE_EVIDENCE",
-      "comparisonPurpose": "FAIR_STATIC_REFERENCE_COMPARISON",
-      "packetHash": "854850b4290b21f9c2b661d830f1754886a0216d467c9ef3b5dad0ffa2c611ca",
+      "inputArm": "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
+      "comparisonPurpose": "FAIR_ORDERED_IMAGE_SEQUENCE_COMPARISON",
+      "packetHash": "4e3d2b3f6598392127143b88c06ab7b5c097e656938c89f0c40ab504e08d5cd9",
       "transportHash": "0ddb33758a0d25c04299bfe919985421cd4d4694a990437cbc011b4b9e0ea919",
       "maxInputTokens": 25000,
       "localInputTokenUpperBound": null,
       "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:countTokens",
-      "providerCountTokensRequestHash": "7f80e430d5312ce83305dc5f89bf2143c5c75b7ea337320cb6921d3e570e8c00",
+      "providerCountTokensRequestHash": "0f790d62e03990daee6a746238948f0d77e4a96cf165017f9ead50abfb9c6769",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.35,
       "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
@@ -578,18 +618,18 @@
       ]
     },
     {
-      "rowId": "GOOGLE_FLASH_LITE-MULTIMODAL",
+      "rowId": "GOOGLE_FLASH_LITE-REFERENCE_NATIVE_VIDEO_EVIDENCE",
       "routeId": "GOOGLE_FLASH_LITE",
       "taskId": "DEV-02",
       "conditionId": "BASELINE",
-      "inputArm": "MULTIMODAL",
-      "comparisonPurpose": "NATIVE_MEDIA_TRANSPORT_PLUMBING_ONLY",
-      "packetHash": "1b429f0d9287715db486fc15bd9df52455494fe456f5c05773492787ae2ba059",
-      "transportHash": "617c6cb54a8ba7e0d4668b2ff56948c140a0b407dbb7e973ebdb256d14c1a4eb",
+      "inputArm": "REFERENCE_NATIVE_VIDEO_EVIDENCE",
+      "comparisonPurpose": "NATIVE_REFERENCE_VIDEO_COMPARISON",
+      "packetHash": "49a23066ad451ae82b13cae52157c24faf3bba8b55bcf2cdf71cabdb3ab3fb06",
+      "transportHash": "80601c54aa48460c05cc01e7198a39af44d158d00c4ca916b16ad5cb57695aa6",
       "maxInputTokens": 25000,
       "localInputTokenUpperBound": null,
       "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:countTokens",
-      "providerCountTokensRequestHash": "4649755d710eab85ebfd1fcfc74d113cd7c0e58d79cfaffde54b22a4007d409c",
+      "providerCountTokensRequestHash": "1b41bbe2e80498d303461c19dbb09e3ed87909b57dbf83ac3150706c7a89aeeb",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.35,
       "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
@@ -599,18 +639,18 @@
       ]
     },
     {
-      "rowId": "GOOGLE_FLASH-REFERENCE_IMAGE_EVIDENCE",
+      "rowId": "GOOGLE_FLASH-REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
       "routeId": "GOOGLE_FLASH",
       "taskId": "DEV-02",
       "conditionId": "BASELINE",
-      "inputArm": "REFERENCE_IMAGE_EVIDENCE",
-      "comparisonPurpose": "FAIR_STATIC_REFERENCE_COMPARISON",
-      "packetHash": "854850b4290b21f9c2b661d830f1754886a0216d467c9ef3b5dad0ffa2c611ca",
+      "inputArm": "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
+      "comparisonPurpose": "FAIR_ORDERED_IMAGE_SEQUENCE_COMPARISON",
+      "packetHash": "4e3d2b3f6598392127143b88c06ab7b5c097e656938c89f0c40ab504e08d5cd9",
       "transportHash": "0ddb33758a0d25c04299bfe919985421cd4d4694a990437cbc011b4b9e0ea919",
       "maxInputTokens": 25000,
       "localInputTokenUpperBound": null,
       "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:countTokens",
-      "providerCountTokensRequestHash": "a96fb068a2fe8259d1d12ae9f4b7e8135ba424304ce9abcf7de61b125803bd36",
+      "providerCountTokensRequestHash": "6efba69b582dc95f5bd4060819e366257e0e00c169f6654b2bca957032bf8713",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.35,
       "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
@@ -620,18 +660,18 @@
       ]
     },
     {
-      "rowId": "GOOGLE_FLASH-MULTIMODAL",
+      "rowId": "GOOGLE_FLASH-REFERENCE_NATIVE_VIDEO_EVIDENCE",
       "routeId": "GOOGLE_FLASH",
       "taskId": "DEV-02",
       "conditionId": "BASELINE",
-      "inputArm": "MULTIMODAL",
-      "comparisonPurpose": "NATIVE_MEDIA_TRANSPORT_PLUMBING_ONLY",
-      "packetHash": "1b429f0d9287715db486fc15bd9df52455494fe456f5c05773492787ae2ba059",
-      "transportHash": "617c6cb54a8ba7e0d4668b2ff56948c140a0b407dbb7e973ebdb256d14c1a4eb",
+      "inputArm": "REFERENCE_NATIVE_VIDEO_EVIDENCE",
+      "comparisonPurpose": "NATIVE_REFERENCE_VIDEO_COMPARISON",
+      "packetHash": "49a23066ad451ae82b13cae52157c24faf3bba8b55bcf2cdf71cabdb3ab3fb06",
+      "transportHash": "80601c54aa48460c05cc01e7198a39af44d158d00c4ca916b16ad5cb57695aa6",
       "maxInputTokens": 25000,
       "localInputTokenUpperBound": null,
       "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:countTokens",
-      "providerCountTokensRequestHash": "e7457f69e1380b46e2d6f2c976c09262218e09092258f2da3921ddb894c6c101",
+      "providerCountTokensRequestHash": "6b0f7297457d5445a3464b4f9fc2d394a156151d0cdeff3979d743b8db597b6f",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.35,
       "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
@@ -648,7 +688,7 @@
       "taskId": "DEV-02",
       "conditionId": "BASELINE",
       "inputArm": "TEXT_EVIDENCE_ONLY",
-      "comparisonPurpose": "NATIVE_MEDIA_TRANSPORT_PLUMBING_ONLY",
+      "comparisonPurpose": "TEXT_ONLY_CAPABILITY_GAP_CONTROL",
       "packetHash": "83cd9556617b02778b39d19a32591dead3b79eaabb4d5eff39c83d5daa8d27dc",
       "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "maxInputTokens": 25000,
@@ -723,5 +763,5 @@
     "GOOGLE_COUNT_TOKENS_NOT_YET_EXECUTED",
     "OPERATOR_CONFIRMATION_NOT_RECORDED"
   ],
-  "planHash": "4e2a87ab58dc7b6ab5befc2264555f1eadd052a233d3823797a9eaf26a579cef"
+  "planHash": "1d07d43e8ec280f726cdabaa868635a8c98e19497cea80a3767cc83edfb256b4"
 }
