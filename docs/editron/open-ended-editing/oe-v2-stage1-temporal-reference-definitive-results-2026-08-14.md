@@ -118,21 +118,70 @@ native video/image transport path can yield richer observations. They do not
 establish a fair model ranking because those rows received different evidence
 from Luna, Terra, and the reference-only Gemini rows.
 
-## Qwen 3.8 Max status
+## Qwen 3.8 Max diagnostic addendum
 
-`qwen3.8-max-preview` is documented by Alibaba in the Token Plan harness, but
-the supplied credential is a Token/Coding Plan credential. Alibaba's
-published restrictions prohibit using that credential in automated scripts,
-custom backends, or non-interactive batch evaluation. It was not sent, stored,
-or committed.
+The operator explicitly authorised a bounded Qwen diagnostic using the supplied
+Token Plan credential. The retired preview alias was not used. Both successful
+calls requested `qwen3.8-max`; the direct provider response also returned
+`qwen3.8-max` as its model identity.
 
-Add Qwen 3.8 Max only when one of these exists:
+The credential worked only with the Token Plan Team endpoint:
+`https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`.
+The earlier Coding Plan endpoint returned `401 invalid_api_key`; that was an
+endpoint/plan mismatch, not a model result.
 
-- a normal pay-as-you-go application key and endpoint that accepts
-  `qwen3.8-max-preview`; or
-- an explicit provider route authorizing automated benchmark use.
+The Qwen condition used six separate `129x154` PNG attachments at `0`, `1.2`,
+`2.4`, `3.6`, `4.8` and `6.0` seconds. The images were extracted from the same
+rights-owned DEV-02 contact sheet and supplied in order with explicit times.
+They were not re-tiled. The ordered image-hash-set identity was:
+`0608721496bcb46e95eedf081b3ff09c7baaae6edeaf8d56b2c54baf7c712e99`.
 
-Do not substitute Qwen 3.7 and label it Qwen 3.8.
+Two completed calls provide a repeatability check:
+
+| Route | Elapsed | Provider usage | Result |
+| --- | ---: | --- | --- |
+| OpenCode custom provider | about `154s` | `49,880` total reported tokens, including `29,696` cache-read and `6,155` reasoning tokens | completed |
+| Direct OpenAI-compatible request | `165.19s` | `643` prompt, `9,031` completion (`7,360` reasoning + `1,671` text), `9,674` total | completed |
+
+The Token Plan returned credit usage rather than an honest USD price, so these
+calls are not added to the dollar total above. The much larger OpenCode context
+also proves that a general coding-agent shell is not a fair cost proxy for a
+production reference-observer call.
+
+### Editorial review of the direct condition
+
+| Required observation | Qwen 3.8 Max |
+| --- | --- |
+| Five settled panels | detected |
+| Black gutters | detected |
+| Fixed centered yellow two-line title | detected |
+| Opposed motion | detected: center panels rise while side panels descend |
+| Settled hold | detected between the `3.6s` and `4.8s` samples |
+| Final center-green takeover/continuity | detected |
+| Easing, audio and unsampled transition uncertainty | explicitly reported |
+
+This is materially more complete than any of the four tiled-contact-sheet rows.
+It is not yet a cross-model win because Qwen received a corrected six-image
+representation while the other four fair rows received one ambiguous tiled
+image. Every compared provider must receive the same corrected evidence before
+ranking.
+
+Qwen also over-interpreted some evidence. It emitted precise geometry and colour
+estimates that exceed the safe precision of the small images, and both completed
+calls treated a tiny moving white square as a creative progress indicator. That
+square is evaluator instrumentation inserted by the synthetic fixture. It must
+be removed from provider-visible pixels; sample identity belongs in attachment
+hashes and timestamps, never in the creative image.
+
+### Qwen disposition
+
+- Reference reconstruction: promising specialist candidate.
+- Interactive placement: not supported by this result; two runs took roughly
+  `2.5-2.75` minutes.
+- Production promotion: not authorised.
+- Mandatory next comparison: remove the visible marker, send identical ordered
+  images to every image-capable model, retain a separate native-video arm, and
+  score the held-out claims without exposing the answer.
 
 ## Verification
 
@@ -142,3 +191,7 @@ Do not substitute Qwen 3.7 and label it Qwen 3.8.
 - `pnpm exec eslint . --quiet`: passed
 - Definitive provider rows: `6/6` schema accepted
 - Editorial target reconstruction: incomplete; no promotion
+- Qwen diagnostics: `2/2` completed, strong reconstruction, not a fair
+  cross-provider comparison and not promoted
+- Temporary Qwen credential/config: deleted; retained diagnostic secret scan:
+  clean
