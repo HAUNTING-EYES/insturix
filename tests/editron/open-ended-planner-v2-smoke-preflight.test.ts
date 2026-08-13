@@ -63,10 +63,10 @@ describe('open-ended planner V2 paid-smoke preflight', () => {
     expect(plan.smokeRows.some(({ routeId }) => routeId === 'DEEPSEEK_FLASH')).toBe(false);
   });
 
-  it('caps the six-call smoke at sixty-six cents including repairs', async () => {
+  it('caps the six-call smoke at one dollar fifty including repairs', async () => {
     const plan = await buildDevelopmentSmokePreflightV2() as Plan;
-    expect(plan.spend).toMatchObject({ plannedProviderCallsAfterAllGates: 6, maxCostPerStageOneRunUsd: 0.11, absoluteMaxSpendUsd: 0.66 });
-    expect(plan.smokeRows.every(({ maxProviderCostUsd }) => maxProviderCostUsd === 0.11)).toBe(true);
+    expect(plan.spend).toMatchObject({ plannedProviderCallsAfterAllGates: 6, maxCostPerStageOneRunUsd: 0.25, absoluteMaxSpendUsd: 1.5 });
+    expect(plan.smokeRows.every(({ maxProviderCostUsd }) => maxProviderCostUsd === 0.25)).toBe(true);
     expect(plan.smokeRows.filter(({ localInputTokenUpperBound }) => localInputTokenUpperBound !== null)
       .every(({ localInputTokenUpperBound, maxInputTokens }) => Number(localInputTokenUpperBound) <= maxInputTokens)).toBe(true);
   });

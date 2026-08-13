@@ -98,23 +98,24 @@ describe('open-ended planner V2 provider transport', () => {
   });
 
   it('blocks preflight and post-response budget drift', async () => {
+    const budget = textPacket().packet.stageBudget;
     let preflightCalls = 0;
     const preflight = await run({
-      preflightInputTokens: [17_001, 100],
+      preflightInputTokens: [budget.maxInputTokens + 1, 100],
       fetchImpl: async () => { preflightCalls += 1; return jsonResponse(openAI(JSON.stringify(validArtifact()))); },
     });
     expect(preflightCalls).toBe(0);
     expect(preflight.attempts[0]).toMatchObject({ disposition: 'BUDGET_EXCEEDED', parseStatus: 'PREFLIGHT_BLOCKED' });
 
     const usageDrift = await run({
-      fetchImpl: async () => jsonResponse(openAI(JSON.stringify(validArtifact()), { inputTokens: 17_001 })),
+      fetchImpl: async () => jsonResponse(openAI(JSON.stringify(validArtifact()), { inputTokens: budget.maxInputTokens + 1 })),
     });
     expect(usageDrift.disposition).toBe('BUDGET_EXCEEDED');
     expect(usageDrift.attempts[0].schemaDiagnostics).toContain('INPUT_TOKEN_LIMIT');
 
-    const times = [0, 30_001];
+    const times = [0, budget.maxWallClockMs + 1];
     const wallDrift = await run({
-      nowMs: () => times.shift() ?? 30_001,
+      nowMs: () => times.shift() ?? budget.maxWallClockMs + 1,
       fetchImpl: async () => jsonResponse(openAI(JSON.stringify(validArtifact()))),
     });
     expect(wallDrift.disposition).toBe('BUDGET_EXCEEDED');
@@ -166,11 +167,13 @@ describe('open-ended planner V2 provider transport', () => {
   });
 
   it('uses the most expensive input class for worst-case preflight', async () => {
+    const budget = textPacket().packet.stageBudget;
+    const exceedingCacheWriteRate = (budget.maxProviderCostUsd * 1_000_000 / 1_000) + 1;
     let calls = 0;
     const result = await run({
       pricing: {
         inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.1,
-        cacheWriteUsdPerMillion: 200, outputUsdPerMillion: 1,
+        cacheWriteUsdPerMillion: exceedingCacheWriteRate, outputUsdPerMillion: 1,
       },
       preflightInputTokens: [1000, 100],
       fetchImpl: async () => { calls += 1; return jsonResponse(openAI(JSON.stringify(validArtifact()))); },
@@ -181,17 +184,18 @@ describe('open-ended planner V2 provider transport', () => {
   });
 
   it('charges dynamic provider counting against the same wall-clock budget', async () => {
+    const budget = textPacket().packet.stageBudget;
     let calls = 0;
-    const times = [0, 30_001];
+    const times = [0, budget.maxWallClockMs + 1];
     const result = await run({
       preflightInputTokens: async () => 100,
-      nowMs: () => times.shift() ?? 30_001,
+      nowMs: () => times.shift() ?? budget.maxWallClockMs + 1,
       fetchImpl: async () => { calls += 1; return jsonResponse(openAI(JSON.stringify(validArtifact()))); },
     });
     expect(calls).toBe(0);
     expect(result.disposition).toBe('BUDGET_EXCEEDED');
     expect(result.attempts[0]).toMatchObject({
-      parseStatus: 'PREFLIGHT_BLOCKED', latencyMs: 30_001,
+      parseStatus: 'PREFLIGHT_BLOCKED', latencyMs: budget.maxWallClockMs + 1,
     });
     expect(result.attempts[0].schemaDiagnostics).toContain('WALL_CLOCK_LIMIT');
   });
