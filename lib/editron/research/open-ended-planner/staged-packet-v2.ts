@@ -12,6 +12,7 @@ import {
 
 export const INPUT_ARMS_V2 = ['MULTIMODAL', 'TEXT_EVIDENCE_ONLY'] as const;
 export const REFERENCE_IMAGE_INPUT_ARM_V2 = 'REFERENCE_IMAGE_EVIDENCE' as const;
+export const REFERENCE_IMAGE_SEQUENCE_INPUT_ARM_V2 = 'REFERENCE_IMAGE_SEQUENCE_EVIDENCE' as const;
 export const REFERENCE_NATIVE_VIDEO_INPUT_ARM_V2 = 'REFERENCE_NATIVE_VIDEO_EVIDENCE' as const;
 export const EXECUTION_FORM_ARMS_V2 = [
   'FREE_CHOICE', 'FORCED_NATIVE', 'FORCED_GENERATED_COMPOSITION',
@@ -20,6 +21,7 @@ export const EXECUTION_FORM_ARMS_V2 = [
 
 export type InputArmV2 = typeof INPUT_ARMS_V2[number]
   | typeof REFERENCE_IMAGE_INPUT_ARM_V2
+  | typeof REFERENCE_IMAGE_SEQUENCE_INPUT_ARM_V2
   | typeof REFERENCE_NATIVE_VIDEO_INPUT_ARM_V2;
 type ExecutionFormArmV2 = typeof EXECUTION_FORM_ARMS_V2[number];
 type StageV2 = 1 | 2 | 3 | 4 | 5;
@@ -131,6 +133,17 @@ export function buildDevelopmentReferenceImageStageOnePacketV2(
   return buildStageOnePacket(task, condition, REFERENCE_IMAGE_INPUT_ARM_V2);
 }
 
+export function buildDevelopmentReferenceImageSequenceStageOnePacketV2(
+  taskId: string,
+  conditionId: string,
+): HashedStagePacketV2 {
+  const task = developmentTasksV2().find((candidate) => candidate.taskId === taskId)
+    ?? fail('TASK_MISSING', taskId);
+  const condition = task.conditionCases.find((candidate) => candidate.conditionId === conditionId)
+    ?? fail('CONDITION_MISSING', `${taskId}/${conditionId}`);
+  return buildStageOnePacket(task, condition, REFERENCE_IMAGE_SEQUENCE_INPUT_ARM_V2);
+}
+
 export function buildDevelopmentReferenceNativeVideoStageOnePacketV2(
   taskId: string,
   conditionId: string,
@@ -197,7 +210,9 @@ function buildStageOnePacket(task: SourceTaskV2, condition: ConditionCaseV2, inp
   if (v1.project.projectId !== task.projectBinding.projectId || v1.project.projectRevision !== task.projectBinding.projectRevision) fail('PROJECT_BINDING_DRIFT', task.taskId);
   const media = mediaForTask(task);
   const visible = visibleEvidence(v1, condition);
-  const referenceInput = inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+  const imageSequenceInput = inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+    || inputArm === REFERENCE_IMAGE_SEQUENCE_INPUT_ARM_V2;
+  const referenceInput = imageSequenceInput
     || inputArm === REFERENCE_NATIVE_VIDEO_INPUT_ARM_V2;
   const attachedMedia = referenceInput
     ? referenceImagesForEvidence(visible, media)
@@ -235,12 +250,12 @@ function buildStageOnePacket(task: SourceTaskV2, condition: ConditionCaseV2, inp
         coordinateDomain: temporalReference.coordinateDomain,
         timebase: temporalReference.timebase,
         order: temporalReference.order,
-        representation: inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+        representation: imageSequenceInput
           ? 'ORDERED_TIMESTAMPED_IMAGE_SEQUENCE'
           : 'NATIVE_REFERENCE_VIDEO',
       },
     } : {}),
-    mediaPolicy: inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+    mediaPolicy: imageSequenceInput
       ? 'ATTACH_HASH_BOUND_ORDERED_REFERENCE_IMAGES'
       : inputArm === REFERENCE_NATIVE_VIDEO_INPUT_ARM_V2
       ? 'ATTACH_HASH_BOUND_NATIVE_REFERENCE_VIDEO'
@@ -287,7 +302,8 @@ function temporalReferenceAttachments(
   inputArm: InputArmV2,
   temporal: TemporalReferenceEvidenceV2,
 ): ProviderTransportAttachmentV2[] {
-  if (inputArm === REFERENCE_IMAGE_INPUT_ARM_V2) {
+  if (inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+    || inputArm === REFERENCE_IMAGE_SEQUENCE_INPUT_ARM_V2) {
     return temporal.samples.map((sample, sequenceIndex) => ({
       assetId: sample.sampleId,
       mimeType: sample.mimeType,

@@ -9,6 +9,7 @@ import {
   assertNoEvaluatorLeakV2,
   buildDevelopmentNoProviderPlanV2,
   buildDevelopmentReferenceImageStageOnePacketV2,
+  buildDevelopmentReferenceImageSequenceStageOnePacketV2,
   buildDevelopmentReferenceNativeVideoStageOnePacketV2,
   buildDevelopmentStageOnePacketsV2,
   buildNextProviderStagePacketV2,
@@ -112,11 +113,11 @@ describe('open-ended planner V2 staged no-provider packets', () => {
   });
 
   it('builds an ordered reference-image sequence without leaking the pre-digested DEV-02 layout answer', () => {
-    const referenceOnly = buildDevelopmentReferenceImageStageOnePacketV2('DEV-02', 'BASELINE');
+    const referenceOnly = buildDevelopmentReferenceImageSequenceStageOnePacketV2('DEV-02', 'BASELINE');
     const input = modelInput(referenceOnly);
     const serializedEvidence = JSON.stringify(input.evidence);
 
-    expect(referenceOnly.packet.inputArm).toBe('REFERENCE_IMAGE_EVIDENCE');
+    expect(referenceOnly.packet.inputArm).toBe('REFERENCE_IMAGE_SEQUENCE_EVIDENCE');
     expect(referenceOnly.transportAttachments).toHaveLength(6);
     expect(referenceOnly.transportAttachments.map(({ sequenceIndex }) => sequenceIndex)).toEqual([0, 1, 2, 3, 4, 5]);
     expect(referenceOnly.transportAttachments.map(({ referenceTick }) => referenceTick)).toEqual(['0', '36', '72', '108', '144', '180']);
@@ -148,7 +149,7 @@ describe('open-ended planner V2 staged no-provider packets', () => {
   });
 
   it('builds a separate native-reference-video arm bound to the same evidence bundle', () => {
-    const imageSequence = buildDevelopmentReferenceImageStageOnePacketV2('DEV-02', 'BASELINE');
+    const imageSequence = buildDevelopmentReferenceImageSequenceStageOnePacketV2('DEV-02', 'BASELINE');
     const nativeVideo = buildDevelopmentReferenceNativeVideoStageOnePacketV2('DEV-02', 'BASELINE');
     const input = modelInput(nativeVideo);
 
@@ -169,6 +170,18 @@ describe('open-ended planner V2 staged no-provider packets', () => {
       timebase: { numerator: '30', denominator: '1', startTick: '0', endExclusiveTick: '181' },
     }));
     expect(JSON.stringify(nativeVideo.packet)).not.toContain('artifactPath');
+  });
+
+  it('keeps the former reference-image name as a transport-identical compatibility arm', () => {
+    const former = buildDevelopmentReferenceImageStageOnePacketV2('DEV-02', 'BASELINE');
+    const explicit = buildDevelopmentReferenceImageSequenceStageOnePacketV2('DEV-02', 'BASELINE');
+
+    expect(former.packet.inputArm).toBe('REFERENCE_IMAGE_EVIDENCE');
+    expect(explicit.packet.inputArm).toBe('REFERENCE_IMAGE_SEQUENCE_EVIDENCE');
+    expect(former.transportHash).toBe(explicit.transportHash);
+    expect(former.transportAttachments).toEqual(explicit.transportAttachments);
+    expect(former.packet.modelInput).toEqual(explicit.packet.modelInput);
+    expect(former.packetHash).not.toBe(explicit.packetHash);
   });
 
   it('uses explicit rational project/source coordinates instead of naked FPS or ambiguous frames', () => {
