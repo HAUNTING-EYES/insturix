@@ -6,7 +6,12 @@ import {
   serializeProviderRequestV2,
   type ProviderKindV2,
 } from './provider-codecs-v2';
-import { buildDevelopmentStageOnePacketsV2, type HashedStagePacketV2, type InputArmV2 } from './staged-packet-v2';
+import {
+  buildDevelopmentReferenceImageStageOnePacketV2,
+  buildDevelopmentStageOnePacketsV2,
+  type HashedStagePacketV2,
+  type InputArmV2,
+} from './staged-packet-v2';
 type RouteIdV2 = 'OPENAI_LUNA' | 'OPENAI_TERRA' | 'GOOGLE_FLASH_LITE' | 'GOOGLE_FLASH' | 'DEEPSEEK_FLASH';
 
 interface RouteFactV2 {
@@ -21,7 +26,7 @@ interface RouteFactV2 {
   pricingSource: string;
   modelSource: string;
   counter: {
-    method: 'OFFLINE_UTF8_BYTE_UPPER_BOUND_PLUS_256' | 'PROVIDER_COUNT_TOKENS';
+    method: 'OFFLINE_TEXT_UTF8_BOUND_PLUS_IMAGE_ALLOWANCE' | 'PROVIDER_COUNT_TOKENS';
     networkRequired: boolean;
     endpoint: string | null;
     evidenceStatus: 'CONSERVATIVE_LOCAL_BOUND' | 'OFFICIAL_PROVIDER_ENDPOINT';
@@ -29,36 +34,39 @@ interface RouteFactV2 {
   nativeIdentityFields: readonly string[];
 }
 
-const EVIDENCE_DATE = '2026-08-13';
+const EVIDENCE_DATE = '2026-08-14';
 const SMOKE_TASK = 'DEV-02';
 const SMOKE_CONDITION = 'BASELINE';
 const LOCAL_TOKEN_OVERHEAD = 256;
+// This smoke's only locally counted image is the frozen 360x640 DEV-02 PNG.
+// Larger images require a separately calibrated allowance or provider count.
+const LOCAL_IMAGE_TOKEN_ALLOWANCE = 768;
 
 const ROUTES: readonly RouteFactV2[] = [
   {
     routeId: 'OPENAI_LUNA', provider: 'openai', requestModel: 'gpt-5.6-luna',
     claimedBenchmarkIdentity: 'gpt-5.6-luna', identityStatus: 'PROVIDER_ROUTE_NO_DATED_SNAPSHOT',
-    reasoningMode: 'medium', supportedArms: ['TEXT_EVIDENCE_ONLY'],
+    reasoningMode: 'medium', supportedArms: ['REFERENCE_IMAGE_EVIDENCE'],
     pricing: { inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.1, cacheWriteUsdPerMillion: 1.25, outputUsdPerMillion: 6 },
     pricingSource: 'https://developers.openai.com/api/docs/models/gpt-5.6-luna',
     modelSource: 'https://developers.openai.com/api/docs/models/gpt-5.6-luna',
-    counter: { method: 'OFFLINE_UTF8_BYTE_UPPER_BOUND_PLUS_256', networkRequired: false, endpoint: null, evidenceStatus: 'CONSERVATIVE_LOCAL_BOUND' },
+    counter: { method: 'OFFLINE_TEXT_UTF8_BOUND_PLUS_IMAGE_ALLOWANCE', networkRequired: false, endpoint: null, evidenceStatus: 'CONSERVATIVE_LOCAL_BOUND' },
     nativeIdentityFields: ['response.id', 'response.model'],
   },
   {
     routeId: 'OPENAI_TERRA', provider: 'openai', requestModel: 'gpt-5.6-terra',
     claimedBenchmarkIdentity: 'gpt-5.6-terra', identityStatus: 'PROVIDER_ROUTE_NO_DATED_SNAPSHOT',
-    reasoningMode: 'medium', supportedArms: ['TEXT_EVIDENCE_ONLY'],
+    reasoningMode: 'medium', supportedArms: ['REFERENCE_IMAGE_EVIDENCE'],
     pricing: { inputUsdPerMillion: 2.5, cachedInputUsdPerMillion: 0.25, cacheWriteUsdPerMillion: 3.125, outputUsdPerMillion: 15 },
     pricingSource: 'https://developers.openai.com/api/docs/models/gpt-5.6-terra',
     modelSource: 'https://developers.openai.com/api/docs/models/gpt-5.6-terra',
-    counter: { method: 'OFFLINE_UTF8_BYTE_UPPER_BOUND_PLUS_256', networkRequired: false, endpoint: null, evidenceStatus: 'CONSERVATIVE_LOCAL_BOUND' },
+    counter: { method: 'OFFLINE_TEXT_UTF8_BOUND_PLUS_IMAGE_ALLOWANCE', networkRequired: false, endpoint: null, evidenceStatus: 'CONSERVATIVE_LOCAL_BOUND' },
     nativeIdentityFields: ['response.id', 'response.model'],
   },
   {
     routeId: 'GOOGLE_FLASH_LITE', provider: 'google', requestModel: 'gemini-3.5-flash-lite',
     claimedBenchmarkIdentity: 'gemini-3.5-flash-lite', identityStatus: 'PROVIDER_STABLE_ROUTE',
-    reasoningMode: 'minimal', supportedArms: ['TEXT_EVIDENCE_ONLY', 'MULTIMODAL'],
+    reasoningMode: 'minimal', supportedArms: ['REFERENCE_IMAGE_EVIDENCE', 'MULTIMODAL'],
     pricing: { inputUsdPerMillion: 0.3, cachedInputUsdPerMillion: null, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 2.5 },
     pricingSource: 'https://ai.google.dev/gemini-api/docs/latest-model',
     modelSource: 'https://ai.google.dev/gemini-api/docs/latest-model',
@@ -68,8 +76,8 @@ const ROUTES: readonly RouteFactV2[] = [
   {
     routeId: 'GOOGLE_FLASH', provider: 'google', requestModel: 'gemini-3.6-flash',
     claimedBenchmarkIdentity: 'gemini-3.6-flash', identityStatus: 'PROVIDER_STABLE_ROUTE',
-    reasoningMode: 'medium', supportedArms: ['TEXT_EVIDENCE_ONLY', 'MULTIMODAL'],
-    pricing: { inputUsdPerMillion: 1.5, cachedInputUsdPerMillion: 0.15, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 7.5 },
+    reasoningMode: 'medium', supportedArms: ['REFERENCE_IMAGE_EVIDENCE', 'MULTIMODAL'],
+    pricing: { inputUsdPerMillion: 0.75, cachedInputUsdPerMillion: 0.075, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 3.75 },
     pricingSource: 'https://ai.google.dev/gemini-api/docs/pricing',
     modelSource: 'https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash',
     counter: { method: 'PROVIDER_COUNT_TOKENS', networkRequired: true, endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:countTokens', evidenceStatus: 'OFFICIAL_PROVIDER_ENDPOINT' },
@@ -82,13 +90,16 @@ const ROUTES: readonly RouteFactV2[] = [
     pricing: { inputUsdPerMillion: 0.14, cachedInputUsdPerMillion: 0.0028, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 0.28 },
     pricingSource: 'https://api-docs.deepseek.com/quick_start/pricing/',
     modelSource: 'https://api-docs.deepseek.com/api/create-chat-completion',
-    counter: { method: 'OFFLINE_UTF8_BYTE_UPPER_BOUND_PLUS_256', networkRequired: false, endpoint: null, evidenceStatus: 'CONSERVATIVE_LOCAL_BOUND' },
+    counter: { method: 'OFFLINE_TEXT_UTF8_BOUND_PLUS_IMAGE_ALLOWANCE', networkRequired: false, endpoint: null, evidenceStatus: 'CONSERVATIVE_LOCAL_BOUND' },
     nativeIdentityFields: ['response.id', 'response.model', 'response.system_fingerprint'],
   },
 ];
 
 export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Record<string, unknown>>> {
-  const packets = buildDevelopmentStageOnePacketsV2();
+  const packets = [
+    ...buildDevelopmentStageOnePacketsV2(),
+    buildDevelopmentReferenceImageStageOnePacketV2(SMOKE_TASK, SMOKE_CONDITION),
+  ];
   const taskArms = uniqueTaskArms(packets);
   const smokeRows = [];
   const excludedRows = [];
@@ -105,6 +116,9 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
         taskId: SMOKE_TASK,
         conditionId: SMOKE_CONDITION,
         inputArm,
+        comparisonPurpose: inputArm === 'REFERENCE_IMAGE_EVIDENCE'
+          ? 'FAIR_STATIC_REFERENCE_COMPARISON'
+          : 'NATIVE_MEDIA_TRANSPORT_PLUMBING_ONLY',
         packetHash: artifact.packetHash,
         transportHash: artifact.transportHash,
         maxInputTokens: artifact.packet.stageBudget.maxInputTokens,
@@ -149,7 +163,7 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
     planVersion: 'EDITRON_OE_DEVELOPMENT_SMOKE_PREFLIGHT_V2',
     authority: 'RESEARCH_ONLY_NO_PROVIDER_NETWORK_NO_PROJECT_MUTATION',
     evidenceAsOf: EVIDENCE_DATE,
-    selectionRule: 'Same DEV-02/BASELINE stage-one packet per eligible provider and supported input arm.',
+    selectionRule: 'Luna, Terra, Gemini Flash-Lite and Gemini Flash receive the same answer-leak-free DEV-02 reference image. Gemini full-media rows are transport plumbing only.',
     routes: ROUTES,
     routeApplicability,
     smokeRows,
@@ -216,8 +230,18 @@ async function buildInputCountMaterial(route: RouteFactV2, artifact: HashedStage
     };
   }
   return {
-    localInputTokenUpperBound: Buffer.byteLength(JSON.stringify(request.body), 'utf8') + LOCAL_TOKEN_OVERHEAD,
+    localInputTokenUpperBound: localInputTokenUpperBound(request.body, artifact.transportAttachments.length),
     providerCountTokensEndpoint: null,
     providerCountTokensRequestHash: null,
   };
+}
+
+function localInputTokenUpperBound(body: Readonly<Record<string, unknown>>, imageCount: number): number {
+  const withoutInlineMedia = JSON.stringify(body, (key, value: unknown) =>
+    key === 'image_url' && typeof value === 'string' && value.startsWith('data:')
+      ? '[HASH_BOUND_INLINE_IMAGE]'
+      : value);
+  return Buffer.byteLength(withoutInlineMedia, 'utf8')
+    + LOCAL_TOKEN_OVERHEAD
+    + imageCount * LOCAL_IMAGE_TOKEN_ALLOWANCE;
 }

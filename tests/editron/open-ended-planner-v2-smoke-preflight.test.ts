@@ -20,16 +20,22 @@ describe('open-ended planner V2 paid-smoke preflight', () => {
     expect(plan.smokeRows).toHaveLength(6);
     expect(new Set(plan.smokeRows.map(({ taskId }) => taskId))).toEqual(new Set(['DEV-02']));
     expect(new Set(plan.smokeRows.map(({ conditionId }) => conditionId))).toEqual(new Set(['BASELINE']));
-    expect(plan.smokeRows.filter(({ inputArm }) => inputArm === 'MULTIMODAL').map(({ routeId }) => routeId).sort())
+    const comparisonRows = plan.smokeRows.filter(({ comparisonPurpose }) => comparisonPurpose === 'FAIR_STATIC_REFERENCE_COMPARISON');
+    expect(comparisonRows.map(({ routeId }) => routeId).sort())
+      .toEqual(['GOOGLE_FLASH', 'GOOGLE_FLASH_LITE', 'OPENAI_LUNA', 'OPENAI_TERRA']);
+    expect(new Set(comparisonRows.map(({ packetHash }) => packetHash)).size).toBe(1);
+    expect(new Set(comparisonRows.map(({ transportHash }) => transportHash)).size).toBe(1);
+    expect(new Set(comparisonRows.map(({ inputArm }) => inputArm))).toEqual(new Set(['REFERENCE_IMAGE_EVIDENCE']));
+    expect(plan.smokeRows.filter(({ comparisonPurpose }) => comparisonPurpose === 'NATIVE_MEDIA_TRANSPORT_PLUMBING_ONLY').map(({ routeId }) => routeId).sort())
       .toEqual(['GOOGLE_FLASH', 'GOOGLE_FLASH_LITE']);
   });
 
   it('records applicability for every provider, development task, and modality arm', async () => {
     const plan = await buildDevelopmentSmokePreflightV2() as Plan;
-    expect(plan.routeApplicability).toHaveLength(40);
+    expect(plan.routeApplicability).toHaveLength(45);
     expect(new Set(plan.routeApplicability.map(({ routeId }) => routeId)).size).toBe(5);
     expect(new Set(plan.routeApplicability.map(({ taskId }) => taskId))).toEqual(new Set(['DEV-01', 'DEV-02', 'DEV-03', 'DEV-04']));
-    expect(new Set(plan.routeApplicability.map(({ inputArm }) => inputArm))).toEqual(new Set(['MULTIMODAL', 'TEXT_EVIDENCE_ONLY']));
+    expect(new Set(plan.routeApplicability.map(({ inputArm }) => inputArm))).toEqual(new Set(['MULTIMODAL', 'REFERENCE_IMAGE_EVIDENCE', 'TEXT_EVIDENCE_ONLY']));
     const multimodal = plan.routeApplicability.filter(({ inputArm, routeId }) => inputArm === 'MULTIMODAL' && routeId.startsWith('GOOGLE_'));
     expect(multimodal).toHaveLength(8);
     expect(multimodal.every(({ modalityStatus }) => modalityStatus === 'APPLICABLE')).toBe(true);
@@ -43,7 +49,7 @@ describe('open-ended planner V2 paid-smoke preflight', () => {
     expect(routes.OPENAI_LUNA.pricing).toEqual({ inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.1, cacheWriteUsdPerMillion: 1.25, outputUsdPerMillion: 6 });
     expect(routes.OPENAI_TERRA.pricing).toEqual({ inputUsdPerMillion: 2.5, cachedInputUsdPerMillion: 0.25, cacheWriteUsdPerMillion: 3.125, outputUsdPerMillion: 15 });
     expect(routes.GOOGLE_FLASH_LITE.pricing).toEqual({ inputUsdPerMillion: 0.3, cachedInputUsdPerMillion: null, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 2.5 });
-    expect(routes.GOOGLE_FLASH.pricing).toEqual({ inputUsdPerMillion: 1.5, cachedInputUsdPerMillion: 0.15, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 7.5 });
+    expect(routes.GOOGLE_FLASH.pricing).toEqual({ inputUsdPerMillion: 0.75, cachedInputUsdPerMillion: 0.075, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 3.75 });
     expect(routes.DEEPSEEK_FLASH.pricing).toEqual({ inputUsdPerMillion: 0.14, cachedInputUsdPerMillion: 0.0028, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 0.28 });
     expect(routes.OPENAI_LUNA.identityStatus).toBe('PROVIDER_ROUTE_NO_DATED_SNAPSHOT');
     expect(routes.GOOGLE_FLASH.identityStatus).toBe('PROVIDER_STABLE_ROUTE');
@@ -104,6 +110,9 @@ type Plan = Awaited<ReturnType<typeof buildDevelopmentSmokePreflightV2>> & {
     taskId: string;
     conditionId: string;
     inputArm: string;
+    comparisonPurpose: string;
+    packetHash: string;
+    transportHash: string;
     maxProviderCostUsd: number;
     maxInputTokens: number;
     localInputTokenUpperBound: number | null;
