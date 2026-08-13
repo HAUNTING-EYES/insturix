@@ -6,27 +6,34 @@ document does not claim that the described runtime exists today.
 ## Decision
 
 The phrase `evidence sufficiency check` is rejected unless it means a
-deterministic comparison between:
+deterministic comparison between versioned evidence requirements and versioned
+observations that demonstrably cover the required source or timeline ranges at
+the required temporal, spatial and audible resolution.
 
-1. evidence requirements declared by the proposed operations and their exact
-   parameters; and
-2. versioned observations that demonstrably cover the required source or
-   timeline ranges at the required temporal, spatial and audible resolution.
+The earlier phrase `operation-demanded evidence` was incomplete and is replaced
+by **decision- and target-claim-conditioned precision evidence**. It was
+circular to require precision evidence only after an operation had already been
+chosen: choosing the operation may itself require precision evidence, and a
+planner could otherwise choose a weaker operation to avoid analysis.
 
 An LLM confidence score, a generic video summary, a vector-search score or the
 presence of one analysis document is never evidence sufficiency.
 
-The professional architecture has three evidence tiers:
+The professional control loop has four evidence gates. These are decision
+moments, not four unrelated databases:
 
 ```text
 Reusable ingest/index evidence
-  -> operation-demanded dense evidence
-  -> preview/final rendered and delivery proof
+  -> target-understanding and route-decision evidence
+  -> selected-operation execution evidence
+  -> preview/final render and delivery proof
 ```
 
-The first tier finds material and describes coarse structure. The second tier
-supports an exact edit. The third proves that the resulting image, sound,
-timeline and deliverable are correct. None can replace the other two.
+The first gate finds material and describes coarse structure. The second obtains
+only the additional evidence needed to understand the intended visible/audible
+claim and compare native, generated-composition and hybrid routes. The third
+obtains the exact inputs required by the selected operations and parameters.
+The fourth proves the real output. None can replace the others.
 
 ## Code-grounded current truth
 
@@ -54,6 +61,37 @@ The repository does not yet implement this contract:
   exact range, sampling schedule, analyzer parameters and artifact hash.
 - no production type named `EvidenceRequirement`, `AnalysisDemand` or
   `EvidenceSufficiencyReport` exists in the audited Editron runtime.
+
+The current timebase/raster truth is also materially narrower than the project
+model suggests:
+
+- `version-7.0.0/constants.ts` fixes the main editor at 30 FPS and defaults its
+  canvas to 1280x720. The React editor, player, timeline, captions, waveform,
+  keyframe and several overlay paths consume that constant rather than the
+  loaded project's rate.
+- `ProjectService` creates 1920x1080@30 projects and stores a naked numeric
+  `fps`; it does not own a rational timebase, source timestamp map or SMPTE
+  timecode identity.
+- Remotion metadata rounds FPS to a positive integer. Consequently 24000/1001,
+  30000/1001 and 60000/1001 cannot survive exactly.
+- the media asset/upload contract omits source frame rate/timebase, CFR/VFR,
+  source timestamps/timecode, pixel aspect, field order, codec/pixel format,
+  bit depth/chroma/alpha and colour metadata.
+- overlay source offsets are stored in composition-like frame numbers without
+  a source timebase. Mixed-rate or VFR source-to-timeline mapping is therefore
+  not defined.
+- five-track analysis, MG planning, chapter rendering and several audio/video
+  consumers still contain explicit 30-FPS conversions. The chapter renderer
+  even accepts an FPS argument but uses fixed 30-FPS frame thresholds.
+- render paths are not fully converged: Lambda and SSR declare different output
+  details and final proof does not validate rational rate, pixel format, colour
+  or chapter continuity.
+
+The only defensible description today is **a predominantly 30/1, progressive,
+square-pixel SDR main editor with four 1080-long-edge UI canvas presets**. Even
+that is a working envelope, not yet a golden-file-certified professional
+delivery contract. System-wide 24, 25, 23.976, 29.97, 50, 59.94, 60, VFR,
+mixed-rate, DCI or HDR compatibility must not be claimed.
 
 These paths are useful inputs to a replacement. They are partial plumbing, not
 a professional evidence fabric and not a single analysis authority.
@@ -102,7 +140,80 @@ editing substrate:
 
 The conclusion is not that every frame of every upload needs expensive
 analysis. The conclusion is that the ingest baseline is certified for discovery
-only, and every precision operation must declare and obtain its own evidence.
+only. Target claims establish a precision floor before route selection; the
+chosen route and exact operations then add their execution requirements.
+
+## Professional timebase, frame and raster contract
+
+There is no system-wide integer `fps` that is correct for professional work.
+Editron must keep these identities distinct:
+
+1. **source cadence and timestamps** -- exact rational stream rate and source
+   presentation timestamps, including VFR where present;
+2. **project/timeline edit rate** -- the rational rate at which edit boundaries
+   and timeline frame addresses are defined;
+3. **composition-local rate** -- an optional nested generated composition's
+   local timebase, with an explicit mapping to the parent timeline;
+4. **analysis sampling schedule** -- which actual source frames/audio samples
+   were inspected; and
+5. **preview/delivery rate** -- the rate required by a preview or delivery
+   specification.
+
+The canonical rate is a reduced rational pair, not a floating-point number:
+
+```ts
+type RationalRateV1 = {
+  numerator: number;
+  denominator: number;
+};
+
+type ProjectScopedTimebaseV1 = {
+  timebaseId: string;
+  version: string;
+  projectId: string;
+  editRate: RationalRateV1;
+  ticksPerSecond: number;
+  startTimecode?: string;
+  dropFrameDisplay?: boolean;
+};
+```
+
+`dropFrameDisplay` changes timecode numbering; it does not discard image
+frames. A VFR master retains its source PTS map. A separately identified CFR
+editorial proxy must carry an exact proxy-frame-to-source-PTS map so relink and
+conform can be proved. Project frames, source frames, source timestamps, audio
+samples and composition-local frames must never be treated as interchangeable.
+
+The first certification matrix should independently cover 24000/1001, 24/1,
+25/1, 30000/1001, 30/1, 50/1, 60000/1001 and 60/1. High-speed 100/120/240-FPS
+media begins as source/conform/slow-motion support, not an automatic promise
+that every final output rate is supported. Apple documents why this distinction
+matters: a 120-FPS source in a 30-FPS project can play every source frame as
+slow motion, while ordinary rate conforming may sample, blend or synthesize
+frames.
+
+Common targets are examples, not a hardcoded product ceiling:
+
+| Use | Common raster/rate examples | Editron requirement |
+|---|---|---|
+| social/agency | 1080x1920, 1080x1350, 1080x1080, 1920x1080; often 24/25/30/50/60 families | exact delivery profile plus custom raster support |
+| UHD/broadcast/streaming | 3840x2160 and 1920x1080 with delivery-specific rate, colour and audio | preserve raster, rate, fields, colour, bit depth and channel contract |
+| digital cinema | DCI 2K 2048x1080 and DCI 4K 4096x2160; the DCI baseline includes 2K@24/48 and 4K@24 | DCP/cinema is a separately certified mastering profile |
+| high-resolution source/VFX | camera-specific 4K/6K/8K+, RAW/log, EXR/alpha and non-square/anamorphic cases | preserve source identity; bounded proxies for interaction; master pixels for finishing |
+
+A five-hour timeline contains 432,000 frames at 24 FPS, 450,000 at 25,
+540,000 at 30, 900,000 at 50 and 1,080,000 at 60. Integer capacity is not the
+problem. The system must avoid materialising them all: decode, analyze, render
+and prove bounded addressable ranges using sharded workers. UHD has 8,294,400
+pixels per frame and DCI 4K has 8,847,360, so full-frame, every-frame analysis is
+reserved for operations that actually require it.
+
+For an exact hand/action match, `every source frame` means every actual frame in
+the bounded candidate window: every 1/24 second for 24/1, every 1001/60000
+second for 60000/1001, and each source PTS for VFR. Editron does not blindly
+convert everything to 60 FPS. It evaluates output continuity again at the
+timeline/delivery rate and invokes interpolation only when an explicit retime
+operation permits it.
 
 ## The professional ingest baseline
 
@@ -184,23 +295,36 @@ when an operation needs them would make the edit unreliable.
 
 ## The non-black-box evidence contract
 
-### `OperationEvidencePolicyV1`
+### Two requirement owners, not one black box
 
-Every planner-eligible operation has a versioned evidence policy owned with the
-capability contract:
+The target claim and the operation each own a different evidence policy:
 
 ```ts
+type TargetClaimEvidencePolicyV1 = {
+  targetPredicateKind: string;
+  policyVersion: string;
+  deriveDecisionRequirements: "pure implementation identifier";
+  certificationPackRef: string;
+};
+
 type OperationEvidencePolicyV1 = {
   operationId: string;
   policyVersion: string;
-  deriveRequirements: "pure implementation identifier";
+  deriveExecutionRequirements: "pure implementation identifier";
   certificationPackRef: string;
 };
 ```
 
-The pure implementation converts the operation's validated parameters, target
-ranges and project timebase into requirements. The model cannot edit this
-policy or lower its thresholds.
+The target policy converts observable requested qualities and tolerances into
+the minimum evidence needed to understand and route the task. The operation
+policy converts a candidate operation's validated parameters, target ranges and
+project timebase into the additional evidence needed to execute it. Both are
+pure, versioned implementations. The model may propose target predicates and
+candidate operations; it cannot edit either policy or lower either threshold.
+
+For genuinely unknown target behaviour, Editron cannot invent a weak policy.
+It must either obtain general high-recall bounded observations and label the
+route experimental, ask the user/editor, or report a capability gap.
 
 ### `EvidenceRequirementV1`
 
@@ -209,7 +333,7 @@ Each derived requirement records:
 ```ts
 type EvidenceRequirementV1 = {
   requirementId: string;
-  operationNodeId: string;
+  ownerRef: TargetPredicateRefV1 | OperationNodeRefV1 | ProofObligationRefV1;
   criticality: "MUST" | "SHOULD";
   target: SourceRangeRefV1 | TimelineRangeRefV1;
   evidenceKind: string;
@@ -297,7 +421,7 @@ The output is not a boolean alone:
 
 ```ts
 type EvidenceSufficiencyReportV1 = {
-  operationNodeId: string;
+  subjectRef: TargetPredicateRefV1 | OperationNodeRefV1 | ProofObligationRefV1;
   result: "PASS" | "FAIL" | "UNVERIFIABLE" | "NEEDS_REVIEW";
   satisfiedRequirementIds: string[];
   missing: EvidenceGapV1[];
@@ -307,44 +431,68 @@ type EvidenceSufficiencyReportV1 = {
 };
 ```
 
-### How automatic escalation is actually selected
+### How automatic precision escalation is actually selected
 
-The sequence is mechanical:
+Requirements are authored and certified with target-predicate and capability
+contracts; they are not improvised in a prompt. The sequence is mechanical:
 
 ```text
-model proposes operation + parameters
-  -> schema validation
-  -> operation evidence policy derives requirements
+user/reference/brief
+  -> model proposes observable target predicates
+  -> target schema validation
+  -> target policies derive route-decision evidence floors
+  -> missing decision evidence becomes bounded AnalysisDemand records
+  -> native/generated/hybrid candidate forms are enumerated
+  -> each candidate operation policy adds execution requirements
+  -> backward requirement propagation through each candidate graph
   -> evidence gate compares requirements with stored observations
-  -> each missing clause becomes an AnalysisDemand
-  -> scheduler selects a certified analyzer capable of that clause
-  -> new evidence is stored
-  -> the same gate runs again
+  -> scheduler runs only certified analyzers for missing clauses
+  -> new observations are stored and the same gates run again
 ```
 
-The model does not decide that “this feels like it needs deeper analysis.” The
-chosen operation and parameters create the requirement.
+The model does not decide that "this feels like it needs deeper analysis." Its
+validated target predicates establish a non-negotiable floor; candidate
+operations can only add requirements. A candidate cannot win merely because it
+demands less evidence than the requested result.
 
 Examples:
 
-| Proposed operation | Requirement forced by the operation |
-|---|---|
-| Ordinary hard cut | verified adjacent ranges, frame-accurate boundary and sufficient source handles |
-| Action/graphic match cut | every-frame candidate windows, tracked matching entity/region, motion/action phase, crop viability and handles |
-| Tracked mask | target identity, per-frame matte/track, occlusion handling and drift validation |
-| Beat-aligned cut | decoded audio, onset/beat evidence with a declared alignment tolerance and protected speech ranges |
-| Background-only grade | foreground/background separation plus colour-managed source and target evidence |
-| Precise screen replacement | planar/perspective track, corner-pin geometry, occlusion masks and full-resolution edge validation |
-| Generated moving collage | exact source ranges, crop-safe subjects, layout measurements, font assets, timing and rendered geometry/legibility proof |
+| Target claim | Decision evidence before route | Execution evidence added by selected form |
+|---|---|---|
+| exact ordinary cut here | source/timeline identity and intended boundary | adjacent ranges, exact boundary and sufficient handles |
+| visually match this action across shots | candidate entities/regions, action windows, motion/geometry similarity and narrative eligibility | every-source-frame finalist windows, chosen track/shape/phase, crop, handles and endpoint proof |
+| isolate this moving subject | target identity, separation/occlusion difficulty and range | per-frame matte/track, occlusion recovery and drift validation |
+| cut exactly to these beats without hurting speech | audible music/speech ranges and whether beat evidence exists | decoded audio, measured onsets/beats, alignment tolerance and protected speech |
+| grade only the background | foreground/background separability and colour-source identity | selected matte plus colour-managed source/target and edge proof |
+| replace this moving screen | screen visibility, surface/occlusion ranges and replacement compatibility | perspective track, corners, occlusion masks and master-pixel edge validation |
+| reproduce this moving collage | reference states, moving-panel geometry, typography, continuity goal and candidate sources | generated-program inputs, source ranges, crop safety, font, timing and rendered geometry/legibility proof |
 
 Words such as `precisely` or `frame perfect` may select a stricter supported
 operation parameter. They cannot manufacture an analyzer or lower a capability
 boundary. If the operation cannot support the requested tolerance, Editron asks
 for review or reports a capability gap.
 
-For an open-ended graph, the compiler takes the union of requirements from all
-proposed nodes. A new combination of existing operations is allowed; bypassing
-their evidence policies is not.
+For an open-ended graph, a plain set union is not sufficient. The compiler
+propagates requirements backwards from final predicates and proof obligations
+through every node. It then:
+
+1. recognises when one upstream artifact satisfies several downstream nodes;
+2. adds cross-node coordinate, ordering and compatibility requirements;
+3. deduplicates overlapping range analysis;
+4. rejects contradictory requirements or invalid source/timeline mappings; and
+5. computes invalidation and end-to-end proof obligations.
+
+For example, `track subject -> build matte -> grade background -> composite`
+does not need three unrelated subject analyses: one certified source-coordinate
+track/matte may satisfy several nodes. But the combined claim `clean
+background-only grade` still needs final edge, colour and composite proof.
+
+A new graph made from existing certified operations is technically executable
+when every primitive and edge passes. That does **not** automatically certify a
+new semantic/taste claim such as `good match cut`. Until its combined outcome
+has a held-out evaluation and threshold, Editron labels that claim experimental
+and obtains explicit editor approval. Primitive safety and creative success are
+different claims.
 
 ## Exact-detail example: aligning a hand across a match cut
 
@@ -356,9 +504,11 @@ bounded dense path is:
 2. Identify the intended matching entity. For a person, obtain body/hand
    landmarks where visible; for an arbitrary object, obtain a mask or tracked
    point set instead of pretending human pose applies.
-3. Store per-frame screen position, scale, silhouette/shape descriptor,
-   visibility/occlusion, motion vector, action phase, camera motion, crop room,
-   colour/luminance and any relevant audio event.
+3. Store a generic frame-indexed relationship observation: entity/region
+   identity, bounds/shape/landmarks as applicable, visibility/occlusion, scale,
+   pose or orientation, motion, action phase, camera motion, crop room,
+   colour/luminance and related audio events. `hand centre` is one derived field
+   for this fixture, not a universal schema.
 4. Use coarse semantic and geometry retrieval to find eligible incoming
    windows across the project.
 5. Reject rights, source-handle, resolution and crop failures before dense
@@ -372,10 +522,15 @@ bounded dense path is:
 9. Render the candidate cut. Validate real endpoint geometry and timing, then
    ask a visual judge or human whether the match is perceptually readable.
 
-Useful analyzer candidates include promptable video segmentation such as SAM 2
-and point tracking such as CoTracker. They are replaceable analyzers, not proof
-by brand name. Their outputs still need content-class evaluation, drift and
-occlusion checks, artifact hashes and human correction when they fail.
+SAM 2 can propose which pixels belong to a prompted subject over time;
+CoTracker can propose the coordinates of selected or dense points over time.
+Those are measurements, not proof that the right identity stayed selected, the
+mask edge is usable, the track survived occlusion or the final composite looks
+clean. Either model can drift onto the wrong object or fail under blur,
+occlusion and scene change. They are replaceable analyzer implementations behind
+evidence kinds. Independent drift/identity/edge metrics, content-class tests,
+artifact hashes, render validation and human correction establish whether an
+observation is usable.
 
 ## Where escalated evidence is stored
 
@@ -432,33 +587,62 @@ call:
 ```text
 1. Recompute DeltaSet from the latest real state and render evidence.
 2. If a required target is ambiguous, request clarification before mutation.
-3. Find operations whose declared effects address at least one unsatisfied delta.
-4. Remove operations blocked by rights, support status, project state or policy.
-5. Expand each candidate's evidence requirements.
-6. If requirements are missing, schedule the smallest AnalysisDemand that can
-   satisfy them; evidence collection is the next action.
-7. Build dependencies from declared requires/produces/invalidates relationships.
-8. Execute prerequisite and high-invalidation structural work before dependent
-   finishing work.
-9. Among equally legal ready actions, let the editorial model rank target
-   coverage, narrative/taste fit, reversibility, expected rework, time and cost.
-10. Compile and preview the selected bounded operation or subgraph.
-11. Update CurrentStateFacts from the actual preview, not the prediction.
-12. If a predicate failed, repair that node once when a legal repair exists;
+3. Expand target-claim decision evidence and collect any missing route evidence.
+4. Enumerate native, generated-composition and hybrid candidate forms that can
+   address the unsatisfied deltas.
+5. Remove candidates blocked by certification, rights, source compatibility,
+   ownership, sandbox, editability, handoff, proof, project state or policy.
+6. Expand operation execution requirements and backward-propagate them through
+   each remaining candidate graph.
+7. If requirements are missing, schedule the smallest reusable AnalysisDemand
+   that can satisfy them; evidence collection is the next action.
+8. Build typed dependencies and invalidations, then topologically order the DAG.
+9. Run only nodes whose prerequisites pass and whose read/write/invalidation
+   domains are compatible; disjoint ready nodes may run in parallel.
+10. Rank remaining legal ready alternatives with the staged scorecard below.
+11. Compile and preview one bounded operation or subgraph.
+12. Update CurrentStateFacts from the actual preview, not the prediction.
+13. If a predicate failed, repair that node once when a legal repair exists;
     otherwise return review, clarification or capability gap.
-13. Stop when all required predicates pass, the user stops it, the budget ends,
+14. Stop when all required predicates pass, the user stops it, the budget ends,
     or no legal progress is possible.
 ```
 
-Dependencies decide much of the order. For example:
+### Why edit action order matters
+
+Order changes both the pixels and the amount of work invalidated. Adobe's own
+render pipeline applies masks, effects, transforms and layer styles in a defined
+order, while effects within a group run top to bottom. Editorial dependencies
+also matter: transitions require post-trim handles; picture changes can stale
+captions, SFX cues, VFX pulls and mix automation; final delivery must bind the
+final creative component versions.
+
+Every executable node therefore declares:
+
+```text
+reads / writes / requires / produces / invalidates
+coordinate domain and source/project/composition revision
+stability: NONE | RANGE_STABLE | PICTURE_LOCK | FINAL_CONFORM
+proof obligation and failure disposition
+owner, concurrency class, reversibility and resource budget
+```
+
+Edges include data, time/anchor, read-after-write/write-conflict, approval/policy
+and proof relationships. The scheduler topologically orders the graph only after
+it validates. It may parallelize satisfied, range-disjoint nodes; it may not
+turn an unordered model list into concurrent mutations.
+
+A typical dependency spine is:
 
 ```text
 source identity and rights
-  -> source selection and story structure
-     -> trims and picture timing
-        -> compositions, transitions, masks and reframes
-           -> stable picture-dependent SFX
-              -> finishing grade, mix, captions and delivery QC
+  -> sync/proxy/roles/coarse evidence
+     -> story assembly and rough cut
+        -> continuity, performance, pacing and precision trims
+           -> range-stable VFX/compositions/masks/reframes
+              -> picture lock/conform by sequence or reel
+                 -> final VFX + grade + sound + captions/localization
+                    -> reconform/version bind -> master/package/QC/archive
 ```
 
 This is not an inflexible universal pipeline. A colour test can happen early;
@@ -466,6 +650,88 @@ music structure can guide the first cut; a generated composition can be
 developed in parallel with a disjoint sequence. The actual order comes from
 the operation graph's dependencies and invalidations. Final work is delayed
 only when an upstream change would invalidate it.
+
+Concrete invalidation rules include:
+
+- source replacement/relink stales proxy-to-master mapping and source-version
+  evidence;
+- trim/ripple/reorder/retime stales affected timeline-timed captions, SFX, VFX
+  pulls, automation, burn-ins and render proof, while unchanged source-coordinate
+  transcript evidence may survive;
+- retime also stales onset/action projection unless source observations can be
+  reprojected through an explicit rate map;
+- crop/layout/composition change stales safe-zone, collision, legibility and
+  geometry proof;
+- colour-pipeline change stales colour metrics, look approval and final render
+  proof, but not transcript;
+- generated-program hash or input change stales its renders, emitted cue anchors
+  and surrounding hybrid continuity proof;
+- releasing picture lock marks dependent final audio/captions/VFX/conform work
+  reconform-required rather than deleting its source artifacts; and
+- a delivery-spec-only change stales encode/package/QC when the verified creative
+  master is unchanged.
+
+### Native, generated-composition or hybrid routing
+
+Operation count is not a valid router. One novel collage can require generated
+code; one hundred ordinary cuts should remain native. Editron builds a
+`TargetPredicate x CandidateForm` coverage matrix and applies hard gates before
+any model preference:
+
+1. **Native** is eligible when certified native owners cover every hard target,
+   preserve editable timeline/media semantics and remain maintainable,
+   interoperable and provable.
+2. **Generated composition** is eligible for a bounded custom composition whose
+   internal layout/choreography cannot be expressed faithfully by certified
+   native operations, or would otherwise become a brittle opaque keyframe
+   explosion. Its sources, fonts, parameters, effects, program hash, sandbox,
+   resource budget and render proof must be explicit. It cannot shadow timeline,
+   mask, tracking, grade, audio, caption or project mutation owners.
+3. **Hybrid** is eligible when a bounded generated composition island is needed
+   while source selection, surrounding clips/cuts, main timeline, audio, colour,
+   captions and delivery remain native.
+
+If native and generated candidates satisfy the target equally, prefer native
+for editability and interchange. Generated code must materially improve target
+coverage while remaining bounded and provable. Route quality is benchmarked by
+forcing native/generated/hybrid baselines on held-out tasks and comparing target
+satisfaction, render defects, editor correction time, round-trip preservation,
+latency and cost.
+
+The filmstrip case is precise: **the moving filmstrip element itself is a
+`GeneratedCompositionProgram`; the complete reel is hybrid** because native
+source ranges, clips, adjacent cuts, music/mix, captions, colour and delivery
+surround that generated island.
+
+### Staged ranking, not one magic score
+
+The earlier creative list was necessary but incomplete. No universal scalar is
+robust enough for every film, agency piece, podcast and social edit. Use this
+lexicographic/constraint order:
+
+1. **Hard gates, never scores:** user preservation requirements, rights/privacy/
+   egress, support/certification, source/timebase/range compatibility, required
+   evidence, prerequisites, revision/conflict safety, accessibility/delivery
+   requirements and proofability.
+2. **Dependency and production priority:** prerequisite readiness, critical-path
+   effect, invalidation footprint, expected reconform/rework, range stability,
+   parallelizability, reversibility and handoff/interchange preservation.
+3. **Editorial Pareto set:** target coverage; story causality and clarity;
+   performance/emotion; intentional continuity or discontinuity; pacing/rhythm;
+   information hierarchy and legibility; dialogue/music/SFX relationship;
+   reference/brand/audience fit; composition and tonal/colour coherence;
+   repetition versus deliberate motif; density/fatigue; whole-sequence
+   consequence; and the user's correction history.
+4. **Uncertainty and learning value:** calibrated uncertainty, margin between
+   alternatives, disagreement between judges and expected information gain from
+   a cheap bounded preview.
+5. **Cost tie-break:** preview/final latency and monetary/compute cost only after
+   the required quality and preservation floor passes.
+
+Taste is ultimately evaluated on rendered alternatives. Pairwise/blind editor
+review and accepted-edit/correction-time data calibrate model ranking; ITU
+P.910/BT.500 provide disciplined subjective audiovisual test methods, but no
+standard or model supplies a universal automated oracle for editorial taste.
 
 ### Concrete example: reference-driven event recap
 
@@ -482,8 +748,10 @@ Suppose the brief and reference create these unsatisfied goals:
 The first action is not chosen from taste alone. Source assignment and dialogue/
 music evidence are prerequisites for picture construction, so the agent first
 retrieves and densely verifies the required source windows. The moving-panel
-goal then makes a generated/hybrid composition candidate eligible. Its source,
-font, geometry and timing requirements must pass before preview. The preview
+element then makes a bounded `GeneratedCompositionProgram` candidate eligible;
+nesting it into native source clips, timeline structure and music makes the
+complete route hybrid. Its source, font, geometry and timing requirements must
+pass before preview. The preview
 updates the real geometry and continuity facts. Only after picture timing is
 stable does the SFX resolver bind most event cues. Colour, mix and delivery QC
 then use their own evidence and proof requirements.
@@ -577,15 +845,23 @@ This document does not authorize the production implementation before the
 open-ended planning experiment. When that gate permits the infrastructure work,
 the order is:
 
-1. Freeze the evidence-kind taxonomy and source/proxy coordinate contract.
+1. Freeze rational source/project/composition coordinate identities, the source/
+   proxy timestamp mapping and evidence-kind taxonomy.
 2. Implement `EvidenceObservationV1`, coverage/sampling maps and durable storage.
-3. Define `OperationEvidencePolicyV1` for the benchmark's existing operators.
-4. Implement the pure sufficiency report and missing-evidence derivation.
+3. Define `TargetClaimEvidencePolicyV1` for benchmark target predicates and
+   `OperationEvidencePolicyV1` for the benchmark's existing operators.
+4. Implement pure route-decision and execution sufficiency reports, backward
+   requirement propagation and missing-evidence derivation.
 5. Add idempotent `AnalysisDemand` records and one dense visual analyzer path.
-6. Prove the match-cut hand-position fixture and one mask/track fixture.
-7. Add the durable `GoalGraph`, `DeltaSet` and next-action research loop.
-8. Benchmark next-action choice, not only one-shot graph serialization.
-9. Only then propose production shadow integration through the frozen IF1/
+6. Prove mixed-rate/source-frame mapping plus the match-action and mask/track
+   fixtures at more than one rational cadence.
+7. Freeze the executable-node read/write/require/produce/invalidate/stability
+   contract and validate its dependency DAG.
+8. Add the durable `GoalGraph`, `DeltaSet`, route coverage matrix and next-action
+   research loop.
+9. Benchmark forced native/generated/hybrid routes, ordered next-action choice,
+   invalidation/reconform and rendered/editor outcomes -- not only graph JSON.
+10. Only then propose production shadow integration through the frozen IF1/
    ProjectService boundary.
 
 ## Primary sources
@@ -595,16 +871,29 @@ the order is:
 - [Adobe reconnecting full-resolution media](https://helpx.adobe.com/premiere/desktop/organize-media/ingest-proxy-workflow/reconnect-full-resolution-media-to-proxies.html)
 - [Adobe locating and linking offline files](https://helpx.adobe.com/premiere/desktop/organize-media/file-organization/locate-and-link-offline-files.html)
 - [Adobe Productions for long-form work](https://helpx.adobe.com/premiere/desktop/collaborate-with-others/collaborate-using-team-projects/when-to-use-team-projects-and-when-to-use-productions.html)
+- [Adobe ingest and proxy workflow](https://helpx.adobe.com/ie/premiere/desktop/organize-media/ingest-proxy-workflow/ingest-and-proxy-workflow.html)
+- [Adobe sequence timebase and media parameters](https://helpx.adobe.com/uk/premiere/desktop/edit-projects/change-clip-sequence/sequence-presets-and-settings.html)
+- [Adobe export frame size, rate, aspect and depth](https://helpx.adobe.com/premiere/desktop/render-and-export/export-files/overview-of-export-settings.html)
+- [Apple mixed-rate conforming and frame sampling](https://support.apple.com/en-euro/guide/final-cut-pro/ver3363b44e/mac)
+- [Apple high-frame-rate source slow motion](https://support.apple.com/en-euro/guide/final-cut-pro/ver40b00150/mac)
+- [DCI Digital Cinema System Specification](https://dcss.dcimovies.com/0c0cff34d231b516cb89ae3fad352d5cf37a9515/dcss.pdf)
 - [Google Gemini video understanding and sampling](https://ai.google.dev/gemini-api/docs/video-understanding)
 - [Adobe After Effects mask tracking](https://helpx.adobe.com/after-effects/using/rigid-mask-tracking.html)
 - [Adobe After Effects content-aware fill](https://helpx.adobe.com/after-effects/using/content-aware-fill.html)
+- [Adobe After Effects render order and nesting](https://helpx.adobe.com/ca/after-effects/using/precomposing-nesting-pre-rendering.html)
+- [Adobe Premiere transition handles](https://helpx.adobe.com/premiere/desktop/add-video-effects/apply-video-transitions/transitions-overview.html)
+- [Adobe captions near final edit](https://helpx.adobe.com/premiere/desktop/add-text-images/insert-captions/about-captions.html)
+- [Adobe Dynamic Link bounded editable compositions](https://helpx.adobe.com/ca/premiere/desktop/use-premiere-with-other-apps/working-with-other-adobe-applications/replace-clips-with-a-dynamically-linked-after-effects-composition.html)
 - [ACES Metadata File specification](https://docs.acescentral.com/amf/specification/)
+- [ACES workflow stages and metadata handoff](https://docs.acescentral.com/amf/guides/implementation/)
 - [EBU R 128 loudness recommendation](https://tech.ebu.ch/publications/r128)
 - [OpenTimelineIO feature matrix](https://opentimelineio.readthedocs.io/en/latest/tutorials/feature-matrix.html)
 - [SMPTE ST 2067 IMF overview](https://www.smpte.org/standards/st2067)
 - [Frame.io frame-accurate comments](https://help.frame.io/en/articles/9105251-commenting-on-your-media)
 - [Meta SAM 2 research](https://ai.meta.com/research/sam2/)
 - [Meta/Oxford CoTracker repository](https://github.com/facebookresearch/co-tracker)
+- [ITU-T P.910 audiovisual subjective assessment](https://www.itu.int/rec/t-rec-p.910/en)
+- [ITU-R BT.500 television-image subjective assessment](https://www.itu.int/rec/R-REC-BT.500)
 
 ## Acceptance statement
 
@@ -613,15 +902,19 @@ planner operation:
 
 ```text
 why this evidence kind was required;
+which target-claim policy established the route-decision floor;
+why native, generated-composition or hybrid was eligible;
 which exact source/timeline range it covered;
+which rational source/project/composition coordinate system was used;
 what frames/samples and fidelity were inspected;
 which analyzer/version/parameters produced it;
 where the derived artifacts and canonical observation live;
 which metric and threshold established sufficiency;
 what was missing or contradictory;
 how the preview/final render proved the requested result;
+which later operations would invalidate that proof;
 and why the selected next action was eligible before it executed.
 ```
 
-If any answer is only “the model believed it,” the operation is not
+If any answer is only "the model believed it," the operation is not
 production-certified.
