@@ -5,15 +5,22 @@ import tasksV2Json from '@/tests/fixtures/editron/open-ended-planner-v2/tasks-v2
 import developmentV1Json from '@/tests/fixtures/editron/open-ended-planner-v1/development-tasks-v1.json';
 
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
+import {
+  hashTemporalReferenceEvidenceV2,
+  type TemporalReferenceEvidenceV2,
+} from './media-materializer-v2';
 
 export const INPUT_ARMS_V2 = ['MULTIMODAL', 'TEXT_EVIDENCE_ONLY'] as const;
 export const REFERENCE_IMAGE_INPUT_ARM_V2 = 'REFERENCE_IMAGE_EVIDENCE' as const;
+export const REFERENCE_NATIVE_VIDEO_INPUT_ARM_V2 = 'REFERENCE_NATIVE_VIDEO_EVIDENCE' as const;
 export const EXECUTION_FORM_ARMS_V2 = [
   'FREE_CHOICE', 'FORCED_NATIVE', 'FORCED_GENERATED_COMPOSITION',
   'FORCED_HYBRID', 'THRESHOLD_ABLATION', 'SIGNAL_ABLATION',
 ] as const;
 
-export type InputArmV2 = typeof INPUT_ARMS_V2[number] | typeof REFERENCE_IMAGE_INPUT_ARM_V2;
+export type InputArmV2 = typeof INPUT_ARMS_V2[number]
+  | typeof REFERENCE_IMAGE_INPUT_ARM_V2
+  | typeof REFERENCE_NATIVE_VIDEO_INPUT_ARM_V2;
 type ExecutionFormArmV2 = typeof EXECUTION_FORM_ARMS_V2[number];
 type StageV2 = 1 | 2 | 3 | 4 | 5;
 type JsonRecord = Record<string, unknown>;
@@ -35,6 +42,7 @@ interface SourceTaskV2 {
 interface MediaArtifactV2 {
   assetId: string; taskId: string; mimeType: string; artifactPath: string;
   recipeSha256: string; artifactSha256: string; bytes: number; technical: JsonRecord;
+  temporalReferenceEvidence?: TemporalReferenceEvidenceV2;
 }
 interface PriorArtifactV2 { artifactType: string; taskId: string; [key: string]: unknown }
 
@@ -56,8 +64,22 @@ export interface ProviderStagePacketV2 {
 export interface HashedStagePacketV2 {
   packet: Readonly<ProviderStagePacketV2>;
   packetHash: string;
-  transportAttachments: ReadonlyArray<{ assetId: string; mimeType: string; artifactPath: string; artifactSha256: string; bytes: number }>;
+  transportAttachments: ReadonlyArray<ProviderTransportAttachmentV2>;
   transportHash: string;
+}
+
+export interface ProviderTransportAttachmentV2 {
+  assetId: string;
+  mimeType: string;
+  artifactPath: string;
+  artifactSha256: string;
+  bytes: number;
+  evidenceRole?: 'ORDERED_REFERENCE_SAMPLE' | 'NATIVE_REFERENCE_VIDEO';
+  bundleSha256?: string;
+  sequenceIndex?: number;
+  referenceTick?: string;
+  timestampMilliseconds?: number;
+  technical?: JsonRecord;
 }
 
 interface StageBudgetV2 { maxInputTokens: number; maxVisibleOutputTokens: number; maxReasoningTokens: number; maxWallClockMs: number; maxProviderCostUsd: number }
@@ -107,6 +129,17 @@ export function buildDevelopmentReferenceImageStageOnePacketV2(
   const condition = task.conditionCases.find((candidate) => candidate.conditionId === conditionId)
     ?? fail('CONDITION_MISSING', `${taskId}/${conditionId}`);
   return buildStageOnePacket(task, condition, REFERENCE_IMAGE_INPUT_ARM_V2);
+}
+
+export function buildDevelopmentReferenceNativeVideoStageOnePacketV2(
+  taskId: string,
+  conditionId: string,
+): HashedStagePacketV2 {
+  const task = developmentTasksV2().find((candidate) => candidate.taskId === taskId)
+    ?? fail('TASK_MISSING', taskId);
+  const condition = task.conditionCases.find((candidate) => candidate.conditionId === conditionId)
+    ?? fail('CONDITION_MISSING', `${taskId}/${conditionId}`);
+  return buildStageOnePacket(task, condition, REFERENCE_NATIVE_VIDEO_INPUT_ARM_V2);
 }
 
 export function buildNextProviderStagePacketV2(input: {
@@ -164,10 +197,20 @@ function buildStageOnePacket(task: SourceTaskV2, condition: ConditionCaseV2, inp
   if (v1.project.projectId !== task.projectBinding.projectId || v1.project.projectRevision !== task.projectBinding.projectRevision) fail('PROJECT_BINDING_DRIFT', task.taskId);
   const media = mediaForTask(task);
   const visible = visibleEvidence(v1, condition);
-  const attachedMedia = inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+  const referenceInput = inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+    || inputArm === REFERENCE_NATIVE_VIDEO_INPUT_ARM_V2;
+  const attachedMedia = referenceInput
     ? referenceImagesForEvidence(visible, media)
     : inputArm === 'MULTIMODAL' ? media : [];
-  const evidence = inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+  const temporalReference = referenceInput
+    ? verifiedTemporalReferenceEvidence(attachedMedia)
+    : undefined;
+  const attachments = temporalReference
+    ? temporalReferenceAttachments(inputArm, temporalReference)
+    : attachedMedia.map(({ assetId, mimeType, artifactPath, artifactSha256, bytes }) => ({
+        assetId, mimeType, artifactPath, artifactSha256, bytes,
+      }));
+  const evidence = referenceInput
     ? withoutReferenceAnswerLeak(visible, attachedMedia)
     : visible;
   const modelInput = {
@@ -183,14 +226,109 @@ function buildStageOnePacket(task: SourceTaskV2, condition: ConditionCaseV2, inp
     sourceCoordinateFacts: media.map(sourceCoordinateFact),
     condition: publicCondition(condition),
     evidence,
-    mediaDescriptors: attachedMedia.map(({ assetId, mimeType, artifactSha256, technical }) => ({ assetId, mimeType, artifactSha256, technical })),
+    mediaDescriptors: temporalReference
+      ? attachments.map(referenceAttachmentDescriptor)
+      : attachedMedia.map(({ assetId, mimeType, artifactSha256, technical }) => ({ assetId, mimeType, artifactSha256, technical })),
+    ...(temporalReference ? {
+      referenceEvidenceContract: {
+        bundleSha256: temporalReference.bundleSha256,
+        coordinateDomain: temporalReference.coordinateDomain,
+        timebase: temporalReference.timebase,
+        order: temporalReference.order,
+        representation: inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
+          ? 'ORDERED_TIMESTAMPED_IMAGE_SEQUENCE'
+          : 'NATIVE_REFERENCE_VIDEO',
+      },
+    } : {}),
     mediaPolicy: inputArm === REFERENCE_IMAGE_INPUT_ARM_V2
-      ? 'ATTACH_HASH_BOUND_REFERENCE_IMAGES_ONLY'
+      ? 'ATTACH_HASH_BOUND_ORDERED_REFERENCE_IMAGES'
+      : inputArm === REFERENCE_NATIVE_VIDEO_INPUT_ARM_V2
+      ? 'ATTACH_HASH_BOUND_NATIVE_REFERENCE_VIDEO'
       : inputArm === 'MULTIMODAL' ? 'ATTACH_HASH_BOUND_MEDIA' : 'NO_MEDIA_BYTES_OR_PATHS',
   };
   const packet = packetBase({ stage: 1, taskId: task.taskId, conditionId: condition.conditionId, inputArm, executionFormArm: 'NOT_APPLICABLE_PRE_ROUTING', modelInput });
-  const attachments = attachedMedia.map(({ assetId, mimeType, artifactPath, artifactSha256, bytes }) => ({ assetId, mimeType, artifactPath, artifactSha256, bytes }));
   return hashPacket(packet, attachments);
+}
+
+function verifiedTemporalReferenceEvidence(media: MediaArtifactV2[]): TemporalReferenceEvidenceV2 {
+  if (media.length !== 1) fail('TEMPORAL_REFERENCE_CARDINALITY', 'Temporal reference arms require exactly one bound reference artifact');
+  const temporal = media[0].temporalReferenceEvidence
+    ?? fail('TEMPORAL_REFERENCE_MISSING', media[0].assetId);
+  const { bundleSha256, ...material } = temporal;
+  if (bundleSha256 !== `sha256:${hashTemporalReferenceEvidenceV2(material)}`) {
+    fail('TEMPORAL_REFERENCE_HASH_DRIFT', media[0].assetId);
+  }
+  if (temporal.samples.length !== 6 || new Set(temporal.samples.map(({ sampleId }) => sampleId)).size !== 6) {
+    fail('TEMPORAL_REFERENCE_SAMPLE_SET', 'Temporal image evidence requires six uniquely identified samples');
+  }
+  const numerator = Number(temporal.timebase.numerator);
+  const denominator = Number(temporal.timebase.denominator);
+  const endExclusiveTick = Number(temporal.timebase.endExclusiveTick);
+  let previousTick = -1;
+  for (const sample of temporal.samples) {
+    const tick = Number(sample.referenceTick);
+    const expectedMilliseconds = tick * denominator / numerator * 1_000;
+    if (!Number.isSafeInteger(tick) || tick <= previousTick || tick >= endExclusiveTick
+      || sample.timestampMilliseconds !== expectedMilliseconds) {
+      fail('TEMPORAL_REFERENCE_ORDER_DRIFT', sample.sampleId);
+    }
+    previousTick = tick;
+  }
+  if (temporal.nativeVideo.technical.editRateNumerator !== temporal.timebase.numerator
+    || temporal.nativeVideo.technical.editRateDenominator !== temporal.timebase.denominator
+    || temporal.nativeVideo.technical.startTick !== temporal.timebase.startTick
+    || temporal.nativeVideo.technical.endExclusiveTick !== temporal.timebase.endExclusiveTick) {
+    fail('TEMPORAL_REFERENCE_VIDEO_TIMEBASE_DRIFT', temporal.nativeVideo.evidenceId);
+  }
+  return temporal;
+}
+
+function temporalReferenceAttachments(
+  inputArm: InputArmV2,
+  temporal: TemporalReferenceEvidenceV2,
+): ProviderTransportAttachmentV2[] {
+  if (inputArm === REFERENCE_IMAGE_INPUT_ARM_V2) {
+    return temporal.samples.map((sample, sequenceIndex) => ({
+      assetId: sample.sampleId,
+      mimeType: sample.mimeType,
+      artifactPath: sample.artifactPath,
+      artifactSha256: sample.artifactSha256,
+      bytes: sample.bytes,
+      evidenceRole: 'ORDERED_REFERENCE_SAMPLE',
+      bundleSha256: temporal.bundleSha256,
+      sequenceIndex,
+      referenceTick: sample.referenceTick,
+      timestampMilliseconds: sample.timestampMilliseconds,
+      technical: sample.technical,
+    }));
+  }
+  if (inputArm === REFERENCE_NATIVE_VIDEO_INPUT_ARM_V2) {
+    return [{
+      assetId: temporal.nativeVideo.evidenceId,
+      mimeType: temporal.nativeVideo.mimeType,
+      artifactPath: temporal.nativeVideo.artifactPath,
+      artifactSha256: temporal.nativeVideo.artifactSha256,
+      bytes: temporal.nativeVideo.bytes,
+      evidenceRole: 'NATIVE_REFERENCE_VIDEO',
+      bundleSha256: temporal.bundleSha256,
+      technical: temporal.nativeVideo.technical,
+    }];
+  }
+  fail('TEMPORAL_REFERENCE_ARM_INVALID', inputArm);
+}
+
+function referenceAttachmentDescriptor(attachment: ProviderTransportAttachmentV2): JsonRecord {
+  return {
+    assetId: attachment.assetId,
+    mimeType: attachment.mimeType,
+    artifactSha256: attachment.artifactSha256,
+    evidenceRole: attachment.evidenceRole,
+    bundleSha256: attachment.bundleSha256,
+    ...(attachment.sequenceIndex === undefined ? {} : { sequenceIndex: attachment.sequenceIndex }),
+    ...(attachment.referenceTick === undefined ? {} : { referenceTick: attachment.referenceTick }),
+    ...(attachment.timestampMilliseconds === undefined ? {} : { timestampMilliseconds: attachment.timestampMilliseconds }),
+    technical: attachment.technical,
+  };
 }
 
 function packetBase(input: { stage: StageV2; taskId: string; conditionId: string; inputArm: InputArmV2; executionFormArm: ExecutionFormArmV2 | 'NOT_APPLICABLE_PRE_ROUTING'; modelInput: JsonRecord }): ProviderStagePacketV2 {

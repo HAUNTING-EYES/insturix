@@ -9,6 +9,7 @@ import {
   assertNoEvaluatorLeakV2,
   buildDevelopmentNoProviderPlanV2,
   buildDevelopmentReferenceImageStageOnePacketV2,
+  buildDevelopmentReferenceNativeVideoStageOnePacketV2,
   buildDevelopmentStageOnePacketsV2,
   buildNextProviderStagePacketV2,
   type HashedStagePacketV2,
@@ -110,19 +111,32 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     }
   });
 
-  it('builds a reference-image arm without leaking the pre-digested DEV-02 layout answer', () => {
+  it('builds an ordered reference-image sequence without leaking the pre-digested DEV-02 layout answer', () => {
     const referenceOnly = buildDevelopmentReferenceImageStageOnePacketV2('DEV-02', 'BASELINE');
     const input = modelInput(referenceOnly);
     const serializedEvidence = JSON.stringify(input.evidence);
 
     expect(referenceOnly.packet.inputArm).toBe('REFERENCE_IMAGE_EVIDENCE');
-    expect(referenceOnly.transportAttachments).toEqual([
-      expect.objectContaining({ assetId: 'dev02-reference', mimeType: 'image/png' }),
-    ]);
-    expect(input.mediaPolicy).toBe('ATTACH_HASH_BOUND_REFERENCE_IMAGES_ONLY');
-    expect(input.mediaDescriptors).toEqual([
-      expect.objectContaining({ assetId: 'dev02-reference', mimeType: 'image/png' }),
-    ]);
+    expect(referenceOnly.transportAttachments).toHaveLength(6);
+    expect(referenceOnly.transportAttachments.map(({ sequenceIndex }) => sequenceIndex)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(referenceOnly.transportAttachments.map(({ referenceTick }) => referenceTick)).toEqual(['0', '36', '72', '108', '144', '180']);
+    expect(referenceOnly.transportAttachments.map(({ timestampMilliseconds }) => timestampMilliseconds)).toEqual([0, 1_200, 2_400, 3_600, 4_800, 6_000]);
+    expect(new Set(referenceOnly.transportAttachments.map(({ bundleSha256 }) => bundleSha256)).size).toBe(1);
+    expect(referenceOnly.transportAttachments.every(({ assetId, mimeType, evidenceRole }) =>
+      assetId.startsWith('dev02-reference-t') && mimeType === 'image/png'
+      && evidenceRole === 'ORDERED_REFERENCE_SAMPLE')).toBe(true);
+    expect(input.mediaPolicy).toBe('ATTACH_HASH_BOUND_ORDERED_REFERENCE_IMAGES');
+    expect(input.mediaDescriptors).toEqual(referenceOnly.transportAttachments.map((attachment) =>
+      expect.objectContaining({
+        assetId: attachment.assetId,
+        artifactSha256: attachment.artifactSha256,
+        referenceTick: attachment.referenceTick,
+        timestampMilliseconds: attachment.timestampMilliseconds,
+      })));
+    expect(input.referenceEvidenceContract).toEqual(expect.objectContaining({
+      representation: 'ORDERED_TIMESTAMPED_IMAGE_SEQUENCE',
+      order: 'ASCENDING_REFERENCE_TICK',
+    }));
     expect(serializedEvidence).toContain('REFERENCE_MEDIA_BINDING');
     expect(serializedEvidence).toContain('observationRequired');
     expect(serializedEvidence).not.toContain('"panels":5');
@@ -131,6 +145,30 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     expect(JSON.stringify(referenceOnly.packet)).not.toContain('artifactPath');
     expect(referenceOnly.transportAttachments.map(({ assetId }) => assetId)).not.toContain('dev02-wide');
     expect(referenceOnly.transportAttachments.map(({ assetId }) => assetId)).not.toContain('dev02-close');
+  });
+
+  it('builds a separate native-reference-video arm bound to the same evidence bundle', () => {
+    const imageSequence = buildDevelopmentReferenceImageStageOnePacketV2('DEV-02', 'BASELINE');
+    const nativeVideo = buildDevelopmentReferenceNativeVideoStageOnePacketV2('DEV-02', 'BASELINE');
+    const input = modelInput(nativeVideo);
+
+    expect(nativeVideo.packet.inputArm).toBe('REFERENCE_NATIVE_VIDEO_EVIDENCE');
+    expect(nativeVideo.transportAttachments).toEqual([
+      expect.objectContaining({
+        assetId: 'dev02-reference-native-video',
+        mimeType: 'video/mp4',
+        evidenceRole: 'NATIVE_REFERENCE_VIDEO',
+      }),
+    ]);
+    expect(nativeVideo.transportAttachments[0].bundleSha256).toBe(
+      imageSequence.transportAttachments[0].bundleSha256,
+    );
+    expect(input.mediaPolicy).toBe('ATTACH_HASH_BOUND_NATIVE_REFERENCE_VIDEO');
+    expect(input.referenceEvidenceContract).toEqual(expect.objectContaining({
+      representation: 'NATIVE_REFERENCE_VIDEO',
+      timebase: { numerator: '30', denominator: '1', startTick: '0', endExclusiveTick: '181' },
+    }));
+    expect(JSON.stringify(nativeVideo.packet)).not.toContain('artifactPath');
   });
 
   it('uses explicit rational project/source coordinates instead of naked FPS or ambiguous frames', () => {
