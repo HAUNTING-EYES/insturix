@@ -70,8 +70,8 @@ const STAGE_BUDGETS: Record<StageV2, StageBudgetV2> = {
 };
 
 const STAGE_INSTRUCTIONS: Record<StageV2, string[]> = {
-  1: ['Reconstruct only the visible and audible target.', 'Do not select operators or an execution form.', 'State uncertainty when evidence is absent or noisy.'],
-  2: ['Select editorial operations and their order.', 'Obey the assigned routing experiment.', 'Do not serialize exact runtime arguments yet.'],
+  1: ['Reconstruct only the visible and audible target.', 'Separate global editorial language, recurring design grammar, and bounded unique moments.', 'Express hard and soft results as measurable target claims with explicit coordinate scopes.', 'Do not select operators or an execution form.', 'State uncertainty when evidence is absent or noisy.'],
+  2: ['Select editorial operations and their dependencies.', 'Prove hard-target coverage for every candidate execution form.', 'Classify a bounded generated island as GENERATED_COMPOSITION and a full native plan surrounding an island as HYBRID.', 'Obey the assigned routing experiment.', 'Do not serialize exact runtime arguments yet.'],
   3: ['Bind every intent to supplied evidence, rights, privacy, revision, preservation, and proof requirements.', 'Do not invent evidence or capability.'],
   4: ['Compile the evidence-bound intent into exact catalog operator IDs and closed input fields.', 'Non-compilable operators require diagnostics, never invented replacements.'],
   5: ['Return PROCEED only for a valid, policy-safe compiled graph.', 'Keep clarification, capability gap, policy block, conflict, fail, and unverifiable distinct.'],
@@ -106,6 +106,8 @@ export function buildNextProviderStagePacketV2(input: {
   if (input.previousPacket.packet.stage !== input.stage - 1) fail('NON_SEQUENTIAL_STAGE', 'Stages must be built sequentially');
   const expectedType = ['ReferenceBlueprintV2', 'EditorialIntentGraphV2', 'EvidenceBoundIntentGraphV2', 'CompiledOperationGraphV2'][input.stage - 2];
   if (input.priorArtifact.artifactType !== expectedType || input.priorArtifact.taskId !== input.previousPacket.packet.taskId) fail('PRIOR_ARTIFACT_MISMATCH', `Stage ${input.stage} requires ${expectedType} for the same task`);
+  const diagnostics = validateArtifactV2(input.priorArtifact, input.previousPacket.packet.outputContract, '$');
+  if (diagnostics.length) fail('PRIOR_ARTIFACT_SCHEMA_INVALID', diagnostics.join('; '));
   const sourceTask = developmentTasksV2().find(({ taskId }) => taskId === input.previousPacket.packet.taskId) ?? fail('TASK_MISSING', 'Development task disappeared');
   const condition = sourceTask.conditionCases.find(({ conditionId }) => conditionId === input.previousPacket.packet.conditionId) ?? fail('CONDITION_MISSING', 'Condition disappeared');
   const modelInput: JsonRecord = {
@@ -152,7 +154,15 @@ function buildStageOnePacket(task: SourceTaskV2, condition: ConditionCaseV2, inp
   const media = mediaForTask(task);
   const modelInput = {
     originalRequest: task.originalRequest,
-    projectFacts: { projectId: v1.project.projectId, projectRevision: v1.project.projectRevision, fps: v1.project.fps, canvas: v1.project.canvas, durationFrames: v1.project.durationFrames, assets: v1.project.assets.map(({ assetId, type, rightsStatus }) => ({ assetId, type, rightsStatus })) },
+    projectFacts: {
+      projectId: v1.project.projectId,
+      projectRevision: v1.project.projectRevision,
+      projectTimebase: rationalTimebase(`${v1.project.projectId}:timeline`, v1.project.fps),
+      duration: { coordinateDomain: 'PROJECT_TICK', start: '0', endExclusive: String(v1.project.durationFrames) },
+      canvas: v1.project.canvas,
+      assets: v1.project.assets.map(({ assetId, type, rightsStatus }) => ({ assetId, type, rightsStatus })),
+    },
+    sourceCoordinateFacts: media.map(sourceCoordinateFact),
     condition: publicCondition(condition),
     evidence,
     mediaDescriptors: inputArm === 'MULTIMODAL' ? media.map(({ assetId, mimeType, artifactSha256, technical }) => ({ assetId, mimeType, artifactSha256, technical })) : [],
@@ -205,13 +215,25 @@ function publicOperatorCatalog(stage: number): JsonRecord {
 }
 
 function publicCondition(condition: ConditionCaseV2): JsonRecord { return { conditionId: condition.conditionId, availableEvidenceIds: condition.availableEvidenceIds, omittedEvidenceIds: condition.omittedEvidenceIds, replacementEvidenceIds: condition.replacementEvidenceIds ?? [] }; }
-function routingExperiment(arm: ExecutionFormArmV2): JsonRecord { return { arm, rule: arm === 'FREE_CHOICE' ? 'Choose NATIVE, GENERATED_COMPOSITION, or HYBRID from evidence.' : arm === 'FORCED_NATIVE' ? 'Use NATIVE or report a gap.' : arm === 'FORCED_GENERATED_COMPOSITION' ? 'Use GENERATED_COMPOSITION or report a gap.' : arm === 'FORCED_HYBRID' ? 'Use HYBRID or report a gap.' : arm === 'THRESHOLD_ABLATION' ? 'Choose freely without any step-count threshold heuristic.' : 'Choose freely without model-confidence or unsupported taste-score signals.' }; }
+function routingExperiment(arm: ExecutionFormArmV2): JsonRecord {
+  return {
+    arm,
+    rule: arm === 'FREE_CHOICE' ? 'Choose NATIVE, GENERATED_COMPOSITION, or HYBRID only after the coverage matrix and hard gates.' : arm === 'FORCED_NATIVE' ? 'Use NATIVE or report a gap.' : arm === 'FORCED_GENERATED_COMPOSITION' ? 'Use GENERATED_COMPOSITION or report a gap.' : arm === 'FORCED_HYBRID' ? 'Use HYBRID or report a gap.' : arm === 'THRESHOLD_ABLATION' ? 'Choose freely without any step-count threshold heuristic.' : 'Choose freely without model-confidence or unsupported taste-score signals.',
+    scopeRule: 'executionForm classifies the full requested plan; a generated island with native surrounding editorial is HYBRID.',
+    hardGateOrder: ['hard target and preservation coverage', 'certified owner and support truth', 'source/timebase/range compatibility', 'rights/privacy/egress', 'editability/interchange', 'sandbox/resource/proof'],
+  };
+}
 
 function outputContract(stage: StageV2, taskId: string, arm: ExecutionFormArmV2 | 'NOT_APPLICABLE_PRE_ROUTING'): JsonRecord {
   const artifactType = ['ReferenceBlueprintV2', 'EditorialIntentGraphV2', 'EvidenceBoundIntentGraphV2', 'CompiledOperationGraphV2', 'ProceedOrStopDecisionV2'][stage - 1];
-  const source = benchmarkJson.artifactSchemas[artifactType as keyof typeof benchmarkJson.artifactSchemas];
+  const source = benchmarkJson.artifactSchemas[artifactType as keyof typeof benchmarkJson.artifactSchemas] as { required: string[]; properties?: JsonRecord };
   const required = ['artifactType', ...source.required];
-  const properties = Object.fromEntries(required.map((field) => [field, outputFieldSchema(field, artifactType, taskId, arm)]));
+  const properties = source.properties
+    ? JSON.parse(JSON.stringify(source.properties)) as JsonRecord
+    : Object.fromEntries(source.required.map((field) => [field, outputFieldSchema(field, artifactType, taskId, arm)]));
+  properties.artifactType = { const: artifactType };
+  properties.taskId = { const: taskId };
+  if (stage === 2) properties.executionForm = outputFieldSchema('executionForm', artifactType, taskId, arm);
   return { type: 'object', required, properties, additionalProperties: false };
 }
 
@@ -239,3 +261,48 @@ export function assertNoEvaluatorLeakV2(value: unknown): void {
 function developmentTasksV2(): SourceTaskV2[] { return (tasksV2Json.tasks as unknown as SourceTaskV2[]).filter(({ split, sealed }) => split === 'DEVELOPMENT' && !sealed); }
 function telemetryZero(field: string): unknown { return field === 'provider' ? 'NO_PROVIDER' : field === 'model' ? 'NO_MODEL' : field === 'finishReason' ? 'NOT_DISPATCHED_V2_1B' : field === 'parseStatus' ? 'NOT_ATTEMPTED' : field === 'truncated' ? false : field === 'schemaDiagnostics' ? [] : field === 'inputArm' || field === 'executionFormArm' ? 'VARIES_BY_PLAN_ROW' : field === 'providerRequestId' || field === 'artifactSha256' ? null : 0; }
 function fail(code: string, message: string): never { throw new StagedPacketErrorV2(code, message); }
+
+function rationalTimebase(timebaseId: string, fps: number): JsonRecord {
+  if (!Number.isSafeInteger(fps) || fps <= 0) fail('NON_RATIONAL_PROJECT_RATE', `${timebaseId}/${fps}`);
+  return { timebaseId, timebaseVersion: 'V2_1F', rate: { numerator: String(fps), denominator: '1' }, coordinateDomain: 'PROJECT_TICK' };
+}
+
+function sourceCoordinateFact(artifact: MediaArtifactV2): JsonRecord {
+  const technical = artifact.technical;
+  if (typeof technical.fps === 'number' && typeof technical.frames === 'number') return {
+    assetId: artifact.assetId, assetVersion: artifact.artifactSha256, coordinateDomain: 'SOURCE_FRAME',
+    timebase: rationalTimebase(`${artifact.assetId}:source`, technical.fps), extent: { start: '0', endExclusive: String(technical.frames) },
+  };
+  if (typeof technical.sampleRate === 'number' && typeof technical.sampleCount === 'number') return {
+    assetId: artifact.assetId, assetVersion: artifact.artifactSha256, coordinateDomain: 'SOURCE_SAMPLE',
+    timebase: { timebaseId: `${artifact.assetId}:samples`, timebaseVersion: 'V2_1F', rate: { numerator: String(technical.sampleRate), denominator: '1' }, coordinateDomain: 'SOURCE_SAMPLE' },
+    extent: { start: '0', endExclusive: String(technical.sampleCount) },
+  };
+  return { assetId: artifact.assetId, assetVersion: artifact.artifactSha256, coordinateDomain: 'STILL_IMAGE' };
+}
+
+function validateArtifactV2(value: unknown, schema: unknown, path: string): string[] {
+  if (!isRecord(schema)) return [`${path}:INVALID_SCHEMA`];
+  if ('const' in schema && value !== schema.const) return [`${path}:CONST`];
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value)) return [`${path}:ENUM`];
+  if (schema.type === 'string') return typeof value === 'string' && (!schema.minLength || value.length >= Number(schema.minLength)) ? [] : [`${path}:STRING`];
+  if (schema.type === 'array') {
+    if (!Array.isArray(value)) return [`${path}:ARRAY`];
+    const diagnostics = value.flatMap((entry, index) => validateArtifactV2(entry, schema.items, `${path}[${index}]`));
+    if (schema.minItems && value.length < Number(schema.minItems)) diagnostics.push(`${path}:MIN_ITEMS`);
+    if (schema.uniqueItems === true && new Set(value.map((entry) => hashCanonicalJsonV1(entry))).size !== value.length) diagnostics.push(`${path}:UNIQUE`);
+    return diagnostics;
+  }
+  if (schema.type === 'object') {
+    if (!isRecord(value)) return [`${path}:OBJECT`];
+    const properties = isRecord(schema.properties) ? schema.properties : {};
+    const diagnostics = (Array.isArray(schema.required) ? schema.required : [])
+      .filter((field): field is string => typeof field === 'string' && !(field in value)).map((field) => `${path}.${field}:REQUIRED`);
+    if (schema.additionalProperties === false) for (const field of Object.keys(value)) if (!(field in properties)) diagnostics.push(`${path}.${field}:ADDITIONAL`);
+    for (const [field, child] of Object.entries(value)) if (field in properties) diagnostics.push(...validateArtifactV2(child, properties[field], `${path}.${field}`));
+    return diagnostics;
+  }
+  return [];
+}
+
+function isRecord(value: unknown): value is JsonRecord { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }

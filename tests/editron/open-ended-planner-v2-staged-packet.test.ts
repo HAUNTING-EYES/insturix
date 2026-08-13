@@ -39,8 +39,27 @@ function normalizedNonMediaInput(packet: HashedStagePacketV2): Record<string, un
   return rest;
 }
 
-function prior(artifactType: string, taskId: string): { artifactType: string; taskId: string } {
-  return { artifactType, taskId };
+function scope() {
+  return { coordinateDomain: 'REFERENCE_TIME', timebaseId: 'reference:dev02', timebaseVersion: 'V2_1F', rate: { numerator: '30', denominator: '1' }, start: '0', endExclusive: '180' };
+}
+
+function prior(artifactType: string, taskId: string, executionForm: 'NATIVE' | 'GENERATED_COMPOSITION' | 'HYBRID' = 'HYBRID'): { artifactType: string; taskId: string; [key: string]: unknown } {
+  if (artifactType === 'ReferenceBlueprintV2') return {
+    artifactType, taskId,
+    globalEditorialLanguage: [{ dimension: 'PACING_RHYTHM', observation: 'energetic measured montage', applicability: 'whole requested section', strength: 'SOFT', certainty: 'OBSERVED', evidenceIds: ['EV-DEV02-R1'] }],
+    recurringDesignGrammar: [],
+    uniqueMoments: [{ momentId: 'filmstrip', scope: scope(), targetClaimIds: ['claim-layout'], evidenceIds: ['EV-DEV02-R1'] }],
+    targetClaims: [{ claimId: 'claim-layout', claimKind: 'RELATIONAL_PANEL_LAYOUT', scope: scope(), subjects: ['panel-group'], relation: 'HAS', desired: { valueType: 'layout', value: 'five unequal panels', unit: 'layout', comparisonBasis: 'reference' }, tolerance: { kind: 'EDITORIAL_JUDGMENT', value: 'bounded', unit: 'review' }, criticality: 'HARD', provenance: 'REFERENCE_OBSERVED', evidenceIds: ['EV-DEV02-R1'], ambiguity: 'RESOLVED', proofKind: 'RENDERED_GEOMETRY' }],
+    temporalStructure: [], uncertainties: [], evidenceIds: ['EV-DEV02-R1'],
+  };
+  if (artifactType === 'EditorialIntentGraphV2') return {
+    artifactType, taskId, executionForm,
+    routeDecision: { scopeClassification: executionForm === 'HYBRID' ? 'HYBRID_FULL_PLAN' : executionForm === 'NATIVE' ? 'NATIVE_ONLY_PLAN' : 'BOUNDED_GENERATED_ISLAND', coverageStatus: 'COMPLETE', candidateForms: [{ form: executionForm, hardGateStatus: 'ELIGIBLE', claimCoverage: [{ claimId: 'claim-layout', status: 'COVERED', ownerRefs: [executionForm === 'NATIVE' ? 'native_layout_owner' : 'generated_composition_program'], reasonCodes: ['RELATIONAL_LAYOUT'] }], representabilitySignals: executionForm === 'NATIVE' ? ['NONE'] : ['CROSS_ELEMENT_DEPENDENCY'], blockers: [], ownerRefs: [executionForm === 'NATIVE' ? 'native_layout_owner' : 'generated_composition_program'], evidenceIds: ['EV-DEV02-R1'] }], selectedReasonCodes: [executionForm === 'HYBRID' ? 'GENERATED_ISLAND_NATIVE_SURROUND' : 'FORCED_ROUTE_TEST'], generatedIslandClaimIds: executionForm === 'NATIVE' ? [] : ['claim-layout'], nativeSurroundClaimIds: executionForm === 'NATIVE' ? ['claim-layout'] : [] },
+    nodes: [{ intentNodeId: 'node-1', operationFamily: executionForm === 'NATIVE' ? 'native-layout' : 'generated-composition', targetClaimIds: ['claim-layout'], candidateCapabilityIds: [executionForm === 'NATIVE' ? 'native_layout_owner' : 'generated_composition_program'], executionForm: executionForm === 'HYBRID' ? 'GENERATED_COMPOSITION' : executionForm, requiresNodeIds: [], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-R1'], failureDisposition: 'NEEDS_REVIEW' }],
+    edges: [], preservationIntents: [], unresolvedRequirements: [],
+  };
+  if (artifactType === 'EvidenceBoundIntentGraphV2') return { artifactType, taskId, nodes: [], evidenceBindings: [], rightsDecision: {}, privacyDecision: {}, revisionBinding: {}, proofPlan: {} };
+  return { artifactType, taskId, operatorCatalogVersion: 'v2', nodes: [], edges: [], expectedProjectRevision: 'R3', proofPolicy: {} };
 }
 
 describe('open-ended planner V2 staged no-provider packets', () => {
@@ -90,6 +109,36 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     }
   });
 
+  it('uses explicit rational project/source coordinates instead of naked FPS or ambiguous frames', () => {
+    for (const packet of stageOne) {
+      const input = modelInput(packet);
+      const projectFacts = input.projectFacts as Record<string, unknown>;
+      expect(projectFacts).not.toHaveProperty('fps');
+      expect(projectFacts).not.toHaveProperty('durationFrames');
+      expect(projectFacts).toHaveProperty('projectTimebase.rate', { numerator: '30', denominator: '1' });
+      expect(input.sourceCoordinateFacts).toBeInstanceOf(Array);
+    }
+  });
+
+  it('closes target claims and routing traces instead of accepting free-text target or open nodes', () => {
+    const first = stageOne.find(({ packet }) => packet.taskId === 'DEV-02' && packet.conditionId === 'BASELINE' && packet.inputArm === 'MULTIMODAL') as HashedStagePacketV2;
+    const stageOneProperties = first.packet.outputContract.properties as Record<string, Record<string, unknown>>;
+    expect(stageOneProperties).toHaveProperty('globalEditorialLanguage');
+    expect(stageOneProperties).toHaveProperty('recurringDesignGrammar');
+    expect(stageOneProperties).toHaveProperty('uniqueMoments');
+    expect(stageOneProperties).toHaveProperty('targetClaims');
+    expect(stageOneProperties).not.toHaveProperty('observableTargets');
+    const claimItems = stageOneProperties.targetClaims.items as Record<string, unknown>;
+    expect(claimItems.additionalProperties).toBe(false);
+    expect((claimItems.required as string[])).toEqual(expect.arrayContaining(['scope', 'relation', 'tolerance', 'proofKind']));
+    expect(() => buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: { artifactType: 'ReferenceBlueprintV2', taskId: 'DEV-02', observableTargets: ['looks energetic'] } })).toThrow(/globalEditorialLanguage:REQUIRED/);
+    const second = buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('ReferenceBlueprintV2', 'DEV-02') });
+    const stageTwoProperties = second.packet.outputContract.properties as Record<string, Record<string, unknown>>;
+    expect(stageTwoProperties).toHaveProperty('routeDecision');
+    expect((stageTwoProperties.nodes.items as Record<string, unknown>).additionalProperties).toBe(false);
+    expect(modelInput(second)).toHaveProperty('routingExperiment.scopeRule', expect.stringContaining('HYBRID'));
+  });
+
   it('excludes evaluator structures recursively from every provider-visible packet', () => {
     const forbiddenStrings = ['baselineDisposition', 'acceptableExecutionForms', 'requiredOperationFamilies', 'successPredicates'];
     for (const packet of stageOne) {
@@ -103,7 +152,7 @@ describe('open-ended planner V2 staged no-provider packets', () => {
   it('constructs stages 2-5 sequentially and narrows forced routing schemas', () => {
     const first = stageOne.find(({ packet }) => packet.taskId === 'DEV-02' && packet.conditionId === 'BASELINE' && packet.inputArm === 'MULTIMODAL') as HashedStagePacketV2;
     const second = buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FORCED_NATIVE', priorArtifact: prior('ReferenceBlueprintV2', 'DEV-02') });
-    const third = buildNextProviderStagePacketV2({ previousPacket: second, stage: 3, executionFormArm: 'FORCED_NATIVE', priorArtifact: prior('EditorialIntentGraphV2', 'DEV-02') });
+    const third = buildNextProviderStagePacketV2({ previousPacket: second, stage: 3, executionFormArm: 'FORCED_NATIVE', priorArtifact: prior('EditorialIntentGraphV2', 'DEV-02', 'NATIVE') });
     const fourth = buildNextProviderStagePacketV2({ previousPacket: third, stage: 4, executionFormArm: 'FORCED_NATIVE', priorArtifact: prior('EvidenceBoundIntentGraphV2', 'DEV-02') });
     const fifth = buildNextProviderStagePacketV2({ previousPacket: fourth, stage: 5, executionFormArm: 'FORCED_NATIVE', priorArtifact: prior('CompiledOperationGraphV2', 'DEV-02') });
     expect([second, third, fourth, fifth].map(({ packet }) => packet.stage)).toEqual([2, 3, 4, 5]);
