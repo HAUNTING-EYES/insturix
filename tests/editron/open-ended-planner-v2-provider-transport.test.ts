@@ -19,6 +19,8 @@ describe('open-ended planner V2 provider transport', () => {
     const record = result.attempts[0];
     for (const field of benchmarkJson.requiredTelemetry) expect(record).toHaveProperty(field);
     expect(record).toMatchObject({
+      model: 'gpt-5.6-luna-test', requestedModel: 'gpt-5.6-luna',
+      providerModel: 'gpt-5.6-luna-2026-08-07', providerSystemFingerprint: 'fp-test',
       providerRequestId: 'resp-test', inputTokens: 100, cachedInputTokens: null,
       visibleOutputTokens: 20, reasoningTokens: 10, totalTokens: 130,
       finishReason: 'completed', truncated: false, parseStatus: 'SCHEMA_VALID',
@@ -130,8 +132,52 @@ describe('open-ended planner V2 provider transport', () => {
     expect(result.disposition).toBe('TELEMETRY_UNVERIFIABLE');
     expect(result.attempts[0]).toMatchObject({ visibleOutputTokens: null, reasoningTokens: null, providerCostUsd: null });
     expect(result.attempts[0].schemaDiagnostics).toEqual(expect.arrayContaining([
-      'MISSING_VISIBLE_OUTPUT_TOKENS', 'MISSING_REASONING_TOKENS',
+      'MISSING_PROVIDER_MODEL_IDENTITY', 'MISSING_VISIBLE_OUTPUT_TOKENS', 'MISSING_REASONING_TOKENS',
     ]));
+  });
+
+  it('prices cache writes separately and rejects unpriceable or overlapping cache telemetry', async () => {
+    const priced = await run({
+      pricing: {
+        inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.1,
+        cacheWriteUsdPerMillion: 1.25, outputUsdPerMillion: 1,
+      },
+      fetchImpl: async () => jsonResponse(openAI(JSON.stringify(validArtifact()), {
+        cachedInputTokens: 20, cacheWriteInputTokens: 10,
+      })),
+    });
+    expect(priced.disposition).toBe('ARTIFACT_ACCEPTED');
+    expect(priced.attempts[0].providerCostUsd).toBe(0.0001145);
+
+    const missingRate = await run({
+      fetchImpl: async () => jsonResponse(openAI(JSON.stringify(validArtifact()), { cacheWriteInputTokens: 10 })),
+    });
+    expect(missingRate.disposition).toBe('TELEMETRY_UNVERIFIABLE');
+    expect(missingRate.attempts[0].schemaDiagnostics).toContain('MISSING_CACHE_WRITE_PRICE');
+
+    const overlap = await run({
+      pricing: { inputUsdPerMillion: 1, cacheWriteUsdPerMillion: 1.25, outputUsdPerMillion: 1 },
+      fetchImpl: async () => jsonResponse(openAI(JSON.stringify(validArtifact()), {
+        cachedInputTokens: 95, cacheWriteInputTokens: 10,
+      })),
+    });
+    expect(overlap.disposition).toBe('TELEMETRY_UNVERIFIABLE');
+    expect(overlap.attempts[0].schemaDiagnostics).toContain('CACHE_INPUT_CATEGORIES_EXCEED_INPUT');
+  });
+
+  it('uses the most expensive input class for worst-case preflight', async () => {
+    let calls = 0;
+    const result = await run({
+      pricing: {
+        inputUsdPerMillion: 1, cachedInputUsdPerMillion: 0.1,
+        cacheWriteUsdPerMillion: 100, outputUsdPerMillion: 1,
+      },
+      preflightInputTokens: [1000, 100],
+      fetchImpl: async () => { calls += 1; return jsonResponse(openAI(JSON.stringify(validArtifact()))); },
+    });
+    expect(calls).toBe(0);
+    expect(result.disposition).toBe('BUDGET_EXCEEDED');
+    expect(result.attempts[0].schemaDiagnostics).toContain('PREFLIGHT_COST_LIMIT');
   });
 
   it('marks unsupported multimodal routes NOT_APPLICABLE before fetch', async () => {
@@ -177,16 +223,29 @@ function validArtifact() {
     layoutAndMotion: [], audioIntent: [], uncertainties: [], evidenceIds: [],
   };
 }
-function openAI(text: string, overrides: { status?: string; incompleteReason?: string; inputTokens?: number } = {}) {
+function openAI(text: string, overrides: {
+  status?: string;
+  incompleteReason?: string;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  cacheWriteInputTokens?: number;
+} = {}) {
   const reasoningTokens = 10;
   const visibleTokens = 20;
   const inputTokens = overrides.inputTokens ?? 100;
   return {
-    id: 'resp-test', status: overrides.status ?? 'completed',
+    id: 'resp-test', model: 'gpt-5.6-luna-2026-08-07', system_fingerprint: 'fp-test',
+    status: overrides.status ?? 'completed',
     ...(overrides.incompleteReason ? { incomplete_details: { reason: overrides.incompleteReason } } : {}),
     output: [{ content: [{ type: 'output_text', text }] }],
     usage: {
       input_tokens: inputTokens, output_tokens: visibleTokens + reasoningTokens,
+      ...((overrides.cachedInputTokens !== undefined || overrides.cacheWriteInputTokens !== undefined) ? {
+        input_tokens_details: {
+          ...(overrides.cachedInputTokens !== undefined ? { cached_tokens: overrides.cachedInputTokens } : {}),
+          ...(overrides.cacheWriteInputTokens !== undefined ? { cache_write_tokens: overrides.cacheWriteInputTokens } : {}),
+        },
+      } : {}),
       output_tokens_details: { reasoning_tokens: reasoningTokens },
       total_tokens: inputTokens + visibleTokens + reasoningTokens,
     },

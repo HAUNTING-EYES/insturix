@@ -19,10 +19,14 @@ export interface ProviderPricingV2 {
   inputUsdPerMillion: number;
   outputUsdPerMillion: number;
   cachedInputUsdPerMillion?: number;
+  cacheWriteUsdPerMillion?: number;
 }
 export interface ProviderAttemptRecordV2 {
   provider: string;
   model: string;
+  requestedModel: string;
+  providerModel: string | null;
+  providerSystemFingerprint: string | null;
   providerRequestId: string | null;
   inputArm: string;
   executionFormArm: string;
@@ -80,9 +84,8 @@ export async function runProviderStageV2(input: {
   for (const attempt of [1, 2] as const) {
     if (attempt === 2 && !repair) break;
     const estimatedInput = input.preflightInputTokens[attempt - 1];
-    const worstCost = estimateCost(
-      { inputTokens: estimatedInput, visibleOutputTokens: remaining.visible, reasoningTokens: remaining.reasoning },
-      input.pricing,
+    const worstCost = estimateWorstCaseCost(
+      estimatedInput, remaining.visible, remaining.reasoning, input.pricing,
     );
     if (estimatedInput > remaining.input || worstCost === undefined || worstCost > remaining.cost) {
       attempts.push(emptyRecord(input, attempt, 'BUDGET_EXCEEDED', 'PREFLIGHT_BLOCKED', [
@@ -142,7 +145,7 @@ export async function runProviderStageV2(input: {
       attempts.push(requestRecord(input, attempt, request, normalized.disposition, 'NOT_ATTEMPTED', latency, normalized.usage, [], normalized, normalized.detail));
       break;
     }
-    const telemetryDiagnostics = inspectTelemetry(normalized);
+    const telemetryDiagnostics = inspectTelemetry(normalized, input.pricing);
     const providerCost = estimateCost(normalized.usage, input.pricing);
     if (telemetryDiagnostics.length || providerCost === undefined) {
       attempts.push(requestRecord(input, attempt, request, 'TELEMETRY_UNVERIFIABLE', 'NOT_ATTEMPTED', latency, normalized.usage, telemetryDiagnostics, normalized));
@@ -194,12 +197,20 @@ function requestRecord(
   input: Parameters<typeof runProviderStageV2>[0], attempt: 1 | 2,
   request: Awaited<ReturnType<typeof serializeProviderRequestV2>>, disposition: TrialDispositionV2,
   parseStatus: string, latencyMs: number, usage: ProviderUsageV2, diagnostics: string[],
-  response?: { providerRequestId?: string; finishReason?: string; truncated?: boolean }, detail?: string,
+  response?: {
+    providerRequestId?: string;
+    providerModel?: string;
+    providerSystemFingerprint?: string;
+    finishReason?: string;
+    truncated?: boolean;
+  }, detail?: string,
   cost?: number, raw?: string, artifactSha256?: string,
 ): ProviderAttemptRecordV2 {
   return {
     ...emptyRecord(input, attempt, disposition, parseStatus, diagnostics, detail),
     providerRequestId: response?.providerRequestId ?? null,
+    providerModel: response?.providerModel ?? null,
+    providerSystemFingerprint: response?.providerSystemFingerprint ?? null,
     inputTokens: usage.inputTokens ?? null, cachedInputTokens: usage.cachedInputTokens ?? null,
     cacheWriteInputTokens: usage.cacheWriteInputTokens ?? null, cacheMissInputTokens: usage.cacheMissInputTokens ?? null,
     visibleOutputTokens: usage.visibleOutputTokens ?? null, reasoningTokens: usage.reasoningTokens ?? null,
@@ -215,7 +226,9 @@ function emptyRecord(
   parseStatus: string, schemaDiagnostics: string[], detail?: string,
 ): ProviderAttemptRecordV2 {
   return {
-    provider: input.route.kind, model: input.route.modelSnapshot, providerRequestId: null,
+    provider: input.route.kind, model: input.route.modelSnapshot,
+    requestedModel: input.route.model, providerModel: null, providerSystemFingerprint: null,
+    providerRequestId: null,
     inputArm: input.artifact.packet.inputArm, executionFormArm: input.artifact.packet.executionFormArm,
     attempt, inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null,
     cacheMissInputTokens: null, visibleOutputTokens: null, reasoningTokens: null, totalTokens: null,
@@ -224,15 +237,27 @@ function emptyRecord(
     requestHash: null, rawResponseHash: null, ...(detail ? { detail: detail.slice(0, 500) } : {}),
   };
 }
-function inspectTelemetry(response: { providerRequestId?: string; finishReason?: string; usage: ProviderUsageV2 }): string[] {
+function inspectTelemetry(
+  response: { providerRequestId?: string; providerModel?: string; finishReason?: string; usage: ProviderUsageV2 },
+  pricing: ProviderPricingV2,
+): string[] {
   const diagnostics: string[] = [];
   if (!response.providerRequestId) diagnostics.push('MISSING_PROVIDER_REQUEST_ID');
+  if (!response.providerModel) diagnostics.push('MISSING_PROVIDER_MODEL_IDENTITY');
   if (!response.finishReason) diagnostics.push('MISSING_FINISH_REASON');
   for (const field of ['inputTokens', 'visibleOutputTokens', 'reasoningTokens'] as const) {
     if (response.usage[field] === undefined) diagnostics.push(`MISSING_${field.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase()}`);
   }
   if (response.usage.cachedInputTokens !== undefined && response.usage.inputTokens !== undefined
     && response.usage.cachedInputTokens > response.usage.inputTokens) diagnostics.push('CACHED_INPUT_EXCEEDS_INPUT');
+  const cached = response.usage.cachedInputTokens ?? 0;
+  const cacheWrite = response.usage.cacheWriteInputTokens ?? 0;
+  if (response.usage.inputTokens !== undefined && cached + cacheWrite > response.usage.inputTokens) {
+    diagnostics.push('CACHE_INPUT_CATEGORIES_EXCEED_INPUT');
+  }
+  if (cacheWrite > 0 && pricing.cacheWriteUsdPerMillion === undefined) {
+    diagnostics.push('MISSING_CACHE_WRITE_PRICE');
+  }
   return diagnostics;
 }
 function inspectBudget(
@@ -271,10 +296,28 @@ function validateSchema(value: unknown, schema: unknown, path: string): string[]
 function estimateCost(usage: ProviderUsageV2, pricing: ProviderPricingV2): number | undefined {
   if (usage.inputTokens === undefined || usage.visibleOutputTokens === undefined || usage.reasoningTokens === undefined) return undefined;
   const cached = usage.cachedInputTokens ?? 0;
-  if (cached > usage.inputTokens) return undefined;
-  const value = (usage.inputTokens - cached) * pricing.inputUsdPerMillion
+  const cacheWrite = usage.cacheWriteInputTokens ?? 0;
+  if (cached + cacheWrite > usage.inputTokens) return undefined;
+  if (cacheWrite > 0 && pricing.cacheWriteUsdPerMillion === undefined) return undefined;
+  const value = (usage.inputTokens - cached - cacheWrite) * pricing.inputUsdPerMillion
     + cached * (pricing.cachedInputUsdPerMillion ?? pricing.inputUsdPerMillion)
+    + cacheWrite * (pricing.cacheWriteUsdPerMillion ?? pricing.inputUsdPerMillion)
     + (usage.visibleOutputTokens + usage.reasoningTokens) * pricing.outputUsdPerMillion;
+  return Number((value / 1_000_000).toFixed(12));
+}
+function estimateWorstCaseCost(
+  inputTokens: number,
+  visibleOutputTokens: number,
+  reasoningTokens: number,
+  pricing: ProviderPricingV2,
+): number {
+  const inputRate = Math.max(
+    pricing.inputUsdPerMillion,
+    pricing.cachedInputUsdPerMillion ?? pricing.inputUsdPerMillion,
+    pricing.cacheWriteUsdPerMillion ?? pricing.inputUsdPerMillion,
+  );
+  const value = inputTokens * inputRate
+    + (visibleOutputTokens + reasoningTokens) * pricing.outputUsdPerMillion;
   return Number((value / 1_000_000).toFixed(12));
 }
 function requiredUsage(usage: ProviderUsageV2) {

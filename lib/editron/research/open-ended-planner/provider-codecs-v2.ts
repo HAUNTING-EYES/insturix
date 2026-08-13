@@ -29,6 +29,8 @@ export interface NormalizedProviderResponseV2 {
   disposition: 'SUCCESS' | 'PROVIDER_REFUSAL' | 'PROVIDER_ERROR';
   text?: string;
   providerRequestId?: string;
+  providerModel?: string;
+  providerSystemFingerprint?: string;
   finishReason?: string;
   truncated?: boolean;
   usage: ProviderUsageV2;
@@ -165,7 +167,8 @@ function normalizeOpenAI(body: Record<string, unknown>): NormalizedProviderRespo
   return {
     disposition: refusal ? 'PROVIDER_REFUSAL' : 'SUCCESS',
     text: refusal ? undefined : findOpenAIContent(body.output, 'output_text') ?? string(body.output_text),
-    providerRequestId: string(body.id), finishReason,
+    providerRequestId: string(body.id), providerModel: string(body.model),
+    providerSystemFingerprint: string(body.system_fingerprint), finishReason,
     truncated: finishReason === undefined ? undefined : body.status === 'incomplete' || incompleteReason === 'max_output_tokens',
     usage: compactUsage({
       inputTokens: count(usage.input_tokens), cachedInputTokens: count(inputDetails.cached_tokens),
@@ -188,7 +191,8 @@ function normalizeGoogle(body: Record<string, unknown>): NormalizedProviderRespo
   const refused = Boolean(blockReason) || ['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT'].includes(finishReason ?? '');
   return {
     disposition: refused ? 'PROVIDER_REFUSAL' : 'SUCCESS', text: refused ? undefined : text,
-    providerRequestId: string(body.responseId), finishReason: blockReason ?? finishReason,
+    providerRequestId: string(body.responseId), providerModel: string(body.modelVersion),
+    finishReason: blockReason ?? finishReason,
     truncated: finishReason === undefined && blockReason === undefined ? undefined : finishReason === 'MAX_TOKENS',
     usage: compactUsage({
       inputTokens: count(usage.promptTokenCount), cachedInputTokens: count(usage.cachedContentTokenCount),
@@ -210,7 +214,8 @@ function normalizeDeepSeek(body: Record<string, unknown>): NormalizedProviderRes
   const refused = finishReason === 'content_filter' || typeof message.refusal === 'string';
   return {
     disposition: refused ? 'PROVIDER_REFUSAL' : 'SUCCESS',
-    text: refused ? undefined : string(message.content), providerRequestId: string(body.id), finishReason,
+    text: refused ? undefined : string(message.content), providerRequestId: string(body.id),
+    providerModel: string(body.model), providerSystemFingerprint: string(body.system_fingerprint), finishReason,
     truncated: finishReason === undefined ? undefined : finishReason === 'length',
     usage: compactUsage({
       inputTokens: count(usage.prompt_tokens), cachedInputTokens: count(usage.prompt_cache_hit_tokens),

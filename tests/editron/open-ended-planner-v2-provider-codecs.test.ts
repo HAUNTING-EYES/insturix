@@ -77,7 +77,7 @@ describe('open-ended planner V2 provider codecs', () => {
 
   it('preserves OpenAI finish, cache-write, cache-hit, and reasoning telemetry', () => {
     const response = normalizeProviderResponseV2('openai', {
-      id: 'resp-1', status: 'completed',
+      id: 'resp-1', model: 'gpt-5.6-luna-2026-08-07', system_fingerprint: 'fp-openai-1', status: 'completed',
       output: [{ content: [{ type: 'output_text', text: '{}' }] }],
       usage: {
         input_tokens: 100, output_tokens: 40, total_tokens: 140,
@@ -86,7 +86,8 @@ describe('open-ended planner V2 provider codecs', () => {
       },
     });
     expect(response).toMatchObject({
-      providerRequestId: 'resp-1', finishReason: 'completed', text: '{}',
+      providerRequestId: 'resp-1', providerModel: 'gpt-5.6-luna-2026-08-07',
+      providerSystemFingerprint: 'fp-openai-1', finishReason: 'completed', text: '{}',
       usage: {
         inputTokens: 100, cachedInputTokens: 20, cacheWriteInputTokens: 10,
         visibleOutputTokens: 25, reasoningTokens: 15, totalTokens: 140,
@@ -96,7 +97,8 @@ describe('open-ended planner V2 provider codecs', () => {
 
   it('keeps Google thought tokens and DeepSeek cache misses distinct', () => {
     const google = normalizeProviderResponseV2('google', {
-      responseId: 'google-1', candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{}' }] } }],
+      responseId: 'google-1', modelVersion: 'gemini-3.6-flash-2026-08',
+      candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{}' }] } }],
       usageMetadata: {
         promptTokenCount: 80, cachedContentTokenCount: 30, candidatesTokenCount: 20,
         thoughtsTokenCount: 12, totalTokenCount: 112,
@@ -105,8 +107,10 @@ describe('open-ended planner V2 provider codecs', () => {
     expect(google.usage).toEqual({
       inputTokens: 80, cachedInputTokens: 30, visibleOutputTokens: 20, reasoningTokens: 12, totalTokens: 112,
     });
+    expect(google.providerModel).toBe('gemini-3.6-flash-2026-08');
     const deepseek = normalizeProviderResponseV2('deepseek', {
-      id: 'deepseek-1', choices: [{ finish_reason: 'stop', message: { content: '{}' } }],
+      id: 'deepseek-1', model: 'deepseek-v4-flash', system_fingerprint: 'fp-deepseek-0731',
+      choices: [{ finish_reason: 'stop', message: { content: '{}' } }],
       usage: {
         prompt_tokens: 90, prompt_cache_hit_tokens: 25, prompt_cache_miss_tokens: 65,
         completion_tokens: 35, completion_tokens_details: { reasoning_tokens: 10 }, total_tokens: 125,
@@ -115,6 +119,9 @@ describe('open-ended planner V2 provider codecs', () => {
     expect(deepseek.usage).toEqual({
       inputTokens: 90, cachedInputTokens: 25, cacheMissInputTokens: 65,
       visibleOutputTokens: 25, reasoningTokens: 10, totalTokens: 125,
+    });
+    expect(deepseek).toMatchObject({
+      providerModel: 'deepseek-v4-flash', providerSystemFingerprint: 'fp-deepseek-0731',
     });
   });
 
