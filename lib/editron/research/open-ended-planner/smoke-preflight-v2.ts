@@ -99,6 +99,8 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
       const artifact = selectPacket(packets, inputArm);
       const inputCount = await buildInputCountMaterial(route, artifact);
       const countTokensRequired = route.counter.method === 'PROVIDER_COUNT_TOKENS';
+      const localInputBudgetExceeded = inputCount.localInputTokenUpperBound !== null
+        && inputCount.localInputTokenUpperBound > artifact.packet.stageBudget.maxInputTokens;
       const row = {
         rowId: `${route.routeId}-${inputArm}`,
         routeId: route.routeId,
@@ -107,15 +109,22 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
         inputArm,
         packetHash: artifact.packetHash,
         transportHash: artifact.transportHash,
+        maxInputTokens: artifact.packet.stageBudget.maxInputTokens,
         localInputTokenUpperBound: inputCount.localInputTokenUpperBound,
         providerCountTokensEndpoint: inputCount.providerCountTokensEndpoint,
         providerCountTokensRequestHash: inputCount.providerCountTokensRequestHash,
-        providerTokenCountStatus: countTokensRequired ? 'REQUIRED_BEFORE_GENERATION' : 'NOT_REQUIRED_LOCAL_CONSERVATIVE_BOUND',
+        providerTokenCountStatus: countTokensRequired
+          ? 'REQUIRED_BEFORE_GENERATION'
+          : localInputBudgetExceeded ? 'LOCAL_UPPER_BOUND_EXCEEDS_STAGE_BUDGET' : 'LOCAL_UPPER_BOUND_PROVED_WITHIN_STAGE_BUDGET',
         maxProviderCostUsd: artifact.packet.stageBudget.maxProviderCostUsd,
-        dispatchStatus: countTokensRequired
+        dispatchStatus: localInputBudgetExceeded
+          ? 'BLOCKED_INPUT_TOKEN_BUDGET'
+          : countTokensRequired
           ? 'BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION'
           : 'BLOCKED_OPERATOR_CONFIRMATION',
-        blockers: countTokensRequired
+        blockers: localInputBudgetExceeded
+          ? ['LOCAL_INPUT_TOKEN_UPPER_BOUND_EXCEEDS_STAGE_BUDGET', 'OPERATOR_CONFIRMATION_MISSING']
+          : countTokensRequired
           ? ['GOOGLE_COUNT_TOKENS_REQUIRED', 'OPERATOR_CONFIRMATION_MISSING']
           : ['OPERATOR_CONFIRMATION_MISSING'],
       };
@@ -125,6 +134,9 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
     }
   }
   const absoluteMaxSpendUsd = Number(smokeRows.reduce((sum, row) => sum + row.maxProviderCostUsd, 0).toFixed(2));
+  const maxCostPerStageOneRunUsd = Math.max(...smokeRows.map(({ maxProviderCostUsd }) => maxProviderCostUsd));
+  const localInputBudgetExceeded = smokeRows.some(({ localInputTokenUpperBound, maxInputTokens }) =>
+    localInputTokenUpperBound !== null && localInputTokenUpperBound > maxInputTokens);
   const routeApplicability = ROUTES.flatMap((route) => taskArms.map(({ taskId, inputArm }) => ({
     routeId: route.routeId,
     taskId,
@@ -146,7 +158,7 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
     excludedRows,
     spend: {
       plannedProviderCallsAfterAllGates: smokeRows.length,
-      maxCostPerStageOneRunUsd: 0.08,
+      maxCostPerStageOneRunUsd,
       absoluteMaxSpendUsd,
       rule: 'The ceiling includes the one permitted repair inside each stage budget; no retry may exceed the row ceiling.',
     },
@@ -164,6 +176,7 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
     },
     globalBlockers: [
       'GOOGLE_COUNT_TOKENS_NOT_YET_EXECUTED',
+      ...(localInputBudgetExceeded ? ['LOCAL_INPUT_TOKEN_BUDGET_EXCEEDED'] : []),
       'OPERATOR_CONFIRMATION_NOT_RECORDED',
     ],
   };

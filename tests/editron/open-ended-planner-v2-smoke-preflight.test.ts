@@ -57,12 +57,12 @@ describe('open-ended planner V2 paid-smoke preflight', () => {
     expect(plan.smokeRows.some(({ routeId }) => routeId === 'DEEPSEEK_FLASH')).toBe(false);
   });
 
-  it('caps the six-call smoke at forty-eight cents including repairs', async () => {
+  it('caps the six-call smoke at fifty-four cents including repairs', async () => {
     const plan = await buildDevelopmentSmokePreflightV2() as Plan;
-    expect(plan.spend).toMatchObject({ plannedProviderCallsAfterAllGates: 6, maxCostPerStageOneRunUsd: 0.08, absoluteMaxSpendUsd: 0.48 });
-    expect(plan.smokeRows.every(({ maxProviderCostUsd }) => maxProviderCostUsd === 0.08)).toBe(true);
+    expect(plan.spend).toMatchObject({ plannedProviderCallsAfterAllGates: 6, maxCostPerStageOneRunUsd: 0.09, absoluteMaxSpendUsd: 0.54 });
+    expect(plan.smokeRows.every(({ maxProviderCostUsd }) => maxProviderCostUsd === 0.09)).toBe(true);
     expect(plan.smokeRows.filter(({ localInputTokenUpperBound }) => localInputTokenUpperBound !== null)
-      .every(({ localInputTokenUpperBound }) => Number(localInputTokenUpperBound) <= 6000)).toBe(true);
+      .every(({ localInputTokenUpperBound, maxInputTokens }) => Number(localInputTokenUpperBound) <= maxInputTokens)).toBe(true);
   });
 
   it('requires official Google counting and an explicit operator echo before egress', async () => {
@@ -105,6 +105,7 @@ type Plan = Awaited<ReturnType<typeof buildDevelopmentSmokePreflightV2>> & {
     conditionId: string;
     inputArm: string;
     maxProviderCostUsd: number;
+    maxInputTokens: number;
     localInputTokenUpperBound: number | null;
     providerCountTokensEndpoint: string | null;
     providerCountTokensRequestHash: string | null;
