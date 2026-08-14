@@ -19,6 +19,7 @@ export interface GeneratedCompositionResearchProxyCapabilityV1 {
     allowedAssetIds: readonly ['dev02-close', 'dev02-wide'];
   };
   implementation: {
+    snapshotId: string;
     snapshotCommit: string;
     apiImplementationHash: string;
     runnerImplementationHash: string;
@@ -62,6 +63,7 @@ const material: Omit<GeneratedCompositionResearchProxyCapabilityV1, 'capabilityH
     allowedAssetIds: ['dev02-close', 'dev02-wide'],
   },
   implementation: {
+    snapshotId: 'snap_FuRFrHL9WE4IgNXjhWjMxeWZP9mW',
     snapshotCommit: 'eb896ffbd8927621a77c4bd4073dad2a1119876d',
     apiImplementationHash: '7da8e6696dcfd90c75bb833010a6ae7b5386b1c9e1d20e198cf604088a35641b',
     runnerImplementationHash: '941cbdeb66603d99439f3f98207e849b3940367c8826293731dcfabdfb22e2b3',
