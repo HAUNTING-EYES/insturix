@@ -12,6 +12,10 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const APP_COMMIT = /^[a-f0-9]{40}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const POSITIVE_INTEGER_STRING = /^[1-9]\d*$/;
+
+export type GeneratedCompositionSandboxOutputKindV1 = 'STILL' | 'CONTACT_SHEET' | 'PLAYABLE_PROXY' | 'PROXY_RECEIPT';
+interface GeneratedCompositionSandboxOutputV1 { kind: GeneratedCompositionSandboxOutputKindV1; path: string; contentSha256: string; byteLength: number }
 
 export interface GeneratedCompositionSandboxInlineInputV1 {
   kind: 'SOURCE_MEDIA' | 'FONT';
@@ -60,7 +64,7 @@ export type GeneratedCompositionSandboxWorkerResultV1 = {
 } & ({
   status: 'RENDERED';
   proxyReceiptHash: string;
-  outputs: readonly { kind: 'STILL' | 'CONTACT_SHEET' | 'PROXY_RECEIPT'; path: string; contentSha256: string; byteLength: number }[];
+  outputs: readonly GeneratedCompositionSandboxOutputV1[];
 } | {
   status: 'FAILED';
   failure: { code: string; message: string };
@@ -81,7 +85,7 @@ export interface GeneratedCompositionSandboxHostReceiptV1 {
   persistent: false;
   sandboxDeleted: true;
   command: { exitCode: 0; stdoutSha256: string; stderrSha256: string };
-  outputs: readonly { kind: 'STILL' | 'CONTACT_SHEET' | 'PROXY_RECEIPT'; path: string; contentSha256: string; byteLength: number }[];
+  outputs: readonly GeneratedCompositionSandboxOutputV1[];
   proof: { productionSandbox: 'PASS'; outputMaterialization: 'PASS'; projectMutation: 'NONE' };
   stateEffects: readonly [];
   receiptHash: string;
@@ -102,7 +106,7 @@ const requestSchema = z.object({
   resources: z.object({ wallTimeMs: z.number().int().positive(), maxCpuMs: z.number().int().positive(), vcpus: z.number().int().min(1).max(8), memoryMiB: z.number().int().positive(), maxOutputBytes: z.number().int().positive() }).strict(),
   stateEffects: z.tuple([]),
 }).strict();
-const outputSchema = z.object({ kind: z.enum(['STILL', 'CONTACT_SHEET', 'PROXY_RECEIPT']), path: z.string().min(1).max(500), contentSha256: sha, byteLength: z.number().int().positive() }).strict();
+const outputSchema = z.object({ kind: z.enum(['STILL', 'CONTACT_SHEET', 'PLAYABLE_PROXY', 'PROXY_RECEIPT']), path: z.string().min(1).max(500), contentSha256: sha, byteLength: z.number().int().positive() }).strict();
 const proxyReceiptSchema = z.object({
   artifactType: z.literal('GeneratedCompositionProxyReceiptV1'),
   executionClass: z.literal('VERIFIED_PROGRAM_DENY_ALL_SANDBOX_PROCESS'),
@@ -113,6 +117,13 @@ const proxyReceiptSchema = z.object({
   composition: z.object({ width: z.number().int().positive(), height: z.number().int().positive(), fps: z.number().positive(), durationInFrames: z.number().int().positive() }).strict(),
   stills: z.array(z.object({ frame: z.number().int().nonnegative(), path: z.string().min(1).max(500), sha256: sha, width: z.number().int().positive(), height: z.number().int().positive() }).strict()).min(1).max(32),
   contactSheet: z.object({ path: z.string().min(1).max(500), sha256: sha, width: z.number().int().positive(), height: z.number().int().positive() }).strict(),
+  playableProxy: z.object({
+    path: z.string().min(1).max(500), sha256: sha, container: z.literal('MP4'), codec: z.literal('H264'), pixelFormat: z.literal('YUV420P'),
+    color: z.object({ space: z.literal('BT709'), transfer: z.literal('BT709'), primaries: z.literal('BT709'), range: z.literal('LIMITED') }).strict(),
+    audio: z.literal('ABSENT'), width: z.number().int().positive(), height: z.number().int().positive(),
+    frameRate: z.object({ numerator: z.string().regex(POSITIVE_INTEGER_STRING), denominator: z.string().regex(POSITIVE_INTEGER_STRING) }).strict(),
+    durationInFrames: z.number().int().positive(),
+  }).strict(),
   proof: z.object({
     contract: z.literal('PASS'), materializedInputs: z.literal('PASS'), compile: z.literal('PASS'),
     renderedEvidence: z.literal('CAPTURED_UNJUDGED'), productionSandbox: z.literal('HOST_ATTESTATION_REQUIRED'),
@@ -126,7 +137,7 @@ const resultBase = {
   programHash: sha, sourceBundleHash: sha, completedAt: z.string().datetime(), wallTimeMs: z.number().int().nonnegative(), cpuUpperBoundMs: z.number().int().nonnegative(), stateEffects: z.tuple([]),
 };
 const resultSchema = z.discriminatedUnion('status', [
-  z.object({ ...resultBase, status: z.literal('RENDERED'), proxyReceiptHash: sha, outputs: z.array(outputSchema).min(3).max(64) }).strict(),
+  z.object({ ...resultBase, status: z.literal('RENDERED'), proxyReceiptHash: sha, outputs: z.array(outputSchema).min(4).max(64) }).strict(),
   z.object({ ...resultBase, status: z.literal('FAILED'), failure: z.object({ code: z.string().regex(SAFE_ID), message: z.string().min(1).max(8_000) }).strict() }).strict(),
 ]);
 
@@ -207,8 +218,9 @@ function validateProxyReceipt(
 ): void {
   const receiptOutputs = result.outputs.filter(({ kind }) => kind === 'PROXY_RECEIPT');
   const contactOutputs = result.outputs.filter(({ kind }) => kind === 'CONTACT_SHEET');
+  const playableOutputs = result.outputs.filter(({ kind }) => kind === 'PLAYABLE_PROXY');
   const stillOutputs = result.outputs.filter(({ kind }) => kind === 'STILL');
-  if (receiptOutputs.length !== 1 || contactOutputs.length !== 1 || stillOutputs.length !== request.proofFrames.length) {
+  if (receiptOutputs.length !== 1 || contactOutputs.length !== 1 || playableOutputs.length !== 1 || stillOutputs.length !== request.proofFrames.length) {
     throw new Error('Generated composition sandbox proxy output cardinality drift');
   }
   let decoded: unknown;
@@ -235,6 +247,11 @@ function validateProxyReceipt(
   if (JSON.stringify(receipt.composition) !== JSON.stringify(expectedComposition)) {
     throw new Error('Generated composition sandbox proxy receipt composition drift');
   }
+  if (receipt.playableProxy.width !== expectedComposition.width || receipt.playableProxy.height !== expectedComposition.height
+    || receipt.playableProxy.durationInFrames !== expectedComposition.durationInFrames
+    || !sameRate(receipt.playableProxy.frameRate, request.program.compositionTimebase.rate)) {
+    throw new Error('Generated composition sandbox playable proxy metadata drift');
+  }
   const requestRoot = `/tmp/editron-gcp/${request.requestId}/`;
   if (!receipt.workspaceDir.startsWith(requestRoot) || receipt.workspaceDir.includes('..')) {
     throw new Error('Generated composition sandbox proxy receipt workspace escaped');
@@ -243,19 +260,24 @@ function validateProxyReceipt(
   if (JSON.stringify(receiptFrames) !== JSON.stringify([...request.proofFrames].sort((left, right) => left - right))) {
     throw new Error('Generated composition sandbox proxy receipt proof-frame drift');
   }
-  const expectedRenderedOutputs = new Map<string, { kind: 'STILL' | 'CONTACT_SHEET'; sha256: string }>([
+  const expectedRenderedOutputs = new Map<string, { kind: 'STILL' | 'CONTACT_SHEET' | 'PLAYABLE_PROXY'; sha256: string }>([
     ...receipt.stills.map((still) => [still.path, { kind: 'STILL', sha256: still.sha256 }] as const),
     [receipt.contactSheet.path, { kind: 'CONTACT_SHEET', sha256: receipt.contactSheet.sha256 }] as const,
+    [receipt.playableProxy.path, { kind: 'PLAYABLE_PROXY', sha256: receipt.playableProxy.sha256 }] as const,
   ]);
-  if (expectedRenderedOutputs.size !== stillOutputs.length + contactOutputs.length) {
+  if (expectedRenderedOutputs.size !== stillOutputs.length + contactOutputs.length + playableOutputs.length) {
     throw new Error('Generated composition sandbox proxy receipt output duplication');
   }
-  for (const output of [...stillOutputs, ...contactOutputs]) {
+  for (const output of [...stillOutputs, ...contactOutputs, ...playableOutputs]) {
     const expected = expectedRenderedOutputs.get(output.path);
     if (!expected || expected.kind !== output.kind || expected.sha256 !== output.contentSha256 || !output.path.startsWith(receipt.workspaceDir + '/')) {
       throw new Error(`Generated composition sandbox proxy receipt output drift: ${output.path}`);
     }
   }
+}
+
+function sameRate(left: { numerator: string; denominator: string }, right: { numerator: string; denominator: string }): boolean {
+  return BigInt(left.numerator) * BigInt(right.denominator) === BigInt(right.numerator) * BigInt(left.denominator);
 }
 
 function requestIdentity(value: Omit<GeneratedCompositionSandboxRequestV1, 'requestId'> | GeneratedCompositionSandboxRequestV1): string {

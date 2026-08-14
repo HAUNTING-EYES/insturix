@@ -5,6 +5,7 @@ import path from 'node:path';
 import { renderGeneratedCompositionProxyInsideSandboxV1 } from './generated-composition-proxy-renderer-v1';
 import {
   parseGeneratedCompositionSandboxRequestV1,
+  type GeneratedCompositionSandboxOutputKindV1,
   type GeneratedCompositionSandboxRequestV1,
   type GeneratedCompositionSandboxWorkerResultV1,
 } from './generated-composition-sandbox-contract-v1';
@@ -52,11 +53,14 @@ export async function executeGeneratedCompositionSandboxWorkerV1(
       workspaceRoot: path.resolve('/tmp/editron-gcp', request.requestId),
       apiImplementationPath: apiPath,
       proofFrames: request.proofFrames,
+      includePlayableProxy: true,
     });
+    if (!proxyReceipt.playableProxy) throw new Error('Generated composition sandbox playable proxy is missing');
     const receiptPath = path.join(proxyReceipt.workspaceDir, 'receipt.json');
     const outputs = await Promise.all([
       ...proxyReceipt.stills.map(({ path: outputPath, sha256 }) => output('STILL', outputPath, sha256)),
       output('CONTACT_SHEET', proxyReceipt.contactSheet.path, proxyReceipt.contactSheet.sha256),
+      output('PLAYABLE_PROXY', proxyReceipt.playableProxy.path, proxyReceipt.playableProxy.sha256),
       output('PROXY_RECEIPT', receiptPath),
     ]);
     const usage = measuredUsage(startedAt, request.resources.vcpus);
@@ -94,7 +98,7 @@ async function materializeInputs(
   return { assetPaths, fontPaths };
 }
 
-async function output(kind: 'STILL' | 'CONTACT_SHEET' | 'PROXY_RECEIPT', outputPath: string, knownHash?: string) {
+async function output(kind: GeneratedCompositionSandboxOutputKindV1, outputPath: string, knownHash?: string) {
   const stat = await fs.lstat(outputPath);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Generated composition sandbox output is not a regular file: ${outputPath}`);
   const contentSha256 = await sha256File(outputPath);

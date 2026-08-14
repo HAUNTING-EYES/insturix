@@ -53,6 +53,7 @@ describe('open-ended planner V2 generated-composition sandbox runner', () => {
       workerImplementationHash: overlay.workerImplementationHash, sandboxDeleted: true,
       proof: { productionSandbox: 'PASS', outputMaterialization: 'PASS', projectMutation: 'NONE' },
     });
+    expect(executed.receipt.outputs.map(({ kind }) => kind)).toContain('PLAYABLE_PROXY');
   });
 
   it('rejects secret-bearing workers, overlay drift, and teardown failure', async () => {
@@ -113,15 +114,16 @@ function fixtureRequest(workerImplementationHash: string) {
 function outputFixture(requestId: string): Record<string, Buffer> {
   const request = fixtureRequest('0'.repeat(64));
   const workspace = `/tmp/editron-gcp/${requestId}/proxy`;
-  const stillBytes = Buffer.from('still'); const sheetBytes = Buffer.from('sheet');
+  const stillBytes = Buffer.from('still'); const sheetBytes = Buffer.from('sheet'); const playableBytes = Buffer.from('playable');
   const stills = request.proofFrames.map((frame) => ({ frame, path: `${workspace}/stills/frame-${String(frame).padStart(4, '0')}.png`, sha256: sha(stillBytes), width: 1080, height: 1920 }));
   const contactSheet = { path: `${workspace}/contact-sheet.png`, sha256: sha(sheetBytes), width: 810, height: 960 };
+  const playableProxy = { path: `${workspace}/playable-proxy.mp4`, sha256: sha(playableBytes), container: 'MP4' as const, codec: 'H264' as const, pixelFormat: 'YUV420P' as const, color: { space: 'BT709' as const, transfer: 'BT709' as const, primaries: 'BT709' as const, range: 'LIMITED' as const }, audio: 'ABSENT' as const, width: 1080, height: 1920, frameRate: { numerator: '30', denominator: '1' }, durationInFrames: 180 };
   const unsignedReceipt = {
     artifactType: 'GeneratedCompositionProxyReceiptV1' as const,
     executionClass: 'VERIFIED_PROGRAM_DENY_ALL_SANDBOX_PROCESS' as const,
     securityDisposition: 'HOST_ATTESTATION_REQUIRED' as const,
     programHash: request.programHash, sourceBundleHash: request.sourceBundleHash, apiImplementationHash: request.apiImplementationHash,
-    composition: { width: 1080, height: 1920, fps: 30, durationInFrames: 180 }, stills, contactSheet,
+    composition: { width: 1080, height: 1920, fps: 30, durationInFrames: 180 }, stills, contactSheet, playableProxy,
     proof: { contract: 'PASS' as const, materializedInputs: 'PASS' as const, compile: 'PASS' as const, renderedEvidence: 'CAPTURED_UNJUDGED' as const, productionSandbox: 'HOST_ATTESTATION_REQUIRED' as const },
     stateEffects: [] as const, workspaceDir: workspace,
   };
@@ -129,6 +131,7 @@ function outputFixture(requestId: string): Record<string, Buffer> {
   return Object.fromEntries([
     ...stills.map(({ path }) => [path, stillBytes]),
     [contactSheet.path, sheetBytes],
+    [playableProxy.path, playableBytes],
     [`${workspace}/receipt.json`, Buffer.from(JSON.stringify(receipt))],
   ]);
 }
@@ -142,7 +145,7 @@ function workerResult(request: ReturnType<typeof fixtureRequest>, outputs: Recor
     completedAt: '2026-08-14T10:00:01.000Z', wallTimeMs: 1_000, cpuUpperBoundMs: 1_000, stateEffects: [], status: 'RENDERED',
     proxyReceiptHash: proxyReceipt.receiptHash,
     outputs: Object.entries(outputs).map(([path, bytes]) => ({
-      kind: path.endsWith('/receipt.json') ? 'PROXY_RECEIPT' as const : path.endsWith('/contact-sheet.png') ? 'CONTACT_SHEET' as const : 'STILL' as const,
+      kind: path.endsWith('/receipt.json') ? 'PROXY_RECEIPT' as const : path.endsWith('/contact-sheet.png') ? 'CONTACT_SHEET' as const : path.endsWith('/playable-proxy.mp4') ? 'PLAYABLE_PROXY' as const : 'STILL' as const,
       path, contentSha256: sha(bytes), byteLength: bytes.byteLength,
     })),
   };

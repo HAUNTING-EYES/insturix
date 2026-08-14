@@ -47,6 +47,7 @@ describe('open-ended planner V2 generated-composition sandbox contract', () => {
       command: { exitCode: 0, stdout: 'ok', stderr: '' }, outputBytes: outputs,
     });
     expect(receipt).toMatchObject({ proof: { productionSandbox: 'PASS', outputMaterialization: 'PASS', projectMutation: 'NONE' }, sandboxDeleted: true, stateEffects: [] });
+    expect(receipt.outputs.map(({ kind }) => kind)).toContain('PLAYABLE_PROXY');
     expect(receipt.proxyReceiptHash).toBe(result.proxyReceiptHash);
     expect(() => buildGeneratedCompositionSandboxHostReceiptV1({
       request, result, snapshotId: 'snap_generated_composition_v1', sandboxDeleted: false, networkPolicy: 'DENY_ALL', persistent: false,
@@ -57,6 +58,13 @@ describe('open-ended planner V2 generated-composition sandbox contract', () => {
       request, result, snapshotId: 'snap_generated_composition_v1', sandboxDeleted: true, networkPolicy: 'DENY_ALL', persistent: false,
       command: { exitCode: 0, stdout: 'ok', stderr: '' }, outputBytes: drifted,
     })).toThrow(/output hash drift/);
+    const playablePath = result.outputs.find(({ kind }) => kind === 'PLAYABLE_PROXY')!.path;
+    const withoutPlayableResult = { ...result, outputs: result.outputs.filter(({ kind }) => kind !== 'PLAYABLE_PROXY') };
+    const { [playablePath]: _playable, ...withoutPlayableOutputs } = outputs;
+    expect(() => buildGeneratedCompositionSandboxHostReceiptV1({
+      request, result: withoutPlayableResult, snapshotId: 'snap_generated_composition_v1', sandboxDeleted: true, networkPolicy: 'DENY_ALL', persistent: false,
+      command: { exitCode: 0, stdout: 'ok', stderr: '' }, outputBytes: withoutPlayableOutputs,
+    })).toThrow();
 
     const unsafeReceipt = JSON.parse(Buffer.from(outputs[result.outputs.find(({ kind }) => kind === 'PROXY_RECEIPT')!.path]).toString('utf8'));
     unsafeReceipt.executionClass = 'TRUSTED_HUMAN_FIXTURE_LOCAL_PROCESS';
@@ -81,22 +89,23 @@ describe('open-ended planner V2 generated-composition sandbox contract', () => {
 
 function workerFixture(request: ReturnType<typeof fixtureRequest>) {
   const workspace = `/tmp/editron-gcp/${request.requestId}/proxy`;
-  const stillBytes = Buffer.from('still'); const sheetBytes = Buffer.from('sheet');
+  const stillBytes = Buffer.from('still'); const sheetBytes = Buffer.from('sheet'); const playableBytes = Buffer.from('playable');
   const stills = request.proofFrames.map((frame) => ({ frame, path: `${workspace}/stills/frame-${String(frame).padStart(4, '0')}.png`, sha256: sha(stillBytes), width: 1080, height: 1920 }));
   const contactSheet = { path: `${workspace}/contact-sheet.png`, sha256: sha(sheetBytes), width: 810, height: 960 };
+  const playableProxy = { path: `${workspace}/playable-proxy.mp4`, sha256: sha(playableBytes), container: 'MP4' as const, codec: 'H264' as const, pixelFormat: 'YUV420P' as const, color: { space: 'BT709' as const, transfer: 'BT709' as const, primaries: 'BT709' as const, range: 'LIMITED' as const }, audio: 'ABSENT' as const, width: 1080, height: 1920, frameRate: { numerator: '30', denominator: '1' }, durationInFrames: 180 };
   const unsignedReceipt = {
     artifactType: 'GeneratedCompositionProxyReceiptV1' as const,
     executionClass: 'VERIFIED_PROGRAM_DENY_ALL_SANDBOX_PROCESS' as const,
     securityDisposition: 'HOST_ATTESTATION_REQUIRED' as const,
     programHash: request.programHash, sourceBundleHash: request.sourceBundleHash, apiImplementationHash: request.apiImplementationHash,
-    composition: { width: 1080, height: 1920, fps: 30, durationInFrames: 180 }, stills, contactSheet,
+    composition: { width: 1080, height: 1920, fps: 30, durationInFrames: 180 }, stills, contactSheet, playableProxy,
     proof: { contract: 'PASS' as const, materializedInputs: 'PASS' as const, compile: 'PASS' as const, renderedEvidence: 'CAPTURED_UNJUDGED' as const, productionSandbox: 'HOST_ATTESTATION_REQUIRED' as const },
     stateEffects: [] as const, workspaceDir: workspace,
   };
   const receipt = { ...unsignedReceipt, receiptHash: hashCanonicalJsonV1(unsignedReceipt) };
   const receiptBytes = Buffer.from(JSON.stringify(receipt));
   const outputs: Record<string, Buffer> = Object.fromEntries([
-    ...stills.map(({ path }) => [path, stillBytes]), [contactSheet.path, sheetBytes], [`${workspace}/receipt.json`, receiptBytes],
+    ...stills.map(({ path }) => [path, stillBytes]), [contactSheet.path, sheetBytes], [playableProxy.path, playableBytes], [`${workspace}/receipt.json`, receiptBytes],
   ]);
   const result: GeneratedCompositionSandboxWorkerResultV1 = {
     version: GENERATED_COMPOSITION_SANDBOX_CONTRACT_V1, requestId: request.requestId, executionId: request.executionId,
@@ -106,6 +115,7 @@ function workerFixture(request: ReturnType<typeof fixtureRequest>) {
     outputs: [
       ...stills.map(({ path, sha256 }) => ({ kind: 'STILL' as const, path, contentSha256: sha256, byteLength: stillBytes.byteLength })),
       { kind: 'CONTACT_SHEET' as const, path: contactSheet.path, contentSha256: contactSheet.sha256, byteLength: sheetBytes.byteLength },
+      { kind: 'PLAYABLE_PROXY' as const, path: playableProxy.path, contentSha256: playableProxy.sha256, byteLength: playableBytes.byteLength },
       { kind: 'PROXY_RECEIPT' as const, path: `${workspace}/receipt.json`, contentSha256: sha(receiptBytes), byteLength: receiptBytes.byteLength },
     ],
   };
