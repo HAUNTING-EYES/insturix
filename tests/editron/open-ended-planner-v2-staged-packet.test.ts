@@ -75,7 +75,18 @@ function prior(artifactType: string, taskId: string, executionForm: 'NATIVE' | '
     proofPlan: [{ proofObligationId: 'proof-render', kind: 'RENDERED_GEOMETRY', nodeIds: ['node-1'], targetClaimIds: ['claim-layout'], requiredFactIds: ['fact-reference-observation'], status: 'PLANNED' }],
     unresolvedRequirements: [{ requirementId: 'req-owner', kind: 'CAPABILITY', factIds: ['fact-support-generated-composition'], disposition: 'CAPABILITY_GAP' }],
   };
-  return { artifactType, taskId, operatorCatalogVersion: 'v2', nodes: [], edges: [], expectedProjectRevision: 'R3', proofPolicy: {} };
+  return {
+    artifactType, taskId,
+    compileDisposition: 'CAPABILITY_GAP', executionEligibility: 'NOT_EXECUTABLE',
+    sourceEditorialIntentHash: hashCanonicalJsonV1(canonicalEditorialIntentJson),
+    sourceEvidenceBoundIntentHash: hashCanonicalJsonV1(canonicalEvidenceBoundIntentJson),
+    evidencePackHash: 'ddcd45e6ef7c51eca382919fd04595ceabb3d4eef8483d4809d899aa22519822',
+    operatorCatalogVersion: '2.0.0', projectId: 'oe-dev-02', expectedProjectRevision: 'R3',
+    nodes: [], edges: [],
+    proofPolicy: { proofVersion: 'OE_STAGE4_PROOF_POLICY_V1', mode: 'ALL_BOUND_OBLIGATIONS_REQUIRED_BEFORE_EXECUTION', proofObligationIds: ['proof-sandbox-compile'], preservationIds: ['preserve-reference-not-inserted'], onUnverifiable: 'BLOCK_EXECUTION' },
+    diagnostics: [{ diagnosticId: 'diag-generated-owner', code: 'CAPABILITY_NOT_IMPLEMENTED', intentNodeIds: ['node-generated-island'], operatorIds: ['generated_composition_program'], factIds: ['fact-support-generated-composition'], disposition: 'CAPABILITY_GAP' }],
+    unresolvedIntentNodeIds: ['node-generated-island'],
+  };
 }
 
 describe('open-ended planner V2 staged no-provider packets', () => {
@@ -285,6 +296,25 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     expect(modelInput(fourth)).toHaveProperty('compilationSources.sourceEditorialIntentHash', hashCanonicalJsonV1(canonicalEditorialIntentJson));
     expect(modelInput(fourth)).toHaveProperty('compilationSources.sourceEvidenceBoundIntentHash', '9222bc05a08c90a93dfc682bc6f4ac852d9de106eb11df3552c26420fe65334d');
     expect(modelInput(fourth)).toHaveProperty('compilationSources.evidencePackHash', 'ddcd45e6ef7c51eca382919fd04595ceabb3d4eef8483d4809d899aa22519822');
+    expect(modelInput(fourth)).toHaveProperty('operatorCatalog.productionEligibility', 'FORBIDDEN_ALL_V2');
+    expect(modelInput(fourth)).toHaveProperty('operatorCatalog.operators', expect.arrayContaining([
+      expect.objectContaining({ operatorId: 'read_project_file', operatorSpecRef: 'EDITRON_OPERATOR_SPECS_V2@2.0.0#read_project_file', ownerRef: 'v1:read_project_file' }),
+      expect.objectContaining({ operatorId: 'generated_composition_program', supportStatus: 'RESEARCH_ONLY_NOT_IMPLEMENTED' }),
+    ]));
+    expect(modelInput(fourth)).toHaveProperty('compilationPolicy.supportRules', expect.arrayContaining([
+      expect.objectContaining({ disposition: 'FORBIDDEN_DIAGNOSTIC_REQUIRED' }),
+    ]));
+    expect(fourth.packet.instructions).toEqual(expect.arrayContaining([
+      expect.stringContaining('does not make the requested graph executable'),
+      expect.stringContaining('Every node must declare reads, writes, requires, produces, invalidates'),
+    ]));
+    const stageFourProperties = fourth.packet.outputContract.properties as Record<string, Record<string, unknown>>;
+    expect(fourth.packet.outputContract).toHaveProperty('additionalProperties', false);
+    expect(stageFourProperties).toHaveProperty('compileDisposition.enum', expect.arrayContaining(['CAPABILITY_GAP', 'CONFLICT', 'UNVERIFIABLE']));
+    const compiledNode = stageFourProperties.nodes.items as { required: string[]; additionalProperties: boolean; properties: Record<string, unknown> };
+    expect(compiledNode.additionalProperties).toBe(false);
+    expect(compiledNode.required).toEqual(expect.arrayContaining(['operatorSpecRef', 'reads', 'writes', 'invalidates', 'coordinateBindings', 'revisionBinding', 'proofObligationIds', 'concurrency', 'resourcePolicyId', 'reversibility']));
+    expect(compiledNode.properties).toHaveProperty('inputs.type', 'object');
     expect(modelInput(fifth)).not.toHaveProperty('operatorCatalog');
     const drifted = structuredClone(canonicalEvidenceBoundIntentJson);
     drifted.nodes[0].candidateCapabilityIds = ['read_project_file'];

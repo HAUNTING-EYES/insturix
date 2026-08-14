@@ -100,7 +100,7 @@ const STAGE_INSTRUCTIONS: Record<StageV2, string[]> = {
   1: ['Reconstruct only the visible and audible target.', 'Separate global editorial language, recurring design grammar, and bounded unique moments.', 'Express hard and soft results as measurable target claims with explicit coordinate scopes.', 'Do not select operators or an execution form.', 'State uncertainty when evidence is absent or noisy.'],
   2: ['Select editorial operations and their dependencies.', 'Prove structural hard-target coverage for every candidate execution form.', 'COVERED means the claim is assigned to catalog capabilities that can structurally realize it; missing concrete project IDs, ranges, or evidence belong in unresolvedRequirements for Stage 3 and do not by themselves make structural coverage UNVERIFIABLE.', 'ELIGIBLE requires truthful current support and compiler status; an ideal architectural route may still be selected while its candidate is INELIGIBLE or UNVERIFIABLE and records a capability gap.', 'Classify a bounded generated island as GENERATED_COMPOSITION and a full native plan surrounding an island as HYBRID.', 'Obey the assigned routing experiment.', 'Do not serialize exact runtime arguments yet.'],
   3: ['Bind every intent to supplied evidence, rights, privacy, revision, preservation, and proof requirements.', 'BOUND means the supplied facts are complete and exact for this binding; do not downgrade a binding merely because its capability cannot execute yet.', 'PLANNED means a proof obligation is required at a later executable stage; use UNVERIFIABLE only when supplied facts cannot determine whether that proof is required, not because the proof has not run yet.', 'COMPLIANT means the proposed plan obeys the rights or privacy policy even when that policy denies listed actions; use POLICY_BLOCKED only when the proposed plan itself requires a forbidden action.', 'Express unavailable execution only through stageDisposition and unresolvedRequirements so evidence completeness remains distinct from capability readiness.', 'Do not invent evidence or capability.'],
-  4: ['Compile the evidence-bound intent into exact catalog operator IDs and closed input fields.', 'Non-compilable operators require diagnostics, never invented replacements.'],
+  4: ['Compile only operators named by the source intent into exact versioned catalog references and closed input fields.', 'Use only supplied fact, revision, policy, preservation, and proof identifiers; never invent runtime arguments.', 'RESEARCH_ONLY_NOT_IMPLEMENTED and NOT_COMPILABLE operators require structured diagnostics and unresolved intent nodes, never executable nodes or legacy replacements.', 'A compiled read or resolver subgraph does not make the requested graph executable when a required dependency is blocked.', 'Every node must declare reads, writes, requires, produces, invalidates, coordinate and revision bindings, stability, state effects, idempotency material, proof, failure and retry disposition, policy, concurrency, resource policy, reversibility, and trace references.', 'Set executionEligibility to NOT_EXECUTABLE whenever any required intent node remains unresolved.'],
   5: ['Return PROCEED only for a valid, policy-safe compiled graph.', 'Keep clarification, capability gap, policy block, conflict, fail, and unverifiable distinct.'],
 };
 
@@ -176,7 +176,10 @@ export function buildNextProviderStagePacketV2(input: {
     condition: publicCondition(condition),
     ...(input.stage <= 4 ? { operatorCatalog: publicOperatorCatalog(input.stage, input.priorArtifact) } : {}),
     ...(input.stage === 3 ? { evidencePack: stageThreeEvidencePack(sourceTask, condition) } : {}),
-    ...(input.stage === 4 ? { compilationSources: stageFourCompilationSources(sourceTask, condition, input.priorArtifact, input.previousPacket.packet) } : {}),
+    ...(input.stage === 4 ? {
+      compilationSources: stageFourCompilationSources(sourceTask, condition, input.priorArtifact, input.previousPacket.packet),
+      compilationPolicy: stageFourCompilationPolicy(),
+    } : {}),
     ...(input.stage === 2 ? { routingExperiment: routingExperiment(input.executionFormArm) } : {}),
   };
   const packet = packetBase({
@@ -419,12 +422,30 @@ function publicOperatorCatalog(stage: number, priorArtifact: PriorArtifactV2): J
     : null;
   const operators = operatorCatalogJson.operators
     .filter((operator) => !referencedIds || referencedIds.has(operator.operatorId))
-    .map((operator) => ({ operatorId: operator.operatorId, kind: operator.kind, supportStatus: operator.supportStatus, compilerEligibility: operator.compilerEligibility, input: operator.input, output: operator.output, stateEffects: operator.stateEffects, proof: operator.proof }));
+    .map((operator) => {
+      const base = {
+        operatorId: operator.operatorId,
+        kind: operator.kind,
+        supportStatus: operator.supportStatus,
+        compilerEligibility: operator.compilerEligibility,
+        input: operator.input,
+        output: operator.output,
+        stateEffects: operator.stateEffects,
+        proof: operator.proof,
+      };
+      return stage === 4 ? {
+        ...base,
+        operatorSpecRef: `EDITRON_OPERATOR_SPECS_V2@${operatorCatalogJson.version}#${operator.operatorId}`,
+        ownerRef: publicOperatorOwnerRef(operator as unknown as JsonRecord),
+      } : base;
+    });
   if (referencedIds && operators.length !== referencedIds.size) {
     const found = new Set(operators.map(({ operatorId }) => operatorId));
     fail('REFERENCED_OPERATOR_MISSING', [...referencedIds].filter((id) => !found.has(id)).join(','));
   }
-  return stage === 4 ? { version: operatorCatalogJson.version, fieldSchemas: operatorCatalogJson.fieldSchemas, operators } : { version: operatorCatalogJson.version, operators };
+  return stage === 4
+    ? { version: operatorCatalogJson.version, productionEligibility: operatorCatalogJson.productionEligibility, schemaAssembly: operatorCatalogJson.schemaAssembly, fieldSchemas: operatorCatalogJson.fieldSchemas, operators }
+    : { version: operatorCatalogJson.version, operators };
 }
 
 function stageThreeEvidencePack(task: SourceTaskV2, condition: ConditionCaseV2): JsonRecord {
@@ -498,6 +519,33 @@ function stageFourCompilationSources(
   };
 }
 
+function stageFourCompilationPolicy(): JsonRecord {
+  return {
+    policyVersion: 'EDITRON_OE_STAGE4_COMPILATION_POLICY_V2',
+    authority: 'SYNTHETIC_RESEARCH_COMPILATION_ONLY_NO_PROJECT_MUTATION',
+    operatorSpecRefFormat: `EDITRON_OPERATOR_SPECS_V2@${operatorCatalogJson.version}#<operatorId>`,
+    executionRule: 'All required intent nodes must compile before execution eligibility can exceed NOT_EXECUTABLE.',
+    inputRule: 'The deterministic evaluator assembles each closed input schema from operator.input and fieldSchemas and rejects missing, additional, ill-typed, out-of-range, or unbound values.',
+    supportRules: [
+      { match: { compilerEligibility: 'RESEARCH_READ_ONLY' }, disposition: 'RESEARCH_PROXY_ONLY' },
+      { match: { supportStatus: 'RESEARCH_ONLY_NOT_IMPLEMENTED' }, disposition: 'FORBIDDEN_DIAGNOSTIC_REQUIRED' },
+      { match: { compilerEligibility: 'NOT_COMPILABLE' }, disposition: 'FORBIDDEN_DIAGNOSTIC_REQUIRED' },
+    ],
+    resourcePolicies: [
+      { resourcePolicyId: 'OE_STAGE4_READ_V1', applicableKinds: ['READ'], maxWallClockMs: 5000, maxMemoryMiB: 128, maxOutputBytes: 1000000, networkPolicy: 'DENY' },
+      { resourcePolicyId: 'OE_STAGE4_RESOLVER_V1', applicableKinds: ['RESOLVER'], maxWallClockMs: 10000, maxMemoryMiB: 256, maxOutputBytes: 2000000, networkPolicy: 'DENY' },
+      { resourcePolicyId: 'OE_STAGE4_GENERATED_SANDBOX_V1', applicableKinds: ['GENERATED_COMPOSITION'], maxWallClockMs: 30000, maxMemoryMiB: 512, maxOutputBytes: 10000000, networkPolicy: 'DENY', currentEligibility: 'FORBIDDEN_UNTIL_IMPLEMENTED' },
+    ],
+    referenceRules: {
+      reads: 'fact IDs or source artifact references actually consumed',
+      writes: 'declared project paths or artifact namespaces; READ and RESOLVER nodes must write nothing',
+      requiresAndProduces: 'compiled node IDs, fact IDs, or declared output references only',
+      invalidates: 'source-intent invalidation claims and proof/artifact identities made stale by this node',
+      traceRefs: 'source intent node, evidence binding, proof, preservation, and policy IDs only',
+    },
+  };
+}
+
 function publicCondition(condition: ConditionCaseV2): JsonRecord { return { conditionId: condition.conditionId, availableEvidenceIds: condition.availableEvidenceIds, omittedEvidenceIds: condition.omittedEvidenceIds, replacementEvidenceIds: condition.replacementEvidenceIds ?? [] }; }
 function routingExperiment(arm: ExecutionFormArmV2): JsonRecord {
   return {
@@ -519,6 +567,8 @@ function outputContract(stage: StageV2, taskId: string, arm: ExecutionFormArmV2 
   const artifactType = ['ReferenceBlueprintV2', 'EditorialIntentGraphV2', 'EvidenceBoundIntentGraphV2', 'CompiledOperationGraphV2', 'ProceedOrStopDecisionV2'][stage - 1];
   const source = stage === 3
     ? stageThreeOutputContractV2()
+    : stage === 4
+    ? stageFourOutputContractV2()
     : benchmarkJson.artifactSchemas[artifactType as keyof typeof benchmarkJson.artifactSchemas] as { required: string[]; properties?: JsonRecord };
   const required = ['artifactType', ...source.required];
   const properties = source.properties
@@ -546,6 +596,85 @@ function stageThreeOutputContractV2(): { required: string[]; properties: JsonRec
       preservationBindings: { type: 'array', minItems: 1, items: { type: 'object', required: ['preservationId', 'factIds', 'status'], properties: { preservationId: string, factIds: { ...strings, minItems: 1 }, status: { type: 'string', enum: ['BOUND', 'PARTIAL', 'UNVERIFIABLE'] } }, additionalProperties: false } },
       proofPlan: { type: 'array', minItems: 1, items: { type: 'object', required: ['proofObligationId', 'kind', 'nodeIds', 'targetClaimIds', 'requiredFactIds', 'status'], properties: { proofObligationId: string, kind: { type: 'string', enum: ['REVISION_FRESHNESS', 'ASSET_IDENTITY_RIGHTS', 'SOURCE_RANGE_HANDLES', 'RENDERED_GEOMETRY', 'RENDERED_LEGIBILITY', 'BOUNDARY_CONTINUITY', 'SANDBOX_COMPILE', 'STATE_RELOAD'] }, nodeIds: { ...strings, minItems: 1 }, targetClaimIds: strings, requiredFactIds: { ...strings, minItems: 1 }, status: { type: 'string', enum: ['PLANNED', 'UNVERIFIABLE'] } }, additionalProperties: false } },
       unresolvedRequirements: { type: 'array', items: { type: 'object', required: ['requirementId', 'kind', 'factIds', 'disposition'], properties: { requirementId: string, kind: { type: 'string', enum: ['EVIDENCE', 'CAPABILITY', 'AMBIGUITY', 'POLICY', 'CONFLICT'] }, factIds: strings, disposition: { type: 'string', enum: ['CAPABILITY_GAP', 'UNVERIFIABLE', 'NEEDS_REVIEW', 'POLICY_BLOCKED', 'CONFLICT'] } }, additionalProperties: false } },
+    },
+  };
+}
+
+function stageFourOutputContractV2(): { required: string[]; properties: JsonRecord } {
+  const string = { type: 'string', minLength: 1 };
+  const strings = { type: 'array', items: string, uniqueItems: true };
+  const coordinateBinding = {
+    type: 'object',
+    required: ['coordinateDomain', 'timebaseFactIds', 'rangeFactIds', 'assetFactIds'],
+    properties: {
+      coordinateDomain: { type: 'string', enum: ['SOURCE_PTS', 'SOURCE_FRAME', 'SOURCE_SAMPLE', 'PROJECT_TICK', 'COMPOSITION_TICK', 'STILL_IMAGE'] },
+      timebaseFactIds: strings,
+      rangeFactIds: strings,
+      assetFactIds: strings,
+    },
+    additionalProperties: false,
+  };
+  const node = {
+    type: 'object',
+    required: ['nodeId', 'intentNodeId', 'operatorId', 'operatorSpecRef', 'ownerRef', 'inputs', 'reads', 'writes', 'requires', 'produces', 'invalidates', 'coordinateBindings', 'revisionBinding', 'stabilityRequirement', 'stateEffects', 'idempotency', 'proofObligationIds', 'failureDisposition', 'retryDisposition', 'policyFactIds', 'concurrency', 'resourcePolicyId', 'reversibility', 'traceRefs'],
+    properties: {
+      nodeId: string,
+      intentNodeId: string,
+      operatorId: string,
+      operatorSpecRef: string,
+      ownerRef: string,
+      inputs: { type: 'object' },
+      reads: strings,
+      writes: strings,
+      requires: strings,
+      produces: strings,
+      invalidates: strings,
+      coordinateBindings: { type: 'array', items: coordinateBinding },
+      revisionBinding: { type: 'object', required: ['projectId', 'expectedProjectRevision'], properties: { projectId: string, expectedProjectRevision: string }, additionalProperties: false },
+      stabilityRequirement: { type: 'string', enum: ['NONE', 'RANGE_STABLE', 'PICTURE_LOCK', 'FINAL_CONFORM'] },
+      stateEffects: strings,
+      idempotency: { type: 'object', required: ['scope', 'keyMaterialRefs'], properties: { scope: { type: 'string', enum: ['ACTOR_PROJECT', 'PROJECT_REVISION', 'ARTIFACT_ONLY'] }, keyMaterialRefs: { ...strings, minItems: 1 } }, additionalProperties: false },
+      proofObligationIds: strings,
+      failureDisposition: { type: 'string', enum: ['ABORT_GRAPH'] },
+      retryDisposition: { type: 'string', enum: ['NEVER_RETRY', 'TRANSIENT_SAME_COMMAND', 'REBASE_REQUIRED'] },
+      policyFactIds: { ...strings, minItems: 1 },
+      concurrency: { type: 'object', required: ['class', 'conflictDomainRefs'], properties: { class: { type: 'string', enum: ['READ_SHARED', 'RESOLVER_ISOLATED', 'MUTATION_EXCLUSIVE', 'GENERATED_SANDBOX_ISOLATED'] }, conflictDomainRefs: strings }, additionalProperties: false },
+      resourcePolicyId: { type: 'string', enum: ['OE_STAGE4_READ_V1', 'OE_STAGE4_RESOLVER_V1', 'OE_STAGE4_GENERATED_SANDBOX_V1'] },
+      reversibility: { type: 'object', required: ['disposition', 'undoBindingRefs'], properties: { disposition: { type: 'string', enum: ['NOT_APPLICABLE_READ_ONLY', 'CHECKPOINT_REQUIRED', 'UNSAFE_UNDO_BLOCKED'] }, undoBindingRefs: strings }, additionalProperties: false },
+      traceRefs: { ...strings, minItems: 1 },
+    },
+    additionalProperties: false,
+  };
+  const diagnostic = {
+    type: 'object',
+    required: ['diagnosticId', 'code', 'intentNodeIds', 'operatorIds', 'factIds', 'disposition'],
+    properties: {
+      diagnosticId: string,
+      code: { type: 'string', enum: ['CAPABILITY_NOT_IMPLEMENTED', 'OPERATOR_NOT_COMPILABLE', 'OPERATOR_SELECTION_AMBIGUOUS', 'INPUT_BINDING_MISSING', 'INPUT_BINDING_INVALID', 'POLICY_BLOCKED', 'REVISION_CONFLICT', 'DEPENDENCY_BLOCKED', 'SCHEMA_UNVERIFIABLE'] },
+      intentNodeIds: { ...strings, minItems: 1 },
+      operatorIds: strings,
+      factIds: strings,
+      disposition: { type: 'string', enum: ['CAPABILITY_GAP', 'POLICY_BLOCKED', 'CONFLICT', 'FAIL', 'UNVERIFIABLE'] },
+    },
+    additionalProperties: false,
+  };
+  return {
+    required: ['taskId', 'compileDisposition', 'executionEligibility', 'sourceEditorialIntentHash', 'sourceEvidenceBoundIntentHash', 'evidencePackHash', 'operatorCatalogVersion', 'projectId', 'expectedProjectRevision', 'nodes', 'edges', 'proofPolicy', 'diagnostics', 'unresolvedIntentNodeIds'],
+    properties: {
+      taskId: string,
+      compileDisposition: { type: 'string', enum: ['COMPILED_RESEARCH_PROXY', 'CAPABILITY_GAP', 'POLICY_BLOCKED', 'CONFLICT', 'UNVERIFIABLE', 'FAIL'] },
+      executionEligibility: { type: 'string', enum: ['RESEARCH_PROXY_ONLY', 'NOT_EXECUTABLE'] },
+      sourceEditorialIntentHash: string,
+      sourceEvidenceBoundIntentHash: string,
+      evidencePackHash: string,
+      operatorCatalogVersion: { const: operatorCatalogJson.version },
+      projectId: string,
+      expectedProjectRevision: string,
+      nodes: { type: 'array', items: node, uniqueItems: true },
+      edges: { type: 'array', items: { type: 'object', required: ['edgeId', 'fromNodeId', 'toNodeId', 'edgeType'], properties: { edgeId: string, fromNodeId: string, toNodeId: string, edgeType: { type: 'string', enum: ['DATA', 'TIME_ANCHOR', 'READ_AFTER_WRITE', 'WRITE_CONFLICT', 'APPROVAL_POLICY', 'PROOF'] } }, additionalProperties: false }, uniqueItems: true },
+      proofPolicy: { type: 'object', required: ['proofVersion', 'mode', 'proofObligationIds', 'preservationIds', 'onUnverifiable'], properties: { proofVersion: string, mode: { type: 'string', enum: ['ALL_BOUND_OBLIGATIONS_REQUIRED_BEFORE_EXECUTION'] }, proofObligationIds: { ...strings, minItems: 1 }, preservationIds: { ...strings, minItems: 1 }, onUnverifiable: { type: 'string', enum: ['BLOCK_EXECUTION'] } }, additionalProperties: false },
+      diagnostics: { type: 'array', items: diagnostic, uniqueItems: true },
+      unresolvedIntentNodeIds: strings,
     },
   };
 }
@@ -619,6 +748,12 @@ function validateArtifactV2(value: unknown, schema: unknown, path: string): stri
 }
 
 function isRecord(value: unknown): value is JsonRecord { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
+function publicOperatorOwnerRef(operator: JsonRecord): string {
+  if (typeof operator.ownerRef === 'string' && operator.ownerRef) return operator.ownerRef;
+  const owner = isRecord(operator.owner) ? operator.owner : {};
+  if (typeof owner.path === 'string' && typeof owner.symbol === 'string') return `${owner.path}#${owner.symbol}`;
+  fail('OPERATOR_OWNER_REF_MISSING', String(operator.operatorId ?? 'unknown'));
+}
 function records(value: unknown): JsonRecord[] { return Array.isArray(value) ? value.filter(isRecord) : []; }
 function strings(value: unknown): string[] { return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []; }
 function sameStringSet(left: string[], right: string[]): boolean { return left.length === right.length && left.every((value) => right.includes(value)); }

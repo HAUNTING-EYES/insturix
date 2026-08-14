@@ -93,7 +93,7 @@
       }
     },
     "EvidenceBoundIntentGraphV2": {"required": ["taskId", "nodes", "evidenceBindings", "rightsDecision", "privacyDecision", "revisionBinding", "proofPlan"]},
-    "CompiledOperationGraphV2": {"required": ["taskId", "operatorCatalogVersion", "nodes", "edges", "expectedProjectRevision", "proofPolicy"]},
+    "CompiledOperationGraphV2": {"required": ["taskId", "compileDisposition", "executionEligibility", "sourceEditorialIntentHash", "sourceEvidenceBoundIntentHash", "evidencePackHash", "operatorCatalogVersion", "projectId", "expectedProjectRevision", "nodes", "edges", "proofPolicy", "diagnostics", "unresolvedIntentNodeIds"]},
     "ProceedOrStopDecisionV2": {"required": ["taskId", "disposition", "reasonCode", "missingEvidenceIds", "missingCapabilityIds", "userMessage"]}
   }
 }
