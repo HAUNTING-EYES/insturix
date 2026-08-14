@@ -7,9 +7,10 @@ Authority: `RESEARCH_ONLY_NO_PROJECT_MUTATION`
 ## Result in one sentence
 
 Terra and Gemini Flash produced DEV-02 programs that passed the current
-objective rendered hard gates; Luna did not pass after the one permitted repair;
-Qwen 3.8 Max was not part of this automated condition. No model is promoted to
-production because temporal safety and creative quality remain unverified.
+objective rendered hard gates and the frame-complete FFmpeg flash-risk screen;
+Luna did not pass after the one permitted repair; Qwen 3.8 Max was not part of
+this automated condition. No model is promoted because approved PSE QC and
+blind creative quality review remain unverified.
 
 ## What this condition tested
 
@@ -99,16 +100,25 @@ The receipt and anonymous reviewer pack are retained under:
 
 | Route              | Sandbox wall time | Rendered hard gates | Remaining technical gap | Playable SHA-256                                                  |
 | ------------------ | ----------------: | ------------------- | ----------------------- | ---------------------------------------------------------------- |
-| `gpt-5.6-terra`     |         `77.003s` | PASS (7/7)          | flash safety            | `df42fabbeb619472912cccf5d4f4d93c59dc7ee9665df04a50b07d510f490457` |
-| `gemini-3.6-flash` |         `84.450s` | PASS (7/7)          | flash safety            | `c28f812835e8d42c03986bb83495110290f4c1d1c8ee4519830221131fb0be80` |
+| `gpt-5.6-terra`     |         `77.003s` | PASS (7/7)          | approved PSE QC         | `df42fabbeb619472912cccf5d4f4d93c59dc7ee9665df04a50b07d510f490457` |
+| `gemini-3.6-flash` |         `84.450s` | PASS (7/7)          | approved PSE QC         | `c28f812835e8d42c03986bb83495110290f4c1d1c8ee4519830221131fb0be80` |
 
 Both proxies independently passed exact MP4/H.264/YUV420P, limited-range
 BT.709, silent-audio, 1080x1920 raster, 30/1 constant frame rate, 180 unique
 packet timestamps, six-second duration and whole-file SHA-256 checks. Their
 rendered checks passed frame integrity, settled five-panel geometry and
 gutters, title form, opposed motion, build/hold/release structure, full-canvas
-takeover and following-shot boundary continuity. Dense flash safety remains
-`UNVERIFIABLE`; this is why technical status is not yet `PASS`.
+takeover and following-shot boundary continuity.
+
+The later frame-complete screen observed all 180 frames for each proxy with
+FFmpeg 8.1's `photosensitivity` heuristic at threshold `1.0`. Terra peaked at
+`0.312370`; Gemini peaked at `0.451628`; neither had a threshold-exceedance
+frame. The aggregate receipt hash is
+`d4476282db1f3a9f44a64195329bbb3cfcbc85666a570d8dafeb3d875338a192`;
+Terra's child receipt is `342b9b39e04a37441db50ee533ec6b3f751f13f9038c803a3b6de9c338d4319d`
+and Gemini's is `0495b7b98749f00e2d15ad96f62ff5eef8c7eb96b92a8f479f3e88da6f3f2f8d`.
+This is a hash-bound preliminary screen, not WCAG/ITU/broadcast certification;
+approved PSE QC remains `UNVERIFIABLE`, so technical status is not yet `PASS`.
 
 ### Host-budget correction
 
@@ -260,10 +270,12 @@ state effects.
 
 ## Why the two objective passes are still not promotions
 
-Six stills plus a fully packet-scanned playable proxy now prove the current
-layout, motion-direction, phase, title, takeover, boundary, codec, colour,
-duration and playback-integrity checks. They still do not prove flash frequency
-across every frame. Therefore `technicalDisposition` remains `UNVERIFIABLE`.
+Six stills, a fully packet-scanned playable proxy, and the 180/180-frame
+heuristic screen now prove the current layout, motion-direction, phase, title,
+takeover, boundary, codec, colour, duration, playback-integrity, and preliminary
+flash-risk checks. FFmpeg's heuristic does not issue an approved PSE certificate
+and does not promote the result to regulatory safety. Therefore
+`technicalDisposition` remains `UNVERIFIABLE`.
 
 No blind editor has reviewed a playable proxy. Therefore
 `creativeDisposition` remains `UNVERIFIABLE`.
@@ -274,8 +286,8 @@ synthetic panel test is not evidence of professional taste.
 
 ## Promotion decision and next three gates
 
-- Terra and Gemini Flash advance as challengers to dense temporal proof and
-  blind editor review.
+- Terra and Gemini Flash advance as challengers to approved PSE QC and blind
+  editor review.
 - Luna remains in the wider model cohort, but does not advance as a DEV-02
   generated-source winner from this run.
 - Qwen remains a promising diagnostic challenger, not a fair current winner.
@@ -283,10 +295,9 @@ synthetic panel test is not evidence of professional taste.
 
 The next three gates are:
 
-1. **Dense temporal proof:** playable proxies, timing continuity, playback
-   integrity and explicit audio absence are complete for DEV-02. Run a
-   frame-complete flash-safety analysis and bind its tool/version/thresholds to
-   each existing proxy without rerunning the providers.
+1. **Approved PSE QC:** the frame-complete FFmpeg heuristic screen is complete
+   and hash-bound. Run the same proxies through an approved commercial/broadcast
+   PSE workflow without rerunning providers; retain its report and tool identity.
 2. **Model-blind editor review:** randomize candidate identity, retain the actual
    playable proxies, and collect human ratings/corrections without simulating a
    reviewer.
