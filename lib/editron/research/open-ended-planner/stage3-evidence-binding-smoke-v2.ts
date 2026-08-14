@@ -232,10 +232,10 @@ export function evaluateStage3EvidenceBindingArtifactV2(value: unknown): Readonl
   const revisionBinding = dimension(diagnostics, /REVISION_BINDING/);
 
   const rightsFact = fact('fact-rights-policy');
-  if (rights.status !== 'ALLOWED' || !strings(rights.policyFactIds).includes('fact-rights-policy')
+  if (rights.status !== 'COMPLIANT' || !strings(rights.policyFactIds).includes('fact-rights-policy')
     || !sameSet(strings(rights.allowedAssetIds), strings(rightsFact.allowedAssetIds))
     || !containsAll(strings(rights.deniedActions), strings(rightsFact.deniedActions))) diagnostics.push('RIGHTS_DECISION_DRIFT');
-  if (privacy.status !== 'ALLOWED' || privacy.egressDisposition !== 'DENIED'
+  if (privacy.status !== 'COMPLIANT' || privacy.egressDisposition !== 'DENIED'
     || !strings(privacy.policyFactIds).includes('fact-privacy-egress-policy')) diagnostics.push('PRIVACY_DECISION_DRIFT');
   const rightsAndPrivacy = dimension(diagnostics, /RIGHTS_|PRIVACY_/);
 

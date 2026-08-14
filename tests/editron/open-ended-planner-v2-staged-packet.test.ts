@@ -65,8 +65,8 @@ function prior(artifactType: string, taskId: string, executionForm: 'NATIVE' | '
     artifactType, taskId, stageDisposition: 'CAPABILITY_GAP',
     nodes: [{ intentNodeId: 'node-1', candidateCapabilityIds: ['generated_composition_program'], evidenceBindingIds: ['binding-reference'], preservationIds: ['preserve-reference'], proofObligationIds: ['proof-render'], bindingStatus: 'BOUND', unresolvedRequirementIds: ['req-owner'] }],
     evidenceBindings: [{ bindingId: 'binding-reference', factIds: ['fact-reference-observation'], nodeIds: ['node-1'], status: 'BOUND' }],
-    rightsDecision: { decisionId: 'rights', status: 'ALLOWED', policyFactIds: ['fact-rights-policy'], allowedAssetIds: ['dev02-wide'], deniedActions: ['INSERT_REFERENCE_MEDIA'], reasonCodes: ['OWNED_FIXTURE'] },
-    privacyDecision: { decisionId: 'privacy', status: 'ALLOWED', policyFactIds: ['fact-privacy-egress-policy'], egressDisposition: 'DENIED', reasonCodes: ['SYNTHETIC_NO_EGRESS'] },
+    rightsDecision: { decisionId: 'rights', status: 'COMPLIANT', policyFactIds: ['fact-rights-policy'], allowedAssetIds: ['dev02-wide'], deniedActions: ['INSERT_REFERENCE_MEDIA'], reasonCodes: ['OWNED_FIXTURE'] },
+    privacyDecision: { decisionId: 'privacy', status: 'COMPLIANT', policyFactIds: ['fact-privacy-egress-policy'], egressDisposition: 'DENIED', reasonCodes: ['SYNTHETIC_NO_EGRESS'] },
     revisionBinding: { projectId: 'oe-dev-02', expectedProjectRevision: 'R3', timebaseFactId: 'fact-project-timebase', status: 'BOUND' },
     preservationBindings: [{ preservationId: 'preserve-reference', factIds: ['fact-reference-observation'], status: 'BOUND' }],
     proofPlan: [{ proofObligationId: 'proof-render', kind: 'RENDERED_GEOMETRY', nodeIds: ['node-1'], targetClaimIds: ['claim-layout'], requiredFactIds: ['fact-reference-observation'], status: 'PLANNED' }],
@@ -273,6 +273,7 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     expect(third.packet.instructions).toEqual(expect.arrayContaining([
       expect.stringContaining('BOUND means the supplied facts are complete'),
       expect.stringContaining('PLANNED means a proof obligation is required'),
+      expect.stringContaining('COMPLIANT means the proposed plan obeys'),
       expect.stringContaining('distinct from capability readiness'),
     ]));
     expect(modelInput(fourth)).toHaveProperty('operatorCatalog.fieldSchemas');

@@ -9,7 +9,7 @@ import {
 describe('open-ended planner V2 isolated Stage-3 evidence-binding smoke', () => {
   it('freezes Luna and Terra against one canonical intent and evidence pack', async () => {
     const plan = await buildStage3EvidenceBindingSmokePreflightV2() as Plan;
-    expect(plan.planHash).toBe('44ba87846377eb69553c5f1e1fefe20f72ee7bd9bb39d6c2e940b5fe51791d1a');
+    expect(plan.planHash).toBe('7dd99573b5afdcebcc8f3e4616db54a62e4211e5e1ba2a1396180539f92c8b9c');
     expect(plan.rows).toHaveLength(2);
     expect(plan.spend).toMatchObject({ plannedProviderCalls: 2, absoluteMaxSpendUsd: 0.4 });
     expect(new Set(plan.rows.map(({ packetHash }) => packetHash)).size).toBe(1);
@@ -76,8 +76,8 @@ function boundArtifact() {
       { bindingId: 'binding-support', factIds: ['fact-support-generated-composition'], nodeIds: ['node-generated-island'], status: 'BOUND' },
       { bindingId: 'binding-policy', factIds: ['fact-rights-policy', 'fact-privacy-egress-policy'], nodeIds: allNodes, status: 'BOUND' },
     ],
-    rightsDecision: { decisionId: 'rights-dev02', status: 'ALLOWED', policyFactIds: ['fact-rights-policy'], allowedAssetIds: ['dev02-wide', 'dev02-close'], deniedActions: ['INSERT_REFERENCE_MEDIA', 'REMOTE_MEDIA_RETRIEVAL', 'UNDECLARED_ASSET_USE'], reasonCodes: ['INTERNAL_OWNED_FIXTURES_ONLY'] },
-    privacyDecision: { decisionId: 'privacy-dev02', status: 'ALLOWED', policyFactIds: ['fact-privacy-egress-policy'], egressDisposition: 'DENIED', reasonCodes: ['SYNTHETIC_ONLY_NO_EGRESS'] },
+    rightsDecision: { decisionId: 'rights-dev02', status: 'COMPLIANT', policyFactIds: ['fact-rights-policy'], allowedAssetIds: ['dev02-wide', 'dev02-close'], deniedActions: ['INSERT_REFERENCE_MEDIA', 'REMOTE_MEDIA_RETRIEVAL', 'UNDECLARED_ASSET_USE'], reasonCodes: ['INTERNAL_OWNED_FIXTURES_ONLY'] },
+    privacyDecision: { decisionId: 'privacy-dev02', status: 'COMPLIANT', policyFactIds: ['fact-privacy-egress-policy'], egressDisposition: 'DENIED', reasonCodes: ['SYNTHETIC_ONLY_NO_EGRESS'] },
     revisionBinding: { projectId: 'oe-dev-02', expectedProjectRevision: 'R3', timebaseFactId: 'fact-project-timebase', status: 'BOUND' },
     preservationBindings: [
       { preservationId: 'preserve-reference-not-inserted', factIds: ['fact-source-dev02-reference', 'fact-rights-policy'], status: 'BOUND' },
