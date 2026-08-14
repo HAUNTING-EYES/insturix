@@ -12,7 +12,7 @@ const nativeHardClaimIds = hardClaimIds.slice(3);
 describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
   it('freezes four fair routes against one canonical blueprint and packet', async () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
-    expect(plan.planHash).toBe('c5ed7e1a357e96cc12ac2b54546a9579a1668a79a170b95161cd3281dcdd1b9f');
+    expect(plan.planHash).toBe('c110d80abce9ab866d46b69ca27257f5a72726632ab66dde4d7f0181d3a5c80a');
     expect(plan.rows).toHaveLength(4);
     expect(plan.spend).toMatchObject({ plannedProviderCalls: 4, absoluteMaxSpendUsd: 1.08 });
     expect(new Set(plan.rows.map(({ packetHash }) => packetHash)).size).toBe(1);
@@ -97,7 +97,7 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
     expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.capabilityHonesty === 'FAIL')).toBe(true);
   });
 
-  it('fails a hybrid graph that binds continuity to the wrong native owner', async () => {
+  it('fails a hybrid graph that omits a native continuity node', async () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
     const receipt = await runStage2RoutingSmokeV2({
       expectedPlanHash: plan.planHash, maxAuthorizedSpendUsd: 1.08, operatorId: 'admin', confirmedAt: '2026-08-14T00:00:00.000Z',
@@ -112,11 +112,11 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
       },
     }) as Receipt;
     expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.disposition === 'FAIL')).toBe(true);
-    expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.diagnostics.includes('NATIVE_CONTINUITY_OWNER_MISSING'))).toBe(true);
+    expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.diagnostics.includes('NATIVE_CONTINUITY_NODE_MISSING'))).toBe(true);
   });
 });
 
-function routingArtifact(form: 'HYBRID' | 'NATIVE' = 'HYBRID', falseEligibility = false, wrongNativeOwner = false) {
+function routingArtifact(form: 'HYBRID' | 'NATIVE' = 'HYBRID', falseEligibility = false, omitNativeContinuityNode = false) {
   const hybrid = form === 'HYBRID';
   const owner = hybrid ? 'generated_composition_program' : 'set_keyframes';
   return {
@@ -128,7 +128,7 @@ function routingArtifact(form: 'HYBRID' | 'NATIVE' = 'HYBRID', falseEligibility 
     },
     nodes: hybrid ? [
       { intentNodeId: 'intent-generated', operationFamily: 'generated-composition', targetClaimIds: generatedHardClaimIds, candidateCapabilityIds: [owner], executionForm: 'GENERATED_COMPOSITION', requiresNodeIds: [], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-R1'], failureDisposition: 'NEEDS_REVIEW' },
-      { intentNodeId: 'intent-handoff', operationFamily: 'continuity-handoff', targetClaimIds: nativeHardClaimIds, candidateCapabilityIds: [wrongNativeOwner ? 'set_keyframes' : 'use_matching_footage'], executionForm: 'NATIVE', requiresNodeIds: ['intent-generated'], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-C1'], failureDisposition: 'NEEDS_REVIEW' },
+      { intentNodeId: 'intent-handoff', operationFamily: 'continuity-handoff', targetClaimIds: omitNativeContinuityNode ? generatedHardClaimIds.slice(0, 1) : nativeHardClaimIds, candidateCapabilityIds: ['use_matching_footage'], executionForm: 'NATIVE', requiresNodeIds: ['intent-generated'], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-C1'], failureDisposition: 'NEEDS_REVIEW' },
     ] : [{ intentNodeId: 'intent-1', operationFamily: 'keyframes', targetClaimIds: hardClaimIds, candidateCapabilityIds: [owner], executionForm: 'NATIVE', requiresNodeIds: [], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-R1'], failureDisposition: 'NEEDS_REVIEW' }],
     edges: hybrid ? [{ edgeId: 'edge-handoff', fromNodeId: 'intent-generated', toNodeId: 'intent-handoff', edgeType: 'TIME_ANCHOR' }] : [], preservationIntents: [], unresolvedRequirements: [],
   };

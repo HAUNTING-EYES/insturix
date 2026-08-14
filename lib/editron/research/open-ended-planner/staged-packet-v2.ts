@@ -96,7 +96,7 @@ const STAGE_BUDGETS: Record<StageV2, StageBudgetV2> = {
 
 const STAGE_INSTRUCTIONS: Record<StageV2, string[]> = {
   1: ['Reconstruct only the visible and audible target.', 'Separate global editorial language, recurring design grammar, and bounded unique moments.', 'Express hard and soft results as measurable target claims with explicit coordinate scopes.', 'Do not select operators or an execution form.', 'State uncertainty when evidence is absent or noisy.'],
-  2: ['Select editorial operations and their dependencies.', 'Prove hard-target coverage for every candidate execution form.', 'Classify a bounded generated island as GENERATED_COMPOSITION and a full native plan surrounding an island as HYBRID.', 'Obey the assigned routing experiment.', 'Do not serialize exact runtime arguments yet.'],
+  2: ['Select editorial operations and their dependencies.', 'Prove structural hard-target coverage for every candidate execution form.', 'COVERED means the claim is assigned to catalog capabilities that can structurally realize it; missing concrete project IDs, ranges, or evidence belong in unresolvedRequirements for Stage 3 and do not by themselves make structural coverage UNVERIFIABLE.', 'ELIGIBLE requires truthful current support and compiler status; an ideal architectural route may still be selected while its candidate is INELIGIBLE or UNVERIFIABLE and records a capability gap.', 'Classify a bounded generated island as GENERATED_COMPOSITION and a full native plan surrounding an island as HYBRID.', 'Obey the assigned routing experiment.', 'Do not serialize exact runtime arguments yet.'],
   3: ['Bind every intent to supplied evidence, rights, privacy, revision, preservation, and proof requirements.', 'Do not invent evidence or capability.'],
   4: ['Compile the evidence-bound intent into exact catalog operator IDs and closed input fields.', 'Non-compilable operators require diagnostics, never invented replacements.'],
   5: ['Return PROCEED only for a valid, policy-safe compiled graph.', 'Keep clarification, capability gap, policy block, conflict, fail, and unverifiable distinct.'],
@@ -417,6 +417,13 @@ function routingExperiment(arm: ExecutionFormArmV2): JsonRecord {
     arm,
     rule: arm === 'FREE_CHOICE' ? 'Choose NATIVE, GENERATED_COMPOSITION, or HYBRID only after the coverage matrix and hard gates.' : arm === 'FORCED_NATIVE' ? 'Use NATIVE or report a gap.' : arm === 'FORCED_GENERATED_COMPOSITION' ? 'Use GENERATED_COMPOSITION or report a gap.' : arm === 'FORCED_HYBRID' ? 'Use HYBRID or report a gap.' : arm === 'THRESHOLD_ABLATION' ? 'Choose freely without any step-count threshold heuristic.' : 'Choose freely without model-confidence or unsupported taste-score signals.',
     scopeRule: 'executionForm classifies the full requested plan; a generated island with native surrounding editorial is HYBRID.',
+    coverageSemantics: {
+      COVERED: 'One or more named catalog capabilities structurally realize the claim; this does not assert concrete Stage-3 evidence or runtime arguments.',
+      UNCOVERED: 'No proposed capability path structurally realizes the claim.',
+      UNVERIFIABLE: 'The supplied blueprint or catalog is insufficient to decide structural coverage; do not use this merely because project IDs, ranges, or other Stage-3 bindings are absent.',
+    },
+    readinessSemantics: 'hardGateStatus reflects current support/compiler truth. RESEARCH_ONLY_NOT_IMPLEMENTED is never ELIGIBLE, even when it is the correct ideal architectural owner.',
+    stageBoundary: 'Put missing project revision, asset identity, source range, rights, or proof bindings in unresolvedRequirements for Stage 3 without confusing them with Stage-2 structural coverage.',
     hardGateOrder: ['hard target and preservation coverage', 'certified owner and support truth', 'source/timebase/range compatibility', 'rights/privacy/egress', 'editability/interchange', 'sandbox/resource/proof'],
   };
 }

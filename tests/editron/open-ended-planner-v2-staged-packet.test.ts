@@ -224,6 +224,13 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     expect(stageTwoProperties).toHaveProperty('routeDecision');
     expect((stageTwoProperties.nodes.items as Record<string, unknown>).additionalProperties).toBe(false);
     expect(modelInput(second)).toHaveProperty('routingExperiment.scopeRule', expect.stringContaining('HYBRID'));
+    expect(modelInput(second)).toHaveProperty('routingExperiment.coverageSemantics.COVERED', expect.stringContaining('structurally realize'));
+    expect(modelInput(second)).toHaveProperty('routingExperiment.readinessSemantics', expect.stringContaining('RESEARCH_ONLY_NOT_IMPLEMENTED'));
+    expect(modelInput(second)).toHaveProperty('routingExperiment.stageBoundary', expect.stringContaining('Stage 3'));
+    expect(second.packet.instructions).toEqual(expect.arrayContaining([
+      expect.stringContaining('missing concrete project IDs'),
+      expect.stringContaining('ideal architectural route'),
+    ]));
   });
 
   it('excludes evaluator structures recursively from every provider-visible packet', () => {

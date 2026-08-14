@@ -82,7 +82,6 @@ const ROUTE_IDS = new Set(['OPENAI_LUNA', 'OPENAI_TERRA', 'GOOGLE_FLASH_LITE', '
 const GENERATED_HARD_CLAIM_IDS = ['claim-user-stacked-layout', 'claim-user-centred-title', 'claim-user-varied-crops'];
 const NATIVE_HARD_CLAIM_IDS = ['claim-user-exit-continuity'];
 const GENERATED_OWNER_ID = 'generated_composition_program';
-const NATIVE_CONTINUITY_OWNER_ID = 'use_matching_footage';
 const blueprint = canonicalBlueprintJson as unknown as JsonRecord;
 const generatedOwner = (() => {
   const owner = (operatorCatalogJson.operators as unknown as JsonRecord[])
@@ -139,12 +138,12 @@ export async function buildStage2RoutingSmokePreflightV2(): Promise<Readonly<Rec
     comparisonPurpose: 'ISOLATED_ROUTING_FROM_EVALUATOR_APPROVED_BLUEPRINT',
     expectedCase: { caseId: 'DEV02_REQUESTED_SECTION_WITH_FILMSTRIP', scope: 'SIX_SECOND_SECTION_WITH_NATIVE_SOURCE_SELECTION_AND_CONTINUITY_HANDOFF', executionForm: 'HYBRID' },
     evaluationContract: {
-      version: 'EDITRON_OE_STAGE2_ROUTING_EVALUATION_V2_2',
+      version: 'EDITRON_OE_STAGE2_ROUTING_EVALUATION_V2_3',
       dimensions: ['routeClassification', 'candidateCoverage', 'graphCoverage', 'capabilityReadiness', 'capabilityHonesty'],
       generatedHardClaimIds: GENERATED_HARD_CLAIM_IDS,
       nativeHardClaimIds: NATIVE_HARD_CLAIM_IDS,
       generatedOwnerId: GENERATED_OWNER_ID,
-      nativeContinuityOwnerId: NATIVE_CONTINUITY_OWNER_ID,
+      nativeContinuityNodePolicy: 'At least one NATIVE node must own the exit-continuity claim; exact runtime owner selection remains evidence-dependent until Stage 3.',
       generatedOwnerSupportStatus: generatedOwner.supportStatus,
       rule: 'Correct routing remains distinct from complete claim coverage and current execution readiness; blocked readiness must name the unavailable generated owner.',
     },
@@ -225,15 +224,14 @@ export function evaluateStage2RoutingArtifactV2(value: unknown): Readonly<Routin
   const generatedOwnerPresent = nodes.some((node) => node.executionForm === 'GENERATED_COMPOSITION'
     && array(node.candidateCapabilityIds).includes(GENERATED_OWNER_ID));
   const nativeOwnerPresent = nodes.some((node) => node.executionForm === 'NATIVE'
-    && array(node.targetClaimIds).includes('claim-user-exit-continuity')
-    && array(node.candidateCapabilityIds).includes(NATIVE_CONTINUITY_OWNER_ID));
+    && array(node.targetClaimIds).includes('claim-user-exit-continuity'));
   const routeDiagnostics = [
     ...(artifact.executionForm === 'HYBRID' ? [] : ['WRONG_EXECUTION_FORM']),
     ...(routeDecision.scopeClassification === 'HYBRID_FULL_PLAN' ? [] : ['WRONG_SCOPE_CLASSIFICATION']),
     ...(GENERATED_HARD_CLAIM_IDS.every((claimId) => generatedIslandClaimIds.has(claimId)) ? [] : ['GENERATED_HARD_CLAIMS_NOT_BOUND_TO_ISLAND']),
     ...(NATIVE_HARD_CLAIM_IDS.every((claimId) => nativeSurroundClaimIds.has(claimId)) ? [] : ['NATIVE_HARD_CLAIMS_NOT_BOUND_TO_SURROUND']),
     ...(generatedOwnerPresent ? [] : ['GENERATED_COMPOSITION_OWNER_MISSING']),
-    ...(nativeOwnerPresent ? [] : ['NATIVE_CONTINUITY_OWNER_MISSING']),
+    ...(nativeOwnerPresent ? [] : ['NATIVE_CONTINUITY_NODE_MISSING']),
   ];
   const candidateCoverage = coveredHardClaimIds.length === hardClaimIds.length ? 'PASS' : 'FAIL';
   const graphCovered = new Set(nodes.flatMap((node) => array(node.targetClaimIds).map(String)));
