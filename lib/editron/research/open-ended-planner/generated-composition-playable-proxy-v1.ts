@@ -81,6 +81,7 @@ export async function renderGeneratedCompositionPlayableProxyV1(input: {
       composition: input.composition,
       outputLocation: rawOutput,
       codec: 'h264',
+      x264Preset: 'ultrafast',
       pixelFormat: 'yuv420p',
       colorSpace: 'bt709',
       muted: true,
