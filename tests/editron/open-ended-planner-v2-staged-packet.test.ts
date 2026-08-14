@@ -16,6 +16,9 @@ import {
   type HashedStagePacketV2,
 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import canonicalEvidenceBoundIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-evidence-bound-intent-v2.json';
+import canonicalEditorialIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-editorial-intent-v2.json';
+import canonicalReferenceBlueprintJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-reference-blueprint-v2.json';
 
 interface FrozenPlanV2 {
   planVersion: string;
@@ -253,22 +256,23 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     expect(() => assertNoEvaluatorLeakV2({ nested: { evaluatorOnly: 'sentinel-secret' } })).toThrow(/Forbidden provider key/);
   });
 
-  it('constructs stages 2-5 sequentially and narrows forced routing schemas', () => {
+  it('constructs stages 2-5 sequentially and carries the exact Stage-4 source chain', () => {
     const first = stageOne.find(({ packet }) => packet.taskId === 'DEV-02' && packet.conditionId === 'BASELINE' && packet.inputArm === 'MULTIMODAL') as HashedStagePacketV2;
-    const second = buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FORCED_NATIVE', priorArtifact: prior('ReferenceBlueprintV2', 'DEV-02') });
-    const third = buildNextProviderStagePacketV2({ previousPacket: second, stage: 3, executionFormArm: 'FORCED_NATIVE', priorArtifact: prior('EditorialIntentGraphV2', 'DEV-02', 'NATIVE') });
-    const fourth = buildNextProviderStagePacketV2({ previousPacket: third, stage: 4, executionFormArm: 'FORCED_NATIVE', priorArtifact: prior('EvidenceBoundIntentGraphV2', 'DEV-02') });
-    const fifth = buildNextProviderStagePacketV2({ previousPacket: fourth, stage: 5, executionFormArm: 'FORCED_NATIVE', priorArtifact: prior('CompiledOperationGraphV2', 'DEV-02') });
-    expect([second, third, fourth, fifth].map(({ packet }) => packet.stage)).toEqual([2, 3, 4, 5]);
-    const executionForm = ((second.packet.outputContract.properties as Record<string, unknown>).executionForm as { enum: string[] }).enum;
+    const forcedSecond = buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FORCED_NATIVE', priorArtifact: canonicalReferenceBlueprintJson });
+    const executionForm = ((forcedSecond.packet.outputContract.properties as Record<string, unknown>).executionForm as { enum: string[] }).enum;
     expect(executionForm).toEqual(['NATIVE', 'CAPABILITY_GAP']);
+    const second = buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: canonicalReferenceBlueprintJson });
+    const third = buildNextProviderStagePacketV2({ previousPacket: second, stage: 3, executionFormArm: 'FREE_CHOICE', priorArtifact: canonicalEditorialIntentJson });
+    const fourth = buildNextProviderStagePacketV2({ previousPacket: third, stage: 4, executionFormArm: 'FREE_CHOICE', priorArtifact: canonicalEvidenceBoundIntentJson });
+    const fifth = buildNextProviderStagePacketV2({ previousPacket: fourth, stage: 5, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('CompiledOperationGraphV2', 'DEV-02') });
+    expect([second, third, fourth, fifth].map(({ packet }) => packet.stage)).toEqual([2, 3, 4, 5]);
     expect(modelInput(second)).toHaveProperty('operatorCatalog');
     expect(modelInput(third)).toHaveProperty('evidencePack.authority', 'SYNTHETIC_BENCHMARK_EVIDENCE_ONLY_NO_PROJECT_MUTATION');
     expect(modelInput(third)).toHaveProperty('evidencePack.facts', expect.arrayContaining([
       expect.objectContaining({ factId: 'fact-project-revision', expectedProjectRevision: 'R3' }),
       expect.objectContaining({ factId: 'fact-support-generated-composition', supportStatus: 'RESEARCH_ONLY_NOT_IMPLEMENTED' }),
     ]));
-    expect((modelInput(third).operatorCatalog as { operators: unknown[] }).operators).toHaveLength(1);
+    expect((modelInput(third).operatorCatalog as { operators: unknown[] }).operators).toHaveLength(5);
     expect(third.packet.outputContract).toHaveProperty('properties.stageDisposition.enum', expect.arrayContaining(['CAPABILITY_GAP', 'UNVERIFIABLE']));
     expect(third.packet.instructions).toEqual(expect.arrayContaining([
       expect.stringContaining('BOUND means the supplied facts are complete'),
@@ -277,7 +281,20 @@ describe('open-ended planner V2 staged no-provider packets', () => {
       expect.stringContaining('distinct from capability readiness'),
     ]));
     expect(modelInput(fourth)).toHaveProperty('operatorCatalog.fieldSchemas');
+    expect(modelInput(fourth)).toHaveProperty('compilationSources.sourceEditorialIntent', canonicalEditorialIntentJson);
+    expect(modelInput(fourth)).toHaveProperty('compilationSources.sourceEditorialIntentHash', hashCanonicalJsonV1(canonicalEditorialIntentJson));
+    expect(modelInput(fourth)).toHaveProperty('compilationSources.sourceEvidenceBoundIntentHash', '9222bc05a08c90a93dfc682bc6f4ac852d9de106eb11df3552c26420fe65334d');
+    expect(modelInput(fourth)).toHaveProperty('compilationSources.evidencePackHash', 'ddcd45e6ef7c51eca382919fd04595ceabb3d4eef8483d4809d899aa22519822');
     expect(modelInput(fifth)).not.toHaveProperty('operatorCatalog');
+    const drifted = structuredClone(canonicalEvidenceBoundIntentJson);
+    drifted.nodes[0].candidateCapabilityIds = ['read_project_file'];
+    let driftError: unknown;
+    try {
+      buildNextProviderStagePacketV2({ previousPacket: third, stage: 4, executionFormArm: 'FREE_CHOICE', priorArtifact: drifted });
+    } catch (error) {
+      driftError = error;
+    }
+    expect(driftError).toMatchObject({ code: 'STAGE4_CAPABILITY_SET_DRIFT' });
     expect(() => buildNextProviderStagePacketV2({ previousPacket: first, stage: 3, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('EditorialIntentGraphV2', 'DEV-02') })).toThrow(/sequentially/);
     expect(() => buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('ReferenceBlueprintV2', 'DEV-99') })).toThrow(/same task/);
   });
@@ -285,8 +302,8 @@ describe('open-ended planner V2 staged no-provider packets', () => {
   it('allocates the complete frozen trial budget without exceeding it', () => {
     const first = stageOne.find(({ packet }) => packet.taskId === 'DEV-02' && packet.conditionId === 'BASELINE') as HashedStagePacketV2;
     const packets = [first];
-    const types = ['ReferenceBlueprintV2', 'EditorialIntentGraphV2', 'EvidenceBoundIntentGraphV2', 'CompiledOperationGraphV2'];
-    for (let stage = 2; stage <= 5; stage += 1) packets.push(buildNextProviderStagePacketV2({ previousPacket: packets.at(-1) as HashedStagePacketV2, stage: stage as 2 | 3 | 4 | 5, executionFormArm: 'FREE_CHOICE', priorArtifact: prior(types[stage - 2], first.packet.taskId) }));
+    const artifacts = [canonicalReferenceBlueprintJson, canonicalEditorialIntentJson, canonicalEvidenceBoundIntentJson, prior('CompiledOperationGraphV2', 'DEV-02')];
+    for (let stage = 2; stage <= 5; stage += 1) packets.push(buildNextProviderStagePacketV2({ previousPacket: packets.at(-1) as HashedStagePacketV2, stage: stage as 2 | 3 | 4 | 5, executionFormArm: 'FREE_CHOICE', priorArtifact: artifacts[stage - 2] }));
     const sum = (field: 'maxInputTokens' | 'maxVisibleOutputTokens' | 'maxReasoningTokens' | 'maxWallClockMs' | 'maxProviderCostUsd') => packets.reduce((total, packet) => total + packet.packet.stageBudget[field], 0);
     expect(sum('maxInputTokens')).toBe(122500);
     expect(sum('maxVisibleOutputTokens')).toBe(19200);

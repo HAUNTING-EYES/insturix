@@ -1,0 +1,116 @@
+{
+  "artifactType": "EvidenceBoundIntentGraphV2",
+  "taskId": "DEV-02",
+  "stageDisposition": "CAPABILITY_GAP",
+  "nodes": [
+    {
+      "intentNodeId": "node-source-resolution",
+      "candidateCapabilityIds": ["inspect_user_asset", "resolve_user_asset_overlay"],
+      "evidenceBindingIds": ["bind-source-media-and-windows"],
+      "preservationIds": ["preserve-reference-not-inserted"],
+      "proofObligationIds": ["proof-asset-rights", "proof-source-ranges"],
+      "bindingStatus": "BOUND",
+      "unresolvedRequirementIds": []
+    },
+    {
+      "intentNodeId": "node-generated-island",
+      "candidateCapabilityIds": ["generated_composition_program"],
+      "evidenceBindingIds": ["bind-reference-island", "bind-source-media-and-windows", "bind-island-target-geometry"],
+      "preservationIds": ["preserve-reference-not-inserted", "preserve-title-legibility", "preserve-project-duration"],
+      "proofObligationIds": ["proof-asset-rights", "proof-source-ranges", "proof-rendered-geometry", "proof-rendered-legibility", "proof-sandbox-compile"],
+      "bindingStatus": "BOUND",
+      "unresolvedRequirementIds": ["req-generated-owner", "req-exact-easing-review"]
+    },
+    {
+      "intentNodeId": "node-native-continuation",
+      "candidateCapabilityIds": ["get_timeline_view", "resolve_user_asset_overlay"],
+      "evidenceBindingIds": ["bind-exit-continuity", "bind-source-media-and-windows"],
+      "preservationIds": ["preserve-following-timing", "preserve-project-duration"],
+      "proofObligationIds": ["proof-source-ranges", "proof-boundary-continuity", "proof-state-reload"],
+      "bindingStatus": "BOUND",
+      "unresolvedRequirementIds": []
+    },
+    {
+      "intentNodeId": "node-proof",
+      "candidateCapabilityIds": ["read_project_file", "get_timeline_view"],
+      "evidenceBindingIds": ["bind-project-revision-timebase", "bind-reference-island", "bind-exit-continuity"],
+      "preservationIds": ["preserve-reference-not-inserted", "preserve-following-timing", "preserve-project-duration", "preserve-title-legibility"],
+      "proofObligationIds": ["proof-revision-freshness", "proof-rendered-geometry", "proof-rendered-legibility", "proof-boundary-continuity", "proof-sandbox-compile", "proof-state-reload"],
+      "bindingStatus": "BOUND",
+      "unresolvedRequirementIds": ["req-generated-owner", "req-exact-easing-review"]
+    }
+  ],
+  "evidenceBindings": [
+    {
+      "bindingId": "bind-project-revision-timebase",
+      "factIds": ["fact-project-revision", "fact-project-timebase", "fact-project-target-range"],
+      "nodeIds": ["node-proof"],
+      "status": "BOUND"
+    },
+    {
+      "bindingId": "bind-source-media-and-windows",
+      "factIds": ["fact-source-dev02-wide", "fact-source-dev02-close", "fact-source-windows", "fact-rights-policy"],
+      "nodeIds": ["node-source-resolution", "node-generated-island", "node-native-continuation"],
+      "status": "BOUND"
+    },
+    {
+      "bindingId": "bind-reference-island",
+      "factIds": ["fact-reference-observation", "fact-source-dev02-reference", "fact-rights-policy"],
+      "nodeIds": ["node-generated-island", "node-proof"],
+      "status": "BOUND"
+    },
+    {
+      "bindingId": "bind-island-target-geometry",
+      "factIds": ["fact-project-canvas", "fact-project-target-range", "fact-reference-observation"],
+      "nodeIds": ["node-generated-island"],
+      "status": "BOUND"
+    },
+    {
+      "bindingId": "bind-exit-continuity",
+      "factIds": ["fact-exit-continuity", "fact-project-timebase", "fact-project-revision"],
+      "nodeIds": ["node-native-continuation", "node-proof"],
+      "status": "BOUND"
+    }
+  ],
+  "rightsDecision": {
+    "decisionId": "rights-dev02-owned-source-only",
+    "status": "COMPLIANT",
+    "policyFactIds": ["fact-rights-policy", "fact-source-dev02-wide", "fact-source-dev02-close", "fact-source-dev02-reference"],
+    "allowedAssetIds": ["dev02-wide", "dev02-close"],
+    "deniedActions": ["INSERT_REFERENCE_MEDIA", "REMOTE_MEDIA_RETRIEVAL", "UNDECLARED_ASSET_USE"],
+    "reasonCodes": ["OWNED_FIXTURE_SOURCES_ONLY", "REFERENCE_REMAINS_EVIDENCE_ONLY", "NO_UNDECLARED_ASSET_USE"]
+  },
+  "privacyDecision": {
+    "decisionId": "privacy-dev02-no-egress",
+    "status": "COMPLIANT",
+    "policyFactIds": ["fact-privacy-egress-policy"],
+    "egressDisposition": "DENIED",
+    "reasonCodes": ["NO_NETWORK_EGRESS_PLANNED", "NO_REMOTE_TOOL_CALL_PLANNED", "NO_RAW_PROVIDER_RESPONSE_PERSISTENCE_PLANNED"]
+  },
+  "revisionBinding": {
+    "projectId": "oe-dev-02",
+    "expectedProjectRevision": "R3",
+    "timebaseFactId": "fact-project-timebase",
+    "status": "BOUND"
+  },
+  "preservationBindings": [
+    {"preservationId": "preserve-reference-not-inserted", "factIds": ["fact-source-dev02-reference", "fact-rights-policy"], "status": "BOUND"},
+    {"preservationId": "preserve-following-timing", "factIds": ["fact-project-revision", "fact-exit-continuity"], "status": "BOUND"},
+    {"preservationId": "preserve-project-duration", "factIds": ["fact-project-revision", "fact-project-timebase"], "status": "BOUND"},
+    {"preservationId": "preserve-title-legibility", "factIds": ["fact-project-canvas", "fact-project-target-range", "fact-reference-observation"], "status": "BOUND"}
+  ],
+  "proofPlan": [
+    {"proofObligationId": "proof-revision-freshness", "kind": "REVISION_FRESHNESS", "nodeIds": ["node-proof"], "targetClaimIds": ["claim-user-stacked-layout", "claim-user-centred-title", "claim-user-varied-crops", "claim-user-exit-continuity"], "requiredFactIds": ["fact-project-revision"], "status": "PLANNED"},
+    {"proofObligationId": "proof-asset-rights", "kind": "ASSET_IDENTITY_RIGHTS", "nodeIds": ["node-source-resolution", "node-generated-island"], "targetClaimIds": ["claim-user-varied-crops"], "requiredFactIds": ["fact-source-dev02-wide", "fact-source-dev02-close", "fact-rights-policy"], "status": "PLANNED"},
+    {"proofObligationId": "proof-source-ranges", "kind": "SOURCE_RANGE_HANDLES", "nodeIds": ["node-source-resolution", "node-generated-island", "node-native-continuation"], "targetClaimIds": ["claim-user-varied-crops", "claim-user-exit-continuity"], "requiredFactIds": ["fact-source-windows", "fact-exit-continuity"], "status": "PLANNED"},
+    {"proofObligationId": "proof-rendered-geometry", "kind": "RENDERED_GEOMETRY", "nodeIds": ["node-generated-island", "node-proof"], "targetClaimIds": ["claim-user-stacked-layout", "claim-ref-five-panels", "claim-ref-black-gutters", "claim-ref-temporal-progression"], "requiredFactIds": ["fact-project-canvas", "fact-project-target-range", "fact-reference-observation"], "status": "PLANNED"},
+    {"proofObligationId": "proof-rendered-legibility", "kind": "RENDERED_LEGIBILITY", "nodeIds": ["node-generated-island", "node-proof"], "targetClaimIds": ["claim-user-centred-title", "claim-ref-yellow-two-line-title"], "requiredFactIds": ["fact-project-canvas", "fact-reference-observation"], "status": "PLANNED"},
+    {"proofObligationId": "proof-boundary-continuity", "kind": "BOUNDARY_CONTINUITY", "nodeIds": ["node-native-continuation", "node-proof"], "targetClaimIds": ["claim-user-exit-continuity", "claim-ref-green-centre-takeover"], "requiredFactIds": ["fact-exit-continuity", "fact-project-timebase"], "status": "PLANNED"},
+    {"proofObligationId": "proof-sandbox-compile", "kind": "SANDBOX_COMPILE", "nodeIds": ["node-generated-island", "node-proof"], "targetClaimIds": ["claim-user-stacked-layout", "claim-user-centred-title", "claim-ref-opposed-motion"], "requiredFactIds": ["fact-support-generated-composition"], "status": "PLANNED"},
+    {"proofObligationId": "proof-state-reload", "kind": "STATE_RELOAD", "nodeIds": ["node-native-continuation", "node-proof"], "targetClaimIds": ["claim-user-exit-continuity"], "requiredFactIds": ["fact-project-revision", "fact-exit-continuity"], "status": "PLANNED"}
+  ],
+  "unresolvedRequirements": [
+    {"requirementId": "req-generated-owner", "kind": "CAPABILITY", "factIds": ["fact-support-generated-composition"], "disposition": "CAPABILITY_GAP"},
+    {"requirementId": "req-exact-easing-review", "kind": "AMBIGUITY", "factIds": ["fact-reference-observation"], "disposition": "NEEDS_REVIEW"}
+  ]
+}

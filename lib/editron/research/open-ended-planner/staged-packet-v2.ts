@@ -1,4 +1,5 @@
 import benchmarkJson from '@/tests/fixtures/editron/open-ended-planner-v2/benchmark-contract-v2.json';
+import dev02CanonicalIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-editorial-intent-v2.json';
 import dev02Stage3EvidenceJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-stage3-evidence-pack-v2.json';
 import mediaManifestJson from '@/tests/fixtures/editron/open-ended-planner-v2/development-media-manifest-v2.json';
 import operatorCatalogJson from '@/tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json';
@@ -175,6 +176,7 @@ export function buildNextProviderStagePacketV2(input: {
     condition: publicCondition(condition),
     ...(input.stage <= 4 ? { operatorCatalog: publicOperatorCatalog(input.stage, input.priorArtifact) } : {}),
     ...(input.stage === 3 ? { evidencePack: stageThreeEvidencePack(sourceTask, condition) } : {}),
+    ...(input.stage === 4 ? { compilationSources: stageFourCompilationSources(sourceTask, condition, input.priorArtifact, input.previousPacket.packet) } : {}),
     ...(input.stage === 2 ? { routingExperiment: routingExperiment(input.executionFormArm) } : {}),
   };
   const packet = packetBase({
@@ -456,6 +458,46 @@ function stageThreeEvidencePack(task: SourceTaskV2, condition: ConditionCaseV2):
   return pack;
 }
 
+function stageFourCompilationSources(
+  task: SourceTaskV2,
+  condition: ConditionCaseV2,
+  evidenceBoundIntent: PriorArtifactV2,
+  stageThreePacket: ProviderStagePacketV2,
+): JsonRecord {
+  const editorialIntent = dev02CanonicalIntentJson as unknown as JsonRecord;
+  if (editorialIntent.taskId !== task.taskId) {
+    fail('STAGE4_EDITORIAL_INTENT_MISSING', task.taskId);
+  }
+  const sourceNodes = new Map(records(editorialIntent.nodes).map((node) => [String(node.intentNodeId), node]));
+  const boundNodes = new Map(records(evidenceBoundIntent.nodes).map((node) => [String(node.intentNodeId), node]));
+  if (!sameStringSet([...sourceNodes.keys()], [...boundNodes.keys()])) {
+    fail('STAGE4_INTENT_NODE_DRIFT', task.taskId);
+  }
+  for (const [intentNodeId, sourceNode] of sourceNodes) {
+    const boundNode = boundNodes.get(intentNodeId) ?? fail('STAGE4_INTENT_NODE_MISSING', intentNodeId);
+    if (!sameStringSet(strings(sourceNode.candidateCapabilityIds), strings(boundNode.candidateCapabilityIds))) {
+      fail('STAGE4_CAPABILITY_SET_DRIFT', intentNodeId);
+    }
+  }
+  const evidencePack = stageThreeEvidencePack(task, condition);
+  const sourceEditorialIntentHash = hashCanonicalJsonV1(editorialIntent);
+  const evidencePackHash = hashCanonicalJsonV1(evidencePack);
+  if (stageThreePacket.modelInput.priorArtifactHash !== sourceEditorialIntentHash) {
+    fail('STAGE4_SOURCE_INTENT_CHAIN_DRIFT', task.taskId);
+  }
+  if (!isRecord(stageThreePacket.modelInput.evidencePack)
+    || hashCanonicalJsonV1(stageThreePacket.modelInput.evidencePack) !== evidencePackHash) {
+    fail('STAGE4_EVIDENCE_PACK_CHAIN_DRIFT', task.taskId);
+  }
+  return {
+    sourceEditorialIntent: editorialIntent,
+    sourceEditorialIntentHash,
+    sourceEvidenceBoundIntentHash: hashCanonicalJsonV1(evidenceBoundIntent),
+    evidencePack,
+    evidencePackHash,
+  };
+}
+
 function publicCondition(condition: ConditionCaseV2): JsonRecord { return { conditionId: condition.conditionId, availableEvidenceIds: condition.availableEvidenceIds, omittedEvidenceIds: condition.omittedEvidenceIds, replacementEvidenceIds: condition.replacementEvidenceIds ?? [] }; }
 function routingExperiment(arm: ExecutionFormArmV2): JsonRecord {
   return {
@@ -577,3 +619,6 @@ function validateArtifactV2(value: unknown, schema: unknown, path: string): stri
 }
 
 function isRecord(value: unknown): value is JsonRecord { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
+function records(value: unknown): JsonRecord[] { return Array.isArray(value) ? value.filter(isRecord) : []; }
+function strings(value: unknown): string[] { return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []; }
+function sameStringSet(left: string[], right: string[]): boolean { return left.length === right.length && left.every((value) => right.includes(value)); }
