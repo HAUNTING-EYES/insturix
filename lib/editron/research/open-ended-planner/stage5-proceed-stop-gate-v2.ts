@@ -1,5 +1,6 @@
 import { deepFreezeV1 } from './contracts-v1';
 import { evaluateStage4CompiledGraphArtifactV2 } from './stage4-compilation-evaluator-v2';
+import { evaluateStage4ResearchProxyPreviewV2 } from './stage4-research-proxy-evaluator-v2';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -20,11 +21,30 @@ export interface ProceedOrStopDecisionV2 {
   missingEvidenceIds: readonly string[];
   missingCapabilityIds: readonly string[];
   userMessage: string;
+  executionAuthorization?: {
+    scope: 'BOUNDED_RESEARCH_PROXY_PREVIEW_ONLY';
+    projectMutation: 'DENY';
+    fullProjectExecution: 'DENY';
+  };
 }
 
 export function decideStage5ProceedOrStopV2(compiledGraph: unknown): Readonly<ProceedOrStopDecisionV2> {
   const graph = record(compiledGraph);
   const taskId = text(graph.taskId) || 'UNBOUND_TASK';
+  if (graph.artifactType === 'CompiledResearchProxyPreviewGraphV2') {
+    const evaluation = evaluateStage4ResearchProxyPreviewV2(compiledGraph);
+    if (evaluation.disposition === 'PASS') {
+      return decision(taskId, 'PROCEED', 'RESEARCH_PROXY_PREVIEW_VERIFIED', [], [],
+        'The bounded research preview may run in the deny-all sandbox. The project and full edit remain untouched and non-executable.',
+        { scope: 'BOUNDED_RESEARCH_PROXY_PREVIEW_ONLY', projectMutation: 'DENY', fullProjectExecution: 'DENY' });
+    }
+    if (evaluation.disposition === 'UNVERIFIABLE') {
+      return decision(taskId, 'UNVERIFIABLE', 'STAGE4_RESEARCH_PROXY_UNVERIFIABLE', [], [],
+        'The research preview graph could not be verified. Nothing was executed.');
+    }
+    return decision(taskId, 'FAIL', 'STAGE4_RESEARCH_PROXY_INVALID', [], [],
+      'The research preview graph failed independent validation. Nothing was executed.');
+  }
   const evaluation = evaluateStage4CompiledGraphArtifactV2(compiledGraph);
 
   if (evaluation.disposition === 'FAIL') {
@@ -62,6 +82,7 @@ function decision(
   missingEvidenceIds: string[],
   missingCapabilityIds: string[],
   userMessage: string,
+  executionAuthorization?: ProceedOrStopDecisionV2['executionAuthorization'],
 ): Readonly<ProceedOrStopDecisionV2> {
   return deepFreezeV1({
     artifactType: 'ProceedOrStopDecisionV2',
@@ -71,6 +92,7 @@ function decision(
     missingEvidenceIds: unique(missingEvidenceIds).sort(compareUtf16),
     missingCapabilityIds: unique(missingCapabilityIds).sort(compareUtf16),
     userMessage,
+    ...(executionAuthorization ? { executionAuthorization } : {}),
   });
 }
 
