@@ -23,11 +23,11 @@ export const GeneratedComposition = () => {
   const titleColor = useCompositionParameter('param-title-color');
   const titleSize = useCompositionParameter('param-title-size');
   const background = useCompositionParameter('param-background');
-  const entryScale = interpolate(frame, [0, 24], [2.96, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  const centreTravel = interpolate(frame, [24, 150], [0, 1320], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  const sideTravel = interpolate(frame, [24, 150], [0, -1008], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  const exitScale = interpolate(frame, [150, durationInFrames - 1], [1, 2.96], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  const exitSourceFrame = 180 + Math.max(0, frame - 150);
+  const entryScale = interpolate(frame, [0, 24], [0.7, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const centreTravel = interpolate(frame, [0, 108], [1320, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const sideTravel = interpolate(frame, [0, 108], [-1008, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const exitScale = interpolate(frame, [145, durationInFrames - 1], [1, 2.96], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const exitSourceFrame = 180;
   const wideOffsetFrame = (frame + 60) % 180;
   const closeOffsetFrame = 180 + ((frame + 30) % 165);
 
