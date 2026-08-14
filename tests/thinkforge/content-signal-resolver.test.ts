@@ -93,7 +93,7 @@ describe('resolveContentSignalProfile', () => {
     expect(resolved.intent.audience).toBe('agency founders');
     expect(resolved.intent.forbiddenTerms).toContain('game-changing');
     expect(resolved.intent.proofPoints).toContain('Metric mentioned in brief: 37%');
-    expect(resolved.intent.proofPoints[1]).toContain('Approval cycle benchmark');
+    expect(resolved.intent.proofPoints.some((point) => point.includes('Approval cycle benchmark'))).toBe(true);
     expect(resolved.intent.structuralHints).toContain('short setup, concrete proof, soft CTA');
     expect(resolved.profile.signals.warmth).toBeGreaterThan(0.7);
     expect(resolved.profile.signals.ethos_load).toBeGreaterThan(0.7);
@@ -116,6 +116,19 @@ describe('resolveContentSignalProfile', () => {
     expect(resolved.intent.clickatron.assetIntent).toBe('static_image');
     expect(resolved.intent.visualNeeds).toContain('static visual concept');
     expect(resolved.profile.signals.kairos_pressure).toBeGreaterThan(0.7);
+  });
+
+  it('prioritizes an explicit target and preserves an explicit numeric proof claim', () => {
+    const resolved = resolveContentSignalProfile({
+      userPrompt: 'Write a LinkedIn post for FlowLedger about SOC 2 readiness. Mention that the beta cut evidence-chasing time by 37% across 12 pilot teams. Target CFOs and RevOps leaders.',
+      project: { platform: 'LinkedIn', format: 'post' },
+    });
+
+    expect(resolved.intent.audience).toBe('CFOs and RevOps leaders');
+    expect(resolved.intent.proofPoints).toContain(
+      'Required brief claim: the beta cut evidence-chasing time by 37% across 12 pilot teams',
+    );
+    expect(resolved.intent.proofPoints).toContain('Required audience anchor: CFOs and RevOps leaders');
   });
 
   it('keeps short Instagram captions as static social posts', () => {
@@ -165,6 +178,50 @@ describe('resolveContentSignalProfile', () => {
       platform: 'Instagram',
       preferredAspectRatio: '4:5',
     });
+  });
+
+  it('turns an explicit concise social-post request into a smaller character target', () => {
+    const resolved = resolveContentSignalProfile({
+      userPrompt: 'Write a short LinkedIn post about a new audit workflow.',
+      documentType: 'post',
+      project: { platform: 'LinkedIn', format: 'post' },
+    });
+
+    expect(resolved.profile.constraints.target_length).toEqual({ value: 600, unit: 'characters' });
+  });
+
+  it('keeps a concise X target below the platform maximum', () => {
+    const resolved = resolveContentSignalProfile({
+      userPrompt: 'Write a short, honest X post about reaching 1,000 paying users.',
+      documentType: 'post',
+      project: { platform: 'X', format: 'post' },
+    });
+
+    expect(resolved.profile.constraints.target_length).toEqual({ value: 220, unit: 'characters' });
+    expect(resolved.profile.constraints.platform_constraints).toMatchObject({
+      platform: 'X',
+      maxCharacters: 280,
+    });
+  });
+
+  it('keeps the exact metric-bearing sentence when a brief also mentions an event', () => {
+    const resolved = resolveContentSignalProfile({
+      userPrompt: [
+        'Write a LinkedIn post for CivicDesk.',
+        'Pilot detail: Maple County reduced duplicate ticket handling by 18% over six weeks, but we cannot promise every city will get the same result.',
+        'Mention the webinar on July 8 with former 311 director Priya Menon.',
+      ].join(' '),
+      documentType: 'post',
+      project: { platform: 'LinkedIn', format: 'post' },
+    });
+
+    expect(resolved.intent.proofPoints).toContain('Metric mentioned in brief: 18%');
+    expect(resolved.intent.proofPoints).toContain(
+      'Required brief claim: Maple County reduced duplicate ticket handling by 18% over six weeks, but we cannot promise every city will get the same result',
+    );
+    expect(resolved.intent.proofPoints).toContain(
+      'Required brief claim: the webinar on July 8 with former 311 director Priya Menon',
+    );
   });
 
   it('applies accepted Brand Vault signals as brand-level creative defaults without overriding explicit instructions', () => {

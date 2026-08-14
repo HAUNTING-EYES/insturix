@@ -85,23 +85,17 @@ export async function POST(req: Request) {
     const existingContent = typeof existingScript?.content === 'string' ? existingScript.content : '';
     const existingBlocksForEdit = Array.isArray(existingScript?.blocks) ? existingScript.blocks : [];
 
-    // P5 PRIMARY: revise the whole document via the flat writer (eval-validated 4.89/5 in
-    // scripts/prompt-optimization/eval-thinkforge-edit.ts). Only for a real edit of an existing
-    // doc; ANY failure falls straight through to the legacy ScriptAuthor block-command path below,
-    // which is left completely unchanged.
+    // A real document edit has one authoring owner. Failures stay visible so the
+    // request cannot silently lose its Brand Vault and provenance context.
     if (sessionId && existingContent.trim().length > 0 && existingBlocksForEdit.length > 0) {
-      try {
-        const revised = await reviseDocumentViaFlatWriter({
-          userId, orgId, sessionId, scriptId, existingScript, existingContent,
-          instruction: enrichedInstruction, selection, baseVersion,
-        });
-        return NextResponse.json({
-          title: revised.title, content: revised.content, blocks: revised.blocks,
-          metadata: { editMode: 'flat-writer' }, replacements: [],
-        });
-      } catch (flatErr) {
-        console.error('[ThinkForge:edit-blocks] flat-writer path failed; falling back to legacy author:', flatErr);
-      }
+      const revised = await reviseDocumentViaFlatWriter({
+        userId, orgId, sessionId, scriptId, existingScript, existingContent,
+        instruction: enrichedInstruction, selection, baseVersion,
+      });
+      return NextResponse.json({
+        title: revised.title, content: revised.content, blocks: revised.blocks,
+        metadata: { editMode: 'flat-writer' }, replacements: [],
+      });
     }
 
     const intent = await classifyIntent({ userMessage: enrichedInstruction });
@@ -171,4 +165,3 @@ export async function POST(req: Request) {
     return NextResponse.json(normalized.body, { status: normalized.status });
   }
 }
-

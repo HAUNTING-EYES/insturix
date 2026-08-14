@@ -83,23 +83,18 @@ export async function POST(req: Request) {
     const existingContent = typeof existingScript?.content === 'string' ? existingScript.content : '';
     const existingBlocks = Array.isArray(existingScript?.blocks) ? existingScript.blocks : [];
 
-    // P5 PRIMARY: revise the whole document via the flat writer (eval-validated 4.89/5,
-    // scripts/prompt-optimization/eval-thinkforge-edit.ts). Only for a real edit of an existing
-    // doc; ANY failure falls through to the legacy generateScriptDraft path below (unchanged).
+    // A real document edit has one authoring owner. Failures stay visible so the
+    // request cannot silently lose its Brand Vault and provenance context.
     if (sessionId && existingContent.trim().length > 0 && existingBlocks.length > 0) {
-      try {
-        const revised = await reviseDocumentViaFlatWriter({
-          userId, orgId, sessionId, scriptId, existingScript, existingContent, instruction, baseVersion,
-        });
-        return NextResponse.json({
-          title: revised.title,
-          content: revised.content,
-          blocks: revised.blocks,
-          metadata: { editMode: 'flat-writer' },
-        });
-      } catch (flatErr) {
-        console.error('[ThinkForge:script/edit] flat-writer path failed; falling back to generateScriptDraft:', flatErr);
-      }
+      const revised = await reviseDocumentViaFlatWriter({
+        userId, orgId, sessionId, scriptId, existingScript, existingContent, instruction, baseVersion,
+      });
+      return NextResponse.json({
+        title: revised.title,
+        content: revised.content,
+        blocks: revised.blocks,
+        metadata: { editMode: 'flat-writer' },
+      });
     }
 
     const currentScript = existingScript ? {
@@ -155,4 +150,3 @@ export async function POST(req: Request) {
     return NextResponse.json(normalized.body, { status: normalized.status });
   }
 }
-

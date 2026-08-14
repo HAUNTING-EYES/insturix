@@ -1,4 +1,5 @@
 import type { AssembledContext, ProjectContextData } from '../agents/types';
+import { detect, langName, supportedLanguages, toISO2 } from 'tinyld';
 import type { RetrievedContext, SemanticFact } from '../context/fetchContextSources';
 import { extractSignalsFromContext } from '../data/extract-signals';
 import { brandSignalProfileToCreativeSignalDefaults } from '../../shared/brand-to-creative-signals';
@@ -98,6 +99,42 @@ const PLATFORM_ALIASES: Array<[RegExp, string]> = [
   [/email/i, 'Email'],
 ];
 
+const NATIVE_LANGUAGE_ALIASES: Readonly<Record<string, string>> = {
+  arabic: 'ar',
+  bengali: 'bn',
+  deutsch: 'de',
+  english: 'en',
+  espanol: 'es',
+  francais: 'fr',
+  hindi: 'hi',
+  italiano: 'it',
+  japanese: 'ja',
+  korean: 'ko',
+  mandarin: 'zh',
+  nederlands: 'nl',
+  portuguese: 'pt',
+  portugues: 'pt',
+  punjabi: 'pa',
+  russian: 'ru',
+  tamil: 'ta',
+  telugu: 'te',
+  urdu: 'ur',
+};
+
+const SUPPORTED_LANGUAGE_CODES = new Set(
+  supportedLanguages.map((language) => toISO2(language).toLocaleLowerCase()),
+);
+
+const EXPLICIT_LANGUAGE_ALIASES = [...new Map([
+  ...supportedLanguages.map((language) => [
+    normalizeLanguageInstruction(langName(language)),
+    toISO2(language).toLocaleLowerCase(),
+  ] as const),
+  ...Object.entries(NATIVE_LANGUAGE_ALIASES),
+]).entries()]
+  .filter(([alias]) => alias.length >= 3)
+  .sort(([left], [right]) => right.length - left.length);
+
 export function resolveContentSignalProfile(
   input: ResolveContentSignalProfileInput,
 ): ThinkForgeContentSignalProfile {
@@ -162,7 +199,13 @@ export function resolveContentSignalProfile(
 
   const resolvedSignals = validation.clamped;
   const profile: ContentSignalProfile = {
-    constraints: buildConstraints(outputFormat, combinedText, platform, input.brandId),
+    constraints: buildConstraints(
+      outputFormat,
+      combinedText,
+      input.userPrompt,
+      platform,
+      input.brandId,
+    ),
     signals: resolvedSignals,
     derived: computeDerivedSignals(resolvedSignals),
     _inference_metadata: metadata,
@@ -287,22 +330,62 @@ function toExtractionDocumentType(outputFormat: OutputFormat, explicit?: string)
 function buildConstraints(
   outputFormat: OutputFormat,
   text: string,
+  userPrompt: string,
   platform?: string,
   brandId?: string,
 ): ContentConstraints {
   return {
-    target_length: inferTargetLength(outputFormat, text),
+    target_length: inferTargetLength(outputFormat, text, platform),
     output_format: outputFormat,
-    language: 'en',
+    language: inferContentLanguage(userPrompt),
     brand_voice_id: brandId,
     cta_type: inferCTAType(text),
     platform_constraints: buildPlatformConstraints(outputFormat, platform),
   };
 }
 
+function normalizeLanguageInstruction(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function escapeLanguageAlias(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+}
+
+function explicitRequestedLanguage(userPrompt: string): string | undefined {
+  const normalized = normalizeLanguageInstruction(userPrompt);
+  const explicitCode = normalized.match(/\b(?:language|lang|idioma)\s+(?:is\s+)?([a-z]{2,3})\b/)?.[1];
+  if (explicitCode && SUPPORTED_LANGUAGE_CODES.has(explicitCode)) return explicitCode;
+
+  for (const [alias, language] of EXPLICIT_LANGUAGE_ALIASES) {
+    const escapedAlias = escapeLanguageAlias(alias);
+    const contextualRequest = new RegExp(
+      `\\b(?:in|into|en|em|auf|dans|language|lang|idioma)\\s+(?:the\\s+)?${escapedAlias}\\b|\\b${escapedAlias}(?:[-\\s]+language)\\b`,
+      'i',
+    );
+    if (contextualRequest.test(normalized)) return language;
+  }
+
+  return undefined;
+}
+
+function inferContentLanguage(userPrompt: string): string {
+  const explicitLanguage = explicitRequestedLanguage(userPrompt);
+  if (explicitLanguage) return explicitLanguage;
+
+  const detectedLanguage = detect(userPrompt).toLocaleLowerCase();
+  return SUPPORTED_LANGUAGE_CODES.has(detectedLanguage) ? detectedLanguage : 'en';
+}
+
 function inferTargetLength(
   outputFormat: OutputFormat,
   text: string,
+  platform?: string,
 ): ContentConstraints['target_length'] {
   const duration = text.match(/(\d{1,3})\s*(seconds?|secs?|s|minutes?|mins?)\b/i);
   if (duration) {
@@ -316,6 +399,12 @@ function inferTargetLength(
 
   const characters = text.match(/(\d{2,5})\s*(characters?|chars?)\b/i);
   if (characters) return { value: Number(characters[1]), unit: 'characters' };
+
+  if (outputFormat === 'social_post' && /\b(?:short|concise)\b/i.test(text)) {
+    // A platform maximum is a ceiling, never a requested minimum. Keep concise X copy
+    // comfortably below its 280-character ceiling so the writer can preserve natural rhythm.
+    return { value: /^(?:x|twitter)$/i.test(platform?.trim() ?? '') ? 220 : 600, unit: 'characters' };
+  }
 
   switch (outputFormat) {
     case 'video_script':
@@ -357,7 +446,7 @@ function buildPlatformConstraints(
   if (!platform) return undefined;
   const lower = platform.toLowerCase();
   if (lower.includes('linkedin')) return { platform, maxCharacters: 3000 };
-  if (lower.includes('x')) return { platform, maxCharacters: 280 };
+  if (/^(?:x|twitter)$/i.test(platform.trim())) return { platform, maxCharacters: 280 };
   if (lower.includes('tiktok')) return { platform, maxDurationSeconds: 180, aspectRatio: '9:16' };
   if (lower.includes('youtube')) return { platform, maxDurationSeconds: 60, aspectRatio: '9:16' };
   if (lower.includes('instagram')) {
@@ -483,6 +572,8 @@ function inferAudience(
   brandDNA?: BrandDNA,
   platform?: string,
 ): string | undefined {
+  const explicitAudience = extractExplicitAudience(input.userPrompt);
+  if (explicitAudience) return explicitAudience;
   const promptAudience = input.userPrompt.match(
     /\bfor\s+(.+?)(?=\s+(?:about|to|that|who|with|using|on)\b|[,.!?]|$)/i,
   )?.[1]?.trim();
@@ -529,11 +620,61 @@ function collectProofPoints(
     /(?:\b\d+(?:\.\d+)?%|\b\d+(?:\.\d+)?x\b|\$\d[\d,]*(?:\.\d+)?[kKmMbB]?)/g,
   ) ?? [];
   const metricPoints = metricMatches.map((metric) => `Metric mentioned in brief: ${metric}`);
+  const quantifiedClaims = extractQuantifiedBriefClaims(input.userPrompt)
+    .map((claim) => `Required brief claim: ${claim}`);
+  const explicitClaims = extractExplicitBriefClaims(input.userPrompt)
+    .map((claim) => `Required brief claim: ${claim}`);
+  const explicitAudience = extractExplicitAudience(input.userPrompt);
+  const audienceAnchors = explicitAudience
+    ? [`Required audience anchor: ${explicitAudience}`]
+    : [];
   const facts = [
     ...(input.retrievedContext?.projectFacts ?? []),
     ...(input.retrievedContext?.globalFacts ?? []),
   ].slice(0, 5).map(formatFact);
-  return unique([...metricPoints, ...facts]).slice(0, 6);
+  return unique([
+    ...metricPoints,
+    ...quantifiedClaims,
+    ...explicitClaims,
+    ...audienceAnchors,
+    ...facts,
+  ]).slice(0, 6);
+}
+
+function extractQuantifiedBriefClaims(userPrompt: string): string[] {
+  return unique(
+    userPrompt
+      .split(/(?<=[.!?])\s+|\n+/)
+      .map((sentence) => sentence
+        .trim()
+        .replace(/^(?:pilot detail|result|evidence|proof)\s*:\s*/i, '')
+        .replace(/^(?:mention|include|cite|state|highlight|call\s+out)\s+(?:that\s+)?/i, '')
+        .replace(/[.!?]+$/, ''))
+      .filter((sentence) => (
+        sentence.length >= 4
+        && !/^(?:compose|create|draft|generate|make|produce|write)\b/i.test(sentence)
+        && /(?:\b\d+(?:\.\d+)?%|\b\d+(?:\.\d+)?x\b)/i.test(sentence)
+      )),
+  );
+}
+
+function extractExplicitAudience(userPrompt: string): string | undefined {
+  return userPrompt.match(
+    /\b(?:target(?:\s+audience)?|audience)\s*(?::|is\b)?\s*([^.!?\n]{2,160})/i,
+  )?.[1]?.trim();
+}
+
+function extractExplicitBriefClaims(userPrompt: string): string[] {
+  const claims: string[] = [];
+  const directivePattern = /\b(?:mention|include|cite|state|highlight|call\s+out)\s+(?:that\s+)?([^.!?\n]{4,260})/gi;
+
+  for (const match of userPrompt.matchAll(directivePattern)) {
+    const claim = match[1]?.trim();
+    if (!claim || !/(?:\d|https?:\/\/|\$)/.test(claim)) continue;
+    claims.push(claim);
+  }
+
+  return unique(claims);
 }
 
 function formatFact(fact: SemanticFact): string {

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getDataBankEntriesByUser: vi.fn(),
   getProjectScopedEntries: vi.fn(),
   getRecentInteractionEvents: vi.fn(),
+  isVectorRetrievalConfigured: vi.fn(),
   queryRelevantFacts: vi.fn(),
   resolveThinkForgeBrandAuthority: vi.fn(),
 }));
@@ -26,6 +27,7 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
 }));
 
 vi.mock('@/lib/thinkforge/services/embedding-service', () => ({
+  isVectorRetrievalConfigured: mocks.isVectorRetrievalConfigured,
   queryRelevantFacts: mocks.queryRelevantFacts,
 }));
 
@@ -103,6 +105,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
     mocks.getDataBankEntriesByUser.mockReset();
     mocks.getProjectScopedEntries.mockReset();
     mocks.getRecentInteractionEvents.mockReset();
+    mocks.isVectorRetrievalConfigured.mockReset();
     mocks.queryRelevantFacts.mockReset();
     mocks.resolveThinkForgeBrandAuthority.mockReset();
 
@@ -115,6 +118,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
     });
     mocks.getProjectScopedEntries.mockResolvedValue([]);
     mocks.getRecentInteractionEvents.mockResolvedValue([]);
+    mocks.isVectorRetrievalConfigured.mockReturnValue(true);
     mocks.queryRelevantFacts.mockResolvedValue([]);
     mocks.getDataBankEntriesByUser.mockResolvedValue([]);
   });
@@ -222,6 +226,28 @@ describe('fetchContextSources scoped DataBank reads', () => {
       'global',
       { memoryScope: 'universal' },
     );
+  });
+
+  it('uses scoped keyword retrieval without querying Vector when it is intentionally unconfigured', async () => {
+    mocks.isVectorRetrievalConfigured.mockReturnValue(false);
+    mocks.getDataBankEntriesByUser.mockResolvedValue([
+      entry({
+        _id: 'entry_brand_1',
+        title: 'Brand one proof',
+        content: { claim: 'Lead with operational proof.', brandId: 'brand_1' },
+        tags: ['memory:brand', 'brand:brand_1'],
+      }),
+    ]);
+
+    const ctx = await fetchContextSources({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      currentPrompt: 'operational proof',
+      maxFacts: 10,
+    });
+
+    expect(mocks.queryRelevantFacts).not.toHaveBeenCalled();
+    expect(ctx.globalFacts.map((fact) => fact.id)).toEqual(['entry_brand_1']);
   });
 
   it('fills incomplete vector results with explicitly scoped legacy memory', async () => {

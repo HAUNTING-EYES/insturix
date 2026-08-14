@@ -1078,6 +1078,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             writerOutputMetadata = {
               writerType: 'post',
               contentAnalysis: result.contentAnalysis,
+              hashtags: result.hashtags,
               visualPrompts: result.clickatron,
               writerMetadata: result.metadata,
               ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),

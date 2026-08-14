@@ -50,12 +50,19 @@ describe('ThinkForge canonical document contract', () => {
 
   it('captures and validates carousel slide count at intake', () => {
     expect(resolveCarouselSlideCount('Create an Instagram 5-slide carousel')).toBe(5);
+    expect(resolveCarouselSlideCount('Create a five-slide Instagram carousel')).toBe(5);
+    expect(resolveCarouselSlideCount('Create an Instagram carousel with six slides')).toBe(6);
     expect(normalizeThinkForgeDocumentType('Create an Instagram 5-slide carousel')).toBe('carousel');
+    expect(parseThinkForgeDocumentContract({ kind: 'Create a five-slide LinkedIn carousel' })).toMatchObject({
+      outputKind: 'carousel',
+      carouselSlideCount: 5,
+    });
     expect(parseThinkForgeDocumentContract({ kind: 'LinkedIn 6 slides' })).toMatchObject({
       outputKind: 'carousel',
       carouselSlideCount: 6,
     });
     expect(() => resolveCarouselSlideCount('Create an 8-slide carousel')).toThrow(/between 2 and 7/i);
+    expect(() => resolveCarouselSlideCount('Create an eight-slide carousel')).toThrow(/between 2 and 7/i);
     expect(() => createThinkForgeWriterContract('carousel', { carouselSlideCount: 1 })).toThrow(/(?:greater than or equal to|>=)\s*2/i);
   });
 

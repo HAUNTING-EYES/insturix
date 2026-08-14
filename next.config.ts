@@ -42,6 +42,9 @@ const nextConfig: NextConfig = {
   // Disable React Strict Mode in production to avoid double-renders
   // Keep enabled in development for debugging
   reactStrictMode: process.env.NODE_ENV === "development",
+  // The authenticated local Playwright gate runs from the loopback origin.
+  // Declaring it prevents dev-server origin warnings without changing production routing.
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
   typescript: {
     // Warning: This allows production builds to successfully complete even if
     // your project has type errors.

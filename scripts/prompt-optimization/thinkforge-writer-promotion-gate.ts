@@ -1,7 +1,9 @@
 export const THINKFORGE_WRITER_PROMOTION_THRESHOLDS = {
   deterministicMin: 0.90,
   deterministicAverage: 0.95,
-  judgeMin: 80,
+  editorialQualityMin: 0.95,
+  editorialQualityAverage: 0.95,
+  judgeMin: 95,
   judgeAverage: 95,
   judgeCoverage: 1,
   maxGenerationErrors: 0,
@@ -21,6 +23,7 @@ export interface WriterPromotionRun {
   caseName: string;
   seed: number;
   deterministicScore: number;
+  editorialQualityScore: number;
   error?: string;
   judge?: WriterPromotionJudgeResult;
   judgeError?: string;
@@ -35,6 +38,8 @@ export interface WriterPromotionVerdict {
     caseCount: number;
     deterministicMin: number;
     deterministicAverage: number;
+    editorialQualityMin: number;
+    editorialQualityAverage: number;
     judgeMin: number;
     judgeAverage: number;
     judgeCoverage: number;
@@ -59,6 +64,7 @@ export function evaluateWriterPromotionGate(
 ): WriterPromotionVerdict {
   const thresholds = THINKFORGE_WRITER_PROMOTION_THRESHOLDS;
   const deterministicScores = runs.map((run) => run.error ? 0 : run.deterministicScore);
+  const editorialQualityScores = runs.map((run) => run.error ? 0 : run.editorialQualityScore);
   const judgedRuns = runs.filter((run) => run.judge !== undefined);
   const judgeScores = judgedRuns.map((run) => run.judge!.overall);
   const generationErrors = runs.filter((run) => run.error).length;
@@ -67,10 +73,12 @@ export function evaluateWriterPromotionGate(
   const internalLeakageHardFails = judgedRuns.filter((run) => run.judge!.internalLeakageHardFail).length;
   const deterministicMin = deterministicScores.length > 0 ? Math.min(...deterministicScores) : 0;
   const deterministicAverage = average(deterministicScores);
+  const editorialQualityMin = editorialQualityScores.length > 0 ? Math.min(...editorialQualityScores) : 0;
+  const editorialQualityAverage = average(editorialQualityScores);
   const judgeMin = judgeScores.length > 0 ? Math.min(...judgeScores) : 0;
   const judgeAverage = average(judgeScores);
   const judgeCoverage = runs.length > 0 ? judgedRuns.length / runs.length : 0;
-  const promotionScore = Math.min(deterministicAverage * 100, judgeAverage);
+  const promotionScore = Math.min(deterministicAverage * 100, editorialQualityAverage * 100, judgeAverage);
   const failures: string[] = [];
 
   if (!eligible) failures.push('run_not_promotion_eligible');
@@ -86,6 +94,12 @@ export function evaluateWriterPromotionGate(
   }
   if (deterministicAverage < thresholds.deterministicAverage) {
     failures.push(`deterministic_average:${deterministicAverage.toFixed(4)}`);
+  }
+  if (editorialQualityMin < thresholds.editorialQualityMin) {
+    failures.push(`editorial_quality_min:${editorialQualityMin.toFixed(4)}`);
+  }
+  if (editorialQualityAverage < thresholds.editorialQualityAverage) {
+    failures.push(`editorial_quality_average:${editorialQualityAverage.toFixed(4)}`);
   }
   if (judgeCoverage < thresholds.judgeCoverage) {
     failures.push(`judge_coverage:${judgeCoverage.toFixed(4)}`);
@@ -112,6 +126,8 @@ export function evaluateWriterPromotionGate(
       caseCount: new Set(runs.map((run) => run.caseId)).size,
       deterministicMin,
       deterministicAverage,
+      editorialQualityMin,
+      editorialQualityAverage,
       judgeMin,
       judgeAverage,
       judgeCoverage,

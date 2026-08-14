@@ -54,6 +54,22 @@ describe('thinkforge eval provider adapter', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('disables DeepSeek thinking so the eval completion budget reaches the verdict', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({
+        choices: [{ message: { content: '{"score": 95}' } }],
+      }), { status: 200 }));
+
+    await runEvalPrompt(baseConfig, 'Public synthetic eval prompt.');
+
+    const request = fetchMock.mock.calls[0]?.[1];
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      model: 'deepseek-chat',
+      thinking: { type: 'disabled' },
+    });
+  });
+
   it('fails a stalled provider request within the configured deadline', async () => {
     process.env.THINKFORGE_EVAL_REQUEST_TIMEOUT_MS = '10';
     process.env.THINKFORGE_EVAL_TRANSIENT_RETRY_ATTEMPTS = '1';

@@ -1,29 +1,43 @@
 import { z } from 'zod';
+import { detect } from 'tinyld';
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
 import {
   buildPostOutputFormat,
   detectPlatform,
+  PLATFORM_CONFIGS,
 } from './prompt-utils';
-import type { ThinkForgeContentSignalProfile } from '../signals';
+import {
+  evaluateContentProfileCompliance,
+  shouldAutoRepairContentProfileViolations,
+  type ThinkForgeContentSignalProfile,
+} from '../signals';
 import { generateStructuredWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import { getAntiAiConstraintBundle, buildWritingKnowledgeBlock } from '../data/writing-graph-query';
 import { extractSignalsFromContext } from '../data/extract-signals';
-import { repairAiFillerContent } from '../services/ai-filler-repair';
 import { formatTrendBriefForPrompt } from './trend-brief-context';
 import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
+import type { SourceLedger } from '../provenance/source-ledger';
+import { buildPostEditorialPlan, type PostEditorialPlan } from './post-editorial-plan';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
-  content: z.string().describe('The actual post text formatted for the platform'),
+  content: z.string().describe('The actual post body formatted for the platform, without the final hashtag line'),
+  hashtags: z.array(z.string()).max(15).describe('The final publishable hashtags, each beginning with #. Return semantic tags grounded in the supplied brief; do not put them in content.'),
   contentAnalysis: z.object({
     tone: z.string().describe('The dominant tone used (e.g., Professional, Edgy, Instructive)'),
     vibe: z.string().describe('The overarching vibe or mood of the piece'),
     theme: z.string().describe('The core theme or message being delivered'),
     qualityScore: z.number().min(0).max(100).describe('Self-evaluated quality score (0-100) based on specificity and engagement'),
     violations: z.array(z.string()).describe('List of platform or brand rule violations (ideally empty)'),
+    claimSupport: z.array(z.object({
+      sentence: z.string().min(1).max(1200).describe('One exact declarative sentence copied from content, excluding hashtags, questions, and pure action CTAs'),
+      sourceRef: z.string().min(1).max(120).describe('An authorized source ID listed in tf_untrusted_data.claimSources'),
+      sourceExcerpt: z.string().min(1).max(1200).optional().describe('Server-owned audit evidence resolved from sourceRef. Do not invent this field.'),
+      relationship: z.enum(['verbatim', 'paraphrase', 'bounded_implication']).describe('How the sentence relates to the cited source excerpt'),
+    })).max(24).optional().describe('Hidden factual-support ledger. Required for every substantive declarative sentence when the editorial plan is source-only or evidence-thin.'),
   }),
   clickatron: z.object({
     singleImagePrompt: z.string().optional().describe('A visual-only prompt for one Clickatron raster background. Describe concrete scene, composition, props, lighting, style, mood, and safe zones. Never include readable copy, text-overlay instructions, logos, watermarks, or legible UI labels.'),
@@ -53,6 +67,7 @@ export interface PostWriterInput extends AgentInput {
   project?: (NonNullable<AgentInput['project']> & { contentContract?: ThinkForgeDocumentContract }) | null;
   contentSignalProfile?: ThinkForgeContentSignalProfile;
   productionBrief?: ProductionBrief | null;
+  sourceLedger?: SourceLedger | null;
   /** When set, switches the writer into edit/revise mode (see PostWriterEditContext). */
   editContext?: PostWriterEditContext;
 }
@@ -62,6 +77,72 @@ const POST_CTA_PATTERN =
 
 const POST_CONTRACT_FAILURE_PREFIX = 'Post writer output failed publishable quality gate:';
 
+const GENERIC_CTA_PATTERN =
+  /\b(?:discover|learn more|follow for more|link in bio|don't miss out|join us)\b/i;
+
+const SPECIFIC_CTA_ACTION_PATTERN =
+  /(?:https?:\/\/|\b(?:apply|book|buy|call|claim|comment|contact|dm|donate|download|message|register|reply|reserve|schedule|send|shop|sign ?up|visit)\b)/i;
+
+const GENERIC_VISUAL_HANDOFF_PATTERN =
+  /\b(?:modern|bright|sleek|professional|calm)\s+(?:office|workspace|team|dashboard)\b/i;
+
+const VISUAL_SAFE_SPACE_PATTERN =
+  /\b(?:safe[-\s]?(?:zone|space)|negative\s+space|clear\s+space|espacio\s+(?:negativo|libre|seguro))\b/i;
+
+const GENERIC_CTA_QUESTION_PATTERN =
+  /\b(?:how\s+(?:is|are)|are\s+you|what(?:'s|\s+is)\s+your\s+(?:team|company|organization)|what\s+do\s+you\s+think|thoughts|agree|right|what(?:'s|\s+is)\s+the\s+(?:(?:single|one)\s+)?(?:biggest|main|primary)\s+(?:bottleneck|challenge|issue|problem))\b/i;
+
+const CLICKATRON_COPY_INSTRUCTION_PATTERN =
+  /(?:text[-\s]?overlays?|overlay\s+text|\b(?:labeled|labelled)\s+(?:['"][^'"]+['"]|[\p{L}\p{N}_-]+)|(?:['"][^'"]+['"]|\bq[1-4]\b)\s+(?:button|caption|column|field|headline|indicator|label|metric|title)|(?:display(?:ing|s)?|read(?:ing|s)?|say(?:ing|s)?|show(?:ing|s)?)\s+(?:a\s+|the\s+)?['"][^'"]+['"])/iu;
+
+const CLICKATRON_BRAND_MARK_REQUEST_PATTERN =
+  /\b(?:display(?:ing|s)?|fade(?:s|d|ing)?\s+to|featur(?:e|es|ing)|include(?:s|d|ing)?|render(?:s|ed|ing)?|show(?:ing|s)?|transition(?:s|ed|ing)?\s+to)\b[^.!?]{0,80}\b(?:logo|wordmark|watermark|website\s+url)\b/i;
+
+const CLICKATRON_NEGATIVE_COPY_CONSTRAINT_PATTERN =
+  /\b(?:avoid(?:ing)?|do\s+not\s+(?:add|display|draw|include|render|show)|free\s+of|no|without)\b[^.!?]{0,120}\b(?:copy|headlines?|labels?|legible\s+ui|logos?|numbers?|readable\s+text|text|watermarks?|wordmarks?)\b/gi;
+
+const OUTREACH_CTA_PATTERN =
+  /\b(?:dm|message|contact|call|book|schedule)\s+(?:us|me|our team|a demo|a call|time)\b/i;
+
+const SUPPLIED_OUTREACH_ROUTE_PATTERN =
+  /(?:https?:\/\/|\b(?:dm|message|contact|call|book|schedule)\b)/i;
+
+const SOURCE_ONLY_CLAIM_FAMILIES: ReadonlyArray<{ id: string; pattern: RegExp }> = [
+  {
+    id: 'causal_expansion',
+    pattern: /\b(?:because|therefore|thereby|consequently|as a result|means? that|so that|porque|por eso|como resultado|significa que|para que)\b/i,
+  },
+  {
+    id: 'impact_expansion',
+    pattern: /\b(?:(?:affect|impact|benefit|protect|save|prevent|solve)(?:s|ed|ing)?|afecta|beneficia|protege|salva|previene|resuelve)\b/i,
+  },
+  {
+    id: 'outcome_expansion',
+    pattern: /\b(?:(?:restore|transform|improve|reduce|increase)(?:s|d|ed|ing)?|restaura|transforma|mejora|reduce|aumenta)\b|\b(?:tangible|lasting|meaningful|real) difference\b/i,
+  },
+  {
+    id: 'importance_expansion',
+    pattern: /\b(?:vital|essential|crucial|urgent|urgently|esencial|urgente)\b/i,
+  },
+];
+
+const SOURCE_ONLY_NON_FACTUAL_ACTION_PATTERN =
+  /^(?:please\s+)?(?:save|share)\s+(?:this|the)\s+(?:post|caption|guide|date)\b|^(?:guarda|comparte)\s+(?:este|esta|el|la)\s+(?:post|publicacion|guia|fecha)\b/i;
+
+const PURE_ACTION_SENTENCE_PATTERN =
+  /^(?:please\s+)?(?:apply|ask|book|buy|call|claim|comment|compare|contact|dm|donate|download|get|join|keep|learn|map|message|pick|register|reply|repost|reserve|route|save|schedule|send|share|shop|sign\s+up|tag|try|visit|watch)\b|^(?:aplica|comenta|comparte|compara|consulta|descarga|envia|guarda|inscribete|mapea|pregunta|registra|reserva|visita)\b/i;
+
+const BOUNDED_IMPLICATION_MARKER_PATTERN =
+  /\b(?:according\s+to|based\s+on|boundary|compare|limited\s+to|measured|not\s+a\s+forecast|pilot|reference|reported|scope|within)\b|\b(?:comparar|limitad[oa]\s+a|medid[oa]|piloto|referencia|segun)\b/i;
+
+const SOURCE_ONLY_ASSERTIVE_PREDICATE_PATTERN =
+  /\b(?:is|are|was|were|will|would|can|could|means?|makes?|making|ensures?|ensuring|helps?|provides?|offers?|allows?|leads?|creates?|gives?|es|son|sera|seran|puede|pueden|significa|hace|garantiza|ayuda|permite|ofrece|crea)\b/i;
+
+const THIN_EVIDENCE_EXPANSION_PATTERN =
+  /\b(?:because|therefore|thereby|consequently|as a result|means? that|impact(?:s|ed|ing)?|benefit(?:s|ed|ing)?|help(?:s|ed|ing)?|transform(?:s|ed|ing)?|improv(?:e|es|ed|ing)|increas(?:e|es|ed|ing)|reduc(?:e|es|ed|ing)|streamlin(?:e|es|ed|ing)|optimiz(?:e|es|ed|ing)|maximiz(?:e|es|ed|ing)|recover(?:s|ed|ing)?|ensur(?:e|es|ed|ing)|enabl(?:e|es|ed|ing)|allow(?:s|ed|ing)?|driv(?:e|es|en|ing)|gain(?:s|ed|ing)?|automatically|more efficiently|can\s+(?:dedicate|focus|redirect|resolve|spend)|porque|por eso|como resultado|significa que|impacta|beneficia|ayuda|ayudan|transforma|mejora|aumenta|reduce|garantiza|permite|automaticamente|con mayor eficiencia|puede(?:n)?\s+(?:dedicar|centrar|redirigir|resolver))\b/i;
+
+const POST_DESTINATION_PATTERN = /(?:https?:\/\/|www\.)?\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?/gi;
+
 const MIN_COMPLETE_POST_CHARS: Record<string, number> = {
   twitter: 50,
   instagram: 150,
@@ -69,6 +150,26 @@ const MIN_COMPLETE_POST_CHARS: Record<string, number> = {
   linkedin: 500,
   generic: 250,
 };
+
+const HASHTAG_TOKEN_PATTERN = /#[\p{L}\p{N}_]+/gu;
+const HASHTAG_ONLY_LINE_PATTERN = /^(?:#[\p{L}\p{N}_]+\s*)+$/u;
+
+const POST_TOPIC_ANCHOR_STOP_WORDS = new Set([
+  'about', 'after', 'aimed', 'and', 'before', 'brief', 'caption', 'concrete', 'create',
+  'deadpan', 'dry', 'every', 'facebook', 'feel', 'for', 'give', 'helping', 'honest',
+  'instagram', 'just', 'linkedin', 'list', 'listing', 'make', 'matter', 'one', 'post',
+  'practical', 'prepare', 'should', 'social', 'target', 'that', 'the', 'their', 'them',
+  'three', 'short', 'tone', 'twitter', 'why', 'with', 'write', 'your',
+]);
+
+const SOURCE_COVERAGE_STOP_WORDS = new Set([
+  'about', 'after', 'also', 'before', 'brief', 'create', 'facebook', 'from', 'have',
+  'instagram', 'into', 'just', 'linkedin', 'make', 'post', 'that', 'their', 'there',
+  'these', 'they', 'this', 'those', 'through', 'with', 'write', 'your',
+  'como', 'con', 'cada', 'desde', 'donde', 'escribe', 'esta', 'este', 'estos', 'estas',
+  'hasta', 'para', 'pero', 'porque', 'sobre', 'tambien', 'todas', 'todos', 'una', 'unas',
+  'unos',
+]);
 
 const CACHED_POST_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
   regex: new RegExp(pattern.pattern, 'i'),
@@ -80,31 +181,826 @@ function requestedCarouselSlideCount(input: PostWriterInput): number | undefined
   return contract?.outputKind === 'carousel' ? contract.carouselSlideCount : undefined;
 }
 
+function platformMaximumCharacters(platform: string): number | undefined {
+  const rawMaximum = PLATFORM_CONFIGS[platform as keyof typeof PLATFORM_CONFIGS]?.charMax;
+  if (!rawMaximum) return undefined;
+
+  const maximum = Number(rawMaximum.replace(/[^\d]/g, ''));
+  return Number.isFinite(maximum) && maximum > 0 ? maximum : undefined;
+}
+
+function platformHashtagRange(platform: string): { min: number; max: number } | undefined {
+  const rawRange = PLATFORM_CONFIGS[platform as keyof typeof PLATFORM_CONFIGS]?.hashtagRange;
+  const match = rawRange?.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (!match) return undefined;
+
+  const min = Number(match[1]);
+  const max = Number(match[2]);
+  return Number.isFinite(min) && Number.isFinite(max) && min >= 0 && max >= min
+    ? { min, max }
+    : undefined;
+}
+
+function normalizeHashtag(value: string): string | undefined {
+  const normalized = value.trim();
+  return /^#[\p{L}\p{N}_]+$/u.test(normalized) ? normalized : undefined;
+}
+
+function uniqueHashtags(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const hashtags: string[] = [];
+  for (const value of values) {
+    const hashtag = normalizeHashtag(value);
+    if (!hashtag || seen.has(hashtag.toLocaleLowerCase())) continue;
+    seen.add(hashtag.toLocaleLowerCase());
+    hashtags.push(hashtag);
+  }
+  return hashtags;
+}
+
+function extractTrailingHashtags(content: string): { body: string; hashtags: string[] } {
+  const lines = content.trimEnd().split('\n');
+  const hashtagLines: string[] = [];
+  while (lines.length > 0 && HASHTAG_ONLY_LINE_PATTERN.test(lines.at(-1)?.trim() ?? '')) {
+    hashtagLines.unshift(lines.pop() ?? '');
+  }
+
+  return {
+    body: lines.join('\n').trimEnd(),
+    hashtags: uniqueHashtags(hashtagLines.flatMap((line) => line.match(HASHTAG_TOKEN_PATTERN) ?? [])),
+  };
+}
+
+function assemblePostHashtagPlan(result: PostWriterResult, platform: string): boolean {
+  const extracted = extractTrailingHashtags(result.content);
+  // The typed plan is the current contract. Trailing content tags are accepted only as a
+  // migration path for legacy model output that did not produce a valid plan.
+  const plannedHashtags = uniqueHashtags(result.hashtags);
+  const selectedHashtags = plannedHashtags.length > 0 ? plannedHashtags : extracted.hashtags;
+  const maximum = platformHashtagRange(platform)?.max;
+  const hashtags = maximum === undefined ? selectedHashtags : selectedHashtags.slice(0, maximum);
+  result.hashtags = hashtags;
+  result.content = hashtags.length > 0
+    ? `${extracted.body}\n\n${hashtags.join(' ')}`
+    : extracted.body;
+  return hashtags.length !== selectedHashtags.length;
+}
+
+function maximumPostCharacters(
+  platform: string,
+  editorialPlan?: PostEditorialPlan,
+): number | undefined {
+  const platformMaximum = platformMaximumCharacters(platform);
+  const editorialMaximum = editorialPlan?.maximumBodyCharacters;
+  if (platformMaximum === undefined) return editorialMaximum;
+  if (editorialMaximum === undefined) return platformMaximum;
+  return Math.min(platformMaximum, editorialMaximum);
+}
+
+function minimumPostCharacters(
+  input: PostWriterInput,
+  platform: string,
+  editorialPlan: PostEditorialPlan,
+): number {
+  const platformFloor = MIN_COMPLETE_POST_CHARS[platform] ?? MIN_COMPLETE_POST_CHARS.generic;
+  if (
+    editorialPlan.sourceBoundary === 'source_only'
+    && !editorialPlan.explicitLengthRequested
+  ) {
+    return platformFloor;
+  }
+  if (editorialPlan.targetBodyCharacters !== undefined) {
+    return Math.max(platformFloor, Math.ceil(editorialPlan.targetBodyCharacters * 0.75 / 25) * 25);
+  }
+  const target = input.contentSignalProfile?.profile.constraints.target_length;
+  if (target?.unit !== 'characters' || !Number.isFinite(target.value)) return platformFloor;
+
+  // The resolved profile owns the output-length intent. Keep a reasonable lower bound so
+  // platform-targeted posts have enough room for a hook, proof, development, and CTA.
+  // An explicit request must never silently overrule the platform hard maximum.
+  const requestedFloor = Math.floor(target.value * 0.75);
+  const platformMaximum = platformMaximumCharacters(platform);
+  if (platformMaximum !== undefined && requestedFloor >= platformMaximum) {
+    return editorialPlan.explicitLengthRequested
+      ? Math.max(platformFloor, Math.floor(platformMaximum * 0.75))
+      : platformFloor;
+  }
+  return Math.max(platformFloor, requestedFloor);
+}
+
+function buildPostLengthContract(
+  input: PostWriterInput,
+  platform: string,
+  editorialPlan: PostEditorialPlan,
+): string {
+  const minimum = minimumPostCharacters(input, platform, editorialPlan);
+  const maximum = maximumPostCharacters(platform, editorialPlan);
+  const target = input.contentSignalProfile?.profile.constraints.target_length;
+  const resolvedTarget = editorialPlan.targetBodyCharacters
+    ?? (target?.unit === 'characters' && Number.isFinite(target.value) ? target.value : undefined);
+  const targetLine = resolvedTarget !== undefined
+    ? `- Aim for ${resolvedTarget} characters when the brief does not set a stricter platform maximum.`
+    : '';
+
+  return `<post_length_contract>
+- This is a server-enforced publishing contract, not optional guidance.
+- Body minimum: ${minimum} characters. Do not return a shorter body.
+${maximum === undefined ? '' : `- Final body plus hashtags maximum: ${maximum} characters.\n`}${targetLine}
+</post_length_contract>`;
+}
+
 function getPublishableLines(content: string): string[] {
   return content
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-    .filter((line) => !/^#\w/.test(line));
+    .filter((line) => !HASHTAG_ONLY_LINE_PATTERN.test(line));
+}
+
+function getSuppliedPostContext(input: PostWriterInput): string {
+  return [input.userPrompt, input.context.projectSummary, input.context.systemBrief]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join('\n');
+}
+
+function requiredBriefClaims(input: PostWriterInput): string[] {
+  return input.contentSignalProfile?.intent.proofPoints
+    .map((point) => point.match(/^Required brief claim:\s*(.+)$/i)?.[1]?.trim())
+    .filter((claim): claim is string => Boolean(claim)) ?? [];
+}
+
+function normalizeSourceText(value: string): string {
+  return value
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.!?]+$/g, '')
+    .toLocaleLowerCase();
+}
+
+interface PostExecutionAnchors {
+  audience?: string;
+  topicTerms: string[];
+  visualBrief?: string;
+}
+
+function resolvePostExecutionAnchors(input: PostWriterInput): PostExecutionAnchors {
+  const proofPoints = input.contentSignalProfile?.intent.proofPoints ?? [];
+  const audience = proofPoints
+    .map((point) => point.match(/^Required audience anchor:\s*(.+)$/i)?.[1]?.trim())
+    .find((anchor): anchor is string => Boolean(anchor));
+  const explicitTopicSegments = [...input.userPrompt.matchAll(
+    /\b(?:offer|topic)\s*:\s*([^.!?\n]{3,240})/gi,
+  )].map((match) => match[1] ?? '');
+  const aboutSegment = input.userPrompt.match(/\babout\s+([^.!?\n]{3,240})/i)?.[1];
+  const rankedSources: Array<{ value: string; weight: number }> = [
+    { value: input.contentSignalProfile?.intent.angle ?? '', weight: 7 },
+    ...requiredBriefClaims(input).map((value) => ({ value, weight: 6 })),
+    ...explicitTopicSegments.map((value) => ({ value, weight: 5 })),
+    ...(aboutSegment ? [{ value: aboutSegment, weight: 4 }] : []),
+    { value: input.context.projectSummary ?? '', weight: 3 },
+    { value: input.userPrompt, weight: 1 },
+  ];
+  const scores = new Map<string, { score: number; order: number; display: string }>();
+  let order = 0;
+  for (const source of rankedSources) {
+    for (const token of normalizeSourceLanguage(source.value).match(/[\p{L}\p{N}]+/gu) ?? []) {
+      if (/^\d/.test(token) || token.length < 3 || POST_TOPIC_ANCHOR_STOP_WORDS.has(token)) continue;
+      const normalized = sourceCoverageToken(token);
+      const current = scores.get(normalized);
+      scores.set(normalized, {
+        score: (current?.score ?? 0) + source.weight,
+        order: current?.order ?? order++,
+        display: current?.display ?? token,
+      });
+    }
+  }
+  const topicTerms = [...scores.entries()]
+    .sort((left, right) => right[1].score - left[1].score || left[1].order - right[1].order)
+    .slice(0, 8)
+    .map(([, evidence]) => evidence.display);
+
+  const visualBrief = cleanRequiredVisibleText(input.contentSignalProfile?.intent.angle ?? '');
+  return { audience, topicTerms, ...(visualBrief ? { visualBrief } : {}) };
+}
+
+function containsNormalizedText(content: string, expected: string): boolean {
+  return normalizeSourceText(content).includes(normalizeSourceText(expected));
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function countTopicTerms(content: string, terms: readonly string[]): number {
+  const normalizedTokens = new Set(
+    (normalizeSourceLanguage(content).match(/[\p{L}\p{N}]+/gu) ?? []).map(sourceCoverageToken),
+  );
+  return terms.filter((term) => normalizedTokens.has(sourceCoverageToken(term))).length;
+}
+
+function cleanRequiredVisibleText(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function removeClickatronCopyInstructions(prompt: string): string {
+  const sanitized = prompt
+    .replace(/\btext[-\s]?overlays?\s*:\s*[^.!?]*(?:[.!?]|$)/gi, '')
+    .replace(/\b(?:display(?:ing|s)?|read(?:ing|s)?|say(?:ing|s)?|show(?:ing|s)?)\s+(?:a\s+|the\s+)?(?:clear\s+|prominent\s+)?(['"])[^'"]+\1(?:\s+(?:button|caption|column|field|headline|indicator|label|metric|title))?/gi, 'showing an abstract, defocused interface element')
+    .replace(/(['"])[^'"]+\1\s+(?:button|caption|column|field|headline|indicator|label|metric|title)/gi, 'an abstract interface element')
+    .replace(/\b(?:a\s+)?(?:subtle\s+)?(?:['"][^'"]+['"]|\bq[1-4]\b)\s+indicator\b/gi, 'abstract timing cue')
+    .replace(/\b(?:labeled|labelled)\s+(?:(['"])[^'"]+\1|[\p{L}\p{N}_-]+(?:\s+[\p{L}\p{N}_-]+){0,2})/giu, 'with no readable markings')
+    .replace(CLICKATRON_BRAND_MARK_REQUEST_PATTERN, 'showing an abstract brand-safe shape')
+    .replace(/https?:\/\/\S+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?/gi, '')
+    .replace(/\b(?:text[-\s]?overlays?|overlay\s+text)\b/gi, 'text-safe negative space')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+,/g, ',')
+    .trim();
+  return /\b(?:no|without)\b[^.!?]{0,80}\b(?:labels?|legible\s+ui|readable\s+(?:copy|text)|text)\b/i.test(sanitized)
+    ? sanitized
+    : `${sanitized} No readable text, labels, numbers, logos, watermarks, or legible UI.`;
+}
+
+function clickatronPromptRequestsReadableCopy(prompt: string): boolean {
+  const affirmativePrompt = prompt.replace(CLICKATRON_NEGATIVE_COPY_CONSTRAINT_PATTERN, '');
+  return CLICKATRON_COPY_INSTRUCTION_PATTERN.test(affirmativePrompt)
+    || CLICKATRON_BRAND_MARK_REQUEST_PATTERN.test(affirmativePrompt);
+}
+
+function reconcileClickatronVisualContract(
+  result: PostWriterResult,
+  input: PostWriterInput,
+  editorialPlan: PostEditorialPlan,
+): boolean {
+  const anchors = resolvePostExecutionAnchors(input);
+  let changed = false;
+  const normalizePrompt = (prompt: string): string => {
+    const sanitized = removeClickatronCopyInstructions(prompt);
+    changed = changed || sanitized !== prompt;
+    let grounded = sanitized;
+    if (GENERIC_VISUAL_HANDOFF_PATTERN.test(sanitized)) {
+      changed = true;
+      grounded = sanitized.replace(
+        GENERIC_VISUAL_HANDOFF_PATTERN,
+        'source-grounded operational scene',
+      ).trim();
+    }
+    if (
+      input.contentSignalProfile
+      && anchors.topicTerms.length >= 2
+      && countTopicTerms(grounded, anchors.topicTerms) < 2
+    ) {
+      changed = true;
+      const groundingClause = `Ground the scene in ${anchors.topicTerms.slice(0, 4).join(', ')} through concrete non-textual props, an observable workflow action, and the operational environment.`;
+      grounded = `${grounded} ${groundingClause}`;
+    }
+    if (!editorialPlan.visualProofDirection || grounded.includes(editorialPlan.visualProofDirection)) return grounded;
+    changed = true;
+    return `${grounded} ${editorialPlan.visualProofDirection}`;
+  };
+
+  if (result.clickatron.singleImagePrompt) {
+    result.clickatron.singleImagePrompt = normalizePrompt(result.clickatron.singleImagePrompt);
+  }
+  if (result.clickatron.carouselPrompts) {
+    result.clickatron.carouselPrompts = result.clickatron.carouselPrompts.map(normalizePrompt);
+  }
+
+  return changed;
+}
+
+function contentWithoutRequiredSourceClaims(content: string, input: PostWriterInput): string {
+  return requiredBriefClaims(input).reduce(
+    (remaining, claim) => remaining.replace(new RegExp(escapeRegExp(claim), 'gi'), ''),
+    content,
+  );
+}
+
+function unsupportedSourceOnlyClaimFamilies(
+  content: string,
+  input: PostWriterInput,
+  editorialPlan: PostEditorialPlan,
+): string[] {
+  if (editorialPlan.sourceBoundary !== 'source_only') return [];
+
+  const suppliedContext = normalizeSourceLanguage(getSuppliedPostContext(input));
+  const claimContent = content
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((sentence) => normalizeSourceLanguage(sentence.trim()))
+    .filter((sentence) => sentence.length > 0 && !SOURCE_ONLY_NON_FACTUAL_ACTION_PATTERN.test(sentence))
+    .join('\n');
+  return SOURCE_ONLY_CLAIM_FAMILIES
+    .filter(({ pattern }) => pattern.test(claimContent) && !pattern.test(suppliedContext))
+    .map(({ id }) => id);
+}
+
+function normalizeSourceLanguage(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLocaleLowerCase();
+}
+
+function sourceCoverageToken(value: string): string {
+  if (/^\d/.test(value)) return value;
+  if (value.length > 6 && value.endsWith('ies')) return `${value.slice(0, -3)}y`;
+  if (value.length > 6 && value.endsWith('ing')) return value.slice(0, -3);
+  if (value.length > 5 && value.endsWith('ed')) return value.slice(0, -2);
+  if (value.length > 5 && value.endsWith('es')) return value.slice(0, -2);
+  if (value.length > 4 && value.endsWith('s')) return value.slice(0, -1);
+  return value;
+}
+
+function sourceCoverageTokens(value: string): string[] {
+  return [...new Set(
+    normalizeSourceLanguage(value)
+      .match(/[\p{L}\p{N}]+/gu)
+      ?.filter((token) => (token.length >= 4 || /^\d/.test(token)) && !SOURCE_COVERAGE_STOP_WORDS.has(token))
+      .map(sourceCoverageToken) ?? [],
+  )];
+}
+
+type PostClaimSupport = NonNullable<PostWriterResult['contentAnalysis']['claimSupport']>[number];
+
+interface AuthorizedClaimSource {
+  sourceRef: string;
+  sourceText: string;
+  sourceKind: string;
+}
+
+function normalizedClaimText(value: string): string {
+  return normalizeSourceLanguage(value)
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizedExtractiveClaimText(value: string): string {
+  return normalizedClaimText(value.replace(/^[\p{L}]{3,24},\s+/u, ''));
+}
+
+function requiredClaimMaterialAnchors(editorialPlan: PostEditorialPlan): string[] {
+  const claimTokens = sourceCoverageTokens(editorialPlan.requiredClaim ?? '');
+  const numericAnchors = claimTokens.filter((token) => /^\d/.test(token));
+  if (numericAnchors.length > 0) return numericAnchors;
+
+  return claimTokens.filter((token) => token.length >= 5);
+}
+
+function hasRequiredClaimMaterialAnchor(
+  sentence: string,
+  editorialPlan: PostEditorialPlan,
+): boolean {
+  const anchors = requiredClaimMaterialAnchors(editorialPlan);
+  if (anchors.length === 0) return true;
+
+  const sentenceTokens = new Set(sourceCoverageTokens(sentence));
+  const requiredMatches = anchors.filter((anchor) => sentenceTokens.has(anchor)).length;
+  const requiredMatchCount = anchors.some((anchor) => /^\d/.test(anchor))
+    ? 1
+    : Math.min(2, anchors.length);
+  return requiredMatches >= requiredMatchCount;
+}
+
+function postContentSentences(content: string): string[] {
+  return content
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0 && !HASHTAG_ONLY_LINE_PATTERN.test(sentence));
+}
+
+function requiresClaimSupport(
+  editorialPlan: PostEditorialPlan,
+): boolean {
+  return editorialPlan.sourceBoundary === 'source_only'
+    || (editorialPlan.evidenceDensity === 'thin' && Boolean(editorialPlan.requiredClaim));
+}
+
+function claimBearingSentences(content: string): Array<{ sentence: string; index: number }> {
+  return postContentSentences(content).flatMap((sentence, index) => {
+    if (
+      sentence.endsWith('?')
+      || PURE_ACTION_SENTENCE_PATTERN.test(normalizeSourceLanguage(sentence))
+      || /https?:\/\/|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?/i.test(sentence)
+    ) {
+      return [];
+    }
+
+    return sourceCoverageTokens(sentence).length >= 2
+      ? [{ sentence, index: index + 1 }]
+      : [];
+  });
+}
+
+function authorizedClaimSources(input: PostWriterInput): AuthorizedClaimSource[] {
+  const sources = new Map<string, AuthorizedClaimSource>();
+  const addSource = (sourceRef: string, sourceText: string | null | undefined, sourceKind: string) => {
+    const text = sourceText?.trim();
+    if (!text || sources.has(sourceRef)) return;
+    sources.set(sourceRef, { sourceRef, sourceText: text, sourceKind });
+  };
+
+  // The original request is canonical for brief_user. A compacted ledger copy must never
+  // silently replace it, because claim excerpts are checked against this exact catalog.
+  addSource('brief_user', input.userPrompt, 'user_brief');
+  addSource('project_summary', input.context.projectSummary, 'project_summary');
+
+  for (const entry of input.sourceLedger?.entries ?? []) {
+    addSource(entry.referenceId, `${entry.title}\n${entry.summary}`, entry.kind);
+  }
+
+  const retrievedFacts = [
+    ...(input.retrievedContext?.projectFacts ?? []),
+    ...(input.retrievedContext?.globalFacts ?? []),
+  ];
+  retrievedFacts.forEach((fact, index) => {
+    addSource(`source_${index + 1}`, `${fact.title}\n${fact.summary}`, 'retrieved_fact');
+  });
+  return [...sources.values()];
+}
+
+function authorizedClaimSourceMap(input: PostWriterInput): Map<string, string> {
+  return new Map(authorizedClaimSources(input).map((source) => [source.sourceRef, source.sourceText]));
+}
+
+function sourceExcerptForClaim(sourceText: string, sentence: string): string {
+  if (sourceText.length <= 1_200) return sourceText;
+
+  const sentenceTokens = new Set(sourceCoverageTokens(sentence));
+  const candidates = sourceText
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((candidate) => candidate.trim())
+    .filter(Boolean);
+  const bestCandidate = candidates
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      overlap: sourceCoverageTokens(candidate)
+        .filter((token) => sentenceTokens.has(token)).length,
+    }))
+    .sort((left, right) => right.overlap - left.overlap || left.index - right.index)[0]?.candidate;
+  return (bestCandidate ?? sourceText).slice(0, 1_200).trim();
+}
+
+function materializeServerOwnedClaimSupport(result: PostWriterResult, input: PostWriterInput): void {
+  const claimSupport = result.contentAnalysis.claimSupport;
+  if (!claimSupport?.length) return;
+
+  const sources = authorizedClaimSourceMap(input);
+  result.contentAnalysis.claimSupport = claimSupport.map((entry) => {
+    const sourceText = sources.get(entry.sourceRef);
+    if (!sourceText) return entry;
+    return {
+      ...entry,
+      sourceExcerpt: sourceExcerptForClaim(sourceText, entry.sentence),
+    };
+  });
+}
+
+function claimSupportIssues(
+  result: PostWriterResult,
+  input: PostWriterInput,
+  editorialPlan: PostEditorialPlan,
+): string[] {
+  if (!requiresClaimSupport(editorialPlan)) return [];
+
+  const sources = authorizedClaimSourceMap(input);
+  const claimSupport = result.contentAnalysis.claimSupport ?? [];
+  const claimSentences = claimBearingSentences(result.content);
+  const currentSentenceKeys = new Set(claimSentences.map(({ sentence }) => normalizedClaimText(sentence)));
+  const staleEntries = claimSupport.some((entry) => !currentSentenceKeys.has(normalizedClaimText(entry.sentence)));
+  const issues = staleEntries ? ['claim_support_stale_sentence'] : [];
+
+  issues.push(...claimSentences.flatMap(({ sentence, index }) => {
+    const matchingSupport = claimSupport.filter(
+      (entry) => normalizedClaimText(entry.sentence) === normalizedClaimText(sentence),
+    );
+    const support = matchingSupport[0];
+    if (!support) return [`claim_support_missing:${index}`];
+    if (matchingSupport.length > 1) return [`claim_support_duplicate_sentence:${index}`];
+
+    const source = sources.get(support.sourceRef);
+    if (!source) return [`claim_support_invalid_source:${index}`];
+
+    const normalizedSource = normalizedClaimText(source);
+    const normalizedExcerpt = normalizedClaimText(support.sourceExcerpt ?? '');
+    if (!normalizedExcerpt || !normalizedSource.includes(normalizedExcerpt)) {
+      return [`claim_support_invalid_excerpt:${index}`];
+    }
+
+    const sentenceTokens = sourceCoverageTokens(sentence);
+    const excerptTokens = new Set(sourceCoverageTokens(support.sourceExcerpt ?? ''));
+    const overlap = sentenceTokens.filter((token) => excerptTokens.has(token)).length;
+    const overlapRatio = sentenceTokens.length === 0 ? 0 : overlap / sentenceTokens.length;
+
+    if (support.relationship === 'verbatim') {
+      return normalizedExcerpt.includes(normalizedExtractiveClaimText(sentence))
+        ? []
+        : [`claim_support_low_overlap:${index}`];
+    }
+
+    if (
+      editorialPlan.evidenceDensity === 'thin'
+      && editorialPlan.sourceBoundary !== 'source_only'
+      && support.relationship === 'paraphrase'
+      && support.sourceRef === 'brief_user'
+      && !hasRequiredClaimMaterialAnchor(sentence, editorialPlan)
+    ) {
+      return [`claim_support_missing_required_anchor:${index}`];
+    }
+
+    if (editorialPlan.sourceBoundary === 'source_only') {
+      if (support.relationship === 'bounded_implication') {
+        return [`claim_support_unbounded_implication:${index}`];
+      }
+      return overlapRatio >= 0.33 ? [] : [`claim_support_low_overlap:${index}`];
+    }
+
+    if (support.relationship === 'bounded_implication') {
+      return overlapRatio >= 0.25 && BOUNDED_IMPLICATION_MARKER_PATTERN.test(sentence)
+        ? []
+        : [`claim_support_unbounded_implication:${index}`];
+    }
+
+    return overlapRatio >= 0.55 ? [] : [`claim_support_low_overlap:${index}`];
+  }));
+  return issues;
+}
+
+function outputLanguageIssue(content: string, input: PostWriterInput): string | undefined {
+  const expected = input.contentSignalProfile?.profile.constraints.language
+    ?.trim()
+    .toLocaleLowerCase()
+    .split(/[-_]/)[0];
+  if (!expected) return undefined;
+
+  const body = extractTrailingHashtags(content).body
+    .replace(/https?:\/\/\S+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?/gi, ' ');
+  const letterCount = body.match(/\p{L}/gu)?.length ?? 0;
+  if (letterCount < 60) return undefined;
+
+  const actual = detect(body).toLocaleLowerCase().split(/[-_]/)[0];
+  return actual && actual !== expected
+    ? `output_language_mismatch:${actual}/${expected}`
+    : undefined;
+}
+
+function sourceOnlyEvidenceContext(input: PostWriterInput): string {
+  return [
+    input.userPrompt,
+    input.context.projectSummary,
+    ...(input.sourceLedger?.entries.map((entry) => `${entry.title} ${entry.summary}`) ?? []),
+    ...(input.retrievedContext?.projectFacts.map((fact) => `${fact.title} ${fact.summary}`) ?? []),
+    ...(input.retrievedContext?.globalFacts.map((fact) => `${fact.title} ${fact.summary}`) ?? []),
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0).join('\n');
+}
+
+function unsupportedSourceOnlySentenceIndexes(
+  content: string,
+  input: PostWriterInput,
+  editorialPlan: PostEditorialPlan,
+): number[] {
+  if (editorialPlan.sourceBoundary !== 'source_only' || editorialPlan.editorialShape !== 'event_action') {
+    return [];
+  }
+
+  const sourceTokens = new Set(sourceCoverageTokens(sourceOnlyEvidenceContext(input)));
+  const sentences = content
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0 && !HASHTAG_ONLY_LINE_PATTERN.test(sentence));
+
+  return sentences.flatMap((sentence, index) => {
+    if (/https?:\/\/|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?/i.test(sentence)) return [];
+    const normalizedSentence = normalizeSourceLanguage(sentence);
+    if (
+      SOURCE_ONLY_NON_FACTUAL_ACTION_PATTERN.test(normalizedSentence)
+      || !SOURCE_ONLY_ASSERTIVE_PREDICATE_PATTERN.test(normalizedSentence)
+    ) {
+      return [];
+    }
+    const sentenceTokens = sourceCoverageTokens(sentence);
+    if (sentenceTokens.length < 4) return [];
+    const supported = sentenceTokens.filter((token) => sourceTokens.has(token)).length;
+    const anchorFloor = sentenceTokens.length >= 5 ? 3 : 2;
+    return supported / sentenceTokens.length >= 0.55 || supported >= anchorFloor
+      ? []
+      : [index + 1];
+  });
+}
+
+function unsupportedThinEvidenceSentenceIndexes(
+  content: string,
+  input: PostWriterInput,
+  editorialPlan: PostEditorialPlan,
+): number[] {
+  if (
+    editorialPlan.evidenceDensity !== 'thin'
+    || editorialPlan.sourceBoundary === 'source_only'
+    || !editorialPlan.requiredClaim
+  ) {
+    return [];
+  }
+
+  const sourceTokens = new Set(sourceCoverageTokens(sourceOnlyEvidenceContext(input)));
+  return content
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0 && !HASHTAG_ONLY_LINE_PATTERN.test(sentence))
+    .flatMap((sentence, index) => {
+      if (sentence.endsWith('?')) return [];
+      if (!THIN_EVIDENCE_EXPANSION_PATTERN.test(normalizeSourceLanguage(sentence))) return [];
+      const sentenceTokens = sourceCoverageTokens(sentence);
+      if (sentenceTokens.length < 4) return [];
+      const supported = sentenceTokens.filter((token) => sourceTokens.has(token)).length;
+      return supported / sentenceTokens.length >= 0.55 ? [] : [index + 1];
+    });
+}
+
+interface PostContractRepairDiagnostic {
+  code: string;
+  excerpt?: string;
+}
+
+function postContractRepairDiagnostics(
+  result: PostWriterResult,
+  failure: Error,
+): { contentCharacters: number; findings: PostContractRepairDiagnostic[] } {
+  const failureCodes = failure.message
+    .slice(POST_CONTRACT_FAILURE_PREFIX.length)
+    .split(',')
+    .map((code) => code.trim())
+    .filter(Boolean);
+  const sentences = result.content
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0 && !HASHTAG_ONLY_LINE_PATTERN.test(sentence));
+  const hookExcerpt = getPublishableLines(result.content).slice(0, 2).join(' ');
+
+  return {
+    contentCharacters: result.content.length,
+    findings: failureCodes.map((code) => {
+      const indexedSentence = code.match(
+        /^(?:source_only_low_support_sentence|thin_evidence_unsupported_sentence|claim_support_missing|claim_support_duplicate_sentence|claim_support_invalid_source|claim_support_invalid_excerpt|claim_support_low_overlap|claim_support_missing_required_anchor|claim_support_unbounded_implication):(\d+)$/,
+      );
+      if (indexedSentence) {
+        return {
+          code,
+          excerpt: sentences[Number(indexedSentence[1]) - 1],
+        };
+      }
+
+      const claimFamily = code.match(/^source_only_unsupported_claim:(.+)$/)?.[1];
+      if (claimFamily) {
+        const familyPattern = SOURCE_ONLY_CLAIM_FAMILIES.find(({ id }) => id === claimFamily)?.pattern;
+        return {
+          code,
+          ...(familyPattern
+            ? { excerpt: sentences.find((sentence) => familyPattern.test(normalizeSourceLanguage(sentence))) }
+            : {}),
+        };
+      }
+
+      if (code.startsWith('hook_') || code === 'bare_required_claim_hook') {
+        return { code, ...(hookExcerpt ? { excerpt: hookExcerpt } : {}) };
+      }
+
+      return { code };
+    }),
+  };
 }
 
 export function assertUsablePostWriterResult(result: PostWriterResult, input: PostWriterInput): void {
   const platform = detectPlatform(input.userPrompt, undefined, input.context.projectSummary);
+  const editorialPlan = buildPostEditorialPlan({
+    userPrompt: input.userPrompt,
+    contentSignalProfile: input.contentSignalProfile,
+    retrievedFactCount: (input.retrievedContext?.projectFacts.length ?? 0)
+      + (input.retrievedContext?.globalFacts.length ?? 0),
+  });
   const content = result.content.trim();
   const lines = getPublishableLines(content);
   const ctaTail = lines.slice(-3).join('\n');
+  const hookLine = lines[0] ?? '';
   const failures: string[] = [];
-  const minChars = MIN_COMPLETE_POST_CHARS[platform] ?? MIN_COMPLETE_POST_CHARS.generic;
+  const suppliedContext = getSuppliedPostContext(input);
+  const executionAnchors = resolvePostExecutionAnchors(input);
+  const requiredProofMarkers = editorialPlan.hookProofMarkers;
+  const minChars = minimumPostCharacters(input, platform, editorialPlan);
+  const maxChars = maximumPostCharacters(platform, editorialPlan);
+  const hashtagRange = platformHashtagRange(platform);
 
   const minBodyLines = platform === 'twitter' ? 1 : 3;
 
-  if (content.length < minChars) failures.push(`content_under_${minChars}_chars`);
+  if (content.length < minChars) failures.push(`content_under_${minChars}_chars:${content.length}`);
+  if (maxChars !== undefined && content.length > maxChars) failures.push(`content_over_${maxChars}_chars`);
   if (lines.length < minBodyLines) failures.push('missing_body_or_cta_lines');
   if (!(/[?]/.test(ctaTail) || POST_CTA_PATTERN.test(ctaTail))) failures.push('missing_action_cta');
-  if (platform !== 'twitter' && !/#\w+/.test(content)) failures.push('missing_hashtags');
+  const ctaLine = lines.at(-1) ?? '';
+  const hasSourceSpecificCtaQuestion = Boolean(
+    executionAnchors.audience
+    && executionAnchors.topicTerms.length > 0
+    && containsNormalizedText(ctaLine, executionAnchors.audience)
+    && countTopicTerms(ctaLine, executionAnchors.topicTerms) > 0
+  );
+  if (GENERIC_CTA_QUESTION_PATTERN.test(ctaLine) && !hasSourceSpecificCtaQuestion) {
+    failures.push('generic_cta_question');
+  }
+  const explicitlyRequestedGenericCta = GENERIC_CTA_PATTERN.test(suppliedContext);
+  if (
+    GENERIC_CTA_PATTERN.test(ctaLine)
+    && !SPECIFIC_CTA_ACTION_PATTERN.test(ctaLine)
+    && !explicitlyRequestedGenericCta
+  ) {
+    failures.push('generic_cta');
+  }
+  if (OUTREACH_CTA_PATTERN.test(ctaLine) && !SUPPLIED_OUTREACH_ROUTE_PATTERN.test(suppliedContext)) {
+    failures.push('generic_cta');
+  }
+  const hashtagCount = content.match(HASHTAG_TOKEN_PATTERN)?.length ?? 0;
+  if (platform !== 'twitter' && hashtagCount === 0) failures.push('missing_hashtags');
+  if (
+    platform !== 'twitter'
+    && hashtagRange
+    && (hashtagCount < hashtagRange.min || hashtagCount > hashtagRange.max)
+  ) {
+    failures.push(`hashtag_count_out_of_range:${hashtagCount}/${hashtagRange.min}-${hashtagRange.max}`);
+  }
   if (!(result.clickatron?.singleImagePrompt || result.clickatron?.carouselPrompts?.length)) {
     failures.push('missing_clickatron_prompt');
   }
+  const visualPrompts = [
+    result.clickatron?.singleImagePrompt,
+    ...(result.clickatron?.carouselPrompts ?? []),
+  ].filter((prompt): prompt is string => typeof prompt === 'string' && prompt.trim().length > 0);
+  if (visualPrompts.some((prompt) => GENERIC_VISUAL_HANDOFF_PATTERN.test(prompt))) {
+    failures.push('generic_clickatron_visual');
+  }
+  if (visualPrompts.some(clickatronPromptRequestsReadableCopy)) {
+    failures.push('clickatron_contains_copy_instruction');
+  }
+  if (visualPrompts.some((prompt) => !VISUAL_SAFE_SPACE_PATTERN.test(prompt))) {
+    failures.push('missing_clickatron_safe_space');
+  }
+  if (requiredBriefClaims(input).some((claim) => normalizeSourceText(hookLine) === normalizeSourceText(claim))) {
+    failures.push('bare_required_claim_hook');
+  }
+  if (
+    editorialPlan.hookRequiresProof
+    && requiredProofMarkers.length > 0
+    && !requiredProofMarkers.some((marker) => hookLine.includes(marker))
+  ) {
+    failures.push('hook_missing_required_proof');
+  }
+  if (
+    editorialPlan.hookProofAttribution
+    && !sourceCoverageTokens(editorialPlan.hookProofAttribution)
+      .every((token) => sourceCoverageTokens(hookLine).includes(token))
+  ) {
+    failures.push('hook_missing_proof_attribution');
+  }
+  if (
+    editorialPlan.requiredDestination
+    && !containsNormalizedText(ctaTail, editorialPlan.requiredDestination)
+  ) {
+    failures.push('cta_missing_supplied_destination');
+  }
+  const unsuppliedDestinations = (content.match(POST_DESTINATION_PATTERN) ?? [])
+    .map((destination) => destination.replace(/[.,;:!?]+$/, ''))
+    .filter((destination) => !containsNormalizedText(suppliedContext, destination));
+  if (unsuppliedDestinations.length > 0) failures.push('unsupplied_destination');
+  if (
+    executionAnchors.audience
+    && executionAnchors.topicTerms.length > 0
+    && (!containsNormalizedText(hookLine, executionAnchors.audience)
+      || countTopicTerms(hookLine, executionAnchors.topicTerms) === 0)
+  ) {
+    failures.push('hook_missing_audience_workflow_anchor');
+  }
+  if (
+    executionAnchors.audience
+    && executionAnchors.topicTerms.length > 0
+    && (!containsNormalizedText(ctaLine, executionAnchors.audience)
+      || countTopicTerms(ctaLine, executionAnchors.topicTerms) === 0)
+  ) {
+    failures.push('cta_missing_audience_workflow_anchor');
+  }
+  if (
+    input.contentSignalProfile
+    &&
+    executionAnchors.topicTerms.length >= 2
+    && visualPrompts.some((prompt) => countTopicTerms(prompt, executionAnchors.topicTerms) < 2)
+  ) {
+    failures.push('clickatron_missing_source_anchors');
+  }
+  failures.push(...unsupportedSourceOnlyClaimFamilies(content, input, editorialPlan)
+    .map((family) => `source_only_unsupported_claim:${family}`));
+  failures.push(...unsupportedSourceOnlySentenceIndexes(content, input, editorialPlan)
+    .map((index) => `source_only_low_support_sentence:${index}`));
+  failures.push(...unsupportedThinEvidenceSentenceIndexes(content, input, editorialPlan)
+    .map((index) => `thin_evidence_unsupported_sentence:${index}`));
+  failures.push(...claimSupportIssues(result, input, editorialPlan));
+  const languageIssue = outputLanguageIssue(content, input);
+  if (languageIssue) failures.push(languageIssue);
   const carouselSlideCount = requestedCarouselSlideCount(input);
   if (carouselSlideCount !== undefined) {
     const promptCount = result.clickatron?.carouselPrompts?.length ?? 0;
@@ -114,8 +1010,19 @@ export function assertUsablePostWriterResult(result: PostWriterResult, input: Po
     if (result.clickatron?.singleImagePrompt) failures.push('carousel_returned_single_image_prompt');
   }
 
-  const filler = CACHED_POST_AI_FILLER.find((pattern) => pattern.regex.test(content));
+  const filler = CACHED_POST_AI_FILLER.find((pattern) => pattern.regex.test(
+    contentWithoutRequiredSourceClaims(content, input),
+  ));
   if (filler) failures.push(`banned_phrase:${filler.label}`);
+
+  if (input.contentSignalProfile) {
+    const profileCompliance = evaluateContentProfileCompliance(content, input.contentSignalProfile);
+    if (shouldAutoRepairContentProfileViolations(profileCompliance.violations)) {
+      failures.push(...profileCompliance.violations
+        .filter((violation) => violation.severity === 'critical')
+        .map((violation) => violation.id));
+    }
+  }
 
   if (failures.length > 0) {
     throw new Error(`Post writer output failed publishable quality gate: ${failures.join(', ')}`);
@@ -134,6 +1041,98 @@ The previous structured output failed the production post contract:
 ${failure.message}
 
 Return one complete replacement object using the same JSON schema. Preserve every supplied fact, the resolved brand voice, platform fit, selected writing techniques, and the intended Clickatron handoff. Repair the listed contract failures without adding unsupported claims or generic filler. Keep exactly one coherent CTA whose directness matches the brief and brand signals.
+
+For generic_cta:
+- Do not close with a vague invitation such as "Discover", "Learn more", "Follow for more", "Link in bio", or "Join us".
+- Close with either a question that names a supplied audience, workflow, entity, or outcome, or a concrete action using a supplied resource or offer.
+- Do not invent offers, dates, URLs, or next steps that are absent from the supplied brief.
+
+For generic_clickatron_visual:
+- Replace stock office/team/dashboard language with a text-free scene based on at least two supplied workflow details, objects, audience cues, or outcomes.
+- Keep real copy in the post content only; preserve visual safe space without invented UI, logos, or text.
+
+For clickatron_contains_copy_instruction:
+- Remove every instruction to render a headline, caption, indicator, label, watermark, or text overlay.
+- Keep the described visual idea, but express chronology or category through text-free objects, composition, and lighting. Exact copy remains in editable Clickatron layers downstream.
+
+For bare_required_claim_hook:
+- Open with the supplied audience's concrete friction, stake, or decision; move the exact required claim into the next paragraph as evidence.
+
+For hook_missing_required_proof:
+- Keep the supplied audience and workflow context in the hook, and add one exact marker from postEditorialPlan.hookProofMarkers.
+- Do not make the proof claim the entire hook. Name only the source-supplied workflow the proof measures; do not infer why it changes a broader decision or outcome.
+
+For hook_missing_proof_attribution:
+- Attribute the proof marker to postEditorialPlan.hookProofAttribution in the hook. A pilot, beta, named customer, or measured group must not become a universal audience outcome.
+
+For cta_missing_supplied_destination or unsupplied_destination:
+- Preserve postEditorialPlan.requiredDestination exactly in the CTA. Remove every URL or domain that is not present in tf_untrusted_data. Never merge a person's name with a domain.
+
+For generic_cta_question:
+- Replace a status question with one question that asks the reader to name a concrete bottleneck, handoff, decision, or operating constraint from the brief.
+
+For content_under_N_chars:
+- Expand the body to the server-resolved writing target using only supplied audience friction, workflow details, proof, implications, and brand perspective.
+- The failure includes the required minimum and the failed character count. Add the missing substance before returning; do not merely restate the hook or proof.
+- Do not pad with summaries, repeated facts, generic advice, or invented claims. Keep one CTA and the requested hashtag range.
+
+For content_over_N_chars:
+- Trim repeated framing and the lowest-priority development detail until the post fits the platform maximum.
+- Keep the hook, exact supplied facts, required audience anchor, one CTA, and hashtags. Do not change or discard an explicit factual claim to save space.
+
+For missing_hashtags or hashtag_count_out_of_range:
+- Populate the required hashtags array with the exact number of relevant, non-duplicated tags requested by the platform contract.
+- Ground every tag in a supplied entity, audience, workflow, format, or outcome. Do not use a generic engagement tag or invent a campaign name.
+- Keep content free of hashtag lines; ThinkForge assembles the final hashtag line from the structured array.
+
+For missing_clickatron_safe_space:
+- State where generous text-safe negative space sits in the composition, while keeping the raster itself free of readable copy.
+
+For hook_missing_audience_workflow_anchor or cta_missing_audience_workflow_anchor:
+- Use the exact Required audience anchor from tf_untrusted_data.postExecutionAnchors in both the hook and CTA.
+- The hook and CTA must each also name a real topic term from postExecutionAnchors.topicTerms. Do not use a seasonal, status, or generic team statement in place of the workflow.
+
+For clickatron_missing_source_anchors:
+- Build the text-free visual around at least two real topic terms from tf_untrusted_data.postExecutionAnchors.topicTerms, using actual workflow objects, actions, or stakes instead of generic office, tablet, dashboard, or data-flow scenery.
+
+For source_only_unsupported_claim or source_only_low_support_sentence:
+- Rebuild the post in postEditorialPlan.developmentSequence order using only facts explicitly present in tf_untrusted_data.
+- Remove every unsupplied cause, condition, consequence, beneficiary outcome, urgency claim, and impact claim. Naming a topic or event does not license assumptions about why it matters.
+- Treat evaluative phrases such as "tangible difference", "perfect opportunity", "practical way", and their synonyms as claims. Remove them unless that evaluation is explicitly supplied.
+- Treat every postEditorialPlan.forbiddenNarrativeExpansions entry as a binding prohibition. Do not paraphrase the prohibited idea.
+- If the source has limited detail, return concise, useful copy. Never pad to a generic platform length.
+
+For thin_evidence_unsupported_sentence:
+- Remove unsupported benefits, causal claims, optimization language, and generalized outcomes.
+- A supplied mechanism or measured pilot result does not authorize claims that it helps people work more efficiently, frees time, enables focus, or produces a broader operational outcome.
+- Use the supplied facts, measured group, concrete workflow, offer, and action directly. Concision is better than padding.
+
+For claim_support_missing, claim_support_invalid_source, claim_support_invalid_excerpt, claim_support_low_overlap, claim_support_missing_required_anchor, or claim_support_unbounded_implication:
+- Rewrite the rejected sentence so it is directly supported by one authorized source, then replace its contentAnalysis.claimSupport entry.
+- Copy sentence exactly from the repaired content. Use only a sourceRef present in tf_untrusted_data.claimSources.
+- Do not generate sourceExcerpt. ThinkForge attaches server-owned audit evidence from the cited sourceRef. Never cite Brand Vault voice guidance as factual evidence.
+- For thin evidence, a paraphrase cited to brief_user must name material proof from Required brief claim. Audience, season, topic, or product category alone cannot become a new pain, benefit, or outcome claim.
+- For claim_support_unbounded_implication, delete the implication unless an authorized source explicitly states it. Replace it with a direct source-backed product/workflow definition or an explicit scope limitation, not another inferred benefit.
+- Use bounded_implication only outside source_only mode, and only when the source gives a real basis for the implication and its boundary is explicit with wording such as "measured", "pilot", "limited to", "reference", "scope", or "not a forecast".
+- If no authorized source supports the sentence, delete it. Reusing source nouns does not make an invented benefit, cause, or outcome supported.
+
+For claim_support_stale_sentence or claim_support_duplicate_sentence:
+- Rebuild contentAnalysis.claimSupport from the final content. Keep exactly one entry for every substantive declarative sentence and no entries for a sentence that is absent, a question, a hashtag, or a pure action CTA.
+
+For banned_phrase:
+- Replace the banned phrase inside the same structured response. Preserve supported facts and update the matching claimSupport sentence if wording changes.
+
+For output_language_mismatch:
+- Rewrite all visible content and hashtags in tf_untrusted_data.contentSignalProfile.constraints.language.
+- Preserve supplied names, numbers, URLs, and official terms exactly. Clickatron visual prompts may remain in English.
+
+REPAIR DIAGNOSTICS
+- post_contract_repair_input.validatorDiagnostics identifies the exact rejected sentence or hook excerpt for each localized failure.
+- Delete or rewrite every identified unsupported excerpt. Do not preserve the same prohibited meaning under different adjectives or verbs.
+
+For profile_missing_required_brief_claim or profile_missing_required_audience_anchor:
+- Copy the corresponding Required brief claim and Required audience anchor from tf_untrusted_data.contentSignalProfile exactly into natural post copy.
+- Do not weaken, expand, or paraphrase an explicit factual claim while repairing it.
 </post_contract_repair>`;
 }
 
@@ -159,20 +1158,43 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
   buildPromptParts(input: PostWriterInput): IsolatedPromptParts {
     const { context, userPrompt, retrievedContext, editContext, productionBrief } = input;
     const platform = detectPlatform(userPrompt, undefined, context.projectSummary);
-    const outputFormat = buildPostOutputFormat(platform).replaceAll('<input_data>', 'tf_untrusted_data');
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
+    const editorialPlan = buildPostEditorialPlan({
+      userPrompt,
+      contentSignalProfile: input.contentSignalProfile,
+      retrievedFactCount: facts.length,
+    });
+    const outputFormat = buildPostOutputFormat(platform, {
+      targetCharacters: editorialPlan.targetBodyCharacters,
+      maximumCharacters: maximumPostCharacters(platform, editorialPlan),
+    }).replaceAll('<input_data>', 'tf_untrusted_data');
 
     // Writing knowledge graph: select techniques (DO/WHY/NEVER) from the content signals so the
     // flat writers get the same craft guidance the orchestrated ScriptAuthor path gets, not just
     // the anti-filler gate. Signals come from the resolved profile when threaded, else derived.
-    const signalDocType = input.contentSignalProfile?.profile.constraints.output_format;
+    const evidenceIncompatibleTechniques = editorialPlan.sourceBoundary === 'source_only'
+      || editorialPlan.evidenceDensity === 'thin'
+      ? [
+          'outcome_hook',
+          'problem_agitate_solve',
+          'attention_interest_desire_action',
+          'sparkline_structure',
+          'narrative_arc',
+          'urgent_cta',
+        ]
+      : [];
     const writingBlock = buildWritingKnowledgeBlock(
       input.contentSignalProfile?.profile.signals ?? extractSignalsFromContext({
-        documentType: signalDocType,
-        medium: signalDocType,
+        // This agent always authors a social post. An omitted resolved profile must
+        // use post-specific craft defaults, never the extractor's generic fallback.
+        documentType: 'post',
+        medium: 'post',
         projectSummary: context.projectSummary,
         userPrompt,
       }),
+      editorialPlan.ctaMode === 'source_question'
+        ? { excludeTechniqueIds: [...evidenceIncompatibleTechniques, 'soft_cta', 'hard_cta'] }
+        : { excludeTechniqueIds: evidenceIncompatibleTechniques },
     );
     const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);
     const trendBriefForData = `${trendBriefBlock ? `${trendBriefBlock}\n\n` : ''}`;
@@ -184,6 +1206,7 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
 - Do not return clickatron.singleImagePrompt.
 - Each slide must communicate a distinct grounded unit from tf_untrusted_data; never pad the count with invented claims.
 </carousel_contract>\n\n`;
+    const postLengthContract = buildPostLengthContract(input, platform, editorialPlan);
 
     const systemInstruction = `<role>You are an elite ${platform} copywriter and content strategist.</role>
 <task>${editContext
@@ -191,21 +1214,62 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
       : 'Write ONE final, publishable post for the detected platform'}. Return JSON that matches the schema exactly.</task>
 
 <rules>
-SOURCE-LEDGER
-- Every factual sentence must trace to an exact phrase in tf_untrusted_data.
+SOURCE CATALOG
+- tf_untrusted_data.claimSources is the sole authoritative catalog for visible factual claims and contentAnalysis.claimSupport. Each entry provides sourceRef and sourceText.
+- Every factual sentence must trace to an exact phrase in sourceText for its cited sourceRef. Do not cite a sourceRef that is not in claimSources.
+- When tf_untrusted_data.contentSignalProfile contains Required brief claim or Required audience anchor entries, include each one exactly in the post body.
 - Preserve supplied dates, times, prices, URLs, brand names, event names, product names, offers, and taglines verbatim.
 - Keep supplied formats when possible: "9am" stays "9am", "$40K" stays "$40K".
 - Do not invent ingredients, study results, timelines, percentages, discounts, prices, guarantees, or performance claims.
-- If proof is thin, make the writing specific through scene, audience pain, workflow friction, object detail, rhythm, and framing.
+- If proof is thin, make the writing specific through only source-supplied audience, workflow, product/category, timing, proof, and scope. Do not invent a pain point, scene, benefit, or operational outcome to create volume. A named audience or season is not evidence of its pain or business impact.
+
+CLAIM-SUPPORT LEDGER
+- When postEditorialPlan.sourceBoundary is source_only, or evidenceDensity is thin and requiredClaim is present, populate contentAnalysis.claimSupport.
+- Add one entry for every substantive declarative sentence in content. Do not add entries for hashtags, questions, or pure action CTAs.
+- sentence must be copied exactly from the final content. Return no claimSupport entries for a sentence that is absent from final content.
+- sourceRef must be one of tf_untrusted_data.claimSources[].sourceRef. ThinkForge resolves sourceExcerpt from that authoritative sourceRef after generation; do not invent or summarize source excerpts.
+- Use verbatim for copied claims; a short leading discourse label such as "Specifically," is allowed. When evidenceDensity is thin, a paraphrase cited to brief_user must carry material proof from Required brief claim. Audience, season, topic, or product category alone is not enough. Use bounded_implication only when the sentence explicitly states its measured scope or limitation.
+- In source_only mode, bounded_implication is forbidden. If no source supports a sentence, remove the sentence.
+
+OUTPUT LANGUAGE
+- Write all visible content and hashtags in tf_untrusted_data.contentSignalProfile.constraints.language when supplied.
+- Preserve official names, numbers, URLs, and terms that should not be translated. Clickatron visual prompts may remain in English.
+
+BRAND VOICE
+- tf_untrusted_data.brandContext is the accepted brand's binding writing direction. Follow its formality, directness, terminology, recurring phrases, and kill list.
+- brandContext is a style directive, never factual evidence. It cannot establish a location, product, capability, offer, result, customer, or event detail unless that detail also appears in claimSources.
+- Do not turn a precise, calm, or low-hype voice into generic product marketing. Never add capability, certainty, or outcome claims that the supplied evidence does not establish.
+
+EDITORIAL PLAN
+- tf_untrusted_data.postEditorialPlan is a server-owned feasibility contract. It outranks a writing technique that asks for an unavailable offer, proof, or length.
+- Follow postEditorialPlan.developmentSequence in order. It defines the allowed editorial progression, not merely a suggestion.
+- When sourceBoundary is source_only, every stated cause, condition, consequence, beneficiary outcome, urgency claim, and impact claim must be explicitly present in tf_untrusted_data. A named topic, event, audience, or mission does not authorize related background knowledge.
+- Every entry in forbiddenNarrativeExpansions is binding. Do not state or paraphrase those ideas in content, hashtags, contentAnalysis, or Clickatron prompts.
+- When ctaMode is source_question, end with one concrete question about the supplied workflow, owner, decision, or bottleneck. Do not ask for a demo, signup, trial, contact, or follow unless the brief supplies that route.
+- When hookRequiresProof is true, put a supplied numeric or named proof marker in the hook together with the audience's supplied workflow context. Do not make the exact proof claim the entire hook. Never manufacture friction merely to frame the proof.
+- When hookProofAttribution is present, name it in the hook. Never present a beta, pilot, named-customer, or measured-group result as a universal audience outcome.
+- When evidenceDensity is thin, develop only a source-backed product/workflow definition, the supplied proof, and an explicit scope limitation when useful. Do not invent friction, features, automation, guarantees, accuracy claims, implications, or broad business outcomes to make the post longer.
+- Follow visualProofDirection when it is present: make the proof tangible through a text-free physical scene, never through readable numbers, labels, or UI.
+
+EXECUTION ANCHORS
+- tf_untrusted_data.postExecutionAnchors is a server-resolved brief contract.
+- When it supplies an audience, the hook and CTA must each contain that audience and at least one supplied topic term.
+- Every Clickatron prompt must contain at least two supplied topic terms through concrete visual objects, actions, or environment. Do not replace them with generic office, tablet, dashboard, or abstract data-flow scenery.
 
 HOOK
-- The first visible line must carry a grounded claim, supplied number, named entity, or concrete pain from tf_untrusted_data.
+- The first visible line must carry a grounded claim, supplied number, named entity, or source-supplied friction from tf_untrusted_data. When evidence is thin, prefer the supplied proof or scope over an inferred pain.
 - No cliche openers.
+
+OUTPUT LENGTH
+- tf_untrusted_data.contentSignalProfile.constraints.target_length is ThinkForge's server-resolved length intent.
+- When it is measured in characters, use it as the writing target. It overrides a generic platform recommendation only when it reflects an explicit user length request or a concise-request intent.
+${postLengthContract}
 
 CTA
 - A CTA is mandatory for every post.
 - It must be specific to the brief and appear before hashtags in the last 3 non-hashtag lines.
 - Use supplied URLs or actions when they exist.
+- When postEditorialPlan.requiredDestination is present, reproduce it exactly in the CTA. Do not rewrite, merge, punctuate inside, or infer a different domain.
 
 ANTI-FILLER
 - Obey the anti-filler list in <output_format> exactly.
@@ -234,12 +1298,14 @@ Return your response strictly adhering to the JSON schema.`;
       data: {
         projectSummary: context.projectSummary || null,
         brandContext: context.systemBrief || null,
-        databankFacts: facts.map((fact, index) => ({
-          sourceId: `source_${index + 1}`,
-          title: fact.title,
-          summary: fact.summary,
-        })),
         userBrief: userPrompt,
+        claimSources: authorizedClaimSources(input),
+        contentSignalProfile: input.contentSignalProfile ? {
+          constraints: input.contentSignalProfile.profile.constraints,
+          intent: input.contentSignalProfile.intent,
+        } : null,
+        postEditorialPlan: editorialPlan,
+        postExecutionAnchors: resolvePostExecutionAnchors(input),
         trendBrief: trendBriefForData || null,
         edit: editContext
           ? {
@@ -254,8 +1320,7 @@ Return your response strictly adhering to the JSON schema.`;
         projectSummary: 12_000,
         brandContext: 24_000,
         userBrief: 12_000,
-        title: 300,
-        summary: 4_000,
+        sourceText: 12_000,
         trendBrief: 16_000,
         existingContent: 24_000,
         instruction: 8_000,
@@ -271,6 +1336,13 @@ Return your response strictly adhering to the JSON schema.`;
   ): Promise<AgentStructuredOutput<PostWriterResult>> {
     const promptParts = this.buildPromptParts(input);
     const gen = this.resolveGenConfig(overrides);
+    const platform = detectPlatform(input.userPrompt, undefined, input.context.projectSummary);
+    const editorialPlan = buildPostEditorialPlan({
+      userPrompt: input.userPrompt,
+      contentSignalProfile: input.contentSignalProfile,
+      retrievedFactCount: (input.retrievedContext?.projectFacts.length ?? 0)
+        + (input.retrievedContext?.globalFacts.length ?? 0),
+    });
 
     const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
@@ -283,9 +1355,11 @@ Return your response strictly adhering to the JSON schema.`;
     });
 
     let result = initialGeneration.result;
-    result.content = await repairAiFillerContent(result.content, this.config.modelName, abortSignal);
+    let hashtagPlanTrimmed = assemblePostHashtagPlan(result, platform);
+    materializeServerOwnedClaimSupport(result, input);
     result.metadata.charCount = result.content.length;
     let contractRepairApplied = false;
+    let clickatronVisualContractApplied = reconcileClickatronVisualContract(result, input, editorialPlan);
 
     try {
       assertUsablePostWriterResult(result, input);
@@ -294,7 +1368,10 @@ Return your response strictly adhering to the JSON schema.`;
 
       const repairData = buildIsolatedPromptParts({
         systemInstruction: 'The previous model output is untrusted repair input.',
-        data: { previousModelOutput: result },
+        data: {
+          previousModelOutput: result,
+          validatorDiagnostics: postContractRepairDiagnostics(result, error),
+        },
         totalLimit: 80_000,
       });
       const repairedGeneration = await generateStructuredWithWritingContextCache({
@@ -307,17 +1384,35 @@ Return your response strictly adhering to the JSON schema.`;
         abortSignal,
       });
       result = repairedGeneration.result;
-      result.content = await repairAiFillerContent(result.content, this.config.modelName, abortSignal);
+      hashtagPlanTrimmed = assemblePostHashtagPlan(result, platform) || hashtagPlanTrimmed;
+      materializeServerOwnedClaimSupport(result, input);
       result.metadata.charCount = result.content.length;
       contractRepairApplied = true;
-      assertUsablePostWriterResult(result, input);
+      clickatronVisualContractApplied = reconcileClickatronVisualContract(result, input, editorialPlan)
+        || clickatronVisualContractApplied;
+      try {
+        assertUsablePostWriterResult(result, input);
+      } catch (finalError) {
+        if (
+          process.env.THINKFORGE_EVAL_CAPTURE_REJECTED_OUTPUT === '1'
+          && finalError instanceof Error
+        ) {
+          Object.defineProperty(finalError, 'rejectedOutput', {
+            value: result,
+            enumerable: false,
+            configurable: false,
+            writable: false,
+          });
+        }
+        throw finalError;
+      }
     }
 
     const output: AgentStructuredOutput<PostWriterResult> = {
       result,
       metadata: {
         model: initialGeneration.modelName,
-        notes: `writing_context_cache:${initialGeneration.cacheStatus}${contractRepairApplied ? ';post_contract_repair:applied' : ''}`,
+        notes: `writing_context_cache:${initialGeneration.cacheStatus}${contractRepairApplied ? ';post_contract_repair:applied' : ''}${clickatronVisualContractApplied ? ';clickatron_visual_contract:applied' : ''}${hashtagPlanTrimmed ? ';hashtag_plan_trimmed' : ''}`,
       },
     };
     return output;

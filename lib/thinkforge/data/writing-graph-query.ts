@@ -88,6 +88,11 @@ export interface AntiAiConstraintBundle {
   promptGuidance: string;
 }
 
+export interface WritingKnowledgeBlockOptions {
+  /** Server-owned feasibility constraints may rule out otherwise well-scored techniques. */
+  excludeTechniqueIds?: readonly string[];
+}
+
 export interface PlatformSpec {
   name: string;
   lastVerified: string | null;
@@ -472,10 +477,14 @@ export function getAntiAiConstraintBundle(): AntiAiConstraintBundle {
  * (ScriptAuthor + the flat Post/Script writers) so technique injection can't drift between
  * stacks. Returns '' when nothing matches (caller omits the block). Never throws.
  */
-export function buildWritingKnowledgeBlock(signals: Partial<CreativeSignals>): string {
+export function buildWritingKnowledgeBlock(
+  signals: Partial<CreativeSignals>,
+  options: WritingKnowledgeBlockOptions = {},
+): string {
   try {
     const techniqueMap = selectAllTechniques(signals, 2);
     const antiAiConstraints = getConstraints('Anti-AI Constraints');
+    const excludedTechniqueIds = new Set(options.excludeTechniqueIds ?? []);
 
     if (techniqueMap.size === 0 && antiAiConstraints.length === 0) {
       console.log('[ThinkForge:WritingKnowledge] No techniques or constraints matched. Signals provided:', Object.keys(signals).length);
@@ -486,7 +495,7 @@ export function buildWritingKnowledgeBlock(signals: Partial<CreativeSignals>): s
     let techniqueCount = 0;
 
     techniqueMap.forEach((techniques: TechniqueResult[], category: string) => {
-      const top = techniques[0];
+      const top = techniques.find((technique) => !excludedTechniqueIds.has(technique.id));
       if (!top) return;
       techniqueCount++;
       lines.push(`${category.toUpperCase()}: ${top.id}`);

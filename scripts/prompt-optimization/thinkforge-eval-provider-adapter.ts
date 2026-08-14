@@ -328,6 +328,11 @@ async function runOpenAICompatiblePrompt(
       temperature: config.temperature,
       max_tokens: config.maxOutputTokens,
       stream: false,
+      // DeepSeek V4 enables thinking by default. Eval verdicts are short JSON,
+      // so reserve the completion budget for the answer rather than hidden CoT.
+      ...(config.provider === 'deepseek'
+        ? { thinking: { type: 'disabled' } }
+        : {}),
     }),
   });
 

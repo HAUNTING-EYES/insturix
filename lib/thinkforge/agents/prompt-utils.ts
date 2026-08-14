@@ -19,6 +19,11 @@ export interface DocumentRoleProfile {
   defaultMedium: string;
 }
 
+export interface PostOutputFormatOptions {
+  targetCharacters?: number;
+  maximumCharacters?: number;
+}
+
 const POST_CONTENT_REQUEST_PATTERN = /\b(linkedin\s+(?:post|carousel|article)|twitter\s+(?:post|thread)|x\s+(?:post|thread)|instagram\s+(?:post|caption|carousel)|ig\s+(?:post|caption|carousel)|facebook\s+(?:post|caption)|social\s+media\s+(?:post|caption|copy)|blog\s+post|article|newsletter|email\s+(?:campaign|copy)|carousel\s+post)\b/i;
 const SCRIPT_DOCUMENT_TYPE_PATTERN = /\b(screenplay|script|video\s+script|reel|short[ -]form|short\s+video|youtube\s+shorts?|youtube|tiktok|commercial|brand\s+film|product\s+ad|ugc)\b/i;
 const EXPLICIT_SCRIPT_TARGET_PATTERN = /\b(?:turn|convert|adapt|rewrite)\b.{0,100}\b(?:into|as)\b.{0,40}\b(?:video\s+script|reel\s+script|screenplay|youtube\s+short|short[ -]form\s+script|commercial\s+script|ugc\s+script)\b/i;
@@ -263,8 +268,13 @@ export const PLATFORM_CONFIGS: Record<PlatformType, PlatformConfig> = {
   },
 };
 
-export function buildPostOutputFormat(platform: PlatformType): string {
+export function buildPostOutputFormat(
+  platform: PlatformType,
+  options: PostOutputFormatOptions = {},
+): string {
   const config = PLATFORM_CONFIGS[platform];
+  const targetCharacters = options.targetCharacters ?? config.charTarget;
+  const maximumCharacters = options.maximumCharacters ?? config.charMax;
   const antiAiConstraints = getAntiAiConstraintBundle().promptGuidance;
   const platformHardRules = [
     platform === 'twitter'
@@ -288,6 +298,7 @@ STEP 1 HOOK
   - The first line must be 10-180 characters and stand alone.
   - The first ${config.foldChars} characters must contain a grounded claim, supplied number, named entity, concrete audience pain, or concrete object from <input_data>.
   - Start with an audience, named product, supplied number, event, price, or concrete problem from <input_data>.
+  - A supplied number alone is not a hook: pair it with the audience's concrete pain, workflow friction, or decision at stake.
   - Do not start with a broad category claim like "AI is...", "The future of...", "This is...", or "The world of...".
   - Never open with "In today's...", "Have you ever...", "Imagine...", "It's no secret...", or "Picture this...".
 
@@ -306,26 +317,29 @@ STEP 3 CTA
   - The final non-hashtag line must contain a ? or one clear action verb: ask, apply, book, buy, call, claim, comment, contact, DM, donate, discover, download, join, learn more, message, register, reply, reserve, save, schedule, send, share, shop, sign up, tag, try, visit, watch, or the equivalent action verb in the user's language.
   - End the body with exactly one specific call-to-action tied to the brief.
   - Use the supplied action when present: register, sign up, donate, shop, book, apply, claim, DM, message, schedule, comment, share, or the supplied URL.
-  - If no supplied action exists, the CTA line must start with a concrete action verb and ask for one specific action tied to the brief.
+  - Never invent an outreach route. Do not ask readers to DM, message, contact, call, book, or schedule unless <input_data> supplies that route, a resource, or a URL.
+  - If no supplied action, resource, or URL exists, close with a question that names a supplied audience, workflow, entity, or outcome.
   - Good pattern: "Comment with the workflow bottleneck your team most wants to remove."
   - Never use generic CTAs like "What do you think?", "Thoughts?", "Agree?", "Right?", or reflective statement endings.
   - The CTA must be in the last 3 non-hashtag lines.
 
 STEP 4 HASHTAGS
-  - Add ${config.hashtagRange} hashtags at the very end.
-  - Put hashtags on their own final line.
+  - Return ${config.hashtagRange} hashtags in the required hashtags array, not in content.
+  - Every tag must begin with #, be unique, and be grounded in a supplied entity, audience, workflow, format, or outcome.
+  - Do not use generic engagement tags or invent a campaign name. ThinkForge assembles the final hashtag line after validation.
   - If you run long, cut body copy before cutting the CTA or hashtags.
 
 PLATFORM CONSTRAINTS (${config.name})
-  - Target: ${config.charTarget} characters. Platform max: ${config.charMax}.
+  - Target: ${targetCharacters} characters. Platform max: ${maximumCharacters}.
   - Do not undershoot the target range unless the platform hard limit requires it.
   - ${config.extraGuidance}
 ${platformHardRules ? `\n${platformHardRules}\n` : ''}
 CLICKATRON OUTPUT
   - Fill clickatron.singleImagePrompt or clickatron.carouselPrompts.
-  - Every Clickatron prompt must include source facts that matter visually: brand, audience, date, time, location, offer, product, price, CTA, and exact overlay text.
-  - Include concrete props, environment, composition, text overlay plan, and brand style.
-  - For carouselPrompts, each slide prompt must say what the slide communicates and what exact text should be editable.
+  - Include only source facts that can be conveyed visually: subject, environment, props, activity, mood, composition, lighting, and brand-safe visual style.
+  - Ground each prompt in at least two supplied visual cues, including an action, object, environment, or workflow cue. Do not substitute generic office, team, or dashboard scenery for the actual concept.
+  - Describe safe zones and visual hierarchy without supplying headlines, captions, dates, CTA copy, text-overlay instructions, logos, watermarks, or readable UI.
+  - For carouselPrompts, each slide prompt must describe its distinct visual message; ThinkForge derives final editable copy from the post content downstream.
 
 ANTI-AI CONSTRAINTS (from writing-knowledge graph)
 ${antiAiConstraints}

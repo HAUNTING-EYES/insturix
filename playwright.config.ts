@@ -11,9 +11,12 @@ const testEnvironment = Object.fromEntries(
   Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
 );
 const thinkForgeE2EDatabaseUri = process.env.THINKFORGE_E2E_DATABASE_URI?.trim();
-const thinkForgeE2EBrandVaultDatabaseName = process.env.THINKFORGE_E2E_BRAND_VAULT_DATABASE_NAME?.trim();
-const thinkForgeE2EApplicationDatabaseName = process.env.THINKFORGE_E2E_RUN_ID?.trim()
-  ? `thinkforge_e2e_${process.env.THINKFORGE_E2E_RUN_ID.trim()}`
+const thinkForgeE2ERunId = process.env.THINKFORGE_E2E_RUN_ID?.trim() || '';
+const thinkForgeE2EApplicationDatabaseName = thinkForgeE2ERunId
+  ? `thinkforge_e2e_${thinkForgeE2ERunId}`
+  : '';
+const thinkForgeE2EBrandVaultDatabaseName = thinkForgeE2ERunId
+  ? `thinkforge_e2e_brandvault_${thinkForgeE2ERunId}`
   : '';
 
 if (thinkForgeE2EMode) {
@@ -21,18 +24,20 @@ if (thinkForgeE2EMode) {
   if (!['127.0.0.1', 'localhost'].includes(parsed.hostname) || !parsed.port) {
     throw new Error('ThinkForge E2E must use an explicit localhost base URL with a port.');
   }
-  if (process.env.THINKFORGE_E2E_WRITER_FIXTURE?.trim() !== 'post') {
-    throw new Error('ThinkForge E2E requires THINKFORGE_E2E_WRITER_FIXTURE=post.');
+  if (!['post', 'carousel', 'script'].includes(process.env.THINKFORGE_E2E_WRITER_FIXTURE?.trim() || '')) {
+    throw new Error('ThinkForge E2E requires THINKFORGE_E2E_WRITER_FIXTURE=post, carousel, or script.');
   }
-  if (!process.env.THINKFORGE_E2E_RUN_ID?.trim()) {
-    throw new Error('ThinkForge E2E requires THINKFORGE_E2E_RUN_ID.');
+  if (!/^[a-z0-9]{1,12}$/i.test(thinkForgeE2ERunId)) {
+    throw new Error('ThinkForge E2E requires a 1-12 character alphanumeric THINKFORGE_E2E_RUN_ID.');
   }
   if (!thinkForgeE2EDatabaseUri) {
     throw new Error('ThinkForge E2E requires THINKFORGE_E2E_DATABASE_URI for an isolated QA database.');
   }
-  if (!thinkForgeE2EBrandVaultDatabaseName) {
-    throw new Error('ThinkForge E2E requires THINKFORGE_E2E_BRAND_VAULT_DATABASE_NAME for an isolated Brand Vault database.');
+  const requestedBrandVaultDatabase = process.env.THINKFORGE_E2E_BRAND_VAULT_DATABASE_NAME?.trim();
+  if (requestedBrandVaultDatabase && requestedBrandVaultDatabase !== thinkForgeE2EBrandVaultDatabaseName) {
+    throw new Error('ThinkForge E2E derives its Brand Vault database from THINKFORGE_E2E_RUN_ID; custom database names are forbidden.');
   }
+  process.env.THINKFORGE_E2E_BRAND_VAULT_DATABASE_NAME = thinkForgeE2EBrandVaultDatabaseName;
 }
 
 const thinkForgeE2EEnvironment = {

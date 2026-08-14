@@ -3,6 +3,18 @@ import { z } from 'zod';
 export const THINKFORGE_DOCUMENT_CONTRACT_VERSION = 1;
 const MIN_CAROUSEL_SLIDE_COUNT = 2;
 const MAX_CAROUSEL_SLIDE_COUNT = 7;
+const ENGLISH_SLIDE_COUNT_WORDS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
 
 export const THINKFORGE_DOCUMENT_KINDS = ['post', 'script', 'document'] as const;
 export const THINKFORGE_OUTPUT_KINDS = [
@@ -99,9 +111,15 @@ function normalizeDocumentLabel(value: string): string {
 
 export function resolveCarouselSlideCount(value?: string | null): number | undefined {
   if (!value?.trim()) return undefined;
-  const match = value.toLowerCase().match(/\b(\d+)\s*(?:-\s*)?slides?\b/);
-  if (!match) return undefined;
-  const slideCount = Number(match[1]);
+  const normalized = normalizeDocumentLabel(value);
+  const numericMatch = normalized.match(/\b(\d+)\s*slides?\b/);
+  const wordMatch = normalized.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\s*slides?\b/);
+  const slideCount = numericMatch
+    ? Number(numericMatch[1])
+    : wordMatch
+      ? ENGLISH_SLIDE_COUNT_WORDS[wordMatch[1]]
+      : undefined;
+  if (slideCount === undefined) return undefined;
   if (!Number.isInteger(slideCount) || slideCount < MIN_CAROUSEL_SLIDE_COUNT || slideCount > MAX_CAROUSEL_SLIDE_COUNT) {
     throw new Error(`carousel slide count must be between ${MIN_CAROUSEL_SLIDE_COUNT} and ${MAX_CAROUSEL_SLIDE_COUNT}`);
   }

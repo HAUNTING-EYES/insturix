@@ -10,6 +10,7 @@ function passingRun(overrides: Partial<WriterPromotionRun> = {}): WriterPromotio
     caseName: 'Held-out B2B SaaS post',
     seed: 1,
     deterministicScore: 0.96,
+    editorialQualityScore: 0.96,
     judge: {
       overall: 96,
       fabricationHardFail: false,
@@ -20,7 +21,7 @@ function passingRun(overrides: Partial<WriterPromotionRun> = {}): WriterPromotio
 }
 
 describe('ThinkForge writer promotion gate', () => {
-  it('passes only a complete held-out run that clears both 95% averages', () => {
+  it('passes only a complete held-out run where every result clears 95%', () => {
     const verdict = evaluateWriterPromotionGate([
       passingRun(),
       passingRun({ caseId: 10, seed: 2, deterministicScore: 0.95, judge: {
@@ -33,6 +34,37 @@ describe('ThinkForge writer promotion gate', () => {
     expect(verdict.passed).toBe(true);
     expect(verdict.metrics.promotionScore).toBe(95.5);
     expect(verdict.failures).toEqual([]);
+  });
+
+  it('does not hide a sub-95 judge result inside a 95 average', () => {
+    const verdict = evaluateWriterPromotionGate([
+      passingRun({ judge: {
+        overall: 100,
+        fabricationHardFail: false,
+        internalLeakageHardFail: false,
+      } }),
+      passingRun({ caseId: 10, judge: {
+        overall: 90,
+        fabricationHardFail: false,
+        internalLeakageHardFail: false,
+      } }),
+    ], true);
+
+    expect(verdict.metrics.judgeAverage).toBe(95);
+    expect(verdict.passed).toBe(false);
+    expect(verdict.failures).toContain('judge_min:90.00');
+  });
+
+  it('does not hide weak prose craft behind perfect structural compliance', () => {
+    const verdict = evaluateWriterPromotionGate([
+      passingRun({ deterministicScore: 1, editorialQualityScore: 1 }),
+      passingRun({ caseId: 10, deterministicScore: 1, editorialQualityScore: 0.75 }),
+    ], true);
+
+    expect(verdict.metrics.deterministicAverage).toBe(1);
+    expect(verdict.metrics.editorialQualityMin).toBe(0.75);
+    expect(verdict.passed).toBe(false);
+    expect(verdict.failures).toContain('editorial_quality_min:0.7500');
   });
 
   it('counts generation errors as zero instead of excluding them from the aggregate', () => {

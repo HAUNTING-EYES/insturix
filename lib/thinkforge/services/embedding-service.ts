@@ -27,6 +27,18 @@ export function getVectorIndex() {
   return new Index({ url, token });
 }
 
+/**
+ * Vector retrieval is an optional enhancement for ThinkForge context. Callers
+ * use this to distinguish an intentionally unconfigured provider from a
+ * configured provider that has actually failed.
+ */
+export function isVectorRetrievalConfigured(): boolean {
+  return Boolean(
+    process.env.UPSTASH_VECTOR_REST_URL?.trim()
+    && process.env.UPSTASH_VECTOR_REST_TOKEN?.trim(),
+  );
+}
+
 function entryToText(entry: DataBankEntry): string {
   const parts = [entry.title];
   if (entry.tags?.length) parts.push(entry.tags.join(', '));

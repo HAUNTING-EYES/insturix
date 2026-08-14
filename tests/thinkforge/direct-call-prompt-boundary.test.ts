@@ -111,6 +111,15 @@ describe('ThinkForge direct-call prompt boundaries', () => {
     expectIsolatedCall(aiMocks.generateText.mock.calls.at(-1)?.[0] ?? {});
   });
 
+  it('skips optional pre-generation thinking for an explicit non-production browser fixture', async () => {
+    vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', 'script');
+    vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'tf-e2e-test-run');
+    const { runThinkingAgent } = await import('@/lib/thinkforge/agents/thinking-agent');
+
+    await expect(runThinkingAgent({ userPrompt: 'Create a test script.' })).resolves.toBe('');
+    expect(aiMocks.generateText).not.toHaveBeenCalled();
+  });
+
   it('isolates generated copy in filler repair', async () => {
     const content = `We leverage a clear process for campaign planning. ${INJECTION}`;
     aiMocks.generateText.mockResolvedValue({

@@ -85,4 +85,21 @@ describe('evaluateContentProfileCompliance', () => {
     expect(critical.violations.some((violation) => violation.severity === 'critical')).toBe(true);
     expect(shouldAutoRepairContentProfileViolations(critical.violations)).toBe(true);
   });
+
+  it('treats explicit proof and audience directives as critical publication requirements', () => {
+    const profile = resolveContentSignalProfile({
+      userPrompt: 'Write a LinkedIn post for FlowLedger about SOC 2 readiness. Mention that the beta cut evidence-chasing time by 37% across 12 pilot teams. Target CFOs and RevOps leaders.',
+      project: { platform: 'LinkedIn', format: 'post' },
+    });
+
+    const result = evaluateContentProfileCompliance(
+      'FlowLedger cut evidence-chasing by 37%. Finance teams can prepare for audit season with more control.',
+      profile,
+    );
+    const violationIds = result.violations.map((violation) => violation.id);
+
+    expect(violationIds).toContain('profile_missing_required_brief_claim');
+    expect(violationIds).toContain('profile_missing_required_audience_anchor');
+    expect(shouldAutoRepairContentProfileViolations(result.violations)).toBe(true);
+  });
 });

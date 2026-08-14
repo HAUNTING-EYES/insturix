@@ -20,7 +20,7 @@ import {
   type ThinkForgeEvent,
   type EventType,
 } from '../services/db';
-import { queryRelevantFacts } from '../services/embedding-service';
+import { isVectorRetrievalConfigured, queryRelevantFacts } from '../services/embedding-service';
 import type { BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 import { brandSignalProfileToBrandDNA } from '@/lib/shared/brand-signal-profile-adapter';
 import { buildRichBrandContextBlock } from '@/lib/shared/brand-context-block';
@@ -216,7 +216,7 @@ async function fetchWarmVectorContext(
   brandId?: string,
 ): Promise<SemanticFact[]> {
   const normalizedQueryText = queryText.trim();
-  if (!normalizedQueryText) return [];
+  if (!normalizedQueryText || !isVectorRetrievalConfigured()) return [];
 
   try {
     const vectorPlans = scope === 'global'

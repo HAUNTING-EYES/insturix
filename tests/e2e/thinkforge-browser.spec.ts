@@ -38,6 +38,13 @@ type CurrentScriptPayload = {
   } | null;
 };
 
+type ScriptBlocksPayload = {
+  contentContract?: {
+    outputKind?: string;
+    carouselSlideCount?: number;
+  } | null;
+};
+
 type ClickatronContextPayload = {
   context?: {
     brandId?: string;
@@ -55,14 +62,31 @@ type ClickatronContextPayload = {
           writingKnowledgeVersion?: string | null;
         };
       };
+      clickatron?: {
+        creativeSpec?: {
+          kind?: string;
+          renderPlan?: {
+            slides?: Array<{ imagePrompt?: string }>;
+          };
+          validation?: { status?: string };
+        };
+      };
     };
   };
 };
+
+type ThinkForgeBrowserFixture = 'post' | 'carousel' | 'script';
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing required ThinkForge E2E environment variable: ${name}`);
   return value;
+}
+
+function requireWriterFixture(): ThinkForgeBrowserFixture {
+  const fixture = requireEnv('THINKFORGE_E2E_WRITER_FIXTURE');
+  if (fixture === 'post' || fixture === 'carousel' || fixture === 'script') return fixture;
+  throw new Error(`Unsupported ThinkForge browser fixture: ${fixture}`);
 }
 
 function observeBrowserFailures(page: Page): string[] {
@@ -103,32 +127,20 @@ async function fetchBrowserJson<T>(
   return JSON.parse(response.body) as T;
 }
 
-async function createBoundSession(page: Page, brandId: string, sessionName: string): Promise<SessionPayload> {
-  return fetchBrowserJson<SessionPayload>(
-    page,
-    '/api/services/thinkforge/session',
-    'POST',
-    {
-      projectMeta: {
-        brandId,
-        sessionName,
-        idea: 'A concrete operational post for a controlled ThinkForge browser test.',
-        purpose: 'Prove session brand authority and persisted authoring provenance.',
-        style: 'Direct and practical',
-        format: 'LinkedIn post',
-        platform: 'linkedin',
-        tone: 'blue',
-      },
-    },
-  );
-}
-
 async function readCurrentScript(page: Page, sessionId: string): Promise<CurrentScriptPayload> {
   return fetchBrowserJson<CurrentScriptPayload>(
     page,
     '/api/services/thinkforge/script/current',
     'POST',
     { sessionId },
+  );
+}
+
+async function readScriptBlocks(page: Page, sessionId: string): Promise<ScriptBlocksPayload> {
+  return fetchBrowserJson<ScriptBlocksPayload>(
+    page,
+    `/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=default`,
+    'GET',
   );
 }
 
@@ -150,17 +162,61 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
     await fetchBrowserJson(page, '/api/services/thinkforge/sessions/metadata?limit=1&offset=0', 'GET');
   });
 
-  test('binds the QA brand and persists a fixture-generated post with its exact Brand Vault revision', async ({ page }) => {
+  test('binds the QA brand and preserves the fixture authoring contract across workspace and Clickatron handoff', async ({ page }) => {
     if (process.env.THINKFORGE_E2E_MODE !== '1') {
       throw new Error('ThinkForge browser tests require THINKFORGE_E2E_MODE=1.');
     }
 
     const brandId = requireEnv('THINKFORGE_E2E_BRAND_ID');
     const runId = requireEnv('THINKFORGE_E2E_RUN_ID');
+    const fixture = requireWriterFixture();
     const sessionName = `TF E2E ${runId} ${Date.now()}`;
     const browserFailures = observeBrowserFailures(page);
 
-    const created = await createBoundSession(page, brandId, sessionName);
+    const scenario = fixture === 'script'
+      ? {
+          format: '60-second video script',
+          platform: 'youtube-shorts',
+          prompt: 'Create a 60-second video script about making approval ownership visible before a campaign launch.',
+          expectedWriterType: 'script',
+          expectedVisibleContent: 'Scene 1: Approval workflow beat 1',
+          expectedStoredContent: '## Scene 1: Approval workflow beat 1',
+        }
+      : fixture === 'carousel'
+        ? {
+            format: 'LinkedIn carousel',
+            platform: 'linkedin',
+            prompt: 'Create a five-slide LinkedIn carousel about making approval ownership visible before a campaign launch.',
+            expectedWriterType: 'post',
+            expectedVisibleContent: 'Most LinkedIn content teams lose hours every week',
+            expectedStoredContent: 'Most LinkedIn content teams lose hours every week',
+          }
+        : {
+            format: 'LinkedIn post',
+          platform: 'linkedin',
+          prompt: 'Create a LinkedIn post about making approval ownership visible before a campaign launch.',
+          expectedWriterType: 'post',
+          expectedVisibleContent: 'Most LinkedIn content teams lose hours every week',
+          expectedStoredContent: 'Most LinkedIn content teams lose hours every week',
+          };
+
+    const created = await fetchBrowserJson<SessionPayload>(
+      page,
+      '/api/services/thinkforge/session',
+      'POST',
+      {
+        projectMeta: {
+          brandId,
+          sessionName,
+          idea: 'A concrete operational artifact for a controlled ThinkForge browser test.',
+          purpose: 'Prove session brand authority and persisted authoring provenance.',
+          style: 'Direct and practical',
+          format: scenario.format,
+          platform: scenario.platform,
+          tone: 'blue',
+        },
+      },
+    );
     const sessionId = created.sessionId;
     expect(sessionId).toBeTruthy();
     expect(created.projectMeta?.brandId).toBe(brandId);
@@ -182,36 +238,49 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
       const url = new URL(response.url());
       return url.pathname === '/api/services/thinkforge/chat' && response.request().method() === 'POST';
     });
-    await chatInput.fill('Create a LinkedIn post about making approval ownership visible before a campaign launch.');
+    await chatInput.fill(scenario.prompt);
     await chatInput.press('Enter');
     const completedChatResponse = await chatResponse;
     expect(completedChatResponse.status()).toBe(200);
     expect(await completedChatResponse.finished()).toBeNull();
 
-    await expect(page.getByText('Most LinkedIn content teams lose hours every week', { exact: false }).first()).toBeVisible();
+    await expect(page.getByText(scenario.expectedVisibleContent, { exact: false }).first()).toBeVisible();
 
     await expect.poll(async () => {
       const persisted = await readCurrentScript(page, sessionId!);
       return persisted.script?.metadata?.writerOutput?.writerType;
-    }, { timeout: 25_000 }).toBe('post');
+    }, { timeout: 25_000 }).toBe(scenario.expectedWriterType);
 
     const persisted = await readCurrentScript(page, sessionId!);
-    expect(persisted.script?.content).toContain('Most LinkedIn content teams lose hours every week');
-    expect(persisted.script?.metadata?.writerOutput?.writerType).toBe('post');
+    const persistedBlocks = await readScriptBlocks(page, sessionId!);
+    expect(persisted.script?.content).toContain(scenario.expectedStoredContent);
+    expect(persisted.script?.metadata?.writerOutput?.writerType).toBe(scenario.expectedWriterType);
     expect(persisted.script?.metadata?.writerOutput?.contentAnalysis?.qualityScore).toBe(92);
-    expect(persisted.script?.metadata?.writerOutput?.writerMetadata).toMatchObject({
-      platform: 'linkedin',
-    });
+    expect(persisted.script?.metadata?.writerOutput?.writerMetadata).toMatchObject(
+      fixture === 'script' ? { platform: 'youtube-shorts' } : { platform: 'linkedin' },
+    );
     expect(persisted.script?.metadata?.authoringContextSnapshot?.brand).toMatchObject({ brandId });
     expect(persisted.script?.metadata?.authoringContextSnapshot?.brand?.recordId).toEqual(expect.any(String));
     expect(persisted.script?.metadata?.authoringContextSnapshot?.brand?.profileUpdatedAt).toEqual(expect.any(String));
     expect(persisted.script?.metadata?.authoringContextSnapshot?.brand?.profileFingerprint).toMatch(/^[a-f0-9]{64}$/);
 
+    await page.goto('/dashboard/thinkforge', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('button', { name: 'Library' })).toBeVisible();
+    await page.getByRole('button', { name: 'Library' }).click({ force: true });
+    await page.getByText(sessionName, { exact: true }).click();
+    await expect(page.getByText(scenario.expectedVisibleContent, { exact: false }).first()).toBeVisible();
+
     const clickatronContext = await fetchBrowserJson<ClickatronContextPayload>(
       page,
       '/api/services/thinkforge/clickatron-context',
       'POST',
-      { sessionId, title: 'QA provenance handoff' },
+      fixture === 'carousel'
+        ? {
+            sessionId,
+            title: 'QA carousel provenance handoff',
+            userVisualChoices: { kind: 'carousel', platform: 'linkedin', aspectRatio: '1:1', slideCount: 3 },
+          }
+        : { sessionId, title: 'QA provenance handoff' },
     );
     const provenance = clickatronContext.context?.metadata?.thinkforge?.authoringProvenance;
     expect(clickatronContext.context?.brandId).toBe(brandId);
@@ -225,6 +294,21 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
     });
     expect(JSON.stringify(clickatronContext.context?.metadata)).not.toContain('projectFactIds');
     expect(JSON.stringify(clickatronContext.context?.metadata)).not.toContain('globalFactIds');
+
+    const creativeSpec = clickatronContext.context?.metadata?.clickatron?.creativeSpec;
+    if (fixture === 'carousel') {
+      expect(persistedBlocks.contentContract).toMatchObject({ outputKind: 'carousel', carouselSlideCount: 5 });
+      expect(creativeSpec?.kind).toBe('carousel');
+      expect(creativeSpec?.renderPlan?.slides).toHaveLength(3);
+      expect(creativeSpec?.renderPlan?.slides?.every((slide: { imagePrompt?: string }) => Boolean(slide.imagePrompt))).toBe(true);
+      expect(creativeSpec?.validation?.status).toBe('ready');
+    } else if (fixture === 'script') {
+      expect(creativeSpec?.kind).toBe('single_post_visual');
+      expect(creativeSpec?.validation?.status).toBe('needs_user_input');
+    } else {
+      expect(creativeSpec?.kind).toBe('single_post_visual');
+      expect(creativeSpec?.validation?.status).toBe('ready');
+    }
 
     expect(browserFailures, `ThinkForge browser failures:\n${browserFailures.join('\n')}`).toEqual([]);
   });

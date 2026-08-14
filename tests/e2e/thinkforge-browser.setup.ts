@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { MongoClient } from 'mongodb';
 
 interface ClerkTestClient {
   users: {
@@ -34,6 +35,53 @@ function requireEnv(name: string): string {
 
 function testUsername(runId: string): string {
   return `tf_e2e_${runId.replace(/[^a-z0-9]/gi, '').slice(-30).toLowerCase()}`;
+}
+
+function resolveE2EDatabaseNames(runId: string): { application: string; brandVault: string } {
+  if (!/^[a-z0-9]{1,12}$/i.test(runId)) {
+    throw new Error('ThinkForge E2E requires a 1-12 character alphanumeric run ID.');
+  }
+  return {
+    application: `thinkforge_e2e_${runId}`,
+    brandVault: `thinkforge_e2e_brandvault_${runId}`,
+  };
+}
+
+async function disposeE2EDatabases(input: { databaseUri: string; names: { application: string; brandVault: string } }): Promise<void> {
+  const client = new MongoClient(input.databaseUri);
+  try {
+    await client.connect();
+    await Promise.all(Object.values(input.names).map((databaseName) => clearE2EDatabase(client, databaseName)));
+  } finally {
+    await client.close();
+  }
+}
+
+async function clearE2EDatabase(client: MongoClient, databaseName: string): Promise<void> {
+  const database = client.db(databaseName);
+  try {
+    await database.dropDatabase();
+    return;
+  } catch (error) {
+    // Atlas application credentials normally have readWrite but not dbAdmin.
+    // In that least-privilege configuration, erase every test record while
+    // preserving the strict run-scoped database boundary above.
+    if (!isMongoDropPermissionError(error)) throw error;
+  }
+
+  const collections = await database.listCollections({}, { nameOnly: true }).toArray();
+  await Promise.all(
+    collections
+      .filter(({ name }) => !name.startsWith('system.'))
+      .map(({ name }) => database.collection(name).deleteMany({})),
+  );
+}
+
+function isMongoDropPermissionError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && error.code === 8000;
 }
 
 async function ensureClerkUser(input: { email: string; runId: string }): Promise<{ id: string; username: string; created: boolean }> {
@@ -184,21 +232,40 @@ export default async function setupThinkForgeBrowserGate(): Promise<() => Promis
   const brandVaultDatabaseName = requireEnv('THINKFORGE_E2E_BRAND_VAULT_DATABASE_NAME');
   const email = requireEnv('THINKFORGE_E2E_USER_EMAIL');
   const brandId = requireEnv('THINKFORGE_E2E_BRAND_ID');
+  const databaseNames = resolveE2EDatabaseNames(runId);
+  if (brandVaultDatabaseName !== databaseNames.brandVault) {
+    throw new Error('ThinkForge E2E Brand Vault database must be the run-scoped derived name.');
+  }
 
   process.env.MONGODB_URI = databaseUri;
-  process.env.MONGODB_DB_NAME = `thinkforge_e2e_${runId}`;
+  process.env.MONGODB_DB_NAME = databaseNames.application;
   process.env.BRAND_VAULT_MONGODB_URI = databaseUri;
   process.env.BRAND_VAULT_MONGODB_DB_NAME = brandVaultDatabaseName;
   process.env.BRAND_VAULT_PERSISTENCE = 'mongo';
 
   const user = await ensureClerkUser({ email, runId });
-  await seedPlanAndUser({ userId: user.id, username: user.username, email });
-  await seedAcceptedBrandProfile({ userId: user.id, brandId });
-
-  return async () => {
-    if (user.created) {
-      const client = getClerkTestClient();
-      await client.users.deleteUser(user.id);
+  const dispose = async () => {
+    try {
+      await disposeE2EDatabases({ databaseUri, names: databaseNames });
+    } finally {
+      if (user.created) {
+        const client = getClerkTestClient();
+        await client.users.deleteUser(user.id);
+      }
     }
   };
+
+  try {
+    await seedPlanAndUser({ userId: user.id, username: user.username, email });
+    await seedAcceptedBrandProfile({ userId: user.id, brandId });
+  } catch (error) {
+    try {
+      await dispose();
+    } catch (cleanupError) {
+      console.error('[ThinkForge E2E] Failed to clean a setup error:', cleanupError);
+    }
+    throw error;
+  }
+
+  return dispose;
 }

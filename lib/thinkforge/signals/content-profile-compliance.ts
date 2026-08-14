@@ -84,13 +84,37 @@ function detectMissingProofPoints(
     .map((point) => point.match(/^Metric mentioned in brief:\s*(.+)$/i)?.[1]?.trim())
     .filter((metric): metric is string => Boolean(metric));
 
-  return metrics
-    .filter((metric) => !content.includes(metric))
+  const missingMetrics = metrics
+    .filter((metric) => !containsSourceText(content, metric))
     .map((metric) => ({
       id: 'profile_missing_metric_proof',
       severity: 'warning' as const,
       message: `Required metric proof from the resolved profile is missing: "${metric}".`,
     }));
+
+  const requiredClaims = resolved.intent.proofPoints
+    .map((point) => point.match(/^Required brief claim:\s*(.+)$/i)?.[1]?.trim())
+    .filter((claim): claim is string => Boolean(claim));
+  const missingClaims = requiredClaims
+    .filter((claim) => !containsSourceText(content, claim))
+    .map((claim) => ({
+      id: 'profile_missing_required_brief_claim',
+      severity: 'critical' as const,
+      message: `Explicit brief claim is missing or altered: "${claim}".`,
+    }));
+
+  const requiredAudienceAnchors = resolved.intent.proofPoints
+    .map((point) => point.match(/^Required audience anchor:\s*(.+)$/i)?.[1]?.trim())
+    .filter((audience): audience is string => Boolean(audience));
+  const missingAudienceAnchors = requiredAudienceAnchors
+    .filter((audience) => !containsSourceText(content, audience))
+    .map((audience) => ({
+      id: 'profile_missing_required_audience_anchor',
+      severity: 'critical' as const,
+      message: `Explicit target audience is missing: "${audience}".`,
+    }));
+
+  return [...missingMetrics, ...missingClaims, ...missingAudienceAnchors];
 }
 
 function detectPlatformLength(
@@ -177,6 +201,11 @@ function firstLineContaining(content: string, needle: string): string | undefine
   const lines = content.split('\n');
   const index = lines.findIndex((line) => line.toLowerCase().includes(lowerNeedle));
   return index >= 0 ? `line ${index + 1}` : undefined;
+}
+
+function containsSourceText(content: string, sourceText: string): boolean {
+  const normalize = (value: string) => value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+  return normalize(content).includes(normalize(sourceText));
 }
 
 function severityPenalty(severity: ContentProfileComplianceSeverity): number {
