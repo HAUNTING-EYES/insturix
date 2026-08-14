@@ -50,8 +50,8 @@ export interface GeneratedCompositionProxyRenderOptionsV1 {
 
 export interface GeneratedCompositionProxyReceiptV1 {
   artifactType: 'GeneratedCompositionProxyReceiptV1';
-  executionClass: 'TRUSTED_HUMAN_FIXTURE_LOCAL_PROCESS';
-  securityDisposition: 'NOT_A_SECURITY_SANDBOX';
+  executionClass: 'TRUSTED_HUMAN_FIXTURE_LOCAL_PROCESS' | 'VERIFIED_PROGRAM_DENY_ALL_SANDBOX_PROCESS';
+  securityDisposition: 'NOT_A_SECURITY_SANDBOX' | 'HOST_ATTESTATION_REQUIRED';
   programHash: string;
   sourceBundleHash: string;
   apiImplementationHash: string;
@@ -63,7 +63,7 @@ export interface GeneratedCompositionProxyReceiptV1 {
     materializedInputs: 'PASS';
     compile: 'PASS';
     renderedEvidence: 'CAPTURED_UNJUDGED';
-    productionSandbox: 'UNVERIFIABLE_LOCAL_PROCESS';
+    productionSandbox: 'UNVERIFIABLE_LOCAL_PROCESS' | 'HOST_ATTESTATION_REQUIRED';
   };
   stateEffects: readonly [];
   workspaceDir: string;
@@ -80,11 +80,43 @@ export async function renderTrustedGeneratedCompositionProxyV1(
   input: RenderTrustedGeneratedCompositionProxyInputV1,
   options: GeneratedCompositionProxyRenderOptionsV1 = {},
 ): Promise<Readonly<GeneratedCompositionProxyReceiptV1>> {
+  return renderVerifiedGeneratedCompositionProxyV1(input, options, {
+    executionClass: 'TRUSTED_HUMAN_FIXTURE_LOCAL_PROCESS',
+    securityDisposition: 'NOT_A_SECURITY_SANDBOX',
+    productionSandbox: 'UNVERIFIABLE_LOCAL_PROCESS',
+    allowedGeneratorKinds: ['HUMAN_AUTHORED_FIXTURE'],
+  });
+}
+
+export async function renderGeneratedCompositionProxyInsideSandboxV1(
+  input: RenderTrustedGeneratedCompositionProxyInputV1,
+  options: GeneratedCompositionProxyRenderOptionsV1 = {},
+): Promise<Readonly<GeneratedCompositionProxyReceiptV1>> {
+  return renderVerifiedGeneratedCompositionProxyV1(input, options, {
+    executionClass: 'VERIFIED_PROGRAM_DENY_ALL_SANDBOX_PROCESS',
+    securityDisposition: 'HOST_ATTESTATION_REQUIRED',
+    productionSandbox: 'HOST_ATTESTATION_REQUIRED',
+    allowedGeneratorKinds: ['HUMAN_AUTHORED_FIXTURE', 'MODEL_GENERATED'],
+  });
+}
+
+interface ProxyExecutionContextV1 {
+  executionClass: GeneratedCompositionProxyReceiptV1['executionClass'];
+  securityDisposition: GeneratedCompositionProxyReceiptV1['securityDisposition'];
+  productionSandbox: GeneratedCompositionProxyReceiptV1['proof']['productionSandbox'];
+  allowedGeneratorKinds: readonly GeneratedCompositionProgramV1['generator']['kind'][];
+}
+
+async function renderVerifiedGeneratedCompositionProxyV1(
+  input: RenderTrustedGeneratedCompositionProxyInputV1,
+  options: GeneratedCompositionProxyRenderOptionsV1,
+  execution: ProxyExecutionContextV1,
+): Promise<Readonly<GeneratedCompositionProxyReceiptV1>> {
   const verification = verifyGeneratedCompositionProgramV1(input);
   if (verification.disposition !== 'CONTRACT_PASS' || !verification.programHash || !verification.sourceBundleHash) {
     throw new Error(`Generated composition proxy contract rejected: ${verification.diagnostics.join(',')}`);
   }
-  if (input.program.generator.kind !== 'HUMAN_AUTHORED_FIXTURE') throw new Error('Generated composition local proxy refuses model-generated source');
+  if (!execution.allowedGeneratorKinds.includes(input.program.generator.kind)) throw new Error('Generated composition local proxy refuses model-generated source');
   if (verification.programHash !== input.expectedProgramHash || verification.sourceBundleHash !== input.expectedSourceBundleHash) {
     throw new Error('Generated composition proxy expected identity drift');
   }
@@ -147,15 +179,15 @@ export async function renderTrustedGeneratedCompositionProxyV1(
   const contactSheet = await createContactSheet(stills, path.join(workspaceDir, 'contact-sheet.png'));
   const unsigned = {
     artifactType: 'GeneratedCompositionProxyReceiptV1' as const,
-    executionClass: 'TRUSTED_HUMAN_FIXTURE_LOCAL_PROCESS' as const,
-    securityDisposition: 'NOT_A_SECURITY_SANDBOX' as const,
+    executionClass: execution.executionClass,
+    securityDisposition: execution.securityDisposition,
     programHash: verification.programHash,
     sourceBundleHash: verification.sourceBundleHash,
     apiImplementationHash: apiHash,
     composition: probedComposition,
     stills,
     contactSheet,
-    proof: { contract: 'PASS' as const, materializedInputs: 'PASS' as const, compile: 'PASS' as const, renderedEvidence: 'CAPTURED_UNJUDGED' as const, productionSandbox: 'UNVERIFIABLE_LOCAL_PROCESS' as const },
+    proof: { contract: 'PASS' as const, materializedInputs: 'PASS' as const, compile: 'PASS' as const, renderedEvidence: 'CAPTURED_UNJUDGED' as const, productionSandbox: execution.productionSandbox },
     stateEffects: [] as const,
     workspaceDir,
   };

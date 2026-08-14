@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream, promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { renderTrustedGeneratedCompositionProxyV1 } from './generated-composition-proxy-renderer-v1';
+import { renderGeneratedCompositionProxyInsideSandboxV1 } from './generated-composition-proxy-renderer-v1';
 import {
   parseGeneratedCompositionSandboxRequestV1,
   type GeneratedCompositionSandboxRequestV1,
@@ -38,7 +38,7 @@ export async function executeGeneratedCompositionSandboxWorkerV1(
     await fs.rm(inputRoot, { recursive: true, force: true });
     await fs.mkdir(inputRoot, { recursive: true });
     const materialized = await materializeInputs(request, inputRoot);
-    const proxyReceipt = await renderTrustedGeneratedCompositionProxyV1({
+    const proxyReceipt = await renderGeneratedCompositionProxyInsideSandboxV1({
       program: request.program,
       sourceBundle: request.sourceBundle,
       evidencePack: request.evidencePack,

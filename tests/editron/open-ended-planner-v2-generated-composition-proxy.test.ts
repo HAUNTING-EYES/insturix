@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { resolveGeneratedPanelGeometryV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-api-v1';
 import {
+  renderGeneratedCompositionProxyInsideSandboxV1,
   renderTrustedGeneratedCompositionProxyV1,
   selectGeneratedCompositionProofFramesV1,
 } from '@/lib/editron/research/open-ended-planner/generated-composition-proxy-renderer-v1';
@@ -36,26 +37,27 @@ describe('open-ended planner V2 trusted generated-composition proxy', () => {
     try {
       const fixture = await materializedFixture(scratch);
       const renderCalls: number[] = [];
+      const adapter = {
+        bundleWorkspace: async ({ entryPoint, publicDir, apiImplementationPath }: { entryPoint: string; publicDir: string; apiImplementationPath: string }) => {
+          expect(await fs.stat(entryPoint)).toBeTruthy();
+          expect(await fs.stat(publicDir)).toBeTruthy();
+          expect(await fs.stat(apiImplementationPath)).toBeTruthy();
+          return 'mock://generated-composition';
+        },
+        select: async () => ({
+          width: 1080, height: 1920, fps: 30, durationInFrames: 180,
+          id: 'GeneratedCompositionProxyV1', defaultProps: {}, props: {}, defaultCodec: null,
+          defaultOutName: null, defaultVideoImageFormat: null, defaultPixelFormat: null, defaultProResProfile: null,
+          defaultSampleRate: null,
+        }),
+        render: async ({ frame, output }: { frame: number; output: string }) => {
+          renderCalls.push(frame);
+          await sharp({ create: { width: 1080, height: 1920, channels: 3 as const, background: { r: frame, g: 20, b: 40 } } }).png().toFile(output);
+        },
+      };
       const receipt = await renderTrustedGeneratedCompositionProxyV1(fixture.input, {
         workspaceRoot: path.join(scratch, 'workspaces'),
-        adapter: {
-          bundleWorkspace: async ({ entryPoint, publicDir, apiImplementationPath }) => {
-            expect(await fs.stat(entryPoint)).toBeTruthy();
-            expect(await fs.stat(publicDir)).toBeTruthy();
-            expect(await fs.stat(apiImplementationPath)).toBeTruthy();
-            return 'mock://generated-composition';
-          },
-          select: async () => ({
-            width: 1080, height: 1920, fps: 30, durationInFrames: 180,
-            id: 'GeneratedCompositionProxyV1', defaultProps: {}, props: {}, defaultCodec: null,
-            defaultOutName: null, defaultVideoImageFormat: null, defaultPixelFormat: null, defaultProResProfile: null,
-            defaultSampleRate: null,
-          }),
-          render: async ({ frame, output }) => {
-            renderCalls.push(frame);
-            await sharp({ create: { width: 1080, height: 1920, channels: 3, background: { r: frame, g: 20, b: 40 } } }).png().toFile(output);
-          },
-        },
+        adapter,
       });
       expect(renderCalls).toEqual([0, 24, 108, 144, 145, 179]);
       expect(receipt).toMatchObject({
@@ -76,6 +78,16 @@ describe('open-ended planner V2 trusted generated-composition proxy', () => {
         program: modelProgram,
         expectedProgramHash: hashCanonicalJsonV1(modelProgram),
       }, { workspaceRoot: path.join(scratch, 'denied') })).rejects.toThrow('refuses model-generated source');
+      const sandboxReceipt = await renderGeneratedCompositionProxyInsideSandboxV1({
+        ...fixture.input,
+        program: modelProgram,
+        expectedProgramHash: hashCanonicalJsonV1(modelProgram),
+      }, { workspaceRoot: path.join(scratch, 'sandbox'), adapter });
+      expect(sandboxReceipt).toMatchObject({
+        executionClass: 'VERIFIED_PROGRAM_DENY_ALL_SANDBOX_PROCESS',
+        securityDisposition: 'HOST_ATTESTATION_REQUIRED',
+        proof: { productionSandbox: 'HOST_ATTESTATION_REQUIRED', renderedEvidence: 'CAPTURED_UNJUDGED' },
+      });
     } finally {
       await fs.rm(scratch, { recursive: true, force: true });
     }
