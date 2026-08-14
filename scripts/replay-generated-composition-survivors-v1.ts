@@ -88,7 +88,11 @@ async function replayCandidate(candidate: typeof candidates[number], replayRoot:
     resources: { wallTimeMs: 90_000, maxCpuMs: 60_000, vcpus: 1, memoryMiB: 2_048, maxOutputBytes: 64 * 1_024 * 1_024 },
   });
   await writeExclusiveJson(path.join(candidateRoot, 'sandbox-request-summary.json'), { ...request, inputs: request.inputs.map(({ data: _data, ...item }) => ({ ...item, dataDisposition: 'OMITTED_HASH_BOUND' })) });
-  const executed = await executeGeneratedCompositionInSandboxV1({ request, repoRoot });
+  const executed = await executeGeneratedCompositionInSandboxV1({
+    request,
+    repoRoot,
+    env: { MG_RENDER_SANDBOX_SNAPSHOT_ID: runtime.snapshotId, MG_RENDER_SANDBOX_APP_COMMIT: runtime.snapshotCommit },
+  });
   const localEvidence = await materializeGeneratedCompositionLocalEvidenceV1({ candidateRoot, workerResult: executed.workerResult, hostReceipt: executed.receipt, outputBytes: executed.outputBytes });
   const proof = await evaluateDev02GeneratedCompositionRenderedProofV1({ program, proxyReceipt: localEvidence.localEvaluationReceipt, authoritativeProxyReceiptHash: localEvidence.originalProxyReceiptHash, boundaryReferencePath: runtime.boundaryReferencePath });
   await Promise.all([
