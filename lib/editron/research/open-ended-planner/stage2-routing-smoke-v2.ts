@@ -1,4 +1,5 @@
 import canonicalBlueprintJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-reference-blueprint-v2.json';
+import operatorCatalogJson from '@/tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json';
 
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import {
@@ -64,9 +65,14 @@ export interface Stage2RoutingRunOptionsV2 {
 }
 
 export interface RoutingEvaluationV2 {
-  disposition: 'PASS' | 'FAIL' | 'UNVERIFIABLE';
+  disposition: 'PASS' | 'PARTIAL' | 'FAIL' | 'UNVERIFIABLE' | 'CAPABILITY_BLOCKED';
   expectedExecutionForm: 'HYBRID';
   observedExecutionForm: string | null;
+  routeClassification: 'PASS' | 'FAIL' | 'UNVERIFIABLE';
+  candidateCoverage: 'PASS' | 'FAIL' | 'UNVERIFIABLE';
+  graphCoverage: 'PASS' | 'FAIL' | 'UNVERIFIABLE';
+  capabilityReadiness: 'ELIGIBLE' | 'BLOCKED' | 'UNVERIFIABLE';
+  capabilityHonesty: 'PASS' | 'FAIL' | 'UNVERIFIABLE';
   hardClaimIds: readonly string[];
   coveredHardClaimIds: readonly string[];
   diagnostics: readonly string[];
@@ -75,7 +81,15 @@ export interface RoutingEvaluationV2 {
 const ROUTE_IDS = new Set(['OPENAI_LUNA', 'OPENAI_TERRA', 'GOOGLE_FLASH_LITE', 'GOOGLE_FLASH']);
 const GENERATED_HARD_CLAIM_IDS = ['claim-user-stacked-layout', 'claim-user-centred-title', 'claim-user-varied-crops'];
 const NATIVE_HARD_CLAIM_IDS = ['claim-user-exit-continuity'];
+const GENERATED_OWNER_ID = 'generated_composition_program';
+const NATIVE_CONTINUITY_OWNER_ID = 'use_matching_footage';
 const blueprint = canonicalBlueprintJson as unknown as JsonRecord;
+const generatedOwner = (() => {
+  const owner = (operatorCatalogJson.operators as unknown as JsonRecord[])
+    .find(({ operatorId }) => operatorId === GENERATED_OWNER_ID);
+  if (!owner) throw new Error('GENERATED_COMPOSITION_OWNER_MISSING_FROM_CATALOG');
+  return owner;
+})();
 
 export async function buildStage2RoutingSmokePreflightV2(): Promise<Readonly<Record<string, unknown>>> {
   const source = await buildDevelopmentSmokePreflightV2() as unknown as { planHash: string; routes: RouteV2[] };
@@ -124,6 +138,16 @@ export async function buildStage2RoutingSmokePreflightV2(): Promise<Readonly<Rec
     executionFormArm: 'FREE_CHOICE',
     comparisonPurpose: 'ISOLATED_ROUTING_FROM_EVALUATOR_APPROVED_BLUEPRINT',
     expectedCase: { caseId: 'DEV02_REQUESTED_SECTION_WITH_FILMSTRIP', scope: 'SIX_SECOND_SECTION_WITH_NATIVE_SOURCE_SELECTION_AND_CONTINUITY_HANDOFF', executionForm: 'HYBRID' },
+    evaluationContract: {
+      version: 'EDITRON_OE_STAGE2_ROUTING_EVALUATION_V2_2',
+      dimensions: ['routeClassification', 'candidateCoverage', 'graphCoverage', 'capabilityReadiness', 'capabilityHonesty'],
+      generatedHardClaimIds: GENERATED_HARD_CLAIM_IDS,
+      nativeHardClaimIds: NATIVE_HARD_CLAIM_IDS,
+      generatedOwnerId: GENERATED_OWNER_ID,
+      nativeContinuityOwnerId: NATIVE_CONTINUITY_OWNER_ID,
+      generatedOwnerSupportStatus: generatedOwner.supportStatus,
+      rule: 'Correct routing remains distinct from complete claim coverage and current execution readiness; blocked readiness must name the unavailable generated owner.',
+    },
     routeSourcePlanHash: source.planHash,
     canonicalBlueprintHash: hashCanonicalJsonV1(blueprint),
     packetHash: artifact.packetHash,
@@ -190,29 +214,53 @@ export async function runStage2RoutingSmokeV2(options: Stage2RoutingRunOptionsV2
 export function evaluateStage2RoutingArtifactV2(value: unknown): Readonly<RoutingEvaluationV2> {
   const artifact = record(value);
   const hardClaimIds = records(blueprint.targetClaims).filter(({ criticality }) => criticality === 'HARD').map(({ claimId }) => String(claimId));
-  if (!Object.keys(artifact).length) return deepFreezeV1({ disposition: 'UNVERIFIABLE', expectedExecutionForm: 'HYBRID', observedExecutionForm: null, hardClaimIds, coveredHardClaimIds: [], diagnostics: ['NO_ACCEPTED_ARTIFACT'] });
+  if (!Object.keys(artifact).length) return deepFreezeV1({ disposition: 'UNVERIFIABLE', expectedExecutionForm: 'HYBRID', observedExecutionForm: null, routeClassification: 'UNVERIFIABLE', candidateCoverage: 'UNVERIFIABLE', graphCoverage: 'UNVERIFIABLE', capabilityReadiness: 'UNVERIFIABLE', capabilityHonesty: 'UNVERIFIABLE', hardClaimIds, coveredHardClaimIds: [], diagnostics: ['NO_ACCEPTED_ARTIFACT'] });
   const routeDecision = record(artifact.routeDecision);
   const hybridCandidate = records(routeDecision.candidateForms).find(({ form }) => form === 'HYBRID');
   const coverage = records(hybridCandidate?.claimCoverage);
   const coveredHardClaimIds = hardClaimIds.filter((claimId) => coverage.some((entry) => entry.claimId === claimId && entry.status === 'COVERED'));
   const generatedIslandClaimIds = new Set(array(routeDecision.generatedIslandClaimIds).map(String));
   const nativeSurroundClaimIds = new Set(array(routeDecision.nativeSurroundClaimIds).map(String));
-  const generatedOwnerPresent = records(artifact.nodes).some((node) => node.executionForm === 'GENERATED_COMPOSITION'
-    && array(node.candidateCapabilityIds).includes('generated_composition_program'));
-  const nativeOwnerPresent = records(artifact.nodes).some((node) => node.executionForm === 'NATIVE'
-    && array(node.targetClaimIds).includes('claim-user-exit-continuity'));
-  const diagnostics = [
+  const nodes = records(artifact.nodes);
+  const generatedOwnerPresent = nodes.some((node) => node.executionForm === 'GENERATED_COMPOSITION'
+    && array(node.candidateCapabilityIds).includes(GENERATED_OWNER_ID));
+  const nativeOwnerPresent = nodes.some((node) => node.executionForm === 'NATIVE'
+    && array(node.targetClaimIds).includes('claim-user-exit-continuity')
+    && array(node.candidateCapabilityIds).includes(NATIVE_CONTINUITY_OWNER_ID));
+  const routeDiagnostics = [
     ...(artifact.executionForm === 'HYBRID' ? [] : ['WRONG_EXECUTION_FORM']),
     ...(routeDecision.scopeClassification === 'HYBRID_FULL_PLAN' ? [] : ['WRONG_SCOPE_CLASSIFICATION']),
-    ...(routeDecision.coverageStatus === 'COMPLETE' ? [] : ['INCOMPLETE_ROUTE_COVERAGE']),
-    ...(hybridCandidate?.hardGateStatus === 'ELIGIBLE' ? [] : ['HYBRID_FORM_NOT_ELIGIBLE']),
-    ...(coveredHardClaimIds.length === hardClaimIds.length ? [] : ['HARD_CLAIMS_NOT_COVERED']),
     ...(GENERATED_HARD_CLAIM_IDS.every((claimId) => generatedIslandClaimIds.has(claimId)) ? [] : ['GENERATED_HARD_CLAIMS_NOT_BOUND_TO_ISLAND']),
     ...(NATIVE_HARD_CLAIM_IDS.every((claimId) => nativeSurroundClaimIds.has(claimId)) ? [] : ['NATIVE_HARD_CLAIMS_NOT_BOUND_TO_SURROUND']),
     ...(generatedOwnerPresent ? [] : ['GENERATED_COMPOSITION_OWNER_MISSING']),
     ...(nativeOwnerPresent ? [] : ['NATIVE_CONTINUITY_OWNER_MISSING']),
   ];
-  return deepFreezeV1({ disposition: diagnostics.length ? 'FAIL' : 'PASS', expectedExecutionForm: 'HYBRID', observedExecutionForm: typeof artifact.executionForm === 'string' ? artifact.executionForm : null, hardClaimIds, coveredHardClaimIds, diagnostics });
+  const candidateCoverage = coveredHardClaimIds.length === hardClaimIds.length ? 'PASS' : 'FAIL';
+  const graphCovered = new Set(nodes.flatMap((node) => array(node.targetClaimIds).map(String)));
+  const graphCoverage = hardClaimIds.every((claimId) => graphCovered.has(claimId)) ? 'PASS' : 'FAIL';
+  const ownerNotImplemented = generatedOwner.supportStatus === 'RESEARCH_ONLY_NOT_IMPLEMENTED';
+  const blockers = array(hybridCandidate?.blockers);
+  const unavailableGeneratedOwnerNamed = blockers.some((blocker) => typeof blocker === 'string'
+    && /generated|composition|not.implemented|unavailable|research.only|compiler|executor/i.test(blocker));
+  const capabilityReadiness = !hybridCandidate ? 'UNVERIFIABLE'
+    : ownerNotImplemented || hybridCandidate.hardGateStatus !== 'ELIGIBLE' ? 'BLOCKED' : 'ELIGIBLE';
+  const capabilityHonesty = !hybridCandidate ? 'UNVERIFIABLE'
+    : ownerNotImplemented
+      ? hybridCandidate.hardGateStatus !== 'ELIGIBLE' && unavailableGeneratedOwnerNamed ? 'PASS' : 'FAIL'
+      : hybridCandidate.hardGateStatus === 'ELIGIBLE' ? 'PASS' : 'FAIL';
+  const routeClassification = routeDiagnostics.length ? 'FAIL' : 'PASS';
+  const diagnostics = [
+    ...routeDiagnostics,
+    ...(candidateCoverage === 'PASS' ? [] : ['HARD_CLAIMS_NOT_COVERED_BY_HYBRID_CANDIDATE']),
+    ...(graphCoverage === 'PASS' ? [] : ['HARD_CLAIMS_NOT_COVERED_BY_GRAPH']),
+    ...(capabilityHonesty === 'PASS' ? [] : ['CAPABILITY_STATUS_MISREPRESENTED']),
+  ];
+  const disposition = routeClassification === 'FAIL' ? 'FAIL'
+    : capabilityHonesty === 'FAIL' ? 'FAIL'
+    : candidateCoverage === 'FAIL' || graphCoverage === 'FAIL' ? 'PARTIAL'
+    : capabilityReadiness === 'BLOCKED' ? 'CAPABILITY_BLOCKED'
+    : 'PASS';
+  return deepFreezeV1({ disposition, expectedExecutionForm: 'HYBRID', observedExecutionForm: typeof artifact.executionForm === 'string' ? artifact.executionForm : null, routeClassification, candidateCoverage, graphCoverage, capabilityReadiness, capabilityHonesty, hardClaimIds, coveredHardClaimIds, diagnostics });
 }
 
 function stage2Artifact(): HashedStagePacketV2 {

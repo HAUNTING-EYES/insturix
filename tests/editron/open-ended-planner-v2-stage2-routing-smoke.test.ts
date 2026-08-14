@@ -12,9 +12,9 @@ const nativeHardClaimIds = hardClaimIds.slice(3);
 describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
   it('freezes four fair routes against one canonical blueprint and packet', async () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
-    expect(plan.planHash).toBe('6e28f2bb385a67534920e2279d505da292f14d7e37fbdca0993c22d1ab2e24eb');
+    expect(plan.planHash).toBe('c5ed7e1a357e96cc12ac2b54546a9579a1668a79a170b95161cd3281dcdd1b9f');
     expect(plan.rows).toHaveLength(4);
-    expect(plan.spend).toMatchObject({ plannedProviderCalls: 4, absoluteMaxSpendUsd: 1 });
+    expect(plan.spend).toMatchObject({ plannedProviderCalls: 4, absoluteMaxSpendUsd: 1.08 });
     expect(new Set(plan.rows.map(({ packetHash }) => packetHash)).size).toBe(1);
     expect(new Set(plan.rows.map(({ priorArtifactHash }) => priorArtifactHash))).toEqual(new Set([plan.canonicalBlueprintHash]));
     expect(plan.rows.filter(({ localInputTokenUpperBound }) => localInputTokenUpperBound !== null)
@@ -30,7 +30,7 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
     let generationCalls = 0;
     const receipt = await runStage2RoutingSmokeV2({
       expectedPlanHash: plan.planHash,
-      maxAuthorizedSpendUsd: 1,
+      maxAuthorizedSpendUsd: 1.08,
       operatorId: 'admin',
       confirmedAt: '2026-08-14T00:00:00.000Z',
       environment: { OPENAI_API_KEY: 'openai-secret-sentinel', GEMINI_API_KEY: 'google-secret-sentinel' },
@@ -46,7 +46,10 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
     expect(countCalls).toBe(2);
     expect(generationCalls).toBe(4);
     expect(receipt.rows.every(({ run }) => run.disposition === 'ARTIFACT_ACCEPTED')).toBe(true);
-    expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.disposition === 'PASS')).toBe(true);
+    expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.disposition === 'CAPABILITY_BLOCKED')).toBe(true);
+    expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.routeClassification === 'PASS')).toBe(true);
+    expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.candidateCoverage === 'PASS' && routingEvaluation.graphCoverage === 'PASS')).toBe(true);
+    expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.capabilityHonesty === 'PASS')).toBe(true);
     expect(receipt.actualProviderCostUsd).toBeGreaterThan(0);
     const serialized = JSON.stringify(receipt);
     expect(serialized).not.toContain('openai-secret-sentinel');
@@ -58,7 +61,7 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
     const receipt = await runStage2RoutingSmokeV2({
       expectedPlanHash: plan.planHash,
-      maxAuthorizedSpendUsd: 1,
+      maxAuthorizedSpendUsd: 1.08,
       operatorId: 'admin',
       confirmedAt: '2026-08-14T00:00:00.000Z',
       environment: { OPENAI_API_KEY: 'openai-test', GEMINI_API_KEY: 'google-test' },
@@ -75,21 +78,57 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
     expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.disposition === 'FAIL')).toBe(true);
     expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.diagnostics.includes('WRONG_EXECUTION_FORM'))).toBe(true);
   });
+
+  it('fails a hybrid graph that falsely claims the unimplemented generated owner is eligible', async () => {
+    const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
+    const receipt = await runStage2RoutingSmokeV2({
+      expectedPlanHash: plan.planHash, maxAuthorizedSpendUsd: 1.08, operatorId: 'admin', confirmedAt: '2026-08-14T00:00:00.000Z',
+      environment: { OPENAI_API_KEY: 'openai-test', GEMINI_API_KEY: 'google-test' },
+      fetchImpl: async (url, init) => {
+        const endpoint = String(url);
+        if (endpoint.endsWith(':countTokens')) return response({ totalTokens: 8_000 });
+        const request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        const model = typeof request.model === 'string' ? request.model : 'google-test';
+        const artifact = routingArtifact('HYBRID', true);
+        return endpoint.includes('api.openai.com') ? response(openAI(model, artifact)) : response(google(model, artifact));
+      },
+    }) as Receipt;
+    expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.disposition === 'FAIL')).toBe(true);
+    expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.capabilityHonesty === 'FAIL')).toBe(true);
+  });
+
+  it('fails a hybrid graph that binds continuity to the wrong native owner', async () => {
+    const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
+    const receipt = await runStage2RoutingSmokeV2({
+      expectedPlanHash: plan.planHash, maxAuthorizedSpendUsd: 1.08, operatorId: 'admin', confirmedAt: '2026-08-14T00:00:00.000Z',
+      environment: { OPENAI_API_KEY: 'openai-test', GEMINI_API_KEY: 'google-test' },
+      fetchImpl: async (url, init) => {
+        const endpoint = String(url);
+        if (endpoint.endsWith(':countTokens')) return response({ totalTokens: 8_000 });
+        const request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        const model = typeof request.model === 'string' ? request.model : 'google-test';
+        const artifact = routingArtifact('HYBRID', false, true);
+        return endpoint.includes('api.openai.com') ? response(openAI(model, artifact)) : response(google(model, artifact));
+      },
+    }) as Receipt;
+    expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.disposition === 'FAIL')).toBe(true);
+    expect(receipt.rows.every(({ routingEvaluation }) => routingEvaluation.diagnostics.includes('NATIVE_CONTINUITY_OWNER_MISSING'))).toBe(true);
+  });
 });
 
-function routingArtifact(form: 'HYBRID' | 'NATIVE' = 'HYBRID') {
+function routingArtifact(form: 'HYBRID' | 'NATIVE' = 'HYBRID', falseEligibility = false, wrongNativeOwner = false) {
   const hybrid = form === 'HYBRID';
   const owner = hybrid ? 'generated_composition_program' : 'set_keyframes';
   return {
     artifactType: 'EditorialIntentGraphV2', taskId: 'DEV-02', executionForm: form,
     routeDecision: {
       scopeClassification: hybrid ? 'HYBRID_FULL_PLAN' : 'NATIVE_ONLY_PLAN', coverageStatus: 'COMPLETE',
-      candidateForms: [{ form, hardGateStatus: 'ELIGIBLE', claimCoverage: hardClaimIds.map((claimId) => ({ claimId, status: 'COVERED', ownerRefs: [claimId === 'claim-user-exit-continuity' ? 'use_matching_footage' : owner], reasonCodes: ['TARGET_COVERED'] })), representabilitySignals: hybrid ? ['CROSS_ELEMENT_DEPENDENCY'] : ['NONE'], blockers: [], ownerRefs: hybrid ? [owner, 'use_matching_footage'] : [owner], evidenceIds: ['EV-DEV02-R1'] }],
+      candidateForms: [{ form, hardGateStatus: hybrid && !falseEligibility ? 'UNVERIFIABLE' : 'ELIGIBLE', claimCoverage: hardClaimIds.map((claimId) => ({ claimId, status: 'COVERED', ownerRefs: [claimId === 'claim-user-exit-continuity' ? 'use_matching_footage' : owner], reasonCodes: ['TARGET_COVERED'] })), representabilitySignals: hybrid ? ['CROSS_ELEMENT_DEPENDENCY'] : ['NONE'], blockers: hybrid && !falseEligibility ? ['GENERATED_OWNER_NOT_IMPLEMENTED'] : [], ownerRefs: hybrid ? [owner, 'use_matching_footage'] : [owner], evidenceIds: ['EV-DEV02-R1'] }],
       selectedReasonCodes: [hybrid ? 'GENERATED_ISLAND_WITH_NATIVE_HANDOFF' : 'NATIVE_SELECTED'], generatedIslandClaimIds: hybrid ? generatedHardClaimIds : [], nativeSurroundClaimIds: hybrid ? nativeHardClaimIds : hardClaimIds,
     },
     nodes: hybrid ? [
       { intentNodeId: 'intent-generated', operationFamily: 'generated-composition', targetClaimIds: generatedHardClaimIds, candidateCapabilityIds: [owner], executionForm: 'GENERATED_COMPOSITION', requiresNodeIds: [], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-R1'], failureDisposition: 'NEEDS_REVIEW' },
-      { intentNodeId: 'intent-handoff', operationFamily: 'continuity-handoff', targetClaimIds: nativeHardClaimIds, candidateCapabilityIds: ['use_matching_footage'], executionForm: 'NATIVE', requiresNodeIds: ['intent-generated'], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-C1'], failureDisposition: 'NEEDS_REVIEW' },
+      { intentNodeId: 'intent-handoff', operationFamily: 'continuity-handoff', targetClaimIds: nativeHardClaimIds, candidateCapabilityIds: [wrongNativeOwner ? 'set_keyframes' : 'use_matching_footage'], executionForm: 'NATIVE', requiresNodeIds: ['intent-generated'], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-C1'], failureDisposition: 'NEEDS_REVIEW' },
     ] : [{ intentNodeId: 'intent-1', operationFamily: 'keyframes', targetClaimIds: hardClaimIds, candidateCapabilityIds: [owner], executionForm: 'NATIVE', requiresNodeIds: [], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-R1'], failureDisposition: 'NEEDS_REVIEW' }],
     edges: hybrid ? [{ edgeId: 'edge-handoff', fromNodeId: 'intent-generated', toNodeId: 'intent-handoff', edgeType: 'TIME_ANCHOR' }] : [], preservationIntents: [], unresolvedRequirements: [],
   };
@@ -100,4 +139,4 @@ function google(model: string, artifact: unknown) { return { responseId: `resp-$
 function response(body: unknown): Response { return new Response(JSON.stringify(body), { status: 200 }); }
 
 type Plan = Awaited<ReturnType<typeof buildStage2RoutingSmokePreflightV2>> & { planHash: string; canonicalBlueprintHash: string; rows: Array<{ packetHash: string; priorArtifactHash: string; localInputTokenUpperBound: number | null; maxInputTokens: number }>; spend: { plannedProviderCalls: number; absoluteMaxSpendUsd: number }; exclusions: Array<{ routeId: string; reason: string }> };
-type Receipt = { rows: Array<{ run: { disposition: string }; routingEvaluation: { disposition: string; diagnostics: string[] } }>; actualProviderCostUsd: number };
+type Receipt = { rows: Array<{ run: { disposition: string }; routingEvaluation: { disposition: string; routeClassification: string; candidateCoverage: string; graphCoverage: string; capabilityHonesty: string; diagnostics: string[] } }>; actualProviderCostUsd: number };
