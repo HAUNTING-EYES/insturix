@@ -1868,7 +1868,7 @@
   "sourceBindings": [
     {
       "path": "tests/fixtures/editron/open-ended-planner-v2/benchmark-contract-v2.json",
-      "sha256": "baebc56f4740b78c841759b29ec176bb91f9b70d0af2bc3fa4da9219651c721b"
+      "sha256": "1d525330fb087aa5ececc90b944f4b4a55a0892483c334cb0bc55eb8cc7ddf89"
     },
     {
       "path": "tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json",
@@ -1884,8 +1884,8 @@
     },
     {
       "path": "lib/editron/research/open-ended-planner/staged-packet-v2.ts",
-      "sha256": "88acc01287e04c84ac83ec4c7bf89b69197ad5efaf5bcd99cc340e28e1175af9"
+      "sha256": "07dad615b7b14c08ed89462bed0755cad37aca4c3eb84fc54303ea8dd3256385"
     }
   ],
-  "planHash": "614720a7a7afe1571963fbf46f68fc559c8984e05781ff279a59d2f0022f2bb4"
+  "planHash": "457f4890a845a98689985d71a4668027222e1dd2b7b3cb5256b063cf9cc5628a"
 }

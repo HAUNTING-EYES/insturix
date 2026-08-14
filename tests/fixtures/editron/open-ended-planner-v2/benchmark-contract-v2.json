@@ -35,10 +35,11 @@
     {"stage": 7, "name": "BLIND_EDITOR_REVIEW", "input": "Anonymous proxy renders and original request/reference", "artifact": "BlindEditorScoreV2", "availability": "V2-1_ONLY", "scores": ["request fit", "reference fit", "taste", "continuity", "professional acceptability"]}
   ],
   "executionFormArms": ["FREE_CHOICE", "FORCED_NATIVE", "FORCED_GENERATED_COMPOSITION", "FORCED_HYBRID", "THRESHOLD_ABLATION", "SIGNAL_ABLATION"],
-  "routingTruthCases": [
-    {"caseId":"DEV02_FILMSTRIP_ISLAND","taskId":"DEV-02","scope":"BOUNDED_MOVING_PANEL_ISLAND","expectedForm":"GENERATED_COMPOSITION","reason":"Relational moving-panel choreography is owned by one bounded generated composition."},
-    {"caseId":"REFERENCE_REEL_WITH_FILMSTRIP","taskId":"DEV-02","scope":"FULL_REEL_WITH_NATIVE_SPINE_AUDIO_COLOUR_CAPTIONS_DELIVERY","expectedForm":"HYBRID","reason":"Native editorial and finishing surround the bounded generated island."}
-  ],
+    "routingTruthCases": [
+      {"caseId":"DEV02_FILMSTRIP_ISLAND","taskId":"DEV-02","scope":"BOUNDED_MOVING_PANEL_ISLAND","expectedForm":"GENERATED_COMPOSITION","reason":"Relational moving-panel choreography is owned by one bounded generated composition."},
+      {"caseId":"DEV02_REQUESTED_SECTION_WITH_FILMSTRIP","taskId":"DEV-02","scope":"SIX_SECOND_SECTION_WITH_NATIVE_SOURCE_SELECTION_AND_CONTINUITY_HANDOFF","expectedForm":"HYBRID","reason":"The generated filmstrip island is combined with native source selection and the following full-screen continuity handoff."},
+      {"caseId":"REFERENCE_REEL_WITH_FILMSTRIP","taskId":"DEV-02","scope":"FULL_REEL_WITH_NATIVE_SPINE_AUDIO_COLOUR_CAPTIONS_DELIVERY","expectedForm":"HYBRID","reason":"Native editorial and finishing surround the bounded generated island."}
+    ],
   "coordinateAdversarialCases": [
     {"caseId":"MIXED_24000_1001_TO_30000_1001","sourceRate":{"numerator":"24000","denominator":"1001"},"projectRate":{"numerator":"30000","denominator":"1001"},"required":"Explicit source-to-project mapping; a naked frame number or float FPS is invalid."},
     {"caseId":"VFR_PTS_TO_25_1_PROXY","sourceRate":"VFR_PTS_MAP","projectRate":{"numerator":"25","denominator":"1"},"required":"Preserve source PTS and bind a versioned source-PTS-to-proxy/project mapping; ratio-only conversion is invalid."}
