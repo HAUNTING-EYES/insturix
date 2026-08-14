@@ -26,7 +26,7 @@ export interface VerifyGeneratedCompositionProgramInputV1 {
 
 const REQUIRED_MODULES = new Map([
   ['react', '19.1.2'],
-  ['remotion', '4.0.398'],
+  ['remotion', '4.0.509'],
   [GENERATED_COMPOSITION_API_ID_V1, '1'],
 ]);
 const RESOURCE_LIMITS = {
