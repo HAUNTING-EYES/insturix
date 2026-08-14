@@ -267,9 +267,9 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     const sum = (field: 'maxInputTokens' | 'maxVisibleOutputTokens' | 'maxReasoningTokens' | 'maxWallClockMs' | 'maxProviderCostUsd') => packets.reduce((total, packet) => total + packet.packet.stageBudget[field], 0);
     expect(sum('maxInputTokens')).toBe(97000);
     expect(sum('maxVisibleOutputTokens')).toBe(18200);
-    expect(sum('maxReasoningTokens')).toBe(14000);
+    expect(sum('maxReasoningTokens')).toBe(15800);
     expect(sum('maxWallClockMs')).toBe(240000);
-    expect(sum('maxProviderCostUsd')).toBeCloseTo(0.94, 10);
+    expect(sum('maxProviderCostUsd')).toBeCloseTo(0.97, 10);
   });
 
   it('freezes a reproducible plan with source and plan hashes', () => {

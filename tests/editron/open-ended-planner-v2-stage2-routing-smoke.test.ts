@@ -12,9 +12,9 @@ const nativeHardClaimIds = hardClaimIds.slice(3);
 describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
   it('freezes four fair routes against one canonical blueprint and packet', async () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
-    expect(plan.planHash).toBe('c110d80abce9ab866d46b69ca27257f5a72726632ab66dde4d7f0181d3a5c80a');
+    expect(plan.planHash).toBe('eb0cc0b3fd40b3c458c0807eab9cbfd958267240af98cde209b6cb7b9cf3f36d');
     expect(plan.rows).toHaveLength(4);
-    expect(plan.spend).toMatchObject({ plannedProviderCalls: 4, absoluteMaxSpendUsd: 1.08 });
+    expect(plan.spend).toMatchObject({ plannedProviderCalls: 4, absoluteMaxSpendUsd: 1.2 });
     expect(new Set(plan.rows.map(({ packetHash }) => packetHash)).size).toBe(1);
     expect(new Set(plan.rows.map(({ priorArtifactHash }) => priorArtifactHash))).toEqual(new Set([plan.canonicalBlueprintHash]));
     expect(plan.rows.filter(({ localInputTokenUpperBound }) => localInputTokenUpperBound !== null)
@@ -30,7 +30,7 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
     let generationCalls = 0;
     const receipt = await runStage2RoutingSmokeV2({
       expectedPlanHash: plan.planHash,
-      maxAuthorizedSpendUsd: 1.08,
+      maxAuthorizedSpendUsd: 1.2,
       operatorId: 'admin',
       confirmedAt: '2026-08-14T00:00:00.000Z',
       environment: { OPENAI_API_KEY: 'openai-secret-sentinel', GEMINI_API_KEY: 'google-secret-sentinel' },
@@ -61,7 +61,7 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
     const receipt = await runStage2RoutingSmokeV2({
       expectedPlanHash: plan.planHash,
-      maxAuthorizedSpendUsd: 1.08,
+      maxAuthorizedSpendUsd: 1.2,
       operatorId: 'admin',
       confirmedAt: '2026-08-14T00:00:00.000Z',
       environment: { OPENAI_API_KEY: 'openai-test', GEMINI_API_KEY: 'google-test' },
@@ -82,7 +82,7 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
   it('fails a hybrid graph that falsely claims the unimplemented generated owner is eligible', async () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
     const receipt = await runStage2RoutingSmokeV2({
-      expectedPlanHash: plan.planHash, maxAuthorizedSpendUsd: 1.08, operatorId: 'admin', confirmedAt: '2026-08-14T00:00:00.000Z',
+      expectedPlanHash: plan.planHash, maxAuthorizedSpendUsd: 1.2, operatorId: 'admin', confirmedAt: '2026-08-14T00:00:00.000Z',
       environment: { OPENAI_API_KEY: 'openai-test', GEMINI_API_KEY: 'google-test' },
       fetchImpl: async (url, init) => {
         const endpoint = String(url);
@@ -100,7 +100,7 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
   it('fails a hybrid graph that omits a native continuity node', async () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
     const receipt = await runStage2RoutingSmokeV2({
-      expectedPlanHash: plan.planHash, maxAuthorizedSpendUsd: 1.08, operatorId: 'admin', confirmedAt: '2026-08-14T00:00:00.000Z',
+      expectedPlanHash: plan.planHash, maxAuthorizedSpendUsd: 1.2, operatorId: 'admin', confirmedAt: '2026-08-14T00:00:00.000Z',
       environment: { OPENAI_API_KEY: 'openai-test', GEMINI_API_KEY: 'google-test' },
       fetchImpl: async (url, init) => {
         const endpoint = String(url);
