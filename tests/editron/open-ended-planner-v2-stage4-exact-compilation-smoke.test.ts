@@ -13,7 +13,7 @@ import evidencePackJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev
 describe('open-ended planner V2 isolated Stage-4 exact-compilation smoke', () => {
   it('freezes a bounded Luna and Terra exact-compilation plan', async () => {
     const plan = await buildStage4ExactCompilationSmokePreflightV2() as Plan;
-    expect(plan.planHash).toBe('eb7beb6640d74a071c64cb87ec8404a4b93e00829ec97917b1e816609669090a');
+    expect(plan.planHash).toBe('26a6d1f783108e77679a1a04652ebe2419826722aa306c6846cd28d878be8b2d');
     expect(plan.rows).toHaveLength(2);
     expect(plan.spend).toMatchObject({ plannedProviderCalls: 2, absoluteMaxSpendUsd: 0.96 });
     expect(new Set(plan.rows.map(({ packetHash }) => packetHash))).toEqual(new Set([plan.packetHash]));
@@ -61,6 +61,10 @@ describe('open-ended planner V2 isolated Stage-4 exact-compilation smoke', () =>
     const missingDependencyEdge = compiledArtifact();
     missingDependencyEdge.edges = [];
     expect(evaluateStage4CompiledGraphArtifactV2(missingDependencyEdge)).toMatchObject({ disposition: 'FAIL', dependencyGraph: 'FAIL' });
+
+    const unresolvedEndpoint = compiledArtifact();
+    unresolvedEndpoint.edges.push({ edgeId: 'edge-unresolved', fromNodeId: 'node-generated-island', toNodeId: 'compile-read-project', edgeType: 'DATA' });
+    expect(evaluateStage4CompiledGraphArtifactV2(unresolvedEndpoint)).toMatchObject({ disposition: 'FAIL', dependencyGraph: 'FAIL' });
 
     const stale = compiledArtifact();
     stale.nodes[0].revisionBinding.expectedProjectRevision = 'R2';

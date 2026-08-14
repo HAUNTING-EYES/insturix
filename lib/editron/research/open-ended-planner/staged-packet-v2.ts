@@ -541,6 +541,7 @@ function stageFourCompilationPolicy(): JsonRecord {
       writes: 'declared project paths or artifact namespaces; READ and RESOLVER nodes must write nothing',
       outputRefFormat: '<compiledNodeId>.<operatorOutputName>',
       requiresAndProduces: 'produces must contain every operator.output.required name exactly once in outputRefFormat; requires may contain fact IDs, compiled node IDs, or output references declared by another compiled node',
+      edges: 'Every edge endpoint must be a compiled nodeId emitted in nodes; never copy a source-intent edge when either endpoint is unresolved or diagnostic-only',
       invalidates: 'READ and RESOLVER nodes are observational or propositional and must use []; invalidations belonging to an unresolved mutating intent remain on the source intent and structured diagnostic',
       traceRefs: 'source intent node, evidence binding, proof, preservation, and policy IDs only',
     },
