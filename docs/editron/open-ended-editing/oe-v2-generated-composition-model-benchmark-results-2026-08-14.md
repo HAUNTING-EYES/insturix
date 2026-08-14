@@ -74,6 +74,69 @@ native model identity on both calls, so the earlier concern was not a model-name
 error. It is also the identifier in the official
 [Gemini model documentation](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash).
 
+## Playable survivor replay
+
+Terra and Gemini were replayed from their frozen source artifacts after the
+source run. This replay made **zero provider calls** and had **zero project
+state effects**. Each candidate ran in the same deny-all Vercel snapshot and
+produced a complete, independently probed playable proxy.
+
+| Item                       | Value                                                              |
+| -------------------------- | ------------------------------------------------------------------ |
+| Replay receipt hash        | `9632f57328ddff75f126f27e0bd8a1efda4e2a2dfb318f83025390bfe4e84320` |
+| Worker implementation hash | `7242b1d14363b73676e540a15be8f16a2efa5735d08db3c58f6edc469d218ed7` |
+| Runner implementation hash | `941cbdeb66603d99439f3f98207e849b3940367c8826293731dcfabdfb22e2b3` |
+| Public blind-pack hash     | `e9cf52ce1f1f18eb21dfe0cea1c721bbdfeefed0d45817e5d5332746c576670d` |
+| Provider calls             | `0`                                                                |
+| Project state effects      | `[]`                                                               |
+| Human review status        | `AWAITING_REAL_HUMAN_REVIEW`                                       |
+
+The receipt and anonymous reviewer pack are retained under:
+
+```text
+.calibration-temp/open-ended-planner-v2/generated-composition-model-benchmark/playable-replay-7242b1d14363b736/
+```
+
+| Route              | Sandbox wall time | Rendered hard gates | Remaining technical gap | Playable SHA-256                                                  |
+| ------------------ | ----------------: | ------------------- | ----------------------- | ---------------------------------------------------------------- |
+| `gpt-5.6-terra`     |         `77.003s` | PASS (7/7)          | flash safety            | `df42fabbeb619472912cccf5d4f4d93c59dc7ee9665df04a50b07d510f490457` |
+| `gemini-3.6-flash` |         `84.450s` | PASS (7/7)          | flash safety            | `c28f812835e8d42c03986bb83495110290f4c1d1c8ee4519830221131fb0be80` |
+
+Both proxies independently passed exact MP4/H.264/YUV420P, limited-range
+BT.709, silent-audio, 1080x1920 raster, 30/1 constant frame rate, 180 unique
+packet timestamps, six-second duration and whole-file SHA-256 checks. Their
+rendered checks passed frame integrity, settled five-panel geometry and
+gutters, title form, opposed motion, build/hold/release structure, full-canvas
+takeover and following-shot boundary continuity. Dense flash safety remains
+`UNVERIFIABLE`; this is why technical status is not yet `PASS`.
+
+### Host-budget correction
+
+The source-run programs contained 60-second CPU and 90-second wall ceilings.
+Code inspection proved those values came from the host fixture after each model
+returned source; the models did not choose them. Real playable rendering took
+longer. The replay therefore applied an explicit, hash-bound host-policy
+amendment to 120-second CPU and 180-second wall ceilings—the verifier's already
+declared maximums. The amendment owner proves that only these two paths changed:
+
+```text
+resourceBudget.maxCpuMs
+resourceBudget.maxWallTimeMs
+```
+
+Every row retains both source and execution program hashes plus its amendment
+hash. Any source, geometry, timing, API, evidence, source-range, generator or
+other semantic drift fails closed. Terra's amendment hash is
+`3ee4a3391e116e205a9fcb21c99f290442ef8cc0c6e65110e01ed883b96b4004`;
+Gemini's is
+`694a7438ed898ba043ce2dd8387cef2295bbb07b31313d66013575b4e8640104`.
+
+The infrastructure failures encountered before this successful replay are
+retained separately and are not scored as model failures: missing explicit
+sandbox identity, missing `ffprobe`, unreported/unspecified colour metadata,
+an unavailable standalone FFmpeg package, the under-calibrated host budget,
+and a Windows local-evidence path that exceeded Sharp/libvips path handling.
+
 ## Provider-call telemetry
 
 | Route/call     | Input | Visible output | Reasoning |  Total |  Latency |           Cost |
@@ -122,6 +185,12 @@ the sandbox host-receipt hash is
 This is an objective DEV-02 pass only. It is not yet a creative or production
 promotion.
 
+The later playable replay also passed all seven implemented rendered hard gates.
+Its proof hash is
+`f17e66736017e95c3883c44614f96bf689768b08976e793b32f780baf23d109b`;
+its sandbox host-receipt hash is
+`f5da0832ce625fa21cba417405955ee8d36f821d6628324f8eb851a73a32852a`.
+
 ### Gemini Flash
 
 The initial source passed the static contract. The original sandbox attempt
@@ -139,6 +208,12 @@ hash is
 `e84eec5a1ac3b76d68bd0d62b4828fe5296656984e48bea54f16cf4a184e6311`;
 the sandbox host-receipt hash is
 `4a075ebc2635adedbe872c4787de97b238e6c4036d86a44dc87930c7279a8a0f`.
+
+The later playable replay also passed all seven implemented rendered hard gates.
+Its proof hash is
+`30e672dac9e30d329c1011394f0d19f7456efb62d86e54df2f9ca18b00bda336`;
+its sandbox host-receipt hash is
+`3c0dfdbe1a69af020645eddeafe759eac4f5ec1f89077013dd66b16f1968f8d8`.
 
 ### Qwen 3.8 Max
 
@@ -185,9 +260,10 @@ state effects.
 
 ## Why the two objective passes are still not promotions
 
-Six stills can prove the current layout, motion-direction, phase, title,
-takeover, and boundary checks. They cannot prove flash frequency across every
-frame. Therefore `technicalDisposition` remains `UNVERIFIABLE`.
+Six stills plus a fully packet-scanned playable proxy now prove the current
+layout, motion-direction, phase, title, takeover, boundary, codec, colour,
+duration and playback-integrity checks. They still do not prove flash frequency
+across every frame. Therefore `technicalDisposition` remains `UNVERIFIABLE`.
 
 No blind editor has reviewed a playable proxy. Therefore
 `creativeDisposition` remains `UNVERIFIABLE`.
@@ -207,9 +283,10 @@ synthetic panel test is not evidence of professional taste.
 
 The next three gates are:
 
-1. **Dense temporal proof:** render a playable proxy or sufficiently dense
-   frame stream from each surviving candidate, then certify flash safety,
-   timing continuity, playback integrity, and audio absence/presence explicitly.
+1. **Dense temporal proof:** playable proxies, timing continuity, playback
+   integrity and explicit audio absence are complete for DEV-02. Run a
+   frame-complete flash-safety analysis and bind its tool/version/thresholds to
+   each existing proxy without rerunning the providers.
 2. **Model-blind editor review:** randomize candidate identity, retain the actual
    playable proxies, and collect human ratings/corrections without simulating a
    reviewer.
