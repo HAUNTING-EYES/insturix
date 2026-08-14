@@ -117,7 +117,7 @@ export const DEV02_GENERATED_COMPOSITION_PROGRAM_V1 = deepFreezeV1({
   ],
   allowedApi: { apiId: GENERATED_COMPOSITION_API_ID_V1, apiVersion: '1', modules: [{ specifier: 'react', version: '19.1.2' }, { specifier: 'remotion', version: '4.0.398' }, { specifier: GENERATED_COMPOSITION_API_ID_V1, version: '1' }] },
   securityPolicy: { network: 'DENY', secrets: 'DENY', database: 'DENY', projectMutation: 'DENY', filesystem: 'WORKSPACE_MATERIALIZED_INPUTS_ONLY' },
-  resourceBudget: { maxSourceFiles: 1, maxSourceBytes: 64 * 1024, maxInputBytes: 32 * 1024 * 1024, maxOutputBytes: 512 * 1024 * 1024, maxFrames: 180, maxCpuMs: 60_000, maxWallTimeMs: 90_000, maxMemoryMiB: 1_024 },
+  resourceBudget: { maxSourceFiles: 1, maxSourceBytes: 64 * 1024, maxInputBytes: 32 * 1024 * 1024, maxOutputBytes: 512 * 1024 * 1024, maxFrames: 180, maxCpuMs: 60_000, maxWallTimeMs: 90_000, maxMemoryMiB: 2_048 },
   output: { kind: 'OPAQUE_NESTED_COMPOSITION', representation: 'EDITABLE_PROGRAM_AND_PROXY', flatteningDisposition: 'EXPLICIT_HANDOFF_ONLY', audioDisposition: 'CUE_HANDOFF_ONLY' },
   stateEffects: [],
   proofObligationIds: evidencePack.proofRequirements.map(({ proofObligationId }) => proofObligationId),

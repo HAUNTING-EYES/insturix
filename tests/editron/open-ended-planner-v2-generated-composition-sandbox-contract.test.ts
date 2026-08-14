@@ -49,7 +49,7 @@ describe('open-ended planner V2 generated-composition sandbox contract', () => {
     const result: GeneratedCompositionSandboxWorkerResultV1 = {
       version: GENERATED_COMPOSITION_SANDBOX_CONTRACT_V1, requestId: request.requestId, executionId: request.executionId,
       appCommit: request.appCommit, programHash: request.programHash, sourceBundleHash: request.sourceBundleHash,
-      completedAt: '2026-08-14T10:00:01.000Z', wallTimeMs: 1_000, stateEffects: [], status: 'RENDERED',
+      completedAt: '2026-08-14T10:00:01.000Z', wallTimeMs: 1_000, cpuMs: 500, stateEffects: [], status: 'RENDERED',
       proxyReceiptHash: sha(Buffer.from('receipt')),
       outputs: Object.entries(outputs).map(([path, bytes], index) => ({ kind: index === 0 ? 'STILL' as const : index === 1 ? 'CONTACT_SHEET' as const : 'PROXY_RECEIPT' as const, path, contentSha256: sha(bytes), byteLength: bytes.byteLength })),
     };
@@ -88,6 +88,7 @@ function fixtureRequest() {
   return buildGeneratedCompositionSandboxRequestV1({
     executionId: 'exec-dev02-sandbox-v1', createdAt: '2026-08-14T10:00:00.000Z', appCommit: '39f52f53b0000000000000000000000000000000',
     apiImplementationHash: '7da8e6696dcfd90c75bb833010a6ae7b5386b1c9e1d20e198cf604088a35641b',
+    workerImplementationHash: '1111111111111111111111111111111111111111111111111111111111111111',
     program, sourceBundle: DEV02_GENERATED_COMPOSITION_SOURCE_BUNDLE_V1, evidencePack,
     referenceBlueprint: DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1, supplementalFacts, proofFrames: [0, 24, 108, 144, 145, 179],
     inputs: [
@@ -95,7 +96,7 @@ function fixtureRequest() {
       { kind: 'SOURCE_MEDIA', bindingId: 'dev02-close', fileName: 'dev02-close.mp4', bytes: close },
       { kind: 'FONT', bindingId: 'font-noto-sans-v27-regular', fileName: 'noto-sans.ttf', bytes: font },
     ],
-    resources: { wallTimeMs: 90_000, vcpus: 4, memoryMiB: 1_024, maxOutputBytes: 64 * 1_024 * 1_024 },
+    resources: { wallTimeMs: 90_000, maxCpuMs: 60_000, vcpus: 1, memoryMiB: 2_048, maxOutputBytes: 64 * 1_024 * 1_024 },
   });
 }
 

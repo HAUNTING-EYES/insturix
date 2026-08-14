@@ -33,6 +33,7 @@ export interface GeneratedCompositionSandboxRequestV1 {
   programHash: string;
   sourceBundleHash: string;
   apiImplementationHash: string;
+  workerImplementationHash: string;
   program: GeneratedCompositionProgramV1;
   sourceBundle: GeneratedCompositionSourceBundleV1;
   evidencePack: unknown;
@@ -41,7 +42,7 @@ export interface GeneratedCompositionSandboxRequestV1 {
   proofFrames: readonly number[];
   inputs: readonly GeneratedCompositionSandboxInlineInputV1[];
   policy: { network: 'DENY_ALL'; environment: 'EMPTY'; secrets: 'NONE'; database: 'DENY'; projectMutation: 'DENY'; persistent: false };
-  resources: { wallTimeMs: number; vcpus: number; memoryMiB: number; maxOutputBytes: number };
+  resources: { wallTimeMs: number; maxCpuMs: number; vcpus: number; memoryMiB: number; maxOutputBytes: number };
   stateEffects: readonly [];
 }
 
@@ -54,6 +55,7 @@ export type GeneratedCompositionSandboxWorkerResultV1 = {
   sourceBundleHash: string;
   completedAt: string;
   wallTimeMs: number;
+  cpuMs: number;
   stateEffects: readonly [];
 } & ({
   status: 'RENDERED';
@@ -73,6 +75,7 @@ export interface GeneratedCompositionSandboxHostReceiptV1 {
   provider: 'VERCEL_SANDBOX';
   snapshotId: string;
   appCommit: string;
+  workerImplementationHash: string;
   networkPolicy: 'DENY_ALL';
   persistent: false;
   sandboxDeleted: true;
@@ -91,17 +94,17 @@ const inlineInputSchema = z.object({
 const requestSchema = z.object({
   version: z.literal(GENERATED_COMPOSITION_SANDBOX_CONTRACT_V1), authority: z.literal('RESEARCH_ISOLATED_PROXY_NO_PROJECT_MUTATION'),
   requestId: sha, executionId: z.string().regex(SAFE_ID), createdAt: z.string().datetime(), appCommit: z.string().regex(APP_COMMIT),
-  programHash: sha, sourceBundleHash: sha, apiImplementationHash: sha, program: z.unknown(), sourceBundle: z.unknown(),
+  programHash: sha, sourceBundleHash: sha, apiImplementationHash: sha, workerImplementationHash: sha, program: z.unknown(), sourceBundle: z.unknown(),
   evidencePack: z.unknown(), referenceBlueprint: z.unknown(), supplementalFacts: z.unknown(),
   proofFrames: z.array(z.number().int().nonnegative()).min(1).max(32), inputs: z.array(inlineInputSchema).min(1).max(64),
   policy: z.object({ network: z.literal('DENY_ALL'), environment: z.literal('EMPTY'), secrets: z.literal('NONE'), database: z.literal('DENY'), projectMutation: z.literal('DENY'), persistent: z.literal(false) }).strict(),
-  resources: z.object({ wallTimeMs: z.number().int().positive(), vcpus: z.number().int().min(1).max(8), memoryMiB: z.number().int().positive(), maxOutputBytes: z.number().int().positive() }).strict(),
+  resources: z.object({ wallTimeMs: z.number().int().positive(), maxCpuMs: z.number().int().positive(), vcpus: z.number().int().min(1).max(8), memoryMiB: z.number().int().positive(), maxOutputBytes: z.number().int().positive() }).strict(),
   stateEffects: z.tuple([]),
 }).strict();
 const outputSchema = z.object({ kind: z.enum(['STILL', 'CONTACT_SHEET', 'PROXY_RECEIPT']), path: z.string().min(1).max(500), contentSha256: sha, byteLength: z.number().int().positive() }).strict();
 const resultBase = {
   version: z.literal(GENERATED_COMPOSITION_SANDBOX_CONTRACT_V1), requestId: sha, executionId: z.string().regex(SAFE_ID), appCommit: z.string().regex(APP_COMMIT),
-  programHash: sha, sourceBundleHash: sha, completedAt: z.string().datetime(), wallTimeMs: z.number().int().nonnegative(), stateEffects: z.tuple([]),
+  programHash: sha, sourceBundleHash: sha, completedAt: z.string().datetime(), wallTimeMs: z.number().int().nonnegative(), cpuMs: z.number().int().nonnegative(), stateEffects: z.tuple([]),
 };
 const resultSchema = z.discriminatedUnion('status', [
   z.object({ ...resultBase, status: z.literal('RENDERED'), proxyReceiptHash: sha, outputs: z.array(outputSchema).min(3).max(64) }).strict(),
@@ -109,7 +112,7 @@ const resultSchema = z.discriminatedUnion('status', [
 ]);
 
 export function buildGeneratedCompositionSandboxRequestV1(input: {
-  executionId: string; createdAt: string; appCommit: string; apiImplementationHash: string;
+  executionId: string; createdAt: string; appCommit: string; apiImplementationHash: string; workerImplementationHash: string;
   program: GeneratedCompositionProgramV1; sourceBundle: GeneratedCompositionSourceBundleV1;
   evidencePack: unknown; referenceBlueprint: unknown; supplementalFacts: unknown; proofFrames: readonly number[];
   inputs: readonly { kind: 'SOURCE_MEDIA' | 'FONT'; bindingId: string; fileName: string; bytes: Uint8Array }[];
@@ -121,7 +124,7 @@ export function buildGeneratedCompositionSandboxRequestV1(input: {
   const base = {
     version: GENERATED_COMPOSITION_SANDBOX_CONTRACT_V1, authority: 'RESEARCH_ISOLATED_PROXY_NO_PROJECT_MUTATION' as const,
     executionId: input.executionId, createdAt: input.createdAt, appCommit: input.appCommit, programHash, sourceBundleHash,
-    apiImplementationHash: input.apiImplementationHash, program: input.program, sourceBundle: input.sourceBundle,
+    apiImplementationHash: input.apiImplementationHash, workerImplementationHash: input.workerImplementationHash, program: input.program, sourceBundle: input.sourceBundle,
     evidencePack: input.evidencePack, referenceBlueprint: input.referenceBlueprint, supplementalFacts: input.supplementalFacts,
     proofFrames: [...input.proofFrames], inputs: inlineInputs,
     policy: { network: 'DENY_ALL' as const, environment: 'EMPTY' as const, secrets: 'NONE' as const, database: 'DENY' as const, projectMutation: 'DENY' as const, persistent: false as const },
@@ -138,7 +141,8 @@ export function parseGeneratedCompositionSandboxRequestV1(value: unknown): Reado
   if (parsed.requestId !== requestIdentity(parsed)) throw new Error('Generated composition sandbox request identity drift');
   validateProofFrames(parsed);
   validateInlineInputs(parsed);
-  if (parsed.resources.wallTimeMs > parsed.program.resourceBudget.maxWallTimeMs || parsed.resources.memoryMiB > parsed.program.resourceBudget.maxMemoryMiB || parsed.resources.maxOutputBytes > parsed.program.resourceBudget.maxOutputBytes) throw new Error('Generated composition sandbox resources exceed program budget');
+  if (parsed.resources.memoryMiB !== parsed.resources.vcpus * 2_048) throw new Error('Generated composition sandbox memory must equal provider allocation');
+  if (parsed.resources.wallTimeMs > parsed.program.resourceBudget.maxWallTimeMs || parsed.resources.maxCpuMs > parsed.program.resourceBudget.maxCpuMs || parsed.resources.memoryMiB > parsed.program.resourceBudget.maxMemoryMiB || parsed.resources.maxOutputBytes > parsed.program.resourceBudget.maxOutputBytes) throw new Error('Generated composition sandbox resources exceed program budget');
   return Object.freeze(parsed);
 }
 
@@ -155,6 +159,7 @@ export function buildGeneratedCompositionSandboxHostReceiptV1(input: {
   if (result.status !== 'RENDERED') throw new Error('Generated composition sandbox did not render');
   if (result.requestId !== request.requestId || result.executionId !== request.executionId || result.appCommit !== request.appCommit || result.programHash !== request.programHash || result.sourceBundleHash !== request.sourceBundleHash) throw new Error('Generated composition sandbox result identity drift');
   if (!input.sandboxDeleted || input.networkPolicy !== 'DENY_ALL' || input.persistent || input.command.exitCode !== 0) throw new Error('Generated composition sandbox host attestation failed');
+  if (result.wallTimeMs > request.resources.wallTimeMs || result.cpuMs > request.resources.maxCpuMs) throw new Error('Generated composition sandbox execution exceeded resource budget');
   const expectedPaths = new Set(result.outputs.map(({ path }) => path));
   if (Object.keys(input.outputBytes).length !== expectedPaths.size || Object.keys(input.outputBytes).some((path) => !expectedPaths.has(path))) throw new Error('Generated composition sandbox output set drift');
   for (const output of result.outputs) {
@@ -166,7 +171,7 @@ export function buildGeneratedCompositionSandboxHostReceiptV1(input: {
   const unsigned = {
     artifactType: 'GeneratedCompositionSandboxHostReceiptV1' as const, requestId: request.requestId,
     requestHash: hashCanonicalJsonV1(request), resultHash: hashCanonicalJsonV1(result), executionId: request.executionId,
-    provider: 'VERCEL_SANDBOX' as const, snapshotId: input.snapshotId, appCommit: request.appCommit,
+    provider: 'VERCEL_SANDBOX' as const, snapshotId: input.snapshotId, appCommit: request.appCommit, workerImplementationHash: request.workerImplementationHash,
     networkPolicy: 'DENY_ALL' as const, persistent: false as const, sandboxDeleted: true as const,
     command: { exitCode: 0 as const, stdoutSha256: sha256(Buffer.from(input.command.stdout)), stderrSha256: sha256(Buffer.from(input.command.stderr)) },
     outputs: result.outputs, proof: { productionSandbox: 'PASS' as const, outputMaterialization: 'PASS' as const, projectMutation: 'NONE' as const }, stateEffects: [] as const,
@@ -175,7 +180,7 @@ export function buildGeneratedCompositionSandboxHostReceiptV1(input: {
 }
 
 function requestIdentity(value: Omit<GeneratedCompositionSandboxRequestV1, 'requestId'> | GeneratedCompositionSandboxRequestV1): string {
-  return hashCanonicalJsonV1({ executionId: value.executionId, appCommit: value.appCommit, programHash: value.programHash, sourceBundleHash: value.sourceBundleHash, apiImplementationHash: value.apiImplementationHash, proofFrames: [...value.proofFrames], inputs: value.inputs.map(({ kind, bindingId, fileName, contentSha256, byteLength }) => ({ kind, bindingId, fileName, contentSha256, byteLength })).sort((left, right) => left.bindingId < right.bindingId ? -1 : left.bindingId > right.bindingId ? 1 : 0), resources: value.resources });
+  return hashCanonicalJsonV1({ executionId: value.executionId, appCommit: value.appCommit, programHash: value.programHash, sourceBundleHash: value.sourceBundleHash, apiImplementationHash: value.apiImplementationHash, workerImplementationHash: value.workerImplementationHash, proofFrames: [...value.proofFrames], inputs: value.inputs.map(({ kind, bindingId, fileName, contentSha256, byteLength }) => ({ kind, bindingId, fileName, contentSha256, byteLength })).sort((left, right) => left.bindingId < right.bindingId ? -1 : left.bindingId > right.bindingId ? 1 : 0), resources: value.resources });
 }
 
 function validateProofFrames(request: GeneratedCompositionSandboxRequestV1): void {
