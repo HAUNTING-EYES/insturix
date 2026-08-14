@@ -19,7 +19,7 @@ import {
   buildGeneratedCompositionModelBenchmarkPlanV1,
   runGeneratedCompositionSourceProviderCallV1,
 } from '../lib/editron/research/open-ended-planner/generated-composition-model-benchmark-v1';
-import type { GeneratedCompositionProxyReceiptV1 } from '../lib/editron/research/open-ended-planner/generated-composition-proxy-renderer-v1';
+import { materializeGeneratedCompositionLocalEvidenceV1 } from '../lib/editron/research/open-ended-planner/generated-composition-local-evidence-v1';
 import { verifyGeneratedCompositionProgramV1 } from '../lib/editron/research/open-ended-planner/generated-composition-program-verifier-v1';
 import { buildGeneratedCompositionSandboxRequestV1 } from '../lib/editron/research/open-ended-planner/generated-composition-sandbox-contract-v1';
 import {
@@ -169,9 +169,17 @@ async function assessCandidate(
     inputs: request.inputs.map(({ data: _data, ...item }) => ({ ...item, dataDisposition: 'OMITTED_HASH_BOUND' })),
   });
   const executed = await executeGeneratedCompositionInSandboxV1({ request, repoRoot });
-  const materialized = await materializeSandboxOutputs(executed, request.requestId, root);
+  const materialized = await materializeGeneratedCompositionLocalEvidenceV1({
+    candidateRoot: root,
+    workerResult: executed.workerResult,
+    hostReceipt: executed.receipt,
+    outputBytes: executed.outputBytes,
+  });
   const proof = await evaluateDev02GeneratedCompositionRenderedProofV1({
-    program: candidate.program, proxyReceipt: materialized.localizedReceipt, boundaryReferencePath: runtime.identity.boundaryReferencePath,
+    program: candidate.program,
+    proxyReceipt: materialized.localEvaluationReceipt,
+    authoritativeProxyReceiptHash: materialized.originalProxyReceiptHash,
+    boundaryReferencePath: runtime.identity.boundaryReferencePath,
   });
   await Promise.all([
     writeJson(path.join(root, 'sandbox-worker-result.json'), executed.workerResult),
@@ -204,29 +212,6 @@ async function loadRuntimeInputs(apiImplementationHash: string, runnerImplementa
   };
 }
 
-async function materializeSandboxOutputs(executed: Awaited<ReturnType<typeof executeGeneratedCompositionInSandboxV1>>, requestId: string, root: string) {
-  const outputRoot = path.join(root, 'sandbox-outputs'); await fs.mkdir(outputRoot, { recursive: true });
-  const remoteRoot = `/tmp/editron-gcp/${requestId}/`;
-  const paths = new Map<string, string>();
-  for (const [remotePath, bytes] of Object.entries(executed.outputBytes)) {
-    if (!remotePath.startsWith(remoteRoot) || remotePath.includes('..')) throw new Error(`MODEL_BENCHMARK_OUTPUT_PATH_UNSAFE:${remotePath}`);
-    const localPath = path.resolve(outputRoot, ...path.posix.relative(remoteRoot, remotePath).split('/'));
-    if (!localPath.startsWith(path.resolve(outputRoot) + path.sep)) throw new Error('MODEL_BENCHMARK_OUTPUT_ESCAPE');
-    await fs.mkdir(path.dirname(localPath), { recursive: true }); await fs.writeFile(localPath, bytes); paths.set(remotePath, localPath);
-  }
-  const receiptOutput = executed.workerResult.status === 'RENDERED' ? executed.workerResult.outputs.find(({ kind }) => kind === 'PROXY_RECEIPT') : undefined;
-  if (!receiptOutput) throw new Error('MODEL_BENCHMARK_PROXY_RECEIPT_MISSING');
-  const original = JSON.parse(Buffer.from(executed.outputBytes[receiptOutput.path]).toString('utf8')) as GeneratedCompositionProxyReceiptV1;
-  const localizedUnsigned = {
-    ...original, stills: original.stills.map((still) => ({ ...still, path: requiredPath(paths, still.path) })),
-    contactSheet: { ...original.contactSheet, path: requiredPath(paths, original.contactSheet.path) }, workspaceDir: outputRoot,
-  };
-  const { receiptHash: _oldHash, ...unsigned } = localizedUnsigned;
-  const localizedReceipt = { ...unsigned, receiptHash: hashCanonicalJsonV1(unsigned) } as GeneratedCompositionProxyReceiptV1;
-  await writeJson(path.join(root, 'localized-proxy-receipt.json'), { originalReceiptHash: original.receiptHash, localizedReceipt });
-  return { originalReceipt: original, localizedReceipt };
-}
-
 function repairInput(failureStage: GeneratedCompositionModelRepairV1['failureStage'], diagnostics: readonly string[], priorSource: string): GeneratedCompositionModelRepairV1 {
   return { repairOrdinal: 1, failureStage, diagnostics: diagnostics.map((value) => value.slice(0, 500)).slice(0, 64), priorSource };
 }
@@ -254,7 +239,6 @@ function loadEnvironment(): void { loadEnv({ path: path.join(repoRoot, '.env.loc
 function value(args: string[], name: string): string { const index = args.indexOf(name); const result = index < 0 ? '' : args[index + 1] ?? ''; if (!result || result.startsWith('--')) throw new Error(`${name} is required`); return result; }
 function boundedOutput(raw: string): string { const output = path.resolve(raw); if (!output.endsWith('.json') || !(output === evidenceRoot || output.startsWith(evidenceRoot + path.sep))) throw new Error('MODEL_BENCHMARK_OUTPUT_OUTSIDE_EVIDENCE_ROOT'); return output; }
 function requiredEnv(name: string): string { const value = process.env[name]?.trim(); if (!value) throw new Error(`MODEL_BENCHMARK_ENV_MISSING:${name}`); return value; }
-function requiredPath(paths: Map<string, string>, remote: string): string { const value = paths.get(remote); if (!value) throw new Error(`MODEL_BENCHMARK_LOCAL_OUTPUT_MISSING:${remote}`); return value; }
 function boundedError(error: unknown): string { const message = (error instanceof Error ? error.message : String(error)).trim(); return (message || 'UNKNOWN_ERROR_WITHOUT_MESSAGE').slice(0, 500); }
 function relative(root: string, target: string): string { return path.relative(root, target).replaceAll('\\', '/'); }
 async function writeJson(file: string, value: unknown): Promise<void> { const partial = `${file}.partial`; await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(partial, `${JSON.stringify(value, null, 2)}\n`, 'utf8'); await fs.rm(file, { force: true }); await fs.rename(partial, file); }

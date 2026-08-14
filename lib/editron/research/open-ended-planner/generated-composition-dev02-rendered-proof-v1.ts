@@ -67,8 +67,10 @@ interface LoadedFrame {
 export async function evaluateDev02GeneratedCompositionRenderedProofV1(input: {
   program: GeneratedCompositionProgramV1;
   proxyReceipt: GeneratedCompositionProxyReceiptV1;
+  authoritativeProxyReceiptHash: string;
   boundaryReferencePath?: string;
 }): Promise<Readonly<Dev02GeneratedCompositionRenderedProofV1>> {
+  if (!/^[a-f0-9]{64}$/.test(input.authoritativeProxyReceiptHash)) throw new Error('DEV-02 rendered proof authoritative proxy identity is invalid');
   assertPolicyBindings(input.program, input.proxyReceipt);
   const frames = new Map<number, LoadedFrame>();
   for (const still of input.proxyReceipt.stills) {
@@ -99,7 +101,7 @@ export async function evaluateDev02GeneratedCompositionRenderedProofV1(input: {
     policyId: DEV02_RENDERED_PROOF_POLICY_V1.policyId,
     taskId: 'DEV-02' as const,
     programHash: input.proxyReceipt.programHash,
-    proxyReceiptHash: input.proxyReceipt.receiptHash,
+    proxyReceiptHash: input.authoritativeProxyReceiptHash,
     hardGateDisposition,
     technicalDisposition,
     creativeDisposition: 'UNVERIFIABLE' as const,

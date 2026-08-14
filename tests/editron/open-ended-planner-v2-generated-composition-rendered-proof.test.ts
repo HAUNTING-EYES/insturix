@@ -22,6 +22,7 @@ describe('open-ended planner V2 DEV-02 rendered proof policy', () => {
         PHASE_STRUCTURE: 'PASS', FULL_CANVAS_RELEASE: 'PASS', BOUNDARY_CONTINUITY: 'PASS', FLASH_SAFETY: 'UNVERIFIABLE',
       });
       expect(proof).toMatchObject({ hardGateDisposition: 'PASS', technicalDisposition: 'UNVERIFIABLE', creativeDisposition: 'UNVERIFIABLE', stateEffects: [] });
+      expect(proof.proxyReceiptHash).toBe(fixture.authoritativeProxyReceiptHash);
     } finally { await fs.rm(scratch, { recursive: true, force: true }); }
   });
 
@@ -64,7 +65,7 @@ async function proofFixture(root: string, adversarial = false) {
     stateEffects: [] as const, workspaceDir: root,
   };
   const proxyReceipt = { ...unsignedReceipt, receiptHash: hashCanonicalJsonV1(unsignedReceipt) } satisfies GeneratedCompositionProxyReceiptV1;
-  return { program, proxyReceipt, boundaryReferencePath };
+  return { program, proxyReceipt, authoritativeProxyReceiptHash: proxyReceipt.receiptHash, boundaryReferencePath };
 }
 
 async function renderPanels(output: string, canvas: { width: number; height: number }, input: { centreY: number; sidesY: number; settled: boolean; eraseGutter?: boolean }): Promise<string> {
