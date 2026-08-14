@@ -14,6 +14,7 @@ import {
 
 const SANDBOX_ROOT = '/vercel/sandbox';
 const ENTRY_PATH = 'scripts/editron-generated-composition-sandbox-entry-v1.ts';
+const SANDBOX_FFMPEG_PATH = `${SANDBOX_ROOT}/node_modules/@remotion/compositor-linux-x64-gnu/ffmpeg`;
 const ENTRY_SOURCE = `import { promises as fs } from 'node:fs';
 import { executeGeneratedCompositionSandboxWorkerV1 } from '../lib/editron/research/open-ended-planner/generated-composition-sandbox-worker-v1';
 const [requestPath, resultPath] = process.argv.slice(2);
@@ -120,7 +121,7 @@ async function runSandbox(sandbox: SandboxV1, request: GeneratedCompositionSandb
   ]);
   const executed = await sandbox.runCommand({
     cmd: './node_modules/.bin/tsx', args: [ENTRY_PATH, requestPath, resultPath], cwd: SANDBOX_ROOT,
-    env: {}, timeoutMs: request.resources.wallTimeMs + 5_000,
+    env: { FFMPEG_PATH: SANDBOX_FFMPEG_PATH }, timeoutMs: request.resources.wallTimeMs + 5_000,
   });
   const command = { exitCode: executed.exitCode, stdout: bounded(await executed.stdout()), stderr: bounded(await executed.stderr()) };
   if (command.exitCode !== 0) throw new Error(`Generated composition sandbox worker exited ${command.exitCode}: ${command.stderr || command.stdout || 'no output'}`);

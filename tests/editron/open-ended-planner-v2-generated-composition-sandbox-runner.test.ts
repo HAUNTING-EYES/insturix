@@ -32,9 +32,10 @@ describe('open-ended planner V2 generated-composition sandbox runner', () => {
     const result = workerResult(request, outputs);
     let deleted = false;
     const writeFiles = vi.fn(async () => undefined);
+    const runCommand = vi.fn(async () => ({ exitCode: 0, stdout: async () => 'rendered', stderr: async () => '' }));
     const createSandbox = vi.fn(async (params: any) => ({
       writeFiles,
-      runCommand: async () => ({ exitCode: 0, stdout: async () => 'rendered', stderr: async () => '' }),
+      runCommand,
       readFileToBuffer: async ({ path }: { path: string }) => path.endsWith('.gcp-result.json')
         ? Buffer.from(JSON.stringify(result))
         : outputs[path] ?? null,
@@ -48,6 +49,9 @@ describe('open-ended planner V2 generated-composition sandbox runner', () => {
       resources: { vcpus: 1 },
     }));
     expect(writeFiles).toHaveBeenCalledOnce();
+    expect(runCommand).toHaveBeenCalledWith(expect.objectContaining({
+      env: { FFMPEG_PATH: '/vercel/sandbox/node_modules/@remotion/compositor-linux-x64-gnu/ffmpeg' },
+    }));
     expect(deleted).toBe(true);
     expect(executed.receipt).toMatchObject({
       workerImplementationHash: overlay.workerImplementationHash, sandboxDeleted: true,
