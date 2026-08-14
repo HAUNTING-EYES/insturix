@@ -111,20 +111,40 @@ function fixtureRequest(workerImplementationHash: string) {
 }
 
 function outputFixture(requestId: string): Record<string, Buffer> {
-  return {
-    [`/tmp/editron-gcp/${requestId}/proxy/stills/frame-0000.png`]: Buffer.from('still'),
-    [`/tmp/editron-gcp/${requestId}/proxy/contact-sheet.png`]: Buffer.from('sheet'),
-    [`/tmp/editron-gcp/${requestId}/proxy/receipt.json`]: Buffer.from('receipt'),
+  const request = fixtureRequest('0'.repeat(64));
+  const workspace = `/tmp/editron-gcp/${requestId}/proxy`;
+  const stillBytes = Buffer.from('still'); const sheetBytes = Buffer.from('sheet');
+  const stills = request.proofFrames.map((frame) => ({ frame, path: `${workspace}/stills/frame-${String(frame).padStart(4, '0')}.png`, sha256: sha(stillBytes), width: 1080, height: 1920 }));
+  const contactSheet = { path: `${workspace}/contact-sheet.png`, sha256: sha(sheetBytes), width: 810, height: 960 };
+  const unsignedReceipt = {
+    artifactType: 'GeneratedCompositionProxyReceiptV1' as const,
+    executionClass: 'VERIFIED_PROGRAM_DENY_ALL_SANDBOX_PROCESS' as const,
+    securityDisposition: 'HOST_ATTESTATION_REQUIRED' as const,
+    programHash: request.programHash, sourceBundleHash: request.sourceBundleHash, apiImplementationHash: request.apiImplementationHash,
+    composition: { width: 1080, height: 1920, fps: 30, durationInFrames: 180 }, stills, contactSheet,
+    proof: { contract: 'PASS' as const, materializedInputs: 'PASS' as const, compile: 'PASS' as const, renderedEvidence: 'CAPTURED_UNJUDGED' as const, productionSandbox: 'HOST_ATTESTATION_REQUIRED' as const },
+    stateEffects: [] as const, workspaceDir: workspace,
   };
+  const receipt = { ...unsignedReceipt, receiptHash: hashCanonicalJsonV1(unsignedReceipt) };
+  return Object.fromEntries([
+    ...stills.map(({ path }) => [path, stillBytes]),
+    [contactSheet.path, sheetBytes],
+    [`${workspace}/receipt.json`, Buffer.from(JSON.stringify(receipt))],
+  ]);
 }
 
 function workerResult(request: ReturnType<typeof fixtureRequest>, outputs: Record<string, Buffer>): GeneratedCompositionSandboxWorkerResultV1 {
+  const receiptPath = Object.keys(outputs).find((path) => path.endsWith('/receipt.json'))!;
+  const proxyReceipt = JSON.parse(outputs[receiptPath].toString('utf8'));
   return {
     version: GENERATED_COMPOSITION_SANDBOX_CONTRACT_V1, requestId: request.requestId, executionId: request.executionId,
     appCommit: request.appCommit, programHash: request.programHash, sourceBundleHash: request.sourceBundleHash,
     completedAt: '2026-08-14T10:00:01.000Z', wallTimeMs: 1_000, cpuUpperBoundMs: 1_000, stateEffects: [], status: 'RENDERED',
-    proxyReceiptHash: sha(Buffer.from('receipt')),
-    outputs: Object.entries(outputs).map(([path, bytes], index) => ({ kind: index === 0 ? 'STILL' as const : index === 1 ? 'CONTACT_SHEET' as const : 'PROXY_RECEIPT' as const, path, contentSha256: sha(bytes), byteLength: bytes.byteLength })),
+    proxyReceiptHash: proxyReceipt.receiptHash,
+    outputs: Object.entries(outputs).map(([path, bytes]) => ({
+      kind: path.endsWith('/receipt.json') ? 'PROXY_RECEIPT' as const : path.endsWith('/contact-sheet.png') ? 'CONTACT_SHEET' as const : 'STILL' as const,
+      path, contentSha256: sha(bytes), byteLength: bytes.byteLength,
+    })),
   };
 }
 

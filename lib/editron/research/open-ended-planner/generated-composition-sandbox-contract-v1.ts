@@ -76,6 +76,7 @@ export interface GeneratedCompositionSandboxHostReceiptV1 {
   snapshotId: string;
   appCommit: string;
   workerImplementationHash: string;
+  proxyReceiptHash: string;
   networkPolicy: 'DENY_ALL';
   persistent: false;
   sandboxDeleted: true;
@@ -102,6 +103,24 @@ const requestSchema = z.object({
   stateEffects: z.tuple([]),
 }).strict();
 const outputSchema = z.object({ kind: z.enum(['STILL', 'CONTACT_SHEET', 'PROXY_RECEIPT']), path: z.string().min(1).max(500), contentSha256: sha, byteLength: z.number().int().positive() }).strict();
+const proxyReceiptSchema = z.object({
+  artifactType: z.literal('GeneratedCompositionProxyReceiptV1'),
+  executionClass: z.literal('VERIFIED_PROGRAM_DENY_ALL_SANDBOX_PROCESS'),
+  securityDisposition: z.literal('HOST_ATTESTATION_REQUIRED'),
+  programHash: sha,
+  sourceBundleHash: sha,
+  apiImplementationHash: sha,
+  composition: z.object({ width: z.number().int().positive(), height: z.number().int().positive(), fps: z.number().positive(), durationInFrames: z.number().int().positive() }).strict(),
+  stills: z.array(z.object({ frame: z.number().int().nonnegative(), path: z.string().min(1).max(500), sha256: sha, width: z.number().int().positive(), height: z.number().int().positive() }).strict()).min(1).max(32),
+  contactSheet: z.object({ path: z.string().min(1).max(500), sha256: sha, width: z.number().int().positive(), height: z.number().int().positive() }).strict(),
+  proof: z.object({
+    contract: z.literal('PASS'), materializedInputs: z.literal('PASS'), compile: z.literal('PASS'),
+    renderedEvidence: z.literal('CAPTURED_UNJUDGED'), productionSandbox: z.literal('HOST_ATTESTATION_REQUIRED'),
+  }).strict(),
+  stateEffects: z.tuple([]),
+  workspaceDir: z.string().min(1).max(500),
+  receiptHash: sha,
+}).strict();
 const resultBase = {
   version: z.literal(GENERATED_COMPOSITION_SANDBOX_CONTRACT_V1), requestId: sha, executionId: z.string().regex(SAFE_ID), appCommit: z.string().regex(APP_COMMIT),
   programHash: sha, sourceBundleHash: sha, completedAt: z.string().datetime(), wallTimeMs: z.number().int().nonnegative(), cpuUpperBoundMs: z.number().int().nonnegative(), stateEffects: z.tuple([]),
@@ -167,16 +186,76 @@ export function buildGeneratedCompositionSandboxHostReceiptV1(input: {
     const bytes = input.outputBytes[output.path];
     if (!bytes || bytes.byteLength !== output.byteLength || sha256(bytes) !== output.contentSha256) throw new Error(`Generated composition sandbox output hash drift: ${output.path}`);
   }
+  validateProxyReceipt(request, result, input.outputBytes);
   if (result.outputs.reduce((sum, output) => sum + output.byteLength, 0) > request.resources.maxOutputBytes) throw new Error('Generated composition sandbox outputs exceed budget');
   const unsigned = {
     artifactType: 'GeneratedCompositionSandboxHostReceiptV1' as const, requestId: request.requestId,
     requestHash: hashCanonicalJsonV1(request), resultHash: hashCanonicalJsonV1(result), executionId: request.executionId,
     provider: 'VERCEL_SANDBOX' as const, snapshotId: input.snapshotId, appCommit: request.appCommit, workerImplementationHash: request.workerImplementationHash,
+    proxyReceiptHash: result.proxyReceiptHash,
     networkPolicy: 'DENY_ALL' as const, persistent: false as const, sandboxDeleted: true as const,
     command: { exitCode: 0 as const, stdoutSha256: sha256(Buffer.from(input.command.stdout)), stderrSha256: sha256(Buffer.from(input.command.stderr)) },
     outputs: result.outputs, proof: { productionSandbox: 'PASS' as const, outputMaterialization: 'PASS' as const, projectMutation: 'NONE' as const }, stateEffects: [] as const,
   };
   return Object.freeze({ ...unsigned, receiptHash: hashCanonicalJsonV1(unsigned) });
+}
+
+function validateProxyReceipt(
+  request: GeneratedCompositionSandboxRequestV1,
+  result: Extract<GeneratedCompositionSandboxWorkerResultV1, { status: 'RENDERED' }>,
+  outputBytes: Readonly<Record<string, Uint8Array>>,
+): void {
+  const receiptOutputs = result.outputs.filter(({ kind }) => kind === 'PROXY_RECEIPT');
+  const contactOutputs = result.outputs.filter(({ kind }) => kind === 'CONTACT_SHEET');
+  const stillOutputs = result.outputs.filter(({ kind }) => kind === 'STILL');
+  if (receiptOutputs.length !== 1 || contactOutputs.length !== 1 || stillOutputs.length !== request.proofFrames.length) {
+    throw new Error('Generated composition sandbox proxy output cardinality drift');
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(outputBytes[receiptOutputs[0].path]).toString('utf8'));
+  } catch {
+    throw new Error('Generated composition sandbox proxy receipt is not valid JSON');
+  }
+  const receipt = proxyReceiptSchema.parse(decoded);
+  const { receiptHash, ...unsigned } = receipt;
+  if (receiptHash !== hashCanonicalJsonV1(unsigned) || result.proxyReceiptHash !== receiptHash) {
+    throw new Error('Generated composition sandbox proxy receipt identity drift');
+  }
+  if (receipt.programHash !== request.programHash || receipt.sourceBundleHash !== request.sourceBundleHash || receipt.apiImplementationHash !== request.apiImplementationHash) {
+    throw new Error('Generated composition sandbox proxy receipt binding drift');
+  }
+  const rate = Number(request.program.compositionTimebase.rate.numerator) / Number(request.program.compositionTimebase.rate.denominator);
+  const expectedComposition = {
+    width: request.program.canvas.width,
+    height: request.program.canvas.height,
+    fps: rate,
+    durationInFrames: Number(request.program.duration.compositionEndExclusiveTick),
+  };
+  if (JSON.stringify(receipt.composition) !== JSON.stringify(expectedComposition)) {
+    throw new Error('Generated composition sandbox proxy receipt composition drift');
+  }
+  const requestRoot = `/tmp/editron-gcp/${request.requestId}/`;
+  if (!receipt.workspaceDir.startsWith(requestRoot) || receipt.workspaceDir.includes('..')) {
+    throw new Error('Generated composition sandbox proxy receipt workspace escaped');
+  }
+  const receiptFrames = receipt.stills.map(({ frame }) => frame);
+  if (JSON.stringify(receiptFrames) !== JSON.stringify([...request.proofFrames].sort((left, right) => left - right))) {
+    throw new Error('Generated composition sandbox proxy receipt proof-frame drift');
+  }
+  const expectedRenderedOutputs = new Map<string, { kind: 'STILL' | 'CONTACT_SHEET'; sha256: string }>([
+    ...receipt.stills.map((still) => [still.path, { kind: 'STILL', sha256: still.sha256 }] as const),
+    [receipt.contactSheet.path, { kind: 'CONTACT_SHEET', sha256: receipt.contactSheet.sha256 }] as const,
+  ]);
+  if (expectedRenderedOutputs.size !== stillOutputs.length + contactOutputs.length) {
+    throw new Error('Generated composition sandbox proxy receipt output duplication');
+  }
+  for (const output of [...stillOutputs, ...contactOutputs]) {
+    const expected = expectedRenderedOutputs.get(output.path);
+    if (!expected || expected.kind !== output.kind || expected.sha256 !== output.contentSha256 || !output.path.startsWith(receipt.workspaceDir + '/')) {
+      throw new Error(`Generated composition sandbox proxy receipt output drift: ${output.path}`);
+    }
+  }
 }
 
 function requestIdentity(value: Omit<GeneratedCompositionSandboxRequestV1, 'requestId'> | GeneratedCompositionSandboxRequestV1): string {
