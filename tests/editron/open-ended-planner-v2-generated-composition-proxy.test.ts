@@ -49,6 +49,7 @@ describe('open-ended planner V2 trusted generated-composition proxy', () => {
             width: 1080, height: 1920, fps: 30, durationInFrames: 180,
             id: 'GeneratedCompositionProxyV1', defaultProps: {}, props: {}, defaultCodec: null,
             defaultOutName: null, defaultVideoImageFormat: null, defaultPixelFormat: null, defaultProResProfile: null,
+            defaultSampleRate: null,
           }),
           render: async ({ frame, output }) => {
             renderCalls.push(frame);

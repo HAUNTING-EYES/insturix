@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 
 import { chatCompletionsUrl } from '@/lib/editron/reference-video/glm-vision-client';
 
@@ -709,7 +709,7 @@ async function buildJudgeImages(
     : null;
 
   const images: MgVisualJudgeImage[] = [];
-  const stressComposites: sharp.OverlayOptions[] = [];
+  const stressComposites: OverlayOptions[] = [];
 
   for (let column = 0; column < indices.length; column += 1) {
     const frameBytes = frameBuffers[column];
