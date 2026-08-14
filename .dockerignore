@@ -1,6 +1,9 @@
 # Keep the build context small — deps are reinstalled inside the image, build/cache dirs aren't needed.
 node_modules
 **/node_modules
+.env*
+.vercel
+.calibration-temp
 .next
 .git
 explainer-remotion/out

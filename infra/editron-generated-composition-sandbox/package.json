@@ -1,0 +1,17 @@
+{
+  "name": "editron-generated-composition-sandbox-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@remotion/bundler": "4.0.509",
+    "@remotion/renderer": "4.0.509",
+    "react": "19.1.2",
+    "react-dom": "19.1.2",
+    "remotion": "4.0.509",
+    "sharp": "0.35.3",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "zod": "4.1.12"
+  }
+}
