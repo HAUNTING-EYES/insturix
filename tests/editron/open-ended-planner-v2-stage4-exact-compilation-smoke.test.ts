@@ -2,14 +2,42 @@ import { describe, expect, it } from 'vitest';
 
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { evaluateStage4CompiledGraphArtifactV2 } from '@/lib/editron/research/open-ended-planner/stage4-compilation-evaluator-v2';
-import { buildStage4ExactCompilationSmokePreflightV2 } from '@/lib/editron/research/open-ended-planner/stage4-exact-compilation-smoke-v2';
+import {
+  buildStage4ExactCompilationSmokePreflightV2,
+  runStage4ExactCompilationSmokeV2,
+} from '@/lib/editron/research/open-ended-planner/stage4-exact-compilation-smoke-v2';
 import canonicalEvidenceBoundIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-evidence-bound-intent-v2.json';
 import canonicalEditorialIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-editorial-intent-v2.json';
 import evidencePackJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-stage3-evidence-pack-v2.json';
 
 describe('open-ended planner V2 isolated Stage-4 exact-compilation smoke', () => {
-  it('fails closed while the inherited Stage-4 input ceiling is impossible', async () => {
-    await expect(buildStage4ExactCompilationSmokePreflightV2()).rejects.toThrow(/STAGE4_LOCAL_INPUT_BUDGET_EXCEEDED:OPENAI_LUNA:47333\/7500/);
+  it('freezes a bounded Luna and Terra exact-compilation plan', async () => {
+    const plan = await buildStage4ExactCompilationSmokePreflightV2() as Plan;
+    expect(plan.planHash).toBe('712300c5c435e943181092acff44785a621b4e3e73161da28ba9811e0ef57a4f');
+    expect(plan.rows).toHaveLength(2);
+    expect(plan.spend).toMatchObject({ plannedProviderCalls: 2, absoluteMaxSpendUsd: 0.96 });
+    expect(new Set(plan.rows.map(({ packetHash }) => packetHash))).toEqual(new Set([plan.packetHash]));
+    expect(new Set(plan.rows.map(({ requestHash }) => requestHash)).size).toBe(2);
+    expect(plan.rows.every(({ localInputTokenUpperBound, maxInputTokens }) => localInputTokenUpperBound <= maxInputTokens)).toBe(true);
+    expect(plan.exclusions).toContainEqual({ routeId: 'QWEN_3_8_MAX', reason: 'STANDARD_APPLICATION_API_KEY_NOT_AVAILABLE_FOR_AUTOMATED_BENCHMARK' });
+  });
+
+  it('runs both frozen routes without persisting the provider credential', async () => {
+    const plan = await buildStage4ExactCompilationSmokePreflightV2() as Plan;
+    const receipt = await runStage4ExactCompilationSmokeV2({
+      expectedPlanHash: plan.planHash, maxAuthorizedSpendUsd: 0.96, operatorId: 'admin', confirmedAt: '2026-08-14T00:00:00.000Z',
+      environment: { OPENAI_API_KEY: 'openai-stage4-secret-sentinel' },
+      fetchImpl: async (_url, init) => {
+        const request = JSON.parse(String(init?.body)) as { model?: string };
+        return response(openAI(request.model ?? 'openai-test', compiledArtifact()));
+      },
+    }) as Receipt;
+    expect(receipt.rows).toHaveLength(2);
+    expect(receipt.rows.every(({ run }) => run.disposition === 'ARTIFACT_ACCEPTED')).toBe(true);
+    expect(receipt.rows.every(({ compilationEvaluation }) => compilationEvaluation.disposition === 'CAPABILITY_BLOCKED')).toBe(true);
+    expect(receipt.rows.every(({ compilationEvaluation }) => compilationEvaluation.diagnostics.length === 0)).toBe(true);
+    expect(receipt.actualProviderCostUsd).toBeGreaterThan(0);
+    expect(JSON.stringify(receipt)).not.toContain('openai-stage4-secret-sentinel');
   });
 
   it('accepts exact read-only compilation while keeping the requested graph capability-blocked', () => {
@@ -109,3 +137,15 @@ function readNode(nodeId: string, intentNodeId: string, operatorId: 'inspect_use
     traceRefs: [intentNodeId, ...proofObligationIds, ...(operatorId === 'inspect_user_asset' ? ['bind-source-media-and-windows'] : [])],
   };
 }
+
+function openAI(model: string, artifact: unknown) { return { id: `resp-${model}`, model, status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(artifact) }] }], usage: { input_tokens: 12_000, output_tokens: 4_500, output_tokens_details: { reasoning_tokens: 1_000 }, total_tokens: 16_500 } }; }
+function response(body: unknown): Response { return new Response(JSON.stringify(body), { status: 200 }); }
+
+type Plan = Awaited<ReturnType<typeof buildStage4ExactCompilationSmokePreflightV2>> & {
+  planHash: string;
+  packetHash: string;
+  rows: Array<{ packetHash: string; requestHash: string; localInputTokenUpperBound: number; maxInputTokens: number }>;
+  spend: { plannedProviderCalls: number; absoluteMaxSpendUsd: number };
+  exclusions: Array<{ routeId: string; reason: string }>;
+};
+type Receipt = { rows: Array<{ run: { disposition: string }; compilationEvaluation: { disposition: string; diagnostics: string[] } }>; actualProviderCostUsd: number };

@@ -92,7 +92,7 @@ const STAGE_BUDGETS: Record<StageV2, StageBudgetV2> = {
   1: { maxInputTokens: 30000, maxVisibleOutputTokens: 10000, maxReasoningTokens: 3000, maxWallClockMs: 90000, maxProviderCostUsd: 0.35 },
   2: { maxInputTokens: 50000, maxVisibleOutputTokens: 4000, maxReasoningTokens: 5000, maxWallClockMs: 40000, maxProviderCostUsd: 0.30 },
   3: { maxInputTokens: 32000, maxVisibleOutputTokens: 2400, maxReasoningTokens: 3000, maxWallClockMs: 45000, maxProviderCostUsd: 0.20 },
-  4: { maxInputTokens: 7500, maxVisibleOutputTokens: 2000, maxReasoningTokens: 3800, maxWallClockMs: 45000, maxProviderCostUsd: 0.15 },
+  4: { maxInputTokens: 80000, maxVisibleOutputTokens: 8000, maxReasoningTokens: 7000, maxWallClockMs: 90000, maxProviderCostUsd: 0.48 },
   5: { maxInputTokens: 3000, maxVisibleOutputTokens: 800, maxReasoningTokens: 1800, maxWallClockMs: 30000, maxProviderCostUsd: 0.08 },
 };
 
