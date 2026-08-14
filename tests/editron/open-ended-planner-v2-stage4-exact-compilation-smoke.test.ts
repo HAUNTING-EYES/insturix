@@ -1,14 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { evaluateStage4CompiledGraphArtifactV2 } from '@/lib/editron/research/open-ended-planner/stage4-compilation-evaluator-v2';
+import { compileCanonicalStage4DeterministicBaselineV2 } from '@/lib/editron/research/open-ended-planner/stage4-deterministic-compiler-v2';
 import {
   buildStage4ExactCompilationSmokePreflightV2,
   runStage4ExactCompilationSmokeV2,
 } from '@/lib/editron/research/open-ended-planner/stage4-exact-compilation-smoke-v2';
-import canonicalEvidenceBoundIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-evidence-bound-intent-v2.json';
-import canonicalEditorialIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-editorial-intent-v2.json';
-import evidencePackJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-stage3-evidence-pack-v2.json';
 
 describe('open-ended planner V2 isolated Stage-4 exact-compilation smoke', () => {
   it('freezes a bounded Luna and Terra exact-compilation plan', async () => {
@@ -63,7 +60,7 @@ describe('open-ended planner V2 isolated Stage-4 exact-compilation smoke', () =>
     expect(evaluateStage4CompiledGraphArtifactV2(missingDependencyEdge)).toMatchObject({ disposition: 'FAIL', dependencyGraph: 'FAIL' });
 
     const unresolvedEndpoint = compiledArtifact();
-    unresolvedEndpoint.edges.push({ edgeId: 'edge-unresolved', fromNodeId: 'node-generated-island', toNodeId: 'compile-read-project', edgeType: 'DATA' });
+    unresolvedEndpoint.edges.push({ edgeId: 'edge-unresolved', fromNodeId: 'node-generated-island', toNodeId: 'compile-resolve-dev02-close', edgeType: 'DATA' });
     expect(evaluateStage4CompiledGraphArtifactV2(unresolvedEndpoint)).toMatchObject({ disposition: 'FAIL', dependencyGraph: 'FAIL' });
 
     const stale = compiledArtifact();
@@ -71,15 +68,15 @@ describe('open-ended planner V2 isolated Stage-4 exact-compilation smoke', () =>
     expect(evaluateStage4CompiledGraphArtifactV2(stale)).toMatchObject({ disposition: 'FAIL', policyAndRevision: 'FAIL' });
 
     const missingSource = compiledArtifact();
-    missingSource.nodes = missingSource.nodes.filter(({ nodeId }) => nodeId !== 'compile-inspect-close');
+    missingSource.nodes = missingSource.nodes.filter(({ nodeId }) => nodeId !== 'compile-inspect-dev02-close');
     expect(evaluateStage4CompiledGraphArtifactV2(missingSource)).toMatchObject({ disposition: 'FAIL', operatorResolution: 'FAIL' });
 
     const cyclic = compiledArtifact();
-    cyclic.nodes[0].requires = ['compile-inspect-close'];
-    cyclic.nodes[1].requires = ['compile-inspect-wide'];
+    cyclic.nodes[0].requires = ['compile-resolve-dev02-close.proposedOperation'];
+    cyclic.nodes[1].requires = ['compile-inspect-dev02-close.result'];
     cyclic.edges = [
-      { edgeId: 'edge-wide-close', fromNodeId: 'compile-inspect-wide', toNodeId: 'compile-inspect-close', edgeType: 'DATA' },
-      { edgeId: 'edge-close-wide', fromNodeId: 'compile-inspect-close', toNodeId: 'compile-inspect-wide', edgeType: 'DATA' },
+      { edgeId: 'edge-resolve-inspect', fromNodeId: 'compile-resolve-dev02-close', toNodeId: 'compile-inspect-dev02-close', edgeType: 'DATA' },
+      { edgeId: 'edge-inspect-resolve', fromNodeId: 'compile-inspect-dev02-close', toNodeId: 'compile-resolve-dev02-close', edgeType: 'DATA' },
     ];
     expect(evaluateStage4CompiledGraphArtifactV2(cyclic)).toMatchObject({ disposition: 'FAIL', dependencyGraph: 'FAIL' });
 
@@ -96,6 +93,7 @@ interface TestNode extends Record<string, unknown> {
   nodeId: string;
   inputs: Record<string, unknown>;
   requires: string[];
+  produces: string[];
   traceRefs: string[];
   revisionBinding: { projectId: string; expectedProjectRevision: string };
 }
@@ -110,44 +108,7 @@ interface TestArtifact extends Record<string, unknown> {
 }
 
 function compiledArtifact(): TestArtifact {
-  const proofIds = canonicalEvidenceBoundIntentJson.proofPlan.map(({ proofObligationId }) => proofObligationId);
-  const preservationIds = canonicalEvidenceBoundIntentJson.preservationBindings.map(({ preservationId }) => preservationId);
-  return {
-    artifactType: 'CompiledOperationGraphV2', taskId: 'DEV-02',
-    compileDisposition: 'CAPABILITY_GAP', executionEligibility: 'NOT_EXECUTABLE',
-    sourceEditorialIntentHash: hashCanonicalJsonV1(canonicalEditorialIntentJson),
-    sourceEvidenceBoundIntentHash: hashCanonicalJsonV1(canonicalEvidenceBoundIntentJson),
-    evidencePackHash: hashCanonicalJsonV1(evidencePackJson),
-    operatorCatalogVersion: '2.0.0', projectId: 'oe-dev-02', expectedProjectRevision: 'R3',
-    nodes: [
-      readNode('compile-inspect-wide', 'node-source-resolution', 'inspect_user_asset', { projectId: 'oe-dev-02', assetId: 'dev02-wide' }, ['fact-project-revision', 'fact-source-dev02-wide', 'fact-source-windows'], ['proof-asset-rights', 'proof-source-ranges'], 'SOURCE_FRAME', ['fact-source-windows'], ['fact-source-dev02-wide']),
-      readNode('compile-inspect-close', 'node-source-resolution', 'inspect_user_asset', { projectId: 'oe-dev-02', assetId: 'dev02-close' }, ['fact-project-revision', 'fact-source-dev02-close', 'fact-source-windows'], ['proof-asset-rights', 'proof-source-ranges'], 'SOURCE_FRAME', ['fact-source-windows'], ['fact-source-dev02-close']),
-      readNode('compile-read-project', 'node-proof', 'read_project_file', { projectId: 'oe-dev-02', expectedProjectRevision: 'R3' }, ['fact-project-revision', 'fact-project-timebase'], ['proof-revision-freshness'], 'PROJECT_TICK', ['fact-project-target-range'], [], ['compile-inspect-wide.result']),
-    ],
-    edges: [{ edgeId: 'edge-inspect-wide-project', fromNodeId: 'compile-inspect-wide', toNodeId: 'compile-read-project', edgeType: 'DATA' }],
-    proofPolicy: { proofVersion: 'OE_STAGE4_PROOF_POLICY_V1', mode: 'ALL_BOUND_OBLIGATIONS_REQUIRED_BEFORE_EXECUTION', proofObligationIds: proofIds, preservationIds, onUnverifiable: 'BLOCK_EXECUTION' },
-    diagnostics: [
-      { diagnosticId: 'diag-generated-owner', code: 'CAPABILITY_NOT_IMPLEMENTED', intentNodeIds: ['node-generated-island'], operatorIds: ['generated_composition_program'], factIds: ['fact-support-generated-composition'], disposition: 'CAPABILITY_GAP' },
-      { diagnosticId: 'diag-continuation-blocked', code: 'DEPENDENCY_BLOCKED', intentNodeIds: ['node-native-continuation'], operatorIds: ['get_timeline_view', 'resolve_user_asset_overlay'], factIds: ['fact-support-generated-composition', 'fact-exit-continuity'], disposition: 'CAPABILITY_GAP' },
-      { diagnosticId: 'diag-proof-blocked', code: 'DEPENDENCY_BLOCKED', intentNodeIds: ['node-proof'], operatorIds: ['read_project_file', 'get_timeline_view'], factIds: ['fact-support-generated-composition'], disposition: 'CAPABILITY_GAP' },
-    ],
-    unresolvedIntentNodeIds: ['node-generated-island', 'node-native-continuation', 'node-proof'],
-  };
-}
-
-function readNode(nodeId: string, intentNodeId: string, operatorId: 'inspect_user_asset' | 'read_project_file', inputs: Record<string, unknown>, reads: string[], proofObligationIds: string[], coordinateDomain: 'SOURCE_FRAME' | 'PROJECT_TICK', rangeFactIds: string[], assetFactIds: string[], requires: string[] = []): TestNode {
-  return {
-    nodeId, intentNodeId, operatorId,
-    operatorSpecRef: `EDITRON_OPERATOR_SPECS_V2@2.0.0#${operatorId}`,
-    ownerRef: `v1:${operatorId}`, inputs, reads, writes: [], requires, produces: [`${nodeId}.result`, `${nodeId}.evidence`], invalidates: [],
-    coordinateBindings: [{ coordinateDomain, timebaseFactIds: coordinateDomain === 'PROJECT_TICK' ? ['fact-project-timebase'] : [], rangeFactIds, assetFactIds }],
-    revisionBinding: { projectId: 'oe-dev-02', expectedProjectRevision: 'R3' }, stabilityRequirement: 'RANGE_STABLE', stateEffects: [],
-    idempotency: { scope: 'PROJECT_REVISION', keyMaterialRefs: [intentNodeId, 'fact-project-revision'] },
-    proofObligationIds, failureDisposition: 'ABORT_GRAPH', retryDisposition: 'TRANSIENT_SAME_COMMAND',
-    policyFactIds: ['fact-rights-policy', 'fact-privacy-egress-policy'], concurrency: { class: 'READ_SHARED', conflictDomainRefs: [] },
-    resourcePolicyId: 'OE_STAGE4_READ_V1', reversibility: { disposition: 'NOT_APPLICABLE_READ_ONLY', undoBindingRefs: [] },
-    traceRefs: [intentNodeId, ...proofObligationIds, ...(operatorId === 'inspect_user_asset' ? ['bind-source-media-and-windows'] : [])],
-  };
+  return structuredClone(compileCanonicalStage4DeterministicBaselineV2()) as TestArtifact;
 }
 
 function openAI(model: string, artifact: unknown) { return { id: `resp-${model}`, model, status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(artifact) }] }], usage: { input_tokens: 12_000, output_tokens: 4_500, output_tokens_details: { reasoning_tokens: 1_000 }, total_tokens: 16_500 } }; }
