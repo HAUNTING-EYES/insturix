@@ -58,10 +58,20 @@ function prior(artifactType: string, taskId: string, executionForm: 'NATIVE' | '
   if (artifactType === 'EditorialIntentGraphV2') return {
     artifactType, taskId, executionForm,
     routeDecision: { scopeClassification: executionForm === 'HYBRID' ? 'HYBRID_FULL_PLAN' : executionForm === 'NATIVE' ? 'NATIVE_ONLY_PLAN' : 'BOUNDED_GENERATED_ISLAND', coverageStatus: 'COMPLETE', candidateForms: [{ form: executionForm, hardGateStatus: 'ELIGIBLE', claimCoverage: [{ claimId: 'claim-layout', status: 'COVERED', ownerRefs: [executionForm === 'NATIVE' ? 'native_layout_owner' : 'generated_composition_program'], reasonCodes: ['RELATIONAL_LAYOUT'] }], representabilitySignals: executionForm === 'NATIVE' ? ['NONE'] : ['CROSS_ELEMENT_DEPENDENCY'], blockers: [], ownerRefs: [executionForm === 'NATIVE' ? 'native_layout_owner' : 'generated_composition_program'], evidenceIds: ['EV-DEV02-R1'] }], selectedReasonCodes: [executionForm === 'HYBRID' ? 'GENERATED_ISLAND_NATIVE_SURROUND' : 'FORCED_ROUTE_TEST'], generatedIslandClaimIds: executionForm === 'NATIVE' ? [] : ['claim-layout'], nativeSurroundClaimIds: executionForm === 'NATIVE' ? ['claim-layout'] : [] },
-    nodes: [{ intentNodeId: 'node-1', operationFamily: executionForm === 'NATIVE' ? 'native-layout' : 'generated-composition', targetClaimIds: ['claim-layout'], candidateCapabilityIds: [executionForm === 'NATIVE' ? 'native_layout_owner' : 'generated_composition_program'], executionForm: executionForm === 'HYBRID' ? 'GENERATED_COMPOSITION' : executionForm, requiresNodeIds: [], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-R1'], failureDisposition: 'NEEDS_REVIEW' }],
+    nodes: [{ intentNodeId: 'node-1', operationFamily: executionForm === 'NATIVE' ? 'native-layout' : 'generated-composition', targetClaimIds: ['claim-layout'], candidateCapabilityIds: [executionForm === 'NATIVE' ? 'add_overlay' : 'generated_composition_program'], executionForm: executionForm === 'HYBRID' ? 'GENERATED_COMPOSITION' : executionForm, requiresNodeIds: [], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-R1'], failureDisposition: 'NEEDS_REVIEW' }],
     edges: [], preservationIntents: [], unresolvedRequirements: [],
   };
-  if (artifactType === 'EvidenceBoundIntentGraphV2') return { artifactType, taskId, nodes: [], evidenceBindings: [], rightsDecision: {}, privacyDecision: {}, revisionBinding: {}, proofPlan: {} };
+  if (artifactType === 'EvidenceBoundIntentGraphV2') return {
+    artifactType, taskId, stageDisposition: 'CAPABILITY_GAP',
+    nodes: [{ intentNodeId: 'node-1', candidateCapabilityIds: ['generated_composition_program'], evidenceBindingIds: ['binding-reference'], preservationIds: ['preserve-reference'], proofObligationIds: ['proof-render'], bindingStatus: 'BOUND', unresolvedRequirementIds: ['req-owner'] }],
+    evidenceBindings: [{ bindingId: 'binding-reference', factIds: ['fact-reference-observation'], nodeIds: ['node-1'], status: 'BOUND' }],
+    rightsDecision: { decisionId: 'rights', status: 'ALLOWED', policyFactIds: ['fact-rights-policy'], allowedAssetIds: ['dev02-wide'], deniedActions: ['INSERT_REFERENCE_MEDIA'], reasonCodes: ['OWNED_FIXTURE'] },
+    privacyDecision: { decisionId: 'privacy', status: 'ALLOWED', policyFactIds: ['fact-privacy-egress-policy'], egressDisposition: 'DENIED', reasonCodes: ['SYNTHETIC_NO_EGRESS'] },
+    revisionBinding: { projectId: 'oe-dev-02', expectedProjectRevision: 'R3', timebaseFactId: 'fact-project-timebase', status: 'BOUND' },
+    preservationBindings: [{ preservationId: 'preserve-reference', factIds: ['fact-reference-observation'], status: 'BOUND' }],
+    proofPlan: [{ proofObligationId: 'proof-render', kind: 'RENDERED_GEOMETRY', nodeIds: ['node-1'], targetClaimIds: ['claim-layout'], requiredFactIds: ['fact-reference-observation'], status: 'PLANNED' }],
+    unresolvedRequirements: [{ requirementId: 'req-owner', kind: 'CAPABILITY', factIds: ['fact-support-generated-composition'], disposition: 'CAPABILITY_GAP' }],
+  };
   return { artifactType, taskId, operatorCatalogVersion: 'v2', nodes: [], edges: [], expectedProjectRevision: 'R3', proofPolicy: {} };
 }
 
@@ -253,6 +263,13 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     const executionForm = ((second.packet.outputContract.properties as Record<string, unknown>).executionForm as { enum: string[] }).enum;
     expect(executionForm).toEqual(['NATIVE', 'CAPABILITY_GAP']);
     expect(modelInput(second)).toHaveProperty('operatorCatalog');
+    expect(modelInput(third)).toHaveProperty('evidencePack.authority', 'SYNTHETIC_BENCHMARK_EVIDENCE_ONLY_NO_PROJECT_MUTATION');
+    expect(modelInput(third)).toHaveProperty('evidencePack.facts', expect.arrayContaining([
+      expect.objectContaining({ factId: 'fact-project-revision', expectedProjectRevision: 'R3' }),
+      expect.objectContaining({ factId: 'fact-support-generated-composition', supportStatus: 'RESEARCH_ONLY_NOT_IMPLEMENTED' }),
+    ]));
+    expect((modelInput(third).operatorCatalog as { operators: unknown[] }).operators).toHaveLength(1);
+    expect(third.packet.outputContract).toHaveProperty('properties.stageDisposition.enum', expect.arrayContaining(['CAPABILITY_GAP', 'UNVERIFIABLE']));
     expect(modelInput(fourth)).toHaveProperty('operatorCatalog.fieldSchemas');
     expect(modelInput(fifth)).not.toHaveProperty('operatorCatalog');
     expect(() => buildNextProviderStagePacketV2({ previousPacket: first, stage: 3, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('EditorialIntentGraphV2', 'DEV-02') })).toThrow(/sequentially/);
@@ -260,7 +277,7 @@ describe('open-ended planner V2 staged no-provider packets', () => {
   });
 
   it('allocates the complete frozen trial budget without exceeding it', () => {
-    const first = stageOne[0];
+    const first = stageOne.find(({ packet }) => packet.taskId === 'DEV-02' && packet.conditionId === 'BASELINE') as HashedStagePacketV2;
     const packets = [first];
     const types = ['ReferenceBlueprintV2', 'EditorialIntentGraphV2', 'EvidenceBoundIntentGraphV2', 'CompiledOperationGraphV2'];
     for (let stage = 2; stage <= 5; stage += 1) packets.push(buildNextProviderStagePacketV2({ previousPacket: packets.at(-1) as HashedStagePacketV2, stage: stage as 2 | 3 | 4 | 5, executionFormArm: 'FREE_CHOICE', priorArtifact: prior(types[stage - 2], first.packet.taskId) }));

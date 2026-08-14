@@ -1,0 +1,95 @@
+{
+  "artifactType": "EditorialIntentGraphV2",
+  "taskId": "DEV-02",
+  "executionForm": "HYBRID",
+  "routeDecision": {
+    "scopeClassification": "HYBRID_FULL_PLAN",
+    "coverageStatus": "COMPLETE",
+    "candidateForms": [{
+      "form": "HYBRID",
+      "hardGateStatus": "INELIGIBLE",
+      "claimCoverage": [
+        {"claimId":"claim-user-stacked-layout","status":"COVERED","ownerRefs":["generated_composition_program"],"reasonCodes":["BOUNDED_RELATIONAL_PANEL_ISLAND"]},
+        {"claimId":"claim-user-centred-title","status":"COVERED","ownerRefs":["generated_composition_program"],"reasonCodes":["ISLAND_TYPOGRAPHY"]},
+        {"claimId":"claim-user-varied-crops","status":"COVERED","ownerRefs":["generated_composition_program","resolve_user_asset_overlay"],"reasonCodes":["DECLARED_SOURCE_SLOTS_AND_NATIVE_ASSET_RESOLUTION"]},
+        {"claimId":"claim-user-exit-continuity","status":"COVERED","ownerRefs":["resolve_user_asset_overlay","get_timeline_view"],"reasonCodes":["NATIVE_BOUNDARY_HANDOFF"]},
+        {"claimId":"claim-ref-five-panels","status":"COVERED","ownerRefs":["generated_composition_program"],"reasonCodes":["PROCEDURAL_PANEL_LAYOUT"]},
+        {"claimId":"claim-ref-black-gutters","status":"COVERED","ownerRefs":["generated_composition_program"],"reasonCodes":["ISLAND_LAYOUT_GEOMETRY"]},
+        {"claimId":"claim-ref-yellow-two-line-title","status":"COVERED","ownerRefs":["generated_composition_program"],"reasonCodes":["ISLAND_TYPOGRAPHY"]},
+        {"claimId":"claim-ref-opposed-motion","status":"COVERED","ownerRefs":["generated_composition_program"],"reasonCodes":["CROSS_ELEMENT_MOTION_DEPENDENCY"]},
+        {"claimId":"claim-ref-stable-hold","status":"COVERED","ownerRefs":["generated_composition_program"],"reasonCodes":["ISLAND_TEMPORAL_PHASE"]},
+        {"claimId":"claim-ref-green-centre-takeover","status":"COVERED","ownerRefs":["generated_composition_program","resolve_user_asset_overlay"],"reasonCodes":["ISLAND_TO_NATIVE_HANDOFF"]},
+        {"claimId":"claim-ref-temporal-progression","status":"COVERED","ownerRefs":["generated_composition_program"],"reasonCodes":["ISLAND_TEMPORAL_PHASES"]}
+      ],
+      "representabilitySignals": ["CROSS_ELEMENT_DEPENDENCY","SHARED_PARAMETER_FAN_OUT","PROCEDURAL_REPETITION"],
+      "blockers": ["GENERATED_COMPOSITION_PROGRAM_RESEARCH_ONLY_NOT_IMPLEMENTED"],
+      "ownerRefs": ["generated_composition_program","resolve_user_asset_overlay","inspect_user_asset","get_timeline_view"],
+      "evidenceIds": ["EV-DEV02-R1","EV-DEV02-S1","EV-DEV02-C1"]
+    }],
+    "selectedReasonCodes": ["BOUNDED_GENERATED_ISLAND_WITH_NATIVE_SOURCE_AND_CONTINUITY_OWNERS"],
+    "generatedIslandClaimIds": ["claim-user-stacked-layout","claim-user-centred-title","claim-user-varied-crops","claim-ref-five-panels","claim-ref-black-gutters","claim-ref-yellow-two-line-title","claim-ref-opposed-motion","claim-ref-stable-hold","claim-ref-green-centre-takeover","claim-ref-temporal-progression"],
+    "nativeSurroundClaimIds": ["claim-user-exit-continuity"]
+  },
+  "nodes": [
+    {
+      "intentNodeId": "node-source-resolution",
+      "operationFamily": "owned_source_resolution",
+      "targetClaimIds": ["claim-user-varied-crops"],
+      "candidateCapabilityIds": ["inspect_user_asset","resolve_user_asset_overlay"],
+      "executionForm": "NATIVE",
+      "requiresNodeIds": [],
+      "invalidates": [],
+      "evidenceIds": ["EV-DEV02-S1"],
+      "failureDisposition": "ASK_USER"
+    },
+    {
+      "intentNodeId": "node-generated-island",
+      "operationFamily": "bounded_relational_panel_composition",
+      "targetClaimIds": ["claim-user-stacked-layout","claim-user-centred-title","claim-user-varied-crops","claim-ref-five-panels","claim-ref-black-gutters","claim-ref-yellow-two-line-title","claim-ref-opposed-motion","claim-ref-stable-hold","claim-ref-green-centre-takeover","claim-ref-temporal-progression"],
+      "candidateCapabilityIds": ["generated_composition_program"],
+      "executionForm": "GENERATED_COMPOSITION",
+      "requiresNodeIds": ["node-source-resolution"],
+      "invalidates": ["GENERATED_ISLAND_RENDER_PROOF","BOUNDARY_CONTINUITY_PROOF"],
+      "evidenceIds": ["EV-DEV02-R1","EV-DEV02-S1"],
+      "failureDisposition": "CAPABILITY_GAP"
+    },
+    {
+      "intentNodeId": "node-native-continuation",
+      "operationFamily": "native_boundary_continuation",
+      "targetClaimIds": ["claim-user-exit-continuity","claim-ref-green-centre-takeover"],
+      "candidateCapabilityIds": ["get_timeline_view","resolve_user_asset_overlay"],
+      "executionForm": "NATIVE",
+      "requiresNodeIds": ["node-source-resolution","node-generated-island"],
+      "invalidates": ["BOUNDARY_CONTINUITY_PROOF"],
+      "evidenceIds": ["EV-DEV02-C1"],
+      "failureDisposition": "NEEDS_REVIEW"
+    },
+    {
+      "intentNodeId": "node-proof",
+      "operationFamily": "state_and_render_proof",
+      "targetClaimIds": ["claim-user-stacked-layout","claim-user-centred-title","claim-user-varied-crops","claim-user-exit-continuity"],
+      "candidateCapabilityIds": ["read_project_file","get_timeline_view"],
+      "executionForm": "NATIVE",
+      "requiresNodeIds": ["node-generated-island","node-native-continuation"],
+      "invalidates": [],
+      "evidenceIds": ["EV-DEV02-R1","EV-DEV02-S1","EV-DEV02-C1"],
+      "failureDisposition": "NEEDS_REVIEW"
+    }
+  ],
+  "edges": [
+    {"edgeId":"edge-source-island","fromNodeId":"node-source-resolution","toNodeId":"node-generated-island","edgeType":"DATA"},
+    {"edgeId":"edge-island-continuation","fromNodeId":"node-generated-island","toNodeId":"node-native-continuation","edgeType":"TIME_ANCHOR"},
+    {"edgeId":"edge-island-proof","fromNodeId":"node-generated-island","toNodeId":"node-proof","edgeType":"PROOF"},
+    {"edgeId":"edge-continuation-proof","fromNodeId":"node-native-continuation","toNodeId":"node-proof","edgeType":"PROOF"}
+  ],
+  "preservationIntents": [
+    {"preservationId":"preserve-reference-not-inserted","claimId":"claim-user-stacked-layout","rule":"The reference remains evidence and is never inserted as project media.","scopeRef":"project:oe-dev-02@R3","proofKind":"ASSET_AND_STATE"},
+    {"preservationId":"preserve-following-timing","claimId":"claim-user-exit-continuity","rule":"The existing following overlay timeline and source start remain unchanged.","scopeRef":"overlay:ov-next@R3","proofKind":"STATE_RELOAD"},
+    {"preservationId":"preserve-project-duration","claimId":"claim-user-exit-continuity","rule":"Project duration remains 360 project ticks.","scopeRef":"project:oe-dev-02@R3","proofKind":"STATE_RELOAD"},
+    {"preservationId":"preserve-title-legibility","claimId":"claim-user-centred-title","rule":"The centered title remains inside safe margins and readable over the island.","scopeRef":"project:oe-dev-02/range:0-180","proofKind":"RENDERED_LEGIBILITY"}
+  ],
+  "unresolvedRequirements": [
+    {"requirementId":"req-generated-owner","kind":"CAPABILITY","detail":"generated_composition_program is the correct bounded owner but is RESEARCH_ONLY_NOT_IMPLEMENTED.","targetClaimIds":["claim-user-stacked-layout","claim-user-centred-title","claim-user-varied-crops"],"disposition":"CAPABILITY_GAP"},
+    {"requirementId":"req-exact-easing-review","kind":"AMBIGUITY","detail":"Sparse reference evidence does not establish exact continuous easing; rendered comparison remains required.","targetClaimIds":["claim-ref-opposed-motion","claim-ref-green-centre-takeover"],"disposition":"NEEDS_REVIEW"}
+  ]
+}

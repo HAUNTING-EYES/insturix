@@ -1,4 +1,5 @@
 import benchmarkJson from '@/tests/fixtures/editron/open-ended-planner-v2/benchmark-contract-v2.json';
+import dev02Stage3EvidenceJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-stage3-evidence-pack-v2.json';
 import mediaManifestJson from '@/tests/fixtures/editron/open-ended-planner-v2/development-media-manifest-v2.json';
 import operatorCatalogJson from '@/tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json';
 import tasksV2Json from '@/tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json';
@@ -172,7 +173,8 @@ export function buildNextProviderStagePacketV2(input: {
     priorArtifact: input.priorArtifact,
     priorArtifactHash: hashCanonicalJsonV1(input.priorArtifact),
     condition: publicCondition(condition),
-    ...(input.stage <= 4 ? { operatorCatalog: publicOperatorCatalog(input.stage) } : {}),
+    ...(input.stage <= 4 ? { operatorCatalog: publicOperatorCatalog(input.stage, input.priorArtifact) } : {}),
+    ...(input.stage === 3 ? { evidencePack: stageThreeEvidencePack(sourceTask, condition) } : {}),
     ...(input.stage === 2 ? { routingExperiment: routingExperiment(input.executionFormArm) } : {}),
   };
   const packet = packetBase({
@@ -406,9 +408,52 @@ function withoutReferenceAnswerLeak(evidence: EvidenceV2[], referenceMedia: Medi
   });
 }
 
-function publicOperatorCatalog(stage: number): JsonRecord {
-  const operators = operatorCatalogJson.operators.map((operator) => ({ operatorId: operator.operatorId, kind: operator.kind, supportStatus: operator.supportStatus, compilerEligibility: operator.compilerEligibility, input: operator.input, output: operator.output, stateEffects: operator.stateEffects, proof: operator.proof }));
+function publicOperatorCatalog(stage: number, priorArtifact: PriorArtifactV2): JsonRecord {
+  const referencedIds = stage >= 3
+    ? new Set((Array.isArray(priorArtifact.nodes) ? priorArtifact.nodes : [])
+      .flatMap((node) => isRecord(node) && Array.isArray(node.candidateCapabilityIds)
+        ? node.candidateCapabilityIds.filter((id): id is string => typeof id === 'string')
+        : []))
+    : null;
+  const operators = operatorCatalogJson.operators
+    .filter((operator) => !referencedIds || referencedIds.has(operator.operatorId))
+    .map((operator) => ({ operatorId: operator.operatorId, kind: operator.kind, supportStatus: operator.supportStatus, compilerEligibility: operator.compilerEligibility, input: operator.input, output: operator.output, stateEffects: operator.stateEffects, proof: operator.proof }));
+  if (referencedIds && operators.length !== referencedIds.size) {
+    const found = new Set(operators.map(({ operatorId }) => operatorId));
+    fail('REFERENCED_OPERATOR_MISSING', [...referencedIds].filter((id) => !found.has(id)).join(','));
+  }
   return stage === 4 ? { version: operatorCatalogJson.version, fieldSchemas: operatorCatalogJson.fieldSchemas, operators } : { version: operatorCatalogJson.version, operators };
+}
+
+function stageThreeEvidencePack(task: SourceTaskV2, condition: ConditionCaseV2): JsonRecord {
+  const pack = dev02Stage3EvidenceJson as unknown as JsonRecord;
+  if (pack.taskId !== task.taskId || pack.conditionId !== condition.conditionId) {
+    fail('STAGE3_EVIDENCE_PACK_MISSING', `${task.taskId}/${condition.conditionId}`);
+  }
+  const facts = Array.isArray(pack.facts) ? pack.facts.filter(isRecord) : [];
+  if (!facts.length || new Set(facts.map(({ factId }) => factId)).size !== facts.length) {
+    fail('STAGE3_EVIDENCE_FACT_SET_INVALID', task.taskId);
+  }
+  const projectFact = facts.find(({ factId }) => factId === 'fact-project-revision');
+  if (projectFact?.projectId !== task.projectBinding.projectId
+    || projectFact.expectedProjectRevision !== task.projectBinding.projectRevision) {
+    fail('STAGE3_PROJECT_BINDING_DRIFT', task.taskId);
+  }
+  const media = mediaForTask(task);
+  for (const artifact of media) {
+    const fact = facts.find(({ factId }) => factId === `fact-source-${artifact.assetId}`);
+    if (fact?.assetVersion !== artifact.artifactSha256) fail('STAGE3_MEDIA_BINDING_DRIFT', artifact.assetId);
+  }
+  if (hashCanonicalJsonV1(pack.visibleEvidenceIds) !== hashCanonicalJsonV1(condition.availableEvidenceIds)) {
+    fail('STAGE3_CONDITION_BINDING_DRIFT', `${task.taskId}/${condition.conditionId}`);
+  }
+  const generatedOwner = operatorCatalogJson.operators.find(({ operatorId }) => operatorId === 'generated_composition_program');
+  const supportFact = facts.find(({ factId }) => factId === 'fact-support-generated-composition');
+  if (!generatedOwner || supportFact?.supportStatus !== generatedOwner.supportStatus
+    || supportFact.compilerEligibility !== generatedOwner.compilerEligibility) {
+    fail('STAGE3_SUPPORT_BINDING_DRIFT', task.taskId);
+  }
+  return pack;
 }
 
 function publicCondition(condition: ConditionCaseV2): JsonRecord { return { conditionId: condition.conditionId, availableEvidenceIds: condition.availableEvidenceIds, omittedEvidenceIds: condition.omittedEvidenceIds, replacementEvidenceIds: condition.replacementEvidenceIds ?? [] }; }
@@ -430,7 +475,9 @@ function routingExperiment(arm: ExecutionFormArmV2): JsonRecord {
 
 function outputContract(stage: StageV2, taskId: string, arm: ExecutionFormArmV2 | 'NOT_APPLICABLE_PRE_ROUTING'): JsonRecord {
   const artifactType = ['ReferenceBlueprintV2', 'EditorialIntentGraphV2', 'EvidenceBoundIntentGraphV2', 'CompiledOperationGraphV2', 'ProceedOrStopDecisionV2'][stage - 1];
-  const source = benchmarkJson.artifactSchemas[artifactType as keyof typeof benchmarkJson.artifactSchemas] as { required: string[]; properties?: JsonRecord };
+  const source = stage === 3
+    ? stageThreeOutputContractV2()
+    : benchmarkJson.artifactSchemas[artifactType as keyof typeof benchmarkJson.artifactSchemas] as { required: string[]; properties?: JsonRecord };
   const required = ['artifactType', ...source.required];
   const properties = source.properties
     ? JSON.parse(JSON.stringify(source.properties)) as JsonRecord
@@ -439,6 +486,26 @@ function outputContract(stage: StageV2, taskId: string, arm: ExecutionFormArmV2 
   properties.taskId = { const: taskId };
   if (stage === 2) properties.executionForm = outputFieldSchema('executionForm', artifactType, taskId, arm);
   return { type: 'object', required, properties, additionalProperties: false };
+}
+
+function stageThreeOutputContractV2(): { required: string[]; properties: JsonRecord } {
+  const string = { type: 'string', minLength: 1 };
+  const strings = { type: 'array', items: string, uniqueItems: true };
+  return {
+    required: ['taskId', 'stageDisposition', 'nodes', 'evidenceBindings', 'rightsDecision', 'privacyDecision', 'revisionBinding', 'preservationBindings', 'proofPlan', 'unresolvedRequirements'],
+    properties: {
+      taskId: string,
+      stageDisposition: { type: 'string', enum: ['READY_FOR_COMPILATION', 'CAPABILITY_GAP', 'POLICY_BLOCKED', 'CONFLICT', 'UNVERIFIABLE'] },
+      nodes: { type: 'array', minItems: 1, items: { type: 'object', required: ['intentNodeId', 'candidateCapabilityIds', 'evidenceBindingIds', 'preservationIds', 'proofObligationIds', 'bindingStatus', 'unresolvedRequirementIds'], properties: { intentNodeId: string, candidateCapabilityIds: strings, evidenceBindingIds: strings, preservationIds: strings, proofObligationIds: strings, bindingStatus: { type: 'string', enum: ['BOUND', 'PARTIAL', 'UNVERIFIABLE'] }, unresolvedRequirementIds: strings }, additionalProperties: false } },
+      evidenceBindings: { type: 'array', minItems: 1, items: { type: 'object', required: ['bindingId', 'factIds', 'nodeIds', 'status'], properties: { bindingId: string, factIds: { ...strings, minItems: 1 }, nodeIds: { ...strings, minItems: 1 }, status: { type: 'string', enum: ['BOUND', 'PARTIAL', 'UNVERIFIABLE'] } }, additionalProperties: false } },
+      rightsDecision: { type: 'object', required: ['decisionId', 'status', 'policyFactIds', 'allowedAssetIds', 'deniedActions', 'reasonCodes'], properties: { decisionId: string, status: { type: 'string', enum: ['ALLOWED', 'BLOCKED', 'UNVERIFIABLE'] }, policyFactIds: { ...strings, minItems: 1 }, allowedAssetIds: strings, deniedActions: strings, reasonCodes: { ...strings, minItems: 1 } }, additionalProperties: false },
+      privacyDecision: { type: 'object', required: ['decisionId', 'status', 'policyFactIds', 'egressDisposition', 'reasonCodes'], properties: { decisionId: string, status: { type: 'string', enum: ['ALLOWED', 'BLOCKED', 'UNVERIFIABLE'] }, policyFactIds: { ...strings, minItems: 1 }, egressDisposition: { type: 'string', enum: ['DENIED', 'ALLOWED', 'UNVERIFIABLE'] }, reasonCodes: { ...strings, minItems: 1 } }, additionalProperties: false },
+      revisionBinding: { type: 'object', required: ['projectId', 'expectedProjectRevision', 'timebaseFactId', 'status'], properties: { projectId: string, expectedProjectRevision: string, timebaseFactId: string, status: { type: 'string', enum: ['BOUND', 'CONFLICT', 'UNVERIFIABLE'] } }, additionalProperties: false },
+      preservationBindings: { type: 'array', minItems: 1, items: { type: 'object', required: ['preservationId', 'factIds', 'status'], properties: { preservationId: string, factIds: { ...strings, minItems: 1 }, status: { type: 'string', enum: ['BOUND', 'PARTIAL', 'UNVERIFIABLE'] } }, additionalProperties: false } },
+      proofPlan: { type: 'array', minItems: 1, items: { type: 'object', required: ['proofObligationId', 'kind', 'nodeIds', 'targetClaimIds', 'requiredFactIds', 'status'], properties: { proofObligationId: string, kind: { type: 'string', enum: ['REVISION_FRESHNESS', 'ASSET_IDENTITY_RIGHTS', 'SOURCE_RANGE_HANDLES', 'RENDERED_GEOMETRY', 'RENDERED_LEGIBILITY', 'BOUNDARY_CONTINUITY', 'SANDBOX_COMPILE', 'STATE_RELOAD'] }, nodeIds: { ...strings, minItems: 1 }, targetClaimIds: strings, requiredFactIds: { ...strings, minItems: 1 }, status: { type: 'string', enum: ['PLANNED', 'UNVERIFIABLE'] } }, additionalProperties: false } },
+      unresolvedRequirements: { type: 'array', items: { type: 'object', required: ['requirementId', 'kind', 'factIds', 'disposition'], properties: { requirementId: string, kind: { type: 'string', enum: ['EVIDENCE', 'CAPABILITY', 'AMBIGUITY', 'POLICY', 'CONFLICT'] }, factIds: strings, disposition: { type: 'string', enum: ['CAPABILITY_GAP', 'UNVERIFIABLE', 'NEEDS_REVIEW', 'POLICY_BLOCKED', 'CONFLICT'] } }, additionalProperties: false } },
+    },
+  };
 }
 
 function outputFieldSchema(field: string, artifactType: string, taskId: string, arm: ExecutionFormArmV2 | 'NOT_APPLICABLE_PRE_ROUTING'): JsonRecord {

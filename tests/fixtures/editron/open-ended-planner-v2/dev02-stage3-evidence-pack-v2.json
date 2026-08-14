@@ -1,0 +1,38 @@
+{
+  "evidencePackVersion": "EDITRON_OE_STAGE3_EVIDENCE_PACK_V2",
+  "authority": "SYNTHETIC_BENCHMARK_EVIDENCE_ONLY_NO_PROJECT_MUTATION",
+  "taskId": "DEV-02",
+  "conditionId": "BASELINE",
+  "visibleEvidenceIds": ["EV-DEV02-R1","EV-DEV02-S1","EV-DEV02-C1"],
+  "facts": [
+    {"factId":"fact-project-revision","kind":"PROJECT_REVISION","projectId":"oe-dev-02","expectedProjectRevision":"R3"},
+    {"factId":"fact-project-timebase","kind":"PROJECT_TIMEBASE","timebaseId":"oe-dev-02:timeline","timebaseVersion":"V2_1F","coordinateDomain":"PROJECT_TICK","rate":{"numerator":"30","denominator":"1"}},
+    {"factId":"fact-project-target-range","kind":"AUTHORIZED_TARGET_RANGE","coordinateDomain":"PROJECT_TICK","timebaseId":"oe-dev-02:timeline","start":"0","endExclusive":"180"},
+    {"factId":"fact-project-canvas","kind":"CANVAS","width":"1080","height":"1920","pixelAspectRatio":{"numerator":"1","denominator":"1"}},
+    {"factId":"fact-source-dev02-wide","kind":"SOURCE_MEDIA_IDENTITY","assetId":"dev02-wide","assetVersion":"sha256:dacb93870b9050251ebcd285fae783f378af66301813b47f074f44ed75b97219","rightsStatus":"INTERNAL_OWNED_FIXTURE","coordinateDomain":"SOURCE_FRAME","timebase":{"timebaseId":"dev02-wide:source","timebaseVersion":"V2_1F","rate":{"numerator":"30","denominator":"1"}},"extent":{"start":"0","endExclusive":"360"}},
+    {"factId":"fact-source-dev02-close","kind":"SOURCE_MEDIA_IDENTITY","assetId":"dev02-close","assetVersion":"sha256:645d5ecbf7cec49f837768cee0fa2469c9fec79f54f4928160920c3a1a22782a","rightsStatus":"INTERNAL_OWNED_FIXTURE","coordinateDomain":"SOURCE_FRAME","timebase":{"timebaseId":"dev02-close:source","timebaseVersion":"V2_1F","rate":{"numerator":"30","denominator":"1"}},"extent":{"start":"0","endExclusive":"360"}},
+    {"factId":"fact-source-dev02-reference","kind":"REFERENCE_MEDIA_IDENTITY","assetId":"dev02-reference","assetVersion":"sha256:c760938baa62a23e479817687a39b816fe60672671e69d07a80d4863379973bd","rightsStatus":"INTERNAL_OWNED_FIXTURE","allowedUse":"EVIDENCE_ONLY_NEVER_INSERT"},
+    {"factId":"fact-source-windows","kind":"ALLOWED_SOURCE_WINDOWS","evidenceId":"EV-DEV02-S1","windows":[{"assetId":"dev02-wide","ranges":[{"start":"0","endExclusive":"180"},{"start":"210","endExclusive":"330"}]},{"assetId":"dev02-close","ranges":[{"start":"15","endExclusive":"150"},{"start":"180","endExclusive":"345"}]}]},
+    {"factId":"fact-exit-continuity","kind":"BOUNDARY_CONTINUITY","evidenceId":"EV-DEV02-C1","islandExit":{"assetId":"dev02-close","sourceFrame":"180","targetFrame":"179","cropState":"FULL_CANVAS_AT_EXIT"},"followingOverlay":{"overlayId":"ov-next","assetId":"dev02-close","targetRange":{"start":"180","endExclusive":"345"},"sourceRange":{"start":"180","endExclusive":"345"},"cropState":"FULL_CANVAS_AT_ENTRY"}},
+    {"factId":"fact-reference-observation","kind":"REFERENCE_OBSERVATION","evidenceId":"EV-DEV02-R1","referenceAssetId":"dev02-reference","observationScope":"ORDERED_HASH_BOUND_REFERENCE_SEQUENCE","exactEasingKnown":"false"},
+    {"factId":"fact-rights-policy","kind":"RIGHTS_POLICY","policyId":"KS-018_ONLY","allowedAssetIds":["dev02-wide","dev02-close"],"deniedActions":["INSERT_REFERENCE_MEDIA","REMOTE_MEDIA_RETRIEVAL","UNDECLARED_ASSET_USE"]},
+    {"factId":"fact-privacy-egress-policy","kind":"PRIVACY_EGRESS_POLICY","policyId":"SYNTHETIC_ONLY_NO_EGRESS","networkPolicy":"DENY","deniedActions":["NETWORK_EGRESS","REMOTE_TOOL_CALL","PERSIST_RAW_PROVIDER_RESPONSE"]},
+    {"factId":"fact-support-generated-composition","kind":"CAPABILITY_SUPPORT","operatorId":"generated_composition_program","supportStatus":"RESEARCH_ONLY_NOT_IMPLEMENTED","compilerEligibility":"ISOLATED_PROXY_ONLY"}
+  ],
+  "preservationRequirements": [
+    {"preservationId":"preserve-reference-not-inserted","requiredFactIds":["fact-source-dev02-reference","fact-rights-policy"]},
+    {"preservationId":"preserve-following-timing","requiredFactIds":["fact-project-revision","fact-exit-continuity"]},
+    {"preservationId":"preserve-project-duration","requiredFactIds":["fact-project-revision","fact-project-timebase"]},
+    {"preservationId":"preserve-title-legibility","requiredFactIds":["fact-project-canvas","fact-project-target-range","fact-reference-observation"]}
+  ],
+  "proofRequirements": [
+    {"proofObligationId":"proof-revision-freshness","kind":"REVISION_FRESHNESS","requiredFactIds":["fact-project-revision"]},
+    {"proofObligationId":"proof-asset-rights","kind":"ASSET_IDENTITY_RIGHTS","requiredFactIds":["fact-source-dev02-wide","fact-source-dev02-close","fact-rights-policy"]},
+    {"proofObligationId":"proof-source-ranges","kind":"SOURCE_RANGE_HANDLES","requiredFactIds":["fact-source-windows","fact-exit-continuity"]},
+    {"proofObligationId":"proof-rendered-geometry","kind":"RENDERED_GEOMETRY","requiredFactIds":["fact-project-canvas","fact-project-target-range","fact-reference-observation"]},
+    {"proofObligationId":"proof-rendered-legibility","kind":"RENDERED_LEGIBILITY","requiredFactIds":["fact-project-canvas","fact-reference-observation"]},
+    {"proofObligationId":"proof-boundary-continuity","kind":"BOUNDARY_CONTINUITY","requiredFactIds":["fact-exit-continuity","fact-project-timebase"]},
+    {"proofObligationId":"proof-sandbox-compile","kind":"SANDBOX_COMPILE","requiredFactIds":["fact-support-generated-composition"]},
+    {"proofObligationId":"proof-state-reload","kind":"STATE_RELOAD","requiredFactIds":["fact-project-revision","fact-exit-continuity"]}
+  ]
+}
