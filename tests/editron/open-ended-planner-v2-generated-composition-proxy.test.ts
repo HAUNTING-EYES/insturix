@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { resolveGeneratedPanelGeometryV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-api-v1';
-import { parseGeneratedCompositionPlayableProxyProbeV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-playable-proxy-v1';
+import { parseGeneratedCompositionPlayableProxyObservationV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-playable-proxy-v1';
 import {
   renderGeneratedCompositionProxyInsideSandboxV1,
   renderTrustedGeneratedCompositionProxyV1,
@@ -104,15 +104,21 @@ describe('open-ended planner V2 trusted generated-composition proxy', () => {
     }
   });
 
-  it('accepts only an exact, silent, BT.709 H.264 probe', () => {
+  it('accepts only an exact, silent, BT.709 H.264 media observation', () => {
     const expected = { width: 1080, height: 1920, frameRate: { numerator: '30', denominator: '1' }, durationInFrames: 180 };
-    const probe = {
-      streams: [{ codec_type: 'video', codec_name: 'h264', width: 1080, height: 1920, pix_fmt: 'yuv420p', avg_frame_rate: '30/1', r_frame_rate: '30/1', nb_frames: '180', duration: '6.000000', color_space: 'bt709', color_transfer: 'bt709', color_primaries: 'bt709', color_range: 'tv' }],
-      format: { format_name: 'mov,mp4,m4a,3gp,3g2,mj2', duration: '6.000000' },
+    const observation = {
+      formatName: 'MP4', mimeType: 'video/mp4; codecs="avc1.640028"', trackCount: 1, videoTrackCount: 1, audioTrackCount: 0,
+      codec: 'avc', internalCodecId: 'avc1', decoderCodec: 'avc1.640028', codedWidth: 1080, codedHeight: 1920, rotation: 0,
+      timeResolution: 90_000, firstTimestamp: 0, duration: 6, packetCount: 180, scannedPacketCount: 180,
+      uniquePacketTimestampCount: 180, averagePacketRate: 30, constantFrameDurationTicks: 3_000,
+      color: { primaries: 'bt709', transfer: 'bt709', matrix: 'bt709', fullRange: false }, highDynamicRange: false, alpha: false,
+      chromaFormatIdc: 1, bitDepthLumaMinus8: 0, bitDepthChromaMinus8: 0,
     };
-    expect(parseGeneratedCompositionPlayableProxyProbeV1(probe, expected)).toMatchObject({ codec: 'H264', audio: 'ABSENT', frameRate: { numerator: '30', denominator: '1' } });
-    expect(() => parseGeneratedCompositionPlayableProxyProbeV1({ ...probe, streams: [...probe.streams, { ...probe.streams[0], codec_type: 'audio' }] }, expected)).toThrow(/exactly one video stream/);
-    expect(() => parseGeneratedCompositionPlayableProxyProbeV1({ ...probe, streams: [{ ...probe.streams[0], avg_frame_rate: '24/1' }] }, expected)).toThrow(/frame-rate drift/);
+    expect(parseGeneratedCompositionPlayableProxyObservationV1(observation, expected)).toMatchObject({ codec: 'H264', audio: 'ABSENT', frameRate: { numerator: '30', denominator: '1' } });
+    expect(() => parseGeneratedCompositionPlayableProxyObservationV1({ ...observation, trackCount: 2, audioTrackCount: 1 }, expected)).toThrow(/exactly one video stream/);
+    expect(() => parseGeneratedCompositionPlayableProxyObservationV1({ ...observation, averagePacketRate: 24 }, expected)).toThrow(/frame-rate drift/);
+    expect(() => parseGeneratedCompositionPlayableProxyObservationV1({ ...observation, chromaFormatIdc: 2 }, expected)).toThrow(/pixel-format drift/);
+    expect(() => parseGeneratedCompositionPlayableProxyObservationV1({ ...observation, color: { ...observation.color, primaries: 'smpte432' } }, expected)).toThrow(/color contract drift/);
   });
 });
 
