@@ -18,28 +18,29 @@ import { AssetSlot, CompositionStage, Panel, TextSlot, useCompositionParameter }
 export const GeneratedComposition = () => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
-  const gutter = useCompositionParameter('param-gutter');
-  const title = useCompositionParameter('param-title');
-  const titleColor = useCompositionParameter('param-title-color');
-  const titleSize = useCompositionParameter('param-title-size');
-  const background = useCompositionParameter('param-background');
+  const gutter = useCompositionParameter<number>('param-gutter');
+  const title = useCompositionParameter<string>('param-title');
+  const titleColor = useCompositionParameter<string>('param-title-color');
+  const titleSize = useCompositionParameter<number>('param-title-size');
+  const background = useCompositionParameter<string>('param-background');
   const entryScale = interpolate(frame, [0, 24], [0.7, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const centreTravel = interpolate(frame, [0, 108], [1320, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const sideTravel = interpolate(frame, [0, 108], [-1008, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-  const exitScale = interpolate(frame, [145, durationInFrames - 1], [1, 2.96], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const takeoverProgress = interpolate(frame, [145, durationInFrames - 1], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const exitSourceFrame = 180;
-  const wideOffsetFrame = (frame + 60) % 180;
-  const closeOffsetFrame = 180 + ((frame + 30) % 165);
+  const heldFrame = frame >= 108 && frame <= 144 ? 108 : frame;
+  const wideOffsetFrame = (heldFrame + 60) % 180;
+  const closeOffsetFrame = 180 + ((heldFrame + 30) % 165);
 
   return (
     <CompositionStage background={background} gutter={gutter}>
       <Panel layerId="panel-left-top" column="left" row="top" translateY={sideTravel}>
-        <AssetSlot slotId="source-wide" sourceFrame={frame} crop="portrait-left" />
+        <AssetSlot slotId="source-wide" sourceFrame={heldFrame} crop="portrait-left" />
       </Panel>
       <Panel layerId="panel-left-bottom" column="left" row="bottom" translateY={sideTravel}>
         <AssetSlot slotId="source-close" sourceFrame={closeOffsetFrame} crop="portrait-left" />
       </Panel>
-      <Panel layerId="panel-centre" column="centre" row="centre" translateY={centreTravel} entryScale={entryScale} exitScale={exitScale}>
+      <Panel layerId="panel-centre" column="centre" row="centre" translateY={centreTravel} entryScale={entryScale} takeoverProgress={takeoverProgress}>
         <AssetSlot slotId="source-close" sourceFrame={exitSourceFrame} crop="centre" />
       </Panel>
       <Panel layerId="panel-right-top" column="right" row="top" translateY={sideTravel}>
@@ -48,7 +49,7 @@ export const GeneratedComposition = () => {
       <Panel layerId="panel-right-bottom" column="right" row="bottom" translateY={sideTravel}>
         <AssetSlot slotId="source-close" sourceFrame={closeOffsetFrame} crop="portrait-right" />
       </Panel>
-      <TextSlot slotId="title-main" fontSlotId="font-title" parameterId="param-title" value={title} color={titleColor} size={titleSize} fixedToCanvas />
+      <TextSlot slotId="title-main" fontSlotId="font-title" parameterId="param-title" value={title} color={titleColor} size={titleSize} fixedToCanvas visibleUntilFrame={172} />
     </CompositionStage>
   );
 };
@@ -102,7 +103,7 @@ export const DEV02_GENERATED_COMPOSITION_PROGRAM_V1 = deepFreezeV1({
   declaredLayers: [
     { layerId: 'panel-left-top', kind: 'SOURCE_PANEL', sourceSlotId: 'source-wide', zIndex: 10 },
     { layerId: 'panel-left-bottom', kind: 'SOURCE_PANEL', sourceSlotId: 'source-close', zIndex: 20 },
-    { layerId: 'panel-centre', kind: 'SOURCE_PANEL', sourceSlotId: 'source-close', zIndex: 30 },
+    { layerId: 'panel-centre', kind: 'SOURCE_PANEL', sourceSlotId: 'source-close', zIndex: 90 },
     { layerId: 'panel-right-top', kind: 'SOURCE_PANEL', sourceSlotId: 'source-wide', zIndex: 40 },
     { layerId: 'panel-right-bottom', kind: 'SOURCE_PANEL', sourceSlotId: 'source-close', zIndex: 50 },
     { layerId: 'title-main', kind: 'TEXT', textSlotId: 'title-main', zIndex: 100 },
