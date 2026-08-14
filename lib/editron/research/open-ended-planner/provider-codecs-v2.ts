@@ -75,6 +75,7 @@ const SUPPORTED_MEDIA: Record<ProviderKindV2, ReadonlySet<string>> = {
 
 const OPENAI_LOCAL_TOKEN_OVERHEAD = 256;
 const OPENAI_FROZEN_IMAGE_TOKEN_ALLOWANCE = 768;
+const GOOGLE_THINKING_LEVELS = new Set(['minimal', 'low', 'medium', 'high']);
 
 export function estimateOfflineInputTokensUpperBoundV2(
   request: SerializedProviderRequestV2,
@@ -150,7 +151,8 @@ export async function serializeProviderRequestV2(input: {
       contents: [{ role: 'user', parts: [{ text: prompt }, ...media.flatMap(googleMediaParts)] }],
       generationConfig: {
         responseMimeType: 'application/json', responseJsonSchema: input.artifact.packet.outputContract,
-        maxOutputTokens: maximumOutput, thinkingConfig: { thinkingBudget: input.outputBudget.reasoning },
+        maxOutputTokens: maximumOutput,
+        thinkingConfig: { thinkingLevel: googleThinkingLevel(input.route.reasoningMode) },
       },
     };
   } else {
@@ -394,6 +396,13 @@ function subtract(total: number | undefined, part: number | undefined): number |
 }
 function count(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+function googleThinkingLevel(value: string): string {
+  if (GOOGLE_THINKING_LEVELS.has(value)) return value;
+  throw new ProviderCodecErrorV2(
+    'INVALID_GOOGLE_THINKING_LEVEL',
+    `Google reasoning mode must be minimal, low, medium, or high; received ${value || '[empty]'}`,
+  );
 }
 function string(value: unknown): string | undefined { return typeof value === 'string' && value ? value : undefined; }
 function record(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }

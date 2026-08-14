@@ -33,7 +33,9 @@ describe('open-ended planner V2 provider codecs', () => {
       } else if (kind === 'google') {
         expect(request.endpoint).toContain(encodeURIComponent(route(kind).model));
         expect(record(request.body.generationConfig).responseJsonSchema).toEqual(artifact.packet.outputContract);
-        expect(record(record(request.body.generationConfig).thinkingConfig).thinkingBudget).toBe(1800);
+        const thinkingConfig = record(record(request.body.generationConfig).thinkingConfig);
+        expect(thinkingConfig.thinkingLevel).toBe('medium');
+        expect(thinkingConfig).not.toHaveProperty('thinkingBudget');
       } else {
         expect(record(request.body.response_format).type).toBe('json_object');
         expect(request.body.max_tokens).toBe(3000);
@@ -134,6 +136,13 @@ describe('open-ended planner V2 provider codecs', () => {
     expect(() => serializeGoogleCountTokensRequestV2({
       route: { ...route('google'), model: 'different-google-model' }, generationRequest,
     })).toThrowError(expect.objectContaining({ code: 'COUNT_TOKENS_REQUEST_MISMATCH' }));
+  });
+
+  it('rejects unsupported Google thinking levels instead of sending a legacy or invented value', async () => {
+    await expect(serializeProviderRequestV2({
+      route: { ...route('google'), reasoningMode: 'test' }, artifact: textPacket(), attempt: 1,
+      outputBudget: { visible: 100, reasoning: 50 },
+    })).rejects.toMatchObject({ code: 'INVALID_GOOGLE_THINKING_LEVEL' } satisfies Partial<ProviderCodecErrorV2>);
   });
 
   it('fails unsupported media and tampered bytes instead of degrading the input arm', async () => {

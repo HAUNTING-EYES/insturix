@@ -138,6 +138,35 @@ The two definitive receipts cost `$0.23058085` combined. All Stage-2
 diagnostic, correction, definitive, and retry receipts created during this
 sequence cost `$0.82444765` combined.
 
+## Gemini Flash post-closeout investigation
+
+The two definitive HTTP 429 responses were not caused by the model name.
+Google's stable model ID is `gemini-3.6-flash`, the same ID used by this
+harness, and a bounded live `generateContent` probe returned HTTP 200 on
+2026-08-14. The provider documentation is:
+
+- <https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash>
+- <https://ai.google.dev/gemini-api/docs/generate-content/thinking>
+
+The investigation found a separate request-contract defect. The Google codec
+sent the legacy numeric `thinkingBudget` even though Gemini 3.6 Flash requires
+the route's declared string `thinkingLevel`. Two follow-up receipts preserve
+the distinction:
+
+| Condition | Plan hash | Receipt hash | Gemini Flash result |
+| --- | --- | --- | --- |
+| Original request after the 429 window cleared | `eb0cc0b3fd40b3c458c0807eab9cbfd958267240af98cde209b6cb7b9cf3f36d` | `f9c78f681e59657d4d6b0a0bc82254059ae13e9c76217477c8991747602591ad` | Provider completed, but 5,929 reasoning tokens exceeded the frozen 5,000-token reasoning limit. |
+| Correct `thinkingLevel: medium` request | `808b4d51e047fa76b07ddc9e904cba3742a0fce6178eff27d38f4185dbce579b` | `9eb419069860f360213ea1e1449b8f3cdd38c86f73bcf29fe194a8c9160e8276` | Provider completed in 33.096 s, but 5,160 reasoning tokens still exceeded the same limit. |
+
+The corrected Flash row used 2,340 visible tokens, 5,160 reasoning tokens,
+16,556 total tokens including input, and cost `$0.034917`. Its result remains
+`BUDGET_EXCEEDED` and therefore `UNVERIFIABLE` for routing. The benchmark limit
+was not moved merely to admit the model. Flash remains an unpromoted challenger,
+not a routing failure.
+
+The two follow-up receipts cost `$0.31530335` combined. Total persisted Stage-2
+provider cost through this investigation is `$1.139751`.
+
 ## Qwen 3.8 Max status
 
 Qwen passed the **earlier diagnostic Stage-1 reference-content rubric**:
@@ -190,7 +219,7 @@ No production model-driven mutation is authorised from this result.
 
 ## Verification and commits
 
-- Final focused V2 suite: 69/69 tests passed.
+- Final focused V2 suite: 70/70 tests passed.
 - `pnpm exec tsc --noEmit`: passed.
 - `pnpm exec eslint . --quiet`: passed.
 - `74957c5fe`: separate routing dimensions from capability readiness.

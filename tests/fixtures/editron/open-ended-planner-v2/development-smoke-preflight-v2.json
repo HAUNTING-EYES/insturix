@@ -608,7 +608,7 @@
       "maxInputTokens": 30000,
       "localInputTokenUpperBound": null,
       "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:countTokens",
-      "providerCountTokensRequestHash": "8255f6bdf14d03ec1e60c99f4152be067825c08660ac179ab755723958545fa2",
+      "providerCountTokensRequestHash": "bb2f9ee09d36f399935f65cb434138e1df49de0956a4b050657e178e5c03acde",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.35,
       "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
@@ -629,7 +629,7 @@
       "maxInputTokens": 30000,
       "localInputTokenUpperBound": null,
       "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:countTokens",
-      "providerCountTokensRequestHash": "6bf79030c061c07a5d65aed3bb70b78069f936b0dd6b30b73e9483be105ce17f",
+      "providerCountTokensRequestHash": "731fcc20eb8d77bc07027f2bb3d785f2c2870b258689978ef76f93a9b9564563",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.35,
       "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
@@ -650,7 +650,7 @@
       "maxInputTokens": 30000,
       "localInputTokenUpperBound": null,
       "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:countTokens",
-      "providerCountTokensRequestHash": "e420ad1b4d1f38aacdd4c3743a0981db1eadaff6f53e33719bafa7f2061f78f5",
+      "providerCountTokensRequestHash": "67b52b674a3c8f65bf892f7cbbea440f25381cedecbfb96a990d6b1738192456",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.35,
       "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
@@ -671,7 +671,7 @@
       "maxInputTokens": 30000,
       "localInputTokenUpperBound": null,
       "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:countTokens",
-      "providerCountTokensRequestHash": "ebe6bb9ba861258a27e27893abd1f2ef7095aa12df29ef3e500f4cbc8b994640",
+      "providerCountTokensRequestHash": "2ce280e8d727eb36abe837d3dcc6ffc6d8959dbb299d5f4d7fc40b3213f6a5ba",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.35,
       "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
@@ -763,5 +763,5 @@
     "GOOGLE_COUNT_TOKENS_NOT_YET_EXECUTED",
     "OPERATOR_CONFIRMATION_NOT_RECORDED"
   ],
-  "planHash": "a68794d1f9a1dd2e4fa0ac22f22cd12eba6de49d7103e8c4341132bc35e480ed"
+  "planHash": "eff3c660dc98618a4eea6d8f63ebdd426fe3fee2b527d9bc23211aa1807d1c8e"
 }

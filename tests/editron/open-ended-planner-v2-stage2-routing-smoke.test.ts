@@ -12,7 +12,7 @@ const nativeHardClaimIds = hardClaimIds.slice(3);
 describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
   it('freezes four fair routes against one canonical blueprint and packet', async () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
-    expect(plan.planHash).toBe('eb0cc0b3fd40b3c458c0807eab9cbfd958267240af98cde209b6cb7b9cf3f36d');
+    expect(plan.planHash).toBe('808b4d51e047fa76b07ddc9e904cba3742a0fce6178eff27d38f4185dbce579b');
     expect(plan.rows).toHaveLength(4);
     expect(plan.spend).toMatchObject({ plannedProviderCalls: 4, absoluteMaxSpendUsd: 1.2 });
     expect(new Set(plan.rows.map(({ packetHash }) => packetHash)).size).toBe(1);
