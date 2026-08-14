@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { sha256TextV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import { hashCanonicalJsonV1, sha256TextV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import {
+  applyDev02HostExecutionPolicyCorrectionV1,
   buildDev02GeneratedCompositionModelPacketV1,
   materializeDev02GeneratedCompositionModelCandidateV1,
 } from '@/lib/editron/research/open-ended-planner/generated-composition-model-candidate-v1';
@@ -9,6 +10,7 @@ import { verifyGeneratedCompositionProgramV1 } from '@/lib/editron/research/open
 import {
   DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1,
   DEV02_GENERATED_COMPOSITION_EVIDENCE_PACK_V1,
+  DEV02_GENERATED_COMPOSITION_PROGRAM_V1,
   DEV02_GENERATED_COMPOSITION_SOURCE_BUNDLE_V1,
   DEV02_GENERATED_COMPOSITION_SOURCE_V1,
   DEV02_GENERATED_COMPOSITION_SUPPLEMENTAL_FACTS_V1,
@@ -73,5 +75,33 @@ describe('open-ended planner V2 model-generated composition candidate', () => {
       'SOURCE_DANGEROUS_NETWORK_FETCH:GeneratedComposition.tsx',
       'SOURCE_EXTERNAL_LOCATION_FORBIDDEN:GeneratedComposition.tsx',
     ]));
+  });
+
+  it('corrects the host-authored proxy budget without changing model-authored source or semantics', () => {
+    const current = materializeDev02GeneratedCompositionModelCandidateV1({
+      source: DEV02_GENERATED_COMPOSITION_SOURCE_V1, modelId: 'benchmark-model', promptHash: PROMPT_HASH, candidateOrdinal: 0,
+    });
+    const historicalProgram = structuredClone(current.program);
+    historicalProgram.resourceBudget.maxCpuMs = 60_000;
+    historicalProgram.resourceBudget.maxWallTimeMs = 90_000;
+    const corrected = applyDev02HostExecutionPolicyCorrectionV1({
+      sourceProgram: historicalProgram, sourceBundle: current.sourceBundle, candidateOrdinal: 0,
+    });
+    expect(corrected.program).toEqual(current.program);
+    expect(corrected.sourceBundle).toEqual(current.sourceBundle);
+    expect(corrected.amendment).toMatchObject({
+      policyId: 'DEV02_PLAYABLE_PROXY_BUDGET_CORRECTION_V1',
+      changedPaths: ['resourceBudget.maxCpuMs', 'resourceBudget.maxWallTimeMs'],
+      sourceProgramHash: hashCanonicalJsonV1(historicalProgram),
+      executionProgramHash: hashCanonicalJsonV1(current.program),
+      stateEffects: [],
+    });
+    expect(corrected.program.resourceBudget).toMatchObject({ maxCpuMs: 120_000, maxWallTimeMs: 180_000 });
+    expect(DEV02_GENERATED_COMPOSITION_PROGRAM_V1.resourceBudget).toMatchObject({ maxCpuMs: 120_000, maxWallTimeMs: 180_000 });
+    const drifted = structuredClone(historicalProgram);
+    drifted.canvas.width = 720;
+    expect(() => applyDev02HostExecutionPolicyCorrectionV1({
+      sourceProgram: drifted, sourceBundle: current.sourceBundle, candidateOrdinal: 0,
+    })).toThrow('DEV02_HOST_POLICY_NON_BUDGET_DRIFT');
   });
 });

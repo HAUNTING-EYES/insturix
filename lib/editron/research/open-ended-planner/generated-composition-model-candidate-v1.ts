@@ -29,6 +29,19 @@ export interface MaterializeGeneratedCompositionModelCandidateInputV1 {
   candidateOrdinal: 0 | 1;
 }
 
+export interface Dev02HostExecutionPolicyAmendmentV1 {
+  artifactType: 'Dev02HostExecutionPolicyAmendmentV1';
+  policyId: 'DEV02_PLAYABLE_PROXY_BUDGET_CORRECTION_V1';
+  reason: 'HOST_FIXTURE_BUDGET_UNDERCALIBRATED_NOT_MODEL_AUTHORED';
+  changedPaths: readonly ['resourceBudget.maxCpuMs', 'resourceBudget.maxWallTimeMs'];
+  sourceProgramHash: string;
+  executionProgramHash: string;
+  sourceBudget: GeneratedCompositionProgramV1['resourceBudget'];
+  executionBudget: GeneratedCompositionProgramV1['resourceBudget'];
+  stateEffects: readonly [];
+  amendmentHash: string;
+}
+
 const API_SURFACE_V1 = deepFreezeV1({
   module: '@editron/generated-composition-api/v1',
   imports: {
@@ -134,6 +147,58 @@ export function materializeDev02GeneratedCompositionModelCandidateV1(
     toolVersions: ['typescript@5.9.3', 'remotion@4.0.509', '@editron/generated-composition-api/v1'],
   };
   return deepFreezeV1({ program, sourceBundle });
+}
+
+export function applyDev02HostExecutionPolicyCorrectionV1(input: {
+  sourceProgram: GeneratedCompositionProgramV1;
+  sourceBundle: GeneratedCompositionSourceBundleV1;
+  candidateOrdinal: 0 | 1;
+}): Readonly<{
+  program: GeneratedCompositionProgramV1;
+  sourceBundle: GeneratedCompositionSourceBundleV1;
+  amendment: Dev02HostExecutionPolicyAmendmentV1;
+}> {
+  const { sourceProgram, sourceBundle } = input;
+  if (sourceProgram.generator.kind !== 'MODEL_GENERATED') throw new Error('DEV02_HOST_POLICY_SOURCE_NOT_MODEL_GENERATED');
+  const expectedSourceBudget = {
+    ...DEV02_GENERATED_COMPOSITION_PROGRAM_V1.resourceBudget,
+    maxCpuMs: 60_000,
+    maxWallTimeMs: 90_000,
+  };
+  if (hashCanonicalJsonV1(sourceProgram.resourceBudget) !== hashCanonicalJsonV1(expectedSourceBudget)) {
+    throw new Error('DEV02_HOST_POLICY_SOURCE_BUDGET_MISMATCH');
+  }
+  if (hashGeneratedCompositionSourceBundleV1(sourceBundle) !== sourceProgram.sourceBundleHash) {
+    throw new Error('DEV02_HOST_POLICY_SOURCE_BUNDLE_MISMATCH');
+  }
+  const entry = sourceBundle.files.find(({ path }) => path === sourceBundle.entryFile);
+  if (!entry) throw new Error('DEV02_HOST_POLICY_ENTRY_SOURCE_MISSING');
+  const execution = materializeDev02GeneratedCompositionModelCandidateV1({
+    source: entry.source,
+    modelId: sourceProgram.generator.modelId,
+    promptHash: sourceProgram.generator.promptHash,
+    candidateOrdinal: input.candidateOrdinal,
+  });
+  const expectedExecutionProgram = structuredClone(sourceProgram);
+  expectedExecutionProgram.resourceBudget = structuredClone(execution.program.resourceBudget);
+  if (hashCanonicalJsonV1(expectedExecutionProgram) !== hashCanonicalJsonV1(execution.program)) {
+    throw new Error('DEV02_HOST_POLICY_NON_BUDGET_DRIFT');
+  }
+  if (hashCanonicalJsonV1(sourceBundle) !== hashCanonicalJsonV1(execution.sourceBundle)) {
+    throw new Error('DEV02_HOST_POLICY_SOURCE_BUNDLE_DRIFT');
+  }
+  const material = {
+    artifactType: 'Dev02HostExecutionPolicyAmendmentV1' as const,
+    policyId: 'DEV02_PLAYABLE_PROXY_BUDGET_CORRECTION_V1' as const,
+    reason: 'HOST_FIXTURE_BUDGET_UNDERCALIBRATED_NOT_MODEL_AUTHORED' as const,
+    changedPaths: ['resourceBudget.maxCpuMs', 'resourceBudget.maxWallTimeMs'] as const,
+    sourceProgramHash: hashCanonicalJsonV1(sourceProgram),
+    executionProgramHash: hashCanonicalJsonV1(execution.program),
+    sourceBudget: sourceProgram.resourceBudget,
+    executionBudget: execution.program.resourceBudget,
+    stateEffects: [] as const,
+  };
+  return deepFreezeV1({ ...execution, amendment: { ...material, amendmentHash: hashCanonicalJsonV1(material) } });
 }
 
 function promptProgramManifest(): JsonRecord {

@@ -10,6 +10,7 @@ import { hashCanonicalJsonV1 } from '../lib/editron/research/open-ended-planner/
 import { buildGeneratedCompositionBlindReviewPackV1 } from '../lib/editron/research/open-ended-planner/generated-composition-blind-review-v1';
 import { evaluateDev02GeneratedCompositionRenderedProofV1 } from '../lib/editron/research/open-ended-planner/generated-composition-dev02-rendered-proof-v1';
 import { materializeGeneratedCompositionLocalEvidenceV1 } from '../lib/editron/research/open-ended-planner/generated-composition-local-evidence-v1';
+import { applyDev02HostExecutionPolicyCorrectionV1 } from '../lib/editron/research/open-ended-planner/generated-composition-model-candidate-v1';
 import type { GeneratedCompositionProgramV1, GeneratedCompositionSourceBundleV1 } from '../lib/editron/research/open-ended-planner/generated-composition-program-v1';
 import { verifyGeneratedCompositionProgramV1 } from '../lib/editron/research/open-ended-planner/generated-composition-program-verifier-v1';
 import { buildGeneratedCompositionSandboxRequestV1 } from '../lib/editron/research/open-ended-planner/generated-composition-sandbox-contract-v1';
@@ -22,8 +23,8 @@ const benchmarkRoot = path.resolve(repoRoot, '.calibration-temp', 'open-ended-pl
 const sourceRunRoot = path.join(benchmarkRoot, 'evidence-5ce9a559f33445da');
 const sourceReceiptPath = path.join(benchmarkRoot, 'receipt-2026-08-14.json');
 const candidates = [
-  { sourceCandidateId: 'OPENAI_TERRA_CANDIDATE_0', relativeRoot: 'openai_terra/candidate-0' },
-  { sourceCandidateId: 'GOOGLE_FLASH_CANDIDATE_1', relativeRoot: 'google_flash/candidate-1' },
+  { sourceCandidateId: 'OPENAI_TERRA_CANDIDATE_0', relativeRoot: 'openai_terra/candidate-0', candidateOrdinal: 0 as const },
+  { sourceCandidateId: 'GOOGLE_FLASH_CANDIDATE_1', relativeRoot: 'google_flash/candidate-1', candidateOrdinal: 1 as const },
 ] as const;
 
 async function main(): Promise<void> {
@@ -66,17 +67,23 @@ async function main(): Promise<void> {
 async function replayCandidate(candidate: typeof candidates[number], replayRoot: string, runtime: Awaited<ReturnType<typeof loadRuntime>>) {
   const sourceRoot = path.resolve(sourceRunRoot, ...candidate.relativeRoot.split('/'));
   if (!sourceRoot.startsWith(sourceRunRoot + path.sep)) throw new Error('SURVIVOR_REPLAY_SOURCE_PATH_ESCAPE');
-  const [program, sourceBundle] = await Promise.all([
+  const [sourceProgram, historicalSourceBundle] = await Promise.all([
     readJson<GeneratedCompositionProgramV1>(path.join(sourceRoot, 'program.json')),
     readJson<GeneratedCompositionSourceBundleV1>(path.join(sourceRoot, 'source-bundle.json')),
   ]);
+  const corrected = applyDev02HostExecutionPolicyCorrectionV1({
+    sourceProgram, sourceBundle: historicalSourceBundle, candidateOrdinal: candidate.candidateOrdinal,
+  });
+  const { program, sourceBundle, amendment } = corrected;
   const verification = verifyGeneratedCompositionProgramV1({ program, sourceBundle, evidencePack: DEV02_GENERATED_COMPOSITION_EVIDENCE_PACK_V1, referenceBlueprint: DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1, supplementalFacts: DEV02_GENERATED_COMPOSITION_SUPPLEMENTAL_FACTS_V1 });
   if (verification.disposition !== 'CONTRACT_PASS' || !verification.programHash) throw new Error(`SURVIVOR_REPLAY_CONTRACT_FAILED:${candidate.sourceCandidateId}:${verification.diagnostics.join(',')}`);
   const candidateRoot = path.join(replayRoot, candidate.sourceCandidateId.toLowerCase()); await fs.mkdir(candidateRoot);
   await Promise.all([
     fs.copyFile(path.join(sourceRoot, 'GeneratedComposition.tsx'), path.join(candidateRoot, 'GeneratedComposition.tsx')),
+    writeExclusiveJson(path.join(candidateRoot, 'source-program.json'), sourceProgram),
     writeExclusiveJson(path.join(candidateRoot, 'program.json'), program),
     writeExclusiveJson(path.join(candidateRoot, 'source-bundle.json'), sourceBundle),
+    writeExclusiveJson(path.join(candidateRoot, 'host-policy-amendment.json'), amendment),
     writeExclusiveJson(path.join(candidateRoot, 'contract-verification.json'), verification),
   ]);
   const request = buildGeneratedCompositionSandboxRequestV1({
@@ -85,7 +92,7 @@ async function replayCandidate(candidate: typeof candidates[number], replayRoot:
     workerImplementationHash: runtime.workerImplementationHash, program, sourceBundle,
     evidencePack: DEV02_GENERATED_COMPOSITION_EVIDENCE_PACK_V1, referenceBlueprint: DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1,
     supplementalFacts: DEV02_GENERATED_COMPOSITION_SUPPLEMENTAL_FACTS_V1, proofFrames: [0, 24, 108, 144, 145, 179], inputs: runtime.inputs,
-    resources: { wallTimeMs: 90_000, maxCpuMs: 60_000, vcpus: 1, memoryMiB: 2_048, maxOutputBytes: 64 * 1_024 * 1_024 },
+    resources: { wallTimeMs: program.resourceBudget.maxWallTimeMs, maxCpuMs: program.resourceBudget.maxCpuMs, vcpus: 1, memoryMiB: 2_048, maxOutputBytes: 64 * 1_024 * 1_024 },
   });
   await writeExclusiveJson(path.join(candidateRoot, 'sandbox-request-summary.json'), { ...request, inputs: request.inputs.map(({ data: _data, ...item }) => ({ ...item, dataDisposition: 'OMITTED_HASH_BOUND' })) });
   const executed = await executeGeneratedCompositionInSandboxV1({
@@ -103,7 +110,8 @@ async function replayCandidate(candidate: typeof candidates[number], replayRoot:
   const video = localEvidence.bindings.find(({ kind }) => kind === 'PLAYABLE_PROXY');
   if (!video) throw new Error(`SURVIVOR_REPLAY_PLAYABLE_PROXY_MISSING:${candidate.sourceCandidateId}`);
   return {
-    sourceCandidateId: candidate.sourceCandidateId, modelIdentity: program.generator.modelId, programHash: verification.programHash,
+    sourceCandidateId: candidate.sourceCandidateId, modelIdentity: program.generator.modelId,
+    sourceProgramHash: amendment.sourceProgramHash, programHash: verification.programHash, hostPolicyAmendment: amendment,
     requestId: request.requestId, hostReceiptHash: executed.receipt.receiptHash, originalProxyReceiptHash: localEvidence.originalProxyReceiptHash,
     localEvidenceHash: localEvidence.evidenceHash, proofHash: proof.proofHash, hardGateDisposition: proof.hardGateDisposition,
     technicalDisposition: proof.technicalDisposition, creativeDisposition: proof.creativeDisposition, videoSha256: video.contentSha256,
