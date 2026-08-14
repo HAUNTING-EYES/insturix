@@ -539,8 +539,9 @@ function stageFourCompilationPolicy(): JsonRecord {
     referenceRules: {
       reads: 'fact IDs or source artifact references actually consumed',
       writes: 'declared project paths or artifact namespaces; READ and RESOLVER nodes must write nothing',
-      requiresAndProduces: 'compiled node IDs, fact IDs, or declared output references only',
-      invalidates: 'source-intent invalidation claims and proof/artifact identities made stale by this node',
+      outputRefFormat: '<compiledNodeId>.<operatorOutputName>',
+      requiresAndProduces: 'produces must contain every operator.output.required name exactly once in outputRefFormat; requires may contain fact IDs, compiled node IDs, or output references declared by another compiled node',
+      invalidates: 'READ and RESOLVER nodes are observational or propositional and must use []; invalidations belonging to an unresolved mutating intent remain on the source intent and structured diagnostic',
       traceRefs: 'source intent node, evidence binding, proof, preservation, and policy IDs only',
     },
   };

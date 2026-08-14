@@ -13,7 +13,7 @@ import evidencePackJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev
 describe('open-ended planner V2 isolated Stage-4 exact-compilation smoke', () => {
   it('freezes a bounded Luna and Terra exact-compilation plan', async () => {
     const plan = await buildStage4ExactCompilationSmokePreflightV2() as Plan;
-    expect(plan.planHash).toBe('712300c5c435e943181092acff44785a621b4e3e73161da28ba9811e0ef57a4f');
+    expect(plan.planHash).toBe('eb7beb6640d74a071c64cb87ec8404a4b93e00829ec97917b1e816609669090a');
     expect(plan.rows).toHaveLength(2);
     expect(plan.spend).toMatchObject({ plannedProviderCalls: 2, absoluteMaxSpendUsd: 0.96 });
     expect(new Set(plan.rows.map(({ packetHash }) => packetHash))).toEqual(new Set([plan.packetHash]));
@@ -49,10 +49,18 @@ describe('open-ended planner V2 isolated Stage-4 exact-compilation smoke', () =>
     });
   });
 
-  it('rejects invalid ports, stale revisions, missing source inspection, cycles, and false readiness independently', () => {
+  it('rejects invalid ports, missing dependency edges, stale revisions, missing source inspection, cycles, and false readiness independently', () => {
     const extraInput = compiledArtifact();
     extraInput.nodes[0].inputs.undeclared = true;
     expect(evaluateStage4CompiledGraphArtifactV2(extraInput)).toMatchObject({ disposition: 'FAIL', inputBindings: 'FAIL' });
+
+    const bareOutputs = compiledArtifact();
+    bareOutputs.nodes[0].produces = ['result', 'evidence'];
+    expect(evaluateStage4CompiledGraphArtifactV2(bareOutputs)).toMatchObject({ disposition: 'FAIL', nodeContract: 'FAIL' });
+
+    const missingDependencyEdge = compiledArtifact();
+    missingDependencyEdge.edges = [];
+    expect(evaluateStage4CompiledGraphArtifactV2(missingDependencyEdge)).toMatchObject({ disposition: 'FAIL', dependencyGraph: 'FAIL' });
 
     const stale = compiledArtifact();
     stale.nodes[0].revisionBinding.expectedProjectRevision = 'R2';
@@ -110,9 +118,9 @@ function compiledArtifact(): TestArtifact {
     nodes: [
       readNode('compile-inspect-wide', 'node-source-resolution', 'inspect_user_asset', { projectId: 'oe-dev-02', assetId: 'dev02-wide' }, ['fact-project-revision', 'fact-source-dev02-wide', 'fact-source-windows'], ['proof-asset-rights', 'proof-source-ranges'], 'SOURCE_FRAME', ['fact-source-windows'], ['fact-source-dev02-wide']),
       readNode('compile-inspect-close', 'node-source-resolution', 'inspect_user_asset', { projectId: 'oe-dev-02', assetId: 'dev02-close' }, ['fact-project-revision', 'fact-source-dev02-close', 'fact-source-windows'], ['proof-asset-rights', 'proof-source-ranges'], 'SOURCE_FRAME', ['fact-source-windows'], ['fact-source-dev02-close']),
-      readNode('compile-read-project', 'node-proof', 'read_project_file', { projectId: 'oe-dev-02', expectedProjectRevision: 'R3' }, ['fact-project-revision', 'fact-project-timebase'], ['proof-revision-freshness'], 'PROJECT_TICK', ['fact-project-target-range'], []),
+      readNode('compile-read-project', 'node-proof', 'read_project_file', { projectId: 'oe-dev-02', expectedProjectRevision: 'R3' }, ['fact-project-revision', 'fact-project-timebase'], ['proof-revision-freshness'], 'PROJECT_TICK', ['fact-project-target-range'], [], ['compile-inspect-wide.result']),
     ],
-    edges: [],
+    edges: [{ edgeId: 'edge-inspect-wide-project', fromNodeId: 'compile-inspect-wide', toNodeId: 'compile-read-project', edgeType: 'DATA' }],
     proofPolicy: { proofVersion: 'OE_STAGE4_PROOF_POLICY_V1', mode: 'ALL_BOUND_OBLIGATIONS_REQUIRED_BEFORE_EXECUTION', proofObligationIds: proofIds, preservationIds, onUnverifiable: 'BLOCK_EXECUTION' },
     diagnostics: [
       { diagnosticId: 'diag-generated-owner', code: 'CAPABILITY_NOT_IMPLEMENTED', intentNodeIds: ['node-generated-island'], operatorIds: ['generated_composition_program'], factIds: ['fact-support-generated-composition'], disposition: 'CAPABILITY_GAP' },
@@ -123,11 +131,11 @@ function compiledArtifact(): TestArtifact {
   };
 }
 
-function readNode(nodeId: string, intentNodeId: string, operatorId: 'inspect_user_asset' | 'read_project_file', inputs: Record<string, unknown>, reads: string[], proofObligationIds: string[], coordinateDomain: 'SOURCE_FRAME' | 'PROJECT_TICK', rangeFactIds: string[], assetFactIds: string[]): TestNode {
+function readNode(nodeId: string, intentNodeId: string, operatorId: 'inspect_user_asset' | 'read_project_file', inputs: Record<string, unknown>, reads: string[], proofObligationIds: string[], coordinateDomain: 'SOURCE_FRAME' | 'PROJECT_TICK', rangeFactIds: string[], assetFactIds: string[], requires: string[] = []): TestNode {
   return {
     nodeId, intentNodeId, operatorId,
     operatorSpecRef: `EDITRON_OPERATOR_SPECS_V2@2.0.0#${operatorId}`,
-    ownerRef: `v1:${operatorId}`, inputs, reads, writes: [], requires: [], produces: ['result', 'evidence'], invalidates: [],
+    ownerRef: `v1:${operatorId}`, inputs, reads, writes: [], requires, produces: [`${nodeId}.result`, `${nodeId}.evidence`], invalidates: [],
     coordinateBindings: [{ coordinateDomain, timebaseFactIds: coordinateDomain === 'PROJECT_TICK' ? ['fact-project-timebase'] : [], rangeFactIds, assetFactIds }],
     revisionBinding: { projectId: 'oe-dev-02', expectedProjectRevision: 'R3' }, stabilityRequirement: 'RANGE_STABLE', stateEffects: [],
     idempotency: { scope: 'PROJECT_REVISION', keyMaterialRefs: [intentNodeId, 'fact-project-revision'] },

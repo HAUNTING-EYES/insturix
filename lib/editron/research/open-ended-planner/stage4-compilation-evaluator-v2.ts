@@ -48,6 +48,7 @@ export function evaluateStage4CompiledGraphArtifactV2(value: unknown): Readonly<
   const nodes = records(artifact.nodes);
   const nodeIds = new Set<string>();
   const compiledByIntent = new Map<string, JsonRecord[]>();
+  const outputProducerByRef = new Map<string, string>();
   for (const node of nodes) {
     const nodeId = String(node.nodeId ?? '');
     if (!nodeId || nodeIds.has(nodeId)) diagnostics.push(`NODE_CONTRACT_NODE_ID_INVALID:${nodeId || 'empty'}`);
@@ -56,11 +57,15 @@ export function evaluateStage4CompiledGraphArtifactV2(value: unknown): Readonly<
     const list = compiledByIntent.get(intentNodeId) ?? [];
     list.push(node);
     compiledByIntent.set(intentNodeId, list);
+    for (const outputRef of strings(node.produces)) {
+      if (outputProducerByRef.has(outputRef)) diagnostics.push(`NODE_CONTRACT_OUTPUT_REF_DUPLICATE:${outputRef}`);
+      else outputProducerByRef.set(outputRef, nodeId);
+    }
   }
-  for (const node of nodes) validateCompiledNode(node, String(node.intentNodeId ?? ''), nodeIds, diagnostics);
+  for (const node of nodes) validateCompiledNode(node, String(node.intentNodeId ?? ''), nodeIds, outputProducerByRef, diagnostics);
   if (!nodes.length) diagnostics.push('OPERATOR_RESOLUTION_NO_COMPILED_RESEARCH_NODE');
   validateOwnedSourceInspection(nodes, diagnostics);
-  validateEdges(records(artifact.edges), nodes, nodeIds, compiledByIntent, diagnostics);
+  validateEdges(records(artifact.edges), nodes, nodeIds, outputProducerByRef, compiledByIntent, diagnostics);
   validateRootProofPolicy(record(artifact.proofPolicy), diagnostics);
   validateCapabilityDisposition(artifact, nodes, compiledByIntent, diagnostics);
 
@@ -98,7 +103,7 @@ function validateSourceChain(artifact: JsonRecord, diagnostics: string[]): void 
   }
 }
 
-function validateCompiledNode(node: JsonRecord, intentNodeId: string, allNodeIds: Set<string>, diagnostics: string[]): void {
+function validateCompiledNode(node: JsonRecord, intentNodeId: string, allNodeIds: Set<string>, outputProducerByRef: Map<string, string>, diagnostics: string[]): void {
   const sourceIntent = intentNodes.get(intentNodeId);
   const boundIntent = boundNodes.get(intentNodeId);
   if (!sourceIntent || !boundIntent) diagnostics.push(`OPERATOR_RESOLUTION_UNKNOWN_INTENT_NODE:${intentNodeId}`);
@@ -116,7 +121,7 @@ function validateCompiledNode(node: JsonRecord, intentNodeId: string, allNodeIds
     diagnostics.push(`OPERATOR_RESOLUTION_FORBIDDEN_OPERATOR:${node.nodeId}/${operatorId}`);
   }
   validateOperatorInputs(node, operator, diagnostics);
-  validateNodeContract(node, operator, boundIntent, allNodeIds, diagnostics);
+  validateNodeContract(node, operator, boundIntent, allNodeIds, outputProducerByRef, diagnostics);
 }
 
 function validateOperatorInputs(node: JsonRecord, operator: JsonRecord, diagnostics: string[]): void {
@@ -144,15 +149,17 @@ function validateOperatorInputs(node: JsonRecord, operator: JsonRecord, diagnost
   validateSourceRange(inputs.sourceRange, inputs.assetId, node, diagnostics);
 }
 
-function validateNodeContract(node: JsonRecord, operator: JsonRecord, boundIntent: JsonRecord | undefined, allNodeIds: Set<string>, diagnostics: string[]): void {
+function validateNodeContract(node: JsonRecord, operator: JsonRecord, boundIntent: JsonRecord | undefined, allNodeIds: Set<string>, outputProducerByRef: Map<string, string>, diagnostics: string[]): void {
   const nodeId = String(node.nodeId);
   const reads = strings(node.reads);
   for (const factId of reads) if (!factIds.has(factId)) diagnostics.push(`NODE_CONTRACT_UNKNOWN_READ:${nodeId}/${factId}`);
   if (strings(node.writes).length) diagnostics.push(`POLICY_REVISION_READ_RESOLVER_WRITES:${nodeId}`);
   const requiredRefs = strings(node.requires);
-  for (const reference of requiredRefs) if (!factIds.has(reference) && !allNodeIds.has(reference)) diagnostics.push(`NODE_CONTRACT_UNKNOWN_REQUIREMENT:${nodeId}/${reference}`);
+  for (const reference of requiredRefs) {
+    if (!factIds.has(reference) && !allNodeIds.has(reference) && !outputProducerByRef.has(reference)) diagnostics.push(`NODE_CONTRACT_UNKNOWN_REQUIREMENT:${nodeId}/${reference}`);
+  }
   if (strings(node.invalidates).length) diagnostics.push(`NODE_CONTRACT_READ_RESOLVER_INVALIDATES:${nodeId}`);
-  const expectedOutputs = strings(record(operator.output).required);
+  const expectedOutputs = strings(record(operator.output).required).map((outputName) => `${nodeId}.${outputName}`);
   if (!sameSet(strings(node.produces), expectedOutputs)) diagnostics.push(`NODE_CONTRACT_OUTPUT_SET_DRIFT:${nodeId}`);
   for (const binding of records(node.coordinateBindings)) {
     for (const factId of [...strings(binding.timebaseFactIds), ...strings(binding.rangeFactIds), ...strings(binding.assetFactIds)]) {
@@ -186,7 +193,7 @@ function validateOwnedSourceInspection(nodes: JsonRecord[], diagnostics: string[
   for (const assetId of allowedAssetIds) if (!inspected.has(assetId)) diagnostics.push(`OPERATOR_RESOLUTION_OWNED_SOURCE_NOT_INSPECTED:${assetId}`);
 }
 
-function validateEdges(edges: JsonRecord[], nodes: JsonRecord[], nodeIds: Set<string>, compiledByIntent: Map<string, JsonRecord[]>, diagnostics: string[]): void {
+function validateEdges(edges: JsonRecord[], nodes: JsonRecord[], nodeIds: Set<string>, outputProducerByRef: Map<string, string>, compiledByIntent: Map<string, JsonRecord[]>, diagnostics: string[]): void {
   const adjacency = new Map([...nodeIds].map((nodeId) => [nodeId, new Set<string>()]));
   const edgeIds = new Set<string>();
   for (const edge of edges) {
@@ -200,8 +207,12 @@ function validateEdges(edges: JsonRecord[], nodes: JsonRecord[], nodeIds: Set<st
   }
   if (hasCycle(adjacency)) diagnostics.push('DEPENDENCY_GRAPH_CYCLE');
   for (const node of nodes) {
-    for (const requiredNodeId of strings(node.requires).filter((reference) => nodeIds.has(reference))) {
-      if (!reachable(requiredNodeId, String(node.nodeId), adjacency)) diagnostics.push(`DEPENDENCY_GRAPH_REQUIRED_EDGE_MISSING:${requiredNodeId}/${node.nodeId}`);
+    for (const reference of strings(node.requires)) {
+      const requiredNodeId = nodeIds.has(reference) ? reference : outputProducerByRef.get(reference);
+      if (!requiredNodeId) continue;
+      if (requiredNodeId === node.nodeId || !reachable(requiredNodeId, String(node.nodeId), adjacency)) {
+        diagnostics.push(`DEPENDENCY_GRAPH_REQUIRED_EDGE_MISSING:${requiredNodeId}/${node.nodeId}`);
+      }
     }
     const sourceIntent = intentNodes.get(String(node.intentNodeId));
     for (const requiredIntentId of strings(sourceIntent?.requiresNodeIds)) {
