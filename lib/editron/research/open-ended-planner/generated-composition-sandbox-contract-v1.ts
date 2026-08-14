@@ -55,7 +55,7 @@ export type GeneratedCompositionSandboxWorkerResultV1 = {
   sourceBundleHash: string;
   completedAt: string;
   wallTimeMs: number;
-  cpuMs: number;
+  cpuUpperBoundMs: number;
   stateEffects: readonly [];
 } & ({
   status: 'RENDERED';
@@ -104,7 +104,7 @@ const requestSchema = z.object({
 const outputSchema = z.object({ kind: z.enum(['STILL', 'CONTACT_SHEET', 'PROXY_RECEIPT']), path: z.string().min(1).max(500), contentSha256: sha, byteLength: z.number().int().positive() }).strict();
 const resultBase = {
   version: z.literal(GENERATED_COMPOSITION_SANDBOX_CONTRACT_V1), requestId: sha, executionId: z.string().regex(SAFE_ID), appCommit: z.string().regex(APP_COMMIT),
-  programHash: sha, sourceBundleHash: sha, completedAt: z.string().datetime(), wallTimeMs: z.number().int().nonnegative(), cpuMs: z.number().int().nonnegative(), stateEffects: z.tuple([]),
+  programHash: sha, sourceBundleHash: sha, completedAt: z.string().datetime(), wallTimeMs: z.number().int().nonnegative(), cpuUpperBoundMs: z.number().int().nonnegative(), stateEffects: z.tuple([]),
 };
 const resultSchema = z.discriminatedUnion('status', [
   z.object({ ...resultBase, status: z.literal('RENDERED'), proxyReceiptHash: sha, outputs: z.array(outputSchema).min(3).max(64) }).strict(),
@@ -159,7 +159,7 @@ export function buildGeneratedCompositionSandboxHostReceiptV1(input: {
   if (result.status !== 'RENDERED') throw new Error('Generated composition sandbox did not render');
   if (result.requestId !== request.requestId || result.executionId !== request.executionId || result.appCommit !== request.appCommit || result.programHash !== request.programHash || result.sourceBundleHash !== request.sourceBundleHash) throw new Error('Generated composition sandbox result identity drift');
   if (!input.sandboxDeleted || input.networkPolicy !== 'DENY_ALL' || input.persistent || input.command.exitCode !== 0) throw new Error('Generated composition sandbox host attestation failed');
-  if (result.wallTimeMs > request.resources.wallTimeMs || result.cpuMs > request.resources.maxCpuMs) throw new Error('Generated composition sandbox execution exceeded resource budget');
+  if (result.wallTimeMs > request.resources.wallTimeMs || result.cpuUpperBoundMs > request.resources.maxCpuMs) throw new Error('Generated composition sandbox execution exceeded resource budget');
   const expectedPaths = new Set(result.outputs.map(({ path }) => path));
   if (Object.keys(input.outputBytes).length !== expectedPaths.size || Object.keys(input.outputBytes).some((path) => !expectedPaths.has(path))) throw new Error('Generated composition sandbox output set drift');
   for (const output of result.outputs) {

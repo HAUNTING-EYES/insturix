@@ -49,7 +49,7 @@ describe('open-ended planner V2 generated-composition sandbox contract', () => {
     const result: GeneratedCompositionSandboxWorkerResultV1 = {
       version: GENERATED_COMPOSITION_SANDBOX_CONTRACT_V1, requestId: request.requestId, executionId: request.executionId,
       appCommit: request.appCommit, programHash: request.programHash, sourceBundleHash: request.sourceBundleHash,
-      completedAt: '2026-08-14T10:00:01.000Z', wallTimeMs: 1_000, cpuMs: 500, stateEffects: [], status: 'RENDERED',
+      completedAt: '2026-08-14T10:00:01.000Z', wallTimeMs: 1_000, cpuUpperBoundMs: 1_000, stateEffects: [], status: 'RENDERED',
       proxyReceiptHash: sha(Buffer.from('receipt')),
       outputs: Object.entries(outputs).map(([path, bytes], index) => ({ kind: index === 0 ? 'STILL' as const : index === 1 ? 'CONTACT_SHEET' as const : 'PROXY_RECEIPT' as const, path, contentSha256: sha(bytes), byteLength: bytes.byteLength })),
     };
