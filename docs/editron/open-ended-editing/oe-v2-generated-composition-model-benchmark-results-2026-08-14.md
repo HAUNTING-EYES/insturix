@@ -87,16 +87,27 @@ produced a complete, independently probed playable proxy.
 | Replay receipt hash        | `9632f57328ddff75f126f27e0bd8a1efda4e2a2dfb318f83025390bfe4e84320` |
 | Worker implementation hash | `7242b1d14363b73676e540a15be8f16a2efa5735d08db3c58f6edc469d218ed7` |
 | Runner implementation hash | `941cbdeb66603d99439f3f98207e849b3940367c8826293731dcfabdfb22e2b3` |
-| Public blind-pack hash     | `e9cf52ce1f1f18eb21dfe0cea1c721bbdfeefed0d45817e5d5332746c576670d` |
+| Original public pack       | `e9cf52ce1f1f18eb21dfe0cea1c721bbdfeefed0d45817e5d5332746c576670d` (superseded) |
+| Replacement public pack    | `a26cb4799268c2000c74536943d2ae6f4e3e7e7d730f7b4fcb08d2a8fb0a8d67` |
+| Replacement receipt        | `907643e326a0d683368452f502eda13c836ea5d2e3a2fc9e573a00e1d36434e3` |
 | Provider calls             | `0`                                                                |
 | Project state effects      | `[]`                                                               |
 | Human review status        | `AWAITING_REAL_HUMAN_REVIEW`                                       |
 
-The receipt and anonymous reviewer pack are retained under:
+The receipt and packs are retained under the replay root. Reviewers must use
+`blind-review-v2/reviewer/` only and must not access its sibling
+`operator-only/` directory or the source benchmark artifacts:
 
 ```text
 .calibration-temp/open-ended-planner-v2/generated-composition-model-benchmark/playable-replay-7242b1d14363b736/
 ```
+
+The original public manifest exposed byte-identical source-video SHA values,
+which a repository-aware reviewer could correlate with the model rows below.
+It is retained for audit but is not a valid blind pack. The replacement uses
+freshly randomized aliases and hash-distinct, byte-preserving MP4 review copies;
+the source-to-review binding exists only in the operator key. Both replacement
+copies independently decoded all 180 frames over six seconds.
 
 | Route              | Sandbox wall time | Rendered hard gates | Remaining technical gap | Playable SHA-256                                                  |
 | ------------------ | ----------------: | ------------------- | ----------------------- | ---------------------------------------------------------------- |
