@@ -6,11 +6,13 @@ import {
 } from '@/lib/editron/research/open-ended-planner/stage2-routing-smoke-v2';
 
 const hardClaimIds = ['claim-user-stacked-layout', 'claim-user-centred-title', 'claim-user-varied-crops', 'claim-user-exit-continuity'];
+const generatedHardClaimIds = hardClaimIds.slice(0, 3);
+const nativeHardClaimIds = hardClaimIds.slice(3);
 
 describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
   it('freezes four fair routes against one canonical blueprint and packet', async () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
-    expect(plan.planHash).toBe('d3aeaa096aead2b5e5cbcd24654ae34c96370994af1d71ed616aa98052e71137');
+    expect(plan.planHash).toBe('6e28f2bb385a67534920e2279d505da292f14d7e37fbdca0993c22d1ab2e24eb');
     expect(plan.rows).toHaveLength(4);
     expect(plan.spend).toMatchObject({ plannedProviderCalls: 4, absoluteMaxSpendUsd: 1 });
     expect(new Set(plan.rows.map(({ packetHash }) => packetHash)).size).toBe(1);
@@ -22,7 +24,7 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
     ]));
   });
 
-  it('counts exact Google requests and scores correct bounded generated routing separately from schema acceptance', async () => {
+  it('counts exact Google requests and scores the hybrid plan separately from schema acceptance', async () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
     let countCalls = 0;
     let generationCalls = 0;
@@ -75,18 +77,21 @@ describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
   });
 });
 
-function routingArtifact(form: 'GENERATED_COMPOSITION' | 'NATIVE' = 'GENERATED_COMPOSITION') {
-  const generated = form === 'GENERATED_COMPOSITION';
-  const owner = generated ? 'generated_composition_program' : 'set_keyframes';
+function routingArtifact(form: 'HYBRID' | 'NATIVE' = 'HYBRID') {
+  const hybrid = form === 'HYBRID';
+  const owner = hybrid ? 'generated_composition_program' : 'set_keyframes';
   return {
     artifactType: 'EditorialIntentGraphV2', taskId: 'DEV-02', executionForm: form,
     routeDecision: {
-      scopeClassification: generated ? 'BOUNDED_GENERATED_ISLAND' : 'NATIVE_ONLY_PLAN', coverageStatus: 'COMPLETE',
-      candidateForms: [{ form, hardGateStatus: 'ELIGIBLE', claimCoverage: hardClaimIds.map((claimId) => ({ claimId, status: 'COVERED', ownerRefs: [owner], reasonCodes: ['TARGET_COVERED'] })), representabilitySignals: generated ? ['CROSS_ELEMENT_DEPENDENCY'] : ['NONE'], blockers: [], ownerRefs: [owner], evidenceIds: ['EV-DEV02-R1'] }],
-      selectedReasonCodes: [generated ? 'RELATIONAL_BOUNDED_ISLAND' : 'NATIVE_SELECTED'], generatedIslandClaimIds: generated ? hardClaimIds : [], nativeSurroundClaimIds: generated ? [] : hardClaimIds,
+      scopeClassification: hybrid ? 'HYBRID_FULL_PLAN' : 'NATIVE_ONLY_PLAN', coverageStatus: 'COMPLETE',
+      candidateForms: [{ form, hardGateStatus: 'ELIGIBLE', claimCoverage: hardClaimIds.map((claimId) => ({ claimId, status: 'COVERED', ownerRefs: [claimId === 'claim-user-exit-continuity' ? 'use_matching_footage' : owner], reasonCodes: ['TARGET_COVERED'] })), representabilitySignals: hybrid ? ['CROSS_ELEMENT_DEPENDENCY'] : ['NONE'], blockers: [], ownerRefs: hybrid ? [owner, 'use_matching_footage'] : [owner], evidenceIds: ['EV-DEV02-R1'] }],
+      selectedReasonCodes: [hybrid ? 'GENERATED_ISLAND_WITH_NATIVE_HANDOFF' : 'NATIVE_SELECTED'], generatedIslandClaimIds: hybrid ? generatedHardClaimIds : [], nativeSurroundClaimIds: hybrid ? nativeHardClaimIds : hardClaimIds,
     },
-    nodes: [{ intentNodeId: 'intent-1', operationFamily: generated ? 'generated-composition' : 'keyframes', targetClaimIds: hardClaimIds, candidateCapabilityIds: [owner], executionForm: form, requiresNodeIds: [], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-R1'], failureDisposition: 'NEEDS_REVIEW' }],
-    edges: [], preservationIntents: [], unresolvedRequirements: [],
+    nodes: hybrid ? [
+      { intentNodeId: 'intent-generated', operationFamily: 'generated-composition', targetClaimIds: generatedHardClaimIds, candidateCapabilityIds: [owner], executionForm: 'GENERATED_COMPOSITION', requiresNodeIds: [], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-R1'], failureDisposition: 'NEEDS_REVIEW' },
+      { intentNodeId: 'intent-handoff', operationFamily: 'continuity-handoff', targetClaimIds: nativeHardClaimIds, candidateCapabilityIds: ['use_matching_footage'], executionForm: 'NATIVE', requiresNodeIds: ['intent-generated'], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-C1'], failureDisposition: 'NEEDS_REVIEW' },
+    ] : [{ intentNodeId: 'intent-1', operationFamily: 'keyframes', targetClaimIds: hardClaimIds, candidateCapabilityIds: [owner], executionForm: 'NATIVE', requiresNodeIds: [], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-R1'], failureDisposition: 'NEEDS_REVIEW' }],
+    edges: hybrid ? [{ edgeId: 'edge-handoff', fromNodeId: 'intent-generated', toNodeId: 'intent-handoff', edgeType: 'TIME_ANCHOR' }] : [], preservationIntents: [], unresolvedRequirements: [],
   };
 }
 
