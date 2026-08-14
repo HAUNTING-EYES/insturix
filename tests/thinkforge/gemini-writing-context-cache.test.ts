@@ -66,6 +66,7 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
   });
 
@@ -193,6 +194,64 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
         abortSignal: controller.signal,
       }),
     ).rejects.toThrow('aborted before start');
+  });
+
+  it('settles an active caller cancellation even when the structured provider stays pending', async () => {
+    let markProviderStarted!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      markProviderStarted = resolve;
+    });
+    let providerSignal: AbortSignal | undefined;
+    sdkMocks.generateObject.mockImplementation(({ abortSignal }: { abortSignal?: AbortSignal }) => {
+      providerSignal = abortSignal;
+      markProviderStarted();
+      return new Promise(() => {});
+    });
+    const controller = new AbortController();
+    const generation = generateStructuredWithWritingContextCache({
+      prompt: 'write a script',
+      schema: z.object({ output: z.string() }),
+      abortSignal: controller.signal,
+    });
+    const expectedAbort = expect(generation).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'ThinkForge structured writing generation aborted',
+    });
+
+    await providerStarted;
+    controller.abort(new Error('caller cancelled generation'));
+
+    await expectedAbort;
+    expect(providerSignal?.aborted).toBe(true);
+  });
+
+  it('bounds a stalled structured provider request with a deterministic timeout', async () => {
+    vi.useFakeTimers();
+    let markProviderStarted!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      markProviderStarted = resolve;
+    });
+    let providerSignal: AbortSignal | undefined;
+    sdkMocks.generateObject.mockImplementation(({ abortSignal }: { abortSignal?: AbortSignal }) => {
+      providerSignal = abortSignal;
+      markProviderStarted();
+      return new Promise(() => {});
+    });
+    const generation = generateStructuredWithWritingContextCache({
+      prompt: 'write a script',
+      schema: z.object({ output: z.string() }),
+    });
+    const expectedTimeout = expect(generation).rejects.toThrow('timed out after 120 seconds');
+
+    await providerStarted;
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    await expectedTimeout;
+    expect(providerSignal?.aborted).toBe(true);
+    expect(sdkMocks.recordProviderCostEvent).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      metadata: expect.objectContaining({ errorClass: 'Error' }),
+    }));
   });
 
   it('uses a schema-validated post fixture only for an explicit non-production E2E run', async () => {

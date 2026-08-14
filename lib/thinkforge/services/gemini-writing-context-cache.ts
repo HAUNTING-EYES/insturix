@@ -217,6 +217,93 @@ function withCacheStoreDeadline<T>(promise: Promise<T>, operation: 'read' | 'wri
   });
 }
 
+interface StructuredGenerationDeadline {
+  abortSignal: AbortSignal;
+  timedOut: () => boolean;
+  abortedByCaller: () => boolean;
+  dispose: () => void;
+}
+
+function createStructuredGenerationDeadline(parentSignal?: AbortSignal): StructuredGenerationDeadline {
+  const controller = new AbortController();
+  let didTimeOut = false;
+  let didAbortByCaller = false;
+  const abortFromCaller = () => {
+    didAbortByCaller = true;
+    controller.abort(parentSignal?.reason);
+  };
+
+  if (parentSignal?.aborted) {
+    abortFromCaller();
+  } else {
+    parentSignal?.addEventListener('abort', abortFromCaller, { once: true });
+  }
+
+  const timer = setTimeout(() => {
+    didTimeOut = true;
+    controller.abort(structuredGenerationTimeoutError());
+  }, WRITING_PROVIDER_TIMEOUT_MS);
+
+  return {
+    abortSignal: controller.signal,
+    timedOut: () => didTimeOut,
+    abortedByCaller: () => didAbortByCaller,
+    dispose: () => {
+      clearTimeout(timer);
+      parentSignal?.removeEventListener('abort', abortFromCaller);
+    },
+  };
+}
+
+function structuredGenerationTimeoutError(): Error {
+  return new Error(
+    `ThinkForge structured writing generation timed out after ${WRITING_PROVIDER_TIMEOUT_MS / 1_000} seconds`,
+  );
+}
+
+function structuredGenerationAbortError(): Error {
+  const error = new Error('ThinkForge structured writing generation aborted');
+  error.name = 'AbortError';
+  return error;
+}
+
+function structuredGenerationDeadlineError(deadline: StructuredGenerationDeadline): Error {
+  return deadline.timedOut() && !deadline.abortedByCaller()
+    ? structuredGenerationTimeoutError()
+    : structuredGenerationAbortError();
+}
+
+function awaitStructuredGeneration<T>(
+  generation: Promise<T>,
+  deadline: StructuredGenerationDeadline,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => deadline.abortSignal.removeEventListener('abort', rejectForAbort);
+    const resolveOnce = (value: T) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const rejectOnce = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const rejectForAbort = () => rejectOnce(structuredGenerationDeadlineError(deadline));
+
+    if (deadline.abortSignal.aborted) {
+      rejectForAbort();
+      return;
+    }
+
+    deadline.abortSignal.addEventListener('abort', rejectForAbort, { once: true });
+    generation.then(resolveOnce, rejectOnce);
+  });
+}
+
 export function getCreativeContentKnowledgeText(): string {
   if (cachedDocText) return cachedDocText;
 
@@ -638,20 +725,24 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
   const structuredOperation = context.cacheName
     ? { operation: 'llm_structured_cached_context' as const }
     : { operation: 'llm_structured_inline_context' as const };
+  const deadline = createStructuredGenerationDeadline(input.abortSignal);
 
   try {
-    const generation = await generateObject({
-      model: createThinkForgeModel(toRuntimeModelName(modelName)),
-      schema: input.schema,
-      prompt: promptForGeneration,
-      ...(context.cacheName ? {} : { system: context.systemInstruction }),
-      temperature: input.temperature,
-      maxTokens: input.maxTokens,
-      abortSignal: input.abortSignal,
-      ...(context.cacheName
-        ? { providerOptions: { google: { cachedContent: context.cacheName } } }
-        : {}),
-    });
+    const generation = await awaitStructuredGeneration(
+      generateObject({
+        model: createThinkForgeModel(toRuntimeModelName(modelName)),
+        schema: input.schema,
+        prompt: promptForGeneration,
+        ...(context.cacheName ? {} : { system: context.systemInstruction }),
+        temperature: input.temperature,
+        maxTokens: input.maxTokens,
+        abortSignal: deadline.abortSignal,
+        ...(context.cacheName
+          ? { providerOptions: { google: { cachedContent: context.cacheName } } }
+          : {}),
+      }),
+      deadline,
+    );
     const outputChars = JSON.stringify(generation.object).length;
     recordThinkForgeWritingContextCost({
       status: 'success',
@@ -670,6 +761,9 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       modelName,
     };
   } catch (error) {
+    const failure = deadline.timedOut() && !deadline.abortedByCaller()
+      ? structuredGenerationTimeoutError()
+      : error;
     recordThinkForgeWritingContextCost({
       status: 'failed',
       modelName,
@@ -678,8 +772,10 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       userInputChars: promptForGeneration.length,
       systemInstructionChars: context.systemInstruction.length,
       functionMs: Date.now() - startedAt,
-      error,
+      error: failure,
     });
-    throw error;
+    throw failure;
+  } finally {
+    deadline.dispose();
   }
 }
