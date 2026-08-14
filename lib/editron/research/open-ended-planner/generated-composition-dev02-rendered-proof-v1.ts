@@ -89,7 +89,7 @@ export async function evaluateDev02GeneratedCompositionRenderedProofV1(input: {
     phaseStructureCheck(frame0, frame24, frame108, frame144, frame145, frame179),
     fullCanvasReleaseCheck(frame179),
     await boundaryContinuityCheck(frame179, input.boundaryReferencePath),
-    unverifiable('FLASH_SAFETY', [], 'Six stills cannot establish flash frequency; a dense proxy or PEAT-equivalent analysis is required.'),
+    unverifiable('FLASH_SAFETY', [], 'Six stills cannot establish flash frequency, red-flash, or spatial-pattern safety; frame-complete screening and approved PSE QC are required.'),
   ];
   const hardCheckIds = new Set(['FRAME_INTEGRITY', 'SETTLED_PANEL_GEOMETRY', 'TITLE_FORM', 'OPPOSED_PANEL_MOTION', 'PHASE_STRUCTURE', 'FULL_CANVAS_RELEASE']);
   const hardGateDisposition: 'PASS' | 'FAIL' = checks.some((check) => hardCheckIds.has(check.checkId) && check.status !== 'PASS') ? 'FAIL' : 'PASS';

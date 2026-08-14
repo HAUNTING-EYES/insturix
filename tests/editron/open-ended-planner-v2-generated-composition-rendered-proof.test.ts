@@ -12,7 +12,7 @@ import type { GeneratedCompositionProxyReceiptV1 } from '@/lib/editron/research/
 import { DEV02_GENERATED_COMPOSITION_PROGRAM_V1 } from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-generated-composition-program-v1';
 
 describe('open-ended planner V2 DEV-02 rendered proof policy', () => {
-  it('passes objective filmstrip gates while keeping flash safety and creative taste unverifiable', async () => {
+  it('passes objective filmstrip gates while keeping regulatory flash safety and creative taste unverifiable', async () => {
     const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'editron-dev02-proof-'));
     try {
       const fixture = await proofFixture(scratch);
