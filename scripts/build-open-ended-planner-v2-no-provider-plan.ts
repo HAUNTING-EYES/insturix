@@ -11,6 +11,8 @@ const sourcePaths = [
   'tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json',
   'tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json',
   'tests/fixtures/editron/open-ended-planner-v2/development-media-manifest-v2.json',
+  'tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-editorial-intent-v2.json',
+  'tests/fixtures/editron/open-ended-planner-v2/dev02-stage3-evidence-pack-v2.json',
   'lib/editron/research/open-ended-planner/staged-packet-v2.ts',
 ];
 

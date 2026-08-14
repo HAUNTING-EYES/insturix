@@ -1883,9 +1883,17 @@
       "sha256": "027fc3800a27627b3dc5653d1323485f05068e6182e59c0528c2cb89612b02cc"
     },
     {
+      "path": "tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-editorial-intent-v2.json",
+      "sha256": "20dd25a079626d372409684c02e85e96615c73eaeaf59a1269ab31e14197ec1d"
+    },
+    {
+      "path": "tests/fixtures/editron/open-ended-planner-v2/dev02-stage3-evidence-pack-v2.json",
+      "sha256": "56c1fe76d682a4cd57c9e7d06f8754689800aea7c43a96e97fecf4c7e2e2fc6a"
+    },
+    {
       "path": "lib/editron/research/open-ended-planner/staged-packet-v2.ts",
-      "sha256": "ecac614e2743a30da8e338e5aa206bf834405272d4273d0f34ed7898dae11719"
+      "sha256": "4783ed78cd14ce193bde86a9e5c08fd56f7931c3d6f5d27603979f859d11af78"
     }
   ],
-  "planHash": "976703ff3ff2a8ecc5ae76c19db66bd207c693cb603cc358eb6c9635d2e7a30f"
+  "planHash": "3a5e9f8d8c8b29d3c17ce8a09289d93ac8047c34b1f33862068e67afa23437d1"
 }
