@@ -132,7 +132,7 @@ export function parseGeneratedCompositionPlayableProxyObservationV1(
   }
   if (observation.color.matrix !== 'bt709' || observation.color.transfer !== 'bt709' || observation.color.primaries !== 'bt709'
     || observation.color.fullRange !== false || observation.highDynamicRange || observation.alpha) {
-    throw new Error('Generated composition playable proxy color contract drift');
+    throw new Error(`Generated composition playable proxy color contract drift: ${JSON.stringify({ color: observation.color, highDynamicRange: observation.highDynamicRange, alpha: observation.alpha })}`);
   }
   if (observation.chromaFormatIdc !== 1 || observation.bitDepthLumaMinus8 !== 0 || observation.bitDepthChromaMinus8 !== 0) {
     throw new Error('Generated composition playable proxy pixel-format drift');
