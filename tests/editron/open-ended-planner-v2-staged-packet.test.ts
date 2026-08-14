@@ -206,7 +206,19 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     const claimItems = stageOneProperties.targetClaims.items as Record<string, unknown>;
     expect(claimItems.additionalProperties).toBe(false);
     expect((claimItems.required as string[])).toEqual(expect.arrayContaining(['scope', 'relation', 'tolerance', 'proofKind']));
+    const temporalItems = stageOneProperties.temporalStructure.items as Record<string, unknown>;
+    const uncertaintyItems = stageOneProperties.uncertainties.items as Record<string, unknown>;
+    expect(temporalItems.additionalProperties).toBe(false);
+    expect(temporalItems.required).toEqual(expect.arrayContaining(['phaseId', 'phaseRole', 'scope', 'evidenceIds']));
+    expect(uncertaintyItems.additionalProperties).toBe(false);
+    expect(uncertaintyItems.required).toEqual(expect.arrayContaining(['uncertaintyId', 'affectedClaimIds', 'disposition', 'evidenceIds']));
     expect(() => buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: { artifactType: 'ReferenceBlueprintV2', taskId: 'DEV-02', observableTargets: ['looks energetic'] } })).toThrow(/globalEditorialLanguage:REQUIRED/);
+    expect(() => buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: { ...prior('ReferenceBlueprintV2', 'DEV-02'), temporalStructure: [{}] } })).toThrow(/temporalStructure\[0\]\.phaseId:REQUIRED/);
+    expect(() => buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: { ...prior('ReferenceBlueprintV2', 'DEV-02'), uncertainties: [{}] } })).toThrow(/uncertainties\[0\]\.uncertaintyId:REQUIRED/);
+    expect(() => buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: {
+      ...prior('ReferenceBlueprintV2', 'DEV-02'),
+      temporalStructure: [{ phaseId: 'phase-1', label: 'hold', phaseRole: 'HOLD', scope: scope(), description: 'stable composition', evidenceIds: ['EV-DEV02-R1'], evaluatorOnly: true }],
+    } })).toThrow(/temporalStructure\[0\]\.evaluatorOnly:ADDITIONAL/);
     const second = buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('ReferenceBlueprintV2', 'DEV-02') });
     const stageTwoProperties = second.packet.outputContract.properties as Record<string, Record<string, unknown>>;
     expect(stageTwoProperties).toHaveProperty('routeDecision');
@@ -246,7 +258,7 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     const types = ['ReferenceBlueprintV2', 'EditorialIntentGraphV2', 'EvidenceBoundIntentGraphV2', 'CompiledOperationGraphV2'];
     for (let stage = 2; stage <= 5; stage += 1) packets.push(buildNextProviderStagePacketV2({ previousPacket: packets.at(-1) as HashedStagePacketV2, stage: stage as 2 | 3 | 4 | 5, executionFormArm: 'FREE_CHOICE', priorArtifact: prior(types[stage - 2], first.packet.taskId) }));
     const sum = (field: 'maxInputTokens' | 'maxVisibleOutputTokens' | 'maxReasoningTokens' | 'maxWallClockMs' | 'maxProviderCostUsd') => packets.reduce((total, packet) => total + packet.packet.stageBudget[field], 0);
-    expect(sum('maxInputTokens')).toBe(49000);
+    expect(sum('maxInputTokens')).toBe(54000);
     expect(sum('maxVisibleOutputTokens')).toBe(15800);
     expect(sum('maxReasoningTokens')).toBe(13200);
     expect(sum('maxWallClockMs')).toBe(240000);
