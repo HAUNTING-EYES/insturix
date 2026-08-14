@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { buildGeneratedCompositionBlindReviewPackV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-blind-review-v1';
 
 describe('generated-composition blind review pack', () => {
-  it('copies hash-bound videos without leaking model or source-candidate identity to the reviewer', async () => {
+  it('creates hash-distinct review copies without leaking model, candidate, or source-video identity', async () => {
     const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'editron-blind-review-'));
     try {
       const left = await candidate(scratch, 'terra-source', 'gpt-terra', 'left-video', 'a');
@@ -19,10 +19,16 @@ describe('generated-composition blind review pack', () => {
       const operatorKey = await fs.readFile(pack.operatorKeyPath, 'utf8');
       expect(manifest + form).not.toContain('gpt-terra'); expect(manifest + form).not.toContain('gemini-flash');
       expect(manifest + form).not.toContain('terra-source'); expect(manifest + form).not.toContain('gemini-source');
+      expect(manifest + form).not.toContain(left.videoSha256); expect(manifest + form).not.toContain(right.videoSha256);
       expect(operatorKey).toContain('gpt-terra'); expect(operatorKey).toContain('gemini-flash');
+      expect(operatorKey).toContain(left.videoSha256); expect(operatorKey).toContain(right.videoSha256);
       expect(pack.reviewStatus).toBe('AWAITING_REAL_HUMAN_REVIEW');
       expect(pack.candidateVideos.map(({ candidateId }) => candidateId)).toEqual(['candidate-a', 'candidate-b']);
-      expect(await fs.readFile(pack.candidateVideos[0].path, 'utf8')).toBe('right-video');
+      expect(pack.candidateVideos[0].sha256).not.toBe(right.videoSha256);
+      const reviewCopy = await fs.readFile(pack.candidateVideos[0].path);
+      expect(reviewCopy.subarray(0, -40).toString('utf8')).toBe('right-video');
+      expect(reviewCopy.readUInt32BE(reviewCopy.length - 40)).toBe(40);
+      expect(reviewCopy.subarray(reviewCopy.length - 36, reviewCopy.length - 32).toString('ascii')).toBe('free');
       expect(pack.stateEffects).toEqual([]);
     } finally { await fs.rm(scratch, { recursive: true, force: true }); }
   });

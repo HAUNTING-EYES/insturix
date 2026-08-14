@@ -57,14 +57,26 @@ export async function buildGeneratedCompositionBlindReviewPackV1(input: {
     assertSha(candidate.programHash, 'program'); assertSha(candidate.hostReceiptHash, 'host receipt');
     assertSha(candidate.proofHash, 'proof'); assertSha(candidate.videoSha256, 'video');
     const sourceStat = await fs.lstat(candidate.videoPath);
-    if (!sourceStat.isFile() || sourceStat.isSymbolicLink() || await sha256File(candidate.videoPath) !== candidate.videoSha256) {
+    if (!sourceStat.isFile() || sourceStat.isSymbolicLink() || sourceStat.size <= 0
+      || path.extname(candidate.videoPath).toLowerCase() !== '.mp4'
+      || await sha256File(candidate.videoPath) !== candidate.videoSha256) {
       throw new Error(`GENERATED_COMPOSITION_BLIND_REVIEW_VIDEO_INVALID:${candidate.sourceCandidateId}`);
     }
     const fileName = `${alias}.mp4`; const destination = path.join(reviewerRoot, fileName);
     await fs.copyFile(candidate.videoPath, destination, fsConstants.COPYFILE_EXCL);
-    if (await sha256File(destination) !== candidate.videoSha256) throw new Error(`GENERATED_COMPOSITION_BLIND_REVIEW_COPY_DRIFT:${alias}`);
-    publicCandidates.push({ candidateId: alias, fileName, sha256: candidate.videoSha256, byteLength: sourceStat.size });
-    operatorMappings.push({ candidateId: alias, sourceCandidateId: candidate.sourceCandidateId, modelIdentity: candidate.modelIdentity, programHash: candidate.programHash, hostReceiptHash: candidate.hostReceiptHash, proofHash: candidate.proofHash, videoSha256: candidate.videoSha256 });
+    const blindingCommitment = sha256(Buffer.concat([entropy, Buffer.from(alias, 'utf8'), Buffer.from(candidate.videoSha256, 'hex')]));
+    await fs.appendFile(destination, reviewIdentityFreeBox(blindingCommitment));
+    const reviewSha256 = await sha256File(destination); const reviewStat = await fs.lstat(destination);
+    if (reviewSha256 === candidate.videoSha256 || reviewStat.size !== sourceStat.size + 40
+      || await sha256FilePrefix(destination, sourceStat.size) !== candidate.videoSha256) {
+      throw new Error(`GENERATED_COMPOSITION_BLIND_REVIEW_COPY_DRIFT:${alias}`);
+    }
+    publicCandidates.push({ candidateId: alias, fileName, sha256: reviewSha256, byteLength: reviewStat.size });
+    operatorMappings.push({
+      candidateId: alias, sourceCandidateId: candidate.sourceCandidateId, modelIdentity: candidate.modelIdentity,
+      programHash: candidate.programHash, hostReceiptHash: candidate.hostReceiptHash, proofHash: candidate.proofHash,
+      sourceVideoSha256: candidate.videoSha256, reviewVideoSha256: reviewSha256, blindingCommitment,
+    });
   }
 
   const publicUnsigned = {
@@ -72,6 +84,8 @@ export async function buildGeneratedCompositionBlindReviewPackV1(input: {
     taskId: 'DEV-02' as const,
     createdAt: input.createdAt,
     modelIdentityDisposition: 'WITHHELD_FROM_REVIEWER' as const,
+    sourceIdentityDisposition: 'WITHHELD_RANDOMIZED_REVIEW_COPY' as const,
+    reviewerIsolationRequirement: 'REVIEWER_MUST_NOT_ACCESS_OPERATOR_KEY_OR_SOURCE_ARTIFACTS' as const,
     reviewStatus: 'AWAITING_REAL_HUMAN_REVIEW' as const,
     playbackRequirement: 'WATCH_EACH_COMPLETE_VIDEO_AT_NORMAL_SPEED_BEFORE_RATING' as const,
     candidates: publicCandidates,
@@ -133,9 +147,24 @@ export async function buildGeneratedCompositionBlindReviewPackV1(input: {
 
 function assertSha(value: string, label: string): void { if (!/^[a-f0-9]{64}$/.test(value)) throw new Error(`GENERATED_COMPOSITION_BLIND_REVIEW_${label.toUpperCase().replaceAll(' ', '_')}_HASH_INVALID`); }
 function sha256(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex'); }
+function reviewIdentityFreeBox(commitment: string): Buffer {
+  assertSha(commitment, 'blinding commitment');
+  const box = Buffer.alloc(40); box.writeUInt32BE(box.byteLength, 0); box.write('free', 4, 'ascii'); Buffer.from(commitment, 'hex').copy(box, 8);
+  return box;
+}
 async function sha256File(filePath: string): Promise<string> {
   const hash = createHash('sha256');
   await new Promise<void>((resolve, reject) => { const stream = createReadStream(filePath); stream.on('data', (chunk) => hash.update(chunk)); stream.on('error', reject); stream.on('end', resolve); });
+  return hash.digest('hex');
+}
+async function sha256FilePrefix(filePath: string, byteLength: number): Promise<string> {
+  if (!Number.isSafeInteger(byteLength) || byteLength <= 0) throw new Error('GENERATED_COMPOSITION_BLIND_REVIEW_PREFIX_LENGTH_INVALID');
+  const hash = createHash('sha256'); let observed = 0;
+  await new Promise<void>((resolve, reject) => {
+    const stream = createReadStream(filePath, { start: 0, end: byteLength - 1 });
+    stream.on('data', (chunk) => { observed += chunk.length; hash.update(chunk); }); stream.on('error', reject); stream.on('end', resolve);
+  });
+  if (observed !== byteLength) throw new Error('GENERATED_COMPOSITION_BLIND_REVIEW_PREFIX_COVERAGE_DRIFT');
   return hash.digest('hex');
 }
 async function writeExclusiveJson(filePath: string, value: unknown): Promise<void> { await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' }); }
