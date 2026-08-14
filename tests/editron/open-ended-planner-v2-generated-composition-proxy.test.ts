@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { resolveGeneratedPanelGeometryV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-api-v1';
+import { parseGeneratedCompositionPlayableProxyProbeV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-playable-proxy-v1';
 import {
   renderGeneratedCompositionProxyInsideSandboxV1,
   renderTrustedGeneratedCompositionProxyV1,
@@ -57,6 +58,15 @@ describe('open-ended planner V2 trusted generated-composition proxy', () => {
       };
       const receipt = await renderTrustedGeneratedCompositionProxyV1(fixture.input, {
         workspaceRoot: path.join(scratch, 'workspaces'),
+        includePlayableProxy: true,
+        playableRenderer: async ({ output, expected }) => {
+          const bytes = Buffer.from('playable-proxy'); await fs.writeFile(output, bytes);
+          return {
+            path: output, sha256: hashBytes(bytes), container: 'MP4', codec: 'H264', pixelFormat: 'YUV420P',
+            color: { space: 'BT709', transfer: 'BT709', primaries: 'BT709', range: 'LIMITED' }, audio: 'ABSENT',
+            width: expected.width, height: expected.height, frameRate: expected.frameRate, durationInFrames: expected.durationInFrames,
+          };
+        },
         adapter,
       });
       expect(renderCalls).toEqual([0, 24, 108, 144, 145, 179]);
@@ -67,6 +77,7 @@ describe('open-ended planner V2 trusted generated-composition proxy', () => {
         stateEffects: [],
       });
       expect(receipt.stills).toHaveLength(6);
+      expect(receipt.playableProxy).toMatchObject({ codec: 'H264', frameRate: { numerator: '30', denominator: '1' }, durationInFrames: 180, audio: 'ABSENT' });
       expect(await fs.readFile(path.join(receipt.workspaceDir, 'receipt.json'), 'utf8')).toContain(receipt.receiptHash);
 
       const modelProgram = {
@@ -91,6 +102,17 @@ describe('open-ended planner V2 trusted generated-composition proxy', () => {
     } finally {
       await fs.rm(scratch, { recursive: true, force: true });
     }
+  });
+
+  it('accepts only an exact, silent, BT.709 H.264 probe', () => {
+    const expected = { width: 1080, height: 1920, frameRate: { numerator: '30', denominator: '1' }, durationInFrames: 180 };
+    const probe = {
+      streams: [{ codec_type: 'video', codec_name: 'h264', width: 1080, height: 1920, pix_fmt: 'yuv420p', avg_frame_rate: '30/1', r_frame_rate: '30/1', nb_frames: '180', duration: '6.000000', color_space: 'bt709', color_transfer: 'bt709', color_primaries: 'bt709', color_range: 'tv' }],
+      format: { format_name: 'mov,mp4,m4a,3gp,3g2,mj2', duration: '6.000000' },
+    };
+    expect(parseGeneratedCompositionPlayableProxyProbeV1(probe, expected)).toMatchObject({ codec: 'H264', audio: 'ABSENT', frameRate: { numerator: '30', denominator: '1' } });
+    expect(() => parseGeneratedCompositionPlayableProxyProbeV1({ ...probe, streams: [...probe.streams, { ...probe.streams[0], codec_type: 'audio' }] }, expected)).toThrow(/exactly one video stream/);
+    expect(() => parseGeneratedCompositionPlayableProxyProbeV1({ ...probe, streams: [{ ...probe.streams[0], avg_frame_rate: '24/1' }] }, expected)).toThrow(/frame-rate drift/);
   });
 });
 

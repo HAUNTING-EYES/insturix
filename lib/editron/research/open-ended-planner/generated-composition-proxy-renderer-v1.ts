@@ -9,6 +9,10 @@ import sharp from 'sharp';
 
 import { hashCanonicalJsonV1 } from './contracts-v1';
 import {
+  renderGeneratedCompositionPlayableProxyV1,
+  type GeneratedCompositionPlayableProxyV1,
+} from './generated-composition-playable-proxy-v1';
+import {
   GENERATED_COMPOSITION_API_ID_V1,
   type GeneratedCompositionProgramV1,
   type GeneratedCompositionSourceBundleV1,
@@ -45,6 +49,8 @@ export interface GeneratedCompositionProxyRenderOptionsV1 {
   workspaceRoot?: string;
   apiImplementationPath?: string;
   proofFrames?: readonly number[];
+  includePlayableProxy?: boolean;
+  playableRenderer?: typeof renderGeneratedCompositionPlayableProxyV1;
   adapter?: RenderAdapterV1;
 }
 
@@ -58,6 +64,7 @@ export interface GeneratedCompositionProxyReceiptV1 {
   composition: { width: number; height: number; fps: number; durationInFrames: number };
   stills: readonly { frame: number; path: string; sha256: string; width: number; height: number }[];
   contactSheet: { path: string; sha256: string; width: number; height: number };
+  playableProxy?: GeneratedCompositionPlayableProxyV1;
   proof: {
     contract: 'PASS';
     materializedInputs: 'PASS';
@@ -128,7 +135,7 @@ async function renderVerifiedGeneratedCompositionProxyV1(
   const duration = positiveInteger(input.program.duration.compositionEndExclusiveTick, 'composition duration');
   const fps = rationalIntegerRate(input.program.compositionTimebase.rate.numerator, input.program.compositionTimebase.rate.denominator);
   const proofFrames = options.proofFrames ? validateProofFrames(options.proofFrames, duration) : selectGeneratedCompositionProofFramesV1(duration);
-  const workspaceId = hashCanonicalJsonV1({ programHash: verification.programHash, sourceBundleHash: verification.sourceBundleHash, apiHash, proofFrames }).slice(0, 20);
+  const workspaceId = hashCanonicalJsonV1({ programHash: verification.programHash, sourceBundleHash: verification.sourceBundleHash, apiHash, proofFrames, includePlayableProxy: options.includePlayableProxy === true }).slice(0, 20);
   const workspaceDir = safeWorkspacePath(workspaceRoot, workspaceId);
   const publicDir = path.join(workspaceDir, 'public');
   const stillDir = path.join(workspaceDir, 'stills');
@@ -161,6 +168,7 @@ async function renderVerifiedGeneratedCompositionProxyV1(
   let budgetExceeded = false;
   const timer = setTimeout(() => { budgetExceeded = true; cancel(); }, input.program.resourceBudget.maxWallTimeMs);
   const stills: Array<{ frame: number; path: string; sha256: string; width: number; height: number }> = [];
+  let playableProxy: GeneratedCompositionPlayableProxyV1 | undefined;
   try {
     for (const frame of proofFrames) {
       const output = path.join(stillDir, `frame-${String(frame).padStart(4, '0')}.png`);
@@ -169,6 +177,10 @@ async function renderVerifiedGeneratedCompositionProxyV1(
       if (metadata.width !== selectedComposition.width || metadata.height !== selectedComposition.height) throw new Error(`Generated composition still dimensions drift at frame ${frame}`);
       stills.push({ frame, path: output, sha256: await sha256File(output), width: metadata.width, height: metadata.height });
     }
+    if (options.includePlayableProxy) playableProxy = await (options.playableRenderer ?? renderGeneratedCompositionPlayableProxyV1)({
+      serveUrl, composition: selectedComposition, output: path.join(workspaceDir, 'playable-proxy.mp4'), cancelSignal,
+      expected: { width: expectedComposition.width, height: expectedComposition.height, frameRate: input.program.compositionTimebase.rate, durationInFrames: duration },
+    });
   } catch (error) {
     try { cancel(); } catch { /* best-effort browser teardown */ }
     if (budgetExceeded) throw new Error(`Generated composition proxy exceeded ${input.program.resourceBudget.maxWallTimeMs}ms wall budget`);
@@ -187,6 +199,7 @@ async function renderVerifiedGeneratedCompositionProxyV1(
     composition: probedComposition,
     stills,
     contactSheet,
+    ...(playableProxy ? { playableProxy } : {}),
     proof: { contract: 'PASS' as const, materializedInputs: 'PASS' as const, compile: 'PASS' as const, renderedEvidence: 'CAPTURED_UNJUDGED' as const, productionSandbox: execution.productionSandbox },
     stateEffects: [] as const,
     workspaceDir,
