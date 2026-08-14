@@ -346,7 +346,6 @@ export class ProjectService {
     userId: string,
     name: string,
     options?: {
-      templateId?: string;
       brandId?: string;
       orgId?: string | null;
       sourceSessionId?: string;

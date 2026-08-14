@@ -30,7 +30,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const project = await projectService.createProject(userId, name, { templateId, brandId, orgId: orgId ?? null });
+    if (templateId !== undefined) {
+      return NextResponse.json(
+        { success: false, error: 'Project templates are not supported by this endpoint' },
+        { status: 400 }
+      );
+    }
+
+    const project = await projectService.createProject(userId, name, {
+      brandId,
+      orgId: orgId ?? null,
+    });
 
     return NextResponse.json({
       success: true,
