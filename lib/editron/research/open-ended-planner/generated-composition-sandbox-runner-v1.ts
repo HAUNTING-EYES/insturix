@@ -28,6 +28,7 @@ export const GENERATED_COMPOSITION_SANDBOX_OVERLAY_PATHS_V1 = [
   'lib/editron/research/open-ended-planner/generated-composition-program-v1.ts',
   'lib/editron/research/open-ended-planner/generated-composition-program-verifier-v1.ts',
   'lib/editron/research/open-ended-planner/generated-composition-api-v1.tsx',
+  'lib/editron/research/open-ended-planner/generated-composition-avc-metadata-v1.ts',
   'lib/editron/research/open-ended-planner/generated-composition-playable-proxy-v1.ts',
   'lib/editron/research/open-ended-planner/generated-composition-proxy-renderer-v1.ts',
   'lib/editron/research/open-ended-planner/generated-composition-sandbox-contract-v1.ts',
@@ -35,6 +36,7 @@ export const GENERATED_COMPOSITION_SANDBOX_OVERLAY_PATHS_V1 = [
   'lib/editron/freeform-glm/ollama-client.ts',
   'lib/editron/freeform-trace/instrument.ts',
   'lib/editron/freeform-trace/types.ts',
+  'lib/editron/services/media/ffmpeg-runtime.ts',
 ] as const;
 
 interface SandboxCommandV1 { exitCode: number; stdout(): Promise<string>; stderr(): Promise<string> }

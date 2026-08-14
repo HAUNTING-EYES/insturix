@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { resolveGeneratedPanelGeometryV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-api-v1';
+import { parseGeneratedCompositionAvcMetadataV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-avc-metadata-v1';
 import { parseGeneratedCompositionPlayableProxyObservationV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-playable-proxy-v1';
 import {
   renderGeneratedCompositionProxyInsideSandboxV1,
@@ -112,6 +113,7 @@ describe('open-ended planner V2 trusted generated-composition proxy', () => {
       timeResolution: 90_000, firstTimestamp: 0, duration: 6, packetCount: 180, scannedPacketCount: 180,
       uniquePacketTimestampCount: 180, averagePacketRate: 30, constantFrameDurationTicks: 3_000,
       color: { primaries: 'bt709', transfer: 'bt709', matrix: 'bt709', fullRange: false }, highDynamicRange: false, alpha: false,
+      avcColor: { primaries: 1, transfer: 1, matrix: 1, fullRange: false },
       chromaFormatIdc: 1, bitDepthLumaMinus8: 0, bitDepthChromaMinus8: 0,
     };
     expect(parseGeneratedCompositionPlayableProxyObservationV1(observation, expected)).toMatchObject({ codec: 'H264', audio: 'ABSENT', frameRate: { numerator: '30', denominator: '1' } });
@@ -119,6 +121,20 @@ describe('open-ended planner V2 trusted generated-composition proxy', () => {
     expect(() => parseGeneratedCompositionPlayableProxyObservationV1({ ...observation, averagePacketRate: 24 }, expected)).toThrow(/frame-rate drift/);
     expect(() => parseGeneratedCompositionPlayableProxyObservationV1({ ...observation, chromaFormatIdc: 2 }, expected)).toThrow(/pixel-format drift/);
     expect(() => parseGeneratedCompositionPlayableProxyObservationV1({ ...observation, color: { ...observation.color, primaries: 'smpte432' } }, expected)).toThrow(/color contract drift/);
+    expect(() => parseGeneratedCompositionPlayableProxyObservationV1({ ...observation, avcColor: { ...observation.avcColor, primaries: null } }, expected)).toThrow(/color contract drift/);
+  });
+
+  it('reads explicit BT.709 limited-range VUI from AVC configuration bytes', () => {
+    const untagged = Uint8Array.from([1,100,0,40,255,225,0,30,103,100,0,40,172,217,64,68,3,199,151,192,90,129,1,1,82,128,0,0,3,0,128,0,0,30,7,140,24,203,1,0,6,104,235,224,140,178,44]);
+    const normalized = Uint8Array.from([1,100,0,40,255,225,0,30,103,100,0,40,172,217,64,68,3,199,151,192,90,128,128,128,210,128,0,0,3,0,128,0,0,30,7,140,24,203,1,0,6,104,235,224,140,178,44]);
+    expect(parseGeneratedCompositionAvcMetadataV1(untagged)).toMatchObject({
+      chromaFormatIdc: 1, bitDepthLumaMinus8: 0, bitDepthChromaMinus8: 0,
+      colourPrimaries: 2, transferCharacteristics: 2, matrixCoefficients: 2,
+    });
+    expect(parseGeneratedCompositionAvcMetadataV1(normalized)).toEqual({
+      chromaFormatIdc: 1, bitDepthLumaMinus8: 0, bitDepthChromaMinus8: 0, videoFullRangeFlag: false,
+      colourPrimaries: 1, transferCharacteristics: 1, matrixCoefficients: 1,
+    });
   });
 });
 
