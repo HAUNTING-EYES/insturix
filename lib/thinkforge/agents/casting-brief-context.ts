@@ -36,7 +36,7 @@ export function formatCastingBriefForPrompt(productionBrief?: ProductionBrief | 
     '- If an avatar-cast character speaks, set that line to the same speakerId, onCamera: true, delivery: "sync-dialogue". Use "narrator" only for VO-over-visuals.',
     `- Keep on-camera sync dialogue near ${Math.round(DEFAULT_ON_CAMERA_RATIO * 100)}% of spoken lines unless the brief demands more; prefer narrator voiceover for non-essential beats.`,
     `- For every avatar sync-dialogue scene, visualDescription must be relip-safe: face visible, front/on-camera framing, no more than ${WRITER_CAPABILITIES.relipSafe.maxOcclusion} occlusion, and ${WRITER_CAPABILITIES.relipSafe.motionDuringLines} motion or calmer.`,
-    `- Any avatar sync-dialogue scene over ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s must include subShots split into chunks of ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or less.`,
+    `- Each avatar sync-dialogue sidecar.scene is one real lip-sync job. When a spoken beat exceeds ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s, split it into consecutive complete sidecar.scenes of ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or less. Each split scene needs its own duration, visual direction, line data, relip safety data, and shotIntent; subShots do not split a lip-sync job.`,
   ].join('\n');
 }
 

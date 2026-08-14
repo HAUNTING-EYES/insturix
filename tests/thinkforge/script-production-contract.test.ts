@@ -98,6 +98,48 @@ function shortModelOutput(): ScriptWriterModelOutput {
   };
 }
 
+function shootKitProfile() {
+  return {
+    version: 1,
+    profileId: 'legacy_sidecar_profile',
+    spaces: [{
+      id: 'room_a',
+      label: 'Home office',
+      dimensionsM: { width: 3.5, depth: 4.5, height: 2.8 },
+      usableDepthM: 3.8,
+      noiseFloor: 'quiet' as const,
+    }],
+    equipment: [{
+      id: 'phone',
+      label: 'Phone camera',
+      category: 'camera' as const,
+      kind: 'phone' as const,
+      availability: 'owned' as const,
+      preferred: true,
+    }],
+    people: {
+      performersAvailable: 1,
+      cameraOperatorsAvailable: 0,
+      assistantsAvailable: 0,
+      selfShoot: true,
+    },
+    constraints: {
+      currency: 'INR',
+      maxIncrementalSpend: 0,
+      rentalAllowed: false,
+      purchaseAllowed: false,
+      maxSetupMinutes: 20,
+      maxSetupChanges: 4,
+      maxLocationChanges: 0,
+    },
+    preferences: {
+      defaultPlanTier: 'no-spend' as const,
+      prioritize: ['cost', 'setup-time'] as const,
+      householdSubstitutionsAllowed: true,
+    },
+  };
+}
+
 describe('ThinkForge script production contract', () => {
   it('keeps the original ideation brief as the initial-draft authoring prompt', () => {
     expect(resolveThinkForgeAuthoringPrompt(
@@ -173,28 +215,18 @@ describe('ThinkForge script production contract', () => {
     })).toThrow(/spoken_word_count_mismatch/);
   });
 
-  it('turns an outdated stored sidecar into an actionable Shoot Kit state', () => {
-    const invalidStoredSidecar = { ...shortSidecar() } as Record<string, unknown>;
-    delete invalidStoredSidecar.characterDescriptions;
-    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  it('upgrades legacy render metadata before reporting the next real Shoot Kit requirement', () => {
+    const legacyStoredSidecar = { ...shortSidecar() } as Record<string, unknown>;
+    delete legacyStoredSidecar.characterDescriptions;
 
-    try {
-      expect(buildScriptShotPlan({
-        sidecar: invalidStoredSidecar,
-        profile: {},
-        aspectRatio: '16:9',
-      })).toEqual({
-        status: 'needs-user-input',
-        plan: null,
-        issues: [{
-          code: 'invalid_script_sidecar',
-          message: 'This script has incomplete or outdated production data.',
-          questions: ['Regenerate this script once before creating its Shoot Kit.'],
-        }],
-      });
-      expect(log).toHaveBeenCalledOnce();
-    } finally {
-      log.mockRestore();
-    }
+    expect(buildScriptShotPlan({
+      sidecar: legacyStoredSidecar,
+      profile: shootKitProfile(),
+      aspectRatio: '16:9',
+    })).toMatchObject({
+      status: 'needs-user-input',
+      plan: null,
+      issues: [expect.objectContaining({ code: 'missing_shot_intent' })],
+    });
   });
 });

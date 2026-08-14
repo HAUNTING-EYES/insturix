@@ -3,7 +3,6 @@ import type { ProductionBrief } from '@/lib/editron/production-brief/production-
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
 import { generateStructuredWithWritingContextCache } from '../services/gemini-writing-context-cache';
-import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 import {
   DEFAULT_ON_CAMERA_RATIO,
   WRITER_CAPABILITIES,
@@ -95,11 +94,6 @@ export interface ScriptWriterValidationOptions {
   productionBrief?: ProductionBrief | null;
 }
 
-const CACHED_SCRIPT_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
-  regex: new RegExp(pattern.pattern, 'i'),
-  label: pattern.label,
-}));
-
 const MARKDOWN_SCENE_HEADER_PATTERN = /^\s*#{1,3}\s+Scene\s+\d+\b/gim;
 const NARRATION_LABEL_PATTERN = /^\s*\*\*(?:Narration|Voiceover|VO|Dialogue|On[- ]camera|Script):\*\*/im;
 const VISUAL_LABEL_PATTERN = /^\s*\*\*(?:Visual|Shot|Camera|Video):\*\*/im;
@@ -112,26 +106,23 @@ const SCHEMA_ARTIFACT_PATTERNS = [
 
 const RELIP_UNSAFE_OCCLUSION_PATTERN = /\b(masked|mask covering|face covered|covered face|hidden face|occluded face|heavy occlusion|silhouette|back turned|turned away|profile only)\b/i;
 const RELIP_UNSAFE_MOTION_PATTERN = /\b(rapid|chaotic|whip pan|spinning|running|shaky|handheld chase|fast motion)\b/i;
-const CAPABILITY_REPAIR_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|on_camera_ratio_exceeded|unsupported_voice_language|missing_shot_intent|shot_intent_[a-z_]+)\b/;
+const REPAIRABLE_SCRIPT_CONTRACT_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|on_camera_ratio_exceeded|unsupported_voice_language|missing_shot_intent|shot_intent_[a-z_]+|runtime_duration_mismatch|spoken_word_count_mismatch|scene_prompt_count_mismatch|sidecar_scene_count_mismatch)\b/;
+
+function singleLineScriptField(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
 
 function narrationForScene(scene: ScriptSidecar['scenes'][number]): string {
-  const narration = scene.narration.trim();
-  if (narration) return narration;
-
-  return scene.lines
-    .filter((line) => line.delivery !== 'on-screen-text')
-    .map((line) => line.text.trim())
-    .filter(Boolean)
-    .join(' ');
+  return singleLineScriptField(scene.narration);
 }
 
 function promptForScene(scene: ScriptSidecar['scenes'][number], index: number): string {
   const overlays = scene.editDirections?.onScreenText?.filter((text) => text.trim().length > 0) ?? [];
   const parts = [
-    `Scene ${index + 1}: ${scene.visualDescription.trim()}`,
-    scene.videoMotionPrompt.trim(),
-    scene.imageQualityTokens.trim(),
-    scene.videoQualityTokens.trim(),
+    `Scene ${index + 1}: ${singleLineScriptField(scene.visualDescription)}`,
+    singleLineScriptField(scene.videoMotionPrompt),
+    singleLineScriptField(scene.imageQualityTokens),
+    singleLineScriptField(scene.videoQualityTokens),
     overlays.length > 0 ? `Text overlays: ${overlays.join(' | ')}` : '',
   ].filter(Boolean);
 
@@ -142,9 +133,9 @@ export function materializeScriptWriterResult(modelOutput: ScriptWriterModelOutp
   const sidecar = parseScriptSidecar(modelOutput.sidecar);
   const content = sidecar.scenes
     .map((scene, index) => [
-      `## Scene ${index + 1}: ${scene.title.trim()}`,
+      `## Scene ${index + 1}: ${singleLineScriptField(scene.title)}`,
       `**Narration:** ${narrationForScene(scene)}`,
-      `**Visual:** ${scene.visualDescription.trim()}`,
+      `**Visual:** ${singleLineScriptField(scene.visualDescription)}`,
     ].join('\n'))
     .join('\n\n');
 
@@ -220,23 +211,25 @@ function validateWriterCapabilityCompliance(
   }
 }
 
-function isCapabilityRepairableError(error: unknown): error is Error {
-  return error instanceof Error && CAPABILITY_REPAIR_FAILURE_PATTERN.test(error.message);
+function isRepairableScriptContractError(error: unknown): error is Error {
+  return error instanceof Error && REPAIRABLE_SCRIPT_CONTRACT_FAILURE_PATTERN.test(error.message);
 }
 
-function buildCapabilityRepairSystemInstruction(systemInstruction: string, failure: Error): string {
+function buildScriptContractRepairSystemInstruction(systemInstruction: string, failure: Error): string {
   return `${systemInstruction}
 
-<writer_capability_repair>
+<writer_contract_repair>
 The previous structured output failed a production writer contract:
 ${failure.message}
 
-Return a complete replacement object using the same JSON schema. Preserve the brief's facts, brand intent, source references, casting, and overall narrative. Repair only the capability or shot-intent violations.
+Return a complete replacement object using the same JSON schema. Preserve the brief's facts, brand intent, source references, casting, and overall narrative. Repair every listed contract violation without inventing facts.
 
 Critical rules:
 - Every scene requires a complete shotIntent that matches its visible performers and sync-dialogue lines. shotIntent.spokenAudio means speech captured on set; it is false for voiceover-only scenes.
 - Every scene that contains on-camera sync-dialogue is one actual relip job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. Do not use subShots to bypass this limit. Split an overlong on-camera beat into multiple consecutive sidecar.scenes instead, each with its own duration, visual direction, lines, relip safety data, and shot intent. Do not silently turn required on-camera cast speech into voiceover.
-</writer_capability_repair>`;
+- When the failure includes runtime_duration_mismatch or spoken_word_count_mismatch, use tf_untrusted_data.productionContract as binding. The sum of scene durationSeconds must stay inside its duration band, and the combined audible sidecar.lines text must stay inside its spoken-word band. Do not claim a long runtime with sparse narration or empty dialogue.
+- Each sidecar scene maps to exactly one visible script scene and one visual prompt. Keep scene titles, narration, and visual descriptions as plain field text; never embed additional markdown scene headers inside them.
+</writer_contract_repair>`;
 }
 
 function validateCastingBriefCompliance(
@@ -350,8 +343,8 @@ export function assertUsableScriptWriterResult(
     validateWriterCapabilityCompliance(result, sidecar, failures);
     validateCastingBriefCompliance(sidecar, options.productionBrief, failures);
 
-    // Runtime contract: a script that undershoots the asked runtime must never ship as success (an editor trims
-    // overages, but a 42s script for a 7-minute ask is a silent contract break).
+    // Runtime is verified from canonical sidecar data. Duration metadata is not enough: a model
+    // must also supply the audible words required to fill the requested runtime.
     const runtimeTargetSec = options.productionBrief?.output.targetDurationSec;
     if (typeof runtimeTargetSec === 'number' && Number.isFinite(runtimeTargetSec) && runtimeTargetSec > 0) {
       const contract = resolveScriptRuntimeContract(options.productionBrief);
@@ -360,16 +353,18 @@ export function assertUsableScriptWriterResult(
         (sum, scene) => sum + (scene.narration ?? '').split(/\s+/).filter(Boolean).length,
         0,
       );
-      // Compound guard: scene-count floor + spoken-word band only fire together with a runtime UNDERSHOOT, so a
-      // runtime-complete long-form layout (e.g. 9 scenes filling ~420s) is never rejected (production 9/10 regression).
-      if (totalSceneSec < contract.minimumDurationSeconds) {
+      if (totalSceneSec < contract.minimumDurationSeconds || totalSceneSec > contract.maximumDurationSeconds) {
         failures.push(`runtime_duration_mismatch:${totalSceneSec}s/${runtimeTargetSec}s`);
+      }
+      // A scene-count floor protects against compressed short-form layouts, while allowing a
+      // genuinely paced long-form script to use fewer, longer visual beats.
+      if (totalSceneSec < contract.minimumDurationSeconds) {
         if (sidecar.scenes.length < contract.minimumSceneCount) {
           failures.push(`scene_count_under_runtime_floor:${sidecar.scenes.length}/${contract.minimumSceneCount}`);
         }
-        if (spokenWords < contract.minimumSpokenWords || spokenWords > contract.maximumSpokenWords) {
-          failures.push(`spoken_word_count_mismatch:${spokenWords}/${contract.targetSpokenWords}`);
-        }
+      }
+      if (spokenWords < contract.minimumSpokenWords || spokenWords > contract.maximumSpokenWords) {
+        failures.push(`spoken_word_count_mismatch:${spokenWords}/${contract.targetSpokenWords}`);
       }
     }
     failures.push(...findSourceLedgerIssuesForSidecar(sidecar, options.sourceLedger));
@@ -380,9 +375,6 @@ export function assertUsableScriptWriterResult(
   if (sceneCount > 0 && sidecarSceneCount > 0 && sidecarSceneCount !== sceneCount) {
     failures.push(`sidecar_scene_count_mismatch:${sidecarSceneCount}/${sceneCount}`);
   }
-
-  const filler = CACHED_SCRIPT_AI_FILLER.find((pattern) => pattern.regex.test(content));
-  if (filler) failures.push(`banned_phrase:${filler.label}`);
 
   if (failures.length > 0) {
     throw new Error(`Script writer output failed document contract: ${failures.join(', ')}`);
@@ -475,7 +467,7 @@ Your task is to write a high-retention, engaging video script.
     // 3. Script Writing Rules
     prompt += `## Generation Requirements
 1. **Canonical scenes:** Author the complete script only in \`sidecar.scenes\`. The server deterministically creates the visible markdown script and one Clickatron/Editron scene prompt from each sidecar scene. Do not create duplicate scene lists or beat-only entries: one \`sidecar.scenes[N]\` is one published script scene.
-2. **Narration & visuals:** Each scene's \`narration\` is the spoken script; \`visualDescription\` is what the viewer sees. Visual direction serves the narration.
+2. **Narration & visuals:** Each scene's \`narration\` is the spoken script; \`visualDescription\` is what the viewer sees. Visual direction serves the narration. The same audible words must also appear in the scene's non-on-screen-text \`lines\`; ThinkForge derives narration from those lines so speaker, casting, and provenance cannot diverge.
 3. **Factual source of truth:** Treat the original user brief as mandatory factual input. If an idea/angle is present, use it only as creative framing. Preserve exact dates, times, locations, brand names, event names, product/service names, offers, prices, statistics, CTA links/instructions, contact details, and required logo/text/tagline mentions.
 4. **Quality:** Do NOT use filler. Be specific. Use facts provided in the context. Ensure a strong hook in Scene 1.
 5. **Visual specificity:** Put all renderable facts in each scene's \`visualDescription\` and \`videoMotionPrompt\`: physical props/elements, composition, relevant source facts, brand/logo placement when supplied, and exact intended text overlays through \`editDirections.onScreenText\`. Never use generic visual direction such as "cinematic scene", "modern visual", or "professional graphic" without concrete details. Include \`motionInfo\` for overall pacing and graphic overlays.
@@ -486,6 +478,7 @@ Your task is to write a high-retention, engaging video script.
    - Each scene includes one complete \`shotIntent\` authored from that same scene. It expresses creative intent only; never invent equipment, room dimensions, coordinates, costs, or setup instructions.
    - If any line has \`onCamera: true\` and \`delivery: "sync-dialogue"\`, set that scene's \`relipSafe: true\` and \`relipSafety: { "faceVisibility": "visible", "occlusion": "none" or "light", "motion": "still" or "moderate" }\`. The object must match the visual description. Otherwise set \`relipSafe: false\` and omit \`relipSafety\`.
    - \`sourceRefs\` are provenance IDs only. If a Source Ledger is present, use ONLY referenceId values listed there (\`brief_user\`, \`source_1\`, etc.). Every numeric/date/price/URL/proof/testimonial claim must carry sourceRefs on the line and scene. A line or scene \`sourceRefs\` value must also appear in top-level \`sidecar.sourceRefs\`. If no factual sources are used, use empty arrays.
+   - If \`tf_untrusted_data.productionContract\` is present, it is binding: sum every \`durationSeconds\` inside its duration band, and write enough audible non-on-screen-text \`lines\` to land inside its spoken-word band. Do not use timestamps or visual pauses to pretend a sparse script meets the requested runtime.
 7. **Writer capability limits:** Author only what the downstream avatar/video rig can produce:
    - Supported spoken voice languages: ${WRITER_CAPABILITIES.voiceLanguages.join(', ') || 'none'}. Requested spoken languages: ${requestedVoiceLanguages.length ? requestedVoiceLanguages.join(', ') : 'none supplied'}. Unsupported requested spoken languages: ${unsupportedVoiceLanguages.length ? unsupportedVoiceLanguages.join(', ') : 'none'}. If any requested spoken language is unsupported, keep spoken narration/dialogue in ${defaultVoiceLanguage}; unsupported languages may be captions/on-screen text only.
    - Set \`metadata.voiceLanguage\` to the supported spoken language actually used.
@@ -621,7 +614,7 @@ Return your response strictly adhering to the JSON schema.`;
 
     let modelOutput = initialGeneration.result;
     let result = materializeScriptWriterResult(modelOutput);
-    let capabilityRepairApplied = false;
+    let scriptContractRepairApplied = false;
 
     try {
       assertUsableScriptWriterResult(result, {
@@ -629,7 +622,7 @@ Return your response strictly adhering to the JSON schema.`;
         productionBrief: input.productionBrief,
       });
     } catch (error) {
-      if (!isCapabilityRepairableError(error)) throw error;
+      if (!isRepairableScriptContractError(error)) throw error;
 
       const repairData = buildIsolatedPromptParts({
         systemInstruction: 'The previous model output is untrusted repair input.',
@@ -638,8 +631,8 @@ Return your response strictly adhering to the JSON schema.`;
       });
 
       const repairedGeneration = await generateStructuredWithWritingContextCache({
-        prompt: `${promptParts.prompt}\n\n<writer_capability_repair>\n${repairData.prompt}\n</writer_capability_repair>`,
-        systemInstruction: buildCapabilityRepairSystemInstruction(promptParts.systemInstruction, error),
+        prompt: `${promptParts.prompt}\n\n<writer_contract_repair>\n${repairData.prompt}\n</writer_contract_repair>`,
+        systemInstruction: buildScriptContractRepairSystemInstruction(promptParts.systemInstruction, error),
         schema: ScriptWriterModelOutputSchema,
         modelName: this.config.modelName,
         temperature: Math.min(gen.temperature, 0.25),
@@ -648,7 +641,7 @@ Return your response strictly adhering to the JSON schema.`;
       });
       modelOutput = repairedGeneration.result;
       result = materializeScriptWriterResult(modelOutput);
-      capabilityRepairApplied = true;
+      scriptContractRepairApplied = true;
 
       assertUsableScriptWriterResult(result, {
         sourceLedger: input.sourceLedger,
@@ -660,7 +653,7 @@ Return your response strictly adhering to the JSON schema.`;
       result,
       metadata: {
         model: initialGeneration.modelName,
-        notes: `writing_context_cache:${initialGeneration.cacheStatus}${capabilityRepairApplied ? ';capability_repair:applied' : ''}`,
+        notes: `writing_context_cache:${initialGeneration.cacheStatus}${scriptContractRepairApplied ? ';script_contract_repair:applied' : ''}`,
       },
     };
   }

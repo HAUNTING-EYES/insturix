@@ -341,10 +341,77 @@ export const ScriptGenerationResultSchema: z.ZodType<ScriptGenerationResult> = z
   }
 }) as z.ZodType<ScriptGenerationResult>;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+/**
+ * Sidecar v1 added these render-style fields after early ThinkForge scripts had already been
+ * persisted. They are not part of the narrative, cast, provenance, or shot-intent contract, so
+ * their absence is safely represented by deterministic empty values when reading an old script.
+ * Structural production fields remain required and therefore still fail closed.
+ */
+function applyLegacySidecarDefaults(input: unknown): unknown {
+  if (!isRecord(input)) return input;
+
+  return {
+    ...input,
+    overallMusicPrompt: input.overallMusicPrompt === undefined ? '' : input.overallMusicPrompt,
+    characterDescriptions: input.characterDescriptions === undefined ? {} : input.characterDescriptions,
+    colorPalette: input.colorPalette === undefined ? [] : input.colorPalette,
+    environmentNotes: input.environmentNotes === undefined ? '' : input.environmentNotes,
+    suggestedProfileCategory: input.suggestedProfileCategory === undefined
+      ? 'production-mode'
+      : input.suggestedProfileCategory,
+    sourceRefs: input.sourceRefs === undefined ? [] : input.sourceRefs,
+  };
+}
+
+function applyLegacyGenerationResultDefaults(input: unknown): unknown {
+  if (!isRecord(input)) return input;
+
+  return {
+    ...input,
+    sidecar: applyLegacySidecarDefaults(input.sidecar),
+  };
+}
+
+/**
+ * Per-line speech carries speaker, delivery, casting, and provenance, making it the canonical
+ * source of audible script text. `scene.narration` is a compatibility projection for renderer
+ * contracts that predate the line model. Keeping this projection server-owned prevents the two
+ * fields from silently diverging in the editor, validation, and Editron export paths.
+ */
+export function getCanonicalSceneNarration(
+  scene: Pick<SidecarScene, 'narration' | 'lines'>,
+): string {
+  const spokenText = scene.lines
+    .filter((line) => line.delivery !== 'on-screen-text')
+    .map((line) => line.text.trim())
+    .filter(Boolean)
+    .join(' ');
+
+  return (spokenText || scene.narration || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeParsedScriptSidecar(sidecar: ScriptSidecar): ScriptSidecar {
+  return {
+    ...sidecar,
+    scenes: sidecar.scenes.map((scene) => ({
+      ...scene,
+      narration: getCanonicalSceneNarration(scene),
+    })),
+  };
+}
+
 export function parseScriptSidecar(input: unknown): ScriptSidecar {
-  return ScriptSidecarSchema.parse(input);
+  return normalizeParsedScriptSidecar(ScriptSidecarSchema.parse(applyLegacySidecarDefaults(input)));
 }
 
 export function parseScriptGenerationResult(input: unknown): ScriptGenerationResult {
-  return ScriptGenerationResultSchema.parse(input);
+  const result = ScriptGenerationResultSchema.parse(applyLegacyGenerationResultDefaults(input));
+  return {
+    ...result,
+    sidecar: normalizeParsedScriptSidecar(result.sidecar),
+  };
 }

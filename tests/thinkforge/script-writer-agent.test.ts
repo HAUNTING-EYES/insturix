@@ -192,6 +192,16 @@ function makeSidecar(overrides: Partial<ScriptSidecar> = {}): ScriptSidecar {
   };
 }
 
+function withSpokenWords(scene: SidecarScene, count: number): SidecarScene {
+  const spokenText = Array.from({ length: count }, (_, index) => `word${index + 1}`).join(' ');
+  const firstLine = scene.lines[0]!;
+  return {
+    ...scene,
+    narration: spokenText,
+    lines: [{ ...firstLine, text: spokenText }],
+  };
+}
+
 function makeResult(overrides: Partial<ScriptWriterResult> = {}): ScriptWriterResult {
   return {
     content: canonicalScript,
@@ -293,6 +303,7 @@ describe('ScriptWriterAgent prompt contract', () => {
     expect(prompt).toContain('Avatar Vault profile "avatar_profile_primary"');
     expect(prompt).toContain('delivery: "sync-dialogue"');
     expect(prompt).toContain('face visible');
+    expect(prompt).toContain('subShots do not split a lip-sync job');
     expect(prompt).toContain('Production shot intent');
     expect(prompt).toContain('never invent equipment');
   });
@@ -350,10 +361,50 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]).toMatchObject({
       schema: ScriptWriterModelOutputSchema,
       temperature: 0.25,
-      prompt: expect.stringContaining('<writer_capability_repair>'),
+      prompt: expect.stringContaining('<writer_contract_repair>'),
     });
-    expect(output.metadata?.notes).toContain('capability_repair:applied');
+    expect(output.metadata?.notes).toContain('script_contract_repair:applied');
     expect(() => assertUsableScriptWriterResult(output.result)).not.toThrow();
+  });
+
+  it('repairs a declared long runtime when the audible lines are too short', async () => {
+    const invalid = makeModelOutput({
+      sidecar: makeSidecar({
+        scenes: makeSidecar().scenes.map((scene, index) => ({
+          ...scene,
+          durationSeconds: 210,
+          generationUnitId: `scene_${index + 1}`,
+        })),
+      }),
+    });
+    const repaired = makeModelOutput({
+      sidecar: makeSidecar({
+        scenes: makeSidecar().scenes.map((scene, index) => ({
+          ...withSpokenWords(scene, 340),
+          durationSeconds: 210,
+          generationUnitId: `scene_${index + 1}`,
+        })),
+      }),
+    });
+    generateStructuredWithWritingContextCacheMock
+      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
+      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Long-form creative production explainer.' },
+      userPrompt: 'Write a seven-minute YouTube explainer.',
+      productionBrief: productionBriefWithDuration(420),
+    });
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
+    expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]).toMatchObject({
+      temperature: 0.25,
+      systemInstruction: expect.stringContaining('spoken_word_count_mismatch'),
+    });
+    expect(output.metadata?.notes).toContain('script_contract_repair:applied');
+    expect(() => assertUsableScriptWriterResult(output.result, {
+      productionBrief: productionBriefWithDuration(420),
+    })).not.toThrow();
   });
 
   it('derives every editor scene and visual prompt from the canonical sidecar', () => {
@@ -373,6 +424,30 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(() => assertUsableScriptWriterResult(result)).not.toThrow();
   });
 
+  it('projects line-level speech into markdown without creating extra scene headers', () => {
+    const sidecar = makeSidecar({
+      scenes: [
+        {
+          ...makeSidecar().scenes[0]!,
+          narration: 'This stale narration must not ship.',
+          lines: [{
+            ...makeSidecar().scenes[0]!.lines[0]!,
+            text: 'The approved spoken line stays with its narrator.\n## Scene 99: not a real scene',
+          }],
+        },
+        makeSidecar().scenes[1]!,
+      ],
+    });
+
+    const result = materializeScriptWriterResult(makeModelOutput({ sidecar }));
+
+    expect(result.sidecar.scenes[0]?.narration).toBe(
+      'The approved spoken line stays with its narrator. ## Scene 99: not a real scene',
+    );
+    expect(result.content).toContain('The approved spoken line stays with its narrator. ## Scene 99: not a real scene');
+    expect(result.content.match(/^## Scene \d+/gm)).toHaveLength(2);
+  });
+
   it('surfaces a structured-generation failure instead of starting a second model call', async () => {
     generateStructuredWithWritingContextCacheMock.mockRejectedValue(new Error('invalid sidecar enum'));
 
@@ -388,6 +463,14 @@ describe('ScriptWriterAgent structured generation', () => {
 describe('assertUsableScriptWriterResult', () => {
   it('accepts canonical markdown scene scripts that can hydrate a script board', () => {
     expect(() => assertUsableScriptWriterResult(makeResult())).not.toThrow();
+  });
+
+  it('does not discard a structurally valid script because a soft editorial heuristic matches', () => {
+    const result = makeResult({
+      content: canonicalScript.replace('Put one person in charge', 'Foster one accountable owner'),
+    });
+
+    expect(() => assertUsableScriptWriterResult(result)).not.toThrow();
   });
 
   it('uses structural relip evidence instead of requiring a particular face-visibility phrase', () => {
@@ -676,7 +759,10 @@ describe('assertUsableScriptWriterResult', () => {
         makeResult({
           sidecar: makeSidecar({
             characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
-            scenes: [makeOnCameraScene(), makeSidecar().scenes[1]!],
+            scenes: [
+              withSpokenWords(makeOnCameraScene(), 25),
+              withSpokenWords(makeSidecar().scenes[1]!, 25),
+            ],
           }),
         }),
         { productionBrief: productionBriefWithCasting() },
@@ -700,8 +786,12 @@ describe('assertUsableScriptWriterResult', () => {
 
   it('accepts a runtime-complete script whose scene count is below the nominal floor (production 9/10 regression)', () => {
     // A 7-minute ask that came back with 9 scenes but a full ~420s runtime was wrongly rejected by the standalone
-    // scene-count floor. The floor must only fire together with a runtime UNDERSHOOT.
-    const scenes = makeSidecar().scenes.map((scene, i) => ({ ...scene, durationSeconds: 200 + i, generationUnitId: `scene_${i + 1}` }));
+    // scene-count floor. It remains valid when it has enough real spoken material for the runtime.
+    const scenes = makeSidecar().scenes.map((scene, i) => ({
+      ...withSpokenWords(scene, 340),
+      durationSeconds: 200 + i,
+      generationUnitId: `scene_${i + 1}`,
+    }));
     expect(() =>
       assertUsableScriptWriterResult(
         makeResult({ sidecar: makeSidecar({ scenes }) }), // 401s total across 2 scenes
@@ -711,12 +801,28 @@ describe('assertUsableScriptWriterResult', () => {
   });
 
   it('accepts a script whose scene durations land inside the runtime tolerance', () => {
-    const scenes = makeSidecar().scenes.map((scene) => ({ ...scene, durationSeconds: 30 }));
+    const scenes = makeSidecar().scenes.map((scene) => ({
+      ...withSpokenWords(scene, 50),
+      durationSeconds: 30,
+    }));
     expect(() =>
       assertUsableScriptWriterResult(
         makeResult({ sidecar: makeSidecar({ scenes }) }), // 60s total for a 60s ask
         { productionBrief: productionBriefWithDuration(60) },
       ),
     ).not.toThrow();
+  });
+
+  it('rejects a script that claims a seven-minute runtime with sparse audible narration', () => {
+    const scenes = makeSidecar().scenes.map((scene, index) => ({
+      ...scene,
+      durationSeconds: 210,
+      generationUnitId: `scene_${index + 1}`,
+    }));
+
+    expect(() => assertUsableScriptWriterResult(
+      makeResult({ sidecar: makeSidecar({ scenes }) }),
+      { productionBrief: productionBriefWithDuration(420) },
+    )).toThrow(/spoken_word_count_mismatch/);
   });
 });
