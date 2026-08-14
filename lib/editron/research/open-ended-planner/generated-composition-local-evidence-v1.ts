@@ -53,12 +53,16 @@ export async function materializeGeneratedCompositionLocalEvidenceV1(input: {
   const remoteRoot = `/tmp/editron-gcp/${workerResult.requestId}/`;
   const candidateRoot = path.resolve(input.candidateRoot);
   const outputParent = path.join(candidateRoot, 'sandbox-outputs');
-  const outputRoot = path.join(outputParent, workerResult.requestId);
+  const outputRoot = path.join(outputParent, workerResult.requestId.slice(0, 16));
   await fs.mkdir(outputParent, { recursive: true });
   await fs.mkdir(outputRoot);
   const localPaths = new Map<string, string>();
+  const occupiedLocalPaths = new Set<string>();
   for (const output of workerResult.outputs) {
-    const relativePath = safeRelativeOutputPath(remoteRoot, output.path);
+    assertSafeRemoteOutputPath(remoteRoot, output.path);
+    const relativePath = localRelativeOutputPath(output);
+    if (occupiedLocalPaths.has(relativePath)) throw new Error(`GENERATED_COMPOSITION_LOCAL_EVIDENCE_LOCAL_PATH_COLLISION:${relativePath}`);
+    occupiedLocalPaths.add(relativePath);
     const bytes = input.outputBytes[output.path];
     if (!bytes || bytes.byteLength !== output.byteLength || sha256(bytes) !== output.contentSha256) {
       throw new Error(`GENERATED_COMPOSITION_LOCAL_EVIDENCE_OUTPUT_HASH_DRIFT:${output.path}`);
@@ -114,7 +118,7 @@ export async function materializeGeneratedCompositionLocalEvidenceV1(input: {
   return evidence;
 }
 
-function safeRelativeOutputPath(remoteRoot: string, remotePath: string): string {
+function assertSafeRemoteOutputPath(remoteRoot: string, remotePath: string): void {
   if (!remotePath.startsWith(remoteRoot) || remotePath.includes('\\') || remotePath.includes('..')) {
     throw new Error(`GENERATED_COMPOSITION_LOCAL_EVIDENCE_OUTPUT_PATH_UNSAFE:${remotePath}`);
   }
@@ -122,7 +126,15 @@ function safeRelativeOutputPath(remoteRoot: string, remotePath: string): string 
   if (!relativePath || relativePath.startsWith('../') || path.posix.isAbsolute(relativePath)) {
     throw new Error(`GENERATED_COMPOSITION_LOCAL_EVIDENCE_OUTPUT_PATH_UNSAFE:${remotePath}`);
   }
-  return relativePath;
+}
+
+function localRelativeOutputPath(output: { kind: GeneratedCompositionSandboxOutputKindV1; path: string }): string {
+  const baseName = path.posix.basename(output.path);
+  if (output.kind === 'STILL' && /^frame-\d{4}\.png$/.test(baseName)) return `stills/${baseName}`;
+  if (output.kind === 'CONTACT_SHEET' && baseName === 'contact-sheet.png') return baseName;
+  if (output.kind === 'PLAYABLE_PROXY' && baseName === 'playable-proxy.mp4') return baseName;
+  if (output.kind === 'PROXY_RECEIPT' && baseName === 'receipt.json') return baseName;
+  throw new Error(`GENERATED_COMPOSITION_LOCAL_EVIDENCE_OUTPUT_KIND_PATH_DRIFT:${output.kind}:${output.path}`);
 }
 
 function parseOriginalProxyReceipt(bytes: Uint8Array | undefined, expectedHash: string): GeneratedCompositionProxyReceiptV1 {

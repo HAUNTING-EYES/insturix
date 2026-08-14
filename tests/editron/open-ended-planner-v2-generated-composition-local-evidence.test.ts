@@ -23,6 +23,12 @@ describe('generated-composition local evidence materialization', () => {
       expect(evidence.hostReceiptHash).toBe(fixture.hostReceipt.receiptHash);
       expect(evidence.localEvaluationReceipt.receiptHash).not.toBe(evidence.originalProxyReceiptHash);
       expect(evidence.localEvaluationReceipt.playableProxy?.path).toMatch(/playable-proxy\.mp4$/);
+      expect(path.relative(scratch, evidence.localEvaluationReceipt.playableProxy!.path)).toBe(path.join(
+        'sandbox-outputs', fixture.workerResult.requestId.slice(0, 16), 'playable-proxy.mp4',
+      ));
+      expect(evidence.localEvaluationReceipt.stills[0].path).toBe(path.join(
+        scratch, 'sandbox-outputs', fixture.workerResult.requestId.slice(0, 16), 'stills', 'frame-0000.png',
+      ));
       expect(await fs.readFile(evidence.localEvaluationReceipt.playableProxy!.path, 'utf8')).toBe('playable');
       expect(JSON.parse(await fs.readFile(path.join(scratch, 'localized-evidence.json'), 'utf8')).evidenceHash).toBe(evidence.evidenceHash);
     } finally { await fs.rm(scratch, { recursive: true, force: true }); }
