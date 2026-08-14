@@ -108,6 +108,8 @@ function validateSources(program: GeneratedCompositionProgramV1, facts: JsonReco
 
 function validateFontsAndApi(program: GeneratedCompositionProgramV1, facts: JsonRecord[], diagnostics: string[]): void {
   const fontIds = new Set(program.fontSlots.map(({ slotId }) => slotId));
+  const sourceIds = new Set(program.sourceSlots.map(({ slotId }) => slotId));
+  const textIds = new Set(program.textSlots.map(({ slotId }) => slotId));
   const parameterIds = new Set(program.exposedParameters.map(({ parameterId }) => parameterId));
   for (const slot of program.textSlots) {
     if (!fontIds.has(slot.fontSlotId)) diagnostics.push(`TEXT_FONT_SLOT_UNKNOWN:${slot.slotId}`);
@@ -115,8 +117,13 @@ function validateFontsAndApi(program: GeneratedCompositionProgramV1, facts: Json
   }
   for (const font of program.fontSlots) {
     const identity = facts.find((entry) => entry.kind === 'FONT_IDENTITY' && entry.fontAssetId === font.fontAssetId);
-    if (!identity || identity.rightsStatus !== 'INTERNAL_OWNED_FIXTURE' || identity.fontAssetVersion !== font.fontAssetVersion
+    if (!identity || !['INTERNAL_OWNED_FIXTURE', 'BUNDLED_DEPENDENCY_LICENSED_FIXTURE'].includes(text(identity.rightsStatus)) || identity.fontAssetVersion !== font.fontAssetVersion
       || identity.fileSha256 !== font.fileSha256 || identity.licenseId !== font.licenseId) diagnostics.push(`FONT_IDENTITY_OR_RIGHTS_DRIFT:${font.slotId}`);
+  }
+  if (!uniqueIds(program.declaredLayers.map(({ layerId }) => layerId)) || !uniqueNumbers(program.declaredLayers.map(({ zIndex }) => zIndex))) diagnostics.push('DECLARED_LAYER_ID_OR_ORDER_INVALID');
+  for (const layer of program.declaredLayers) {
+    if (layer.kind === 'SOURCE_PANEL' && (!layer.sourceSlotId || !sourceIds.has(layer.sourceSlotId))) diagnostics.push(`DECLARED_LAYER_SOURCE_UNKNOWN:${layer.layerId}`);
+    if (layer.kind === 'TEXT' && (!layer.textSlotId || !textIds.has(layer.textSlotId))) diagnostics.push(`DECLARED_LAYER_TEXT_UNKNOWN:${layer.layerId}`);
   }
   const modules = new Map(program.allowedApi.modules.map(({ specifier, version }) => [specifier, version]));
   if (program.allowedApi.apiId !== GENERATED_COMPOSITION_API_ID_V1 || program.allowedApi.apiVersion !== '1'
@@ -152,7 +159,7 @@ function validateProofAndMeasurements(program: GeneratedCompositionProgramV1, ev
 function validateSourceBundle(program: GeneratedCompositionProgramV1, bundle: GeneratedCompositionSourceBundleV1, diagnostics: string[]): void {
   if (!uniqueIds(bundle.files.map(({ path }) => path)) || !bundle.files.some(({ path }) => path === bundle.entryFile)) diagnostics.push('SOURCE_FILE_IDENTITY_INVALID');
   const allowedModules = new Set(program.allowedApi.modules.map(({ specifier }) => specifier));
-  const usedSourceSlots = new Set<string>(); const usedFontSlots = new Set<string>(); const usedParameters = new Set<string>();
+  const usedSourceSlots = new Set<string>(); const usedFontSlots = new Set<string>(); const usedParameters = new Set<string>(); const usedLayers = new Set<string>();
   for (const file of bundle.files) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(ts|tsx)$/.test(file.path) || sha256TextV1(file.source) !== file.sha256) diagnostics.push(`SOURCE_FILE_HASH_OR_PATH_INVALID:${file.path}`);
     if (/https?:\/\/|file:\/\/|[A-Za-z]:\\/.test(file.source)) diagnostics.push(`SOURCE_EXTERNAL_LOCATION_FORBIDDEN:${file.path}`);
@@ -161,14 +168,15 @@ function validateSourceBundle(program: GeneratedCompositionProgramV1, bundle: Ge
     let sourceFile: ts.SourceFile;
     try { sourceFile = parseFreeformTsx(file.source, file.path); } catch { diagnostics.push(`SOURCE_PARSE_FAILED:${file.path}`); continue; }
     if (!hasGeneratedCompositionExport(sourceFile)) diagnostics.push(`SOURCE_EXPORT_MISSING:${file.path}`);
-    inspectAst(sourceFile, allowedModules, usedSourceSlots, usedFontSlots, usedParameters, diagnostics, file.path);
+    inspectAst(sourceFile, allowedModules, usedSourceSlots, usedFontSlots, usedParameters, usedLayers, diagnostics, file.path);
   }
   compareReferences('SOURCE_SLOT', usedSourceSlots, new Set(program.sourceSlots.map(({ slotId }) => slotId)), diagnostics);
   compareReferences('FONT_SLOT', usedFontSlots, new Set(program.fontSlots.map(({ slotId }) => slotId)), diagnostics);
   compareReferences('PARAMETER', usedParameters, new Set(program.exposedParameters.map(({ parameterId }) => parameterId)), diagnostics);
+  compareReferences('LAYER', usedLayers, new Set(program.declaredLayers.map(({ layerId }) => layerId)), diagnostics);
 }
 
-function inspectAst(sourceFile: ts.SourceFile, allowed: Set<string>, sourceSlots: Set<string>, fontSlots: Set<string>, parameters: Set<string>, diagnostics: string[], path: string): void {
+function inspectAst(sourceFile: ts.SourceFile, allowed: Set<string>, sourceSlots: Set<string>, fontSlots: Set<string>, parameters: Set<string>, layers: Set<string>, diagnostics: string[], path: string): void {
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && !allowed.has(node.moduleSpecifier.text)) diagnostics.push(`SOURCE_IMPORT_FORBIDDEN:${path}/${node.moduleSpecifier.text}`);
     if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier) && !allowed.has(node.moduleSpecifier.text)) diagnostics.push(`SOURCE_EXPORT_MODULE_FORBIDDEN:${path}/${node.moduleSpecifier.text}`);
@@ -179,7 +187,8 @@ function inspectAst(sourceFile: ts.SourceFile, allowed: Set<string>, sourceSlots
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
       const name = node.tagName.getText(sourceFile);
       if (name === 'AssetSlot') addJsxLiteral(node, 'slotId', sourceSlots, diagnostics, path);
-      if (name === 'TextSlot') { addJsxLiteral(node, 'fontSlotId', fontSlots, diagnostics, path); addJsxLiteral(node, 'parameterId', parameters, diagnostics, path); }
+      if (name === 'Panel') addJsxLiteral(node, 'layerId', layers, diagnostics, path);
+      if (name === 'TextSlot') { addJsxLiteral(node, 'slotId', layers, diagnostics, path); addJsxLiteral(node, 'fontSlotId', fontSlots, diagnostics, path); addJsxLiteral(node, 'parameterId', parameters, diagnostics, path); }
     }
     ts.forEachChild(node, visit);
   };
@@ -205,5 +214,6 @@ function record(value: unknown): JsonRecord { return isRecord(value) ? value : {
 function text(value: unknown): string { return typeof value === 'string' ? value : ''; }
 function isRecord(value: unknown): value is JsonRecord { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
 function uniqueIds(values: string[]): boolean { return values.every(Boolean) && new Set(values).size === values.length; }
+function uniqueNumbers(values: number[]): boolean { return values.every(Number.isSafeInteger) && new Set(values).size === values.length; }
 function sameSet(left: string[], right: string[]): boolean { return left.length === right.length && right.every((value) => left.includes(value)); }
 function compareUtf16(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }

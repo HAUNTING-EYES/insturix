@@ -28,17 +28,25 @@ export const GeneratedComposition = () => {
   const sideTravel = interpolate(frame, [24, 150], [0, -1008], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const exitScale = interpolate(frame, [150, durationInFrames - 1], [1, 2.96], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const exitSourceFrame = 180 + Math.max(0, frame - 150);
+  const wideOffsetFrame = (frame + 60) % 180;
+  const closeOffsetFrame = 180 + ((frame + 30) % 165);
 
   return (
     <CompositionStage background={background} gutter={gutter}>
-      <Panel column="left" translateY={sideTravel}>
+      <Panel layerId="panel-left-top" column="left" row="top" translateY={sideTravel}>
         <AssetSlot slotId="source-wide" sourceFrame={frame} crop="portrait-left" />
       </Panel>
-      <Panel column="centre" translateY={centreTravel} entryScale={entryScale} exitScale={exitScale}>
+      <Panel layerId="panel-left-bottom" column="left" row="bottom" translateY={sideTravel}>
+        <AssetSlot slotId="source-close" sourceFrame={closeOffsetFrame} crop="portrait-left" />
+      </Panel>
+      <Panel layerId="panel-centre" column="centre" row="centre" translateY={centreTravel} entryScale={entryScale} exitScale={exitScale}>
         <AssetSlot slotId="source-close" sourceFrame={exitSourceFrame} crop="centre" />
       </Panel>
-      <Panel column="right" translateY={sideTravel}>
-        <AssetSlot slotId="source-wide" sourceFrame={frame} crop="portrait-right" />
+      <Panel layerId="panel-right-top" column="right" row="top" translateY={sideTravel}>
+        <AssetSlot slotId="source-wide" sourceFrame={wideOffsetFrame} crop="portrait-right" />
+      </Panel>
+      <Panel layerId="panel-right-bottom" column="right" row="bottom" translateY={sideTravel}>
+        <AssetSlot slotId="source-close" sourceFrame={closeOffsetFrame} crop="portrait-right" />
       </Panel>
       <TextSlot slotId="title-main" fontSlotId="font-title" parameterId="param-title" value={title} color={titleColor} size={titleSize} fixedToCanvas />
     </CompositionStage>
@@ -53,13 +61,14 @@ export const DEV02_GENERATED_COMPOSITION_SOURCE_BUNDLE_V1 = deepFreezeV1({
   files: [{ path: 'GeneratedComposition.tsx', sha256: sourceSha, source: DEV02_GENERATED_COMPOSITION_SOURCE_V1 }],
 } satisfies GeneratedCompositionSourceBundleV1);
 
-const fontSha = sha256TextV1('DEV02_CONTRACT_FIXTURE_FONT_IDENTITY_V1');
+const fontSha = 'd2a8188db7fdd567bbd94017cec0622373d47206d45281b7c501f0775cdee83a';
 export const DEV02_GENERATED_COMPOSITION_SUPPLEMENTAL_FACTS_V1 = deepFreezeV1([
   {
-    factId: 'fact-font-dev02-title', kind: 'FONT_IDENTITY', fontAssetId: 'font-dev02-title',
-    fontAssetVersion: `sha256:${fontSha}`, fileSha256: fontSha, family: 'Editron Fixture Sans', face: 'Bold',
-    weight: 700, glyphCoverage: 'ASCII_BASIC', licenseId: 'INTERNAL_FIXTURE_LICENSE',
-    rightsStatus: 'INTERNAL_OWNED_FIXTURE', materializationStatus: 'IDENTITY_ONLY_CONTRACT_FIXTURE',
+    factId: 'fact-font-dev02-title', kind: 'FONT_IDENTITY', fontAssetId: 'font-noto-sans-v27-regular',
+    fontAssetVersion: `sha256:${fontSha}`, fileSha256: fontSha, family: 'Noto Sans', face: 'Regular',
+    weight: 400, glyphCoverage: 'LATIN_V27', licenseId: 'OFL-1.1-NOTO-SANS',
+    rightsStatus: 'BUNDLED_DEPENDENCY_LICENSED_FIXTURE', materializationStatus: 'MATERIALIZED_LOCAL_DEPENDENCY',
+    materializedPath: 'node_modules/next/dist/compiled/@vercel/og/noto-sans-v27-latin-regular.ttf',
   },
   {
     factId: 'fact-generated-composition-api-v1', kind: 'GENERATED_COMPOSITION_API_IDENTITY',
@@ -88,10 +97,18 @@ export const DEV02_GENERATED_COMPOSITION_PROGRAM_V1 = deepFreezeV1({
     { slotId: 'source-wide', assetId: 'dev02-wide', assetVersion: 'sha256:dacb93870b9050251ebcd285fae783f378af66301813b47f074f44ed75b97219', coordinateDomain: 'SOURCE_FRAME', timebase: { timebaseId: 'dev02-wide:source', timebaseVersion: 'V2_1F', rate: { numerator: '30', denominator: '1' } }, sourceRange: { start: '0', endExclusive: '180' } },
     { slotId: 'source-close', assetId: 'dev02-close', assetVersion: 'sha256:645d5ecbf7cec49f837768cee0fa2469c9fec79f54f4928160920c3a1a22782a', coordinateDomain: 'SOURCE_FRAME', timebase: { timebaseId: 'dev02-close:source', timebaseVersion: 'V2_1F', rate: { numerator: '30', denominator: '1' } }, sourceRange: { start: '180', endExclusive: '345' } },
   ],
-  fontSlots: [{ slotId: 'font-title', fontAssetId: 'font-dev02-title', fontAssetVersion: `sha256:${fontSha}`, fileSha256: fontSha, family: 'Editron Fixture Sans', face: 'Bold', weight: 700, axes: {}, glyphCoverage: 'ASCII_BASIC', licenseId: 'INTERNAL_FIXTURE_LICENSE' }],
+  fontSlots: [{ slotId: 'font-title', fontAssetId: 'font-noto-sans-v27-regular', fontAssetVersion: `sha256:${fontSha}`, fileSha256: fontSha, family: 'Noto Sans', face: 'Regular', weight: 400, axes: {}, glyphCoverage: 'LATIN_V27', licenseId: 'OFL-1.1-NOTO-SANS' }],
   textSlots: [{ slotId: 'title-main', fontSlotId: 'font-title', parameterId: 'param-title' }],
+  declaredLayers: [
+    { layerId: 'panel-left-top', kind: 'SOURCE_PANEL', sourceSlotId: 'source-wide', zIndex: 10 },
+    { layerId: 'panel-left-bottom', kind: 'SOURCE_PANEL', sourceSlotId: 'source-close', zIndex: 20 },
+    { layerId: 'panel-centre', kind: 'SOURCE_PANEL', sourceSlotId: 'source-close', zIndex: 30 },
+    { layerId: 'panel-right-top', kind: 'SOURCE_PANEL', sourceSlotId: 'source-wide', zIndex: 40 },
+    { layerId: 'panel-right-bottom', kind: 'SOURCE_PANEL', sourceSlotId: 'source-close', zIndex: 50 },
+    { layerId: 'title-main', kind: 'TEXT', textSlotId: 'title-main', zIndex: 100 },
+  ],
   exposedParameters: [
-    { parameterId: 'param-title', kind: 'STRING', defaultValue: 'YOUR EVENT RECAP' },
+    { parameterId: 'param-title', kind: 'STRING', defaultValue: 'YOUR EVENT\nRECAP' },
     { parameterId: 'param-title-color', kind: 'COLOR_SRGB_HEX', defaultValue: '#F7E300' },
     { parameterId: 'param-title-size', kind: 'INTEGER', defaultValue: 112, minimum: 48, maximum: 180 },
     { parameterId: 'param-gutter', kind: 'INTEGER', defaultValue: 10, minimum: 0, maximum: 48 },

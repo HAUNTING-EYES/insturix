@@ -21,8 +21,9 @@ describe('open-ended planner V2 GeneratedCompositionProgramV1 contract', () => {
     expect(verification).toMatchObject({
       disposition: 'CONTRACT_PASS', executionEligibility: 'NOT_EXECUTABLE', diagnostics: [],
     });
-    expect(verification.programHash).toBe('d8975cce3d91ee91a9f870b4960bff81b7c46aea9139fbbdee17805e29814e3f');
-    expect(verification.sourceBundleHash).toBe('aead334a94cf8ea348e48cff87970f5ee5266d7e3a9e24a12908828d6f6444ca');
+    expect(verification.programHash).toBe('2eb1b0cff28ca947833412b896c432b428d56058ca04ca3c2196dd3d3a4e3d07');
+    expect(verification.sourceBundleHash).toBe('6da225da91fea62a4d80e9f68c00aeb0acf28f2daae0f82b036e3d35bd58a3da');
+    expect(DEV02_GENERATED_COMPOSITION_PROGRAM_V1.declaredLayers.filter(({ kind }) => kind === 'SOURCE_PANEL')).toHaveLength(5);
   });
 
   it('rejects source tampering and rehashed unsafe or undeclared source', () => {

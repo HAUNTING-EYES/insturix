@@ -56,6 +56,13 @@ export interface GeneratedCompositionProgramV1 {
     licenseId: string;
   }[];
   textSlots: readonly { slotId: string; fontSlotId: string; parameterId: string }[];
+  declaredLayers: readonly {
+    layerId: string;
+    kind: 'SOURCE_PANEL' | 'TEXT';
+    sourceSlotId?: string;
+    textSlotId?: string;
+    zIndex: number;
+  }[];
   exposedParameters: readonly {
     parameterId: string;
     kind: 'STRING' | 'INTEGER' | 'COLOR_SRGB_HEX';
