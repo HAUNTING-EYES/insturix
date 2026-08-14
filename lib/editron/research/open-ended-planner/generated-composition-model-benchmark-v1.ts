@@ -1,5 +1,8 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
-import { buildDev02GeneratedCompositionModelPacketV1 } from './generated-composition-model-candidate-v1';
+import {
+  buildDev02GeneratedCompositionModelPacketV1,
+  type GeneratedCompositionModelRepairV1,
+} from './generated-composition-model-candidate-v1';
 import {
   estimateOfflineInputTokensUpperBoundV2,
   serializeGoogleCountTokensRequestV2,
@@ -49,6 +52,20 @@ export interface GeneratedCompositionProviderCallV1 {
     countRequestHash: string | null;
     inputTokens: number;
   }[];
+}
+
+export interface GeneratedCompositionAssessmentFailureV1 {
+  artifactType: 'GeneratedCompositionAssessmentFailureV1';
+  authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
+  routeId: GeneratedCompositionBenchmarkRouteV1['routeId'];
+  candidateOrdinal: 0 | 1;
+  failureStage: GeneratedCompositionModelRepairV1['failureStage'];
+  observedAt: string;
+  programHash: string;
+  sourceBundleHash: string;
+  diagnostics: readonly string[];
+  stateEffects: readonly [];
+  failureHash: string;
 }
 
 const SELECTED_ROUTE_IDS = ['OPENAI_LUNA', 'OPENAI_TERRA', 'GOOGLE_FLASH'] as const;
@@ -117,6 +134,47 @@ export async function runGeneratedCompositionSourceProviderCallV1(input: {
   return deepFreezeV1({ run, preflightCounts });
 }
 
+export function buildGeneratedCompositionAssessmentFailureV1(input: {
+  routeId: GeneratedCompositionBenchmarkRouteV1['routeId'];
+  candidateOrdinal: 0 | 1;
+  failureStage: GeneratedCompositionModelRepairV1['failureStage'];
+  observedAt: string;
+  programHash: string;
+  sourceBundleHash: string;
+  diagnostics: readonly string[];
+}): Readonly<GeneratedCompositionAssessmentFailureV1> {
+  const observedAt = new Date(input.observedAt);
+  if (Number.isNaN(observedAt.getTime()) || observedAt.toISOString() !== input.observedAt) {
+    throw new Error('MODEL_BENCHMARK_FAILURE_TIMESTAMP_INVALID');
+  }
+  if (!isSha256(input.programHash) || !isSha256(input.sourceBundleHash)) {
+    throw new Error('MODEL_BENCHMARK_FAILURE_IDENTITY_INVALID');
+  }
+  if (input.diagnostics.length < 1 || input.diagnostics.length > 64) {
+    throw new Error('MODEL_BENCHMARK_FAILURE_DIAGNOSTIC_COUNT_INVALID');
+  }
+  const diagnostics = input.diagnostics.map((diagnostic) => {
+    const bounded = diagnostic.trim();
+    if (!bounded || Buffer.byteLength(bounded, 'utf8') > 2_000) {
+      throw new Error('MODEL_BENCHMARK_FAILURE_DIAGNOSTIC_INVALID');
+    }
+    return bounded;
+  });
+  const material = {
+    artifactType: 'GeneratedCompositionAssessmentFailureV1' as const,
+    authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
+    routeId: input.routeId,
+    candidateOrdinal: input.candidateOrdinal,
+    failureStage: input.failureStage,
+    observedAt: input.observedAt,
+    programHash: input.programHash,
+    sourceBundleHash: input.sourceBundleHash,
+    diagnostics,
+    stateEffects: [] as const,
+  };
+  return deepFreezeV1({ ...material, failureHash: hashCanonicalJsonV1(material) });
+}
+
 function pricing(route: GeneratedCompositionBenchmarkRouteV1): ProviderPricingV2 {
   return {
     inputUsdPerMillion: route.pricing.inputUsdPerMillion,
@@ -162,4 +220,8 @@ async function countRequest(input: {
 
 function requestBytes(request: SerializedProviderRequestV2): number {
   return Buffer.byteLength(JSON.stringify(request.body), 'utf8');
+}
+
+function isSha256(value: string): boolean {
+  return /^[a-f0-9]{64}$/.test(value);
 }

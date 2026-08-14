@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { buildDev02GeneratedCompositionModelPacketV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-model-candidate-v1';
 import {
+  buildGeneratedCompositionAssessmentFailureV1,
   buildGeneratedCompositionModelBenchmarkPlanV1,
   runGeneratedCompositionSourceProviderCallV1,
 } from '@/lib/editron/research/open-ended-planner/generated-composition-model-benchmark-v1';
@@ -50,5 +51,35 @@ describe('open-ended planner V2 generated-composition model benchmark', () => {
     expect(result.preflightCounts).toEqual([expect.objectContaining({ method: 'GOOGLE_COUNT_TOKENS', inputTokens: 1_000 })]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[1][0])).toContain('/models/gemini-3.6-flash:generateContent');
+  });
+
+  it('hash-binds bounded assessment failures without project state effects', () => {
+    const input = {
+      routeId: 'OPENAI_LUNA' as const,
+      candidateOrdinal: 0 as const,
+      failureStage: 'SANDBOX_RENDER' as const,
+      observedAt: '2026-08-14T12:00:00.000Z',
+      programHash: 'b'.repeat(64),
+      sourceBundleHash: 'c'.repeat(64),
+      diagnostics: ['takeoverProgress is outside [0,1]'],
+    };
+    const first = buildGeneratedCompositionAssessmentFailureV1(input);
+    const second = buildGeneratedCompositionAssessmentFailureV1(input);
+    expect(first).toEqual(second);
+    expect(first.failureHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(first.stateEffects).toEqual([]);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(() => buildGeneratedCompositionAssessmentFailureV1({ ...input, diagnostics: [] })).toThrow(
+      'MODEL_BENCHMARK_FAILURE_DIAGNOSTIC_COUNT_INVALID',
+    );
+    expect(() => buildGeneratedCompositionAssessmentFailureV1({ ...input, programHash: 'not-a-hash' })).toThrow(
+      'MODEL_BENCHMARK_FAILURE_IDENTITY_INVALID',
+    );
+    expect(() => buildGeneratedCompositionAssessmentFailureV1({ ...input, observedAt: 'not-a-timestamp' })).toThrow(
+      'MODEL_BENCHMARK_FAILURE_TIMESTAMP_INVALID',
+    );
+    expect(() => buildGeneratedCompositionAssessmentFailureV1({ ...input, diagnostics: ['x'.repeat(2_001)] })).toThrow(
+      'MODEL_BENCHMARK_FAILURE_DIAGNOSTIC_INVALID',
+    );
   });
 });

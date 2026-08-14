@@ -15,6 +15,7 @@ import {
 } from '../lib/editron/research/open-ended-planner/generated-composition-model-candidate-v1';
 import {
   type GeneratedCompositionBenchmarkRouteV1,
+  buildGeneratedCompositionAssessmentFailureV1,
   buildGeneratedCompositionModelBenchmarkPlanV1,
   runGeneratedCompositionSourceProviderCallV1,
 } from '../lib/editron/research/open-ended-planner/generated-composition-model-benchmark-v1';
@@ -51,7 +52,8 @@ async function main(): Promise<void> {
   await fs.mkdir(runRoot, { recursive: true });
   await writeJson(path.join(runRoot, 'plan.json'), plan);
 
-  const runtime = await loadRuntimeInputs(apiImplementationHash, runRoot);
+  const runnerImplementationHash = await shaFile(path.join(repoRoot, 'scripts', 'run-generated-composition-model-benchmark-v1.ts'));
+  const runtime = await loadRuntimeInputs(apiImplementationHash, runnerImplementationHash, runRoot);
   const rows = [];
   let actualProviderCostUsd = 0;
   for (const route of plan.routes) {
@@ -85,6 +87,8 @@ async function runRoute(
   let repair: GeneratedCompositionModelRepairV1 | undefined;
   for (const candidateOrdinal of [0, 1] as const) {
     const artifact = buildDev02GeneratedCompositionModelPacketV1({ apiImplementationHash: runtime.identity.apiImplementationHash, ...(repair ? { repair } : {}) });
+    const packetPath = path.join(routeRoot, `provider-packet-${candidateOrdinal}.json`);
+    await writeJson(packetPath, artifact);
     const call = await runGeneratedCompositionSourceProviderCallV1({
       artifact, route, apiKey: providerKey(route),
     });
@@ -92,7 +96,10 @@ async function runRoute(
     addCost(callCost);
     const callPath = path.join(routeRoot, `provider-call-${candidateOrdinal}.json`);
     await writeJson(callPath, call);
-    calls.push({ path: relative(runRoot, callPath), hash: hashCanonicalJsonV1(call), disposition: call.run.disposition, costUsd: callCost });
+    calls.push({
+      packet: { path: relative(runRoot, packetPath), hash: hashCanonicalJsonV1(artifact) },
+      path: relative(runRoot, callPath), hash: hashCanonicalJsonV1(call), disposition: call.run.disposition, costUsd: callCost,
+    });
     if (call.run.disposition !== 'ARTIFACT_ACCEPTED' || typeof call.run.artifact?.source !== 'string') {
       return { routeId: route.routeId, requestedModel: route.requestModel, outcome: `PROVIDER_${call.run.disposition}`, repairsUsed: candidateOrdinal, calls, stateEffects: [] };
     }
@@ -116,6 +123,7 @@ async function runRoute(
     });
     await writeJson(path.join(candidateRoot, 'contract-verification.json'), verification);
     if (verification.disposition !== 'CONTRACT_PASS') {
+      await persistAssessmentFailure(candidateRoot, route, candidateOrdinal, candidate, 'CONTRACT_VERIFIER', verification.diagnostics);
       if (candidateOrdinal === 1) return terminal(route, 'CONTRACT_FAIL', calls, 1, verification.diagnostics);
       repair = repairInput('CONTRACT_VERIFIER', verification.diagnostics, call.run.artifact.source);
       continue;
@@ -126,10 +134,12 @@ async function runRoute(
         return { routeId: route.routeId, requestedModel: route.requestModel, providerModel: modelId, outcome: 'HARD_GATES_PASS', repairsUsed: candidateOrdinal, calls, assessment: assessed.summary, stateEffects: [] };
       }
       const diagnostics = assessed.proof.checks.filter(({ status }) => status === 'FAIL').map(({ checkId, reason, metrics }) => `${checkId}:${reason}:${JSON.stringify(metrics)}`);
+      await persistAssessmentFailure(candidateRoot, route, candidateOrdinal, candidate, 'RENDERED_HARD_GATE', diagnostics);
       if (candidateOrdinal === 1) return terminal(route, 'RENDERED_HARD_GATE_FAIL', calls, 1, diagnostics);
       repair = repairInput('RENDERED_HARD_GATE', diagnostics, call.run.artifact.source);
     } catch (error) {
       const diagnostics = [boundedError(error)];
+      await persistAssessmentFailure(candidateRoot, route, candidateOrdinal, candidate, 'SANDBOX_RENDER', diagnostics);
       if (candidateOrdinal === 1) return terminal(route, 'SANDBOX_RENDER_FAIL', calls, 1, diagnostics);
       repair = repairInput('SANDBOX_RENDER', diagnostics, call.run.artifact.source);
     }
@@ -154,13 +164,16 @@ async function assessCandidate(
     proofFrames: [0, 24, 108, 144, 145, 179], inputs: runtime.inputs,
     resources: { wallTimeMs: 90_000, maxCpuMs: 60_000, vcpus: 1, memoryMiB: 2_048, maxOutputBytes: 64 * 1_024 * 1_024 },
   });
+  await writeJson(path.join(root, 'sandbox-request-summary.json'), {
+    ...request,
+    inputs: request.inputs.map(({ data: _data, ...item }) => ({ ...item, dataDisposition: 'OMITTED_HASH_BOUND' })),
+  });
   const executed = await executeGeneratedCompositionInSandboxV1({ request, repoRoot });
   const materialized = await materializeSandboxOutputs(executed, request.requestId, root);
   const proof = await evaluateDev02GeneratedCompositionRenderedProofV1({
     program: candidate.program, proxyReceipt: materialized.localizedReceipt, boundaryReferencePath: runtime.identity.boundaryReferencePath,
   });
   await Promise.all([
-    writeJson(path.join(root, 'sandbox-request-summary.json'), { ...request, inputs: request.inputs.map(({ data: _data, ...item }) => ({ ...item, dataDisposition: 'OMITTED_HASH_BOUND' })) }),
     writeJson(path.join(root, 'sandbox-worker-result.json'), executed.workerResult),
     writeJson(path.join(root, 'sandbox-host-receipt.json'), executed.receipt),
     writeJson(path.join(root, 'rendered-proof.json'), proof),
@@ -171,7 +184,7 @@ async function assessCandidate(
   };
 }
 
-async function loadRuntimeInputs(apiImplementationHash: string, runRoot: string) {
+async function loadRuntimeInputs(apiImplementationHash: string, runnerImplementationHash: string, runRoot: string) {
   const mediaRoot = path.join(repoRoot, '.calibration-temp', 'open-ended-planner-v2', 'development-media');
   const widePath = path.join(mediaRoot, 'dev02-wide.mp4'); const closePath = path.join(mediaRoot, 'dev02-close.mp4');
   const fontPath = path.join(repoRoot, 'node_modules', 'next', 'dist', 'compiled', '@vercel', 'og', 'noto-sans-v27-latin-regular.ttf');
@@ -182,7 +195,7 @@ async function loadRuntimeInputs(apiImplementationHash: string, runRoot: string)
   ]);
   const snapshotCommit = requiredEnv('MG_RENDER_SANDBOX_APP_COMMIT');
   return {
-    identity: { apiImplementationHash, workerImplementationHash: overlay.workerImplementationHash, snapshotCommit, snapshotId: requiredEnv('MG_RENDER_SANDBOX_SNAPSHOT_ID'), boundaryReferencePath, boundaryReferenceSha256: boundaryHash },
+    identity: { apiImplementationHash, runnerImplementationHash, workerImplementationHash: overlay.workerImplementationHash, snapshotCommit, snapshotId: requiredEnv('MG_RENDER_SANDBOX_SNAPSHOT_ID'), boundaryReferencePath, boundaryReferenceSha256: boundaryHash },
     inputs: [
       { kind: 'SOURCE_MEDIA' as const, bindingId: 'dev02-wide', fileName: 'dev02-wide.mp4', bytes: wide },
       { kind: 'SOURCE_MEDIA' as const, bindingId: 'dev02-close', fileName: 'dev02-close.mp4', bytes: close },
@@ -217,6 +230,24 @@ async function materializeSandboxOutputs(executed: Awaited<ReturnType<typeof exe
 function repairInput(failureStage: GeneratedCompositionModelRepairV1['failureStage'], diagnostics: readonly string[], priorSource: string): GeneratedCompositionModelRepairV1 {
   return { repairOrdinal: 1, failureStage, diagnostics: diagnostics.map((value) => value.slice(0, 500)).slice(0, 64), priorSource };
 }
+async function persistAssessmentFailure(
+  root: string,
+  route: GeneratedCompositionBenchmarkRouteV1,
+  candidateOrdinal: 0 | 1,
+  candidate: ReturnType<typeof materializeDev02GeneratedCompositionModelCandidateV1>,
+  failureStage: GeneratedCompositionModelRepairV1['failureStage'],
+  diagnostics: readonly string[],
+): Promise<void> {
+  await writeJson(path.join(root, 'assessment-failure.json'), buildGeneratedCompositionAssessmentFailureV1({
+    routeId: route.routeId,
+    candidateOrdinal,
+    failureStage,
+    observedAt: new Date().toISOString(),
+    programHash: hashCanonicalJsonV1(candidate.program),
+    sourceBundleHash: candidate.program.sourceBundleHash,
+    diagnostics,
+  }));
+}
 function terminal(route: GeneratedCompositionBenchmarkRouteV1, outcome: string, calls: unknown[], repairsUsed: number, diagnostics: readonly string[]) { return { routeId: route.routeId, requestedModel: route.requestModel, outcome, repairsUsed, calls, diagnostics, stateEffects: [] }; }
 function providerKey(route: GeneratedCompositionBenchmarkRouteV1): string { return route.provider === 'openai' ? requiredEnv('OPENAI_API_KEY') : requiredEnv('GEMINI_API_KEY'); }
 function loadEnvironment(): void { loadEnv({ path: path.join(repoRoot, '.env.local'), override: false, quiet: true }); loadEnv({ path: path.join(repoRoot, '.env.local.vercel'), override: false, quiet: true }); const fresh = path.join(repoRoot, '.calibration-temp', 'vercel-sandbox-env.local'); if (existsSync(fresh)) { const value = parseEnv(readFileSync(fresh)).VERCEL_OIDC_TOKEN; if (value) process.env.VERCEL_OIDC_TOKEN = value; } }
@@ -224,7 +255,7 @@ function value(args: string[], name: string): string { const index = args.indexO
 function boundedOutput(raw: string): string { const output = path.resolve(raw); if (!output.endsWith('.json') || !(output === evidenceRoot || output.startsWith(evidenceRoot + path.sep))) throw new Error('MODEL_BENCHMARK_OUTPUT_OUTSIDE_EVIDENCE_ROOT'); return output; }
 function requiredEnv(name: string): string { const value = process.env[name]?.trim(); if (!value) throw new Error(`MODEL_BENCHMARK_ENV_MISSING:${name}`); return value; }
 function requiredPath(paths: Map<string, string>, remote: string): string { const value = paths.get(remote); if (!value) throw new Error(`MODEL_BENCHMARK_LOCAL_OUTPUT_MISSING:${remote}`); return value; }
-function boundedError(error: unknown): string { return (error instanceof Error ? error.message : String(error)).slice(0, 500); }
+function boundedError(error: unknown): string { const message = (error instanceof Error ? error.message : String(error)).trim(); return (message || 'UNKNOWN_ERROR_WITHOUT_MESSAGE').slice(0, 500); }
 function relative(root: string, target: string): string { return path.relative(root, target).replaceAll('\\', '/'); }
 async function writeJson(file: string, value: unknown): Promise<void> { const partial = `${file}.partial`; await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(partial, `${JSON.stringify(value, null, 2)}\n`, 'utf8'); await fs.rm(file, { force: true }); await fs.rename(partial, file); }
 async function shaFile(file: string): Promise<string> { return createHash('sha256').update(await fs.readFile(file)).digest('hex'); }
