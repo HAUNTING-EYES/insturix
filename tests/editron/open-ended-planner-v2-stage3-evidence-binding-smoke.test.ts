@@ -9,7 +9,7 @@ import {
 describe('open-ended planner V2 isolated Stage-3 evidence-binding smoke', () => {
   it('freezes Luna and Terra against one canonical intent and evidence pack', async () => {
     const plan = await buildStage3EvidenceBindingSmokePreflightV2() as Plan;
-    expect(plan.planHash).toBe('9aa1eba2d48dd5e3a0cc2abb7769fc8f80b37a1047f88af220bd63e7c7303343');
+    expect(plan.planHash).toBe('44ba87846377eb69553c5f1e1fefe20f72ee7bd9bb39d6c2e940b5fe51791d1a');
     expect(plan.rows).toHaveLength(2);
     expect(plan.spend).toMatchObject({ plannedProviderCalls: 2, absoluteMaxSpendUsd: 0.4 });
     expect(new Set(plan.rows.map(({ packetHash }) => packetHash)).size).toBe(1);

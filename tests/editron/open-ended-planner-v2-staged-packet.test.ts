@@ -270,6 +270,11 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     ]));
     expect((modelInput(third).operatorCatalog as { operators: unknown[] }).operators).toHaveLength(1);
     expect(third.packet.outputContract).toHaveProperty('properties.stageDisposition.enum', expect.arrayContaining(['CAPABILITY_GAP', 'UNVERIFIABLE']));
+    expect(third.packet.instructions).toEqual(expect.arrayContaining([
+      expect.stringContaining('BOUND means the supplied facts are complete'),
+      expect.stringContaining('PLANNED means a proof obligation is required'),
+      expect.stringContaining('distinct from capability readiness'),
+    ]));
     expect(modelInput(fourth)).toHaveProperty('operatorCatalog.fieldSchemas');
     expect(modelInput(fifth)).not.toHaveProperty('operatorCatalog');
     expect(() => buildNextProviderStagePacketV2({ previousPacket: first, stage: 3, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('EditorialIntentGraphV2', 'DEV-02') })).toThrow(/sequentially/);
