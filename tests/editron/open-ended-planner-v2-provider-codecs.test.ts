@@ -200,6 +200,27 @@ describe('open-ended planner V2 provider codecs', () => {
     });
   });
 
+  it('derives zero Google thought tokens only when the provider totals reconcile exactly', () => {
+    const exactZero = normalizeProviderResponseV2('google', {
+      responseId: 'google-zero', modelVersion: 'gemini-3.5-flash-lite',
+      candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{}' }] } }],
+      usageMetadata: { promptTokenCount: 80, candidatesTokenCount: 20, totalTokenCount: 100 },
+    });
+    expect(exactZero.usage).toEqual({
+      inputTokens: 80, visibleOutputTokens: 20, reasoningTokens: 0, totalTokens: 100,
+    });
+
+    const unexplainedTokens = normalizeProviderResponseV2('google', {
+      responseId: 'google-unexplained', modelVersion: 'gemini-3.5-flash-lite',
+      candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{}' }] } }],
+      usageMetadata: { promptTokenCount: 80, candidatesTokenCount: 20, totalTokenCount: 101 },
+    });
+    expect(unexplainedTokens.usage).toEqual({
+      inputTokens: 80, visibleOutputTokens: 20, totalTokens: 101,
+    });
+    expect(unexplainedTokens.usage.reasoningTokens).toBeUndefined();
+  });
+
   it('does not manufacture missing token counts', () => {
     const response = normalizeProviderResponseV2('openai', {
       id: 'resp-missing', status: 'completed', output: [{ content: [{ type: 'output_text', text: '{}' }] }],

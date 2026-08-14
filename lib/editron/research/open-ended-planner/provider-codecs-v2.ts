@@ -248,6 +248,14 @@ function normalizeGoogle(body: Record<string, unknown>): NormalizedProviderRespo
   const finishReason = string(candidate.finishReason);
   const blockReason = string(record(body.promptFeedback).blockReason);
   const usage = record(body.usageMetadata);
+  const inputTokens = count(usage.promptTokenCount);
+  const visibleOutputTokens = count(usage.candidatesTokenCount);
+  const totalTokens = count(usage.totalTokenCount);
+  const reportedReasoningTokens = count(usage.thoughtsTokenCount);
+  const reasoningTokens = reportedReasoningTokens ?? (
+    inputTokens !== undefined && visibleOutputTokens !== undefined
+    && totalTokens === inputTokens + visibleOutputTokens ? 0 : undefined
+  );
   const parts = Array.isArray(record(candidate.content).parts) ? record(candidate.content).parts as unknown[] : [];
   const text = parts.filter((part) => record(part).thought !== true).map((part) => string(record(part).text) ?? '').join('');
   const refused = Boolean(blockReason) || ['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT'].includes(finishReason ?? '');
@@ -257,9 +265,8 @@ function normalizeGoogle(body: Record<string, unknown>): NormalizedProviderRespo
     finishReason: blockReason ?? finishReason,
     truncated: finishReason === undefined && blockReason === undefined ? undefined : finishReason === 'MAX_TOKENS',
     usage: compactUsage({
-      inputTokens: count(usage.promptTokenCount), cachedInputTokens: count(usage.cachedContentTokenCount),
-      visibleOutputTokens: count(usage.candidatesTokenCount), reasoningTokens: count(usage.thoughtsTokenCount),
-      totalTokens: count(usage.totalTokenCount),
+      inputTokens, cachedInputTokens: count(usage.cachedContentTokenCount),
+      visibleOutputTokens, reasoningTokens, totalTokens,
     }),
     ...(refused ? { detail: blockReason ?? finishReason } : {}),
   };
