@@ -2724,6 +2724,10 @@ export type EmbeddingStatus = 'pending' | 'processing' | 'success' | 'failed';
 export type DataBankScope = 'project' | 'global';
 export type DataBankMemoryScope = 'project' | 'brand' | 'universal';
 export type DataBankProvenanceStatus = 'verified' | 'quarantined';
+export type DataBankOwnerType = 'user' | 'organization';
+export type DataBankClassification = 'public' | 'business_confidential' | 'personal' | 'child_data';
+export type DataBankConsentStatus = 'not_required' | 'granted' | 'withdrawn';
+export type DataBankLifecycleStatus = 'active' | 'superseded' | 'expired';
 export type DataBankProvenanceReason =
   | 'missing_explicit_memory_scope'
   | 'conflicting_memory_scopes'
@@ -2739,6 +2743,14 @@ export interface DataBankEntry {
   sessionId?: string;
   projectId?: string;
   userId: string;
+  /** Optional only for legacy rows pending owner migration. */
+  ownerType?: DataBankOwnerType;
+  orgId?: string;
+  classification?: DataBankClassification;
+  consentStatus?: DataBankConsentStatus;
+  lifecycleStatus?: DataBankLifecycleStatus;
+  freshUntil?: Date;
+  expiresAt?: Date;
   type: DataBankEntryType;
   scope: DataBankScope;
   /** First-class provenance for entries that can cross a session boundary. */
@@ -2768,6 +2780,17 @@ const DataBankSchema = new Schema({
   sessionId: { type: String, index: true },
   projectId: { type: String, index: true },
   userId: { type: String, required: true, index: true },
+  ownerType: { type: String, enum: ['user', 'organization'], index: true },
+  orgId: { type: String, index: true },
+  classification: {
+    type: String,
+    enum: ['public', 'business_confidential', 'personal', 'child_data'],
+    index: true,
+  },
+  consentStatus: { type: String, enum: ['not_required', 'granted', 'withdrawn'], index: true },
+  lifecycleStatus: { type: String, enum: ['active', 'superseded', 'expired'], index: true },
+  freshUntil: { type: Date, index: true },
+  expiresAt: { type: Date, index: true },
   brandId: { type: String, index: true },
   provenanceStatus: { type: String, enum: ['verified', 'quarantined'], index: true },
   provenanceReason: {
@@ -2813,6 +2836,8 @@ DataBankSchema.index({ userId: 1, type: 1 });
 DataBankSchema.index({ userId: 1, embeddingStatus: 1 });
 DataBankSchema.index({ userId: 1, scope: 1 });
 DataBankSchema.index({ userId: 1, scope: 1, memoryScope: 1, brandId: 1 });
+DataBankSchema.index({ ownerType: 1, orgId: 1, scope: 1, memoryScope: 1, brandId: 1 });
+DataBankSchema.index({ lifecycleStatus: 1, expiresAt: 1 });
 DataBankSchema.index({ embeddingStatus: 1, embeddingNextRetryAt: 1, createdAt: 1 });
 DataBankSchema.index({ sessionId: 1, userId: 1 });
 DataBankSchema.index({ projectId: 1, type: 1 });
@@ -2970,6 +2995,67 @@ export function resolveDataBankEntryProvenance(entry: {
   tags.add(`memory:${memoryScope}`);
   if (brandId) tags.add(`brand:${brandId}`);
   return { scope, memoryScope, ...(brandId ? { brandId } : {}), tags: [...tags] };
+}
+
+export function resolveDataBankEntryAuthority(input: {
+  userId: string;
+  orgId?: string | null;
+  classification: DataBankClassification;
+  consentStatus: DataBankConsentStatus;
+  freshUntil?: Date;
+  expiresAt?: Date;
+  now?: Date;
+}): {
+  ownerType: DataBankOwnerType;
+  userId: string;
+  orgId?: string;
+  classification: Exclude<DataBankClassification, 'child_data'>;
+  consentStatus: Exclude<DataBankConsentStatus, 'withdrawn'>;
+  lifecycleStatus: 'active';
+  freshUntil?: Date;
+  expiresAt?: Date;
+} {
+  const userId = dataBankString(input.userId);
+  const orgId = dataBankString(input.orgId);
+  if (!userId) throw new Error('DataBank authority requires a user actor.');
+  if (input.classification === 'child_data') {
+    throw new Error('Child data cannot be stored in ThinkForge memory.');
+  }
+  if (input.consentStatus === 'withdrawn') {
+    throw new Error('Withdrawn data consent cannot create ThinkForge memory.');
+  }
+  if (input.classification === 'personal' && input.consentStatus !== 'granted') {
+    throw new Error('Personal memory requires explicit consent.');
+  }
+
+  const now = input.now ?? new Date();
+  const freshUntil = validDataBankDate(input.freshUntil, 'freshUntil');
+  const expiresAt = validDataBankDate(input.expiresAt, 'expiresAt');
+  if (expiresAt && expiresAt.getTime() <= now.getTime()) {
+    throw new Error('DataBank memory cannot be expired when it is created.');
+  }
+  if (freshUntil && expiresAt && freshUntil.getTime() > expiresAt.getTime()) {
+    throw new Error('DataBank freshness cannot extend beyond expiry.');
+  }
+
+  return {
+    ownerType: orgId ? 'organization' : 'user',
+    userId,
+    ...(orgId ? { orgId } : {}),
+    classification: input.classification,
+    consentStatus: input.consentStatus,
+    lifecycleStatus: 'active',
+    ...(freshUntil ? { freshUntil } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
+  };
+}
+
+function validDataBankDate(value: Date | undefined, field: string): Date | undefined {
+  if (value === undefined) return undefined;
+  if (!(value instanceof Date) || !Number.isFinite(value.getTime())) {
+    throw new Error(`DataBank ${field} must be a valid date.`);
+  }
+  return new Date(value.getTime());
 }
 
 type DataBankOwnershipQuery = Record<string, any>;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildVerifiedDataBankOwnershipQuery,
+  resolveDataBankEntryAuthority,
   type DataBankEntry,
 } from '@/lib/thinkforge/services/db';
 import {
@@ -28,6 +29,112 @@ function dataBankEntry(overrides: Partial<DataBankEntry> = {}): DataBankEntry {
 }
 
 describe('DataBank visibility authority', () => {
+  describe('entry governance', () => {
+    const now = new Date('2026-08-16T00:00:00.000Z');
+
+    it('binds personal records to the user principal', () => {
+      expect(resolveDataBankEntryAuthority({
+        userId: ' user_1 ',
+        classification: 'personal',
+        consentStatus: 'granted',
+        now,
+      })).toEqual({
+        ownerType: 'user',
+        userId: 'user_1',
+        classification: 'personal',
+        consentStatus: 'granted',
+        lifecycleStatus: 'active',
+      });
+    });
+
+    it('binds organization records to the exact organization principal', () => {
+      expect(resolveDataBankEntryAuthority({
+        userId: 'user_1',
+        orgId: ' org_1 ',
+        classification: 'business_confidential',
+        consentStatus: 'not_required',
+        now,
+      })).toMatchObject({
+        ownerType: 'organization',
+        userId: 'user_1',
+        orgId: 'org_1',
+        classification: 'business_confidential',
+        consentStatus: 'not_required',
+        lifecycleStatus: 'active',
+      });
+    });
+
+    it('fails closed for missing actors, child data, withdrawn consent, and unconsented personal data', () => {
+      expect(() => resolveDataBankEntryAuthority({
+        userId: ' ',
+        classification: 'public',
+        consentStatus: 'not_required',
+        now,
+      })).toThrow('DataBank authority requires a user actor.');
+      expect(() => resolveDataBankEntryAuthority({
+        userId: 'user_1',
+        classification: 'child_data',
+        consentStatus: 'granted',
+        now,
+      })).toThrow('Child data cannot be stored in ThinkForge memory.');
+      expect(() => resolveDataBankEntryAuthority({
+        userId: 'user_1',
+        classification: 'business_confidential',
+        consentStatus: 'withdrawn',
+        now,
+      })).toThrow('Withdrawn data consent cannot create ThinkForge memory.');
+      expect(() => resolveDataBankEntryAuthority({
+        userId: 'user_1',
+        classification: 'personal',
+        consentStatus: 'not_required',
+        now,
+      })).toThrow('Personal memory requires explicit consent.');
+    });
+
+    it('rejects invalid retention windows and already-expired memory', () => {
+      expect(() => resolveDataBankEntryAuthority({
+        userId: 'user_1',
+        classification: 'public',
+        consentStatus: 'not_required',
+        freshUntil: new Date('invalid'),
+        now,
+      })).toThrow('DataBank freshUntil must be a valid date.');
+      expect(() => resolveDataBankEntryAuthority({
+        userId: 'user_1',
+        classification: 'public',
+        consentStatus: 'not_required',
+        expiresAt: new Date('2026-08-15T23:59:59.999Z'),
+        now,
+      })).toThrow('DataBank memory cannot be expired when it is created.');
+      expect(() => resolveDataBankEntryAuthority({
+        userId: 'user_1',
+        classification: 'public',
+        consentStatus: 'not_required',
+        freshUntil: new Date('2026-09-01T00:00:00.000Z'),
+        expiresAt: new Date('2026-08-31T00:00:00.000Z'),
+        now,
+      })).toThrow('DataBank freshness cannot extend beyond expiry.');
+    });
+
+    it('copies retention dates so callers cannot mutate persisted authority', () => {
+      const freshUntil = new Date('2026-08-20T00:00:00.000Z');
+      const expiresAt = new Date('2026-09-01T00:00:00.000Z');
+      const authority = resolveDataBankEntryAuthority({
+        userId: 'user_1',
+        classification: 'public',
+        consentStatus: 'not_required',
+        freshUntil,
+        expiresAt,
+        now,
+      });
+
+      expect(authority.freshUntil).not.toBe(freshUntil);
+      expect(authority.expiresAt).not.toBe(expiresAt);
+      expect(authority.freshUntil).toEqual(freshUntil);
+      expect(authority.expiresAt).toEqual(expiresAt);
+    });
+  });
+
   it('never treats a missing legacy scope as project ownership', () => {
     expect(buildVerifiedDataBankOwnershipQuery('project')).toEqual({
       provenanceStatus: 'verified',
