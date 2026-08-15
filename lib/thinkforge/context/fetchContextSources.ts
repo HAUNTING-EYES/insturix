@@ -41,6 +41,39 @@ export interface RetrievedContext {
   /** @deprecated Use projectFacts + globalFacts */
   semanticFacts: SemanticFact[];
   interactionPatterns: InteractionPattern[];
+  /** Privacy-safe operational truth for every optional retrieval channel. */
+  retrievalDiagnostics?: ContextRetrievalDiagnostics;
+}
+
+export type ContextRetrievalStatus =
+  | 'succeeded'
+  | 'empty'
+  | 'skipped'
+  | 'timed_out'
+  | 'failed'
+  | 'unknown';
+
+export type ContextRetrievalReason =
+  | 'session_not_provided'
+  | 'query_not_provided'
+  | 'provider_not_configured'
+  | 'deadline_exceeded'
+  | 'dependency_error'
+  | 'diagnostics_unavailable';
+
+export interface ContextRetrievalDiagnostic {
+  status: ContextRetrievalStatus;
+  itemCount: number;
+  durationMs: number;
+  reason?: ContextRetrievalReason;
+}
+
+export interface ContextRetrievalDiagnostics {
+  version: 1;
+  projectFacts: ContextRetrievalDiagnostic;
+  globalVector: ContextRetrievalDiagnostic;
+  globalKeyword: ContextRetrievalDiagnostic;
+  interactionPatterns: ContextRetrievalDiagnostic;
 }
 
 export interface SemanticFact {
@@ -118,11 +151,57 @@ function extractKeywords(text: string, maxKeywords: number = 15): string[] {
 
 const TIER_TIMEOUT_MS = 3000;
 
-function withTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), TIER_TIMEOUT_MS)),
-  ]);
+class ContextRetrievalDeadlineError extends Error {
+  constructor() {
+    super('Context retrieval deadline exceeded.');
+    this.name = 'ContextRetrievalDeadlineError';
+  }
+}
+
+type ContextRetrievalExecution<T> = {
+  items: T[];
+  diagnostic: ContextRetrievalDiagnostic;
+};
+
+function skippedRetrieval<T>(reason: ContextRetrievalReason): ContextRetrievalExecution<T> {
+  return {
+    items: [],
+    diagnostic: { status: 'skipped', itemCount: 0, durationMs: 0, reason },
+  };
+}
+
+async function executeRetrieval<T>(operation: () => Promise<T[]>): Promise<ContextRetrievalExecution<T>> {
+  const startedAt = Date.now();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const items = await Promise.race([
+      operation(),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new ContextRetrievalDeadlineError()), TIER_TIMEOUT_MS);
+      }),
+    ]);
+    return {
+      items,
+      diagnostic: {
+        status: items.length > 0 ? 'succeeded' : 'empty',
+        itemCount: items.length,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      },
+    };
+  } catch (error) {
+    const timedOut = error instanceof ContextRetrievalDeadlineError;
+    return {
+      items: [],
+      diagnostic: {
+        status: timedOut ? 'timed_out' : 'failed',
+        itemCount: 0,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        reason: timedOut ? 'deadline_exceeded' : 'dependency_error',
+      },
+    };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 // ==================== Cold Tier: BrandDNA ====================
@@ -169,41 +248,14 @@ async function fetchProjectContext(
   sessionId: string,
   maxFacts: number,
 ): Promise<SemanticFact[]> {
-  try {
-    const entries = await getProjectScopedEntries(userId, sessionId, { limit: maxFacts });
-    return entries.map((entry) => ({
-      id: entry._id,
-      title: entry.title,
-      summary: extractSummary(entry),
-      tags: entry.tags || [],
-      source: entry.sourceUrl,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Vector-first retrieval with keyword fallback. Searches only global-scoped facts.
- */
-async function fetchGlobalContext(
-  userId: string,
-  keywords: string[],
-  maxFacts: number,
-  queryText: string,
-  brandId?: string,
-): Promise<SemanticFact[]> {
-  try {
-    const vectorResults = await fetchWarmVectorContext(userId, queryText, maxFacts, 'global', brandId);
-    const keywordResults = await fetchWarmKeywordContext(userId, keywords, maxFacts, brandId);
-    return prioritizeGlobalFacts(
-      dedupeSemanticFacts([...vectorResults, ...keywordResults]),
-      brandId,
-      maxFacts,
-    );
-  } catch {
-    return [];
-  }
+  const entries = await getProjectScopedEntries(userId, sessionId, { limit: maxFacts });
+  return entries.map((entry) => ({
+    id: entry._id,
+    title: entry.title,
+    summary: extractSummary(entry),
+    tags: entry.tags || [],
+    source: entry.sourceUrl,
+  }));
 }
 
 async function fetchWarmVectorContext(
@@ -214,46 +266,40 @@ async function fetchWarmVectorContext(
   brandId?: string,
 ): Promise<SemanticFact[]> {
   const normalizedQueryText = queryText.trim();
-  if (!normalizedQueryText || !isVectorRetrievalConfigured()) return [];
+  if (!normalizedQueryText) return [];
 
-  try {
-    const vectorPlans = scope === 'global'
-      ? [
-          ...(brandId ? [{ brandId, memoryScope: 'brand' as const }] : []),
-          { memoryScope: 'universal' as const },
-        ]
-      : [undefined];
-    const vectorResults = dedupeVectorResults(
-      (await Promise.all(
-        vectorPlans.map((plan) => queryRelevantFacts(userId, normalizedQueryText, maxFacts, scope, plan)),
-      )).flat(),
-    );
-    if (vectorResults.length === 0) return [];
+  const vectorPlans = scope === 'global'
+    ? [
+        ...(brandId ? [{ brandId, memoryScope: 'brand' as const }] : []),
+        { memoryScope: 'universal' as const },
+      ]
+    : [undefined];
+  const vectorResults = dedupeVectorResults(
+    (await Promise.all(
+      vectorPlans.map((plan) => queryRelevantFacts(userId, normalizedQueryText, maxFacts, scope, plan)),
+    )).flat(),
+  );
+  if (vectorResults.length === 0) return [];
 
-    const matchedIds = vectorResults.map((r) => r.id);
-    const entries = await getDataBankEntriesByIds(matchedIds, userId);
+  const matchedIds = vectorResults.map((result) => result.id);
+  const entries = await getDataBankEntriesByIds(matchedIds, userId);
+  const entryMap = new Map<string, DataBankEntry>();
+  for (const entry of entries) entryMap.set(entry._id.toString(), entry);
 
-    const entryMap = new Map<string, DataBankEntry>();
-    for (const e of entries) entryMap.set(e._id.toString(), e);
+  const orderedEntries = vectorResults
+    .filter((result) => entryMap.has(result.id))
+    .map((result) => entryMap.get(result.id)!);
+  const visibleEntries = scope === 'global'
+    ? orderedEntries.filter((entry) => isVisibleGlobalEntry(entry, brandId))
+    : orderedEntries;
 
-    const orderedEntries = vectorResults
-      .filter((r) => entryMap.has(r.id))
-      .map((r) => entryMap.get(r.id)!);
-
-    const visibleEntries = scope === 'global'
-      ? orderedEntries.filter((entry) => isVisibleGlobalEntry(entry, brandId))
-      : orderedEntries;
-
-    return visibleEntries.slice(0, maxFacts).map((entry) => ({
-      id: entry._id.toString(),
-      title: entry.title,
-      summary: extractSummary(entry),
-      tags: entry.tags || [],
-      source: entry.sourceUrl,
-    }));
-  } catch {
-    return [];
-  }
+  return visibleEntries.slice(0, maxFacts).map((entry) => ({
+    id: entry._id.toString(),
+    title: entry.title,
+    summary: extractSummary(entry),
+    tags: entry.tags || [],
+    source: entry.sourceUrl,
+  }));
 }
 
 function dedupeVectorResults<T extends { id: string; score: number }>(results: T[]): T[] {
@@ -411,39 +457,33 @@ async function fetchHotContext(
   windowDays: number,
   projectId?: string,
 ): Promise<InteractionPattern[]> {
-  try {
-    const since = new Date();
-    since.setDate(since.getDate() - windowDays);
+  const since = new Date();
+  since.setDate(since.getDate() - windowDays);
 
-    const events = await getRecentInteractionEvents(userId, {
-      projectId,
-      types: INTERACTION_TYPES,
-      limit: 200,
-      since,
-    });
+  const events = await getRecentInteractionEvents(userId, {
+    projectId,
+    types: INTERACTION_TYPES,
+    limit: 200,
+    since,
+  });
+  if (events.length === 0) return [];
 
-    if (events.length === 0) return [];
-
-    const grouped = new Map<string, ThinkForgeEvent[]>();
-    for (const event of events) {
-      const existing = grouped.get(event.type) || [];
-      existing.push(event);
-      grouped.set(event.type, existing);
-    }
-
-    const patterns: InteractionPattern[] = [];
-    for (const [type, evts] of grouped) {
-      patterns.push({
-        type,
-        summary: summarizeEvents(type as EventType, evts),
-        count: evts.length,
-      });
-    }
-
-    return patterns.sort((a, b) => b.count - a.count);
-  } catch {
-    return [];
+  const grouped = new Map<string, ThinkForgeEvent[]>();
+  for (const event of events) {
+    const existing = grouped.get(event.type) || [];
+    existing.push(event);
+    grouped.set(event.type, existing);
   }
+
+  const patterns: InteractionPattern[] = [];
+  for (const [type, eventsForType] of grouped) {
+    patterns.push({
+      type,
+      summary: summarizeEvents(type as EventType, eventsForType),
+      count: eventsForType.length,
+    });
+  }
+  return patterns.sort((a, b) => b.count - a.count);
 }
 
 function summarizeEvents(type: EventType, events: ThinkForgeEvent[]): string {
@@ -492,24 +532,33 @@ export async function fetchContextSources(
     interactionWindowDays = 30,
   } = options;
 
-  const combinedText = [currentPrompt || '', currentScript || ''].join(' ');
+  const combinedText = [currentPrompt || '', currentScript || ''].join(' ').trim();
   const keywords = extractKeywords(combinedText);
+  const hasRetrievalQuery = combinedText.length > 0;
+  const vectorConfigured = isVectorRetrievalConfigured();
 
-  const [brandResolution, projectFacts, globalFacts, interactionPatterns] = await Promise.all([
+  const [brandResolution, projectResult, vectorResult, keywordResult, interactionResult] = await Promise.all([
     fetchColdContext(userId, brandId, orgId, isOrgAdmin),
-    withTimeout(
-      sessionId ? fetchProjectContext(userId, sessionId, maxFacts) : Promise.resolve([]),
-      [],
-    ),
-    withTimeout(
-      fetchGlobalContext(userId, keywords, maxFacts, combinedText, brandId),
-      [],
-    ),
-    withTimeout(
-      fetchHotContext(userId, interactionWindowDays, projectId),
-      [],
-    ),
+    sessionId
+      ? executeRetrieval(() => fetchProjectContext(userId, sessionId, maxFacts))
+      : Promise.resolve(skippedRetrieval<SemanticFact>('session_not_provided')),
+    !hasRetrievalQuery
+      ? Promise.resolve(skippedRetrieval<SemanticFact>('query_not_provided'))
+      : !vectorConfigured
+        ? Promise.resolve(skippedRetrieval<SemanticFact>('provider_not_configured'))
+        : executeRetrieval(() => fetchWarmVectorContext(userId, combinedText, maxFacts, 'global', brandId)),
+    hasRetrievalQuery
+      ? executeRetrieval(() => fetchWarmKeywordContext(userId, keywords, maxFacts, brandId))
+      : Promise.resolve(skippedRetrieval<SemanticFact>('query_not_provided')),
+    executeRetrieval(() => fetchHotContext(userId, interactionWindowDays, projectId)),
   ]);
+  const projectFacts = projectResult.items;
+  const globalFacts = prioritizeGlobalFacts(
+    dedupeSemanticFacts([...vectorResult.items, ...keywordResult.items]),
+    brandId,
+    maxFacts,
+  );
+  const interactionPatterns = interactionResult.items;
 
   return {
     brandDNA: brandResolution.brandDNA,
@@ -519,6 +568,13 @@ export async function fetchContextSources(
     globalFacts,
     semanticFacts: [...projectFacts, ...globalFacts],
     interactionPatterns,
+    retrievalDiagnostics: {
+      version: 1,
+      projectFacts: projectResult.diagnostic,
+      globalVector: vectorResult.diagnostic,
+      globalKeyword: keywordResult.diagnostic,
+      interactionPatterns: interactionResult.diagnostic,
+    },
   };
 }
 

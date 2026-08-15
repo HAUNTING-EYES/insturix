@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fetchContextSources, formatSystemBrief } from '@/lib/thinkforge/context/fetchContextSources';
 import {
   buildThinkForgeAuthoringContextSnapshot,
@@ -100,6 +100,10 @@ function acceptedProfile(): BrandSignalProfile {
 }
 
 describe('fetchContextSources scoped DataBank reads', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     mocks.getDataBankEntriesByIds.mockReset();
     mocks.getDataBankEntriesByUser.mockReset();
@@ -292,6 +296,59 @@ describe('fetchContextSources scoped DataBank reads', () => {
       'entry_brand_1',
       'entry_universal',
     ]);
+    expect(ctx.retrievalDiagnostics).toMatchObject({
+      version: 1,
+      projectFacts: { status: 'skipped', itemCount: 0, reason: 'session_not_provided' },
+      globalVector: { status: 'succeeded', itemCount: 1 },
+      globalKeyword: { status: 'succeeded', itemCount: 2 },
+      interactionPatterns: { status: 'empty', itemCount: 0 },
+    });
+  });
+
+  it('records dependency failures per channel without discarding healthy channels silently', async () => {
+    mocks.getProjectScopedEntries.mockRejectedValue(new Error('project database unavailable'));
+    mocks.queryRelevantFacts.mockRejectedValue(new Error('vector unavailable'));
+    mocks.getDataBankEntriesByUser.mockRejectedValue(new Error('global database unavailable'));
+    mocks.getRecentInteractionEvents.mockRejectedValue(new Error('events database unavailable'));
+
+    const ctx = await fetchContextSources({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      sessionId: 'session_1',
+      currentPrompt: 'write with operational proof',
+    });
+
+    expect(ctx.projectFacts).toEqual([]);
+    expect(ctx.globalFacts).toEqual([]);
+    expect(ctx.interactionPatterns).toEqual([]);
+    expect(ctx.retrievalDiagnostics).toMatchObject({
+      projectFacts: { status: 'failed', reason: 'dependency_error' },
+      globalVector: { status: 'failed', reason: 'dependency_error' },
+      globalKeyword: { status: 'failed', reason: 'dependency_error' },
+      interactionPatterns: { status: 'failed', reason: 'dependency_error' },
+    });
+  });
+
+  it('distinguishes a retrieval deadline from an empty project knowledge set', async () => {
+    vi.useFakeTimers();
+    mocks.getProjectScopedEntries.mockReturnValue(new Promise(() => undefined));
+
+    const pendingContext = fetchContextSources({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      sessionId: 'session_1',
+      currentPrompt: 'write a launch post',
+    });
+    await vi.advanceTimersByTimeAsync(3000);
+    const ctx = await pendingContext;
+
+    expect(ctx.projectFacts).toEqual([]);
+    expect(ctx.retrievalDiagnostics?.projectFacts).toEqual({
+      status: 'timed_out',
+      itemCount: 0,
+      durationMs: 3000,
+      reason: 'deadline_exceeded',
+    });
   });
 
   it('does not infer a legacy BrandDNA profile when no brand is selected', async () => {
@@ -410,13 +467,20 @@ describe('fetchContextSources scoped DataBank reads', () => {
         projectFacts: [{ id: 'project_fact_2' }, { id: 'project_fact_1' }] as any,
         globalFacts: [{ id: 'global_fact_1' } as any],
         interactionPatterns: [{ type: 'hook_rejected' } as any],
+        retrievalDiagnostics: {
+          version: 1,
+          projectFacts: { status: 'succeeded', itemCount: 2, durationMs: 5 },
+          globalVector: { status: 'empty', itemCount: 0, durationMs: 4 },
+          globalKeyword: { status: 'succeeded', itemCount: 1, durationMs: 6 },
+          interactionPatterns: { status: 'succeeded', itemCount: 1, durationMs: 3 },
+        },
       },
       writingKnowledgeVersion: '1.0.0',
       resolvedAt: new Date('2026-08-11T09:00:00.000Z'),
     });
 
     expect(snapshot).toMatchObject({
-      version: 1,
+      version: 2,
       resolvedAt: '2026-08-11T09:00:00.000Z',
       scope: { kind: 'organization', brandId: 'brand_1' },
       brand: {
@@ -428,6 +492,13 @@ describe('fetchContextSources scoped DataBank reads', () => {
         projectFactIds: ['project_fact_1', 'project_fact_2'],
         globalFactIds: ['global_fact_1'],
         interactionPatternTypes: ['hook_rejected'],
+        diagnostics: {
+          version: 1,
+          projectFacts: { status: 'succeeded', itemCount: 2 },
+          globalVector: { status: 'empty', itemCount: 0 },
+          globalKeyword: { status: 'succeeded', itemCount: 1 },
+          interactionPatterns: { status: 'succeeded', itemCount: 1 },
+        },
       },
       writingKnowledgeVersion: '1.0.0',
     });

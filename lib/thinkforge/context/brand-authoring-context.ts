@@ -14,7 +14,11 @@ import {
   type ProjectMeta,
   type ThinkForgeSessionBrandBinding,
 } from '../state/types';
-import type { RetrievedContext } from './fetchContextSources';
+import type {
+  ContextRetrievalDiagnostic,
+  ContextRetrievalDiagnostics,
+  RetrievedContext,
+} from './fetchContextSources';
 import { createHash } from 'crypto';
 
 export type ThinkForgeBrandAuthority = {
@@ -25,15 +29,14 @@ export type ThinkForgeBrandAuthority = {
   profile: BrandSignalProfile;
 };
 
-export const THINKFORGE_AUTHORING_CONTEXT_SNAPSHOT_VERSION = 1;
+export const THINKFORGE_AUTHORING_CONTEXT_SNAPSHOT_VERSION = 2;
 
 /**
  * Server-only provenance for a generated document. It identifies the accepted
  * Brand Vault revision and the retrieval set without persisting any raw prompt
  * text, Brand Vault values, or DataBank content alongside the artifact.
  */
-export type ThinkForgeAuthoringContextSnapshot = {
-  version: typeof THINKFORGE_AUTHORING_CONTEXT_SNAPSHOT_VERSION;
+type ThinkForgeAuthoringContextSnapshotBase = {
   resolvedAt: string;
   scope: {
     kind: 'personal' | 'organization';
@@ -45,13 +48,30 @@ export type ThinkForgeAuthoringContextSnapshot = {
     profileUpdatedAt: string;
     profileFingerprint: string;
   };
-  retrieval: {
-    projectFactIds: string[];
-    globalFactIds: string[];
-    interactionPatternTypes: string[];
-  };
   writingKnowledgeVersion: string | null;
 };
+
+type ThinkForgeAuthoringContextSnapshotRetrieval = {
+  projectFactIds: string[];
+  globalFactIds: string[];
+  interactionPatternTypes: string[];
+};
+
+export type ThinkForgeAuthoringContextSnapshotV1 = ThinkForgeAuthoringContextSnapshotBase & {
+  version: 1;
+  retrieval: ThinkForgeAuthoringContextSnapshotRetrieval;
+};
+
+export type ThinkForgeAuthoringContextSnapshotV2 = ThinkForgeAuthoringContextSnapshotBase & {
+  version: typeof THINKFORGE_AUTHORING_CONTEXT_SNAPSHOT_VERSION;
+  retrieval: ThinkForgeAuthoringContextSnapshotRetrieval & {
+    diagnostics: ContextRetrievalDiagnostics;
+  };
+};
+
+export type ThinkForgeAuthoringContextSnapshot =
+  | ThinkForgeAuthoringContextSnapshotV1
+  | ThinkForgeAuthoringContextSnapshotV2;
 
 /**
  * The cross-service-safe subset of a document's authoring snapshot. Retrieval
@@ -112,15 +132,37 @@ function uniqueSorted(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))].sort();
 }
 
+function diagnosticsUnavailable(itemCount: number): ContextRetrievalDiagnostic {
+  return {
+    status: 'unknown',
+    itemCount,
+    durationMs: 0,
+    reason: 'diagnostics_unavailable',
+  };
+}
+
+function resolveSnapshotRetrievalDiagnostics(
+  context: Pick<RetrievedContext, 'projectFacts' | 'globalFacts' | 'interactionPatterns' | 'retrievalDiagnostics'> | null | undefined,
+): ContextRetrievalDiagnostics {
+  if (context?.retrievalDiagnostics) return context.retrievalDiagnostics;
+  return {
+    version: 1,
+    projectFacts: diagnosticsUnavailable(context?.projectFacts.length ?? 0),
+    globalVector: diagnosticsUnavailable(0),
+    globalKeyword: diagnosticsUnavailable(0),
+    interactionPatterns: diagnosticsUnavailable(context?.interactionPatterns.length ?? 0),
+  };
+}
+
 export function buildThinkForgeAuthoringContextSnapshot(input: {
   orgId?: string | null;
   retrievedContext?: Pick<
     RetrievedContext,
-    'brandAuthority' | 'projectFacts' | 'globalFacts' | 'interactionPatterns'
+    'brandAuthority' | 'projectFacts' | 'globalFacts' | 'interactionPatterns' | 'retrievalDiagnostics'
   > | null;
   writingKnowledgeVersion?: string | null;
   resolvedAt?: Date;
-}): ThinkForgeAuthoringContextSnapshot {
+}): ThinkForgeAuthoringContextSnapshotV2 {
   const context = input.retrievedContext;
   const authority = context?.brandAuthority ?? null;
   const brand = authority
@@ -146,6 +188,7 @@ export function buildThinkForgeAuthoringContextSnapshot(input: {
       projectFactIds: uniqueSorted(context?.projectFacts.map((fact) => fact.id) ?? []),
       globalFactIds: uniqueSorted(context?.globalFacts.map((fact) => fact.id) ?? []),
       interactionPatternTypes: uniqueSorted(context?.interactionPatterns.map((pattern) => pattern.type) ?? []),
+      diagnostics: resolveSnapshotRetrievalDiagnostics(context),
     },
     writingKnowledgeVersion: input.writingKnowledgeVersion ?? null,
   };

@@ -27,6 +27,13 @@ function contextFor(recordId: string, profileUpdatedAt: string) {
     globalFacts: [{ id: 'global_fact_1', title: 'Global fact', summary: 'Fact', tags: [] }],
     semanticFacts: [],
     interactionPatterns: [{ type: 'style_corrected', summary: 'Use short sentences', count: 2 }],
+    retrievalDiagnostics: {
+      version: 1 as const,
+      projectFacts: { status: 'succeeded' as const, itemCount: 1, durationMs: 5 },
+      globalVector: { status: 'empty' as const, itemCount: 0, durationMs: 4 },
+      globalKeyword: { status: 'succeeded' as const, itemCount: 1, durationMs: 6 },
+      interactionPatterns: { status: 'succeeded' as const, itemCount: 1, durationMs: 3 },
+    },
   };
 }
 
@@ -85,6 +92,7 @@ describe('resolveThinkForgeAuthoringContext', () => {
     }));
     expect(result.systemBrief).toBe('Accepted Brand Vault context');
     expect(result.snapshot).toMatchObject({
+      version: 2,
       resolvedAt: '2026-08-11T01:00:00.000Z',
       scope: { kind: 'organization', brandId: 'brand_b' },
       brand: {
@@ -96,6 +104,12 @@ describe('resolveThinkForgeAuthoringContext', () => {
         projectFactIds: ['project_fact_1'],
         globalFactIds: ['global_fact_1'],
         interactionPatternTypes: ['style_corrected'],
+        diagnostics: {
+          projectFacts: { status: 'succeeded', itemCount: 1 },
+          globalVector: { status: 'empty', itemCount: 0 },
+          globalKeyword: { status: 'succeeded', itemCount: 1 },
+          interactionPatterns: { status: 'succeeded', itemCount: 1 },
+        },
       },
       writingKnowledgeVersion: 'writing-graph-v1',
     });

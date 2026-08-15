@@ -41,6 +41,10 @@ export {
   type SemanticFact,
   type InteractionPattern,
   type FetchContextOptions,
+  type ContextRetrievalStatus,
+  type ContextRetrievalReason,
+  type ContextRetrievalDiagnostic,
+  type ContextRetrievalDiagnostics,
 } from './fetchContextSources';
 
 export {
