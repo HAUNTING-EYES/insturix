@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
-import type { ProjectMeta } from '@/lib/thinkforge/state/types';
 import { projectService } from '@/lib/editron/services/project-service';
 import {
   authorizeBrandScope,
@@ -10,7 +9,11 @@ import {
 import {
   createThinkForgeSessionBrandBinding,
 } from '@/lib/thinkforge/context/brand-authoring-context';
-import { resolveThinkForgeSessionBrandBinding } from '@/lib/thinkforge/state/types';
+import {
+  matchesThinkForgeSessionBrandBindingPrincipal,
+  resolveThinkForgeSessionBrandBinding,
+  type ProjectMeta,
+} from '@/lib/thinkforge/state/types';
 import {
   addProjectToLinkBySessionId,
   createProjectLink,
@@ -95,6 +98,13 @@ export async function POST(req: Request) {
       ? projectMeta.brandId.trim()
       : '';
     const existingBinding = resolveThinkForgeSessionBrandBinding(existingSession?.projectMeta);
+    if (existingBinding && !matchesThinkForgeSessionBrandBindingPrincipal(existingBinding, orgId)) {
+      return NextResponse.json({
+        error: 'Session brand binding does not match the active organization.',
+        code: 'brand_binding_scope_mismatch',
+      }, { status: 409 });
+    }
+    const currentExistingBinding = existingBinding?.version === 2 ? existingBinding : undefined;
     const existingBrandId = existingBinding?.brandId
       ?? (typeof existingSession?.projectMeta?.brandId === 'string'
         ? existingSession.projectMeta.brandId.trim()
@@ -118,7 +128,7 @@ export async function POST(req: Request) {
       projectMeta = {
         ...projectMeta,
         brandId: authorizedBrand.brandId,
-        brandBinding: existingBinding ?? createThinkForgeSessionBrandBinding({
+        brandBinding: currentExistingBinding ?? createThinkForgeSessionBrandBinding({
           brandId: authorizedBrand.brandId,
           orgId: orgId ?? null,
         }),

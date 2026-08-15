@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
 import {
   resolveProjectMetaBrandId,
+  matchesThinkForgeSessionBrandBindingPrincipal,
   resolveThinkForgeSessionBrandBinding,
   type ProjectMeta,
 } from '@/lib/thinkforge/state/types';
@@ -49,6 +50,13 @@ export async function POST(req: Request) {
     // binding and require current ACL authorization before any brand mutation.
     const { brandBinding: _clientBrandBinding, ...incomingProjectMeta } = projectMeta || {};
     const existingBinding = resolveThinkForgeSessionBrandBinding(existing.projectMeta);
+    if (existingBinding && !matchesThinkForgeSessionBrandBindingPrincipal(existingBinding, orgId)) {
+      return NextResponse.json({
+        error: 'Session brand binding does not match the active organization.',
+        code: 'brand_binding_scope_mismatch',
+      }, { status: 409 });
+    }
+    const currentExistingBinding = existingBinding?.version === 2 ? existingBinding : undefined;
     const existingBrandId = resolveProjectMetaBrandId(existing.projectMeta);
     const requestedBrandId = typeof incomingProjectMeta.brandId === 'string'
       ? incomingProjectMeta.brandId.trim()
@@ -72,7 +80,7 @@ export async function POST(req: Request) {
       persistedProjectMeta = {
         ...incomingProjectMeta,
         brandId: authorizedBrand.brandId,
-        brandBinding: existingBinding ?? createThinkForgeSessionBrandBinding({
+        brandBinding: currentExistingBinding ?? createThinkForgeSessionBrandBinding({
           brandId: authorizedBrand.brandId,
           orgId: orgId ?? null,
         }),

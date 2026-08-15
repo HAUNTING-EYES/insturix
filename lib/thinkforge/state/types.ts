@@ -48,12 +48,20 @@ export interface IdeaCardData {
  * cannot change during the session; each document separately snapshots the
  * accepted profile revision used at generation time.
  */
-export interface ThinkForgeSessionBrandBinding {
-  version: 1;
-  brandId: string;
-  scope: 'personal' | 'organization';
-  boundAt: string;
-}
+export type ThinkForgeSessionBrandBinding =
+  | {
+      version: 1;
+      brandId: string;
+      scope: 'personal' | 'organization';
+      boundAt: string;
+    }
+  | {
+      version: 2;
+      brandId: string;
+      scope: 'personal' | 'organization';
+      orgId: string | null;
+      boundAt: string;
+    };
 
 export interface ProjectMeta {
   idea?: string;
@@ -162,7 +170,7 @@ export function resolveThinkForgeSessionBrandBinding(
   const binding = projectMeta?.brandBinding;
   if (
     !binding
-    || binding.version !== 1
+    || (binding.version !== 1 && binding.version !== 2)
     || !firstNonEmptyString(binding.brandId)
     || (binding.scope !== 'personal' && binding.scope !== 'organization')
     || !firstNonEmptyString(binding.boundAt)
@@ -170,12 +178,36 @@ export function resolveThinkForgeSessionBrandBinding(
     return undefined;
   }
 
-  return {
-    version: 1,
+  const common = {
     brandId: binding.brandId.trim(),
     scope: binding.scope,
     boundAt: binding.boundAt,
-  };
+  } as const;
+  if (binding.version === 1) return { version: 1, ...common };
+
+  const orgId = firstNonEmptyString(binding.orgId) ?? null;
+  if (
+    (binding.scope === 'organization' && !orgId)
+    || (binding.scope === 'personal' && binding.orgId !== null)
+  ) {
+    return undefined;
+  }
+  return { version: 2, ...common, orgId };
+}
+
+export function matchesThinkForgeSessionBrandBindingPrincipal(
+  bindingInput: ThinkForgeSessionBrandBinding | undefined,
+  orgIdInput: string | null | undefined,
+): boolean {
+  if (!bindingInput) return false;
+  const binding = resolveThinkForgeSessionBrandBinding({ brandBinding: bindingInput });
+  if (!binding) return false;
+  const orgId = firstNonEmptyString(orgIdInput) ?? null;
+  if (binding.version === 1) {
+    return binding.scope === (orgId ? 'organization' : 'personal');
+  }
+  return binding.orgId === orgId
+    && binding.scope === (orgId ? 'organization' : 'personal');
 }
 
 /**
@@ -211,7 +243,11 @@ export function resolvePersistedThinkForgeProjectMetadata(
   // Never persist an unversioned browser scan as brand authority. Existing rows
   // are normalized on their next write; the accepted Brand Vault record wins.
   const { brandBrief: _legacyBrandBrief, brandBinding: _mergedBinding, ...metadata } = merged;
-  const authoritativeBinding = existingBinding ?? incomingBinding;
+  const authoritativeBinding = existingBinding?.version === 2
+    ? existingBinding
+    : incomingBinding?.version === 2
+      ? incomingBinding
+      : existingBinding ?? incomingBinding;
   const authoritativeBrandId = authoritativeBinding?.brandId ?? existingBrandId ?? incomingBrandId;
   if (!authoritativeBrandId) return metadata;
 

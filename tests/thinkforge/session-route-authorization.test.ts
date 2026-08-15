@@ -496,9 +496,10 @@ describe('ThinkForge session route authorization', () => {
       expect.objectContaining({
         brandId: 'brand_allowed',
         brandBinding: expect.objectContaining({
-          version: 1,
+          version: 2,
           brandId: 'brand_allowed',
           scope: 'organization',
+          orgId: 'org_1',
         }),
       }),
       'org_1',
@@ -546,9 +547,10 @@ describe('ThinkForge session route authorization', () => {
       expect.objectContaining({
         brandId: 'brand_allowed',
         brandBinding: expect.objectContaining({
-          version: 1,
+          version: 2,
           brandId: 'brand_allowed',
           scope: 'organization',
+          orgId: 'org_1',
         }),
       }),
       'org_1',
@@ -579,9 +581,10 @@ describe('ThinkForge session route authorization', () => {
       expect.objectContaining({
         brandId: 'brand_allowed',
         brandBinding: expect.objectContaining({
-          version: 1,
+          version: 2,
           brandId: 'brand_allowed',
           scope: 'organization',
+          orgId: 'org_1',
         }),
       }),
       'org_1',
@@ -617,12 +620,12 @@ describe('ThinkForge session route authorization', () => {
       orgId: 'org_1',
       projectMeta: {
         brandId: 'brand_allowed',
-        brandBinding: {
-          version: 1,
+        brandBinding: expect.objectContaining({
+          version: 2,
           brandId: 'brand_allowed',
           scope: 'organization',
-          boundAt: '2026-08-01T00:00:00.000Z',
-        },
+          orgId: 'org_1',
+        }),
       },
     });
 
@@ -652,15 +655,43 @@ describe('ThinkForge session route authorization', () => {
       expect.objectContaining({
         title: 'Safe metadata change',
         brandId: 'brand_allowed',
-        brandBinding: {
-          version: 1,
+        brandBinding: expect.objectContaining({
+          version: 2,
           brandId: 'brand_allowed',
           scope: 'organization',
-          boundAt: '2026-08-01T00:00:00.000Z',
-        },
+          orgId: 'org_1',
+        }),
       }),
       'org_1',
     );
+  });
+
+  it('rejects a V2 binding issued for a different organization', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: {
+        brandId: 'brand_allowed',
+        brandBinding: {
+          version: 2,
+          brandId: 'brand_allowed',
+          scope: 'organization',
+          orgId: 'org_other',
+          boundAt: '2026-08-01T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await callSessionMetadataUpdate({
+      sessionId: 'session_requested',
+      projectMeta: { title: 'Must not persist' },
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'brand_binding_scope_mismatch' });
+    expect(mocks.authorizeBrandScope).not.toHaveBeenCalled();
+    expect(mocks.getOrCreateSession).not.toHaveBeenCalled();
   });
 
   it('denies a requested brand that is absent from the caller\'s authorized Vault scope', async () => {

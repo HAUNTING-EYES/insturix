@@ -97,16 +97,22 @@ export function createThinkForgeSessionBrandBinding(input: {
   brandId: string;
   orgId: string | null;
   boundAt?: Date;
-}): ThinkForgeSessionBrandBinding {
+}): Extract<ThinkForgeSessionBrandBinding, { version: 2 }> {
   const brandId = input.brandId.trim();
   if (!brandId) {
     throw new ThinkForgeBrandAuthorityError('brand_not_found', 'A valid brand is required to create a ThinkForge session binding.');
   }
 
+  const orgId = input.orgId?.trim() || null;
+  if (input.orgId !== null && !orgId) {
+    throw new ThinkForgeBrandAuthorityError('brand_scope_unavailable', 'A valid organization is required for an organization brand binding.');
+  }
+
   return {
-    version: 1,
+    version: 2,
     brandId,
-    scope: input.orgId ? 'organization' : 'personal',
+    scope: orgId ? 'organization' : 'personal',
+    orgId,
     boundAt: (input.boundAt ?? new Date()).toISOString(),
   };
 }
