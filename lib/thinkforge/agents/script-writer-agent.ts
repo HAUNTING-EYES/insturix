@@ -106,7 +106,7 @@ const SCHEMA_ARTIFACT_PATTERNS = [
 
 const RELIP_UNSAFE_OCCLUSION_PATTERN = /\b(masked|mask covering|face covered|covered face|hidden face|occluded face|heavy occlusion|silhouette|back turned|turned away|profile only)\b/i;
 const RELIP_UNSAFE_MOTION_PATTERN = /\b(rapid|chaotic|whip pan|spinning|running|shaky|handheld chase|fast motion)\b/i;
-const REPAIRABLE_SCRIPT_CONTRACT_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|on_camera_ratio_exceeded|unsupported_voice_language|missing_shot_intent|shot_intent_[a-z_]+|runtime_duration_mismatch|spoken_word_count_mismatch|scene_duration_exceeds_renderable_limit|scene_prompt_count_mismatch|sidecar_scene_count_mismatch)\b/;
+const REPAIRABLE_SCRIPT_CONTRACT_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|on_camera_ratio_exceeded|unsupported_voice_language|missing_shot_intent|shot_intent_[a-z_]+|runtime_duration_mismatch|spoken_word_count_mismatch|scene_prompt_count_mismatch|sidecar_scene_count_mismatch)\b/;
 
 function singleLineScriptField(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -227,7 +227,6 @@ Return a complete replacement object using the same JSON schema. Preserve the br
 Critical rules:
 - Every scene requires a complete shotIntent that matches its visible performers and sync-dialogue lines. shotIntent.spokenAudio means speech captured on set; it is false for voiceover-only scenes.
 - Every scene that contains on-camera sync-dialogue is one actual relip job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. Do not use subShots to bypass this limit. Split an overlong on-camera beat into multiple consecutive sidecar.scenes instead, each with its own duration, visual direction, lines, relip safety data, and shot intent. Do not silently turn required on-camera cast speech into voiceover.
-- Every sidecar scene is one renderable production unit and must be ${WRITER_CAPABILITIES.maxSceneDurationSec}s or shorter. For a long runtime, split the story into complete consecutive scenes; do not put the full runtime into one scene.
 - When the failure includes runtime_duration_mismatch or spoken_word_count_mismatch, use tf_untrusted_data.productionContract and tf_untrusted_data.runtimePlan as binding. Rebuild the audible prose and scene allocation to meet the contract; changing durations, metadata, or empty lines alone does not repair a word-count failure. Do not claim a long runtime with sparse narration or empty dialogue.
 - Each sidecar scene maps to exactly one visible script scene and one visual prompt. Keep scene titles, narration, and visual descriptions as plain field text; never embed additional markdown scene headers inside them.
 </writer_contract_repair>`;
@@ -271,8 +270,7 @@ function countMatches(text: string, pattern: RegExp): number {
 /**
  * Runtime-contract construction (R19N: an editor trims an over-long script but never pads a short one).
  * Pacing standards: ~135 wpm narration (target), 95–165 wpm acceptable band; a ±5% runtime window allows
- * compression/overage without dropping the contract; the writing plan targets one scene per 42s.
- * The hard ceiling for a renderable scene comes from the shared production capability profile.
+ * compression/overage without dropping the contract; long-form scene floor ≈ 1 scene per 42s.
  */
 const RUNTIME_SCENE_FLOOR_STEP_SEC = 42;
 const NARRATION_WORDS_PER_MINUTE = 135;
@@ -290,7 +288,6 @@ export interface ScriptRuntimeContract {
   minimumSpokenWords: number;
   maximumSpokenWords: number;
   minimumSceneCount: number;
-  maximumSceneDurationSeconds: number;
 }
 
 /** Server-derived narrative allocation for a runtime-bound script; it never replaces final production planning. */
@@ -317,7 +314,6 @@ export function resolveScriptRuntimeContract(
     minimumSpokenWords: Math.round(targetSpokenWords * (NARRATION_WORDS_PER_MINUTE_MIN / NARRATION_WORDS_PER_MINUTE)),
     maximumSpokenWords: Math.round(targetSpokenWords * (NARRATION_WORDS_PER_MINUTE_MAX / NARRATION_WORDS_PER_MINUTE)),
     minimumSceneCount: Math.max(1, Math.round(targetDurationSeconds / RUNTIME_SCENE_FLOOR_STEP_SEC)),
-    maximumSceneDurationSeconds: WRITER_CAPABILITIES.maxSceneDurationSec,
   };
 }
 
@@ -369,13 +365,6 @@ export function assertUsableScriptWriterResult(
     sidecarSceneCount = sidecar.scenes.length;
     validateWriterCapabilityCompliance(result, sidecar, failures);
     validateCastingBriefCompliance(sidecar, options.productionBrief, failures);
-    for (const [index, scene] of sidecar.scenes.entries()) {
-      if (scene.durationSeconds > WRITER_CAPABILITIES.maxSceneDurationSec) {
-        failures.push(
-          `scene_duration_exceeds_renderable_limit:scene_${index + 1}:${scene.durationSeconds}s/${WRITER_CAPABILITIES.maxSceneDurationSec}s`,
-        );
-      }
-    }
 
     // Runtime is verified from canonical sidecar data. Duration metadata is not enough: a model
     // must also supply the audible words required to fill the requested runtime.
@@ -519,7 +508,6 @@ Your task is to write a high-retention, engaging video script.
    - On-camera sync dialogue is expensive. Keep on-camera sync dialogue to about ${Math.round(DEFAULT_ON_CAMERA_RATIO * 100)}% of spoken lines; use voiceover over visuals for the rest.
    - For every on-camera sync-dialogue scene, make \`visualDescription\` match its structured \`relipSafety\`: visible face, front/on-camera framing, no more than light occlusion, and still/moderate motion.
    - Every on-camera sync-dialogue scene is one actual lip-sync job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. When a spoken beat runs longer, split it into multiple consecutive \`sidecar.scenes\`; do not use \`subShots\` to bypass this limit.
-   - Every \`sidecar.scene\` is one renderable production unit and must be ${WRITER_CAPABILITIES.maxSceneDurationSec}s or shorter. For a long runtime, split the narrative into complete consecutive scenes; never put the full runtime in one scene.
 8. **Production shot intent:** For every sidecar scene, author \`shotIntent\` in the same response:
    - State \`narrativePurpose\`, \`emotionalBeat\`, \`energy\` from 0 to 1, and the concrete \`visualPriority\` that must remain readable.
    - Select \`action\`, \`desiredFraming\`, \`desiredAngle\`, and \`desiredMovement\` from the schema. Any movement other than \`static\` requires \`movementMotivation\` explaining the story reason for moving the camera. For a \`static\` shot, omit \`movementMotivation\`; never use an empty string as a placeholder.

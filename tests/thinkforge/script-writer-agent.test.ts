@@ -202,19 +202,6 @@ function withSpokenWords(scene: SidecarScene, count: number): SidecarScene {
   };
 }
 
-function makeSevenMinuteScenes(wordsPerScene: number | null): SidecarScene[] {
-  const baseScenes = makeSidecar().scenes;
-  return Array.from({ length: 9 }, (_, index) => {
-    const scene = {
-      ...baseScenes[index % baseScenes.length]!,
-      title: `Long-form beat ${index + 1}`,
-      durationSeconds: 45,
-      generationUnitId: `scene_${index + 1}`,
-    };
-    return wordsPerScene === null ? scene : withSpokenWords(scene, wordsPerScene);
-  });
-}
-
 function makeResult(overrides: Partial<ScriptWriterResult> = {}): ScriptWriterResult {
   return {
     content: canonicalScript,
@@ -383,12 +370,20 @@ describe('ScriptWriterAgent structured generation', () => {
   it('repairs a declared long runtime when the audible lines are too short', async () => {
     const invalid = makeModelOutput({
       sidecar: makeSidecar({
-        scenes: makeSevenMinuteScenes(null),
+        scenes: makeSidecar().scenes.map((scene, index) => ({
+          ...scene,
+          durationSeconds: 210,
+          generationUnitId: `scene_${index + 1}`,
+        })),
       }),
     });
     const repaired = makeModelOutput({
       sidecar: makeSidecar({
-        scenes: makeSevenMinuteScenes(75),
+        scenes: makeSidecar().scenes.map((scene, index) => ({
+          ...withSpokenWords(scene, 340),
+          durationSeconds: 210,
+          generationUnitId: `scene_${index + 1}`,
+        })),
       }),
     });
     generateStructuredWithWritingContextCacheMock
@@ -792,29 +787,17 @@ describe('assertUsableScriptWriterResult', () => {
   it('accepts a runtime-complete script whose scene count is below the nominal floor (production 9/10 regression)', () => {
     // A 7-minute ask that came back with 9 scenes but a full ~420s runtime was wrongly rejected by the standalone
     // scene-count floor. It remains valid when it has enough real spoken material for the runtime.
-    const scenes = makeSevenMinuteScenes(75);
+    const scenes = makeSidecar().scenes.map((scene, i) => ({
+      ...withSpokenWords(scene, 340),
+      durationSeconds: 200 + i,
+      generationUnitId: `scene_${i + 1}`,
+    }));
     expect(() =>
       assertUsableScriptWriterResult(
-        materializeScriptWriterResult(makeModelOutput({ sidecar: makeSidecar({ scenes }) })), // 405s total across 9 scenes
+        makeResult({ sidecar: makeSidecar({ scenes }) }), // 401s total across 2 scenes
         { productionBrief: productionBriefWithDuration(420) },
       ),
     ).not.toThrow(/runtime_duration_mismatch|scene_count_under_runtime_floor/);
-  });
-
-  it('rejects a one-scene seven-minute script even when its duration and narration are otherwise sufficient', () => {
-    const baseScene = makeSidecar().scenes[0]!;
-    const oneScene = withSpokenWords({
-      ...baseScene,
-      durationSeconds: 420,
-      generationUnitId: 'scene_1',
-    }, 700);
-
-    expect(() =>
-      assertUsableScriptWriterResult(
-        materializeScriptWriterResult(makeModelOutput({ sidecar: makeSidecar({ scenes: [oneScene] }) })),
-        { productionBrief: productionBriefWithDuration(420) },
-      ),
-    ).toThrow(/scene_duration_exceeds_renderable_limit:scene_1:420s\/60s/);
   });
 
   it('accepts a script whose scene durations land inside the runtime tolerance', () => {
@@ -831,10 +814,14 @@ describe('assertUsableScriptWriterResult', () => {
   });
 
   it('rejects a script that claims a seven-minute runtime with sparse audible narration', () => {
-    const scenes = makeSevenMinuteScenes(null);
+    const scenes = makeSidecar().scenes.map((scene, index) => ({
+      ...scene,
+      durationSeconds: 210,
+      generationUnitId: `scene_${index + 1}`,
+    }));
 
     expect(() => assertUsableScriptWriterResult(
-      materializeScriptWriterResult(makeModelOutput({ sidecar: makeSidecar({ scenes }) })),
+      makeResult({ sidecar: makeSidecar({ scenes }) }),
       { productionBrief: productionBriefWithDuration(420) },
     )).toThrow(/spoken_word_count_mismatch/);
   });

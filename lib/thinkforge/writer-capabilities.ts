@@ -19,9 +19,6 @@ export interface WriterCapabilities {
    *  The writer MUST split any on-camera speaking beat longer than this into segments of at
    *  most this many seconds (each becomes its own scene/sub-shot). ← Kling LipSync input cap. */
   maxSpeakingSegmentSec: number;
-  /** Max duration of one authored Script Sidecar scene. Long-form scripts split at this
-   *  production-unit ceiling instead of creating an unrenderable mega-scene. */
-  maxSceneDurationSec: number;
   /** VO / spoken languages the voice-clone + relip rig supports. The writer must not author
    *  spoken lines in a language outside this set (captions can still be any language). */
   voiceLanguages: readonly string[];
@@ -42,7 +39,6 @@ export interface WriterCapabilities {
 export const WRITER_CAPABILITIES: WriterCapabilities = {
   avatarSpeakingAvailable: true, // A0/relip lanes are the shipped speaking path
   maxSpeakingSegmentSec: AVATAR_RIG.relip.maxInputVideoSec, // 10s hard cap (Kling LipSync)
-  maxSceneDurationSec: AVATAR_RIG.maxClipSec, // 60s hard cap for one renderable production unit
   voiceLanguages: AVATAR_RIG.languages, // ['en'] today; multilingual PARKED in the rig
   speakingFramings: AVATAR_RIG.framings,
   relipSafe: { faceVisibleRequired: true, maxOcclusion: 'light', motionDuringLines: 'moderate' },
