@@ -3440,19 +3440,6 @@ export async function getAuthorizedDataBankEntriesByIds(
   return docs as unknown as DataBankEntry[];
 }
 
-/** Update the embedding status + vectorId after background processing */
-export async function updateDataBankEmbeddingStatus(
-  entryId: string,
-  status: EmbeddingStatus,
-  vectorId?: string
-): Promise<void> {
-  await connectToThinkForgeDb();
-  const model = getDataBankModel();
-  const update: Record<string, any> = { embeddingStatus: status, updatedAt: new Date() };
-  if (vectorId) update.vectorId = vectorId;
-  await model.updateOne({ _id: entryId }, { $set: update });
-}
-
 /**
  * Retrieve entries for a user that have embeddings, for in-process
  * similarity search. Optionally filtered by scope.
