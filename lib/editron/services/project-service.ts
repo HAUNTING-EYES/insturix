@@ -5,6 +5,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomBytes } from "node:crypto";
 
 import { connectToDatabase, getDatabase, COLLECTIONS } from "../db/mongodb";
 import { assetResolver } from "./asset-resolver";
@@ -30,6 +31,19 @@ import type {
   ChatEditRenderVerificationRecord,
 } from "./chat-edit-render-verification-lifecycle";
 import type { AudioRightsContract } from "@/lib/editron/shared/render-request-payload";
+import {
+  createPendingProjectGeneratedCompositionStateV1,
+  hasSamePreparedCompositionMaterialV1,
+  parseProjectGeneratedCompositionDraftV1,
+  parseProjectGeneratedCompositionEntryV1,
+  parseProjectGeneratedCompositionStateTokenV1,
+  type ProjectGeneratedCompositionDraftV1,
+  type ProjectGeneratedCompositionEntryV1,
+} from "./project-generated-composition-entry-v1";
+import {
+  parseProjectGeneratedCompositionStateV1,
+} from "./project-generated-composition-state-verifier-v1";
+import type { ProjectGeneratedCompositionStateV1 } from "./project-generated-composition-state-v1";
 
 export interface EditorState {
   overlays: Overlay[];
@@ -63,6 +77,29 @@ export interface ProjectMutationReceiptV1 {
   projectId: string;
   revision: ProjectRevisionV1;
   committedAt: string;
+}
+
+export type ProjectGeneratedCompositionPrepareCommandV1 =
+  | {
+      kind: "INSERT";
+      expectedRevision: ProjectRevisionV1;
+      draft: ProjectGeneratedCompositionDraftV1;
+    }
+  | {
+      kind: "REVISE";
+      expectedRevision: ProjectRevisionV1;
+      expectedBaseStateToken: string;
+      draft: ProjectGeneratedCompositionDraftV1;
+    };
+
+export interface ProjectGeneratedCompositionFinalizeCommandV1 {
+  expectedRevision: ProjectRevisionV1;
+  terminalState: ProjectGeneratedCompositionStateV1;
+}
+
+export interface ProjectGeneratedCompositionMutationResultV1 {
+  entry: ProjectGeneratedCompositionEntryV1;
+  receipt: ProjectMutationReceiptV1;
 }
 
 export type ProjectAudioRightsAttestationKindV1 =
@@ -240,6 +277,20 @@ export class ProjectMutationWriteError extends Error {
   }
 }
 
+export class ProjectGeneratedCompositionStateConflictErrorV1 extends Error {
+  readonly code = "PROJECT_GENERATED_COMPOSITION_STATE_CONFLICT";
+
+  constructor(
+    readonly compositionId: string,
+    readonly currentStateToken: string | null,
+    readonly currentRevision: ProjectRevisionV1,
+    message = "The generated composition changed before this write could be committed.",
+  ) {
+    super(message);
+    this.name = "ProjectGeneratedCompositionStateConflictErrorV1";
+  }
+}
+
 class ProjectAudioRightsAttestationConflictError extends Error {
   constructor() {
     super("The project changed before audio rights could be committed.");
@@ -265,6 +316,8 @@ export interface Project {
   updatedAt: Date;
   /** Durable optimistic-concurrency counter for ProjectService editor writes. */
   projectRevision?: number;
+  /** ProjectService-owned active and in-flight generated composition revisions. */
+  generatedCompositions?: ProjectGeneratedCompositionEntryV1[];
   lastAutosaveAt?: Date;
   // Organization support
   orgId?: string | null;
@@ -718,6 +771,286 @@ export class ProjectService {
       project: structuredClone(project),
       revision: projectRevisionFor(project),
     };
+  }
+
+  /**
+   * Creates a ProjectService-issued PENDING generated-composition candidate.
+   * A revision keeps its last passing active state while this candidate is
+   * rendered and proved outside the project mutation boundary.
+   */
+  async prepareProjectGeneratedCompositionV1(
+    userId: string,
+    projectId: string,
+    command: ProjectGeneratedCompositionPrepareCommandV1,
+  ): Promise<ProjectGeneratedCompositionMutationResultV1> {
+    assertProjectRevision(command.expectedRevision);
+    const draft = parseProjectGeneratedCompositionDraftV1(command.draft);
+    const expectedBaseStateToken = command.kind === "REVISE"
+      ? parseProjectGeneratedCompositionStateTokenV1(
+        command.expectedBaseStateToken,
+      )
+      : null;
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(command.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    const entries = parseProjectGeneratedCompositionEntriesForProjectV1(
+      projectId,
+      project.generatedCompositions,
+    );
+    const entryIndex = entries.findIndex(
+      ({ compositionId }) => compositionId === draft.compositionId,
+    );
+    const currentEntry = entryIndex >= 0 ? entries[entryIndex] : null;
+    const currentStateToken = currentEntry
+      ? currentProjectGeneratedCompositionStateTokenV1(currentEntry)
+      : null;
+    if (command.kind === "INSERT" && currentEntry) {
+      throw new ProjectGeneratedCompositionStateConflictErrorV1(
+        draft.compositionId,
+        currentStateToken,
+        currentRevision,
+        "The generated composition already exists; revise its current state token instead.",
+      );
+    }
+    if (command.kind === "REVISE"
+      && (!currentEntry || currentStateToken !== expectedBaseStateToken)) {
+      throw new ProjectGeneratedCompositionStateConflictErrorV1(
+        draft.compositionId,
+        currentStateToken,
+        currentRevision,
+      );
+    }
+
+    const pendingState = createPendingProjectGeneratedCompositionStateV1(
+      projectId,
+      `gcp-state-v1:${randomBytes(32).toString("hex")}`,
+      draft,
+    );
+    const nextEntry = parseProjectGeneratedCompositionEntryV1({
+      schemaVersion: 1,
+      compositionId: draft.compositionId,
+      activeState: currentEntry?.activeState ?? null,
+      candidateState: pendingState,
+    });
+    const committedAt = new Date();
+    const update: Record<string, unknown> = command.kind === "INSERT"
+      ? {
+          $push: { generatedCompositions: nextEntry },
+          $set: { updatedAt: committedAt },
+          $inc: { projectRevision: 1 },
+        }
+      : {
+          $set: {
+            "generatedCompositions.$[composition]": nextEntry,
+            updatedAt: committedAt,
+          },
+          $inc: { projectRevision: 1 },
+        };
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(command.expectedRevision),
+        ...(command.kind === "INSERT"
+          ? {
+              generatedCompositions: {
+                $not: { $elemMatch: { compositionId: draft.compositionId } },
+              },
+            }
+          : generatedCompositionEntryStatePredicateV1(
+            draft.compositionId,
+            currentEntry!,
+          )),
+      },
+      update,
+      command.kind === "REVISE"
+        ? {
+            arrayFilters: [generatedCompositionEntryArrayFilterV1(
+              draft.compositionId,
+              currentEntry!,
+            )],
+          }
+        : undefined,
+    );
+    if (result.matchedCount === 0) {
+      return this.throwProjectGeneratedCompositionConflictV1(
+        userId,
+        projectId,
+        draft.compositionId,
+        command.expectedRevision,
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: command.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return { entry: nextEntry, receipt };
+  }
+
+  /**
+   * Commits only the terminal render/proof outcome for the exact candidate
+   * ProjectService prepared. PASS promotes it; FAIL and UNVERIFIABLE preserve
+   * the last passing active state and retain the failed candidate for review.
+   */
+  async finalizeProjectGeneratedCompositionV1(
+    userId: string,
+    projectId: string,
+    command: ProjectGeneratedCompositionFinalizeCommandV1,
+  ): Promise<ProjectGeneratedCompositionMutationResultV1> {
+    assertProjectRevision(command.expectedRevision);
+    const terminalState = parseProjectGeneratedCompositionStateV1(
+      command.terminalState,
+    );
+    if (terminalState.projectId !== projectId) {
+      throw new ProjectMutationWriteError(
+        "A generated composition cannot be finalized into another project.",
+      );
+    }
+    if (terminalState.verificationDisposition === "PENDING") {
+      throw new ProjectMutationWriteError(
+        "A generated composition must have a terminal proof disposition before finalization.",
+      );
+    }
+
+    const db = await getDatabase();
+    const project = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!project) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(project);
+    if (!sameProjectRevisionV1(command.expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+
+    const entries = parseProjectGeneratedCompositionEntriesForProjectV1(
+      projectId,
+      project.generatedCompositions,
+    );
+    const entryIndex = entries.findIndex(
+      ({ compositionId }) => compositionId === terminalState.compositionId,
+    );
+    const currentEntry = entryIndex >= 0 ? entries[entryIndex] : null;
+    const pendingState = currentEntry?.candidateState ?? null;
+    if (!pendingState
+      || pendingState.verificationDisposition !== "PENDING"
+      || pendingState.stateIdentity.token !== terminalState.stateIdentity.token
+      || !hasSamePreparedCompositionMaterialV1(pendingState, terminalState)) {
+      throw new ProjectGeneratedCompositionStateConflictErrorV1(
+        terminalState.compositionId,
+        currentEntry
+          ? currentProjectGeneratedCompositionStateTokenV1(currentEntry)
+          : null,
+        currentRevision,
+        "The terminal outcome does not bind the exact prepared generated-composition state.",
+      );
+    }
+
+    const nextEntry = parseProjectGeneratedCompositionEntryV1({
+      schemaVersion: 1,
+      compositionId: terminalState.compositionId,
+      activeState: terminalState.verificationDisposition === "PASS"
+        ? terminalState
+        : currentEntry?.activeState ?? null,
+      candidateState: terminalState.verificationDisposition === "PASS"
+        ? null
+        : terminalState,
+    });
+    const committedAt = new Date();
+    const result = await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      {
+        projectId,
+        userId,
+        ...projectRevisionPredicate(command.expectedRevision),
+        generatedCompositions: {
+          $elemMatch: {
+            compositionId: terminalState.compositionId,
+            "candidateState.stateIdentity.token": terminalState.stateIdentity.token,
+            "candidateState.verificationDisposition": "PENDING",
+          },
+        },
+      },
+      {
+        $set: {
+          "generatedCompositions.$[composition]": nextEntry,
+          updatedAt: committedAt,
+        },
+        $inc: { projectRevision: 1 },
+      },
+      {
+        arrayFilters: [{
+          "composition.compositionId": terminalState.compositionId,
+          "composition.candidateState.stateIdentity.token": terminalState.stateIdentity.token,
+          "composition.candidateState.verificationDisposition": "PENDING",
+        }],
+      },
+    );
+    if (result.matchedCount === 0) {
+      return this.throwProjectGeneratedCompositionConflictV1(
+        userId,
+        projectId,
+        terminalState.compositionId,
+        command.expectedRevision,
+      );
+    }
+    if (result.modifiedCount !== 1) throw new ProjectMutationWriteError();
+
+    const receipt: ProjectMutationReceiptV1 = {
+      schemaVersion: 1,
+      projectId,
+      revision: {
+        schemaVersion: 1,
+        value: command.expectedRevision.value + 1,
+        compatibilityUpdatedAt: committedAt.toISOString(),
+      },
+      committedAt: committedAt.toISOString(),
+    };
+    this.publishMutationReceipt(receipt);
+    return { entry: nextEntry, receipt };
+  }
+
+  private async throwProjectGeneratedCompositionConflictV1(
+    userId: string,
+    projectId: string,
+    compositionId: string,
+    expectedRevision: ProjectRevisionV1,
+  ): Promise<never> {
+    const db = await getDatabase();
+    const latest = (await db.collection(COLLECTIONS.PROJECTS).findOne({
+      projectId,
+      userId,
+    })) as Project | null;
+    if (!latest) throw new ProjectNotFoundOrForbiddenError();
+    const currentRevision = projectRevisionFor(latest);
+    if (!sameProjectRevisionV1(expectedRevision, currentRevision)) {
+      throw new ProjectMutationConflictError(currentRevision);
+    }
+    const entry = parseProjectGeneratedCompositionEntriesForProjectV1(
+      projectId,
+      latest.generatedCompositions,
+    ).find((candidate) => candidate.compositionId === compositionId);
+    throw new ProjectGeneratedCompositionStateConflictErrorV1(
+      compositionId,
+      entry ? currentProjectGeneratedCompositionStateTokenV1(entry) : null,
+      currentRevision,
+    );
   }
 
   /**
@@ -1192,6 +1525,11 @@ export class ProjectService {
   ): Promise<ProjectCheckpointRestoreReceiptV1> {
     assertProjectRevision(input.expectedRevision);
     assertCheckpointRestoreFields(input.setFields, input.unsetFields);
+    assertProjectGeneratedCompositionCheckpointRestoreV1(
+      projectId,
+      input.setFields,
+      input.unsetFields,
+    );
 
     const committedAt = new Date();
     const update: Record<string, unknown> = {
@@ -1258,6 +1596,7 @@ export class ProjectService {
     directorLeaseId?: string;
     mode: "manual" | "autosave";
   }): Promise<ProjectMutationReceiptV1> {
+    assertGenericProjectUpdateFields(input.projectUpdates ?? {}, []);
     const cleanOverlays = assetResolver.stripUrlsForLLM(input.state.overlays);
     const dimensions = validDimensions(input.state.playerDimensions)
       ? input.state.playerDimensions
@@ -1273,7 +1612,6 @@ export class ProjectService {
     const currentRevision = projectRevisionFor(currentProject);
     const expectedRevision = input.expectedRevision ?? currentRevision;
     assertProjectRevision(expectedRevision);
-    assertCheckpointRestoreFields(input.projectUpdates ?? {}, []);
     if (
       expectedRevision.value !== currentRevision.value ||
       expectedRevision.compatibilityUpdatedAt !==
@@ -1964,6 +2302,7 @@ export class ProjectService {
       projectUpdates?: Record<string, any>;
     },
   ): Promise<boolean> {
+    assertGenericProjectUpdateFields(input.projectUpdates ?? {}, []);
     if (
       !(input.expectedUpdatedAt instanceof Date) ||
       Number.isNaN(input.expectedUpdatedAt.getTime())
@@ -2037,6 +2376,7 @@ export class ProjectService {
     projectId: string,
     updates: Record<string, any>,
   ): Promise<void> {
+    assertGenericProjectUpdateFields(updates, []);
     const db = await getDatabase();
     await db.collection(COLLECTIONS.PROJECTS).updateOne(
       { projectId, userId },
@@ -2142,6 +2482,134 @@ function projectRevisionFor(
         : 0,
     compatibilityUpdatedAt: updatedAt.toISOString(),
   };
+}
+
+function sameProjectRevisionV1(
+  left: ProjectRevisionV1,
+  right: ProjectRevisionV1,
+): boolean {
+  return left.schemaVersion === right.schemaVersion
+    && left.value === right.value
+    && left.compatibilityUpdatedAt === right.compatibilityUpdatedAt;
+}
+
+function parseProjectGeneratedCompositionEntriesForProjectV1(
+  projectId: string,
+  value: unknown,
+): ProjectGeneratedCompositionEntryV1[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new ProjectMutationWriteError(
+      "Project generated-composition state must be an array.",
+    );
+  }
+  const entries = value.map(parseProjectGeneratedCompositionEntryV1);
+  if (new Set(entries.map(({ compositionId }) => compositionId)).size
+    !== entries.length) {
+    throw new ProjectMutationWriteError(
+      "Project generated-composition IDs must be unique.",
+    );
+  }
+  const containsCrossProjectState = entries.some((entry) =>
+    [entry.activeState, entry.candidateState]
+      .filter((state): state is ProjectGeneratedCompositionStateV1 => Boolean(state))
+      .some((state) => state.projectId !== projectId));
+  if (containsCrossProjectState) {
+    throw new ProjectMutationWriteError(
+      "Project generated-composition state cannot cross project boundaries.",
+    );
+  }
+  return entries;
+}
+
+function currentProjectGeneratedCompositionStateTokenV1(
+  entry: ProjectGeneratedCompositionEntryV1,
+): string {
+  const state = entry.candidateState ?? entry.activeState;
+  if (!state) {
+    throw new ProjectMutationWriteError(
+      "Project generated-composition entry has no current state.",
+    );
+  }
+  return state.stateIdentity.token;
+}
+
+function assertProjectGeneratedCompositionCheckpointRestoreV1(
+  projectId: string,
+  setFields: Record<string, unknown>,
+  unsetFields: string[],
+): void {
+  const compositionFields = [...Object.keys(setFields), ...unsetFields]
+    .filter((field) => field === "generatedCompositions"
+      || field.startsWith("generatedCompositions."));
+  if (compositionFields.some((field) => field !== "generatedCompositions")) {
+    throw new ProjectMutationWriteError(
+      "Checkpoint restore must replace generated composition state as one whole field.",
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(setFields, "generatedCompositions")) {
+    if (!Array.isArray(setFields.generatedCompositions)) {
+      throw new ProjectMutationWriteError(
+        "Checkpoint generated-composition state must be an array.",
+      );
+    }
+    parseProjectGeneratedCompositionEntriesForProjectV1(
+      projectId,
+      setFields.generatedCompositions,
+    );
+  }
+}
+
+function generatedCompositionEntryStatePredicateV1(
+  compositionId: string,
+  entry: ProjectGeneratedCompositionEntryV1,
+): Record<string, unknown> {
+  if (entry.candidateState) {
+    return {
+      generatedCompositions: {
+        $elemMatch: {
+          compositionId,
+          "candidateState.stateIdentity.token": entry.candidateState.stateIdentity.token,
+        },
+      },
+    };
+  }
+  if (entry.activeState) {
+    return {
+      generatedCompositions: {
+        $elemMatch: {
+          compositionId,
+          "activeState.stateIdentity.token": entry.activeState.stateIdentity.token,
+          candidateState: null,
+        },
+      },
+    };
+  }
+  throw new ProjectMutationWriteError(
+    "Project generated-composition entry has no state to compare.",
+  );
+}
+
+function generatedCompositionEntryArrayFilterV1(
+  compositionId: string,
+  entry: ProjectGeneratedCompositionEntryV1,
+): Record<string, unknown> {
+  if (entry.candidateState) {
+    return {
+      "composition.compositionId": compositionId,
+      "composition.candidateState.stateIdentity.token": entry.candidateState.stateIdentity.token,
+    };
+  }
+  if (entry.activeState) {
+    return {
+      "composition.compositionId": compositionId,
+      "composition.activeState.stateIdentity.token": entry.activeState.stateIdentity.token,
+      "composition.candidateState": null,
+    };
+  }
+  throw new ProjectMutationWriteError(
+    "Project generated-composition entry has no state to compare.",
+  );
 }
 
 function assertProjectRevision(revision: ProjectRevisionV1): void {
@@ -2300,6 +2768,21 @@ function assertCheckpointRestoreFields(
     new Set(fieldNames).size !== fieldNames.length
   ) {
     throw new ProjectMutationWriteError();
+  }
+}
+
+function assertGenericProjectUpdateFields(
+  setFields: Record<string, unknown>,
+  unsetFields: string[],
+): void {
+  assertCheckpointRestoreFields(setFields, unsetFields);
+  const fields = [...Object.keys(setFields), ...unsetFields];
+  if (fields.some((field) =>
+    field === "generatedCompositions"
+    || field.startsWith("generatedCompositions."))) {
+    throw new ProjectMutationWriteError(
+      "Generated composition state must use its ProjectService command boundary.",
+    );
   }
 }
 

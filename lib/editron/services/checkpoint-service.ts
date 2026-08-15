@@ -24,6 +24,7 @@ export type ChatEditOperationStatus = 'running' | 'completed' | 'no-op' | 'rolle
 // Worker locks, billing, ownership, timestamps, and immutable IDs are deliberately excluded.
 export const CHAT_RESTORABLE_PROJECT_FIELDS = [
   'overlays',
+  'generatedCompositions',
   'aspectRatio',
   'playerDimensions',
   'fps',
@@ -156,6 +157,10 @@ export function captureRestorableProjectState(project: Record<string, unknown>):
   if (!presentFields.includes('overlays')) {
     presentFields.unshift('overlays');
     fields.overlays = [];
+  }
+  if (!presentFields.includes('generatedCompositions')) {
+    presentFields.push('generatedCompositions');
+    fields.generatedCompositions = [];
   }
 
   return { presentFields, fields };
@@ -410,6 +415,14 @@ export class CheckpointService {
         reason: 'legacy-overlay-only-checkpoint',
       };
     }
+    if (!checkpoint.projectState.presentFields.includes('generatedCompositions')) {
+      return {
+        restored: false,
+        checkpointId,
+        expectedStateHash: checkpoint.stateHash ?? '',
+        reason: 'legacy-checkpoint-missing-generated-composition-state',
+      };
+    }
 
     const projectState = this.cleanProjectState(
       cloneValue(checkpoint.projectState),
@@ -539,7 +552,14 @@ export class CheckpointService {
     const fields = cloneValue(state.fields);
     const rawOverlays = Array.isArray(fields.overlays) ? fields.overlays as Overlay[] : [];
     fields.overlays = assetResolver.stripUrlsForLLM(rawOverlays);
-    const presentFields = Array.from(new Set<ChatRestorableProjectField>(['overlays', ...state.presentFields]));
+    const presentFields = Array.from(new Set<ChatRestorableProjectField>([
+      'overlays',
+      'generatedCompositions',
+      ...state.presentFields,
+    ]));
+    if (!state.presentFields.includes('generatedCompositions')) {
+      fields.generatedCompositions = [];
+    }
     return mongoStableValue({ presentFields, fields });
   }
 }
