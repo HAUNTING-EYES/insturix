@@ -3331,28 +3331,6 @@ export async function getAuthorizedDataBankEntries(
   return docs as unknown as DataBankEntry[];
 }
 
-/** Get verified project-scoped DataBank entries for a specific session. */
-export async function getProjectScopedEntries(
-  userId: string,
-  sessionId: string,
-  options?: { type?: DataBankEntryType; limit?: number }
-): Promise<DataBankEntry[]> {
-  await connectToThinkForgeDb();
-  const model = getDataBankModel();
-  const query: Record<string, any> = {
-    userId,
-    sessionId,
-    ...buildVerifiedDataBankOwnershipQuery('project'),
-  };
-  if (options?.type) query.type = options.type;
-  const docs = await model
-    .find(query)
-    .sort({ createdAt: -1 })
-    .limit(options?.limit ?? 100)
-    .lean();
-  return docs as unknown as DataBankEntry[];
-}
-
 /** Read current project memory through exact user/organization authority. */
 export async function getAuthorizedProjectScopedEntries(
   principalInput: DataBankPrincipal,
@@ -3371,6 +3349,15 @@ export async function getAuthorizedProjectScopedEntries(
     .limit(Math.max(1, Math.min(options?.limit ?? 100, 500)))
     .lean();
   return docs as unknown as DataBankEntry[];
+}
+
+/** Compatibility name; project reads still require an exact principal. */
+export async function getProjectScopedEntries(
+  principalInput: DataBankPrincipal,
+  sessionId: string,
+  options?: { type?: DataBankEntryType; limit?: number; now?: Date },
+): Promise<DataBankEntry[]> {
+  return getAuthorizedProjectScopedEntries(principalInput, sessionId, options);
 }
 
 /** Get a single DataBank entry by ID */

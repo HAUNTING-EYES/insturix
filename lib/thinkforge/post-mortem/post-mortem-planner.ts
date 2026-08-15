@@ -44,7 +44,11 @@ export async function preparePostMortemPlan(rawInput: PostMortemInput): Promise<
       limit: 200,
       strict: true,
     }),
-    getProjectScopedEntries(input.userId, input.sessionId, { limit: 100 }),
+    getProjectScopedEntries(
+      { userId: input.userId, orgId },
+      input.sessionId,
+      { limit: 100 },
+    ),
   ]);
 
   let brandEventsText = '';
