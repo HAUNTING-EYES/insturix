@@ -77,8 +77,12 @@ import {
 } from '@/lib/thinkforge/client-document-identity';
 import {
   acceptThinkForgeServerDocument,
+  clearThinkForgeConflictDraft,
   enqueueThinkForgeDocumentSave,
   overwriteThinkForgeDocumentAfterConflict,
+  preserveThinkForgeConflictDraft,
+  readThinkForgeConflictDraft,
+  restoreThinkForgeDocumentConflict,
   type ThinkForgeDocumentSaveRequest,
 } from '@/lib/thinkforge/client-document-save-queue';
 
@@ -112,34 +116,6 @@ interface PendingDocumentSave {
 interface DocumentSaveConflict {
   documentKey: string;
   currentVersion: number;
-}
-
-const CONFLICT_DRAFT_PREFIX = 'thinkforge_conflict_draft_';
-
-function conflictDraftKey(documentKey: string): string {
-  return `${CONFLICT_DRAFT_PREFIX}${documentKey}`;
-}
-
-function preserveConflictDraft(pending: PendingDocumentSave): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(conflictDraftKey(pending.documentKey), JSON.stringify({
-      request: pending.request,
-      updatedScript: pending.updatedScript,
-      preservedAt: new Date().toISOString(),
-    }));
-  } catch {
-    // The in-memory editor remains authoritative while the conflict dialog is open.
-  }
-}
-
-function clearConflictDraft(documentKey: string): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.removeItem(conflictDraftKey(documentKey));
-  } catch {
-    // Storage cleanup must not invalidate an otherwise successful resolution.
-  }
 }
 
 /**
@@ -510,12 +486,13 @@ export default function ScriptEditor({
       const isInitialLoad = reason === 'initial-load-api' || reason === 'initial-load-prop';
       const isVersionRestore = reason === 'version-restore' || isRestoringVersionRef.current;
       const isAIUpdate = reason === 'ai-update';
+      const isConflictRecovery = reason === 'conflict-recovery';
       const isNewScript = reason === 'new-script-button' || reason === 'clear-editor-new-script' || reason === 'clear-editor-new-session' || reason === 'document-switch';
 
       // Block setContent if:
       // - Not initial load, not restore, not new script, and has local edits
       // - Not initial load, not restore, not new script, and user is typing
-      if (!isInitialLoad && !isVersionRestore && !isNewScript) {
+      if (!isInitialLoad && !isVersionRestore && !isConflictRecovery && !isNewScript) {
         if (hasLocalEditsRef.current && !isAIUpdate) {
           return;
         }
@@ -530,7 +507,7 @@ export default function ScriptEditor({
         isUpdatingFromPropsRef.current = false;
 
         // Mark as hydrated after initial load
-        if (isInitialLoad) {
+        if (isInitialLoad || isConflictRecovery) {
           isHydratedOnceRef.current = true;
         }
       } catch (error) {
@@ -718,6 +695,64 @@ export default function ScriptEditor({
       lastLoadedContentRef.current = JSON.stringify(DEFAULT_EMPTY_DOCUMENT);
     }
   }, [activeDocumentKey, editor, safeSetContent]);
+
+  useEffect(() => {
+    if (!editor || !activeIdentity || !activeDocumentKey || initialLoadDoneRef.current) return;
+
+    try {
+      const recovered = readThinkForgeConflictDraft(activeIdentity);
+      if (!recovered) return;
+
+      restoreThinkForgeDocumentConflict(activeIdentity, recovered.currentVersion);
+      const tiptapContent = validateTiptapJSON(recovered.request.richText);
+      const blocks = validateThinkForgeBlocks(tiptapJSONToThinkForgeBlocks(tiptapContent));
+      const matchingScript = script && matchesThinkForgeDocumentIdentity(script, activeIdentity)
+        ? script
+        : null;
+      const recoveredScript = stampThinkForgeDocumentIdentity({
+        title: recovered.request.title,
+        version: recovered.currentVersion,
+        content: recovered.request.content,
+        blocks,
+        richText: tiptapContent,
+        metadata: {
+          ...(matchingScript?.metadata || {}),
+          canonicalFormat: 'tiptap',
+          source: 'editor' as any,
+        },
+        documentType: matchingScript?.documentType,
+        contentContract: (matchingScript as any)?.contentContract,
+      }, activeIdentity) as unknown as Script;
+      const pending: PendingDocumentSave = {
+        documentKey: activeDocumentKey,
+        request: recovered.request,
+        updatedScript: recoveredScript,
+      };
+
+      safeSetContent(tiptapContent, 'conflict-recovery');
+      initialLoadDoneRef.current = true;
+      isSwitchingScriptRef.current = false;
+      scriptVersionRef.current = recovered.currentVersion;
+      loadedTitleRef.current = recovered.request.title || null;
+      lastLoadedContentRef.current = '';
+      lastAutosaveHashRef.current = '';
+      pendingDocumentSaveRef.current = null;
+      pendingConflictSaveRef.current = pending;
+      setDocumentSaveConflict({
+        documentKey: activeDocumentKey,
+        currentVersion: recovered.currentVersion,
+      });
+      setConflictResolutionError(null);
+      setHasUnsavedChanges(true);
+      hasLocalEditsRef.current = true;
+      isUserTypingRef.current = false;
+      onEditScript(recoveredScript);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Stored conflict draft recovery failed.';
+      console.error('ScriptEditor: Conflict draft recovery failed', error);
+      setConflictResolutionError(message);
+    }
+  }, [activeDocumentKey, activeIdentity, editor, onEditScript, safeSetContent, script]);
 
   useEffect(() => {
     const loadBlocks = async () => {
@@ -1180,7 +1215,11 @@ export default function ScriptEditor({
   ): void => {
     if (activeDocumentKeyRef.current !== pending.documentKey) return;
     pendingConflictSaveRef.current = pending;
-    preserveConflictDraft(pending);
+    try {
+      preserveThinkForgeConflictDraft(pending.request, currentVersion);
+    } catch (error) {
+      console.error('ScriptEditor: Failed to preserve conflict draft', error);
+    }
     setHasUnsavedChanges(true);
     setConflictResolutionError(null);
     setDocumentSaveConflict({ documentKey: pending.documentKey, currentVersion });
@@ -1270,7 +1309,7 @@ export default function ScriptEditor({
       setHasUnsavedChanges(false);
       hasLocalEditsRef.current = false;
       isUserTypingRef.current = false;
-      clearConflictDraft(conflict.documentKey);
+      clearThinkForgeConflictDraft(pending.request);
       onEditScript(loadedScript);
     } catch (error) {
       setConflictResolutionError(error instanceof Error ? error.message : 'Latest document load failed.');
@@ -1302,7 +1341,7 @@ export default function ScriptEditor({
 
       pendingConflictSaveRef.current = null;
       setDocumentSaveConflict(null);
-      clearConflictDraft(conflict.documentKey);
+      clearThinkForgeConflictDraft(pending.request);
       finishDocumentSave(pending, result.version);
     } catch (error) {
       setConflictResolutionError(error instanceof Error ? error.message : 'Document overwrite failed.');
@@ -1369,7 +1408,14 @@ export default function ScriptEditor({
     };
     if (documentSaveConflict?.documentKey === scheduledDocumentKey) {
       pendingConflictSaveRef.current = pendingSave;
-      preserveConflictDraft(pendingSave);
+      try {
+        preserveThinkForgeConflictDraft(
+          pendingSave.request,
+          documentSaveConflict.currentVersion,
+        );
+      } catch (error) {
+        console.error('ScriptEditor: Failed to update preserved conflict draft', error);
+      }
       pendingDocumentSaveRef.current = null;
       return;
     }

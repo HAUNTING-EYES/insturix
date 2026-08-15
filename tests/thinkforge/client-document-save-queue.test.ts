@@ -1,10 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   acceptThinkForgeServerDocument,
+  clearThinkForgeConflictDraft,
   clearThinkForgeDocumentSaveQueuesForTests,
   enqueueThinkForgeDocumentSave,
   overwriteThinkForgeDocumentAfterConflict,
+  preserveThinkForgeConflictDraft,
+  readThinkForgeConflictDraft,
+  restoreThinkForgeDocumentConflict,
   type ThinkForgeDocumentSaveRequest,
   type ThinkForgeDocumentSaveTransport,
 } from '../../lib/thinkforge/client-document-save-queue';
@@ -23,6 +27,9 @@ function request(contentHash: string, baseVersion = 1): ThinkForgeDocumentSaveRe
 
 describe('ThinkForge document save queue', () => {
   beforeEach(() => clearThinkForgeDocumentSaveQueuesForTests());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   it('serializes saves for one document and carries the committed version forward', async () => {
     let releaseFirst!: () => void;
@@ -121,5 +128,52 @@ describe('ThinkForge document save queue', () => {
     await expect(next).resolves.toMatchObject({ status: 'saved', version: 2 });
     releaseFirst();
     await expect(original).resolves.toMatchObject({ status: 'saved', version: 2 });
+  });
+
+  it('restores a blocked conflict after a client reload without auto-saving', async () => {
+    const transport: ThinkForgeDocumentSaveTransport = vi.fn(async (input) => ({
+      status: 'saved' as const,
+      version: input.baseVersion + 1,
+      contentHash: input.contentHash,
+    }));
+    const draft = request('recovered_hash', 4);
+
+    restoreThinkForgeDocumentConflict(draft, 7);
+    await expect(enqueueThinkForgeDocumentSave(draft, transport))
+      .resolves.toMatchObject({ status: 'conflict', currentVersion: 7 });
+    expect(transport).not.toHaveBeenCalled();
+
+    await expect(overwriteThinkForgeDocumentAfterConflict(draft, 7, transport))
+      .resolves.toMatchObject({ status: 'saved', version: 8 });
+    expect(transport).toHaveBeenCalledWith(expect.objectContaining({ baseVersion: 7 }));
+  });
+
+  it('round-trips only an integrity-checked conflict draft for the exact document', () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      },
+    });
+    const draft = request('', 4);
+    draft.contentHash = JSON.stringify(draft.richText);
+
+    preserveThinkForgeConflictDraft(draft, 7);
+    expect(readThinkForgeConflictDraft(draft)).toMatchObject({
+      request: draft,
+      currentVersion: 7,
+    });
+    expect(readThinkForgeConflictDraft({ sessionId: 'session_2', scriptId: 'default' })).toBeNull();
+
+    const [key, raw] = [...values.entries()][0];
+    const tampered = JSON.parse(raw);
+    tampered.request.contentHash = 'forged_hash';
+    values.set(key, JSON.stringify(tampered));
+    expect(() => readThinkForgeConflictDraft(draft)).toThrow('content integrity');
+
+    clearThinkForgeConflictDraft(draft);
+    expect(readThinkForgeConflictDraft(draft)).toBeNull();
   });
 });

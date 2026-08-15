@@ -1,3 +1,5 @@
+import { isTiptapJSON, validateTiptapJSON } from './schemas/tiptap-validation';
+
 export interface ThinkForgeDocumentSaveRequest {
   sessionId: string;
   scriptId: string;
@@ -23,9 +25,16 @@ interface DocumentQueueState {
   conflictVersion?: number;
 }
 
+export interface ThinkForgePreservedConflictDraft {
+  request: ThinkForgeDocumentSaveRequest;
+  currentVersion: number;
+  preservedAt: string;
+}
+
 const queues = new Map<string, DocumentQueueState>();
 const SAVE_TIMEOUT_MS = 8_000;
 const MAX_ATTEMPTS = 3;
+const CONFLICT_DRAFT_PREFIX = 'thinkforge_conflict_draft_';
 
 export function enqueueThinkForgeDocumentSave(
   request: ThinkForgeDocumentSaveRequest,
@@ -111,6 +120,97 @@ export function acceptThinkForgeServerDocument(
   state.conflictVersion = undefined;
 }
 
+export function restoreThinkForgeDocumentConflict(
+  identity: Pick<ThinkForgeDocumentSaveRequest, 'sessionId' | 'scriptId'>,
+  currentVersion: number,
+): void {
+  if (!Number.isInteger(currentVersion) || currentVersion < 0) {
+    throw new Error('Stored document conflict version is invalid.');
+  }
+
+  const key = documentKey(identity);
+  const state = queues.get(key) ?? { tail: Promise.resolve() };
+  if (state.conflictVersion !== undefined && state.conflictVersion !== currentVersion) {
+    throw new Error('Stored document conflict differs from the active conflict.');
+  }
+  if (state.version !== undefined && state.version > currentVersion) {
+    throw new Error('Stored document conflict is older than the active document queue.');
+  }
+  state.conflictVersion = currentVersion;
+  queues.set(key, state);
+}
+
+export function preserveThinkForgeConflictDraft(
+  request: ThinkForgeDocumentSaveRequest,
+  currentVersion: number,
+): void {
+  const storage = browserStorage();
+  if (!storage) return;
+  if (!Number.isInteger(currentVersion) || currentVersion < request.baseVersion) {
+    throw new Error('Document conflict version cannot precede the local draft version.');
+  }
+  storage.setItem(conflictDraftStorageKey(request), JSON.stringify({
+    request,
+    currentVersion,
+    preservedAt: new Date().toISOString(),
+  } satisfies ThinkForgePreservedConflictDraft));
+}
+
+export function readThinkForgeConflictDraft(
+  identity: Pick<ThinkForgeDocumentSaveRequest, 'sessionId' | 'scriptId'>,
+): ThinkForgePreservedConflictDraft | null {
+  const storage = browserStorage();
+  if (!storage) return null;
+  const raw = storage.getItem(conflictDraftStorageKey(identity));
+  if (!raw) return null;
+
+  const parsed = JSON.parse(raw) as Partial<ThinkForgePreservedConflictDraft>;
+  const request = parsed?.request;
+  if (!request || typeof request !== 'object') {
+    throw new Error('Stored document conflict draft omitted its save request.');
+  }
+  if (request.sessionId !== identity.sessionId || request.scriptId !== identity.scriptId) {
+    throw new Error('Stored document conflict draft belongs to another document.');
+  }
+  if (!Number.isInteger(request.baseVersion) || request.baseVersion < 0) {
+    throw new Error('Stored document conflict draft has an invalid base version.');
+  }
+  if (!Number.isInteger(parsed.currentVersion)
+    || (parsed.currentVersion as number) < request.baseVersion) {
+    throw new Error('Stored document conflict draft has an invalid conflict version.');
+  }
+  if (typeof request.title !== 'string'
+    || typeof request.content !== 'string'
+    || typeof request.contentHash !== 'string'
+    || !request.contentHash) {
+    throw new Error('Stored document conflict draft has invalid document fields.');
+  }
+  if (!isTiptapJSON(request.richText)) {
+    throw new Error('Stored document conflict draft has invalid rich text.');
+  }
+
+  const richText = validateTiptapJSON(request.richText);
+  if (JSON.stringify(richText) !== request.contentHash) {
+    throw new Error('Stored document conflict draft failed its content integrity check.');
+  }
+
+  return {
+    request: { ...request, richText: richText as unknown as Record<string, unknown> },
+    currentVersion: parsed.currentVersion as number,
+    preservedAt: typeof parsed.preservedAt === 'string' ? parsed.preservedAt : '',
+  };
+}
+
+export function clearThinkForgeConflictDraft(
+  identity: Pick<ThinkForgeDocumentSaveRequest, 'sessionId' | 'scriptId'>,
+): void {
+  try {
+    browserStorage()?.removeItem(conflictDraftStorageKey(identity));
+  } catch {
+    // Storage cleanup cannot invalidate a conflict already resolved on the server.
+  }
+}
+
 export function clearThinkForgeDocumentSaveQueuesForTests(): void {
   queues.clear();
 }
@@ -174,4 +274,19 @@ async function persistThinkForgeDocument(
 
 function documentKey(request: Pick<ThinkForgeDocumentSaveRequest, 'sessionId' | 'scriptId'>): string {
   return `${request.sessionId}:${request.scriptId}`;
+}
+
+function conflictDraftStorageKey(
+  identity: Pick<ThinkForgeDocumentSaveRequest, 'sessionId' | 'scriptId'>,
+): string {
+  return `${CONFLICT_DRAFT_PREFIX}${documentKey(identity)}`;
+}
+
+function browserStorage(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
