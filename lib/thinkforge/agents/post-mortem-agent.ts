@@ -1,14 +1,4 @@
-/**
- * Post-Mortem Agent
- *
- * Runs when a project session is marked "done" or manually triggered.
- * 1. Reads all interaction events (rejections, deletions, style corrections) for the session.
- * 2. Reads all project-scoped DataBank entries for the session.
- * 3. Deletes transient logs/scraps, then uses Tier-1 (Flash-Lite) to compress
- *    the remaining signal into:
- *    - A project-scoped "Project Summary"
- *    - "Lessons Learned" insights promoted only when brand outcome gates pass
- */
+/** Compress authorized project evidence into governed learning records. */
 
 import { generateObject } from 'ai';
 import { z } from 'zod';
@@ -120,7 +110,6 @@ export async function runPostMortemAgent(input: PostMortemInput): Promise<PostMo
   const scopedInput: PostMortemInput = { ...input, orgId: sessionOrgId, brandId };
   const principal = { userId, orgId: sessionOrgId };
 
-  // Fetch scoped cross-service brand events (best-effort)
   let brandEventsText = '';
   try {
     const { getEventsByScope } = await import('@/lib/shared/brand-events');
@@ -138,9 +127,7 @@ export async function runPostMortemAgent(input: PostMortemInput): Promise<PostMo
         .map((e) => `[${e.service}/${e.type}] ${JSON.stringify(e.payload).slice(0, 200)}`)
         .join('\n');
     }
-  } catch {
-    // brand events unavailable — proceed with ThinkForge data only
-  }
+  } catch {}
 
   const [events, projectEntries] = await Promise.all([
     getRecentInteractionEvents(userId, { projectId: sessionId, limit: 200 }),
