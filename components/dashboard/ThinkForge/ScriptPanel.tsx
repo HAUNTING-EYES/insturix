@@ -4,7 +4,7 @@ import ScriptEditor from '@/components/dashboard/ThinkForge/ScriptEditor';
 import { DocumentTabs, type DocumentTab } from '@/components/dashboard/ThinkForge/DocumentTabs';
 import { Idea, Script } from '@/app/dashboard/thinkforge/types';
 import WhiteboardPlaceholder from './WhiteboardPlaceholder';
-import { FileText, Brain } from 'lucide-react';
+import { FileText, Brain, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 
 interface ScriptPanelProps {
@@ -49,49 +49,70 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
   const [mode, setMode] = useState<PanelMode>('scripting');
   const [tabs, setTabs] = useState<DocumentTab[]>(documentTabs || []);
   const [tabOrder, setTabOrder] = useState<string[]>([]);
+  const [tabsLoadError, setTabsLoadError] = useState<string | null>(null);
   const closedTabsRef = useRef<Set<string>>(new Set());
+  const tabsSessionIdRef = useRef<string | null>(sessionId || null);
 
   // Load closed tabs from localStorage on session change
   useEffect(() => {
+    tabsSessionIdRef.current = sessionId || null;
     closedTabsRef.current = sessionId ? getClosedTabIds(sessionId) : new Set();
+    setTabs([]);
+    setTabOrder([]);
+    setTabsLoadError(null);
   }, [sessionId]);
 
   useEffect(() => {
-    if (documentTabs && documentTabs.length > 0) {
+    if (documentTabs) {
       setTabs(documentTabs);
+      setTabOrder(documentTabs.map(tab => tab.scriptId));
     }
   }, [documentTabs]);
 
   const fetchTabs = useCallback(async () => {
     if (!sessionId) return;
+    const requestedSessionId = sessionId;
+    setTabsLoadError(null);
     try {
       const res = await fetch('/api/services/thinkforge/script/list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId }),
       });
-      if (!res.ok) return;
-      const data = await res.json();
-      const scripts = Array.isArray(data?.scripts) ? data.scripts : [];
-      if (scripts.length > 0) {
-        const closed = closedTabsRef.current;
-        // Filter out closed tabs, but always keep the active tab and 'default'
-        const newTabs = scripts
-          .map((s: any) => ({
-            scriptId: s.scriptId || 'default',
-            title: s.title || 'Untitled',
-            documentType: s.documentType || 'screenplay',
-          }))
-          .filter((t: DocumentTab) => t.scriptId === 'default' || t.scriptId === scriptId || !closed.has(t.scriptId));
-
-        setTabs(newTabs);
-        setTabOrder(prev => {
-          const existing = new Set(prev);
-          const newIds = newTabs.map((t: DocumentTab) => t.scriptId).filter((id: string) => !existing.has(id));
-          return [...prev.filter(id => newTabs.some((t: DocumentTab) => t.scriptId === id)), ...newIds];
-        });
+      if (!res.ok) {
+        let detail = '';
+        try {
+          const body = await res.json();
+          detail = typeof body?.error === 'string' ? `: ${body.error}` : '';
+        } catch {
+          // The status code is enough when the server does not return JSON.
+        }
+        throw new Error(`Document list failed (${res.status})${detail}`);
       }
-    } catch { /* silent */ }
+      const data = await res.json();
+      if (tabsSessionIdRef.current !== requestedSessionId) return;
+      const scripts = Array.isArray(data?.scripts) ? data.scripts : [];
+      const closed = closedTabsRef.current;
+      // Filter out closed tabs, but always keep the active tab and 'default'.
+      const newTabs = scripts
+        .map((s: any) => ({
+          scriptId: s.scriptId || 'default',
+          title: s.title || 'Untitled',
+          documentType: typeof s.documentType === 'string' ? s.documentType : '',
+        }))
+        .filter((t: DocumentTab) => t.scriptId === 'default' || t.scriptId === scriptId || !closed.has(t.scriptId));
+
+      setTabs(newTabs);
+      setTabOrder(prev => {
+        const existing = new Set(prev);
+        const newIds = newTabs.map((t: DocumentTab) => t.scriptId).filter((id: string) => !existing.has(id));
+        return [...prev.filter(id => newTabs.some((t: DocumentTab) => t.scriptId === id)), ...newIds];
+      });
+    } catch (error) {
+      if (tabsSessionIdRef.current === requestedSessionId) {
+        setTabsLoadError(error instanceof Error ? error.message : 'Unable to load documents');
+      }
+    }
   }, [sessionId, scriptId]);
 
   // Fetch tabs from API when session loads or tabsRefreshTrigger changes
@@ -168,6 +189,21 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
           </div>
        </div>
 
+       {tabsLoadError && (
+         <div className="flex min-h-9 items-center gap-2 border-b border-red-900/40 bg-red-950/20 px-4 text-xs text-red-300" role="alert">
+           <span className="min-w-0 flex-1 truncate">{tabsLoadError}</span>
+           <button
+             type="button"
+             onClick={() => void fetchTabs()}
+             className="flex h-7 w-7 shrink-0 items-center justify-center text-red-300 hover:text-red-100"
+             aria-label="Retry loading documents"
+             title="Retry loading documents"
+           >
+             <RefreshCw className="h-3.5 w-3.5" />
+           </button>
+         </div>
+       )}
+
        {/* Document Tabs (multi-document support) */}
        {tabs.length > 0 && (
          <DocumentTabs
@@ -176,10 +212,6 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
            onTabClick={handleTabClick}
            onTabClose={onTabClose && tabs.length > 1 ? handleTabClose : undefined}
            onTabReorder={(newOrder) => setTabOrder(newOrder.map(t => t.scriptId))}
-           onNewTab={async () => {
-              const newId = `script_${Date.now()}`;
-              if (onSwitchScript) onSwitchScript(newId);
-           }}
          />
        )}
 
@@ -211,11 +243,6 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                   }}
                   onEditSelection={onEditSelection}
                   generatingScript={generatingScript}
-                  onNewScript={async () => {
-                     const newId = `script_${Date.now()}`;
-                     if (onSwitchScript) onSwitchScript(newId);
-                     return newId;
-                  }}
                 />
              </div>
           ) : (

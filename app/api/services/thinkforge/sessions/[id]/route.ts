@@ -17,7 +17,7 @@ interface RouteParams {
  */
 export async function GET(request: Request, { params }: RouteParams) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -33,7 +33,15 @@ export async function GET(request: Request, { params }: RouteParams) {
       );
     }
 
-    const session = await db.getSession(sessionId, userId);
+    const scriptId = new URL(request.url).searchParams.get('scriptId');
+    if (!scriptId) {
+      return NextResponse.json({ error: 'Missing scriptId' }, { status: 400 });
+    }
+    if (scriptId.trim() !== scriptId) {
+      return NextResponse.json({ error: 'Invalid scriptId' }, { status: 400 });
+    }
+
+    const session = await db.getSession(sessionId, userId, orgId);
     if (!session) {
       return NextResponse.json(
         { error: 'Session not found' },
@@ -42,8 +50,8 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
 
     // Also get the script and chat count for this session
-    const script = await db.getScript(sessionId);
-    const chatHistory = await db.getChatHistory(sessionId, 1);
+    const script = await db.getScript(session._id, scriptId);
+    const chatHistory = await db.getChatHistory(session._id, 1);
 
     return NextResponse.json({
       success: true,

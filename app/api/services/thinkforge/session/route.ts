@@ -38,8 +38,18 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    sessionId = body?.sessionId ? String(body.sessionId) : undefined;
-    scriptId = body?.scriptId ? String(body.scriptId) : undefined;
+    if (body?.sessionId !== undefined) {
+      if (typeof body.sessionId !== 'string' || !body.sessionId.trim() || body.sessionId.trim() !== body.sessionId) {
+        return NextResponse.json({ error: 'Invalid sessionId' }, { status: 400 });
+      }
+      sessionId = body.sessionId;
+    }
+    if (body?.scriptId !== undefined) {
+      if (typeof body.scriptId !== 'string' || !body.scriptId.trim() || body.scriptId.trim() !== body.scriptId) {
+        return NextResponse.json({ error: 'Invalid scriptId' }, { status: 400 });
+      }
+      scriptId = body.scriptId;
+    }
     projectMeta = body?.projectMeta;
     claimInitialDraft = body?.claimInitialDraft === true;
   } catch {
@@ -64,9 +74,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Session not found' }, { status: 404 });
       }
 
-      const initialDraftClaimed = await db.claimInitialDraftIntent(sessionId);
+      const initialDraftClaimed = await db.claimInitialDraftIntent(existingSession._id);
       return NextResponse.json({
-        sessionId,
+        sessionId: existingSession._id,
         initialDraftClaimed,
       });
     }
@@ -76,6 +86,9 @@ export async function POST(req: Request) {
       : null;
     if (sessionId && !existingSession) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+    if (sessionId && !scriptId) {
+      return NextResponse.json({ error: 'Missing scriptId' }, { status: 400 });
     }
 
     const requestedBrandId = typeof projectMeta?.brandId === 'string'
@@ -166,8 +179,9 @@ export async function POST(req: Request) {
     // These reads share only the authorized canonical identity, so running them
     // together keeps hydration atomic without paying their latency serially.
     const stateReadStartedAt = performance.now();
+    const effectiveScriptId = scriptId ?? 'default';
     const [script, chat, preferences] = await Promise.all([
-      db.getScript(session._id, scriptId),
+      db.getScript(session._id, effectiveScriptId),
       db.getChatHistory(session._id, 50, 'default'),
       db.getUserPreferences(userId),
     ]);
@@ -183,7 +197,7 @@ export async function POST(req: Request) {
       preferences,
       script: script ? {
         sessionId: script.sessionId,
-        scriptId: script.scriptId || scriptId || 'default',
+        scriptId: script.scriptId || effectiveScriptId,
         title: script.title,
         content: script.content,
         blocks: script.blocks || [],

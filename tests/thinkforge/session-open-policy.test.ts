@@ -84,6 +84,21 @@ describe('ThinkForge session open policy', () => {
     })).toThrow(/targetSessionId is required/i);
   });
 
+  it('clears session-scoped tabs and never fabricates a client document identity', () => {
+    const panel = read('components/dashboard/ThinkForge/ScriptPanel.tsx');
+
+    expect(panel).toContain('tabsSessionIdRef.current = sessionId || null;');
+    expect(panel).toContain('setTabs([]);');
+    expect(panel).toContain('setTabOrder([]);');
+    expect(panel).toContain('if (tabsSessionIdRef.current !== requestedSessionId) return;');
+    expect(panel).toContain("throw new Error(`Document list failed (${res.status})${detail}`)");
+    expect(panel).toContain("documentType: typeof s.documentType === 'string' ? s.documentType : ''");
+    expect(panel).not.toContain("documentType: s.documentType || 'screenplay'");
+    expect(panel).not.toContain('script_${Date.now()}');
+    expect(panel).not.toContain('onNewTab={async');
+    expect(panel).not.toContain('onNewScript={async');
+  });
+
   it('lets the page owner decide how to reopen an active Library row', () => {
     const library = read('components/dashboard/ThinkForge/LibraryPanel.tsx');
     const page = read('app/dashboard/thinkforge/page.tsx');
@@ -99,7 +114,8 @@ describe('ThinkForge session open policy', () => {
     const route = read('app/api/services/thinkforge/session/route.ts');
     const sessionHook = read('app/dashboard/thinkforge/hooks/useThinkForgeSession.ts');
     const scriptHook = read('app/dashboard/thinkforge/hooks/useThinkForgeScript.ts');
-    expect(route).toContain('db.getScript(session._id, scriptId)');
+    expect(route).toContain('db.getScript(session._id, effectiveScriptId)');
+    expect(route).toContain("const effectiveScriptId = scriptId ?? 'default'");
     expect(route).toContain('version: script.version');
     expect(sessionHook).toContain('setHydratedScriptSnapshot({');
     expect(sessionHook).toContain('hydrationAbortControllerRef.current?.abort()');

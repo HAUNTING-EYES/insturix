@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   checkCredits: vi.fn(),
+  claimInitialDraftIntent: vi.fn(),
   clerkClient: vi.fn(),
   authorizeBrandScope: vi.fn(),
   createIdeasAgent: vi.fn(),
@@ -28,6 +30,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth, clerkClient: mocks.clerkClient }));
 vi.mock('@/lib/thinkforge/services/db', () => ({
+  claimInitialDraftIntent: mocks.claimInitialDraftIntent,
   deleteScript: mocks.deleteScript,
   getChatHistory: mocks.getChatHistory,
   getOrCreateSession: mocks.getOrCreateSession,
@@ -110,7 +113,7 @@ async function callRoutes() {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sessionId: 'session_requested' }),
+        body: JSON.stringify({ sessionId: 'session_requested', scriptId: 'default' }),
       },
     )),
     routes.deleteScript(new Request(
@@ -184,6 +187,15 @@ async function callSessionMetadataUpdate(body: Record<string, unknown>) {
   }));
 }
 
+async function callSessionSummary(scriptId?: string) {
+  const { GET } = await import('@/app/api/services/thinkforge/sessions/[id]/route');
+  const query = scriptId === undefined ? '' : `?scriptId=${encodeURIComponent(scriptId)}`;
+  return GET(
+    new Request(`http://localhost/api/services/thinkforge/sessions/session_requested${query}`),
+    { params: Promise.resolve({ id: 'session_requested' }) },
+  );
+}
+
 async function callIdeas(body: Record<string, unknown>) {
   const { POST } = await import('@/app/api/services/thinkforge/ideas/route');
   return POST(new Request('http://localhost/api/services/thinkforge/ideas', {
@@ -239,6 +251,7 @@ describe('ThinkForge session route authorization', () => {
       deduct: mocks.deductCredits,
       refund: mocks.refundCredits,
     });
+    mocks.claimInitialDraftIntent.mockResolvedValue(true);
     mocks.ensureMigrated.mockResolvedValue(undefined);
     mocks.fetchContextSources.mockResolvedValue({});
     mocks.formatSystemBrief.mockReturnValue('Resolved brand context');
@@ -329,8 +342,60 @@ describe('ThinkForge session route authorization', () => {
     expect(mocks.getSession).toHaveBeenCalledTimes(4);
     expect(mocks.getChatHistory).toHaveBeenCalledWith('session_canonical', 25, 'thread_1');
     expect(mocks.listChatThreads).toHaveBeenCalledWith('session_canonical');
-    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical');
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'default');
     expect(mocks.deleteScript).toHaveBeenCalledWith('session_canonical', 'script_2');
+  });
+
+  it('requires an explicit non-empty document identity for current-script reads', async () => {
+    const routes = await loadRoutes();
+    const response = await routes.currentScript(new Request(
+      'http://localhost/api/services/thinkforge/script/current',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 'session_requested', scriptId: '   ' }),
+      },
+    ));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Missing scriptId' });
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.getScript).not.toHaveBeenCalled();
+  });
+
+  it('returns the canonical document identity and persisted content contract', async () => {
+    const contract = createThinkForgeWriterContract('social_post');
+    mocks.getScript.mockResolvedValueOnce({
+      sessionId: 'session_canonical',
+      scriptId: 'post_2',
+      title: 'Launch post',
+      content: 'A launch post.',
+      blocks: [],
+      metadata: {},
+      version: 3,
+      documentType: 'social_post',
+      contentContract: contract,
+    });
+    const routes = await loadRoutes();
+    const response = await routes.currentScript(new Request(
+      'http://localhost/api/services/thinkforge/script/current',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 'session_requested', scriptId: 'post_2' }),
+      },
+    ));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      script: {
+        sessionId: 'session_canonical',
+        scriptId: 'post_2',
+        documentType: 'social_post',
+        contentContract: contract,
+      },
+    });
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'post_2');
   });
 
   it('loads script, chat, and preferences concurrently after canonical session resolution', async () => {
@@ -364,6 +429,51 @@ describe('ThinkForge session route authorization', () => {
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'script_2');
     expect(mocks.getChatHistory).toHaveBeenCalledWith('session_canonical', 50, 'default');
     expect(mocks.getUserPreferences).toHaveBeenCalledWith('user_1');
+  });
+
+  it('claims the initial draft on the authorized canonical session only', async () => {
+    const response = await callSessionHydrate({
+      sessionId: 'session_requested',
+      claimInitialDraft: true,
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      sessionId: 'session_canonical',
+      initialDraftClaimed: true,
+    });
+    expect(mocks.claimInitialDraftIntent).toHaveBeenCalledWith('session_canonical');
+    expect(mocks.getOrCreateSession).not.toHaveBeenCalled();
+  });
+
+  it('requires an exact document identity when reopening an existing session', async () => {
+    const missingResponse = await callSessionHydrate({ sessionId: 'session_requested' });
+    const coercedResponse = await callSessionHydrate({ sessionId: 'session_requested', scriptId: 42 });
+
+    expect(missingResponse.status).toBe(400);
+    await expect(missingResponse.json()).resolves.toEqual({ error: 'Missing scriptId' });
+    expect(coercedResponse.status).toBe(400);
+    await expect(coercedResponse.json()).resolves.toEqual({ error: 'Invalid scriptId' });
+    expect(mocks.getScript).not.toHaveBeenCalled();
+  });
+
+  it('assigns the server-owned default identity only when creating a new session', async () => {
+    const response = await callSessionHydrate({ projectMeta: { title: 'New session' } });
+
+    expect(response.status).toBe(200);
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'default');
+  });
+
+  it('requires exact document identity and canonical organization scope for session summaries', async () => {
+    const missingResponse = await callSessionSummary();
+    expect(missingResponse.status).toBe(400);
+    expect(mocks.getSession).not.toHaveBeenCalled();
+
+    const response = await callSessionSummary('script_2');
+    expect(response.status).toBe(200);
+    expect(mocks.getSession).toHaveBeenCalledWith('session_requested', 'user_1', 'org_1');
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'script_2');
+    expect(mocks.getChatHistory).toHaveBeenCalledWith('session_canonical', 1);
   });
 
   it('authorizes and stamps a server-owned binding before creating a session', async () => {
@@ -406,6 +516,7 @@ describe('ThinkForge session route authorization', () => {
 
     const response = await callSessionHydrate({
       sessionId: 'session_requested',
+      scriptId: 'script_2',
       projectMeta: { brandId: 'brand_replacement' },
     });
 
@@ -618,10 +729,21 @@ describe('ThinkForge session route authorization', () => {
   });
 
   it('routes organization-member AI edits through the canonical session', async () => {
+    mocks.getScript.mockResolvedValue({
+      _id: 'mongo_script_2',
+      sessionId: 'session_canonical',
+      scriptId: 'script_2',
+      title: 'Draft',
+      content: 'This is the canonical persisted document for the edit.',
+      blocks: [{ id: 'block_1', kind: 'paragraph', content: [] }],
+      version: 1,
+      documentType: 'social_post',
+      contentContract: createThinkForgeWriterContract('social_post'),
+    });
     const responses = await callAiEditRoutes();
 
     expect(responses.map((response) => response?.status)).toEqual([200, 200]);
-    expect(mocks.deductCredits).toHaveBeenCalledOnce();
+    expect(mocks.deductCredits).toHaveBeenCalledTimes(2);
     expect(mocks.reviseDocument).toHaveBeenCalledTimes(2);
     expect(mocks.reviseDocument).toHaveBeenCalledWith(expect.objectContaining({
       userId: 'user_1',
@@ -640,7 +762,7 @@ describe('ThinkForge session route authorization', () => {
         scriptId: 'script_2',
         title: 'Draft',
         content: 'Authorized content',
-        blocks: [],
+        contentContract: createThinkForgeWriterContract('social_post'),
       },
     }, 'user_1', 'org_1');
 
