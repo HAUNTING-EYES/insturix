@@ -2,12 +2,39 @@ import { describe, expect, it } from 'vitest';
 import {
   ProviderPrivacyGateError,
   assertProviderPromptAllowed,
+  inspectDataForStorage,
   prepareProviderPromptForRoute,
 } from '@/lib/thinkforge/privacy/provider-privacy-gateway';
 
 const fixedNow = '2026-06-14T00:00:00.000Z';
 
 describe('provider privacy gateway', () => {
+  it('classifies storage data without exposing personal identifiers', () => {
+    const inspection = inspectDataForStorage({
+      text: 'Contact Alex Sharma at alex@example.com for the launch.',
+      now: fixedNow,
+    });
+
+    expect(inspection).toMatchObject({
+      privacyClass: 'personal',
+      containsPersonalData: true,
+      redactions: ['email', 'contact_name'],
+      redactionCount: 2,
+    });
+    expect(inspection.sanitizedText).toContain('[REDACTED_PERSON]');
+    expect(inspection.sanitizedText).toContain('[REDACTED_EMAIL]');
+    expect(JSON.stringify(inspection)).not.toContain('alex@example.com');
+  });
+
+  it('identifies child data at the storage boundary even without a direct identifier', () => {
+    const inspection = inspectDataForStorage({
+      text: 'Build a profile from an 11-year-old student record.',
+      now: fixedNow,
+    });
+
+    expect(inspection.privacyClass).toBe('child_data');
+  });
+
   it('allows public eval prompts for DeepSeek', () => {
     const decision = prepareProviderPromptForRoute({
       provider: 'deepseek',

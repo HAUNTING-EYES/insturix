@@ -384,8 +384,8 @@ export async function refundThinkForgeRefineryJob(jobId: string, reason: string)
 export async function runClaimedThinkForgeRefineryJob(job: ThinkForgeRefineryJobSnapshot): Promise<void> {
   const result = await runRefineryAgent({
     userId: job.userId,
+    orgId: job.orgId,
     sessionId: job.sessionId,
-    projectId: job.sessionId,
     urls: job.urls,
   });
   if (result.processed === 0) {

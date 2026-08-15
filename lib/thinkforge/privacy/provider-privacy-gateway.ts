@@ -54,6 +54,15 @@ export interface ProviderRoutePrivacyDecision {
   audit: ProviderPrivacyAuditRecord;
 }
 
+export interface StoragePrivacyInspection {
+  privacyClass: ProviderPrivacyClass;
+  containsPersonalData: boolean;
+  sanitizedText: string;
+  redactions: string[];
+  redactionCount: number;
+  redactionCounts: Record<string, number>;
+}
+
 const APPROVED_PRIVATE_PROVIDERS = new Set(['gemini', 'google', 'vertex']);
 const NON_APPROVED_EXTERNAL_PROVIDERS = new Set(['deepseek', 'openrouter']);
 
@@ -198,6 +207,32 @@ function redactPersonalData(prompt: string): {
     redactions: Object.keys(redactionCounts),
     redactionCount: Object.values(redactionCounts).reduce((total, count) => total + count, 0),
     redactionCounts,
+  };
+}
+
+/**
+ * Inspect data before persistence without making a provider-routing decision.
+ * Callers own the storage policy; this function supplies one deterministic
+ * classification and a redacted representation without retaining raw values.
+ */
+export function inspectDataForStorage(input: {
+  text: string;
+  declaredPrivacyClass?: ProviderPrivacyClass;
+  now?: Date | string;
+}): StoragePrivacyInspection {
+  const timestamp = normalizeTimestamp(input.now);
+  const personalRedaction = redactPersonalData(input.text);
+  const privacyClass = mostSensitivePrivacyClass(
+    input.declaredPrivacyClass ?? 'public',
+    classifyPromptData(input.text, timestamp, personalRedaction.redactionCount),
+  );
+  return {
+    privacyClass,
+    containsPersonalData: personalRedaction.redactionCount > 0,
+    sanitizedText: personalRedaction.prompt,
+    redactions: personalRedaction.redactions,
+    redactionCount: personalRedaction.redactionCount,
+    redactionCounts: personalRedaction.redactionCounts,
   };
 }
 

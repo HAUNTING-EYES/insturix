@@ -11,17 +11,16 @@
 
 import { createUrlBriefAgent, extractUrlContent } from './url-brief-agent';
 import {
-  addDataBankEntry,
-  updateDataBankEmbeddingStatus,
-  type DataBankEntryType,
+  addGovernedDataBankEntry,
   type DataBankEntry,
 } from '../services/db';
 import { embedDataBankEntry, checkDuplicateBeforeSave } from '../services/embedding-service';
+import { inspectDataForStorage } from '../privacy/provider-privacy-gateway';
 
 export interface RefineryInput {
   userId: string;
+  orgId: string | null;
   sessionId: string;
-  projectId?: string;
   urls: string[];
 }
 
@@ -108,9 +107,8 @@ function extractAtomicFacts(brief: Record<string, any>, sourceUrl: string): Arra
  */
 async function processUrl(
   url: string,
-  userId: string,
+  principal: Pick<RefineryInput, 'userId' | 'orgId'>,
   sessionId: string,
-  projectId?: string,
 ): Promise<{ entryId: string; title: string; factCount: number }> {
   const extracted = await extractUrlContent(url);
   if (!extracted.bodyText && !extracted.description) {
@@ -119,14 +117,26 @@ async function processUrl(
 
   const agent = createUrlBriefAgent();
   const brief = await agent.generateBrief(extracted);
+  const storageInspection = inspectDataForStorage({ text: JSON.stringify(brief) });
+  if (storageInspection.privacyClass === 'child_data') {
+    throw new Error('Source contains child data and cannot be stored without an approved consent workflow.');
+  }
+  if (storageInspection.containsPersonalData || storageInspection.privacyClass === 'personal') {
+    throw new Error('Source contains personal data and cannot be stored without explicit consent.');
+  }
 
-  const parentEntry = await addDataBankEntry(sessionId, userId, {
+  const parentEntry = await addGovernedDataBankEntry(principal, sessionId, {
     type: 'url_brief',
     title: brief.title || url,
     content: brief,
     sourceUrl: url,
     tags: brief.keyTopics || [],
-    projectId,
+    projectId: sessionId,
+    scope: 'project',
+    governance: {
+      classification: storageInspection.privacyClass,
+      consentStatus: 'not_required',
+    },
   });
 
   const atomicFacts = extractAtomicFacts(brief, url);
@@ -136,17 +146,22 @@ async function processUrl(
   for (const fact of atomicFacts) {
     try {
       const claimText = typeof fact.content.claim === 'string' ? fact.content.claim : fact.title;
-      const isDuplicate = await checkDuplicateBeforeSave(userId, claimText);
+      const isDuplicate = await checkDuplicateBeforeSave(principal.userId, claimText, 'project');
       if (isDuplicate) continue;
 
-      const factEntry = await addDataBankEntry(sessionId, userId, {
-        type: 'atomic_fact' as DataBankEntryType,
+      const factEntry = await addGovernedDataBankEntry(principal, sessionId, {
+        type: 'atomic_fact',
         title: fact.title,
         content: fact.content,
         sourceUrl: url,
         sourceEntryId: parentEntry._id,
         tags: fact.tags,
-        projectId,
+        projectId: sessionId,
+        scope: 'project',
+        governance: {
+          classification: storageInspection.privacyClass,
+          consentStatus: 'not_required',
+        },
       });
       savedEntries.push(factEntry);
       savedCount++;
@@ -155,8 +170,9 @@ async function processUrl(
     }
   }
 
-  // Generate embeddings for all saved entries (non-blocking for the caller)
-  Promise.allSettled(savedEntries.map((e) => embedDataBankEntry(e))).catch(() => {});
+  // The durable refinery worker stays alive until every embedding attempt has
+  // either succeeded or recorded its retry state in DataBank.
+  await Promise.allSettled(savedEntries.map((entry) => embedDataBankEntry(entry)));
 
   return {
     entryId: parentEntry._id,
@@ -172,7 +188,7 @@ async function processUrl(
 export async function runRefineryAgent(input: RefineryInput): Promise<RefineryResult> {
   const results = await Promise.allSettled(
     input.urls.map((url) =>
-      processUrl(url, input.userId, input.sessionId, input.projectId),
+      processUrl(url, { userId: input.userId, orgId: input.orgId }, input.sessionId),
     ),
   );
 
