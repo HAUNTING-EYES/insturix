@@ -17,6 +17,7 @@ import {
   type GeneratedCompositionBenchmarkRouteV1,
   type GeneratedCompositionAssessmentFailureClassV1,
   buildGeneratedCompositionAssessmentFailureV1,
+  buildGeneratedCompositionBenchmarkExecutionV1,
   buildGeneratedCompositionBenchmarkSandboxResourcesV1,
   buildGeneratedCompositionModelBenchmarkPlanV1,
   classifyGeneratedCompositionBenchmarkExecutionErrorV1,
@@ -47,19 +48,33 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (args.includes('--print-plan')) return void process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
   const output = boundedOutput(value(args, '--output'));
+  const execution = buildGeneratedCompositionBenchmarkExecutionV1(plan, {
+    trialId: value(args, '--trial-id'),
+    routeIds: value(args, '--route-ids').split(',').map((routeId) => routeId.trim()),
+  });
   const maxSpend = Number(value(args, '--max-spend-usd'));
   if (value(args, '--plan-hash') !== plan.planHash) throw new Error('MODEL_BENCHMARK_PLAN_HASH_MISMATCH');
-  if (!Number.isFinite(maxSpend) || maxSpend < plan.spend.absoluteMaxSpendUsd) throw new Error('MODEL_BENCHMARK_SPEND_NOT_AUTHORIZED');
+  if (!Number.isFinite(maxSpend) || maxSpend < execution.maximumAuthorizedSpendUsd) throw new Error('MODEL_BENCHMARK_SPEND_NOT_AUTHORIZED');
   const operatorId = value(args, '--operator-id').trim();
-  const runRoot = path.join(path.dirname(output), `evidence-${plan.planHash.slice(0, 16)}`);
-  await fs.mkdir(runRoot, { recursive: true });
+  if (!operatorId) throw new Error('MODEL_BENCHMARK_OPERATOR_ID_INVALID');
+  if (existsSync(output)) throw new Error('MODEL_BENCHMARK_OUTPUT_ALREADY_EXISTS');
+  const runRoot = path.join(path.dirname(output), execution.evidenceDirectoryName);
+  await fs.mkdir(path.dirname(runRoot), { recursive: true });
+  try {
+    await fs.mkdir(runRoot, { recursive: false });
+  } catch (error) {
+    if (isAlreadyExistsError(error)) throw new Error('MODEL_BENCHMARK_EVIDENCE_ALREADY_EXISTS');
+    throw error;
+  }
   await writeJson(path.join(runRoot, 'plan.json'), plan);
+  await writeJson(path.join(runRoot, 'execution.json'), execution);
 
   const runnerImplementationHash = await shaFile(path.join(repoRoot, 'scripts', 'run-generated-composition-model-benchmark-v1.ts'));
   const runtime = await loadRuntimeInputs(apiImplementationHash, runnerImplementationHash, runRoot);
   const rows = [];
   let actualProviderCostUsd = 0;
-  for (const route of plan.routes) {
+  const selectedRouteIds = new Set(execution.routeIds);
+  for (const route of plan.routes.filter(({ routeId }) => selectedRouteIds.has(routeId))) {
     const row = await runRoute(route, runtime, runRoot, (cost) => {
       actualProviderCostUsd = Number((actualProviderCostUsd + cost).toFixed(12));
       if (actualProviderCostUsd > maxSpend) throw new Error('MODEL_BENCHMARK_AGGREGATE_SPEND_EXCEEDED');
@@ -68,8 +83,8 @@ async function main(): Promise<void> {
     process.stdout.write(`${JSON.stringify({ routeId: route.routeId, outcome: row.outcome, repairsUsed: row.repairsUsed })}\n`);
   }
   const material = {
-    receiptVersion: 'EDITRON_GENERATED_COMPOSITION_MODEL_BENCHMARK_RECEIPT_V1',
-    authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION', planHash: plan.planHash,
+    receiptVersion: 'EDITRON_GENERATED_COMPOSITION_MODEL_BENCHMARK_RECEIPT_V2',
+    authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION', planHash: plan.planHash, execution,
     operatorConfirmation: { operatorId, confirmedAt: new Date().toISOString(), maxSpend },
     runtime: runtime.identity, rows, exclusions: plan.exclusions, actualProviderCostUsd, stateEffects: [],
   };
@@ -253,6 +268,7 @@ function value(args: string[], name: string): string { const index = args.indexO
 function boundedOutput(raw: string): string { const output = path.resolve(raw); if (!output.endsWith('.json') || !(output === evidenceRoot || output.startsWith(evidenceRoot + path.sep))) throw new Error('MODEL_BENCHMARK_OUTPUT_OUTSIDE_EVIDENCE_ROOT'); return output; }
 function requiredEnv(name: string): string { const value = process.env[name]?.trim(); if (!value) throw new Error(`MODEL_BENCHMARK_ENV_MISSING:${name}`); return value; }
 function boundedError(error: unknown): string { const message = (error instanceof Error ? error.message : String(error)).trim(); return (message || 'UNKNOWN_ERROR_WITHOUT_MESSAGE').slice(0, 500); }
+function isAlreadyExistsError(error: unknown): boolean { return error instanceof Error && 'code' in error && error.code === 'EEXIST'; }
 function relative(root: string, target: string): string { return path.relative(root, target).replaceAll('\\', '/'); }
 async function writeJson(file: string, value: unknown): Promise<void> { const partial = `${file}.partial`; await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(partial, `${JSON.stringify(value, null, 2)}\n`, 'utf8'); await fs.rm(file, { force: true }); await fs.rename(partial, file); }
 async function shaFile(file: string): Promise<string> { return createHash('sha256').update(await fs.readFile(file)).digest('hex'); }

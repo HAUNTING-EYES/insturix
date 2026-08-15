@@ -33,6 +33,18 @@ export interface GeneratedCompositionBenchmarkRouteV1 {
   };
 }
 
+export type GeneratedCompositionBenchmarkRouteIdV1 = GeneratedCompositionBenchmarkRouteV1['routeId'];
+
+export interface GeneratedCompositionBenchmarkExecutionV1 {
+  executionVersion: 'EDITRON_GENERATED_COMPOSITION_MODEL_BENCHMARK_EXECUTION_V1';
+  planHash: string;
+  trialId: string;
+  routeIds: readonly GeneratedCompositionBenchmarkRouteIdV1[];
+  maximumAuthorizedSpendUsd: number;
+  evidenceDirectoryName: string;
+  executionHash: string;
+}
+
 export interface GeneratedCompositionModelBenchmarkPlanV1 {
   planVersion: 'EDITRON_GENERATED_COMPOSITION_MODEL_BENCHMARK_PLAN_V1';
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
@@ -122,6 +134,39 @@ export async function buildGeneratedCompositionModelBenchmarkPlanV1(
     exclusions: [],
   };
   return deepFreezeV1({ ...material, planHash: hashCanonicalJsonV1(material) });
+}
+
+export function buildGeneratedCompositionBenchmarkExecutionV1(
+  plan: GeneratedCompositionModelBenchmarkPlanV1,
+  input: {
+    trialId: string;
+    routeIds: readonly string[];
+  },
+): Readonly<GeneratedCompositionBenchmarkExecutionV1> {
+  const trialId = input.trialId.trim();
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(trialId)) {
+    throw new Error('MODEL_BENCHMARK_TRIAL_ID_INVALID');
+  }
+  if (input.routeIds.length < 1) throw new Error('MODEL_BENCHMARK_ROUTE_SELECTION_EMPTY');
+  const requested = new Set(input.routeIds);
+  if (requested.size !== input.routeIds.length) throw new Error('MODEL_BENCHMARK_ROUTE_SELECTION_DUPLICATE');
+  const routeIds = plan.routes
+    .map(({ routeId }) => routeId)
+    .filter((routeId) => requested.has(routeId));
+  if (routeIds.length !== requested.size) throw new Error('MODEL_BENCHMARK_ROUTE_SELECTION_UNKNOWN');
+  const material = {
+    executionVersion: 'EDITRON_GENERATED_COMPOSITION_MODEL_BENCHMARK_EXECUTION_V1' as const,
+    planHash: plan.planHash,
+    trialId,
+    routeIds,
+    maximumAuthorizedSpendUsd: Number((
+      routeIds.length
+      * plan.repairPolicy.maximumProviderRunsPerRoute
+      * plan.spend.maximumUsdPerProviderRun
+    ).toFixed(2)),
+    evidenceDirectoryName: `evidence-${plan.planHash.slice(0, 16)}-${trialId}`,
+  };
+  return deepFreezeV1({ ...material, executionHash: hashCanonicalJsonV1(material) });
 }
 
 export async function runGeneratedCompositionSourceProviderCallV1(input: {

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildDev02GeneratedCompositionModelPacketV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-model-candidate-v1';
 import {
   buildGeneratedCompositionAssessmentFailureV1,
+  buildGeneratedCompositionBenchmarkExecutionV1,
   buildGeneratedCompositionBenchmarkSandboxResourcesV1,
   buildGeneratedCompositionModelBenchmarkPlanV1,
   classifyGeneratedCompositionBenchmarkExecutionErrorV1,
@@ -54,6 +55,32 @@ describe('open-ended planner V2 generated-composition model benchmark', () => {
     expect(result.preflightCounts).toEqual([expect.objectContaining({ method: 'GOOGLE_COUNT_TOKENS', inputTokens: 1_000 })]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[1][0])).toContain('/models/gemini-3.6-flash:generateContent');
+  });
+
+  it('creates immutable canonical identities for selected repeated trials', async () => {
+    const plan = await buildGeneratedCompositionModelBenchmarkPlanV1(API_HASH);
+    const execution = buildGeneratedCompositionBenchmarkExecutionV1(plan, {
+      trialId: 'v2-2-dev02-01',
+      routeIds: ['OPENAI_TERRA', 'OPENAI_LUNA'],
+    });
+    expect(execution.routeIds).toEqual(['OPENAI_LUNA', 'OPENAI_TERRA']);
+    expect(execution.maximumAuthorizedSpendUsd).toBe(3);
+    expect(execution.evidenceDirectoryName).toBe(`evidence-${plan.planHash.slice(0, 16)}-v2-2-dev02-01`);
+    expect(execution.executionHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(Object.isFrozen(execution)).toBe(true);
+
+    expect(() => buildGeneratedCompositionBenchmarkExecutionV1(plan, {
+      trialId: '../overwrite', routeIds: ['OPENAI_LUNA'],
+    })).toThrow('MODEL_BENCHMARK_TRIAL_ID_INVALID');
+    expect(() => buildGeneratedCompositionBenchmarkExecutionV1(plan, {
+      trialId: 'v2-2-dev02-02', routeIds: [],
+    })).toThrow('MODEL_BENCHMARK_ROUTE_SELECTION_EMPTY');
+    expect(() => buildGeneratedCompositionBenchmarkExecutionV1(plan, {
+      trialId: 'v2-2-dev02-02', routeIds: ['OPENAI_LUNA', 'OPENAI_LUNA'],
+    })).toThrow('MODEL_BENCHMARK_ROUTE_SELECTION_DUPLICATE');
+    expect(() => buildGeneratedCompositionBenchmarkExecutionV1(plan, {
+      trialId: 'v2-2-dev02-02', routeIds: ['NOT_A_ROUTE'],
+    })).toThrow('MODEL_BENCHMARK_ROUTE_SELECTION_UNKNOWN');
   });
 
   it('hash-binds bounded assessment failures without project state effects', () => {
