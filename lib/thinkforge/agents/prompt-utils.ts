@@ -15,11 +15,9 @@ export interface DocumentRoleProfile {
   executionTest: string;
   outputFeeling: string;
   sectionGuidance: string;
-  defaultVoice: string;
-  defaultMedium: string;
 }
 
-export interface PostOutputFormatOptions {
+interface PostOutputFormatOptions {
   targetCharacters?: number;
   maximumCharacters?: number;
 }
@@ -30,9 +28,9 @@ const EXPLICIT_SCRIPT_TARGET_PATTERN = /\b(?:turn|convert|adapt|rewrite)\b.{0,10
 const EXPLICIT_SCRIPT_CREATION_PATTERN = /\b(?:write|create|make|draft|produce)\b.{0,50}\b(?:video\s+script|reel\s+script|screenplay|youtube\s+short|short[ -]form\s+script|commercial\s+script|ugc\s+script)\b/i;
 const GENERIC_POST_REQUEST_PATTERN = /\b(?:post(?!\s*production)|caption|carousel|article|newsletter)\b/i;
 
-export type ThinkForgeContentPath = 'post' | 'script';
+type ThinkForgeContentPath = 'post' | 'script';
 
-export interface ThinkForgeDocumentIntent {
+interface ThinkForgeDocumentIntent {
   contentPath: ThinkForgeContentPath;
   documentType: ThinkForgeWriterKind;
   documentKind: ThinkForgeDocumentKind;
@@ -40,12 +38,9 @@ export interface ThinkForgeDocumentIntent {
   contract: ThinkForgeDocumentContract;
   documentLabel: 'post' | 'script';
   source: 'user_prompt' | 'document_type' | 'default';
-  promptHasPostSignal: boolean;
-  promptHasScriptSignal: boolean;
 }
 
-export type ThinkForgeDocumentIntentOrigin = 'user_request' | 'initial_draft_claim';
-
+type ThinkForgeDocumentIntentOrigin = 'user_request' | 'initial_draft_claim';
 
 function normalizeContentRequest(value?: string): string {
   return (value || '').toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -112,8 +107,6 @@ export function resolveThinkForgeDocumentIntent(
 ): ThinkForgeDocumentIntent {
   const promptKind = resolvePromptDocumentKind(userPrompt);
   const selectedKind = resolveSelectedWriterKind(docType, selectedContract);
-  const promptHasPostSignal = isThinkForgePostKind(promptKind);
-  const promptHasScriptSignal = promptKind === 'video_script';
 
   let writerKind: ThinkForgeWriterKind;
   let source: ThinkForgeDocumentIntent['source'];
@@ -149,8 +142,6 @@ export function resolveThinkForgeDocumentIntent(
     contract,
     documentLabel: contentPath === 'post' ? 'post' : 'script',
     source,
-    promptHasPostSignal,
-    promptHasScriptSignal,
   };
 }
 export function resolveThinkForgeGenerationDocumentIntent(
@@ -176,31 +167,25 @@ export function inferRoleFromContext(projectSummary: string, userPrompt: string,
       executionTest: 'A social media manager should be able to say: "I can publish this immediately - it fits the platform, hooks the audience, and drives the action I need."',
       outputFeeling: 'a polished, platform-ready post or article - not a brief, not a script, not an outline',
       sectionGuidance: '- Write the FINAL copy. Not a script. Not production notes. The actual words that will be published.\n- No scene headings. No **Visual:** or **Narration:** labels. This is TEXT content.\n- Use markdown for emphasis (**bold**, *italic*) but keep formatting minimal.\n- Match the platform voice: LinkedIn is professional-conversational, Twitter is punchy, Instagram is visual-first captions.',
-      defaultVoice: 'author',
-      defaultMedium: 'post',
     };
   }
 
-  if (docType === 'character_bible' || /character|backstor|bible|arc|motivation|relationship/i.test(combined)) {
+  if (/character|backstor|bible|arc|motivation|relationship/i.test(combined)) {
     return {
       role: 'a Senior Narrative Designer and Character Architect',
       executionTest: 'A writer should be able to say: "I know exactly who this character is and how they behave."',
       outputFeeling: 'a professional character bible, narrative profile, or story design document',
       sectionGuidance: '- Use sections like: Background, Motivation, Personality, Relationships, Arc, Key Quotes, Visual Description.',
-      defaultVoice: 'narrator',
-      defaultMedium: 'written_document',
     };
   }
 
   // Video: check USER PROMPT
-  if (docType === 'video_script' || /video|ad\b|commercial|reel|short[- ]?form|youtube|tiktok|brand[- ]?film|product[- ]?ad|ugc/i.test(userLower)) {
+  if (/video|ad\b|commercial|reel|short[- ]?form|youtube|tiktok|brand[- ]?film|product[- ]?ad|ugc/i.test(userLower)) {
     return {
       role: 'a Senior Creative Director and Video Scriptwriter',
       executionTest: 'A video editor should be able to say: "I know exactly what to show, say, and hear in every second."',
       outputFeeling: 'a professional video production script with scene-by-scene direction',
       sectionGuidance: `- This is a VIDEO SCRIPT. Follow the <output_format> block EXACTLY for per-scene structure.\n- Think like a director: for every line of narration, ask "what do I SHOW while these words are spoken?"\n- Each scene = one distinct visual moment. Two visuals = two scenes.\n- The VO text IS the product. Visual direction SERVES the narration.`,
-      defaultVoice: 'voiceover',
-      defaultMedium: 'video_script',
     };
   }
 
@@ -209,14 +194,12 @@ export function inferRoleFromContext(projectSummary: string, userPrompt: string,
     executionTest: 'A creator should be able to say: "I know exactly what to make and how to execute it."',
     outputFeeling: 'a professional creative brief, production document, or strategy deck',
     sectionGuidance: '- Use natural section formats appropriate to the project type.\n- Frequently use labels like: "Purpose:", "Direction:", "Why this works:", "Note:".',
-    defaultVoice: 'director',
-    defaultMedium: 'voiceover',
   };
 }
 
-export type PlatformType = 'linkedin' | 'twitter' | 'instagram' | 'facebook' | 'generic';
+type PlatformType = 'linkedin' | 'twitter' | 'instagram' | 'facebook' | 'generic';
 
-export interface PlatformConfig {
+interface PlatformConfig {
   name: string;
   charTarget: string;
   charMax: string;
