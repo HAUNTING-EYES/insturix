@@ -11,7 +11,9 @@ const CommandRequestSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
   sessionId: z.string().trim().min(1),
   baseVersion: z.number().int().min(0),
-  source: z.enum(['user', 'ai']),
+  // Browser commands are always user-originated. Server AI paths call
+  // applyCommand directly and never cross this trust boundary.
+  source: z.literal('user'),
 }).strict();
 
 /**
@@ -41,7 +43,11 @@ export async function POST(req: Request) {
     const result = await applyCommand(command, userId, orgId);
     if (!result.ok) {
       const status = result.error === 'Version conflict' ? 409 : result.error === 'Session not found' ? 404 : 400;
-      return NextResponse.json({ error: result.error, currentVersion: result.currentVersion }, { status });
+      return NextResponse.json({
+        error: result.error,
+        code: status === 409 ? 'DOCUMENT_REVISION_CONFLICT' : undefined,
+        currentVersion: result.currentVersion,
+      }, { status });
     }
 
     return NextResponse.json({
@@ -53,6 +59,8 @@ export async function POST(req: Request) {
         blocks: result.script.blocks || [],
         richText: result.script.richText || null,
         version: result.script.version ?? 1,
+        documentType: result.script.documentType,
+        contentContract: result.script.contentContract,
       }
     });
   } catch (error: any) {

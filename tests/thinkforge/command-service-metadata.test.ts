@@ -162,6 +162,7 @@ describe('ThinkForge command-service metadata persistence', () => {
         title: 'Trend Post',
         content: 'Draft caption',
         blocks: [block],
+        contentContract: createThinkForgeWriterContract('social_post'),
         metadata: { signalTrace },
       },
     }, 'user_001');
@@ -170,14 +171,222 @@ describe('ThinkForge command-service metadata persistence', () => {
     expect(dbMock.saveScriptWithVersion).toHaveBeenCalledWith(
       'session_001',
       expect.objectContaining({
-        metadata: { signalTrace },
+        metadata: { signalTrace, source: 'ai' },
       }),
       0,
       'doc_001'
     );
     if (result.ok) {
-      expect(result.script.metadata).toEqual({ signalTrace });
+      expect(result.script.metadata).toEqual({ signalTrace, source: 'ai' });
     }
+  });
+
+  it('preserves server-owned provenance when a browser save submits forged metadata', async () => {
+    const acceptedSnapshot = { brand: { brandId: 'brand_1', recordId: 'record_12' } };
+    dbMock.getScript.mockResolvedValue({
+      _id: 'mongo_script_001',
+      sessionId: 'session_001',
+      scriptId: 'doc_001',
+      title: 'Brand post',
+      content: 'Draft caption',
+      blocks: [block],
+      metadata: {
+        source: 'ai',
+        workflow: 'create',
+        authoringContextSnapshot: acceptedSnapshot,
+        signalTrace: { outputFormat: 'social_post' },
+        writerOutput: { sidecarVersion: 1 },
+      },
+      documentType: 'social_post',
+      contentContract: createThinkForgeWriterContract('social_post'),
+      version: 2,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    });
+
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_001',
+      baseVersion: 2,
+      source: 'user',
+      payload: {
+        scriptId: 'doc_001',
+        blocks: [block],
+        metadata: {
+          canonicalFormat: 'tiptap',
+          source: 'ai',
+          workflow: 'forged',
+          authoringContextSnapshot: { brand: { brandId: 'brand_2' } },
+          writerOutput: { sidecarVersion: 999 },
+        },
+      },
+    }, 'user_001');
+
+    expect(result.ok).toBe(true);
+    expect(dbMock.saveScriptWithVersion).toHaveBeenCalledWith(
+      'session_001',
+      expect.objectContaining({
+        metadata: {
+          source: 'ai',
+          workflow: 'create',
+          canonicalFormat: 'tiptap',
+          authoringContextSnapshot: acceptedSnapshot,
+          signalTrace: { outputFormat: 'social_post' },
+          writerOutput: { sidecarVersion: 1 },
+        },
+      }),
+      2,
+      'doc_001',
+    );
+  });
+
+  it('merges server AI evidence and rejects reclassifying an existing document', async () => {
+    const acceptedSnapshot = { brand: { brandId: 'brand_1', recordId: 'record_12' } };
+    dbMock.getScript.mockResolvedValue({
+      _id: 'mongo_script_001',
+      sessionId: 'session_001',
+      scriptId: 'doc_001',
+      title: 'Brand post',
+      content: 'Draft caption',
+      blocks: [block],
+      metadata: { authoringContextSnapshot: acceptedSnapshot, workflow: 'create', source: 'ai' },
+      documentType: 'social_post',
+      contentContract: createThinkForgeWriterContract('social_post'),
+      version: 2,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    });
+
+    const aiResult = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_001',
+      baseVersion: 2,
+      source: 'ai',
+      payload: {
+        scriptId: 'doc_001',
+        blocks: [block],
+        metadata: { workflow: 'edit', writerOutput: { revision: 2 } },
+      },
+    }, 'user_001');
+
+    expect(aiResult.ok).toBe(true);
+    expect(dbMock.saveScriptWithVersion).toHaveBeenCalledWith(
+      'session_001',
+      expect.objectContaining({
+        metadata: {
+          authoringContextSnapshot: acceptedSnapshot,
+          workflow: 'edit',
+          source: 'ai',
+          writerOutput: { revision: 2 },
+        },
+      }),
+      2,
+      'doc_001',
+    );
+
+    dbMock.saveScriptWithVersion.mockClear();
+    const reclassified = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_001',
+      baseVersion: 2,
+      source: 'ai',
+      payload: {
+        scriptId: 'doc_001',
+        blocks: [block],
+        contentContract: createThinkForgeWriterContract('video_script'),
+      },
+    }, 'user_001');
+
+    expect(reclassified).toEqual({ ok: false, error: 'Document contract is immutable' });
+    expect(dbMock.saveScriptWithVersion).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unclassified new document instead of silently creating a video script', async () => {
+    dbMock.getScript.mockResolvedValue(null);
+
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_001',
+      baseVersion: 0,
+      source: 'user',
+      payload: {
+        scriptId: 'doc_unclassified',
+        title: 'Untitled',
+        blocks: [block],
+      },
+    }, 'user_001');
+
+    expect(result).toEqual({ ok: false, error: 'Document contract is required for a new document' });
+    expect(dbMock.saveScriptWithVersion).not.toHaveBeenCalled();
+  });
+
+  it('does not turn a stale or mistyped document identity into a new document', async () => {
+    dbMock.getScript.mockResolvedValue(null);
+
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_001',
+      baseVersion: 4,
+      source: 'user',
+      payload: {
+        scriptId: 'mistyped_document_id',
+        title: 'Local draft',
+        blocks: [block],
+        contentContract: createThinkForgeWriterContract('social_post'),
+      },
+    }, 'user_001');
+
+    expect(result).toEqual({ ok: false, error: 'Version conflict', currentVersion: 0 });
+    expect(dbMock.saveScriptWithVersion).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing document identity before reading or writing the database', async () => {
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_001',
+      baseVersion: 0,
+      source: 'user',
+      payload: {
+        title: 'No identity',
+        blocks: [block],
+      },
+    }, 'user_001');
+
+    expect(result).toEqual({ ok: false, error: 'Document identity is required' });
+    expect(dbMock.getSession).not.toHaveBeenCalled();
+    expect(dbMock.getScript).not.toHaveBeenCalled();
+    expect(dbMock.saveScriptWithVersion).not.toHaveBeenCalled();
+  });
+
+  it('uses the session-owned contract for a new document when the client omits it', async () => {
+    dbMock.getScript.mockResolvedValue(null);
+    dbMock.getSession.mockResolvedValue({
+      ...session,
+      projectMeta: { contentContract: createThinkForgeWriterContract('carousel', { carouselSlideCount: 5 }) },
+    });
+
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_001',
+      baseVersion: 0,
+      source: 'user',
+      payload: {
+        scriptId: 'doc_session_contract',
+        title: 'Carousel Draft',
+        blocks: [block],
+      },
+    }, 'user_001');
+
+    expect(result.ok).toBe(true);
+    expect(dbMock.saveScriptWithVersion).toHaveBeenCalledWith(
+      'session_001',
+      expect.objectContaining({
+        documentType: 'carousel',
+        contentContract: createThinkForgeWriterContract('carousel', { carouselSlideCount: 5 }),
+      }),
+      0,
+      'doc_session_contract',
+    );
   });
 
   it('dual-reads legacy post aliases and preserves their contract during block edits', async () => {
