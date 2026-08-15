@@ -71,7 +71,7 @@ export type ScriptWriterModelOutput = z.infer<typeof ScriptWriterModelOutputSche
  * revised script in the same ScriptWriterResult shape, instead of writing from scratch. Opt-in:
  * absent editContext = unchanged from-scratch behavior.
  */
-export interface ScriptWriterEditContext {
+interface ScriptWriterEditContext {
   /** The full current script (markdown) the user is editing. */
   existingContent: string;
   /** The edit the user asked for. */
@@ -89,7 +89,7 @@ export interface ScriptWriterInput extends AgentInput {
   editContext?: ScriptWriterEditContext;
 }
 
-export interface ScriptWriterValidationOptions {
+interface ScriptWriterValidationOptions {
   sourceLedger?: SourceLedger | null;
   productionBrief?: ProductionBrief | null;
 }
@@ -280,7 +280,7 @@ const NARRATION_WORDS_PER_MINUTE_MAX = 165;
 const OUTPUT_TOKENS_PER_RUNTIME_SECOND = 40;
 const SCRIPT_WRITER_DEFAULT_MAX_TOKENS = 8192;
 
-export interface ScriptRuntimeContract {
+interface ScriptRuntimeContract {
   targetDurationSeconds: number;
   minimumDurationSeconds: number;
   maximumDurationSeconds: number;
@@ -291,7 +291,7 @@ export interface ScriptRuntimeContract {
 }
 
 /** Server-derived narrative allocation for a runtime-bound script; it never replaces final production planning. */
-export interface ScriptRuntimeWritingPlan {
+interface ScriptRuntimeWritingPlan {
   targetSceneCount: number;
   targetWordsPerScene: number;
   minimumWordsPerScene: number;
@@ -333,7 +333,7 @@ export function resolveScriptRuntimeWritingPlan(
 }
 
 /** Duration-aware output budget: a stated runtime gets ~40 output tokens/sec, else the script-writer default. */
-export function durationAwareMaxTokens(productionBrief: { output?: { targetDurationSec?: number | null } } | null | undefined): number {
+function durationAwareMaxTokens(productionBrief: { output?: { targetDurationSec?: number | null } } | null | undefined): number {
   const targetSec = productionBrief?.output?.targetDurationSec;
   return typeof targetSec === 'number' && Number.isFinite(targetSec) && targetSec > 0
     ? Math.round(targetSec * OUTPUT_TOKENS_PER_RUNTIME_SECOND)

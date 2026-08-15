@@ -43,7 +43,7 @@ const IdeasResponseSchema = z.object({
 });
 
 type IdeasOutput = z.infer<typeof IdeasResponseSchema>;
-export interface IdeasGroundingContext {
+interface IdeasGroundingContext {
   systemBrief?: string;
   brandId?: string;
   brandName?: string;
@@ -154,7 +154,7 @@ function stripPlaceholders(text: string): string {
 // DURATION POLICY - deterministic, logic-native (Rule 30: no LLM for length math)
 // =============================================================================
 
-export interface VideoDurationPolicy {
+interface VideoDurationPolicy {
   requestedDurationSec?: number;
   durationLabel?: string;
   longFormRequested: boolean;

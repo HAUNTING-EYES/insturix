@@ -56,7 +56,7 @@ export type PostWriterResult = z.infer<typeof PostWriterResultSchema>;
  * `existingContent` per `instruction` and returns the COMPLETE revised post in the same
  * PostWriterResult shape. Opt-in: absent editContext = unchanged from-scratch behavior.
  */
-export interface PostWriterEditContext {
+interface PostWriterEditContext {
   existingContent: string;
   instruction: string;
   selection?: string;
@@ -518,8 +518,6 @@ function sourceCoverageTokens(value: string): string[] {
       .map(sourceCoverageToken) ?? [],
   )];
 }
-
-type PostClaimSupport = NonNullable<PostWriterResult['contentAnalysis']['claimSupport']>[number];
 
 interface AuthorizedClaimSource {
   sourceRef: string;

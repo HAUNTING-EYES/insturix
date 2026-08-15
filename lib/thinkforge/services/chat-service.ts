@@ -168,7 +168,7 @@ function suggestInsertionPointTF(blocks: ThinkForgeBlock[]): { insertAfterBlockI
   return { insertAfterBlockId: blocks[blocks.length - 1].id };
 }
 
-export interface ChatRequest {
+interface ChatRequest {
   sessionId: string;
   prompt: string;
   selection?: string;
