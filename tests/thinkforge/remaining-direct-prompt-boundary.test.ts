@@ -106,7 +106,7 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
       refund: vi.fn().mockResolvedValue(undefined),
     });
     mocks.googleSearch.mockReturnValue({ type: 'google-search' });
-    mocks.embedDataBankEntry.mockResolvedValue(undefined);
+    mocks.embedDataBankEntry.mockResolvedValue(true);
     mocks.processPendingEmbeddings.mockResolvedValue(undefined);
   });
 
@@ -127,7 +127,12 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
     });
     mocks.deleteEventsBySession.mockResolvedValue(1);
     mocks.deleteProjectScopedEntries.mockResolvedValue(1);
-    mocks.addDataBankEntry.mockResolvedValue({ _id: 'entry_1' });
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_1',
+      userId: 'user_1',
+      projectMeta: { brandId: 'brand_1' },
+    });
+    mocks.addGovernedDataBankEntry.mockResolvedValue({ _id: 'entry_1' });
     const { runPostMortemAgent } = await import('@/lib/thinkforge/agents/post-mortem-agent');
 
     await runPostMortemAgent({

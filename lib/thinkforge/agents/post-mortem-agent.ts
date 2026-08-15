@@ -19,16 +19,19 @@ import {
   getProjectScopedEntries,
   deleteEventsBySession,
   deleteProjectScopedEntries,
-  addDataBankEntry,
+  addGovernedDataBankEntry,
+  getSession,
   type DataBankScope,
   type DataBankEntry,
   type ThinkForgeEvent,
 } from '../services/db';
 import { embedDataBankEntry } from '../services/embedding-service';
 import { readAiSdkUsage, recordThinkForgeDirectCost, safeJsonLength } from '../services/provider-cost-telemetry';
+import { inspectDataForStorage } from '../privacy/provider-privacy-gateway';
 
 export interface PostMortemInput {
   userId: string;
+  orgId?: string | null;
   sessionId: string;
   projectId?: string;
   brandId?: string;
@@ -104,7 +107,18 @@ function dataBankContentPreview(entry: DataBankEntry): string {
 }
 
 export async function runPostMortemAgent(input: PostMortemInput): Promise<PostMortemResult> {
-  const { userId, sessionId, projectId, brandId, projectTitle } = input;
+  const { userId, sessionId, projectId, projectTitle } = input;
+  const authorizedSession = await getSession(sessionId, userId, input.orgId);
+  if (!authorizedSession) throw new Error('Post-mortem session is unavailable to this actor.');
+  const sessionOrgId = nonEmptyString(authorizedSession.orgId) ?? null;
+  const sessionBrandId = nonEmptyString(authorizedSession.projectMeta?.brandId);
+  const requestedBrandId = nonEmptyString(input.brandId);
+  if (requestedBrandId && requestedBrandId !== sessionBrandId) {
+    throw new Error('Post-mortem brand does not match the session authority.');
+  }
+  const brandId = sessionBrandId;
+  const scopedInput: PostMortemInput = { ...input, orgId: sessionOrgId, brandId };
+  const principal = { userId, orgId: sessionOrgId };
 
   // Fetch scoped cross-service brand events (best-effort)
   let brandEventsText = '';
@@ -226,12 +240,20 @@ Read projectTitle, interactionEvents, projectKnowledge, and crossServiceBrandEve
 
   let summaryEntryId: string | null = null;
   let lessonsExtracted = 0;
-
-  const eventsDeleted = await deleteEventsBySession(sessionId, userId);
-  const entriesDeleted = await deleteProjectScopedEntries(sessionId, userId);
+  const replacementEntries: DataBankEntry[] = [];
+  const storageInspection = inspectDataForStorage({
+    text: JSON.stringify(object),
+    declaredPrivacyClass: 'business_confidential',
+  });
+  if (storageInspection.privacyClass === 'child_data') {
+    throw new Error('Post-mortem output contains child data and cannot enter learning.');
+  }
+  if (storageInspection.containsPersonalData || storageInspection.privacyClass === 'personal') {
+    throw new Error('Post-mortem output contains personal data without explicit consent.');
+  }
 
   if (object.projectSummary) {
-    const summaryEntry = await addDataBankEntry(sessionId, userId, {
+    const summaryEntry = await addGovernedDataBankEntry(principal, sessionId, {
       type: 'research',
       title: `Project Summary: ${projectTitle || sessionId.slice(0, 8)}`,
       content: {
@@ -241,17 +263,22 @@ Read projectTitle, interactionEvents, projectKnowledge, and crossServiceBrandEve
         projectId,
         brandId,
       },
-      tags: memoryTags(['project-summary', 'auto-compressed'], { memoryScope: 'project', dataBankScope: 'project', reason: 'project_summary' }, input),
-      projectId,
+      tags: memoryTags(['project-summary', 'auto-compressed'], { memoryScope: 'project', dataBankScope: 'project', reason: 'project_summary' }, scopedInput),
+      projectId: sessionId,
       scope: 'project',
+      memoryScope: 'project',
+      governance: {
+        classification: 'business_confidential',
+        consentStatus: 'not_required',
+      },
     });
     summaryEntryId = summaryEntry._id;
-    embedDataBankEntry(summaryEntry).catch(() => {});
+    replacementEntries.push(summaryEntry);
   }
 
   for (const lesson of object.lessons) {
-    const promotion = resolveLessonPromotion(input);
-    const entry = await addDataBankEntry(sessionId, userId, {
+    const promotion = resolveLessonPromotion(scopedInput);
+    const entry = await addGovernedDataBankEntry(principal, sessionId, {
       type: 'brand_insight',
       title: lesson.insight.slice(0, 120),
       content: {
@@ -262,16 +289,38 @@ Read projectTitle, interactionEvents, projectKnowledge, and crossServiceBrandEve
         promotionReason: promotion.reason,
         projectId,
         brandId,
-        qualityScore: input.qualityScore,
-        userPublished: input.userPublished === true,
+        qualityScore: scopedInput.qualityScore,
+        userPublished: scopedInput.userPublished === true,
       },
-      tags: memoryTags([lesson.category, 'lesson-learned', 'auto-extracted'], promotion, input),
-      projectId,
+      tags: memoryTags([lesson.category, 'lesson-learned', 'auto-extracted'], promotion, scopedInput),
+      projectId: promotion.dataBankScope === 'project' ? sessionId : projectId,
       scope: promotion.dataBankScope,
+      memoryScope: promotion.memoryScope,
+      brandId: promotion.memoryScope === 'brand' ? brandId : undefined,
+      governance: {
+        classification: 'business_confidential',
+        consentStatus: 'not_required',
+      },
     });
-    embedDataBankEntry(entry).catch(() => {});
+    replacementEntries.push(entry);
     lessonsExtracted++;
   }
+
+  if (replacementEntries.length === 0) {
+    return { summaryEntryId: null, lessonsExtracted: 0, eventsDeleted: 0, entriesDeleted: 0 };
+  }
+  const embeddingResults = await Promise.all(
+    replacementEntries.map((entry) => embedDataBankEntry(entry)),
+  );
+  if (embeddingResults.some((stored) => stored !== true)) {
+    throw new Error('Post-mortem replacement embeddings were not durably stored.');
+  }
+  const eventsDeleted = await deleteEventsBySession(sessionId, userId);
+  const entriesDeleted = await deleteProjectScopedEntries(
+    sessionId,
+    userId,
+    projectEntries.map((entry) => entry._id),
+  );
 
   return {
     summaryEntryId,
@@ -279,6 +328,10 @@ Read projectTitle, interactionEvents, projectKnowledge, and crossServiceBrandEve
     eventsDeleted,
     entriesDeleted,
   };
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function resolveLessonPromotion(input: PostMortemInput): LessonPromotion {

@@ -3,7 +3,7 @@ import type { DataBankEntry } from '@/lib/thinkforge/services/db';
 import { runPostMortemAgent } from '@/lib/thinkforge/agents/post-mortem-agent';
 
 const mocks = vi.hoisted(() => {
-  const addDataBankEntry = vi.fn();
+  const addGovernedDataBankEntry = vi.fn();
   const createModelByTier = vi.fn();
   const deleteEventsBySession = vi.fn();
   const deleteProjectScopedEntries = vi.fn();
@@ -12,8 +12,9 @@ const mocks = vi.hoisted(() => {
   const getEventsByScope = vi.fn();
   const getProjectScopedEntries = vi.fn();
   const getRecentInteractionEvents = vi.fn();
+  const getSession = vi.fn();
   return {
-    addDataBankEntry,
+    addGovernedDataBankEntry,
     createModelByTier,
     deleteEventsBySession,
     deleteProjectScopedEntries,
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => {
     getEventsByScope,
     getProjectScopedEntries,
     getRecentInteractionEvents,
+    getSession,
   };
 });
 
@@ -39,11 +41,12 @@ vi.mock('@/lib/shared/brand-events', () => ({
 }));
 
 vi.mock('@/lib/thinkforge/services/db', () => ({
-  addDataBankEntry: mocks.addDataBankEntry,
+  addGovernedDataBankEntry: mocks.addGovernedDataBankEntry,
   deleteEventsBySession: mocks.deleteEventsBySession,
   deleteProjectScopedEntries: mocks.deleteProjectScopedEntries,
   getProjectScopedEntries: mocks.getProjectScopedEntries,
   getRecentInteractionEvents: mocks.getRecentInteractionEvents,
+  getSession: mocks.getSession,
 }));
 
 vi.mock('@/lib/thinkforge/services/embedding-service', () => ({
@@ -54,7 +57,7 @@ const NOW = new Date('2026-06-09T00:00:00.000Z');
 
 describe('post-mortem memory promotion', () => {
   beforeEach(() => {
-    mocks.addDataBankEntry.mockReset();
+    mocks.addGovernedDataBankEntry.mockReset();
     mocks.createModelByTier.mockReset();
     mocks.deleteEventsBySession.mockReset();
     mocks.deleteProjectScopedEntries.mockReset();
@@ -63,13 +66,32 @@ describe('post-mortem memory promotion', () => {
     mocks.getEventsByScope.mockReset();
     mocks.getProjectScopedEntries.mockReset();
     mocks.getRecentInteractionEvents.mockReset();
+    mocks.getSession.mockReset();
 
     mocks.createModelByTier.mockReturnValue('model');
     mocks.deleteEventsBySession.mockResolvedValue(3);
     mocks.deleteProjectScopedEntries.mockResolvedValue(2);
-    mocks.embedDataBankEntry.mockResolvedValue(undefined);
+    mocks.embedDataBankEntry.mockResolvedValue(true);
+    mocks.getSession.mockResolvedValue({
+      _id: 'tf_session_1',
+      userId: 'user_1',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_1' },
+    });
     mocks.getEventsByScope.mockResolvedValue([]);
-    mocks.getProjectScopedEntries.mockResolvedValue([]);
+    mocks.getProjectScopedEntries.mockResolvedValue([{
+      _id: 'source_entry_1',
+      sessionId: 'tf_session_1',
+      projectId: 'tf_session_1',
+      userId: 'user_1',
+      type: 'note',
+      scope: 'project',
+      memoryScope: 'project',
+      title: 'Working note',
+      content: { summary: 'Use a warmer opening.' },
+      createdAt: NOW,
+      updatedAt: NOW,
+    }]);
     mocks.getRecentInteractionEvents.mockResolvedValue([
       {
         _id: 'event_1',
@@ -91,11 +113,11 @@ describe('post-mortem memory promotion', () => {
         ],
       },
     });
-    mocks.addDataBankEntry.mockImplementation(
-      async (sessionId: string, userId: string, entry: Partial<DataBankEntry>) => ({
-        _id: `entry_${mocks.addDataBankEntry.mock.calls.length}`,
+    mocks.addGovernedDataBankEntry.mockImplementation(
+      async (_principal: unknown, sessionId: string, entry: Partial<DataBankEntry>) => ({
+        _id: `entry_${mocks.addGovernedDataBankEntry.mock.calls.length}`,
         sessionId,
-        userId,
+        userId: 'user_1',
         createdAt: NOW,
         updatedAt: NOW,
         ...entry,
@@ -119,14 +141,27 @@ describe('post-mortem memory promotion', () => {
       eventsDeleted: 3,
       entriesDeleted: 2,
     });
-    expect(mocks.deleteProjectScopedEntries.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.addDataBankEntry.mock.invocationCallOrder[0],
+    const lastWriteOrder = mocks.addGovernedDataBankEntry.mock.invocationCallOrder.at(-1);
+    const lastEmbeddingOrder = mocks.embedDataBankEntry.mock.invocationCallOrder.at(-1);
+    expect(lastWriteOrder).toBeDefined();
+    expect(lastEmbeddingOrder).toBeDefined();
+    expect(lastWriteOrder!).toBeLessThan(
+      mocks.embedDataBankEntry.mock.invocationCallOrder[0],
+    );
+    expect(lastEmbeddingOrder!).toBeLessThan(
+      mocks.deleteProjectScopedEntries.mock.invocationCallOrder[0],
+    );
+    expect(mocks.deleteProjectScopedEntries).toHaveBeenCalledWith(
+      'tf_session_1',
+      'user_1',
+      ['source_entry_1'],
     );
 
-    const summary = mocks.addDataBankEntry.mock.calls[0][2] as Partial<DataBankEntry>;
+    expect(mocks.addGovernedDataBankEntry.mock.calls[0][0]).toEqual({ userId: 'user_1', orgId: 'org_1' });
+    const summary = mocks.addGovernedDataBankEntry.mock.calls[0][2] as Partial<DataBankEntry>;
     expect(summary).toMatchObject({
       type: 'research',
-      projectId: 'editron_project_1',
+      projectId: 'tf_session_1',
       scope: 'project',
       content: {
         memoryScope: 'project',
@@ -141,7 +176,7 @@ describe('post-mortem memory promotion', () => {
       'brand:brand_1',
     ]));
 
-    const lesson = mocks.addDataBankEntry.mock.calls[1][2] as Partial<DataBankEntry>;
+    const lesson = mocks.addGovernedDataBankEntry.mock.calls[1][2] as Partial<DataBankEntry>;
     expect(lesson).toMatchObject({
       type: 'brand_insight',
       projectId: 'editron_project_1',
@@ -173,7 +208,7 @@ describe('post-mortem memory promotion', () => {
       qualityScore: 62,
     });
 
-    const lesson = mocks.addDataBankEntry.mock.calls[1][2] as Partial<DataBankEntry>;
+    const lesson = mocks.addGovernedDataBankEntry.mock.calls[1][2] as Partial<DataBankEntry>;
     expect(lesson).toMatchObject({
       scope: 'project',
       content: {
@@ -190,6 +225,12 @@ describe('post-mortem memory promotion', () => {
   });
 
   it('keeps unbranded lessons project-scoped even when the quality score is high', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'tf_session_1',
+      userId: 'user_1',
+      projectMeta: {},
+    });
+
     await runPostMortemAgent({
       userId: 'user_1',
       sessionId: 'tf_session_1',
@@ -197,7 +238,7 @@ describe('post-mortem memory promotion', () => {
       qualityScore: 94,
     });
 
-    const lesson = mocks.addDataBankEntry.mock.calls[1][2] as Partial<DataBankEntry>;
+    const lesson = mocks.addGovernedDataBankEntry.mock.calls[1][2] as Partial<DataBankEntry>;
     expect(lesson).toMatchObject({
       scope: 'project',
       content: {
@@ -212,5 +253,20 @@ describe('post-mortem memory promotion', () => {
       'promotion:unbranded_project_only',
       'project:editron_project_1',
     ]));
+  });
+
+  it('preserves source evidence when replacement embedding fails', async () => {
+    mocks.embedDataBankEntry.mockRejectedValueOnce(new Error('vector unavailable'));
+
+    await expect(runPostMortemAgent({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'tf_session_1',
+      brandId: 'brand_1',
+      qualityScore: 88,
+    })).rejects.toThrow('vector unavailable');
+
+    expect(mocks.deleteEventsBySession).not.toHaveBeenCalled();
+    expect(mocks.deleteProjectScopedEntries).not.toHaveBeenCalled();
   });
 });

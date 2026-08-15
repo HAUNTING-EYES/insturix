@@ -3930,14 +3930,39 @@ export async function deleteEventsBySession(
   return result.deletedCount ?? 0;
 }
 
-/** Delete project-scoped DataBank entries for a session (used by Post-Mortem agent) */
+export function buildProjectScopedDeletionQuery(input: {
+  sessionId: string;
+  userId: string;
+  entryIds: readonly string[];
+}): Record<string, unknown> | null {
+  const sessionId = dataBankString(input.sessionId);
+  const userId = dataBankString(input.userId);
+  if (!sessionId || !userId) {
+    throw new Error('Project memory cleanup requires an exact session and user.');
+  }
+  const entryIds = [...new Set(
+    input.entryIds.map(dataBankString).filter((id): id is string => Boolean(id)),
+  )];
+  if (entryIds.length === 0) return null;
+  return {
+    _id: { $in: entryIds },
+    sessionId,
+    userId,
+    scope: 'project',
+  };
+}
+
+/** Delete only the project entries snapshotted by a Post-Mortem run. */
 export async function deleteProjectScopedEntries(
   sessionId: string,
   userId: string,
+  entryIds: readonly string[],
 ): Promise<number> {
+  const query = buildProjectScopedDeletionQuery({ sessionId, userId, entryIds });
+  if (!query) return 0;
   await connectToThinkForgeDb();
   const model = getDataBankModel();
-  const result = await model.deleteMany({ sessionId, userId, scope: 'project' });
+  const result = await model.deleteMany(query);
   return result.deletedCount ?? 0;
 }
 
