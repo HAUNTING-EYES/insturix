@@ -20,7 +20,9 @@ export interface DocumentRoleProfile {
 
 interface PostOutputFormatOptions {
   targetCharacters?: number;
+  targetWords?: number;
   maximumCharacters?: number;
+  ctaMode?: 'none' | 'supplied_action' | 'soft' | 'hard' | 'urgent';
 }
 
 type ThinkForgeContentPath = 'post' | 'script';
@@ -249,67 +251,48 @@ export function buildPostOutputFormat(
   options: PostOutputFormatOptions = {},
 ): string {
   const config = PLATFORM_CONFIGS[platform];
-  const targetCharacters = options.targetCharacters ?? config.charTarget;
-  const maximumCharacters = options.maximumCharacters ?? config.charMax;
   const antiAiConstraints = getAntiAiConstraintBundle().promptGuidance;
-  const platformHardRules = [
-    platform === 'twitter'
-      ? 'TWITTER/X HARD LIMIT:\n  - Write one publishable post unless the user explicitly asks for a thread.\n  - Stay under 280 characters including hashtags.'
-      : undefined,
-    platform === 'instagram'
-      ? 'INSTAGRAM HARD RULE:\n  - Use 1-3 relevant emojis unless brand context forbids emojis.\n  - The CTA must appear before the hashtag line.'
-      : undefined,
-  ].filter(Boolean).join('\n\n');
+  const targetLength = options.targetCharacters !== undefined
+    ? `Aim for ${options.targetCharacters} characters because the resolved brief explicitly requested it.`
+    : options.targetWords !== undefined
+      ? `Aim for ${options.targetWords} words because the resolved brief explicitly requested it.`
+      : 'The brief has no explicit length target. Use only the space the supported idea needs.';
+  const maximumLength = options.maximumCharacters !== undefined
+    ? `The hard publishing maximum is ${options.maximumCharacters} characters including hashtags.`
+    : 'No numeric publishing maximum is known for this surface; do not infer one.';
+  const ctaRules = options.ctaMode === 'none' || options.ctaMode === undefined
+    ? `CTA CONTRACT
+  - Do not append a CTA merely because this is a social post.
+  - End when the editorial thought is complete unless tf_untrusted_data explicitly supplies an action or postEditorialPlan selects a CTA.`
+    : `CTA CONTRACT
+  - postEditorialPlan.ctaMode is ${options.ctaMode}; execute postEditorialPlan.selectedCta.
+  - Use only actions, offers, urgency, and destinations present in tf_untrusted_data.
+  - Never invent a DM, booking, signup, purchase, contact, deadline, or scarcity route.`;
 
   return `<output_format>
 Write the ACTUAL publishable ${config.name} post. Not a brief. Not production notes. Not an outline.
 
-LINE BREAK CONTRACT
-  - The content string must start with one standalone hook line.
-  - Insert a blank line immediately after the hook.
-  - Never put the first body sentence on the hook line.
-  - Use blank lines between paragraphs.
-
-STEP 1 HOOK
-  - The first line must be 10-180 characters and stand alone.
-  - The first ${config.foldChars} characters must contain a grounded claim, supplied number, named entity, concrete audience pain, or concrete object from <input_data>.
-  - Start with an audience, named product, supplied number, event, price, or concrete problem from <input_data>.
-  - A supplied number alone is not a hook: pair it with the audience's concrete pain, workflow friction, or decision at stake.
-  - Do not start with a broad category claim like "AI is...", "The future of...", "This is...", or "The world of...".
-  - Never open with "In today's...", "Have you ever...", "Imagine...", "It's no secret...", or "Picture this...".
-
-STEP 2 BODY
-  - Write 2-4 short paragraphs. Each paragraph max 3 sentences.
+EDITORIAL FORM
+  - Execute postEditorialPlan.selectedHook and postEditorialPlan.selectedStructure when present, including every listed anti-pattern.
+  - If no hook technique is selected, open naturally with the most relevant source-backed idea; do not force a question, statistic, story, or provocation.
+  - Let the selected structure and supported material determine paragraph count, sentence count, and line breaks.
+  - Use blank lines where they improve reading rhythm; never pad the post to match a generic platform shape.
   - Preserve supplied dates, times, prices, URLs, brand names, event names, product names, offers, audience labels, and taglines verbatim.
-  - Do not paraphrase supplied offers: if <input_data> says "free teardown", the final content must say "free teardown".
-  - Do not rewrite numeric phrases: if <input_data> says "12 qualified sales calls", do not write "Twelve calls" or drop adjacent qualifiers.
-  - Never add illustrative numbers, percentages, multipliers, money amounts, deadlines, or rankings unless that exact number appears in <input_data>.
-  - If no metric is supplied, create specificity through scene, audience pain, object detail, workflow friction, or decision tradeoff instead of inventing numbers.
+  - Never add illustrative numbers, percentages, multipliers, money amounts, deadlines, rankings, causes, outcomes, or testimonials unless authorized sources support them.
+  - If no metric is supplied, create specificity only through source-supplied scenes, audience pain, object details, workflow friction, or decision tradeoffs instead of inventing them or inventing numbers.
   - No scene headings, no **Visual:** labels, no **Narration:** labels, no production notes.
-  - Vary rhythm: mix short punch lines with longer explanation lines.
 
-STEP 3 CTA
-  - Write the CTA as its own line directly before hashtags.
-  - The final non-hashtag line must contain a ? or one clear action verb: ask, apply, book, buy, call, claim, comment, contact, DM, donate, discover, download, join, learn more, message, register, reply, reserve, save, schedule, send, share, shop, sign up, tag, try, visit, watch, or the equivalent action verb in the user's language.
-  - End the body with exactly one specific call-to-action tied to the brief.
-  - Use the supplied action when present: register, sign up, donate, shop, book, apply, claim, DM, message, schedule, comment, share, or the supplied URL.
-  - Never invent an outreach route. Do not ask readers to DM, message, contact, call, book, or schedule unless <input_data> supplies that route, a resource, or a URL.
-  - If no supplied action, resource, or URL exists, close with a question that names a supplied audience, workflow, entity, or outcome.
-  - Good pattern: "Comment with the workflow bottleneck your team most wants to remove."
-  - Never use generic CTAs like "What do you think?", "Thoughts?", "Agree?", "Right?", or reflective statement endings.
-  - The CTA must be in the last 3 non-hashtag lines.
+${ctaRules}
 
-STEP 4 HASHTAGS
-  - Return ${config.hashtagRange} hashtags in the required hashtags array, not in content.
-  - Every tag must begin with #, be unique, and be grounded in a supplied entity, audience, workflow, format, or outcome.
-  - Do not use generic engagement tags or invent a campaign name. ThinkForge assembles the final hashtag line after validation.
-  - If you run long, cut body copy before cutting the CTA or hashtags.
+HASHTAG CONTRACT
+  - Hashtags are optional. Return an empty hashtags array unless tf_untrusted_data explicitly requests them.
+  - When requested, every tag must begin with #, be unique, and be grounded in a supplied entity, audience, workflow, format, or outcome.
+  - Do not use generic engagement tags or invent a campaign name. ThinkForge assembles supplied tags after validation.
 
 PLATFORM CONSTRAINTS (${config.name})
-  - Target: ${targetCharacters} characters. Platform max: ${maximumCharacters}.
-  - Do not undershoot the target range unless the platform hard limit requires it.
+  - ${targetLength}
+  - ${maximumLength}
   - ${config.extraGuidance}
-${platformHardRules ? `\n${platformHardRules}\n` : ''}
 CLICKATRON OUTPUT
   - Fill clickatron.singleImagePrompt or clickatron.carouselPrompts.
   - Include only source facts that can be conveyed visually: subject, environment, props, activity, mood, composition, lighting, and brand-safe visual style.

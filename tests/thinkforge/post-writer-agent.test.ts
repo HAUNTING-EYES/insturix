@@ -23,27 +23,28 @@ const baseInput: PostWriterInput = {
   context: {
     projectSummary: 'Platform: LinkedIn. Audience: agency founders. Topic: content approval bottlenecks.',
   },
-  userPrompt: 'Write a LinkedIn post for agency founders about reducing approval loops and send it to Clickatron.',
+  userPrompt: [
+    'Write a LinkedIn post for agency founders about a content approval bottleneck and send it to Clickatron.',
+    'Every asset currently has three half-owners, five comment threads, and no single final approver.',
+    'Recommend assigning one approval owner before production, routing every note through that person, and making the final decision visible.',
+    'End by suggesting that readers try the same ownership rule on their next campaign.',
+  ].join(' '),
 };
 
 function completeLinkedInPost(): string {
   return [
-    'Your approval loop is not slow because the creative team lacks effort.',
+    'Agency founders: three half-owners and five comment threads leave this approval loop without a final approver.',
     '',
-    'It is slow because every asset has three half-owners, five comment threads, and no single person allowed to say final.',
+    'Assign one approval owner before production starts. Route every note through that person and make the final decision visible.',
     '',
-    'The fix is not another status meeting. Pick one approval owner before production starts, route every note through that person, and make the final decision visible to the team.',
-    '',
-    'That one change gives editors fewer contradictions, gives account leads a cleaner client conversation, and gives the brand a real publish line instead of a pile of almost-approved drafts.',
-    '',
-    'Try this on your next campaign: assign the approval owner before the first draft leaves the editor.',
+    'Try the same ownership rule on your next campaign.',
     '',
     '#CreativeOps #AgencyOps #ContentWorkflow',
   ].join('\n');
 }
 
 function makeResult(overrides: Partial<PostWriterResult> = {}): PostWriterResult {
-  return {
+  const result: PostWriterResult = {
     content: completeLinkedInPost(),
     hashtags: ['#CreativeOps', '#AgencyOps', '#ContentWorkflow'],
     contentAnalysis: {
@@ -62,6 +63,12 @@ function makeResult(overrides: Partial<PostWriterResult> = {}): PostWriterResult
     },
     ...overrides,
   };
+  result.contentAnalysis.claimSupport ??= claimSupportFromSource(
+    result.content,
+    'brief_user',
+    baseInput.userPrompt,
+  );
+  return result;
 }
 
 function flowLedgerInput(): PostWriterInput {
@@ -124,13 +131,7 @@ function completeFlowLedgerPost(): string {
     '',
     'The beta cut evidence-chasing time by 37% across 12 pilot teams.',
     '',
-    'FlowLedger is workflow automation for finance teams preparing audit evidence. Treat the beta as a measured reference point, not a forecast for another team.',
-    '',
-    "Map your own evidence-chasing before making a comparison: where requests enter, who owns each item, which handoff waits, and what must be ready for review. Compare that workflow with the beta's measured scope rather than borrowing its result.",
-    '',
-    'Keep the question narrow enough to answer: one evidence handoff, one owner, and one point where follow-up stalls. The beta gives you a reference for that review, while the 12-team boundary stays visible.',
-    '',
-    'CFOs and RevOps leaders: where does SOC 2 evidence-chasing slow your finance team down?',
+    'FlowLedger is workflow automation for finance teams preparing audit evidence.',
     '',
     '#SOC2 #FinanceOps #RevOps #AuditReadiness',
   ].join('\n');
@@ -147,14 +148,13 @@ function makeFlowLedgerResult(content = completeFlowLedgerPost()): PostWriterRes
   const input = flowLedgerInput();
   result.contentAnalysis.claimSupport = claimSentences(content).map((sentence) => {
     const usesProjectSummary = sentence.includes('FlowLedger is workflow automation');
-    const bounded = /\b(?:boundary|forecast|measured|reference)\b/i.test(sentence);
     return {
       sentence,
       sourceRef: usesProjectSummary ? 'project_summary' : 'brief_user',
       sourceExcerpt: usesProjectSummary
         ? input.context.projectSummary
         : input.userPrompt,
-      relationship: bounded ? 'bounded_implication' as const : 'paraphrase' as const,
+      relationship: 'paraphrase' as const,
     };
   });
   return result;
@@ -181,11 +181,12 @@ describe('assertUsablePostWriterResult', () => {
     expect(prompt).toContain('Exact copy remains in content and is derived into editable Clickatron text layers downstream.');
     expect(prompt).toContain('abstract or defocused shapes with no legible text or invented brand marks');
     expect(prompt).toContain('ThinkForge derives final editable copy from the post content downstream.');
-    expect(prompt).toContain('A supplied number alone is not a hook');
-    expect(prompt).toContain('Never invent an outreach route.');
+    expect(prompt).toContain('Technique guidance defines editorial form only.');
+    expect(prompt).toContain('The brief has no explicit length target.');
     expect(prompt).toContain('Ground each prompt in at least two supplied visual cues');
     expect(prompt).toContain('<post_length_contract>');
-    expect(prompt).toContain('Body minimum: 500 characters.');
+    expect(prompt).toContain('The hard publishing maximum is 3000 characters');
+    expect(prompt).not.toContain('Body minimum:');
     expect(prompt).not.toContain('exact overlay text');
     expect(prompt).not.toContain('what exact text should be editable');
     expect(prompt).not.toContain('include editable overlay text when text appears');
@@ -216,8 +217,9 @@ describe('assertUsablePostWriterResult', () => {
     expect(prompt).toContain(`"sourceText": "${input.userPrompt}"`);
     expect(prompt).toContain('"sourceRef": "project_summary"');
     expect(prompt).not.toContain('"sourceRef": "brand_context"');
-    expect(prompt).toContain('Body minimum: 500 characters.');
-    expect(prompt).toContain('Target: 600 characters. Platform max: 1100.');
+    expect(prompt).toContain('The brief has no explicit length target.');
+    expect(prompt).toContain('The hard publishing maximum is 3000 characters');
+    expect(prompt).not.toContain('Body minimum:');
     expect(prompt).toContain('ThinkForge resolves sourceExcerpt from that authoritative sourceRef');
     expect(prompt).not.toContain('HOOK: outcome_hook');
     expect(prompt).not.toContain('CTA: hard_cta');
@@ -301,12 +303,11 @@ describe('assertUsablePostWriterResult', () => {
       sourceLedger: buildThinkForgeSourceLedger({ userPrompt }),
     });
 
-    expect(prompt).toContain('"editorialShape": "event_action"');
+    expect(prompt).toContain('"editorialShape": "conversion"');
     expect(prompt).toContain('"sourceBoundary": "source_only"');
-    expect(prompt).toContain('unsupplied causes, conditions, or community problems');
-    expect(prompt).toContain('Use only source-supplied event evidence');
-    expect(prompt).toContain('Body minimum: 150 characters.');
-    expect(prompt).toContain('Aim for 450 characters');
+    expect(prompt).toContain('facts, causes, capabilities, outcomes, testimonials, urgency, or scarcity absent from authorized sources');
+    expect(prompt).toContain('The brief has no explicit length target.');
+    expect(prompt).not.toContain('Body minimum:');
     expect(prompt).not.toContain('HOOK: outcome_hook');
     expect(prompt).not.toContain('STRUCTURE: problem_agitate_solve');
     expect(prompt).toContain('When sourceBoundary is source_only');
@@ -596,22 +597,22 @@ describe('assertUsablePostWriterResult', () => {
 
   it('rejects unsupported generalized outcomes in a thin evidence post', () => {
     const content = completeFlowLedgerPost().replace(
-      'FlowLedger is workflow automation for finance teams preparing audit evidence. Treat the beta as a measured reference point, not a forecast for another team.',
+      'FlowLedger is workflow automation for finance teams preparing audit evidence.',
       'This streamlines finance operations and enables teams to optimize revenue work with greater confidence.',
     );
 
     expect(() => assertUsablePostWriterResult(makeFlowLedgerResult(content), flowLedgerInput()))
-      .toThrow(/thin_evidence_unsupported_sentence/);
+      .toThrow(/source_only_unsupported_claim|source_only_low_support_sentence|claim_support_low_overlap/);
   });
 
   it('rejects invented efficiency outcomes even when they reuse supplied workflow nouns', () => {
     const content = completeFlowLedgerPost().replace(
-      'FlowLedger is workflow automation for finance teams preparing audit evidence. Treat the beta as a measured reference point, not a forecast for another team.',
+      'FlowLedger is workflow automation for finance teams preparing audit evidence.',
       'This capability helps finance teams manage audit evidence more efficiently. By automatically grouping requests, teams can dedicate their effort to higher-value reviews.',
     );
 
     expect(() => assertUsablePostWriterResult(makeFlowLedgerResult(content), flowLedgerInput()))
-      .toThrow(/thin_evidence_unsupported_sentence/);
+      .toThrow(/source_only_unsupported_claim|source_only_low_support_sentence|claim_support_low_overlap/);
   });
 
   it('rejects the captured B2B eval output when source nouns mask invented outcomes', () => {
@@ -633,14 +634,14 @@ describe('assertUsablePostWriterResult', () => {
     )).toThrow(/claim_support_(?:low_overlap|unbounded_implication)/);
   });
 
-  it('requires proof attribution in the hook for measured beta evidence', () => {
+  it('rejects a measured result rewritten as an unsupported universal outcome', () => {
     const content = completeFlowLedgerPost().replace(
       "CFOs and RevOps leaders: the beta's 37% cut belongs to 12 pilot teams, not every SOC 2 workflow.",
       'A 37% result changes SOC 2 evidence-chasing before Q4.',
     );
 
     expect(() => assertUsablePostWriterResult(makeFlowLedgerResult(content), flowLedgerInput()))
-      .toThrow(/hook_missing_proof_attribution/);
+      .toThrow(/claim_support_low_overlap|profile_missing_required_audience_anchor/);
   });
 
   it('requires the exact supplied destination in the CTA', () => {
@@ -677,27 +678,13 @@ describe('assertUsablePostWriterResult', () => {
     expect(() => assertUsablePostWriterResult(makeFlowLedgerResult(), flowLedgerInput())).not.toThrow();
   });
 
-  it('rejects weak fallback output with no CTA', () => {
-    const noCta = [
-      'Approval loops become expensive when every stakeholder leaves notes in a different lane and no single person owns the final decision.',
-      '',
-      'The result is slower review, nervous editors, and a final asset shaped by the loudest thread instead of the clearest campaign priority.',
-      '',
-      'Teams notice the cost only after publish windows pass, client confidence drops, and the same debate appears during the next launch cycle.',
-      '',
-      'A stronger operating rhythm begins with one accountable owner, a visible decision log, and fewer private revision channels across the campaign.',
-      '',
-      '#CreativeOps #AgencyOps',
-    ].join('\n');
-
-    expect(() => assertUsablePostWriterResult(makeResult({ content: noCta }), baseInput)).toThrow(
-      /missing_action_cta/,
-    );
+  it('accepts a complete source-backed post without a CTA', () => {
+    expect(() => assertUsablePostWriterResult(makeFlowLedgerResult(), flowLedgerInput())).not.toThrow();
   });
 
   it('rejects a generic CTA until the existing repair path makes it actionable', () => {
     const genericCta = completeLinkedInPost().replace(
-      'Try this on your next campaign: assign the approval owner before the first draft leaves the editor.',
+      'Try the same ownership rule on your next campaign.',
       'Discover how approval ownership changes your workflow.',
     );
 
@@ -735,7 +722,7 @@ describe('assertUsablePostWriterResult', () => {
 
   it('rejects an invented DM route when the brief does not supply one', () => {
     const inventedOutreach = completeLinkedInPost().replace(
-      'Try this on your next campaign: assign the approval owner before the first draft leaves the editor.',
+      'Try the same ownership rule on your next campaign.',
       'DM us to discuss how approval ownership changes your workflow.',
     );
 
@@ -750,12 +737,13 @@ describe('assertUsablePostWriterResult', () => {
     }), flowLedgerInput())).toThrow(/profile_missing_required_brief_claim/);
   });
 
-  it('rejects non-twitter posts without hashtags', () => {
+  it('accepts non-twitter posts without hashtags when the brief did not request them', () => {
     const noHashtags = completeLinkedInPost().replace('\n\n#CreativeOps #AgencyOps #ContentWorkflow', '');
 
-    expect(() => assertUsablePostWriterResult(makeResult({ content: noHashtags }), baseInput)).toThrow(
-      /missing_hashtags/,
-    );
+    expect(() => assertUsablePostWriterResult(makeResult({
+      content: noHashtags,
+      hashtags: [],
+    }), baseInput)).not.toThrow();
   });
 
   it('rejects outputs that cannot be handed to Clickatron', () => {
@@ -767,15 +755,16 @@ describe('assertUsablePostWriterResult', () => {
   it('allows concise x/twitter posts without hashtags when they have a CTA and visual prompt', () => {
     const twitterInput: PostWriterInput = {
       context: { projectSummary: 'Platform: X. Topic: approval loops.' },
-      userPrompt: 'Write an X post about approval loops.',
+      userPrompt: 'Write an X post: approval loops do not need another meeting. Pick one final owner before the draft leaves the editor, then try that rule on the next campaign.',
     };
 
     expect(() =>
       assertUsablePostWriterResult(
-        makeResult({
+        withClaimSupport(makeResult({
           content: 'Approval loops rarely need another meeting. Pick one final owner before the draft leaves the editor. Try it on the next campaign.',
+          hashtags: [],
           metadata: { platform: 'twitter', charCount: 123 },
-        }),
+        }), 'brief_user', twitterInput.userPrompt),
         twitterInput,
       ),
     ).not.toThrow();
@@ -792,9 +781,10 @@ describe('assertUsablePostWriterResult', () => {
         project: { platform: 'X', format: 'post' },
       }),
     };
-    const content = 'Streaky passed 1,000 paying users after 8 months. No growth hack. Just shipping every week and reading every support email. Thank you to the early users. What should I improve next?';
+    const content = 'Streaky passed 1,000 paying users after 8 months. No growth hack. Just shipping every week and reading every support email. Thank you to the early users.';
 
-    expect(new PostWriterAgent().buildPrompt(twitterInput)).toContain('Body minimum: 165 characters.');
+    expect(new PostWriterAgent().buildPrompt(twitterInput)).toContain('The hard publishing maximum is 280 characters');
+    expect(new PostWriterAgent().buildPrompt(twitterInput)).not.toContain('Body minimum:');
     expect(() => assertUsablePostWriterResult(withClaimSupport(makeResult({
       content,
       hashtags: [],
@@ -828,7 +818,10 @@ describe('assertUsablePostWriterResult', () => {
   });
 
   it('repairs filler through one replacement structured result', async () => {
-    const fillerPost = completeLinkedInPost().replace('The fix is not another status meeting.', 'Leverage the next status meeting.');
+    const fillerPost = completeLinkedInPost().replace(
+      'Assign one approval owner before production starts.',
+      'Leverage one approval owner before production starts.',
+    );
     writerMocks.generateStructured
       .mockResolvedValueOnce({
         result: makeResult({ content: fillerPost }),
@@ -853,7 +846,7 @@ describe('assertUsablePostWriterResult', () => {
 
   it('performs one constrained repair for a generic CTA', async () => {
     const genericCta = completeLinkedInPost().replace(
-      'Try this on your next campaign: assign the approval owner before the first draft leaves the editor.',
+      'Try the same ownership rule on your next campaign.',
       'Discover how approval ownership changes your workflow.',
     );
     writerMocks.generateStructured
@@ -873,19 +866,17 @@ describe('assertUsablePostWriterResult', () => {
     expect(writerMocks.generateStructured).toHaveBeenCalledTimes(2);
     expect(writerMocks.generateStructured.mock.calls[1]?.[0].systemInstruction).toContain('generic_cta');
     expect(writerMocks.generateStructured.mock.calls[1]?.[0].systemInstruction).toContain(
-      'question that names a supplied audience, workflow, entity, or outcome',
+      'If postEditorialPlan.ctaMode is none',
     );
   });
 
-  it('rejects an out-of-range non-twitter hashtag plan', () => {
+  it('accepts an optional single hashtag without imposing a platform quota', () => {
     const content = completeFlowLedgerPost().replace(
       '#SOC2 #FinanceOps #RevOps #AuditReadiness',
       '#SOC2',
     );
 
-    expect(() => assertUsablePostWriterResult(makeFlowLedgerResult(content), flowLedgerInput())).toThrow(
-      /hashtag_count_out_of_range:1\/3-5/,
-    );
+    expect(() => assertUsablePostWriterResult(makeFlowLedgerResult(content), flowLedgerInput())).not.toThrow();
   });
 
   it('repairs critical explicit-proof and audience omissions before returning the post', async () => {
@@ -910,33 +901,18 @@ describe('assertUsablePostWriterResult', () => {
     );
   });
 
-  it('uses the resolved post length target as a publishability floor', async () => {
-    const tooShort = [
-      'CFOs and RevOps leaders: a 37% cut in SOC 2 evidence-chasing changes Q4 readiness.',
-      '',
-      'The beta cut evidence-chasing time by 37% across 12 pilot teams.',
-      '',
-      'CFOs and RevOps leaders: where does SOC 2 evidence-chasing slow your finance team down before Q4?',
-      '',
-      '#SOC2 #FinanceOps #RevOps #AuditReadiness',
-    ].join('\n');
-    writerMocks.generateStructured
-      .mockResolvedValueOnce({
-        result: makeFlowLedgerResult(tooShort),
-        cacheStatus: 'hit',
-        modelName: 'models/gemini-2.5-flash',
-      })
-      .mockResolvedValueOnce({
-        result: makeFlowLedgerResult(),
-        cacheStatus: 'created',
-        modelName: 'models/gemini-2.5-flash',
-      });
+  it('enforces a length band only when the user explicitly requests one', () => {
+    const input = flowLedgerInput();
+    input.userPrompt += ' Write exactly 400 characters.';
+    input.contentSignalProfile = resolveContentSignalProfile({
+      userPrompt: input.userPrompt,
+      documentType: 'post',
+      project: { platform: 'LinkedIn', format: 'post' },
+    });
 
-    const output = await new PostWriterAgent().runStructured(flowLedgerInput(), { temperature: 0.45 });
-
-    expect(output.result.content.length).toBeGreaterThanOrEqual(500);
-    expect(writerMocks.generateStructured).toHaveBeenCalledTimes(2);
-    expect(writerMocks.generateStructured.mock.calls[1]?.[0].systemInstruction).toContain('content_under_500_chars');
+    expect(new PostWriterAgent().buildPrompt(input)).toContain('Aim for 400 characters');
+    expect(() => assertUsablePostWriterResult(makeFlowLedgerResult(), input))
+      .toThrow(/content_below_character_target/);
   });
 
   it('assembles the typed hashtag plan into the final publishable post', async () => {
@@ -960,7 +936,7 @@ describe('assertUsablePostWriterResult', () => {
     expect(writerMocks.generateStructured).toHaveBeenCalledTimes(1);
   });
 
-  it('trims an over-limit typed hashtag plan without spending a repair call', async () => {
+  it('preserves an optional hashtag plan up to the schema maximum', async () => {
     const contentWithoutTags = completeFlowLedgerPost().replace(
       '\n\n#SOC2 #FinanceOps #RevOps #AuditReadiness',
       '',
@@ -975,9 +951,9 @@ describe('assertUsablePostWriterResult', () => {
 
     const output = await new PostWriterAgent().runStructured(flowLedgerInput(), { temperature: 0.45 });
 
-    expect(output.result.hashtags).toEqual(['#SOC2', '#FinanceOps', '#RevOps', '#AuditReadiness', '#Compliance']);
-    expect(output.result.content).toMatch(/#SOC2 #FinanceOps #RevOps #AuditReadiness #Compliance$/);
-    expect(output.metadata?.notes).toContain('hashtag_plan_trimmed');
+    expect(output.result.hashtags).toEqual(['#SOC2', '#FinanceOps', '#RevOps', '#AuditReadiness', '#Compliance', '#B2BSaaS']);
+    expect(output.result.content).toMatch(/#SOC2 #FinanceOps #RevOps #AuditReadiness #Compliance #B2BSaaS$/);
+    expect(output.metadata?.notes).not.toContain('hashtag_plan_trimmed');
     expect(writerMocks.generateStructured).toHaveBeenCalledTimes(1);
   });
 
@@ -1004,8 +980,7 @@ describe('assertUsablePostWriterResult', () => {
       assertUsablePostWriterResult(makeFlowLedgerResult(oversized), input);
       throw new Error('Expected the LinkedIn maximum to be enforced');
     } catch (error) {
-      expect(String(error)).toContain('content_over_3000_chars');
-      expect(String(error)).not.toContain('content_under_3750_chars');
+      expect(String(error)).toContain('Post length target exceeds publishing maximum: 5000/3000 characters');
     }
   });
 
@@ -1036,28 +1011,22 @@ describe('assertUsablePostWriterResult', () => {
 
     expect(writerMocks.generateStructured).toHaveBeenCalledTimes(2);
     expect(output.result.content).toContain('The beta cut evidence-chasing time by 37% across 12 pilot teams.');
-    expect(output.result.content).toContain('CFOs and RevOps leaders: where does SOC 2 evidence-chasing');
+    expect(output.result.content).toContain('CFOs and RevOps leaders');
     expect(writerMocks.generateStructured.mock.calls[1]?.[0].systemInstruction).toContain(
       'profile_missing_required_brief_claim',
     );
   });
 
-  it('accepts a source-specific bottleneck question without a repair call', async () => {
-    const broadCta = completeFlowLedgerPost().replace(
-      'CFOs and RevOps leaders: where does SOC 2 evidence-chasing slow your finance team down?',
-      "CFOs and RevOps leaders, what's the single biggest bottleneck your finance teams face in SOC 2 evidence preparation?",
-    );
+  it('does not force a closing question when the editorial plan has no CTA', async () => {
     writerMocks.generateStructured.mockResolvedValue({
-      result: makeFlowLedgerResult(broadCta),
+      result: makeFlowLedgerResult(),
       cacheStatus: 'hit',
       modelName: 'models/gemini-2.5-flash',
     });
 
     const output = await new PostWriterAgent().runStructured(flowLedgerInput(), { temperature: 0.45 });
 
-    expect(output.result.content).toContain(
-      "CFOs and RevOps leaders, what's the single biggest bottleneck your finance teams face in SOC 2 evidence preparation?",
-    );
+    expect(output.result.content).not.toContain('?');
     expect(writerMocks.generateStructured).toHaveBeenCalledTimes(1);
   });
 
@@ -1070,7 +1039,7 @@ describe('assertUsablePostWriterResult', () => {
     expect(() => assertUsablePostWriterResult(
       makeFlowLedgerResult(unsupportedParaphrase),
       flowLedgerInput(),
-    )).toThrow(/claim_support_missing_required_anchor/);
+    )).toThrow(/hook_missing_required_proof|claim_support_low_overlap/);
   });
 
   it('allows a leading discourse label on a verbatim thin-evidence claim', () => {
@@ -1090,8 +1059,8 @@ describe('assertUsablePostWriterResult', () => {
 
   it('repairs an unsupported thin-evidence implication by replacing the complete result', async () => {
     const unsupportedImplication = completeFlowLedgerPost().replace(
-      'Treat the beta as a measured reference point, not a forecast for another team.',
-      'This reduction directly supports finance teams preparing SOC 2 evidence before Q4 audit season.',
+      'FlowLedger is workflow automation for finance teams preparing audit evidence.',
+      'FlowLedger is workflow automation for finance teams preparing audit evidence.\n\nThis reduction directly supports finance teams preparing SOC 2 evidence before Q4 audit season.',
     );
     const rejectedResult = makeFlowLedgerResult(unsupportedImplication);
     const implicationEntry = rejectedResult.contentAnalysis.claimSupport?.find((entry) => (
@@ -1163,7 +1132,7 @@ describe('assertUsablePostWriterResult', () => {
     expect(output.result.content).toBe(completeFlowLedgerPost());
     expect(output.result.clickatron.singleImagePrompt).toContain('source-grounded operational scene');
     expect(output.result.clickatron.singleImagePrompt).not.toContain('Make the Write a LinkedIn post');
-    expect(output.result.clickatron.singleImagePrompt).toContain('before/after evidence queue');
+    expect(output.result.clickatron.singleImagePrompt).toContain('Translate supplied proof into an observable text-free contrast');
     expect(output.result.clickatron.singleImagePrompt).not.toMatch(/(?:indicator|labeled|text overlay)/i);
     expect(writerMocks.generateStructured).toHaveBeenCalledTimes(1);
     expect(output.metadata?.notes).toContain('clickatron_visual_contract:applied');
@@ -1198,13 +1167,13 @@ describe('assertUsablePostWriterResult', () => {
   });
 
   it('performs one schema-constrained repair after a publishability contract failure', async () => {
-    const noCta = completeLinkedInPost().replace(
-      'Try this on your next campaign: assign the approval owner before the first draft leaves the editor.',
-      'The team now has one accountable owner and one visible decision log.',
+    const genericCta = completeLinkedInPost().replace(
+      'Try the same ownership rule on your next campaign.',
+      'Discover how approval ownership changes your workflow.',
     );
     writerMocks.generateStructured
       .mockResolvedValueOnce({
-        result: makeResult({ content: noCta }),
+        result: makeResult({ content: genericCta }),
         cacheStatus: 'hit',
         modelName: 'models/gemini-2.5-flash',
       })
@@ -1219,7 +1188,7 @@ describe('assertUsablePostWriterResult', () => {
     expect(writerMocks.generateStructured).toHaveBeenCalledTimes(2);
     expect(writerMocks.generateStructured.mock.calls[1]?.[0]).toMatchObject({
       temperature: 0.25,
-      systemInstruction: expect.stringContaining('missing_action_cta'),
+      systemInstruction: expect.stringContaining('generic_cta'),
       prompt: expect.stringContaining('<post_contract_repair_input>'),
     });
     expect(writerMocks.generateStructured.mock.calls[1]?.[0].prompt).toContain('previousModelOutput');
@@ -1228,12 +1197,12 @@ describe('assertUsablePostWriterResult', () => {
   });
 
   it('captures final rejected output only for an explicit eval diagnostic', async () => {
-    const noCta = completeLinkedInPost().replace(
-      'Try this on your next campaign: assign the approval owner before the first draft leaves the editor.',
-      'The team now has one accountable owner and one visible decision log.',
+    const genericCta = completeLinkedInPost().replace(
+      'Try the same ownership rule on your next campaign.',
+      'Discover how approval ownership changes your workflow.',
     );
     writerMocks.generateStructured.mockResolvedValue({
-      result: makeResult({ content: noCta }),
+      result: makeResult({ content: genericCta }),
       cacheStatus: 'hit',
       modelName: 'models/gemini-2.5-flash',
     });
@@ -1255,7 +1224,7 @@ describe('assertUsablePostWriterResult', () => {
       evalError = error;
     }
     expect(evalError).toBeInstanceOf(Error);
-    expect((evalError as Error & { rejectedOutput?: PostWriterResult }).rejectedOutput?.content).toBe(noCta);
+    expect((evalError as Error & { rejectedOutput?: PostWriterResult }).rejectedOutput?.content).toBe(genericCta);
     expect(Object.keys(evalError as Error)).not.toContain('rejectedOutput');
   });
 });

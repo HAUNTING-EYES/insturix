@@ -6,7 +6,6 @@ import type { AgentInput, AgentStructuredOutput } from './types';
 import {
   buildPostOutputFormat,
   detectPlatform,
-  PLATFORM_CONFIGS,
 } from './prompt-utils';
 import {
   evaluateContentProfileCompliance,
@@ -21,11 +20,12 @@ import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 import type { SourceLedger } from '../provenance/source-ledger';
 import { buildPostEditorialPlan, type PostEditorialPlan } from './post-editorial-plan';
+import { resolveThinkForgePublishingConstraints } from '../signals/publishing-constraints';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
   content: z.string().describe('The actual post body formatted for the platform, without the final hashtag line'),
-  hashtags: z.array(z.string()).max(15).describe('The final publishable hashtags, each beginning with #. Return semantic tags grounded in the supplied brief; do not put them in content.'),
+  hashtags: z.array(z.string()).max(15).describe('Optional publishable hashtags requested by the brief, each beginning with #. Return an empty array when hashtags were not requested; do not put them in content.'),
   contentAnalysis: z.object({
     tone: z.string().describe('The dominant tone used (e.g., Professional, Edgy, Instructive)'),
     vibe: z.string().describe('The overarching vibe or mood of the piece'),
@@ -143,14 +143,6 @@ const THIN_EVIDENCE_EXPANSION_PATTERN =
 
 const POST_DESTINATION_PATTERN = /(?:https?:\/\/|www\.)?\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?/gi;
 
-const MIN_COMPLETE_POST_CHARS: Record<string, number> = {
-  twitter: 50,
-  instagram: 150,
-  facebook: 150,
-  linkedin: 500,
-  generic: 250,
-};
-
 const HASHTAG_TOKEN_PATTERN = /#[\p{L}\p{N}_]+/gu;
 const HASHTAG_ONLY_LINE_PATTERN = /^(?:#[\p{L}\p{N}_]+\s*)+$/u;
 
@@ -179,26 +171,6 @@ const CACHED_POST_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pa
 function requestedCarouselSlideCount(input: PostWriterInput): number | undefined {
   const contract = input.project?.contentContract;
   return contract?.outputKind === 'carousel' ? contract.carouselSlideCount : undefined;
-}
-
-function platformMaximumCharacters(platform: string): number | undefined {
-  const rawMaximum = PLATFORM_CONFIGS[platform as keyof typeof PLATFORM_CONFIGS]?.charMax;
-  if (!rawMaximum) return undefined;
-
-  const maximum = Number(rawMaximum.replace(/[^\d]/g, ''));
-  return Number.isFinite(maximum) && maximum > 0 ? maximum : undefined;
-}
-
-function platformHashtagRange(platform: string): { min: number; max: number } | undefined {
-  const rawRange = PLATFORM_CONFIGS[platform as keyof typeof PLATFORM_CONFIGS]?.hashtagRange;
-  const match = rawRange?.match(/^(\d+)\s*-\s*(\d+)$/);
-  if (!match) return undefined;
-
-  const min = Number(match[1]);
-  const max = Number(match[2]);
-  return Number.isFinite(min) && Number.isFinite(max) && min >= 0 && max >= min
-    ? { min, max }
-    : undefined;
 }
 
 function normalizeHashtag(value: string): string | undefined {
@@ -231,14 +203,13 @@ function extractTrailingHashtags(content: string): { body: string; hashtags: str
   };
 }
 
-function assemblePostHashtagPlan(result: PostWriterResult, platform: string): boolean {
+function assemblePostHashtagPlan(result: PostWriterResult): boolean {
   const extracted = extractTrailingHashtags(result.content);
   // The typed plan is the current contract. Trailing content tags are accepted only as a
   // migration path for legacy model output that did not produce a valid plan.
   const plannedHashtags = uniqueHashtags(result.hashtags);
   const selectedHashtags = plannedHashtags.length > 0 ? plannedHashtags : extracted.hashtags;
-  const maximum = platformHashtagRange(platform)?.max;
-  const hashtags = maximum === undefined ? selectedHashtags : selectedHashtags.slice(0, maximum);
+  const hashtags = selectedHashtags.slice(0, 15);
   result.hashtags = hashtags;
   result.content = hashtags.length > 0
     ? `${extracted.body}\n\n${hashtags.join(' ')}`
@@ -250,62 +221,74 @@ function maximumPostCharacters(
   platform: string,
   editorialPlan?: PostEditorialPlan,
 ): number | undefined {
-  const platformMaximum = platformMaximumCharacters(platform);
+  const publishingPolicy = resolveThinkForgePublishingConstraints(platform, 'social_post');
+  const platformMaximum = publishingPolicy.maxCharacters ?? publishingPolicy.standardMaxCharacters;
   const editorialMaximum = editorialPlan?.maximumBodyCharacters;
   if (platformMaximum === undefined) return editorialMaximum;
   if (editorialMaximum === undefined) return platformMaximum;
   return Math.min(platformMaximum, editorialMaximum);
 }
 
-function minimumPostCharacters(
-  input: PostWriterInput,
+const EXPLICIT_POST_LENGTH_TOLERANCE = 0.1;
+
+interface PostLengthContract {
+  targetCharacters?: number;
+  minimumCharacters?: number;
+  maximumCharacters?: number;
+  targetWords?: number;
+  minimumWords?: number;
+  maximumWords?: number;
+}
+
+function resolvePostLengthContract(
   platform: string,
   editorialPlan: PostEditorialPlan,
-): number {
-  const platformFloor = MIN_COMPLETE_POST_CHARS[platform] ?? MIN_COMPLETE_POST_CHARS.generic;
-  if (
-    editorialPlan.sourceBoundary === 'source_only'
-    && !editorialPlan.explicitLengthRequested
-  ) {
-    return platformFloor;
-  }
-  if (editorialPlan.targetBodyCharacters !== undefined) {
-    return Math.max(platformFloor, Math.ceil(editorialPlan.targetBodyCharacters * 0.75 / 25) * 25);
-  }
-  const target = input.contentSignalProfile?.profile.constraints.target_length;
-  if (target?.unit !== 'characters' || !Number.isFinite(target.value)) return platformFloor;
+): PostLengthContract {
+  const publishingMaximum = maximumPostCharacters(platform, editorialPlan);
+  const targetCharacters = editorialPlan.targetBodyCharacters;
+  const targetWords = editorialPlan.targetBodyWords;
 
-  // The resolved profile owns the output-length intent. Keep a reasonable lower bound so
-  // platform-targeted posts have enough room for a hook, proof, development, and CTA.
-  // An explicit request must never silently overrule the platform hard maximum.
-  const requestedFloor = Math.floor(target.value * 0.75);
-  const platformMaximum = platformMaximumCharacters(platform);
-  if (platformMaximum !== undefined && requestedFloor >= platformMaximum) {
-    return editorialPlan.explicitLengthRequested
-      ? Math.max(platformFloor, Math.floor(platformMaximum * 0.75))
-      : platformFloor;
+  if (targetCharacters !== undefined && publishingMaximum !== undefined && targetCharacters > publishingMaximum) {
+    throw new Error(`Post length target exceeds publishing maximum: ${targetCharacters}/${publishingMaximum} characters`);
   }
-  return Math.max(platformFloor, requestedFloor);
+
+  return {
+    ...(targetCharacters !== undefined ? {
+      targetCharacters,
+      minimumCharacters: Math.floor(targetCharacters * (1 - EXPLICIT_POST_LENGTH_TOLERANCE)),
+      maximumCharacters: Math.ceil(targetCharacters * (1 + EXPLICIT_POST_LENGTH_TOLERANCE)),
+    } : {}),
+    ...(targetWords !== undefined ? {
+      targetWords,
+      minimumWords: Math.floor(targetWords * (1 - EXPLICIT_POST_LENGTH_TOLERANCE)),
+      maximumWords: Math.ceil(targetWords * (1 + EXPLICIT_POST_LENGTH_TOLERANCE)),
+    } : {}),
+    ...(publishingMaximum !== undefined ? {
+      maximumCharacters: targetCharacters === undefined
+        ? publishingMaximum
+        : Math.min(publishingMaximum, Math.ceil(targetCharacters * (1 + EXPLICIT_POST_LENGTH_TOLERANCE))),
+    } : {}),
+  };
 }
 
 function buildPostLengthContract(
-  input: PostWriterInput,
   platform: string,
   editorialPlan: PostEditorialPlan,
 ): string {
-  const minimum = minimumPostCharacters(input, platform, editorialPlan);
-  const maximum = maximumPostCharacters(platform, editorialPlan);
-  const target = input.contentSignalProfile?.profile.constraints.target_length;
-  const resolvedTarget = editorialPlan.targetBodyCharacters
-    ?? (target?.unit === 'characters' && Number.isFinite(target.value) ? target.value : undefined);
-  const targetLine = resolvedTarget !== undefined
-    ? `- Aim for ${resolvedTarget} characters when the brief does not set a stricter platform maximum.`
-    : '';
+  const contract = resolvePostLengthContract(platform, editorialPlan);
+  const characterTarget = contract.targetCharacters === undefined
+    ? ''
+    : `- Explicit character target: ${contract.targetCharacters}; accepted band ${contract.minimumCharacters}-${contract.maximumCharacters}.`;
+  const wordTarget = contract.targetWords === undefined
+    ? ''
+    : `- Explicit word target: ${contract.targetWords}; accepted band ${contract.minimumWords}-${contract.maximumWords}.`;
 
   return `<post_length_contract>
-- This is a server-enforced publishing contract, not optional guidance.
-- Body minimum: ${minimum} characters. Do not return a shorter body.
-${maximum === undefined ? '' : `- Final body plus hashtags maximum: ${maximum} characters.\n`}${targetLine}
+- Numeric bounds exist only for an explicit brief target or a verified publishing maximum.
+${characterTarget}
+${wordTarget}
+${contract.maximumCharacters === undefined ? '- No numeric character maximum is asserted.' : `- Final body plus hashtags maximum: ${contract.maximumCharacters} characters.`}
+- When no explicit target exists, use only the length justified by the supported idea. Never pad for a platform recommendation.
 </post_length_contract>`;
 }
 
@@ -757,9 +740,7 @@ function unsupportedSourceOnlySentenceIndexes(
   input: PostWriterInput,
   editorialPlan: PostEditorialPlan,
 ): number[] {
-  if (editorialPlan.sourceBoundary !== 'source_only' || editorialPlan.editorialShape !== 'event_action') {
-    return [];
-  }
+  if (editorialPlan.sourceBoundary !== 'source_only') return [];
 
   const sourceTokens = new Set(sourceCoverageTokens(sourceOnlyEvidenceContext(input)));
   const sentences = content
@@ -883,16 +864,29 @@ export function assertUsablePostWriterResult(result: PostWriterResult, input: Po
   const suppliedContext = getSuppliedPostContext(input);
   const executionAnchors = resolvePostExecutionAnchors(input);
   const requiredProofMarkers = editorialPlan.hookProofMarkers;
-  const minChars = minimumPostCharacters(input, platform, editorialPlan);
-  const maxChars = maximumPostCharacters(platform, editorialPlan);
-  const hashtagRange = platformHashtagRange(platform);
+  const lengthContract = resolvePostLengthContract(platform, editorialPlan);
+  const wordCount = content.split(/\s+/).filter(Boolean).length;
 
-  const minBodyLines = platform === 'twitter' ? 1 : 3;
+  if (content.length === 0) failures.push('empty_content');
+  if (lengthContract.minimumCharacters !== undefined && content.length < lengthContract.minimumCharacters) {
+    failures.push(`content_below_character_target:${content.length}/${lengthContract.minimumCharacters}`);
+  }
+  if (lengthContract.maximumCharacters !== undefined && content.length > lengthContract.maximumCharacters) {
+    const failureCode = lengthContract.targetCharacters === undefined
+      ? `content_over_${lengthContract.maximumCharacters}_chars`
+      : `content_above_character_target:${content.length}/${lengthContract.maximumCharacters}`;
+    failures.push(failureCode);
+  }
+  if (lengthContract.minimumWords !== undefined && wordCount < lengthContract.minimumWords) {
+    failures.push(`content_below_word_target:${wordCount}/${lengthContract.minimumWords}`);
+  }
+  if (lengthContract.maximumWords !== undefined && wordCount > lengthContract.maximumWords) {
+    failures.push(`content_above_word_target:${wordCount}/${lengthContract.maximumWords}`);
+  }
 
-  if (content.length < minChars) failures.push(`content_under_${minChars}_chars:${content.length}`);
-  if (maxChars !== undefined && content.length > maxChars) failures.push(`content_over_${maxChars}_chars`);
-  if (lines.length < minBodyLines) failures.push('missing_body_or_cta_lines');
-  if (!(/[?]/.test(ctaTail) || POST_CTA_PATTERN.test(ctaTail))) failures.push('missing_action_cta');
+  const ctaRequired = editorialPlan.ctaMode !== 'none';
+  const hasCta = /[?]/.test(ctaTail) || POST_CTA_PATTERN.test(ctaTail);
+  if (ctaRequired && !hasCta) failures.push('missing_required_cta');
   const ctaLine = lines.at(-1) ?? '';
   const hasSourceSpecificCtaQuestion = Boolean(
     executionAnchors.audience
@@ -900,12 +894,13 @@ export function assertUsablePostWriterResult(result: PostWriterResult, input: Po
     && containsNormalizedText(ctaLine, executionAnchors.audience)
     && countTopicTerms(ctaLine, executionAnchors.topicTerms) > 0
   );
-  if (GENERIC_CTA_QUESTION_PATTERN.test(ctaLine) && !hasSourceSpecificCtaQuestion) {
+  if (hasCta && GENERIC_CTA_QUESTION_PATTERN.test(ctaLine) && !hasSourceSpecificCtaQuestion) {
     failures.push('generic_cta_question');
   }
   const explicitlyRequestedGenericCta = GENERIC_CTA_PATTERN.test(suppliedContext);
   if (
-    GENERIC_CTA_PATTERN.test(ctaLine)
+    hasCta
+    && GENERIC_CTA_PATTERN.test(ctaLine)
     && !SPECIFIC_CTA_ACTION_PATTERN.test(ctaLine)
     && !explicitlyRequestedGenericCta
   ) {
@@ -913,15 +908,6 @@ export function assertUsablePostWriterResult(result: PostWriterResult, input: Po
   }
   if (OUTREACH_CTA_PATTERN.test(ctaLine) && !SUPPLIED_OUTREACH_ROUTE_PATTERN.test(suppliedContext)) {
     failures.push('generic_cta');
-  }
-  const hashtagCount = content.match(HASHTAG_TOKEN_PATTERN)?.length ?? 0;
-  if (platform !== 'twitter' && hashtagCount === 0) failures.push('missing_hashtags');
-  if (
-    platform !== 'twitter'
-    && hashtagRange
-    && (hashtagCount < hashtagRange.min || hashtagCount > hashtagRange.max)
-  ) {
-    failures.push(`hashtag_count_out_of_range:${hashtagCount}/${hashtagRange.min}-${hashtagRange.max}`);
   }
   if (!(result.clickatron?.singleImagePrompt || result.clickatron?.carouselPrompts?.length)) {
     failures.push('missing_clickatron_prompt');
@@ -950,13 +936,6 @@ export function assertUsablePostWriterResult(result: PostWriterResult, input: Po
     failures.push('hook_missing_required_proof');
   }
   if (
-    editorialPlan.hookProofAttribution
-    && !sourceCoverageTokens(editorialPlan.hookProofAttribution)
-      .every((token) => sourceCoverageTokens(hookLine).includes(token))
-  ) {
-    failures.push('hook_missing_proof_attribution');
-  }
-  if (
     editorialPlan.requiredDestination
     && !containsNormalizedText(ctaTail, editorialPlan.requiredDestination)
   ) {
@@ -966,22 +945,6 @@ export function assertUsablePostWriterResult(result: PostWriterResult, input: Po
     .map((destination) => destination.replace(/[.,;:!?]+$/, ''))
     .filter((destination) => !containsNormalizedText(suppliedContext, destination));
   if (unsuppliedDestinations.length > 0) failures.push('unsupplied_destination');
-  if (
-    executionAnchors.audience
-    && executionAnchors.topicTerms.length > 0
-    && (!containsNormalizedText(hookLine, executionAnchors.audience)
-      || countTopicTerms(hookLine, executionAnchors.topicTerms) === 0)
-  ) {
-    failures.push('hook_missing_audience_workflow_anchor');
-  }
-  if (
-    executionAnchors.audience
-    && executionAnchors.topicTerms.length > 0
-    && (!containsNormalizedText(ctaLine, executionAnchors.audience)
-      || countTopicTerms(ctaLine, executionAnchors.topicTerms) === 0)
-  ) {
-    failures.push('cta_missing_audience_workflow_anchor');
-  }
   if (
     input.contentSignalProfile
     &&
@@ -1038,12 +1001,17 @@ function buildPostContractRepairSystemInstruction(systemInstruction: string, fai
 The previous structured output failed the production post contract:
 ${failure.message}
 
-Return one complete replacement object using the same JSON schema. Preserve every supplied fact, the resolved brand voice, platform fit, selected writing techniques, and the intended Clickatron handoff. Repair the listed contract failures without adding unsupported claims or generic filler. Keep exactly one coherent CTA whose directness matches the brief and brand signals.
+Return one complete replacement object using the same JSON schema. Preserve every supplied fact, the resolved brand voice, platform fit, selected writing techniques, and the intended Clickatron handoff. Repair the listed contract failures without adding unsupported claims or generic filler. Include a CTA only when postEditorialPlan.ctaMode requires one.
 
 For generic_cta:
 - Do not close with a vague invitation such as "Discover", "Learn more", "Follow for more", "Link in bio", or "Join us".
-- Close with either a question that names a supplied audience, workflow, entity, or outcome, or a concrete action using a supplied resource or offer.
+- If postEditorialPlan.ctaMode is none, remove the perfunctory CTA and end on the completed editorial thought.
+- Otherwise use the selected CTA technique with a concrete action, resource, offer, or destination supplied by the brief.
 - Do not invent offers, dates, URLs, or next steps that are absent from the supplied brief.
+
+For missing_required_cta:
+- Execute postEditorialPlan.selectedCta using only the supplied action, offer, urgency, or destination.
+- Do not replace a missing CTA with a generic engagement question.
 
 For generic_clickatron_visual:
 - Replace stock office/team/dashboard language with a text-free scene based on at least two supplied workflow details, objects, audience cues, or outcomes.
@@ -1060,35 +1028,22 @@ For hook_missing_required_proof:
 - Keep the supplied audience and workflow context in the hook, and add one exact marker from postEditorialPlan.hookProofMarkers.
 - Do not make the proof claim the entire hook. Name only the source-supplied workflow the proof measures; do not infer why it changes a broader decision or outcome.
 
-For hook_missing_proof_attribution:
-- Attribute the proof marker to postEditorialPlan.hookProofAttribution in the hook. A pilot, beta, named customer, or measured group must not become a universal audience outcome.
-
 For cta_missing_supplied_destination or unsupplied_destination:
 - Preserve postEditorialPlan.requiredDestination exactly in the CTA. Remove every URL or domain that is not present in tf_untrusted_data. Never merge a person's name with a domain.
 
 For generic_cta_question:
 - Replace a status question with one question that asks the reader to name a concrete bottleneck, handoff, decision, or operating constraint from the brief.
 
-For content_under_N_chars:
-- Expand the body to the server-resolved writing target using only supplied audience friction, workflow details, proof, implications, and brand perspective.
-- The failure includes the required minimum and the failed character count. Add the missing substance before returning; do not merely restate the hook or proof.
-- Do not pad with summaries, repeated facts, generic advice, or invented claims. Keep one CTA and the requested hashtag range.
+For content_below_character_target or content_below_word_target:
+- Expand only when the brief contains enough authorized material to satisfy its explicit target.
+- Do not pad with summaries, repeated facts, generic advice, invented claims, CTAs, or hashtags.
 
-For content_over_N_chars:
+For content_above_character_target, content_above_word_target, or content_over_N_chars:
 - Trim repeated framing and the lowest-priority development detail until the post fits the platform maximum.
-- Keep the hook, exact supplied facts, required audience anchor, one CTA, and hashtags. Do not change or discard an explicit factual claim to save space.
-
-For missing_hashtags or hashtag_count_out_of_range:
-- Populate the required hashtags array with the exact number of relevant, non-duplicated tags requested by the platform contract.
-- Ground every tag in a supplied entity, audience, workflow, format, or outcome. Do not use a generic engagement tag or invent a campaign name.
-- Keep content free of hashtag lines; ThinkForge assembles the final hashtag line from the structured array.
+- Keep exact supplied facts and any explicitly required destination. Do not discard or alter a factual claim to save space.
 
 For missing_clickatron_safe_space:
 - State where generous text-safe negative space sits in the composition, while keeping the raster itself free of readable copy.
-
-For hook_missing_audience_workflow_anchor or cta_missing_audience_workflow_anchor:
-- Use the exact Required audience anchor from tf_untrusted_data.postExecutionAnchors in both the hook and CTA.
-- The hook and CTA must each also name a real topic term from postExecutionAnchors.topicTerms. Do not use a seasonal, status, or generic team statement in place of the workflow.
 
 For clickatron_missing_source_anchors:
 - Build the text-free visual around at least two real topic terms from tf_untrusted_data.postExecutionAnchors.topicTerms, using actual workflow objects, actions, or stakes instead of generic office, tablet, dashboard, or data-flow scenery.
@@ -1164,7 +1119,9 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
     });
     const outputFormat = buildPostOutputFormat(platform, {
       targetCharacters: editorialPlan.targetBodyCharacters,
+      targetWords: editorialPlan.targetBodyWords,
       maximumCharacters: maximumPostCharacters(platform, editorialPlan),
+      ctaMode: editorialPlan.ctaMode,
     }).replaceAll('<input_data>', 'tf_untrusted_data');
 
     // Writing knowledge graph: select techniques (DO/WHY/NEVER) from the content signals so the
@@ -1190,9 +1147,14 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
         projectSummary: context.projectSummary,
         userPrompt,
       }),
-      editorialPlan.ctaMode === 'source_question'
-        ? { excludeTechniqueIds: [...evidenceIncompatibleTechniques, 'soft_cta', 'hard_cta'] }
-        : { excludeTechniqueIds: evidenceIncompatibleTechniques },
+      {
+        excludeTechniqueIds: [
+          ...evidenceIncompatibleTechniques,
+          'soft_cta',
+          'hard_cta',
+          'urgent_cta',
+        ],
+      },
     );
     const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);
     const trendBriefForData = `${trendBriefBlock ? `${trendBriefBlock}\n\n` : ''}`;
@@ -1204,7 +1166,7 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
 - Do not return clickatron.singleImagePrompt.
 - Each slide must communicate a distinct grounded unit from tf_untrusted_data; never pad the count with invented claims.
 </carousel_contract>\n\n`;
-    const postLengthContract = buildPostLengthContract(input, platform, editorialPlan);
+    const postLengthContract = buildPostLengthContract(platform, editorialPlan);
 
     const systemInstruction = `<role>You are an elite ${platform} copywriter and content strategist.</role>
 <task>${editContext
@@ -1240,22 +1202,23 @@ BRAND VOICE
 
 EDITORIAL PLAN
 - tf_untrusted_data.postEditorialPlan is a server-owned feasibility contract. It outranks a writing technique that asks for an unavailable offer, proof, or length.
+- Technique guidance defines editorial form only. Its examples, cited studies, sample numbers, brands, and outcomes are never claim sources and must not appear unless tf_untrusted_data.claimSources independently authorizes them.
 - Follow postEditorialPlan.developmentSequence in order. It defines the allowed editorial progression, not merely a suggestion.
 - When sourceBoundary is source_only, every stated cause, condition, consequence, beneficiary outcome, urgency claim, and impact claim must be explicitly present in tf_untrusted_data. A named topic, event, audience, or mission does not authorize related background knowledge.
 - Every entry in forbiddenNarrativeExpansions is binding. Do not state or paraphrase those ideas in content, hashtags, contentAnalysis, or Clickatron prompts.
-- When ctaMode is source_question, end with one concrete question about the supplied workflow, owner, decision, or bottleneck. Do not ask for a demo, signup, trial, contact, or follow unless the brief supplies that route.
+- When ctaMode is none, do not append a CTA. When it is not none, execute selectedCta using only supplied actions, offers, urgency, and destinations.
 - When hookRequiresProof is true, put a supplied numeric or named proof marker in the hook together with the audience's supplied workflow context. Do not make the exact proof claim the entire hook. Never manufacture friction merely to frame the proof.
-- When hookProofAttribution is present, name it in the hook. Never present a beta, pilot, named-customer, or measured-group result as a universal audience outcome.
+- Never present a beta, pilot, named-customer, or measured-group result as a universal audience outcome. Preserve its source-supplied scope in the hook and body.
 - When evidenceDensity is thin, develop only a source-backed product/workflow definition, the supplied proof, and an explicit scope limitation when useful. Do not invent friction, features, automation, guarantees, accuracy claims, implications, or broad business outcomes to make the post longer.
 - Follow visualProofDirection when it is present: make the proof tangible through a text-free physical scene, never through readable numbers, labels, or UI.
 
 EXECUTION ANCHORS
 - tf_untrusted_data.postExecutionAnchors is a server-resolved brief contract.
-- When it supplies an audience, the hook and CTA must each contain that audience and at least one supplied topic term.
+- Use a supplied audience naturally where it improves relevance; do not duplicate it mechanically in both the opening and closing.
 - Every Clickatron prompt must contain at least two supplied topic terms through concrete visual objects, actions, or environment. Do not replace them with generic office, tablet, dashboard, or abstract data-flow scenery.
 
 HOOK
-- The first visible line must carry a grounded claim, supplied number, named entity, or source-supplied friction from tf_untrusted_data. When evidence is thin, prefer the supplied proof or scope over an inferred pain.
+- Execute postEditorialPlan.selectedHook when present. Otherwise open naturally with the most relevant source-backed idea rather than forcing a hook archetype.
 - No cliche openers.
 
 OUTPUT LENGTH
@@ -1264,9 +1227,9 @@ OUTPUT LENGTH
 ${postLengthContract}
 
 CTA
-- A CTA is mandatory for every post.
-- It must be specific to the brief and appear before hashtags in the last 3 non-hashtag lines.
-- Use supplied URLs or actions when they exist.
+- A CTA is required only when postEditorialPlan.ctaMode is not none.
+- Execute postEditorialPlan.selectedCta when present and use only supplied URLs or actions.
+- When ctaMode is none, end on the completed editorial thought without a generic question or engagement command.
 - When postEditorialPlan.requiredDestination is present, reproduce it exactly in the CTA. Do not rewrite, merge, punctuate inside, or infer a different domain.
 
 ANTI-FILLER
@@ -1353,7 +1316,7 @@ Return your response strictly adhering to the JSON schema.`;
     });
 
     let result = initialGeneration.result;
-    let hashtagPlanTrimmed = assemblePostHashtagPlan(result, platform);
+    let hashtagPlanTrimmed = assemblePostHashtagPlan(result);
     materializeServerOwnedClaimSupport(result, input);
     result.metadata.charCount = result.content.length;
     let contractRepairApplied = false;
@@ -1382,7 +1345,7 @@ Return your response strictly adhering to the JSON schema.`;
         abortSignal,
       });
       result = repairedGeneration.result;
-      hashtagPlanTrimmed = assemblePostHashtagPlan(result, platform) || hashtagPlanTrimmed;
+      hashtagPlanTrimmed = assemblePostHashtagPlan(result) || hashtagPlanTrimmed;
       materializeServerOwnedClaimSupport(result, input);
       result.metadata.charCount = result.content.length;
       contractRepairApplied = true;

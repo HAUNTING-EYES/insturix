@@ -1,155 +1,110 @@
-import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import { buildPostEditorialPlan } from '@/lib/thinkforge/agents/post-editorial-plan';
 import { resolveContentSignalProfile } from '@/lib/thinkforge/signals/content-signal-resolver';
 
 const flowLedgerPrompt = 'Write a LinkedIn post for FlowLedger about helping finance teams prepare SOC 2 evidence before Q4 audit season. Mention that the beta cut evidence-chasing time by 37% across 12 pilot teams. Target CFOs and RevOps leaders. Do not sound hypey.';
 
+function planFor(userPrompt: string, retrievedFactCount = 0) {
+  return buildPostEditorialPlan({
+    userPrompt,
+    contentSignalProfile: resolveContentSignalProfile({ userPrompt, documentType: 'post' }),
+    retrievedFactCount,
+  });
+}
+
 describe('buildPostEditorialPlan', () => {
-  it('keeps a thin-evidence post concise, source-bounded, and proof-led', () => {
-    const plan = buildPostEditorialPlan({
-      userPrompt: flowLedgerPrompt,
-      contentSignalProfile: resolveContentSignalProfile({ userPrompt: flowLedgerPrompt, documentType: 'post' }),
-    });
+  it('keeps thin measured evidence source-bounded without inventing a CTA or length floor', () => {
+    const plan = planFor(flowLedgerPrompt);
 
     expect(plan).toMatchObject({
       editorialShape: 'evidence_led',
-      sourceBoundary: 'bounded_implication',
-      ctaMode: 'source_question',
+      sourceBoundary: 'source_only',
+      ctaMode: 'none',
       evidenceDensity: 'thin',
-      targetBodyCharacters: 600,
-      maximumBodyCharacters: 1100,
+      maximumBodyCharacters: 3000,
       requiredAudience: 'CFOs and RevOps leaders',
       requiredClaim: 'the beta cut evidence-chasing time by 37% across 12 pilot teams',
-      hookProofAttribution: 'the beta',
       hookProofMarkers: ['37%'],
       hookRequiresProof: true,
     });
-    expect(plan.developmentSequence).toContain(
-      'Use a direct source-backed product or workflow definition for context, or state an explicit scope limitation; do not infer an operational outcome.',
-    );
-    expect(plan.developmentSequence.join(' ')).not.toContain('workflow friction plus supplied proof');
-    expect(plan.visualProofDirection).toContain('before/after evidence queue');
-    expect(plan.forbiddenNarrativeExpansions).toContain('unsupplied product capabilities or mechanisms');
-  });
-
-  it('keeps an explicit requested length and supplied action authoritative', () => {
-    const userPrompt = `${flowLedgerPrompt} Write 1400 characters and register at https://example.com/q4.`;
-    const plan = buildPostEditorialPlan({
-      userPrompt,
-      contentSignalProfile: resolveContentSignalProfile({ userPrompt, documentType: 'post' }),
-      retrievedFactCount: 3,
-    });
-
-    expect(plan.ctaMode).toBe('supplied_action');
-    expect(plan.explicitLengthRequested).toBe(true);
-    expect(plan.evidenceDensity).toBe('supported');
     expect(plan.targetBodyCharacters).toBeUndefined();
-    expect(plan.maximumBodyCharacters).toBeUndefined();
+    expect(plan.targetBodyWords).toBeUndefined();
+    expect(plan.selectedCta).toBeUndefined();
+    expect(plan.developmentSequence.at(-1)).toContain('do not append a perfunctory CTA');
   });
 
-  it('keeps a scheduled participation post inside its supplied event evidence', () => {
-    const userPrompt = 'Write a Facebook post recruiting volunteers for a cleanup on April 22 at Pier 9. We have 500 cleanup kits, check-in starts at 8:30am, families are welcome, and registration is at community.example/cleanup.';
-    const plan = buildPostEditorialPlan({
-      userPrompt,
-      contentSignalProfile: resolveContentSignalProfile({ userPrompt, documentType: 'post' }),
-    });
+  it('preserves an explicit length and exact supplied destination as hard inputs', () => {
+    const plan = planFor(`${flowLedgerPrompt} Write 1400 characters and register at https://example.com/q4.`);
 
     expect(plan).toMatchObject({
-      editorialShape: 'event_action',
-      sourceBoundary: 'source_only',
       ctaMode: 'supplied_action',
-      sourceDetailDensity: 'rich',
-      targetBodyCharacters: 450,
-      maximumBodyCharacters: 700,
+      explicitLengthRequested: true,
+      targetBodyCharacters: 1400,
+      maximumBodyCharacters: 3000,
+      requiredDestination: 'https://example.com/q4',
+    });
+    expect(plan.selectedCta?.id).toBe('hard_cta');
+  });
+
+  it('uses resolved intent instead of an event or product keyword template', () => {
+    const conversion = planFor('Write a Facebook post for a cleanup on April 22 at Pier 9. Check-in starts at 8:30am. Register at community.example/cleanup.');
+    const announcement = planFor('Write an Instagram caption launching the PackLight Sling this Friday. It costs $89 and is made from recycled nylon.');
+
+    expect(conversion).toMatchObject({
+      editorialShape: 'conversion',
+      ctaMode: 'supplied_action',
       requiredDestination: 'community.example/cleanup',
-      hookRequiresProof: false,
     });
-    expect(plan.developmentSequence).toHaveLength(3);
-    expect(plan.visualProofDirection).toContain('source-supplied event evidence');
-    expect(plan.forbiddenNarrativeExpansions).toContain(
-      'unsupplied causes, conditions, or community problems',
-    );
-  });
-
-  it('recognizes a non-English scheduled event with a naked action URL', () => {
-    const userPrompt = 'Escribe un post de Instagram. Evento: taller de plantas este sabado a las 11am. Hay 20 plazas. Inscripcion: community.example/taller.';
-    const plan = buildPostEditorialPlan({
-      userPrompt,
-      contentSignalProfile: resolveContentSignalProfile({ userPrompt, documentType: 'post' }),
-    });
-
-    expect(plan.editorialShape).toBe('event_action');
-    expect(plan.ctaMode).toBe('supplied_action');
-  });
-
-  it('does not confuse a dated product launch with an attended event', () => {
-    const userPrompt = 'Write an Instagram caption launching the PackLight Sling this Friday. It costs $89 and is made from recycled nylon.';
-    const plan = buildPostEditorialPlan({
-      userPrompt,
-      contentSignalProfile: resolveContentSignalProfile({ userPrompt, documentType: 'post' }),
-    });
-
-    expect(plan.editorialShape).toBe('offer_announcement');
-    expect(plan.sourceBoundary).toBe('source_only');
-    expect(plan.targetBodyCharacters).toBe(400);
-    expect(plan.maximumBodyCharacters).toBe(650);
-    expect(plan.hookProofMarkers).toEqual([]);
-    expect(plan.hookRequiresProof).toBe(false);
-  });
-
-  it('keeps quantitative evidence as the spine when a long brief also promotes a webinar', () => {
-    const userPrompt = [
-      'Write a LinkedIn post aimed at city managers and 311 directors.',
-      'A routing dashboard groups duplicate service questions before they reach staff.',
-      'Mention that Maple County reduced duplicate ticket handling by 18% over six weeks.',
-      'Also mention the webinar on July 8 and register at civic.example/webinar.',
-    ].join(' ');
-    const plan = buildPostEditorialPlan({
-      userPrompt,
-      contentSignalProfile: resolveContentSignalProfile({ userPrompt, documentType: 'post' }),
-    });
-
-    expect(plan).toMatchObject({
-      editorialShape: 'evidence_led',
-      sourceBoundary: 'bounded_implication',
-      ctaMode: 'supplied_action',
-      hookProofMarkers: ['18%'],
-      hookProofAttribution: 'Maple County',
-      requiredDestination: 'civic.example/webinar',
-      hookRequiresProof: true,
+    expect(announcement).toMatchObject({
+      editorialShape: 'announcement',
+      ctaMode: 'none',
     });
   });
 
-  it('does not treat a supplied price or date as performance proof for a product launch', () => {
-    const userPrompt = 'Launch the recycled-nylon PackLight Sling for $89 this Friday.';
-    const plan = buildPostEditorialPlan({
-      userPrompt,
-      contentSignalProfile: resolveContentSignalProfile({ userPrompt, documentType: 'post' }),
-    });
-
-    expect(plan.editorialShape).toBe('offer_announcement');
-    expect(plan.hookProofMarkers).toEqual([]);
-    expect(plan.hookRequiresProof).toBe(false);
-  });
-
-  it('uses a concrete brief-supplied offer as the CTA action without requiring a URL', () => {
-    const userPrompt = 'Write a dry LinkedIn post. Offer: free teardown of one dashboard this Thursday.';
-    const plan = buildPostEditorialPlan({
-      userPrompt,
-      contentSignalProfile: resolveContentSignalProfile({ userPrompt, documentType: 'post' }),
-    });
+  it('handles a non-English action brief through resolved intent and literal destination data', () => {
+    const plan = planFor('Escribe un post de Instagram. Taller de plantas este sabado a las 11am. Hay 20 plazas. Inscripcion: community.example/taller.');
 
     expect(plan.ctaMode).toBe('supplied_action');
+    expect(plan.requiredDestination).toBe('community.example/taller');
   });
 
-  it('contains no customer or evaluation-case names in production classification code', () => {
+  it('uses authoritative platform maxima without turning them into writing targets', () => {
+    const linkedIn = planFor('Write a LinkedIn post about a calm operating update with no call to action.');
+    const x = planFor('Write a short X post about a product update with no call to action.');
+
+    expect(linkedIn.maximumBodyCharacters).toBe(3000);
+    expect(x.maximumBodyCharacters).toBe(280);
+    expect(linkedIn.targetBodyCharacters).toBeUndefined();
+    expect(x.targetBodyCharacters).toBeUndefined();
+  });
+
+  it('selects executable hook and structure doctrine from the writing graph', () => {
+    const plan = planFor(flowLedgerPrompt);
+
+    expect(plan.selectedHook).toMatchObject({ id: expect.any(String), guidance: expect.any(String) });
+    expect(plan.selectedStructure).toMatchObject({ id: expect.any(String), guidance: expect.any(String) });
+    expect(plan.selectedHook?.avoid).toEqual(expect.any(Array));
+    expect(plan.selectedStructure?.avoid).toEqual(expect.any(Array));
+  });
+
+  it('permits bounded implications only when additional authorised evidence exists', () => {
+    const plan = planFor(flowLedgerPrompt, 3);
+
+    expect(plan.sourceBoundary).toBe('bounded_implication');
+    expect(plan.evidenceDensity).toBe('supported');
+    expect(plan.sourceDetailDensity).toBe('rich');
+  });
+
+  it('contains no customer, evaluation-case, event-family, or fixed-length classifier', () => {
     const source = readFileSync(
       resolve(process.cwd(), 'lib/thinkforge/agents/post-editorial-plan.ts'),
       'utf8',
     );
 
     expect(source).not.toMatch(/FlowLedger|RiverAid|Luna Verde|TrailNest/i);
+    expect(source).not.toMatch(/EVENT_CONTEXT_PATTERN|SCHEDULE_PATTERN|EXPLICIT_OFFER_PATTERN|defaultLengthEnvelope/);
+    expect(source).not.toMatch(/targetBodyCharacters:\s*(?:400|450|600|900|1200)/);
   });
 });
