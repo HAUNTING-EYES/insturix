@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Get script blocks for a session
- * GET /api/services/thinkforge/script/blocks?sessionId=...
+ * GET /api/services/thinkforge/script/blocks?sessionId=...&scriptId=...
  * 
  * Returns both blocks (ThinkForgeBlock[]) and richText (Tiptap JSON AST)
  */
@@ -27,6 +27,15 @@ export async function GET(req: Request) {
   if (!sessionId) {
     return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
   }
+  if (sessionId.trim() !== sessionId) {
+    return NextResponse.json({ error: 'Invalid sessionId' }, { status: 400 });
+  }
+  if (!scriptId) {
+    return NextResponse.json({ error: 'Missing scriptId' }, { status: 400 });
+  }
+  if (scriptId.trim() !== scriptId) {
+    return NextResponse.json({ error: 'Invalid scriptId' }, { status: 400 });
+  }
 
   try {
     const session = await db.getSession(sessionId, userId, orgId);
@@ -34,10 +43,11 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    const script = await db.getScript(session._id, scriptId || null);
+    const script = await db.getScript(session._id, scriptId);
     
     if (!script) {
       return NextResponse.json({
+        scriptId,
         blocks: [],
         richText: null,
         title: 'Untitled Script',
@@ -49,6 +59,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({
+      scriptId: script.scriptId || scriptId,
       blocks: script.blocks || [],
       richText: script.richText || null, // Tiptap JSON AST
       title: script.title || 'Untitled Script',
@@ -72,7 +83,8 @@ export async function GET(req: Request) {
  * POST /api/services/thinkforge/script/blocks
  * 
  * Accepts:
- * - sessionId or scriptId: Session identifier
+ * - sessionId: Session identifier
+ * - scriptId: Document identifier
  * - blocks: ThinkForgeBlock[] (legacy format)
  * - richText: Tiptap JSON AST (new format)
  * - title: Script title
@@ -97,17 +109,27 @@ export async function POST(req: Request) {
   }
   const { sessionId, scriptId, blocks, richText, title, content, baseVersion } = parsed.data;
 
+  if (sessionId.trim() !== sessionId) {
+    return NextResponse.json({ error: 'Invalid sessionId' }, { status: 400 });
+  }
+  if (!scriptId) {
+    return NextResponse.json({ error: 'Missing scriptId' }, { status: 400 });
+  }
+  if (scriptId.trim() !== scriptId) {
+    return NextResponse.json({ error: 'Invalid scriptId' }, { status: 400 });
+  }
+
   // Validate richText (Tiptap JSON) if provided
   let validatedRichText = undefined;
-  if (richText) {
+  if (richText !== undefined) {
     const parseResult = safeParseTiptapJSON(richText);
     if (!parseResult.success) {
-      console.warn('Invalid Tiptap JSON received, skipping richText:', parseResult.error.message);
-      // Don't reject the request, just skip the invalid richText
-      // This ensures backward compatibility while logging issues
-    } else {
-      validatedRichText = parseResult.data;
+      return NextResponse.json(
+        { error: 'Invalid richText', details: parseResult.error.toJSON() },
+        { status: 400 },
+      );
     }
+    validatedRichText = parseResult.data;
   }
 
   try {
@@ -118,21 +140,23 @@ export async function POST(req: Request) {
 
     let effectiveBaseVersion = typeof baseVersion === 'number' ? baseVersion : undefined;
     if (effectiveBaseVersion === undefined) {
-      const existing = await db.getScript(session._id, scriptId || null);
+      const existing = await db.getScript(session._id, scriptId);
       effectiveBaseVersion = existing?.version ?? 0;
     }
+    const replacementPayload: Record<string, unknown> = {
+      scriptId,
+      title: title || 'Untitled Script',
+    };
+    if (typeof content === 'string') replacementPayload.content = content;
+    if (Array.isArray(blocks)) replacementPayload.blocks = blocks;
+    if (validatedRichText !== undefined) replacementPayload.richText = validatedRichText;
+
     const result = await applyCommand({
       type: 'ReplaceDocument',
       sessionId: session._id,
       baseVersion: effectiveBaseVersion,
       source: 'user',
-      payload: {
-        scriptId,
-        title: title || 'Untitled Script',
-        content: content || '',
-        blocks: blocks || [],
-        richText: validatedRichText
-      }
+      payload: replacementPayload,
     }, userId, orgId);
 
     if (!result.ok) {
@@ -143,7 +167,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       script: {
-        scriptId: result.script.scriptId || scriptId || 'default',
+        scriptId: result.script.scriptId || scriptId,
         blocks: result.script.blocks || [],
         richText: result.script.richText || null,
         title: result.script.title,

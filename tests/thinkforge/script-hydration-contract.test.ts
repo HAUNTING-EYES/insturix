@@ -228,6 +228,10 @@ describe('ThinkForge script hydration contract', () => {
     expect(sessionRoute).toContain('db.claimInitialDraftIntent(existingSession._id)');
     expect(db).toContain("'projectMeta.initialDraftIntent.status': 'pending'");
     expect(db).toContain("'projectMeta.initialDraftIntent.status': 'claimed'");
+    expect(db).toContain('getScript(sessionId: string, scriptId: string)');
+    expect(db).toContain('ThinkForge document ID must be a non-empty trimmed string');
+    expect(db).toContain('findOne({ sessionId, scriptId: exactScriptId })');
+    expect(db).not.toContain('getScript(sessionId: string, scriptId?:');
   });
   it('resolves Clickatron export preview through the server context route', () => {
     const exportHook = read('components/dashboard/ThinkForge/export/hooks/useExportPipeline.ts');

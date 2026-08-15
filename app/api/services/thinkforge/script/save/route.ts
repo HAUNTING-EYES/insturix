@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import * as db from '@/lib/thinkforge/services/db';
 import { SaveScriptSchema } from '@/lib/thinkforge/schemas/route-validation';
+import { safeParseTiptapJSON } from '@/lib/thinkforge/schemas/tiptap-validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,28 @@ export async function POST(req: Request) {
   }
   const { sessionId, scriptId, baseVersion, script } = parsed.data;
 
+  if (sessionId.trim() !== sessionId) {
+    return NextResponse.json({ error: 'Invalid sessionId' }, { status: 400 });
+  }
+  if (!scriptId) {
+    return NextResponse.json({ error: 'Missing scriptId' }, { status: 400 });
+  }
+  if (scriptId.trim() !== scriptId) {
+    return NextResponse.json({ error: 'Invalid scriptId' }, { status: 400 });
+  }
+
+  let validatedRichText = undefined;
+  if (script?.richText !== undefined) {
+    const parseResult = safeParseTiptapJSON(script.richText);
+    if (!parseResult.success) {
+      return NextResponse.json(
+        { error: 'Invalid richText', details: parseResult.error.toJSON() },
+        { status: 400 },
+      );
+    }
+    validatedRichText = parseResult.data;
+  }
+
   try {
     const session = await db.getSession(sessionId, userId, orgId);
     if (!session) {
@@ -45,23 +68,25 @@ export async function POST(req: Request) {
 
     let effectiveBaseVersion = typeof baseVersion === 'number' ? baseVersion : undefined;
     if (effectiveBaseVersion === undefined) {
-      const existing = await db.getScript(canonicalSessionId, scriptId || null);
+      const existing = await db.getScript(canonicalSessionId, scriptId);
       effectiveBaseVersion = existing?.version ?? 0;
     }
+    const replacementPayload: Record<string, unknown> = {
+      scriptId,
+      title: script?.title || 'Untitled Script',
+      documentType: script?.documentType,
+      contentContract: script?.contentContract,
+    };
+    if (typeof script?.content === 'string') replacementPayload.content = script.content;
+    if (Array.isArray(script?.blocks)) replacementPayload.blocks = script.blocks;
+    if (validatedRichText !== undefined) replacementPayload.richText = validatedRichText;
+
     const result = await applyCommand({
       type: 'ReplaceDocument',
       sessionId: canonicalSessionId,
       baseVersion: effectiveBaseVersion,
       source: 'user',
-      payload: {
-        scriptId,
-        title: script?.title || 'Untitled Script',
-        content: script?.content || '',
-        blocks: script?.blocks || [],
-        richText: script?.richText,
-        documentType: script?.documentType,
-        contentContract: script?.contentContract,
-      }
+      payload: replacementPayload,
     }, userId, orgId);
 
     if (!result.ok) {
@@ -72,7 +97,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       script: {
-        scriptId: result.script.scriptId || scriptId || 'default',
+        scriptId: result.script.scriptId || scriptId,
         title: result.script.title,
         content: result.script.content,
         blocks: result.script.blocks || [],

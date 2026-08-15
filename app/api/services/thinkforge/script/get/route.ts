@@ -22,6 +22,15 @@ export async function GET(req: Request) {
   if (!sessionId) {
     return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
   }
+  if (sessionId.trim() !== sessionId) {
+    return NextResponse.json({ error: 'Invalid sessionId' }, { status: 400 });
+  }
+  if (!scriptId) {
+    return NextResponse.json({ error: 'Missing scriptId' }, { status: 400 });
+  }
+  if (scriptId.trim() !== scriptId) {
+    return NextResponse.json({ error: 'Invalid scriptId' }, { status: 400 });
+  }
 
   try {
     const session = await db.getSession(sessionId, userId, orgId);
@@ -29,14 +38,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    const script = await db.getScript(session._id, scriptId || null);
+    const script = await db.getScript(session._id, scriptId);
     if (!script) {
       return NextResponse.json({ script: null });
     }
 
     return NextResponse.json({
       script: {
-        scriptId: script.scriptId || scriptId || 'default',
+        scriptId: script.scriptId || scriptId,
         title: script.title,
         content: script.content,
         blocks: script.blocks || [],
