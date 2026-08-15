@@ -4,8 +4,11 @@ import {
   type ProductionCapabilityProfile,
 } from './production-capability-profile';
 import { resolveSceneShotPlan } from './resolve-scene-shot-plan';
-import type { ShotPlan } from './shot-plan';
-import { parseScriptSidecar } from '../schemas/script-sidecar';
+import { parseShotPlan, type ShotPlan } from './shot-plan';
+import {
+  readScriptSidecar,
+  type ScriptSidecarReadResult,
+} from '../schemas/script-sidecar-v1-adapter';
 
 export const SHOOT_KIT_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:5'] as const;
 export type ShootKitAspectRatio = typeof SHOOT_KIT_ASPECT_RATIOS[number];
@@ -30,6 +33,20 @@ export interface BuildScriptShotPlanInput {
   tier?: ShotPlan['tier'];
 }
 
+type ScriptSidecarV2 = ScriptSidecarReadResult['sidecar'];
+type BeatShotIntent = NonNullable<ScriptSidecarV2['acts'][number]['narrativeScenes'][number]['beats'][number]['shotIntent']>;
+
+interface ShotPlanningUnit {
+  legacyV1: boolean;
+  sceneId: string;
+  sceneIndex: number;
+  sceneTitle: string;
+  generationUnitId: string;
+  durationSeconds?: number;
+  shotIntent?: BeatShotIntent;
+  aliases: string[];
+}
+
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values));
 }
@@ -39,9 +56,10 @@ function canonicalSceneId(index: number): string {
 }
 
 function continuityForScene(
-  sceneIndex: number,
+  unit: ShotPlanningUnit,
   previousSceneIds: string[],
   sceneIndexByAlias: Map<string, number>,
+  sceneIdByIndex: Map<number, string>,
   issues: ScriptShotPlanIssue[],
 ): string[] {
   const resolved: string[] = [];
@@ -51,25 +69,109 @@ function continuityForScene(
       issues.push({
         code: 'unknown_continuity_scene',
         message: `Continuity reference "${reference}" does not resolve to a sidecar scene.`,
-        sceneId: canonicalSceneId(sceneIndex),
-        sceneIndex,
+        sceneId: unit.sceneId,
+        sceneIndex: unit.sceneIndex,
+        sceneTitle: unit.sceneTitle,
         questions: ['Remove the invalid continuity link or regenerate this scene intent.'],
       });
       continue;
     }
-    if (referencedIndex >= sceneIndex) {
+    if (referencedIndex >= unit.sceneIndex) {
       issues.push({
         code: 'forward_continuity_scene',
         message: `Continuity reference "${reference}" must point to an earlier scene.`,
-        sceneId: canonicalSceneId(sceneIndex),
-        sceneIndex,
+        sceneId: unit.sceneId,
+        sceneIndex: unit.sceneIndex,
+        sceneTitle: unit.sceneTitle,
         questions: ['Choose an earlier scene as the continuity source.'],
       });
       continue;
     }
-    resolved.push(canonicalSceneId(referencedIndex));
+    const resolvedSceneId = sceneIdByIndex.get(referencedIndex);
+    if (resolvedSceneId) resolved.push(resolvedSceneId);
   }
   return uniqueStrings(resolved);
+}
+
+function v1PlanningUnits(
+  readResult: Extract<ScriptSidecarReadResult, { sourceVersion: 1 }>,
+): ShotPlanningUnit[] {
+  return readResult.legacyV1.scenes.map((scene, sceneIndex) => ({
+    legacyV1: true,
+    sceneId: canonicalSceneId(sceneIndex),
+    sceneIndex,
+    sceneTitle: scene.title,
+    generationUnitId: scene.generationUnitId,
+    durationSeconds: scene.durationSeconds,
+    shotIntent: scene.shotIntent,
+    aliases: [canonicalSceneId(sceneIndex), scene.generationUnitId],
+  }));
+}
+
+function v2PlanningUnits(sidecar: ScriptSidecarV2): ShotPlanningUnit[] {
+  const units: ShotPlanningUnit[] = [];
+
+  sidecar.acts.forEach((act) => {
+    act.narrativeScenes.forEach((scene) => {
+      const firstUnitIndex = units.length;
+      scene.beats.forEach((beat) => {
+        const sceneIndex = units.length;
+        units.push({
+          legacyV1: false,
+          sceneId: beat.id,
+          sceneIndex,
+          sceneTitle: `${scene.title}: ${beat.narrativePurpose}`,
+          generationUnitId: beat.id,
+          durationSeconds: beat.durationIntentSeconds
+            ?? (scene.beats.length === 1 ? scene.durationIntentSeconds : undefined),
+          shotIntent: beat.shotIntent,
+          aliases: [beat.id],
+        });
+      });
+
+      const finalUnit = units[units.length - 1];
+      if (finalUnit && units.length > firstUnitIndex) finalUnit.aliases.push(scene.id);
+    });
+  });
+
+  return units;
+}
+
+function planningUnits(readResult: ScriptSidecarReadResult): ShotPlanningUnit[] {
+  return readResult.sourceVersion === 1
+    ? v1PlanningUnits(readResult)
+    : v2PlanningUnits(readResult.sidecar);
+}
+
+function addPlanningUnitAliases(
+  units: ShotPlanningUnit[],
+  sceneIndexByAlias: Map<string, number>,
+  issues: ScriptShotPlanIssue[],
+): void {
+  units.forEach((unit) => {
+    unit.aliases.forEach((alias) => {
+      const existingIndex = sceneIndexByAlias.get(alias);
+      if (existingIndex !== undefined && existingIndex !== unit.sceneIndex) {
+        issues.push({
+          code: 'duplicate_generation_unit_id',
+          message: `Generation unit "${alias}" is shared by multiple scenes.`,
+          sceneId: unit.sceneId,
+          sceneIndex: unit.sceneIndex,
+          sceneTitle: unit.sceneTitle,
+          questions: [unit.legacyV1
+            ? 'Regenerate the script with one unique generation unit per scene.'
+            : 'Regenerate the script with unique scene and beat identifiers.'],
+        });
+        return;
+      }
+      sceneIndexByAlias.set(alias, unit.sceneIndex);
+    });
+  });
+}
+
+function planWithSourceVersion(plan: ShotPlan, sourceVersion: number): ShotPlan {
+  if (plan.sourceSidecarVersion === sourceVersion) return plan;
+  return parseShotPlan({ ...plan, sourceSidecarVersion: sourceVersion });
 }
 
 function addPlanLimitIssues(
@@ -98,9 +200,9 @@ function addPlanLimitIssues(
 }
 
 export function buildScriptShotPlan(input: BuildScriptShotPlanInput): ScriptShotPlanBuildResult {
-  let sidecar: ReturnType<typeof parseScriptSidecar>;
+  let readResult: ScriptSidecarReadResult;
   try {
-    sidecar = parseScriptSidecar(input.sidecar);
+    readResult = readScriptSidecar(input.sidecar);
   } catch (error) {
     console.error('[ThinkForge:ShootKit] Stored script sidecar is invalid:', error);
     return {
@@ -116,47 +218,46 @@ export function buildScriptShotPlan(input: BuildScriptShotPlanInput): ScriptShot
   const profile = parseProductionCapabilityProfile(input.profile);
   const tier = input.tier ?? profile.preferences.defaultPlanTier;
   const issues: ScriptShotPlanIssue[] = [];
+  const units = planningUnits(readResult);
   const sceneIndexByAlias = new Map<string, number>();
+  const sceneIdByIndex = new Map(units.map((unit) => [unit.sceneIndex, unit.sceneId]));
 
-  sidecar.scenes.forEach((scene, sceneIndex) => {
-    const sceneId = canonicalSceneId(sceneIndex);
-    sceneIndexByAlias.set(sceneId, sceneIndex);
-    const existingIndex = sceneIndexByAlias.get(scene.generationUnitId);
-    if (existingIndex !== undefined && existingIndex !== sceneIndex) {
-      issues.push({
-        code: 'duplicate_generation_unit_id',
-        message: `Generation unit "${scene.generationUnitId}" is shared by multiple scenes.`,
-        sceneId,
-        sceneIndex,
-        sceneTitle: scene.title,
-        questions: ['Regenerate the script with one unique generation unit per scene.'],
-      });
-    } else {
-      sceneIndexByAlias.set(scene.generationUnitId, sceneIndex);
-    }
-  });
+  addPlanningUnitAliases(units, sceneIndexByAlias, issues);
 
   const scenePlans: ShotPlan[] = [];
-  sidecar.scenes.forEach((scene, sceneIndex) => {
-    const sceneId = canonicalSceneId(sceneIndex);
-    if (!scene.shotIntent) {
+  units.forEach((unit) => {
+    if (!unit.shotIntent) {
       issues.push({
         code: 'missing_shot_intent',
-        message: 'This saved scene predates production-aware script generation.',
-        sceneId,
-        sceneIndex,
-        sceneTitle: scene.title,
+        message: unit.legacyV1
+          ? 'This saved scene predates production-aware script generation.'
+          : 'This narrative beat has no authored production shot intent.',
+        sceneId: unit.sceneId,
+        sceneIndex: unit.sceneIndex,
+        sceneTitle: unit.sceneTitle,
         questions: ['Regenerate or revise this script once so ThinkForge can author its shot intent.'],
+      });
+      return;
+    }
+    if (!unit.durationSeconds) {
+      issues.push({
+        code: 'missing_narrative_duration',
+        message: 'This narrative beat has no authored duration. Shoot Kit does not derive story timing from render segments.',
+        sceneId: unit.sceneId,
+        sceneIndex: unit.sceneIndex,
+        sceneTitle: unit.sceneTitle,
+        questions: ['Set the beat duration, or set the narrative-scene duration when it contains one beat.'],
       });
       return;
     }
 
     const continuity = {
-      ...scene.shotIntent.continuity,
+      ...unit.shotIntent.continuity,
       previousSceneIds: continuityForScene(
-        sceneIndex,
-        scene.shotIntent.continuity.previousSceneIds,
+        unit,
+        unit.shotIntent.continuity.previousSceneIds,
         sceneIndexByAlias,
+        sceneIdByIndex,
         issues,
       ),
     };
@@ -164,12 +265,12 @@ export function buildScriptShotPlan(input: BuildScriptShotPlanInput): ScriptShot
       profile,
       tier,
       intent: {
-        sceneId,
-        sidecarSceneIndex: sceneIndex,
-        generationUnitId: scene.generationUnitId,
-        durationSec: scene.durationSeconds,
+        sceneId: unit.sceneId,
+        sidecarSceneIndex: unit.sceneIndex,
+        generationUnitId: unit.generationUnitId,
+        durationSec: unit.durationSeconds,
         aspectRatio: input.aspectRatio,
-        ...scene.shotIntent,
+        ...unit.shotIntent,
         continuity,
       },
     });
@@ -178,14 +279,14 @@ export function buildScriptShotPlan(input: BuildScriptShotPlanInput): ScriptShot
       resolution.blockers.forEach((blocker) => issues.push({
         code: blocker.code,
         message: blocker.message,
-        sceneId,
-        sceneIndex,
-        sceneTitle: scene.title,
+        sceneId: unit.sceneId,
+        sceneIndex: unit.sceneIndex,
+        sceneTitle: unit.sceneTitle,
         questions: [...resolution.questions],
       }));
       return;
     }
-    scenePlans.push(resolution.plan);
+    scenePlans.push(planWithSourceVersion(resolution.plan, readResult.sourceVersion));
   });
 
   if (issues.length > 0) return { status: 'needs-user-input', plan: null, issues };
