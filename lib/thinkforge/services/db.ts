@@ -377,6 +377,7 @@ export interface ContentBlock {
 export interface ThinkForgeEvent {
   _id: string;
   projectId: string;
+  sessionId?: string;
   artifactId?: string;
   versionId?: string;
   type: EventType;
@@ -4333,12 +4334,31 @@ export async function deleteProjectScopedEntries(
   return result.deletedCount ?? 0;
 }
 
-/**
- * Get recent interaction events for a user across all projects.
- * Used by the context pipeline to build Procedural Memory.
- */
+export function buildRecentInteractionEventQuery(input: {
+  principal: DataBankPrincipal;
+  projectId?: string;
+  types?: readonly EventType[];
+  since?: Date;
+}): Record<string, unknown> {
+  const query: Record<string, unknown> = buildInteractionEventPrincipalQuery(input.principal);
+  if (input.projectId !== undefined) {
+    const projectId = dataBankString(input.projectId);
+    if (!projectId) throw new Error('Interaction retrieval requires a valid project when one is provided.');
+    query.projectId = projectId;
+  }
+  if (input.types?.length) query.type = { $in: [...new Set(input.types)] };
+  if (input.since !== undefined) {
+    if (!(input.since instanceof Date) || !Number.isFinite(input.since.getTime())) {
+      throw new Error('Interaction retrieval requires a valid since date.');
+    }
+    query.createdAt = { $gte: input.since };
+  }
+  return query;
+}
+
+/** Read recent interaction evidence through exact personal/organization authority. */
 export async function getRecentInteractionEvents(
-  userId: string,
+  principal: DataBankPrincipal,
   options?: {
     projectId?: string;
     types?: EventType[];
@@ -4349,25 +4369,30 @@ export async function getRecentInteractionEvents(
 ): Promise<ThinkForgeEvent[]> {
   try {
     const { EventModel } = await getModels();
-    const query: Record<string, any> = { userId };
-    if (options?.projectId) query.projectId = options.projectId;
-    if (options?.types?.length) query.type = { $in: options.types };
-    if (options?.since) query.createdAt = { $gte: options.since };
+    const query = buildRecentInteractionEventQuery({
+      principal,
+      projectId: options?.projectId,
+      types: options?.types,
+      since: options?.since,
+    });
 
     const docs = await EventModel
       .find(query)
       .sort({ createdAt: -1 })
-      .limit(options?.limit ?? 50)
+      .limit(Math.max(1, Math.min(options?.limit ?? 50, 500)))
       .lean() as any[];
 
     return docs.map((doc: any) => ({
       _id: String(doc._id),
       projectId: doc.projectId,
+      sessionId: doc.sessionId,
       artifactId: doc.artifactId,
       versionId: doc.versionId,
       type: doc.type,
       payload: doc.payload || {},
+      ownerType: doc.ownerType,
       userId: doc.userId,
+      orgId: doc.orgId,
       createdAt: doc.createdAt,
     }));
   } catch (error) {

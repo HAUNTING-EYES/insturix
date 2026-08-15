@@ -454,14 +454,14 @@ const INTERACTION_TYPES: EventType[] = [
 ];
 
 async function fetchHotContext(
-  userId: string,
+  principal: DataBankPrincipal,
   windowDays: number,
   projectId?: string,
 ): Promise<InteractionPattern[]> {
   const since = new Date();
   since.setDate(since.getDate() - windowDays);
 
-  const events = await getRecentInteractionEvents(userId, {
+  const events = await getRecentInteractionEvents(principal, {
     projectId,
     types: INTERACTION_TYPES,
     limit: 200,
@@ -552,7 +552,7 @@ export async function fetchContextSources(
     hasRetrievalQuery
       ? executeRetrieval(() => fetchWarmKeywordContext(principal, keywords, maxFacts, brandId))
       : Promise.resolve(skippedRetrieval<SemanticFact>('query_not_provided')),
-    executeRetrieval(() => fetchHotContext(userId, interactionWindowDays, projectId)),
+    executeRetrieval(() => fetchHotContext(principal, interactionWindowDays, projectId)),
   ]);
   const projectFacts = projectResult.items;
   const globalFacts = prioritizeGlobalFacts(

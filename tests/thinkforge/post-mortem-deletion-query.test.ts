@@ -5,6 +5,7 @@ import {
   buildInteractionEventPrincipalQuery,
   buildInteractionEventDeletionQuery,
   buildProjectScopedDeletionQuery,
+  buildRecentInteractionEventQuery,
   type DataBankEntry,
 } from '@/lib/thinkforge/services/db';
 
@@ -17,6 +18,22 @@ describe('post-mortem source cleanup authority', () => {
     expect(buildInteractionEventPrincipalQuery({ userId: ' user_1 ', orgId: ' org_1 ' })).toEqual({
       ownerType: 'organization',
       orgId: 'org_1',
+    });
+  });
+
+  it('scopes recent interaction reads before applying project, type, and time filters', () => {
+    const since = new Date('2026-08-01T00:00:00.000Z');
+    expect(buildRecentInteractionEventQuery({
+      principal: { userId: 'user_1', orgId: 'org_1' },
+      projectId: ' session_1 ',
+      types: ['feedback_given', 'feedback_given', 'style_corrected'],
+      since,
+    })).toEqual({
+      ownerType: 'organization',
+      orgId: 'org_1',
+      projectId: 'session_1',
+      type: { $in: ['feedback_given', 'style_corrected'] },
+      createdAt: { $gte: since },
     });
   });
 

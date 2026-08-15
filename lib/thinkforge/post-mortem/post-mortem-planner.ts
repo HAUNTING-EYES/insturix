@@ -39,7 +39,7 @@ export async function preparePostMortemPlan(rawInput: PostMortemInput): Promise<
   }
 
   const [events, projectEntries] = await Promise.all([
-    getRecentInteractionEvents(input.userId, {
+    getRecentInteractionEvents({ userId: input.userId, orgId }, {
       projectId: input.sessionId,
       limit: 200,
       strict: true,
