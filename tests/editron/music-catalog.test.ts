@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   deriveProjectMusicDirection,
   handleMusicCatalogSearch,
-} from '@/app/api/services/editron/music-catalog/search/route';
+} from '@/lib/editron/http/music-route-handlers';
 import { EpidemicMusicCatalogProvider } from '@/lib/editron/music-catalog/epidemic-provider';
 import {
   MusicCatalogProviderError,
