@@ -5,7 +5,7 @@ import {
   normalizeAvatarVaultUploadContentType,
   parseAvatarVaultUploadRole,
   validateAvatarVaultUploadInput,
-} from '../../app/api/avatar-vault/uploads/route';
+} from '../../lib/avatar/avatar-vault-upload';
 
 describe('Avatar Vault upload route helpers', () => {
   it('accepts image references with an explicit avatar role', () => {
