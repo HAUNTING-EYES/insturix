@@ -33,6 +33,10 @@ export async function POST(request: Request) {
   if (!sessionId) {
     return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
   }
+  const scriptId = toNonEmptyString(body.scriptId);
+  if (!scriptId) {
+    return NextResponse.json({ error: "scriptId is required" }, { status: 400 });
+  }
 
   const rawVisualChoices =
     body.userVisualChoices && typeof body.userVisualChoices === "object" && !Array.isArray(body.userVisualChoices)
@@ -54,16 +58,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "ThinkForge session not found" }, { status: 404 });
     }
 
+    const canonicalSessionId = String(session._id);
     const projectMeta = session.projectMeta || {};
-    const requestedScriptId = toNonEmptyString(body.scriptId);
     const requestedProjectId = toNonEmptyString(body.projectId);
-    const script = await db.getScript(sessionId, requestedScriptId || null);
-    let projectLink = await findLinkBySessionId(userId, sessionId);
+    const script = await db.getScript(canonicalSessionId, scriptId);
+    if (!script) {
+      return NextResponse.json({ error: "ThinkForge document not found" }, { status: 404 });
+    }
+    let projectLink = await findLinkBySessionId(userId, canonicalSessionId);
 
     if (!projectLink) {
       projectLink = await createProjectLink(userId, {
-        sessionId,
-        sourceScriptId: requestedScriptId,
+        sessionId: canonicalSessionId,
+        sourceScriptId: scriptId,
         brandId: toNonEmptyString(projectMeta.brandId),
         metadata: { createdBy: "think-to-click-context" },
       });
@@ -82,8 +89,8 @@ export async function POST(request: Request) {
     };
 
     const context = buildThinkToClickContext({
-      sessionId,
-      scriptId: requestedScriptId,
+      sessionId: canonicalSessionId,
+      scriptId,
       projectId: requestedProjectId,
       projectMeta,
       projectLink,

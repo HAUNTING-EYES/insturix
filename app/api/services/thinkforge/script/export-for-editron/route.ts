@@ -179,104 +179,115 @@ function buildExportSource(input: {
   return source;
 }
 
-async function loadStoredScriptSource(
-  sessionId: unknown,
-  scriptId: unknown,
-  userId: string,
-): Promise<ExportSource | null> {
-  if (typeof sessionId !== 'string' || !sessionId.trim()) return null;
+function buildStoredScriptSource(
+  session: NonNullable<Awaited<ReturnType<typeof db.getSession>>>,
+  script: NonNullable<Awaited<ReturnType<typeof db.getScript>>>,
+): ExportSource | null {
+  const blocks = Array.isArray(script.blocks) && script.blocks.length > 0
+    ? script.blocks
+    : script.richText && isTiptapJSON(script.richText)
+      ? tiptapJSONToThinkForgeBlocks(script.richText)
+      : [];
+  const richTextPlain = script.richText && isTiptapJSON(script.richText)
+    ? extractPlainText(script.richText)
+    : '';
+  const plainText = typeof script.content === 'string' && script.content.trim()
+    ? script.content
+    : richTextPlain;
+
+  const storedSource = buildExportSource({
+    source: 'stored-script',
+    blocks,
+    plainText,
+    titleFallback: script.title,
+  });
+  if (!storedSource) return null;
+
+  const metadata = script.metadata && typeof script.metadata === 'object' && !Array.isArray(script.metadata)
+    ? script.metadata as Record<string, unknown>
+    : undefined;
+  const writerOutput = metadata?.writerOutput && typeof metadata.writerOutput === 'object' && !Array.isArray(metadata.writerOutput)
+    ? metadata.writerOutput as Record<string, unknown>
+    : undefined;
+  const authoringContext = buildThinkForgeEditronHandoffContext({
+    authoringContextSnapshot: metadata?.authoringContextSnapshot,
+    expectedBrandId: resolveProjectMetaBrandId(session.projectMeta),
+  });
+  const authoringProvenanceContext = authoringContext.authoringProvenance
+    ? authoringContext
+    : undefined;
+  if (!writerOutput?.scriptSidecar) {
+    return authoringProvenanceContext
+      ? { ...storedSource, thinkforgeContext: authoringProvenanceContext }
+      : storedSource;
+  }
 
   try {
-    const session = await db.getSession(sessionId, userId);
-    if (!session) return null;
-
-    const script = await db.getScript(session._id, typeof scriptId === 'string' && scriptId.trim() ? scriptId : null);
-    if (!script) return null;
-
-    const blocks = Array.isArray(script.blocks) && script.blocks.length > 0
-      ? script.blocks
-      : script.richText && isTiptapJSON(script.richText)
-        ? tiptapJSONToThinkForgeBlocks(script.richText)
-        : [];
-    const richTextPlain = script.richText && isTiptapJSON(script.richText)
-      ? extractPlainText(script.richText)
-      : '';
-    const plainText = typeof script.content === 'string' && script.content.trim()
-      ? script.content
-      : richTextPlain;
-
-    const storedSource = buildExportSource({
-      source: 'stored-script',
-      blocks,
-      plainText,
-      titleFallback: script.title,
-    });
-    if (!storedSource) return null;
-
-    const metadata = script.metadata && typeof script.metadata === 'object' && !Array.isArray(script.metadata)
-      ? script.metadata as Record<string, unknown>
-      : undefined;
-    const writerOutput = metadata?.writerOutput && typeof metadata.writerOutput === 'object' && !Array.isArray(metadata.writerOutput)
-      ? metadata.writerOutput as Record<string, unknown>
-      : undefined;
-    const authoringContext = buildThinkForgeEditronHandoffContext({
-      authoringContextSnapshot: metadata?.authoringContextSnapshot,
-      expectedBrandId: resolveProjectMetaBrandId(session.projectMeta),
-    });
-    const authoringProvenanceContext = authoringContext.authoringProvenance
-      ? authoringContext
-      : undefined;
-    if (!writerOutput?.scriptSidecar) {
-      return authoringProvenanceContext
-        ? { ...storedSource, thinkforgeContext: authoringProvenanceContext }
-        : storedSource;
-    }
-
-    try {
-      return {
-        ...storedSource,
-        sidecarExport: mapScriptSidecarToEditronExport(writerOutput.scriptSidecar),
-        thinkforgeContext: buildThinkForgeEditronHandoffContext({
-          sidecar: writerOutput.scriptSidecar,
-          briefSnapshot: metadata?.briefSnapshot,
-          sourceLedger: writerOutput.sourceLedger,
-          authoringContextSnapshot: metadata?.authoringContextSnapshot,
-          expectedBrandId: resolveProjectMetaBrandId(session.projectMeta),
-        }),
-      };
-    } catch (error) {
-      if (error instanceof ThinkForgeAuthoringProvenanceError) throw error;
-      console.warn('[export-for-editron] Ignoring an invalid persisted script sidecar');
-      return authoringProvenanceContext
-        ? { ...storedSource, thinkforgeContext: authoringProvenanceContext }
-        : storedSource;
-    }
-  } catch (error: any) {
+    return {
+      ...storedSource,
+      sidecarExport: mapScriptSidecarToEditronExport(writerOutput.scriptSidecar),
+      thinkforgeContext: buildThinkForgeEditronHandoffContext({
+        sidecar: writerOutput.scriptSidecar,
+        briefSnapshot: metadata?.briefSnapshot,
+        sourceLedger: writerOutput.sourceLedger,
+        authoringContextSnapshot: metadata?.authoringContextSnapshot,
+        expectedBrandId: resolveProjectMetaBrandId(session.projectMeta),
+      }),
+    };
+  } catch (error) {
     if (error instanceof ThinkForgeAuthoringProvenanceError) throw error;
-    console.warn('[export-for-editron] Stored script recovery failed:', error?.message || error);
-    return null;
+    console.warn('[export-for-editron] Ignoring an invalid persisted script sidecar');
+    return authoringProvenanceContext
+      ? { ...storedSource, thinkforgeContext: authoringProvenanceContext }
+      : storedSource;
   }
 }
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
+    let parsedBody: unknown;
+    try {
+      parsedBody = await request.json();
+    } catch {
+      return NextResponse.json({ success: false, error: 'Invalid JSON' }, { status: 400 });
+    }
+    if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+      return NextResponse.json({ success: false, error: 'Invalid request body' }, { status: 400 });
+    }
+    const body = parsedBody as Record<string, unknown>;
+    const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+    const scriptId = typeof body.scriptId === 'string' ? body.scriptId.trim() : '';
+    if (!sessionId) {
+      return NextResponse.json({ success: false, error: 'sessionId is required' }, { status: 400 });
+    }
+    if (!scriptId) {
+      return NextResponse.json({ success: false, error: 'scriptId is required' }, { status: 400 });
+    }
+
+    const session = await db.getSession(sessionId, userId, orgId);
+    if (!session) {
+      return NextResponse.json({ success: false, error: 'ThinkForge session not found' }, { status: 404 });
+    }
+    const canonicalSessionId = String(session._id);
+    const storedScript = await db.getScript(canonicalSessionId, scriptId);
+    if (!storedScript) {
+      return NextResponse.json({ success: false, error: 'ThinkForge document not found' }, { status: 404 });
+    }
+
     const {
-      sessionId,
-      scriptId,
       blocks: requestBlocks,
       plainText: requestPlainText,
       cir: requestCir,
-      aspectRatio,
-      artStyle,
-      brandId,
       targetDurationSeconds: requestedTargetDurationSeconds,
       targetDuration,
     } = body;
+    const aspectRatio = typeof body.aspectRatio === 'string' ? body.aspectRatio : undefined;
+    const artStyle = typeof body.artStyle === 'string' ? body.artStyle : undefined;
+    const brandId = typeof body.brandId === 'string' ? body.brandId : undefined;
 
     let scenes: SceneDescriptor[] | undefined;
     let title = 'Untitled Script';
@@ -312,7 +323,7 @@ export async function POST(request: NextRequest) {
     // exact script being exported. User edits intentionally fall back to parsing.
     let storedSource: ExportSource | null;
     try {
-      storedSource = await loadStoredScriptSource(sessionId, scriptId, userId);
+      storedSource = buildStoredScriptSource(session, storedScript);
     } catch (error) {
       if (error instanceof ThinkForgeAuthoringProvenanceError) {
         return NextResponse.json(
@@ -611,8 +622,8 @@ export async function POST(request: NextRequest) {
     const productionManifest = {
       version: 1,
       sourceService: 'thinkforge',
-      sourceSessionId: typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : undefined,
-      sourceScriptId: typeof scriptId === 'string' && scriptId.trim() ? scriptId.trim() : undefined,
+      sourceSessionId: canonicalSessionId,
+      sourceScriptId: scriptId,
       targetDurationSeconds: targetDurationSeconds ?? null,
       targetDurationSource,
       parsedDurationSeconds: Math.round(totalDurationSeconds),

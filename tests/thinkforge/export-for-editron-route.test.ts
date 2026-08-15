@@ -80,7 +80,22 @@ describe('export-for-editron route', () => {
     mocks.getScript.mockReset();
     mocks.isLLMParserAvailable.mockReset();
     mocks.parseScriptWithLLM.mockReset();
-    mocks.auth.mockResolvedValue({ userId: 'user_1' });
+    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1' });
+    mocks.getSession.mockImplementation(async (sessionId: string) => ({
+      _id: sessionId,
+      userId: 'user_1',
+      orgId: 'org_1',
+      projectMeta: {},
+    }));
+    mocks.getScript.mockImplementation(async (sessionId: string, scriptId: string) => ({
+      _id: `stored_${scriptId}`,
+      sessionId,
+      scriptId,
+      title: 'Stored script',
+      content: '',
+      blocks: [],
+      metadata: {},
+    }));
     mocks.isLLMParserAvailable.mockReturnValue(true);
     mocks.parseScriptWithLLM.mockResolvedValue({
       scenes: [
@@ -99,6 +114,73 @@ describe('export-for-editron route', () => {
       globalEditDirections: { pacing: 'medium' },
       suggestedProfileCategory: 'brand-ad',
     });
+  });
+
+  it('rejects a missing exact document ID before DB or parser work', async () => {
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_1',
+      scriptId: '   ',
+      plainText: 'This must never reach the parser.',
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe('scriptId is required');
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.getScript).not.toHaveBeenCalled();
+    expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
+  });
+
+  it('authorizes org access and exports from the canonical session identity', async () => {
+    mocks.getSession.mockResolvedValueOnce({
+      _id: 'tf_session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: {},
+    });
+    mocks.getScript.mockResolvedValueOnce({
+      _id: 'stored_script_canonical',
+      sessionId: 'tf_session_canonical',
+      scriptId: 'script_canonical',
+      title: 'Stored script',
+      content: '',
+      blocks: [],
+      metadata: {},
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_alias',
+      scriptId: 'script_canonical',
+      plainText: 'A verified script snapshot.',
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mocks.getSession).toHaveBeenCalledWith('tf_session_alias', 'user_1', 'org_1');
+    expect(mocks.getScript).toHaveBeenCalledWith('tf_session_canonical', 'script_canonical');
+    expect(payload.productionManifest).toMatchObject({
+      sourceSessionId: 'tf_session_canonical',
+      sourceScriptId: 'script_canonical',
+    });
+  });
+
+  it('fails before parser work when the exact stored document does not exist', async () => {
+    mocks.getScript.mockResolvedValueOnce(null);
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_1',
+      scriptId: 'missing_script',
+      plainText: 'A client snapshot cannot replace a missing stored document.',
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(payload.error).toBe('ThinkForge document not found');
+    expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
   });
 
   it('passes brand identity to the parser without echoing raw script text', async () => {
@@ -393,7 +475,7 @@ describe('export-for-editron route', () => {
       source: 'stored-script',
       storedScriptRecovered: true,
     });
-    expect(mocks.getSession).toHaveBeenCalledWith('tf_session_stale', 'user_1');
+    expect(mocks.getSession).toHaveBeenCalledWith('tf_session_stale', 'user_1', 'org_1');
     expect(mocks.getScript).toHaveBeenCalledWith('tf_session_stale', 'script_1');
     expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
   });

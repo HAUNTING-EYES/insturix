@@ -22,8 +22,8 @@ const ShotPlanSettingsSchema = z.object({
 }).strict();
 
 const SaveShotPlanRequestSchema = z.object({
-  sessionId: z.string().min(1),
-  scriptId: z.string().min(1).optional(),
+  sessionId: z.string().trim().min(1),
+  scriptId: z.string().trim().min(1),
   profile: ProductionCapabilityProfileSchema,
   settings: ShotPlanSettingsSchema,
 }).strict();
@@ -80,12 +80,15 @@ export async function GET(request: Request) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const url = new URL(request.url);
-  const sessionId = url.searchParams.get('sessionId');
-  const scriptId = url.searchParams.get('scriptId') || undefined;
+  const sessionId = url.searchParams.get('sessionId')?.trim();
+  const scriptId = url.searchParams.get('scriptId')?.trim();
   if (!sessionId) return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
+  if (!scriptId) return NextResponse.json({ error: 'Missing scriptId' }, { status: 400 });
 
   const session = await db.getSession(sessionId, userId, orgId);
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  const script = await db.getScript(session._id, scriptId);
+  if (!script) return NextResponse.json({ error: 'Document not found' }, { status: 404 });
 
   const projectMeta = recordOf(session.projectMeta) ?? {};
   const profileResult = ProductionCapabilityProfileSchema.safeParse(
@@ -115,7 +118,6 @@ export async function GET(request: Request) {
     });
   }
 
-  const script = await db.getScript(session._id, scriptId || null);
   try {
     return NextResponse.json(buildPlanPayload(
       script,
@@ -143,7 +145,7 @@ export async function POST(request: Request) {
   const parsed = SaveShotPlanRequestSchema.safeParse(input);
   if (!parsed.success) {
     return NextResponse.json({
-      error: 'Invalid production profile',
+      error: 'Invalid production request',
       details: parsed.error.issues,
     }, { status: 400 });
   }
@@ -151,6 +153,8 @@ export async function POST(request: Request) {
   const { sessionId, scriptId, profile, settings } = parsed.data;
   const session = await db.getSession(sessionId, userId, orgId);
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  const script = await db.getScript(session._id, scriptId);
+  if (!script) return NextResponse.json({ error: 'Document not found' }, { status: 404 });
 
   const projectMeta: ProductionProjectMeta = session.projectMeta || {};
   const nextProjectMeta: ProductionProjectMeta = {
@@ -163,7 +167,6 @@ export async function POST(request: Request) {
     updatedAt: new Date(),
   });
 
-  const script = await db.getScript(session._id, scriptId || null);
   try {
     return NextResponse.json(buildPlanPayload(script, profile, settings));
   } catch (error) {
