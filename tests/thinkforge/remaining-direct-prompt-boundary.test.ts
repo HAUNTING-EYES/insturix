@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   addDataBankEntry: vi.fn(),
+  addGovernedDataBankEntry: vi.fn(),
+  assertDataBankSessionPrincipal: vi.fn(),
   auth: vi.fn(),
   checkDuplicateBeforeSave: vi.fn(),
   createModelByTier: vi.fn(),
@@ -48,6 +50,8 @@ vi.mock('@/lib/thinkforge/agents/model-factory', () => ({
 vi.mock('@/lib/shared/brand-events', () => ({ getEventsByScope: mocks.getEventsByScope }));
 vi.mock('@/lib/thinkforge/services/db', () => ({
   addDataBankEntry: mocks.addDataBankEntry,
+  addGovernedDataBankEntry: mocks.addGovernedDataBankEntry,
+  assertDataBankSessionPrincipal: mocks.assertDataBankSessionPrincipal,
   deleteEventsBySession: mocks.deleteEventsBySession,
   deleteProjectScopedEntries: mocks.deleteProjectScopedEntries,
   getProjectScopedEntries: mocks.getProjectScopedEntries,
@@ -84,7 +88,7 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
     vi.clearAllMocks();
     process.env.OBSERVER_ENABLED = 'true';
     process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
-    mocks.auth.mockResolvedValue({ userId: 'user_1' });
+    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: null });
     mocks.createModelByTier.mockReturnValue({ modelId: 'mock-model' });
     mocks.createThinkForgeModelForRoute.mockReturnValue({ modelId: 'mock-model' });
     mocks.resolveThinkForgeProviderRoute.mockReturnValue({
@@ -252,8 +256,8 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
       }),
     }));
 
-    expect(response.status).toBe(202);
-    await vi.waitFor(() => expect(mocks.generateObject).toHaveBeenCalled());
+    expect(response.status).toBe(200);
+    expect(mocks.generateObject).toHaveBeenCalled();
     expectIsolatedCall(mocks.generateObject.mock.calls.at(-1)?.[0] ?? {});
   });
 });
