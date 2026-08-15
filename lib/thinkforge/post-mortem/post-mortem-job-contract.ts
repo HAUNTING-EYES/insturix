@@ -112,8 +112,16 @@ export function hashPostMortemJobValue(value: unknown): string {
 }
 
 export function normalizePostMortemJobError(error: unknown, retryable: boolean): PostMortemJobError {
-  const message = (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
+  const message = safePostMortemJobErrorMessage(error);
   return { code: error instanceof Error ? error.name || 'processing_failed' : 'processing_failed', message, retryable };
+}
+
+export function safePostMortemJobErrorMessage(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error))
+    .replace(/\b(?:mongodb(?:\+srv)?|postgres(?:ql)?|redis|https?):\/\/[^\s]+/gi, '[redacted-url]')
+    .replace(/\b(token|key|secret|password)=([^&\s]+)/gi, '$1=[redacted]')
+    .replace(/\b(?:sk|pk)-[a-z0-9_-]{12,}\b/gi, '[redacted-key]')
+    .slice(0, 2_000);
 }
 
 export function clonePostMortemJobValue<T>(value: T): T {

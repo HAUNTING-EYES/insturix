@@ -13,6 +13,7 @@ import {
   PostMortemJobLeaseLostError,
   THINKFORGE_POST_MORTEM_JOB_MAX_ATTEMPTS,
   postMortemJobStore,
+  safePostMortemJobErrorMessage,
   type ClaimPostMortemJobResult,
   type PostMortemJobSnapshot,
 } from './post-mortem-job-store';
@@ -83,7 +84,7 @@ export async function processPostMortemJob(jobId: string): Promise<ProcessPostMo
   } catch (error) {
     try {
       const status = await postMortemJobStore.retryOrDeadLetter(jobId, claim.leaseToken, error);
-      return { status, error: safeErrorMessage(error) };
+      return { status, error: safePostMortemJobErrorMessage(error) };
     } catch (transitionError) {
       if (transitionError instanceof PostMortemJobLeaseLostError) {
         return { status: 'deferred', reason: 'lease_lost' };
@@ -155,8 +156,4 @@ function startLeaseHeartbeat(jobId: string, leaseToken: string): {
     },
     stop: () => clearInterval(timer),
   };
-}
-
-function safeErrorMessage(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
 }
