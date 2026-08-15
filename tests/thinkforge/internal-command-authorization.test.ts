@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   deduct: vi.fn(),
   ensureMigrated: vi.fn(),
   getOrCreateSession: vi.fn(),
+  getScript: vi.fn(),
   getSession: vi.fn(),
   processChat: vi.fn(),
   refund: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock('@/lib/thinkforge/errors/thinkforge-error', () => ({
 }));
 vi.mock('@/lib/thinkforge/services/db', () => ({
   getOrCreateSession: mocks.getOrCreateSession,
+  getScript: mocks.getScript,
   getSession: mocks.getSession,
   setActiveGeneration: mocks.setActiveGeneration,
   updateGenerationState: mocks.updateGenerationState,
@@ -52,6 +54,7 @@ function chatRequest() {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       sessionId: 'session_requested',
+      scriptId: 'default',
       prompt: 'Create a launch post.',
     }),
   });
@@ -67,6 +70,14 @@ describe('ThinkForge internal command authorization', () => {
       userId: 'owner_1',
       orgId: 'org_1',
       projectMeta: {},
+    });
+    mocks.getScript.mockResolvedValue({
+      sessionId: 'session_canonical',
+      scriptId: 'default',
+      title: 'Canonical draft',
+      content: 'Persisted content',
+      blocks: [],
+      version: 2,
     });
     mocks.checkCredits.mockResolvedValue({
       allowed: true,
@@ -124,7 +135,26 @@ describe('ThinkForge internal command authorization', () => {
       sessionId: 'session_canonical',
       userId: 'user_1',
       orgId: 'org_1',
+      scriptId: 'default',
+      script: expect.objectContaining({ version: 2, content: 'Persisted content' }),
     }));
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'default');
+  });
+
+  it('rejects chat without a document identity before retrieval or billing', async () => {
+    const { POST } = await import('@/app/api/services/thinkforge/chat/route');
+    const response = await POST(new Request('http://localhost/api/services/thinkforge/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'session_requested', prompt: 'Create a launch post.' }),
+    }));
+
+    if (!response) throw new Error('Chat route returned no response.');
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Missing scriptId' });
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.getScript).not.toHaveBeenCalled();
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
   });
 
   it('stamps the org wallet on the generation billing record when the flag is ON and an org context is active', async () => {
@@ -239,7 +269,9 @@ describe('ThinkForge internal command authorization', () => {
     );
 
     expect(source).toContain('orgId?: string | null;');
-    expect(source).toContain('db.getSession(sessionId, userId, orgId)');
+    expect(source).toContain('sessionId: string;');
+    expect(source).toContain('scriptId: string;');
+    expect(source).toContain('db.getSession(exactSessionId, userId, orgId)');
     expect(source).not.toContain('sessionId || session._id');
     expect(source).not.toContain('sessionId || session!._id');
     expect(source.match(/\}, userId, orgId\);/g)).toHaveLength(3);

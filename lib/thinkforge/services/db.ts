@@ -1653,19 +1653,20 @@ export async function getSessionsCount(userId: string): Promise<number> {
 
 // ==================== Script Operations ====================
 
-export async function getScript(sessionId: string, scriptId?: string | null): Promise<Script | null> {
+export async function getScript(sessionId: string, scriptId: string): Promise<Script | null> {
   try {
-    const { ScriptModel } = await getModels();
-    const filter: any = { sessionId };
-    if (scriptId) {
-      filter.scriptId = scriptId;
+    const exactScriptId = scriptId.trim();
+    if (!exactScriptId || exactScriptId !== scriptId) {
+      throw new Error('ThinkForge document ID must be a non-empty trimmed string');
     }
-    let doc = await ScriptModel.findOne(filter)
+
+    const { ScriptModel } = await getModels();
+    let doc = await ScriptModel.findOne({ sessionId, scriptId: exactScriptId })
       .sort({ updatedAt: -1 })
       .lean() as any;
 
-    if (!doc && scriptId) {
-      // Fallback to legacy default (no scriptId set)
+    if (!doc && exactScriptId === 'default') {
+      // Legacy documents without an ID represent only the canonical default document.
       doc = await ScriptModel.findOne({ sessionId, scriptId: { $exists: false } })
         .sort({ updatedAt: -1 })
         .lean() as any;
@@ -1673,7 +1674,7 @@ export async function getScript(sessionId: string, scriptId?: string | null): Pr
 
     if (!doc) return null;
 
-    return mapStoredScript(doc);
+    return mapStoredScript(doc, exactScriptId);
   } catch (error) {
     console.error('Error getting script:', error);
     throw error;

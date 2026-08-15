@@ -60,6 +60,10 @@ import {
 } from '../signals';
 import { buildThinkForgeSignalTrace } from '../signals/signal-trace';
 import { getVersion as getWritingKnowledgeVersion } from '../data/writing-graph-query';
+import {
+  createThinkForgeDocumentCommitBaseline,
+  resolveThinkForgeCommitBaseVersion,
+} from '../document-commit-baseline';
 import crypto from 'crypto';
 
 const PROMPT_UNDERSTANDING_SEED = 7;
@@ -166,19 +170,19 @@ function suggestInsertionPointTF(blocks: ThinkForgeBlock[]): { insertAfterBlockI
 }
 
 export interface ChatRequest {
-  sessionId?: string;
+  sessionId: string;
   prompt: string;
   selection?: string;
   userId: string;
   orgId?: string | null;
   isOrgAdmin?: boolean;
-  script?: { title?: string; content?: string; blocks?: ThinkForgeBlock[] | any[] } | null;
+  script?: { title?: string; content?: string; blocks?: ThinkForgeBlock[] | any[]; version?: number } | null;
   project?: ProjectMeta | null;
   blockIds?: string[];
   selectionBlocks?: ThinkForgeBlock[]; // Selected blocks from Tiptap editor for surgical editing
   selectionBlockIds?: string[]; // Structural block IDs from editor
   selectionRange?: { from: number; to: number }; // Tiptap selection range for precise replacement
-  scriptId?: string | null;
+  scriptId: string;
   generationId?: string | null;
   threadId?: string | null;
   intentContext?: IntentContextSignals;
@@ -230,26 +234,32 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
   // STEP 5: Explicit session existence verification before processing
   // Load session - require it to exist (no auto-create for chat operations)
-  const session = sessionId ? await db.getSession(sessionId, userId, orgId) : null;
-  if (!session && sessionId) {
-    // Session doesn't exist - this is an error condition for chat operations
-    // The client should have created the session via hydrate first
-    console.error('[ThinkForge][chat-service] Session not found:', sessionId);
-    throw new Error(`Session not found: ${sessionId}. Please ensure the session is created before sending chat messages.`);
+  const exactSessionId = sessionId.trim();
+  const exactProvidedScriptId = providedScriptId.trim();
+  if (!exactSessionId || exactSessionId !== sessionId) {
+    throw new Error('sessionId must be a non-empty trimmed string');
+  }
+  if (!exactProvidedScriptId || exactProvidedScriptId !== providedScriptId) {
+    throw new Error('scriptId must be a non-empty trimmed string');
   }
 
+  const session = await db.getSession(exactSessionId, userId, orgId);
   if (!session) {
-    // No sessionId provided - also an error for chat operations
-    throw new Error('sessionId is required for chat operations');
+    // Session doesn't exist - this is an error condition for chat operations
+    // The client should have created the session via hydrate first
+    console.error('[ThinkForge][chat-service] Session not found:', exactSessionId);
+    throw new Error(`Session not found: ${exactSessionId}. Please ensure the session is created before sending chat messages.`);
   }
   const canonicalSessionId = session._id;
 
-  let effectiveScriptId = typeof providedScriptId === 'string' && providedScriptId.trim()
-    ? providedScriptId
-    : null;
+  let effectiveScriptId = exactProvidedScriptId;
 
-  // Load script if session exists (prefer provided script)
+  // The HTTP route supplies the server-owned snapshot used for context resolution.
+  // Direct server callers still resolve the same exact document by ID here.
   const script = providedScript || (session ? await db.getScript(canonicalSessionId, effectiveScriptId) : null);
+  const commitBaseline = effectiveScriptId
+    ? createThinkForgeDocumentCommitBaseline(effectiveScriptId, script?.version ?? 0)
+    : null;
 
   const thinkforgeBlocks = validateThinkForgeBlocks(Array.isArray((script as any)?.blocks) ? (script as any).blocks : []);
   if (script && thinkforgeBlocks.length !== ((script as any)?.blocks?.length || 0)) {
@@ -843,8 +853,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
           let savedVersion: number | undefined;
           if (session) {
             await claimCommitOwnership();
-            const latest = await db.getScript(canonicalSessionId, effectiveScriptId);
-            let baseVersion = latest?.version ?? 0;
+            const baseVersion = resolveThinkForgeCommitBaseVersion(commitBaseline, effectiveScriptId!);
             const saveResult = await applyCommand({
               type: 'ReplaceDocument',
               sessionId: canonicalSessionId,
@@ -1162,8 +1171,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
         let savedVersion: number | undefined;
         if (session) {
           await claimCommitOwnership();
-          const latest = await db.getScript(canonicalSessionId, effectiveScriptId);
-          let baseVersion = latest?.version ?? 0;
+          const baseVersion = resolveThinkForgeCommitBaseVersion(commitBaseline, effectiveScriptId!);
           const saveResult = await applyCommand({
             type: 'ReplaceDocument',
             sessionId: canonicalSessionId,
