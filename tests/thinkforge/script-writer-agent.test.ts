@@ -304,6 +304,8 @@ describe('ScriptWriterAgent prompt contract', () => {
     expect(prompt).toContain('delivery: "sync-dialogue"');
     expect(prompt).toContain('face visible');
     expect(prompt).toContain('subShots do not split a lip-sync job');
+    expect(prompt).toContain('Never target an arbitrary on-camera ratio');
+    expect(prompt).not.toContain('50%');
     expect(prompt).toContain('Production shot intent');
     expect(prompt).toContain('never invent equipment');
   });

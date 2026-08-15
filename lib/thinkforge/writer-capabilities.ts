@@ -44,13 +44,6 @@ export const WRITER_CAPABILITIES: WriterCapabilities = {
   relipSafe: { faceVisibleRequired: true, maxOcclusion: 'light', motionDuringLines: 'moderate' },
 };
 
-/**
- * On-camera ratio dial (§4): the fraction of spoken lines the writer targets ON camera.
- * A cost budget, not a hard rule — higher ratio = more relip spend. User-overridable via Brief.
- * INVENTED-PLACEHOLDER default; calibrate.
- */
-export const DEFAULT_ON_CAMERA_RATIO = 0.5;
-
 /** True when a spoken beat exceeds the single-relip cap and the writer must split it. */
 export function speakingBeatNeedsSplit(durationSec: number): boolean {
   return durationSec > WRITER_CAPABILITIES.maxSpeakingSegmentSec;
