@@ -1,4 +1,6 @@
 export const CLICKATRON_CREATIVE_SPEC_VERSION = 1;
+export const CLICKATRON_CAROUSEL_MIN_SLIDES = 2;
+export const CLICKATRON_CAROUSEL_MAX_SLIDES = 7;
 
 export const CLICKATRON_CREATIVE_KINDS = ['single_post_visual', 'carousel'] as const;
 export const CLICKATRON_ASSET_INTENTS = ['post_graphic', 'carousel', 'blog_header', 'thread_visual', 'ad_creative'] as const;
@@ -152,6 +154,21 @@ export interface ThinkForgeBlockExportMeta {
   clickatron?: ClickatronCreativeSpec;
 }
 
+export type ClickatronCarouselAdmissionErrorCode =
+  | 'CAROUSEL_SPEC_INVALID'
+  | 'CAROUSEL_SLIDE_COUNT_INVALID'
+  | 'CAROUSEL_SLIDE_COUNT_MISMATCH';
+
+export class ClickatronCarouselAdmissionError extends Error {
+  constructor(
+    readonly code: ClickatronCarouselAdmissionErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ClickatronCarouselAdmissionError';
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -191,6 +208,23 @@ function readNumber(value: unknown, field: string): number {
 function readOptionalNumber(value: unknown, field: string): number | undefined {
   if (value === undefined || value === null) return undefined;
   return readNumber(value, field);
+}
+
+export function normalizeClickatronCarouselSlideCount(value: unknown): number | undefined {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+    return undefined;
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (
+    !Number.isInteger(parsed)
+    || parsed < CLICKATRON_CAROUSEL_MIN_SLIDES
+    || parsed > CLICKATRON_CAROUSEL_MAX_SLIDES
+  ) {
+    throw new Error(
+      `slideCount must be an integer between ${CLICKATRON_CAROUSEL_MIN_SLIDES} and ${CLICKATRON_CAROUSEL_MAX_SLIDES}`,
+    );
+  }
+  return parsed;
 }
 
 function readEnum<T extends readonly string[]>(value: unknown, allowed: T, field: string): T[number] {
@@ -360,6 +394,31 @@ function normalizeSlides(value: unknown): ClickatronCarouselSlideSpec[] | undefi
   return result.length > 0 ? result : undefined;
 }
 
+function assertCanonicalCarouselSlidePlan(
+  kind: ClickatronCreativeKind,
+  slides: ClickatronCarouselSlideSpec[] | undefined,
+): void {
+  if (kind !== 'carousel') return;
+
+  const slideCount = slides?.length ?? 0;
+  if (slideCount < CLICKATRON_CAROUSEL_MIN_SLIDES || slideCount > CLICKATRON_CAROUSEL_MAX_SLIDES) {
+    throw new Error(
+      `carousel specs require between ${CLICKATRON_CAROUSEL_MIN_SLIDES} and ${CLICKATRON_CAROUSEL_MAX_SLIDES} complete renderPlan.slides items`,
+    );
+  }
+
+  const slideIds = new Set<string>();
+  slides?.forEach((slide, position) => {
+    if (slide.index !== position) {
+      throw new Error(`renderPlan.slides[${position}].index must equal ${position}`);
+    }
+    if (slideIds.has(slide.id)) {
+      throw new Error(`renderPlan.slides[${position}].id must be unique`);
+    }
+    slideIds.add(slide.id);
+  });
+}
+
 function normalizeRenderPlan(value: unknown): ClickatronCreativeRenderPlan {
   const input = requireRecord(value, 'renderPlan');
   return {
@@ -452,9 +511,7 @@ export function normalizeClickatronCreativeSpec(input: unknown): ClickatronCreat
   const assetIntent = readAssetIntent(value.assetIntent, kind);
   const textPolicyWasDefaulted = renderPlanTextPolicyNeedsDefault(value.renderPlan);
   const renderPlan = normalizeRenderPlan(value.renderPlan);
-  if (kind === 'carousel' && (!renderPlan.slides || renderPlan.slides.length === 0)) {
-    throw new Error('carousel specs require at least one renderPlan.slides item');
-  }
+  assertCanonicalCarouselSlidePlan(kind, renderPlan.slides);
   const validation = withRenderPlanTextPolicyRepairIssue(
     withAssetIntentRepairIssue(
       normalizeValidation(value.validation),
@@ -479,6 +536,43 @@ export function normalizeClickatronCreativeSpec(input: unknown): ClickatronCreat
     validation,
     ...(normalizeVisualLanguage(value.visualLanguage) ? { visualLanguage: normalizeVisualLanguage(value.visualLanguage) } : {}),
   };
+}
+
+export function admitClickatronCarouselPlan(input: {
+  creativeSpec: unknown;
+  requestedSlideCount?: unknown;
+}): ClickatronCarouselSlideSpec[] {
+  const candidate = isRecord(input.creativeSpec) ? input.creativeSpec : undefined;
+  if (candidate?.kind !== 'carousel') return [];
+
+  let creativeSpec: ClickatronCreativeSpec;
+  try {
+    creativeSpec = normalizeClickatronCreativeSpec(candidate);
+  } catch (error) {
+    throw new ClickatronCarouselAdmissionError(
+      'CAROUSEL_SPEC_INVALID',
+      error instanceof Error ? error.message : 'Carousel creative spec is invalid.',
+    );
+  }
+
+  let requestedSlideCount: number | undefined;
+  try {
+    requestedSlideCount = normalizeClickatronCarouselSlideCount(input.requestedSlideCount);
+  } catch (error) {
+    throw new ClickatronCarouselAdmissionError(
+      'CAROUSEL_SLIDE_COUNT_INVALID',
+      error instanceof Error ? error.message : 'Requested carousel slide count is invalid.',
+    );
+  }
+
+  const slides = creativeSpec.renderPlan.slides ?? [];
+  if (requestedSlideCount !== undefined && requestedSlideCount !== slides.length) {
+    throw new ClickatronCarouselAdmissionError(
+      'CAROUSEL_SLIDE_COUNT_MISMATCH',
+      `Requested ${requestedSlideCount} carousel slides, but the canonical creative spec contains ${slides.length}.`,
+    );
+  }
+  return slides;
 }
 
 function normalizeStringArray(value: unknown): string[] {

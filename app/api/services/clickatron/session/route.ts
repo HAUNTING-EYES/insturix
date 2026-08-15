@@ -29,30 +29,15 @@ import {
   resolveClickatronBrandReferenceEvidence,
   selectClickatronGenerationBrandEvidence,
 } from '@/lib/clickatron/brand-reference-images';
-
-// Hard upper bound on carousel slides we will fan out into variations/jobs.
-// Source: product spec (max 7 slides per carousel). The ThinkForge writers and
-// the creative contract do not cap slide count, so this route is the authority
-// that clamps the batch — protecting the credit charge and the job queue from a
-// runaway writer array. A value of 7 ← product requirement (P6 task brief).
-const MAX_CAROUSEL_SLIDES = 7;
-
-interface ParsedCarouselSlide {
-  id?: string;
-  title?: string;
-  imagePrompt?: string;
-}
+import {
+  admitClickatronCarouselPlan,
+  ClickatronCarouselAdmissionError,
+  type ClickatronCarouselSlideSpec,
+} from '@/lib/thinkforge/schemas/clickatron-creative-contract';
 
 interface CarouselParseResult {
-  slides: ParsedCarouselSlide[];
-  /**
-   * True ONLY when the handoff explicitly declared kind:"carousel" but carried no
-   * usable renderPlan.slides — an unambiguous broken carousel. The caller fails this
-   * loud (422, no charge) instead of silently billing + generating a single image [R8].
-   * A JSON-parse failure is NOT flagged here: we can't know a malformed blob was meant
-   * to be a carousel, and a single-image request with junk metadata must still generate.
-   */
-  carouselWithoutSlides: boolean;
+  slides: ClickatronCarouselSlideSpec[];
+  admissionError?: ClickatronCarouselAdmissionError;
 }
 
 /**
@@ -60,45 +45,35 @@ interface CarouselParseResult {
  *
  * A ThinkForge carousel handoff embeds the resolved creative spec at
  * metadata.clickatron.creativeSpec; when its kind is "carousel" the per-slide
- * prompts live at renderPlan.slides. Returns the slides clamped to
- * MAX_CAROUSEL_SLIDES, or [] when this is not a carousel (single-image path).
- *
- * Never throws (a bad handoff can never 500 here). It surfaces an explicitly-broken
- * carousel via carouselWithoutSlides so the caller can fail loud rather than degrade
- * silently; all other malformed inputs fall back to the single-image path.
+ * prompts live at renderPlan.slides. The shared creative contract owns slide
+ * completeness and cardinality; this route only extracts metadata and surfaces
+ * typed admission failures before any billing or persistence.
  */
 function parseCarouselSlides(metadataField: FormDataEntryValue | null): CarouselParseResult {
-  if (typeof metadataField !== 'string' || metadataField.trim() === '') return { slides: [], carouselWithoutSlides: false };
+  if (typeof metadataField !== 'string' || metadataField.trim() === '') return { slides: [] };
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(metadataField);
-  } catch (parseErr) {
-    // Ambiguous: we don't know this was a carousel, so degrade to single (still generates).
-    console.error('[LOUDFAIL][Clickatron][CAROUSEL-PARSE-DEGRADED] session metadata failed to JSON.parse — falling back to SINGLE-image billing:', parseErr);
-    return { slides: [], carouselWithoutSlides: false };
+  } catch {
+    return { slides: [] };
   }
 
   const creativeSpec = (parsed as any)?.clickatron?.creativeSpec;
-  if (!creativeSpec || creativeSpec.kind !== 'carousel') return { slides: [], carouselWithoutSlides: false };
-
-  const rawSlides = creativeSpec?.renderPlan?.slides;
-  if (!Array.isArray(rawSlides) || rawSlides.length === 0) {
-    // Unambiguous broken carousel: declared kind:"carousel" but no slides to fan out.
-    console.error('[LOUDFAIL][Clickatron][CAROUSEL-EMPTY] spec.kind=carousel but renderPlan.slides missing/empty — failing loud (no charge):', { slides: rawSlides });
-    return { slides: [], carouselWithoutSlides: true };
+  const requestedSlideCount = (parsed as any)?.clickatronHandoff?.visualChoices?.slideCount;
+  try {
+    return {
+      slides: admitClickatronCarouselPlan({ creativeSpec, requestedSlideCount }),
+    };
+  } catch (error) {
+    const admissionError = error instanceof ClickatronCarouselAdmissionError
+      ? error
+      : new ClickatronCarouselAdmissionError(
+          'CAROUSEL_SPEC_INVALID',
+          error instanceof Error ? error.message : 'Carousel creative spec is invalid.',
+        );
+    return { slides: [], admissionError };
   }
-
-  return {
-    slides: rawSlides
-      .slice(0, MAX_CAROUSEL_SLIDES)
-      .map((slide: any): ParsedCarouselSlide => ({
-        id: typeof slide?.id === 'string' ? slide.id : undefined,
-        title: typeof slide?.title === 'string' ? slide.title : undefined,
-        imagePrompt: typeof slide?.imagePrompt === 'string' ? slide.imagePrompt : undefined,
-      })),
-    carouselWithoutSlides: false,
-  };
 }
 
 // POST /api/services/clickatron/session - Create new session and generate the first variation (or N carousel slides)
@@ -187,14 +162,11 @@ export async function POST(request: Request) {
     // idempotency/refund/watchdog — the deduct()/refund() semantics below are
     // intentionally left as-is for P7 to reconcile.
     const carouselParse = parseCarouselSlides(formData.get('metadata'));
-    if (carouselParse.carouselWithoutSlides) {
-      // Loud fail instead of silently billing + generating ONE image for a carousel
-      // whose slide plan was empty. Returns before the credit check => no charge. The
-      // ThinkForge handoff dialog surfaces this error to the user. [R8]
+    if (carouselParse.admissionError) {
       return NextResponse.json(
         {
-          error: 'This carousel could not be built because its slide plan was empty, so no images were generated and you were not charged. Please re-send the carousel from ThinkForge.',
-          code: 'CAROUSEL_NO_SLIDES',
+          error: carouselParse.admissionError.message,
+          code: carouselParse.admissionError.code,
         },
         { status: 422 },
       );
@@ -359,24 +331,23 @@ export async function POST(request: Request) {
 
 
     // 2. Create the variation(s).
-    // For a carousel handoff we fan out one variation per slide (already clamped
-    // to MAX_CAROUSEL_SLIDES in parseCarouselSlides). Otherwise a single variation.
+    // A validated carousel fans out exactly one variation per canonical slide.
+    // Otherwise this remains the existing single-image path.
     const isCarousel = carouselSlides.length > 0;
     const variationsToCreate: any[] = [];
 
     if (isCarousel) {
       carouselSlides.forEach((slide, slideIndex) => {
-        const slidePrompt = slide.imagePrompt || validatedData.prompt || 'New Slide';
         const slideMetadata = {
           ...creationMetadata,
-          slideId: slide.id ?? `slide_${slideIndex + 1}`,
+          slideId: slide.id,
           slideIndex,
           ...(slide.title ? { slideTitle: slide.title } : {}),
           isCarouselSlide: true,
         };
         variationsToCreate.push({
           id: nanoid(),
-          prompt: slidePrompt,
+          prompt: slide.imagePrompt,
           // A carousel slide always has a prompt, so it never starts blank.
           status: 'generating',
           aspectRatio: validatedData.aspectRatio,

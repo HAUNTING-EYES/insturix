@@ -1,9 +1,12 @@
 import type { ProjectLink } from "@/lib/shared/project-links";
 import {
+  CLICKATRON_CAROUSEL_MAX_SLIDES,
+  CLICKATRON_CAROUSEL_MIN_SLIDES,
   CLICKATRON_CREATIVE_SPEC_VERSION,
   CLICKATRON_PLATFORMS,
   CLICKATRON_TEXT_DENSITIES,
   CLICKATRON_VISUAL_MODES,
+  normalizeClickatronCarouselSlideCount,
   normalizeClickatronCreativeSpec,
   type ClickatronCreativeKind,
   type ClickatronCreativeSpec,
@@ -18,13 +21,8 @@ import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block"
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 import { projectThinkForgeAuthoringProvenance } from "@/lib/thinkforge/context/authoring-provenance";
 
-// Hard upper bound on carousel slides. The writers (carouselPrompts/scenePrompts)
-// and the creative contract do not cap slide count, so we clamp here at the point
-// where prompts become slides — keeping the persisted spec, the session-draft
-// prompt, and the Clickatron fan-out all consistent at <= 7 slides.
-// 7 ← product requirement (P6 carousel spec). Mirrored in the clickatron session route.
-export const MIN_CAROUSEL_SLIDES = 2;
-export const MAX_CAROUSEL_SLIDES = 7;
+export const MIN_CAROUSEL_SLIDES = CLICKATRON_CAROUSEL_MIN_SLIDES;
+export const MAX_CAROUSEL_SLIDES = CLICKATRON_CAROUSEL_MAX_SLIDES;
 
 const PROJECT_META_KEYS = [
   "idea",
@@ -137,14 +135,7 @@ function enumValue<T extends readonly string[]>(value: unknown, values: T, fallb
 }
 
 export function normalizeRequestedCarouselSlideCount(value: unknown): number | undefined {
-  if (value === undefined || value === null || (typeof value === "string" && value.trim() === "")) return undefined;
-  const parsed = typeof value === "number" ? value : Number(value);
-  if (!Number.isInteger(parsed) || parsed < MIN_CAROUSEL_SLIDES || parsed > MAX_CAROUSEL_SLIDES) {
-    throw new Error(
-      `slideCount must be an integer between ${MIN_CAROUSEL_SLIDES} and ${MAX_CAROUSEL_SLIDES}`,
-    );
-  }
-  return parsed;
+  return normalizeClickatronCarouselSlideCount(value);
 }
 
 function normalizeClickatronPlatform(value: unknown): ClickatronPlatform | undefined {
@@ -173,13 +164,7 @@ export function findClickatronCreativeSpecInBlocks(blocks?: ThinkForgeBlock[] | 
   for (const block of blocks) {
     const candidate = block.exportMeta?.clickatron;
     if (candidate) {
-      try {
-        return normalizeClickatronCreativeSpec(candidate);
-      } catch (error) {
-        const repaired = repairCarouselSidecarSlidesFromVisibleBlocks(candidate, blocks, error);
-        if (repaired) return repaired;
-        throw error;
-      }
+      return normalizeClickatronCreativeSpec(candidate);
     }
   }
   return undefined;
@@ -345,110 +330,6 @@ function derivedCarouselSlidesFromVisibleBlocks(
   });
 }
 
-type CarouselSlide = NonNullable<ClickatronCreativeSpec["renderPlan"]["slides"]>[number];
-
-function partitionEvenly<T>(items: T[], count: number): T[][] {
-  return Array.from({ length: count }, (_, index) => {
-    const start = Math.floor((index * items.length) / count);
-    const end = Math.floor(((index + 1) * items.length) / count);
-    return items.slice(start, end);
-  });
-}
-
-function uniqueStrings(values: Array<string | undefined>): string[] {
-  return [...new Set(values.map(toNonEmptyString).filter((value): value is string => Boolean(value)))];
-}
-
-function reindexTextLayers(layers: ClickatronTextLayer[], slideIndex: number): ClickatronTextLayer[] {
-  return layers.map((layer, layerIndex) => ({
-    ...layer,
-    id: `slide_${slideIndex + 1}_${layer.role}_${layerIndex + 1}`,
-  }));
-}
-
-function mergeCarouselSlides(slides: CarouselSlide[], targetCount: number): CarouselSlide[] {
-  return partitionEvenly(slides, targetCount).map((group, index) => {
-    const textLayers = reindexTextLayers(group.flatMap((slide) => slide.textLayers || []), index);
-    const sourceBlockIds = uniqueStrings(group.flatMap((slide) => [
-      ...(slide.sourceBlockIds || []),
-      ...(slide.textLayers || []).map((layer) => layer.sourceBlockId),
-    ]));
-    const imagePrompt = uniqueStrings(group.map((slide) => slide.imagePrompt)).join(" ").slice(0, 4800);
-    return {
-      id: `slide_${index + 1}`,
-      index,
-      title: group.map((slide) => toNonEmptyString(slide.title)).find(Boolean),
-      ...(sourceBlockIds.length > 0 ? { sourceBlockIds } : {}),
-      imagePrompt,
-      layoutIntent: group.map((slide) => toNonEmptyString(slide.layoutIntent)).find(Boolean),
-      ...(textLayers.length > 0 ? { textLayers } : {}),
-    };
-  });
-}
-
-function semanticSegments(value: string): string[] {
-  return (value.match(/[^.!?;\n]+[.!?;]?/g) || [])
-    .map((segment) => segment.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-}
-
-function expandCarouselSlidesFromGroundedContent(
-  spec: ClickatronCreativeSpec,
-  summary: ReturnType<typeof summarizeVisibleBlocks>,
-  targetCount: number,
-): CarouselSlide[] | undefined {
-  const units = summary.sourceBlocks.flatMap((block) => {
-    const sourceText = toNonEmptyString(block.text || block.sceneText);
-    if (!sourceText) return [];
-    return semanticSegments(sourceText).map((text) => ({ blockId: block.id, text }));
-  });
-  if (units.length < targetCount) return undefined;
-
-  const existingSlides = spec.renderPlan.slides || [];
-  return partitionEvenly(units, targetCount).map((group, index) => {
-    const sourceText = group.map((unit) => unit.text).join(" ");
-    const sourceBlockIds = uniqueStrings(group.map((unit) => unit.blockId));
-    const styleSeed = existingSlides[Math.min(
-      Math.floor((index * existingSlides.length) / targetCount),
-      Math.max(0, existingSlides.length - 1),
-    )]?.imagePrompt || spec.renderPlan.imagePrompt;
-    const keywords = visualKeywords(sourceText);
-    const textLayers = spec.renderPlan.textPolicy === "no_generated_text"
-      ? []
-      : reindexTextLayers(group.map((unit, layerIndex) => ({
-        id: `source_${layerIndex + 1}`,
-        text: unit.text,
-        role: layerIndex === 0 ? "headline" : "body",
-        priority: Math.max(45, 95 - layerIndex * 10),
-        sourceBlockId: unit.blockId,
-        maxLines: layerIndex === 0 ? 2 : 4,
-        locked: true,
-      } satisfies ClickatronTextLayer)), index);
-
-    return {
-      id: `slide_${index + 1}`,
-      index,
-      title: textSnippet(group[0]?.text, 64) || `Slide ${index + 1}`,
-      sourceBlockIds,
-      imagePrompt: [
-        styleSeed,
-        keywords ? `Grounded concepts to interpret, not draw as text: ${keywords}.` : undefined,
-        "Keep exact source copy in editable text layers; do not invent claims.",
-      ].filter(Boolean).join(" ").slice(0, 4800),
-      layoutIntent: "Text-free slide background; source copy remains in editable overlay text.",
-      ...(textLayers.length > 0 ? { textLayers } : {}),
-    };
-  });
-}
-
-function withoutSlideRoles(
-  visualLanguage: ClickatronCreativeSpec["visualLanguage"],
-): ClickatronCreativeSpec["visualLanguage"] {
-  if (!visualLanguage) return undefined;
-  const { slideRoles: _slideRoles, ...rest } = visualLanguage;
-  return rest;
-}
-
 function applyRequestedCarouselSlideCount(
   spec: ClickatronCreativeSpec | undefined,
   input: ThinkToClickContextInput,
@@ -459,93 +340,26 @@ function applyRequestedCarouselSlideCount(
   const currentSlides = spec.renderPlan.slides || [];
   if (currentSlides.length === requestedCount) return spec;
 
-  const summary = summarizeVisibleBlocks(input.blocks);
-  const slides = currentSlides.length > requestedCount
-    ? mergeCarouselSlides(currentSlides, requestedCount)
-    : expandCarouselSlidesFromGroundedContent(spec, summary, requestedCount);
-
-  if (!slides) {
-    const issue = {
-      code: "insufficient_grounded_carousel_units",
-      message: `The requested ${requestedCount}-slide carousel is not supported by enough distinct source material; ${currentSlides.length} grounded slide${currentSlides.length === 1 ? " is" : "s are"} currently available.`,
-      severity: "warning" as const,
-    };
-    const needsUserInput = currentSlides.length >= MIN_CAROUSEL_SLIDES
-      ? `Use ${currentSlides.length} slides, or add enough source content for ${requestedCount} grounded slides.`
-      : `Add enough source content for at least ${MIN_CAROUSEL_SLIDES} grounded slides before exporting a carousel.`;
-    return normalizeClickatronCreativeSpec({
-      ...spec,
-      validation: {
-        ...spec.validation,
-        status: spec.validation.status === "stale" || spec.validation.status === "invalid"
-          ? spec.validation.status
-          : "needs_user_input",
-        issues: [
-          ...(spec.validation.issues || []).filter((entry) => entry.code !== issue.code),
-          issue,
-        ],
-        needsUserInput: uniqueStrings([...(spec.validation.needsUserInput || []), needsUserInput]),
-      },
-    });
-  }
-
+  const issue = {
+    code: "carousel_slide_count_mismatch",
+    message: `Requested ${requestedCount} carousel slides, but the canonical creative spec contains ${currentSlides.length}.`,
+    severity: "warning" as const,
+  };
+  const needsUserInput = `Use the canonical ${currentSlides.length}-slide plan, or regenerate the carousel for exactly ${requestedCount} slides.`;
   return normalizeClickatronCreativeSpec({
     ...spec,
-    renderPlan: {
-      ...spec.renderPlan,
-      slides,
-    },
-    ...(spec.visualLanguage ? { visualLanguage: withoutSlideRoles(spec.visualLanguage) } : {}),
-  });
-}
-function readRenderPlanTextPolicy(value: unknown): ClickatronTextPolicy {
-  const text = toNonEmptyString(value);
-  if (text === "no_generated_text" || text === "minimal_generated_text" || text === "editable_text_layers") {
-    return text;
-  }
-  return "editable_text_layers";
-}
-
-function repairCarouselSidecarSlidesFromVisibleBlocks(
-  candidate: unknown,
-  blocks: ThinkForgeBlock[],
-  error: unknown,
-): ClickatronCreativeSpec | undefined {
-  if (!(error instanceof Error) || !/carousel specs require at least one renderPlan\.slides item/i.test(error.message)) {
-    return undefined;
-  }
-
-  const spec = toPlainRecord(candidate);
-  if (toNonEmptyString(spec?.kind) !== "carousel") return undefined;
-
-  const renderPlan = toPlainRecord(spec?.renderPlan);
-  const summary = summarizeVisibleBlocks(blocks);
-  if (!renderPlan || summary.sourceBlocks.length === 0) return undefined;
-
-  const textPolicy = readRenderPlanTextPolicy(renderPlan.textPolicy);
-  const imagePrompt = toNonEmptyString(renderPlan.imagePrompt)
-    || "Recovered carousel overview from ThinkForge visible blocks.";
-
-  return normalizeClickatronCreativeSpec({
-    ...spec,
-    renderPlan: {
-      ...renderPlan,
-      textPolicy,
-      imagePrompt,
-      slides: derivedCarouselSlidesFromVisibleBlocks(
-        summary,
-        textPolicy,
-        `Recovered sidecar carousel system: ${imagePrompt}`,
-      ),
-    },
     validation: {
-      status: "needs_user_input",
-      issues: [{
-        code: "carousel_slides_recovered_from_visible_blocks",
-        message: "The hidden Clickatron sidecar declared a carousel without slide render plans, so ThinkForge derived review-required slides from visible blocks instead of failing export.",
-        severity: "warning",
-      }],
-      needsUserInput: ["Review and confirm the recovered carousel slide plan before sending to Clickatron."],
+      ...spec.validation,
+      status: spec.validation.status === "stale" || spec.validation.status === "invalid"
+        ? spec.validation.status
+        : "needs_user_input",
+      issues: [
+        ...(spec.validation.issues || []).filter((entry) => entry.code !== issue.code),
+        issue,
+      ],
+      needsUserInput: [
+        ...new Set([...(spec.validation.needsUserInput || []), needsUserInput]),
+      ],
     },
   });
 }
@@ -639,9 +453,7 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
   let slides: any[] | undefined;
   if (wantsCarousel) {
     const allPrompts: string[] = hasCarousel ? carouselPrompts as string[] : hasScene ? scenePrompts as string[] : [];
-    // Clamp to the max carousel length so an over-long writer array can't produce
-    // more slides than we render/charge for downstream.
-    const promptsArray = allPrompts.slice(0, MAX_CAROUSEL_SLIDES);
+    const promptsArray = allPrompts;
     if (promptsArray.length > 0) {
       slides = promptsArray.map((promptText, index) => {
         const block = summary.sourceBlocks[index] || summary.sourceBlocks[0];

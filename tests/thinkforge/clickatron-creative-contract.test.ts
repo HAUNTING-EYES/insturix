@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  admitClickatronCarouselPlan,
+  CLICKATRON_CAROUSEL_MAX_SLIDES,
+  CLICKATRON_CAROUSEL_MIN_SLIDES,
   CLICKATRON_CREATIVE_SPEC_VERSION,
   normalizeClickatronCreativeSpec,
 } from '../../lib/thinkforge/schemas/clickatron-creative-contract';
@@ -67,6 +70,28 @@ function singlePostSpec() {
   };
 }
 
+function carouselSpec(slideCount: number) {
+  const base = singlePostSpec();
+  return {
+    ...base,
+    kind: 'carousel',
+    assetIntent: 'carousel',
+    userIntent: {
+      ...base.userIntent,
+      wantsCarousel: true,
+    },
+    renderPlan: {
+      ...base.renderPlan,
+      textLayers: undefined,
+      slides: Array.from({ length: slideCount }, (_, index) => ({
+        id: `slide_${index + 1}`,
+        index,
+        imagePrompt: `Complete visual prompt for carousel slide ${index + 1}.`,
+      })),
+    },
+  };
+}
+
 describe('Clickatron creative contract', () => {
   it('normalizes a single-post handoff with editable text separated from image prompt', () => {
     const spec = normalizeClickatronCreativeSpec(singlePostSpec());
@@ -105,25 +130,10 @@ describe('Clickatron creative contract', () => {
   });
 
   it('repairs blank model-authored asset intent from carousel kind', () => {
-    const base = singlePostSpec();
+    const base = carouselSpec(2);
     const spec = normalizeClickatronCreativeSpec({
       ...base,
-      kind: 'carousel',
       assetIntent: '   ',
-      userIntent: {
-        ...base.userIntent,
-        wantsCarousel: true,
-      },
-      renderPlan: {
-        ...base.renderPlan,
-        slides: [
-          {
-            id: 'slide_1',
-            index: 0,
-            imagePrompt: 'A crisp carousel cover slide about connected creative tools.',
-          },
-        ],
-      },
     });
 
     expect(spec.assetIntent).toBe('carousel');
@@ -185,11 +195,9 @@ describe('Clickatron creative contract', () => {
     ).toThrow(/renderPlan\.textPolicy/);
   });
 
-  it('requires carousel specs to include slide render plans', () => {
+  it('requires carousel specs to include between two and seven complete slide render plans', () => {
     const invalid = {
-      ...singlePostSpec(),
-      kind: 'carousel',
-      assetIntent: 'carousel',
+      ...carouselSpec(2),
       renderPlan: {
         ...singlePostSpec().renderPlan,
         slides: [],
@@ -197,6 +205,82 @@ describe('Clickatron creative contract', () => {
     };
 
     expect(() => normalizeClickatronCreativeSpec(invalid)).toThrow(/carousel specs require/i);
+  });
+
+  it.each([
+    ['one slide', carouselSpec(1)],
+    ['eight slides', carouselSpec(8)],
+    ['missing image prompt', {
+      ...carouselSpec(2),
+      renderPlan: {
+        ...carouselSpec(2).renderPlan,
+        slides: [
+          carouselSpec(2).renderPlan.slides[0],
+          { id: 'slide_2', index: 1 },
+        ],
+      },
+    }],
+    ['blank image prompt', {
+      ...carouselSpec(2),
+      renderPlan: {
+        ...carouselSpec(2).renderPlan,
+        slides: [
+          carouselSpec(2).renderPlan.slides[0],
+          { id: 'slide_2', index: 1, imagePrompt: '   ' },
+        ],
+      },
+    }],
+    ['non-contiguous indexes', {
+      ...carouselSpec(2),
+      renderPlan: {
+        ...carouselSpec(2).renderPlan,
+        slides: [
+          carouselSpec(2).renderPlan.slides[0],
+          { ...carouselSpec(2).renderPlan.slides[1], index: 2 },
+        ],
+      },
+    }],
+    ['duplicate slide ids', {
+      ...carouselSpec(2),
+      renderPlan: {
+        ...carouselSpec(2).renderPlan,
+        slides: [
+          carouselSpec(2).renderPlan.slides[0],
+          { ...carouselSpec(2).renderPlan.slides[1], id: 'slide_1' },
+        ],
+      },
+    }],
+  ])('rejects an incomplete canonical carousel plan: %s', (_label, invalid) => {
+    expect(() => normalizeClickatronCreativeSpec(invalid)).toThrow();
+  });
+
+  it.each([CLICKATRON_CAROUSEL_MIN_SLIDES, CLICKATRON_CAROUSEL_MAX_SLIDES])(
+    'admits the valid %i-slide boundary without padding or truncation',
+    (slideCount) => {
+      const slides = admitClickatronCarouselPlan({
+        creativeSpec: carouselSpec(slideCount),
+        requestedSlideCount: slideCount,
+      });
+
+      expect(slides).toHaveLength(slideCount);
+      expect(slides.map((slide) => slide.index)).toEqual(
+        Array.from({ length: slideCount }, (_, index) => index),
+      );
+    },
+  );
+
+  it('rejects requested carousel count mismatches at admission', () => {
+    expect(() => admitClickatronCarouselPlan({
+      creativeSpec: carouselSpec(3),
+      requestedSlideCount: 5,
+    })).toThrow(/Requested 5 carousel slides.*contains 3/);
+  });
+
+  it('preserves single-post admission behavior even when a slide count is present', () => {
+    expect(admitClickatronCarouselPlan({
+      creativeSpec: singlePostSpec(),
+      requestedSlideCount: 7,
+    })).toEqual([]);
   });
 
   it('preserves export-only Clickatron metadata through ThinkForge block validation', () => {
