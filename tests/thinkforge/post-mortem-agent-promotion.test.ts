@@ -125,7 +125,7 @@ describe('post-mortem memory promotion', () => {
     );
   });
 
-  it('keeps the summary project-scoped and promotes high-quality branded lessons', async () => {
+  it('keeps score-derived lessons project-scoped until an owner promotes them', async () => {
     const result = await runPostMortemAgent({
       userId: 'user_1',
       sessionId: 'tf_session_1',
@@ -179,11 +179,11 @@ describe('post-mortem memory promotion', () => {
     const lesson = mocks.addGovernedDataBankEntry.mock.calls[1][2] as Partial<DataBankEntry>;
     expect(lesson).toMatchObject({
       type: 'brand_insight',
-      projectId: 'editron_project_1',
-      scope: 'global',
+      projectId: 'tf_session_1',
+      scope: 'project',
       content: {
-        memoryScope: 'brand',
-        promotionReason: 'quality_brand_outcome',
+        memoryScope: 'project',
+        promotionReason: 'awaiting_owner_promotion',
         projectId: 'editron_project_1',
         brandId: 'brand_1',
         qualityScore: 88,
@@ -191,15 +191,15 @@ describe('post-mortem memory promotion', () => {
       },
     });
     expect(lesson.tags).toEqual(expect.arrayContaining([
-      'memory:brand',
-      'promotion:quality_brand_outcome',
+      'memory:project',
+      'promotion:awaiting_owner_promotion',
       'voice_preference',
       'project:editron_project_1',
       'brand:brand_1',
     ]));
   });
 
-  it('keeps low-quality branded lessons project-scoped', async () => {
+  it('does not invent a different promotion policy for lower scores', async () => {
     await runPostMortemAgent({
       userId: 'user_1',
       sessionId: 'tf_session_1',
@@ -213,13 +213,13 @@ describe('post-mortem memory promotion', () => {
       scope: 'project',
       content: {
         memoryScope: 'project',
-        promotionReason: 'brand_without_quality_gate',
+        promotionReason: 'awaiting_owner_promotion',
         qualityScore: 62,
       },
     });
     expect(lesson.tags).toEqual(expect.arrayContaining([
       'memory:project',
-      'promotion:brand_without_quality_gate',
+      'promotion:awaiting_owner_promotion',
       'brand:brand_1',
     ]));
   });
