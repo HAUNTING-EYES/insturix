@@ -394,7 +394,10 @@ function withDeadline<T>(
   timeoutMs: number,
   onTimeout?: () => void,
 ): Promise<T> {
-  if (timeoutMs <= 0) return Promise.reject(new UrlIngestionError('request_timeout'));
+  if (timeoutMs <= 0) {
+    onTimeout?.();
+    return Promise.reject(new UrlIngestionError('request_timeout'));
+  }
   return new Promise((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
@@ -502,7 +505,7 @@ export async function fetchThinkForgeUrlDocument(
         limits.maxDecompressedBytes,
       ),
       bodyRemainingMs,
-      response.abort,
+      () => response.abort(),
     );
     const charset = contentTypeHeader.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1] ?? 'utf-8';
     let decoded: string;

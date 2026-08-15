@@ -208,5 +208,21 @@ describe('ThinkForge URL ingestion gateway', () => {
       requestTarget: vi.fn(),
       now,
     }), 'request_timeout');
+
+    const expiredBody = response({
+      headers: { 'content-type': 'text/plain' },
+      chunks: [Buffer.from('late body')],
+    });
+    const bodyNow = vi.fn()
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(12_001);
+    await expectCode(fetchThinkForgeUrlDocument('https://research.example.org/source', {}, {
+      resolveHostname: resolver,
+      requestTarget: async () => expiredBody,
+      now: bodyNow,
+    }), 'request_timeout');
+    expect(expiredBody.abort).toHaveBeenCalledOnce();
   });
 });
