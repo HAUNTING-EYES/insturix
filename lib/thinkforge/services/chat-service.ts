@@ -23,7 +23,6 @@ import {
 import { classifyIntent, intentRequiresSelection, type IntentContextSignals } from '../intent/intent-gate';
 import * as db from './db';
 import { applyCommand } from './command-service';
-import { collectExemplarPassively } from './exemplar-collector';
 import { appendEvent } from './event-log';
 import {
   resolveProjectMetaBrandId,
@@ -39,7 +38,7 @@ import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import { createThinkForgeModelForRoute } from '../agents/model-factory';
 import { buildIsolatedPromptParts } from '../agents/prompt-boundary';
-import { resolveThinkForgeDocumentIntent, resolveThinkForgeGenerationDocumentIntent } from '../agents/prompt-utils';
+import { resolveThinkForgeGenerationDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
 import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
@@ -56,7 +55,6 @@ import {
   evaluateContentProfileCompliance,
   formatContentProfileComplianceViolations,
   shouldAutoRepairContentProfileViolations,
-  type ThinkForgeContentSignalProfile,
 } from '../signals';
 import { buildThinkForgeSignalTrace } from '../signals/signal-trace';
 import { getVersion as getWritingKnowledgeVersion } from '../data/writing-graph-query';
@@ -707,9 +705,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             sessionState.metadata.contentContract,
           )
         : null;
-      const requestedContentPath = requestedDocumentIntent?.contentPath ?? null;
-      const requestedDocumentType = requestedDocumentIntent?.documentType ?? 'screenplay';
-      const requestedDocumentLabel = requestedDocumentIntent?.documentLabel ?? 'script';
+      const requestedDocumentLabel = requestedDocumentIntent?.documentLabel ?? 'document';
       const eventSessionId = canonicalSessionId;
 
       const isCanvasEmpty = (() => {
@@ -721,6 +717,9 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       })();
 
       if (isGenerateIntent) {
+        if (!requestedDocumentIntent) {
+          throw new Error('ThinkForge generation requires an authoritative document contract');
+        }
         if (!session) {
           finalResponse = 'No active session. Start a session first.';
           if (!(await emitEvent('token', { content: finalResponse }))) return;
@@ -733,9 +732,14 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           // Use the current scriptId as-is.
         } else {
           const newScriptId = crypto.randomUUID();
-          const initialTitle = requestedContentPath === 'post' ? 'New Post' : 'New Script';
+          const initialTitle = requestedDocumentIntent.contentPath === 'post' ? 'New Post' : 'New Script';
           effectiveScriptId = newScriptId;
-          await emitEvent('script_created', { scriptId: newScriptId, sessionId: eventSessionId, title: initialTitle, documentType: requestedDocumentType });
+          await emitEvent('script_created', {
+            scriptId: newScriptId,
+            sessionId: eventSessionId,
+            title: initialTitle,
+            documentType: requestedDocumentIntent.documentType,
+          });
         }
       }
 
@@ -914,11 +918,10 @@ CRITICAL: You are editing a SELECTION from a larger document.
         if (!(await emitEvent('progress', { progress: 0, message: workingMsg }))) return;
 
         // Run Thinking Agent before draft ONLY for video scripts or explicit doc types
-        const documentIntent = requestedDocumentIntent || resolveThinkForgeDocumentIntent(
-          effectivePrompt,
-          sessionState.metadata.format,
-          sessionState.metadata.contentContract,
-        );
+        if (!requestedDocumentIntent) {
+          throw new Error('ThinkForge generation requires an authoritative document contract');
+        }
+        const documentIntent = requestedDocumentIntent;
         const contentPath = documentIntent.contentPath;
         const generatedDocumentType = documentIntent.documentType;
         const authoringPrompt = resolveThinkForgeAuthoringPrompt(
@@ -968,34 +971,21 @@ CRITICAL: You are editing a SELECTION from a larger document.
             writingKnowledgeVersion: getWritingKnowledgeVersion(),
           });
 
-        // Phase 4: resolve the content signal profile and fold it into systemBrief so the writers
-        // ground (proof points, forbidden terms, source-ledger) and signalTrace persists for the
-        // Clickatron handoff. ponytail: reuse the systemBrief injection the writers already read --
-        // no writer-agent changes. Fails soft to the un-grounded brief.
-        let groundedSystemBrief = systemBrief;
-        // Resolved profile is also threaded to the writers (baseInput.contentSignalProfile) so the
-        // flat Post/Script writers can drive writing-graph technique selection from the structured
-        // signals, not just the folded brief. Fails soft to the un-grounded brief.
-        let resolvedSignalProfile: ThinkForgeContentSignalProfile | undefined;
+        const resolvedSignalProfile = resolveContentSignalProfile({
+          userPrompt: authoringPrompt,
+          documentType: documentIntent.documentType,
+          contentContract: documentIntent.contract,
+          brandId: sessionState.metadata.brandId,
+          sessionId: sessionState.sessionId,
+          retrievedContext: retrievedCtx || undefined,
+        });
+        let groundedSystemBrief = [systemBrief, formatContentSignalProfileForPrompt(resolvedSignalProfile)]
+          .filter(Boolean)
+          .join('\n\n');
+        signalTrace = buildThinkForgeSignalTrace(resolvedSignalProfile);
         let trendContextMetadata: Record<string, any> | undefined;
         let castingContextMetadata: ThinkForgeCastingMetadata | undefined;
         let promptUnderstanding: Awaited<ReturnType<typeof resolveScriptPromptUnderstanding>> | undefined;
-        try {
-          const contentSignalProfile = resolveContentSignalProfile({
-            userPrompt: authoringPrompt,
-            documentType: documentIntent.documentType,
-            brandId: sessionState.metadata.brandId,
-            sessionId: sessionState.sessionId,
-            retrievedContext: retrievedCtx || undefined,
-          });
-          resolvedSignalProfile = contentSignalProfile;
-          groundedSystemBrief = [systemBrief, formatContentSignalProfileForPrompt(contentSignalProfile)]
-            .filter(Boolean)
-            .join('\n\n');
-          signalTrace = buildThinkForgeSignalTrace(contentSignalProfile);
-        } catch (profileErr) {
-          console.warn('[chat-service] content signal profile resolution failed; generating without it:', profileErr);
-        }
 
         const hasCompletedSelectedTrend = sessionState.metadata.selectedTrend?.analysis?.status === 'completed';
         if (!hasCompletedSelectedTrend) {
@@ -1201,9 +1191,6 @@ CRITICAL: You are editing a SELECTION from a larger document.
           savedVersion = saveResult.script.version;
           commitPersisted = true;
 
-          // Passive exemplar collection (fire-and-forget, never blocks save)
-          const detectedType = /post|linkedin|twitter|instagram/i.test(prompt) ? 'post' : 'video_script';
-          collectExemplarPassively(userId, finalContent, detectedType).catch(() => {});
         }
 
         // Send script update as SSE event

@@ -167,6 +167,10 @@ describe('ThinkForge canonical document contract', () => {
     expect(page).toContain('resolveCarouselSlideCount');
     expect(service).toContain('sessionState.metadata.contentContract');
     expect(service).toContain('contentContract: documentIntent.contract');
+    expect(service).toContain('ThinkForge generation requires an authoritative document contract');
+    expect(service).not.toContain("requestedDocumentIntent?.documentType ?? 'screenplay'");
+    expect(service).not.toContain('content signal profile resolution failed');
+    expect(service).not.toContain('collectExemplarPassively');
   });
 
   it('uses the selected canonical kind for system-triggered initial drafts', () => {
