@@ -62,12 +62,11 @@ import type { SelectedTrend } from '../trends/selected-trend';
 import type { WalletRef } from '@/lib/editron/services/project-ownership';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import type { CIRDocument, CIRSection } from '../schemas/cir';
+import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
 import {
-  ThinkForgeDocumentContractSchema,
-  createThinkForgeWriterContract,
-  normalizeThinkForgeDocumentContract,
-  type ThinkForgeDocumentContract,
-} from '../schemas/document-contract';
+  resolvePersistedThinkForgeDocumentAuthority,
+  resolveThinkForgeDocumentWriteClassification,
+} from '../persistence/document-authority';
 
 // ==================== ThinkForge Database Connection ====================
 // Production uses the dedicated 'thinkforge_db' database. The explicit override is
@@ -208,15 +207,15 @@ export interface Session {
 export interface Script {
   _id: string;
   sessionId: string;
-  scriptId?: string;
+  scriptId: string;
   title: string;
   content: string;
   blocks?: ThinkForgeBlock[];
   richText?: Record<string, any>; // Tiptap JSON AST
   metadata?: Record<string, any>;
-  version?: number;
-  documentType?: string;
-  contentContract?: ThinkForgeDocumentContract;
+  version: number;
+  documentType: string;
+  contentContract: ThinkForgeDocumentContract;
   parentScriptId?: string;
   forkReason?: string;
   createdFromIntent?: string;
@@ -224,80 +223,28 @@ export interface Script {
   updatedAt: Date;
 }
 
-type ScriptClassification = Pick<Script, 'documentType' | 'contentContract'>;
-
-function canonicalDocumentType(contract: ThinkForgeDocumentContract): string {
-  return contract.documentKind === 'document' ? contract.artifactType : contract.outputKind;
-}
-
-function documentContractsMatch(
-  left: ThinkForgeDocumentContract,
-  right: ThinkForgeDocumentContract,
-): boolean {
-  return left.version === right.version
-    && left.documentKind === right.documentKind
-    && left.outputKind === right.outputKind
-    && left.artifactType === right.artifactType;
-}
-
-function parseScriptClassification(
-  input?: { documentType?: unknown; contentContract?: unknown } | null,
-): ThinkForgeDocumentContract | null {
-  if (!input) return null;
-
-  const contractResult = input.contentContract !== undefined && input.contentContract !== null
-    ? ThinkForgeDocumentContractSchema.safeParse(input.contentContract)
-    : null;
-  if (contractResult && !contractResult.success) {
-    throw new Error('Invalid persisted ThinkForge document contract');
+function mapStoredScript(doc: any): Script {
+  const authority = resolvePersistedThinkForgeDocumentAuthority(doc);
+  if (typeof doc.content !== 'string') {
+    throw new Error('Persisted ThinkForge document content must be a string');
   }
-
-  const typeContract = typeof input.documentType === 'string' && input.documentType.trim()
-    ? normalizeThinkForgeDocumentContract(input.documentType)
-    : null;
-  if (typeof input.documentType === 'string' && input.documentType.trim() && !typeContract) {
-    throw new Error(`Unsupported persisted ThinkForge document type: ${input.documentType}`);
-  }
-
-  if (contractResult?.success && typeContract
-    && !documentContractsMatch(contractResult.data, typeContract)) {
-    throw new Error('Persisted ThinkForge document contract conflicts with document type');
-  }
-
-  return contractResult?.success ? contractResult.data : typeContract;
-}
-
-function resolveScriptClassification(
-  input?: { documentType?: unknown; contentContract?: unknown } | null,
-  fallback?: { documentType?: unknown; contentContract?: unknown } | null,
-): ScriptClassification {
-  const contract = parseScriptClassification(input)
-    ?? parseScriptClassification(fallback)
-    ?? createThinkForgeWriterContract('video_script');
-  return {
-    documentType: canonicalDocumentType(contract),
-    contentContract: contract,
-  };
-}
-
-function mapStoredScript(doc: any, effectiveScriptId = 'default'): Script {
-  const classification = resolveScriptClassification(doc);
   return {
     _id: String(doc._id),
-    sessionId: doc.sessionId,
-    scriptId: doc.scriptId || effectiveScriptId,
-    title: doc.title || 'Untitled Script',
-    content: doc.content || '',
+    sessionId: authority.sessionId,
+    scriptId: authority.scriptId,
+    title: authority.title,
+    content: doc.content,
     blocks: enforceThinkForgeBlocks(doc.blocks),
     richText: doc.richText,
     metadata: doc.metadata || {},
-    version: typeof doc.version === 'number' ? doc.version : 1,
-    ...classification,
+    version: authority.version,
+    documentType: authority.documentType,
+    contentContract: authority.contentContract,
     parentScriptId: doc.parentScriptId,
     forkReason: doc.forkReason,
     createdFromIntent: doc.createdFromIntent,
-    createdAt: doc.createdAt,
-    updatedAt: doc.updatedAt,
+    createdAt: authority.createdAt,
+    updatedAt: authority.updatedAt,
   };
 }
 
@@ -831,21 +778,31 @@ SessionSchema.index({ orgId: 1, updatedAt: -1 });
 
 const ScriptSchema = new Schema({
   sessionId: { type: String, required: true, index: true },
-  scriptId: { type: String, index: true },
+  scriptId: { type: String, required: true, index: true },
   title: { type: String, required: true },
   content: { type: String, default: '' },
   blocks: { type: Schema.Types.Mixed },
   richText: { type: Schema.Types.Mixed }, // Tiptap JSON AST
   metadata: { type: Schema.Types.Mixed, default: {} },
   version: { type: Number, default: 1 },
-  documentType: { type: String, default: 'screenplay' },
-  contentContract: { type: Schema.Types.Mixed },
+  documentType: { type: String, required: true },
+  contentContract: { type: Schema.Types.Mixed, required: true },
+  recordStatus: { type: String, required: true, enum: ['active', 'quarantined'] },
   parentScriptId: { type: String },
   forkReason: { type: String },
   createdFromIntent: { type: String },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 }, { collection: COLL_SCRIPTS, timestamps: false });
+
+ScriptSchema.index(
+  { sessionId: 1, scriptId: 1 },
+  {
+    name: 'uniq_active_thinkforge_document',
+    unique: true,
+    partialFilterExpression: { recordStatus: 'active' },
+  },
+);
 
 const ChatMessageSchema = new Schema({
   sessionId: { type: String, required: true, index: true },
@@ -1637,20 +1594,13 @@ export async function getScript(sessionId: string, scriptId: string): Promise<Sc
     }
 
     const { ScriptModel } = await getModels();
-    let doc = await ScriptModel.findOne({ sessionId, scriptId: exactScriptId })
+    const doc = await ScriptModel.findOne({ sessionId, scriptId: exactScriptId, recordStatus: 'active' })
       .sort({ updatedAt: -1 })
       .lean() as any;
 
-    if (!doc && exactScriptId === 'default') {
-      // Legacy documents without an ID represent only the canonical default document.
-      doc = await ScriptModel.findOne({ sessionId, scriptId: { $exists: false } })
-        .sort({ updatedAt: -1 })
-        .lean() as any;
-    }
-
     if (!doc) return null;
 
-    return mapStoredScript(doc, exactScriptId);
+    return mapStoredScript(doc);
   } catch (error) {
     console.error('Error getting script:', error);
     throw error;
@@ -1665,28 +1615,53 @@ export async function saveScriptWithVersion(
   sessionId: string,
   script: Partial<Script>,
   baseVersion: number,
-  scriptId?: string | null
+  scriptId: string,
 ): Promise<SaveScriptWithVersionResult> {
   try {
     const { ScriptModel } = await getModels();
     const now = new Date();
-    const effectiveScriptId = scriptId || (script as any)?.scriptId || 'default';
+    const exactSessionId = sessionId.trim();
+    const exactScriptId = scriptId.trim();
+    if (!Number.isInteger(baseVersion) || baseVersion < 0) {
+      throw new Error('ThinkForge base version must be a non-negative integer');
+    }
+    if (!exactSessionId || exactSessionId !== sessionId) {
+      throw new Error('ThinkForge session ID must be a non-empty trimmed string');
+    }
+    if (!exactScriptId || exactScriptId !== scriptId) {
+      throw new Error('ThinkForge document ID must be a non-empty trimmed string');
+    }
+    if (script.scriptId !== undefined && script.scriptId !== exactScriptId) {
+      throw new Error('ThinkForge document ID conflicts with the persistence target');
+    }
+    if (script.title !== undefined
+      && (typeof script.title !== 'string' || !script.title.trim() || script.title !== script.title.trim())) {
+      throw new Error('ThinkForge document title must be a non-empty trimmed string');
+    }
 
-    const existing = await ScriptModel.findOne({ sessionId, scriptId: effectiveScriptId }).sort({ updatedAt: -1 });
-    const classification = resolveScriptClassification(script, existing as any);
+    const existing = await ScriptModel.findOne({
+      sessionId: exactSessionId,
+      scriptId: exactScriptId,
+      recordStatus: 'active',
+    }).sort({ updatedAt: -1 });
+    const classification = resolveThinkForgeDocumentWriteClassification(script, existing as any);
     if (!existing) {
       if (baseVersion > 0) {
         return { ok: false, error: 'Version conflict', currentVersion: 0 };
       }
 
+      if (script.title === undefined) {
+        throw new Error('ThinkForge document title must be a non-empty trimmed string');
+      }
       const blocks = enforceThinkForgeBlocks(script.blocks || []);
       const doc: Record<string, any> = {
-        sessionId,
-        scriptId: effectiveScriptId,
-        title: script.title || 'Untitled Script',
-        content: script.content || '',
+        sessionId: exactSessionId,
+        scriptId: exactScriptId,
+        title: script.title,
+        content: script.content ?? '',
         blocks,
         ...classification,
+        recordStatus: 'active',
         version: 1,
         createdAt: now,
         updatedAt: now,
@@ -1701,7 +1676,7 @@ export async function saveScriptWithVersion(
       const created = await ScriptModel.create(doc);
       return {
         ok: true,
-        script: mapStoredScript(created, effectiveScriptId),
+        script: mapStoredScript(created.toObject()),
       };
     }
 
@@ -1709,7 +1684,7 @@ export async function saveScriptWithVersion(
       ? enforceThinkForgeBlocks(script.blocks)
       : enforceThinkForgeBlocks(existing.blocks);
     const updateDoc: Record<string, any> = {
-      scriptId: effectiveScriptId,
+      scriptId: exactScriptId,
       title: script.title ?? existing.title,
       content: script.content ?? existing.content,
       blocks,
@@ -1725,7 +1700,7 @@ export async function saveScriptWithVersion(
     }
 
     const updated = await ScriptModel.findOneAndUpdate(
-      { _id: existing._id, version: baseVersion },
+      { _id: existing._id, version: baseVersion, recordStatus: 'active' },
       { $set: updateDoc },
       { new: true }
     ).lean() as any;
@@ -1740,7 +1715,7 @@ export async function saveScriptWithVersion(
 
     return {
       ok: true,
-      script: mapStoredScript(updated, effectiveScriptId),
+      script: mapStoredScript(updated),
     };
   } catch (error) {
     console.error('Error saving script with version check:', error);
@@ -1751,26 +1726,21 @@ export async function saveScriptWithVersion(
 export async function listScripts(sessionId: string): Promise<Array<{ scriptId: string; title: string; documentType: string; version: number; updatedAt: Date; createdAt: Date }>> {
   try {
     const { ScriptModel } = await getModels();
-    const docs = await ScriptModel.find({ sessionId }).sort({ updatedAt: -1 }).lean() as any[];
-    const seen = new Set<string>();
-    const items: Array<{ scriptId: string; title: string; documentType: string; version: number; updatedAt: Date; createdAt: Date }> = [];
-    for (const doc of docs) {
-      const sid = doc.scriptId || 'default';
-      if (seen.has(sid)) continue;
-      seen.add(sid);
-      items.push({
-        scriptId: sid,
-        title: doc.title || 'Untitled Script',
-        documentType: resolveScriptClassification(doc).documentType!,
-        version: doc.version || 1,
-        updatedAt: doc.updatedAt || doc.createdAt,
-        createdAt: doc.createdAt,
-      });
-    }
-    return items;
+    const docs = await ScriptModel.find({ sessionId, recordStatus: 'active' }).sort({ updatedAt: -1 }).lean() as any[];
+    return docs.map((doc) => {
+      const authority = resolvePersistedThinkForgeDocumentAuthority(doc);
+      return {
+        scriptId: authority.scriptId,
+        title: authority.title,
+        documentType: authority.documentType,
+        version: authority.version,
+        updatedAt: authority.updatedAt,
+        createdAt: authority.createdAt,
+      };
+    });
   } catch (error) {
     console.error('Error listing scripts:', error);
-    return [];
+    throw error;
   }
 }
 
@@ -1780,37 +1750,35 @@ export async function listScriptsByUser(
   limit = 100,
 ): Promise<Array<{ scriptId: string; sessionId: string; title: string; documentType: string; version: number; updatedAt: Date; createdAt: Date }>> {
   try {
-    const { ScriptModel } = await getModels();
-    const docs = (await ScriptModel.find({ userId }).sort({ updatedAt: -1 }).limit(limit * 3).lean()) as any[];
-    const seen = new Set<string>();
-    const items: Array<{ scriptId: string; sessionId: string; title: string; documentType: string; version: number; updatedAt: Date; createdAt: Date }> = [];
-    for (const doc of docs) {
-      const sid = doc.scriptId || 'default';
-      const key = `${doc.sessionId}:${sid}`;
-      if (seen.has(key)) continue; // keep the latest per (session, script)
-      seen.add(key);
-      items.push({
-        scriptId: sid,
-        sessionId: doc.sessionId,
-        title: doc.title || 'Untitled Script',
-        documentType: resolveScriptClassification(doc).documentType!,
-        version: doc.version || 1,
-        updatedAt: doc.updatedAt || doc.createdAt,
-        createdAt: doc.createdAt,
-      });
-      if (items.length >= limit) break;
-    }
-    return items;
+    const { SessionModel, ScriptModel } = await getModels();
+    const sessions = await SessionModel.find({ userId }, { _id: 1 }).lean() as Array<{ _id: string }>;
+    if (sessions.length === 0) return [];
+    const docs = await ScriptModel.find({
+      sessionId: { $in: sessions.map((session) => session._id) },
+      recordStatus: 'active',
+    }).sort({ updatedAt: -1 }).limit(limit).lean() as any[];
+    return docs.map((doc) => {
+      const authority = resolvePersistedThinkForgeDocumentAuthority(doc);
+      return {
+        scriptId: authority.scriptId,
+        sessionId: authority.sessionId,
+        title: authority.title,
+        documentType: authority.documentType,
+        version: authority.version,
+        updatedAt: authority.updatedAt,
+        createdAt: authority.createdAt,
+      };
+    });
   } catch (error) {
     console.error('Error listing scripts by user:', error);
-    return [];
+    throw error;
   }
 }
 
 export async function deleteScript(sessionId: string, scriptId: string): Promise<boolean> {
   try {
     const { ScriptModel } = await getModels();
-    const result = await ScriptModel.deleteMany({ sessionId, scriptId });
+    const result = await ScriptModel.deleteOne({ sessionId, scriptId, recordStatus: 'active' });
     return (result.deletedCount ?? 0) > 0;
   } catch (error) {
     console.error('Error deleting script:', error);

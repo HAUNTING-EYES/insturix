@@ -230,7 +230,7 @@ describe('ThinkForge script hydration contract', () => {
     expect(db).toContain("'projectMeta.initialDraftIntent.status': 'claimed'");
     expect(db).toContain('getScript(sessionId: string, scriptId: string)');
     expect(db).toContain('ThinkForge document ID must be a non-empty trimmed string');
-    expect(db).toContain('findOne({ sessionId, scriptId: exactScriptId })');
+    expect(db).toContain("findOne({ sessionId, scriptId: exactScriptId, recordStatus: 'active' })");
     expect(db).not.toContain('getScript(sessionId: string, scriptId?:');
   });
   it('resolves Clickatron export preview through the server context route', () => {
