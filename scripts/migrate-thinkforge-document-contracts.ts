@@ -1,5 +1,5 @@
 import { config } from 'dotenv';
-import { MongoClient } from 'mongodb';
+import { MongoClient, MongoServerError, type ObjectId } from 'mongodb';
 import {
   planThinkForgeDocumentContractMigration,
   type LegacyThinkForgeDocumentRecord,
@@ -9,7 +9,14 @@ import {
 config({ path: '.env.local' });
 
 const APPLY = process.argv.includes('--apply');
+const ROLLBACK = process.argv.includes('--rollback');
 const dbName = process.env.THINKFORGE_MONGODB_DB_NAME?.trim() || 'thinkforge_db';
+const BACKUP_COLLECTION = 'thinkforge_scripts_document_contract_v1_backup';
+type ThinkForgeDocumentBackupRecord = {
+  _id: ObjectId | string;
+  capturedAt: Date;
+  source: LegacyThinkForgeDocumentRecord & Record<string, unknown>;
+};
 const confirmedDatabase = process.argv
   .find((argument) => argument.startsWith('--confirm-db='))
   ?.slice('--confirm-db='.length);
@@ -17,14 +24,41 @@ const confirmedDatabase = process.argv
 async function main(): Promise<void> {
   const uri = process.env.MONGODB_URI?.trim();
   if (!uri) throw new Error('MONGODB_URI is required');
-  if (APPLY && confirmedDatabase !== dbName) {
-    throw new Error(`Apply mode requires --confirm-db=${dbName}`);
+  if (APPLY && ROLLBACK) throw new Error('Choose either --apply or --rollback');
+  if ((APPLY || ROLLBACK) && confirmedDatabase !== dbName) {
+    throw new Error(`Mutation mode requires --confirm-db=${dbName}`);
   }
 
   const client = new MongoClient(uri, { serverSelectionTimeoutMS: 15_000 });
   await client.connect();
   try {
     const database = client.db(dbName);
+    if (ROLLBACK) {
+      const backups = await database.collection<ThinkForgeDocumentBackupRecord>(BACKUP_COLLECTION).find({}).toArray();
+      if (backups.length === 0) throw new Error(`No rollback records found in ${BACKUP_COLLECTION}`);
+
+      const restoreResult = await database.collection<LegacyThinkForgeDocumentRecord>('thinkforge_scripts').bulkWrite(
+        backups.map((backup) => ({
+          replaceOne: {
+            filter: { _id: backup._id },
+            replacement: backup.source,
+            upsert: false,
+          },
+        })),
+        { ordered: false },
+      );
+      if (restoreResult.matchedCount !== backups.length) {
+        throw new Error(`Rollback matched ${restoreResult.matchedCount}/${backups.length} records`);
+      }
+      try {
+        await database.collection('thinkforge_scripts').dropIndex('uniq_active_thinkforge_document');
+      } catch (error) {
+        if (!(error instanceof MongoServerError) || error.code !== 27) throw error;
+      }
+      console.log(`Restored ${backups.length} ThinkForge documents from ${BACKUP_COLLECTION}.`);
+      return;
+    }
+
     const documents = await database.collection<LegacyThinkForgeDocumentRecord>('thinkforge_scripts')
       .find({}, {
         projection: {
@@ -56,6 +90,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({
       database: dbName,
       mode: APPLY ? 'apply' : 'dry-run',
+      backupCollection: BACKUP_COLLECTION,
       ...plan.summary,
       bySource: countBy(activeDecisions.map((decision) => decision.source)),
       byDocumentType: countBy(activeDecisions.map((decision) => decision.update.documentType)),
@@ -75,6 +110,30 @@ async function main(): Promise<void> {
     }
 
     const migratedAt = new Date();
+    await database.collection('thinkforge_scripts').aggregate([
+      {
+        $project: {
+          _id: 1,
+          capturedAt: { $literal: migratedAt },
+          source: '$$ROOT',
+        },
+      },
+      {
+        $merge: {
+          into: BACKUP_COLLECTION,
+          on: '_id',
+          whenMatched: 'keepExisting',
+          whenNotMatched: 'insert',
+        },
+      },
+    ]).toArray();
+    const backedUpCount = await database.collection<ThinkForgeDocumentBackupRecord>(BACKUP_COLLECTION).countDocuments({
+      _id: { $in: plan.decisions.map((decision) => decision.recordId) },
+    });
+    if (backedUpCount !== plan.summary.scanned) {
+      throw new Error(`Backup verification failed: ${backedUpCount}/${plan.summary.scanned} records`);
+    }
+
     if (plan.decisions.length > 0) {
       await database.collection<LegacyThinkForgeDocumentRecord>('thinkforge_scripts').bulkWrite(
         plan.decisions.map((decision) => ({
@@ -108,7 +167,9 @@ async function main(): Promise<void> {
     if (activeCount !== plan.summary.active || quarantinedCount !== plan.summary.quarantined) {
       throw new Error(`Verification mismatch: active=${activeCount}, quarantined=${quarantinedCount}`);
     }
-    console.log(`Applied and verified ${activeCount} active records; ${quarantinedCount} quarantined.`);
+    console.log(
+      `Applied and verified ${activeCount} active records; ${quarantinedCount} quarantined; ${backedUpCount} backed up.`,
+    );
   } finally {
     await client.close();
   }
