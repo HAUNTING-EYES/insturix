@@ -50,6 +50,7 @@ import {
   ScriptWriterAgent,
   ScriptWriterModelOutputSchema,
 } from '@/lib/thinkforge/agents/script-writer-agent';
+import { prepareThinkForgeProviderPromptDispatch } from '@/lib/thinkforge/privacy/provider-prompt-dispatch';
 
 describe('ThinkForge Gemini writing context cache helpers', () => {
   beforeEach(() => {
@@ -90,6 +91,36 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(instruction).toContain('Content type emerges from signals');
     expect(instruction).toContain('Follow the post writer contract.');
     expect(instruction).toContain('</thinkforge_writing_context_rules>');
+  });
+
+  it('redacts an allowed combined prompt without collapsing system and user fields', () => {
+    const dispatch = prepareThinkForgeProviderPromptDispatch({
+      route: {
+        provider: 'openrouter',
+        model: 'deepseek/deepseek-chat',
+        routePurpose: 'public_trend',
+        privacyClass: 'public',
+      },
+      systemInstruction: 'Contact name: Alex Sharma at alex@example.com.',
+      prompt: 'Call +1 415-555-0101 after the public trend check.',
+      fieldsSent: ['system', 'prompt'],
+      now: '2026-08-16T00:00:00.000Z',
+    });
+
+    expect(dispatch.systemInstruction).toContain('[REDACTED_PERSON]');
+    expect(dispatch.systemInstruction).toContain('[REDACTED_EMAIL]');
+    expect(dispatch.systemInstruction).not.toContain('[REDACTED_PHONE]');
+    expect(dispatch.systemInstruction).not.toContain('public trend check');
+    expect(dispatch.prompt).toContain('[REDACTED_PHONE]');
+    expect(dispatch.prompt).not.toContain('[REDACTED_EMAIL]');
+    expect(dispatch.prompt).not.toContain('Contact name:');
+    expect(dispatch.systemInstruction).not.toContain('415-555-0101');
+    expect(dispatch.prompt).not.toContain('alex@example.com');
+    expect(dispatch.audit).toMatchObject({
+      privacyClass: 'personal',
+      fieldsSent: ['system', 'prompt'],
+      redactionCount: 3,
+    });
   });
 
   it('retrieves bounded task-relevant sections when explicit caching is unavailable', () => {
@@ -194,6 +225,46 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
         abortSignal: controller.signal,
       }),
     ).rejects.toThrow('aborted before start');
+  });
+
+  it.each([
+    {
+      path: 'native generateContent',
+      run: () => generateWithWritingContextCache({
+        systemInstruction: 'Use the approved private writing contract.',
+        prompt: 'Write from an 11-year-old student record.',
+      }),
+    },
+    {
+      path: 'AI-SDK generateObject',
+      run: () => generateStructuredWithWritingContextCache({
+        systemInstruction: 'Use the approved private writing contract.',
+        prompt: 'Write from an 11-year-old student record.',
+        schema: z.object({ output: z.string() }),
+      }),
+    },
+  ])('blocks child data before any $path provider call', async ({ run }) => {
+    await expect(run()).rejects.toMatchObject({ name: 'ProviderPrivacyGateError' });
+
+    expect(sdkMocks.createCache).not.toHaveBeenCalled();
+    expect(sdkMocks.getCache).not.toHaveBeenCalled();
+    expect(sdkMocks.generateContent).not.toHaveBeenCalled();
+    expect(sdkMocks.generateObject).not.toHaveBeenCalled();
+
+    const event = sdkMocks.recordProviderCostEvent.mock.calls.at(-1)?.[0];
+    expect(event).toMatchObject({
+      status: 'failed',
+      operation: expect.stringContaining('privacy_blocked'),
+      units: { requestCount: 0 },
+      metadata: {
+        privacyClass: 'child_data',
+        privacyFieldsSent: [],
+        privacyBlockReason: 'child_data_requires_dpdp_review',
+        errorClass: 'ProviderPrivacyGateError',
+      },
+    });
+    expect(JSON.stringify(event)).not.toContain('11-year-old');
+    expect(JSON.stringify(event)).not.toContain('student record');
   });
 
   it('settles an active caller cancellation even when the structured provider stays pending', async () => {
@@ -338,6 +409,12 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     }
     expect(firstRequest?.prompt).toContain('<thinkforge_task_contract>\nFollow the post writer contract.');
     expect(secondRequest?.prompt).toContain('<thinkforge_task_contract>\nFollow the script writer contract.');
+    const generationEvent = sdkMocks.recordProviderCostEvent.mock.calls.at(-1)?.[0];
+    expect(generationEvent?.metadata).toMatchObject({
+      privacyClass: 'business_confidential',
+      privacyFieldsSent: ['cachedSystemInstruction', 'prompt'],
+    });
+    expect(JSON.stringify(generationEvent)).not.toContain('Follow the script writer contract.');
   });
 
   it('memoizes permanent cache rejection and sends bounded retrieved knowledge inline', async () => {
@@ -361,5 +438,11 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(generationRequest?.contents).toContain('<creative_content_knowledge_retrieval>');
     expect(generationRequest?.contents).not.toContain('<creative_content_knowledge>');
     expect(generationRequest?.contents.length).toBeLessThan(30_000);
+    const generationEvent = sdkMocks.recordProviderCostEvent.mock.calls.at(-1)?.[0];
+    expect(generationEvent?.metadata).toMatchObject({
+      privacyClass: 'business_confidential',
+      privacyFieldsSent: ['systemInstruction', 'contents'],
+    });
+    expect(JSON.stringify(generationEvent)).not.toContain('Follow the post writer contract.');
   });
 });

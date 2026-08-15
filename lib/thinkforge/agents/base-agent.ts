@@ -28,12 +28,12 @@ import {
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
 import {
-  assertProviderPromptAllowed,
   ProviderPrivacyGateError,
   type ProviderPrivacyAuditRecord,
   type ProviderPrivacyClass,
   type ProviderRoutePurpose,
 } from '@/lib/thinkforge/privacy/provider-privacy-gateway';
+import { prepareThinkForgeProviderPromptDispatch } from '@/lib/thinkforge/privacy/provider-prompt-dispatch';
 
 // Global constraints for SCRIPT agents — adapted by document type.
 // Technical docs (VFX briefs, budgets, shot lists) get strict mechanical constraints.
@@ -88,13 +88,6 @@ type ThinkForgeUsage = {
 };
 
 type ThinkForgeCostOperation = 'llm_stream' | 'llm_structured' | 'llm_structured_fallback';
-
-type ProviderPromptDispatch = {
-  systemInstruction: string;
-  prompt: string;
-  promptChars: number;
-  audit: ProviderPrivacyAuditRecord;
-};
 
 type AgentGenerationOverrides = Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>> & {
   seed?: number;
@@ -219,46 +212,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-function prepareProviderPromptDispatch(input: {
-  route: ThinkForgeProviderRoute;
-  systemInstruction: string;
-  prompt: string;
-}): ProviderPromptDispatch {
-  const boundary = createPrivacyEnvelopeBoundary(input.systemInstruction, input.prompt);
-  const combinedPrompt = `${input.systemInstruction}${boundary}${input.prompt}`;
-  const decision = assertProviderPromptAllowed({
-    provider: input.route.provider,
-    model: input.route.model,
-    routePurpose: input.route.routePurpose,
-    declaredPrivacyClass: input.route.privacyClass,
-    prompt: combinedPrompt,
-    fieldsSent: input.systemInstruction ? ['system', 'prompt'] : ['prompt'],
-  });
-  const boundaryIndex = decision.prompt.indexOf(boundary);
-  if (boundaryIndex < 0 || decision.prompt.indexOf(boundary, boundaryIndex + boundary.length) >= 0) {
-    throw new Error('Provider privacy gateway returned an invalid prompt envelope');
-  }
-
-  const systemInstruction = decision.prompt.slice(0, boundaryIndex);
-  const prompt = decision.prompt.slice(boundaryIndex + boundary.length);
-  return {
-    systemInstruction,
-    prompt,
-    promptChars: systemInstruction.length + prompt.length,
-    audit: decision.audit,
-  };
-}
-
-function createPrivacyEnvelopeBoundary(systemInstruction: string, prompt: string): string {
-  let suffix = 0;
-  let boundary = '';
-  do {
-    boundary = `\n<tf_privacy_boundary_${systemInstruction.length}_${prompt.length}_${suffix}>\n`;
-    suffix += 1;
-  } while (systemInstruction.includes(boundary) || prompt.includes(boundary));
-  return boundary;
 }
 
 /**
@@ -399,7 +352,7 @@ export abstract class BaseAgent {
     let providerCallStarted = false;
 
     try {
-      const dispatch = prepareProviderPromptDispatch({
+      const dispatch = prepareThinkForgeProviderPromptDispatch({
         route: this.providerRoute,
         systemInstruction,
         prompt,
@@ -567,7 +520,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
     let providerCallStarted = false;
 
     try {
-      const dispatch = prepareProviderPromptDispatch({
+      const dispatch = prepareThinkForgeProviderPromptDispatch({
         route: this.providerRoute,
         systemInstruction,
         prompt,
@@ -644,7 +597,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         let fallbackPromptChars: number | undefined;
         let fallbackProviderCallStarted = false;
         try {
-          const fallbackDispatch = prepareProviderPromptDispatch({
+          const fallbackDispatch = prepareThinkForgeProviderPromptDispatch({
             route: this.providerRoute,
             systemInstruction,
             prompt: fallbackPrompt,

@@ -9,6 +9,14 @@ import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
+import {
+  ProviderPrivacyGateError,
+  type ProviderPrivacyAuditRecord,
+} from '@/lib/thinkforge/privacy/provider-privacy-gateway';
+import {
+  prepareThinkForgeProviderPromptDispatch,
+  type ThinkForgeProviderPromptRoute,
+} from '@/lib/thinkforge/privacy/provider-prompt-dispatch';
 
 const CACHE_TTL_SECONDS = 1800;
 const CACHE_STORE_TIMEOUT_MS = 1_500;
@@ -72,8 +80,10 @@ const RETRIEVAL_STOP_WORDS = new Set([
 
 type GeminiWritingContextOperation =
   | 'context_cache_create'
+  | 'llm_completion_privacy_blocked'
   | 'llm_completion_cached_context'
   | 'llm_completion_inline_context'
+  | 'llm_structured_privacy_blocked'
   | 'llm_structured_cached_context'
   | 'llm_structured_inline_context';
 
@@ -93,12 +103,17 @@ async function recordThinkForgeWritingContextCost(input: {
   outputChars?: number;
   functionMs?: number;
   usage?: GeminiWritingContextUsage;
+  privacyAudit?: ProviderPrivacyAuditRecord;
+  providerRequestCount?: 0 | 1;
   error?: unknown;
 }) {
-  const estimatedInputTokens = estimateTokensFromChars(
-    sumOptional(input.userInputChars, input.systemInstructionChars),
-  );
-  const estimatedOutputTokens = estimateTokensFromChars(input.outputChars);
+  const requestCount = input.providerRequestCount ?? 1;
+  const estimatedInputTokens = requestCount > 0
+    ? estimateTokensFromChars(sumOptional(input.userInputChars, input.systemInstructionChars))
+    : undefined;
+  const estimatedOutputTokens = requestCount > 0
+    ? estimateTokensFromChars(input.outputChars)
+    : undefined;
 
   void recordProviderCostEvent({
     status: input.status,
@@ -109,15 +124,15 @@ async function recordThinkForgeWritingContextCost(input: {
     model: cleanGeminiModelName(input.modelName),
     operation: input.operation,
     units: {
-      requestCount: 1,
-      inputTokens: input.usage?.inputTokens ?? estimatedInputTokens,
-      outputTokens: input.usage?.outputTokens ?? estimatedOutputTokens,
-      totalTokens:
-        input.usage?.totalTokens ??
-        sumOptional(
+      requestCount,
+      inputTokens: requestCount > 0 ? input.usage?.inputTokens ?? estimatedInputTokens : undefined,
+      outputTokens: requestCount > 0 ? input.usage?.outputTokens ?? estimatedOutputTokens : undefined,
+      totalTokens: requestCount > 0
+        ? input.usage?.totalTokens ?? sumOptional(
           input.usage?.inputTokens ?? estimatedInputTokens,
           input.usage?.outputTokens ?? estimatedOutputTokens,
-        ),
+        )
+        : undefined,
       functionMs: input.functionMs,
     },
     metadata: {
@@ -126,6 +141,18 @@ async function recordThinkForgeWritingContextCost(input: {
       userInputChars: input.userInputChars,
       systemInstructionChars: input.systemInstructionChars,
       outputChars: input.outputChars,
+      privacyRoutePurpose: input.privacyAudit?.routePurpose,
+      privacyClass: input.privacyAudit?.privacyClass,
+      privacyFieldsSent: input.privacyAudit?.fieldsSent,
+      privacyDecisionAt: input.privacyAudit?.timestamp,
+      privacySourceFingerprint: input.privacyAudit?.sourcePromptFingerprint,
+      privacySentFingerprint: input.privacyAudit?.sentPromptFingerprint,
+      privacySourceChars: input.privacyAudit?.sourcePromptLength,
+      privacySentChars: input.privacyAudit?.sentPromptLength,
+      privacyRedactions: input.privacyAudit?.redactions,
+      privacyRedactionCount: input.privacyAudit?.redactionCount,
+      privacyRedactionCounts: input.privacyAudit?.redactionCounts,
+      privacyBlockReason: input.privacyAudit?.blockReason,
       errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
     },
   }).catch((error) => {
@@ -147,6 +174,43 @@ function readGeminiUsage(result: unknown): GeminiWritingContextUsage | undefined
 
 function cleanGeminiModelName(modelName: string): string {
   return modelName.replace(/^models\//, '');
+}
+
+function writingProviderRoute(modelName: string): ThinkForgeProviderPromptRoute {
+  return {
+    provider: 'gemini',
+    model: cleanGeminiModelName(modelName),
+    routePurpose: 'creative_authoring',
+    privacyClass: 'business_confidential',
+  };
+}
+
+function assertWritingPromptPreflight(
+  input: WritingContextGenerationInput,
+  modelName: string,
+  operation: 'llm_completion_privacy_blocked' | 'llm_structured_privacy_blocked',
+): void {
+  const startedAt = Date.now();
+  try {
+    prepareThinkForgeProviderPromptDispatch({
+      route: writingProviderRoute(modelName),
+      systemInstruction: input.systemInstruction?.trim() ?? '',
+      prompt: input.prompt,
+      fieldsSent: input.systemInstruction?.trim() ? ['systemInstruction', 'prompt'] : ['prompt'],
+    });
+  } catch (error) {
+    const privacyAudit = error instanceof ProviderPrivacyGateError ? error.audit : undefined;
+    recordThinkForgeWritingContextCost({
+      status: 'failed',
+      modelName,
+      operation,
+      functionMs: Date.now() - startedAt,
+      privacyAudit,
+      providerRequestCount: 0,
+      error,
+    });
+    throw error;
+  }
 }
 
 function estimateTokensFromChars(chars?: number): number | undefined {
@@ -653,6 +717,7 @@ export async function generateWithWritingContextCache(
   }
 
   const modelName = normalizeCacheModelName(input.modelName);
+  assertWritingPromptPreflight(input, modelName, 'llm_completion_privacy_blocked');
   const context = await resolveWritingContext(modelName, input.systemInstruction, input.prompt, input.abortSignal);
   const promptForGeneration = context.inlineKnowledgeContext
     ? `${context.inlineKnowledgeContext}\n\n${input.prompt}`
@@ -663,13 +728,32 @@ export async function generateWithWritingContextCache(
   const completionOperation = context.cacheName
     ? { operation: 'llm_completion_cached_context' as const }
     : { operation: 'llm_completion_inline_context' as const };
+  let privacyAudit: ProviderPrivacyAuditRecord | undefined;
+  let sentPromptChars: number | undefined;
+  let sentSystemInstructionChars: number | undefined;
+  let providerCallStarted = false;
 
   try {
+    const dispatch = prepareThinkForgeProviderPromptDispatch({
+      route: writingProviderRoute(modelName),
+      systemInstruction: context.systemInstruction,
+      prompt: promptForGeneration,
+      fieldsSent: context.cacheName
+        ? ['cachedSystemInstruction', 'contents']
+        : ['systemInstruction', 'contents'],
+    });
+    privacyAudit = dispatch.audit;
+    sentPromptChars = dispatch.prompt.length;
+    sentSystemInstructionChars = dispatch.systemInstruction.length;
+    if (context.cacheName && dispatch.systemInstruction !== context.systemInstruction) {
+      throw new Error('Provider privacy gateway cannot rewrite a cached system instruction');
+    }
+    providerCallStarted = true;
     const result = await client.models.generateContent({
       model: toRuntimeModelName(modelName),
-      contents: promptForGeneration,
+      contents: dispatch.prompt,
       config: {
-        ...(context.cacheName ? {} : { systemInstruction: context.systemInstruction }),
+        ...(context.cacheName ? {} : { systemInstruction: dispatch.systemInstruction }),
         temperature: input.temperature,
         maxOutputTokens: input.maxTokens,
         abortSignal: input.abortSignal,
@@ -682,22 +766,26 @@ export async function generateWithWritingContextCache(
       modelName,
       ...completionOperation,
       cacheStatus: context.cacheStatus,
-      userInputChars: promptForGeneration.length,
-      systemInstructionChars: context.systemInstruction.length,
+      userInputChars: sentPromptChars,
+      systemInstructionChars: sentSystemInstructionChars,
       outputChars: text.length,
       functionMs: Date.now() - startedAt,
       usage: readGeminiUsage(result),
+      privacyAudit,
     });
     return { text, cacheStatus: context.cacheStatus, modelName };
   } catch (error) {
+    const failedAudit = error instanceof ProviderPrivacyGateError ? error.audit : privacyAudit;
     recordThinkForgeWritingContextCost({
       status: 'failed',
       modelName,
       ...completionOperation,
       cacheStatus: context.cacheStatus,
-      userInputChars: promptForGeneration.length,
-      systemInstructionChars: context.systemInstruction.length,
+      userInputChars: sentPromptChars,
+      systemInstructionChars: sentSystemInstructionChars,
       functionMs: Date.now() - startedAt,
+      privacyAudit: failedAudit,
+      providerRequestCount: providerCallStarted ? 1 : 0,
       error,
     });
     throw error;
@@ -715,6 +803,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
   if (e2eFixture) return e2eFixture;
 
   const modelName = normalizeCacheModelName(input.modelName);
+  assertWritingPromptPreflight(input, modelName, 'llm_structured_privacy_blocked');
   const context = await resolveWritingContext(modelName, input.systemInstruction, input.prompt, input.abortSignal);
   const promptForGeneration = context.inlineKnowledgeContext
     ? `${context.inlineKnowledgeContext}\n\n${input.prompt}`
@@ -724,14 +813,33 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
     ? { operation: 'llm_structured_cached_context' as const }
     : { operation: 'llm_structured_inline_context' as const };
   const deadline = createStructuredGenerationDeadline(input.abortSignal);
+  let privacyAudit: ProviderPrivacyAuditRecord | undefined;
+  let sentPromptChars: number | undefined;
+  let sentSystemInstructionChars: number | undefined;
+  let providerCallStarted = false;
 
   try {
+    const dispatch = prepareThinkForgeProviderPromptDispatch({
+      route: writingProviderRoute(modelName),
+      systemInstruction: context.systemInstruction,
+      prompt: promptForGeneration,
+      fieldsSent: context.cacheName
+        ? ['cachedSystemInstruction', 'prompt']
+        : ['system', 'prompt'],
+    });
+    privacyAudit = dispatch.audit;
+    sentPromptChars = dispatch.prompt.length;
+    sentSystemInstructionChars = dispatch.systemInstruction.length;
+    if (context.cacheName && dispatch.systemInstruction !== context.systemInstruction) {
+      throw new Error('Provider privacy gateway cannot rewrite a cached system instruction');
+    }
+    providerCallStarted = true;
     const generation = await awaitStructuredGeneration(
       generateObject({
         model: createThinkForgeModel(toRuntimeModelName(modelName)),
         schema: input.schema,
-        prompt: promptForGeneration,
-        ...(context.cacheName ? {} : { system: context.systemInstruction }),
+        prompt: dispatch.prompt,
+        ...(context.cacheName ? {} : { system: dispatch.systemInstruction }),
         temperature: input.temperature,
         maxTokens: input.maxTokens,
         abortSignal: deadline.abortSignal,
@@ -747,11 +855,12 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       modelName,
       ...structuredOperation,
       cacheStatus: context.cacheStatus,
-      userInputChars: promptForGeneration.length,
-      systemInstructionChars: context.systemInstruction.length,
+      userInputChars: sentPromptChars,
+      systemInstructionChars: sentSystemInstructionChars,
       outputChars,
       functionMs: Date.now() - startedAt,
       usage: await readAiSdkUsage(generation.usage),
+      privacyAudit,
     });
     return {
       result: generation.object,
@@ -762,14 +871,17 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
     const failure = deadline.timedOut() && !deadline.abortedByCaller()
       ? structuredGenerationTimeoutError()
       : error;
+    const failedAudit = failure instanceof ProviderPrivacyGateError ? failure.audit : privacyAudit;
     recordThinkForgeWritingContextCost({
       status: 'failed',
       modelName,
       ...structuredOperation,
       cacheStatus: context.cacheStatus,
-      userInputChars: promptForGeneration.length,
-      systemInstructionChars: context.systemInstruction.length,
+      userInputChars: sentPromptChars,
+      systemInstructionChars: sentSystemInstructionChars,
       functionMs: Date.now() - startedAt,
+      privacyAudit: failedAudit,
+      providerRequestCount: providerCallStarted ? 1 : 0,
       error: failure,
     });
     throw failure;
