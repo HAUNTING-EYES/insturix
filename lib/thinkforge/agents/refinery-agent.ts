@@ -146,7 +146,11 @@ async function processUrl(
   for (const fact of atomicFacts) {
     try {
       const claimText = typeof fact.content.claim === 'string' ? fact.content.claim : fact.title;
-      const isDuplicate = await checkDuplicateBeforeSave(principal.userId, claimText, 'project');
+      const isDuplicate = await checkDuplicateBeforeSave({
+        principal,
+        scope: 'project',
+        sessionId,
+      }, claimText);
       if (isDuplicate) continue;
 
       const factEntry = await addGovernedDataBankEntry(principal, sessionId, {

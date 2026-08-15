@@ -11,8 +11,9 @@ import {
   claimDataBankEntryForEmbedding,
   completeDataBankEmbedding,
   failDataBankEmbedding,
-  updateDataBankEmbeddingStatus,
+  getAuthorizedDataBankEntriesByIds,
   DATA_BANK_EMBEDDING_METADATA_VERSION,
+  type AuthorizedDataBankEntriesByIdsOptions,
   type DataBankEntry,
   type DataBankMemoryScope,
   type DataBankPrincipal,
@@ -207,17 +208,25 @@ export function buildDataBankVectorFilter(input: {
   scope?: 'project' | 'global';
   brandId?: string;
   memoryScope?: DataBankMemoryScope;
+  sessionId?: string;
 }): string {
   const userId = input.userId.trim();
   if (!userId) throw new DataBankEmbeddingAuthorityError('Vector retrieval requires a user owner.');
   const orgId = input.orgId?.trim();
-  if (!input.scope && (input.memoryScope || input.brandId)) {
+  const sessionId = input.sessionId?.trim();
+  if (!input.scope && (input.memoryScope || input.brandId || sessionId)) {
     throw new DataBankEmbeddingAuthorityError('Vector memory authority requires an explicit data scope.');
   }
   if (input.scope === 'project' && input.memoryScope && input.memoryScope !== 'project') {
     throw new DataBankEmbeddingAuthorityError('Project vector retrieval requires project memory scope.');
   }
+  if (input.scope === 'project' && input.brandId?.trim()) {
+    throw new DataBankEmbeddingAuthorityError('Project vector retrieval cannot carry a brandId.');
+  }
   if (input.scope === 'global') {
+    if (sessionId) {
+      throw new DataBankEmbeddingAuthorityError('Global vector retrieval cannot carry a sessionId.');
+    }
     if (input.memoryScope !== 'brand' && input.memoryScope !== 'universal') {
       throw new DataBankEmbeddingAuthorityError('Global vector retrieval requires brand or universal memory scope.');
     }
@@ -245,6 +254,9 @@ export function buildDataBankVectorFilter(input: {
   }
   if (input.brandId?.trim()) {
     filterParts.push(`brandId = '${escapeVectorFilterValue(input.brandId.trim())}'`);
+  }
+  if (sessionId) {
+    filterParts.push(`sessionId = '${escapeVectorFilterValue(sessionId)}'`);
   }
   return filterParts.join(' AND ');
 }
@@ -291,46 +303,116 @@ function escapeVectorFilterValue(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-const DEDUP_THRESHOLD = 0.95;
+const DEDUP_CANDIDATE_LIMIT = 10;
+
+export type DataBankDedupContext =
+  | {
+    principal: DataBankPrincipal;
+    scope: 'project';
+    sessionId: string;
+  }
+  | {
+    principal: DataBankPrincipal;
+    scope: 'global';
+    memoryScope: 'brand';
+    brandId: string;
+  }
+  | {
+    principal: DataBankPrincipal;
+    scope: 'global';
+    memoryScope: 'universal';
+  };
 
 /**
- * Check if a fact is a near-duplicate of existing entries before saving.
- * Returns true if a semantically similar entry already exists.
- * If a duplicate is found, refreshes its updatedAt timestamp instead.
+ * Use vectors only to nominate duplicate candidates. Mongo re-authorizes each
+ * candidate, and deterministic normalized text equality owns the decision.
  */
 export async function checkDuplicateBeforeSave(
-  userId: string,
+  context: DataBankDedupContext,
   text: string,
-  scope?: 'project' | 'global',
 ): Promise<boolean> {
+  const normalizedText = normalizeDataBankDedupText(text);
+  if (!normalizedText) {
+    throw new DataBankEmbeddingAuthorityError('DataBank deduplication requires non-empty text.');
+  }
+  const authority = resolveDataBankDedupAuthority(context);
+
   try {
     const index = getVectorIndex();
-    
-    const filter = scope ? `userId = '${userId}' AND scope = '${scope}'` : `userId = '${userId}'`;
-    
     const results = await index.query({
       data: text,
-      topK: 1,
-      includeMetadata: true,
-      filter,
+      topK: DEDUP_CANDIDATE_LIMIT,
+      includeMetadata: false,
+      filter: authority.vectorFilter,
     });
+    const candidateIds = [...new Set(results.map((result) => result.id.toString()))];
+    if (candidateIds.length === 0) return false;
 
-    if (results.length > 0 && results[0].score >= DEDUP_THRESHOLD) {
-      await refreshEntryTimestamp(results[0].id.toString());
-      return true;
-    }
-    
-    return false;
+    const authorizedEntries = await getAuthorizedDataBankEntriesByIds(
+      candidateIds,
+      context.principal,
+      authority.mongoOptions,
+    );
+    return authorizedEntries.some((entry) => (
+      normalizeDataBankDedupText(canonicalDataBankDedupText(entry)) === normalizedText
+    ));
   } catch (err) {
     console.warn('[EmbeddingService] Dedup check failed, allowing save:', err);
     return false;
   }
 }
 
-async function refreshEntryTimestamp(entryId: string): Promise<void> {
-  try {
-    await updateDataBankEmbeddingStatus(entryId, 'success');
-  } catch {
-    // non-critical
+function resolveDataBankDedupAuthority(context: DataBankDedupContext): {
+  vectorFilter: string;
+  mongoOptions: AuthorizedDataBankEntriesByIdsOptions;
+} {
+  const principalFields = {
+    userId: context.principal.userId,
+    orgId: context.principal.orgId,
+  };
+  if (context.scope === 'project') {
+    const sessionId = context.sessionId.trim();
+    if (!sessionId) {
+      throw new DataBankEmbeddingAuthorityError('Project deduplication requires a sessionId.');
+    }
+    return {
+      vectorFilter: buildDataBankVectorFilter({
+        ...principalFields,
+        scope: 'project',
+        memoryScope: 'project',
+        sessionId,
+      }),
+      mongoOptions: { scope: 'project', memoryScope: 'project', sessionId },
+    };
   }
+
+  const brandId = context.memoryScope === 'brand' ? context.brandId.trim() : undefined;
+  return {
+    vectorFilter: buildDataBankVectorFilter({
+      ...principalFields,
+      scope: 'global',
+      memoryScope: context.memoryScope,
+      brandId,
+    }),
+    mongoOptions: {
+      scope: 'global',
+      memoryScope: context.memoryScope,
+      ...(brandId ? { brandId } : {}),
+    },
+  };
+}
+
+function canonicalDataBankDedupText(entry: DataBankEntry): string {
+  const content = entry.content as unknown;
+  if (content && typeof content === 'object' && !Array.isArray(content)) {
+    const fields = content as Partial<Record<'claim' | 'text' | 'summary', unknown>>;
+    for (const field of ['claim', 'text', 'summary'] as const) {
+      if (typeof fields[field] === 'string' && fields[field].trim()) return fields[field];
+    }
+  }
+  return entry.title;
+}
+
+function normalizeDataBankDedupText(value: string): string {
+  return value.normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
 }

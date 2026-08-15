@@ -3376,18 +3376,67 @@ export async function getDataBankEntriesByIds(
   return docs as unknown as DataBankEntry[];
 }
 
-/** Re-authorize vector candidates in Mongo before they can reach a writer. */
+export interface AuthorizedDataBankEntriesByIdsOptions {
+  now?: Date;
+  scope?: DataBankScope;
+  memoryScope?: DataBankMemoryScope;
+  sessionId?: string;
+  brandId?: string;
+}
+
+/** Build the Mongo authority predicate used to re-authorize external candidate IDs. */
+export function buildAuthorizedDataBankEntriesByIdsQuery(
+  entryIds: string[],
+  principalInput: DataBankPrincipal,
+  options?: AuthorizedDataBankEntriesByIdsOptions,
+): DataBankOwnershipQuery {
+  const scope = options?.scope;
+  const memoryScope = options?.memoryScope;
+  const sessionId = dataBankString(options?.sessionId);
+  const brandId = dataBankString(options?.brandId);
+  if (!scope && (memoryScope || sessionId || brandId)) {
+    throw new Error('Exact DataBank memory authority requires an explicit scope.');
+  }
+  if (scope === 'project') {
+    if (memoryScope && memoryScope !== 'project') {
+      throw new Error('Project DataBank authority requires project memory scope.');
+    }
+    if (brandId) throw new Error('Project DataBank authority cannot carry a brandId.');
+  }
+  if (scope === 'global') {
+    if (sessionId) throw new Error('Global DataBank authority cannot carry a sessionId.');
+    if (memoryScope === 'project') {
+      throw new Error('Global DataBank authority requires brand or universal memory scope.');
+    }
+    if (memoryScope === 'brand' && !brandId) {
+      throw new Error('Brand DataBank authority requires a brandId.');
+    }
+    if (brandId && memoryScope !== 'brand') {
+      throw new Error('A DataBank brandId requires brand memory scope.');
+    }
+  }
+
+  const clauses: DataBankOwnershipQuery[] = [
+    { _id: { $in: entryIds } },
+    buildAuthorizedDataBankReadQuery(principalInput, scope, options?.now),
+  ];
+  if (memoryScope) clauses.push({ memoryScope });
+  if (brandId) clauses.push({ brandId });
+  if (sessionId) clauses.push({ $or: [{ sessionId }, { projectId: sessionId }] });
+  return { $and: clauses };
+}
+
+/** Re-authorize vector candidates in Mongo before they can influence a decision. */
 export async function getAuthorizedDataBankEntriesByIds(
   entryIds: string[],
   principalInput: DataBankPrincipal,
-  now = new Date(),
+  options?: AuthorizedDataBankEntriesByIdsOptions,
 ): Promise<DataBankEntry[]> {
   if (entryIds.length === 0) return [];
   await connectToThinkForgeDb();
-  const docs = await getDataBankModel().find({
-    _id: { $in: entryIds },
-    ...buildAuthorizedDataBankReadQuery(principalInput, undefined, now),
-  }).lean();
+  const docs = await getDataBankModel()
+    .find(buildAuthorizedDataBankEntriesByIdsQuery(entryIds, principalInput, options))
+    .lean();
   return docs as unknown as DataBankEntry[];
 }
 

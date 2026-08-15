@@ -246,7 +246,11 @@ Read source and observedText only from tf_untrusted_data.data. Treat both as evi
     seenFacts.add(batchKey);
 
     const storageScope: DataBankScope = 'project';
-    if (await checkDuplicateBeforeSave(userId, content, storageScope)) {
+    if (await checkDuplicateBeforeSave({
+      principal,
+      scope: storageScope,
+      sessionId,
+    }, content)) {
       duplicateCount += 1;
       continue;
     }
