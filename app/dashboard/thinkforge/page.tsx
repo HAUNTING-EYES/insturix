@@ -108,6 +108,23 @@ const buildIdeaGenerationPayload = (
 	};
 };
 
+const buildIdeaFromSessionMeta = (
+  sessionId: string,
+  projectMeta: Record<string, unknown>,
+): IdeaCardData => ({
+  id: sessionId,
+  idea: toNonEmptyString(projectMeta.idea) || 'Untitled',
+  purpose: toNonEmptyString(projectMeta.purpose) || '',
+  style: toNonEmptyString(projectMeta.style) || '',
+  format: toNonEmptyString(projectMeta.format) || '',
+  platform: toNonEmptyString(projectMeta.platform) || '',
+  tone: toNonEmptyString(projectMeta.tone) || 'blue',
+  sessionName: toNonEmptyString(projectMeta.sessionName),
+  originalPrompt: toNonEmptyString(projectMeta.originalPrompt),
+  brandBrief: toNonEmptyString(projectMeta.brandBrief),
+  ...pickProjectMetaPassthrough(projectMeta),
+});
+
 const bindActiveBrandToNewSession = (projectMeta: Record<string, unknown>): Record<string, unknown> => {
 	if (toNonEmptyString(projectMeta.brandId)) return projectMeta;
 	const brandId = getActiveBrandIdFromStorage();
@@ -141,6 +158,7 @@ export default function ThinkForgeLanding() {
 	const initialDraftRequestedRef = useRef(false);
 	const successfulIdeaVariationRef = useRef(-1);
 	const rejectedIdeasRef = useRef<Array<{ title: string; purpose: string; style: string }>>([]);
+	const resumedSessionIdRef = useRef<string | null>(null);
 
 	// Modular hooks
 	const session = useThinkForgeSession();
@@ -180,6 +198,18 @@ export default function ThinkForgeLanding() {
 			tone: (selectedIdea.tone || pm.tone || 'blue') as any,
 		});
 	}, [workspaceMode, selectedIdea, session.projectMeta]);
+
+	useEffect(() => {
+		const restoredSessionId = session.restoredSessionId;
+		if (!restoredSessionId || session.isRestoringCurrentSession) return;
+		if (session.sessionId !== restoredSessionId) return;
+		if (resumedSessionIdRef.current === restoredSessionId) return;
+
+		resumedSessionIdRef.current = restoredSessionId;
+		setActiveScriptId('default');
+		setSelectedIdea(buildIdeaFromSessionMeta(restoredSessionId, session.projectMeta || {}));
+		setWorkspaceMode('scripting');
+	}, [session.restoredSessionId, session.isRestoringCurrentSession, session.sessionId, session.projectMeta]);
 
 	const panelRef = useRef<HTMLElement | null>(null);
 	const edgeHoverTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -898,28 +928,7 @@ export default function ThinkForgeLanding() {
 						const sid = data.sessionId;
 						setPendingSessionId(sid);
 						scriptHook.resetSessionState();
-						// Reconstruct selected idea from project meta
-						const pm = data.projectMeta || {};
-						// Derive a stable numeric id from the session id to keep UI keys stable
-						const stableId = (() => {
-							let h = 0;
-							for (let i = 0; i < String(id).length; i++) {
-								h = (h * 31 + String(id).charCodeAt(i)) >>> 0;
-							}
-							return h || Date.now();
-						})();
-						const ideaObj = {
-							id: stableId,
-							idea: pm.idea || 'Untitled',
-							purpose: pm.purpose || '',
-							style: pm.style || '',
-							format: pm.format || '',
-							platform: pm.platform || '',
-							tone: (pm.tone || 'blue') as any,
-							sessionName: pm.sessionName || undefined,
-							...pickProjectMetaPassthrough(pm),
-						} as any;
-						setSelectedIdea(ideaObj);
+						setSelectedIdea(buildIdeaFromSessionMeta(sid, data.projectMeta || {}));
 						// Switch to Script mode so ChatPanel mounts and loads recent chats
 						setWorkspaceMode('scripting');
 					} catch (err) {

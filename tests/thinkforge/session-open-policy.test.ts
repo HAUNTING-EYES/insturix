@@ -103,6 +103,10 @@ describe('ThinkForge session open policy', () => {
     expect(route).toContain('version: script.version');
     expect(sessionHook).toContain('setHydratedScriptSnapshot({');
     expect(sessionHook).toContain('hydrationAbortControllerRef.current?.abort()');
+    expect(sessionHook).toContain("allowCachedFallback: false");
+    expect(sessionHook).toContain('setRestoredSessionId(data.sessionId);');
+    expect(page).toContain('session.restoredSessionId');
+    expect(page).toContain('buildIdeaFromSessionMeta(restoredSessionId, session.projectMeta || {})');
     expect(scriptHook).toContain('consumedHydrationSnapshotsRef.current.has');
   });
 });

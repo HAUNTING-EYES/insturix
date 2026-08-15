@@ -48,6 +48,8 @@ export type HydratePayload = {
   sessionId?: string;
   scriptId?: string;
   projectMeta?: Record<string, any>;
+  /** Initial resume must prove the session against the server before reopening it. */
+  allowCachedFallback?: boolean;
 };
 
 export type HydrateResponse = {
@@ -115,27 +117,10 @@ export function useThinkForgeSession() {
   const [isHydrating, setIsHydrating] = useState(false);
   const [hydratedScriptSnapshot, setHydratedScriptSnapshot] = useState<HydratedScriptSnapshot | null>(null);
   const [hydratedChatSnapshot, setHydratedChatSnapshot] = useState<HydratedChatSnapshot | null>(null);
+  const [restoredSessionId, setRestoredSessionId] = useState<string | null>(null);
+  const [isRestoringCurrentSession, setIsRestoringCurrentSession] = useState(true);
   const hydrationRevisionRef = useRef(0);
   const hydrationAbortControllerRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    try {
-      const last = localStorage.getItem(LS_CURRENT_SESSION);
-      if (last) {
-        const cached = getLocal(last);
-        if (cached) {
-          setSessionId(last);
-          setPreferences(cached.preferences || {});
-          setProjectMeta(cached.projectMeta || {});
-          if (Array.isArray(cached.chat)) {
-            setHydratedChatSnapshot({ sessionId: last, threadId: 'default', messages: cached.chat });
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[useThinkForgeSession] Failed to recover session from localStorage:', err);
-    }
-  }, []);
 
   useEffect(() => () => {
     hydrationAbortControllerRef.current?.abort();
@@ -160,6 +145,7 @@ export function useThinkForgeSession() {
       setPreferences({});
       setProjectMeta({});
       setHydratedChatSnapshot(null);
+      setRestoredSessionId(null);
     }
 
     try {
@@ -244,7 +230,7 @@ export function useThinkForgeSession() {
         return null;
       }
       const sid = payload?.sessionId || localStorage.getItem(LS_CURRENT_SESSION) || null;
-      if (sid) {
+      if (sid && payload?.allowCachedFallback !== false) {
         const cached = getLocal(sid);
         if (cached) {
           setSessionId(sid);
@@ -264,6 +250,40 @@ export function useThinkForgeSession() {
     }
   }, [router]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreCurrentSession = async () => {
+      let lastSessionId: string | null = null;
+      try {
+        lastSessionId = localStorage.getItem(LS_CURRENT_SESSION)?.trim() || null;
+      } catch (error) {
+        console.error('[useThinkForgeSession] Failed to read the last session:', error);
+      }
+
+      try {
+        if (!lastSessionId) return;
+
+        const data = await hydrate({
+          sessionId: lastSessionId,
+          scriptId: 'default',
+          allowCachedFallback: false,
+        });
+
+        if (!cancelled && data?.sessionId === lastSessionId) {
+          setRestoredSessionId(data.sessionId);
+        }
+      } finally {
+        if (!cancelled) setIsRestoringCurrentSession(false);
+      }
+    };
+
+    void restoreCurrentSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrate]);
+
   const closeSession = useCallback(async () => {
     try {
       hydrationAbortControllerRef.current?.abort();
@@ -277,6 +297,7 @@ export function useThinkForgeSession() {
       setProjectMeta({});
       setHydratedScriptSnapshot(null);
       setHydratedChatSnapshot(null);
+      setRestoredSessionId(null);
       setIsHydrating(false);
     } catch (e) {
       console.error('[useThinkForgeSession] closeSession error:', e);
@@ -348,6 +369,8 @@ export function useThinkForgeSession() {
     hydratedScriptSnapshot,
     hydratedChatSnapshot,
     isHydrating,
+    restoredSessionId,
+    isRestoringCurrentSession,
     hydrate,
     closeSession,
     verifySession,
