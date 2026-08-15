@@ -20,6 +20,7 @@ import {
 import { preparePostMortemPlan } from './post-mortem-planner';
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
+const RECOVERY_STALE_MS = 2 * 60_000;
 
 export function isPostMortemWorkerConfigured(): boolean {
   const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
@@ -62,6 +63,31 @@ export async function dispatchPostMortemJob(job: PostMortemJobSnapshot): Promise
   });
   await postMortemJobStore.setQueueMessage(job.id, dispatched.messageId);
   return dispatched.messageId;
+}
+
+export async function recoverStalledPostMortemJobs(
+  limit = 25,
+  now = new Date(),
+): Promise<{ candidates: number; dispatched: number; failed: number }> {
+  if (!isPostMortemWorkerConfigured()) {
+    throw new Error('ThinkForge post-mortem worker is not configured.');
+  }
+  const boundedLimit = Math.max(1, Math.min(limit, 100));
+  const staleBefore = new Date(now.getTime() - RECOVERY_STALE_MS);
+  const candidates = await postMortemJobStore.listRecoverable(staleBefore, boundedLimit);
+  const results = await Promise.allSettled(candidates.map(async (job) => {
+    try {
+      await dispatchPostMortemJob(job);
+    } catch (error) {
+      await postMortemJobStore.markDispatchFailed(job.id, error);
+      throw error;
+    }
+  }));
+  return {
+    candidates: candidates.length,
+    dispatched: results.filter((result) => result.status === 'fulfilled').length,
+    failed: results.filter((result) => result.status === 'rejected').length,
+  };
 }
 
 export type ProcessPostMortemJobResult =

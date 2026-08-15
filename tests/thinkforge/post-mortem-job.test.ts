@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     createOrGet: vi.fn(),
     getAuthorized: vi.fn(),
     heartbeat: vi.fn(),
+    listRecoverable: vi.fn(),
     markDispatchFailed: vi.fn(),
     retryOrDeadLetter: vi.fn(),
     saveCheckpoint: vi.fn(),
@@ -80,6 +81,7 @@ describe('durable post-mortem job orchestration', () => {
     process.env.QSTASH_TOKEN = 'qstash_test';
     process.env.APP_ENV = 'development';
     mocks.store.heartbeat.mockResolvedValue(undefined);
+    mocks.store.listRecoverable.mockResolvedValue([]);
     mocks.store.saveCheckpoint.mockResolvedValue(undefined);
     mocks.store.saveResult.mockResolvedValue(undefined);
     mocks.store.complete.mockResolvedValue(undefined);
@@ -170,6 +172,42 @@ describe('durable post-mortem job orchestration', () => {
       sessionId: 'session_1',
       brandId: 'brand_1',
     }, {})).rejects.toThrow('qstash unavailable');
+    expect(mocks.store.markDispatchFailed).toHaveBeenCalledWith('postmortem_123', expect.any(Error));
+  });
+
+  it('redelivers stale jobs through the same fenced worker boundary', async () => {
+    const now = new Date('2026-08-16T12:00:00.000Z');
+    mocks.store.listRecoverable.mockResolvedValue([
+      job({ id: 'postmortem_123', status: 'queued' }),
+      job({ id: 'postmortem_456', status: 'running', leaseExpiresAt: '2026-08-16T11:50:00.000Z' }),
+    ]);
+    mocks.publishJSON
+      .mockResolvedValueOnce({ messageId: 'queue_1' })
+      .mockResolvedValueOnce({ messageId: 'queue_2' });
+    const { recoverStalledPostMortemJobs } = await import('@/lib/thinkforge/post-mortem/post-mortem-job');
+
+    await expect(recoverStalledPostMortemJobs(250, now)).resolves.toEqual({
+      candidates: 2,
+      dispatched: 2,
+      failed: 0,
+    });
+    expect(mocks.store.listRecoverable).toHaveBeenCalledWith(
+      new Date('2026-08-16T11:58:00.000Z'),
+      100,
+    );
+    expect(mocks.publishJSON).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps recovery failures visible and recoverable', async () => {
+    mocks.store.listRecoverable.mockResolvedValue([job({ status: 'queued' })]);
+    mocks.publishJSON.mockRejectedValue(new Error('queue unavailable'));
+    const { recoverStalledPostMortemJobs } = await import('@/lib/thinkforge/post-mortem/post-mortem-job');
+
+    await expect(recoverStalledPostMortemJobs()).resolves.toEqual({
+      candidates: 1,
+      dispatched: 0,
+      failed: 1,
+    });
     expect(mocks.store.markDispatchFailed).toHaveBeenCalledWith('postmortem_123', expect.any(Error));
   });
 });

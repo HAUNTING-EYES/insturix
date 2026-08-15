@@ -83,6 +83,10 @@
     {
       "path": "/api/cron/process-thinkforge-refinery",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/process-thinkforge-post-mortems",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
