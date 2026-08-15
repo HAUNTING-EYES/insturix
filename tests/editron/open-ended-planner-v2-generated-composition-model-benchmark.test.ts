@@ -15,7 +15,7 @@ const candidate = {
 };
 
 describe('open-ended planner V2 generated-composition model benchmark', () => {
-  it('freezes Luna, Terra, and the correct Gemini Flash route while recording Qwen policy honestly', async () => {
+  it('freezes Luna, Terra, Gemini Flash, and Qwen through their authorized routes', async () => {
     const first = await buildGeneratedCompositionModelBenchmarkPlanV1(API_HASH);
     const second = await buildGeneratedCompositionModelBenchmarkPlanV1(API_HASH);
     expect(first).toEqual(second);
@@ -23,11 +23,10 @@ describe('open-ended planner V2 generated-composition model benchmark', () => {
       ['OPENAI_LUNA', 'gpt-5.6-luna'],
       ['OPENAI_TERRA', 'gpt-5.6-terra'],
       ['GOOGLE_FLASH', 'gemini-3.6-flash'],
+      ['QWEN_3_8_MAX', 'qwen/qwen3.8-max'],
     ]);
-    expect(first.spend.absoluteMaxSpendUsd).toBe(4.5);
-    expect(first.exclusions).toContainEqual(expect.objectContaining({
-      routeId: 'QWEN_3_8_MAX', disposition: 'CREDENTIAL_CLASS_NOT_AUTHORIZED_FOR_AUTOMATED_HARNESS',
-    }));
+    expect(first.spend.absoluteMaxSpendUsd).toBe(6);
+    expect(first.exclusions).toEqual([]);
   });
 
   it('uses Google countTokens before the correctly named generation request', async () => {

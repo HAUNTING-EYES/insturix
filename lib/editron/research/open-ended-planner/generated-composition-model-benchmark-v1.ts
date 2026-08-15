@@ -6,8 +6,8 @@ import {
 import {
   estimateOfflineInputTokensUpperBoundV2,
   serializeGoogleCountTokensRequestV2,
-  type ProviderKindV2,
   type ProviderRouteV2,
+  type ProviderTransportKindV2,
   type SerializedProviderRequestV2,
 } from './provider-codecs-v2';
 import { runProviderStageV2, type ProviderPricingV2 } from './provider-transport-v2';
@@ -17,8 +17,8 @@ import type { HashedStagePacketV2 } from './staged-packet-v2';
 type FetchV2 = typeof fetch;
 
 export interface GeneratedCompositionBenchmarkRouteV1 {
-  routeId: 'OPENAI_LUNA' | 'OPENAI_TERRA' | 'GOOGLE_FLASH';
-  provider: ProviderKindV2;
+  routeId: 'OPENAI_LUNA' | 'OPENAI_TERRA' | 'GOOGLE_FLASH' | 'QWEN_3_8_MAX';
+  provider: ProviderTransportKindV2;
   requestModel: string;
   claimedBenchmarkIdentity: string;
   reasoningMode: string;
@@ -69,6 +69,19 @@ export interface GeneratedCompositionAssessmentFailureV1 {
 }
 
 const SELECTED_ROUTE_IDS = ['OPENAI_LUNA', 'OPENAI_TERRA', 'GOOGLE_FLASH'] as const;
+const QWEN_ROUTE: GeneratedCompositionBenchmarkRouteV1 = {
+  routeId: 'QWEN_3_8_MAX',
+  provider: 'openrouter',
+  requestModel: 'qwen/qwen3.8-max',
+  claimedBenchmarkIdentity: 'qwen/qwen3.8-max-20260803',
+  reasoningMode: 'high',
+  pricing: {
+    inputUsdPerMillion: 2,
+    cachedInputUsdPerMillion: 0.25,
+    cacheWriteUsdPerMillion: 2.5,
+    outputUsdPerMillion: 6,
+  },
+};
 
 export async function buildGeneratedCompositionModelBenchmarkPlanV1(
   apiImplementationHash: string,
@@ -76,11 +89,12 @@ export async function buildGeneratedCompositionModelBenchmarkPlanV1(
   const packet = buildDev02GeneratedCompositionModelPacketV1({ apiImplementationHash });
   const smokePlan = await buildDevelopmentSmokePreflightV2() as unknown as { routes: GeneratedCompositionBenchmarkRouteV1[] };
   const routeMap = new Map(smokePlan.routes.map((route) => [route.routeId, route]));
-  const routes = SELECTED_ROUTE_IDS.map((id) => {
+  const selectedRoutes = SELECTED_ROUTE_IDS.map((id) => {
     const route = routeMap.get(id);
     if (!route) throw new Error(`MODEL_BENCHMARK_ROUTE_MISSING:${id}`);
     return route;
   });
+  const routes = [...selectedRoutes, QWEN_ROUTE];
   const maximumUsdPerProviderRun = packet.packet.stageBudget.maxProviderCostUsd;
   const material = {
     planVersion: 'EDITRON_GENERATED_COMPOSITION_MODEL_BENCHMARK_PLAN_V1' as const,
@@ -94,12 +108,7 @@ export async function buildGeneratedCompositionModelBenchmarkPlanV1(
       maximumUsdPerProviderRun,
       absoluteMaxSpendUsd: Number((routes.length * 2 * maximumUsdPerProviderRun).toFixed(2)),
     },
-    exclusions: [{
-      routeId: 'QWEN_3_8_MAX',
-      disposition: 'CREDENTIAL_CLASS_NOT_AUTHORIZED_FOR_AUTOMATED_HARNESS',
-      reason: 'The supplied sk-sp Token Plan credential is restricted to interactive coding/agent tools; direct scripts and application backends are prohibited. Earlier qwen3.8-max diagnostic evidence remains separately valid.',
-      source: 'https://www.alibabacloud.com/help/en/model-studio/more-tools',
-    }],
+    exclusions: [],
   };
   return deepFreezeV1({ ...material, planHash: hashCanonicalJsonV1(material) });
 }

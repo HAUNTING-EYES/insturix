@@ -8,8 +8,8 @@ import {
   ProviderCodecErrorV2,
   serializeGoogleCountTokensRequestV2,
   serializeProviderRequestV2,
-  type ProviderKindV2,
   type ProviderRouteV2,
+  type ProviderTransportKindV2,
 } from '@/lib/editron/research/open-ended-planner/provider-codecs-v2';
 import {
   buildDevelopmentReferenceImageSequenceStageOnePacketV2,
@@ -19,7 +19,7 @@ import {
 
 describe('open-ended planner V2 provider codecs', () => {
   it('serializes the exact packet schema through each honest provider envelope', async () => {
-    for (const kind of ['openai', 'google', 'deepseek'] as const) {
+    for (const kind of ['openai', 'google', 'deepseek', 'openrouter'] as const) {
       const artifact = textPacket();
       const request = await serializeProviderRequestV2({
         route: route(kind), artifact, attempt: 1, outputBudget: { visible: 1200, reasoning: 1800 },
@@ -36,11 +36,18 @@ describe('open-ended planner V2 provider codecs', () => {
         const thinkingConfig = record(record(request.body.generationConfig).thinkingConfig);
         expect(thinkingConfig.thinkingLevel).toBe('medium');
         expect(thinkingConfig).not.toHaveProperty('thinkingBudget');
-      } else {
+      } else if (kind === 'deepseek') {
         expect(record(request.body.response_format).type).toBe('json_object');
         expect(request.body.max_tokens).toBe(3000);
         const prompt = record((request.body.messages as unknown[])[0]).content;
         expect(String(prompt)).toContain('ReferenceBlueprintV2');
+      } else {
+        expect(request.endpoint).toBe('https://openrouter.ai/api/v1/chat/completions');
+        expect(record(request.body.response_format).type).toBe('json_schema');
+        expect(record(record(request.body.response_format).json_schema).strict).toBe(true);
+        expect(record(record(request.body.response_format).json_schema).schema).toEqual(artifact.packet.outputContract);
+        expect(record(request.body.provider)).toEqual({ require_parameters: true, allow_fallbacks: false });
+        expect(request.body.max_tokens).toBe(3000);
       }
     }
   });
@@ -67,21 +74,25 @@ describe('open-ended planner V2 provider codecs', () => {
 
   it('pairs every ordered reference image with the same hash-bound timestamp label across providers', async () => {
     const artifact = buildDevelopmentReferenceImageSequenceStageOnePacketV2('DEV-02', 'BASELINE');
-    const [openAI, google] = await Promise.all((['openai', 'google'] as const).map((kind) =>
+    const [openAI, google, openRouter] = await Promise.all((['openai', 'google', 'openrouter'] as const).map((kind) =>
       serializeProviderRequestV2({
         route: route(kind), artifact, attempt: 1,
         outputBudget: { visible: 100, reasoning: 50 },
       })));
     const openAIContent = (openAI.body.input as Array<{ content: unknown[] }>)[0].content;
     const googleParts = record((google.body.contents as unknown[])[0]).parts as unknown[];
+    const openRouterContent = record((openRouter.body.messages as unknown[])[0]).content as unknown[];
 
     expect(openAIContent).toHaveLength(13);
     expect(googleParts).toHaveLength(13);
+    expect(openRouterContent).toHaveLength(13);
     for (let sequenceIndex = 0; sequenceIndex < 6; sequenceIndex += 1) {
       const openAILabel = JSON.parse(String(record(openAIContent[1 + sequenceIndex * 2]).text)) as Record<string, unknown>;
       const googleLabel = JSON.parse(String(record(googleParts[1 + sequenceIndex * 2]).text)) as Record<string, unknown>;
+      const openRouterLabel = JSON.parse(String(record(openRouterContent[1 + sequenceIndex * 2]).text)) as Record<string, unknown>;
       const attachment = artifact.transportAttachments[sequenceIndex];
       expect(openAILabel).toEqual(googleLabel);
+      expect(openAILabel).toEqual(openRouterLabel);
       expect(openAILabel).toMatchObject({
         sampleId: attachment.assetId,
         sequenceIndex,
@@ -96,6 +107,8 @@ describe('open-ended planner V2 provider codecs', () => {
       });
       expect(record(openAIContent[2 + sequenceIndex * 2]).type).toBe('input_image');
       expect(record(record(googleParts[2 + sequenceIndex * 2]).inlineData).mimeType).toBe('image/png');
+      expect(record(openRouterContent[2 + sequenceIndex * 2]).type).toBe('image_url');
+      expect(record(record(openRouterContent[2 + sequenceIndex * 2]).image_url).url).toMatch(/^data:image\/png;base64,/);
       expect(JSON.stringify(openAILabel)).not.toMatch(/five panels|black gutters|opposed/i);
     }
   });
@@ -209,6 +222,27 @@ describe('open-ended planner V2 provider codecs', () => {
     });
   });
 
+  it('preserves OpenRouter Qwen identity, cache, reasoning, and finish telemetry', () => {
+    const response = normalizeProviderResponseV2('openrouter', {
+      id: 'gen-qwen-1', model: 'qwen/qwen3.8-max-20260803', system_fingerprint: 'fp-qwen-1',
+      choices: [{ finish_reason: 'stop', message: { content: '{"artifactType":"ReferenceBlueprintV2"}' } }],
+      usage: {
+        prompt_tokens: 120, completion_tokens: 70, total_tokens: 190,
+        prompt_tokens_details: { cached_tokens: 20, cache_write_tokens: 10 },
+        completion_tokens_details: { reasoning_tokens: 45 },
+      },
+    });
+    expect(response).toMatchObject({
+      disposition: 'SUCCESS', providerRequestId: 'gen-qwen-1', providerModel: 'qwen/qwen3.8-max-20260803',
+      providerSystemFingerprint: 'fp-qwen-1', finishReason: 'stop', truncated: false,
+      text: '{"artifactType":"ReferenceBlueprintV2"}',
+      usage: {
+        inputTokens: 120, cachedInputTokens: 20, cacheWriteInputTokens: 10,
+        visibleOutputTokens: 25, reasoningTokens: 45, totalTokens: 190,
+      },
+    });
+  });
+
   it('derives zero Google thought tokens only when the provider totals reconcile exactly', () => {
     const exactZero = normalizeProviderResponseV2('google', {
       responseId: 'google-zero', modelVersion: 'gemini-3.5-flash-lite',
@@ -271,7 +305,7 @@ function mediaPacket(mimeType: string, bytes: Buffer): { artifact: HashedStagePa
   };
 }
 
-function route(kind: ProviderKindV2): ProviderRouteV2 {
+function route(kind: ProviderTransportKindV2): ProviderRouteV2 {
   return { kind, apiKey: 'test-key', model: `${kind}-test-model`, modelSnapshot: `${kind}-snapshot`, reasoningMode: 'medium' };
 }
 function record(value: unknown): Record<string, unknown> {

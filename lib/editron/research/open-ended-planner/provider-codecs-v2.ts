@@ -5,10 +5,11 @@ import { canonicalizeJsonV1, hashCanonicalJsonV1 } from './contracts-v1';
 import type { HashedStagePacketV2, ProviderTransportAttachmentV2 } from './staged-packet-v2';
 
 export type ProviderKindV2 = 'openai' | 'google' | 'deepseek';
+export type ProviderTransportKindV2 = ProviderKindV2 | 'openrouter';
 export type SchemaModeV2 = 'NATIVE_JSON_SCHEMA' | 'NATIVE_JSON_SCHEMA_NON_STRICT' | 'NATIVE_JSON_OBJECT';
 
 export interface ProviderRouteV2 {
-  kind: ProviderKindV2;
+  kind: ProviderTransportKindV2;
   apiKey: string;
   model: string;
   modelSnapshot: string;
@@ -67,10 +68,11 @@ interface LoadedMediaV2 {
   temporalReferenceLabel?: string;
 }
 
-const SUPPORTED_MEDIA: Record<ProviderKindV2, ReadonlySet<string>> = {
+const SUPPORTED_MEDIA: Record<ProviderTransportKindV2, ReadonlySet<string>> = {
   openai: new Set(['image/png', 'image/jpeg', 'image/webp']),
   google: new Set(['image/png', 'image/jpeg', 'image/webp', 'audio/wav', 'video/mp4']),
   deepseek: new Set(),
+  openrouter: new Set(['image/png', 'image/jpeg', 'image/webp']),
 };
 
 const OPENAI_LOCAL_TOKEN_OVERHEAD = 256;
@@ -85,7 +87,7 @@ export function estimateOfflineInputTokensUpperBoundV2(
     throw new ProviderCodecErrorV2('LOCAL_COUNTER_IMAGE_COUNT', 'Image count must be a non-negative safe integer');
   }
   const withoutInlineMedia = JSON.stringify(request.body, (key, value: unknown) =>
-    key === 'image_url' && typeof value === 'string' && value.startsWith('data:')
+    (key === 'image_url' || key === 'url') && typeof value === 'string' && value.startsWith('data:')
       ? '[HASH_BOUND_INLINE_IMAGE]'
       : value);
   return Buffer.byteLength(withoutInlineMedia, 'utf8')
@@ -155,7 +157,7 @@ export async function serializeProviderRequestV2(input: {
         thinkingConfig: { thinkingLevel: googleThinkingLevel(input.route.reasoningMode) },
       },
     };
-  } else {
+  } else if (input.route.kind === 'deepseek') {
     endpoint = 'https://api.deepseek.com/v1/chat/completions';
     headers = { Authorization: `Bearer ${input.route.apiKey}`, 'Content-Type': 'application/json' };
     schemaMode = 'NATIVE_JSON_OBJECT';
@@ -163,6 +165,31 @@ export async function serializeProviderRequestV2(input: {
       ...common, messages: [{ role: 'user', content: prompt }], max_tokens: maximumOutput,
       response_format: { type: 'json_object' }, thinking: { type: 'enabled' },
       reasoning_effort: input.route.reasoningMode,
+    };
+  } else {
+    endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+    headers = { Authorization: `Bearer ${input.route.apiKey}`, 'Content-Type': 'application/json' };
+    schemaMode = 'NATIVE_JSON_SCHEMA';
+    body = {
+      ...common,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          ...media.flatMap(openRouterMediaParts),
+        ],
+      }],
+      max_tokens: maximumOutput,
+      reasoning: { effort: input.route.reasoningMode, exclude: true },
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: schemaName(input.artifact),
+          strict: true,
+          schema: input.artifact.packet.outputContract,
+        },
+      },
+      provider: { require_parameters: true, allow_fallbacks: false },
     };
   }
   const frozenBody = Object.freeze(body);
@@ -204,12 +231,13 @@ export function serializeGoogleCountTokensRequestV2(input: {
 }
 
 export function normalizeProviderResponseV2(
-  kind: ProviderKindV2,
+  kind: ProviderTransportKindV2,
   body: Record<string, unknown>,
 ): NormalizedProviderResponseV2 {
   if (kind === 'openai') return normalizeOpenAI(body);
   if (kind === 'google') return normalizeGoogle(body);
-  return normalizeDeepSeek(body);
+  if (kind === 'deepseek') return normalizeDeepSeek(body);
+  return normalizeOpenRouter(body);
 }
 
 export function mapProviderHttpFailureV2(status: number): string {
@@ -297,9 +325,40 @@ function normalizeDeepSeek(body: Record<string, unknown>): NormalizedProviderRes
   };
 }
 
+function normalizeOpenRouter(body: Record<string, unknown>): NormalizedProviderResponseV2 {
+  const choices = Array.isArray(body.choices) ? body.choices : [];
+  const choice = record(choices[0]);
+  const message = record(choice.message);
+  const usage = record(body.usage);
+  const promptDetails = record(usage.prompt_tokens_details);
+  const completionDetails = record(usage.completion_tokens_details);
+  const completionTokens = count(usage.completion_tokens);
+  const reasoningTokens = count(completionDetails.reasoning_tokens);
+  const finishReason = string(choice.finish_reason);
+  const refused = finishReason === 'content_filter' || typeof message.refusal === 'string';
+  return {
+    disposition: refused ? 'PROVIDER_REFUSAL' : 'SUCCESS',
+    text: refused ? undefined : chatMessageText(message.content),
+    providerRequestId: string(body.id),
+    providerModel: string(body.model),
+    providerSystemFingerprint: string(body.system_fingerprint),
+    finishReason,
+    truncated: finishReason === undefined ? undefined : finishReason === 'length',
+    usage: compactUsage({
+      inputTokens: count(usage.prompt_tokens),
+      cachedInputTokens: count(promptDetails.cached_tokens),
+      cacheWriteInputTokens: count(promptDetails.cache_write_tokens),
+      visibleOutputTokens: subtract(completionTokens, reasoningTokens),
+      reasoningTokens,
+      totalTokens: count(usage.total_tokens),
+    }),
+    ...(refused ? { detail: string(message.refusal) ?? finishReason } : {}),
+  };
+}
+
 async function loadVerifiedMedia(
   artifact: HashedStagePacketV2,
-  kind: ProviderKindV2,
+  kind: ProviderTransportKindV2,
   reader: (path: string) => Promise<Uint8Array>,
 ): Promise<LoadedMediaV2[]> {
   if (artifact.packet.inputArm === 'TEXT_EVIDENCE_ONLY' && artifact.transportAttachments.length) {
@@ -377,6 +436,18 @@ function googleMediaParts(media: LoadedMediaV2): Array<Record<string, unknown>> 
   ];
 }
 
+function openRouterMediaParts(media: LoadedMediaV2): Array<Record<string, unknown>> {
+  return [
+    ...(media.temporalReferenceLabel
+      ? [{ type: 'text', text: media.temporalReferenceLabel }]
+      : []),
+    {
+      type: 'image_url',
+      image_url: { url: `data:${media.mimeType};base64,${media.base64}` },
+    },
+  ];
+}
+
 function schemaName(artifact: HashedStagePacketV2): string {
   return `editron_oe_stage_${artifact.packet.stage}_${artifact.packet.taskId}`.toLowerCase().replace(/[^a-z0-9_]/g, '_');
 }
@@ -387,6 +458,12 @@ function findOpenAIContent(output: unknown, type: string): string | undefined {
     if (record(part).type === type && typeof record(part).refusal === 'string') return record(part).refusal as string;
   }
   return undefined;
+}
+function chatMessageText(value: unknown): string | undefined {
+  if (typeof value === 'string') return value || undefined;
+  if (!Array.isArray(value)) return undefined;
+  const joined = value.map((part) => string(record(part).text) ?? '').join('');
+  return joined || undefined;
 }
 function compactUsage(value: ProviderUsageV2): ProviderUsageV2 {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as ProviderUsageV2;

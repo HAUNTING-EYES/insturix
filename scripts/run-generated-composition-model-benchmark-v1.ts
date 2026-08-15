@@ -234,7 +234,12 @@ async function persistAssessmentFailure(
   }));
 }
 function terminal(route: GeneratedCompositionBenchmarkRouteV1, outcome: string, calls: unknown[], repairsUsed: number, diagnostics: readonly string[]) { return { routeId: route.routeId, requestedModel: route.requestModel, outcome, repairsUsed, calls, diagnostics, stateEffects: [] }; }
-function providerKey(route: GeneratedCompositionBenchmarkRouteV1): string { return route.provider === 'openai' ? requiredEnv('OPENAI_API_KEY') : requiredEnv('GEMINI_API_KEY'); }
+function providerKey(route: GeneratedCompositionBenchmarkRouteV1): string {
+  if (route.provider === 'openai') return requiredEnv('OPENAI_API_KEY');
+  if (route.provider === 'google') return requiredEnv('GEMINI_API_KEY');
+  if (route.provider === 'openrouter') return requiredEnv('OPENROUTER_API_KEY');
+  throw new Error(`MODEL_BENCHMARK_PROVIDER_UNSUPPORTED:${route.provider}`);
+}
 function loadEnvironment(): void { loadEnv({ path: path.join(repoRoot, '.env.local'), override: false, quiet: true }); loadEnv({ path: path.join(repoRoot, '.env.local.vercel'), override: false, quiet: true }); const fresh = path.join(repoRoot, '.calibration-temp', 'vercel-sandbox-env.local'); if (existsSync(fresh)) { const value = parseEnv(readFileSync(fresh)).VERCEL_OIDC_TOKEN; if (value) process.env.VERCEL_OIDC_TOKEN = value; } }
 function value(args: string[], name: string): string { const index = args.indexOf(name); const result = index < 0 ? '' : args[index + 1] ?? ''; if (!result || result.startsWith('--')) throw new Error(`${name} is required`); return result; }
 function boundedOutput(raw: string): string { const output = path.resolve(raw); if (!output.endsWith('.json') || !(output === evidenceRoot || output.startsWith(evidenceRoot + path.sep))) throw new Error('MODEL_BENCHMARK_OUTPUT_OUTSIDE_EVIDENCE_ROOT'); return output; }
