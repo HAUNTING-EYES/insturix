@@ -27,9 +27,9 @@ export const maxDuration = 60;
 
 const SidecarSchema = z.object({
   action: z.enum(['deconstruct', 'storyboard', 'refine_voice', 'summon_specialist', 'detect_scope', 'discover_blueprint', 'initialize_blueprint']),
-  sessionId: z.string().min(1),
+  sessionId: z.string().trim().min(1),
   content: z.string().optional(),
-  scriptId: z.string().optional(),
+  scriptId: z.string().trim().min(1).optional(),
   specialistRequest: z.string().optional(),
   threadId: z.string().default('default'),
   artifacts: z.array(z.object({
@@ -81,22 +81,40 @@ export async function POST(req: Request) {
   if (action === 'discover_blueprint' && !actionContent) {
     return NextResponse.json({ error: 'No project description' }, { status: 400 });
   }
+  const requiresStoredDocument = action === 'refine_voice' && !actionContent;
+  if (requiresStoredDocument && !scriptId) {
+    return NextResponse.json({ error: 'Document identity is required' }, { status: 400 });
+  }
 
   let session: NonNullable<Awaited<ReturnType<typeof db.getSession>>>;
-  let script: Awaited<ReturnType<typeof db.getScript>>;
+  let script: Awaited<ReturnType<typeof db.getScript>> = null;
   try {
     const authorizedSession = await db.getSession(sessionId, userId, orgId);
     if (!authorizedSession) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
     session = authorizedSession;
-    script = await db.getScript(session._id, scriptId || undefined);
   } catch (error) {
     console.error('[ThinkForge Sidecar] Session authorization failed:', error);
     return NextResponse.json({ error: 'Failed to authorize session' }, { status: 500 });
   }
 
   const canonicalSessionId = session._id;
+  if (requiresStoredDocument) {
+    if (!scriptId) {
+      return NextResponse.json({ error: 'Document identity is required' }, { status: 400 });
+    }
+    try {
+      script = await db.getScript(canonicalSessionId, scriptId);
+    } catch (error) {
+      console.error('[ThinkForge Sidecar] Document load failed:', error);
+      return NextResponse.json({ error: 'Failed to load document' }, { status: 500 });
+    }
+    if (!script) {
+      return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+    }
+  }
+
   const scriptContent = script?.content || '';
   const draftContent = actionContent || scriptContent;
   if (action === 'refine_voice' && !draftContent.trim()) {
