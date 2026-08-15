@@ -1,0 +1,175 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+  commitPostMortemPlan: vi.fn(),
+  deleteSession: vi.fn(),
+  getSession: vi.fn(),
+  preparePostMortemPlan: vi.fn(),
+  publishJSON: vi.fn(),
+  store: {
+    claim: vi.fn(),
+    complete: vi.fn(),
+    createOrGet: vi.fn(),
+    getAuthorized: vi.fn(),
+    heartbeat: vi.fn(),
+    markDispatchFailed: vi.fn(),
+    retryOrDeadLetter: vi.fn(),
+    saveCheckpoint: vi.fn(),
+    saveResult: vi.fn(),
+    setQueueMessage: vi.fn(),
+  },
+}));
+
+vi.mock('@upstash/qstash', () => ({ Client: class { publishJSON = mocks.publishJSON; } }));
+vi.mock('@/lib/thinkforge/agents/post-mortem-agent', () => ({ commitPostMortemPlan: mocks.commitPostMortemPlan }));
+vi.mock('@/lib/thinkforge/services/db', () => ({ deleteSession: mocks.deleteSession, getSession: mocks.getSession }));
+vi.mock('@/lib/thinkforge/post-mortem/post-mortem-planner', () => ({ preparePostMortemPlan: mocks.preparePostMortemPlan }));
+vi.mock('@/lib/thinkforge/post-mortem/post-mortem-job-store', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/thinkforge/post-mortem/post-mortem-job-store')>();
+  return { ...original, postMortemJobStore: mocks.store };
+});
+
+const plan = {
+  version: 1,
+  userId: 'user_1',
+  orgId: 'org_1',
+  sessionId: 'session_1',
+  projectId: null,
+  brandId: 'brand_1',
+  projectTitle: null,
+  qualityScore: null,
+  userPublished: false,
+  sourceEvidenceFingerprint: 'a'.repeat(64),
+  sourceEventIds: [],
+  sourceEntryIds: [],
+  output: null,
+};
+const result = { summaryEntryId: null, lessonsExtracted: 0, eventsDeleted: 0, entriesDeleted: 0 };
+
+function job(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'postmortem_123',
+    version: 1,
+    dedupeKey: 'dedupe',
+    userId: 'user_1',
+    orgId: 'org_1',
+    input: {
+      userId: 'user_1', orgId: 'org_1', sessionId: 'session_1', brandId: 'brand_1',
+      deleteSessionOnCompletion: false,
+    },
+    status: 'running',
+    attemptCount: 1,
+    maxAttempts: 3,
+    leaseExpiresAt: '2026-08-16T11:00:00.000Z',
+    queueMessageId: null,
+    checkpoint: null,
+    checkpointHash: null,
+    result: null,
+    resultHash: null,
+    error: null,
+    createdAt: '2026-08-16T10:00:00.000Z',
+    updatedAt: '2026-08-16T10:00:00.000Z',
+    expiresAt: '2026-08-30T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+describe('durable post-mortem job orchestration', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.QSTASH_TOKEN = 'qstash_test';
+    process.env.APP_ENV = 'development';
+    mocks.store.heartbeat.mockResolvedValue(undefined);
+    mocks.store.saveCheckpoint.mockResolvedValue(undefined);
+    mocks.store.saveResult.mockResolvedValue(undefined);
+    mocks.store.complete.mockResolvedValue(undefined);
+    mocks.store.retryOrDeadLetter.mockResolvedValue('queued');
+    mocks.preparePostMortemPlan.mockResolvedValue(plan);
+    mocks.commitPostMortemPlan.mockResolvedValue(result);
+    mocks.store.getAuthorized.mockResolvedValue(job());
+    mocks.getSession.mockResolvedValue(null);
+  });
+
+  it('checkpoints model output and committed result before completion', async () => {
+    mocks.store.claim.mockResolvedValue({ kind: 'claimed', job: job(), leaseToken: 'lease_1' });
+    const { processPostMortemJob } = await import('@/lib/thinkforge/post-mortem/post-mortem-job');
+
+    await expect(processPostMortemJob('postmortem_123')).resolves.toEqual({ status: 'completed' });
+
+    expect(mocks.preparePostMortemPlan).toHaveBeenCalledTimes(1);
+    expect(mocks.store.saveCheckpoint).toHaveBeenCalledWith('postmortem_123', 'lease_1', plan);
+    expect(mocks.commitPostMortemPlan).toHaveBeenCalledWith(plan);
+    expect(mocks.store.saveResult).toHaveBeenCalledWith('postmortem_123', 'lease_1', result);
+    expect(mocks.store.saveResult.mock.invocationCallOrder[0]).toBeLessThan(mocks.store.complete.mock.invocationCallOrder[0]);
+  });
+
+  it('resumes from a committed result without another model call after a crash', async () => {
+    const committed = job({ result, resultHash: 'result_hash' });
+    mocks.store.claim.mockResolvedValue({ kind: 'claimed', job: committed, leaseToken: 'lease_2' });
+    mocks.store.getAuthorized.mockResolvedValue(job({
+      result,
+      resultHash: 'result_hash',
+      input: { ...committed.input, deleteSessionOnCompletion: true },
+    }));
+    const { processPostMortemJob } = await import('@/lib/thinkforge/post-mortem/post-mortem-job');
+
+    await expect(processPostMortemJob('postmortem_123')).resolves.toEqual({ status: 'completed' });
+
+    expect(mocks.preparePostMortemPlan).not.toHaveBeenCalled();
+    expect(mocks.commitPostMortemPlan).not.toHaveBeenCalled();
+    expect(mocks.deleteSession).not.toHaveBeenCalled();
+    expect(mocks.store.complete).toHaveBeenCalledWith('postmortem_123', 'lease_2');
+  });
+
+  it('deletes an owned session only after the committed result is durable', async () => {
+    const pending = job();
+    mocks.store.claim.mockResolvedValue({ kind: 'claimed', job: pending, leaseToken: 'lease_3' });
+    mocks.store.getAuthorized.mockResolvedValue(job({
+      input: { ...pending.input, deleteSessionOnCompletion: true },
+    }));
+    mocks.getSession.mockResolvedValue({ _id: 'session_1', userId: 'user_1', orgId: 'org_1' });
+    mocks.deleteSession.mockResolvedValue(true);
+    const { processPostMortemJob } = await import('@/lib/thinkforge/post-mortem/post-mortem-job');
+
+    await processPostMortemJob('postmortem_123');
+
+    expect(mocks.store.saveResult.mock.invocationCallOrder[0]).toBeLessThan(mocks.deleteSession.mock.invocationCallOrder[0]);
+    expect(mocks.deleteSession.mock.invocationCallOrder[0]).toBeLessThan(mocks.store.complete.mock.invocationCallOrder[0]);
+  });
+
+  it('requeues a failed attempt without swallowing the durable error state', async () => {
+    mocks.store.claim.mockResolvedValue({ kind: 'claimed', job: job(), leaseToken: 'lease_4' });
+    mocks.preparePostMortemPlan.mockRejectedValue(new Error('provider unavailable'));
+    const { processPostMortemJob } = await import('@/lib/thinkforge/post-mortem/post-mortem-job');
+
+    await expect(processPostMortemJob('postmortem_123')).resolves.toEqual({
+      status: 'queued', error: 'provider unavailable',
+    });
+    expect(mocks.store.retryOrDeadLetter).toHaveBeenCalledWith('postmortem_123', 'lease_4', expect.any(Error));
+    expect(mocks.store.complete).not.toHaveBeenCalled();
+  });
+
+  it('defers a duplicate delivery while another worker owns the lease', async () => {
+    mocks.store.claim.mockResolvedValue({ kind: 'skipped', reason: 'lease_held' });
+    const { processPostMortemJob } = await import('@/lib/thinkforge/post-mortem/post-mortem-job');
+
+    await expect(processPostMortemJob('postmortem_123')).resolves.toEqual({
+      status: 'deferred', reason: 'lease_held',
+    });
+    expect(mocks.preparePostMortemPlan).not.toHaveBeenCalled();
+  });
+
+  it('records dispatch failure while leaving the durable job recoverable', async () => {
+    mocks.store.createOrGet.mockResolvedValue({ job: job({ status: 'queued' }), created: true });
+    mocks.publishJSON.mockRejectedValue(new Error('qstash unavailable'));
+    const { enqueuePostMortemJob } = await import('@/lib/thinkforge/post-mortem/post-mortem-job');
+
+    await expect(enqueuePostMortemJob({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_1',
+      brandId: 'brand_1',
+    }, {})).rejects.toThrow('qstash unavailable');
+    expect(mocks.store.markDispatchFailed).toHaveBeenCalledWith('postmortem_123', expect.any(Error));
+  });
+});
