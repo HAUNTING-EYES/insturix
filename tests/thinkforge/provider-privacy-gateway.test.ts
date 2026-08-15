@@ -64,7 +64,132 @@ describe('provider privacy gateway', () => {
     expect(decision.prompt).not.toContain('alex@example.com');
     expect(decision.prompt).not.toContain('415-555-0101');
     expect(decision.audit.redactions).toEqual(['email', 'phone', 'contact_name']);
+    expect(decision.audit.redactionCount).toBe(3);
+    expect(decision.audit.redactionCounts).toEqual({ email: 1, phone: 1, contact_name: 1 });
     expect(JSON.stringify(decision.audit)).not.toContain('alex@example.com');
+  });
+
+  it('redacts labeled names, street addresses, DOB, and repeated identifiers with counted audit evidence', () => {
+    const rawPrompt = [
+      'Full name: Priya Nair;',
+      'email priya@example.com and backup priya.n@example.org;',
+      'phone +91 98765 43210;',
+      'DOB: 14/03/1990;',
+      'shipping address: 42 MG Road, Bengaluru 560001',
+    ].join(' ');
+    const decision = prepareProviderPromptForRoute({
+      provider: 'openrouter',
+      model: 'deepseek/deepseek-chat',
+      routePurpose: 'eval',
+      prompt: rawPrompt,
+      now: fixedNow,
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.audit.privacyClass).toBe('personal');
+    expect(decision.prompt).toContain('Full name: [REDACTED_PERSON]');
+    expect(decision.prompt).toContain('[REDACTED_EMAIL]');
+    expect(decision.prompt).toContain('[REDACTED_PHONE]');
+    expect(decision.prompt).toContain('DOB: [REDACTED_DOB]');
+    expect(decision.prompt).toContain('shipping address: [REDACTED_ADDRESS]');
+    expect(decision.audit.redactions).toEqual([
+      'email',
+      'phone',
+      'person_name',
+      'date_of_birth',
+      'street_address',
+    ]);
+    expect(decision.audit.redactionCount).toBe(6);
+    expect(decision.audit.redactionCounts).toEqual({
+      email: 2,
+      phone: 1,
+      person_name: 1,
+      date_of_birth: 1,
+      street_address: 1,
+    });
+    expect(JSON.stringify(decision.audit)).not.toContain('Priya');
+    expect(JSON.stringify(decision.audit)).not.toContain('Bengaluru');
+  });
+
+  it.each([
+    'DOB: 1990-03-14',
+    'date of birth is March 14, 1990',
+    'born on 14 March 1990',
+    'birth date: 03/14/90',
+  ])('redacts a common DOB form: %s', (prompt) => {
+    const decision = prepareProviderPromptForRoute({
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      routePurpose: 'public_trend',
+      prompt,
+      now: fixedNow,
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.audit.privacyClass).toBe('personal');
+    expect(decision.prompt).toMatch(/\[REDACTED_DOB\]/);
+    expect(decision.audit.redactionCounts).toEqual({ date_of_birth: 1 });
+  });
+
+  it('redacts an inline delivery address but preserves the surrounding instruction', () => {
+    const decision = prepareProviderPromptForRoute({
+      provider: 'openrouter',
+      model: 'deepseek/deepseek-chat',
+      routePurpose: 'eval',
+      prompt: 'Send the package to 221B Baker Street, London NW1 6XE for the product review.',
+      now: fixedNow,
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.prompt).toContain('Send the package to [REDACTED_ADDRESS]');
+    expect(decision.prompt).toContain('for the product review.');
+    expect(decision.prompt).not.toContain('Baker Street');
+    expect(decision.audit.redactionCounts).toEqual({ street_address: 1 });
+  });
+
+  it('redacts a labeled unit-style address without relying on US address structure', () => {
+    const decision = prepareProviderPromptForRoute({
+      provider: 'openrouter',
+      model: 'deepseek/deepseek-chat',
+      routePurpose: 'eval',
+      prompt: 'shipping address: Flat 12B, Tower 4, Prestige Lakeside, Varthur Road, Bengaluru 560087',
+      now: fixedNow,
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.prompt).toBe('shipping address: [REDACTED_ADDRESS]');
+    expect(decision.audit.redactionCounts).toEqual({ street_address: 1 });
+  });
+
+  it('does not classify ordinary business prose, street names, or campaign dates as personal data', () => {
+    const prompt = 'Address the retention issue for Main Street retailers, call out the roadmap, and launch on 03/14/2026.';
+    const decision = prepareProviderPromptForRoute({
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      routePurpose: 'eval',
+      prompt,
+      now: fixedNow,
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.audit.privacyClass).toBe('public');
+    expect(decision.prompt).toBe(prompt);
+    expect(decision.audit.redactionCount).toBe(0);
+  });
+
+  it('filters unsafe audit field labels instead of storing caller-provided sensitive values', () => {
+    const decision = prepareProviderPromptForRoute({
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      routePurpose: 'public_trend',
+      prompt: 'Find public coverage related to alex@example.com.',
+      fieldsSent: ['prompt', 'alex@example.com', ' Brand Vault value ', 'research.query', 'prompt'],
+      now: fixedNow,
+    });
+
+    expect(decision.audit.fieldsSent).toEqual(['prompt', 'research.query']);
+    expect(JSON.stringify(decision.audit)).not.toContain('alex@example.com');
+    expect(JSON.stringify(decision.audit)).not.toContain('Brand Vault value');
   });
 
   it('redacts personal identifiers from public search even on an approved provider', () => {
@@ -108,5 +233,35 @@ describe('provider privacy gateway', () => {
         now: fixedNow,
       }),
     ).toThrow(ProviderPrivacyGateError);
+  });
+
+  it('infers and blocks child data from an explicitly labeled DOB', () => {
+    const decision = prepareProviderPromptForRoute({
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      routePurpose: 'eval',
+      prompt: 'Participant DOB: 2012-05-12',
+      now: fixedNow,
+    });
+
+    expect(decision.allowed).toBe(false);
+    expect(decision.prompt).toBe('');
+    expect(decision.audit.privacyClass).toBe('child_data');
+    expect(decision.audit.blockReason).toBe('child_data_requires_dpdp_review');
+    expect(decision.audit.redactions).toEqual([]);
+  });
+
+  it('uses the exact reference date instead of treating every 18-year-old as child data', () => {
+    const decision = prepareProviderPromptForRoute({
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      routePurpose: 'public_trend',
+      prompt: 'Participant DOB: 2008-06-14',
+      now: fixedNow,
+    });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.audit.privacyClass).toBe('personal');
+    expect(decision.prompt).toBe('Participant DOB: [REDACTED_DOB]');
   });
 });

@@ -64,4 +64,24 @@ describe('ThinkForge provider route resolution', () => {
       }),
     ).toThrow(ProviderPrivacyGateError);
   });
+
+  it('does not permit OpenRouter for creative authoring even when the route is declared public', () => {
+    expect(() =>
+      resolveThinkForgeProviderRoute({
+        routePurpose: 'creative_authoring',
+        privacyClass: 'public',
+        preferredProvider: 'openrouter',
+      }),
+    ).toThrow(ProviderPrivacyGateError);
+  });
+
+  it('blocks child data on an approved provider before model creation', () => {
+    expect(() =>
+      resolveThinkForgeProviderRoute({
+        routePurpose: 'creative_authoring',
+        privacyClass: 'child_data',
+        preferredProvider: 'gemini',
+      }),
+    ).toThrow(ProviderPrivacyGateError);
+  });
 });
