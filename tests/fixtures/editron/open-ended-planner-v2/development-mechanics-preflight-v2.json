@@ -1,0 +1,404 @@
+{
+  "planVersion": "EDITRON_OE_V2_1_CONNECTED_MECHANICS_PREFLIGHT_V2",
+  "authority": "RESEARCH_ONLY_NO_PROVIDER_CALL_NO_PROJECT_MUTATION",
+  "evidenceAsOf": "2026-08-15",
+  "routeSourcePlanHash": "3ed68ec37187a45418146aed3dd5c7775038794a07f7af8feebd1ac8c2f7dda6",
+  "generatedCompositionSourcePlanHash": "2a5f2e97eff5a73e22e2bc7ebb485937361d7ef825afc9da270cd6a785babfa2",
+  "routes": [
+    {
+      "routeId": "OPENAI_LUNA",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "provider": "openai",
+      "requestModel": "gpt-5.6-luna",
+      "claimedBenchmarkIdentity": "gpt-5.6-luna",
+      "reasoningMode": "medium",
+      "billingDisposition": "METERED_USD"
+    },
+    {
+      "routeId": "OPENAI_TERRA",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "provider": "openai",
+      "requestModel": "gpt-5.6-terra",
+      "claimedBenchmarkIdentity": "gpt-5.6-terra",
+      "reasoningMode": "medium",
+      "billingDisposition": "METERED_USD"
+    },
+    {
+      "routeId": "GOOGLE_FLASH",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "provider": "google",
+      "requestModel": "gemini-3.7-flash",
+      "claimedBenchmarkIdentity": "gemini-3.7-flash",
+      "reasoningMode": "medium",
+      "billingDisposition": "METERED_USD"
+    },
+    {
+      "routeId": "QWEN_3_8_MAX",
+      "executionAdapter": "OPENCODE_AGENT_SHELL",
+      "provider": "alibaba-token-plan",
+      "requestModel": "qwen3.8-max",
+      "claimedBenchmarkIdentity": "qwen3.8-max",
+      "reasoningMode": "high",
+      "billingDisposition": "TOKEN_PLAN_CREDITS_NO_COMPARABLE_USD_TELEMETRY"
+    }
+  ],
+  "tasks": [
+    {
+      "taskId": "DEV-01",
+      "purpose": "MULTI_OPERATION_NATIVE_EDIT",
+      "expectedExecutionForm": "NATIVE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "stageOnePacketHash": "abb2809c226240e398c2e14487a79fa727fa872fee2792be4827d36a660d6945",
+      "stageReadiness": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_TASK_EVALUATOR_MISSING",
+        "STAGE_3_TASK_EVALUATOR_MISSING",
+        "STAGE_4_TASK_COMPILER_MISSING",
+        "STAGE_5_INPUT_MISSING",
+        "STAGE_6_NATIVE_PROXY_EXECUTOR_MISSING",
+        "STAGE_7_BLOCKED"
+      ]
+    },
+    {
+      "taskId": "DEV-02",
+      "purpose": "DIFFICULT_REFERENCE_HYBRID_EDIT",
+      "expectedExecutionForm": "HYBRID",
+      "inputArm": "REFERENCE_IMAGE_SEQUENCE_EVIDENCE",
+      "stageOnePacketHash": "03f7bda9f79d14b116f6a48f477d96e0e83dae73ac3b52e9cc785d5a0dbad939",
+      "stageReadiness": [
+        "STAGES_1_TO_3_DEV02_EVALUATORS_READY",
+        "STAGE_4_GENERATED_ISLAND_COMPILER_READY_FULL_HYBRID_BLOCKED",
+        "STAGE_5_GENERATED_ISLAND_GATE_READY_FULL_HYBRID_BLOCKED",
+        "STAGE_6_GENERATED_ISLAND_SANDBOX_READY_FULL_HYBRID_BLOCKED",
+        "STAGE_7_BLIND_PACK_READY_FINAL_REVIEW_RECEIPT_MISSING"
+      ]
+    },
+    {
+      "taskId": "DEV-03",
+      "purpose": "AUDIO_VIDEO_BEAT_AND_DIALOGUE_EDIT",
+      "expectedExecutionForm": "NATIVE",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "stageOnePacketHash": "6f8425e34e9f1f6990871beb70b6a47ddd1d97a170108a4c49d51e67aedc02e5",
+      "stageReadiness": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_TASK_EVALUATOR_MISSING",
+        "STAGE_3_TASK_EVALUATOR_MISSING",
+        "STAGE_4_TASK_COMPILER_MISSING",
+        "STAGE_5_INPUT_MISSING",
+        "STAGE_6_NATIVE_PROXY_EXECUTOR_MISSING",
+        "STAGE_7_BLOCKED"
+      ]
+    },
+    {
+      "taskId": "DEV-04",
+      "purpose": "HONEST_MOVING_MATTE_CAPABILITY_GAP",
+      "expectedExecutionForm": "CAPABILITY_GAP",
+      "inputArm": "TEXT_EVIDENCE_ONLY",
+      "stageOnePacketHash": "63fd44a717c8c0e28a8a5e415470c060ade0f48bbb2b290831e5bc93d906b9ed",
+      "stageReadiness": [
+        "STAGE_1_PACKET_READY",
+        "STAGE_2_TASK_EVALUATOR_MISSING",
+        "STAGE_3_TASK_EVALUATOR_MISSING",
+        "STAGE_4_TASK_COMPILER_MISSING",
+        "STAGE_5_TYPED_STOP_GATE_READY_WITHOUT_INPUT",
+        "STAGE_6_NOT_APPLICABLE_AFTER_HONEST_STOP",
+        "STAGE_7_NOT_APPLICABLE_AFTER_HONEST_STOP"
+      ]
+    }
+  ],
+  "matrix": [
+    {
+      "taskId": "DEV-01",
+      "routeId": "OPENAI_LUNA",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "abb2809c226240e398c2e14487a79fa727fa872fee2792be4827d36a660d6945",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "NATIVE_RESEARCH_PROXY_EXECUTOR_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-01",
+      "routeId": "OPENAI_TERRA",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "abb2809c226240e398c2e14487a79fa727fa872fee2792be4827d36a660d6945",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "NATIVE_RESEARCH_PROXY_EXECUTOR_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-01",
+      "routeId": "GOOGLE_FLASH",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "abb2809c226240e398c2e14487a79fa727fa872fee2792be4827d36a660d6945",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "NATIVE_RESEARCH_PROXY_EXECUTOR_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-01",
+      "routeId": "QWEN_3_8_MAX",
+      "executionAdapter": "OPENCODE_AGENT_SHELL",
+      "stageOnePacketHash": "abb2809c226240e398c2e14487a79fa727fa872fee2792be4827d36a660d6945",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "NATIVE_RESEARCH_PROXY_EXECUTOR_MISSING",
+        "SEPARATE_QWEN_AGENT_SHELL_RUNNER_REQUIRED",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-02",
+      "routeId": "OPENAI_LUNA",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "03f7bda9f79d14b116f6a48f477d96e0e83dae73ac3b52e9cc785d5a0dbad939",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "FULL_HYBRID_EXECUTOR_MISSING",
+        "FORMAL_STAGE_7_RECEIPT_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-02",
+      "routeId": "OPENAI_TERRA",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "03f7bda9f79d14b116f6a48f477d96e0e83dae73ac3b52e9cc785d5a0dbad939",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "FULL_HYBRID_EXECUTOR_MISSING",
+        "FORMAL_STAGE_7_RECEIPT_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-02",
+      "routeId": "GOOGLE_FLASH",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "03f7bda9f79d14b116f6a48f477d96e0e83dae73ac3b52e9cc785d5a0dbad939",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "FULL_HYBRID_EXECUTOR_MISSING",
+        "FORMAL_STAGE_7_RECEIPT_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-02",
+      "routeId": "QWEN_3_8_MAX",
+      "executionAdapter": "OPENCODE_AGENT_SHELL",
+      "stageOnePacketHash": "03f7bda9f79d14b116f6a48f477d96e0e83dae73ac3b52e9cc785d5a0dbad939",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "FULL_HYBRID_EXECUTOR_MISSING",
+        "FORMAL_STAGE_7_RECEIPT_MISSING",
+        "SEPARATE_QWEN_AGENT_SHELL_RUNNER_REQUIRED",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-03",
+      "routeId": "OPENAI_LUNA",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "6f8425e34e9f1f6990871beb70b6a47ddd1d97a170108a4c49d51e67aedc02e5",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "NATIVE_RESEARCH_PROXY_EXECUTOR_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-03",
+      "routeId": "OPENAI_TERRA",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "6f8425e34e9f1f6990871beb70b6a47ddd1d97a170108a4c49d51e67aedc02e5",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "NATIVE_RESEARCH_PROXY_EXECUTOR_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-03",
+      "routeId": "GOOGLE_FLASH",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "6f8425e34e9f1f6990871beb70b6a47ddd1d97a170108a4c49d51e67aedc02e5",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "NATIVE_RESEARCH_PROXY_EXECUTOR_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-03",
+      "routeId": "QWEN_3_8_MAX",
+      "executionAdapter": "OPENCODE_AGENT_SHELL",
+      "stageOnePacketHash": "6f8425e34e9f1f6990871beb70b6a47ddd1d97a170108a4c49d51e67aedc02e5",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "NATIVE_RESEARCH_PROXY_EXECUTOR_MISSING",
+        "SEPARATE_QWEN_AGENT_SHELL_RUNNER_REQUIRED",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-04",
+      "routeId": "OPENAI_LUNA",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "63fd44a717c8c0e28a8a5e415470c060ade0f48bbb2b290831e5bc93d906b9ed",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-04",
+      "routeId": "OPENAI_TERRA",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "63fd44a717c8c0e28a8a5e415470c060ade0f48bbb2b290831e5bc93d906b9ed",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-04",
+      "routeId": "GOOGLE_FLASH",
+      "executionAdapter": "DIRECT_PROVIDER",
+      "stageOnePacketHash": "63fd44a717c8c0e28a8a5e415470c060ade0f48bbb2b290831e5bc93d906b9ed",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    },
+    {
+      "taskId": "DEV-04",
+      "routeId": "QWEN_3_8_MAX",
+      "executionAdapter": "OPENCODE_AGENT_SHELL",
+      "stageOnePacketHash": "63fd44a717c8c0e28a8a5e415470c060ade0f48bbb2b290831e5bc93d906b9ed",
+      "dispatchStatus": "BLOCKED_ON_CONNECTED_MECHANICS_PRECONDITIONS",
+      "blockers": [
+        "TASK_SPECIFIC_STAGE_2_TO_4_EVALUATOR_CHAIN_MISSING",
+        "SEPARATE_QWEN_AGENT_SHELL_RUNNER_REQUIRED",
+        "EXACT_OPERATOR_CONFIRMATION_NOT_YET_REQUESTABLE"
+      ]
+    }
+  ],
+  "executionArchitecture": {
+    "modelStages": [
+      {
+        "stage": 1,
+        "owner": "MODEL_CHALLENGER",
+        "result": "ReferenceBlueprintV2"
+      },
+      {
+        "stage": 2,
+        "owner": "MODEL_CHALLENGER",
+        "result": "EditorialIntentGraphV2"
+      },
+      {
+        "stage": 3,
+        "owner": "MODEL_CHALLENGER",
+        "result": "EvidenceBoundIntentGraphV2"
+      }
+    ],
+    "deterministicStages": [
+      {
+        "stage": 4,
+        "owner": "DETERMINISTIC_COMPILER_AND_VERIFIER",
+        "result": "CompiledOperationGraphV2"
+      },
+      {
+        "stage": 5,
+        "owner": "DETERMINISTIC_PROCEED_STOP_GATE",
+        "result": "ProceedOrStopDecisionV2"
+      },
+      {
+        "stage": 6,
+        "owner": "BOUNDED_RESEARCH_PROXY_OR_NO_EXECUTION",
+        "result": "RenderedProxyEvidenceOrTypedStop"
+      },
+      {
+        "stage": 7,
+        "owner": "REAL_MODEL_BLIND_HUMAN_REVIEW",
+        "result": "HumanReviewReceiptV2"
+      }
+    ],
+    "rule": "A model proposes observable targets and editorial topology; it does not author exact ports, revisions, policies, proof bindings, or graph validity."
+  },
+  "budgetCorrection": {
+    "supersededV2ZeroWholeTrialProviderCostUsd": 0.67,
+    "supersessionReason": "The frozen V2-0 whole-trial ceiling predates the later fair per-stage budgets and cannot cover current Stages 1-3.",
+    "providerStageBudgets": [
+      {
+        "stage": 1,
+        "maxInputTokens": 30000,
+        "maxVisibleOutputTokens": 10000,
+        "maxReasoningTokens": 3000,
+        "maxWallClockMs": 90000,
+        "maxProviderCostUsd": 0.35
+      },
+      {
+        "stage": 2,
+        "maxInputTokens": 50000,
+        "maxVisibleOutputTokens": 4000,
+        "maxReasoningTokens": 5000,
+        "maxWallClockMs": 40000,
+        "maxProviderCostUsd": 0.3
+      },
+      {
+        "stage": 3,
+        "maxInputTokens": 32000,
+        "maxVisibleOutputTokens": 2400,
+        "maxReasoningTokens": 3000,
+        "maxWallClockMs": 45000,
+        "maxProviderCostUsd": 0.2
+      }
+    ],
+    "maximumPlanningUsdPerDirectTask": 0.85,
+    "maximumDirectPlanningSpendUsd": 10.2,
+    "maximumGeneratedSourceSpendUsd": 4.5,
+    "maximumCombinedDirectSpendUsd": 14.7,
+    "qwenBillingDisposition": "TOKEN_PLAN_CREDITS_NO_COMPARABLE_USD_TELEMETRY",
+    "qwenUsdComparison": null
+  },
+  "existingEvidenceDisposition": {
+    "dev02GeneratedCompositionRepeatability": "PRESERVED_MODIFY_2_OF_3_LUNA_2_OF_3_TERRA_1_OF_3_QWEN",
+    "reuseRule": "Existing receipts remain evidence, but they may enter a connected chain only when every upstream packet and artifact binding matches exactly.",
+    "productionMutationAuthorized": false
+  },
+  "nextImplementationOrder": [
+    "DEV-04_CAPABILITY_GAP_STOP_CHAIN",
+    "DEV-01_NATIVE_MULTI_OPERATION_PROXY_CHAIN",
+    "DEV-03_AUDIO_VIDEO_NATIVE_PROXY_CHAIN",
+    "DEV-02_FULL_HYBRID_CHAIN_AND_FORMAL_STAGE_7"
+  ],
+  "operatorConfirmationGate": {
+    "status": "NOT_REQUESTABLE_UNTIL_CONNECTED_EVALUATORS_AND_EXECUTORS_PASS",
+    "requiredEchoFieldsLater": [
+      "planHash",
+      "maximumCombinedDirectSpendUsd",
+      "operatorId",
+      "confirmedAt"
+    ],
+    "appliesBefore": "ANY_NEW_PROVIDER_NETWORK_CALL"
+  },
+  "stateEffects": [],
+  "planHash": "19ece98a4ec54f85029a5be926ae858c45fdb9d9f618d4dd96122ab20764c87c"
+}
