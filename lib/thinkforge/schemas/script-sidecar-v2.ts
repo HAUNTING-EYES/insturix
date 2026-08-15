@@ -8,6 +8,10 @@ export const SCRIPT_RENDER_PLAN_VERSION = 1 as const;
 const IdentifierSchema = z.string().min(1);
 const NonEmptyTextSchema = z.string().min(1);
 const SourceRefsSchema = z.array(IdentifierSchema).default([]);
+const LanguageCodeSchema = z.string().regex(
+  /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/,
+  'languageCode must be a lowercase ISO 639 language with optional BCP 47 subtags',
+);
 
 function addContractIssue(
   ctx: z.RefinementCtx,
@@ -28,6 +32,7 @@ export const NarrativeLineV2Schema = z.object({
   // Structural reads preserve historic empty V1 lines; editorial quality is a later gate.
   text: z.string(),
   speakerId: IdentifierSchema.optional(),
+  languageCode: LanguageCodeSchema.optional(),
   onCamera: z.boolean().default(false),
   delivery: z.enum(LINE_DELIVERIES),
   sourceRefs: SourceRefsSchema,

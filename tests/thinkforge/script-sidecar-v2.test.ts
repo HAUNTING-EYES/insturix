@@ -111,6 +111,7 @@ function v2Sidecar() {
             id: 'line_1',
             text,
             speakerId: 'host',
+            languageCode: 'en',
             onCamera: true,
             delivery: 'sync-dialogue',
             sourceRefs: ['ref_1'],
@@ -286,6 +287,7 @@ describe('Script Sidecar V2 narrative contract', () => {
                 id: 'line_1',
                 text: 'First spoken line.',
                 speakerId: 'host',
+                languageCode: 'en',
                 onCamera: false,
                 delivery: 'voiceover',
                 sourceRefs: ['ref_1'],
@@ -301,6 +303,7 @@ describe('Script Sidecar V2 narrative contract', () => {
                 id: 'line_3',
                 text: 'Second spoken line.',
                 speakerId: 'host',
+                languageCode: 'en',
                 onCamera: false,
                 delivery: 'voiceover',
                 sourceRefs: [],
@@ -314,6 +317,28 @@ describe('Script Sidecar V2 narrative contract', () => {
 
     expect(getCanonicalBeatSpokenText(parsed.acts[0]!.narrativeScenes[0]!.beats[0]!))
       .toBe('First spoken line. Second spoken line.');
+  });
+
+  it('preserves per-line language identity without forcing one global voice language', () => {
+    const input = v2Sidecar();
+    const beat = input.acts[0]!.narrativeScenes[0]!.beats[0]!;
+    beat.lines.push({
+      id: 'line_2',
+      text: 'Ahora seguimos en espanol.',
+      speakerId: 'host',
+      languageCode: 'es-MX',
+      onCamera: true,
+      delivery: 'sync-dialogue',
+      sourceRefs: [],
+    });
+
+    const parsed = parseScriptSidecarV2(input);
+
+    expect(parsed.acts[0]?.narrativeScenes[0]?.beats[0]?.lines.map((line) => line.languageCode))
+      .toEqual(['en', 'es-MX']);
+
+    beat.lines[1]!.languageCode = 'English';
+    expect(() => parseScriptSidecarV2(input)).toThrow(/languageCode/);
   });
 
   it('rejects broken scene, beat, line, and offset references in render segments', () => {
