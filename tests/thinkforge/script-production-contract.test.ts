@@ -13,6 +13,7 @@ import {
   assertUsableScriptWriterResult,
   materializeScriptWriterResult,
   resolveScriptRuntimeContract,
+  resolveScriptRuntimeWritingPlan,
   ScriptWriterAgent,
   type ScriptWriterModelOutput,
 } from '@/lib/thinkforge/agents/script-writer-agent';
@@ -179,6 +180,15 @@ describe('ThinkForge script production contract', () => {
     });
   });
 
+  it('derives an actionable server-owned narration allocation for seven minutes', () => {
+    expect(resolveScriptRuntimeWritingPlan(sevenMinuteBrief())).toEqual({
+      targetSceneCount: 10,
+      targetWordsPerScene: 95,
+      minimumWordsPerScene: 67,
+      maximumWordsPerScene: 115,
+    });
+  });
+
   it('sends the seven-minute contract with a duration-aware output budget', async () => {
     const previousKey = process.env.GEMINI_API_KEY;
     process.env.GEMINI_API_KEY = 'test-key';
@@ -197,6 +207,8 @@ describe('ThinkForge script production contract', () => {
           prompt: expect.stringContaining('"targetDurationSeconds": 420'),
         }),
       );
+      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).toContain('"runtimePlan": {');
+      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).toContain('"targetWordsPerScene": 95');
     } finally {
       if (previousKey === undefined) delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = previousKey;

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import {
   resolveCompletedGenerationDelivery,
+  resolveThinkForgeGenerationFailureMessage,
   shouldProbeThinkForgeGeneration,
   shouldScheduleThinkForgeGenerationPolling,
 } from "@/lib/thinkforge/client-generation-lifecycle";
@@ -371,6 +372,46 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         });
       };
 
+      const finishWithServerFailure = (error: unknown) => {
+        if (!ownsLiveStream()) return;
+
+        const failureMessage = resolveThinkForgeGenerationFailureMessage(error);
+        doneReceivedRef.current = true;
+        assistantContent = failureMessage;
+        pendingDelta = '';
+        generationIdRef.current = null;
+        setCurrentIntent(null);
+        intentRef.current = null;
+        setGenerationProgress(null);
+        setGenerationMessage(null);
+        if (rafFlushRef.current) {
+          cancelAnimationFrame(rafFlushRef.current);
+          rafFlushRef.current = null;
+        }
+
+        setMessages(prev => {
+          const updated = prev.map(message => message.id === assistantId
+            ? { ...message, content: failureMessage, streaming: false, thinking: undefined }
+            : message);
+          if (sessionId && threadId) {
+            saveLocal(sessionId, threadId, { chat: updated });
+          }
+          return updated;
+        });
+        toast({
+          title: 'Generation failed',
+          description: failureMessage,
+          variant: 'destructive',
+        });
+
+        activeStreamGenerationIdRef.current = null;
+        setIsStreaming(false);
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          controller.abort();
+        }
+      };
+
       const applyEventPayload = (data: any, eventId?: number | null) => {
         if (!ownsLiveStream()) return;
         if (typeof eventId === 'number') {
@@ -417,6 +458,8 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
           resolvedScriptId = data.scriptId;
           const notifyScriptCreated = options?.onScriptCreated || optionsRef.current?.onScriptCreated;
           notifyScriptCreated?.(data.scriptId);
+        } else if (data?.type === 'error') {
+          finishWithServerFailure(data?.error);
         } else if (data?.type === 'done') {
           doneReceivedRef.current = true;
           generationIdRef.current = null;
@@ -528,7 +571,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       const errorMsg: ChatMessage = {
         id: assistantId,
         role: 'assistant',
-        content: '[Error fetching response]',
+        content: resolveThinkForgeGenerationFailureMessage(e?.message),
         timestamp: new Date(),
       };
       setMessages(prev => prev.map(m => m.id === assistantId ? errorMsg : m));
@@ -664,9 +707,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         setGenerationMessage(null);
 
         const failureId = `generation-failed:${gen.id}`;
-        const failureMessage = typeof gen.message === 'string' && gen.message.trim()
-          ? gen.message.trim()
-          : 'Generation failed before content could be saved. Please try again.';
+        const failureMessage = resolveThinkForgeGenerationFailureMessage(gen.message);
         const generationLabel = gen.type === 'script_edit' ? 'script revision' : 'script';
 
         setMessages(prev => {

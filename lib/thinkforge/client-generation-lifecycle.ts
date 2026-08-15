@@ -10,10 +10,28 @@ export type ThinkForgeCompletedGenerationDelivery =
   | { type: 'switch_document'; scriptId: string }
   | { type: 'missing_document' };
 
+const RUNTIME_CONTRACT_FAILURE_PATTERN = /\b(?:runtime_duration_mismatch|spoken_word_count_mismatch)\b/i;
+const TIMEOUT_FAILURE_PATTERN = /\b(?:timed out|timeout)\b/i;
+
 function readNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0
     ? value.trim()
     : null;
+}
+
+/** Convert server-only generation failures into a stable message the author can act on. */
+export function resolveThinkForgeGenerationFailureMessage(error: unknown): string {
+  const message = readNonEmptyString(error);
+
+  if (message && RUNTIME_CONTRACT_FAILURE_PATTERN.test(message)) {
+    return 'The draft did not meet the requested runtime and production requirements, so it was not saved. Please try again.';
+  }
+
+  if (message && TIMEOUT_FAILURE_PATTERN.test(message)) {
+    return 'The draft took too long to complete and was not saved. Please try again.';
+  }
+
+  return 'The draft could not be completed and was not saved. Please try again.';
 }
 
 export function shouldProbeThinkForgeGeneration(

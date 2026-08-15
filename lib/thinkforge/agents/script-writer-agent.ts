@@ -227,7 +227,7 @@ Return a complete replacement object using the same JSON schema. Preserve the br
 Critical rules:
 - Every scene requires a complete shotIntent that matches its visible performers and sync-dialogue lines. shotIntent.spokenAudio means speech captured on set; it is false for voiceover-only scenes.
 - Every scene that contains on-camera sync-dialogue is one actual relip job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. Do not use subShots to bypass this limit. Split an overlong on-camera beat into multiple consecutive sidecar.scenes instead, each with its own duration, visual direction, lines, relip safety data, and shot intent. Do not silently turn required on-camera cast speech into voiceover.
-- When the failure includes runtime_duration_mismatch or spoken_word_count_mismatch, use tf_untrusted_data.productionContract as binding. The sum of scene durationSeconds must stay inside its duration band, and the combined audible sidecar.lines text must stay inside its spoken-word band. Do not claim a long runtime with sparse narration or empty dialogue.
+- When the failure includes runtime_duration_mismatch or spoken_word_count_mismatch, use tf_untrusted_data.productionContract and tf_untrusted_data.runtimePlan as binding. Rebuild the audible prose and scene allocation to meet the contract; changing durations, metadata, or empty lines alone does not repair a word-count failure. Do not claim a long runtime with sparse narration or empty dialogue.
 - Each sidecar scene maps to exactly one visible script scene and one visual prompt. Keep scene titles, narration, and visual descriptions as plain field text; never embed additional markdown scene headers inside them.
 </writer_contract_repair>`;
 }
@@ -290,6 +290,14 @@ export interface ScriptRuntimeContract {
   minimumSceneCount: number;
 }
 
+/** Server-derived narrative allocation for a runtime-bound script; it never replaces final production planning. */
+export interface ScriptRuntimeWritingPlan {
+  targetSceneCount: number;
+  targetWordsPerScene: number;
+  minimumWordsPerScene: number;
+  maximumWordsPerScene: number;
+}
+
 /** Derive the enforceable runtime contract from a production brief (or a {@link ProductionBrief}-shaped object). */
 export function resolveScriptRuntimeContract(
   brief: { output?: { targetDurationSec?: number | null } } | null | undefined,
@@ -306,6 +314,21 @@ export function resolveScriptRuntimeContract(
     minimumSpokenWords: Math.round(targetSpokenWords * (NARRATION_WORDS_PER_MINUTE_MIN / NARRATION_WORDS_PER_MINUTE)),
     maximumSpokenWords: Math.round(targetSpokenWords * (NARRATION_WORDS_PER_MINUTE_MAX / NARRATION_WORDS_PER_MINUTE)),
     minimumSceneCount: Math.max(1, Math.round(targetDurationSeconds / RUNTIME_SCENE_FLOOR_STEP_SEC)),
+  };
+}
+
+/** Give the writer an actionable scene/narration budget derived from the validated runtime contract. */
+export function resolveScriptRuntimeWritingPlan(
+  brief: { output?: { targetDurationSec?: number | null } } | null | undefined,
+): ScriptRuntimeWritingPlan {
+  const contract = resolveScriptRuntimeContract(brief);
+  const sceneCount = Math.max(1, contract.minimumSceneCount);
+
+  return {
+    targetSceneCount: sceneCount,
+    targetWordsPerScene: Math.round(contract.targetSpokenWords / sceneCount),
+    minimumWordsPerScene: Math.ceil(contract.minimumSpokenWords / sceneCount),
+    maximumWordsPerScene: Math.floor(contract.maximumSpokenWords / sceneCount),
   };
 }
 
@@ -478,7 +501,7 @@ Your task is to write a high-retention, engaging video script.
    - Each scene includes one complete \`shotIntent\` authored from that same scene. It expresses creative intent only; never invent equipment, room dimensions, coordinates, costs, or setup instructions.
    - If any line has \`onCamera: true\` and \`delivery: "sync-dialogue"\`, set that scene's \`relipSafe: true\` and \`relipSafety: { "faceVisibility": "visible", "occlusion": "none" or "light", "motion": "still" or "moderate" }\`. The object must match the visual description. Otherwise set \`relipSafe: false\` and omit \`relipSafety\`.
    - \`sourceRefs\` are provenance IDs only. If a Source Ledger is present, use ONLY referenceId values listed there (\`brief_user\`, \`source_1\`, etc.). Every numeric/date/price/URL/proof/testimonial claim must carry sourceRefs on the line and scene. A line or scene \`sourceRefs\` value must also appear in top-level \`sidecar.sourceRefs\`. If no factual sources are used, use empty arrays.
-   - If \`tf_untrusted_data.productionContract\` is present, it is binding: sum every \`durationSeconds\` inside its duration band, and write enough audible non-on-screen-text \`lines\` to land inside its spoken-word band. Do not use timestamps or visual pauses to pretend a sparse script meets the requested runtime.
+   - If \`tf_untrusted_data.productionContract\` is present, it is binding: sum every \`durationSeconds\` inside its duration band, and write enough audible non-on-screen-text \`lines\` to land inside its spoken-word band. If \`tf_untrusted_data.runtimePlan\` is present, use its \`targetSceneCount\` as the default number of narrative beats and allocate each scene's audible non-on-screen-text \`lines\` near \`targetWordsPerScene\`, while keeping it between \`minimumWordsPerScene\` and \`maximumWordsPerScene\`. This is an authoring budget, not permission to invent filler or duplicate beats. Do not use timestamps or visual pauses to pretend a sparse script meets the requested runtime.
 7. **Writer capability limits:** Author only what the downstream avatar/video rig can produce:
    - Supported spoken voice languages: ${WRITER_CAPABILITIES.voiceLanguages.join(', ') || 'none'}. Requested spoken languages: ${requestedVoiceLanguages.length ? requestedVoiceLanguages.join(', ') : 'none supplied'}. Unsupported requested spoken languages: ${unsupportedVoiceLanguages.length ? unsupportedVoiceLanguages.join(', ') : 'none'}. If any requested spoken language is unsupported, keep spoken narration/dialogue in ${defaultVoiceLanguage}; unsupported languages may be captions/on-screen text only.
    - Set \`metadata.voiceLanguage\` to the supported spoken language actually used.
@@ -528,6 +551,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read Brand Vault and learned voice evidence only from tf_untrusted_data.brandContext.
 - Read retrieved facts only from tf_untrusted_data.databankFacts.
 - Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
+- Read runtime duration and spoken-word bounds only from tf_untrusted_data.productionContract, and the server-derived per-scene narration allocation only from tf_untrusted_data.runtimePlan. Both are binding when present.
 - Read actual requested and unsupported spoken languages from tf_untrusted_data.voiceLanguageRequest; enforce the supported-language list above.`;
 
     return buildIsolatedPromptParts({
@@ -557,6 +581,9 @@ Return your response strictly adhering to the JSON schema.`;
     const requestedVoiceLanguages = productionBrief?.output.voiceLanguages ?? [];
     const unsupportedVoiceLanguages = requestedVoiceLanguages.filter((language) => !canSpeakLanguage(language));
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
+    const runtimeContract = productionBrief?.output?.targetDurationSec
+      ? resolveScriptRuntimeContract(productionBrief)
+      : null;
 
     return {
       mode: editContext ? 'revise_existing_script' : 'create_script',
@@ -569,9 +596,8 @@ Return your response strictly adhering to the JSON schema.`;
         summary: fact.summary,
       })),
       trendBrief: formatTrendBriefForPrompt(productionBrief) || null,
-      productionContract: productionBrief?.output?.targetDurationSec
-        ? resolveScriptRuntimeContract(productionBrief)
-        : null,
+      productionContract: runtimeContract,
+      runtimePlan: runtimeContract ? resolveScriptRuntimeWritingPlan(productionBrief) : null,
       castingBrief: formatCastingBriefForPrompt(productionBrief) || null,
       sourceLedger: sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : null,
       voiceLanguageRequest: {

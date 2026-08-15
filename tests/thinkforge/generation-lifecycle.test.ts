@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
 import {
   resolveCompletedGenerationDelivery,
+  resolveThinkForgeGenerationFailureMessage,
   shouldProbeThinkForgeGeneration,
   shouldScheduleThinkForgeGenerationPolling,
 } from '@/lib/thinkforge/client-generation-lifecycle';
@@ -109,6 +110,16 @@ describe('ThinkForge generation lifecycle', () => {
     })).toEqual({ type: 'missing_document' });
   });
 
+  it('converts terminal server failures into actionable author-facing messages', () => {
+    expect(resolveThinkForgeGenerationFailureMessage(
+      'Script writer output failed document contract: spoken_word_count_mismatch:591/945',
+    )).toBe('The draft did not meet the requested runtime and production requirements, so it was not saved. Please try again.');
+    expect(resolveThinkForgeGenerationFailureMessage('Generation timed out before a script could be saved.'))
+      .toBe('The draft took too long to complete and was not saved. Please try again.');
+    expect(resolveThinkForgeGenerationFailureMessage('provider failure'))
+      .toBe('The draft could not be completed and was not saved. Please try again.');
+  });
+
   it('wires stream ownership instead of a session-global cancellation latch', () => {
     const hook = read('app/dashboard/thinkforge/hooks/useThinkForgeChat.ts');
 
@@ -116,6 +127,9 @@ describe('ThinkForge generation lifecycle', () => {
     expect(hook).toContain('cancelledGenerationIdRef');
     expect(hook).not.toContain('isCancelledRef');
     expect(hook).toContain('resolveCompletedGenerationDelivery');
+    expect(hook).toContain("data?.type === 'error'");
+    expect(hook).toContain('finishWithServerFailure(data?.error)');
+    expect(hook).toContain('resolveThinkForgeGenerationFailureMessage');
     expect(hook).toContain('shouldScheduleThinkForgeGenerationPolling');
   });
 });
