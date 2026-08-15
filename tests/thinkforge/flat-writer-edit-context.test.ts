@@ -150,6 +150,8 @@ describe('flat writer edit authoring context', () => {
 
   it('re-resolves the bound brand for post edits and persists a fresh authoring receipt', async () => {
     const stored = {
+      sessionId: 'session_1',
+      scriptId: 'post_1',
       title: 'Approval post',
       content: 'Old post content',
       blocks: [{ id: 'old' }],
@@ -157,11 +159,7 @@ describe('flat writer edit authoring context', () => {
       documentType: 'social_post',
       metadata: { retained: 'yes' },
     };
-    mocks.getScript.mockResolvedValueOnce(stored).mockResolvedValueOnce({
-      ...stored,
-      content: postResult().content,
-      blocks: [{ id: 'new' }],
-    });
+    mocks.getScript.mockResolvedValueOnce(stored);
     mocks.postRun.mockResolvedValue({ result: postResult() });
 
     await reviseDocumentViaFlatWriter({
@@ -212,6 +210,8 @@ describe('flat writer edit authoring context', () => {
 
   it('sends the same resolved authority, brief, and ledger to script edits', async () => {
     const stored = {
+      sessionId: 'session_1',
+      scriptId: 'script_1',
       title: 'Launch script',
       content: '## Scene 1: Old\n**Narration:** Old narration.\n**Visual:** Old visual.',
       blocks: [{ id: 'old' }],
@@ -219,11 +219,7 @@ describe('flat writer edit authoring context', () => {
       documentType: 'video_script',
       metadata: {},
     };
-    mocks.getScript.mockResolvedValueOnce(stored).mockResolvedValueOnce({
-      ...stored,
-      content: scriptResult().content,
-      blocks: [{ id: 'new' }],
-    });
+    mocks.getScript.mockResolvedValueOnce(stored);
     mocks.scriptRun.mockResolvedValue({ result: scriptResult() });
 
     await reviseDocumentViaFlatWriter({
@@ -263,6 +259,7 @@ describe('flat writer edit authoring context', () => {
     await expect(reviseDocumentViaFlatWriter({
       userId: 'user_1',
       sessionId: 'missing',
+      scriptId: 'missing_document',
       existingScript: null,
       existingContent: 'Existing content long enough to edit safely.',
       instruction: 'Rewrite this.',
@@ -274,11 +271,21 @@ describe('flat writer edit authoring context', () => {
       userId: 'user_1',
       projectMeta: authoringContext.projectMeta,
     });
-    mocks.getScript.mockResolvedValueOnce({ documentType: 'social_post' });
+    mocks.getScript.mockResolvedValueOnce({
+      sessionId: 'session_1',
+      scriptId: 'post_1',
+      title: 'Canonical post',
+      content: 'Canonical persisted content.',
+      blocks: [{ id: 'canonical_block' }],
+      version: 4,
+      documentType: 'social_post',
+      metadata: {},
+    });
     mocks.resolveAuthoringContext.mockRejectedValueOnce(new Error('brand_profile_unavailable'));
     await expect(reviseDocumentViaFlatWriter({
       userId: 'user_1',
       sessionId: 'session_1',
+      scriptId: 'post_1',
       existingScript: null,
       existingContent: 'Existing content long enough to edit safely.',
       instruction: 'Rewrite this.',

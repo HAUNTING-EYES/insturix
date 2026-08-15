@@ -1,166 +1,132 @@
-import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import * as db from '@/lib/thinkforge/services/db';
-import { applyCommand } from '@/lib/thinkforge/services/command-service';
-import { createScriptAuthorAgent, type ScriptAuthorIntentInput } from '@/lib/thinkforge/agents/script-author-agent';
-import { reviseDocumentViaFlatWriter } from '@/lib/thinkforge/services/flat-writer-edit';
-import type { AssembledContext } from '@/lib/thinkforge/agents/types';
-import { ScriptIntent } from '@/lib/thinkforge/protocol/intent';
-import { classifyIntent } from '@/lib/thinkforge/protocol/intent-classifier';
-import { validateAgentResponse } from '@/lib/thinkforge/protocol/validation';
-import { agentResponseToCommands } from '@/lib/thinkforge/mappers/diff-engine';
-import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
+import * as db from '@/lib/thinkforge/services/db';
+import { reviseDocumentViaFlatWriter } from '@/lib/thinkforge/services/flat-writer-edit';
+import { checkCredits } from '@/lib/services/creditsMiddleware';
+import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+const ExactIdSchema = z.string().min(1).refine(
+  (value) => value.trim().length > 0 && value.trim() === value,
+  { message: 'must be a non-empty trimmed string' },
+);
+
+const EditBlocksRequestSchema = z.object({
+  instruction: z.string().trim().min(1),
+  sessionId: ExactIdSchema,
+  scriptId: ExactIdSchema,
+  selection: z.string().trim().min(1).optional(),
+  indices: z.array(z.number().int().nonnegative()).optional(),
+});
+
+function editErrorResponse(error: unknown): NextResponse | null {
+  const message = error instanceof Error ? error.message : '';
+  if (message === 'ThinkForge document not found'
+    || message === 'ThinkForge session not found or not authorized') {
+    return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+  }
+  if (message === 'Version conflict') {
+    return NextResponse.json({ error: 'Document changed during edit; retry the request' }, { status: 409 });
+  }
+  if (message.startsWith('Stored ThinkForge document')) {
+    return NextResponse.json({ error: message }, { status: 422 });
+  }
+  return null;
+}
 
 /**
- * Edit specific blocks in a script with AI
- * POST /api/services/thinkforge/script/edit-blocks
+ * Revise a focused part of an existing ThinkForge document.
+ * The browser supplies edit intent and scope only; persisted state remains authoritative.
  */
 export async function POST(req: Request) {
+  let raw: unknown;
+  try {
+    raw = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  const parsed = EditBlocksRequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request body', details: parsed.error.issues }, { status: 400 });
+  }
+  const { instruction, sessionId, scriptId, selection, indices } = parsed.data;
+
   const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let instruction: string | undefined;
-  let script: any | undefined;
-  let sessionId: string | undefined;
-  let scriptId: string | undefined;
-  let selection: string | undefined;
-  let indices: number[] | undefined;
-
+  let session: Awaited<ReturnType<typeof db.getSession>>;
   try {
-    const body = await req.json();
-    instruction = body?.instruction ? String(body.instruction) : undefined;
-    script = body?.script;
-    sessionId = body?.sessionId ? String(body.sessionId) : undefined;
-    scriptId = body?.scriptId ? String(body.scriptId) : undefined;
-    selection = body?.selection ? String(body.selection) : undefined;
-    indices = Array.isArray(body?.indices) ? body.indices : undefined;
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-  }
-
-  if (!instruction) {
-    return NextResponse.json({ error: 'Missing instruction' }, { status: 400 });
-  }
-
-  try {
-    if (sessionId) {
-      const session = await db.getSession(sessionId, userId, orgId);
-      if (!session) {
-        return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-      }
-      sessionId = session._id;
+    session = await db.getSession(sessionId, userId, orgId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
-    // Get existing script if not provided
-    let existingScript = script;
-    let baseVersion = typeof script?.version === 'number' ? script.version : 0;
-    if (!existingScript && sessionId) {
-      const dbScript = await db.getScript(sessionId, scriptId || null);
-      if (dbScript) {
-        existingScript = {
-          title: dbScript.title,
-          content: dbScript.content,
-          blocks: dbScript.blocks
-        };
-        baseVersion = dbScript.version ?? 0;
-      }
-    }
-
-    // Build context-aware instruction
-    let enrichedInstruction = instruction;
-    if (selection) {
-      enrichedInstruction = `Edit the following selected text: "${selection}"\n\nInstruction: ${instruction}`;
+    const storedDocument = await db.getScript(session._id, scriptId);
+    if (!storedDocument) {
+      return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
     if (indices && indices.length > 0) {
-      enrichedInstruction += `\n\nFocus on blocks at indices: ${indices.join(', ')}`;
-    }
-
-    const existingContent = typeof existingScript?.content === 'string' ? existingScript.content : '';
-    const existingBlocksForEdit = Array.isArray(existingScript?.blocks) ? existingScript.blocks : [];
-
-    // A real document edit has one authoring owner. Failures stay visible so the
-    // request cannot silently lose its Brand Vault and provenance context.
-    if (sessionId && existingContent.trim().length > 0 && existingBlocksForEdit.length > 0) {
-      const revised = await reviseDocumentViaFlatWriter({
-        userId, orgId, sessionId, scriptId, existingScript, existingContent,
-        instruction: enrichedInstruction, selection, baseVersion,
-      });
-      return NextResponse.json({
-        title: revised.title, content: revised.content, blocks: revised.blocks,
-        metadata: { editMode: 'flat-writer' }, replacements: [],
-      });
-    }
-
-    const intent = await classifyIntent({ userMessage: enrichedInstruction });
-    // FORK is mapped to REWRITE inside classifyIntent (no separate-document path yet), so it no
-    // longer dead-ends here — a fork-style request now does a useful in-place new version.
-
-    const existingBlocks = Array.isArray(existingScript?.blocks) ? existingScript.blocks : [];
-    if ((intent === ScriptIntent.EDIT || intent === ScriptIntent.CONTINUE) && existingBlocks.length === 0) {
-      return NextResponse.json({ error: 'No existing script to edit or continue' }, { status: 400 });
-    }
-
-    const context: AssembledContext = {
-      projectSummary: '',
-      currentScript: undefined,
-      chatHistory: undefined,
-      recentChanges: undefined,
-      selection: undefined,
-    };
-
-    const recentBlocks = intent === ScriptIntent.CONTINUE
-      ? existingBlocks.slice(-3)
-      : undefined;
-
-    const agentInput: ScriptAuthorIntentInput = {
-      intent,
-      instruction: enrichedInstruction,
-      userPrompt: enrichedInstruction,
-      context,
-      currentScript: intent === ScriptIntent.EDIT ? existingBlocks : undefined,
-      recentBlocks,
-    };
-
-    const agent = createScriptAuthorAgent();
-    const response = await retryOnceOnOverload(() => agent.writeStructuredResponse(agentInput));
-
-    validateAgentResponse(response, { blocks: existingBlocks });
-
-    if (sessionId) {
-      const commands = agentResponseToCommands(response, {
-        sessionId,
-        scriptId: scriptId || 'default',
-        baseVersion,
-      });
-
-      let currentVersion = baseVersion;
-      for (const command of commands) {
-        const result = await applyCommand({ ...command, baseVersion: currentVersion }, userId, orgId);
-        if (!result.ok) {
-          throw new Error(result.error);
-        }
-        currentVersion = typeof result.script.version === 'number' ? result.script.version : currentVersion + 1;
+      const blockCount = Array.isArray(storedDocument.blocks) ? storedDocument.blocks.length : 0;
+      if (indices.some((index) => index >= blockCount)) {
+        return NextResponse.json({ error: 'Block selection is stale' }, { status: 409 });
       }
     }
+  } catch (error) {
+    console.error('[ThinkForge:script/edit-blocks] Document authorization failed:', error);
+    return NextResponse.json({ error: 'Failed to authorize document' }, { status: 500 });
+  }
 
-    const updated = sessionId ? await db.getScript(sessionId, scriptId || null) : null;
+  const canonicalSessionId = session._id;
+  const canonicalOrgId = session.orgId ?? orgId ?? null;
+  const billingWallet = resolveContextBillingOwner(userId, canonicalOrgId, isOrgWalletBillingEnabled());
+  const creditCheck = await checkCredits(
+    userId,
+    'thinkforge',
+    'document_creation',
+    { taskId: canonicalSessionId },
+    billingWallet,
+  );
+  if (!creditCheck.allowed) return creditCheck.errorResponse;
+  await creditCheck.deduct();
 
-    return NextResponse.json({
-      title: updated?.title || existingScript?.title,
-      content: updated?.content || existingScript?.content || '',
-      blocks: updated?.blocks || existingBlocks || [],
-      metadata: {},
-      replacements: []
+  try {
+    const scopedInstruction = indices && indices.length > 0
+      ? `${instruction}\n\nEdit only canonical block indices: ${indices.join(', ')}.`
+      : instruction;
+    const revised = await reviseDocumentViaFlatWriter({
+      userId,
+      orgId: canonicalOrgId,
+      sessionId: canonicalSessionId,
+      scriptId,
+      instruction: scopedInstruction,
+      selection,
     });
-  } catch (error: any) {
-    console.error('Error editing script blocks:', error);
+    return NextResponse.json({
+      scriptId: revised.scriptId ?? scriptId,
+      title: revised.title,
+      content: revised.content,
+      blocks: revised.blocks ?? [],
+      richText: revised.richText ?? null,
+      metadata: revised.metadata ?? {},
+      version: revised.version,
+      documentType: revised.documentType,
+      contentContract: revised.contentContract,
+      replacements: [],
+    });
+  } catch (error: unknown) {
+    console.error('[ThinkForge:script/edit-blocks] Edit failed:', error);
+    const message = error instanceof Error ? error.message : 'Block edit failed';
+    await creditCheck.refund(message);
+    const explicitResponse = editErrorResponse(error);
+    if (explicitResponse) return explicitResponse;
     const normalized = toThinkForgeErrorResponse(error);
     return NextResponse.json(normalized.body, { status: normalized.status });
   }

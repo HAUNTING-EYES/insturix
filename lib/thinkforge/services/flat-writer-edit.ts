@@ -1,8 +1,8 @@
 /**
  * P5 shared flat-writer edit path. Revises the WHOLE document via the flat writer's editContext
  * mode (ScriptWriter for scripts, PostWriter for posts), parses the revised markdown back into
- * blocks, and saves via ReplaceDocument. Throws on any empty/invalid output or save failure so
- * the calling route can fall back to its legacy author path.
+ * blocks, and saves via ReplaceDocument. The persisted session/document is the sole authority;
+ * browser-provided document snapshots are never accepted as edit input.
  *
  * Shared by /script/edit-blocks and /script/edit so the revise-and-save logic has one source.
  */
@@ -24,6 +24,7 @@ import { buildThinkForgeSourceLedger } from '../provenance/source-ledger';
 import {
   isThinkForgePostKind,
   normalizeThinkForgeDocumentType,
+  ThinkForgeDocumentContractSchema,
   type ThinkForgeWriterKind,
 } from '../schemas/document-contract';
 import {
@@ -39,26 +40,24 @@ export interface FlatWriterEditArgs {
   userId: string;
   orgId?: string | null;
   sessionId: string;
-  scriptId?: string;
-  // The current document as stored ({ title, content, blocks, documentType? }).
-  existingScript: {
+  scriptId: string;
+  instruction: string;
+  selection?: string;
+  /** @deprecated Ignored. Persisted document state is loaded by exact identity. */
+  existingScript?: {
     title?: string;
     content?: string;
     blocks?: unknown[];
     documentType?: string;
     metadata?: Record<string, unknown>;
   } | null | undefined;
-  existingContent: string;
-  instruction: string;
-  selection?: string;
-  baseVersion: number;
+  /** @deprecated Ignored. Persisted document content is authoritative. */
+  existingContent?: string;
+  /** @deprecated Ignored. The persisted version is the commit baseline. */
+  baseVersion?: number;
 }
 
-export interface FlatWriterEditResult {
-  title: string;
-  content: string;
-  blocks: unknown[];
-}
+export type FlatWriterEditResult = db.Script;
 
 export function resolveFlatWriterDocumentKind(
   documentType: string | undefined,
@@ -74,27 +73,61 @@ export function resolveFlatWriterDocumentKind(
     : 'social_post';
 }
 
+function requireExactIdentity(value: unknown, label: 'session' | 'document'): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`ThinkForge ${label} identity is required`);
+  }
+  if (value.trim() !== value) {
+    throw new Error(`ThinkForge ${label} identity is invalid`);
+  }
+  return value;
+}
+
+function resolveStoredWriterKind(script: db.Script): ThinkForgeWriterKind {
+  const documentKind = normalizeThinkForgeDocumentType(script.documentType);
+  if (documentKind !== 'social_post' && documentKind !== 'carousel' && documentKind !== 'video_script') {
+    throw new Error('Stored ThinkForge document type is unsupported');
+  }
+
+  if (script.contentContract !== undefined) {
+    const parsedContract = ThinkForgeDocumentContractSchema.safeParse(script.contentContract);
+    if (!parsedContract.success) {
+      throw new Error('Stored ThinkForge document contract is invalid');
+    }
+    if (parsedContract.data.outputKind !== documentKind) {
+      throw new Error('Stored ThinkForge document contract conflicts with its type');
+    }
+  }
+
+  return documentKind;
+}
+
 export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Promise<FlatWriterEditResult> {
-  const { userId, orgId, sessionId, scriptId, existingScript, existingContent, instruction, selection, baseVersion } = args;
+  const { userId, orgId, instruction, selection } = args;
+  const sessionId = requireExactIdentity(args.sessionId, 'session');
+  const scriptId = requireExactIdentity(args.scriptId, 'document');
 
   const session = await db.getSession(sessionId, userId, orgId);
   if (!session) {
     throw new Error('ThinkForge session not found or not authorized');
   }
-  const canonicalScript = await db.getScript(session._id, scriptId || null);
+  const canonicalSessionId = session._id;
+  const canonicalOrgId = session.orgId ?? orgId ?? null;
+  const canonicalScript = await db.getScript(canonicalSessionId, scriptId);
+  if (!canonicalScript) {
+    throw new Error('ThinkForge document not found');
+  }
 
-  const documentKind = resolveFlatWriterDocumentKind(
-    canonicalScript?.documentType ?? existingScript?.documentType,
-    existingContent,
-  );
+  const documentKind = resolveStoredWriterKind(canonicalScript);
+  const existingContent = typeof canonicalScript.content === 'string' ? canonicalScript.content : '';
   const isScript = !isThinkForgePostKind(documentKind);
   const authoringContext = await resolveThinkForgeAuthoringContext({
     userId,
-    orgId: session.orgId ?? orgId ?? null,
+    orgId: canonicalOrgId,
     sessionProjectMeta: session.projectMeta,
     providedProject: session.projectMeta,
-    projectId: session._id,
-    sessionId: session._id,
+    projectId: canonicalSessionId,
+    sessionId: canonicalSessionId,
     currentPrompt: instruction,
     currentScript: existingContent,
     writingKnowledgeVersion: getWritingKnowledgeVersion(),
@@ -105,7 +138,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     documentType: documentKind,
     platform: authoringContext.projectMeta.platform,
     brandId,
-    sessionId: session._id,
+    sessionId: canonicalSessionId,
     project: authoringContext.projectMeta,
     context: {
       projectSummary: authoringContext.projectMeta.idea ?? authoringContext.projectMeta.purpose ?? '',
@@ -113,7 +146,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
       systemBrief: authoringContext.systemBrief,
     },
     retrievedContext: authoringContext.retrievedContext,
-    contentContract: canonicalScript?.contentContract,
+    contentContract: canonicalScript.contentContract,
   });
   const signalTrace = buildThinkForgeSignalTrace(contentSignalProfile);
   const groundedSystemBrief = [
@@ -131,13 +164,13 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     userPrompt: instruction,
     retrievedContext: authoringContext.retrievedContext,
     brandId,
-    sessionId: session._id,
+    sessionId: canonicalSessionId,
   });
 
   const baseInput = {
     context: {
-      projectSummary: canonicalScript?.title || existingScript?.title
-        ? `Editing document: ${canonicalScript?.title ?? existingScript?.title}`
+      projectSummary: canonicalScript.title
+        ? `Editing document: ${canonicalScript.title}`
         : '',
       currentScript: existingContent,
       systemBrief: groundedSystemBrief,
@@ -145,7 +178,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     userPrompt: instruction,
     retrievedContext: authoringContext.retrievedContext,
     project: authoringContext.projectMeta,
-    sessionId: session._id,
+    sessionId: canonicalSessionId,
     brandId,
     contentSignalProfile,
     productionBrief,
@@ -167,20 +200,20 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     throw new Error('flat-writer edit produced no parseable blocks');
   }
 
-  const title = canonicalScript?.title || existingScript?.title || (isScript ? 'Script' : 'Post');
-  const previousMetadata = canonicalScript?.metadata && typeof canonicalScript.metadata === 'object'
+  const title = canonicalScript.title;
+  const previousMetadata = canonicalScript.metadata && typeof canonicalScript.metadata === 'object'
     ? canonicalScript.metadata
-    : existingScript?.metadata ?? {};
+    : {};
   const writerOutput = isScript
     ? scriptWriterMetadata(result as ScriptWriterResult, sourceLedger)
     : postWriterMetadata(result as PostWriterResult);
   const saveResult = await applyCommand({
     type: 'ReplaceDocument',
-    sessionId,
-    baseVersion,
+    sessionId: canonicalSessionId,
+    baseVersion: canonicalScript.version ?? 0,
     source: 'ai',
     payload: {
-      scriptId: scriptId || 'default',
+      scriptId,
       title,
       content: revised,
       blocks,
@@ -196,18 +229,13 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
         writerOutput,
       },
     },
-  } as Parameters<typeof applyCommand>[0], userId, orgId);
+  } as Parameters<typeof applyCommand>[0], userId, canonicalOrgId);
 
   if (!saveResult.ok) {
     throw new Error(saveResult.error || 'failed to save revised document');
   }
 
-  const updated = await db.getScript(sessionId, scriptId || null);
-  return {
-    title: updated?.title || title,
-    content: updated?.content || revised,
-    blocks: (updated?.blocks as unknown[]) || blocks,
-  };
+  return saveResult.script;
 }
 
 function postWriterMetadata(result: PostWriterResult): Record<string, unknown> {
