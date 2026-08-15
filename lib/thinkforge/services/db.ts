@@ -381,7 +381,9 @@ export interface ThinkForgeEvent {
   versionId?: string;
   type: EventType;
   payload: Record<string, any>;
+  ownerType?: 'user' | 'organization';
   userId?: string;
+  orgId?: string;
   createdAt: Date;
 }
 
@@ -831,9 +833,13 @@ const EventSchema = new Schema({
     ]
   },
   payload: { type: Schema.Types.Mixed, default: {} },
+  ownerType: { type: String, enum: ['user', 'organization'], index: true },
   userId: { type: String, index: true },
+  orgId: { type: String, index: true },
   createdAt: { type: Date, default: Date.now }
 }, { collection: COLL_EVENTS, timestamps: false });
+EventSchema.index({ ownerType: 1, userId: 1, projectId: 1, createdAt: -1 });
+EventSchema.index({ ownerType: 1, orgId: 1, projectId: 1, createdAt: -1 });
 
 // ==================== Model Getters ====================
 // V1 Models (Legacy)
@@ -4154,11 +4160,21 @@ export async function resolveEffectiveBrandDNAWithProfile(
 // ==================== Interaction Event Logging ====================
 
 /**
- * Log an interaction event (shadow log) for the user's process memory.
- * Non-blocking, fire-and-forget.
+ * Persist an interaction event (shadow log) under its exact owner.
  */
+export function buildInteractionEventPrincipalQuery(
+  principalInput: DataBankPrincipal,
+): Record<string, string> {
+  const principal = resolveDataBankPrincipal(principalInput);
+  if (principal.ownerType === 'organization') {
+    if (!principal.orgId) throw new Error('Organization interaction events require an organization owner.');
+    return { ownerType: 'organization', orgId: principal.orgId };
+  }
+  return { ownerType: 'user', userId: principal.userId };
+}
+
 export async function logInteractionEvent(
-  userId: string,
+  principalInput: DataBankPrincipal,
   projectId: string,
   type: EventType,
   payload: Record<string, any>,
@@ -4168,21 +4184,18 @@ export async function logInteractionEvent(
     versionId?: string;
   }
 ): Promise<void> {
-  try {
-    const { EventModel } = await getModels();
-    await EventModel.create({
-      projectId,
-      sessionId: options?.sessionId,
-      artifactId: options?.artifactId,
-      versionId: options?.versionId,
-      type,
-      payload,
-      userId,
-      createdAt: new Date(),
-    });
-  } catch (error) {
-    console.warn('Failed to log interaction event:', error);
-  }
+  const principal = resolveDataBankPrincipal(principalInput);
+  const { EventModel } = await getModels();
+  await EventModel.create({
+    projectId,
+    sessionId: options?.sessionId,
+    artifactId: options?.artifactId,
+    versionId: options?.versionId,
+    type,
+    payload,
+    ...principal,
+    createdAt: new Date(),
+  });
 }
 
 export type DataBankPromotionTarget =

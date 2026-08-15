@@ -2,12 +2,24 @@ import { describe, expect, it } from 'vitest';
 import {
   assertDataBankIdempotentWriteCompatible,
   buildDataBankIdempotentRecordId,
+  buildInteractionEventPrincipalQuery,
   buildInteractionEventDeletionQuery,
   buildProjectScopedDeletionQuery,
   type DataBankEntry,
 } from '@/lib/thinkforge/services/db';
 
 describe('post-mortem source cleanup authority', () => {
+  it('builds exact personal and organization interaction ownership predicates', () => {
+    expect(buildInteractionEventPrincipalQuery({ userId: ' user_1 ', orgId: null })).toEqual({
+      ownerType: 'user',
+      userId: 'user_1',
+    });
+    expect(buildInteractionEventPrincipalQuery({ userId: ' user_1 ', orgId: ' org_1 ' })).toEqual({
+      ownerType: 'organization',
+      orgId: 'org_1',
+    });
+  });
+
   it('targets only normalized source records from the authorized session', () => {
     expect(buildProjectScopedDeletionQuery({
       sessionId: ' session_1 ',

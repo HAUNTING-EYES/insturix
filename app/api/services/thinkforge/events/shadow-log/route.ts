@@ -1,17 +1,32 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { logInteractionEvent, type EventType } from '@/lib/thinkforge/services/db';
+import { z } from 'zod';
+import {
+  assertDataBankSessionPrincipal,
+  getSession,
+  logInteractionEvent,
+  type EventType,
+} from '@/lib/thinkforge/services/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const INTERACTION_EVENT_TYPES: EventType[] = [
+const INTERACTION_EVENT_TYPES = [
   'content_deleted',
   'hook_rejected',
   'style_corrected',
   'regeneration_requested',
   'feedback_given',
-];
+] as const satisfies readonly EventType[];
+const MAX_REQUEST_BYTES = 32_000;
+const ShadowLogRequestSchema = z.object({
+  projectId: z.string().trim().min(1).max(200),
+  sessionId: z.string().trim().min(1).max(200),
+  artifactId: z.string().trim().min(1).max(200).optional(),
+  versionId: z.string().trim().min(1).max(200).optional(),
+  type: z.enum(INTERACTION_EVENT_TYPES),
+  payload: z.record(z.string(), z.unknown()).default({}),
+}).strict();
 
 /**
  * Shadow Logger API
@@ -25,40 +40,70 @@ const INTERACTION_EVENT_TYPES: EventType[] = [
  *   - regeneration_requested: user asked to regenerate a section
  *   - feedback_given: explicit text feedback about AI output
  *
- * All writes are fire-and-forget; the endpoint returns 202 immediately.
+ * The endpoint acknowledges only after the authorized event is persisted.
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
-  let body: any;
+  const parsed = await parseShadowLogRequest(req);
+  if (!parsed.ok) return parsed.response;
+  const { projectId, sessionId, artifactId, versionId, type, payload } = parsed.value;
+  if (projectId !== sessionId) {
+    return NextResponse.json({ error: 'projectId must match sessionId' }, { status: 400 });
+  }
+
   try {
-    body = await req.json();
+    const principal = { userId, orgId: orgId ?? null };
+    const session = await getSession(sessionId, userId, orgId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found or unavailable to this actor' }, { status: 404 });
+    }
+    try {
+      assertDataBankSessionPrincipal(principal, session);
+    } catch {
+      return NextResponse.json({ error: 'Session not found or unavailable to this actor' }, { status: 404 });
+    }
+
+    await logInteractionEvent(principal, sessionId, type, payload, {
+      sessionId,
+      artifactId,
+      versionId,
+    });
+    return NextResponse.json({ accepted: true }, { status: 202 });
+  } catch (error) {
+    console.error('[ThinkForge] Failed to persist interaction event:', error);
+    return NextResponse.json({ error: 'Failed to persist interaction event' }, { status: 500 });
+  }
+}
+
+async function parseShadowLogRequest(req: Request): Promise<
+  | { ok: true; value: z.infer<typeof ShadowLogRequestSchema> }
+  | { ok: false; response: NextResponse }
+> {
+  const declaredLength = Number(req.headers.get('content-length') ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BYTES) {
+    return { ok: false, response: NextResponse.json({ error: 'Request body is too large' }, { status: 413 }) };
+  }
+
+  let raw: string;
+  try {
+    raw = await req.text();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return { ok: false, response: NextResponse.json({ error: 'Invalid request body' }, { status: 400 }) };
+  }
+  if (new TextEncoder().encode(raw).byteLength > MAX_REQUEST_BYTES) {
+    return { ok: false, response: NextResponse.json({ error: 'Request body is too large' }, { status: 413 }) };
   }
 
-  const { projectId, sessionId, artifactId, versionId, type, payload } = body;
-
-  if (!projectId || !type) {
-    return NextResponse.json(
-      { error: 'Missing required fields: projectId, type' },
-      { status: 400 },
-    );
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return { ok: false, response: NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) };
   }
-
-  if (!INTERACTION_EVENT_TYPES.includes(type)) {
-    return NextResponse.json(
-      { error: `Invalid event type. Must be one of: ${INTERACTION_EVENT_TYPES.join(', ')}` },
-      { status: 400 },
-    );
-  }
-
-  logInteractionEvent(userId, projectId, type, payload || {}, {
-    sessionId,
-    artifactId,
-    versionId,
-  });
-
-  return NextResponse.json({ accepted: true }, { status: 202 });
+  const parsed = ShadowLogRequestSchema.safeParse(value);
+  return parsed.success
+    ? { ok: true, value: parsed.data }
+    : { ok: false, response: NextResponse.json({ error: 'Invalid interaction event' }, { status: 400 }) };
 }
