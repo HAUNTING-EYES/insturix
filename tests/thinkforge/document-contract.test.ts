@@ -4,6 +4,7 @@ import {
   createThinkForgeWriterContract,
   normalizeThinkForgeDocumentType,
   parseThinkForgeDocumentContract,
+  resolveExplicitThinkForgeDocumentRequest,
   resolveCarouselSlideCount,
 } from '@/lib/thinkforge/schemas/document-contract';
 import { PostWriterAgent, type PostWriterInput } from '@/lib/thinkforge/agents/post-writer-agent';
@@ -113,6 +114,61 @@ describe('ThinkForge canonical document contract', () => {
       'post',
       createThinkForgeWriterContract('video_script'),
     )).toMatchObject({ contentPath: 'script', documentKind: 'script', outputKind: 'video_script' });
+  });
+
+  it('distinguishes an explicit output target from subject-matter words', () => {
+    expect(resolveExplicitThinkForgeDocumentRequest(
+      'Write a LinkedIn post about video production scripts.',
+    )).toMatchObject({ status: 'supported', contract: { outputKind: 'social_post' } });
+    expect(resolveExplicitThinkForgeDocumentRequest(
+      'Create a seven-minute YouTube video about LinkedIn posts.',
+    )).toMatchObject({ status: 'supported', contract: { outputKind: 'video_script' } });
+    expect(resolveExplicitThinkForgeDocumentRequest(
+      'Turn this LinkedIn post into a 6-slide Instagram carousel.',
+    )).toMatchObject({
+      status: 'supported',
+      contract: { outputKind: 'carousel', carouselSlideCount: 6 },
+    });
+  });
+
+  it('lets an explicit user conversion replace the old document contract', () => {
+    expect(resolveThinkForgeGenerationDocumentIntent(
+      'Turn this post into an Instagram reel script with camera direction.',
+      'Instagram post',
+      'user_request',
+      createThinkForgeWriterContract('social_post'),
+    )).toMatchObject({
+      contentPath: 'script',
+      outputKind: 'video_script',
+      source: 'explicit_user_request',
+    });
+
+    expect(resolveThinkForgeGenerationDocumentIntent(
+      'Create the complete first draft for this idea about video production.',
+      'Instagram post',
+      'initial_draft_claim',
+      createThinkForgeWriterContract('social_post'),
+    )).toMatchObject({
+      contentPath: 'post',
+      outputKind: 'social_post',
+      source: 'content_contract',
+    });
+  });
+
+  it('rejects unsupported or multi-output requests instead of flattening them into a post', () => {
+    expect(() => resolveThinkForgeGenerationDocumentIntent(
+      'Write a newsletter about our launch.',
+      'Instagram post',
+      'user_request',
+      createThinkForgeWriterContract('social_post'),
+    )).toThrow(/production writer contract for newsletter/i);
+
+    expect(() => resolveThinkForgeGenerationDocumentIntent(
+      'Create a post and a video script for this launch.',
+      'Instagram post',
+      'user_request',
+      createThinkForgeWriterContract('social_post'),
+    )).toThrow(/choose one output/i);
   });
 
   it('fails closed without document authority instead of guessing from prose', () => {

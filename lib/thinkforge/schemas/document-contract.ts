@@ -54,6 +54,12 @@ export type ThinkForgeCanonicalDocumentType =
   | Exclude<ThinkForgeArtifactType, 'social_post' | 'carousel_deck' | 'screenplay'>;
 export type ThinkForgeLegacyDocumentType = 'post' | 'screenplay';
 
+export type ThinkForgeExplicitDocumentRequest =
+  | { status: 'absent' }
+  | { status: 'supported'; contract: ThinkForgeDocumentContract }
+  | { status: 'unsupported'; label: string }
+  | { status: 'ambiguous'; labels: string[] };
+
 export const ThinkForgeDocumentContractSchema = z.object({
   version: z.number().int().default(THINKFORGE_DOCUMENT_CONTRACT_VERSION),
   documentKind: ThinkForgeDocumentKindSchema,
@@ -107,6 +113,100 @@ const TECHNICAL_ARTIFACT_TYPES = new Set<ThinkForgeArtifactType>([
 
 function normalizeDocumentLabel(value: string): string {
   return value.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+type ExplicitArtifactCandidate = {
+  index: number;
+  label: string;
+  kind: ThinkForgeWriterKind | 'unsupported';
+};
+
+const EXPLICIT_ARTIFACT_PATTERN = /\b(?:slide\s+deck|carousel|(?:video|reel|short\s+form|commercial|brand\s+film|product\s+ad|ugc)\s+script|screenplay|script|video|reel|commercial|brand\s+film|product\s+ad|ugc|social\s+media\s+post|youtube\s+community\s+post|linkedin\s+post|instagram\s+post|facebook\s+post|twitter\s+post|x\s+post|post|caption|newsletter|article|blog\s+post|thread|email)\b/gi;
+const AUTHORING_VERB_PATTERN = /\b(?:create|make|write|draft|generate|produce|convert|turn|adapt|rewrite|repurpose|need|want|give)\b/gi;
+const SOURCE_CLAUSE_PATTERN = /\b(?:about|for|from|using|based\s+on|inspired\s+by|covering)\b/i;
+
+function classifyExplicitArtifact(label: string): ExplicitArtifactCandidate['kind'] {
+  if (/\b(?:carousel|slide\s+deck)\b/i.test(label)) return 'carousel';
+  if (/\b(?:newsletter|article|blog\s+post|thread|email)\b/i.test(label)) return 'unsupported';
+  if (/\b(?:post|caption)\b/i.test(label)) return 'social_post';
+  return 'video_script';
+}
+
+function collectExplicitArtifactCandidates(segment: string): ExplicitArtifactCandidate[] {
+  return [...segment.matchAll(EXPLICIT_ARTIFACT_PATTERN)].map((match) => ({
+    index: match.index ?? 0,
+    label: normalizeDocumentLabel(match[0]),
+    kind: classifyExplicitArtifact(match[0]),
+  }));
+}
+
+function resolveExplicitCandidateSegment(segment: string): ThinkForgeExplicitDocumentRequest {
+  const sourceBoundary = segment.search(SOURCE_CLAUSE_PATTERN);
+  const targetSegment = sourceBoundary >= 0 ? segment.slice(0, sourceBoundary) : segment;
+  const candidates = collectExplicitArtifactCandidates(targetSegment);
+  if (candidates.length === 0) return { status: 'absent' };
+
+  const distinctKinds = [...new Set(candidates.map((candidate) => candidate.kind))];
+  if (distinctKinds.length > 1) {
+    return {
+      status: 'ambiguous',
+      labels: [...new Set(candidates.map((candidate) => candidate.label))],
+    };
+  }
+
+  const candidate = candidates[0];
+  if (candidate.kind === 'unsupported') {
+    return { status: 'unsupported', label: candidate.label };
+  }
+  return {
+    status: 'supported',
+    contract: createThinkForgeWriterContract(candidate.kind),
+  };
+}
+
+/**
+ * Resolve only an explicit output request. Topic/platform mentions are not
+ * authority: "a post about video scripts" remains a post. Conversion targets
+ * after "into"/"as" take priority over the source artifact.
+ */
+export function resolveExplicitThinkForgeDocumentRequest(
+  value?: string | null,
+): ThinkForgeExplicitDocumentRequest {
+  if (!value?.trim()) return { status: 'absent' };
+  const normalized = normalizeDocumentLabel(value);
+
+  const conversionMatches = [...normalized.matchAll(/\b(?:into|as)\b/g)];
+  const conversion = conversionMatches.at(-1);
+  if (conversion?.index !== undefined) {
+    const result = resolveExplicitCandidateSegment(normalized.slice(conversion.index + conversion[0].length));
+    if (result.status !== 'absent') {
+      if (result.status === 'supported' && result.contract.outputKind === 'carousel') {
+        return {
+          status: 'supported',
+          contract: createThinkForgeWriterContract('carousel', {
+            carouselSlideCount: resolveCarouselSlideCount(normalized),
+          }),
+        };
+      }
+      return result;
+    }
+  }
+
+  const verbMatch = AUTHORING_VERB_PATTERN.exec(normalized);
+  AUTHORING_VERB_PATTERN.lastIndex = 0;
+  if (!verbMatch?.index && verbMatch?.index !== 0) return { status: 'absent' };
+  const result = resolveExplicitCandidateSegment(
+    normalized.slice(verbMatch.index + verbMatch[0].length, verbMatch.index + verbMatch[0].length + 180),
+  );
+  if (result.status === 'supported' && result.contract.outputKind === 'carousel') {
+    return {
+      status: 'supported',
+      contract: createThinkForgeWriterContract('carousel', {
+        carouselSlideCount: resolveCarouselSlideCount(normalized),
+      }),
+    };
+  }
+  return result;
 }
 
 export function resolveCarouselSlideCount(value?: string | null): number | undefined {
@@ -163,10 +263,10 @@ export function normalizeThinkForgeDocumentContract(value?: string | null): Thin
   if (/\bcarousel\b|\bslides?\b/.test(normalized)) {
     return createThinkForgeWriterContract('carousel', { carouselSlideCount });
   }
-  if (/\b(screenplay|video script|script|reel|short|short form|youtube|tiktok|commercial|brand film|product ad|ugc)\b/.test(normalized)) {
+  if (/\b(screenplay|video script|script|reel|short|short form|video|commercial|brand film|product ad|ugc)\b/.test(normalized)) {
     return createThinkForgeWriterContract('video_script');
   }
-  if (/\b(post|caption|article|newsletter|thread|social copy)\b/.test(normalized)) {
+  if (/\b(post|caption|social copy)\b/.test(normalized)) {
     return createThinkForgeWriterContract('social_post');
   }
   return null;

@@ -3,6 +3,7 @@ import {
   createThinkForgeWriterContract,
   isThinkForgePostKind,
   normalizeThinkForgeDocumentContract,
+  resolveExplicitThinkForgeDocumentRequest,
   resolveCarouselSlideCount,
   ThinkForgeDocumentContractSchema,
   type ThinkForgeDocumentContract,
@@ -31,14 +32,15 @@ interface ThinkForgeDocumentIntent {
   outputKind: ThinkForgeWriterKind;
   contract: ThinkForgeDocumentContract;
   documentLabel: 'post' | 'script';
-  source: 'content_contract' | 'legacy_document_type';
+  source: 'content_contract' | 'legacy_document_type' | 'explicit_user_request';
 }
 
 type ThinkForgeDocumentIntentOrigin = 'user_request' | 'initial_draft_claim';
 
 export type ThinkForgeDocumentAuthorityErrorCode =
   | 'DOCUMENT_TYPE_REQUIRED'
-  | 'DOCUMENT_TYPE_UNSUPPORTED';
+  | 'DOCUMENT_TYPE_UNSUPPORTED'
+  | 'DOCUMENT_TYPE_AMBIGUOUS';
 
 export class ThinkForgeDocumentAuthorityError extends Error {
   constructor(
@@ -111,9 +113,38 @@ export function resolveThinkForgeDocumentIntent(
 export function resolveThinkForgeGenerationDocumentIntent(
   userPrompt: string,
   docType?: string,
-  _origin: ThinkForgeDocumentIntentOrigin = 'user_request',
+  origin: ThinkForgeDocumentIntentOrigin = 'user_request',
   selectedContract?: ThinkForgeDocumentContract | null,
 ): ThinkForgeDocumentIntent {
+  if (origin === 'user_request') {
+    const explicitRequest = resolveExplicitThinkForgeDocumentRequest(userPrompt);
+    if (explicitRequest.status === 'unsupported') {
+      throw new ThinkForgeDocumentAuthorityError(
+        'DOCUMENT_TYPE_UNSUPPORTED',
+        `ThinkForge does not yet have a production writer contract for ${explicitRequest.label}. Choose a post, carousel, or video script.`,
+      );
+    }
+    if (explicitRequest.status === 'ambiguous') {
+      throw new ThinkForgeDocumentAuthorityError(
+        'DOCUMENT_TYPE_AMBIGUOUS',
+        `Choose one output for this generation: ${explicitRequest.labels.join(', ')}.`,
+      );
+    }
+    if (explicitRequest.status === 'supported') {
+      const contract = explicitRequest.contract;
+      const writerKind = contract.outputKind as ThinkForgeWriterKind;
+      const contentPath = isThinkForgePostKind(writerKind) ? 'post' : 'script';
+      return {
+        contentPath,
+        documentType: writerKind,
+        documentKind: contract.documentKind,
+        outputKind: writerKind,
+        contract,
+        documentLabel: contentPath === 'post' ? 'post' : 'script',
+        source: 'explicit_user_request',
+      };
+    }
+  }
   return resolveThinkForgeDocumentIntent(userPrompt, docType, selectedContract);
 }
 

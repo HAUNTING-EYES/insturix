@@ -138,8 +138,8 @@ describe('ThinkForge script hydration contract', () => {
       'Instagram post',
       'user_request',
     )).toMatchObject({
-      contentPath: 'post',
-      source: 'legacy_document_type',
+      contentPath: 'script',
+      source: 'explicit_user_request',
     });
   });
 
