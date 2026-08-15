@@ -44,7 +44,7 @@ import {
   type SFXLibrarySearchReport,
 } from '@/lib/pipeline/sfx-library-service';
 import type { SfxCatalogSemanticRetrieval } from '@/lib/pipeline/sfx-catalog-semantic-index';
-import { handleSfxLibraryIngest } from '@/app/api/services/editron/sfx-library/ingest/route';
+import { handleSfxLibraryIngest } from '@/lib/pipeline/sfx-library-route-handlers';
 
 function freesoundResponse(results: Array<Record<string, unknown>>): Response {
   return new Response(JSON.stringify({ results }), {

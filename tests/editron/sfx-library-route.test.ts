@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   handleSfxLibrarySearch,
   resolveBrowseMaxDurationSec,
-} from '@/app/api/services/editron/sfx-library/search/route';
+} from '@/lib/pipeline/sfx-library-route-handlers';
 
 type FetchMockArgs = [
   input: Parameters<typeof fetch>[0],
