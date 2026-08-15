@@ -23,6 +23,7 @@ import {
   type IdeaConceptEvidence,
   type IdeaEmbeddingProvider,
 } from '../ideas/idea-diversity';
+import { resolveExplicitDurationStatement } from '../intake/explicit-output-knobs';
 
 // =============================================================================
 // SCHEMA DEFINITIONS
@@ -161,10 +162,6 @@ interface VideoDurationPolicy {
   shortFormRequested: boolean;
 }
 
-// Matches a stated video length: "7 min", "7-minute", "90 seconds", "2 hours".
-// Reuses the minutes->seconds convention from content-signal-resolver.ts.
-const DURATION_STATEMENT_PATTERN = /(\d{1,3})\s*[-–]?\s*(hours?|hrs?|minutes?|mins?|seconds?|secs?)\b/i;
-
 /**
  * Derive whether the user asked for a long-form or short-form video, and any explicit
  * duration they stated. Pure and conservative: only an explicit number+unit or a clear
@@ -172,43 +169,20 @@ const DURATION_STATEMENT_PATTERN = /(\d{1,3})\s*[-–]?\s*(hours?|hrs?|minutes?|
  */
 export function deriveVideoDurationPolicy(prompt: string): VideoDurationPolicy {
   const lower = prompt.toLowerCase();
-  const match = lower.match(DURATION_STATEMENT_PATTERN);
-  if (match) {
-    const amount = Number(match[1]);
-    const unit = match[2].toLowerCase();
-    const requestedDurationSec = /h/.test(unit) ? amount * 3600 : /min/.test(unit) ? amount * 60 : amount;
-    const durationLabel =
-      requestedDurationSec % 3600 === 0
-        ? `${requestedDurationSec / 3600}-hour`
-        : requestedDurationSec % 60 === 0
-          ? `${requestedDurationSec / 60}-minute`
-          : `${requestedDurationSec}-second`;
+  const explicitDuration = resolveExplicitDurationStatement(prompt);
+  if (explicitDuration) {
+    const { targetDurationSec: requestedDurationSec, durationLabel } = explicitDuration;
     return {
       requestedDurationSec,
       durationLabel,
-      // 60s is the industry-standard short/long split (same as "under a minute" = 60 in prompt-knob-parser).
       longFormRequested: requestedDurationSec > 60,
       shortFormRequested: requestedDurationSec <= 60,
     };
   }
 
-  // Word-form explicit lengths (conservative: unambiguous units only, never vibe-words).
-  // "half an hour" / "half-hour"
-  if (/\bhalf[- ]an?[- ]hour\b/.test(lower)) {
-    return { requestedDurationSec: 1800, durationLabel: '30-minute', longFormRequested: true, shortFormRequested: false };
-  }
-  // "an hour" / "one hour" / "sixty minutes"
-  if (/\b(an|one)[- ]hour\b|\bsixty[- ]minutes?\b/.test(lower)) {
-    return { requestedDurationSec: 3600, durationLabel: '1-hour', longFormRequested: true, shortFormRequested: false };
-  }
-  // "under a minute" / "less than a minute" (same bound as prompt-knob-parser)
-  if (/\b(under|less than)[- ]an?[- ]minute\b/.test(lower)) {
-    return { requestedDurationSec: 60, durationLabel: '60-second', longFormRequested: false, shortFormRequested: true };
-  }
-
   return {
     longFormRequested: /\b(long[- ]?form|documentary|feature[- ]film|feature[- ]length)\b/.test(lower),
-    shortFormRequested: /\b(short[- ]?form|shorts?\b|reels?\b|tiktok)\b/.test(lower),
+    shortFormRequested: /\b(short[- ]?form|shorts?\b|reels?\b|tiktok|under (?:a|one) minute|less than (?:a|one) minute)\b/.test(lower),
   };
 }
 

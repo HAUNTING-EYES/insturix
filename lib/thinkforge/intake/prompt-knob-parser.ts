@@ -28,6 +28,7 @@
 import type { IntakeSignals } from '@/lib/editron/production-brief/intake-resolver';
 import { type AspectRatio, type Platform, PLATFORM_SHAPE } from '@/lib/editron/production-brief/production-brief';
 import type { ThinkForgeCastingIntent } from '../casting/resolve-casting';
+import { resolveDeterministicOutputKnobs } from './explicit-output-knobs';
 
 /**
  * The knobs this pass may emit - the resolver's `requested` shape MINUS `intent` and `style`
@@ -66,7 +67,7 @@ You read a user's free-text request about a video they want made, and extract ON
 - Extract a setting ONLY when the user clearly and explicitly states it. If it is not clearly stated, OMIT that key entirely. A missing key is CORRECT and expected - the system infers unstated settings elsewhere.
 - NEVER guess a setting from vibe or mood words. "snappy", "punchy", "clean", "professional", "make it pop" state NO platform, NO duration, NO aspect ratio. Omit them.
 - Do NOT derive one setting from another. If the user names a platform but not an aspect ratio, do NOT emit aspectRatio (the system derives it). Emit aspectRatio only if they explicitly say "vertical" (9:16), "square" (1:1), "portrait" (4:5), "widescreen"/"landscape" (16:9), or give a ratio.
-- A stated duration is a number of seconds ("30 seconds", "half a minute" = 30, "a minute" = 60, "under a minute" = 60). "short"/"quick"/"long" alone are NOT durations - omit.
+- A stated target duration is exact ("30 seconds", "half a minute" = 30, "a minute" = 60). A bound such as "under a minute" is NOT an exact target; omit targetDurationSec. "short"/"quick"/"long" alone are NOT durations - omit.
 - count = how many distinct cuts/versions they ask for ("two versions", "a couple" = 2, "three" = 3). Not stated = omit (do NOT default to 1).
 - Languages are ISO-639-1 codes (Hindi = "hi", English = "en", Spanish = "es"). voiceLanguages = spoken/voiceover language; captionLanguages = subtitle/caption language.
 - deliverables = explicitly requested named outputs beyond the cut(s) (e.g. "thumbnail", "captions file", "square version").
@@ -237,19 +238,20 @@ export function parsePromptUnderstandingResponse(raw: string): PromptUnderstandi
 
 /**
  * Extract the explicitly-stated output knobs from a user's free-text request. Impure only through
- * the injected `llm`. NEVER throws: an empty/blank prompt, an LLM error, or a bad response all
- * yield `{}` (emit nothing -> the resolver infers everything, the safe default). The caller sets
- * the result on `IntakeUserContext.requested`.
+ * the injected `llm`. NEVER throws: an empty prompt yields `{}`; an LLM error or bad response still
+ * preserves mechanically provable duration, platform, and aspect controls. The caller sets the
+ * result on `IntakeUserContext.requested`.
  */
 export async function parsePromptKnobs(userPrompt: string, llm: LLMComplete): Promise<RequestedKnobs> {
   if (typeof userPrompt !== 'string' || userPrompt.trim().length === 0) return {};
+  const deterministic = resolveDeterministicOutputKnobs(userPrompt);
   let raw: string;
   try {
     raw = await llm(buildKnobParserPrompt(userPrompt));
   } catch {
-    return {};
+    return deterministic;
   }
-  return parseKnobResponse(raw);
+  return { ...parseKnobResponse(raw), ...deterministic };
 }
 
 export async function parsePromptUnderstanding(
@@ -257,11 +259,16 @@ export async function parsePromptUnderstanding(
   llm: LLMComplete,
 ): Promise<PromptUnderstanding> {
   if (typeof userPrompt !== 'string' || userPrompt.trim().length === 0) return { requested: {} };
+  const deterministic = resolveDeterministicOutputKnobs(userPrompt);
   let raw: string;
   try {
     raw = await llm(buildKnobParserPrompt(userPrompt));
   } catch {
-    return { requested: {} };
+    return { requested: deterministic };
   }
-  return parsePromptUnderstandingResponse(raw);
+  const parsed = parsePromptUnderstandingResponse(raw);
+  return {
+    ...parsed,
+    requested: { ...parsed.requested, ...deterministic },
+  };
 }

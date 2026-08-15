@@ -399,7 +399,7 @@ describe('IdeasAgent prompt contract', () => {
     expect(feature.shortFormRequested).toBe(false);
     expect(feature.requestedDurationSec).toBeUndefined();
     const underMinute = deriveVideoDurationPolicy('under a minute clip');
-    expect(underMinute.requestedDurationSec).toBe(60);
+    expect(underMinute.requestedDurationSec).toBeUndefined();
     expect(underMinute.shortFormRequested).toBe(true);
     expect(underMinute.longFormRequested).toBe(false);
   });

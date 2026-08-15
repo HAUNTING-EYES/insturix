@@ -10,6 +10,10 @@ import {
   parsePromptUnderstandingResponse,
   type RequestedKnobs,
 } from '@/lib/thinkforge/intake/prompt-knob-parser';
+import {
+  resolveDeterministicOutputKnobs,
+  resolveExplicitDurationStatement,
+} from '@/lib/thinkforge/intake/explicit-output-knobs';
 
 describe('buildKnobParserPrompt', () => {
   it('has the required XML sections with data (the request) LAST', () => {
@@ -158,16 +162,88 @@ describe('parsePromptKnobs - impure edge with injected llm', () => {
     expect(called).toBe(false);
   });
 
-  it('llm throwing -> {} (never throws, safe fallback)', async () => {
+  it('keeps exact user controls when the llm fails', async () => {
     const boom = async () => {
       throw new Error('model down');
     };
-    expect(await parsePromptKnobs('a 20s tiktok', boom)).toEqual({});
+    expect(await parsePromptKnobs('a 20s vertical tiktok', boom)).toEqual({
+      platform: 'tiktok',
+      targetDurationSec: 20,
+      aspectRatio: '9:16',
+    });
+    expect(await parsePromptKnobs('make it punchy', boom)).toEqual({});
+  });
+
+  it('lets mechanically proven values override a conflicting model extraction', async () => {
+    const r = await parsePromptUnderstanding(
+      'Create a 7-minute widescreen YouTube video.',
+      echo('{"requested":{"platform":"tiktok","targetDurationSec":30,"aspectRatio":"9:16","count":2}}'),
+    );
+    expect(r.requested).toEqual({
+      platform: 'youtube',
+      targetDurationSec: 420,
+      aspectRatio: '16:9',
+      count: 2,
+    });
   });
 
   it('returns parsed prompt understanding from the llm response', async () => {
     const r = await parsePromptUnderstanding('make me the host', echo('{"castingIntent":{"requested":true,"target":"self"}}'));
     expect(r).toEqual({ requested: {}, castingIntent: { requested: true, target: 'self', characterId: 'host', characterName: 'Host' } });
+  });
+});
+
+describe('deterministic output knob extraction', () => {
+  it.each([
+    ['7 min video', 420, '7-minute'],
+    ['a 1.5 hour documentary', 5400, '90-minute'],
+    ['half an hour feature', 1800, '30-minute'],
+    ['seven-minute explainer', 420, '7-minute'],
+    ['90 seconds', 90, '90-second'],
+  ])('parses exact duration %s', (prompt, seconds, label) => {
+    expect(resolveExplicitDurationStatement(prompt)).toEqual({
+      targetDurationSec: seconds,
+      durationLabel: label,
+    });
+  });
+
+  it('does not turn bounds, mood, or unrelated numbers into exact duration', () => {
+    expect(resolveExplicitDurationStatement('under a minute')).toBeNull();
+    expect(resolveExplicitDurationStatement('around 7 minutes')).toBeNull();
+    expect(resolveExplicitDurationStatement('between 5 and 7 minutes')).toBeNull();
+    expect(resolveExplicitDurationStatement('a 5-7 minute video')).toBeNull();
+    expect(resolveExplicitDurationStatement('give me 7 ideas')).toBeNull();
+    expect(resolveExplicitDurationStatement('make it short and punchy')).toBeNull();
+  });
+
+  it('keeps an exact total while ignoring a bounded segment duration', () => {
+    expect(resolveExplicitDurationStatement(
+      'Make a 7-minute video with every on-camera beat under 10 seconds.',
+    )).toEqual({ targetDurationSec: 420, durationLabel: '7-minute' });
+  });
+
+  it('leaves conflicting exact durations to semantic intake', () => {
+    expect(resolveExplicitDurationStatement(
+      'Make a 7-minute master and a 30-second cutdown.',
+    )).toBeNull();
+  });
+
+  it('distinguishes a target platform from platforms mentioned as the topic', () => {
+    expect(resolveDeterministicOutputKnobs(
+      'Write a LinkedIn post comparing YouTube workflows.',
+    )).toEqual({ platform: 'linkedin' });
+    expect(resolveDeterministicOutputKnobs(
+      'Write a post about Instagram trends.',
+    )).toEqual({});
+  });
+
+  it('does not confuse visual subject words with an aspect-ratio instruction', () => {
+    expect(resolveDeterministicOutputKnobs(
+      'Create a portrait of the founder in a landscape studio.',
+    )).toEqual({});
+    expect(resolveDeterministicOutputKnobs(
+      'Create a vertical TikTok video.',
+    )).toEqual({ platform: 'tiktok', aspectRatio: '9:16' });
   });
 });
 
