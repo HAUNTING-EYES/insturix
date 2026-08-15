@@ -40,13 +40,13 @@ describe('post-mortem scope resolver', () => {
     mocks.getSession.mockReset();
   });
 
-  it('uses owned project-link scope over request or metadata guesses', async () => {
+  it('uses the project link for project identity without overriding the session brand', async () => {
     mocks.findLinkBySessionId.mockResolvedValue({
       universalId: 'plink_1',
       userId: 'user_1',
       sessionId: 'tf_session_1',
       projectIds: ['editron_project_1', 'editron_project_2'],
-      brandId: 'brand_link',
+      brandId: 'brand_meta',
       storyboardIds: [],
       videoIds: [],
       schemaVersion: 1,
@@ -65,9 +65,10 @@ describe('post-mortem scope resolver', () => {
     expect(mocks.findLinkBySessionId).toHaveBeenCalledWith('user_1', 'tf_session_1');
     expect(result?.input).toEqual({
       userId: 'user_1',
+      orgId: null,
       sessionId: 'tf_session_1',
       projectId: 'editron_project_1',
-      brandId: 'brand_link',
+      brandId: 'brand_meta',
       projectTitle: 'Body title',
     });
   });
@@ -88,6 +89,7 @@ describe('post-mortem scope resolver', () => {
 
     expect(result?.input).toEqual({
       userId: 'user_1',
+      orgId: null,
       sessionId: 'tf_session_1',
       projectId: undefined,
       brandId: 'brand_meta',
@@ -103,6 +105,51 @@ describe('post-mortem scope resolver', () => {
       sessionId: 'missing_session',
     })).resolves.toBeNull();
 
+    expect(mocks.findLinkBySessionId).not.toHaveBeenCalled();
+  });
+
+  it('carries exact organization authority into the agent input', async () => {
+    mocks.getSession.mockResolvedValue(thinkForgeSession({ orgId: 'org_1' }));
+    mocks.findLinkBySessionId.mockResolvedValue(null);
+
+    const result = await resolvePostMortemScope({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'tf_session_1',
+    });
+
+    expect(mocks.getSession).toHaveBeenCalledWith('tf_session_1', 'user_1', 'org_1');
+    expect(result?.input.orgId).toBe('org_1');
+  });
+
+  it('rejects a stale project link that points at another brand', async () => {
+    mocks.findLinkBySessionId.mockResolvedValue({
+      userId: 'user_1',
+      sessionId: 'tf_session_1',
+      brandId: 'brand_other',
+      projectIds: ['editron_project_1'],
+    });
+
+    await expect(resolvePostMortemScope({
+      userId: 'user_1',
+      sessionId: 'tf_session_1',
+      session: thinkForgeSession(),
+    })).rejects.toMatchObject({
+      code: 'brand_scope_conflict',
+      status: 409,
+    });
+  });
+
+  it('rejects a supplied session from a different actor or organization', async () => {
+    await expect(resolvePostMortemScope({
+      userId: 'user_2',
+      orgId: 'org_2',
+      sessionId: 'tf_session_1',
+      session: thinkForgeSession({ orgId: 'org_1' }),
+    })).rejects.toMatchObject({
+      code: 'session_scope_mismatch',
+      status: 403,
+    });
     expect(mocks.findLinkBySessionId).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { runPostMortemAgent } from '@/lib/thinkforge/agents/post-mortem-agent';
-import { resolvePostMortemScope } from '@/lib/thinkforge/agents/post-mortem-scope';
+import {
+  PostMortemScopeError,
+  resolvePostMortemScope,
+} from '@/lib/thinkforge/agents/post-mortem-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,7 +25,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, message: 'Post-Mortem disabled' });
   }
 
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   let body: any;
@@ -39,14 +42,17 @@ export async function POST(req: Request) {
   }
 
   try {
-    const scoped = await resolvePostMortemScope({ userId, sessionId, projectTitle });
+    const scoped = await resolvePostMortemScope({ userId, orgId, sessionId, projectTitle });
     if (!scoped) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
     const result = await runPostMortemAgent(scoped.input);
     return NextResponse.json({ success: true, ...result });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error instanceof PostMortemScopeError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
     console.error('[PostMortem] Agent failed:', error);
     return NextResponse.json({ error: 'Post-mortem compression failed' }, { status: 500 });
   }

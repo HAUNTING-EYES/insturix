@@ -82,7 +82,7 @@ export async function GET(request: Request, { params }: RouteParams) {
  */
 export async function DELETE(request: Request, { params }: RouteParams) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -98,23 +98,35 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       );
     }
 
-    // Verify the session belongs to this user
-    const session = await db.getSession(sessionId, userId);
+    const session = await db.getSession(sessionId, userId, orgId);
     if (!session) {
       return NextResponse.json(
         { error: 'Session not found or access denied' },
         { status: 404 }
       );
     }
+    if (session.userId !== userId) {
+      return NextResponse.json(
+        { error: 'Only the session owner can delete this session' },
+        { status: 403 },
+      );
+    }
 
-    // Run Post-Mortem compression before deletion to preserve learned insights
     try {
-      const scoped = await resolvePostMortemScope({ userId, sessionId, session });
+      const scoped = await resolvePostMortemScope({ userId, orgId, sessionId, session });
       if (scoped) {
         await runPostMortemAgent(scoped.input);
       }
     } catch (pmErr) {
-      console.warn('[Sessions] Post-mortem failed, proceeding with deletion:', pmErr);
+      console.error('[Sessions] Post-mortem failed; session deletion blocked:', pmErr);
+      return NextResponse.json(
+        {
+          error: 'Session learning could not be preserved. Retry deletion.',
+          code: 'post_mortem_not_durable',
+          retryable: true,
+        },
+        { status: 503 },
+      );
     }
 
     await db.deleteSession(sessionId, userId);

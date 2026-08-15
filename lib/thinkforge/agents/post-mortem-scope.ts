@@ -1,4 +1,8 @@
 import { findLinkBySessionId, type ProjectLink } from '@/lib/shared/project-links';
+import {
+  resolveProjectMetaBrandId,
+  resolveThinkForgeSessionBrandBinding,
+} from '@/lib/thinkforge/state/types';
 import * as db from '../services/db';
 import type { PostMortemInput } from './post-mortem-agent';
 
@@ -8,26 +12,72 @@ export interface ResolvedPostMortemScope {
   session: db.Session;
 }
 
+export class PostMortemScopeError extends Error {
+  constructor(
+    message: string,
+    readonly code: 'session_scope_mismatch' | 'brand_scope_conflict',
+    readonly status: 403 | 409,
+  ) {
+    super(message);
+    this.name = 'PostMortemScopeError';
+  }
+}
+
 export async function resolvePostMortemScope(input: {
   userId: string;
+  orgId?: string | null;
   sessionId: string;
   projectTitle?: string;
   session?: db.Session | null;
 }): Promise<ResolvedPostMortemScope | null> {
-  const session = input.session ?? await db.getSession(input.sessionId, input.userId);
+  const requestedOrgId = firstNonEmpty(input.orgId) ?? null;
+  const session = input.session ?? await db.getSession(input.sessionId, input.userId, requestedOrgId);
   if (!session) {
     return null;
   }
 
-  const projectLink = await findLinkBySessionId(input.userId, input.sessionId);
+  const canonicalSessionId = firstNonEmpty(session._id);
+  const sessionOrgId = firstNonEmpty(session.orgId) ?? null;
+  if (
+    canonicalSessionId !== input.sessionId
+    || session.userId !== input.userId
+    || sessionOrgId !== requestedOrgId
+  ) {
+    throw new PostMortemScopeError(
+      'Post-mortem session authority does not match the requesting actor.',
+      'session_scope_mismatch',
+      403,
+    );
+  }
+
+  const projectLink = await findLinkBySessionId(input.userId, canonicalSessionId);
   const projectMeta = session.projectMeta;
+  const binding = resolveThinkForgeSessionBrandBinding(projectMeta);
+  const directBrandId = firstNonEmpty(projectMeta?.brandId);
+  if (binding && directBrandId && binding.brandId !== directBrandId) {
+    throw new PostMortemScopeError(
+      'Post-mortem session contains conflicting brand authority.',
+      'brand_scope_conflict',
+      409,
+    );
+  }
+  const sessionBrandId = resolveProjectMetaBrandId(projectMeta);
+  const linkedBrandId = firstNonEmpty(projectLink?.brandId);
+  if (sessionBrandId && linkedBrandId && sessionBrandId !== linkedBrandId) {
+    throw new PostMortemScopeError(
+      'Post-mortem project link conflicts with the session brand authority.',
+      'brand_scope_conflict',
+      409,
+    );
+  }
 
   return {
     input: {
       userId: input.userId,
-      sessionId: input.sessionId,
+      orgId: sessionOrgId,
+      sessionId: canonicalSessionId,
       projectId: firstNonEmpty(projectLink?.projectIds?.[0]),
-      brandId: firstNonEmpty(projectLink?.brandId, projectMeta?.brandId),
+      brandId: sessionBrandId,
       projectTitle: firstNonEmpty(
         input.projectTitle,
         projectMeta?.sessionName,
