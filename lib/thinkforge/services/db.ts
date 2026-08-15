@@ -3075,8 +3075,12 @@ export function buildAuthorizedDataBankReadQuery(
 }
 
 export function getDataBankModel(): Model<any> {
-  if (!DataBankModel) {
-    DataBankModel = mongoose.models[COLL_DATABANK] || mongoose.model(COLL_DATABANK, DataBankSchema);
+  const tfConn = thinkforgeDbCached.conn;
+  if (!tfConn || tfConn.readyState !== 1) {
+    throw new Error('ThinkForge DataBank model requires an active ThinkForge database connection.');
+  }
+  if (!DataBankModel || DataBankModel.db !== tfConn) {
+    DataBankModel = tfConn.models[COLL_DATABANK] || tfConn.model(COLL_DATABANK, DataBankSchema);
   }
   return DataBankModel;
 }
@@ -3669,14 +3673,17 @@ export async function backfillDataBankProvenanceAndQueueEmbeddings(
   return { scanned: candidates.length, verified, quarantined, reembeddingQueued };
 }
 
-/** Delete a DataBank entry (owner only) */
-export async function deleteDataBankEntry(
+/** Delete a DataBank entry through exact personal or organization authority. */
+export async function deleteAuthorizedDataBankEntry(
   entryId: string,
-  userId: string
+  principalInput: DataBankPrincipal,
 ): Promise<boolean> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
-  const result = await model.deleteOne({ _id: entryId, userId });
+  const result = await model.deleteOne({
+    _id: entryId,
+    ...buildDataBankPrincipalQuery(principalInput),
+  });
   return result.deletedCount > 0;
 }
 
@@ -3899,37 +3906,73 @@ export async function logInteractionEvent(
   }
 }
 
-/**
- * Owner-approved promotion is the only path that can turn an otherwise
- * unscoped project note into universal memory. Brand-bound entries retain
- * their brand provenance; no inferred brand crosses this boundary.
- */
-export async function promoteEntryToGlobal(entryId: string): Promise<void> {
+export type DataBankPromotionTarget =
+  | { memoryScope: 'brand'; brandId: string }
+  | { memoryScope: 'universal' };
+
+export type DataBankPromotionResult =
+  | 'promoted'
+  | 'already_global'
+  | 'not_found'
+  | 'not_promotable'
+  | 'invalid_state'
+  | 'brand_mismatch'
+  | 'conflict';
+
+/** Promote owner-approved project memory through an explicit, CAS-protected target. */
+export async function promoteAuthorizedDataBankEntryToGlobal(
+  entryId: string,
+  principalInput: DataBankPrincipal,
+  target: DataBankPromotionTarget,
+): Promise<DataBankPromotionResult> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
-  const existing = await model.findOne({ _id: entryId }).lean() as DataBankEntry | null;
-  if (!existing) return;
+  const principalQuery = buildDataBankPrincipalQuery(principalInput);
+  const existing = await model.findOne({ _id: entryId, ...principalQuery }).lean() as DataBankEntry | null;
+  if (!existing) return 'not_found';
+  if (existing.scope === 'global') return 'already_global';
+  if (existing.type !== 'brand_insight' && existing.type !== 'rejection_pattern') {
+    return 'not_promotable';
+  }
+  if (existing.provenanceStatus !== 'verified' || existing.lifecycleStatus !== 'active') {
+    return 'invalid_state';
+  }
 
   const trustedMetadata = trustedPostMortemMetadata(existing.content);
-  const brandId = existing.brandId ?? trustedMetadata.brandId;
-  const memoryScope: DataBankMemoryScope = brandId ? 'brand' : 'universal';
-  const tags = new Set((existing.tags ?? []).map((tag) => tag.trim()).filter(Boolean));
-  tags.delete('memory:project');
-  tags.add(`memory:${memoryScope}`);
-  if (brandId) tags.add(`brand:${brandId}`);
+  const existingBrandId = dataBankString(existing.brandId) ?? trustedMetadata.brandId;
+  const targetBrandId = target.memoryScope === 'brand' ? dataBankString(target.brandId) : undefined;
+  if (target.memoryScope === 'brand' && !targetBrandId) return 'brand_mismatch';
+  if (existingBrandId && existingBrandId !== targetBrandId) return 'brand_mismatch';
+  const tags = normalizedMemoryTags(existing.tags, target.memoryScope, targetBrandId);
 
-  await model.updateOne(
-    { _id: entryId },
+  const result = await model.updateOne(
+    {
+      _id: entryId,
+      ...principalQuery,
+      scope: 'project',
+      updatedAt: existing.updatedAt,
+    },
     {
       $set: {
         scope: 'global',
-        memoryScope,
-        ...(brandId ? { brandId } : {}),
-        tags: [...tags],
+        memoryScope: target.memoryScope,
+        ...(targetBrandId ? { brandId: targetBrandId } : {}),
+        tags,
+        embeddingStatus: 'pending',
+        embeddingAttempts: 0,
         updatedAt: new Date(),
+      },
+      $unset: {
+        ...(targetBrandId ? {} : { brandId: '' }),
+        vectorId: '',
+        embeddingMetadataVersion: '',
+        embeddingLastAttemptAt: '',
+        embeddingNextRetryAt: '',
+        embeddingLeaseExpiresAt: '',
       },
     },
   );
+  return result.matchedCount > 0 ? 'promoted' : 'conflict';
 }
 
 export function buildInteractionEventDeletionQuery(input: {

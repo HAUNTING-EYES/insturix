@@ -1,28 +1,49 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { z } from 'zod';
 import {
     addGovernedDataBankEntry,
-    getDataBankEntries,
-    getDataBankEntriesByUser,
-    getDataBankEntry,
-    getProjectScopedEntries,
+    assertDataBankSessionPrincipal,
+    deleteAuthorizedDataBankEntry,
+    getAuthorizedDataBankEntries,
+    getAuthorizedProjectScopedEntries,
     getSession,
-    deleteDataBankEntry,
-    promoteEntryToGlobal,
+    promoteAuthorizedDataBankEntryToGlobal,
     type DataBankEntryType,
-    type DataBankScope,
 } from '@/lib/thinkforge/services/db';
+import { authorizeBrandScope, BrandScopeAuthorizationError } from '@/lib/shared/brand-scope';
+import { inspectDataForStorage } from '@/lib/thinkforge/privacy/provider-privacy-gateway';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const VALID_TYPES: DataBankEntryType[] = [
+const VALID_TYPES = [
     'url_brief', 'note', 'reference', 'research',
     'atomic_fact', 'brand_insight', 'rejection_pattern',
-];
-const PROMOTABLE_TYPES = new Set<DataBankEntryType>(['brand_insight', 'rejection_pattern']);
+] as const satisfies readonly DataBankEntryType[];
+const MAX_REQUEST_BYTES = 128_000;
 const DIRECT_GLOBAL_WRITE_ERROR =
     'Direct global DataBank writes are not allowed. Save project-scoped content and promote it from a trusted outcome or explicit owner action.';
+
+const DataBankPostSchema = z.object({
+    sessionId: z.string().trim().min(1).max(200),
+    type: z.enum(VALID_TYPES),
+    title: z.string().trim().min(1).max(500),
+    content: z.record(z.string(), z.unknown()).default({}),
+    sourceUrl: z.string().trim().url().max(2_048).optional(),
+    sourceEntryId: z.string().trim().min(1).max(200).optional(),
+    tags: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+    scope: z.enum(['project', 'global']).optional(),
+}).strict();
+
+const DataBankPatchSchema = z.object({
+    id: z.string().trim().min(1).max(200),
+    action: z.literal('promote'),
+    target: z.discriminatedUnion('memoryScope', [
+        z.object({ memoryScope: z.literal('brand'), brandId: z.string().trim().min(1).max(200) }).strict(),
+        z.object({ memoryScope: z.literal('universal') }).strict(),
+    ]),
+}).strict();
 
 /**
  * DataBank API - tiered knowledge storage
@@ -34,42 +55,62 @@ const DIRECT_GLOBAL_WRITE_ERROR =
  */
 
 export async function GET(req: Request) {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const scope = searchParams.get('scope');
     const sessionId = searchParams.get('sessionId');
-    const type = searchParams.get('type') as DataBankEntryType | null;
-    const limit = searchParams.get('limit');
-    const tags = searchParams.get('tags');
+    const rawType = searchParams.get('type');
+    const type = isDataBankEntryType(rawType) ? rawType : undefined;
+    const limit = parseDataBankLimit(searchParams.get('limit'));
+    const tags = parseQueryTags(searchParams.get('tags'));
+    const dataScope = searchParams.get('dataScope');
+    const principal = { userId, orgId: orgId ?? null };
 
-    const dataScope = searchParams.get('dataScope') as DataBankScope | null;
+    if (rawType && !type) {
+        return NextResponse.json({ error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` }, { status: 400 });
+    }
+    if (limit === null) {
+        return NextResponse.json({ error: 'limit must be an integer between 1 and 500' }, { status: 400 });
+    }
+    if (tags === null) {
+        return NextResponse.json({ error: 'tags must contain at most 50 non-empty values' }, { status: 400 });
+    }
+    if (scope && scope !== 'user') {
+        return NextResponse.json({ error: 'scope must be user when provided' }, { status: 400 });
+    }
+    if (dataScope && dataScope !== 'global' && dataScope !== 'project') {
+        return NextResponse.json({ error: 'dataScope must be global or project' }, { status: 400 });
+    }
 
     try {
         if (dataScope === 'global') {
-            const entries = await getDataBankEntriesByUser(userId, {
-                type: type || undefined,
-                tags: tags ? tags.split(',') : undefined,
+            const entries = await getAuthorizedDataBankEntries(principal, {
+                type,
+                tags,
                 scope: 'global',
-                limit: limit ? parseInt(limit, 10) : undefined,
+                limit,
             });
             return NextResponse.json({ entries });
         }
 
-        if (dataScope === 'project' && sessionId) {
-            const entries = await getProjectScopedEntries(userId, sessionId, {
-                type: type || undefined,
-                limit: limit ? parseInt(limit, 10) : undefined,
+        if (dataScope === 'project') {
+            if (!sessionId) {
+                return NextResponse.json({ error: 'Project reads require sessionId' }, { status: 400 });
+            }
+            const entries = await getAuthorizedProjectScopedEntries(principal, sessionId, {
+                type,
+                limit,
             });
             return NextResponse.json({ entries });
         }
 
         if (scope === 'user') {
-            const entries = await getDataBankEntriesByUser(userId, {
-                type: type || undefined,
-                tags: tags ? tags.split(',') : undefined,
-                limit: limit ? parseInt(limit, 10) : undefined,
+            const entries = await getAuthorizedDataBankEntries(principal, {
+                type,
+                tags,
+                limit,
             });
             return NextResponse.json({ entries });
         }
@@ -78,9 +119,9 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: 'Missing sessionId or scope=user' }, { status: 400 });
         }
 
-        const entries = await getDataBankEntries(sessionId, userId, type || undefined);
+        const entries = await getAuthorizedProjectScopedEntries(principal, sessionId, { type, limit });
         return NextResponse.json({ entries });
-    } catch (error: any) {
+    } catch (error) {
         console.error('Error fetching databank entries:', error);
         return NextResponse.json({ error: 'Failed to fetch entries' }, { status: 500 });
     }
@@ -90,33 +131,21 @@ export async function POST(req: Request) {
     const { userId, orgId } = await auth();
     if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
-    let body: any;
-    try {
-        body = await req.json();
-    } catch {
-        return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-    }
-
-    const { type, title, content, sourceUrl, sourceEntryId, tags, scope: bodyScope } = body;
-    const sessionId = nonEmptyString(body.sessionId);
-
-    if (!type || !title) {
-        return NextResponse.json(
-            { error: 'Missing required fields: type, title' },
-            { status: 400 },
-        );
-    }
-
-    if (!VALID_TYPES.includes(type)) {
-        return NextResponse.json({ error: `Invalid type. Must be one of: ${VALID_TYPES.join(', ')}` }, { status: 400 });
-    }
-
-    if (bodyScope === 'global') {
+    const parsedBody = await parseBoundedJson(req, DataBankPostSchema);
+    if (!parsedBody.ok) return parsedBody.response;
+    const { sessionId, type, title, content, sourceUrl, sourceEntryId, tags, scope } = parsedBody.value;
+    if (scope === 'global') {
         return NextResponse.json({ error: DIRECT_GLOBAL_WRITE_ERROR }, { status: 400 });
     }
-
-    if (!sessionId) {
-        return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
+    const storageInspection = inspectDataForStorage({
+        text: JSON.stringify({ title, content, sourceUrl: sourceUrl ?? null }),
+        declaredPrivacyClass: 'business_confidential',
+    });
+    if (storageInspection.privacyClass === 'child_data') {
+        return NextResponse.json({ error: 'Child data cannot be stored in ThinkForge memory' }, { status: 422 });
+    }
+    if (storageInspection.containsPersonalData || storageInspection.privacyClass === 'personal') {
+        return NextResponse.json({ error: 'Personal data requires an explicit consent flow before storage' }, { status: 422 });
     }
 
     try {
@@ -124,6 +153,12 @@ export async function POST(req: Request) {
         if (!session) {
             return NextResponse.json({ error: 'Session not found or unavailable to this actor' }, { status: 404 });
         }
+        try {
+            assertDataBankSessionPrincipal({ userId, orgId }, session);
+        } catch {
+            return NextResponse.json({ error: 'Session not found or unavailable to this actor' }, { status: 404 });
+        }
+        const brandId = nonEmptyString(session.projectMeta?.brandId);
 
         const entry = await addGovernedDataBankEntry({ userId, orgId }, sessionId, {
             type,
@@ -131,75 +166,82 @@ export async function POST(req: Request) {
             content: content || {},
             sourceUrl,
             sourceEntryId,
-            tags: normalizeTags(tags),
+            tags,
             projectId: sessionId,
             scope: 'project',
             memoryScope: 'project',
+            ...(brandId ? { brandId } : {}),
             governance: {
                 classification: 'business_confidential',
                 consentStatus: 'not_required',
             },
         });
         return NextResponse.json({ entry }, { status: 201 });
-    } catch (error: any) {
+    } catch (error) {
         console.error('Error creating databank entry:', error);
         return NextResponse.json({ error: 'Failed to create entry' }, { status: 500 });
     }
 }
 
 export async function PATCH(req: Request) {
-    const { userId } = await auth();
+    const { userId, orgId, has } = await auth();
     if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
-    let body: any;
-    try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
-
-    const { id, action } = body;
-    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+    const parsedBody = await parseBoundedJson(req, DataBankPatchSchema);
+    if (!parsedBody.ok) return parsedBody.response;
+    const { id, target } = parsedBody.value;
+    const principal = { userId, orgId: orgId ?? null };
 
     try {
-        if (action === 'promote') {
-            const entry = await getDataBankEntry(id, userId);
-            if (!entry) {
-                return NextResponse.json({ error: 'Entry not found or not owned by user' }, { status: 404 });
-            }
-            if (entry.scope === 'global') {
-                return NextResponse.json({ success: true, action: 'already_global' });
-            }
-            if (!PROMOTABLE_TYPES.has(entry.type)) {
-                return NextResponse.json(
-                    { error: 'Only brand_insight or rejection_pattern entries can be promoted globally' },
-                    { status: 400 },
-                );
-            }
-            await promoteEntryToGlobal(id);
-            return NextResponse.json({ success: true });
+        if (target.memoryScope === 'brand') {
+            await authorizeBrandScope({
+                userId,
+                orgId: orgId ?? null,
+                isOrgAdmin: Boolean(orgId && has({ role: 'org:admin' })),
+                brandId: target.brandId,
+            });
         }
-        return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
-    } catch (error: any) {
+        const result = await promoteAuthorizedDataBankEntryToGlobal(id, principal, target);
+        if (result === 'promoted') return NextResponse.json({ success: true, action: 'promoted' });
+        if (result === 'already_global') return NextResponse.json({ success: true, action: 'already_global' });
+        if (result === 'not_found') {
+            return NextResponse.json({ error: 'Entry not found in this workspace' }, { status: 404 });
+        }
+        if (result === 'not_promotable') {
+            return NextResponse.json(
+                { error: 'Only brand_insight or rejection_pattern entries can be promoted globally' },
+                { status: 400 },
+            );
+        }
+        return NextResponse.json({ error: `Promotion rejected: ${result}` }, { status: 409 });
+    } catch (error) {
+        if (error instanceof BrandScopeAuthorizationError) {
+            const status = error.code === 'brand_scope_unavailable' ? 503 : 404;
+            return NextResponse.json({ error: error.message, code: error.code }, { status });
+        }
         console.error('Error patching databank entry:', error);
         return NextResponse.json({ error: 'Failed to patch entry' }, { status: 500 });
     }
 }
 
 export async function DELETE(req: Request) {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get('id');
+    const id = nonEmptyString(searchParams.get('id'));
 
-    if (!id) {
+    if (!id || id.length > 200) {
         return NextResponse.json({ error: 'Missing id' }, { status: 400 });
     }
 
     try {
-        const deleted = await deleteDataBankEntry(id, userId);
+        const deleted = await deleteAuthorizedDataBankEntry(id, { userId, orgId: orgId ?? null });
         if (!deleted) {
-            return NextResponse.json({ error: 'Entry not found or not owned by user' }, { status: 404 });
+            return NextResponse.json({ error: 'Entry not found in this workspace' }, { status: 404 });
         }
         return NextResponse.json({ success: true });
-    } catch (error: any) {
+    } catch (error) {
         console.error('Error deleting databank entry:', error);
         return NextResponse.json({ error: 'Failed to delete entry' }, { status: 500 });
     }
@@ -211,10 +253,53 @@ function nonEmptyString(value: unknown): string | undefined {
         : undefined;
 }
 
-function normalizeTags(value: unknown): string[] | undefined {
-    if (!Array.isArray(value)) return undefined;
-    const tags = value
-        .map((tag) => nonEmptyString(tag))
-        .filter((tag): tag is string => Boolean(tag));
-    return tags.length > 0 ? tags : undefined;
+function isDataBankEntryType(value: string | null): value is DataBankEntryType {
+    return value !== null && (VALID_TYPES as readonly string[]).includes(value);
+}
+
+function parseDataBankLimit(value: string | null): number | undefined | null {
+    if (value === null) return undefined;
+    if (!/^\d+$/.test(value)) return null;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 500 ? parsed : null;
+}
+
+function parseQueryTags(value: string | null): string[] | undefined | null {
+    if (value === null) return undefined;
+    const tags = [...new Set(value.split(',').map((tag) => tag.trim()).filter(Boolean))];
+    return tags.length > 0 && tags.length <= 50 && tags.every((tag) => tag.length <= 100)
+        ? tags
+        : null;
+}
+
+async function parseBoundedJson<T>(
+    req: Request,
+    schema: z.ZodType<T>,
+): Promise<{ ok: true; value: T } | { ok: false; response: NextResponse }> {
+    let raw: string;
+    try {
+        raw = await req.text();
+    } catch {
+        return { ok: false, response: NextResponse.json({ error: 'Invalid request body' }, { status: 400 }) };
+    }
+    if (new TextEncoder().encode(raw).byteLength > MAX_REQUEST_BYTES) {
+        return { ok: false, response: NextResponse.json({ error: 'Request body is too large' }, { status: 413 }) };
+    }
+    let value: unknown;
+    try {
+        value = JSON.parse(raw);
+    } catch {
+        return { ok: false, response: NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) };
+    }
+    const parsed = schema.safeParse(value);
+    if (!parsed.success) {
+        return {
+            ok: false,
+            response: NextResponse.json({
+                error: 'Invalid request body',
+                issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
+            }, { status: 400 }),
+        };
+    }
+    return { ok: true, value: parsed.data };
 }
