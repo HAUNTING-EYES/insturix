@@ -27,11 +27,12 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid request body', details: parsed.error.issues }, { status: 400 });
   }
-  const { sessionId, action, script, baseVersion } = parsed.data;
+  const { sessionId, scriptId, action, script, baseVersion } = parsed.data;
 
   try {
     const result = await executeScriptOperation({
       sessionId,
+      scriptId,
       userId,
       action,
       script,
@@ -45,7 +46,11 @@ export async function POST(req: Request) {
       ? 404
       : error?.message === 'Version conflict'
         ? 409
-        : error?.message?.includes('Script data required') ? 400 : 500;
+        : error?.message?.includes('Script data required')
+          || error?.message === 'Document identity is required'
+          || error?.message === 'Document identity is invalid'
+          ? 400
+          : 500;
     if (status >= 500) {
       console.error('Error in script endpoint:', error);
     }
@@ -55,5 +60,4 @@ export async function POST(req: Request) {
     );
   }
 }
-
 

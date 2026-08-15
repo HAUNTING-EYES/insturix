@@ -116,10 +116,16 @@ export const ScriptPayloadSchema = z.object({
 
 export type ScriptPayload = z.infer<typeof ScriptPayloadSchema>;
 
+const ExactThinkForgeIdSchema = z.string().min(1).refine(
+  (value) => value.trim().length > 0 && value.trim() === value,
+  { message: 'must be a non-empty trimmed string' },
+);
+
 // ── Route-specific schemas ──────────────────────────────────────────
 
 export const ScriptOpSchema = z.object({
-  sessionId: z.string().min(1),
+  sessionId: ExactThinkForgeIdSchema,
+  scriptId: ExactThinkForgeIdSchema,
   action: z.enum(['get', 'save', 'update']),
   script: ScriptPayloadSchema.optional(),
   baseVersion: z.number().optional(),

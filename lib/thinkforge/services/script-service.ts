@@ -9,12 +9,33 @@ import type { ScriptPayload } from '../schemas/route-validation';
 
 export interface ScriptOperation {
   sessionId: string;
+  scriptId: string;
   userId: string;
   orgId?: string | null;
   action: 'get' | 'save' | 'update';
-  scriptId?: string;
   baseVersion?: number;
   script?: ScriptPayload;
+}
+
+function requireExactScriptId(scriptId: unknown): string {
+  if (typeof scriptId !== 'string' || scriptId.trim().length === 0) {
+    throw new Error('Document identity is required');
+  }
+  if (scriptId.trim() !== scriptId) {
+    throw new Error('Document identity is invalid');
+  }
+  return scriptId;
+}
+
+function buildReplaceDocumentPayload(scriptId: string, script: ScriptPayload): Record<string, unknown> {
+  const payload: Record<string, unknown> = { scriptId };
+  if (typeof script.title === 'string') payload.title = script.title;
+  if (typeof script.content === 'string') payload.content = script.content;
+  if (Array.isArray(script.blocks)) payload.blocks = script.blocks;
+  if (script.richText !== undefined) payload.richText = script.richText;
+  if (script.documentType !== undefined) payload.documentType = script.documentType;
+  if (script.contentContract !== undefined) payload.contentContract = script.contentContract;
+  return payload;
 }
 
 /**
@@ -22,6 +43,7 @@ export interface ScriptOperation {
  */
 export async function executeScriptOperation(operation: ScriptOperation): Promise<Script | null> {
   const { sessionId, action, script, scriptId, userId, orgId, baseVersion } = operation;
+  const exactScriptId = requireExactScriptId(scriptId);
   const session = await db.getSession(sessionId, userId, orgId);
   if (!session) {
     throw new Error('Session not found');
@@ -30,37 +52,12 @@ export async function executeScriptOperation(operation: ScriptOperation): Promis
   
   switch (action) {
     case 'get':
-      return await db.getScript(canonicalSessionId, scriptId || null);
+      return await db.getScript(canonicalSessionId, exactScriptId);
     
     case 'save':
-      if (!script) {
-        throw new Error('Script data required for save operation');
-      }
-      {
-        const result = await applyCommand({
-          type: 'ReplaceDocument',
-          sessionId: canonicalSessionId,
-          baseVersion: typeof baseVersion === 'number' ? baseVersion : 0,
-          source: 'user',
-          payload: {
-            scriptId,
-            title: script.title || 'Untitled Script',
-            content: script.content || '',
-            blocks: script.blocks || [],
-            richText: script.richText,
-            documentType: script.documentType,
-            contentContract: script.contentContract,
-          }
-        }, userId, orgId);
-        if (!result.ok) {
-          throw new Error(result.error);
-        }
-        return result.script;
-      }
-    
     case 'update':
       if (!script) {
-        throw new Error('Script data required for update operation');
+        throw new Error(`Script data required for ${action} operation`);
       }
       {
         const result = await applyCommand({
@@ -68,15 +65,7 @@ export async function executeScriptOperation(operation: ScriptOperation): Promis
           sessionId: canonicalSessionId,
           baseVersion: typeof baseVersion === 'number' ? baseVersion : 0,
           source: 'user',
-          payload: {
-            scriptId,
-            title: script.title || 'Untitled Script',
-            content: script.content || '',
-            blocks: script.blocks || [],
-            richText: script.richText,
-            documentType: script.documentType,
-            contentContract: script.contentContract,
-          }
+          payload: buildReplaceDocumentPayload(exactScriptId, script),
         }, userId, orgId);
         if (!result.ok) {
           throw new Error(result.error);
@@ -88,5 +77,4 @@ export async function executeScriptOperation(operation: ScriptOperation): Promis
       throw new Error(`Unknown action: ${action}`);
   }
 }
-
 

@@ -22,6 +22,7 @@ vi.mock('@/lib/thinkforge/services/command-service', () => ({
 import { executeScriptOperation } from '@/lib/thinkforge/services/script-service';
 
 const postContract = createThinkForgeWriterContract('social_post');
+const carouselContract = createThinkForgeWriterContract('carousel', { carouselSlideCount: 5 });
 const storedPost = {
   _id: 'mongo_post_001',
   sessionId: 'session_001',
@@ -36,6 +37,15 @@ const storedPost = {
   version: 2,
   createdAt: new Date('2026-07-16T00:00:00.000Z'),
   updatedAt: new Date('2026-07-16T01:00:00.000Z'),
+};
+const storedCarousel = {
+  ...storedPost,
+  _id: 'mongo_carousel_001',
+  scriptId: 'carousel_001',
+  title: 'Launch Carousel',
+  content: 'A five-slide launch carousel.',
+  documentType: 'carousel',
+  contentContract: carouselContract,
 };
 
 describe('ThinkForge script contract adapters', () => {
@@ -79,6 +89,7 @@ describe('ThinkForge script contract adapters', () => {
     expect(mocks.applyCommand).toHaveBeenCalledTimes(2);
     for (const [request] of mocks.applyCommand.mock.calls) {
       expect(request.payload).toMatchObject({
+        scriptId: 'post_001',
         documentType: 'social_post',
         contentContract: postContract,
       });
@@ -151,7 +162,7 @@ describe('ThinkForge script contract adapters', () => {
 
     mocks.getScript.mockResolvedValueOnce(null);
     const emptyResponse = await GET(new Request(
-      'http://localhost/api/services/thinkforge/script/blocks?sessionId=session_empty',
+      'http://localhost/api/services/thinkforge/script/blocks?sessionId=session_empty&scriptId=default',
     ));
     expect(await emptyResponse.json()).toMatchObject({
       documentType: null,
@@ -188,6 +199,191 @@ describe('ThinkForge script contract adapters', () => {
     });
     expect(mocks.applyCommand).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'session_001' }),
+      'user_001',
+      'org_001',
+    );
+  });
+
+  it('rejects missing script identity before any database access', async () => {
+    const [{ GET: getScript }, { GET: getBlocks, POST: saveBlocks }, { POST: saveScript }] = await Promise.all([
+      import('@/app/api/services/thinkforge/script/get/route'),
+      import('@/app/api/services/thinkforge/script/blocks/route'),
+      import('@/app/api/services/thinkforge/script/save/route'),
+    ]);
+
+    const responses = await Promise.all([
+      getScript(new Request(
+        'http://localhost/api/services/thinkforge/script/get?sessionId=session_001',
+      )),
+      getBlocks(new Request(
+        'http://localhost/api/services/thinkforge/script/blocks?sessionId=session_001',
+      )),
+      saveBlocks(new Request('http://localhost/api/services/thinkforge/script/blocks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 'session_001', blocks: [] }),
+      })),
+      saveScript(new Request('http://localhost/api/services/thinkforge/script/save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 'session_001', script: { blocks: [] } }),
+      })),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([400, 400, 400, 400]);
+    await Promise.all(responses.map(async (response) => {
+      await expect(response.json()).resolves.toMatchObject({ error: 'Missing scriptId' });
+    }));
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.getScript).not.toHaveBeenCalled();
+    expect(mocks.applyCommand).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid rich text atomically before database access', async () => {
+    const [{ POST: saveBlocks }, { POST: saveScript }] = await Promise.all([
+      import('@/app/api/services/thinkforge/script/blocks/route'),
+      import('@/app/api/services/thinkforge/script/save/route'),
+    ]);
+    const invalidRichText = { type: 'not-a-tiptap-document' };
+
+    const responses = await Promise.all([
+      saveBlocks(new Request('http://localhost/api/services/thinkforge/script/blocks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'session_001',
+          scriptId: 'post_001',
+          blocks: [],
+          richText: invalidRichText,
+        }),
+      })),
+      saveScript(new Request('http://localhost/api/services/thinkforge/script/save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'session_001',
+          scriptId: 'post_001',
+          script: { blocks: [], richText: invalidRichText },
+        }),
+      })),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([400, 400]);
+    await Promise.all(responses.map(async (response) => {
+      await expect(response.json()).resolves.toMatchObject({ error: 'Invalid richText' });
+    }));
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.getScript).not.toHaveBeenCalled();
+    expect(mocks.applyCommand).not.toHaveBeenCalled();
+  });
+
+  it('does not invent empty blocks or content for a rich-text-only save', async () => {
+    const richText = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Canonical rich text' }] }],
+    };
+    mocks.getScript.mockResolvedValue(storedPost);
+    mocks.applyCommand.mockResolvedValue({ ok: true, script: storedPost });
+    const [{ POST: saveBlocks }, { POST: saveScript }] = await Promise.all([
+      import('@/app/api/services/thinkforge/script/blocks/route'),
+      import('@/app/api/services/thinkforge/script/save/route'),
+    ]);
+
+    const responses = await Promise.all([
+      saveBlocks(new Request('http://localhost/api/services/thinkforge/script/blocks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'session_001',
+          scriptId: 'post_001',
+          baseVersion: 2,
+          richText,
+        }),
+      })),
+      saveScript(new Request('http://localhost/api/services/thinkforge/script/save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'session_001',
+          scriptId: 'post_001',
+          baseVersion: 2,
+          script: { richText },
+        }),
+      })),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    const calls = mocks.applyCommand.mock.calls.slice(-2);
+    for (const [request] of calls) {
+      expect(request.payload).toMatchObject({ scriptId: 'post_001', richText });
+      expect(request.payload).not.toHaveProperty('blocks');
+      expect(request.payload).not.toHaveProperty('content');
+    }
+  });
+
+  it('preserves carousel classification through exact reads and both save adapters', async () => {
+    mocks.getScript.mockResolvedValue(storedCarousel);
+    mocks.applyCommand.mockResolvedValue({ ok: true, script: storedCarousel });
+    const [{ GET: getScript }, { POST: saveBlocks }, { POST: saveScript }] = await Promise.all([
+      import('@/app/api/services/thinkforge/script/get/route'),
+      import('@/app/api/services/thinkforge/script/blocks/route'),
+      import('@/app/api/services/thinkforge/script/save/route'),
+    ]);
+
+    const getResponse = await getScript(new Request(
+      'http://localhost/api/services/thinkforge/script/get?sessionId=session_001&scriptId=carousel_001',
+    ));
+    const blocksResponse = await saveBlocks(new Request(
+      'http://localhost/api/services/thinkforge/script/blocks',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'session_001',
+          scriptId: 'carousel_001',
+          baseVersion: 2,
+          blocks: [],
+        }),
+      },
+    ));
+    const saveResponse = await saveScript(new Request(
+      'http://localhost/api/services/thinkforge/script/save',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'session_001',
+          scriptId: 'carousel_001',
+          baseVersion: 2,
+          script: {
+            title: storedCarousel.title,
+            content: storedCarousel.content,
+            blocks: [],
+            documentType: 'carousel',
+            contentContract: carouselContract,
+          },
+        }),
+      },
+    ));
+
+    expect([getResponse.status, blocksResponse.status, saveResponse.status]).toEqual([200, 200, 200]);
+    for (const response of [getResponse, blocksResponse, saveResponse]) {
+      const body = await response.json();
+      expect(body.script ?? body).toMatchObject({
+        documentType: 'carousel',
+        contentContract: carouselContract,
+      });
+    }
+    expect(mocks.getScript).toHaveBeenCalledWith('session_001', 'carousel_001');
+    expect(mocks.applyCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session_001',
+        payload: expect.objectContaining({
+          scriptId: 'carousel_001',
+          documentType: 'carousel',
+          contentContract: carouselContract,
+        }),
+      }),
       'user_001',
       'org_001',
     );
@@ -232,6 +428,7 @@ describe('ThinkForge script contract adapters', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           sessionId: 'session_foreign',
+          scriptId: 'post_001',
           action: 'get',
         }),
       })),
@@ -247,6 +444,43 @@ describe('ThinkForge script contract adapters', () => {
     ]);
 
     expect(responses.map((response) => response.status)).toEqual([404, 404]);
+    expect(mocks.getScript).not.toHaveBeenCalled();
+    expect(mocks.applyCommand).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing, blank, and padded unified document identities before authorization', async () => {
+    const { POST: unifiedScript } = await import('@/app/api/services/thinkforge/script/route');
+    const bodies = [
+      { sessionId: 'session_001', action: 'get' },
+      { sessionId: 'session_001', scriptId: '   ', action: 'get' },
+      { sessionId: 'session_001', scriptId: ' post_001 ', action: 'get' },
+    ];
+
+    const responses = await Promise.all(bodies.map((body) => unifiedScript(new Request(
+      'http://localhost/api/services/thinkforge/script',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    ))));
+
+    expect(responses.map((response) => response.status)).toEqual([400, 400, 400]);
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.getScript).not.toHaveBeenCalled();
+    expect(mocks.applyCommand).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-exact service document identity before session access', async () => {
+    await expect(executeScriptOperation({
+      sessionId: 'session_001',
+      scriptId: ' post_001 ',
+      userId: 'user_001',
+      orgId: 'org_001',
+      action: 'get',
+    })).rejects.toThrow('Document identity is invalid');
+
+    expect(mocks.getSession).not.toHaveBeenCalled();
     expect(mocks.getScript).not.toHaveBeenCalled();
     expect(mocks.applyCommand).not.toHaveBeenCalled();
   });
@@ -267,7 +501,7 @@ describe('ThinkForge script contract adapters', () => {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sessionId: 'session_alias', action: 'get' }),
+        body: JSON.stringify({ sessionId: 'session_alias', scriptId: 'post_001', action: 'get' }),
       },
     ));
     const saveResponse = await saveScript(new Request(
@@ -287,7 +521,7 @@ describe('ThinkForge script contract adapters', () => {
     expect(mocks.getSession).toHaveBeenCalledWith(
       'session_alias', 'user_001', 'org_001',
     );
-    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', null);
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'post_001');
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'post_001');
     expect(mocks.applyCommand).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'session_canonical' }),
