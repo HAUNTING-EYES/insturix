@@ -3,6 +3,9 @@ import {
   buildDev02GeneratedCompositionModelPacketV1,
   type GeneratedCompositionModelRepairV1,
 } from './generated-composition-model-candidate-v1';
+import type { GeneratedCompositionProgramV1 } from './generated-composition-program-v1';
+import type { GeneratedCompositionSandboxRequestV1 } from './generated-composition-sandbox-contract-v1';
+import { GeneratedCompositionSandboxExecutionErrorV1 } from './generated-composition-sandbox-runner-v1';
 import {
   estimateOfflineInputTokensUpperBoundV2,
   serializeGoogleCountTokensRequestV2,
@@ -60,6 +63,7 @@ export interface GeneratedCompositionAssessmentFailureV1 {
   routeId: GeneratedCompositionBenchmarkRouteV1['routeId'];
   candidateOrdinal: 0 | 1;
   failureStage: GeneratedCompositionModelRepairV1['failureStage'];
+  failureClass: GeneratedCompositionAssessmentFailureClassV1;
   observedAt: string;
   programHash: string;
   sourceBundleHash: string;
@@ -67,6 +71,13 @@ export interface GeneratedCompositionAssessmentFailureV1 {
   stateEffects: readonly [];
   failureHash: string;
 }
+
+export type GeneratedCompositionAssessmentFailureClassV1 =
+  | 'INVALID_PLAN'
+  | 'TIMEOUT'
+  | 'RENDER_FAIL'
+  | 'QUALITY_FAIL'
+  | 'SANDBOX_INFRASTRUCTURE_FAIL';
 
 const SELECTED_ROUTE_IDS = ['OPENAI_LUNA', 'OPENAI_TERRA', 'GOOGLE_FLASH'] as const;
 const QWEN_ROUTE: GeneratedCompositionBenchmarkRouteV1 = {
@@ -147,6 +158,7 @@ export function buildGeneratedCompositionAssessmentFailureV1(input: {
   routeId: GeneratedCompositionBenchmarkRouteV1['routeId'];
   candidateOrdinal: 0 | 1;
   failureStage: GeneratedCompositionModelRepairV1['failureStage'];
+  failureClass: GeneratedCompositionAssessmentFailureClassV1;
   observedAt: string;
   programHash: string;
   sourceBundleHash: string;
@@ -175,6 +187,7 @@ export function buildGeneratedCompositionAssessmentFailureV1(input: {
     routeId: input.routeId,
     candidateOrdinal: input.candidateOrdinal,
     failureStage: input.failureStage,
+    failureClass: input.failureClass,
     observedAt: input.observedAt,
     programHash: input.programHash,
     sourceBundleHash: input.sourceBundleHash,
@@ -182,6 +195,31 @@ export function buildGeneratedCompositionAssessmentFailureV1(input: {
     stateEffects: [] as const,
   };
   return deepFreezeV1({ ...material, failureHash: hashCanonicalJsonV1(material) });
+}
+
+export function buildGeneratedCompositionBenchmarkSandboxResourcesV1(
+  program: GeneratedCompositionProgramV1,
+): Readonly<GeneratedCompositionSandboxRequestV1['resources']> {
+  const vcpus = 1;
+  const memoryMiB = vcpus * 2_048;
+  if (program.resourceBudget.maxMemoryMiB < memoryMiB) {
+    throw new Error('MODEL_BENCHMARK_PROGRAM_MEMORY_BELOW_SANDBOX_ALLOCATION');
+  }
+  return deepFreezeV1({
+    wallTimeMs: program.resourceBudget.maxWallTimeMs,
+    maxCpuMs: program.resourceBudget.maxCpuMs,
+    vcpus,
+    memoryMiB,
+    maxOutputBytes: program.resourceBudget.maxOutputBytes,
+  });
+}
+
+export function classifyGeneratedCompositionBenchmarkExecutionErrorV1(
+  error: unknown,
+): Extract<GeneratedCompositionAssessmentFailureClassV1, 'TIMEOUT' | 'RENDER_FAIL' | 'SANDBOX_INFRASTRUCTURE_FAIL'> {
+  return error instanceof GeneratedCompositionSandboxExecutionErrorV1
+    ? error.failureClass
+    : 'SANDBOX_INFRASTRUCTURE_FAIL';
 }
 
 function pricing(route: GeneratedCompositionBenchmarkRouteV1): ProviderPricingV2 {

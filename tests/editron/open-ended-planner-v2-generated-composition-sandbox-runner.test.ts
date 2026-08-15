@@ -82,7 +82,39 @@ describe('open-ended planner V2 generated-composition sandbox runner', () => {
         readFileToBuffer: async ({ path }) => path.endsWith('.gcp-result.json') ? Buffer.from(JSON.stringify(result)) : outputs[path] ?? null,
         delete: async () => { throw new Error('teardown failed'); },
       }),
-    })).rejects.toThrow('teardown failed');
+    })).rejects.toMatchObject({ failureClass: 'SANDBOX_INFRASTRUCTURE_FAIL' });
+  });
+
+  it('keeps timeout and candidate render failures distinct while always deleting the sandbox', async () => {
+    const overlay = await resolveGeneratedCompositionSandboxOverlayV1();
+    const request = fixtureRequest(overlay.workerImplementationHash);
+    let timeoutSandboxDeleted = false;
+    const timeout = new Error('command timed out');
+    timeout.name = 'TimeoutError';
+    await expect(executeGeneratedCompositionInSandboxV1({
+      request,
+      env: { MG_RENDER_SANDBOX_SNAPSHOT_ID: SNAPSHOT_ID, MG_RENDER_SANDBOX_APP_COMMIT: APP_COMMIT },
+      createSandbox: async () => ({
+        writeFiles: async () => undefined,
+        runCommand: async () => { throw timeout; },
+        readFileToBuffer: async () => null,
+        delete: async () => { timeoutSandboxDeleted = true; },
+      }),
+    })).rejects.toMatchObject({ failureClass: 'TIMEOUT' });
+    expect(timeoutSandboxDeleted).toBe(true);
+
+    let renderSandboxDeleted = false;
+    await expect(executeGeneratedCompositionInSandboxV1({
+      request,
+      env: { MG_RENDER_SANDBOX_SNAPSHOT_ID: SNAPSHOT_ID, MG_RENDER_SANDBOX_APP_COMMIT: APP_COMMIT },
+      createSandbox: async () => ({
+        writeFiles: async () => undefined,
+        runCommand: async () => ({ exitCode: 1, stdout: async () => '', stderr: async () => 'compile failed' }),
+        readFileToBuffer: async () => null,
+        delete: async () => { renderSandboxDeleted = true; },
+      }),
+    })).rejects.toMatchObject({ failureClass: 'RENDER_FAIL' });
+    expect(renderSandboxDeleted).toBe(true);
   });
 });
 

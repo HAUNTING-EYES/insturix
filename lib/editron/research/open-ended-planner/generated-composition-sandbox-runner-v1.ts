@@ -70,6 +70,21 @@ export interface ExecuteGeneratedCompositionSandboxResultV1 {
   outputBytes: Readonly<Record<string, Uint8Array>>;
 }
 
+export type GeneratedCompositionSandboxFailureClassV1 =
+  | 'TIMEOUT'
+  | 'RENDER_FAIL'
+  | 'SANDBOX_INFRASTRUCTURE_FAIL';
+
+export class GeneratedCompositionSandboxExecutionErrorV1 extends Error {
+  readonly failureClass: GeneratedCompositionSandboxFailureClassV1;
+
+  constructor(failureClass: GeneratedCompositionSandboxFailureClassV1, message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = 'GeneratedCompositionSandboxExecutionErrorV1';
+    this.failureClass = failureClass;
+  }
+}
+
 export async function resolveGeneratedCompositionSandboxOverlayV1(repoRoot = process.cwd()): Promise<GeneratedCompositionSandboxOverlayV1> {
   const files = await Promise.all(GENERATED_COMPOSITION_SANDBOX_OVERLAY_PATHS_V1.map(async (relativePath) => {
     const content = await fs.readFile(path.resolve(repoRoot, relativePath));
@@ -91,19 +106,30 @@ export async function executeGeneratedCompositionInSandboxV1(
   const overlay = await resolveGeneratedCompositionSandboxOverlayV1(path.resolve(options.repoRoot ?? process.cwd()));
   if (overlay.workerImplementationHash !== request.workerImplementationHash) throw new Error('Generated composition sandbox worker implementation hash drift');
   const createSandbox = options.createSandbox ?? defaultCreateSandbox;
-  const sandbox = await createSandbox({
-    name: sandboxName(request), source: { type: 'snapshot', snapshotId }, timeout: request.resources.wallTimeMs + 60_000,
-    resources: { vcpus: request.resources.vcpus }, networkPolicy: 'deny-all', env: {}, persistent: false,
-    tags: { app: 'editron', workload: 'gcp-proxy', commit: snapshotCommit.slice(0, 12), request: request.requestId.slice(0, 12) },
-  });
+  let sandbox: SandboxV1;
+  try {
+    sandbox = await createSandbox({
+      name: sandboxName(request), source: { type: 'snapshot', snapshotId }, timeout: request.resources.wallTimeMs + 60_000,
+      resources: { vcpus: request.resources.vcpus }, networkPolicy: 'deny-all', env: {}, persistent: false,
+      tags: { app: 'editron', workload: 'gcp-proxy', commit: snapshotCommit.slice(0, 12), request: request.requestId.slice(0, 12) },
+    });
+  } catch (error) {
+    throw sandboxError('SANDBOX_INFRASTRUCTURE_FAIL', 'Generated composition sandbox creation failed', error);
+  }
   let capture: Awaited<ReturnType<typeof runSandbox>> | undefined;
   let runError: unknown;
   let cleanupError: unknown;
   try { capture = await runSandbox(sandbox, request, overlay); } catch (error) { runError = error; }
   try { await sandbox.delete(); } catch (error) { cleanupError = error; }
-  if (runError && cleanupError) throw new AggregateError([runError, cleanupError], 'Generated composition sandbox execution and teardown failed');
-  if (runError) throw runError;
-  if (cleanupError) throw cleanupError;
+  if (runError && cleanupError) {
+    throw sandboxError(
+      'SANDBOX_INFRASTRUCTURE_FAIL',
+      'Generated composition sandbox execution and teardown failed',
+      new AggregateError([runError, cleanupError]),
+    );
+  }
+  if (runError) throw normalizeSandboxError(runError);
+  if (cleanupError) throw sandboxError('SANDBOX_INFRASTRUCTURE_FAIL', 'Generated composition sandbox teardown failed', cleanupError);
   if (!capture) throw new Error('Generated composition sandbox produced no capture');
   const receipt = buildGeneratedCompositionSandboxHostReceiptV1({
     request, result: capture.result, snapshotId, sandboxDeleted: true, networkPolicy: 'DENY_ALL', persistent: false,
@@ -119,20 +145,36 @@ async function runSandbox(sandbox: SandboxV1, request: GeneratedCompositionSandb
     ...overlay.files.map(({ path: filePath, content }) => ({ path: path.posix.join(SANDBOX_ROOT, filePath), content, mode: 0o600 })),
     { path: requestPath, content: Buffer.from(JSON.stringify(request), 'utf8'), mode: 0o600 },
   ]);
-  const executed = await sandbox.runCommand({
-    cmd: './node_modules/.bin/tsx', args: [ENTRY_PATH, requestPath, resultPath], cwd: SANDBOX_ROOT,
-    env: { FFMPEG_PATH: SANDBOX_FFMPEG_PATH }, timeoutMs: request.resources.wallTimeMs + 5_000,
-  });
+  let executed: SandboxCommandV1;
+  try {
+    executed = await sandbox.runCommand({
+      cmd: './node_modules/.bin/tsx', args: [ENTRY_PATH, requestPath, resultPath], cwd: SANDBOX_ROOT,
+      env: { FFMPEG_PATH: SANDBOX_FFMPEG_PATH }, timeoutMs: request.resources.wallTimeMs + 5_000,
+    });
+  } catch (error) {
+    throw sandboxError(
+      isTimeoutError(error) ? 'TIMEOUT' : 'SANDBOX_INFRASTRUCTURE_FAIL',
+      'Generated composition sandbox command failed',
+      error,
+    );
+  }
   const command = { exitCode: executed.exitCode, stdout: bounded(await executed.stdout()), stderr: bounded(await executed.stderr()) };
-  if (command.exitCode !== 0) throw new Error(`Generated composition sandbox worker exited ${command.exitCode}: ${command.stderr || command.stdout || 'no output'}`);
+  if (command.exitCode !== 0) {
+    throw sandboxError('RENDER_FAIL', `Generated composition sandbox worker exited ${command.exitCode}: ${command.stderr || command.stdout || 'no output'}`);
+  }
   const resultBuffer = await sandbox.readFileToBuffer({ path: resultPath });
-  if (!resultBuffer) throw new Error('Generated composition sandbox worker did not write a result');
+  if (!resultBuffer) throw sandboxError('RENDER_FAIL', 'Generated composition sandbox worker did not write a result');
   const result = parseGeneratedCompositionSandboxWorkerResultV1(JSON.parse(resultBuffer.toString('utf8')));
-  if (result.status !== 'RENDERED') throw new Error(`Generated composition sandbox worker failed: ${result.failure.code}/${result.failure.message}`);
+  if (result.status !== 'RENDERED') {
+    throw sandboxError(
+      result.failure.code === 'RESOURCE_BUDGET_EXCEEDED' ? 'TIMEOUT' : 'RENDER_FAIL',
+      `Generated composition sandbox worker failed: ${result.failure.code}/${result.failure.message}`,
+    );
+  }
   const outputBytes: Record<string, Uint8Array> = {};
   for (const output of result.outputs) {
     const bytes = await sandbox.readFileToBuffer({ path: output.path });
-    if (!bytes) throw new Error(`Generated composition sandbox output is missing: ${output.path}`);
+    if (!bytes) throw sandboxError('RENDER_FAIL', `Generated composition sandbox output is missing: ${output.path}`);
     outputBytes[output.path] = bytes;
   }
   return { result, command, outputBytes };
@@ -151,3 +193,28 @@ function required(env: Readonly<Record<string, string | undefined>>, name: strin
 function sandboxName(request: GeneratedCompositionSandboxRequestV1): string { return `gcp-${request.requestId.slice(0, 24)}`; }
 function bounded(value: string): string { return value.trim().slice(0, 8_000); }
 function sha256(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex'); }
+
+function normalizeSandboxError(error: unknown): GeneratedCompositionSandboxExecutionErrorV1 {
+  return error instanceof GeneratedCompositionSandboxExecutionErrorV1
+    ? error
+    : sandboxError('SANDBOX_INFRASTRUCTURE_FAIL', 'Generated composition sandbox host operation failed', error);
+}
+
+function sandboxError(
+  failureClass: GeneratedCompositionSandboxFailureClassV1,
+  context: string,
+  cause?: unknown,
+): GeneratedCompositionSandboxExecutionErrorV1 {
+  const detail = cause instanceof Error ? cause.message.trim() : cause === undefined ? '' : String(cause).trim();
+  return new GeneratedCompositionSandboxExecutionErrorV1(
+    failureClass,
+    bounded(detail ? `${context}: ${detail}` : context),
+    cause,
+  );
+}
+
+function isTimeoutError(error: unknown): boolean {
+  if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(?:timed out|timeout|deadline exceeded)\b/i.test(message);
+}

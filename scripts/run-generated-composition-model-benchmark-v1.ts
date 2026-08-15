@@ -15,8 +15,11 @@ import {
 } from '../lib/editron/research/open-ended-planner/generated-composition-model-candidate-v1';
 import {
   type GeneratedCompositionBenchmarkRouteV1,
+  type GeneratedCompositionAssessmentFailureClassV1,
   buildGeneratedCompositionAssessmentFailureV1,
+  buildGeneratedCompositionBenchmarkSandboxResourcesV1,
   buildGeneratedCompositionModelBenchmarkPlanV1,
+  classifyGeneratedCompositionBenchmarkExecutionErrorV1,
   runGeneratedCompositionSourceProviderCallV1,
 } from '../lib/editron/research/open-ended-planner/generated-composition-model-benchmark-v1';
 import { materializeGeneratedCompositionLocalEvidenceV1 } from '../lib/editron/research/open-ended-planner/generated-composition-local-evidence-v1';
@@ -123,8 +126,8 @@ async function runRoute(
     });
     await writeJson(path.join(candidateRoot, 'contract-verification.json'), verification);
     if (verification.disposition !== 'CONTRACT_PASS') {
-      await persistAssessmentFailure(candidateRoot, route, candidateOrdinal, candidate, 'CONTRACT_VERIFIER', verification.diagnostics);
-      if (candidateOrdinal === 1) return terminal(route, 'CONTRACT_FAIL', calls, 1, verification.diagnostics);
+      await persistAssessmentFailure(candidateRoot, route, candidateOrdinal, candidate, 'CONTRACT_VERIFIER', 'INVALID_PLAN', verification.diagnostics);
+      if (candidateOrdinal === 1) return terminal(route, 'INVALID_PLAN', calls, 1, verification.diagnostics);
       repair = repairInput('CONTRACT_VERIFIER', verification.diagnostics, call.run.artifact.source);
       continue;
     }
@@ -134,13 +137,16 @@ async function runRoute(
         return { routeId: route.routeId, requestedModel: route.requestModel, providerModel: modelId, outcome: 'HARD_GATES_PASS', repairsUsed: candidateOrdinal, calls, assessment: assessed.summary, stateEffects: [] };
       }
       const diagnostics = assessed.proof.checks.filter(({ status }) => status === 'FAIL').map(({ checkId, reason, metrics }) => `${checkId}:${reason}:${JSON.stringify(metrics)}`);
-      await persistAssessmentFailure(candidateRoot, route, candidateOrdinal, candidate, 'RENDERED_HARD_GATE', diagnostics);
-      if (candidateOrdinal === 1) return terminal(route, 'RENDERED_HARD_GATE_FAIL', calls, 1, diagnostics);
+      await persistAssessmentFailure(candidateRoot, route, candidateOrdinal, candidate, 'RENDERED_HARD_GATE', 'QUALITY_FAIL', diagnostics);
+      if (candidateOrdinal === 1) return terminal(route, 'QUALITY_FAIL', calls, 1, diagnostics);
       repair = repairInput('RENDERED_HARD_GATE', diagnostics, call.run.artifact.source);
     } catch (error) {
-      const diagnostics = [boundedError(error)];
-      await persistAssessmentFailure(candidateRoot, route, candidateOrdinal, candidate, 'SANDBOX_RENDER', diagnostics);
-      if (candidateOrdinal === 1) return terminal(route, 'SANDBOX_RENDER_FAIL', calls, 1, diagnostics);
+      const failureClass = classifyGeneratedCompositionBenchmarkExecutionErrorV1(error);
+      const diagnostics = [`${failureClass}:${boundedError(error)}`];
+      await persistAssessmentFailure(candidateRoot, route, candidateOrdinal, candidate, 'SANDBOX_RENDER', failureClass, diagnostics);
+      if (failureClass === 'SANDBOX_INFRASTRUCTURE_FAIL' || candidateOrdinal === 1) {
+        return terminal(route, failureClass, calls, candidateOrdinal, diagnostics);
+      }
       repair = repairInput('SANDBOX_RENDER', diagnostics, call.run.artifact.source);
     }
   }
@@ -162,7 +168,7 @@ async function assessCandidate(
     referenceBlueprint: DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1,
     supplementalFacts: DEV02_GENERATED_COMPOSITION_SUPPLEMENTAL_FACTS_V1,
     proofFrames: [0, 24, 108, 144, 145, 179], inputs: runtime.inputs,
-    resources: { wallTimeMs: 90_000, maxCpuMs: 60_000, vcpus: 1, memoryMiB: 2_048, maxOutputBytes: 64 * 1_024 * 1_024 },
+    resources: buildGeneratedCompositionBenchmarkSandboxResourcesV1(candidate.program),
   });
   await writeJson(path.join(root, 'sandbox-request-summary.json'), {
     ...request,
@@ -221,12 +227,14 @@ async function persistAssessmentFailure(
   candidateOrdinal: 0 | 1,
   candidate: ReturnType<typeof materializeDev02GeneratedCompositionModelCandidateV1>,
   failureStage: GeneratedCompositionModelRepairV1['failureStage'],
+  failureClass: GeneratedCompositionAssessmentFailureClassV1,
   diagnostics: readonly string[],
 ): Promise<void> {
   await writeJson(path.join(root, 'assessment-failure.json'), buildGeneratedCompositionAssessmentFailureV1({
     routeId: route.routeId,
     candidateOrdinal,
     failureStage,
+    failureClass,
     observedAt: new Date().toISOString(),
     programHash: hashCanonicalJsonV1(candidate.program),
     sourceBundleHash: candidate.program.sourceBundleHash,

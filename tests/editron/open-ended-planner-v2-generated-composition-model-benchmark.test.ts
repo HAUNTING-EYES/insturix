@@ -3,9 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildDev02GeneratedCompositionModelPacketV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-model-candidate-v1';
 import {
   buildGeneratedCompositionAssessmentFailureV1,
+  buildGeneratedCompositionBenchmarkSandboxResourcesV1,
   buildGeneratedCompositionModelBenchmarkPlanV1,
+  classifyGeneratedCompositionBenchmarkExecutionErrorV1,
   runGeneratedCompositionSourceProviderCallV1,
 } from '@/lib/editron/research/open-ended-planner/generated-composition-model-benchmark-v1';
+import { GeneratedCompositionSandboxExecutionErrorV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-sandbox-runner-v1';
+import { DEV02_GENERATED_COMPOSITION_PROGRAM_V1 } from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-generated-composition-program-v1';
 
 const API_HASH = 'a'.repeat(64);
 const candidate = {
@@ -57,6 +61,7 @@ describe('open-ended planner V2 generated-composition model benchmark', () => {
       routeId: 'OPENAI_LUNA' as const,
       candidateOrdinal: 0 as const,
       failureStage: 'SANDBOX_RENDER' as const,
+      failureClass: 'RENDER_FAIL' as const,
       observedAt: '2026-08-14T12:00:00.000Z',
       programHash: 'b'.repeat(64),
       sourceBundleHash: 'c'.repeat(64),
@@ -66,6 +71,7 @@ describe('open-ended planner V2 generated-composition model benchmark', () => {
     const second = buildGeneratedCompositionAssessmentFailureV1(input);
     expect(first).toEqual(second);
     expect(first.failureHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(first.failureClass).toBe('RENDER_FAIL');
     expect(first.stateEffects).toEqual([]);
     expect(Object.isFrozen(first)).toBe(true);
     expect(() => buildGeneratedCompositionAssessmentFailureV1({ ...input, diagnostics: [] })).toThrow(
@@ -80,5 +86,26 @@ describe('open-ended planner V2 generated-composition model benchmark', () => {
     expect(() => buildGeneratedCompositionAssessmentFailureV1({ ...input, diagnostics: ['x'.repeat(2_001)] })).toThrow(
       'MODEL_BENCHMARK_FAILURE_DIAGNOSTIC_INVALID',
     );
+  });
+
+  it('derives sandbox resources from the verified program and preserves execution failure classes', () => {
+    const resources = buildGeneratedCompositionBenchmarkSandboxResourcesV1(DEV02_GENERATED_COMPOSITION_PROGRAM_V1);
+    expect(resources).toEqual({
+      wallTimeMs: 180_000,
+      maxCpuMs: 120_000,
+      vcpus: 1,
+      memoryMiB: 2_048,
+      maxOutputBytes: DEV02_GENERATED_COMPOSITION_PROGRAM_V1.resourceBudget.maxOutputBytes,
+    });
+    const underprovisioned = structuredClone(DEV02_GENERATED_COMPOSITION_PROGRAM_V1);
+    underprovisioned.resourceBudget.maxMemoryMiB = 1_024;
+    expect(() => buildGeneratedCompositionBenchmarkSandboxResourcesV1(underprovisioned)).toThrow(
+      'MODEL_BENCHMARK_PROGRAM_MEMORY_BELOW_SANDBOX_ALLOCATION',
+    );
+    expect(classifyGeneratedCompositionBenchmarkExecutionErrorV1(
+      new GeneratedCompositionSandboxExecutionErrorV1('TIMEOUT', 'sandbox exceeded its wall limit'),
+    )).toBe('TIMEOUT');
+    expect(classifyGeneratedCompositionBenchmarkExecutionErrorV1(new Error('unknown host failure')))
+      .toBe('SANDBOX_INFRASTRUCTURE_FAIL');
   });
 });
