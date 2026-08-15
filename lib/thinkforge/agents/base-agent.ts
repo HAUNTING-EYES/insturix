@@ -342,15 +342,6 @@ export abstract class BaseAgent {
             documentType,
           });
 
-          // Log successful invocation
-          logInvocation({
-            type: 'ai_invocation',
-            agent: agentType,
-            model: modelName,
-            timestamp: new Date(),
-            durationMs: Date.now() - startTime,
-            success: true,
-          });
         } catch (error) {
           await recordThinkForgeAgentCost({
             status: 'failed',
@@ -369,11 +360,8 @@ export abstract class BaseAgent {
             error,
           });
           logInvocation({
-            type: 'ai_invocation',
             agent: agentType,
             model: modelName,
-            timestamp: new Date(),
-            durationMs: Date.now() - startTime,
             success: false,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -388,11 +376,8 @@ export abstract class BaseAgent {
       };
     } catch (error) {
       logInvocation({
-        type: 'ai_invocation',
         agent: this.config.agentType,
         model: this.config.modelName,
-        timestamp: new Date(),
-        durationMs: Date.now() - startTime,
         success: false,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -476,15 +461,6 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         temperature: gen.temperature,
         modelTier: this.config.modelTier,
         documentType: this.config.documentType,
-      });
-
-      logInvocation({
-        type: 'ai_invocation',
-        agent: this.config.agentType,
-        model: this.config.modelName,
-        timestamp: new Date(),
-        durationMs: Date.now() - startTime,
-        success: true,
       });
 
       return {
@@ -573,16 +549,6 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
             fallback: 'manual_json',
           });
 
-          logInvocation({
-            type: 'ai_invocation',
-            agent: this.config.agentType,
-            model: this.config.modelName,
-            timestamp: new Date(),
-            durationMs: Date.now() - startTime,
-            success: true,
-            fallback: 'manual_json',
-          });
-
           return {
             result: parsed as TOutput,
             metadata: { model: this.config.modelName },
@@ -608,11 +574,8 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           });
 
           logInvocation({
-            type: 'ai_invocation',
             agent: this.config.agentType,
             model: this.config.modelName,
-            timestamp: new Date(),
-            durationMs: Date.now() - startTime,
             success: false,
             error: parseError instanceof Error ? parseError.message : String(parseError),
           });
@@ -637,11 +600,8 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
       });
 
       logInvocation({
-        type: 'ai_invocation',
         agent: this.config.agentType,
         model: this.config.modelName,
-        timestamp: new Date(),
-        durationMs: Date.now() - startTime,
         success: false,
         error: message,
       });
