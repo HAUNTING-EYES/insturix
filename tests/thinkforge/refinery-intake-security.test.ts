@@ -1,7 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  assertSafeAssetUrl: vi.fn(),
   auth: vi.fn(),
   checkCredits: vi.fn(),
   createOrGetQueuedThinkForgeRefineryJob: vi.fn(),
@@ -13,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   markThinkForgeRefineryDispatchFailed: vi.fn(),
   resolveContextBillingOwner: vi.fn(),
   runRefineryAgent: vi.fn(),
+  toSafeUrlIngestionProblem: vi.fn(),
+  validateThinkForgeIngestionUrl: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
@@ -21,7 +22,10 @@ vi.mock('@/lib/editron/services/project-ownership', () => ({ resolveContextBilli
 vi.mock('@/lib/services/org-wallet-flag', () => ({ isOrgWalletBillingEnabled: mocks.isOrgWalletBillingEnabled }));
 vi.mock('@/lib/thinkforge/services/db', () => ({ getSession: mocks.getSession }));
 vi.mock('@/lib/thinkforge/agents/refinery-agent', () => ({ runRefineryAgent: mocks.runRefineryAgent }));
-vi.mock('@/lib/shared/safe-asset-url', () => ({ assertSafeAssetUrl: mocks.assertSafeAssetUrl }));
+vi.mock('@/lib/thinkforge/security/url-ingestion-gateway', () => ({
+  toSafeUrlIngestionProblem: mocks.toSafeUrlIngestionProblem,
+  validateThinkForgeIngestionUrl: mocks.validateThinkForgeIngestionUrl,
+}));
 vi.mock('@/lib/thinkforge/refinery/refinery-job', () => ({
   createOrGetQueuedThinkForgeRefineryJob: mocks.createOrGetQueuedThinkForgeRefineryJob,
   dispatchThinkForgeRefineryJob: mocks.dispatchThinkForgeRefineryJob,
@@ -29,8 +33,6 @@ vi.mock('@/lib/thinkforge/refinery/refinery-job', () => ({
   isThinkForgeRefineryWorkerConfigured: mocks.isThinkForgeRefineryWorkerConfigured,
   markThinkForgeRefineryDispatchFailed: mocks.markThinkForgeRefineryDispatchFailed,
 }));
-
-const originalFetch = globalThis.fetch;
 
 function request(body: unknown): Request {
   return new Request('http://localhost/api/services/thinkforge/refinery', {
@@ -44,7 +46,12 @@ describe('ThinkForge refinery intake security', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1' });
-    mocks.assertSafeAssetUrl.mockResolvedValue(undefined);
+    mocks.validateThinkForgeIngestionUrl.mockImplementation(async (url: string) => new URL(url).toString());
+    mocks.toSafeUrlIngestionProblem.mockReturnValue({
+      code: 'blocked_target',
+      message: 'This URL does not resolve to a permitted public destination.',
+      status: 400,
+    });
     mocks.getSession.mockResolvedValue({ _id: 'session_canonical', userId: 'user_1', orgId: 'org_1' });
     mocks.resolveContextBillingOwner.mockReturnValue({ type: 'personal', userId: 'user_1' });
     mocks.isOrgWalletBillingEnabled.mockReturnValue(false);
@@ -72,10 +79,6 @@ describe('ThinkForge refinery intake security', () => {
     mocks.runRefineryAgent.mockResolvedValue({ processed: 1, failed: 0, entries: [], errors: [] });
   });
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
   it('rejects a foreign session before credits or refinery work', async () => {
     mocks.getSession.mockResolvedValue(null);
     const { POST } = await import('@/app/api/services/thinkforge/refinery/route');
@@ -84,6 +87,7 @@ describe('ThinkForge refinery intake security', () => {
 
     expect(response.status).toBe(404);
     expect(mocks.getSession).toHaveBeenCalledWith('session_other', 'user_1', 'org_1');
+    expect(mocks.validateThinkForgeIngestionUrl).not.toHaveBeenCalled();
     expect(mocks.checkCredits).not.toHaveBeenCalled();
     expect(mocks.createOrGetQueuedThinkForgeRefineryJob).not.toHaveBeenCalled();
     expect(mocks.runRefineryAgent).not.toHaveBeenCalled();
@@ -108,14 +112,34 @@ describe('ThinkForge refinery intake security', () => {
     });
     expect(mocks.dispatchThinkForgeRefineryJob).toHaveBeenCalledWith(expect.objectContaining({ id: 'refinery_123' }));
     expect(mocks.runRefineryAgent).not.toHaveBeenCalled();
+    expect(mocks.getSession.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.validateThinkForgeIngestionUrl.mock.invocationCallOrder[0],
+    );
+    expect(mocks.validateThinkForgeIngestionUrl.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.checkCredits.mock.invocationCallOrder[0],
+    );
   });
 
-  it('does not fetch an unsafe URL after the extraction boundary rejects it', async () => {
-    mocks.assertSafeAssetUrl.mockRejectedValueOnce(new Error('asset url: private IPv4 literal 169.254.169.254'));
-    globalThis.fetch = vi.fn();
-    const { extractUrlContent } = await import('@/lib/thinkforge/agents/url-brief-agent');
+  it('returns a typed safe error without billing, persistence, or network details', async () => {
+    mocks.validateThinkForgeIngestionUrl.mockRejectedValueOnce(
+      new Error('getaddrinfo returned 10.0.0.7 from internal-dns.local'),
+    );
+    const { POST } = await import('@/app/api/services/thinkforge/refinery/route');
 
-    await expect(extractUrlContent('http://169.254.169.254/latest/meta-data')).rejects.toThrow('private IPv4');
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    const response = await POST(request({
+      sessionId: 'session_owned',
+      urls: ['https://public-looking.example/source'],
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      error: 'This URL does not resolve to a permitted public destination.',
+      code: 'blocked_target',
+    });
+    expect(JSON.stringify(body)).not.toMatch(/10\.0\.0\.7|internal-dns/i);
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.createOrGetQueuedThinkForgeRefineryJob).not.toHaveBeenCalled();
+    expect(mocks.dispatchThinkForgeRefineryJob).not.toHaveBeenCalled();
   });
 });

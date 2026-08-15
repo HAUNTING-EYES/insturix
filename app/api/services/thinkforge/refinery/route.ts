@@ -12,8 +12,11 @@ import {
   markThinkForgeRefineryDispatchFailed,
   type ThinkForgeRefineryJobSnapshot,
 } from '@/lib/thinkforge/refinery/refinery-job';
+import {
+  toSafeUrlIngestionProblem,
+  validateThinkForgeIngestionUrl,
+} from '@/lib/thinkforge/security/url-ingestion-gateway';
 import { getSession } from '@/lib/thinkforge/services/db';
-import { assertSafeAssetUrl } from '@/lib/shared/safe-asset-url';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -60,20 +63,22 @@ export async function POST(request: Request) {
     }, { status: 400 });
   }
 
-  const urls = [...new Set(input.urls.map((url) => url.trim()))];
-  for (const url of urls) {
-    try {
-      await assertSafeAssetUrl(url);
-    } catch (error) {
-      return NextResponse.json({
-        error: `Unsafe or invalid URL: ${url}`,
-        details: error instanceof Error ? error.message : String(error),
-      }, { status: 400 });
-    }
-  }
-
   const session = await getSession(input.sessionId, userId, orgId ?? null);
   if (!session) return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
+
+  const urls: string[] = [];
+  for (const rawUrl of [...new Set(input.urls.map((url) => url.trim()))]) {
+    try {
+      const canonicalUrl = await validateThinkForgeIngestionUrl(rawUrl);
+      if (!urls.includes(canonicalUrl)) urls.push(canonicalUrl);
+    } catch (error) {
+      const problem = toSafeUrlIngestionProblem(error);
+      return NextResponse.json({
+        error: problem.message,
+        code: problem.code,
+      }, { status: problem.status });
+    }
+  }
 
   const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());
   const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message', { taskId: session._id }, billingWallet);

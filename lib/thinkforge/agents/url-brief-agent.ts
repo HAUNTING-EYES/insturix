@@ -16,7 +16,10 @@ import { z } from 'zod';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
-import { assertSafeAssetUrl } from '@/lib/shared/safe-asset-url';
+import {
+    fetchThinkForgeUrlDocument,
+    UrlIngestionError,
+} from '@/lib/thinkforge/security/url-ingestion-gateway';
 
 // =============================================================================
 // SCHEMA DEFINITIONS
@@ -47,76 +50,24 @@ interface ExtractedContent {
     contentType: 'video' | 'article' | 'social_post' | 'podcast' | 'other';
 }
 
-const FETCH_TIMEOUT_MS = 10_000;
-const MAX_REDIRECTS = 3;
-const MAX_HTML_BYTES = 2_000_000;
+const MAX_EXTRACTED_BODY_CHARACTERS = 48_000;
 
-async function fetchSafePage(rawUrl: string): Promise<Response> {
-    let currentUrl = new URL(rawUrl);
-    for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-        await assertSafeAssetUrl(currentUrl.toString());
-        const response = await fetch(currentUrl, {
-            redirect: 'manual',
-            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ThinkForge/1.0)' },
-        });
-        if (response.status < 300 || response.status >= 400) return response;
-
-        const location = response.headers.get('location');
-        if (!location || redirectCount === MAX_REDIRECTS) {
-            throw new Error('URL redirect limit reached or redirect target was unavailable');
-        }
-        currentUrl = new URL(location, currentUrl);
-    }
-    throw new Error('URL redirect limit reached');
-}
-
-async function readPageText(response: Response): Promise<string> {
-    const declaredLength = Number(response.headers.get('content-length') || '0');
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_HTML_BYTES) {
-        throw new Error(`URL response exceeds the ${MAX_HTML_BYTES} byte limit`);
-    }
-    if (!response.body) return '';
-
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let totalBytes = 0;
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            totalBytes += value.byteLength;
-            if (totalBytes > MAX_HTML_BYTES) {
-                await reader.cancel('response_too_large');
-                throw new Error(`URL response exceeds the ${MAX_HTML_BYTES} byte limit`);
-            }
-            chunks.push(value);
-        }
-    } finally {
-        reader.releaseLock();
-    }
-
-    const body = new Uint8Array(totalBytes);
-    let offset = 0;
-    for (const chunk of chunks) {
-        body.set(chunk, offset);
-        offset += chunk.byteLength;
-    }
-    return new TextDecoder().decode(body);
+function hostnameMatches(hostname: string, domain: string): boolean {
+    return hostname === domain || hostname.endsWith(`.${domain}`);
 }
 
 /** Detect the platform from a URL */
 function detectPlatform(url: string): { platform: string; contentType: ExtractedContent['contentType'] } {
-    const u = url.toLowerCase();
-    if (u.includes('youtube.com') || u.includes('youtu.be')) return { platform: 'YouTube', contentType: 'video' };
-    if (u.includes('tiktok.com')) return { platform: 'TikTok', contentType: 'video' };
-    if (u.includes('instagram.com')) return { platform: 'Instagram', contentType: 'social_post' };
-    if (u.includes('twitter.com') || u.includes('x.com')) return { platform: 'X / Twitter', contentType: 'social_post' };
-    if (u.includes('linkedin.com')) return { platform: 'LinkedIn', contentType: 'social_post' };
-    if (u.includes('medium.com')) return { platform: 'Medium', contentType: 'article' };
-    if (u.includes('substack.com')) return { platform: 'Substack', contentType: 'article' };
-    if (u.includes('reddit.com')) return { platform: 'Reddit', contentType: 'social_post' };
-    if (u.includes('spotify.com') || u.includes('podcasts.apple.com')) return { platform: 'Podcast', contentType: 'podcast' };
+    const hostname = new URL(url).hostname.toLowerCase().replace(/\.$/, '');
+    if (hostnameMatches(hostname, 'youtube.com') || hostnameMatches(hostname, 'youtu.be')) return { platform: 'YouTube', contentType: 'video' };
+    if (hostnameMatches(hostname, 'tiktok.com')) return { platform: 'TikTok', contentType: 'video' };
+    if (hostnameMatches(hostname, 'instagram.com')) return { platform: 'Instagram', contentType: 'social_post' };
+    if (hostnameMatches(hostname, 'twitter.com') || hostnameMatches(hostname, 'x.com')) return { platform: 'X / Twitter', contentType: 'social_post' };
+    if (hostnameMatches(hostname, 'linkedin.com')) return { platform: 'LinkedIn', contentType: 'social_post' };
+    if (hostnameMatches(hostname, 'medium.com')) return { platform: 'Medium', contentType: 'article' };
+    if (hostnameMatches(hostname, 'substack.com')) return { platform: 'Substack', contentType: 'article' };
+    if (hostnameMatches(hostname, 'reddit.com')) return { platform: 'Reddit', contentType: 'social_post' };
+    if (hostnameMatches(hostname, 'spotify.com') || hostnameMatches(hostname, 'podcasts.apple.com')) return { platform: 'Podcast', contentType: 'podcast' };
     return { platform: 'Web', contentType: 'article' };
 }
 
@@ -161,93 +112,28 @@ function extractTitle(html: string): string {
     return titleMatch ? titleMatch[1].trim() : '';
 }
 
-/** Fetch and extract content from a YouTube URL */
-async function extractYouTubeContent(url: string): Promise<Partial<ExtractedContent>> {
-    try {
-        // Use oEmbed for the canonical video title.
-        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
-        const oembedRes = await fetch(oembedUrl, { signal: AbortSignal.timeout(8000) });
-
-        let title = '';
-        if (oembedRes.ok) {
-            const oembed = await oembedRes.json();
-            title = oembed.title || '';
-        }
-
-        // Also fetch the page for description
-        const pageRes = await fetchSafePage(url);
-
-        let description = '';
-        let bodyText = '';
-        if (pageRes.ok) {
-            const html = await readPageText(pageRes);
-            description = extractMeta(html, 'og:description') || extractMeta(html, 'description');
-            if (!title) title = extractTitle(html);
-            // For YouTube, the description IS the main content
-            bodyText = description;
-        }
-
-        return { title, description, bodyText };
-    } catch {
-        return {};
-    }
-}
-
-/** Fetch and extract content from a generic URL */
-async function extractGenericContent(url: string): Promise<Partial<ExtractedContent>> {
-    try {
-        const res = await fetchSafePage(url);
-
-        if (!res.ok) {
-            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        }
-
-        const html = await readPageText(res);
-        const title = extractTitle(html);
-        const description = extractMeta(html, 'og:description') || extractMeta(html, 'description');
-
-        // Extract main body text (first ~3000 chars)
-        // Try to find <main> or <article> content first
-        let bodyHtml = '';
-        const mainMatch = html.match(/<main[\s\S]*?<\/main>/i);
-        const articleMatch = html.match(/<article[\s\S]*?<\/article>/i);
-
-        if (articleMatch) {
-            bodyHtml = articleMatch[0];
-        } else if (mainMatch) {
-            bodyHtml = mainMatch[0];
-        } else {
-            // Fallback: use <body>
-            const bodyMatch = html.match(/<body[\s\S]*?<\/body>/i);
-            bodyHtml = bodyMatch ? bodyMatch[0] : html;
-        }
-
-        const bodyText = stripHtml(bodyHtml).slice(0, 3000);
-
-        return { title, description, bodyText };
-    } catch {
-        return {};
-    }
+function extractReadableBody(source: string): string {
+    const articleMatch = source.match(/<article[\s\S]*?<\/article>/i);
+    const mainMatch = source.match(/<main[\s\S]*?<\/main>/i);
+    const bodyMatch = source.match(/<body[\s\S]*?<\/body>/i);
+    return stripHtml(articleMatch?.[0] ?? mainMatch?.[0] ?? bodyMatch?.[0] ?? source)
+        .slice(0, MAX_EXTRACTED_BODY_CHARACTERS);
 }
 
 /** Main extraction function */
 export async function extractUrlContent(url: string): Promise<ExtractedContent> {
-    await assertSafeAssetUrl(url);
-    const { platform, contentType } = detectPlatform(url);
-
-    let extracted: Partial<ExtractedContent> = {};
-
-    if (platform === 'YouTube') {
-        extracted = await extractYouTubeContent(url);
-    } else {
-        extracted = await extractGenericContent(url);
-    }
+    const document = await fetchThinkForgeUrlDocument(url);
+    const { platform, contentType } = detectPlatform(document.finalUrl);
+    const title = extractTitle(document.text);
+    const description = extractMeta(document.text, 'og:description') || extractMeta(document.text, 'description');
+    const bodyText = platform === 'YouTube' ? description : extractReadableBody(document.text);
+    if (!bodyText && !description) throw new UrlIngestionError('content_unavailable');
 
     return {
-        url,
-        title: extracted.title || 'Untitled',
-        description: extracted.description || '',
-        bodyText: extracted.bodyText || extracted.description || '',
+        url: document.requestedUrl,
+        title: title || new URL(document.finalUrl).hostname,
+        description,
+        bodyText: bodyText || description,
         platform,
         contentType,
     };
