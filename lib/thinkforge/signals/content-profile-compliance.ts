@@ -192,7 +192,7 @@ function getMaxCharacters(resolved: ThinkForgeContentSignalProfile): number | un
   if (typeof max === 'number') return max;
 
   const target = resolved.profile.constraints.target_length;
-  if (target.unit === 'characters') return target.value;
+  if (target?.unit === 'characters') return target.value;
   return undefined;
 }
 

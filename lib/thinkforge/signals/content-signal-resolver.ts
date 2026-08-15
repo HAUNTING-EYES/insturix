@@ -17,6 +17,7 @@ import type {
   OutputFormat,
 } from '../../shared/signals';
 import { computeDerivedSignals, validateSignals } from '../../shared/signals';
+import { resolveThinkForgePublishingConstraints } from './publishing-constraints';
 
 type BrandDNA = RetrievedContext['brandDNA'];
 type SignalSource = InferenceMetadata['source'];
@@ -88,10 +89,12 @@ const OUTPUT_FORMAT_ALIASES: Array<[RegExp, OutputFormat]> = [
 ];
 
 const PLATFORM_ALIASES: Array<[RegExp, string]> = [
+  [/\byoutube(?:[-\s]+)?shorts?\b|\byt[-\s]+shorts?\b/i, 'YouTube Shorts'],
+  [/\binstagram(?:[-\s]+)?reels?\b|\big(?:[-\s]+)?reels?\b|\breels?\b/i, 'Instagram Reels'],
   [/linkedin/i, 'LinkedIn'],
   [/\btiktok\b/i, 'TikTok'],
-  [/\byoutube\b|yt shorts?/i, 'YouTube'],
-  [/instagram|reels?/i, 'Instagram'],
+  [/\byoutube\b/i, 'YouTube'],
+  [/instagram/i, 'Instagram'],
   [/\bx\b|twitter/i, 'X'],
   [/facebook/i, 'Facebook'],
   [/reddit/i, 'Reddit'],
@@ -275,19 +278,11 @@ function inferOutputFormat(
     return outputFormatFromDocumentContract(explicitContract);
   }
 
-  const candidates = [
-    input.documentType,
-    input.medium,
-    input.project?.format,
-    combinedText,
-  ].filter(Boolean).join(' ');
-
   for (const [pattern, format] of OUTPUT_FORMAT_ALIASES) {
-    if (pattern.test(candidates)) return format;
+    if (pattern.test(combinedText)) return format;
   }
 
-  if (input.project?.platform || input.platform) return 'social_post';
-  return 'video_script';
+  throw new Error('Content signal resolution requires an explicit document contract or supported document type.');
 }
 
 function outputFormatFromDocumentContract(contract: ThinkForgeDocumentContract): OutputFormat {
@@ -334,13 +329,16 @@ function buildConstraints(
   platform?: string,
   brandId?: string,
 ): ContentConstraints {
+  const targetLength = inferTargetLength(outputFormat, text, platform);
   return {
-    target_length: inferTargetLength(outputFormat, text, platform),
+    ...(targetLength ? { target_length: targetLength } : {}),
     output_format: outputFormat,
     language: inferContentLanguage(userPrompt),
     brand_voice_id: brandId,
     cta_type: inferCTAType(text),
-    platform_constraints: buildPlatformConstraints(outputFormat, platform),
+    platform_constraints: platform
+      ? resolveThinkForgePublishingConstraints(platform, outputFormat)
+      : undefined,
   };
 }
 
@@ -386,12 +384,17 @@ function inferTargetLength(
   outputFormat: OutputFormat,
   text: string,
   platform?: string,
-): ContentConstraints['target_length'] {
-  const duration = text.match(/(\d{1,3})\s*(seconds?|secs?|s|minutes?|mins?)\b/i);
+): ContentConstraints['target_length'] | undefined {
+  const duration = text.match(/(\d+(?:\.\d+)?)\s*[-\s]*\s*(seconds?|secs?|s|minutes?|mins?|hours?|hrs?|h)\b/i);
   if (duration) {
     const amount = Number(duration[1]);
-    const unit = /min/i.test(duration[2]) ? amount * 60 : amount;
-    return { value: unit, unit: 'seconds' };
+    const multiplier = /^(?:hours?|hrs?|h)$/i.test(duration[2])
+      ? 3_600
+      : /^(?:minutes?|mins?)$/i.test(duration[2])
+        ? 60
+        : 1;
+    const seconds = Math.round(amount * multiplier);
+    if (seconds > 0) return { value: seconds, unit: 'seconds' };
   }
 
   const words = text.match(/(\d{2,5})\s*words?\b/i);
@@ -401,35 +404,10 @@ function inferTargetLength(
   if (characters) return { value: Number(characters[1]), unit: 'characters' };
 
   if (outputFormat === 'social_post' && /\b(?:short|concise)\b/i.test(text)) {
-    // A platform maximum is a ceiling, never a requested minimum. Keep concise X copy
-    // comfortably below its 280-character ceiling so the writer can preserve natural rhythm.
     return { value: /^(?:x|twitter)$/i.test(platform?.trim() ?? '') ? 220 : 600, unit: 'characters' };
   }
 
-  switch (outputFormat) {
-    case 'video_script':
-    case 'podcast_script':
-    case 'presentation_script':
-      return { value: 60, unit: 'seconds' };
-    case 'social_post':
-      return { value: 1200, unit: 'characters' };
-    case 'caption':
-      return { value: 280, unit: 'characters' };
-    case 'blog_article':
-    case 'case_study':
-      return { value: 900, unit: 'words' };
-    case 'newsletter':
-    case 'whitepaper':
-      return { value: 700, unit: 'words' };
-    case 'email':
-      return { value: 250, unit: 'words' };
-    case 'ad_copy':
-      return { value: 180, unit: 'characters' };
-    case 'landing_page':
-      return { value: 650, unit: 'words' };
-    default:
-      return { value: 500, unit: 'words' };
-  }
+  return undefined;
 }
 
 function inferCTAType(text: string): CTAType {
@@ -437,24 +415,6 @@ function inferCTAType(text: string): CTAType {
   if (/buy|book|sign up|subscribe|download|convert|purchase|demo/i.test(text)) return 'hard';
   if (/learn more|comment|reply|follow|share|save/i.test(text)) return 'soft';
   return 'none';
-}
-
-function buildPlatformConstraints(
-  outputFormat: OutputFormat,
-  platform?: string,
-): Record<string, unknown> | undefined {
-  if (!platform) return undefined;
-  const lower = platform.toLowerCase();
-  if (lower.includes('linkedin')) return { platform, maxCharacters: 3000 };
-  if (/^(?:x|twitter)$/i.test(platform.trim())) return { platform, maxCharacters: 280 };
-  if (lower.includes('tiktok')) return { platform, maxDurationSeconds: 180, aspectRatio: '9:16' };
-  if (lower.includes('youtube')) return { platform, maxDurationSeconds: 60, aspectRatio: '9:16' };
-  if (lower.includes('instagram')) {
-    return outputFormat === 'video_script'
-      ? { platform, maxDurationSeconds: 90, aspectRatio: '9:16' }
-      : { platform, maxCharacters: 2200, preferredAspectRatio: '4:5' };
-  }
-  return { platform };
 }
 
 function applyBrandSignalHints(

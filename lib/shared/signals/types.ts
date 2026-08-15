@@ -225,8 +225,8 @@ export type RegulatoryIndustry =
   | 'crypto';
 
 export interface ContentConstraints {
-  /** REQUIRED. Target length with unit. */
-  target_length: { value: number; unit: 'seconds' | 'words' | 'characters' | 'slides' };
+  /** Explicit or independently resolved target length. Omitted when the user has not supplied one. */
+  target_length?: { value: number; unit: 'seconds' | 'words' | 'characters' | 'slides' };
   /** REQUIRED. Content format type. Platform specifics handled by FORMAT layer. */
   output_format: OutputFormat;
   /** REQUIRED. ISO 639-1 language code. */

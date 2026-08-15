@@ -63,6 +63,7 @@ describe('resolveContentSignalProfile', () => {
       project: {
         projectName: 'Ops Content Sprint',
         platform: 'LinkedIn',
+        format: 'post',
         tone: 'warm expert',
         purpose: 'agency founders',
       },
@@ -176,8 +177,10 @@ describe('resolveContentSignalProfile', () => {
     expect(resolved.intent.clickatron.assetIntent).toBe('static_image');
     expect(resolved.profile.constraints.platform_constraints).toMatchObject({
       platform: 'Instagram',
-      preferredAspectRatio: '4:5',
+      surface: 'instagram_feed',
     });
+    expect(resolved.profile.constraints.platform_constraints).not.toHaveProperty('maxDurationSeconds');
+    expect(resolved.profile.constraints.platform_constraints).not.toHaveProperty('preferredAspectRatio');
   });
 
   it('turns an explicit concise social-post request into a smaller character target', () => {
@@ -190,7 +193,7 @@ describe('resolveContentSignalProfile', () => {
     expect(resolved.profile.constraints.target_length).toEqual({ value: 600, unit: 'characters' });
   });
 
-  it('keeps a concise X target below the platform maximum', () => {
+  it('keeps X length capability-dependent instead of treating standard access as universal', () => {
     const resolved = resolveContentSignalProfile({
       userPrompt: 'Write a short, honest X post about reaching 1,000 paying users.',
       documentType: 'post',
@@ -200,8 +203,47 @@ describe('resolveContentSignalProfile', () => {
     expect(resolved.profile.constraints.target_length).toEqual({ value: 220, unit: 'characters' });
     expect(resolved.profile.constraints.platform_constraints).toMatchObject({
       platform: 'X',
-      maxCharacters: 280,
+      surface: 'x_post',
+      standardMaxCharacters: 280,
+      extendedPostsRequireCapability: true,
     });
+    expect(resolved.profile.constraints.platform_constraints).not.toHaveProperty('maxCharacters');
+  });
+
+  it('preserves an explicit seven-minute YouTube target without applying Shorts constraints', () => {
+    const resolved = resolveContentSignalProfile({
+      userPrompt: 'Write a 7-minute YouTube documentary script about the history of urban forests.',
+      documentType: 'video_script',
+      platform: 'YouTube',
+    });
+
+    expect(resolved.profile.constraints.target_length).toEqual({ value: 420, unit: 'seconds' });
+    expect(resolved.profile.constraints.platform_constraints).toMatchObject({
+      platform: 'YouTube',
+      surface: 'youtube_video',
+    });
+    expect(resolved.profile.constraints.platform_constraints).not.toHaveProperty('maxDurationSeconds');
+    expect(resolved.profile.constraints.platform_constraints).not.toHaveProperty('aspectRatio');
+  });
+
+  it('applies the verified duration ceiling only to an explicit YouTube Shorts surface', () => {
+    const resolved = resolveContentSignalProfile({
+      userPrompt: 'Write a 45-second YouTube Short about an audit workflow.',
+      documentType: 'video_script',
+      platform: 'youtube-shorts',
+    });
+
+    expect(resolved.profile.constraints.target_length).toEqual({ value: 45, unit: 'seconds' });
+    expect(resolved.profile.constraints.platform_constraints).toMatchObject({
+      surface: 'youtube_shorts',
+      maxDurationSeconds: 180,
+    });
+  });
+
+  it('fails closed when no document contract or supported document type is supplied', () => {
+    expect(() => resolveContentSignalProfile({
+      userPrompt: 'Make something about audit workflows.',
+    })).toThrow(/requires an explicit document contract or supported document type/i);
   });
 
   it('keeps the exact metric-bearing sentence when a brief also mentions an event', () => {
@@ -227,6 +269,7 @@ describe('resolveContentSignalProfile', () => {
   it('applies accepted Brand Vault signals as brand-level creative defaults without overriding explicit instructions', () => {
     const resolved = resolveContentSignalProfile({
       userPrompt: 'Write a LinkedIn post about the launch.',
+      documentType: 'post',
       brandId: 'brand_creative',
       retrievedContext: {
         brandDNA: {},
@@ -256,6 +299,7 @@ describe('resolveContentSignalProfile', () => {
   it('clamps explicit signal overrides and formats a prompt block', () => {
     const resolved = resolveContentSignalProfile({
       userPrompt: 'Create a 45 second YouTube Short script with bold data-backed narration.',
+      documentType: 'video_script',
       signalOverrides: {
         humor: 2,
         emotional_valence: -2,
