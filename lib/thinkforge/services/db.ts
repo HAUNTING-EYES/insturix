@@ -4011,6 +4011,7 @@ export async function getRecentInteractionEvents(
     types?: EventType[];
     limit?: number;
     since?: Date;
+    strict?: boolean;
   }
 ): Promise<ThinkForgeEvent[]> {
   try {
@@ -4038,6 +4039,7 @@ export async function getRecentInteractionEvents(
     }));
   } catch (error) {
     console.error('Error getting interaction events:', error);
+    if (options?.strict) throw error;
     return [];
   }
 }

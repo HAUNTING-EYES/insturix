@@ -1,16 +1,20 @@
 import { z } from 'zod';
 import type { DataBankEntry, ThinkForgeEvent } from '../services/db';
 
-export interface PostMortemInput {
-  userId: string;
-  orgId?: string | null;
-  sessionId: string;
-  projectId?: string;
-  brandId?: string;
-  projectTitle?: string;
-  qualityScore?: number;
-  userPublished?: boolean;
-}
+export const POST_MORTEM_PREPARED_PLAN_VERSION = 1;
+
+export const PostMortemInputSchema = z.object({
+  userId: z.string().trim().min(1).max(256),
+  orgId: z.string().trim().min(1).max(256).nullable().optional(),
+  sessionId: z.string().trim().min(1).max(256),
+  projectId: z.string().trim().min(1).max(256).optional(),
+  brandId: z.string().trim().min(1).max(256).optional(),
+  projectTitle: z.string().trim().min(1).max(2_000).optional(),
+  qualityScore: z.number().finite().min(0).max(100).optional(),
+  userPublished: z.boolean().optional(),
+});
+
+export type PostMortemInput = z.infer<typeof PostMortemInputSchema>;
 
 export interface PostMortemResult {
   summaryEntryId: string | null;
@@ -40,6 +44,27 @@ export const PostMortemCompressionSchema = z.object({
 });
 
 export type PostMortemCompressionOutput = z.infer<typeof PostMortemCompressionSchema>;
+
+export const PostMortemPreparedPlanSchema = z.object({
+  version: z.number().int().default(POST_MORTEM_PREPARED_PLAN_VERSION).refine(
+    (version) => version === POST_MORTEM_PREPARED_PLAN_VERSION,
+    'Unsupported post-mortem prepared-plan version.',
+  ),
+  userId: z.string().trim().min(1).max(256),
+  orgId: z.string().trim().min(1).max(256).nullable(),
+  sessionId: z.string().trim().min(1).max(256),
+  projectId: z.string().trim().min(1).max(256).nullable(),
+  brandId: z.string().trim().min(1).max(256).nullable(),
+  projectTitle: z.string().trim().min(1).max(2_000).nullable(),
+  qualityScore: z.number().finite().min(0).max(100).nullable(),
+  userPublished: z.boolean(),
+  sourceEvidenceFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceEventIds: z.array(z.string().trim().min(1).max(256)).max(200),
+  sourceEntryIds: z.array(z.string().trim().min(1).max(256)).max(100),
+  output: PostMortemCompressionSchema.nullable(),
+});
+
+export type PostMortemPreparedPlan = z.infer<typeof PostMortemPreparedPlanSchema>;
 
 export interface PostMortemLessonStorage {
   dataBankScope: 'project';

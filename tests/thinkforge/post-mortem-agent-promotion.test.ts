@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DataBankEntry } from '@/lib/thinkforge/services/db';
-import { runPostMortemAgent } from '@/lib/thinkforge/agents/post-mortem-agent';
+import {
+  commitPostMortemPlan,
+  preparePostMortemPlan,
+  runPostMortemAgent,
+} from '@/lib/thinkforge/agents/post-mortem-agent';
 
 const mocks = vi.hoisted(() => {
   const putGovernedDataBankEntry = vi.fn();
@@ -305,6 +309,48 @@ describe('post-mortem memory promotion', () => {
     await runPostMortemAgent(input);
     const newEvidenceSummaryKey = mocks.putGovernedDataBankEntry.mock.calls[4][2] as string;
     expect(newEvidenceSummaryKey).not.toBe(firstSummaryKey);
+  });
+
+  it('can checkpoint preparation and retry commit without another model call', async () => {
+    const plan = await preparePostMortemPlan({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'tf_session_1',
+      projectId: 'editron_project_1',
+      brandId: 'brand_1',
+    });
+    expect(mocks.generateObject).toHaveBeenCalledTimes(1);
+
+    await commitPostMortemPlan(plan);
+    await commitPostMortemPlan(plan);
+
+    expect(mocks.generateObject).toHaveBeenCalledTimes(1);
+    expect(mocks.putGovernedDataBankEntry.mock.calls[2][2]).toBe(
+      mocks.putGovernedDataBankEntry.mock.calls[0][2],
+    );
+    expect(mocks.putGovernedDataBankEntry.mock.calls[3][2]).toBe(
+      mocks.putGovernedDataBankEntry.mock.calls[1][2],
+    );
+  });
+
+  it('rejects a checkpoint after the session brand authority changes', async () => {
+    const plan = await preparePostMortemPlan({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'tf_session_1',
+      brandId: 'brand_1',
+    });
+    mocks.getSession.mockResolvedValue({
+      _id: 'tf_session_1',
+      userId: 'user_1',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_2' },
+    });
+
+    await expect(commitPostMortemPlan(plan)).rejects.toThrow(
+      'Post-mortem prepared plan no longer matches the session authority.',
+    );
+    expect(mocks.putGovernedDataBankEntry).not.toHaveBeenCalled();
   });
 
   it('preserves source evidence when replacement embedding fails', async () => {
