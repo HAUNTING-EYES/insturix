@@ -7,9 +7,15 @@ import {
 import {
   buildThinkForgeAuthoringContextSnapshot,
   resolveThinkForgeAuthoringProjectMetadata,
+  ThinkForgeBrandAuthorityError,
   type ThinkForgeAuthoringContextSnapshot,
 } from '@/lib/thinkforge/context/brand-authoring-context';
-import { resolveProjectMetaBrandId, type ProjectMeta } from '@/lib/thinkforge/state/types';
+import {
+  matchesThinkForgeSessionBrandBindingPrincipal,
+  resolveProjectMetaBrandId,
+  resolveThinkForgeSessionBrandBinding,
+  type ProjectMeta,
+} from '@/lib/thinkforge/state/types';
 
 export type ThinkForgeResolvedAuthoringContext = {
   projectMeta: ProjectMeta;
@@ -42,6 +48,24 @@ export interface ResolveThinkForgeAuthoringContextInput {
 export async function resolveThinkForgeAuthoringContext(
   input: ResolveThinkForgeAuthoringContextInput,
 ): Promise<ThinkForgeResolvedAuthoringContext> {
+  const rawSessionBinding = input.sessionProjectMeta?.brandBinding;
+  const sessionBinding = resolveThinkForgeSessionBrandBinding(input.sessionProjectMeta);
+  if (rawSessionBinding && !sessionBinding) {
+    throw new ThinkForgeBrandAuthorityError(
+      'brand_scope_unavailable',
+      'This session contains an invalid brand binding. Re-open the session before generating.',
+    );
+  }
+  if (
+    sessionBinding
+    && !matchesThinkForgeSessionBrandBindingPrincipal(sessionBinding, input.orgId)
+  ) {
+    throw new ThinkForgeBrandAuthorityError(
+      'brand_scope_unavailable',
+      'This session is bound to a different workspace. Re-open it from the correct workspace before generating.',
+    );
+  }
+
   const projectMeta = resolveThinkForgeAuthoringProjectMetadata(
     input.sessionProjectMeta,
     input.providedProject,

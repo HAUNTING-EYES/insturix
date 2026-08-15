@@ -57,9 +57,10 @@ describe('resolveThinkForgeAuthoringContext', () => {
       sessionProjectMeta: {
         brandId: 'brand_b',
         brandBinding: {
-          version: 1,
+          version: 2,
           brandId: 'brand_b',
           scope: 'organization',
+          orgId: 'org_1',
           boundAt: '2026-08-10T00:00:00.000Z',
         },
         brandBrief: 'Old profile text must never reach a writer.',
@@ -152,5 +153,47 @@ describe('resolveThinkForgeAuthoringContext', () => {
       userId: 'user_1',
       providedProject: { brandId: 'brand_b' },
     })).rejects.toThrow('accepted profile');
+  });
+
+  it('rejects a session binding issued for a different organization before retrieval', async () => {
+    await expect(resolveThinkForgeAuthoringContext({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionProjectMeta: {
+        brandId: 'brand_b',
+        brandBinding: {
+          version: 2,
+          brandId: 'brand_b',
+          scope: 'organization',
+          orgId: 'org_other',
+          boundAt: '2026-08-10T00:00:00.000Z',
+        },
+      },
+    })).rejects.toMatchObject({
+      code: 'brand_scope_unavailable',
+    });
+
+    expect(mocks.fetchContextSources).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed persisted binding before treating its brandId as authority', async () => {
+    await expect(resolveThinkForgeAuthoringContext({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionProjectMeta: {
+        brandId: 'brand_b',
+        brandBinding: {
+          version: 2,
+          brandId: 'brand_b',
+          scope: 'organization',
+          orgId: null,
+          boundAt: '2026-08-10T00:00:00.000Z',
+        },
+      },
+    })).rejects.toMatchObject({
+      code: 'brand_scope_unavailable',
+    });
+
+    expect(mocks.fetchContextSources).not.toHaveBeenCalled();
   });
 });
