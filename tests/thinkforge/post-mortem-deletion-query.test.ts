@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildProjectScopedDeletionQuery } from '@/lib/thinkforge/services/db';
+import {
+  assertDataBankIdempotentWriteCompatible,
+  buildDataBankIdempotentRecordId,
+  buildInteractionEventDeletionQuery,
+  buildProjectScopedDeletionQuery,
+  type DataBankEntry,
+} from '@/lib/thinkforge/services/db';
 
 describe('post-mortem source cleanup authority', () => {
   it('targets only normalized source records from the authorized session', () => {
@@ -23,6 +29,23 @@ describe('post-mortem source cleanup authority', () => {
     })).toBeNull();
   });
 
+  it('targets only snapshotted interaction events from the exact project', () => {
+    expect(buildInteractionEventDeletionQuery({
+      projectId: ' session_1 ',
+      userId: ' user_1 ',
+      eventIds: [' event_1 ', 'event_2', 'event_1', ''],
+    })).toEqual({
+      _id: { $in: ['event_1', 'event_2'] },
+      projectId: 'session_1',
+      userId: 'user_1',
+    });
+    expect(buildInteractionEventDeletionQuery({
+      projectId: 'session_1',
+      userId: 'user_1',
+      eventIds: [],
+    })).toBeNull();
+  });
+
   it('fails closed without an exact session and actor', () => {
     expect(() => buildProjectScopedDeletionQuery({
       sessionId: '',
@@ -34,5 +57,40 @@ describe('post-mortem source cleanup authority', () => {
       userId: ' ',
       entryIds: ['source_1'],
     })).toThrow('Project memory cleanup requires an exact session and user.');
+  });
+
+  it('derives stable operation IDs and rejects payload drift in the same slot', () => {
+    const operationKey = 'thinkforge:post-mortem:v1:session_1:summary';
+    expect(buildDataBankIdempotentRecordId(` ${operationKey} `)).toBe(
+      buildDataBankIdempotentRecordId(operationKey),
+    );
+    expect(buildDataBankIdempotentRecordId(`${operationKey}:other`)).not.toBe(
+      buildDataBankIdempotentRecordId(operationKey),
+    );
+
+    const base = {
+      _id: buildDataBankIdempotentRecordId(operationKey),
+      sessionId: 'session_1',
+      projectId: 'session_1',
+      userId: 'user_1',
+      ownerType: 'user',
+      classification: 'business_confidential',
+      consentStatus: 'not_required',
+      lifecycleStatus: 'active',
+      type: 'research',
+      scope: 'project',
+      memoryScope: 'project',
+      provenanceStatus: 'verified',
+      title: 'Project Summary',
+      content: { summary: 'Evidence-backed summary.' },
+      createdAt: new Date('2026-08-15T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-15T00:00:00.000Z'),
+    } satisfies DataBankEntry;
+    expect(() => assertDataBankIdempotentWriteCompatible(base, { ...base }, operationKey)).not.toThrow();
+    expect(() => assertDataBankIdempotentWriteCompatible(
+      base,
+      { ...base, content: { summary: 'Different model output.' } },
+      operationKey,
+    )).toThrow(`DataBank idempotency conflict for operation ${operationKey}.`);
   });
 });

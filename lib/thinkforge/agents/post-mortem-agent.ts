@@ -6,10 +6,11 @@ import { buildIsolatedPromptParts } from './prompt-boundary';
 import {
   getRecentInteractionEvents,
   getProjectScopedEntries,
-  deleteEventsBySession,
+  deleteInteractionEventsByIds,
   deleteProjectScopedEntries,
-  addGovernedDataBankEntry,
+  putGovernedDataBankEntry,
   getSession,
+  generateContentHash,
   type DataBankEntry,
 } from '../services/db';
 import { embedDataBankEntry } from '../services/embedding-service';
@@ -27,6 +28,8 @@ import {
 } from '../post-mortem/post-mortem-contract';
 
 export type { PostMortemInput, PostMortemResult } from '../post-mortem/post-mortem-contract';
+
+const POST_MORTEM_COMMIT_VERSION = 1;
 
 export async function runPostMortemAgent(input: PostMortemInput): Promise<PostMortemResult> {
   const { userId, sessionId, projectId, projectTitle } = input;
@@ -69,6 +72,18 @@ export async function runPostMortemAgent(input: PostMortemInput): Promise<PostMo
   if (events.length === 0 && projectEntries.length === 0 && !brandEventsText) {
     return { summaryEntryId: null, lessonsExtracted: 0, eventsDeleted: 0, entriesDeleted: 0 };
   }
+  const sourceEvidenceFingerprint = generateContentHash({
+    sessionId,
+    projectId: projectId ?? null,
+    projectTitle: projectTitle ?? null,
+    brandId: brandId ?? null,
+    qualityScore: scopedInput.qualityScore ?? null,
+    userPublished: scopedInput.userPublished === true,
+    events,
+    projectEntries,
+    brandEventsText,
+  });
+  const commitKey = `thinkforge:post-mortem:v${POST_MORTEM_COMMIT_VERSION}:${sessionId}:${sourceEvidenceFingerprint}`;
 
   const model = createModelByTier(ModelTier.Structural);
   const modelName = 'gemini-2.5-flash';
@@ -175,7 +190,7 @@ Read projectTitle, interactionEvents, projectKnowledge, and crossServiceBrandEve
   }
 
   if (object.projectSummary) {
-    const summaryEntry = await addGovernedDataBankEntry(principal, sessionId, {
+    const summaryEntry = await putGovernedDataBankEntry(principal, sessionId, `${commitKey}:summary`, {
       type: 'research',
       title: `Project Summary: ${projectTitle || sessionId.slice(0, 8)}`,
       content: {
@@ -184,6 +199,7 @@ Read projectTitle, interactionEvents, projectKnowledge, and crossServiceBrandEve
         memoryScope: 'project',
         projectId,
         brandId,
+        sourceEvidenceFingerprint,
       },
       tags: buildPostMortemMemoryTags(['project-summary', 'auto-compressed'], { memoryScope: 'project', dataBankScope: 'project', reason: 'project_summary' }, scopedInput),
       projectId: sessionId,
@@ -198,9 +214,9 @@ Read projectTitle, interactionEvents, projectKnowledge, and crossServiceBrandEve
     replacementEntries.push(summaryEntry);
   }
 
-  for (const lesson of object.lessons) {
+  for (const [lessonIndex, lesson] of object.lessons.entries()) {
     const storage = resolvePostMortemLessonStorage(scopedInput);
-    const entry = await addGovernedDataBankEntry(principal, sessionId, {
+    const entry = await putGovernedDataBankEntry(principal, sessionId, `${commitKey}:lesson:${lessonIndex}`, {
       type: 'brand_insight',
       title: lesson.insight.slice(0, 120),
       content: {
@@ -213,6 +229,7 @@ Read projectTitle, interactionEvents, projectKnowledge, and crossServiceBrandEve
         brandId,
         qualityScore: scopedInput.qualityScore,
         userPublished: scopedInput.userPublished === true,
+        sourceEvidenceFingerprint,
       },
       tags: buildPostMortemMemoryTags([lesson.category, 'lesson-learned', 'auto-extracted'], storage, scopedInput),
       projectId: sessionId,
@@ -231,12 +248,16 @@ Read projectTitle, interactionEvents, projectKnowledge, and crossServiceBrandEve
     return { summaryEntryId: null, lessonsExtracted: 0, eventsDeleted: 0, entriesDeleted: 0 };
   }
   const embeddingResults = await Promise.all(
-    replacementEntries.map((entry) => embedDataBankEntry(entry)),
+    replacementEntries.map((entry) => embedDataBankEntry(entry, { alreadyClaimed: true })),
   );
   if (embeddingResults.some((stored) => stored !== true)) {
     throw new Error('Post-mortem replacement embeddings were not durably stored.');
   }
-  const eventsDeleted = await deleteEventsBySession(sessionId, userId);
+  const eventsDeleted = await deleteInteractionEventsByIds(
+    sessionId,
+    userId,
+    events.map((event) => event._id),
+  );
   const entriesDeleted = await deleteProjectScopedEntries(
     sessionId,
     userId,

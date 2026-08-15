@@ -3,9 +3,9 @@ import type { DataBankEntry } from '@/lib/thinkforge/services/db';
 import { runPostMortemAgent } from '@/lib/thinkforge/agents/post-mortem-agent';
 
 const mocks = vi.hoisted(() => {
-  const addGovernedDataBankEntry = vi.fn();
+  const putGovernedDataBankEntry = vi.fn();
   const createModelByTier = vi.fn();
-  const deleteEventsBySession = vi.fn();
+  const deleteInteractionEventsByIds = vi.fn();
   const deleteProjectScopedEntries = vi.fn();
   const embedDataBankEntry = vi.fn();
   const generateObject = vi.fn();
@@ -13,10 +13,18 @@ const mocks = vi.hoisted(() => {
   const getProjectScopedEntries = vi.fn();
   const getRecentInteractionEvents = vi.fn();
   const getSession = vi.fn();
+  const generateContentHash = vi.fn((value: unknown) => {
+    const text = JSON.stringify(value);
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index++) {
+      hash = Math.imul(hash ^ text.charCodeAt(index), 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0').repeat(8);
+  });
   return {
-    addGovernedDataBankEntry,
+    putGovernedDataBankEntry,
     createModelByTier,
-    deleteEventsBySession,
+    deleteInteractionEventsByIds,
     deleteProjectScopedEntries,
     embedDataBankEntry,
     generateObject,
@@ -24,6 +32,7 @@ const mocks = vi.hoisted(() => {
     getProjectScopedEntries,
     getRecentInteractionEvents,
     getSession,
+    generateContentHash,
   };
 });
 
@@ -41,12 +50,13 @@ vi.mock('@/lib/shared/brand-events', () => ({
 }));
 
 vi.mock('@/lib/thinkforge/services/db', () => ({
-  addGovernedDataBankEntry: mocks.addGovernedDataBankEntry,
-  deleteEventsBySession: mocks.deleteEventsBySession,
+  putGovernedDataBankEntry: mocks.putGovernedDataBankEntry,
+  deleteInteractionEventsByIds: mocks.deleteInteractionEventsByIds,
   deleteProjectScopedEntries: mocks.deleteProjectScopedEntries,
   getProjectScopedEntries: mocks.getProjectScopedEntries,
   getRecentInteractionEvents: mocks.getRecentInteractionEvents,
   getSession: mocks.getSession,
+  generateContentHash: mocks.generateContentHash,
 }));
 
 vi.mock('@/lib/thinkforge/services/embedding-service', () => ({
@@ -57,9 +67,9 @@ const NOW = new Date('2026-06-09T00:00:00.000Z');
 
 describe('post-mortem memory promotion', () => {
   beforeEach(() => {
-    mocks.addGovernedDataBankEntry.mockReset();
+    mocks.putGovernedDataBankEntry.mockReset();
     mocks.createModelByTier.mockReset();
-    mocks.deleteEventsBySession.mockReset();
+    mocks.deleteInteractionEventsByIds.mockReset();
     mocks.deleteProjectScopedEntries.mockReset();
     mocks.embedDataBankEntry.mockReset();
     mocks.generateObject.mockReset();
@@ -69,7 +79,7 @@ describe('post-mortem memory promotion', () => {
     mocks.getSession.mockReset();
 
     mocks.createModelByTier.mockReturnValue('model');
-    mocks.deleteEventsBySession.mockResolvedValue(3);
+    mocks.deleteInteractionEventsByIds.mockResolvedValue(3);
     mocks.deleteProjectScopedEntries.mockResolvedValue(2);
     mocks.embedDataBankEntry.mockResolvedValue(true);
     mocks.getSession.mockResolvedValue({
@@ -113,9 +123,9 @@ describe('post-mortem memory promotion', () => {
         ],
       },
     });
-    mocks.addGovernedDataBankEntry.mockImplementation(
-      async (_principal: unknown, sessionId: string, entry: Partial<DataBankEntry>) => ({
-        _id: `entry_${mocks.addGovernedDataBankEntry.mock.calls.length}`,
+    mocks.putGovernedDataBankEntry.mockImplementation(
+      async (_principal: unknown, sessionId: string, _operationKey: string, entry: Partial<DataBankEntry>) => ({
+        _id: `entry_${mocks.putGovernedDataBankEntry.mock.calls.length}`,
         sessionId,
         userId: 'user_1',
         createdAt: NOW,
@@ -141,7 +151,7 @@ describe('post-mortem memory promotion', () => {
       eventsDeleted: 3,
       entriesDeleted: 2,
     });
-    const lastWriteOrder = mocks.addGovernedDataBankEntry.mock.invocationCallOrder.at(-1);
+    const lastWriteOrder = mocks.putGovernedDataBankEntry.mock.invocationCallOrder.at(-1);
     const lastEmbeddingOrder = mocks.embedDataBankEntry.mock.invocationCallOrder.at(-1);
     expect(lastWriteOrder).toBeDefined();
     expect(lastEmbeddingOrder).toBeDefined();
@@ -156,9 +166,24 @@ describe('post-mortem memory promotion', () => {
       'user_1',
       ['source_entry_1'],
     );
+    expect(mocks.deleteInteractionEventsByIds).toHaveBeenCalledWith(
+      'tf_session_1',
+      'user_1',
+      ['event_1'],
+    );
+    const summaryOperationKey = mocks.putGovernedDataBankEntry.mock.calls[0][2] as string;
+    const lessonOperationKey = mocks.putGovernedDataBankEntry.mock.calls[1][2] as string;
+    expect(summaryOperationKey).toMatch(
+      /^thinkforge:post-mortem:v1:tf_session_1:[a-f0-9]{64}:summary$/,
+    );
+    expect(lessonOperationKey).toBe(summaryOperationKey.replace(/:summary$/, ':lesson:0'));
+    expect(mocks.embedDataBankEntry).toHaveBeenCalledWith(
+      expect.any(Object),
+      { alreadyClaimed: true },
+    );
 
-    expect(mocks.addGovernedDataBankEntry.mock.calls[0][0]).toEqual({ userId: 'user_1', orgId: 'org_1' });
-    const summary = mocks.addGovernedDataBankEntry.mock.calls[0][2] as Partial<DataBankEntry>;
+    expect(mocks.putGovernedDataBankEntry.mock.calls[0][0]).toEqual({ userId: 'user_1', orgId: 'org_1' });
+    const summary = mocks.putGovernedDataBankEntry.mock.calls[0][3] as Partial<DataBankEntry>;
     expect(summary).toMatchObject({
       type: 'research',
       projectId: 'tf_session_1',
@@ -176,7 +201,7 @@ describe('post-mortem memory promotion', () => {
       'brand:brand_1',
     ]));
 
-    const lesson = mocks.addGovernedDataBankEntry.mock.calls[1][2] as Partial<DataBankEntry>;
+    const lesson = mocks.putGovernedDataBankEntry.mock.calls[1][3] as Partial<DataBankEntry>;
     expect(lesson).toMatchObject({
       type: 'brand_insight',
       projectId: 'tf_session_1',
@@ -208,7 +233,7 @@ describe('post-mortem memory promotion', () => {
       qualityScore: 62,
     });
 
-    const lesson = mocks.addGovernedDataBankEntry.mock.calls[1][2] as Partial<DataBankEntry>;
+    const lesson = mocks.putGovernedDataBankEntry.mock.calls[1][3] as Partial<DataBankEntry>;
     expect(lesson).toMatchObject({
       scope: 'project',
       content: {
@@ -238,7 +263,7 @@ describe('post-mortem memory promotion', () => {
       qualityScore: 94,
     });
 
-    const lesson = mocks.addGovernedDataBankEntry.mock.calls[1][2] as Partial<DataBankEntry>;
+    const lesson = mocks.putGovernedDataBankEntry.mock.calls[1][3] as Partial<DataBankEntry>;
     expect(lesson).toMatchObject({
       scope: 'project',
       content: {
@@ -255,6 +280,33 @@ describe('post-mortem memory promotion', () => {
     ]));
   });
 
+  it('reuses retry slots for identical evidence and advances them for new evidence', async () => {
+    const input = {
+      userId: 'user_1',
+      sessionId: 'tf_session_1',
+      projectId: 'editron_project_1',
+      brandId: 'brand_1',
+    };
+    await runPostMortemAgent(input);
+    const firstSummaryKey = mocks.putGovernedDataBankEntry.mock.calls[0][2] as string;
+
+    await runPostMortemAgent(input);
+    const retrySummaryKey = mocks.putGovernedDataBankEntry.mock.calls[2][2] as string;
+    expect(retrySummaryKey).toBe(firstSummaryKey);
+
+    mocks.getRecentInteractionEvents.mockResolvedValue([{
+      _id: 'event_2',
+      projectId: 'tf_session_1',
+      userId: 'user_1',
+      type: 'feedback_given',
+      payload: { feedback: 'Use a more direct opening.' },
+      createdAt: NOW,
+    }]);
+    await runPostMortemAgent(input);
+    const newEvidenceSummaryKey = mocks.putGovernedDataBankEntry.mock.calls[4][2] as string;
+    expect(newEvidenceSummaryKey).not.toBe(firstSummaryKey);
+  });
+
   it('preserves source evidence when replacement embedding fails', async () => {
     mocks.embedDataBankEntry.mockRejectedValueOnce(new Error('vector unavailable'));
 
@@ -266,7 +318,7 @@ describe('post-mortem memory promotion', () => {
       qualityScore: 88,
     })).rejects.toThrow('vector unavailable');
 
-    expect(mocks.deleteEventsBySession).not.toHaveBeenCalled();
+    expect(mocks.deleteInteractionEventsByIds).not.toHaveBeenCalled();
     expect(mocks.deleteProjectScopedEntries).not.toHaveBeenCalled();
   });
 });

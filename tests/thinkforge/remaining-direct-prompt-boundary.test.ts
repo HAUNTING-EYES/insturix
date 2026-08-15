@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  addGovernedDataBankEntry: vi.fn(),
+  putGovernedDataBankEntry: vi.fn(),
   assertDataBankSessionPrincipal: vi.fn(),
   auth: vi.fn(),
   checkDuplicateBeforeSave: vi.fn(),
   createModelByTier: vi.fn(),
   createThinkForgeModelForRoute: vi.fn(),
-  deleteEventsBySession: vi.fn(),
+  deleteInteractionEventsByIds: vi.fn(),
   deleteProjectScopedEntries: vi.fn(),
   embedDataBankEntry: vi.fn(),
   generateObject: vi.fn(),
@@ -16,6 +16,14 @@ const mocks = vi.hoisted(() => ({
   getProjectScopedEntries: vi.fn(),
   getRecentInteractionEvents: vi.fn(),
   getSession: vi.fn(),
+  generateContentHash: vi.fn((value: unknown) => {
+    const text = JSON.stringify(value);
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index++) {
+      hash = Math.imul(hash ^ text.charCodeAt(index), 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0').repeat(8);
+  }),
   googleSearch: vi.fn(),
   processPendingEmbeddings: vi.fn(),
   readAiSdkUsage: vi.fn(),
@@ -48,13 +56,14 @@ vi.mock('@/lib/thinkforge/agents/model-factory', () => ({
 }));
 vi.mock('@/lib/shared/brand-events', () => ({ getEventsByScope: mocks.getEventsByScope }));
 vi.mock('@/lib/thinkforge/services/db', () => ({
-  addGovernedDataBankEntry: mocks.addGovernedDataBankEntry,
+  putGovernedDataBankEntry: mocks.putGovernedDataBankEntry,
   assertDataBankSessionPrincipal: mocks.assertDataBankSessionPrincipal,
-  deleteEventsBySession: mocks.deleteEventsBySession,
+  deleteInteractionEventsByIds: mocks.deleteInteractionEventsByIds,
   deleteProjectScopedEntries: mocks.deleteProjectScopedEntries,
   getProjectScopedEntries: mocks.getProjectScopedEntries,
   getRecentInteractionEvents: mocks.getRecentInteractionEvents,
   getSession: mocks.getSession,
+  generateContentHash: mocks.generateContentHash,
 }));
 vi.mock('@/lib/thinkforge/services/embedding-service', () => ({
   checkDuplicateBeforeSave: mocks.checkDuplicateBeforeSave,
@@ -111,10 +120,15 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
   it('isolates interaction, project, and brand events during post-mortem compression', async () => {
     mocks.getEventsByScope.mockResolvedValue([{ service: 'clickatron', type: 'quality', payload: { note: INJECTION } }]);
     mocks.getRecentInteractionEvents.mockResolvedValue([{
+      _id: 'event_1',
+      projectId: 'session_1',
+      userId: 'user_1',
       type: 'feedback_given',
       payload: { feedback: `Use a warmer opening. ${INJECTION}` },
+      createdAt: new Date(),
     }]);
     mocks.getProjectScopedEntries.mockResolvedValue([{
+      _id: 'source_entry_1',
       type: 'brand_insight',
       title: `Voice preference ${INJECTION}`,
       content: { claim: `Keep CTAs direct. ${INJECTION}` },
@@ -123,14 +137,14 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
       object: { projectSummary: 'A grounded summary.', lessons: [] },
       usage: {},
     });
-    mocks.deleteEventsBySession.mockResolvedValue(1);
+    mocks.deleteInteractionEventsByIds.mockResolvedValue(1);
     mocks.deleteProjectScopedEntries.mockResolvedValue(1);
     mocks.getSession.mockResolvedValue({
       _id: 'session_1',
       userId: 'user_1',
       projectMeta: { brandId: 'brand_1' },
     });
-    mocks.addGovernedDataBankEntry.mockResolvedValue({ _id: 'entry_1' });
+    mocks.putGovernedDataBankEntry.mockResolvedValue({ _id: 'entry_1' });
     const { runPostMortemAgent } = await import('@/lib/thinkforge/agents/post-mortem-agent');
 
     await runPostMortemAgent({

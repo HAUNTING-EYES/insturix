@@ -2727,6 +2727,21 @@ export interface DataBankWriteGovernance {
   freshUntil?: Date;
   expiresAt?: Date;
 }
+export interface DataBankEntryWrite {
+  type: DataBankEntryType;
+  title: string;
+  content: Record<string, any>;
+  sourceUrl?: string;
+  sourceEntryId?: string;
+  tags?: string[];
+  projectId?: string;
+  scope?: DataBankScope;
+  memoryScope?: DataBankMemoryScope;
+  brandId?: string;
+}
+export interface GovernedDataBankEntryWrite extends DataBankEntryWrite {
+  governance: DataBankWriteGovernance;
+}
 export type DataBankProvenanceReason =
   | 'missing_explicit_memory_scope'
   | 'conflicting_memory_scopes'
@@ -3140,19 +3155,29 @@ export function getDataBankModel(): Model<any> {
 export async function addGovernedDataBankEntry(
   principalInput: DataBankPrincipal,
   sessionId: string,
-  entry: {
-    type: DataBankEntryType;
-    title: string;
-    content: Record<string, any>;
-    sourceUrl?: string;
-    sourceEntryId?: string;
-    tags?: string[];
-    projectId?: string;
-    scope?: DataBankScope;
-    memoryScope?: DataBankMemoryScope;
-    brandId?: string;
-    governance: DataBankWriteGovernance;
-  },
+  entry: GovernedDataBankEntryWrite,
+): Promise<DataBankEntry> {
+  return writeGovernedDataBankEntry(principalInput, sessionId, entry);
+}
+
+/**
+ * Idempotently persist a governed record for a server-owned operation slot.
+ * Reusing a slot with different immutable content is an integrity error.
+ */
+export async function putGovernedDataBankEntry(
+  principalInput: DataBankPrincipal,
+  sessionId: string,
+  operationKey: string,
+  entry: GovernedDataBankEntryWrite,
+): Promise<DataBankEntry> {
+  return writeGovernedDataBankEntry(principalInput, sessionId, entry, operationKey);
+}
+
+async function writeGovernedDataBankEntry(
+  principalInput: DataBankPrincipal,
+  sessionId: string,
+  entry: GovernedDataBankEntryWrite,
+  operationKey?: string,
 ): Promise<DataBankEntry> {
   const principal = resolveDataBankPrincipal(principalInput);
   const normalizedSessionId = dataBankString(sessionId);
@@ -3171,43 +3196,32 @@ export async function addGovernedDataBankEntry(
     orgId: sessionOrgId,
     ...entry.governance,
   });
+  const { governance: _governance, ...recordEntry } = entry;
   return createDataBankEntryRecord(
     normalizedSessionId,
-    principal.userId,
     {
-      ...entry,
+      ...recordEntry,
       projectId: entry.scope === 'global' ? entry.projectId : normalizedSessionId,
     },
     authority,
+    operationKey,
   );
 }
 
 async function createDataBankEntryRecord(
   sessionId: string,
-  userId: string,
-  entry: {
-    type: DataBankEntryType;
-    title: string;
-    content: Record<string, any>;
-    sourceUrl?: string;
-    sourceEntryId?: string;
-    tags?: string[];
-    projectId?: string;
-    scope?: DataBankScope;
-    memoryScope?: DataBankMemoryScope;
-    brandId?: string;
-  },
-  authority?: ReturnType<typeof resolveDataBankEntryAuthority>,
+  entry: DataBankEntryWrite,
+  authority: ReturnType<typeof resolveDataBankEntryAuthority>,
+  operationKey?: string,
 ): Promise<DataBankEntry> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
   const now = new Date();
   const provenance = resolveDataBankEntryProvenance(entry);
-  const doc = await model.create({
-    _id: crypto.randomUUID(),
+  const record: DataBankEntry = {
+    _id: operationKey ? buildDataBankIdempotentRecordId(operationKey) : crypto.randomUUID(),
     sessionId: sessionId || undefined,
     projectId: entry.projectId || undefined,
-    userId,
     ...authority,
     type: entry.type,
     scope: provenance.scope,
@@ -3222,8 +3236,55 @@ async function createDataBankEntryRecord(
     embeddingStatus: 'pending',
     createdAt: now,
     updatedAt: now,
+  };
+  if (!operationKey) {
+    const doc = await model.create(record);
+    return doc.toObject() as DataBankEntry;
+  }
+
+  const persisted = await model.findOneAndUpdate(
+    { _id: record._id },
+    { $setOnInsert: record },
+    { new: true, upsert: true, setDefaultsOnInsert: true },
+  ).lean() as DataBankEntry | null;
+  if (!persisted) throw new Error('DataBank idempotent write did not return a record.');
+  assertDataBankIdempotentWriteCompatible(persisted, record, operationKey);
+  return persisted;
+}
+
+export function buildDataBankIdempotentRecordId(operationKey: string): string {
+  const normalizedKey = dataBankString(operationKey);
+  if (!normalizedKey || normalizedKey.length > 512) {
+    throw new Error('DataBank idempotent writes require an operation key of at most 512 characters.');
+  }
+  return `tfdb_${generateContentHash({ version: 1, operationKey: normalizedKey }).slice(0, 48)}`;
+}
+
+export function assertDataBankIdempotentWriteCompatible(
+  persisted: DataBankEntry,
+  expected: DataBankEntry,
+  operationKey: string,
+): void {
+  if (dataBankImmutableWriteFingerprint(persisted) !== dataBankImmutableWriteFingerprint(expected)) {
+    throw new Error(`DataBank idempotency conflict for operation ${operationKey}.`);
+  }
+}
+
+function dataBankImmutableWriteFingerprint(entry: DataBankEntry): string {
+  return generateContentHash({
+    sessionId: dataBankString(entry.sessionId) ?? null,
+    projectId: dataBankString(entry.projectId) ?? null,
+    userId: dataBankString(entry.userId) ?? null,
+    ownerType: dataBankString(entry.ownerType) ?? null,
+    orgId: dataBankString(entry.orgId) ?? null,
+    classification: dataBankString(entry.classification) ?? null,
+    consentStatus: dataBankString(entry.consentStatus) ?? null,
+    type: entry.type,
+    title: entry.title,
+    content: entry.content,
+    sourceUrl: dataBankString(entry.sourceUrl) ?? null,
+    sourceEntryId: dataBankString(entry.sourceEntryId) ?? null,
   });
-  return doc.toObject() as DataBankEntry;
 }
 
 /** Get all DataBank entries for a session, optionally filtered by type */
@@ -3873,15 +3934,32 @@ export async function promoteEntryToGlobal(entryId: string): Promise<void> {
   );
 }
 
-/** Delete all interaction events for a session (used by Post-Mortem agent) */
-export async function deleteEventsBySession(
-  sessionId: string,
+export function buildInteractionEventDeletionQuery(input: {
+  projectId: string;
   userId: string,
-  types?: EventType[],
+  eventIds: readonly string[];
+}): Record<string, unknown> | null {
+  const projectId = dataBankString(input.projectId);
+  const userId = dataBankString(input.userId);
+  if (!projectId || !userId) {
+    throw new Error('Interaction cleanup requires an exact project and user.');
+  }
+  const eventIds = [...new Set(
+    input.eventIds.map(dataBankString).filter((id): id is string => Boolean(id)),
+  )];
+  if (eventIds.length === 0) return null;
+  return { _id: { $in: eventIds }, projectId, userId };
+}
+
+/** Delete only interaction events snapshotted by a Post-Mortem run. */
+export async function deleteInteractionEventsByIds(
+  projectId: string,
+  userId: string,
+  eventIds: readonly string[],
 ): Promise<number> {
+  const query = buildInteractionEventDeletionQuery({ projectId, userId, eventIds });
+  if (!query) return 0;
   const { EventModel } = await getModels();
-  const query: Record<string, any> = { sessionId, userId };
-  if (types?.length) query.type = { $in: types };
   const result = await EventModel.deleteMany(query);
   return result.deletedCount ?? 0;
 }
