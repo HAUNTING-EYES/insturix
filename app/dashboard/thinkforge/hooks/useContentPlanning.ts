@@ -50,7 +50,7 @@ async function fetchScriptPreview(sessionId: string): Promise<string | null> {
     const res = await fetch('/api/services/thinkforge/script/current', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId }),
+      body: JSON.stringify({ sessionId, scriptId: 'default' }),
     });
     if (!res.ok) return null;
 

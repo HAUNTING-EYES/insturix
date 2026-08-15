@@ -158,6 +158,21 @@ function extractTextFromBlockContent(content: TiptapBlockContent[] | undefined):
   return result;
 }
 
+function parseStringArrayAttribute(value: unknown, field: string): string[] {
+  let parsed: unknown = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new Error(`Invalid ${field} scene attribute.`);
+    }
+  }
+  if (!Array.isArray(parsed) || !parsed.every((entry) => typeof entry === 'string')) {
+    throw new Error(`Invalid ${field} scene attribute.`);
+  }
+  return parsed;
+}
+
 // =============================================================================
 // NODE TYPE MAPPING
 // =============================================================================
@@ -310,6 +325,9 @@ function tiptapNodeToBlock(node: TiptapBlockContent, index: number): ThinkForgeB
       ...(attrs.duration != null ? { duration: Number(attrs.duration) } : {}),
       ...(attrs.durationExplicit ? { durationExplicit: true } : {}),
       ...(attrs.mood ? { mood: String(attrs.mood) } : {}),
+      ...(attrs.onScreenText ? { onScreenText: parseStringArrayAttribute(attrs.onScreenText, 'onScreenText') } : {}),
+      ...(attrs.sfxDescription ? { sfxDescription: String(attrs.sfxDescription) } : {}),
+      ...(attrs.musicDescription ? { musicDescription: String(attrs.musicDescription) } : {}),
     };
   }
 

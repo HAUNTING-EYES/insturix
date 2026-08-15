@@ -433,6 +433,9 @@ function blockToTiptapNodes(block: ThinkForgeBlock): TiptapBlockContent[] {
         if (block.scene.duration != null) sceneAttrs.duration = block.scene.duration;
         if (block.scene.durationExplicit) sceneAttrs.durationExplicit = true;
         if (block.scene.mood) sceneAttrs.mood = block.scene.mood;
+        if (block.scene.onScreenText?.length) sceneAttrs.onScreenText = JSON.stringify(block.scene.onScreenText);
+        if (block.scene.sfxDescription) sceneAttrs.sfxDescription = block.scene.sfxDescription;
+        if (block.scene.musicDescription) sceneAttrs.musicDescription = block.scene.musicDescription;
       }
       // Cast needed: TiptapBlockContent is a Zod-inferred union; SceneBlockNodeSchema
       // is in the union but TS can't narrow from the interface to the z.infer type.
