@@ -49,6 +49,7 @@ import {
 import { resolveThinkForgeAvatarCasting, type ThinkForgeCastingMetadata } from '../casting/resolve-casting';
 import { buildKnobParserSystemInstruction, parsePromptUnderstanding } from '../intake/prompt-knob-parser';
 import { buildThinkForgeSourceLedger } from '../provenance/source-ledger';
+import { persistGroundedResearchMemory } from '../provenance/research-memory';
 import {
   resolveContentSignalProfile,
   formatContentSignalProfileForPrompt,
@@ -1260,23 +1261,18 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
           // Auto-save research to DataBank (with verified sources)
           try {
-            await db.addDataBankEntry(
-              canonicalSessionId,
-              userId,
-              {
-                type: 'research',
-                title: `Research: ${prompt.substring(0, 80)}`,
-                content: {
-                  query: prompt,
-                  response: researchResult.text,
-                  verifiedSources: researchResult.sources,
-                },
-                tags: ['auto-research'],
-                scope: 'project',
-              }
-            );
+            await persistGroundedResearchMemory({
+              principal: { userId, orgId },
+              sessionId: canonicalSessionId,
+              query: prompt,
+              response: researchResult.text,
+              verifiedSources: researchResult.sources,
+            });
           } catch (dbErr) {
-            console.error('[ThinkForge] Failed to save research to DataBank:', dbErr);
+            console.error(
+              '[ThinkForge] Failed to save governed research memory:',
+              dbErr instanceof Error ? dbErr.message : 'unknown_error',
+            );
           }
         } catch (researchErr: any) {
           console.error('[ResearchAgent] Failed:', researchErr);
