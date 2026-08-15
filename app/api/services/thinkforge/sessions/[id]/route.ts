@@ -1,8 +1,15 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import * as db from '@/lib/thinkforge/services/db';
-import { runPostMortemAgent } from '@/lib/thinkforge/agents/post-mortem-agent';
-import { resolvePostMortemScope } from '@/lib/thinkforge/agents/post-mortem-scope';
+import {
+  PostMortemScopeError,
+  resolvePostMortemScope,
+} from '@/lib/thinkforge/agents/post-mortem-scope';
+import {
+  enqueuePostMortemJob,
+  isPostMortemWorkerConfigured,
+} from '@/lib/thinkforge/post-mortem/post-mortem-job';
+import { safePostMortemJobErrorMessage } from '@/lib/thinkforge/post-mortem/post-mortem-job-store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -67,8 +74,8 @@ export async function GET(request: Request, { params }: RouteParams) {
       }
     });
 
-  } catch (error: any) {
-    console.error('Error getting session:', error);
+  } catch (error: unknown) {
+    console.error('Error getting session:', safePostMortemJobErrorMessage(error));
     return NextResponse.json(
       { error: 'Failed to get session' },
       { status: 500 }
@@ -80,7 +87,7 @@ export async function GET(request: Request, { params }: RouteParams) {
  * DELETE /api/services/thinkforge/sessions/[id]
  * Delete a session and all its associated data
  */
-export async function DELETE(request: Request, { params }: RouteParams) {
+export async function DELETE(_request: Request, { params }: RouteParams) {
   try {
     const { userId, orgId } = await auth();
     if (!userId) {
@@ -112,35 +119,44 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       );
     }
 
-    try {
-      const scoped = await resolvePostMortemScope({ userId, orgId, sessionId, session });
-      if (scoped) {
-        await runPostMortemAgent(scoped.input);
-      }
-    } catch (pmErr) {
-      console.error('[Sessions] Post-mortem failed; session deletion blocked:', pmErr);
+    const scoped = await resolvePostMortemScope({ userId, orgId, sessionId, session });
+    if (!scoped) {
+      return NextResponse.json({ error: 'Session not found or access denied' }, { status: 404 });
+    }
+    if (!isPostMortemWorkerConfigured()) {
       return NextResponse.json(
         {
-          error: 'Session learning could not be preserved. Retry deletion.',
-          code: 'post_mortem_not_durable',
+          error: 'Session deletion is temporarily unavailable.',
+          code: 'post_mortem_worker_unavailable',
           retryable: true,
         },
         { status: 503 },
       );
     }
 
-    await db.deleteSession(sessionId, userId);
+    const queued = await enqueuePostMortemJob(scoped.input, { deleteSessionOnCompletion: true });
 
     return NextResponse.json({
       success: true,
-      message: 'Session deleted successfully'
-    });
+      accepted: true,
+      deletionPending: queued.job.status !== 'completed',
+      jobId: queued.job.id,
+      status: queued.job.status,
+      statusUrl: `/api/services/thinkforge/events/post-mortem/${encodeURIComponent(queued.job.id)}`,
+    }, { status: 202 });
 
-  } catch (error: any) {
-    console.error('Error deleting session:', error);
+  } catch (error: unknown) {
+    if (error instanceof PostMortemScopeError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+    console.error('Error queueing session deletion:', safePostMortemJobErrorMessage(error));
     return NextResponse.json(
-      { error: 'Failed to delete session' },
-      { status: 500 }
+      {
+        error: 'Session deletion could not be queued.',
+        code: 'post_mortem_queue_unavailable',
+        retryable: true,
+      },
+      { status: 503 }
     );
   }
 }

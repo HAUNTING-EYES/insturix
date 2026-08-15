@@ -1,25 +1,24 @@
-import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { runPostMortemAgent } from '@/lib/thinkforge/agents/post-mortem-agent';
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import {
   PostMortemScopeError,
   resolvePostMortemScope,
 } from '@/lib/thinkforge/agents/post-mortem-scope';
+import {
+  enqueuePostMortemJob,
+  isPostMortemWorkerConfigured,
+} from '@/lib/thinkforge/post-mortem/post-mortem-job';
+import { safePostMortemJobErrorMessage } from '@/lib/thinkforge/post-mortem/post-mortem-job-store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/**
- * Post-Mortem Compression API
- *
- * POST /api/services/thinkforge/events/post-mortem
- *
- * Triggers the Post-Mortem agent for a completed project session.
- * Compresses transient events and project-scoped entries into
- * global Brand DNA insights, then cleans up the raw data.
- *
- * Body: { sessionId: string, projectTitle?: string }
- */
+const PostMortemRequestSchema = z.object({
+  sessionId: z.string().trim().min(1).max(256),
+  projectTitle: z.string().trim().min(1).max(2_000).optional(),
+}).strict();
+
 export async function POST(req: Request) {
   if (process.env.POSTMORTEM_ENABLED !== 'true') {
     return NextResponse.json({ success: true, message: 'Post-Mortem disabled' });
@@ -28,38 +27,45 @@ export async function POST(req: Request) {
   const { userId, orgId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
-
-  const sessionId = nonEmptyString(body?.sessionId);
-  const projectTitle = nonEmptyString(body?.projectTitle);
-  if (!sessionId) {
-    return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
+  const parsed = PostMortemRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid post-mortem request.' }, { status: 400 });
   }
 
   try {
-    const scoped = await resolvePostMortemScope({ userId, orgId, sessionId, projectTitle });
-    if (!scoped) {
-      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    const scoped = await resolvePostMortemScope({ userId, orgId, ...parsed.data });
+    if (!scoped) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    if (!isPostMortemWorkerConfigured()) {
+      return NextResponse.json({
+        error: 'Post-mortem processing is temporarily unavailable.',
+        code: 'post_mortem_worker_unavailable',
+        retryable: true,
+      }, { status: 503 });
     }
 
-    const result = await runPostMortemAgent(scoped.input);
-    return NextResponse.json({ success: true, ...result });
+    const queued = await enqueuePostMortemJob(scoped.input);
+    return NextResponse.json({
+      success: true,
+      accepted: true,
+      jobId: queued.job.id,
+      status: queued.job.status,
+      statusUrl: `/api/services/thinkforge/events/post-mortem/${encodeURIComponent(queued.job.id)}`,
+    }, { status: 202 });
   } catch (error: unknown) {
     if (error instanceof PostMortemScopeError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     }
-    console.error('[PostMortem] Agent failed:', error);
-    return NextResponse.json({ error: 'Post-mortem compression failed' }, { status: 500 });
+    console.error('[PostMortem] Queueing failed:', { error: safePostMortemJobErrorMessage(error) });
+    return NextResponse.json({
+      error: 'Post-mortem processing could not be queued.',
+      code: 'post_mortem_queue_unavailable',
+      retryable: true,
+    }, { status: 503 });
   }
-}
-
-function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim().length > 0
-    ? value.trim()
-    : undefined;
 }
