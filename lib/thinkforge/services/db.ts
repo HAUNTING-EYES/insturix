@@ -61,10 +61,12 @@ import type { SelectedTrend } from '../trends/selected-trend';
 import type { WalletRef } from '@/lib/editron/services/project-ownership';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
+import type { ScriptSidecarReadResult } from '../schemas/script-sidecar-v1-adapter';
 import {
   resolvePersistedThinkForgeDocumentAuthority,
   resolveThinkForgeDocumentWriteClassification,
 } from '../persistence/document-authority';
+import { readPersistedScriptSidecar } from '../persistence/script-sidecar-reader';
 
 // ==================== ThinkForge Database Connection ====================
 // Production uses the dedicated 'thinkforge_db' database. The explicit override is
@@ -211,6 +213,7 @@ export interface Script {
   blocks?: ThinkForgeBlock[];
   richText?: Record<string, any>; // Tiptap JSON AST
   metadata?: Record<string, any>;
+  scriptSidecarRead?: ScriptSidecarReadResult;
   version: number;
   documentType: string;
   contentContract: ThinkForgeDocumentContract;
@@ -226,6 +229,7 @@ function mapStoredScript(doc: any): Script {
   if (typeof doc.content !== 'string') {
     throw new Error('Persisted ThinkForge document content must be a string');
   }
+  const scriptSidecarRead = readPersistedScriptSidecar(doc.metadata);
   return {
     _id: String(doc._id),
     sessionId: authority.sessionId,
@@ -235,6 +239,7 @@ function mapStoredScript(doc: any): Script {
     blocks: enforceThinkForgeBlocks(doc.blocks),
     richText: doc.richText,
     metadata: doc.metadata || {},
+    ...(scriptSidecarRead ? { scriptSidecarRead } : {}),
     version: authority.version,
     documentType: authority.documentType,
     contentContract: authority.contentContract,

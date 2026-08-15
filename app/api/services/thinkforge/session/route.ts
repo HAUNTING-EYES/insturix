@@ -213,6 +213,7 @@ export async function POST(req: Request) {
         blocks: script.blocks || [],
         richText: script.richText,
         metadata: script.metadata || {},
+        ...(script.scriptSidecarRead ? { scriptSidecarRead: script.scriptSidecarRead } : {}),
         version: script.version,
         documentType: script.documentType,
         contentContract: script.contentContract,
