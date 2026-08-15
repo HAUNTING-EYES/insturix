@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PATCH, POST } from '@/app/api/services/thinkforge/databank/route';
 
 const mocks = vi.hoisted(() => ({
-  addDataBankEntry: vi.fn(),
+  addGovernedDataBankEntry: vi.fn(),
   auth: vi.fn(),
   getDataBankEntry: vi.fn(),
   getDataBankEntries: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock('@clerk/nextjs/server', () => ({
 }));
 
 vi.mock('@/lib/thinkforge/services/db', () => ({
-  addDataBankEntry: mocks.addDataBankEntry,
+  addGovernedDataBankEntry: mocks.addGovernedDataBankEntry,
   deleteDataBankEntry: mocks.deleteDataBankEntry,
   getDataBankEntry: mocks.getDataBankEntry,
   getDataBankEntries: mocks.getDataBankEntries,
@@ -44,7 +44,7 @@ describe('ThinkForge DataBank ingress', () => {
     for (const mock of Object.values(mocks)) {
       mock.mockReset();
     }
-    mocks.auth.mockResolvedValue({ userId: 'user_1' });
+    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: null });
   });
 
   it('rejects direct global writes from request bodies', async () => {
@@ -60,18 +60,22 @@ describe('ThinkForge DataBank ingress', () => {
     await expect(json(response)).resolves.toMatchObject({
       error: expect.stringContaining('Direct global DataBank writes are not allowed'),
     });
-    expect(mocks.addDataBankEntry).not.toHaveBeenCalled();
+    expect(mocks.addGovernedDataBankEntry).not.toHaveBeenCalled();
   });
 
-  it('verifies session ownership and stores request content as project memory', async () => {
+  it('authorizes the exact organization session and stores governed project memory', async () => {
+    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1' });
     mocks.getSession.mockResolvedValue({
       _id: 'tf_session_1',
       userId: 'user_1',
+      orgId: 'org_1',
       projectMeta: {},
     });
-    mocks.addDataBankEntry.mockResolvedValue({
+    mocks.addGovernedDataBankEntry.mockResolvedValue({
       _id: 'entry_1',
       userId: 'user_1',
+      ownerType: 'organization',
+      orgId: 'org_1',
       sessionId: 'tf_session_1',
       scope: 'project',
     });
@@ -85,14 +89,85 @@ describe('ThinkForge DataBank ingress', () => {
     }));
 
     expect(response.status).toBe(201);
-    expect(mocks.getSession).toHaveBeenCalledWith('tf_session_1', 'user_1');
-    expect(mocks.addDataBankEntry).toHaveBeenCalledWith('tf_session_1', 'user_1', expect.objectContaining({
+    expect(mocks.getSession).toHaveBeenCalledWith('tf_session_1', 'user_1', 'org_1');
+    expect(mocks.addGovernedDataBankEntry).toHaveBeenCalledWith(
+      { userId: 'user_1', orgId: 'org_1' },
+      'tf_session_1',
+      expect.objectContaining({
       type: 'note',
       title: 'Reference note',
       projectId: 'tf_session_1',
       scope: 'project',
+      memoryScope: 'project',
       tags: ['raw', 'draft'],
+      governance: {
+        classification: 'business_confidential',
+        consentStatus: 'not_required',
+      },
     }));
+  });
+
+  it('ignores forged authority fields and keeps direct references conservatively governed', async () => {
+    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_real' });
+    mocks.getSession.mockResolvedValue({
+      _id: 'tf_session_1',
+      userId: 'user_1',
+      orgId: 'org_real',
+      projectMeta: {},
+    });
+    mocks.addGovernedDataBankEntry.mockResolvedValue({ _id: 'entry_1' });
+
+    const response = await POST(request({
+      sessionId: 'tf_session_1',
+      type: 'reference',
+      title: 'Customer evidence',
+      content: { text: 'Approved customer evidence' },
+      ownerType: 'user',
+      orgId: 'org_forged',
+      classification: 'public',
+      consentStatus: 'granted',
+      memoryScope: 'universal',
+    }));
+
+    expect(response.status).toBe(201);
+    expect(mocks.addGovernedDataBankEntry).toHaveBeenCalledWith(
+      { userId: 'user_1', orgId: 'org_real' },
+      'tf_session_1',
+      expect.objectContaining({
+        type: 'reference',
+        scope: 'project',
+        memoryScope: 'project',
+        governance: {
+          classification: 'business_confidential',
+          consentStatus: 'not_required',
+        },
+      }),
+    );
+    const storedEntry = mocks.addGovernedDataBankEntry.mock.calls[0][2];
+    expect(storedEntry).not.toHaveProperty('ownerType');
+    expect(storedEntry).not.toHaveProperty('orgId');
+    expect(storedEntry).not.toHaveProperty('classification');
+    expect(storedEntry).not.toHaveProperty('consentStatus');
+  });
+
+  it('fails closed when the exact organization session is unavailable', async () => {
+    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_requesting' });
+    mocks.getSession.mockResolvedValue(null);
+
+    const response = await POST(request({
+      sessionId: 'tf_session_other_org',
+      type: 'note',
+      title: 'Cross-organization attempt',
+      content: { text: 'Must not persist' },
+    }));
+
+    expect(response.status).toBe(404);
+    expect(mocks.getSession).toHaveBeenCalledWith(
+      'tf_session_other_org',
+      'user_1',
+      'org_requesting',
+    );
+    expect(mocks.addGovernedDataBankEntry).not.toHaveBeenCalled();
   });
 
   it('does not promote an entry unless it belongs to the user', async () => {

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import {
-    addDataBankEntry,
+    addGovernedDataBankEntry,
     getDataBankEntries,
     getDataBankEntriesByUser,
     getDataBankEntry,
@@ -87,7 +87,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
     let body: any;
@@ -120,12 +120,12 @@ export async function POST(req: Request) {
     }
 
     try {
-        const session = await getSession(sessionId, userId);
+        const session = await getSession(sessionId, userId, orgId);
         if (!session) {
-            return NextResponse.json({ error: 'Session not found or not owned by user' }, { status: 404 });
+            return NextResponse.json({ error: 'Session not found or unavailable to this actor' }, { status: 404 });
         }
 
-        const entry = await addDataBankEntry(sessionId, userId, {
+        const entry = await addGovernedDataBankEntry({ userId, orgId }, sessionId, {
             type,
             title,
             content: content || {},
@@ -134,6 +134,11 @@ export async function POST(req: Request) {
             tags: normalizeTags(tags),
             projectId: sessionId,
             scope: 'project',
+            memoryScope: 'project',
+            governance: {
+                classification: 'business_confidential',
+                consentStatus: 'not_required',
+            },
         });
         return NextResponse.json({ entry }, { status: 201 });
     } catch (error: any) {
