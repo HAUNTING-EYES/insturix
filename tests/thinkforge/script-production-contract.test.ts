@@ -177,6 +177,7 @@ describe('ThinkForge script production contract', () => {
       minimumSpokenWords: 665,
       maximumSpokenWords: 1155,
       minimumSceneCount: 10,
+      maximumSceneDurationSeconds: 60,
     });
   });
 
@@ -209,6 +210,7 @@ describe('ThinkForge script production contract', () => {
       );
       expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).toContain('"runtimePlan": {');
       expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).toContain('"targetWordsPerScene": 95');
+      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).toContain('"maximumSceneDurationSeconds": 60');
     } finally {
       if (previousKey === undefined) delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = previousKey;
