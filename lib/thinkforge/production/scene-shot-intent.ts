@@ -64,14 +64,16 @@ export const SceneShotIntentObjectSchema = z.object({
   desiredFraming: z.enum(SHOT_FRAMINGS),
   desiredAngle: z.enum(SHOT_ANGLES),
   desiredMovement: z.enum(SHOT_MOVEMENTS),
-  movementMotivation: z.string().min(1).optional(),
+  // A static shot has no camera movement to motivate. Keep the field permissive at
+  // the response boundary, then enforce a meaningful value only for moving shots.
+  movementMotivation: z.string().optional(),
   simultaneousPerformers: z.number().int().min(0).max(20),
   spokenAudio: z.boolean(),
   performance: z.array(PerformanceIntentSchema).max(20),
   continuity: z.object({
     wardrobe: z.array(z.string().min(1)).default([]),
     props: z.array(z.string().min(1)).default([]),
-    screenDirection: z.string().min(1).optional(),
+    screenDirection: z.string().optional(),
     previousSceneIds: z.array(z.string().min(1)).default([]),
   }).strict().default({ wardrobe: [], props: [], previousSceneIds: [] }),
 }).strict();
@@ -82,7 +84,7 @@ export function addSceneShotIntentIssues(
   intent: SceneShotIntent,
   ctx: z.RefinementCtx,
 ): void {
-  if (intent.desiredMovement !== 'static' && !intent.movementMotivation) {
+  if (intent.desiredMovement !== 'static' && !intent.movementMotivation?.trim()) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['movementMotivation'],

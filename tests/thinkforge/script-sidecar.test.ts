@@ -57,6 +57,34 @@ function sidecar(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function shotIntent(overrides: Record<string, unknown> = {}) {
+  return {
+    narrativePurpose: 'Let the viewer assess the approval decision.',
+    emotionalBeat: 'Clear and composed.',
+    energy: 0.4,
+    visualPriority: 'The founder and the decision on screen.',
+    action: 'talking',
+    desiredFraming: 'medium-close-up',
+    desiredAngle: 'eye-level',
+    desiredMovement: 'static',
+    movementMotivation: '',
+    simultaneousPerformers: 1,
+    spokenAudio: true,
+    performance: [{
+      characterId: 'host',
+      stance: 'standing',
+      emotion: 'focused',
+      intensity: 0.4,
+      gaze: 'into the lens',
+      posture: 'upright',
+      gesture: 'one open hand',
+      movement: 'still',
+    }],
+    continuity: { wardrobe: [], props: [], previousSceneIds: [] },
+    ...overrides,
+  };
+}
+
 describe('Script Sidecar v1 contract', () => {
   it('accepts the signed sidecar shape with parser fields plus line-level cast/provenance', () => {
     const parsed = parseScriptSidecar(sidecar());
@@ -68,6 +96,27 @@ describe('Script Sidecar v1 contract', () => {
       onCamera: true,
       delivery: 'sync-dialogue',
     });
+  });
+
+  it('normalizes empty optional shot metadata but rejects an unmotivated moving shot', () => {
+    const staticScene = {
+      ...sidecar().scenes[0],
+      shotIntent: shotIntent({
+        continuity: { wardrobe: [], props: [], screenDirection: '   ', previousSceneIds: [] },
+      }),
+    };
+    const parsed = parseScriptSidecar(sidecar({ briefId: '   ', scenes: [staticScene] }));
+
+    expect(parsed.scenes[0]?.shotIntent?.movementMotivation).toBeUndefined();
+    expect(parsed.scenes[0]?.shotIntent?.continuity.screenDirection).toBeUndefined();
+    expect(parsed.briefId).toBeUndefined();
+
+    expect(() => parseScriptSidecar(sidecar({
+      scenes: [{
+        ...staticScene,
+        shotIntent: shotIntent({ desiredMovement: 'push-in', movementMotivation: '   ' }),
+      }],
+    }))).toThrow(/moving-camera intent requires an explicit narrative motivation/);
   });
 
   it('rejects speaker ids that do not resolve to characters', () => {

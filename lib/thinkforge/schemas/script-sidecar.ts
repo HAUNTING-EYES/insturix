@@ -182,7 +182,7 @@ export const ScriptSidecarSchema: z.ZodType<ScriptSidecar> = z.object({
     'production-mode',
     'special-purpose',
   ]),
-  briefId: z.string().min(1).optional(),
+  briefId: z.string().optional(),
   sourceRefs: StringArraySchema,
 }).passthrough().superRefine((sidecar, ctx) => {
   const characterIds = new Set(sidecar.characters.map((character) => character.id));
@@ -394,12 +394,38 @@ export function getCanonicalSceneNarration(
   return (spokenText || scene.narration || '').replace(/\s+/g, ' ').trim();
 }
 
-function normalizeParsedScriptSidecar(sidecar: ScriptSidecar): ScriptSidecar {
+function normalizeOptionalText(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized || undefined;
+}
+
+function normalizeShotIntent(intent: SceneShotIntent): SceneShotIntent {
+  const { movementMotivation, continuity, ...rest } = intent;
+  const { screenDirection, ...continuityRest } = continuity;
+  const normalizedMovementMotivation = normalizeOptionalText(movementMotivation);
+  const normalizedScreenDirection = normalizeOptionalText(screenDirection);
+
   return {
-    ...sidecar,
+    ...rest,
+    ...(normalizedMovementMotivation ? { movementMotivation: normalizedMovementMotivation } : {}),
+    continuity: {
+      ...continuityRest,
+      ...(normalizedScreenDirection ? { screenDirection: normalizedScreenDirection } : {}),
+    },
+  };
+}
+
+function normalizeParsedScriptSidecar(sidecar: ScriptSidecar): ScriptSidecar {
+  const { briefId, ...rest } = sidecar;
+  const normalizedBriefId = normalizeOptionalText(briefId);
+
+  return {
+    ...rest,
+    ...(normalizedBriefId ? { briefId: normalizedBriefId } : {}),
     scenes: sidecar.scenes.map((scene) => ({
       ...scene,
       narration: getCanonicalSceneNarration(scene),
+      shotIntent: scene.shotIntent ? normalizeShotIntent(scene.shotIntent) : undefined,
     })),
   };
 }

@@ -510,10 +510,10 @@ Your task is to write a high-retention, engaging video script.
    - Every on-camera sync-dialogue scene is one actual lip-sync job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. When a spoken beat runs longer, split it into multiple consecutive \`sidecar.scenes\`; do not use \`subShots\` to bypass this limit.
 8. **Production shot intent:** For every sidecar scene, author \`shotIntent\` in the same response:
    - State \`narrativePurpose\`, \`emotionalBeat\`, \`energy\` from 0 to 1, and the concrete \`visualPriority\` that must remain readable.
-   - Select \`action\`, \`desiredFraming\`, \`desiredAngle\`, and \`desiredMovement\` from the schema. Any movement other than \`static\` requires \`movementMotivation\` explaining the story reason for moving the camera.
+   - Select \`action\`, \`desiredFraming\`, \`desiredAngle\`, and \`desiredMovement\` from the schema. Any movement other than \`static\` requires \`movementMotivation\` explaining the story reason for moving the camera. For a \`static\` shot, omit \`movementMotivation\`; never use an empty string as a placeholder.
    - \`performance\` contains only characters physically visible in the shot. Use each visible character once, copy its exact \`characterId\`, and describe stance, emotion, intensity, gaze, posture, gesture, and movement. Set \`simultaneousPerformers\` to the number of these unique visible characters. Use an empty array and 0 for object/B-roll/graphics scenes with no visible character.
    - Set \`spokenAudio: true\` only when the scene captures on-camera sync dialogue. Set it false for voiceover, music, ambient sound, on-screen text, and silent B-roll.
-   - Use \`continuity\` only for wardrobe, props, screen direction, and links to earlier scenes. Do not turn creative preferences into claimed physical capabilities; the deterministic production resolver will adapt or block infeasible intent later.
+   - Use \`continuity\` only for wardrobe, props, screen direction, and links to earlier scenes. Omit optional continuity fields when they do not apply; never use empty strings as placeholders. Do not turn creative preferences into claimed physical capabilities; the deterministic production resolver will adapt or block infeasible intent later.
 
 Return your response strictly adhering to the JSON schema.`;
 
