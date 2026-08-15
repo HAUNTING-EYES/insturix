@@ -301,14 +301,6 @@ function mapStoredScript(doc: any, effectiveScriptId = 'default'): Script {
   };
 }
 
-export interface ChatMessageDoc {
-  _id: string;
-  sessionId: string;
-  role: 'user' | 'assistant';
-  content: string;
-  createdAt: Date;
-}
-
 export type SentenceLength = 'fragment' | 'short' | 'medium' | 'long';
 export type OpeningPattern = 'question' | 'statistic' | 'story' | 'provocation' | 'scene_set' | 'direct_claim';
 export type TransitionStyle = 'conjunction' | 'implicit' | 'question_bridge' | 'callback' | 'tonal_shift';
@@ -367,17 +359,9 @@ export interface EffectiveBrandDNAResolution {
   source: 'legacy' | 'brand_vault';
 }
 
-export interface UserPreferences {
-  _id: string;
-  preferences: Record<string, any>;
-  brandDNA?: BrandDNA;
-  updatedAt: Date;
-}
-
 // ==================== V2 Types ====================
 export type ArtifactType = 'script' | 'chat' | 'whiteboard' | 'content_card';
 export type ContentBlockType = 'text' | 'markdown' | 'code' | 'scene' | 'json' | 'chat_message';
-export type VersionEdgeType = 'inspired_by' | 'derived_from' | 'remix_of' | 'references';
 export type EventType =
   | 'project_created' | 'project_updated' | 'project_deleted'
   | 'artifact_created' | 'artifact_updated' | 'artifact_deleted'
@@ -440,14 +424,6 @@ export interface ContentBlock {
   hash: string; // Same as _id, kept for clarity
   type: ContentBlockType;
   content: string;  // The actual content (normalized)
-  createdAt: Date;
-}
-
-export interface VersionEdge {
-  _id: string;
-  fromVersionId: string;
-  toVersionId: string;
-  type: VersionEdgeType;
   createdAt: Date;
 }
 
