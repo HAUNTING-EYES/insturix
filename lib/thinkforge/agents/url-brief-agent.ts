@@ -45,8 +45,6 @@ interface ExtractedContent {
     bodyText: string;
     platform: string;
     contentType: 'video' | 'article' | 'social_post' | 'podcast' | 'other';
-    ogImage?: string;
-    author?: string;
 }
 
 const FETCH_TIMEOUT_MS = 10_000;
@@ -166,16 +164,14 @@ function extractTitle(html: string): string {
 /** Fetch and extract content from a YouTube URL */
 async function extractYouTubeContent(url: string): Promise<Partial<ExtractedContent>> {
     try {
-        // Use oEmbed for title and author
+        // Use oEmbed for the canonical video title.
         const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
         const oembedRes = await fetch(oembedUrl, { signal: AbortSignal.timeout(8000) });
 
         let title = '';
-        let author = '';
         if (oembedRes.ok) {
             const oembed = await oembedRes.json();
             title = oembed.title || '';
-            author = oembed.author_name || '';
         }
 
         // Also fetch the page for description
@@ -191,9 +187,8 @@ async function extractYouTubeContent(url: string): Promise<Partial<ExtractedCont
             bodyText = description;
         }
 
-        return { title, description, bodyText, author };
-    } catch (error) {
-        console.error('[UrlBriefAgent] YouTube extraction failed:', error);
+        return { title, description, bodyText };
+    } catch {
         return {};
     }
 }
@@ -210,8 +205,6 @@ async function extractGenericContent(url: string): Promise<Partial<ExtractedCont
         const html = await readPageText(res);
         const title = extractTitle(html);
         const description = extractMeta(html, 'og:description') || extractMeta(html, 'description');
-        const ogImage = extractMeta(html, 'og:image');
-        const author = extractMeta(html, 'author') || extractMeta(html, 'article:author');
 
         // Extract main body text (first ~3000 chars)
         // Try to find <main> or <article> content first
@@ -231,9 +224,8 @@ async function extractGenericContent(url: string): Promise<Partial<ExtractedCont
 
         const bodyText = stripHtml(bodyHtml).slice(0, 3000);
 
-        return { title, description, bodyText, ogImage, author };
-    } catch (error) {
-        console.error('[UrlBriefAgent] Generic extraction failed:', error);
+        return { title, description, bodyText };
+    } catch {
         return {};
     }
 }
@@ -258,8 +250,6 @@ export async function extractUrlContent(url: string): Promise<ExtractedContent> 
         bodyText: extracted.bodyText || extracted.description || '',
         platform,
         contentType,
-        ogImage: extracted.ogImage,
-        author: extracted.author,
     };
 }
 
