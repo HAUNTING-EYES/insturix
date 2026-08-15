@@ -153,10 +153,18 @@ describe("ThinkForge to Clickatron session payload", () => {
   });
 
   it("builds Clickatron FormData after a derived carousel plan is approved", () => {
+    const carouselBlocks: ThinkForgeBlock[] = [
+      ...sourceBlocks(),
+      {
+        id: "blk_proof",
+        kind: "paragraph",
+        content: [{ type: "text", text: "Every approved asset keeps its source context attached.", styles: {} }],
+      },
+    ];
     const context = buildThinkToClickContext({
       sessionId: "tf_session_123",
       scriptId: "script_456",
-      blocks: sourceBlocks(),
+      blocks: carouselBlocks,
       userVisualChoices: {
         kind: "carousel",
         platform: "linkedin",
@@ -171,7 +179,7 @@ describe("ThinkForge to Clickatron session payload", () => {
     });
     const state = buildThinkToClickHandoffState({
       context,
-      blocks: sourceBlocks(),
+      blocks: carouselBlocks,
       userVisualChoices: {
         kind: "carousel",
         platform: "linkedin",
@@ -196,7 +204,11 @@ describe("ThinkForge to Clickatron session payload", () => {
       reasonCodes: ["derived_from_visible_content"],
     });
     expect(metadata.clickatron.creativeSpec.kind).toBe("carousel");
-    expect(metadata.clickatron.creativeSpec.renderPlan.slides).toHaveLength(1);
+    expect(metadata.clickatron.creativeSpec.renderPlan.slides).toHaveLength(2);
+    expect(metadata.clickatron.creativeSpec.renderPlan.slides.map((slide: { imagePrompt: string }) => slide.imagePrompt)).toEqual([
+      expect.stringContaining("Slide 1"),
+      expect.stringContaining("Slide 2"),
+    ]);
     expect(metadata.clickatron.creativeSpec.validation.status).toBe("ready");
     expect(metadata.clickatron.creativeSpec.validation.needsUserInput).toBeUndefined();
     expect(metadata.clickatronHandoff.visualPlanApproval).toMatchObject({
