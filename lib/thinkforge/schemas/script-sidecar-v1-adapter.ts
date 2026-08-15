@@ -59,6 +59,10 @@ function positiveDuration(value: number): number | undefined {
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
+function nonEmptyText(value: string | undefined): string | undefined {
+  return value?.trim() ? value : undefined;
+}
+
 /**
  * Reads V1 through its canonical parser, then projects narrative structure without inventing
  * acts, sub-beats, or provider-driven scene splits. The normalized V1 object is retained in
@@ -88,6 +92,11 @@ export function adaptScriptSidecarV1(input: unknown): LegacyScriptSidecarReadRes
       sourceRefs: [...(line.sourceRefs ?? [])],
     }));
     const durationIntentSeconds = positiveDuration(scene.durationSeconds);
+    const ambience = nonEmptyText(scene.audioDescription);
+    const music = nonEmptyText(scene.musicDescription);
+    const sfx = nonEmptyText(scene.sfxDescription);
+    const imageQualityTokens = nonEmptyText(scene.imageQualityTokens);
+    const videoQualityTokens = nonEmptyText(scene.videoQualityTokens);
     const spokenLineSpans = lines
       .filter((line) => line.delivery !== 'on-screen-text')
       .map((line) => ({
@@ -127,7 +136,20 @@ export function adaptScriptSidecarV1(input: unknown): LegacyScriptSidecarReadRes
           description: scene.visualDescription,
           ...(scene.videoMotionPrompt.trim() ? { motion: scene.videoMotionPrompt } : {}),
           onScreenText: scene.editDirections?.onScreenText ?? [],
+          ...(imageQualityTokens ? { imageQualityTokens } : {}),
+          ...(videoQualityTokens ? { videoQualityTokens } : {}),
+          ...(scene.assetRecommendation ? { assetRecommendation: scene.assetRecommendation } : {}),
         },
+        ...((ambience || music || sfx)
+          ? {
+              audioIntent: {
+                ...(ambience ? { ambience } : {}),
+                ...(music ? { music } : {}),
+                sfx: sfx ? [sfx] : [],
+              },
+            }
+          : {}),
+        ...(scene.shotIntent ? { shotIntent: scene.shotIntent } : {}),
         sourceRefs: [...scene.sourceRefs],
       }],
     };

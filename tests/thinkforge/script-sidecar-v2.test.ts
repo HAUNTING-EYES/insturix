@@ -44,6 +44,34 @@ function v1Sidecar() {
       sourceRefs: ['ref_1'],
       charactersPresent: ['host'],
       relipSafe: true,
+      shotIntent: {
+        narrativePurpose: 'Make the evidence feel direct and credible.',
+        emotionalBeat: 'Measured confidence.',
+        energy: 0.45,
+        visualPriority: 'The host and their explanation.',
+        action: 'talking',
+        desiredFraming: 'medium-close-up',
+        desiredAngle: 'eye-level',
+        desiredMovement: 'push-in',
+        movementMotivation: 'Increase attention as the argument lands.',
+        simultaneousPerformers: 1,
+        spokenAudio: true,
+        performance: [{
+          characterId: 'host',
+          stance: 'seated',
+          emotion: 'assured',
+          intensity: 0.45,
+          gaze: 'into camera',
+          posture: 'upright and relaxed',
+          gesture: 'small open-hand gestures',
+          movement: 'minimal natural movement',
+        }],
+        continuity: {
+          wardrobe: ['charcoal shirt'],
+          props: ['desk'],
+          previousSceneIds: [],
+        },
+      },
       legacySceneMarker: 'retain-me',
     }],
     overallMusicPrompt: 'Restrained underscore.',
@@ -87,6 +115,29 @@ function v2Sidecar() {
             delivery: 'sync-dialogue',
             sourceRefs: ['ref_1'],
           }],
+          shotIntent: {
+            narrativePurpose: 'Deliver one coherent thought directly.',
+            emotionalBeat: 'Calm conviction.',
+            energy: 0.4,
+            visualPriority: 'The host speaking.',
+            action: 'talking',
+            desiredFraming: 'medium-close-up',
+            desiredAngle: 'eye-level',
+            desiredMovement: 'static',
+            simultaneousPerformers: 1,
+            spokenAudio: true,
+            performance: [{
+              characterId: 'host',
+              stance: 'seated',
+              emotion: 'focused',
+              intensity: 0.4,
+              gaze: 'into camera',
+              posture: 'upright',
+              gesture: 'controlled hand gestures',
+              movement: 'natural micro-movements',
+            }],
+            continuity: { wardrobe: [], props: [], previousSceneIds: [] },
+          },
           sourceRefs: ['ref_1'],
         }],
       }],
@@ -139,6 +190,19 @@ describe('Script Sidecar V2 narrative contract', () => {
     expect(result.sidecar.acts[0]?.narrativeScenes[0]?.durationIntentSeconds).toBe(25);
     expect(result.sidecar.renderPlan?.renderSegments).toHaveLength(1);
     expect(result.sidecar.renderPlan?.renderSegments[0]?.durationSeconds).toBe(25);
+    expect(result.sidecar.acts[0]?.narrativeScenes[0]?.beats[0]).toMatchObject({
+      visualIntent: {
+        imageQualityTokens: 'natural light',
+        videoQualityTokens: 'stable footage',
+        assetRecommendation: 'ai-video',
+      },
+      audioIntent: {
+        ambience: 'Clean dialogue.',
+        music: 'Restrained underscore.',
+        sfx: [],
+      },
+      shotIntent: input.scenes[0]!.shotIntent,
+    });
   });
 
   it('treats a missing version as a historical V1 document', () => {
@@ -172,6 +236,38 @@ describe('Script Sidecar V2 narrative contract', () => {
     expect(parsed.renderPlan?.renderSegments).toHaveLength(3);
   });
 
+  it('allows a long narrative beat while keeping provider segmentation optional', () => {
+    const input = v2Sidecar();
+    input.acts[0]!.narrativeScenes[0]!.durationIntentSeconds = 180;
+    input.acts[0]!.narrativeScenes[0]!.beats[0]!.durationIntentSeconds = 180;
+    input.renderPlan = undefined as never;
+
+    const parsed = parseScriptSidecarV2(input);
+
+    expect(parsed.acts[0]?.narrativeScenes[0]?.durationIntentSeconds).toBe(180);
+    expect(parsed.renderPlan).toBeUndefined();
+  });
+
+  it('rejects inconsistent shot performers and spoken-audio declarations', () => {
+    const unknownPerformer = v2Sidecar();
+    unknownPerformer.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.performance[0]!.characterId = 'ghost';
+    expect(() => parseScriptSidecarV2(unknownPerformer)).toThrow(/must resolve to characters/);
+
+    const offScenePerformer = v2Sidecar();
+    offScenePerformer.characters.push({ id: 'guest', name: 'Guest', role: 'interviewee' });
+    offScenePerformer.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.performance[0]!.characterId = 'guest';
+    expect(() => parseScriptSidecarV2(offScenePerformer)).toThrow(/must be present/);
+
+    const missingSpeaker = v2Sidecar();
+    missingSpeaker.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.performance = [];
+    missingSpeaker.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.simultaneousPerformers = 0;
+    expect(() => parseScriptSidecarV2(missingSpeaker)).toThrow(/must have performance intent/);
+
+    const wrongSpokenAudio = v2Sidecar();
+    wrongSpokenAudio.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.spokenAudio = false;
+    expect(() => parseScriptSidecarV2(wrongSpokenAudio)).toThrow(/must match/);
+  });
+
   it('keeps beat lines as the only canonical spoken-text source', () => {
     const parsed = parseScriptSidecarV2({
       ...v2Sidecar(),
@@ -181,6 +277,10 @@ describe('Script Sidecar V2 narrative contract', () => {
           ...v2Sidecar().acts[0]!.narrativeScenes[0],
           beats: [{
             ...v2Sidecar().acts[0]!.narrativeScenes[0]!.beats[0],
+            shotIntent: {
+              ...v2Sidecar().acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent,
+              spokenAudio: false,
+            },
             lines: [
               {
                 id: 'line_1',

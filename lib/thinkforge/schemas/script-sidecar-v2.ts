@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SceneShotIntentSchema } from '../production/scene-shot-intent';
 import { CHARACTER_ROLES, LINE_DELIVERIES } from './script-sidecar';
 
 export const SCRIPT_SIDECAR_V2_VERSION = 2 as const;
@@ -43,6 +44,15 @@ const NarrativeVisualIntentV2Schema = z.object({
   description: NonEmptyTextSchema,
   motion: NonEmptyTextSchema.optional(),
   onScreenText: z.array(z.string()).default([]),
+  imageQualityTokens: NonEmptyTextSchema.optional(),
+  videoQualityTokens: NonEmptyTextSchema.optional(),
+  assetRecommendation: z.enum(['ai-video', 'stock', 'animated-still', 'graphics-only']).optional(),
+}).strict();
+
+const NarrativeAudioIntentV2Schema = z.object({
+  ambience: NonEmptyTextSchema.optional(),
+  music: NonEmptyTextSchema.optional(),
+  sfx: z.array(NonEmptyTextSchema).default([]),
 }).strict();
 
 export const NarrativeBeatV2Schema = z.object({
@@ -52,6 +62,8 @@ export const NarrativeBeatV2Schema = z.object({
   durationIntentSeconds: z.number().finite().positive().optional(),
   lines: z.array(NarrativeLineV2Schema).default([]),
   visualIntent: NarrativeVisualIntentV2Schema.optional(),
+  audioIntent: NarrativeAudioIntentV2Schema.optional(),
+  shotIntent: SceneShotIntentSchema.optional(),
   sourceRefs: SourceRefsSchema,
 }).strict().superRefine((beat, ctx) => {
   if (beat.lines.length === 0 && !beat.visualIntent) {
@@ -202,6 +214,8 @@ export const ScriptSidecarV2Schema = z.object({
         beatsById.set(beat.id, { sceneId: scene.id });
         validateSourceRefs(ctx, topLevelSourceRefs, beat.sourceRefs, beatPath, 'Beat');
 
+        const syncSpeakerIds = new Set<string>();
+
         beat.lines.forEach((line, lineIndex) => {
           const linePath = [...beatPath, 'lines', lineIndex];
           addDuplicateIdIssue(ctx, lineIds, line.id, [...linePath, 'id'], 'line');
@@ -213,8 +227,65 @@ export const ScriptSidecarV2Schema = z.object({
               `speakerId "${line.speakerId}" must resolve to characters[].id`,
             );
           }
+          if (line.onCamera && line.speakerId && !scene.charactersPresent.includes(line.speakerId)) {
+            addContractIssue(
+              ctx,
+              [...linePath, 'speakerId'],
+              `On-camera speaker "${line.speakerId}" must be present in the narrative scene.`,
+            );
+          }
+          if (line.delivery === 'sync-dialogue' && line.speakerId) {
+            syncSpeakerIds.add(line.speakerId);
+          }
           validateSourceRefs(ctx, topLevelSourceRefs, line.sourceRefs, linePath, 'Line');
         });
+
+        if (!beat.shotIntent && syncSpeakerIds.size > 0 && sidecar.renderPlan?.source !== 'v1-adapter') {
+          addContractIssue(
+            ctx,
+            [...beatPath, 'shotIntent'],
+            'A native V2 sync-dialogue beat must declare its shot and performance intent.',
+          );
+        }
+
+        if (beat.shotIntent) {
+          const performanceIds = new Set(
+            beat.shotIntent.performance.map((performance) => performance.characterId),
+          );
+          beat.shotIntent.performance.forEach((performance, performanceIndex) => {
+            const characterPath = [...beatPath, 'shotIntent', 'performance', performanceIndex, 'characterId'];
+            if (!characterIds.has(performance.characterId)) {
+              addContractIssue(
+                ctx,
+                characterPath,
+                `Shot performer "${performance.characterId}" must resolve to characters[].id.`,
+              );
+            }
+            if (!scene.charactersPresent.includes(performance.characterId)) {
+              addContractIssue(
+                ctx,
+                characterPath,
+                `Shot performer "${performance.characterId}" must be present in the narrative scene.`,
+              );
+            }
+          });
+          syncSpeakerIds.forEach((speakerId) => {
+            if (!performanceIds.has(speakerId)) {
+              addContractIssue(
+                ctx,
+                [...beatPath, 'shotIntent', 'performance'],
+                `On-camera sync speaker "${speakerId}" must have performance intent.`,
+              );
+            }
+          });
+          if (beat.shotIntent.spokenAudio !== (syncSpeakerIds.size > 0)) {
+            addContractIssue(
+              ctx,
+              [...beatPath, 'shotIntent', 'spokenAudio'],
+              'shotIntent.spokenAudio must match the presence of on-camera sync dialogue.',
+            );
+          }
+        }
       });
     });
   });
