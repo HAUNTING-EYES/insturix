@@ -23,7 +23,6 @@ const CACHE_UNAVAILABLE_TTL_MS = 30 * 60 * 1000;
 interface CacheEntry {
   cacheName: string;
   expiresAt: number;
-  createdAt: number;
   modelName: string;
   contextHash: string;
 }
@@ -495,7 +494,6 @@ async function storeCacheEntry(cacheName: string, modelName: string, contextHash
     modelName,
     contextHash,
     expiresAt: Date.now() + CACHE_TTL_SECONDS * 1000,
-    createdAt: Date.now(),
   };
   localCacheEntries.set(contextHash, entry);
 
