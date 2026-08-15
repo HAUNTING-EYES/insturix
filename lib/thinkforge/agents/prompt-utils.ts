@@ -37,7 +37,7 @@ interface ThinkForgeDocumentIntent {
 
 type ThinkForgeDocumentIntentOrigin = 'user_request' | 'initial_draft_claim';
 
-export type ThinkForgeDocumentAuthorityErrorCode =
+type ThinkForgeDocumentAuthorityErrorCode =
   | 'DOCUMENT_TYPE_REQUIRED'
   | 'DOCUMENT_TYPE_UNSUPPORTED'
   | 'DOCUMENT_TYPE_AMBIGUOUS';

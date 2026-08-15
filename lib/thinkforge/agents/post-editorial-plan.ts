@@ -1,7 +1,7 @@
 import type { ThinkForgeContentSignalProfile } from '../signals';
 
-export type PostCtaMode = 'supplied_action' | 'source_question';
-export type PostEditorialShape =
+type PostCtaMode = 'supplied_action' | 'source_question';
+type PostEditorialShape =
   | 'event_action'
   | 'evidence_led'
   | 'offer_announcement'
@@ -9,9 +9,9 @@ export type PostEditorialShape =
   | 'personal_narrative'
   | 'general';
 
-export type PostSourceBoundary = 'source_only' | 'bounded_implication';
+type PostSourceBoundary = 'source_only' | 'bounded_implication';
 
-export interface PostEditorialPlanInput {
+interface PostEditorialPlanInput {
   userPrompt: string;
   contentSignalProfile?: ThinkForgeContentSignalProfile;
   retrievedFactCount?: number;
