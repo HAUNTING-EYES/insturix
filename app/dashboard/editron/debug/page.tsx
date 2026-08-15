@@ -11,6 +11,8 @@ import { Loader2, FileText, Database, Brain, Layers, Wand2, Copy, CheckCircle2 }
 
 // ─── Script Parser Tab ─────────────────────────────────────────
 function ScriptParserTab() {
+  const [sessionId, setSessionId] = useState('');
+  const [scriptId, setScriptId] = useState('');
   const [script, setScript] = useState('');
   const [artStyle, setArtStyle] = useState('cinematic');
   const [aspectRatio, setAspectRatio] = useState('16:9');
@@ -19,7 +21,7 @@ function ScriptParserTab() {
   const [error, setError] = useState('');
 
   const parseScript = useCallback(async () => {
-    if (!script.trim()) return;
+    if (!sessionId.trim() || !scriptId.trim() || !script.trim()) return;
     setLoading(true);
     setError('');
     setResult(null);
@@ -27,7 +29,13 @@ function ScriptParserTab() {
       const res = await fetch('/api/services/thinkforge/script/export-for-editron', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plainText: script, artStyle, aspectRatio }),
+        body: JSON.stringify({
+          sessionId: sessionId.trim(),
+          scriptId: scriptId.trim(),
+          plainText: script,
+          artStyle,
+          aspectRatio,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -37,7 +45,7 @@ function ScriptParserTab() {
     } finally {
       setLoading(false);
     }
-  }, [script, artStyle, aspectRatio]);
+  }, [sessionId, scriptId, script, artStyle, aspectRatio]);
 
   return (
     <div className="space-y-4">
@@ -47,6 +55,22 @@ function ScriptParserTab() {
           <CardDescription>Paste a script to see how the LLM parser decomposes it into scenes. No generation, just parsing (~$0.001).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Input
+              aria-label="ThinkForge session ID"
+              placeholder="Exact ThinkForge session ID"
+              value={sessionId}
+              onChange={(e) => setSessionId(e.target.value)}
+              className="font-mono text-[11px]"
+            />
+            <Input
+              aria-label="ThinkForge script ID"
+              placeholder="Exact ThinkForge script ID"
+              value={scriptId}
+              onChange={(e) => setScriptId(e.target.value)}
+              className="font-mono text-[11px]"
+            />
+          </div>
           <Textarea
             placeholder="Paste your full script here..."
             value={script}
@@ -68,7 +92,11 @@ function ScriptParserTab() {
               <option value="1:1">1:1</option>
               <option value="4:5">4:5</option>
             </select>
-            <Button onClick={parseScript} disabled={loading || !script.trim()} size="sm">
+            <Button
+              onClick={parseScript}
+              disabled={loading || !sessionId.trim() || !scriptId.trim() || !script.trim()}
+              size="sm"
+            >
               {loading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <FileText className="w-3 h-3 mr-1" />}
               Parse Script
             </Button>

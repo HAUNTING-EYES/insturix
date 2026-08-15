@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   deductCredits: vi.fn(),
   findLinkBySessionId: vi.fn(),
   findProjectBySessionId: vi.fn(),
+  getScript: vi.fn(),
+  getSession: vi.fn(),
   isLLMParserAvailable: vi.fn(),
   parseScriptWithLLM: vi.fn(),
   saveProject: vi.fn(),
@@ -38,6 +40,10 @@ vi.mock('@/lib/shared/project-links', () => ({
   createProjectLink: mocks.createProjectLink,
   findLinkBySessionId: mocks.findLinkBySessionId,
 }));
+vi.mock('@/lib/thinkforge/services/db', () => ({
+  getScript: mocks.getScript,
+  getSession: mocks.getSession,
+}));
 
 function request(url: string, body: Record<string, unknown>): Request {
   return new Request(url, {
@@ -50,7 +56,22 @@ describe('ThinkForge to Editron no-credit dry run', () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
 
-    mocks.auth.mockResolvedValue({ userId: 'user_dry_run' });
+    mocks.auth.mockResolvedValue({ userId: 'user_dry_run', orgId: 'org_dry_run' });
+    mocks.getSession.mockImplementation(async (sessionId: string) => ({
+      _id: sessionId,
+      userId: 'user_dry_run',
+      orgId: 'org_dry_run',
+      projectMeta: {},
+    }));
+    mocks.getScript.mockImplementation(async (sessionId: string, scriptId: string) => ({
+      _id: `stored_${scriptId}`,
+      sessionId,
+      scriptId,
+      title: 'Authorized dry-run script',
+      content: '',
+      blocks: [],
+      metadata: {},
+    }));
     mocks.isLLMParserAvailable.mockReturnValue(true);
     mocks.parseScriptWithLLM.mockResolvedValue({
       scenes: [
@@ -116,6 +137,8 @@ describe('ThinkForge to Editron no-credit dry run', () => {
     expect(exported.sceneCount).toBe(2);
     expect(exported.scenes).toHaveLength(2);
     expect(JSON.stringify(exported)).not.toContain('PRIVATE CUSTOMER BRIEF');
+    expect(mocks.getSession).toHaveBeenCalledWith(sourceSessionId, 'user_dry_run', 'org_dry_run');
+    expect(mocks.getScript).toHaveBeenCalledWith(sourceSessionId, sourceScriptId);
     expect(mocks.parseScriptWithLLM).toHaveBeenCalledWith(
       privateBrief,
       expect.objectContaining({ brandId, userId: 'user_dry_run' }),

@@ -16,6 +16,8 @@ type SessionPayload = {
 
 type CurrentScriptPayload = {
   script?: {
+    sessionId?: string;
+    scriptId?: string;
     content?: string;
     metadata?: {
       authoringContextSnapshot?: {
@@ -132,7 +134,7 @@ async function readCurrentScript(page: Page, sessionId: string): Promise<Current
     page,
     '/api/services/thinkforge/script/current',
     'POST',
-    { sessionId },
+    { sessionId, scriptId: 'default' },
   );
 }
 
@@ -253,6 +255,8 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
 
     const persisted = await readCurrentScript(page, sessionId!);
     const persistedBlocks = await readScriptBlocks(page, sessionId!);
+    const scriptId = persisted.script?.scriptId;
+    if (!scriptId) throw new Error('ThinkForge E2E generation did not persist an exact scriptId.');
     expect(persisted.script?.content).toContain(scenario.expectedStoredContent);
     expect(persisted.script?.metadata?.writerOutput?.writerType).toBe(scenario.expectedWriterType);
     expect(persisted.script?.metadata?.writerOutput?.contentAnalysis?.qualityScore).toBe(92);
@@ -277,10 +281,11 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
       fixture === 'carousel'
         ? {
             sessionId,
+            scriptId,
             title: 'QA carousel provenance handoff',
             userVisualChoices: { kind: 'carousel', platform: 'linkedin', aspectRatio: '1:1', slideCount: 3 },
           }
-        : { sessionId, title: 'QA provenance handoff' },
+        : { sessionId, scriptId, title: 'QA provenance handoff' },
     );
     const provenance = clickatronContext.context?.metadata?.thinkforge?.authoringProvenance;
     expect(clickatronContext.context?.brandId).toBe(brandId);
