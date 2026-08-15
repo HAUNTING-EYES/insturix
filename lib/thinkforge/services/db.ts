@@ -2732,7 +2732,7 @@ export type DataBankProvenanceReason =
   | 'universal_memory_has_brand';
 
 /** Bump when vector metadata changes in a retrieval-relevant way. */
-export const DATA_BANK_EMBEDDING_METADATA_VERSION = 1;
+export const DATA_BANK_EMBEDDING_METADATA_VERSION = 2;
 
 export interface DataBankEntry {
   _id: string;
@@ -2972,6 +2972,41 @@ export function resolveDataBankEntryProvenance(entry: {
   return { scope, memoryScope, ...(brandId ? { brandId } : {}), tags: [...tags] };
 }
 
+type DataBankOwnershipQuery = Record<string, any>;
+
+/**
+ * Canonical Mongo predicate for records allowed to influence authoring or be
+ * embedded. Missing legacy fields are never interpreted as project ownership.
+ */
+export function buildVerifiedDataBankOwnershipQuery(scope?: DataBankScope): DataBankOwnershipQuery {
+  const projectOwnership = { scope: 'project', memoryScope: 'project' };
+  const brandOwnership = {
+    scope: 'global',
+    memoryScope: 'brand',
+    brandId: { $type: 'string', $ne: '' },
+  };
+  const universalOwnership = {
+    scope: 'global',
+    memoryScope: 'universal',
+    $or: [
+      { brandId: { $exists: false } },
+      { brandId: null },
+      { brandId: '' },
+    ],
+  };
+
+  if (scope === 'project') {
+    return { provenanceStatus: 'verified', ...projectOwnership };
+  }
+  if (scope === 'global') {
+    return { provenanceStatus: 'verified', $or: [brandOwnership, universalOwnership] };
+  }
+  return {
+    provenanceStatus: 'verified',
+    $or: [projectOwnership, brandOwnership, universalOwnership],
+  };
+}
+
 export function getDataBankModel(): Model<any> {
   if (!DataBankModel) {
     DataBankModel = mongoose.models[COLL_DATABANK] || mongoose.model(COLL_DATABANK, DataBankSchema);
@@ -3030,7 +3065,11 @@ export async function getDataBankEntries(
 ): Promise<DataBankEntry[]> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
-  const query: Record<string, any> = { sessionId, userId };
+  const query: Record<string, any> = {
+    sessionId,
+    userId,
+    ...buildVerifiedDataBankOwnershipQuery(),
+  };
   if (type) query.type = type;
   const docs = await model.find(query).sort({ createdAt: -1 }).lean();
   return docs as unknown as DataBankEntry[];
@@ -3052,15 +3091,13 @@ export async function getDataBankEntriesByUser(
 ): Promise<DataBankEntry[]> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
-  const query: Record<string, any> = { userId };
+  const query: Record<string, any> = {
+    userId,
+    ...buildVerifiedDataBankOwnershipQuery(options?.scope),
+  };
   if (options?.type) query.type = options.type;
   if (options?.tags?.length) query.tags = { $in: options.tags };
   if (options?.embeddingStatus) query.embeddingStatus = options.embeddingStatus;
-  if (options?.scope === 'global') {
-    query.scope = 'global';
-  } else if (options?.scope === 'project') {
-    query.$or = [{ scope: 'project' }, { scope: { $exists: false } }, { scope: null }];
-  }
   const docs = await model
     .find(query)
     .sort({ createdAt: -1 })
@@ -3069,8 +3106,7 @@ export async function getDataBankEntriesByUser(
   return docs as unknown as DataBankEntry[];
 }
 
-/** Get project-scoped DataBank entries for a specific session.
- *  Treats entries with missing/null scope as 'project' (pre-migration entries). */
+/** Get verified project-scoped DataBank entries for a specific session. */
 export async function getProjectScopedEntries(
   userId: string,
   sessionId: string,
@@ -3081,7 +3117,7 @@ export async function getProjectScopedEntries(
   const query: Record<string, any> = {
     userId,
     sessionId,
-    $or: [{ scope: 'project' }, { scope: { $exists: false } }, { scope: null }],
+    ...buildVerifiedDataBankOwnershipQuery('project'),
   };
   if (options?.type) query.type = options.type;
   const docs = await model
@@ -3099,7 +3135,11 @@ export async function getDataBankEntry(
 ): Promise<DataBankEntry | null> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
-  const doc = await model.findOne({ _id: entryId, userId }).lean();
+  const doc = await model.findOne({
+    _id: entryId,
+    userId,
+    ...buildVerifiedDataBankOwnershipQuery(),
+  }).lean();
   return doc as unknown as DataBankEntry | null;
 }
 
@@ -3111,7 +3151,11 @@ export async function getDataBankEntriesByIds(
   if (entryIds.length === 0) return [];
   await connectToThinkForgeDb();
   const model = getDataBankModel();
-  const docs = await model.find({ _id: { $in: entryIds }, userId }).lean();
+  const docs = await model.find({
+    _id: { $in: entryIds },
+    userId,
+    ...buildVerifiedDataBankOwnershipQuery(),
+  }).lean();
   return docs as unknown as DataBankEntry[];
 }
 
@@ -3152,15 +3196,15 @@ export async function getDataBankEntriesWithEmbeddings(
 ): Promise<DataBankEntry[]> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
-  const query: Record<string, any> = { userId, embeddingStatus: 'success', embedding: { $exists: true } };
-  if (scope === 'global') {
-    query.scope = 'global';
-  } else if (scope === 'project') {
-    query.$or = [{ scope: 'project' }, { scope: { $exists: false } }, { scope: null }];
-  }
+  const query: Record<string, any> = {
+    userId,
+    embeddingStatus: 'success',
+    embedding: { $exists: true },
+    ...buildVerifiedDataBankOwnershipQuery(scope),
+  };
   const docs = await model
     .find(query)
-    .select('_id title tags embedding content sourceUrl type scope')
+    .select('_id title tags embedding content sourceUrl type scope memoryScope brandId provenanceStatus')
     .sort({ createdAt: -1 })
     .limit(limit)
     .lean();
@@ -3174,7 +3218,12 @@ export async function getDataBankEntriesPendingEmbedding(
   await connectToThinkForgeDb();
   const model = getDataBankModel();
   const docs = await model
-    .find({ embeddingStatus: 'pending' })
+    .find({
+      $and: [
+        buildVerifiedDataBankOwnershipQuery(),
+        { embeddingStatus: 'pending' },
+      ],
+    })
     .sort({ createdAt: 1 })
     .limit(limit)
     .lean();
@@ -3236,7 +3285,13 @@ export async function claimDataBankEntryForEmbedding(
 ): Promise<DataBankEntry | null> {
   await connectToThinkForgeDb();
   const now = new Date();
-  return claimDataBankEmbedding({ _id: entryId, ...retryableEmbeddingQuery(now, maxAttempts) }, now);
+  return claimDataBankEmbedding({
+    _id: entryId,
+    $and: [
+      buildVerifiedDataBankOwnershipQuery(),
+      retryableEmbeddingQuery(now, maxAttempts),
+    ],
+  }, now);
 }
 
 /** Claim a bounded batch for a worker without duplicate concurrent embedding. */
@@ -3250,7 +3305,12 @@ export async function claimDataBankEntriesForEmbedding(
 
   for (let index = 0; index < cappedLimit; index++) {
     const now = new Date();
-    const entry = await claimDataBankEmbedding(retryableEmbeddingQuery(now, maxAttempts), now);
+    const entry = await claimDataBankEmbedding({
+      $and: [
+        buildVerifiedDataBankOwnershipQuery(),
+        retryableEmbeddingQuery(now, maxAttempts),
+      ],
+    }, now);
     if (!entry) break;
     entries.push(entry);
   }

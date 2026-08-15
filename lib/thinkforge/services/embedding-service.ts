@@ -12,6 +12,7 @@ import {
   completeDataBankEmbedding,
   failDataBankEmbedding,
   updateDataBankEmbeddingStatus,
+  DATA_BANK_EMBEDDING_METADATA_VERSION,
   type DataBankEntry,
   type DataBankMemoryScope,
 } from './db';
@@ -54,6 +55,47 @@ function entryToText(entry: DataBankEntry): string {
   return parts.join(' — ');
 }
 
+export class DataBankEmbeddingAuthorityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DataBankEmbeddingAuthorityError';
+  }
+}
+
+export function buildDataBankVectorMetadata(entry: DataBankEntry): Record<string, string | number> {
+  const userId = entry.userId?.trim();
+  if (!userId || entry.provenanceStatus !== 'verified') {
+    throw new DataBankEmbeddingAuthorityError('DataBank embedding requires verified owner provenance.');
+  }
+
+  const scope = entry.scope;
+  const memoryScope = entry.memoryScope;
+  const brandId = entry.brandId?.trim();
+  if (scope === 'project') {
+    if (memoryScope !== 'project' || (!entry.sessionId?.trim() && !entry.projectId?.trim())) {
+      throw new DataBankEmbeddingAuthorityError('Project memory requires exact project ownership.');
+    }
+  } else if (scope === 'global' && memoryScope === 'brand') {
+    if (!brandId) throw new DataBankEmbeddingAuthorityError('Brand memory requires a brandId.');
+  } else if (scope === 'global' && memoryScope === 'universal') {
+    if (brandId) throw new DataBankEmbeddingAuthorityError('Universal memory cannot carry a brandId.');
+  } else {
+    throw new DataBankEmbeddingAuthorityError('DataBank embedding scope is invalid.');
+  }
+
+  return {
+    userId,
+    type: entry.type,
+    scope,
+    memoryScope,
+    provenanceStatus: 'verified',
+    metadataVersion: DATA_BANK_EMBEDDING_METADATA_VERSION,
+    ...(brandId ? { brandId } : {}),
+    ...(entry.sessionId?.trim() ? { sessionId: entry.sessionId.trim() } : {}),
+    ...(entry.projectId?.trim() ? { projectId: entry.projectId.trim() } : {}),
+  };
+}
+
 /**
  * Generate and store an embedding for a single DataBank entry in Upstash Vector.
  * Immediate writers and background sweeps use the same atomic claim path.
@@ -70,20 +112,12 @@ export async function embedDataBankEntry(
   try {
     const index = getVectorIndex();
     const text = entryToText(claimedEntry);
+    const metadata = buildDataBankVectorMetadata(claimedEntry);
     
     await index.upsert({
       id: claimedEntry._id.toString(),
       data: text,
-      metadata: {
-        userId: claimedEntry.userId,
-        type: claimedEntry.type,
-        scope: claimedEntry.scope || 'project',
-        memoryScope: claimedEntry.memoryScope || 'project',
-        brandId: claimedEntry.brandId || '',
-        projectId: claimedEntry.projectId || '',
-        provenanceStatus: claimedEntry.provenanceStatus || '',
-        sourceUrl: claimedEntry.sourceUrl || '',
-      }
+      metadata,
     });
     
     await completeDataBankEmbedding(claimedEntry._id.toString(), claimedEntry._id.toString());
@@ -131,6 +165,47 @@ export interface VectorQueryResult {
   metadata: Record<string, unknown>;
 }
 
+export function buildDataBankVectorFilter(input: {
+  userId: string;
+  scope?: 'project' | 'global';
+  brandId?: string;
+  memoryScope?: DataBankMemoryScope;
+}): string {
+  const userId = input.userId.trim();
+  if (!userId) throw new DataBankEmbeddingAuthorityError('Vector retrieval requires a user owner.');
+  if (!input.scope && (input.memoryScope || input.brandId)) {
+    throw new DataBankEmbeddingAuthorityError('Vector memory authority requires an explicit data scope.');
+  }
+  if (input.scope === 'project' && input.memoryScope && input.memoryScope !== 'project') {
+    throw new DataBankEmbeddingAuthorityError('Project vector retrieval requires project memory scope.');
+  }
+  if (input.scope === 'global') {
+    if (input.memoryScope !== 'brand' && input.memoryScope !== 'universal') {
+      throw new DataBankEmbeddingAuthorityError('Global vector retrieval requires brand or universal memory scope.');
+    }
+    if (input.memoryScope === 'brand' && !input.brandId?.trim()) {
+      throw new DataBankEmbeddingAuthorityError('Brand vector retrieval requires a brandId.');
+    }
+    if (input.memoryScope === 'universal' && input.brandId?.trim()) {
+      throw new DataBankEmbeddingAuthorityError('Universal vector retrieval cannot carry a brandId.');
+    }
+  }
+
+  const filterParts = [
+    `userId = '${escapeVectorFilterValue(userId)}'`,
+    "provenanceStatus = 'verified'",
+  ];
+  if (input.scope) filterParts.push(`scope = '${input.scope}'`);
+  if (input.scope === 'project') filterParts.push("memoryScope = 'project'");
+  if (input.memoryScope && input.scope !== 'project') {
+    filterParts.push(`memoryScope = '${input.memoryScope}'`);
+  }
+  if (input.brandId?.trim()) {
+    filterParts.push(`brandId = '${escapeVectorFilterValue(input.brandId.trim())}'`);
+  }
+  return filterParts.join(' AND ');
+}
+
 /**
  * Query Upstash Vector for semantically relevant facts.
  * Returns vector IDs + scores above the relevance threshold.
@@ -145,11 +220,12 @@ export async function queryRelevantFacts(
   if (!queryText.trim()) return [];
 
   const index = getVectorIndex();
-  const filterParts = [`userId = '${escapeVectorFilterValue(userId)}'`];
-  if (scope) filterParts.push(`scope = '${scope}'`);
-  if (options?.memoryScope) filterParts.push(`memoryScope = '${options.memoryScope}'`);
-  if (options?.brandId) filterParts.push(`brandId = '${escapeVectorFilterValue(options.brandId)}'`);
-  const filter = filterParts.join(' AND ');
+  const filter = buildDataBankVectorFilter({
+    userId,
+    scope,
+    memoryScope: options?.memoryScope,
+    brandId: options?.brandId,
+  });
 
   const results = await index.query({
     data: queryText,
