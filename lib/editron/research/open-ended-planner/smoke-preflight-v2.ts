@@ -34,7 +34,7 @@ interface RouteFactV2 {
   nativeIdentityFields: readonly string[];
 }
 
-const EVIDENCE_DATE = '2026-08-14';
+const EVIDENCE_DATE = '2026-08-15';
 const SMOKE_TASK = 'DEV-02';
 const SMOKE_CONDITION = 'BASELINE';
 
@@ -70,12 +70,12 @@ const ROUTES: readonly RouteFactV2[] = [
     nativeIdentityFields: ['response.responseId', 'response.modelVersion'],
   },
   {
-    routeId: 'GOOGLE_FLASH', provider: 'google', requestModel: 'gemini-3.6-flash',
-    claimedBenchmarkIdentity: 'gemini-3.6-flash', identityStatus: 'PROVIDER_STABLE_ROUTE',
+    routeId: 'GOOGLE_FLASH', provider: 'google', requestModel: 'gemini-3.7-flash',
+    claimedBenchmarkIdentity: 'gemini-3.7-flash', identityStatus: 'PROVIDER_STABLE_ROUTE',
     reasoningMode: 'medium', supportedArms: ['REFERENCE_IMAGE_SEQUENCE_EVIDENCE', 'REFERENCE_NATIVE_VIDEO_EVIDENCE'],
     pricing: { inputUsdPerMillion: 0.75, cachedInputUsdPerMillion: 0.075, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 3.75 },
     pricingSource: 'https://ai.google.dev/gemini-api/docs/pricing',
-    modelSource: 'https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash',
+    modelSource: 'https://ai.google.dev/api/models',
     counter: { method: 'PROVIDER_COUNT_TOKENS', networkRequired: true, endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:countTokens', evidenceStatus: 'OFFICIAL_PROVIDER_ENDPOINT' },
     nativeIdentityFields: ['response.responseId', 'response.modelVersion'],
   },
@@ -162,7 +162,7 @@ export async function buildDevelopmentSmokePreflightV2(): Promise<Readonly<Recor
     planVersion: 'EDITRON_OE_DEVELOPMENT_SMOKE_PREFLIGHT_V2',
     authority: 'RESEARCH_ONLY_NO_PROVIDER_NETWORK_NO_PROJECT_MUTATION',
     evidenceAsOf: EVIDENCE_DATE,
-    selectionRule: 'Luna, Terra, Gemini Flash-Lite and Gemini Flash receive the same six answer-leak-free, hash-bound DEV-02 reference images in ascending timestamp order. Gemini native-video rows are a separate within-model temporal-evidence condition and are not ranked as cross-model parity rows.',
+    selectionRule: 'Luna, Terra, Gemini Flash-Lite and Gemini 3.7 Flash receive the same six answer-leak-free, hash-bound DEV-02 reference images in ascending timestamp order. Gemini native-video rows are a separate within-model temporal-evidence condition and are not ranked as cross-model parity rows.',
     routes: ROUTES,
     routeApplicability,
     smokeRows,

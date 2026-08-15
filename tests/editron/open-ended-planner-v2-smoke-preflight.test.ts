@@ -57,6 +57,8 @@ describe('open-ended planner V2 paid-smoke preflight', () => {
     expect(routes.OPENAI_TERRA.pricing).toEqual({ inputUsdPerMillion: 2.5, cachedInputUsdPerMillion: 0.25, cacheWriteUsdPerMillion: 3.125, outputUsdPerMillion: 15 });
     expect(routes.GOOGLE_FLASH_LITE.pricing).toEqual({ inputUsdPerMillion: 0.3, cachedInputUsdPerMillion: null, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 2.5 });
     expect(routes.GOOGLE_FLASH.pricing).toEqual({ inputUsdPerMillion: 0.75, cachedInputUsdPerMillion: 0.075, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 3.75 });
+    expect(routes.GOOGLE_FLASH.requestModel).toBe('gemini-3.7-flash');
+    expect(routes.GOOGLE_FLASH.claimedBenchmarkIdentity).toBe('gemini-3.7-flash');
     expect(routes.DEEPSEEK_FLASH.pricing).toEqual({ inputUsdPerMillion: 0.14, cachedInputUsdPerMillion: 0.0028, cacheWriteUsdPerMillion: null, outputUsdPerMillion: 0.28 });
     expect(routes.OPENAI_LUNA.identityStatus).toBe('PROVIDER_ROUTE_NO_DATED_SNAPSHOT');
     expect(routes.GOOGLE_FLASH.identityStatus).toBe('PROVIDER_STABLE_ROUTE');
@@ -114,7 +116,13 @@ describe('open-ended planner V2 paid-smoke preflight', () => {
 });
 
 type Plan = Awaited<ReturnType<typeof buildDevelopmentSmokePreflightV2>> & {
-  routes: Array<{ routeId: string; identityStatus: string; pricing: Record<string, number | null> }>;
+  routes: Array<{
+    routeId: string;
+    requestModel: string;
+    claimedBenchmarkIdentity: string;
+    identityStatus: string;
+    pricing: Record<string, number | null>;
+  }>;
   routeApplicability: Array<{ routeId: string; taskId: string; inputArm: string; modalityStatus: string }>;
   smokeRows: Array<{
     routeId: string;

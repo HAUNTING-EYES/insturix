@@ -1,8 +1,8 @@
 {
   "planVersion": "EDITRON_OE_DEVELOPMENT_SMOKE_PREFLIGHT_V2",
   "authority": "RESEARCH_ONLY_NO_PROVIDER_NETWORK_NO_PROJECT_MUTATION",
-  "evidenceAsOf": "2026-08-14",
-  "selectionRule": "Luna, Terra, Gemini Flash-Lite and Gemini Flash receive the same six answer-leak-free, hash-bound DEV-02 reference images in ascending timestamp order. Gemini native-video rows are a separate within-model temporal-evidence condition and are not ranked as cross-model parity rows.",
+  "evidenceAsOf": "2026-08-15",
+  "selectionRule": "Luna, Terra, Gemini Flash-Lite and Gemini 3.7 Flash receive the same six answer-leak-free, hash-bound DEV-02 reference images in ascending timestamp order. Gemini native-video rows are a separate within-model temporal-evidence condition and are not ranked as cross-model parity rows.",
   "routes": [
     {
       "routeId": "OPENAI_LUNA",
@@ -95,8 +95,8 @@
     {
       "routeId": "GOOGLE_FLASH",
       "provider": "google",
-      "requestModel": "gemini-3.6-flash",
-      "claimedBenchmarkIdentity": "gemini-3.6-flash",
+      "requestModel": "gemini-3.7-flash",
+      "claimedBenchmarkIdentity": "gemini-3.7-flash",
       "identityStatus": "PROVIDER_STABLE_ROUTE",
       "reasoningMode": "medium",
       "supportedArms": [
@@ -110,7 +110,7 @@
         "outputUsdPerMillion": 3.75
       },
       "pricingSource": "https://ai.google.dev/gemini-api/docs/pricing",
-      "modelSource": "https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash",
+      "modelSource": "https://ai.google.dev/api/models",
       "counter": {
         "method": "PROVIDER_COUNT_TOKENS",
         "networkRequired": true,
@@ -649,8 +649,8 @@
       "transportHash": "0ddb33758a0d25c04299bfe919985421cd4d4694a990437cbc011b4b9e0ea919",
       "maxInputTokens": 30000,
       "localInputTokenUpperBound": null,
-      "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:countTokens",
-      "providerCountTokensRequestHash": "67b52b674a3c8f65bf892f7cbbea440f25381cedecbfb96a990d6b1738192456",
+      "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:countTokens",
+      "providerCountTokensRequestHash": "7491b032fbc63d7f6433f1be1784d8fb5d763e6f16d5d00d7f3f06854a5cd31a",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.35,
       "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
@@ -670,8 +670,8 @@
       "transportHash": "80601c54aa48460c05cc01e7198a39af44d158d00c4ca916b16ad5cb57695aa6",
       "maxInputTokens": 30000,
       "localInputTokenUpperBound": null,
-      "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:countTokens",
-      "providerCountTokensRequestHash": "2ce280e8d727eb36abe837d3dcc6ffc6d8959dbb299d5f4d7fc40b3213f6a5ba",
+      "providerCountTokensEndpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:countTokens",
+      "providerCountTokensRequestHash": "144f097d7c3a18d07e31f36a607bdc22c001195cf8f3f62cf5d718b31d2e695b",
       "providerTokenCountStatus": "REQUIRED_BEFORE_GENERATION",
       "maxProviderCostUsd": 0.35,
       "dispatchStatus": "BLOCKED_COUNT_TOKENS_AND_OPERATOR_CONFIRMATION",
@@ -763,5 +763,5 @@
     "GOOGLE_COUNT_TOKENS_NOT_YET_EXECUTED",
     "OPERATOR_CONFIRMATION_NOT_RECORDED"
   ],
-  "planHash": "eff3c660dc98618a4eea6d8f63ebdd426fe3fee2b527d9bc23211aa1807d1c8e"
+  "planHash": "3ed68ec37187a45418146aed3dd5c7775038794a07f7af8feebd1ac8c2f7dda6"
 }
