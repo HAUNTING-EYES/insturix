@@ -65,7 +65,11 @@ describe('DataBank duplicate authority', () => {
     vi.clearAllMocks();
     process.env.UPSTASH_VECTOR_REST_URL = 'https://vector.example.test';
     process.env.UPSTASH_VECTOR_REST_TOKEN = 'test-token';
-    mocks.vectorQuery.mockResolvedValue([{ id: 'entry_1', score: 0.99 }]);
+    mocks.vectorQuery.mockResolvedValue([{
+      id: 'tfdb:entry_1:lease_1',
+      score: 0.99,
+      metadata: { entryId: 'entry_1' },
+    }]);
     mocks.getAuthorizedDataBankEntriesByIds.mockResolvedValue([
       entry('Use verified evidence before interpretation.'),
     ]);
@@ -80,7 +84,7 @@ describe('DataBank duplicate authority', () => {
 
     expect(mocks.vectorQuery).toHaveBeenCalledWith(expect.objectContaining({
       topK: 10,
-      includeMetadata: false,
+      includeMetadata: true,
       filter: "ownerType = 'organization' AND orgId = 'org_1' AND provenanceStatus = 'verified' AND lifecycleStatus = 'active' AND metadataVersion = 3 AND scope = 'project' AND memoryScope = 'project' AND sessionId = 'session_1'",
     }));
     expect(mocks.getAuthorizedDataBankEntriesByIds).toHaveBeenCalledWith(

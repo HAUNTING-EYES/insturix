@@ -112,6 +112,7 @@ export function buildDataBankVectorMetadata(
   }
 
   return {
+    entryId: entry._id.toString(),
     userId,
     ownerType,
     ...(orgId ? { orgId } : {}),
@@ -145,29 +146,52 @@ export async function embedDataBankEntry(
     ? entry
     : await claimDataBankEntryForEmbedding(entry._id.toString());
   if (!claimedEntry) return false;
+  const entryId = claimedEntry._id.toString();
+  const embeddingLeaseId = claimedEntry.embeddingLeaseId?.trim();
+  if (!embeddingLeaseId) {
+    throw new DataBankEmbeddingAuthorityError('DataBank embedding requires an active lease.');
+  }
+  const vectorId = buildDataBankEmbeddingVectorId(entryId, embeddingLeaseId);
 
   try {
     const index = getVectorIndex();
     const text = entryToText(claimedEntry);
     const metadata = buildDataBankVectorMetadata(claimedEntry);
-    
+    const previousVectorId = claimedEntry.vectorId?.trim();
+    if (previousVectorId && previousVectorId !== vectorId) {
+      await index.delete(previousVectorId);
+    }
+
     await index.upsert({
-      id: claimedEntry._id.toString(),
+      id: vectorId,
       data: text,
       metadata,
     });
-    
-    await completeDataBankEmbedding(claimedEntry._id.toString(), claimedEntry._id.toString());
+
+    const completed = await completeDataBankEmbedding(entryId, vectorId, embeddingLeaseId);
+    if (!completed) {
+      await index.delete(vectorId);
+      return false;
+    }
     return true;
   } catch (err) {
     try {
-      await failDataBankEmbedding(claimedEntry._id.toString(), claimedEntry.embeddingAttempts ?? 1);
+      await failDataBankEmbedding(entryId, claimedEntry.embeddingAttempts ?? 1, embeddingLeaseId);
     } catch (statusError) {
-      console.error(`[EmbeddingService] Failed to record embedding failure for ${claimedEntry._id}:`, statusError);
+      console.error(`[EmbeddingService] Failed to record embedding failure for ${entryId}:`, statusError);
     }
-    console.error(`[EmbeddingService] Failed to embed entry ${claimedEntry._id}:`, err);
+    console.error(`[EmbeddingService] Failed to embed entry ${entryId}:`, err);
     throw err;
   }
+}
+
+export function buildDataBankEmbeddingVectorId(entryId: string, embeddingLeaseId: string): string {
+  const normalizedEntryId = entryId.trim();
+  const normalizedLeaseId = embeddingLeaseId.trim();
+  if (!normalizedEntryId || !normalizedLeaseId) {
+    throw new DataBankEmbeddingAuthorityError('DataBank vector IDs require an exact entry and lease.');
+  }
+  return `tfdb:${normalizedEntryId}:${normalizedLeaseId}`;
 }
 
 export interface EmbeddingProcessingResult {
@@ -292,11 +316,22 @@ export async function queryRelevantFacts(
 
   return results
     .filter((r) => r.score >= RELEVANCE_THRESHOLD)
-    .map((r) => ({
-      id: r.id.toString(),
-      score: r.score,
-      metadata: (r.metadata as Record<string, unknown>) || {},
-    }));
+    .map((r) => {
+      const metadata = (r.metadata as Record<string, unknown>) || {};
+      return {
+        id: dataBankEntryIdFromVectorResult(r.id, metadata),
+        score: r.score,
+        metadata,
+      };
+    });
+}
+
+function dataBankEntryIdFromVectorResult(
+  vectorId: string | number,
+  metadata: Record<string, unknown>,
+): string {
+  const entryId = typeof metadata.entryId === 'string' ? metadata.entryId.trim() : '';
+  return entryId || vectorId.toString();
 }
 
 function escapeVectorFilterValue(value: string): string {
@@ -342,10 +377,13 @@ export async function checkDuplicateBeforeSave(
     const results = await index.query({
       data: text,
       topK: DEDUP_CANDIDATE_LIMIT,
-      includeMetadata: false,
+      includeMetadata: true,
       filter: authority.vectorFilter,
     });
-    const candidateIds = [...new Set(results.map((result) => result.id.toString()))];
+    const candidateIds = [...new Set(results.map((result) => dataBankEntryIdFromVectorResult(
+      result.id,
+      (result.metadata as Record<string, unknown>) || {},
+    )))];
     if (candidateIds.length === 0) return false;
 
     const authorizedEntries = await getAuthorizedDataBankEntriesByIds(

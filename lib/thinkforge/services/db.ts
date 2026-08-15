@@ -2674,6 +2674,7 @@ export interface DataBankEntry {
   embeddingLastAttemptAt?: Date;
   embeddingNextRetryAt?: Date;
   embeddingLeaseExpiresAt?: Date;
+  embeddingLeaseId?: string;
   embeddingMetadataVersion?: number;
   vectorId?: string;
   embedding?: number[];
@@ -2729,6 +2730,7 @@ const DataBankSchema = new Schema({
   embeddingLastAttemptAt: { type: Date },
   embeddingNextRetryAt: { type: Date, index: true },
   embeddingLeaseExpiresAt: { type: Date, index: true },
+  embeddingLeaseId: { type: String },
   embeddingMetadataVersion: { type: Number },
   vectorId: { type: String },
   embedding: { type: [Number], default: undefined },
@@ -2745,6 +2747,7 @@ DataBankSchema.index({ userId: 1, scope: 1, memoryScope: 1, brandId: 1 });
 DataBankSchema.index({ ownerType: 1, orgId: 1, scope: 1, memoryScope: 1, brandId: 1 });
 DataBankSchema.index({ lifecycleStatus: 1, expiresAt: 1 });
 DataBankSchema.index({ embeddingStatus: 1, embeddingNextRetryAt: 1, createdAt: 1 });
+DataBankSchema.index({ embeddingStatus: 1, embeddingLeaseExpiresAt: 1 });
 DataBankSchema.index({ sessionId: 1, userId: 1 });
 DataBankSchema.index({ projectId: 1, type: 1 });
 DataBankSchema.index({ tags: 1 });
@@ -3042,36 +3045,42 @@ export function buildAuthorizedDataBankReadQuery(
   scope?: DataBankScope,
   now = new Date(),
 ): DataBankOwnershipQuery {
-  if (!Number.isFinite(now.getTime())) throw new Error('DataBank read time must be valid.');
   return {
     $and: [
       buildDataBankPrincipalQuery(principalInput),
       buildVerifiedDataBankOwnershipQuery(scope),
-      { lifecycleStatus: 'active' },
-      { classification: { $in: ['public', 'business_confidential', 'personal'] } },
-      { consentStatus: { $in: ['not_required', 'granted'] } },
-      {
-        $or: [
-          { classification: { $ne: 'personal' } },
-          { classification: 'personal', consentStatus: 'granted' },
-        ],
-      },
-      {
-        $or: [
-          { freshUntil: { $exists: false } },
-          { freshUntil: null },
-          { freshUntil: { $gt: now } },
-        ],
-      },
-      {
-        $or: [
-          { expiresAt: { $exists: false } },
-          { expiresAt: null },
-          { expiresAt: { $gt: now } },
-        ],
-      },
+      ...currentDataBankLifecycleClauses(now),
     ],
   };
+}
+
+function currentDataBankLifecycleClauses(now: Date): DataBankOwnershipQuery[] {
+  if (!Number.isFinite(now.getTime())) throw new Error('DataBank read time must be valid.');
+  return [
+    { lifecycleStatus: 'active' },
+    { classification: { $in: ['public', 'business_confidential', 'personal'] } },
+    { consentStatus: { $in: ['not_required', 'granted'] } },
+    {
+      $or: [
+        { classification: { $ne: 'personal' } },
+        { classification: 'personal', consentStatus: 'granted' },
+      ],
+    },
+    {
+      $or: [
+        { freshUntil: { $exists: false } },
+        { freshUntil: null },
+        { freshUntil: { $gt: now } },
+      ],
+    },
+    {
+      $or: [
+        { expiresAt: { $exists: false } },
+        { expiresAt: null },
+        { expiresAt: { $gt: now } },
+      ],
+    },
+  ];
 }
 
 export function getDataBankModel(): Model<any> {
@@ -3511,11 +3520,29 @@ function retryableEmbeddingQuery(now: Date, maxAttempts: number): Record<string,
   };
 }
 
+/** Build the complete authority predicate for an embedding worker claim. */
+export function buildClaimableDataBankEmbeddingQuery(
+  now: Date,
+  maxAttempts: number = EMBEDDING_MAX_ATTEMPTS,
+): DataBankOwnershipQuery {
+  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1) {
+    throw new Error('DataBank embedding maxAttempts must be a positive integer.');
+  }
+  return {
+    $and: [
+      buildVerifiedDataBankOwnershipQuery(),
+      ...currentDataBankLifecycleClauses(now),
+      retryableEmbeddingQuery(now, maxAttempts),
+    ],
+  };
+}
+
 async function claimDataBankEmbedding(
   filter: Record<string, any>,
   now: Date,
 ): Promise<DataBankEntry | null> {
   const model = getDataBankModel();
+  const embeddingLeaseId = crypto.randomUUID();
   const doc = await model.findOneAndUpdate(
     filter,
     {
@@ -3523,6 +3550,7 @@ async function claimDataBankEmbedding(
         embeddingStatus: 'processing',
         embeddingLastAttemptAt: now,
         embeddingLeaseExpiresAt: new Date(now.getTime() + EMBEDDING_LEASE_MS),
+        embeddingLeaseId,
         updatedAt: now,
       },
       $unset: { embeddingNextRetryAt: '' },
@@ -3540,12 +3568,11 @@ export async function claimDataBankEntryForEmbedding(
 ): Promise<DataBankEntry | null> {
   await connectToThinkForgeDb();
   const now = new Date();
+  const normalizedEntryId = dataBankString(entryId);
+  if (!normalizedEntryId) throw new Error('DataBank embedding claims require an entryId.');
+  const claimQuery = buildClaimableDataBankEmbeddingQuery(now, maxAttempts);
   return claimDataBankEmbedding({
-    _id: entryId,
-    $and: [
-      buildVerifiedDataBankOwnershipQuery(),
-      retryableEmbeddingQuery(now, maxAttempts),
-    ],
+    $and: [{ _id: normalizedEntryId }, ...claimQuery.$and],
   }, now);
 }
 
@@ -3560,12 +3587,10 @@ export async function claimDataBankEntriesForEmbedding(
 
   for (let index = 0; index < cappedLimit; index++) {
     const now = new Date();
-    const entry = await claimDataBankEmbedding({
-      $and: [
-        buildVerifiedDataBankOwnershipQuery(),
-        retryableEmbeddingQuery(now, maxAttempts),
-      ],
-    }, now);
+    const entry = await claimDataBankEmbedding(
+      buildClaimableDataBankEmbeddingQuery(now, maxAttempts),
+      now,
+    );
     if (!entry) break;
     entries.push(entry);
   }
@@ -3575,42 +3600,71 @@ export async function claimDataBankEntriesForEmbedding(
 export async function completeDataBankEmbedding(
   entryId: string,
   vectorId: string,
-): Promise<void> {
+  embeddingLeaseId: string,
+): Promise<boolean> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
-  await model.updateOne(
-    { _id: entryId },
+  const normalizedVectorId = dataBankString(vectorId);
+  if (!normalizedVectorId) throw new Error('DataBank embedding completion requires a vectorId.');
+  const result = await model.updateOne(
+    buildDataBankEmbeddingLeaseFilter(entryId, embeddingLeaseId),
     {
       $set: {
         embeddingStatus: 'success',
         embeddingMetadataVersion: DATA_BANK_EMBEDDING_METADATA_VERSION,
-        vectorId,
+        vectorId: normalizedVectorId,
         updatedAt: new Date(),
       },
-      $unset: { embeddingLeaseExpiresAt: '', embeddingNextRetryAt: '' },
+      $unset: {
+        embeddingLeaseExpiresAt: '',
+        embeddingLeaseId: '',
+        embeddingNextRetryAt: '',
+      },
     },
   );
+  return result.matchedCount > 0;
 }
 
 export async function failDataBankEmbedding(
   entryId: string,
   attempt: number,
-): Promise<void> {
+  embeddingLeaseId: string,
+): Promise<boolean> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
   const cappedAttempt = Math.max(1, attempt);
   const retryDelayMs = Math.min(60 * 60 * 1000, 60 * 1000 * 2 ** (cappedAttempt - 1));
-  await model.updateOne(
-    { _id: entryId },
+  const result = await model.updateOne(
+    buildDataBankEmbeddingLeaseFilter(entryId, embeddingLeaseId),
     {
       $set: {
         embeddingStatus: 'failed',
         embeddingNextRetryAt: new Date(Date.now() + retryDelayMs),
         updatedAt: new Date(),
       },
-      $unset: { embeddingLeaseExpiresAt: '' },
+      $unset: { embeddingLeaseExpiresAt: '', embeddingLeaseId: '' },
     },
   );
+  return result.matchedCount > 0;
+}
+
+/** Match only the worker that owns the currently active embedding claim. */
+export function buildDataBankEmbeddingLeaseFilter(
+  entryId: string,
+  embeddingLeaseId: string,
+): DataBankOwnershipQuery {
+  const normalizedEntryId = dataBankString(entryId);
+  const normalizedLeaseId = dataBankString(embeddingLeaseId);
+  if (!normalizedEntryId || !normalizedLeaseId) {
+    throw new Error('DataBank embedding completion requires an exact entry and lease.');
+  }
+  return {
+    _id: normalizedEntryId,
+    provenanceStatus: 'verified',
+    lifecycleStatus: 'active',
+    embeddingStatus: 'processing',
+    embeddingLeaseId: normalizedLeaseId,
+  };
 }
 
 export interface DataBankProvenanceBackfillResult {
@@ -3699,6 +3753,7 @@ export async function backfillDataBankProvenanceAndQueueEmbeddings(
             embeddingMetadataVersion: '',
             embeddingNextRetryAt: '',
             embeddingLeaseExpiresAt: '',
+            embeddingLeaseId: '',
           },
         },
       },
@@ -4000,11 +4055,11 @@ export async function promoteAuthorizedDataBankEntryToGlobal(
       },
       $unset: {
         ...(targetBrandId ? {} : { brandId: '' }),
-        vectorId: '',
         embeddingMetadataVersion: '',
         embeddingLastAttemptAt: '',
         embeddingNextRetryAt: '',
         embeddingLeaseExpiresAt: '',
+        embeddingLeaseId: '',
       },
     },
   );

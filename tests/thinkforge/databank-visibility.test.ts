@@ -249,6 +249,7 @@ describe('DataBank visibility authority', () => {
 
   it('builds exact vector metadata without project or brand defaults', () => {
     expect(buildDataBankVectorMetadata(dataBankEntry())).toEqual({
+      entryId: 'entry_1',
       userId: 'user_1',
       ownerType: 'user',
       type: 'atomic_fact',
