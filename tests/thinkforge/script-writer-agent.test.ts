@@ -380,7 +380,7 @@ describe('ScriptWriterAgent structured generation', () => {
     const repaired = makeModelOutput({
       sidecar: makeSidecar({
         scenes: makeSidecar().scenes.map((scene, index) => ({
-          ...withSpokenWords(scene, 340),
+          ...withSpokenWords(scene, 425),
           durationSeconds: 210,
           generationUnitId: `scene_${index + 1}`,
         })),
@@ -685,7 +685,7 @@ describe('assertUsableScriptWriterResult', () => {
     ).toThrow(/on_camera_scene_exceeds_relip_limit:scene_1:12s/);
   });
 
-  it('rejects scripts that exceed the on-camera speaking ratio budget', () => {
+  it('does not impose an invented on-camera speaking ratio', () => {
     expect(() =>
       assertUsableScriptWriterResult(
         makeResult({
@@ -698,7 +698,7 @@ describe('assertUsableScriptWriterResult', () => {
           }),
         }),
       ),
-    ).toThrow(/on_camera_ratio_exceeded:2\/2,max_1/);
+    ).not.toThrow();
   });
 
   it('rejects scripts that omit a resolved avatar-cast character', () => {
@@ -760,8 +760,8 @@ describe('assertUsableScriptWriterResult', () => {
           sidecar: makeSidecar({
             characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
             scenes: [
-              withSpokenWords(makeOnCameraScene(), 25),
-              withSpokenWords(makeSidecar().scenes[1]!, 25),
+              withSpokenWords(makeOnCameraScene(), 30),
+              withSpokenWords({ ...makeSidecar().scenes[1]!, durationSeconds: 22 }, 30),
             ],
           }),
         }),
@@ -771,38 +771,41 @@ describe('assertUsableScriptWriterResult', () => {
   });
 
   // Regression guard for the live incident: a 7-minute (420s) request silently produced a
-  // ~60s five-scene script because the runtime contract never gated output. The gate must
-  // reject BOTH the runtime shortfall and the long-form scene-count floor — loudly, never
-  // shipping a short script as success.
+  // ~60s script because the runtime contract never gated output. Runtime and spoken material
+  // are hard requirements; scene count is an editorial decision, not a duration formula.
   it('rejects a short sidecar against a 7-minute runtime contract (420s ask, 42s script)', () => {
-    const call = () =>
+    let message = '';
+    try {
       assertUsableScriptWriterResult(
         makeResult(), // default fixture: 2 scenes summing 42s
         { productionBrief: productionBriefWithDuration(420) },
       );
-    expect(call).toThrow(/runtime_duration_mismatch:42s\/420s/);
-    expect(call).toThrow(/scene_count_under_runtime_floor:2\/10/);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain('runtime_duration_mismatch:42s/420s');
+    expect(message).toContain('spoken_word_count_mismatch');
+    expect(message).not.toContain('scene_count_under_runtime_floor');
   });
 
-  it('accepts a runtime-complete script whose scene count is below the nominal floor (production 9/10 regression)', () => {
-    // A 7-minute ask that came back with 9 scenes but a full ~420s runtime was wrongly rejected by the standalone
-    // scene-count floor. It remains valid when it has enough real spoken material for the runtime.
+  it('accepts long editorial scenes without imposing a seconds-per-scene floor', () => {
     const scenes = makeSidecar().scenes.map((scene, i) => ({
-      ...withSpokenWords(scene, 340),
-      durationSeconds: 200 + i,
+      ...withSpokenWords(scene, 425),
+      durationSeconds: 210,
       generationUnitId: `scene_${i + 1}`,
     }));
     expect(() =>
       assertUsableScriptWriterResult(
-        makeResult({ sidecar: makeSidecar({ scenes }) }), // 401s total across 2 scenes
+        makeResult({ sidecar: makeSidecar({ scenes }) }),
         { productionBrief: productionBriefWithDuration(420) },
       ),
-    ).not.toThrow(/runtime_duration_mismatch|scene_count_under_runtime_floor/);
+    ).not.toThrow();
   });
 
-  it('accepts a script whose scene durations land inside the runtime tolerance', () => {
+  it('accepts a script that exactly satisfies its runtime and spoken-word contract', () => {
     const scenes = makeSidecar().scenes.map((scene) => ({
-      ...withSpokenWords(scene, 50),
+      ...withSpokenWords(scene, 60),
       durationSeconds: 30,
     }));
     expect(() =>

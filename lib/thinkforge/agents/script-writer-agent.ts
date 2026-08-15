@@ -4,7 +4,6 @@ import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
 import { generateStructuredWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import {
-  DEFAULT_ON_CAMERA_RATIO,
   WRITER_CAPABILITIES,
   canSpeakLanguage,
   speakingBeatNeedsSplit,
@@ -23,6 +22,8 @@ import {
 import { formatTrendBriefForPrompt } from './trend-brief-context';
 import { formatCastingBriefForPrompt, getAvatarCastingEntries } from './casting-brief-context';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
+import type { ThinkForgeContentSignalProfile } from '../signals';
+import { buildScriptEditorialPlan } from './script-editorial-plan';
 
 const ContentAnalysisSchema = z.object({
   hooks: z.array(z.string()).describe('List of key hooks utilized in the script'),
@@ -84,6 +85,7 @@ interface ScriptWriterEditContext {
 
 export interface ScriptWriterInput extends AgentInput {
   productionBrief?: ProductionBrief | null;
+  contentSignalProfile?: ThinkForgeContentSignalProfile | null;
   sourceLedger?: SourceLedger | null;
   /** When set, switches the writer into edit/revise mode (see ScriptWriterEditContext). */
   editContext?: ScriptWriterEditContext;
@@ -92,6 +94,7 @@ export interface ScriptWriterInput extends AgentInput {
 interface ScriptWriterValidationOptions {
   sourceLedger?: SourceLedger | null;
   productionBrief?: ProductionBrief | null;
+  contentSignalProfile?: ThinkForgeContentSignalProfile | null;
 }
 
 const MARKDOWN_SCENE_HEADER_PATTERN = /^\s*#{1,3}\s+Scene\s+\d+\b/gim;
@@ -106,7 +109,7 @@ const SCHEMA_ARTIFACT_PATTERNS = [
 
 const RELIP_UNSAFE_OCCLUSION_PATTERN = /\b(masked|mask covering|face covered|covered face|hidden face|occluded face|heavy occlusion|silhouette|back turned|turned away|profile only)\b/i;
 const RELIP_UNSAFE_MOTION_PATTERN = /\b(rapid|chaotic|whip pan|spinning|running|shaky|handheld chase|fast motion)\b/i;
-const REPAIRABLE_SCRIPT_CONTRACT_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|on_camera_ratio_exceeded|unsupported_voice_language|missing_shot_intent|shot_intent_[a-z_]+|runtime_duration_mismatch|spoken_word_count_mismatch|scene_prompt_count_mismatch|sidecar_scene_count_mismatch)\b/;
+const REPAIRABLE_SCRIPT_CONTRACT_FAILURE_PATTERN = /\b(?:relip_safe_not_true|relip_face_visibility_undeclared|relip_occlusion_unsafe|relip_motion_unsafe|relip_unsafe_occlusion|relip_unsafe_motion|on_camera_scene_exceeds_relip_limit|unsupported_voice_language|missing_shot_intent|shot_intent_[a-z_]+|runtime_duration_mismatch|spoken_word_count_mismatch|scene_prompt_count_mismatch|sidecar_scene_count_mismatch)\b/;
 
 function singleLineScriptField(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -172,13 +175,6 @@ function validateWriterCapabilityCompliance(
   const onCameraSpeakingLines = spokenLines.filter(
     ({ line }) => line.onCamera && line.delivery === 'sync-dialogue',
   );
-  if (spokenLines.length > 0) {
-    const maxOnCameraLines = Math.ceil(spokenLines.length * DEFAULT_ON_CAMERA_RATIO);
-    if (onCameraSpeakingLines.length > maxOnCameraLines) {
-      failures.push(`on_camera_ratio_exceeded:${onCameraSpeakingLines.length}/${spokenLines.length},max_${maxOnCameraLines}`);
-    }
-  }
-
   const scenesWithOnCameraSpeech = new Set(onCameraSpeakingLines.map(({ sceneIndex }) => sceneIndex));
   for (const sceneIndex of scenesWithOnCameraSpeech) {
     const scene = sidecar.scenes[sceneIndex];
@@ -227,7 +223,7 @@ Return a complete replacement object using the same JSON schema. Preserve the br
 Critical rules:
 - Every scene requires a complete shotIntent that matches its visible performers and sync-dialogue lines. shotIntent.spokenAudio means speech captured on set; it is false for voiceover-only scenes.
 - Every scene that contains on-camera sync-dialogue is one actual relip job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. Do not use subShots to bypass this limit. Split an overlong on-camera beat into multiple consecutive sidecar.scenes instead, each with its own duration, visual direction, lines, relip safety data, and shot intent. Do not silently turn required on-camera cast speech into voiceover.
-- When the failure includes runtime_duration_mismatch or spoken_word_count_mismatch, use tf_untrusted_data.productionContract and tf_untrusted_data.runtimePlan as binding. Rebuild the audible prose and scene allocation to meet the contract; changing durations, metadata, or empty lines alone does not repair a word-count failure. Do not claim a long runtime with sparse narration or empty dialogue.
+- When the failure includes runtime_duration_mismatch or spoken_word_count_mismatch, use tf_untrusted_data.editorialPlan as binding. Rebuild the audible prose and editorial allocation to meet its total runtime and narration-mode word band; changing durations, metadata, or empty lines alone does not repair a word-count failure.
 - Each sidecar scene maps to exactly one visible script scene and one visual prompt. Keep scene titles, narration, and visual descriptions as plain field text; never embed additional markdown scene headers inside them.
 </writer_contract_repair>`;
 }
@@ -267,17 +263,11 @@ function countMatches(text: string, pattern: RegExp): number {
   return Array.from(text.matchAll(pattern)).length;
 }
 
-/**
- * Runtime-contract construction (R19N: an editor trims an over-long script but never pads a short one).
- * Pacing standards: ~135 wpm narration (target), 95–165 wpm acceptable band; a ±5% runtime window allows
- * compression/overage without dropping the contract; long-form scene floor ≈ 1 scene per 42s.
- */
-const RUNTIME_SCENE_FLOOR_STEP_SEC = 42;
-const NARRATION_WORDS_PER_MINUTE = 135;
-const NARRATION_WORDS_PER_MINUTE_MIN = 95;
-const NARRATION_WORDS_PER_MINUTE_MAX = 165;
-/** Output-token budget per second of target runtime (long-form scripts need the room; 7-min ⇒ 16_800). */
-const OUTPUT_TOKENS_PER_RUNTIME_SECOND = 40;
+/** Provider output capacity; editorial structure and pacing come from buildScriptEditorialPlan. */
+const SCRIPT_WRITER_MAX_OUTPUT_TOKENS = 65_536;
+const TOKENS_PER_MAXIMUM_SPOKEN_WORD = 14;
+const TOKENS_PER_RUNTIME_SECOND_FOR_SIDECAR = 12;
+/** Minimum provider output budget when the brief has no runtime target. */
 const SCRIPT_WRITER_DEFAULT_MAX_TOKENS = 8192;
 
 interface ScriptRuntimeContract {
@@ -287,57 +277,36 @@ interface ScriptRuntimeContract {
   targetSpokenWords: number;
   minimumSpokenWords: number;
   maximumSpokenWords: number;
-  minimumSceneCount: number;
-}
-
-/** Server-derived narrative allocation for a runtime-bound script; it never replaces final production planning. */
-interface ScriptRuntimeWritingPlan {
-  targetSceneCount: number;
-  targetWordsPerScene: number;
-  minimumWordsPerScene: number;
-  maximumWordsPerScene: number;
 }
 
 /** Derive the enforceable runtime contract from a production brief (or a {@link ProductionBrief}-shaped object). */
 export function resolveScriptRuntimeContract(
   brief: { output?: { targetDurationSec?: number | null } } | null | undefined,
+  contentSignalProfile?: ThinkForgeContentSignalProfile | null,
 ): ScriptRuntimeContract {
-  const targetDurationSeconds = Math.max(0, brief?.output?.targetDurationSec ?? 0);
-  const minimumDurationSeconds = Math.round(targetDurationSeconds * 0.95);
-  const maximumDurationSeconds = Math.round(targetDurationSeconds * 1.05);
-  const targetSpokenWords = Math.round((targetDurationSeconds / 60) * NARRATION_WORDS_PER_MINUTE);
+  const plan = buildScriptEditorialPlan({
+    productionBrief: brief as Pick<ProductionBrief, 'output'> | null | undefined,
+    contentSignalProfile,
+  });
   return {
-    targetDurationSeconds,
-    minimumDurationSeconds,
-    maximumDurationSeconds,
-    targetSpokenWords,
-    minimumSpokenWords: Math.round(targetSpokenWords * (NARRATION_WORDS_PER_MINUTE_MIN / NARRATION_WORDS_PER_MINUTE)),
-    maximumSpokenWords: Math.round(targetSpokenWords * (NARRATION_WORDS_PER_MINUTE_MAX / NARRATION_WORDS_PER_MINUTE)),
-    minimumSceneCount: Math.max(1, Math.round(targetDurationSeconds / RUNTIME_SCENE_FLOOR_STEP_SEC)),
+    ...plan.runtime,
+    targetSpokenWords: plan.narration.targetSpokenWords,
+    minimumSpokenWords: plan.narration.minimumSpokenWords,
+    maximumSpokenWords: plan.narration.maximumSpokenWords,
   };
 }
 
-/** Give the writer an actionable scene/narration budget derived from the validated runtime contract. */
-export function resolveScriptRuntimeWritingPlan(
-  brief: { output?: { targetDurationSec?: number | null } } | null | undefined,
-): ScriptRuntimeWritingPlan {
-  const contract = resolveScriptRuntimeContract(brief);
-  const sceneCount = Math.max(1, contract.minimumSceneCount);
-
-  return {
-    targetSceneCount: sceneCount,
-    targetWordsPerScene: Math.round(contract.targetSpokenWords / sceneCount),
-    minimumWordsPerScene: Math.ceil(contract.minimumSpokenWords / sceneCount),
-    maximumWordsPerScene: Math.floor(contract.maximumSpokenWords / sceneCount),
-  };
-}
-
-/** Duration-aware output budget: a stated runtime gets ~40 output tokens/sec, else the script-writer default. */
-function durationAwareMaxTokens(productionBrief: { output?: { targetDurationSec?: number | null } } | null | undefined): number {
-  const targetSec = productionBrief?.output?.targetDurationSec;
-  return typeof targetSec === 'number' && Number.isFinite(targetSec) && targetSec > 0
-    ? Math.round(targetSec * OUTPUT_TOKENS_PER_RUNTIME_SECOND)
-    : SCRIPT_WRITER_DEFAULT_MAX_TOKENS;
+/** Reserve enough provider output for the spoken-word ceiling plus structured production metadata. */
+function durationAwareMaxTokens(input: Pick<ScriptWriterInput, 'productionBrief' | 'contentSignalProfile'>): number {
+  const plan = buildScriptEditorialPlan(input);
+  if (plan.runtime.targetDurationSeconds <= 0) return SCRIPT_WRITER_DEFAULT_MAX_TOKENS;
+  const estimated =
+    plan.narration.maximumSpokenWords * TOKENS_PER_MAXIMUM_SPOKEN_WORD
+    + plan.runtime.targetDurationSeconds * TOKENS_PER_RUNTIME_SECOND_FOR_SIDECAR;
+  return Math.min(
+    SCRIPT_WRITER_MAX_OUTPUT_TOKENS,
+    Math.max(SCRIPT_WRITER_DEFAULT_MAX_TOKENS, Math.ceil(estimated)),
+  );
 }
 
 export function assertUsableScriptWriterResult(
@@ -370,7 +339,10 @@ export function assertUsableScriptWriterResult(
     // must also supply the audible words required to fill the requested runtime.
     const runtimeTargetSec = options.productionBrief?.output.targetDurationSec;
     if (typeof runtimeTargetSec === 'number' && Number.isFinite(runtimeTargetSec) && runtimeTargetSec > 0) {
-      const contract = resolveScriptRuntimeContract(options.productionBrief);
+      const contract = resolveScriptRuntimeContract(
+        options.productionBrief,
+        options.contentSignalProfile,
+      );
       const totalSceneSec = sidecar.scenes.reduce((sum, scene) => sum + (scene.durationSeconds ?? 0), 0);
       const spokenWords = sidecar.scenes.reduce(
         (sum, scene) => sum + (scene.narration ?? '').split(/\s+/).filter(Boolean).length,
@@ -378,13 +350,6 @@ export function assertUsableScriptWriterResult(
       );
       if (totalSceneSec < contract.minimumDurationSeconds || totalSceneSec > contract.maximumDurationSeconds) {
         failures.push(`runtime_duration_mismatch:${totalSceneSec}s/${runtimeTargetSec}s`);
-      }
-      // A scene-count floor protects against compressed short-form layouts, while allowing a
-      // genuinely paced long-form script to use fewer, longer visual beats.
-      if (totalSceneSec < contract.minimumDurationSeconds) {
-        if (sidecar.scenes.length < contract.minimumSceneCount) {
-          failures.push(`scene_count_under_runtime_floor:${sidecar.scenes.length}/${contract.minimumSceneCount}`);
-        }
       }
       if (spokenWords < contract.minimumSpokenWords || spokenWords > contract.maximumSpokenWords) {
         failures.push(`spoken_word_count_mismatch:${spokenWords}/${contract.targetSpokenWords}`);
@@ -428,10 +393,8 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
     const castingBriefBlock = formatCastingBriefForPrompt(productionBrief);
 
 
-    // NOTE: the writing knowledge graph block is deliberately NOT injected here. A 10-seed A/B
-    // (graph ON vs OFF) showed it regresses the script writer — min 92% -> 75% and variance
-    // 8pp -> 25pp — because the technique block's negation-primed filler list and extra guidance
-    // fight the script's rigid scene structure. It stays on PostWriter (free-form, no regression).
+    // The full graph block is intentionally omitted. The server resolves one compatible structure
+    // and narration technique into editorialPlan so the model executes rather than re-selects craft.
 
     // P5 edit mode: revise an existing script instead of writing from scratch. Brand DNA, facts,
     // and generation requirements below apply to BOTH modes; only the opening frame differs.
@@ -501,11 +464,12 @@ Your task is to write a high-retention, engaging video script.
    - Each scene includes one complete \`shotIntent\` authored from that same scene. It expresses creative intent only; never invent equipment, room dimensions, coordinates, costs, or setup instructions.
    - If any line has \`onCamera: true\` and \`delivery: "sync-dialogue"\`, set that scene's \`relipSafe: true\` and \`relipSafety: { "faceVisibility": "visible", "occlusion": "none" or "light", "motion": "still" or "moderate" }\`. The object must match the visual description. Otherwise set \`relipSafe: false\` and omit \`relipSafety\`.
    - \`sourceRefs\` are provenance IDs only. If a Source Ledger is present, use ONLY referenceId values listed there (\`brief_user\`, \`source_1\`, etc.). Every numeric/date/price/URL/proof/testimonial claim must carry sourceRefs on the line and scene. A line or scene \`sourceRefs\` value must also appear in top-level \`sidecar.sourceRefs\`. If no factual sources are used, use empty arrays.
-   - If \`tf_untrusted_data.productionContract\` is present, it is binding: sum every \`durationSeconds\` inside its duration band, and write enough audible non-on-screen-text \`lines\` to land inside its spoken-word band. If \`tf_untrusted_data.runtimePlan\` is present, use its \`targetSceneCount\` as the default number of narrative beats and allocate each scene's audible non-on-screen-text \`lines\` near \`targetWordsPerScene\`, while keeping it between \`minimumWordsPerScene\` and \`maximumWordsPerScene\`. This is an authoring budget, not permission to invent filler or duplicate beats. Do not use timestamps or visual pauses to pretend a sparse script meets the requested runtime.
+   - If \`tf_untrusted_data.editorialPlan\` is present, it is binding. Sum scene \`durationSeconds\` to its exact total runtime and keep the complete audible script inside its narration-mode word band. Execute its selected structure and narration techniques, including their anti-patterns.
+   - Follow \`editorialPlan.structure.scope\` and \`actPolicy\`. Start a new editorial scene only at a meaningful narrative, argument, time/place, speaker-mode, evidence, emotional, or visual-treatment turn. Duration never decides scene count.
+   - Use \`subShots\` for meaningful coverage changes inside one editorial scene. Never create scenes or subShots merely to satisfy a seconds-per-scene formula, and never use timestamps or visual pauses to pretend sparse prose meets runtime.
 7. **Writer capability limits:** Author only what the downstream avatar/video rig can produce:
    - Supported spoken voice languages: ${WRITER_CAPABILITIES.voiceLanguages.join(', ') || 'none'}. Requested spoken languages: ${requestedVoiceLanguages.length ? requestedVoiceLanguages.join(', ') : 'none supplied'}. Unsupported requested spoken languages: ${unsupportedVoiceLanguages.length ? unsupportedVoiceLanguages.join(', ') : 'none'}. If any requested spoken language is unsupported, keep spoken narration/dialogue in ${defaultVoiceLanguage}; unsupported languages may be captions/on-screen text only.
    - Set \`metadata.voiceLanguage\` to the supported spoken language actually used.
-   - On-camera sync dialogue is expensive. Keep on-camera sync dialogue to about ${Math.round(DEFAULT_ON_CAMERA_RATIO * 100)}% of spoken lines; use voiceover over visuals for the rest.
    - For every on-camera sync-dialogue scene, make \`visualDescription\` match its structured \`relipSafety\`: visible face, front/on-camera framing, no more than light occlusion, and still/moderate motion.
    - Every on-camera sync-dialogue scene is one actual lip-sync job and must be ${WRITER_CAPABILITIES.maxSpeakingSegmentSec}s or shorter. When a spoken beat runs longer, split it into multiple consecutive \`sidecar.scenes\`; do not use \`subShots\` to bypass this limit.
 8. **Production shot intent:** For every sidecar scene, author \`shotIntent\` in the same response:
@@ -551,7 +515,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read Brand Vault and learned voice evidence only from tf_untrusted_data.brandContext.
 - Read retrieved facts only from tf_untrusted_data.databankFacts.
 - Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
-- Read runtime duration and spoken-word bounds only from tf_untrusted_data.productionContract, and the server-derived per-scene narration allocation only from tf_untrusted_data.runtimePlan. Both are binding when present.
+- Read runtime, narration density, scope hierarchy, scene-boundary policy, and selected graph techniques only from tf_untrusted_data.editorialPlan. It is binding when present.
 - Read actual requested and unsupported spoken languages from tf_untrusted_data.voiceLanguageRequest; enforce the supported-language list above.`;
 
     return buildIsolatedPromptParts({
@@ -581,8 +545,8 @@ Return your response strictly adhering to the JSON schema.`;
     const requestedVoiceLanguages = productionBrief?.output.voiceLanguages ?? [];
     const unsupportedVoiceLanguages = requestedVoiceLanguages.filter((language) => !canSpeakLanguage(language));
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
-    const runtimeContract = productionBrief?.output?.targetDurationSec
-      ? resolveScriptRuntimeContract(productionBrief)
+    const editorialPlan = productionBrief?.output?.targetDurationSec
+      ? buildScriptEditorialPlan({ productionBrief, contentSignalProfile: input.contentSignalProfile })
       : null;
 
     return {
@@ -596,8 +560,7 @@ Return your response strictly adhering to the JSON schema.`;
         summary: fact.summary,
       })),
       trendBrief: formatTrendBriefForPrompt(productionBrief) || null,
-      productionContract: runtimeContract,
-      runtimePlan: runtimeContract ? resolveScriptRuntimeWritingPlan(productionBrief) : null,
+      editorialPlan,
       castingBrief: formatCastingBriefForPrompt(productionBrief) || null,
       sourceLedger: sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : null,
       voiceLanguageRequest: {
@@ -626,7 +589,7 @@ Return your response strictly adhering to the JSON schema.`;
     const promptParts = this.buildPromptParts(input);
     const gen = this.resolveGenConfig({
       ...overrides,
-      maxTokens: overrides?.maxTokens ?? durationAwareMaxTokens(input.productionBrief),
+      maxTokens: overrides?.maxTokens ?? durationAwareMaxTokens(input),
     });
     const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
@@ -646,6 +609,7 @@ Return your response strictly adhering to the JSON schema.`;
       assertUsableScriptWriterResult(result, {
         sourceLedger: input.sourceLedger,
         productionBrief: input.productionBrief,
+        contentSignalProfile: input.contentSignalProfile,
       });
     } catch (error) {
       if (!isRepairableScriptContractError(error)) throw error;
@@ -672,6 +636,7 @@ Return your response strictly adhering to the JSON schema.`;
       assertUsableScriptWriterResult(result, {
         sourceLedger: input.sourceLedger,
         productionBrief: input.productionBrief,
+        contentSignalProfile: input.contentSignalProfile,
       });
     }
 

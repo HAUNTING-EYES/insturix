@@ -13,16 +13,18 @@ import {
   assertUsableScriptWriterResult,
   materializeScriptWriterResult,
   resolveScriptRuntimeContract,
-  resolveScriptRuntimeWritingPlan,
   ScriptWriterAgent,
   type ScriptWriterModelOutput,
 } from '@/lib/thinkforge/agents/script-writer-agent';
+import { buildScriptEditorialPlan } from '@/lib/thinkforge/agents/script-editorial-plan';
 import {
   resolveThinkForgeAuthoringPrompt,
   resolveThinkForgeProductionBrief,
 } from '@/lib/thinkforge/brief/resolve-production-brief';
 import { buildScriptShotPlan } from '@/lib/thinkforge/production/build-script-shot-plan';
 import type { ScriptSidecar } from '@/lib/thinkforge/schemas/script-sidecar';
+import type { CreativeSignals } from '@/lib/shared/signals/types';
+import type { ThinkForgeContentSignalProfile } from '@/lib/thinkforge/signals';
 
 function sevenMinuteBrief(): ProductionBrief {
   return {
@@ -42,6 +44,45 @@ function sevenMinuteBrief(): ProductionBrief {
       confirmed: ['targetDurationSec'],
       inferred: [],
     },
+  };
+}
+
+function sevenMinuteProfile(
+  signals: Partial<CreativeSignals> = {
+    visual_dependency: 0.5,
+    show_tell_ratio: 0.5,
+    multimodal_counterpoint: 0.1,
+    education_intent: 0.7,
+  },
+): ThinkForgeContentSignalProfile {
+  return {
+    profile: {
+      constraints: {
+        target_length: { value: 420, unit: 'seconds' },
+        output_format: 'video_script',
+        language: 'en',
+      },
+      signals,
+    },
+    intent: {
+      outputFormat: 'video_script',
+      platform: 'YouTube',
+      goal: 'education',
+      angle: 'The hidden cost of disconnected creative tools.',
+      proofPoints: [],
+      forbiddenTerms: [],
+      structuralHints: [],
+      visualNeeds: [],
+      clickatron: { requested: false, assetIntent: 'none', rationale: [] },
+    },
+    sources: {
+      brandContextPresent: false,
+      brandVaultProfilePresent: false,
+      projectFactsUsed: 0,
+      globalFactsUsed: 0,
+      interactionPatternsUsed: 0,
+    },
+    warnings: [],
   };
 }
 
@@ -169,23 +210,59 @@ describe('ThinkForge script production contract', () => {
   });
 
   it('derives a bounded long-form runtime contract for seven minutes', () => {
-    expect(resolveScriptRuntimeContract(sevenMinuteBrief())).toEqual({
+    expect(resolveScriptRuntimeContract(sevenMinuteBrief(), sevenMinuteProfile())).toEqual({
       targetDurationSeconds: 420,
-      minimumDurationSeconds: 399,
-      maximumDurationSeconds: 441,
-      targetSpokenWords: 945,
-      minimumSpokenWords: 665,
-      maximumSpokenWords: 1155,
-      minimumSceneCount: 10,
+      minimumDurationSeconds: 420,
+      maximumDurationSeconds: 420,
+      targetSpokenWords: 840,
+      minimumSpokenWords: 700,
+      maximumSpokenWords: 980,
     });
   });
 
-  it('derives an actionable server-owned narration allocation for seven minutes', () => {
-    expect(resolveScriptRuntimeWritingPlan(sevenMinuteBrief())).toEqual({
-      targetSceneCount: 10,
-      targetWordsPerScene: 95,
-      minimumWordsPerScene: 67,
-      maximumWordsPerScene: 115,
+  it('derives hierarchy and narration density without inventing a scene count', () => {
+    const plan = buildScriptEditorialPlan({
+      productionBrief: sevenMinuteBrief(),
+      contentSignalProfile: sevenMinuteProfile(),
+    });
+
+    expect(plan.runtime).toEqual({
+      targetDurationSeconds: 420,
+      minimumDurationSeconds: 420,
+      maximumDurationSeconds: 420,
+    });
+    expect(plan.narration).toMatchObject({
+      mode: 'complement',
+      targetWordsPerMinute: 120,
+      targetSpokenWords: 840,
+      minimumSpokenWords: 700,
+      maximumSpokenWords: 980,
+      selectedTechnique: { id: 'narration_complement' },
+    });
+    expect(plan.structure.scope).toBe('full_act_scene');
+    expect(plan).not.toHaveProperty('targetSceneCount');
+    expect(JSON.stringify(plan)).not.toContain('WordsPerScene');
+  });
+
+  it('uses the visual-verbal signal mode instead of one universal WPM assumption', () => {
+    const plan = buildScriptEditorialPlan({
+      productionBrief: sevenMinuteBrief(),
+      contentSignalProfile: sevenMinuteProfile({
+        visual_dependency: 0.9,
+        show_tell_ratio: 0.9,
+        negative_space: 0.8,
+      }),
+    });
+
+    expect(plan.narration).toMatchObject({
+      mode: 'minimal',
+      targetWordsPerMinute: 25,
+      minimumWordsPerMinute: 0,
+      maximumWordsPerMinute: 50,
+      targetSpokenWords: 175,
+      minimumSpokenWords: 0,
+      maximumSpokenWords: 350,
+      selectedTechnique: { id: 'narration_minimal' },
     });
   });
 
@@ -199,16 +276,19 @@ describe('ThinkForge script production contract', () => {
         context: { projectSummary: 'A connected creative production platform.' },
         userPrompt: 'Make a seven minute YouTube video.',
         productionBrief: sevenMinuteBrief(),
+        contentSignalProfile: sevenMinuteProfile(),
       })).rejects.toThrow('stop after inspection');
 
       expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          maxTokens: 16_800,
-          prompt: expect.stringContaining('"targetDurationSeconds": 420'),
+          maxTokens: 18_760,
+          prompt: expect.stringContaining('"editorialPlan": {'),
         }),
       );
-      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).toContain('"runtimePlan": {');
-      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).toContain('"targetWordsPerScene": 95');
+      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).toContain('"targetDurationSeconds": 420');
+      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).toContain('"mode": "complement"');
+      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).not.toContain('targetSceneCount');
+      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).not.toContain('targetWordsPerScene');
     } finally {
       if (previousKey === undefined) delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = previousKey;
@@ -221,9 +301,11 @@ describe('ThinkForge script production contract', () => {
     expect(result.metadata.estimatedTimeSeconds).toBe(40);
     expect(() => assertUsableScriptWriterResult(result, {
       productionBrief: sevenMinuteBrief(),
+      contentSignalProfile: sevenMinuteProfile(),
     })).toThrow(/runtime_duration_mismatch:40s\/420s/);
     expect(() => assertUsableScriptWriterResult(result, {
       productionBrief: sevenMinuteBrief(),
+      contentSignalProfile: sevenMinuteProfile(),
     })).toThrow(/spoken_word_count_mismatch/);
   });
 
