@@ -204,7 +204,8 @@ export async function resolveThinkForgeBrandAuthority(input: {
   orgId: string | null;
   isOrgAdmin?: boolean;
   brandId?: string;
-  store?: Pick<BrandVaultRefineryStore, 'listAcceptedBrands' | 'getLatestAcceptedRecord'>;
+  store?: Pick<BrandVaultRefineryStore, 'getLatestAcceptedRecord'>
+    & Partial<Pick<BrandVaultRefineryStore, 'getBrandAccessGrants'>>;
 }): Promise<ThinkForgeBrandAuthority | null> {
   const brandId = input.brandId?.trim();
   if (!brandId) return null;
@@ -218,11 +219,7 @@ export async function resolveThinkForgeBrandAuthority(input: {
       brandId,
       store,
     });
-    const record = await store.getLatestAcceptedRecord({
-      brandId: scope.brandId,
-      userId: input.userId,
-      orgId: input.orgId,
-    });
+    const record = scope.acceptedRecord;
     if (!record || record.status !== 'accepted' || record.profile.brandId !== scope.brandId) {
       throw new ThinkForgeBrandAuthorityError(
         'brand_profile_unavailable',

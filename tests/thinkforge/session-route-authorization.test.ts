@@ -665,19 +665,19 @@ describe('ThinkForge session route authorization', () => {
 
   it('denies a requested brand that is absent from the caller\'s authorized Vault scope', async () => {
     const actual = await vi.importActual<typeof import('@/lib/shared/brand-scope')>('@/lib/shared/brand-scope');
-    const listAcceptedBrands = vi.fn().mockResolvedValue([]);
+    const getLatestAcceptedRecord = vi.fn().mockResolvedValue(null);
 
     await expect(actual.authorizeBrandScope({
       userId: 'user_1',
       orgId: 'org_1',
       brandId: 'brand_restricted',
-      store: { listAcceptedBrands },
+      store: { getLatestAcceptedRecord },
     })).rejects.toMatchObject({ code: 'brand_not_found' });
 
-    expect(listAcceptedBrands).toHaveBeenCalledWith({
-      orgId: 'org_1',
+    expect(getLatestAcceptedRecord).toHaveBeenCalledWith({
+      brandId: 'brand_restricted',
       userId: 'user_1',
-      isOrgAdmin: false,
+      orgId: 'org_1',
     });
   });
 
