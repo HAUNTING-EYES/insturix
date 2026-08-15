@@ -56,12 +56,10 @@ import {
   resolvePersistedThinkForgeProjectMetadata,
   type ChatMessage,
   type ProjectMeta,
-  type ScriptState,
 } from '../state/types';
 import type { SelectedTrend } from '../trends/selected-trend';
 import type { WalletRef } from '@/lib/editron/services/project-ownership';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
-import type { CIRDocument, CIRSection } from '../schemas/cir';
 import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
 import {
   resolvePersistedThinkForgeDocumentAuthority,
