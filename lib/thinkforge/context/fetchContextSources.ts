@@ -178,8 +178,7 @@ async function fetchProjectContext(
       tags: entry.tags || [],
       source: entry.sourceUrl,
     }));
-  } catch (error) {
-    console.warn('[fetchContextSources] Project fetch failed:', error);
+  } catch {
     return [];
   }
 }
@@ -202,8 +201,7 @@ async function fetchGlobalContext(
       brandId,
       maxFacts,
     );
-  } catch (error) {
-    console.warn('[fetchContextSources] Global fetch failed:', error);
+  } catch {
     return [];
   }
 }
@@ -253,8 +251,7 @@ async function fetchWarmVectorContext(
       tags: entry.tags || [],
       source: entry.sourceUrl,
     }));
-  } catch (error) {
-    console.warn('[fetchContextSources] Upstash Vector query failed:', error);
+  } catch {
     return [];
   }
 }
@@ -444,8 +441,7 @@ async function fetchHotContext(
     }
 
     return patterns.sort((a, b) => b.count - a.count);
-  } catch (error) {
-    console.warn('[fetchContextSources] Hot fetch failed:', error);
+  } catch {
     return [];
   }
 }
