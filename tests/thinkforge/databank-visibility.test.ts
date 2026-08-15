@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertDataBankSessionPrincipal,
+  buildDataBankPrincipalQuery,
   buildVerifiedDataBankOwnershipQuery,
   resolveDataBankEntryAuthority,
   type DataBankEntry,
@@ -61,6 +63,43 @@ describe('DataBank visibility authority', () => {
         classification: 'business_confidential',
         consentStatus: 'not_required',
         lifecycleStatus: 'active',
+      });
+    });
+
+    it('builds principal queries that never mix personal and organization memory', () => {
+      expect(buildDataBankPrincipalQuery({ userId: 'user_1' })).toEqual({
+        ownerType: 'user',
+        userId: 'user_1',
+      });
+      expect(buildDataBankPrincipalQuery({ userId: 'user_1', orgId: 'org_1' })).toEqual({
+        ownerType: 'organization',
+        orgId: 'org_1',
+      });
+    });
+
+    it('rejects cross-owner and cross-organization session writes', () => {
+      expect(() => assertDataBankSessionPrincipal(
+        { userId: 'user_2' },
+        { _id: 'session_1', userId: 'user_1' },
+      )).toThrow('Personal DataBank memory requires the session owner.');
+      expect(() => assertDataBankSessionPrincipal(
+        { userId: 'user_1' },
+        { _id: 'session_1', userId: 'user_1', orgId: 'org_1' },
+      )).toThrow('DataBank principal does not match the session owner.');
+      expect(() => assertDataBankSessionPrincipal(
+        { userId: 'user_2', orgId: 'org_2' },
+        { _id: 'session_1', userId: 'user_1', orgId: 'org_1' },
+      )).toThrow('DataBank principal does not match the session owner.');
+    });
+
+    it('allows an authorized collaborator to write organization memory', () => {
+      expect(assertDataBankSessionPrincipal(
+        { userId: 'user_2', orgId: 'org_1' },
+        { _id: 'session_1', userId: 'user_1', orgId: 'org_1' },
+      )).toEqual({
+        ownerType: 'organization',
+        userId: 'user_2',
+        orgId: 'org_1',
       });
     });
 

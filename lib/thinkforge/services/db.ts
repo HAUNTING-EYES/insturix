@@ -2728,6 +2728,16 @@ export type DataBankOwnerType = 'user' | 'organization';
 export type DataBankClassification = 'public' | 'business_confidential' | 'personal' | 'child_data';
 export type DataBankConsentStatus = 'not_required' | 'granted' | 'withdrawn';
 export type DataBankLifecycleStatus = 'active' | 'superseded' | 'expired';
+export interface DataBankPrincipal {
+  userId: string;
+  orgId?: string | null;
+}
+export interface DataBankWriteGovernance {
+  classification: DataBankClassification;
+  consentStatus: DataBankConsentStatus;
+  freshUntil?: Date;
+  expiresAt?: Date;
+}
 export type DataBankProvenanceReason =
   | 'missing_explicit_memory_scope'
   | 'conflicting_memory_scopes'
@@ -3015,9 +3025,7 @@ export function resolveDataBankEntryAuthority(input: {
   freshUntil?: Date;
   expiresAt?: Date;
 } {
-  const userId = dataBankString(input.userId);
-  const orgId = dataBankString(input.orgId);
-  if (!userId) throw new Error('DataBank authority requires a user actor.');
+  const principal = resolveDataBankPrincipal(input);
   if (input.classification === 'child_data') {
     throw new Error('Child data cannot be stored in ThinkForge memory.');
   }
@@ -3039,15 +3047,50 @@ export function resolveDataBankEntryAuthority(input: {
   }
 
   return {
-    ownerType: orgId ? 'organization' : 'user',
-    userId,
-    ...(orgId ? { orgId } : {}),
+    ...principal,
     classification: input.classification,
     consentStatus: input.consentStatus,
     lifecycleStatus: 'active',
     ...(freshUntil ? { freshUntil } : {}),
     ...(expiresAt ? { expiresAt } : {}),
   };
+}
+
+export function resolveDataBankPrincipal(input: DataBankPrincipal): {
+  ownerType: DataBankOwnerType;
+  userId: string;
+  orgId?: string;
+} {
+  const userId = dataBankString(input.userId);
+  const orgId = dataBankString(input.orgId);
+  if (!userId) throw new Error('DataBank authority requires a user actor.');
+  return {
+    ownerType: orgId ? 'organization' : 'user',
+    userId,
+    ...(orgId ? { orgId } : {}),
+  };
+}
+
+export function buildDataBankPrincipalQuery(input: DataBankPrincipal): DataBankOwnershipQuery {
+  const principal = resolveDataBankPrincipal(input);
+  return principal.ownerType === 'organization'
+    ? { ownerType: 'organization', orgId: principal.orgId }
+    : { ownerType: 'user', userId: principal.userId };
+}
+
+export function assertDataBankSessionPrincipal(
+  principalInput: DataBankPrincipal,
+  session: Pick<Session, '_id' | 'userId' | 'orgId'>,
+): ReturnType<typeof resolveDataBankPrincipal> {
+  const principal = resolveDataBankPrincipal(principalInput);
+  const sessionOrgId = dataBankString(session.orgId);
+  if (sessionOrgId !== principal.orgId) {
+    throw new Error('DataBank principal does not match the session owner.');
+  }
+  if (!sessionOrgId && session.userId !== principal.userId) {
+    throw new Error('Personal DataBank memory requires the session owner.');
+  }
+  return principal;
 }
 
 function validDataBankDate(value: Date | undefined, field: string): Date | undefined {
@@ -3117,6 +3160,76 @@ export async function addDataBankEntry(
     brandId?: string;
   }
 ): Promise<DataBankEntry> {
+  return createDataBankEntryRecord(sessionId, userId, entry);
+}
+
+/**
+ * Persist a DataBank record only after re-authorizing its exact session and
+ * deriving ownership from that server-owned session. Callers choose a
+ * conservative data classification; they cannot choose the record owner.
+ */
+export async function addGovernedDataBankEntry(
+  principalInput: DataBankPrincipal,
+  sessionId: string,
+  entry: {
+    type: DataBankEntryType;
+    title: string;
+    content: Record<string, any>;
+    sourceUrl?: string;
+    sourceEntryId?: string;
+    tags?: string[];
+    projectId?: string;
+    scope?: DataBankScope;
+    memoryScope?: DataBankMemoryScope;
+    brandId?: string;
+    governance: DataBankWriteGovernance;
+  },
+): Promise<DataBankEntry> {
+  const principal = resolveDataBankPrincipal(principalInput);
+  const normalizedSessionId = dataBankString(sessionId);
+  if (!normalizedSessionId) throw new Error('DataBank writes require a session.');
+
+  const session = await getSession(normalizedSessionId, principal.userId, principal.orgId);
+  if (!session) throw new Error('DataBank session is unavailable to this actor.');
+  assertDataBankSessionPrincipal(principal, session);
+  const sessionOrgId = dataBankString(session.orgId);
+  if (entry.scope !== 'global' && entry.projectId && entry.projectId !== normalizedSessionId) {
+    throw new Error('Project DataBank memory must belong to the authorized session.');
+  }
+
+  const authority = resolveDataBankEntryAuthority({
+    userId: principal.userId,
+    orgId: sessionOrgId,
+    ...entry.governance,
+  });
+  return createDataBankEntryRecord(
+    normalizedSessionId,
+    principal.userId,
+    {
+      ...entry,
+      projectId: entry.scope === 'global' ? entry.projectId : normalizedSessionId,
+    },
+    authority,
+  );
+}
+
+async function createDataBankEntryRecord(
+  sessionId: string,
+  userId: string,
+  entry: {
+    type: DataBankEntryType;
+    title: string;
+    content: Record<string, any>;
+    sourceUrl?: string;
+    sourceEntryId?: string;
+    tags?: string[];
+    projectId?: string;
+    scope?: DataBankScope;
+    memoryScope?: DataBankMemoryScope;
+    brandId?: string;
+  },
+  authority?: ReturnType<typeof resolveDataBankEntryAuthority>,
+): Promise<DataBankEntry> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
   const now = new Date();
@@ -3126,6 +3239,7 @@ export async function addDataBankEntry(
     sessionId: sessionId || undefined,
     projectId: entry.projectId || undefined,
     userId,
+    ...authority,
     type: entry.type,
     scope: provenance.scope,
     memoryScope: provenance.memoryScope,
