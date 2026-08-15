@@ -167,12 +167,12 @@ describe('post-mortem memory promotion', () => {
     );
     expect(mocks.deleteProjectScopedEntries).toHaveBeenCalledWith(
       'tf_session_1',
-      'user_1',
+      { userId: 'user_1', orgId: 'org_1' },
       ['source_entry_1'],
     );
     expect(mocks.deleteInteractionEventsByIds).toHaveBeenCalledWith(
       'tf_session_1',
-      'user_1',
+      { userId: 'user_1', orgId: 'org_1' },
       ['event_1'],
     );
     const summaryOperationKey = mocks.putGovernedDataBankEntry.mock.calls[0][2] as string;

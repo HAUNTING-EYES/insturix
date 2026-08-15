@@ -40,20 +40,24 @@ describe('post-mortem source cleanup authority', () => {
   it('targets only normalized source records from the authorized session', () => {
     expect(buildProjectScopedDeletionQuery({
       sessionId: ' session_1 ',
-      userId: ' user_1 ',
+      principal: { userId: ' user_1 ', orgId: null },
       entryIds: [' source_1 ', 'source_2', 'source_1', '', '   '],
     })).toEqual({
       _id: { $in: ['source_1', 'source_2'] },
       sessionId: 'session_1',
+      ownerType: 'user',
       userId: 'user_1',
       scope: 'project',
+      memoryScope: 'project',
+      provenanceStatus: 'verified',
+      lifecycleStatus: 'active',
     });
   });
 
   it('cannot create a broad deletion query when no source records were read', () => {
     expect(buildProjectScopedDeletionQuery({
       sessionId: 'session_1',
-      userId: 'user_1',
+      principal: { userId: 'user_1', orgId: null },
       entryIds: [],
     })).toBeNull();
   });
@@ -61,16 +65,17 @@ describe('post-mortem source cleanup authority', () => {
   it('targets only snapshotted interaction events from the exact project', () => {
     expect(buildInteractionEventDeletionQuery({
       projectId: ' session_1 ',
-      userId: ' user_1 ',
+      principal: { userId: ' user_1 ', orgId: ' org_1 ' },
       eventIds: [' event_1 ', 'event_2', 'event_1', ''],
     })).toEqual({
       _id: { $in: ['event_1', 'event_2'] },
       projectId: 'session_1',
-      userId: 'user_1',
+      ownerType: 'organization',
+      orgId: 'org_1',
     });
     expect(buildInteractionEventDeletionQuery({
       projectId: 'session_1',
-      userId: 'user_1',
+      principal: { userId: 'user_1', orgId: null },
       eventIds: [],
     })).toBeNull();
   });
@@ -78,14 +83,14 @@ describe('post-mortem source cleanup authority', () => {
   it('fails closed without an exact session and actor', () => {
     expect(() => buildProjectScopedDeletionQuery({
       sessionId: '',
-      userId: 'user_1',
+      principal: { userId: 'user_1', orgId: null },
       entryIds: ['source_1'],
-    })).toThrow('Project memory cleanup requires an exact session and user.');
+    })).toThrow('Project memory cleanup requires an exact session and principal.');
     expect(() => buildProjectScopedDeletionQuery({
       sessionId: 'session_1',
-      userId: ' ',
+      principal: { userId: ' ', orgId: null },
       entryIds: ['source_1'],
-    })).toThrow('Project memory cleanup requires an exact session and user.');
+    })).toThrow('DataBank authority requires a user actor.');
   });
 
   it('derives stable operation IDs and rejects payload drift in the same slot', () => {

@@ -136,12 +136,12 @@ export async function commitPostMortemPlan(rawPlan: unknown): Promise<PostMortem
 
   const eventsDeleted = await deleteInteractionEventsByIds(
     plan.sessionId,
-    plan.userId,
+    principal,
     plan.sourceEventIds,
   );
   const entriesDeleted = await deleteProjectScopedEntries(
     plan.sessionId,
-    plan.userId,
+    principal,
     plan.sourceEntryIds,
   );
   return {

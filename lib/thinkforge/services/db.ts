@@ -4270,28 +4270,31 @@ export async function promoteAuthorizedDataBankEntryToGlobal(
 
 export function buildInteractionEventDeletionQuery(input: {
   projectId: string;
-  userId: string,
+  principal: DataBankPrincipal;
   eventIds: readonly string[];
 }): Record<string, unknown> | null {
   const projectId = dataBankString(input.projectId);
-  const userId = dataBankString(input.userId);
-  if (!projectId || !userId) {
-    throw new Error('Interaction cleanup requires an exact project and user.');
+  if (!projectId) {
+    throw new Error('Interaction cleanup requires an exact project and principal.');
   }
   const eventIds = [...new Set(
     input.eventIds.map(dataBankString).filter((id): id is string => Boolean(id)),
   )];
   if (eventIds.length === 0) return null;
-  return { _id: { $in: eventIds }, projectId, userId };
+  return {
+    _id: { $in: eventIds },
+    projectId,
+    ...buildInteractionEventPrincipalQuery(input.principal),
+  };
 }
 
 /** Delete only interaction events snapshotted by a Post-Mortem run. */
 export async function deleteInteractionEventsByIds(
   projectId: string,
-  userId: string,
+  principal: DataBankPrincipal,
   eventIds: readonly string[],
 ): Promise<number> {
-  const query = buildInteractionEventDeletionQuery({ projectId, userId, eventIds });
+  const query = buildInteractionEventDeletionQuery({ projectId, principal, eventIds });
   if (!query) return 0;
   const { EventModel } = await getModels();
   const result = await EventModel.deleteMany(query);
@@ -4300,13 +4303,12 @@ export async function deleteInteractionEventsByIds(
 
 export function buildProjectScopedDeletionQuery(input: {
   sessionId: string;
-  userId: string;
+  principal: DataBankPrincipal;
   entryIds: readonly string[];
 }): Record<string, unknown> | null {
   const sessionId = dataBankString(input.sessionId);
-  const userId = dataBankString(input.userId);
-  if (!sessionId || !userId) {
-    throw new Error('Project memory cleanup requires an exact session and user.');
+  if (!sessionId) {
+    throw new Error('Project memory cleanup requires an exact session and principal.');
   }
   const entryIds = [...new Set(
     input.entryIds.map(dataBankString).filter((id): id is string => Boolean(id)),
@@ -4315,23 +4317,26 @@ export function buildProjectScopedDeletionQuery(input: {
   return {
     _id: { $in: entryIds },
     sessionId,
-    userId,
+    ...buildDataBankPrincipalQuery(input.principal),
     scope: 'project',
+    memoryScope: 'project',
+    provenanceStatus: 'verified',
+    lifecycleStatus: 'active',
   };
 }
 
-/** Delete only the project entries snapshotted by a Post-Mortem run. */
+/** Tombstone snapshotted project entries and queue their vectors for deletion. */
 export async function deleteProjectScopedEntries(
   sessionId: string,
-  userId: string,
+  principal: DataBankPrincipal,
   entryIds: readonly string[],
 ): Promise<number> {
-  const query = buildProjectScopedDeletionQuery({ sessionId, userId, entryIds });
+  const query = buildProjectScopedDeletionQuery({ sessionId, principal, entryIds });
   if (!query) return 0;
   await connectToThinkForgeDb();
   const model = getDataBankModel();
-  const result = await model.deleteMany(query);
-  return result.deletedCount ?? 0;
+  const result = await model.updateMany(query, buildDataBankVectorDeletionTombstoneUpdate());
+  return result.modifiedCount ?? 0;
 }
 
 export function buildRecentInteractionEventQuery(input: {
