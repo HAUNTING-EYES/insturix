@@ -19,12 +19,17 @@ import type { HashedStagePacketV2 } from './staged-packet-v2';
 
 type FetchV2 = typeof fetch;
 
-export interface GeneratedCompositionBenchmarkRouteV1 {
+interface GeneratedCompositionBenchmarkRouteBaseV1 {
   routeId: 'OPENAI_LUNA' | 'OPENAI_TERRA' | 'GOOGLE_FLASH' | 'QWEN_3_8_MAX';
-  provider: ProviderTransportKindV2;
   requestModel: string;
   claimedBenchmarkIdentity: string;
   reasoningMode: string;
+}
+
+export interface GeneratedCompositionDirectBenchmarkRouteV1 extends GeneratedCompositionBenchmarkRouteBaseV1 {
+  executionAdapter: 'DIRECT_PROVIDER';
+  provider: ProviderTransportKindV2;
+  billingDisposition: 'METERED_USD';
   pricing: {
     inputUsdPerMillion: number;
     cachedInputUsdPerMillion: number | null;
@@ -33,6 +38,19 @@ export interface GeneratedCompositionBenchmarkRouteV1 {
   };
 }
 
+export interface GeneratedCompositionAgentShellBenchmarkRouteV1 extends GeneratedCompositionBenchmarkRouteBaseV1 {
+  executionAdapter: 'OPENCODE_AGENT_SHELL';
+  provider: 'alibaba-token-plan';
+  billingDisposition: 'TOKEN_PLAN_CREDITS_NO_COMPARABLE_USD_TELEMETRY';
+  pricing: null;
+  credentialEnvironmentVariable: 'QWEN_API_KEY';
+  termsSource: string;
+}
+
+export type GeneratedCompositionBenchmarkRouteV1 =
+  | GeneratedCompositionDirectBenchmarkRouteV1
+  | GeneratedCompositionAgentShellBenchmarkRouteV1;
+
 export type GeneratedCompositionBenchmarkRouteIdV1 = GeneratedCompositionBenchmarkRouteV1['routeId'];
 
 export interface GeneratedCompositionBenchmarkExecutionV1 {
@@ -40,6 +58,7 @@ export interface GeneratedCompositionBenchmarkExecutionV1 {
   planHash: string;
   trialId: string;
   routeIds: readonly GeneratedCompositionBenchmarkRouteIdV1[];
+  executionAdapter: GeneratedCompositionBenchmarkRouteV1['executionAdapter'];
   maximumAuthorizedSpendUsd: number;
   evidenceDirectoryName: string;
   executionHash: string;
@@ -52,8 +71,17 @@ export interface GeneratedCompositionModelBenchmarkPlanV1 {
   apiImplementationHash: string;
   initialPacketHash: string;
   routes: readonly GeneratedCompositionBenchmarkRouteV1[];
+  executionLanes: {
+    directProviderRouteIds: readonly GeneratedCompositionBenchmarkRouteIdV1[];
+    agentShellRouteIds: readonly GeneratedCompositionBenchmarkRouteIdV1[];
+  };
   repairPolicy: { maximumExternalRepairsPerRoute: 1; maximumProviderRunsPerRoute: 2 };
-  spend: { maximumUsdPerProviderRun: number; absoluteMaxSpendUsd: number };
+  spend: {
+    maximumUsdPerProviderRun: number;
+    absoluteMaxSpendUsd: number;
+    nonUsdRouteIds: readonly GeneratedCompositionBenchmarkRouteIdV1[];
+    nonUsdDisposition: 'TOKEN_PLAN_CREDITS_NO_COMPARABLE_USD_TELEMETRY';
+  };
   exclusions: readonly { routeId: string; disposition: string; reason: string; source: string }[];
   planHash: string;
 }
@@ -92,32 +120,42 @@ export type GeneratedCompositionAssessmentFailureClassV1 =
   | 'SANDBOX_INFRASTRUCTURE_FAIL';
 
 const SELECTED_ROUTE_IDS = ['OPENAI_LUNA', 'OPENAI_TERRA', 'GOOGLE_FLASH'] as const;
-const QWEN_ROUTE: GeneratedCompositionBenchmarkRouteV1 = {
+type SmokeBenchmarkRouteV1 = Omit<
+  GeneratedCompositionDirectBenchmarkRouteV1,
+  'executionAdapter' | 'billingDisposition'
+>;
+
+const QWEN_ROUTE: GeneratedCompositionAgentShellBenchmarkRouteV1 = {
   routeId: 'QWEN_3_8_MAX',
-  provider: 'openrouter',
-  requestModel: 'qwen/qwen3.8-max',
-  claimedBenchmarkIdentity: 'qwen/qwen3.8-max-20260803',
+  executionAdapter: 'OPENCODE_AGENT_SHELL',
+  provider: 'alibaba-token-plan',
+  requestModel: 'qwen3.8-max',
+  claimedBenchmarkIdentity: 'qwen3.8-max',
   reasoningMode: 'high',
-  pricing: {
-    inputUsdPerMillion: 2,
-    cachedInputUsdPerMillion: 0.25,
-    cacheWriteUsdPerMillion: 2.5,
-    outputUsdPerMillion: 6,
-  },
+  billingDisposition: 'TOKEN_PLAN_CREDITS_NO_COMPARABLE_USD_TELEMETRY',
+  pricing: null,
+  credentialEnvironmentVariable: 'QWEN_API_KEY',
+  termsSource: 'https://www.alibabacloud.com/help/en/model-studio/more-tools',
 };
 
 export async function buildGeneratedCompositionModelBenchmarkPlanV1(
   apiImplementationHash: string,
 ): Promise<Readonly<GeneratedCompositionModelBenchmarkPlanV1>> {
   const packet = buildDev02GeneratedCompositionModelPacketV1({ apiImplementationHash });
-  const smokePlan = await buildDevelopmentSmokePreflightV2() as unknown as { routes: GeneratedCompositionBenchmarkRouteV1[] };
+  const smokePlan = await buildDevelopmentSmokePreflightV2() as unknown as { routes: SmokeBenchmarkRouteV1[] };
   const routeMap = new Map(smokePlan.routes.map((route) => [route.routeId, route]));
-  const selectedRoutes = SELECTED_ROUTE_IDS.map((id) => {
+  const selectedRoutes: GeneratedCompositionDirectBenchmarkRouteV1[] = SELECTED_ROUTE_IDS.map((id) => {
     const route = routeMap.get(id);
     if (!route) throw new Error(`MODEL_BENCHMARK_ROUTE_MISSING:${id}`);
-    return route;
+    return {
+      ...route,
+      executionAdapter: 'DIRECT_PROVIDER',
+      billingDisposition: 'METERED_USD',
+    };
   });
-  const routes = [...selectedRoutes, QWEN_ROUTE];
+  const routes: GeneratedCompositionBenchmarkRouteV1[] = [...selectedRoutes, QWEN_ROUTE];
+  const directProviderRouteIds = routes.filter(isDirectRoute).map(({ routeId }) => routeId);
+  const agentShellRouteIds = routes.filter(isAgentShellRoute).map(({ routeId }) => routeId);
   const maximumUsdPerProviderRun = packet.packet.stageBudget.maxProviderCostUsd;
   const material = {
     planVersion: 'EDITRON_GENERATED_COMPOSITION_MODEL_BENCHMARK_PLAN_V1' as const,
@@ -126,10 +164,13 @@ export async function buildGeneratedCompositionModelBenchmarkPlanV1(
     apiImplementationHash,
     initialPacketHash: packet.packetHash,
     routes,
+    executionLanes: { directProviderRouteIds, agentShellRouteIds },
     repairPolicy: { maximumExternalRepairsPerRoute: 1 as const, maximumProviderRunsPerRoute: 2 as const },
     spend: {
       maximumUsdPerProviderRun,
-      absoluteMaxSpendUsd: Number((routes.length * 2 * maximumUsdPerProviderRun).toFixed(2)),
+      absoluteMaxSpendUsd: Number((directProviderRouteIds.length * 2 * maximumUsdPerProviderRun).toFixed(2)),
+      nonUsdRouteIds: agentShellRouteIds,
+      nonUsdDisposition: 'TOKEN_PLAN_CREDITS_NO_COMPARABLE_USD_TELEMETRY' as const,
     },
     exclusions: [],
   };
@@ -150,17 +191,21 @@ export function buildGeneratedCompositionBenchmarkExecutionV1(
   if (input.routeIds.length < 1) throw new Error('MODEL_BENCHMARK_ROUTE_SELECTION_EMPTY');
   const requested = new Set(input.routeIds);
   if (requested.size !== input.routeIds.length) throw new Error('MODEL_BENCHMARK_ROUTE_SELECTION_DUPLICATE');
-  const routeIds = plan.routes
-    .map(({ routeId }) => routeId)
-    .filter((routeId) => requested.has(routeId));
+  const selectedRoutes = plan.routes.filter(({ routeId }) => requested.has(routeId));
+  const routeIds = selectedRoutes.map(({ routeId }) => routeId);
   if (routeIds.length !== requested.size) throw new Error('MODEL_BENCHMARK_ROUTE_SELECTION_UNKNOWN');
+  const adapters = new Set(selectedRoutes.map(({ executionAdapter }) => executionAdapter));
+  if (adapters.size !== 1) throw new Error('MODEL_BENCHMARK_EXECUTION_ADAPTER_MIXED');
+  const executionAdapter = selectedRoutes[0].executionAdapter;
+  const directProviderRouteCount = selectedRoutes.filter(isDirectRoute).length;
   const material = {
     executionVersion: 'EDITRON_GENERATED_COMPOSITION_MODEL_BENCHMARK_EXECUTION_V1' as const,
     planHash: plan.planHash,
     trialId,
     routeIds,
+    executionAdapter,
     maximumAuthorizedSpendUsd: Number((
-      routeIds.length
+      directProviderRouteCount
       * plan.repairPolicy.maximumProviderRunsPerRoute
       * plan.spend.maximumUsdPerProviderRun
     ).toFixed(2)),
@@ -169,9 +214,25 @@ export function buildGeneratedCompositionBenchmarkExecutionV1(
   return deepFreezeV1({ ...material, executionHash: hashCanonicalJsonV1(material) });
 }
 
+export function assertGeneratedCompositionDirectExecutionV1(
+  plan: GeneratedCompositionModelBenchmarkPlanV1,
+  execution: GeneratedCompositionBenchmarkExecutionV1,
+): void {
+  if (execution.executionAdapter !== 'DIRECT_PROVIDER') {
+    throw new Error('MODEL_BENCHMARK_AGENT_SHELL_ROUTE_REQUIRES_SEPARATE_RUNNER');
+  }
+  const routeMap = new Map(plan.routes.map((route) => [route.routeId, route]));
+  for (const routeId of execution.routeIds) {
+    const route = routeMap.get(routeId);
+    if (!route || !isDirectRoute(route)) {
+      throw new Error('MODEL_BENCHMARK_AGENT_SHELL_ROUTE_REQUIRES_SEPARATE_RUNNER');
+    }
+  }
+}
+
 export async function runGeneratedCompositionSourceProviderCallV1(input: {
   artifact: HashedStagePacketV2;
-  route: GeneratedCompositionBenchmarkRouteV1;
+  route: GeneratedCompositionDirectBenchmarkRouteV1;
   apiKey: string;
   fetchImpl?: FetchV2;
 }): Promise<Readonly<GeneratedCompositionProviderCallV1>> {
@@ -267,7 +328,7 @@ export function classifyGeneratedCompositionBenchmarkExecutionErrorV1(
     : 'SANDBOX_INFRASTRUCTURE_FAIL';
 }
 
-function pricing(route: GeneratedCompositionBenchmarkRouteV1): ProviderPricingV2 {
+function pricing(route: GeneratedCompositionDirectBenchmarkRouteV1): ProviderPricingV2 {
   return {
     inputUsdPerMillion: route.pricing.inputUsdPerMillion,
     outputUsdPerMillion: route.pricing.outputUsdPerMillion,
@@ -316,4 +377,16 @@ function requestBytes(request: SerializedProviderRequestV2): number {
 
 function isSha256(value: string): boolean {
   return /^[a-f0-9]{64}$/.test(value);
+}
+
+function isDirectRoute(
+  route: GeneratedCompositionBenchmarkRouteV1,
+): route is GeneratedCompositionDirectBenchmarkRouteV1 {
+  return route.executionAdapter === 'DIRECT_PROVIDER';
+}
+
+function isAgentShellRoute(
+  route: GeneratedCompositionBenchmarkRouteV1,
+): route is GeneratedCompositionAgentShellBenchmarkRouteV1 {
+  return route.executionAdapter === 'OPENCODE_AGENT_SHELL';
 }

@@ -14,8 +14,9 @@ import {
   materializeDev02GeneratedCompositionModelCandidateV1,
 } from '../lib/editron/research/open-ended-planner/generated-composition-model-candidate-v1';
 import {
-  type GeneratedCompositionBenchmarkRouteV1,
+  type GeneratedCompositionDirectBenchmarkRouteV1,
   type GeneratedCompositionAssessmentFailureClassV1,
+  assertGeneratedCompositionDirectExecutionV1,
   buildGeneratedCompositionAssessmentFailureV1,
   buildGeneratedCompositionBenchmarkExecutionV1,
   buildGeneratedCompositionBenchmarkSandboxResourcesV1,
@@ -52,6 +53,7 @@ async function main(): Promise<void> {
     trialId: value(args, '--trial-id'),
     routeIds: value(args, '--route-ids').split(',').map((routeId) => routeId.trim()),
   });
+  assertGeneratedCompositionDirectExecutionV1(plan, execution);
   const maxSpend = Number(value(args, '--max-spend-usd'));
   if (value(args, '--plan-hash') !== plan.planHash) throw new Error('MODEL_BENCHMARK_PLAN_HASH_MISMATCH');
   if (!Number.isFinite(maxSpend) || maxSpend < execution.maximumAuthorizedSpendUsd) throw new Error('MODEL_BENCHMARK_SPEND_NOT_AUTHORIZED');
@@ -75,6 +77,9 @@ async function main(): Promise<void> {
   let actualProviderCostUsd = 0;
   const selectedRouteIds = new Set(execution.routeIds);
   for (const route of plan.routes.filter(({ routeId }) => selectedRouteIds.has(routeId))) {
+    if (route.executionAdapter !== 'DIRECT_PROVIDER') {
+      throw new Error('MODEL_BENCHMARK_AGENT_SHELL_ROUTE_REQUIRES_SEPARATE_RUNNER');
+    }
     const row = await runRoute(route, runtime, runRoot, (cost) => {
       actualProviderCostUsd = Number((actualProviderCostUsd + cost).toFixed(12));
       if (actualProviderCostUsd > maxSpend) throw new Error('MODEL_BENCHMARK_AGGREGATE_SPEND_EXCEEDED');
@@ -94,7 +99,7 @@ async function main(): Promise<void> {
 }
 
 async function runRoute(
-  route: GeneratedCompositionBenchmarkRouteV1,
+  route: GeneratedCompositionDirectBenchmarkRouteV1,
   runtime: Awaited<ReturnType<typeof loadRuntimeInputs>>,
   runRoot: string,
   addCost: (cost: number) => void,
@@ -238,7 +243,7 @@ function repairInput(failureStage: GeneratedCompositionModelRepairV1['failureSta
 }
 async function persistAssessmentFailure(
   root: string,
-  route: GeneratedCompositionBenchmarkRouteV1,
+  route: GeneratedCompositionDirectBenchmarkRouteV1,
   candidateOrdinal: 0 | 1,
   candidate: ReturnType<typeof materializeDev02GeneratedCompositionModelCandidateV1>,
   failureStage: GeneratedCompositionModelRepairV1['failureStage'],
@@ -256,8 +261,8 @@ async function persistAssessmentFailure(
     diagnostics,
   }));
 }
-function terminal(route: GeneratedCompositionBenchmarkRouteV1, outcome: string, calls: unknown[], repairsUsed: number, diagnostics: readonly string[]) { return { routeId: route.routeId, requestedModel: route.requestModel, outcome, repairsUsed, calls, diagnostics, stateEffects: [] }; }
-function providerKey(route: GeneratedCompositionBenchmarkRouteV1): string {
+function terminal(route: GeneratedCompositionDirectBenchmarkRouteV1, outcome: string, calls: unknown[], repairsUsed: number, diagnostics: readonly string[]) { return { routeId: route.routeId, requestedModel: route.requestModel, outcome, repairsUsed, calls, diagnostics, stateEffects: [] }; }
+function providerKey(route: GeneratedCompositionDirectBenchmarkRouteV1): string {
   if (route.provider === 'openai') return requiredEnv('OPENAI_API_KEY');
   if (route.provider === 'google') return requiredEnv('GEMINI_API_KEY');
   if (route.provider === 'openrouter') return requiredEnv('OPENROUTER_API_KEY');

@@ -6,6 +6,7 @@ import {
   buildGeneratedCompositionBenchmarkExecutionV1,
   buildGeneratedCompositionBenchmarkSandboxResourcesV1,
   buildGeneratedCompositionModelBenchmarkPlanV1,
+  assertGeneratedCompositionDirectExecutionV1,
   classifyGeneratedCompositionBenchmarkExecutionErrorV1,
   runGeneratedCompositionSourceProviderCallV1,
 } from '@/lib/editron/research/open-ended-planner/generated-composition-model-benchmark-v1';
@@ -20,28 +21,43 @@ const candidate = {
 };
 
 describe('open-ended planner V2 generated-composition model benchmark', () => {
-  it('freezes Luna, Terra, Gemini Flash, and Qwen through their authorized routes', async () => {
+  it('freezes direct Luna, Terra, and Gemini routes plus the separate Qwen agent-shell lane', async () => {
     const first = await buildGeneratedCompositionModelBenchmarkPlanV1(API_HASH);
     const second = await buildGeneratedCompositionModelBenchmarkPlanV1(API_HASH);
     expect(first).toEqual(second);
     expect(first.routes.map(({ routeId, requestModel }) => [routeId, requestModel])).toEqual([
       ['OPENAI_LUNA', 'gpt-5.6-luna'],
       ['OPENAI_TERRA', 'gpt-5.6-terra'],
-      ['GOOGLE_FLASH', 'gemini-3.6-flash'],
-      ['QWEN_3_8_MAX', 'qwen/qwen3.8-max'],
+      ['GOOGLE_FLASH', 'gemini-3.7-flash'],
+      ['QWEN_3_8_MAX', 'qwen3.8-max'],
     ]);
-    expect(first.spend.absoluteMaxSpendUsd).toBe(6);
+    expect(first.executionLanes).toEqual({
+      directProviderRouteIds: ['OPENAI_LUNA', 'OPENAI_TERRA', 'GOOGLE_FLASH'],
+      agentShellRouteIds: ['QWEN_3_8_MAX'],
+    });
+    expect(first.spend).toMatchObject({
+      absoluteMaxSpendUsd: 4.5,
+      nonUsdRouteIds: ['QWEN_3_8_MAX'],
+      nonUsdDisposition: 'TOKEN_PLAN_CREDITS_NO_COMPARABLE_USD_TELEMETRY',
+    });
+    expect(first.routes.find(({ routeId }) => routeId === 'QWEN_3_8_MAX')).toMatchObject({
+      executionAdapter: 'OPENCODE_AGENT_SHELL',
+      provider: 'alibaba-token-plan',
+      credentialEnvironmentVariable: 'QWEN_API_KEY',
+      pricing: null,
+    });
     expect(first.exclusions).toEqual([]);
   });
 
   it('uses Google countTokens before the correctly named generation request', async () => {
     const plan = await buildGeneratedCompositionModelBenchmarkPlanV1(API_HASH);
     const route = plan.routes.find(({ routeId }) => routeId === 'GOOGLE_FLASH')!;
+    if (route.executionAdapter !== 'DIRECT_PROVIDER') throw new Error('expected direct Google route');
     const fetchMock = vi.fn(async (url: string | URL | Request) => {
       const target = String(url);
       if (target.endsWith(':countTokens')) return new Response(JSON.stringify({ totalTokens: 1_000 }), { status: 200 });
       return new Response(JSON.stringify({
-        responseId: 'google-response-1', modelVersion: 'gemini-3.6-flash',
+        responseId: 'google-response-1', modelVersion: 'gemini-3.7-flash-08-2026',
         candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(candidate) }] } }],
         usageMetadata: { promptTokenCount: 1_000, candidatesTokenCount: 50, thoughtsTokenCount: 0, totalTokenCount: 1_050 },
       }), { status: 200 });
@@ -54,7 +70,7 @@ describe('open-ended planner V2 generated-composition model benchmark', () => {
     expect(result.run.disposition).toBe('ARTIFACT_ACCEPTED');
     expect(result.preflightCounts).toEqual([expect.objectContaining({ method: 'GOOGLE_COUNT_TOKENS', inputTokens: 1_000 })]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[1][0])).toContain('/models/gemini-3.6-flash:generateContent');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/models/gemini-3.7-flash:generateContent');
   });
 
   it('creates immutable canonical identities for selected repeated trials', async () => {
@@ -64,10 +80,26 @@ describe('open-ended planner V2 generated-composition model benchmark', () => {
       routeIds: ['OPENAI_TERRA', 'OPENAI_LUNA'],
     });
     expect(execution.routeIds).toEqual(['OPENAI_LUNA', 'OPENAI_TERRA']);
+    expect(execution.executionAdapter).toBe('DIRECT_PROVIDER');
     expect(execution.maximumAuthorizedSpendUsd).toBe(3);
     expect(execution.evidenceDirectoryName).toBe(`evidence-${plan.planHash.slice(0, 16)}-v2-2-dev02-01`);
     expect(execution.executionHash).toMatch(/^[a-f0-9]{64}$/);
     expect(Object.isFrozen(execution)).toBe(true);
+    expect(() => assertGeneratedCompositionDirectExecutionV1(plan, execution)).not.toThrow();
+
+    const qwenExecution = buildGeneratedCompositionBenchmarkExecutionV1(plan, {
+      trialId: 'v2-2-dev02-qwen-01',
+      routeIds: ['QWEN_3_8_MAX'],
+    });
+    expect(qwenExecution.executionAdapter).toBe('OPENCODE_AGENT_SHELL');
+    expect(qwenExecution.maximumAuthorizedSpendUsd).toBe(0);
+    expect(() => assertGeneratedCompositionDirectExecutionV1(plan, qwenExecution)).toThrow(
+      'MODEL_BENCHMARK_AGENT_SHELL_ROUTE_REQUIRES_SEPARATE_RUNNER',
+    );
+    expect(() => buildGeneratedCompositionBenchmarkExecutionV1(plan, {
+      trialId: 'v2-2-dev02-mixed-01',
+      routeIds: ['OPENAI_LUNA', 'QWEN_3_8_MAX'],
+    })).toThrow('MODEL_BENCHMARK_EXECUTION_ADAPTER_MIXED');
 
     expect(() => buildGeneratedCompositionBenchmarkExecutionV1(plan, {
       trialId: '../overwrite', routeIds: ['OPENAI_LUNA'],
