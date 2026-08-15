@@ -14,13 +14,26 @@
 import { streamText, generateObject, generateText } from 'ai';
 import type { LanguageModel } from 'ai';
 import type { z } from 'zod';
-import { createThinkForgeModel, ModelTier } from './model-factory';
+import {
+  createThinkForgeModelForRoute,
+  ModelTier,
+  resolveThinkForgeProviderRoute,
+  type ThinkForgeModelProvider,
+  type ThinkForgeProviderRoute,
+} from './model-factory';
 import { parseJsonLenient } from '@/lib/thinkforge/json';
 import type { IsolatedPromptParts } from './prompt-boundary';
 import {
   recordProviderCostEvent,
   type ProviderCostEventStatus,
 } from '@/lib/financials/provider-cost-events';
+import {
+  assertProviderPromptAllowed,
+  ProviderPrivacyGateError,
+  type ProviderPrivacyAuditRecord,
+  type ProviderPrivacyClass,
+  type ProviderRoutePurpose,
+} from '@/lib/thinkforge/privacy/provider-privacy-gateway';
 
 // Global constraints for SCRIPT agents — adapted by document type.
 // Technical docs (VFX briefs, budgets, shot lists) get strict mechanical constraints.
@@ -76,6 +89,13 @@ type ThinkForgeUsage = {
 
 type ThinkForgeCostOperation = 'llm_stream' | 'llm_structured' | 'llm_structured_fallback';
 
+type ProviderPromptDispatch = {
+  systemInstruction: string;
+  prompt: string;
+  promptChars: number;
+  audit: ProviderPrivacyAuditRecord;
+};
+
 type AgentGenerationOverrides = Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>> & {
   seed?: number;
 };
@@ -83,6 +103,7 @@ type AgentGenerationOverrides = Partial<Pick<AgentConfig, 'maxTokens' | 'tempera
 async function recordThinkForgeAgentCost(input: {
   status: ProviderCostEventStatus;
   agentType: AgentType;
+  provider: ThinkForgeModelProvider;
   modelName: string;
   operation: ThinkForgeCostOperation;
   route: string;
@@ -96,28 +117,35 @@ async function recordThinkForgeAgentCost(input: {
   modelTier?: ModelTier;
   documentType?: string;
   fallback?: string;
+  privacyAudit?: ProviderPrivacyAuditRecord;
+  providerRequestCount?: 0 | 1;
   error?: unknown;
 }) {
+  const requestCount = input.providerRequestCount ?? 1;
+  const inputTokens = requestCount > 0
+    ? input.usage?.inputTokens ?? estimateTokensFromChars(input.promptChars)
+    : undefined;
+  const outputTokens = requestCount > 0
+    ? input.usage?.outputTokens ?? estimateTokensFromChars(input.outputChars)
+    : undefined;
+
   await recordProviderCostEvent({
     status: input.status,
     service: 'thinkforge',
     action: 'agent_generation',
     route: input.route,
-    provider: inferThinkForgeProvider(input.modelName),
+    provider: input.provider,
     model: cleanModelName(input.modelName),
     operation: input.operation,
     projectId: input.sourceInput?.brandId,
     taskId: input.sourceInput?.sessionId,
     units: {
-      requestCount: 1,
-      inputTokens: input.usage?.inputTokens ?? estimateTokensFromChars(input.promptChars),
-      outputTokens: input.usage?.outputTokens ?? estimateTokensFromChars(input.outputChars),
-      totalTokens:
-        input.usage?.totalTokens ??
-        sumOptional(
-          input.usage?.inputTokens ?? estimateTokensFromChars(input.promptChars),
-          input.usage?.outputTokens ?? estimateTokensFromChars(input.outputChars),
-        ),
+      requestCount,
+      inputTokens,
+      outputTokens,
+      totalTokens: requestCount > 0
+        ? input.usage?.totalTokens ?? sumOptional(inputTokens, outputTokens)
+        : undefined,
       functionMs: input.functionMs,
     },
     metadata: {
@@ -130,6 +158,18 @@ async function recordThinkForgeAgentCost(input: {
       maxTokens: input.maxTokens,
       temperature: input.temperature,
       fallback: input.fallback,
+      privacyRoutePurpose: input.privacyAudit?.routePurpose,
+      privacyClass: input.privacyAudit?.privacyClass,
+      privacyFieldsSent: input.privacyAudit?.fieldsSent,
+      privacyDecisionAt: input.privacyAudit?.timestamp,
+      privacySourceFingerprint: input.privacyAudit?.sourcePromptFingerprint,
+      privacySentFingerprint: input.privacyAudit?.sentPromptFingerprint,
+      privacySourceChars: input.privacyAudit?.sourcePromptLength,
+      privacySentChars: input.privacyAudit?.sentPromptLength,
+      privacyRedactions: input.privacyAudit?.redactions,
+      privacyRedactionCount: input.privacyAudit?.redactionCount,
+      privacyRedactionCounts: input.privacyAudit?.redactionCounts,
+      privacyBlockReason: input.privacyAudit?.blockReason,
       errorClass: input.error instanceof Error ? input.error.name : input.error ? typeof input.error : undefined,
     },
   });
@@ -151,14 +191,6 @@ function safeJsonLength(value: unknown): number | undefined {
   } catch {
     return undefined;
   }
-}
-
-function inferThinkForgeProvider(modelName: string): string {
-  const normalized = modelName.toLowerCase();
-  if (normalized.includes('/') && !normalized.startsWith('gemini') && !normalized.startsWith('models/gemini')) {
-    return 'openrouter';
-  }
-  return 'gemini';
 }
 
 function cleanModelName(modelName: string): string {
@@ -189,10 +221,56 @@ function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+function prepareProviderPromptDispatch(input: {
+  route: ThinkForgeProviderRoute;
+  systemInstruction: string;
+  prompt: string;
+}): ProviderPromptDispatch {
+  const boundary = createPrivacyEnvelopeBoundary(input.systemInstruction, input.prompt);
+  const combinedPrompt = `${input.systemInstruction}${boundary}${input.prompt}`;
+  const decision = assertProviderPromptAllowed({
+    provider: input.route.provider,
+    model: input.route.model,
+    routePurpose: input.route.routePurpose,
+    declaredPrivacyClass: input.route.privacyClass,
+    prompt: combinedPrompt,
+    fieldsSent: input.systemInstruction ? ['system', 'prompt'] : ['prompt'],
+  });
+  const boundaryIndex = decision.prompt.indexOf(boundary);
+  if (boundaryIndex < 0 || decision.prompt.indexOf(boundary, boundaryIndex + boundary.length) >= 0) {
+    throw new Error('Provider privacy gateway returned an invalid prompt envelope');
+  }
+
+  const systemInstruction = decision.prompt.slice(0, boundaryIndex);
+  const prompt = decision.prompt.slice(boundaryIndex + boundary.length);
+  return {
+    systemInstruction,
+    prompt,
+    promptChars: systemInstruction.length + prompt.length,
+    audit: decision.audit,
+  };
+}
+
+function createPrivacyEnvelopeBoundary(systemInstruction: string, prompt: string): string {
+  let suffix = 0;
+  let boundary = '';
+  do {
+    boundary = `\n<tf_privacy_boundary_${systemInstruction.length}_${prompt.length}_${suffix}>\n`;
+    suffix += 1;
+  } while (systemInstruction.includes(boundary) || prompt.includes(boundary));
+  return boundary;
+}
+
 /**
  * Configuration for agent instantiation
  */
 export interface AgentConfig {
+  /** Provider route purpose used by the privacy gateway */
+  routePurpose?: ProviderRoutePurpose;
+  /** Minimum sensitivity declared by the caller */
+  privacyClass?: ProviderPrivacyClass;
+  /** Explicit provider choice; private routes remain policy-gated */
+  preferredProvider?: ThinkForgeModelProvider;
   /** Model name to use (defaults to gemini-2.5-flash) */
   modelName?: string;
   /** Temperature for generation (0-2) */
@@ -219,18 +297,37 @@ export interface AgentConfig {
 export abstract class BaseAgent {
   protected model: LanguageModel;
   protected config: Required<AgentConfig>;
+  protected providerRoute: ThinkForgeProviderRoute;
   protected abortSignal?: AbortSignal;
 
   constructor(config: AgentConfig) {
+    const routePurpose = config.routePurpose ?? 'creative_authoring';
+    const privacyClass = config.privacyClass ?? 'business_confidential';
+    const preferredProvider = config.preferredProvider ?? 'gemini';
+    const providerRoute = resolveThinkForgeProviderRoute({
+      routePurpose,
+      privacyClass,
+      preferredProvider,
+      modelName: config.modelName,
+    });
     this.config = {
-      modelName: config.modelName ?? 'gemini-2.5-flash',
+      modelName: providerRoute.model,
       temperature: config.temperature ?? 0.7,
       maxTokens: config.maxTokens ?? 4096,
       agentType: config.agentType,
       modelTier: config.modelTier ?? ModelTier.Reasoning,
       documentType: config.documentType ?? '',
+      routePurpose,
+      privacyClass,
+      preferredProvider,
     };
-    this.model = createThinkForgeModel(this.config.modelName);
+    this.providerRoute = providerRoute;
+    this.model = createThinkForgeModelForRoute({
+      routePurpose,
+      privacyClass,
+      preferredProvider,
+      modelName: providerRoute.model,
+    });
   }
 
   /**
@@ -295,15 +392,25 @@ export abstract class BaseAgent {
     const promptParts = this.buildPromptParts(input);
     const prompt = promptParts.prompt;
     const systemInstruction = promptParts.systemInstruction.trim();
-    const promptChars = prompt.length + systemInstruction.length;
     const gen = this.resolveGenConfig(overrides);
     const signal = abortSignal ?? this.abortSignal;
+    let privacyAudit: ProviderPrivacyAuditRecord | undefined;
+    let promptChars: number | undefined;
+    let providerCallStarted = false;
 
     try {
+      const dispatch = prepareProviderPromptDispatch({
+        route: this.providerRoute,
+        systemInstruction,
+        prompt,
+      });
+      privacyAudit = dispatch.audit;
+      promptChars = dispatch.promptChars;
+      providerCallStarted = true;
       const result = streamText({
         model: this.model,
-        system: systemInstruction || undefined,
-        prompt,
+        system: dispatch.systemInstruction || undefined,
+        prompt: dispatch.prompt,
         temperature: gen.temperature,
         // @ts-ignore - Vercel AI SDK version mismatch on maxTokens
         maxTokens: gen.maxTokens,
@@ -316,6 +423,7 @@ export abstract class BaseAgent {
       const modelName = this.config.modelName;
       const modelTier = this.config.modelTier;
       const documentType = this.config.documentType;
+      const provider = this.providerRoute.provider;
 
       const streamGenerator = async function* (): AsyncGenerator<string, void, unknown> {
         let outputChars = 0;
@@ -328,6 +436,7 @@ export abstract class BaseAgent {
           await recordThinkForgeAgentCost({
             status: 'success',
             agentType,
+            provider,
             modelName,
             operation: 'llm_stream',
             route: 'lib/thinkforge/agents/base-agent.run',
@@ -340,12 +449,14 @@ export abstract class BaseAgent {
             temperature: gen.temperature,
             modelTier,
             documentType,
+            privacyAudit,
           });
 
         } catch (error) {
           await recordThinkForgeAgentCost({
             status: 'failed',
             agentType,
+            provider,
             modelName,
             operation: 'llm_stream',
             route: 'lib/thinkforge/agents/base-agent.run',
@@ -357,6 +468,7 @@ export abstract class BaseAgent {
             temperature: gen.temperature,
             modelTier,
             documentType,
+            privacyAudit,
             error,
           });
           logInvocation({
@@ -375,6 +487,25 @@ export abstract class BaseAgent {
         },
       };
     } catch (error) {
+      const failedAudit = error instanceof ProviderPrivacyGateError ? error.audit : privacyAudit;
+      await recordThinkForgeAgentCost({
+        status: 'failed',
+        agentType: this.config.agentType,
+        provider: this.providerRoute.provider,
+        modelName: this.config.modelName,
+        operation: 'llm_stream',
+        route: 'lib/thinkforge/agents/base-agent.run',
+        sourceInput: input,
+        promptChars,
+        functionMs: Date.now() - startTime,
+        maxTokens: gen.maxTokens,
+        temperature: gen.temperature,
+        modelTier: this.config.modelTier,
+        documentType: this.config.documentType,
+        privacyAudit: failedAudit,
+        providerRequestCount: providerCallStarted ? 1 : 0,
+        error,
+      });
       logInvocation({
         agent: this.config.agentType,
         model: this.config.modelName,
@@ -429,16 +560,26 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
     const promptParts = this.buildPromptParts(input);
     const prompt = promptParts.prompt;
     const systemInstruction = promptParts.systemInstruction.trim();
-    const promptChars = prompt.length + systemInstruction.length;
     const gen = this.resolveGenConfig(overrides);
     const signal = abortSignal ?? this.abortSignal;
+    let privacyAudit: ProviderPrivacyAuditRecord | undefined;
+    let promptChars: number | undefined;
+    let providerCallStarted = false;
 
     try {
+      const dispatch = prepareProviderPromptDispatch({
+        route: this.providerRoute,
+        systemInstruction,
+        prompt,
+      });
+      privacyAudit = dispatch.audit;
+      promptChars = dispatch.promptChars;
+      providerCallStarted = true;
       const result = await generateObject({
         model: this.model,
         schema: this.schema,
-        system: systemInstruction || undefined,
-        prompt,
+        system: dispatch.systemInstruction || undefined,
+        prompt: dispatch.prompt,
         temperature: gen.temperature,
         // @ts-ignore
         maxTokens: gen.maxTokens,
@@ -449,6 +590,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
       await recordThinkForgeAgentCost({
         status: 'success',
         agentType: this.config.agentType,
+        provider: this.providerRoute.provider,
         modelName: this.config.modelName,
         operation: 'llm_structured',
         route: 'lib/thinkforge/agents/base-agent.runStructured',
@@ -461,6 +603,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         temperature: gen.temperature,
         modelTier: this.config.modelTier,
         documentType: this.config.documentType,
+        privacyAudit,
       });
 
       return {
@@ -472,11 +615,13 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
       const isStructuredFailure = message?.toLowerCase().includes('_zod') || message?.toLowerCase().includes('structured');
+      const activePrivacyAudit = error instanceof ProviderPrivacyGateError ? error.audit : privacyAudit;
 
       if (isStructuredFailure) {
         await recordThinkForgeAgentCost({
           status: 'failed',
           agentType: this.config.agentType,
+          provider: this.providerRoute.provider,
           modelName: this.config.modelName,
           operation: 'llm_structured',
           route: 'lib/thinkforge/agents/base-agent.runStructured',
@@ -487,16 +632,30 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           temperature: gen.temperature,
           modelTier: this.config.modelTier,
           documentType: this.config.documentType,
+          privacyAudit: activePrivacyAudit,
+          providerRequestCount: providerCallStarted ? 1 : 0,
           error,
         });
 
         // Fallback: ask model to return JSON manually and parse it.
+        const fallbackPrompt = `${prompt}\n\nReturn ONLY valid JSON that matches this schema (no markdown): ${this.schema.toString()}`;
         let fallback: Awaited<ReturnType<typeof generateText>>;
+        let fallbackPrivacyAudit: ProviderPrivacyAuditRecord | undefined;
+        let fallbackPromptChars: number | undefined;
+        let fallbackProviderCallStarted = false;
         try {
+          const fallbackDispatch = prepareProviderPromptDispatch({
+            route: this.providerRoute,
+            systemInstruction,
+            prompt: fallbackPrompt,
+          });
+          fallbackPrivacyAudit = fallbackDispatch.audit;
+          fallbackPromptChars = fallbackDispatch.promptChars;
+          fallbackProviderCallStarted = true;
           fallback = await generateText({
             model: this.model,
-            system: systemInstruction || undefined,
-            prompt: `${prompt}\n\nReturn ONLY valid JSON that matches this schema (no markdown): ${this.schema.toString()}`,
+            system: fallbackDispatch.systemInstruction || undefined,
+            prompt: fallbackDispatch.prompt,
             temperature: gen.temperature,
             // @ts-ignore
             maxTokens: gen.maxTokens,
@@ -504,20 +663,26 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
             abortSignal: signal,
           });
         } catch (fallbackError) {
+          const failedFallbackAudit = fallbackError instanceof ProviderPrivacyGateError
+            ? fallbackError.audit
+            : fallbackPrivacyAudit;
           await recordThinkForgeAgentCost({
             status: 'failed',
             agentType: this.config.agentType,
+            provider: this.providerRoute.provider,
             modelName: this.config.modelName,
             operation: 'llm_structured_fallback',
             route: 'lib/thinkforge/agents/base-agent.runStructured',
             sourceInput: input,
-            promptChars,
+            promptChars: fallbackPromptChars,
             functionMs: Date.now() - startTime,
             maxTokens: gen.maxTokens,
             temperature: gen.temperature,
             modelTier: this.config.modelTier,
             documentType: this.config.documentType,
             fallback: 'manual_json',
+            privacyAudit: failedFallbackAudit,
+            providerRequestCount: fallbackProviderCallStarted ? 1 : 0,
             error: fallbackError,
           });
           throw fallbackError;
@@ -534,11 +699,12 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           await recordThinkForgeAgentCost({
             status: 'success',
             agentType: this.config.agentType,
+            provider: this.providerRoute.provider,
             modelName: this.config.modelName,
             operation: 'llm_structured_fallback',
             route: 'lib/thinkforge/agents/base-agent.runStructured',
             sourceInput: input,
-            promptChars,
+            promptChars: fallbackPromptChars,
             outputChars: jsonText.length,
             functionMs: Date.now() - startTime,
             usage: fallbackUsage,
@@ -547,6 +713,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
             modelTier: this.config.modelTier,
             documentType: this.config.documentType,
             fallback: 'manual_json',
+            privacyAudit: fallbackPrivacyAudit,
           });
 
           return {
@@ -557,11 +724,12 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           await recordThinkForgeAgentCost({
             status: 'failed',
             agentType: this.config.agentType,
+            provider: this.providerRoute.provider,
             modelName: this.config.modelName,
             operation: 'llm_structured_fallback',
             route: 'lib/thinkforge/agents/base-agent.runStructured',
             sourceInput: input,
-            promptChars,
+            promptChars: fallbackPromptChars,
             outputChars: jsonText.length,
             functionMs: Date.now() - startTime,
             usage: fallbackUsage,
@@ -570,6 +738,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
             modelTier: this.config.modelTier,
             documentType: this.config.documentType,
             fallback: 'manual_json',
+            privacyAudit: fallbackPrivacyAudit,
             error: parseError,
           });
 
@@ -586,6 +755,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
       await recordThinkForgeAgentCost({
         status: 'failed',
         agentType: this.config.agentType,
+        provider: this.providerRoute.provider,
         modelName: this.config.modelName,
         operation: 'llm_structured',
         route: 'lib/thinkforge/agents/base-agent.runStructured',
@@ -596,6 +766,8 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         temperature: gen.temperature,
         modelTier: this.config.modelTier,
         documentType: this.config.documentType,
+        privacyAudit: activePrivacyAudit,
+        providerRequestCount: providerCallStarted ? 1 : 0,
         error,
       });
 

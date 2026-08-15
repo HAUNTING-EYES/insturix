@@ -69,7 +69,8 @@ const NON_APPROVED_EXTERNAL_PROVIDERS = new Set(['deepseek', 'openrouter']);
 const CHILD_DATA_PATTERNS = [
   /\bchild\s+(?:data|record|profile|identity|address|email|phone|medical|school)\b/i,
   /\bminor\s+(?:data|record|profile|identity|address|email|phone|medical|school)\b/i,
-  /\bunder\s*1[0-7]\b/i,
+  /\bunder\s+(?:the\s+)?age\s+of\s+(?:1[0-8]|[0-9])\b/i,
+  /\b(?:users?|people|persons?|participants?|students?|children|customers?|patients?)\s+under\s+(?:1[0-8]|[0-9])\b/i,
   /\bage\s*(?:1[0-7]|[0-9])\b/i,
   /\b(?:1[0-7]|[0-9])[-\s]*(?:year|yr)[-\s]?old\b/i,
   /\bstudent\s+(?:record|profile|address|email|phone|medical|data)\b/i,

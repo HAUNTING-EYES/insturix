@@ -18,6 +18,30 @@ vi.mock('@/lib/thinkforge/agents/model-factory', () => ({
   createThinkForgeModel: vi.fn(() => ({ modelId: 'mock-model' })),
   createThinkForgeModelForRoute: vi.fn(() => ({ modelId: 'mock-model' })),
   createModelByTier: vi.fn(() => ({ modelId: 'mock-model' })),
+  resolveThinkForgeProviderRoute: vi.fn((options: {
+    routePurpose: string;
+    privacyClass: string;
+    preferredProvider?: string;
+    modelName?: string;
+  }) => ({
+    provider: options.preferredProvider ?? 'gemini',
+    model: options.modelName ?? 'gemini-2.5-flash',
+    routePurpose: options.routePurpose,
+    privacyClass: options.privacyClass,
+    privacyAudit: {
+      provider: options.preferredProvider ?? 'gemini',
+      model: options.modelName ?? 'gemini-2.5-flash',
+      routePurpose: options.routePurpose,
+      privacyClass: options.privacyClass,
+      fieldsSent: ['prompt'],
+      timestamp: '2026-08-16T00:00:00.000Z',
+      sourcePromptFingerprint: 'route-only',
+      sentPromptFingerprint: 'route-only',
+      sourcePromptLength: 0,
+      sentPromptLength: 0,
+      redactions: [],
+    },
+  })),
   ModelTier: {
     Structural: 'structural',
     Reasoning: 'reasoning',
