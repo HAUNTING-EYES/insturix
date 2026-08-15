@@ -120,6 +120,15 @@ describe('ThinkForge generation lifecycle', () => {
       .toBe('The draft could not be completed and was not saved. Please try again.');
   });
 
+  it('keeps generation work status transient and persists only the completion result', () => {
+    const service = read('lib/thinkforge/services/chat-service.ts');
+
+    expect(service).toContain("await emitEvent('progress', { progress: 0, message: workingMsg })");
+    expect(service).not.toContain("await emitEvent('token', { content: workingMsg })");
+    expect(service).toContain("await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId)");
+    expect(service).not.toContain('generatedDocumentLabel');
+  });
+
   it('wires stream ownership instead of a session-global cancellation latch', () => {
     const hook = read('app/dashboard/thinkforge/hooks/useThinkForgeChat.ts');
 

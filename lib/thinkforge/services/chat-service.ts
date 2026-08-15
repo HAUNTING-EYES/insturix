@@ -901,9 +901,9 @@ CRITICAL: You are editing a SELECTION from a larger document.
         }
       } else if (shouldRunGeneration) {
         // Generate a new document from scratch
-        // Stream a "working" message first
+        // Keep the working state transient. Chat tokens are durable user-facing content.
         const workingMsg = `Creating your ${requestedDocumentLabel}...`;
-        if (!(await emitEvent('token', { content: workingMsg }))) return;
+        if (!(await emitEvent('progress', { progress: 0, message: workingMsg }))) return;
 
         // Run Thinking Agent before draft ONLY for video scripts or explicit doc types
         const documentIntent = requestedDocumentIntent || resolveThinkForgeDocumentIntent(
@@ -913,7 +913,6 @@ CRITICAL: You are editing a SELECTION from a larger document.
         );
         const contentPath = documentIntent.contentPath;
         const generatedDocumentType = documentIntent.documentType;
-        const generatedDocumentLabel = documentIntent.documentLabel;
         const authoringPrompt = resolveThinkForgeAuthoringPrompt(
           effectivePrompt,
           sessionState.metadata,
@@ -1233,13 +1232,13 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
         // Send completion response
         const completionLabel = contentPath === 'post' ? 'Post' : 'Script';
-        finalResponse = `\n\n${completionLabel} "${finalTitle}" created successfully!`;
+        finalResponse = `${completionLabel} "${finalTitle}" created successfully!`;
         if (!(await emitEvent('token', { content: finalResponse }))) return;
 
         // Persist assistant message
         if (session) {
-          await db.appendChatMessage(canonicalSessionId, 'assistant', `Creating your ${generatedDocumentLabel}...\n\n${completionLabel} "${finalTitle}" created successfully!`, threadId);
-      }
+          await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
+        }
       } else if (intentResult.intent === 'research') {
         // Research intent - use search-grounded agent (non-streaming for metadata access)
         const project = sessionState.metadata;
