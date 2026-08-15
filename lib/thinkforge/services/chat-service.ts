@@ -20,7 +20,7 @@ import {
   buildThinkForgeAuthoringContextSnapshot,
   resolveThinkForgeAuthoringProjectMetadata,
 } from '../context/brand-authoring-context';
-import { classifyIntent, intentRequiresSelection, type Intent, type IntentContextSignals } from '../intent/intent-gate';
+import { classifyIntent, intentRequiresSelection, type IntentContextSignals } from '../intent/intent-gate';
 import * as db from './db';
 import { applyCommand } from './command-service';
 import { collectExemplarPassively } from './exemplar-collector';
@@ -470,7 +470,6 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           }
 
           // Run full draft pipeline
-          const genId = `gen_bp_${Date.now()}_${i}`;
           if (!(await emitEvent('progress', { progress: (i / total) * 0.9, message: `Writing "${title}"...` }))) return;
 
           try {
