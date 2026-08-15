@@ -8,9 +8,12 @@
 import { Index } from '@upstash/vector';
 import {
   claimDataBankEntriesForEmbedding,
+  claimDataBankEntriesForVectorDeletion,
   claimDataBankEntryForEmbedding,
   completeDataBankEmbedding,
+  completeDataBankVectorDeletion,
   failDataBankEmbedding,
+  failDataBankVectorDeletion,
   getAuthorizedDataBankEntriesByIds,
   DATA_BANK_EMBEDDING_METADATA_VERSION,
   type AuthorizedDataBankEntriesByIdsOptions,
@@ -194,6 +197,14 @@ export function buildDataBankEmbeddingVectorId(entryId: string, embeddingLeaseId
   return `tfdb:${normalizedEntryId}:${normalizedLeaseId}`;
 }
 
+export function buildDataBankEmbeddingVectorPrefix(entryId: string): string {
+  const normalizedEntryId = entryId.trim();
+  if (!normalizedEntryId) {
+    throw new DataBankEmbeddingAuthorityError('DataBank vector deletion requires an entryId.');
+  }
+  return `tfdb:${normalizedEntryId}:`;
+}
+
 export interface EmbeddingProcessingResult {
   stored: number;
   failed: number;
@@ -216,6 +227,64 @@ export async function processPendingEmbeddings(limit: number = 50): Promise<Embe
     }
   }
   return { stored, failed };
+}
+
+export interface VectorDeletionProcessingResult {
+  processed: number;
+  deleted: number;
+  purged: number;
+  stale: number;
+  failed: number;
+}
+
+/** Delete all legacy and lease-specific vectors before advancing the tombstone. */
+export async function processPendingVectorDeletions(
+  limit: number = 50,
+): Promise<VectorDeletionProcessingResult> {
+  const entries = await claimDataBankEntriesForVectorDeletion(limit);
+  const result: VectorDeletionProcessingResult = {
+    processed: entries.length,
+    deleted: 0,
+    purged: 0,
+    stale: 0,
+    failed: 0,
+  };
+
+  for (const entry of entries) {
+    const entryId = entry._id.toString();
+    const vectorDeletionLeaseId = entry.vectorDeletionLeaseId?.trim();
+    if (!vectorDeletionLeaseId) {
+      console.error(`[EmbeddingService] Claimed vector deletion ${entryId} has no lease.`);
+      result.failed += 1;
+      continue;
+    }
+
+    try {
+      const index = getVectorIndex();
+      await index.delete({ prefix: buildDataBankEmbeddingVectorPrefix(entryId) });
+      const explicitVectorIds = [...new Set([
+        entryId,
+        entry.vectorId?.trim(),
+      ].filter((vectorId): vectorId is string => Boolean(vectorId)))];
+      await index.delete(explicitVectorIds);
+
+      const completion = await completeDataBankVectorDeletion(entryId, vectorDeletionLeaseId);
+      result[completion] += 1;
+    } catch (error) {
+      try {
+        await failDataBankVectorDeletion(
+          entryId,
+          vectorDeletionLeaseId,
+          entry.vectorDeletionAttempts ?? 1,
+        );
+      } catch (statusError) {
+        console.error(`[EmbeddingService] Failed to record vector deletion failure for ${entryId}:`, statusError);
+      }
+      console.error(`[EmbeddingService] Failed to delete vectors for ${entryId}:`, error);
+      result.failed += 1;
+    }
+  }
+  return result;
 }
 
 const RELEVANCE_THRESHOLD = 0.35;

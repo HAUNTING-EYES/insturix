@@ -2609,6 +2609,7 @@ export type DataBankOwnerType = 'user' | 'organization';
 export type DataBankClassification = 'public' | 'business_confidential' | 'personal' | 'child_data';
 export type DataBankConsentStatus = 'not_required' | 'granted' | 'withdrawn';
 export type DataBankLifecycleStatus = 'active' | 'superseded' | 'expired';
+export type DataBankVectorDeletionStatus = 'pending' | 'processing' | 'failed' | 'deleted';
 export interface DataBankPrincipal {
   userId: string;
   orgId?: string | null;
@@ -2678,6 +2679,13 @@ export interface DataBankEntry {
   embeddingMetadataVersion?: number;
   vectorId?: string;
   embedding?: number[];
+  vectorDeletionStatus?: DataBankVectorDeletionStatus;
+  vectorDeletionAttempts?: number;
+  vectorDeletionRequestedAt?: Date;
+  vectorDeletedAt?: Date;
+  vectorDeletionNextRetryAt?: Date;
+  vectorDeletionLeaseExpiresAt?: Date;
+  vectorDeletionLeaseId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -2734,6 +2742,16 @@ const DataBankSchema = new Schema({
   embeddingMetadataVersion: { type: Number },
   vectorId: { type: String },
   embedding: { type: [Number], default: undefined },
+  vectorDeletionStatus: {
+    type: String,
+    enum: ['pending', 'processing', 'failed', 'deleted'],
+  },
+  vectorDeletionAttempts: { type: Number, default: 0 },
+  vectorDeletionRequestedAt: { type: Date },
+  vectorDeletedAt: { type: Date },
+  vectorDeletionNextRetryAt: { type: Date },
+  vectorDeletionLeaseExpiresAt: { type: Date },
+  vectorDeletionLeaseId: { type: String },
   scope: { type: String, enum: ['project', 'global'], default: 'project', index: true },
   memoryScope: { type: String, enum: ['project', 'brand', 'universal'], index: true },
   createdAt: { type: Date, default: Date.now },
@@ -2748,6 +2766,7 @@ DataBankSchema.index({ ownerType: 1, orgId: 1, scope: 1, memoryScope: 1, brandId
 DataBankSchema.index({ lifecycleStatus: 1, expiresAt: 1 });
 DataBankSchema.index({ embeddingStatus: 1, embeddingNextRetryAt: 1, createdAt: 1 });
 DataBankSchema.index({ embeddingStatus: 1, embeddingLeaseExpiresAt: 1 });
+DataBankSchema.index({ vectorDeletionStatus: 1, vectorDeletionNextRetryAt: 1, vectorDeletionLeaseExpiresAt: 1 });
 DataBankSchema.index({ sessionId: 1, userId: 1 });
 DataBankSchema.index({ projectId: 1, type: 1 });
 DataBankSchema.index({ tags: 1 });
@@ -3667,6 +3686,183 @@ export function buildDataBankEmbeddingLeaseFilter(
   };
 }
 
+const VECTOR_DELETION_LEASE_MS = 5 * 60 * 1000;
+const VECTOR_DELETION_INITIAL_DELAY_MS = 10 * 60 * 1000;
+const VECTOR_DELETION_RECHECK_MS = 60 * 60 * 1000;
+const VECTOR_DELETION_TOMBSTONE_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/** Immediately hide and scrub a record while retaining only deletion authority. */
+export function buildDataBankVectorDeletionTombstoneUpdate(now = new Date()): DataBankOwnershipQuery {
+  if (!Number.isFinite(now.getTime())) throw new Error('DataBank deletion time must be valid.');
+  return {
+    $set: {
+      lifecycleStatus: 'superseded',
+      title: 'Deleted DataBank entry',
+      content: {},
+      tags: [],
+      vectorDeletionStatus: 'pending',
+      vectorDeletionAttempts: 0,
+      vectorDeletionRequestedAt: now,
+      vectorDeletionNextRetryAt: new Date(now.getTime() + VECTOR_DELETION_INITIAL_DELAY_MS),
+      updatedAt: now,
+    },
+    $unset: {
+      sessionId: '',
+      projectId: '',
+      brandId: '',
+      sourceUrl: '',
+      sourceEntryId: '',
+      freshUntil: '',
+      expiresAt: '',
+      embedding: '',
+      vectorDeletedAt: '',
+      vectorDeletionLeaseExpiresAt: '',
+      vectorDeletionLeaseId: '',
+    },
+  };
+}
+
+/** Build the retry/lease predicate for durable vector deletion work. */
+export function buildClaimableDataBankVectorDeletionQuery(now = new Date()): DataBankOwnershipQuery {
+  if (!Number.isFinite(now.getTime())) throw new Error('DataBank deletion time must be valid.');
+  return {
+    lifecycleStatus: { $in: ['superseded', 'expired'] },
+    $or: [
+      {
+        vectorDeletionStatus: { $in: ['pending', 'failed', 'deleted'] },
+        $or: [
+          { vectorDeletionNextRetryAt: { $lte: now } },
+          { vectorDeletionNextRetryAt: { $exists: false } },
+          { vectorDeletionNextRetryAt: null },
+        ],
+      },
+      {
+        vectorDeletionStatus: 'processing',
+        $or: [
+          { vectorDeletionLeaseExpiresAt: { $lte: now } },
+          { vectorDeletionLeaseExpiresAt: { $exists: false } },
+          { vectorDeletionLeaseExpiresAt: null },
+        ],
+      },
+    ],
+  };
+}
+
+async function claimDataBankVectorDeletion(now: Date): Promise<DataBankEntry | null> {
+  const vectorDeletionLeaseId = crypto.randomUUID();
+  const doc = await getDataBankModel().findOneAndUpdate(
+    buildClaimableDataBankVectorDeletionQuery(now),
+    {
+      $set: {
+        vectorDeletionStatus: 'processing',
+        vectorDeletionLeaseId,
+        vectorDeletionLeaseExpiresAt: new Date(now.getTime() + VECTOR_DELETION_LEASE_MS),
+        updatedAt: now,
+      },
+      $unset: { vectorDeletionNextRetryAt: '' },
+      $inc: { vectorDeletionAttempts: 1 },
+    },
+    { new: true },
+  ).lean();
+  return doc as DataBankEntry | null;
+}
+
+/** Claim a bounded batch of durable vector deletion tombstones. */
+export async function claimDataBankEntriesForVectorDeletion(limit: number = 50): Promise<DataBankEntry[]> {
+  await connectToThinkForgeDb();
+  const entries: DataBankEntry[] = [];
+  const cappedLimit = Math.max(1, Math.min(limit, 200));
+  for (let index = 0; index < cappedLimit; index++) {
+    const entry = await claimDataBankVectorDeletion(new Date());
+    if (!entry) break;
+    entries.push(entry);
+  }
+  return entries;
+}
+
+export function buildDataBankVectorDeletionLeaseFilter(
+  entryId: string,
+  vectorDeletionLeaseId: string,
+): DataBankOwnershipQuery {
+  const normalizedEntryId = dataBankString(entryId);
+  const normalizedLeaseId = dataBankString(vectorDeletionLeaseId);
+  if (!normalizedEntryId || !normalizedLeaseId) {
+    throw new Error('DataBank vector deletion requires an exact entry and lease.');
+  }
+  return {
+    _id: normalizedEntryId,
+    lifecycleStatus: { $in: ['superseded', 'expired'] },
+    vectorDeletionStatus: 'processing',
+    vectorDeletionLeaseId: normalizedLeaseId,
+  };
+}
+
+export type DataBankVectorDeletionCompletion = 'deleted' | 'purged' | 'stale';
+
+export function shouldPurgeDataBankVectorTombstone(
+  requestedAt: Date | undefined,
+  now = new Date(),
+): boolean {
+  if (!Number.isFinite(now.getTime())) throw new Error('DataBank deletion time must be valid.');
+  return requestedAt instanceof Date
+    && Number.isFinite(requestedAt.getTime())
+    && requestedAt.getTime() <= now.getTime() - VECTOR_DELETION_TOMBSTONE_RETENTION_MS;
+}
+
+/** Mark vector deletion for re-verification or purge an aged, scrubbed tombstone. */
+export async function completeDataBankVectorDeletion(
+  entryId: string,
+  vectorDeletionLeaseId: string,
+  now = new Date(),
+): Promise<DataBankVectorDeletionCompletion> {
+  await connectToThinkForgeDb();
+  if (!Number.isFinite(now.getTime())) throw new Error('DataBank deletion time must be valid.');
+  const model = getDataBankModel();
+  const filter = buildDataBankVectorDeletionLeaseFilter(entryId, vectorDeletionLeaseId);
+  const claimed = await model.findOne(filter)
+    .select('vectorDeletionRequestedAt')
+    .lean() as Pick<DataBankEntry, 'vectorDeletionRequestedAt'> | null;
+  if (!claimed) return 'stale';
+
+  if (shouldPurgeDataBankVectorTombstone(claimed.vectorDeletionRequestedAt, now)) {
+    const purged = await model.deleteOne(filter);
+    return purged.deletedCount > 0 ? 'purged' : 'stale';
+  }
+
+  const result = await model.updateOne(filter, {
+    $set: {
+      vectorDeletionStatus: 'deleted',
+      vectorDeletedAt: now,
+      vectorDeletionNextRetryAt: new Date(now.getTime() + VECTOR_DELETION_RECHECK_MS),
+      updatedAt: now,
+    },
+    $unset: { vectorDeletionLeaseExpiresAt: '', vectorDeletionLeaseId: '' },
+  });
+  return result.matchedCount > 0 ? 'deleted' : 'stale';
+}
+
+export async function failDataBankVectorDeletion(
+  entryId: string,
+  vectorDeletionLeaseId: string,
+  attempt: number,
+): Promise<boolean> {
+  await connectToThinkForgeDb();
+  const cappedAttempt = Math.max(1, attempt);
+  const retryDelayMs = Math.min(60 * 60 * 1000, 60 * 1000 * 2 ** (cappedAttempt - 1));
+  const result = await getDataBankModel().updateOne(
+    buildDataBankVectorDeletionLeaseFilter(entryId, vectorDeletionLeaseId),
+    {
+      $set: {
+        vectorDeletionStatus: 'failed',
+        vectorDeletionNextRetryAt: new Date(Date.now() + retryDelayMs),
+        updatedAt: new Date(),
+      },
+      $unset: { vectorDeletionLeaseExpiresAt: '', vectorDeletionLeaseId: '' },
+    },
+  );
+  return result.matchedCount > 0;
+}
+
 export interface DataBankProvenanceBackfillResult {
   scanned: number;
   verified: number;
@@ -3764,18 +3960,23 @@ export async function backfillDataBankProvenanceAndQueueEmbeddings(
   return { scanned: candidates.length, verified, quarantined, reembeddingQueued };
 }
 
-/** Delete a DataBank entry through exact personal or organization authority. */
+/** Scrub a DataBank entry and durably queue external vector deletion. */
 export async function deleteAuthorizedDataBankEntry(
   entryId: string,
   principalInput: DataBankPrincipal,
 ): Promise<boolean> {
   await connectToThinkForgeDb();
-  const model = getDataBankModel();
-  const result = await model.deleteOne({
-    _id: entryId,
-    ...buildDataBankPrincipalQuery(principalInput),
-  });
-  return result.deletedCount > 0;
+  const normalizedEntryId = dataBankString(entryId);
+  if (!normalizedEntryId) throw new Error('DataBank deletion requires an entryId.');
+  const result = await getDataBankModel().findOneAndUpdate(
+    {
+      _id: normalizedEntryId,
+      ...buildDataBankPrincipalQuery(principalInput),
+    },
+    buildDataBankVectorDeletionTombstoneUpdate(),
+    { new: true },
+  ).lean();
+  return Boolean(result);
 }
 
 // ==================== BrandDNA Operations ====================
