@@ -909,13 +909,30 @@ async function getModels() {
 
 // ==================== Session Operations ====================
 
+export function buildThinkForgeSessionPrincipalQuery(input: {
+  sessionId: string;
+  userId: string;
+  orgId?: string | null;
+}): Record<string, unknown> {
+  const sessionId = input.sessionId.trim();
+  const userId = input.userId.trim();
+  const orgId = input.orgId?.trim() || null;
+  if (!sessionId || !userId) {
+    throw new Error('ThinkForge session authority requires an exact session and user actor.');
+  }
+  return orgId
+    ? { _id: sessionId, orgId }
+    : {
+        _id: sessionId,
+        userId,
+        $or: [{ orgId: { $exists: false } }, { orgId: null }],
+      };
+}
+
 export async function getSession(sessionId: string, userId: string, orgId?: string | null): Promise<Session | null> {
   try {
     const { SessionModel } = await getModels();
-    // STEP 4: Support org-based session access (same pattern as getOrCreateSession)
-    const query = orgId
-      ? { _id: sessionId, $or: [{ userId }, { orgId }] }
-      : { _id: sessionId, userId };
+    const query = buildThinkForgeSessionPrincipalQuery({ sessionId, userId, orgId });
     const doc = await SessionModel.findOne(query).lean() as any;
     if (!doc) return null;
     return {
@@ -950,20 +967,7 @@ export async function getOrCreateSession(
     const { SessionModel } = await getModels();
 
     if (sessionId) {
-      // STEP 3: Fix org session lookup - allow access if userId matches OR orgId matches
-      // This enables team members in the same org to access shared sessions
-      const query: any = { _id: sessionId };
-      if (orgId) {
-        // User is in an org - allow access if they own it OR if it belongs to their org
-        query.$or = [
-          { userId },
-          { orgId }
-        ];
-      } else {
-        // Personal user - must match userId
-        query.userId = userId;
-      }
-
+      const query = buildThinkForgeSessionPrincipalQuery({ sessionId, userId, orgId });
       const existing = await SessionModel.findOne(query).lean() as any;
       if (existing) {
         // Session refreshes carry partial browser state. Merge it with the
@@ -975,7 +979,7 @@ export async function getOrCreateSession(
             projectMeta,
           );
           await SessionModel.updateOne(
-            { _id: sessionId },
+            query,
             { $set: { projectMeta: persistedProjectMeta, updatedAt: new Date() } }
           );
           return {
@@ -1001,14 +1005,11 @@ export async function getOrCreateSession(
         };
       }
 
-      // STEP 3: Prevent duplicate creation - if sessionId was provided but not found,
-      // the session doesn't exist for this user/org. Do NOT create with the same ID.
-      // Instead, generate a new ID to prevent MongoDB duplicate key errors.
-      console.warn(`[ThinkForge] Session ${sessionId} not found for user ${userId} (orgId: ${orgId}). Creating new session.`);
+      throw new Error('ThinkForge session is unavailable to the active principal.');
     }
 
     // Create new session
-    const newSessionId = sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const newSessionId = `session_${crypto.randomUUID()}`;
     const now = new Date();
     const doc = {
       _id: newSessionId,
