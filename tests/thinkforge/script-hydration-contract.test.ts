@@ -1,6 +1,10 @@
 import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
 import {
+  mergeThinkForgeScriptDocument,
+  parseThinkForgeLoadedDocument,
+} from '@/app/dashboard/thinkforge/hooks/useThinkForgeScript';
+import {
   detectContentPath,
   resolveThinkForgeDocumentIntent,
   resolveThinkForgeGenerationDocumentIntent,
@@ -11,6 +15,104 @@ function read(path: string): string {
 }
 
 describe('ThinkForge script hydration contract', () => {
+  it('hydrates every server-owned document field without inventing a document type', () => {
+    const identity = { sessionId: 'session_brand_b', scriptId: 'carousel_q3' };
+    const richText = { type: 'doc', content: [{ type: 'paragraph' }] };
+    const contentContract = {
+      version: 1,
+      documentKind: 'content',
+      outputKind: 'carousel',
+      artifactType: 'social_post',
+    };
+
+    const hydrated = parseThinkForgeLoadedDocument({
+      title: 'Q3 carousel',
+      content: 'Visible copy',
+      blocks: [{ id: 'block_1', type: 'paragraph', content: [{ type: 'text', text: 'Visible copy' }] }],
+      richText,
+      version: 9,
+      metadata: { workflow: 'create', traceId: 'trace_1' },
+      documentType: 'carousel',
+      contentContract,
+    }, identity);
+
+    expect(hydrated).toMatchObject({
+      ...identity,
+      title: 'Q3 carousel',
+      content: 'Visible copy',
+      richText,
+      version: 9,
+      documentType: 'carousel',
+      contentContract,
+      metadata: {
+        workflow: 'create',
+        traceId: 'trace_1',
+        ...identity,
+      },
+    });
+
+    const untyped = parseThinkForgeLoadedDocument({
+      title: 'Legacy document',
+      content: '',
+      blocks: [],
+      version: 2,
+      metadata: {},
+    }, { sessionId: 'session_legacy', scriptId: 'default' });
+    expect(untyped.documentType).toBeUndefined();
+    expect(untyped.documentType).not.toBe('screenplay');
+  });
+
+  it('preserves the document contract across partial UI updates and rejects identity drift', () => {
+    const identity = { sessionId: 'session_a', scriptId: 'post_1' };
+    const current = parseThinkForgeLoadedDocument({
+      title: 'Original',
+      content: 'Before',
+      blocks: [],
+      richText: { type: 'doc', content: [] },
+      version: 4,
+      documentType: 'social_post',
+      contentContract: { version: 1, documentKind: 'content', outputKind: 'single_post', artifactType: 'social_post' },
+      metadata: { workflow: 'create' },
+    }, identity);
+
+    const updated = mergeThinkForgeScriptDocument(current, {
+      title: 'Revised',
+      content: 'After',
+    }, identity);
+
+    expect(updated).toMatchObject({
+      ...identity,
+      title: 'Revised',
+      content: 'After',
+      richText: current.richText,
+      documentType: current.documentType,
+      contentContract: current.contentContract,
+      metadata: current.metadata,
+      version: 4,
+    });
+    expect(() => mergeThinkForgeScriptDocument(current, {
+      sessionId: 'session_b',
+      scriptId: 'post_1',
+      title: 'Wrong owner',
+    }, identity)).toThrow(/different document/i);
+    expect(() => mergeThinkForgeScriptDocument(current, {
+      scriptId: 'post_2',
+      title: 'Wrong partial identity',
+    }, identity)).toThrow(/different document/i);
+    expect(() => mergeThinkForgeScriptDocument(null, { title: 'Client-only draft' }, identity))
+      .toThrow(/server-owned identity/i);
+  });
+
+  it('rejects a blank success-shaped load instead of materializing an empty document', () => {
+    expect(() => parseThinkForgeLoadedDocument({
+      title: 'Untitled Script',
+      content: '',
+      blocks: [],
+      documentType: null,
+      contentContract: null,
+    }, { sessionId: 'session_a', scriptId: 'missing' })).toThrow(/not found/i);
+  });
+
   it('routes explicit post requests by the latest user prompt, not stale session format', () => {
     expect(detectContentPath('make a post creating fomo in my brand ICP', 'video_script')).toBe('post');
     expect(detectContentPath('Write a LinkedIn post about video production workflows.', 'video_script')).toBe('post');
@@ -89,9 +191,19 @@ describe('ThinkForge script hydration contract', () => {
     expect(statusRoute).toContain('generation.scriptId');
     expect(blocksRoute).toContain('metadata: script.metadata || {}');
     expect(blocksRoute).toContain('metadata: result.script.metadata || {}');
-    expect(scriptHook).toContain("metadata: data.metadata && typeof data.metadata === 'object' ? data.metadata : null");
+    expect(scriptHook).toContain("richText: data.richText && typeof data.richText === 'object'");
+    expect(scriptHook).toContain("metadata: data.metadata && typeof data.metadata === 'object'");
+    expect(scriptHook).toContain("documentType: identifiedScript.documentType");
+    expect(scriptHook).toContain("contentContract: identifiedScript.contentContract");
+    expect(scriptHook).toContain("setLoadError(message)");
     expect(scriptHook).toContain('Server remains the source of truth');
-    expect(scriptHook).toContain('Ignoring remote script update for inactive script');
+    expect(scriptHook).toContain('mergeThinkForgeScriptDocument(prev, rawNext, activeIdentity)');
+    expect(scriptHook).not.toContain('if (!res.ok || cancelled) return');
+    expect(scriptHook).toContain('throw new ThinkForgeDocumentConflictError(currentVersion)');
+    expect(scriptHook).toContain('pendingSaveRef.current = null');
+    expect(scriptHook).not.toContain('{ version: data.currentVersion }');
+    expect(scriptHook.indexOf('if (e instanceof ThinkForgeDocumentConflictError)'))
+      .toBeLessThan(scriptHook.indexOf('return performSave(scriptToSave, attempt + 1)'));
   });
   it('creates an initial draft only from an explicit session intent and claims it once', () => {
     const page = read('app/dashboard/thinkforge/page.tsx');
@@ -113,7 +225,7 @@ describe('ThinkForge script hydration contract', () => {
     expect(chatPanel).not.toContain('complete first script draft');
     expect(chatPanel).not.toContain('autoStartFired');
     expect(chatPanel).not.toContain("lastUserAction: 'auto_start'");
-    expect(sessionRoute).toContain('db.claimInitialDraftIntent(sessionId)');
+    expect(sessionRoute).toContain('db.claimInitialDraftIntent(existingSession._id)');
     expect(db).toContain("'projectMeta.initialDraftIntent.status': 'pending'");
     expect(db).toContain("'projectMeta.initialDraftIntent.status': 'claimed'");
   });

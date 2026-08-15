@@ -20,6 +20,7 @@ interface DocumentQueueState {
   tail: Promise<void>;
   version?: number;
   lastSavedHash?: string;
+  conflictVersion?: number;
 }
 
 const queues = new Map<string, DocumentQueueState>();
@@ -35,6 +36,13 @@ export function enqueueThinkForgeDocumentSave(
   queues.set(key, state);
 
   const task = state.tail.then(async () => {
+    if (state.conflictVersion !== undefined) {
+      return {
+        status: 'conflict',
+        currentVersion: state.conflictVersion,
+        contentHash: request.contentHash,
+      } as const;
+    }
     if (state.lastSavedHash === request.contentHash && state.version !== undefined) {
       return { status: 'saved', version: state.version, contentHash: request.contentHash } as const;
     }
@@ -47,12 +55,60 @@ export function enqueueThinkForgeDocumentSave(
       state.version = result.version;
       state.lastSavedHash = result.contentHash;
     } else {
-      state.version = result.currentVersion;
+      state.conflictVersion = result.currentVersion;
     }
     return result;
   });
   state.tail = task.then(() => undefined, () => undefined);
   return task;
+}
+
+export function overwriteThinkForgeDocumentAfterConflict(
+  request: ThinkForgeDocumentSaveRequest,
+  expectedCurrentVersion: number,
+  transport: ThinkForgeDocumentSaveTransport = persistThinkForgeDocument,
+): Promise<ThinkForgeDocumentSaveResult> {
+  const key = documentKey(request);
+  const state = queues.get(key);
+  if (!state) {
+    return Promise.reject(new Error('Document save conflict is no longer active.'));
+  }
+
+  const task = state.tail.then(async () => {
+    if (state.conflictVersion !== expectedCurrentVersion) {
+      throw new Error('Document save conflict changed before it was resolved.');
+    }
+
+    const result = await transport({
+      ...request,
+      baseVersion: expectedCurrentVersion,
+    });
+    if (result.status === 'saved') {
+      state.version = result.version;
+      state.lastSavedHash = result.contentHash;
+      state.conflictVersion = undefined;
+    } else {
+      state.conflictVersion = result.currentVersion;
+    }
+    return result;
+  });
+  state.tail = task.then(() => undefined, () => undefined);
+  return task;
+}
+
+export function acceptThinkForgeServerDocument(
+  identity: Pick<ThinkForgeDocumentSaveRequest, 'sessionId' | 'scriptId'>,
+  expectedConflictVersion: number,
+  loadedVersion: number,
+  contentHash: string,
+): void {
+  const state = queues.get(documentKey(identity));
+  if (!state || state.conflictVersion !== expectedConflictVersion) {
+    throw new Error('Document save conflict changed before the server version was loaded.');
+  }
+  state.version = loadedVersion;
+  state.lastSavedHash = contentHash;
+  state.conflictVersion = undefined;
 }
 
 export function clearThinkForgeDocumentSaveQueuesForTests(): void {

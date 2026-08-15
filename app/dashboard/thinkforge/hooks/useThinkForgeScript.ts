@@ -4,6 +4,7 @@ import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import type { HydratedScriptSnapshot, ScriptModel } from "./useThinkForgeSession";
 import {
   matchesThinkForgeDocumentIdentity,
+  readThinkForgeDocumentIdentity,
   stampThinkForgeDocumentIdentity,
 } from "@/lib/thinkforge/client-document-identity";
 
@@ -13,6 +14,16 @@ const SAVE_TIMEOUT_MS = 8000;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
+export class ThinkForgeDocumentConflictError extends Error {
+  readonly currentVersion: number | null;
+
+  constructor(currentVersion: number | null) {
+    super('A newer document version exists. Reload it or explicitly replace it before saving again.');
+    this.name = 'ThinkForgeDocumentConflictError';
+    this.currentVersion = currentVersion;
+  }
+}
+
 function saveLocal(sessionId: string, scriptId: string, data: Partial<{ script: ScriptModel }>) {
   try {
     const key = `${LS_SESSION_PREFIX}${sessionId}_${scriptId}`;
@@ -21,6 +32,109 @@ function saveLocal(sessionId: string, scriptId: string, data: Partial<{ script: 
   } catch (e) {
     console.warn('[useThinkForgeScript] saveLocal failed:', e);
   }
+}
+
+type DocumentIdentity = { sessionId: string; scriptId: string };
+
+function readProvidedIdentityField(
+  value: unknown,
+  field: keyof DocumentIdentity,
+): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const carrier = value as Record<string, any>;
+  const metadata = carrier.metadata && typeof carrier.metadata === 'object' && !Array.isArray(carrier.metadata)
+    ? carrier.metadata as Record<string, any>
+    : {};
+  const candidate = carrier[field] ?? metadata[field];
+  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate.trim() : null;
+}
+
+function assertCompatibleDocumentIdentity(
+  value: unknown,
+  expected: DocumentIdentity,
+  label: string,
+): void {
+  const providedSessionId = readProvidedIdentityField(value, 'sessionId');
+  const providedScriptId = readProvidedIdentityField(value, 'scriptId');
+  if (
+    (providedSessionId && providedSessionId !== expected.sessionId)
+    || (providedScriptId && providedScriptId !== expected.scriptId)
+  ) {
+    throw new Error(`${label} targets a different document`);
+  }
+}
+
+export function mergeThinkForgeScriptDocument(
+  current: ScriptModel | null | undefined,
+  update: ScriptModel,
+  expected: DocumentIdentity,
+): ScriptModel {
+  assertCompatibleDocumentIdentity(current, expected, 'Current document');
+  assertCompatibleDocumentIdentity(update, expected, 'Document update');
+  const updateIdentity = readThinkForgeDocumentIdentity(update);
+  if (!current && !updateIdentity) {
+    throw new Error('Cannot create a document without a server-owned identity');
+  }
+
+  const definedUpdate = Object.fromEntries(
+    Object.entries(update).filter(([, value]) => value !== undefined),
+  ) as ScriptModel;
+
+  return stampThinkForgeDocumentIdentity({
+    ...(current || {}),
+    ...definedUpdate,
+  }, expected) as ScriptModel;
+}
+
+export function parseThinkForgeLoadedDocument(
+  input: unknown,
+  expected: DocumentIdentity,
+): ScriptModel {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Document load returned an invalid response');
+  }
+
+  const data = input as Record<string, any>;
+  if (typeof data.version !== 'number' || !Number.isFinite(data.version)) {
+    throw new Error(`Document ${expected.scriptId} was not found`);
+  }
+
+  const sanitized = sanitizeServerScript(data);
+  const documentType = typeof data.documentType === 'string' && data.documentType.trim().length > 0
+    ? data.documentType
+    : undefined;
+  const contentContract = data.contentContract
+    && typeof data.contentContract === 'object'
+    && !Array.isArray(data.contentContract)
+    ? data.contentContract as Record<string, any>
+    : undefined;
+
+  return stampThinkForgeDocumentIdentity({
+    ...sanitized,
+    content: typeof data.content === 'string' ? data.content : null,
+    blocks: sanitized.blocks ?? null,
+    richText: data.richText && typeof data.richText === 'object' && !Array.isArray(data.richText)
+      ? data.richText
+      : null,
+    metadata: data.metadata && typeof data.metadata === 'object' && !Array.isArray(data.metadata)
+      ? data.metadata
+      : null,
+    ...(documentType ? { documentType } : {}),
+    ...(contentContract ? { contentContract } : {}),
+  }, expected) as ScriptModel;
+}
+
+async function buildResponseError(response: Response, operation: string): Promise<Error> {
+  let detail = '';
+  try {
+    const body = await response.json();
+    if (typeof body?.error === 'string' && body.error.trim()) {
+      detail = `: ${body.error.trim()}`;
+    }
+  } catch {
+    // The HTTP status remains authoritative when the response has no JSON body.
+  }
+  return new Error(`${operation} failed (${response.status})${detail}`);
 }
 
 export function resolveHydratedScriptSnapshot(
@@ -45,6 +159,7 @@ export function useThinkForgeScript(
   const [script, setScript] = useState<ScriptModel | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
@@ -78,6 +193,7 @@ export function useThinkForgeScript(
     if (!sessionId) {
       setScript(null);
       setIsLoading(false);
+      setLoadError(null);
       lastSavedSnapshotRef.current = "";
       resetPendingSaves();
       return;
@@ -86,6 +202,7 @@ export function useThinkForgeScript(
     // Clear stale script immediately when switching
     setScript(null);
     setIsLoading(true);
+    setLoadError(null);
     lastSavedSnapshotRef.current = "";
     resetPendingSaves();
 
@@ -96,6 +213,7 @@ export function useThinkForgeScript(
       consumedHydrationSnapshotsRef.current.add(hydratedSnapshot.key);
       setScript(hydratedSnapshot.script);
       setIsLoading(false);
+      setLoadError(null);
       lastSavedSnapshotRef.current = JSON.stringify(hydratedSnapshot.script || {});
       if (hydratedSnapshot.script) {
         saveLocal(sessionId, effectiveScriptId, { script: hydratedSnapshot.script });
@@ -132,27 +250,28 @@ export function useThinkForgeScript(
       try {
         const url = `/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(effectiveScriptId)}`;
         const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok || cancelled) return;
+        if (cancelled) return;
+        if (!res.ok) throw await buildResponseError(res, 'Document load');
         const data = await res.json();
         if (cancelled) return;
         if (sessionIdRef.current !== sessionId || scriptIdRef.current !== scriptId) return;
 
-        const serverScript: ScriptModel = {
-          title: data.title || null,
-          outline: null,
-          content: data.content || null,
-          blocks: data.blocks || null,
-          version: data.version,
-          metadata: data.metadata && typeof data.metadata === 'object' ? data.metadata : null,
-        };
-        const identifiedServerScript = stampThinkForgeDocumentIdentity(serverScript, activeIdentity) as ScriptModel;
+        const identifiedServerScript = parseThinkForgeLoadedDocument(data, activeIdentity);
         setScript(identifiedServerScript);
+        setLoadError(null);
         lastSavedSnapshotRef.current = JSON.stringify(identifiedServerScript);
         saveLocal(sessionId, effectiveScriptId, { script: identifiedServerScript });
-      } catch {
-        if (!cancelled && cachedScript && sessionIdRef.current === sessionId && scriptIdRef.current === scriptId) {
-          setScript(cachedScript);
-          lastSavedSnapshotRef.current = JSON.stringify(cachedScript);
+      } catch (error) {
+        if (!cancelled && sessionIdRef.current === sessionId && scriptIdRef.current === scriptId) {
+          const message = error instanceof Error ? error.message : 'Document load failed';
+          setLoadError(message);
+          if (cachedScript) {
+            setScript(cachedScript);
+            lastSavedSnapshotRef.current = JSON.stringify(cachedScript);
+          } else {
+            setScript(null);
+            lastSavedSnapshotRef.current = "";
+          }
         }
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -172,11 +291,12 @@ export function useThinkForgeScript(
     if ((scriptIdRef.current || 'default') !== targetScriptId) return false;
 
     const activeIdentity = { sessionId: targetSessionId, scriptId: targetScriptId };
-    const identifiedScript = scriptToSave
-      ? stampThinkForgeDocumentIdentity(scriptToSave, activeIdentity) as ScriptModel
-      : null;
+    if (!scriptToSave || !matchesThinkForgeDocumentIdentity(scriptToSave, activeIdentity)) {
+      throw new Error('Cannot save before the server-owned document is loaded');
+    }
+    const identifiedScript = mergeThinkForgeScriptDocument(scriptToSave, scriptToSave, activeIdentity);
 
-    const snapshot = JSON.stringify(identifiedScript || {});
+    const snapshot = JSON.stringify(identifiedScript);
     if (snapshot === lastSavedSnapshotRef.current) return true; // Already saved
     
     // Cancel any in-flight save
@@ -198,14 +318,17 @@ export function useThinkForgeScript(
         body: JSON.stringify({
           type: "ReplaceDocument",
           sessionId: targetSessionId,
-          baseVersion: typeof (identifiedScript as any)?.version === 'number' ? (identifiedScript as any).version : 0,
+          baseVersion: typeof identifiedScript.version === 'number' ? identifiedScript.version : 0,
           source: "user",
           payload: {
             scriptId: targetScriptId,
-            title: identifiedScript?.title || 'Untitled Script',
-            content: identifiedScript?.content || '',
-            blocks: identifiedScript?.blocks || [],
-            richText: (identifiedScript as any)?.richText
+            title: identifiedScript.title || 'Untitled Script',
+            content: identifiedScript.content || '',
+            blocks: identifiedScript.blocks || [],
+            richText: identifiedScript.richText ?? null,
+            metadata: identifiedScript.metadata ?? undefined,
+            documentType: identifiedScript.documentType,
+            contentContract: identifiedScript.contentContract,
           }
         }),
       });
@@ -217,25 +340,25 @@ export function useThinkForgeScript(
       
       if (!res.ok) {
         if (res.status === 409) {
+          let currentVersion: number | null = null;
           try {
             const data = await res.json();
             if (typeof data?.currentVersion === 'number') {
-              const merged = { ...(identifiedScript || {}), version: data.currentVersion } as any;
-              setScript(merged);
+              currentVersion = data.currentVersion;
             }
-          } catch (e) {
-            console.warn('[useThinkForgeScript] Failed to parse 409 conflict response:', e);
+          } catch {
+            // The HTTP 409 remains authoritative even if its diagnostic body is malformed.
           }
-          return false;
+          throw new ThinkForgeDocumentConflictError(currentVersion);
         }
-        throw new Error(`Save failed: ${res.status}`);
+        throw await buildResponseError(res, 'Document save');
       }
 
       const data = await res.json();
       if (data?.script && typeof data.script.version === 'number') {
-        const merged = { ...(identifiedScript || {}), version: data.script.version } as any;
+        const merged = mergeThinkForgeScriptDocument(identifiedScript, data.script, activeIdentity);
         setScript(merged);
-        lastSavedSnapshotRef.current = JSON.stringify(merged || {});
+        lastSavedSnapshotRef.current = JSON.stringify(merged);
       } else {
         // Success - update last saved snapshot
         lastSavedSnapshotRef.current = snapshot;
@@ -246,6 +369,9 @@ export function useThinkForgeScript(
       if (e.name === 'AbortError') {
         // Aborted - might have been cancelled by a newer save
         return false;
+      }
+      if (e instanceof ThinkForgeDocumentConflictError) {
+        throw e;
       }
       
       // Retry logic
@@ -275,10 +401,12 @@ export function useThinkForgeScript(
     isSavingRef.current = true;
     setIsSaving(true);
     setSaveError(null);
+    let conflictDetected = false;
     
     try {
       await performSave(payloadScript);
     } catch (e: any) {
+      conflictDetected = e instanceof ThinkForgeDocumentConflictError;
       setSaveError(e?.message || "Failed to save");
       // Store in local storage as backup
       if (sessionId && payloadScript) {
@@ -290,7 +418,9 @@ export function useThinkForgeScript(
       currentAbortControllerRef.current = null;
       
       // Check if there's a pending save
-      if (pendingSaveRef.current) {
+      if (conflictDetected) {
+        pendingSaveRef.current = null;
+      } else if (pendingSaveRef.current) {
         const pendingScript = pendingSaveRef.current;
         pendingSaveRef.current = null;
         // Schedule the pending save
@@ -306,18 +436,22 @@ export function useThinkForgeScript(
 
   const setScriptAndQueueSave = useCallback((updater: ScriptModel | ((prev: ScriptModel | null) => ScriptModel)) => {
     setScript((prev) => {
+      if (!sessionId || sessionIdRef.current !== sessionId || scriptIdRef.current !== scriptId) return prev;
       const rawNext = typeof updater === "function" ? (updater as any)(prev) : updater;
-      const next = sessionId
-        ? stampThinkForgeDocumentIdentity(rawNext, {
-            sessionId,
-            scriptId: scriptId || 'default',
-          }) as ScriptModel
-        : rawNext;
+      const activeScriptId = scriptId || 'default';
+      let next: ScriptModel;
+      try {
+        next = mergeThinkForgeScriptDocument(prev, rawNext, {
+          sessionId,
+          scriptId: activeScriptId,
+        });
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : 'Document update was rejected');
+        return prev;
+      }
       
       // Always save to local storage first (synchronous, reliable)
-      if (sessionId) {
-        saveLocal(sessionId, scriptId || 'default', { script: next });
-      }
+      saveLocal(sessionId, activeScriptId, { script: next });
       
       // Clear any pending debounced save
       if (saveTimerRef.current) {
@@ -326,8 +460,10 @@ export function useThinkForgeScript(
       
       // Queue server save with debounce
       const scheduledSessionId = sessionId;
+      const scheduledScriptId = activeScriptId;
       saveTimerRef.current = setTimeout(() => {
         if (sessionIdRef.current !== scheduledSessionId) return;
+        if ((scriptIdRef.current || 'default') !== scheduledScriptId) return;
         void autosave(next);
       }, DEBOUNCE_MS);
       
@@ -339,22 +475,24 @@ export function useThinkForgeScript(
   // Use this when the save is already handled elsewhere (e.g., by ScriptEditor)
   const setScriptWithoutSave = useCallback((updater: ScriptModel | ((prev: ScriptModel | null) => ScriptModel)) => {
     setScript((prev) => {
-      const next = typeof updater === "function" ? (updater as any)(prev) : updater;
-      if (!sessionId) return prev;
+      if (!sessionId || sessionIdRef.current !== sessionId || scriptIdRef.current !== scriptId) return prev;
+      const rawNext = typeof updater === "function" ? (updater as any)(prev) : updater;
       const activeScriptId = scriptId || 'default';
       const activeIdentity = { sessionId, scriptId: activeScriptId };
-      if (!matchesThinkForgeDocumentIdentity(next, activeIdentity)) {
-        console.warn('[useThinkForgeScript] Ignoring remote script update for inactive script or missing document ownership');
+      let next: ScriptModel;
+      try {
+        next = mergeThinkForgeScriptDocument(prev, rawNext, activeIdentity);
+      } catch (error) {
+        setLoadError(error instanceof Error ? error.message : 'Document update was rejected');
         return prev;
       }
       
       // Save to local storage for consistency
-      if (sessionId) {
-        saveLocal(sessionId, activeScriptId, { script: next });
-      }
+      saveLocal(sessionId, activeScriptId, { script: next });
       
       // Update lastSavedSnapshot to prevent autosave from saving again
       lastSavedSnapshotRef.current = JSON.stringify(next || {});
+      setLoadError(null);
       
       return next;
     });
@@ -364,33 +502,56 @@ export function useThinkForgeScript(
     resetPendingSaves();
     setScript(null);
     setIsLoading(true);
+    setLoadError(null);
     lastSavedSnapshotRef.current = "";
     setSaveError(null);
     setRetryCount(0);
   }, [resetPendingSaves]);
 
   const runEdit = useCallback(async (instruction: string) => {
+    if (!sessionId || !script) {
+      throw new Error('Open a server-backed document before editing');
+    }
+    const activeIdentity = { sessionId, scriptId: scriptId || 'default' };
+    if (!matchesThinkForgeDocumentIdentity(script, activeIdentity)) {
+      throw new Error('The active document identity is stale');
+    }
     const res = await fetch("/api/services/thinkforge/script/edit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify({ instruction, script, sessionId, scriptId: scriptId || 'default' }),
     });
-    if (!res.ok) throw new Error(`Edit failed: ${res.status}`);
+    if (!res.ok) throw await buildResponseError(res, 'Document edit');
     const data = await res.json();
     const sanitized = sanitizeServerScript(data);
-    const updated: ScriptModel = {
-      title: sanitized?.title ?? script?.title ?? null,
-      outline: sanitized?.outline ?? script?.outline ?? null,
-      content: sanitized?.content ?? script?.content ?? null,
-      blocks: sanitized?.blocks ?? script?.blocks ?? null,
-      metadata: sanitized?.metadata ?? script?.metadata ?? null,
-    };
+    const updated = mergeThinkForgeScriptDocument(script, {
+      title: data.title !== undefined ? sanitized.title : undefined,
+      outline: data.outline !== undefined ? sanitized.outline : undefined,
+      content: typeof data.content === 'string' ? data.content : undefined,
+      blocks: Array.isArray(data.blocks) ? sanitized.blocks : undefined,
+      richText: data.richText && typeof data.richText === 'object' ? data.richText : undefined,
+      version: typeof data.version === 'number' ? data.version : undefined,
+      metadata: data.metadata && typeof data.metadata === 'object'
+        ? { ...(script.metadata || {}), ...data.metadata }
+        : undefined,
+      documentType: typeof data.documentType === 'string' ? data.documentType : undefined,
+      contentContract: data.contentContract && typeof data.contentContract === 'object'
+        ? data.contentContract
+        : undefined,
+    }, activeIdentity);
     setScriptAndQueueSave(updated);
-    return sanitized;
+    return updated;
   }, [script, sessionId, scriptId, setScriptAndQueueSave]);
 
   const runEditBlocks = useCallback(async (instruction: string, selection?: string, indices?: number[]) => {
+    if (!sessionId || !script) {
+      throw new Error('Open a server-backed document before editing');
+    }
+    const activeIdentity = { sessionId, scriptId: scriptId || 'default' };
+    if (!matchesThinkForgeDocumentIdentity(script, activeIdentity)) {
+      throw new Error('The active document identity is stale');
+    }
     const payload = {
       instruction,
       script,
@@ -405,36 +566,58 @@ export function useThinkForgeScript(
       cache: "no-store",
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`Edit-blocks failed: ${res.status}`);
+    if (!res.ok) throw await buildResponseError(res, 'Block edit');
     const data = await res.json();
     const sanitized = sanitizeServerScript(data);
-    const nextBlocks = sanitized?.blocks ?? script?.blocks ?? null;
-    const updated: ScriptModel = {
-      title: sanitized?.title ?? script?.title ?? null,
-      outline: sanitized?.outline ?? script?.outline ?? null,
-      content: sanitized?.content ?? script?.content ?? null,
-      blocks: nextBlocks,
-      metadata: sanitized?.metadata ?? script?.metadata ?? null,
-    };
+    const updated = mergeThinkForgeScriptDocument(script, {
+      title: data.title !== undefined ? sanitized.title : undefined,
+      outline: data.outline !== undefined ? sanitized.outline : undefined,
+      content: typeof data.content === 'string' ? data.content : undefined,
+      blocks: Array.isArray(data.blocks) ? sanitized.blocks : undefined,
+      richText: data.richText && typeof data.richText === 'object' ? data.richText : undefined,
+      version: typeof data.version === 'number' ? data.version : undefined,
+      metadata: data.metadata && typeof data.metadata === 'object'
+        ? { ...(script.metadata || {}), ...data.metadata }
+        : undefined,
+      documentType: typeof data.documentType === 'string' ? data.documentType : undefined,
+      contentContract: data.contentContract && typeof data.contentContract === 'object'
+        ? data.contentContract
+        : undefined,
+    }, activeIdentity);
     setScriptAndQueueSave(updated);
-    return sanitized;
+    return updated;
   }, [script, sessionId, scriptId, setScriptAndQueueSave]);
 
   const importScript = useCallback((data: any) => {
     try {
+      if (!sessionId || !script) {
+        throw new Error('Open a server-backed document before importing content');
+      }
+      const activeIdentity = { sessionId, scriptId: scriptId || 'default' };
+      if (!matchesThinkForgeDocumentIdentity(script, activeIdentity)) {
+        throw new Error('The active document identity is stale');
+      }
       const scriptLike: ScriptModel = {
         title: typeof data?.title === 'string' ? data.title : (script?.title ?? 'Untitled Script'),
         outline: null,
         content: null,
         blocks: Array.isArray(data?.blocks) ? data.blocks : [],
+        richText: null,
       };
       const sanitized = sanitizeServerScript(scriptLike) as ScriptModel;
-      setScriptAndQueueSave(sanitized);
-      return { ok: true, applied: sanitized } as const;
+      const imported = mergeThinkForgeScriptDocument(script, {
+        title: sanitized.title,
+        outline: null,
+        content: null,
+        blocks: sanitized.blocks,
+        richText: null,
+      }, activeIdentity);
+      setScriptAndQueueSave(imported);
+      return { ok: true, applied: imported } as const;
     } catch (e: any) {
       return { ok: false, error: e?.message || 'Invalid script JSON' } as const;
     }
-  }, [script, setScriptAndQueueSave]);
+  }, [script, sessionId, scriptId, setScriptAndQueueSave]);
 
   const replaceBlocks = useCallback((blocks: any[], title?: string) => {
     return importScript({ title: title ?? script?.title, blocks });
@@ -454,6 +637,7 @@ export function useThinkForgeScript(
     script,
     isLoading,
     isSaving,
+    loadError,
     saveError,
     retryCount,
     setScriptAndQueueSave,

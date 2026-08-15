@@ -20,10 +20,19 @@ import {
   MoreVertical,
   FileDown,
   Save,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,7 +76,9 @@ import {
   type ThinkForgeDocumentIdentity,
 } from '@/lib/thinkforge/client-document-identity';
 import {
+  acceptThinkForgeServerDocument,
   enqueueThinkForgeDocumentSave,
+  overwriteThinkForgeDocumentAfterConflict,
   type ThinkForgeDocumentSaveRequest,
 } from '@/lib/thinkforge/client-document-save-queue';
 
@@ -96,6 +107,39 @@ interface PendingDocumentSave {
   documentKey: string;
   request: ThinkForgeDocumentSaveRequest;
   updatedScript: Script;
+}
+
+interface DocumentSaveConflict {
+  documentKey: string;
+  currentVersion: number;
+}
+
+const CONFLICT_DRAFT_PREFIX = 'thinkforge_conflict_draft_';
+
+function conflictDraftKey(documentKey: string): string {
+  return `${CONFLICT_DRAFT_PREFIX}${documentKey}`;
+}
+
+function preserveConflictDraft(pending: PendingDocumentSave): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(conflictDraftKey(pending.documentKey), JSON.stringify({
+      request: pending.request,
+      updatedScript: pending.updatedScript,
+      preservedAt: new Date().toISOString(),
+    }));
+  } catch {
+    // The in-memory editor remains authoritative while the conflict dialog is open.
+  }
+}
+
+function clearConflictDraft(documentKey: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(conflictDraftKey(documentKey));
+  } catch {
+    // Storage cleanup must not invalidate an otherwise successful resolution.
+  }
 }
 
 /**
@@ -179,7 +223,11 @@ export default function ScriptEditor({
   const scriptVersionRef = useRef<number>(0);
   const loadAbortControllerRef = useRef<AbortController | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
+  const pendingConflictSaveRef = useRef<PendingDocumentSave | null>(null);
   const flushPendingDocumentSaveRef = useRef<((documentKey?: string) => Promise<void>) | null>(null);
+  const [documentSaveConflict, setDocumentSaveConflict] = useState<DocumentSaveConflict | null>(null);
+  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
+  const [conflictResolutionError, setConflictResolutionError] = useState<string | null>(null);
   const prevScriptBlocksRef = useRef<string>('');
   const prevMetadataRef = useRef<string>('');
   const isSwitchingScriptRef = useRef(false);
@@ -1104,6 +1152,40 @@ export default function ScriptEditor({
     }, activeIdentity) as any;
   }, [editor, script, storeCursorPosition, getEffectiveTitle, activeIdentity]);
 
+  const finishDocumentSave = useCallback((pending: PendingDocumentSave, version: number): void => {
+    if (activeDocumentKeyRef.current !== pending.documentKey) return;
+
+    scriptVersionRef.current = version;
+    const committedScript = { ...pending.updatedScript, version } as Script;
+    onEditScript(committedScript);
+
+    const activeHash = editor ? JSON.stringify(editor.getJSON()) : '';
+    if (activeHash !== pending.request.contentHash) {
+      setHasUnsavedChanges(true);
+      return;
+    }
+
+    lastLoadedContentRef.current = pending.request.contentHash;
+    lastAutosaveHashRef.current = pending.request.contentHash;
+    setHasUnsavedChanges(false);
+    hasLocalEditsRef.current = false;
+    isUserTypingRef.current = false;
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2000);
+  }, [editor, onEditScript]);
+
+  const recordDocumentConflict = useCallback((
+    pending: PendingDocumentSave,
+    currentVersion: number,
+  ): void => {
+    if (activeDocumentKeyRef.current !== pending.documentKey) return;
+    pendingConflictSaveRef.current = pending;
+    preserveConflictDraft(pending);
+    setHasUnsavedChanges(true);
+    setConflictResolutionError(null);
+    setDocumentSaveConflict({ documentKey: pending.documentKey, currentVersion });
+  }, []);
+
   const flushPendingDocumentSave = useCallback(async (documentKey?: string): Promise<void> => {
     const pending = pendingDocumentSaveRef.current;
     if (!pending || (documentKey && pending.documentKey !== documentKey)) return;
@@ -1114,34 +1196,120 @@ export default function ScriptEditor({
     }
 
     try {
-      let result = await enqueueThinkForgeDocumentSave(pending.request);
+      const result = await enqueueThinkForgeDocumentSave(pending.request);
       if (result.status === 'conflict') {
-        result = await enqueueThinkForgeDocumentSave({
-          ...pending.request,
-          baseVersion: result.currentVersion,
-        });
+        recordDocumentConflict(pending, result.currentVersion);
+        return;
       }
-      if (result.status !== 'saved' || activeDocumentKeyRef.current !== pending.documentKey) return;
-
-      scriptVersionRef.current = result.version;
-      const activeHash = editor ? JSON.stringify(editor.getJSON()) : '';
-      if (activeHash !== pending.request.contentHash) return;
-
-      (pending.updatedScript as any).version = result.version;
-      lastLoadedContentRef.current = pending.request.contentHash;
-      lastAutosaveHashRef.current = pending.request.contentHash;
-      setHasUnsavedChanges(false);
-      hasLocalEditsRef.current = false;
-      isUserTypingRef.current = false;
-      setJustSaved(true);
-      setTimeout(() => setJustSaved(false), 2000);
-      onEditScript(pending.updatedScript);
+      finishDocumentSave(pending, result.version);
     } catch (error) {
       if (activeDocumentKeyRef.current === pending.documentKey) setHasUnsavedChanges(true);
       console.error('ScriptEditor: Document save queue failed', error);
     }
-  }, [editor, onEditScript]);
+  }, [finishDocumentSave, recordDocumentConflict]);
   flushPendingDocumentSaveRef.current = flushPendingDocumentSave;
+
+  const handleLoadLatestDocument = useCallback(async (): Promise<void> => {
+    const conflict = documentSaveConflict;
+    const pending = pendingConflictSaveRef.current;
+    if (!conflict || !pending || !editor) return;
+    if (activeDocumentKeyRef.current !== conflict.documentKey) {
+      setConflictResolutionError('The active document changed. Reopen the conflicted document to resolve it.');
+      return;
+    }
+
+    setIsResolvingConflict(true);
+    setConflictResolutionError(null);
+    try {
+      const response = await fetch(
+        `/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(pending.request.sessionId)}&scriptId=${encodeURIComponent(pending.request.scriptId)}`,
+        { cache: 'no-store' },
+      );
+      if (!response.ok) throw new Error(`Latest document load failed (${response.status}).`);
+      const data = await response.json();
+      if (typeof data?.version !== 'number') throw new Error('Latest document response omitted its version.');
+
+      const tiptapContent = data.richText && isTiptapJSON(data.richText)
+        ? validateTiptapJSON(data.richText)
+        : toTiptapJSON(data.blocks);
+      const blocks = validateThinkForgeBlocks(tiptapJSONToThinkForgeBlocks(tiptapContent));
+      const contentHash = JSON.stringify(tiptapContent);
+      const loadedScript = stampThinkForgeDocumentIdentity({
+        title: typeof data.title === 'string' ? data.title : 'Untitled Script',
+        version: data.version,
+        content: typeof data.content === 'string' ? data.content : '',
+        blocks,
+        richText: tiptapContent,
+        metadata: data.metadata && typeof data.metadata === 'object' ? data.metadata : undefined,
+        documentType: data.documentType,
+        contentContract: data.contentContract,
+      }, {
+        sessionId: pending.request.sessionId,
+        scriptId: pending.request.scriptId,
+      }) as unknown as Script;
+
+      isUpdatingFromPropsRef.current = true;
+      try {
+        editor.commands.setContent(tiptapContent as any);
+      } finally {
+        isUpdatingFromPropsRef.current = false;
+      }
+      acceptThinkForgeServerDocument(
+        pending.request,
+        conflict.currentVersion,
+        data.version,
+        contentHash,
+      );
+
+      scriptVersionRef.current = data.version;
+      loadedTitleRef.current = loadedScript.title || null;
+      lastLoadedContentRef.current = contentHash;
+      lastAutosaveHashRef.current = contentHash;
+      pendingConflictSaveRef.current = null;
+      setDocumentSaveConflict(null);
+      setHasUnsavedChanges(false);
+      hasLocalEditsRef.current = false;
+      isUserTypingRef.current = false;
+      clearConflictDraft(conflict.documentKey);
+      onEditScript(loadedScript);
+    } catch (error) {
+      setConflictResolutionError(error instanceof Error ? error.message : 'Latest document load failed.');
+    } finally {
+      setIsResolvingConflict(false);
+    }
+  }, [documentSaveConflict, editor, onEditScript]);
+
+  const handleOverwriteLatestDocument = useCallback(async (): Promise<void> => {
+    const conflict = documentSaveConflict;
+    const pending = pendingConflictSaveRef.current;
+    if (!conflict || !pending) return;
+    if (activeDocumentKeyRef.current !== conflict.documentKey) {
+      setConflictResolutionError('The active document changed. Reopen the conflicted document to resolve it.');
+      return;
+    }
+
+    setIsResolvingConflict(true);
+    setConflictResolutionError(null);
+    try {
+      const result = await overwriteThinkForgeDocumentAfterConflict(
+        pending.request,
+        conflict.currentVersion,
+      );
+      if (result.status === 'conflict') {
+        recordDocumentConflict(pending, result.currentVersion);
+        return;
+      }
+
+      pendingConflictSaveRef.current = null;
+      setDocumentSaveConflict(null);
+      clearConflictDraft(conflict.documentKey);
+      finishDocumentSave(pending, result.version);
+    } catch (error) {
+      setConflictResolutionError(error instanceof Error ? error.message : 'Document overwrite failed.');
+    } finally {
+      setIsResolvingConflict(false);
+    }
+  }, [documentSaveConflict, finishDocumentSave, recordDocumentConflict]);
 
   // Sync last version hash when the version manager updates its current version
   useEffect(() => {
@@ -1186,7 +1354,7 @@ export default function ScriptEditor({
     if (currentHash === lastAutosaveHashRef.current) return;
 
     const updatedScript = convertEditorToScript();
-    pendingDocumentSaveRef.current = {
+    const pendingSave: PendingDocumentSave = {
       documentKey: scheduledDocumentKey,
       request: {
         sessionId: activeIdentity.sessionId,
@@ -1199,12 +1367,19 @@ export default function ScriptEditor({
       },
       updatedScript,
     };
+    if (documentSaveConflict?.documentKey === scheduledDocumentKey) {
+      pendingConflictSaveRef.current = pendingSave;
+      preserveConflictDraft(pendingSave);
+      pendingDocumentSaveRef.current = null;
+      return;
+    }
+    pendingDocumentSaveRef.current = pendingSave;
 
     const scheduledTimer = setTimeout(() => {
       void flushPendingDocumentSaveRef.current?.(scheduledDocumentKey);
     }, 1200);
     autosaveTimerRef.current = scheduledTimer;
-  }, [convertEditorToScript, editor, activeIdentity, activeDocumentKey]);
+  }, [convertEditorToScript, editor, activeIdentity, activeDocumentKey, documentSaveConflict]);
 
   // Pause autosave when tab/window is not active to avoid stale saves on return
   useEffect(() => {
@@ -1758,6 +1933,43 @@ export default function ScriptEditor({
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={documentSaveConflict !== null}>
+        <AlertDialogContent className="border-[#3A3022] bg-[#0F0F0E] text-[#ECE9E1]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-base">
+              <AlertTriangle className="h-4 w-4 text-[#D4A652]" />
+              A newer document version exists
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[#A7A39A]">
+              ThinkForge stopped autosave before overwriting it. Load the latest saved version, or explicitly replace it with the draft currently in this editor.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {conflictResolutionError && (
+            <p role="alert" className="text-sm text-red-400">{conflictResolutionError}</p>
+          )}
+          <AlertDialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isResolvingConflict}
+              onClick={() => void handleLoadLatestDocument()}
+              className="border-[#3A3935] bg-transparent text-[#ECE9E1] hover:bg-[#1C1B19]"
+            >
+              Load latest
+            </Button>
+            <Button
+              type="button"
+              disabled={isResolvingConflict}
+              onClick={() => void handleOverwriteLatestDocument()}
+              className="bg-[#D4A652] text-black hover:bg-[#E0B75F]"
+            >
+              {isResolvingConflict ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Replace with my draft
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Tiptap Editor Styles */}
       <style jsx global>{`

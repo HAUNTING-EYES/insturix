@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  acceptThinkForgeServerDocument,
   clearThinkForgeDocumentSaveQueuesForTests,
   enqueueThinkForgeDocumentSave,
+  overwriteThinkForgeDocumentAfterConflict,
   type ThinkForgeDocumentSaveRequest,
   type ThinkForgeDocumentSaveTransport,
 } from '../../lib/thinkforge/client-document-save-queue';
@@ -43,7 +45,7 @@ describe('ThinkForge document save queue', () => {
     expect(seen.map((item) => item.baseVersion)).toEqual([1, 2]);
   });
 
-  it('uses a conflict version for the next queued save without dropping it', async () => {
+  it('blocks every queued save after a conflict until the user explicitly overwrites', async () => {
     const transport: ThinkForgeDocumentSaveTransport = vi.fn()
       .mockResolvedValueOnce({ status: 'conflict', currentVersion: 7, contentHash: 'hash_1' })
       .mockImplementationOnce(async (input: ThinkForgeDocumentSaveRequest) => ({
@@ -56,8 +58,45 @@ describe('ThinkForge document save queue', () => {
     const second = enqueueThinkForgeDocumentSave(request('hash_2'), transport);
 
     await expect(first).resolves.toMatchObject({ status: 'conflict', currentVersion: 7 });
-    await expect(second).resolves.toMatchObject({ status: 'saved', version: 8 });
+    await expect(second).resolves.toMatchObject({ status: 'conflict', currentVersion: 7 });
+    expect(transport).toHaveBeenCalledTimes(1);
+
+    await expect(overwriteThinkForgeDocumentAfterConflict(
+      request('hash_2'),
+      7,
+      transport,
+    )).resolves.toMatchObject({ status: 'saved', version: 8 });
     expect(transport).toHaveBeenLastCalledWith(expect.objectContaining({ baseVersion: 7, contentHash: 'hash_2' }));
+  });
+
+  it('unblocks only after the exact server version has been loaded', async () => {
+    const transport: ThinkForgeDocumentSaveTransport = vi.fn()
+      .mockResolvedValueOnce({ status: 'conflict', currentVersion: 7, contentHash: 'hash_1' })
+      .mockImplementationOnce(async (input: ThinkForgeDocumentSaveRequest) => ({
+        status: 'saved',
+        version: input.baseVersion + 1,
+        contentHash: input.contentHash,
+      }));
+
+    await expect(enqueueThinkForgeDocumentSave(request('hash_1'), transport))
+      .resolves.toMatchObject({ status: 'conflict', currentVersion: 7 });
+    expect(() => acceptThinkForgeServerDocument(
+      { sessionId: 'session_1', scriptId: 'default' },
+      6,
+      7,
+      'server_hash',
+    )).toThrow('conflict changed');
+
+    acceptThinkForgeServerDocument(
+      { sessionId: 'session_1', scriptId: 'default' },
+      7,
+      9,
+      'server_hash',
+    );
+    await expect(enqueueThinkForgeDocumentSave(request('hash_2', 7), transport))
+      .resolves.toMatchObject({ status: 'saved', version: 10 });
+    expect(transport).toHaveBeenLastCalledWith(expect.objectContaining({ baseVersion: 9 }));
+    expect(transport).toHaveBeenCalledTimes(2);
   });
 
   it('keeps saves for separate documents independent during a document switch', async () => {
