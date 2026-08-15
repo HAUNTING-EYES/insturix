@@ -66,18 +66,19 @@ export async function POST(request: Request) {
   const session = await getSession(input.sessionId, userId, orgId ?? null);
   if (!session) return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
 
-  const urls: string[] = [];
-  for (const rawUrl of [...new Set(input.urls.map((url) => url.trim()))]) {
-    try {
-      const canonicalUrl = await validateThinkForgeIngestionUrl(rawUrl);
-      if (!urls.includes(canonicalUrl)) urls.push(canonicalUrl);
-    } catch (error) {
-      const problem = toSafeUrlIngestionProblem(error);
-      return NextResponse.json({
-        error: problem.message,
-        code: problem.code,
-      }, { status: problem.status });
-    }
+  let urls: string[];
+  try {
+    const validatedUrls = await Promise.all(
+      [...new Set(input.urls.map((url) => url.trim()))]
+        .map((url) => validateThinkForgeIngestionUrl(url)),
+    );
+    urls = [...new Set(validatedUrls)];
+  } catch (error) {
+    const problem = toSafeUrlIngestionProblem(error);
+    return NextResponse.json({
+      error: problem.message,
+      code: problem.code,
+    }, { status: problem.status });
   }
 
   const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());

@@ -102,6 +102,20 @@ describe('ThinkForge URL ingestion gateway', () => {
     expect(JSON.stringify(transportProblem)).not.toContain('172.16.0.8');
   });
 
+  it('bounds DNS resolution inside the operation deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = validateThinkForgeIngestionUrl('https://research.example.org/source', {
+        resolveHostname: () => new Promise(() => undefined),
+      });
+      const assertion = expectCode(pending, 'request_timeout');
+      await vi.advanceTimersByTimeAsync(12_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('revalidates every redirect target and blocks a redirect pivot before a second request', async () => {
     const redirect = response({ statusCode: 302, headers: { location: 'https://private.example.org/secret' } });
     const requestTarget = vi.fn().mockResolvedValue(redirect);

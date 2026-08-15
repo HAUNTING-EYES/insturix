@@ -389,11 +389,42 @@ async function readBoundedBody(
   return Buffer.concat(chunks, decompressedBytes);
 }
 
+function withDeadline<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  onTimeout?: () => void,
+): Promise<T> {
+  if (timeoutMs <= 0) return Promise.reject(new UrlIngestionError('request_timeout'));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      onTimeout?.();
+      reject(new UrlIngestionError('request_timeout'));
+    }, timeoutMs);
+    operation.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 export async function validateThinkForgeIngestionUrl(
   rawUrl: string,
   dependencies: UrlIngestionGatewayDependencies = {},
 ): Promise<string> {
-  const target = await resolveTarget(rawUrl, dependencies);
+  const target = await withDeadline(resolveTarget(rawUrl, dependencies), DEFAULTS.timeoutMs);
   return target.url.toString();
 }
 
@@ -417,10 +448,15 @@ export async function fetchThinkForgeUrlDocument(
   for (let redirectCount = 0; redirectCount <= limits.maxRedirects; redirectCount += 1) {
     const remainingMs = limits.timeoutMs - (now() - startedAt);
     if (remainingMs <= 0) throw new UrlIngestionError('request_timeout');
-    const target = await resolveTarget(currentUrl, dependencies);
+    const target = await withDeadline(resolveTarget(currentUrl, dependencies), remainingMs);
+    const requestRemainingMs = limits.timeoutMs - (now() - startedAt);
+    if (requestRemainingMs <= 0) throw new UrlIngestionError('request_timeout');
     let response: UrlIngestionTransportResponse;
     try {
-      response = await (dependencies.requestTarget ?? requestPinnedTarget)(target, remainingMs);
+      response = await withDeadline(
+        (dependencies.requestTarget ?? requestPinnedTarget)(target, requestRemainingMs),
+        requestRemainingMs,
+      );
     } catch (error) {
       if (error instanceof UrlIngestionError) throw error;
       throw new UrlIngestionError('upstream_unavailable');
@@ -457,11 +493,16 @@ export async function fetchThinkForgeUrlDocument(
     }
 
     const encoding = (getHeader(response.headers, 'content-encoding') ?? 'identity').trim().toLowerCase();
-    const body = await readBoundedBody(
-      response,
-      encoding,
-      limits.maxCompressedBytes,
-      limits.maxDecompressedBytes,
+    const bodyRemainingMs = limits.timeoutMs - (now() - startedAt);
+    const body = await withDeadline(
+      readBoundedBody(
+        response,
+        encoding,
+        limits.maxCompressedBytes,
+        limits.maxDecompressedBytes,
+      ),
+      bodyRemainingMs,
+      response.abort,
     );
     const charset = contentTypeHeader.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1] ?? 'utf-8';
     let decoded: string;
