@@ -2642,7 +2642,7 @@ export type DataBankProvenanceReason =
   | 'universal_memory_has_brand';
 
 /** Bump when vector metadata changes in a retrieval-relevant way. */
-export const DATA_BANK_EMBEDDING_METADATA_VERSION = 2;
+export const DATA_BANK_EMBEDDING_METADATA_VERSION = 3;
 
 export interface DataBankEntry {
   _id: string;
@@ -3032,6 +3032,48 @@ export function buildVerifiedDataBankOwnershipQuery(scope?: DataBankScope): Data
   };
 }
 
+/**
+ * Canonical read predicate for memory allowed to influence authoring. Ownership,
+ * provenance, privacy, lifecycle, freshness, and retention are all enforced in
+ * Mongo even when candidate IDs originated from an external vector index.
+ */
+export function buildAuthorizedDataBankReadQuery(
+  principalInput: DataBankPrincipal,
+  scope?: DataBankScope,
+  now = new Date(),
+): DataBankOwnershipQuery {
+  if (!Number.isFinite(now.getTime())) throw new Error('DataBank read time must be valid.');
+  return {
+    $and: [
+      buildDataBankPrincipalQuery(principalInput),
+      buildVerifiedDataBankOwnershipQuery(scope),
+      { lifecycleStatus: 'active' },
+      { classification: { $in: ['public', 'business_confidential', 'personal'] } },
+      { consentStatus: { $in: ['not_required', 'granted'] } },
+      {
+        $or: [
+          { classification: { $ne: 'personal' } },
+          { classification: 'personal', consentStatus: 'granted' },
+        ],
+      },
+      {
+        $or: [
+          { freshUntil: { $exists: false } },
+          { freshUntil: null },
+          { freshUntil: { $gt: now } },
+        ],
+      },
+      {
+        $or: [
+          { expiresAt: { $exists: false } },
+          { expiresAt: null },
+          { expiresAt: { $gt: now } },
+        ],
+      },
+    ],
+  };
+}
+
 export function getDataBankModel(): Model<any> {
   if (!DataBankModel) {
     DataBankModel = mongoose.models[COLL_DATABANK] || mongoose.model(COLL_DATABANK, DataBankSchema);
@@ -3228,6 +3270,35 @@ export async function getDataBankEntriesByUser(
   return docs as unknown as DataBankEntry[];
 }
 
+/** Read current workspace memory through exact user/organization authority. */
+export async function getAuthorizedDataBankEntries(
+  principalInput: DataBankPrincipal,
+  options?: {
+    type?: DataBankEntryType;
+    tags?: string[];
+    embeddingStatus?: EmbeddingStatus;
+    scope?: DataBankScope;
+    limit?: number;
+    now?: Date;
+  },
+): Promise<DataBankEntry[]> {
+  await connectToThinkForgeDb();
+  const query: Record<string, any> = buildAuthorizedDataBankReadQuery(
+    principalInput,
+    options?.scope,
+    options?.now,
+  );
+  if (options?.type) query.type = options.type;
+  if (options?.tags?.length) query.tags = { $in: options.tags };
+  if (options?.embeddingStatus) query.embeddingStatus = options.embeddingStatus;
+  const docs = await getDataBankModel()
+    .find(query)
+    .sort({ createdAt: -1 })
+    .limit(Math.max(1, Math.min(options?.limit ?? 100, 500)))
+    .lean();
+  return docs as unknown as DataBankEntry[];
+}
+
 /** Get verified project-scoped DataBank entries for a specific session. */
 export async function getProjectScopedEntries(
   userId: string,
@@ -3246,6 +3317,26 @@ export async function getProjectScopedEntries(
     .find(query)
     .sort({ createdAt: -1 })
     .limit(options?.limit ?? 100)
+    .lean();
+  return docs as unknown as DataBankEntry[];
+}
+
+/** Read current project memory through exact user/organization authority. */
+export async function getAuthorizedProjectScopedEntries(
+  principalInput: DataBankPrincipal,
+  sessionId: string,
+  options?: { type?: DataBankEntryType; limit?: number; now?: Date },
+): Promise<DataBankEntry[]> {
+  await connectToThinkForgeDb();
+  const query: Record<string, any> = {
+    sessionId,
+    ...buildAuthorizedDataBankReadQuery(principalInput, 'project', options?.now),
+  };
+  if (options?.type) query.type = options.type;
+  const docs = await getDataBankModel()
+    .find(query)
+    .sort({ createdAt: -1 })
+    .limit(Math.max(1, Math.min(options?.limit ?? 100, 500)))
     .lean();
   return docs as unknown as DataBankEntry[];
 }
@@ -3277,6 +3368,21 @@ export async function getDataBankEntriesByIds(
     _id: { $in: entryIds },
     userId,
     ...buildVerifiedDataBankOwnershipQuery(),
+  }).lean();
+  return docs as unknown as DataBankEntry[];
+}
+
+/** Re-authorize vector candidates in Mongo before they can reach a writer. */
+export async function getAuthorizedDataBankEntriesByIds(
+  entryIds: string[],
+  principalInput: DataBankPrincipal,
+  now = new Date(),
+): Promise<DataBankEntry[]> {
+  if (entryIds.length === 0) return [];
+  await connectToThinkForgeDb();
+  const docs = await getDataBankModel().find({
+    _id: { $in: entryIds },
+    ...buildAuthorizedDataBankReadQuery(principalInput, undefined, now),
   }).lean();
   return docs as unknown as DataBankEntry[];
 }

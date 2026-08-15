@@ -15,6 +15,7 @@ import {
   DATA_BANK_EMBEDDING_METADATA_VERSION,
   type DataBankEntry,
   type DataBankMemoryScope,
+  type DataBankPrincipal,
 } from './db';
 
 export function getVectorIndex() {
@@ -62,10 +63,36 @@ export class DataBankEmbeddingAuthorityError extends Error {
   }
 }
 
-export function buildDataBankVectorMetadata(entry: DataBankEntry): Record<string, string | number> {
+export function buildDataBankVectorMetadata(
+  entry: DataBankEntry,
+  now = new Date(),
+): Record<string, string | number> {
   const userId = entry.userId?.trim();
   if (!userId || entry.provenanceStatus !== 'verified') {
     throw new DataBankEmbeddingAuthorityError('DataBank embedding requires verified owner provenance.');
+  }
+  const ownerType = entry.ownerType;
+  const orgId = entry.orgId?.trim();
+  if (ownerType !== 'user' && ownerType !== 'organization') {
+    throw new DataBankEmbeddingAuthorityError('DataBank embedding requires exact owner authority.');
+  }
+  if ((ownerType === 'organization' && !orgId) || (ownerType === 'user' && Boolean(orgId))) {
+    throw new DataBankEmbeddingAuthorityError('DataBank embedding requires exact owner authority.');
+  }
+  if (entry.lifecycleStatus !== 'active') {
+    throw new DataBankEmbeddingAuthorityError('DataBank embedding requires active lifecycle state.');
+  }
+  if (entry.classification === 'child_data' || !entry.classification) {
+    throw new DataBankEmbeddingAuthorityError('DataBank embedding classification is not allowed.');
+  }
+  if (entry.consentStatus === 'withdrawn' || !entry.consentStatus
+    || (entry.classification === 'personal' && entry.consentStatus !== 'granted')) {
+    throw new DataBankEmbeddingAuthorityError('DataBank embedding consent is not valid.');
+  }
+  if (!Number.isFinite(now.getTime())
+    || isDataBankDateElapsed(entry.freshUntil, now)
+    || isDataBankDateElapsed(entry.expiresAt, now)) {
+    throw new DataBankEmbeddingAuthorityError('DataBank embedding retention window is not current.');
   }
 
   const scope = entry.scope;
@@ -85,15 +112,24 @@ export function buildDataBankVectorMetadata(entry: DataBankEntry): Record<string
 
   return {
     userId,
+    ownerType,
+    ...(orgId ? { orgId } : {}),
     type: entry.type,
     scope,
     memoryScope,
     provenanceStatus: 'verified',
+    classification: entry.classification,
+    consentStatus: entry.consentStatus,
+    lifecycleStatus: 'active',
     metadataVersion: DATA_BANK_EMBEDDING_METADATA_VERSION,
     ...(brandId ? { brandId } : {}),
     ...(entry.sessionId?.trim() ? { sessionId: entry.sessionId.trim() } : {}),
     ...(entry.projectId?.trim() ? { projectId: entry.projectId.trim() } : {}),
   };
+}
+
+function isDataBankDateElapsed(value: Date | undefined, now: Date): boolean {
+  return value !== undefined && (!(value instanceof Date) || !Number.isFinite(value.getTime()) || value <= now);
 }
 
 /**
@@ -167,12 +203,14 @@ export interface VectorQueryResult {
 
 export function buildDataBankVectorFilter(input: {
   userId: string;
+  orgId?: string | null;
   scope?: 'project' | 'global';
   brandId?: string;
   memoryScope?: DataBankMemoryScope;
 }): string {
   const userId = input.userId.trim();
   if (!userId) throw new DataBankEmbeddingAuthorityError('Vector retrieval requires a user owner.');
+  const orgId = input.orgId?.trim();
   if (!input.scope && (input.memoryScope || input.brandId)) {
     throw new DataBankEmbeddingAuthorityError('Vector memory authority requires an explicit data scope.');
   }
@@ -192,8 +230,13 @@ export function buildDataBankVectorFilter(input: {
   }
 
   const filterParts = [
-    `userId = '${escapeVectorFilterValue(userId)}'`,
+    orgId ? "ownerType = 'organization'" : "ownerType = 'user'",
+    orgId
+      ? `orgId = '${escapeVectorFilterValue(orgId)}'`
+      : `userId = '${escapeVectorFilterValue(userId)}'`,
     "provenanceStatus = 'verified'",
+    "lifecycleStatus = 'active'",
+    `metadataVersion = ${DATA_BANK_EMBEDDING_METADATA_VERSION}`,
   ];
   if (input.scope) filterParts.push(`scope = '${input.scope}'`);
   if (input.scope === 'project') filterParts.push("memoryScope = 'project'");
@@ -211,7 +254,7 @@ export function buildDataBankVectorFilter(input: {
  * Returns vector IDs + scores above the relevance threshold.
  */
 export async function queryRelevantFacts(
-  userId: string,
+  principal: DataBankPrincipal,
   queryText: string,
   topK: number = 5,
   scope?: 'project' | 'global',
@@ -221,7 +264,8 @@ export async function queryRelevantFacts(
 
   const index = getVectorIndex();
   const filter = buildDataBankVectorFilter({
-    userId,
+    userId: principal.userId,
+    orgId: principal.orgId,
     scope,
     memoryScope: options?.memoryScope,
     brandId: options?.brandId,

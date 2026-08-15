@@ -10,9 +10,9 @@ import type { DataBankEntry } from '@/lib/thinkforge/services/db';
 import type { BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 
 const mocks = vi.hoisted(() => ({
-  getDataBankEntriesByIds: vi.fn(),
-  getDataBankEntriesByUser: vi.fn(),
-  getProjectScopedEntries: vi.fn(),
+  getAuthorizedDataBankEntriesByIds: vi.fn(),
+  getAuthorizedDataBankEntries: vi.fn(),
+  getAuthorizedProjectScopedEntries: vi.fn(),
   getRecentInteractionEvents: vi.fn(),
   isVectorRetrievalConfigured: vi.fn(),
   queryRelevantFacts: vi.fn(),
@@ -20,9 +20,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/thinkforge/services/db', () => ({
-  getDataBankEntriesByIds: mocks.getDataBankEntriesByIds,
-  getDataBankEntriesByUser: mocks.getDataBankEntriesByUser,
-  getProjectScopedEntries: mocks.getProjectScopedEntries,
+  getAuthorizedDataBankEntriesByIds: mocks.getAuthorizedDataBankEntriesByIds,
+  getAuthorizedDataBankEntries: mocks.getAuthorizedDataBankEntries,
+  getAuthorizedProjectScopedEntries: mocks.getAuthorizedProjectScopedEntries,
   getRecentInteractionEvents: mocks.getRecentInteractionEvents,
 }));
 
@@ -105,9 +105,9 @@ describe('fetchContextSources scoped DataBank reads', () => {
   });
 
   beforeEach(() => {
-    mocks.getDataBankEntriesByIds.mockReset();
-    mocks.getDataBankEntriesByUser.mockReset();
-    mocks.getProjectScopedEntries.mockReset();
+    mocks.getAuthorizedDataBankEntriesByIds.mockReset();
+    mocks.getAuthorizedDataBankEntries.mockReset();
+    mocks.getAuthorizedProjectScopedEntries.mockReset();
     mocks.getRecentInteractionEvents.mockReset();
     mocks.isVectorRetrievalConfigured.mockReset();
     mocks.queryRelevantFacts.mockReset();
@@ -120,15 +120,15 @@ describe('fetchContextSources scoped DataBank reads', () => {
       profileUpdatedAt: '2026-08-11T00:00:00.000Z',
       profile: acceptedProfile(),
     });
-    mocks.getProjectScopedEntries.mockResolvedValue([]);
+    mocks.getAuthorizedProjectScopedEntries.mockResolvedValue([]);
     mocks.getRecentInteractionEvents.mockResolvedValue([]);
     mocks.isVectorRetrievalConfigured.mockReturnValue(true);
     mocks.queryRelevantFacts.mockResolvedValue([]);
-    mocks.getDataBankEntriesByUser.mockResolvedValue([]);
+    mocks.getAuthorizedDataBankEntries.mockResolvedValue([]);
   });
 
   it('keyword fallback reads only global entries and filters other-brand facts', async () => {
-    mocks.getDataBankEntriesByUser.mockResolvedValue([
+    mocks.getAuthorizedDataBankEntries.mockResolvedValue([
       entry({
         _id: 'entry_generic',
         title: 'Generic caption rule',
@@ -163,18 +163,19 @@ describe('fetchContextSources scoped DataBank reads', () => {
 
     const ctx = await fetchContextSources({
       userId: 'user_1',
+      orgId: 'org_1',
       brandId: 'brand_1',
       currentPrompt: 'warm captions',
       maxFacts: 10,
     });
 
-    expect(mocks.getDataBankEntriesByUser).toHaveBeenCalledWith('user_1', {
+    expect(mocks.getAuthorizedDataBankEntries).toHaveBeenCalledWith({ userId: 'user_1', orgId: 'org_1' }, {
       limit: 200,
       scope: 'global',
     });
     expect(mocks.resolveThinkForgeBrandAuthority).toHaveBeenCalledWith({
       userId: 'user_1',
-      orgId: null,
+      orgId: 'org_1',
       isOrgAdmin: undefined,
       brandId: 'brand_1',
     });
@@ -189,7 +190,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
       { id: 'entry_brand_2', score: 0.95 },
       { id: 'entry_brand_1', score: 0.9 },
     ]);
-    mocks.getDataBankEntriesByIds.mockResolvedValue([
+    mocks.getAuthorizedDataBankEntriesByIds.mockResolvedValue([
       entry({
         _id: 'entry_brand_1',
         title: 'Brand one voice',
@@ -212,19 +213,19 @@ describe('fetchContextSources scoped DataBank reads', () => {
     });
 
     expect(ctx.globalFacts.map((fact) => fact.id)).toEqual(['entry_brand_1']);
-    expect(mocks.getDataBankEntriesByUser).toHaveBeenCalledWith('user_1', {
+    expect(mocks.getAuthorizedDataBankEntries).toHaveBeenCalledWith({ userId: 'user_1', orgId: null }, {
       limit: 200,
       scope: 'global',
     });
     expect(mocks.queryRelevantFacts).toHaveBeenCalledWith(
-      'user_1',
+      { userId: 'user_1', orgId: null },
       'voice preference',
       10,
       'global',
       { brandId: 'brand_1', memoryScope: 'brand' },
     );
     expect(mocks.queryRelevantFacts).toHaveBeenCalledWith(
-      'user_1',
+      { userId: 'user_1', orgId: null },
       'voice preference',
       10,
       'global',
@@ -234,7 +235,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
 
   it('uses scoped keyword retrieval without querying Vector when it is intentionally unconfigured', async () => {
     mocks.isVectorRetrievalConfigured.mockReturnValue(false);
-    mocks.getDataBankEntriesByUser.mockResolvedValue([
+    mocks.getAuthorizedDataBankEntries.mockResolvedValue([
       entry({
         _id: 'entry_brand_1',
         title: 'Brand one proof',
@@ -255,12 +256,12 @@ describe('fetchContextSources scoped DataBank reads', () => {
   });
 
   it('fills incomplete vector results with explicitly scoped legacy memory', async () => {
-    mocks.queryRelevantFacts.mockImplementation(async (_userId, _queryText, _maxFacts, _scope, plan) => (
+    mocks.queryRelevantFacts.mockImplementation(async (_principal, _queryText, _maxFacts, _scope, plan) => (
       plan?.memoryScope === 'universal'
         ? [{ id: 'entry_universal', score: 0.95 }]
         : []
     ));
-    mocks.getDataBankEntriesByIds.mockResolvedValue([
+    mocks.getAuthorizedDataBankEntriesByIds.mockResolvedValue([
       entry({
         _id: 'entry_universal',
         title: 'Universal proof rule',
@@ -269,7 +270,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
         tags: ['memory:universal'],
       }),
     ]);
-    mocks.getDataBankEntriesByUser.mockResolvedValue([
+    mocks.getAuthorizedDataBankEntries.mockResolvedValue([
       entry({
         _id: 'entry_brand_1',
         title: 'Brand proof rule',
@@ -306,9 +307,9 @@ describe('fetchContextSources scoped DataBank reads', () => {
   });
 
   it('records dependency failures per channel without discarding healthy channels silently', async () => {
-    mocks.getProjectScopedEntries.mockRejectedValue(new Error('project database unavailable'));
+    mocks.getAuthorizedProjectScopedEntries.mockRejectedValue(new Error('project database unavailable'));
     mocks.queryRelevantFacts.mockRejectedValue(new Error('vector unavailable'));
-    mocks.getDataBankEntriesByUser.mockRejectedValue(new Error('global database unavailable'));
+    mocks.getAuthorizedDataBankEntries.mockRejectedValue(new Error('global database unavailable'));
     mocks.getRecentInteractionEvents.mockRejectedValue(new Error('events database unavailable'));
 
     const ctx = await fetchContextSources({
@@ -331,7 +332,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
 
   it('distinguishes a retrieval deadline from an empty project knowledge set', async () => {
     vi.useFakeTimers();
-    mocks.getProjectScopedEntries.mockReturnValue(new Promise(() => undefined));
+    mocks.getAuthorizedProjectScopedEntries.mockReturnValue(new Promise(() => undefined));
 
     const pendingContext = fetchContextSources({
       userId: 'user_1',
@@ -352,7 +353,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
   });
 
   it('does not infer a legacy BrandDNA profile when no brand is selected', async () => {
-    mocks.getDataBankEntriesByUser.mockResolvedValue([
+    mocks.getAuthorizedDataBankEntries.mockResolvedValue([
       entry({
         _id: 'entry_generic',
         title: 'Generic caption rule',
@@ -386,7 +387,7 @@ describe('fetchContextSources scoped DataBank reads', () => {
   });
 
   it('allows only trusted legacy metadata into global writer context', async () => {
-    mocks.getDataBankEntriesByUser.mockResolvedValue([
+    mocks.getAuthorizedDataBankEntries.mockResolvedValue([
       entry({
         _id: 'entry_raw_spoof',
         title: 'Raw imported proof',

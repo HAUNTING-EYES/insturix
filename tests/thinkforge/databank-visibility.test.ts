@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertDataBankSessionPrincipal,
+  buildAuthorizedDataBankReadQuery,
   buildDataBankPrincipalQuery,
   buildVerifiedDataBankOwnershipQuery,
   resolveDataBankEntryAuthority,
@@ -18,6 +19,10 @@ function dataBankEntry(overrides: Partial<DataBankEntry> = {}): DataBankEntry {
     sessionId: 'session_1',
     projectId: 'session_1',
     userId: 'user_1',
+    ownerType: 'user',
+    classification: 'business_confidential',
+    consentStatus: 'not_required',
+    lifecycleStatus: 'active',
     type: 'atomic_fact',
     scope: 'project',
     memoryScope: 'project',
@@ -204,16 +209,70 @@ describe('DataBank visibility authority', () => {
     });
   });
 
+  it('builds an exact authoring read predicate with lifecycle and retention gates', () => {
+    const now = new Date('2026-08-16T12:00:00.000Z');
+
+    expect(buildAuthorizedDataBankReadQuery(
+      { userId: 'user_1', orgId: 'org_1' },
+      'global',
+      now,
+    )).toEqual({
+      $and: [
+        { ownerType: 'organization', orgId: 'org_1' },
+        buildVerifiedDataBankOwnershipQuery('global'),
+        { lifecycleStatus: 'active' },
+        { classification: { $in: ['public', 'business_confidential', 'personal'] } },
+        { consentStatus: { $in: ['not_required', 'granted'] } },
+        {
+          $or: [
+            { classification: { $ne: 'personal' } },
+            { classification: 'personal', consentStatus: 'granted' },
+          ],
+        },
+        {
+          $or: [
+            { freshUntil: { $exists: false } },
+            { freshUntil: null },
+            { freshUntil: { $gt: now } },
+          ],
+        },
+        {
+          $or: [
+            { expiresAt: { $exists: false } },
+            { expiresAt: null },
+            { expiresAt: { $gt: now } },
+          ],
+        },
+      ],
+    });
+  });
+
   it('builds exact vector metadata without project or brand defaults', () => {
     expect(buildDataBankVectorMetadata(dataBankEntry())).toEqual({
       userId: 'user_1',
+      ownerType: 'user',
       type: 'atomic_fact',
       scope: 'project',
       memoryScope: 'project',
       provenanceStatus: 'verified',
-      metadataVersion: 2,
+      classification: 'business_confidential',
+      consentStatus: 'not_required',
+      lifecycleStatus: 'active',
+      metadataVersion: 3,
       sessionId: 'session_1',
       projectId: 'session_1',
+    });
+  });
+
+  it('binds organization vector metadata to the organization owner', () => {
+    expect(buildDataBankVectorMetadata(dataBankEntry({
+      ownerType: 'organization',
+      orgId: 'org_1',
+    }))).toMatchObject({
+      userId: 'user_1',
+      ownerType: 'organization',
+      orgId: 'org_1',
+      metadataVersion: 3,
     });
   });
 
@@ -227,6 +286,17 @@ describe('DataBank visibility authority', () => {
       sessionId: undefined,
       projectId: undefined,
     }))).toThrow(DataBankEmbeddingAuthorityError);
+    expect(() => buildDataBankVectorMetadata(dataBankEntry({
+      lifecycleStatus: 'superseded',
+    }))).toThrow('DataBank embedding requires active lifecycle state.');
+    expect(() => buildDataBankVectorMetadata(dataBankEntry({
+      consentStatus: 'withdrawn',
+    }))).toThrow('DataBank embedding consent is not valid.');
+    expect(() => buildDataBankVectorMetadata(dataBankEntry({
+      expiresAt: new Date('2026-08-15T23:59:59.999Z'),
+    }), new Date('2026-08-16T00:00:00.000Z'))).toThrow(
+      'DataBank embedding retention window is not current.',
+    );
   });
 
   it('requires exact brand authority for brand vector metadata', () => {
@@ -244,7 +314,18 @@ describe('DataBank visibility authority', () => {
       memoryScope: 'brand',
       brandId: 'brand_1',
     })).toBe(
-      "userId = 'user_1' AND provenanceStatus = 'verified' AND scope = 'global' AND memoryScope = 'brand' AND brandId = 'brand_1'",
+      "ownerType = 'user' AND userId = 'user_1' AND provenanceStatus = 'verified' AND lifecycleStatus = 'active' AND metadataVersion = 3 AND scope = 'global' AND memoryScope = 'brand' AND brandId = 'brand_1'",
+    );
+  });
+
+  it('builds an organization-bound universal vector filter', () => {
+    expect(buildDataBankVectorFilter({
+      userId: 'user_1',
+      orgId: 'org_1',
+      scope: 'global',
+      memoryScope: 'universal',
+    })).toBe(
+      "ownerType = 'organization' AND orgId = 'org_1' AND provenanceStatus = 'verified' AND lifecycleStatus = 'active' AND metadataVersion = 3 AND scope = 'global' AND memoryScope = 'universal'",
     );
   });
 

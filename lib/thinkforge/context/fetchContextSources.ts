@@ -11,12 +11,13 @@
 
 import { serializeFingerprint, serializeExemplars } from '../data/voice-signature';
 import {
-  getDataBankEntriesByUser,
-  getDataBankEntriesByIds,
-  getProjectScopedEntries,
+  getAuthorizedDataBankEntries,
+  getAuthorizedDataBankEntriesByIds,
+  getAuthorizedProjectScopedEntries,
   getRecentInteractionEvents,
   type BrandDNA,
   type DataBankEntry,
+  type DataBankPrincipal,
   type ThinkForgeEvent,
   type EventType,
 } from '../services/db';
@@ -244,11 +245,11 @@ async function fetchColdContext(
  * Fetch project-scoped facts for the current session (exact match, no semantic search).
  */
 async function fetchProjectContext(
-  userId: string,
+  principal: DataBankPrincipal,
   sessionId: string,
   maxFacts: number,
 ): Promise<SemanticFact[]> {
-  const entries = await getProjectScopedEntries(userId, sessionId, { limit: maxFacts });
+  const entries = await getAuthorizedProjectScopedEntries(principal, sessionId, { limit: maxFacts });
   return entries.map((entry) => ({
     id: entry._id,
     title: entry.title,
@@ -259,7 +260,7 @@ async function fetchProjectContext(
 }
 
 async function fetchWarmVectorContext(
-  userId: string,
+  principal: DataBankPrincipal,
   queryText: string,
   maxFacts: number,
   scope?: 'project' | 'global',
@@ -276,13 +277,13 @@ async function fetchWarmVectorContext(
     : [undefined];
   const vectorResults = dedupeVectorResults(
     (await Promise.all(
-      vectorPlans.map((plan) => queryRelevantFacts(userId, normalizedQueryText, maxFacts, scope, plan)),
+      vectorPlans.map((plan) => queryRelevantFacts(principal, normalizedQueryText, maxFacts, scope, plan)),
     )).flat(),
   );
   if (vectorResults.length === 0) return [];
 
   const matchedIds = vectorResults.map((result) => result.id);
-  const entries = await getDataBankEntriesByIds(matchedIds, userId);
+  const entries = await getAuthorizedDataBankEntriesByIds(matchedIds, principal);
   const entryMap = new Map<string, DataBankEntry>();
   for (const entry of entries) entryMap.set(entry._id.toString(), entry);
 
@@ -349,12 +350,12 @@ function scoreEntryByKeywords(entry: DataBankEntry, keywords: string[]): number 
 }
 
 async function fetchWarmKeywordContext(
-  userId: string,
+  principal: DataBankPrincipal,
   keywords: string[],
   maxFacts: number,
   brandId?: string,
 ): Promise<SemanticFact[]> {
-  const entries = await getDataBankEntriesByUser(userId, { limit: 200, scope: 'global' });
+  const entries = await getAuthorizedDataBankEntries(principal, { limit: 200, scope: 'global' });
   if (entries.length === 0) return [];
 
   const scored = entries
@@ -536,19 +537,20 @@ export async function fetchContextSources(
   const keywords = extractKeywords(combinedText);
   const hasRetrievalQuery = combinedText.length > 0;
   const vectorConfigured = isVectorRetrievalConfigured();
+  const principal: DataBankPrincipal = { userId, orgId: orgId ?? null };
 
   const [brandResolution, projectResult, vectorResult, keywordResult, interactionResult] = await Promise.all([
     fetchColdContext(userId, brandId, orgId, isOrgAdmin),
     sessionId
-      ? executeRetrieval(() => fetchProjectContext(userId, sessionId, maxFacts))
+      ? executeRetrieval(() => fetchProjectContext(principal, sessionId, maxFacts))
       : Promise.resolve(skippedRetrieval<SemanticFact>('session_not_provided')),
     !hasRetrievalQuery
       ? Promise.resolve(skippedRetrieval<SemanticFact>('query_not_provided'))
       : !vectorConfigured
         ? Promise.resolve(skippedRetrieval<SemanticFact>('provider_not_configured'))
-        : executeRetrieval(() => fetchWarmVectorContext(userId, combinedText, maxFacts, 'global', brandId)),
+        : executeRetrieval(() => fetchWarmVectorContext(principal, combinedText, maxFacts, 'global', brandId)),
     hasRetrievalQuery
-      ? executeRetrieval(() => fetchWarmKeywordContext(userId, keywords, maxFacts, brandId))
+      ? executeRetrieval(() => fetchWarmKeywordContext(principal, keywords, maxFacts, brandId))
       : Promise.resolve(skippedRetrieval<SemanticFact>('query_not_provided')),
     executeRetrieval(() => fetchHotContext(userId, interactionWindowDays, projectId)),
   ]);
