@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  addDataBankEntry: vi.fn(),
   addGovernedDataBankEntry: vi.fn(),
   assertDataBankSessionPrincipal: vi.fn(),
   auth: vi.fn(),
@@ -49,7 +48,6 @@ vi.mock('@/lib/thinkforge/agents/model-factory', () => ({
 }));
 vi.mock('@/lib/shared/brand-events', () => ({ getEventsByScope: mocks.getEventsByScope }));
 vi.mock('@/lib/thinkforge/services/db', () => ({
-  addDataBankEntry: mocks.addDataBankEntry,
   addGovernedDataBankEntry: mocks.addGovernedDataBankEntry,
   assertDataBankSessionPrincipal: mocks.assertDataBankSessionPrincipal,
   deleteEventsBySession: mocks.deleteEventsBySession,

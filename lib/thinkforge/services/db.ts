@@ -2695,17 +2695,6 @@ export async function appendChatMessageV2(
   }
 }
 
-/**
- * Get chat history (prefers V1 for now since it has sequential messages)
- */
-export async function getChatHistoryV2(
-  projectId: string,
-  limit: number = 50
-): Promise<ChatMessage[]> {
-  // For now, delegate to V1 since chat messages are stored sequentially there
-  return getChatHistory(projectId, limit);
-}
-
 // ==================== DataBank ====================
 // Tiered memory storage: research artifacts, atomic facts, and semantic knowledge
 
@@ -3143,26 +3132,6 @@ export function getDataBankModel(): Model<any> {
   return DataBankModel;
 }
 
-/** Add a new entry to the DataBank */
-export async function addDataBankEntry(
-  sessionId: string,
-  userId: string,
-  entry: {
-    type: DataBankEntryType;
-    title: string;
-    content: Record<string, any>;
-    sourceUrl?: string;
-    sourceEntryId?: string;
-    tags?: string[];
-    projectId?: string;
-    scope?: DataBankScope;
-    memoryScope?: DataBankMemoryScope;
-    brandId?: string;
-  }
-): Promise<DataBankEntry> {
-  return createDataBankEntryRecord(sessionId, userId, entry);
-}
-
 /**
  * Persist a DataBank record only after re-authorizing its exact session and
  * deriving ownership from that server-owned session. Callers choose a
@@ -3370,19 +3339,6 @@ export async function updateDataBankEmbeddingStatus(
   const update: Record<string, any> = { embeddingStatus: status, updatedAt: new Date() };
   if (vectorId) update.vectorId = vectorId;
   await model.updateOne({ _id: entryId }, { $set: update });
-}
-
-/** Store a computed embedding vector on a DataBank entry */
-export async function updateDataBankEmbedding(
-  entryId: string,
-  embedding: number[],
-): Promise<void> {
-  await connectToThinkForgeDb();
-  const model = getDataBankModel();
-  await model.updateOne(
-    { _id: entryId },
-    { $set: { embedding, embeddingStatus: 'success', updatedAt: new Date() } },
-  );
 }
 
 /**
