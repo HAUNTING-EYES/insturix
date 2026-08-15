@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   resolveCompletedGenerationDelivery,
   resolveThinkForgeGenerationFailureMessage,
@@ -7,8 +7,52 @@ import {
   shouldScheduleThinkForgeGenerationPolling,
 } from '@/lib/thinkforge/client-generation-lifecycle';
 
+const lifecycleMocks = vi.hoisted(() => {
+  class GenerationStateConflictError extends Error {}
+
+  return {
+    auth: vi.fn(),
+    getActiveGeneration: vi.fn(),
+    getScript: vi.fn(),
+    getSession: vi.fn(),
+    updateGenerationState: vi.fn(),
+    GenerationStateConflictError,
+  };
+});
+
+vi.mock('@clerk/nextjs/server', () => ({ auth: lifecycleMocks.auth }));
+vi.mock('@/lib/thinkforge/services/db', () => ({
+  GenerationStateConflictError: lifecycleMocks.GenerationStateConflictError,
+  getActiveGeneration: lifecycleMocks.getActiveGeneration,
+  getScript: lifecycleMocks.getScript,
+  getSession: lifecycleMocks.getSession,
+  updateGenerationState: lifecycleMocks.updateGenerationState,
+}));
+
 function read(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
+}
+
+async function loadGenerationRoutes() {
+  const [{ GET: getStatus }, { POST: stopGeneration }] = await Promise.all([
+    import('@/app/api/services/thinkforge/generation/status/route'),
+    import('@/app/api/services/thinkforge/generation/stop/route'),
+  ]);
+  return { getStatus, stopGeneration };
+}
+
+function statusRequest(sessionId = 'session_requested') {
+  return new Request(
+    `http://localhost/api/services/thinkforge/generation/status?sessionId=${encodeURIComponent(sessionId)}`,
+  );
+}
+
+function stopRequest(body: Record<string, unknown>) {
+  return new Request('http://localhost/api/services/thinkforge/generation/stop', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 }
 
 describe('ThinkForge generation lifecycle', () => {
@@ -140,5 +184,171 @@ describe('ThinkForge generation lifecycle', () => {
     expect(hook).toContain('finishWithServerFailure(data?.error)');
     expect(hook).toContain('resolveThinkForgeGenerationFailureMessage');
     expect(hook).toContain('shouldScheduleThinkForgeGenerationPolling');
+  });
+});
+
+describe('ThinkForge generation route ownership', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lifecycleMocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1' });
+    lifecycleMocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+    });
+    lifecycleMocks.getActiveGeneration.mockResolvedValue({
+      id: 'generation_1',
+      type: 'chat',
+      status: 'running',
+      startedAt: new Date(),
+      updatedAt: new Date(),
+    });
+    lifecycleMocks.updateGenerationState.mockResolvedValue({
+      id: 'generation_1',
+      type: 'chat',
+      status: 'cancelled',
+    });
+  });
+
+  it('denies foreign-organization callers before reading generation state', async () => {
+    lifecycleMocks.getSession.mockResolvedValue(null);
+    const { getStatus, stopGeneration } = await loadGenerationRoutes();
+
+    const statusResponse = await getStatus(statusRequest());
+    const stopResponse = await stopGeneration(stopRequest({
+      sessionId: 'session_requested',
+      generationId: 'generation_1',
+    }));
+
+    expect([statusResponse.status, stopResponse.status]).toEqual([404, 404]);
+    expect(lifecycleMocks.getSession).toHaveBeenCalledTimes(2);
+    expect(lifecycleMocks.getSession).toHaveBeenNthCalledWith(
+      1,
+      'session_requested',
+      'user_1',
+      'org_1',
+    );
+    expect(lifecycleMocks.getSession).toHaveBeenNthCalledWith(
+      2,
+      'session_requested',
+      'user_1',
+      'org_1',
+    );
+    expect(lifecycleMocks.getActiveGeneration).not.toHaveBeenCalled();
+    expect(lifecycleMocks.updateGenerationState).not.toHaveBeenCalled();
+  });
+
+  it('polls and hydrates only the canonical generation document', async () => {
+    lifecycleMocks.getActiveGeneration.mockResolvedValue({
+      id: 'generation_1',
+      type: 'script_generate',
+      scriptId: 'script_generated',
+      status: 'completed',
+      startedAt: new Date(),
+      updatedAt: new Date(),
+    });
+    lifecycleMocks.getScript.mockResolvedValue({
+      sessionId: 'session_canonical',
+      scriptId: 'script_generated',
+      title: 'Generated document',
+    });
+    const { getStatus } = await loadGenerationRoutes();
+
+    const response = await getStatus(statusRequest());
+
+    expect(response.status).toBe(200);
+    expect(lifecycleMocks.getActiveGeneration).toHaveBeenCalledWith('session_canonical');
+    expect(lifecycleMocks.getScript).toHaveBeenCalledWith(
+      'session_canonical',
+      'script_generated',
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      generation: { id: 'generation_1', scriptId: 'script_generated' },
+      script: { sessionId: 'session_canonical', scriptId: 'script_generated' },
+    });
+  });
+
+  it('does not guess the latest document when completion lacks a script identity', async () => {
+    lifecycleMocks.getActiveGeneration.mockResolvedValue({
+      id: 'generation_1',
+      type: 'script_generate',
+      status: 'completed',
+      startedAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const { getStatus } = await loadGenerationRoutes();
+
+    const response = await getStatus(statusRequest());
+
+    expect(response.status).toBe(200);
+    expect(lifecycleMocks.getScript).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      generation: { id: 'generation_1', status: 'completed' },
+      script: null,
+    });
+  });
+
+  it('requires the exact generation identity before cancellation', async () => {
+    const { stopGeneration } = await loadGenerationRoutes();
+
+    const response = await stopGeneration(stopRequest({ sessionId: 'session_requested' }));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Missing generationId' });
+    expect(lifecycleMocks.getSession).not.toHaveBeenCalled();
+    expect(lifecycleMocks.getActiveGeneration).not.toHaveBeenCalled();
+    expect(lifecycleMocks.updateGenerationState).not.toHaveBeenCalled();
+  });
+
+  it('cancels only the matching generation on the canonical session', async () => {
+    const { stopGeneration } = await loadGenerationRoutes();
+
+    const response = await stopGeneration(stopRequest({
+      sessionId: 'session_requested',
+      generationId: 'generation_1',
+    }));
+
+    expect(response.status).toBe(200);
+    expect(lifecycleMocks.getActiveGeneration).toHaveBeenCalledWith('session_canonical');
+    expect(lifecycleMocks.updateGenerationState).toHaveBeenCalledWith(
+      'session_canonical',
+      'generation_1',
+      expect.objectContaining({ status: 'cancelled' }),
+    );
+  });
+
+  it('does not cancel a different active generation', async () => {
+    lifecycleMocks.getActiveGeneration.mockResolvedValue({
+      id: 'generation_other',
+      type: 'chat',
+      status: 'running',
+      startedAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const { stopGeneration } = await loadGenerationRoutes();
+
+    const response = await stopGeneration(stopRequest({
+      sessionId: 'session_requested',
+      generationId: 'generation_1',
+    }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Generation mismatch' });
+    expect(lifecycleMocks.updateGenerationState).not.toHaveBeenCalled();
+  });
+
+  it('returns a conflict when cancellation loses generation ownership', async () => {
+    lifecycleMocks.updateGenerationState.mockRejectedValue(
+      new lifecycleMocks.GenerationStateConflictError('Generation ownership changed'),
+    );
+    const { stopGeneration } = await loadGenerationRoutes();
+
+    const response = await stopGeneration(stopRequest({
+      sessionId: 'session_requested',
+      generationId: 'generation_1',
+    }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Generation is no longer running' });
   });
 });

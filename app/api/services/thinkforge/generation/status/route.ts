@@ -10,26 +10,27 @@ const WATCHDOG_GRACE_MS = 30_000;
 const STALE_AFTER_MS = CHAT_EXECUTION_BUDGET_MS + WATCHDOG_GRACE_MS;
 
 export async function GET(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const { searchParams } = new URL(req.url);
-  const sessionId = searchParams.get('sessionId');
+  const sessionId = searchParams.get('sessionId')?.trim();
 
   if (!sessionId) {
     return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
   }
 
   try {
-    const session = await db.getSession(sessionId, userId);
+    const session = await db.getSession(sessionId, userId, orgId);
     if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    let generation = await db.getActiveGeneration(sessionId);
-    let script: any = null;
+    const canonicalSessionId = session._id;
+    let generation = await db.getActiveGeneration(canonicalSessionId);
+    let script: Awaited<ReturnType<typeof db.getScript>> = null;
 
     // A status poll is a watchdog, not a cleanup mechanism. Keep failures durable so
     // the client can tell the user what happened instead of presenting an empty board.
@@ -44,16 +45,15 @@ export async function GET(req: Request) {
           age: Date.now() - lastActivity,
           type: generation.type,
         });
-        await db.updateGenerationState(sessionId, generation.id, {
-          status: 'failed',
-          message,
-        });
-        generation = {
-          ...generation,
-          status: 'failed',
-          message,
-          updatedAt: new Date(),
-        };
+        try {
+          generation = await db.updateGenerationState(canonicalSessionId, generation.id, {
+            status: 'failed',
+            message,
+          });
+        } catch (error) {
+          if (!(error instanceof db.GenerationStateConflictError)) throw error;
+          generation = await db.getActiveGeneration(canonicalSessionId);
+        }
       }
     }
 
@@ -63,13 +63,15 @@ export async function GET(req: Request) {
       (generation.type === 'script_generate' || generation.type === 'script_edit')
     ) {
       const generationScriptId = typeof generation.scriptId === 'string' && generation.scriptId.trim()
-        ? generation.scriptId
+        ? generation.scriptId.trim()
         : null;
-      script = await db.getScript(sessionId, generationScriptId);
+      if (generationScriptId) {
+        script = await db.getScript(canonicalSessionId, generationScriptId);
+      }
     }
 
     return NextResponse.json({ generation: generation || null, script });
-  } catch (error: any) {
+  } catch (error) {
     console.error('[ThinkForge] Generation status error:', error);
     return NextResponse.json({ error: 'Failed to fetch generation status' }, { status: 500 });
   }

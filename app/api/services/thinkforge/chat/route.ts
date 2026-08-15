@@ -26,6 +26,10 @@ export const dynamic = 'force-dynamic';
 // Keep this aligned with the stale-generation watchdog in generation/status.
 export const maxDuration = 300;
 
+function readIdentifier(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 function authoringContextErrorResponse(error: ThinkForgeBrandAuthorityError): NextResponse {
   const status = error.code === 'brand_not_found'
     ? 404
@@ -53,7 +57,6 @@ export async function POST(req: Request) {
   let prompt: string | undefined;
   let sessionId: string | undefined;
   let selection: string | undefined;
-  let script: any | undefined;
   let project: any | undefined;
   let selectionBlocks: any[] | undefined;
   let selectionBlockIds: string[] | undefined;
@@ -69,14 +72,13 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     prompt = (body?.prompt ?? '').toString();
-    if (body?.sessionId) sessionId = String(body.sessionId);
+    sessionId = readIdentifier(body?.sessionId);
     if (body?.selection) selection = String(body.selection);
-    if (body?.script) script = body.script;
     if (body?.project) project = body.project;
     if (body?.selectionBlocks) selectionBlocks = body.selectionBlocks;
     if (Array.isArray(body?.selectionBlockIds)) selectionBlockIds = body.selectionBlockIds.map((id: any) => String(id));
     if (body?.selectionRange) selectionRange = body.selectionRange;
-    if (body?.scriptId) scriptId = String(body.scriptId);
+    scriptId = readIdentifier(body?.scriptId);
     if (body?.generationId) generationId = String(body.generationId);
     if (body?.threadId) threadId = String(body.threadId);
     if (body?.intentContext) intentContext = body.intentContext;
@@ -95,6 +97,9 @@ export async function POST(req: Request) {
     console.error('[ThinkForge Chat] Missing sessionId in request');
     return NextResponse.json({ error: 'Missing sessionId - session must be created first' }, { status: 400 });
   }
+  if (!scriptId) {
+    return NextResponse.json({ error: 'Missing scriptId' }, { status: 400 });
+  }
 
   let authorizedSession: Awaited<ReturnType<typeof db.getSession>>;
   try {
@@ -108,6 +113,7 @@ export async function POST(req: Request) {
   }
   const canonicalSessionId = authorizedSession._id;
   const isOrgAdmin = Boolean(orgId && has({ role: 'org:admin' }));
+  const canonicalScript = await db.getScript(canonicalSessionId, scriptId);
 
   // Resolve the authoring truth before reserving a credit. An explicit brand can
   // never degrade into an unbranded generation when its accepted profile is gone.
@@ -125,7 +131,7 @@ export async function POST(req: Request) {
       projectId: canonicalSessionId,
       sessionId: canonicalSessionId,
       currentPrompt: prompt,
-      currentScript: typeof script?.content === 'string' ? script.content : undefined,
+      currentScript: canonicalScript?.content || undefined,
       maxFacts: 5,
       interactionWindowDays: 30,
       writingKnowledgeVersion: getWritingKnowledgeVersion(),
@@ -200,7 +206,7 @@ export async function POST(req: Request) {
       prompt,
       selection,
       userId,
-      script,
+      script: canonicalScript,
       project,
       selectionBlocks,
       selectionBlockIds,
