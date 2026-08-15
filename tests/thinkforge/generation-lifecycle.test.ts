@@ -103,6 +103,18 @@ describe('ThinkForge generation lifecycle', () => {
     expect(service).toContain('const authoringContextSnapshot = authoringContext?.snapshot');
   });
 
+  it('fails closed when the required production brief cannot be resolved', () => {
+    const service = read('lib/thinkforge/services/chat-service.ts');
+    const briefResolution = service.indexOf('let briefSnapshot = resolveThinkForgeProductionBrief({');
+    const postWriter = service.indexOf('const writer = new PostWriterAgent()');
+    const scriptWriter = service.indexOf('const writer = new ScriptWriterAgent()');
+
+    expect(briefResolution).toBeGreaterThan(-1);
+    expect(briefResolution).toBeLessThan(postWriter);
+    expect(briefResolution).toBeLessThan(scriptWriter);
+    expect(service).not.toContain('generating without briefSnapshot');
+  });
+
   it('keeps the writer execution budget and stale-generation watchdog aligned', () => {
     const route = read('app/api/services/thinkforge/chat/route.ts');
     const statusRoute = read('app/api/services/thinkforge/generation/status/route.ts');

@@ -963,7 +963,6 @@ CRITICAL: You are editing a SELECTION from a larger document.
         let finalBlocks: ThinkForgeBlock[] = [];
         let finalRichText: TiptapJSON = { type: 'doc', content: [] } as any;
         let signalTrace: any = undefined;
-        let briefSnapshot: ReturnType<typeof resolveThinkForgeProductionBrief> | undefined;
         let writerOutputMetadata: Record<string, any> | undefined;
         const authoringContextSnapshot = authoringContext?.snapshot
           ?? buildThinkForgeAuthoringContextSnapshot({
@@ -1014,31 +1013,27 @@ CRITICAL: You are editing a SELECTION from a larger document.
           promptUnderstanding = await resolveScriptPromptUnderstanding(authoringPrompt);
         }
 
-        try {
-          briefSnapshot = resolveThinkForgeProductionBrief({
-            userPrompt: authoringPrompt,
+        let briefSnapshot = resolveThinkForgeProductionBrief({
+          userPrompt: authoringPrompt,
+          project: sessionState.metadata,
+          requested: promptUnderstanding?.requested,
+          documentType: generatedDocumentType,
+          contentPath,
+          brandId: sessionState.metadata.brandId,
+        });
+        if (contentPath !== 'post') {
+          const castingResolution = await resolveThinkForgeAvatarCasting({
+            brief: briefSnapshot,
             project: sessionState.metadata,
-            requested: promptUnderstanding?.requested,
-            documentType: generatedDocumentType,
-            contentPath,
+            userId,
+            orgId: session.orgId ?? null,
             brandId: sessionState.metadata.brandId,
+            castingIntent: promptUnderstanding?.castingIntent,
           });
-          if (contentPath !== 'post') {
-            const castingResolution = await resolveThinkForgeAvatarCasting({
-              brief: briefSnapshot,
-              project: sessionState.metadata,
-              userId,
-              orgId: session.orgId ?? null,
-              brandId: sessionState.metadata.brandId,
-              castingIntent: promptUnderstanding?.castingIntent,
-            });
-            briefSnapshot = castingResolution.brief;
-            if (castingResolution.metadata.status !== 'not_requested') {
-              castingContextMetadata = castingResolution.metadata;
-            }
+          briefSnapshot = castingResolution.brief;
+          if (castingResolution.metadata.status !== 'not_requested') {
+            castingContextMetadata = castingResolution.metadata;
           }
-        } catch (briefErr) {
-          console.warn('[chat-service] production brief resolution failed; generating without briefSnapshot:', briefErr);
         }
 
         try {
