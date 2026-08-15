@@ -14,7 +14,7 @@ vi.mock('@/lib/editron/services/upload-service', () => ({
   uploadMedia: vi.fn(),
 }));
 
-import { handleMusicCatalogIngest } from '@/app/api/services/editron/projects/[projectId]/music-catalog/ingest/route';
+import { handleMusicCatalogIngest } from '@/lib/editron/http/music-route-handlers';
 import { EpidemicMusicCatalogProvider } from '@/lib/editron/music-catalog/epidemic-provider';
 import {
   ingestMusicCatalogTrack,

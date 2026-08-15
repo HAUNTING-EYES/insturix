@@ -15,7 +15,7 @@ vi.mock('googleapis', () => ({
   },
 }));
 
-import { handleMusicDiscoverySearch } from '@/app/api/services/editron/music-discovery/search/route';
+import { handleMusicDiscoverySearch } from '@/lib/editron/http/music-route-handlers';
 import {
   YouTubeMusicTrendEnricher,
   type MusicTrendSnapshot,
