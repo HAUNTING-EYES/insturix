@@ -145,7 +145,10 @@ export async function embedDataBankEntry(
   entry: DataBankEntry,
   options?: { alreadyClaimed?: boolean },
 ): Promise<boolean> {
-  const claimedEntry = options?.alreadyClaimed
+  const hasVerifiableClaim = options?.alreadyClaimed === true
+    && entry.embeddingStatus === 'processing'
+    && Boolean(entry.embeddingLeaseId?.trim());
+  const claimedEntry = hasVerifiableClaim
     ? entry
     : await claimDataBankEntryForEmbedding(entry._id.toString());
   if (!claimedEntry) return false;

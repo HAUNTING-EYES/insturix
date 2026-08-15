@@ -127,6 +127,22 @@ describe('DataBank embedding fencing', () => {
     );
   });
 
+  it('does not trust an alreadyClaimed flag without a real processing lease', async () => {
+    mocks.claimDataBankEntryForEmbedding.mockResolvedValue(claimedEntry());
+
+    await expect(embedDataBankEntry(claimedEntry({
+      embeddingLeaseId: undefined,
+      embeddingStatus: 'pending',
+    }), { alreadyClaimed: true })).resolves.toBe(true);
+
+    expect(mocks.claimDataBankEntryForEmbedding).toHaveBeenCalledWith('entry_1');
+    expect(mocks.completeDataBankEmbedding).toHaveBeenCalledWith(
+      'entry_1',
+      'tfdb:entry_1:lease_1',
+      'lease_1',
+    );
+  });
+
   it('deletes only the stale attempt vector when lease completion loses its CAS', async () => {
     mocks.claimDataBankEntryForEmbedding.mockResolvedValue(claimedEntry());
     mocks.completeDataBankEmbedding.mockResolvedValue(false);
