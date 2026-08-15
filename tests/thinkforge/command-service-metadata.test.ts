@@ -33,16 +33,21 @@ const session = {
 };
 
 describe('ThinkForge content-path routing', () => {
-  it('routes Instagram post requests to the post writer path', () => {
-    expect(detectContentPath('Write an Instagram post from the original user brief.')).toBe('post');
+  it('routes selected post documents to the post writer path', () => {
+    expect(detectContentPath('Write an Instagram post from the original user brief.', 'social_post')).toBe('post');
     expect(detectContentPath('Write the post from the selected idea.', 'Instagram post')).toBe('post');
     expect(detectContentPath('Write the post from the selected idea.', 'instagram_post')).toBe('post');
-    expect(detectContentPath('Write a LinkedIn post about video production workflows.')).toBe('post');
+    expect(detectContentPath('Write a LinkedIn post about video production workflows.', 'social_post')).toBe('post');
   });
 
   it('keeps explicit video/script formats on the script writer path', () => {
-    expect(detectContentPath('Write an Instagram reel script with camera direction.')).toBe('script');
+    expect(detectContentPath('Write an Instagram reel script with camera direction.', 'video_script')).toBe('script');
     expect(detectContentPath('Write the draft.', 'video_script')).toBe('script');
+  });
+
+  it('rejects prompt-only routing instead of silently guessing a document kind', () => {
+    expect(() => detectContentPath('Write a LinkedIn post about video production workflows.'))
+      .toThrow(/choose a post, carousel, or script document/i);
   });
 
   it('keeps signal resolution on the post contract when the topic mentions video', () => {

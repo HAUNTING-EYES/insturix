@@ -113,24 +113,24 @@ describe('ThinkForge script hydration contract', () => {
     }, { sessionId: 'session_a', scriptId: 'missing' })).toThrow(/not found/i);
   });
 
-  it('routes explicit post requests by the latest user prompt, not stale session format', () => {
-    expect(detectContentPath('make a post creating fomo in my brand ICP', 'video_script')).toBe('post');
-    expect(detectContentPath('Write a LinkedIn post about video production workflows.', 'video_script')).toBe('post');
-    expect(detectContentPath('Write an Instagram reel script with camera direction.', 'post')).toBe('script');
+  it('routes by canonical document authority, not prompt keywords', () => {
+    expect(detectContentPath('make a post creating fomo in my brand ICP', 'video_script')).toBe('script');
+    expect(detectContentPath('Write a LinkedIn post about video production workflows.', 'social_post')).toBe('post');
+    expect(detectContentPath('Write an Instagram reel script with camera direction.', 'social_post')).toBe('post');
     expect(resolveThinkForgeDocumentIntent('make an Instagram carousel for this campaign', 'video_script')).toMatchObject({
-      contentPath: 'post',
-      source: 'user_prompt',
+      contentPath: 'script',
+      source: 'legacy_document_type',
     });
   });
 
-  it('uses the selected format for silent initial drafts without weakening user overrides', () => {
+  it('uses the selected format for initial drafts and later user requests', () => {
     expect(resolveThinkForgeGenerationDocumentIntent(
       'Create the complete first script draft for this idea.',
       'Instagram post',
       'initial_draft_claim',
     )).toMatchObject({
       contentPath: 'post',
-      source: 'document_type',
+      source: 'legacy_document_type',
     });
 
     expect(resolveThinkForgeGenerationDocumentIntent(
@@ -138,8 +138,8 @@ describe('ThinkForge script hydration contract', () => {
       'Instagram post',
       'user_request',
     )).toMatchObject({
-      contentPath: 'script',
-      source: 'user_prompt',
+      contentPath: 'post',
+      source: 'legacy_document_type',
     });
   });
 

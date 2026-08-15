@@ -2,7 +2,7 @@ import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 import {
   createThinkForgeWriterContract,
   isThinkForgePostKind,
-  normalizeThinkForgeDocumentType,
+  normalizeThinkForgeDocumentContract,
   resolveCarouselSlideCount,
   ThinkForgeDocumentContractSchema,
   type ThinkForgeDocumentContract,
@@ -22,12 +22,6 @@ interface PostOutputFormatOptions {
   maximumCharacters?: number;
 }
 
-const POST_CONTENT_REQUEST_PATTERN = /\b(linkedin\s+(?:post|carousel|article)|twitter\s+(?:post|thread)|x\s+(?:post|thread)|instagram\s+(?:post|caption|carousel)|ig\s+(?:post|caption|carousel)|facebook\s+(?:post|caption)|social\s+media\s+(?:post|caption|copy)|blog\s+post|article|newsletter|email\s+(?:campaign|copy)|carousel\s+post)\b/i;
-const SCRIPT_DOCUMENT_TYPE_PATTERN = /\b(screenplay|script|video\s+script|reel|short[ -]form|short\s+video|youtube\s+shorts?|youtube|tiktok|commercial|brand\s+film|product\s+ad|ugc)\b/i;
-const EXPLICIT_SCRIPT_TARGET_PATTERN = /\b(?:turn|convert|adapt|rewrite)\b.{0,100}\b(?:into|as)\b.{0,40}\b(?:video\s+script|reel\s+script|screenplay|youtube\s+short|short[ -]form\s+script|commercial\s+script|ugc\s+script)\b/i;
-const EXPLICIT_SCRIPT_CREATION_PATTERN = /\b(?:write|create|make|draft|produce)\b.{0,50}\b(?:video\s+script|reel\s+script|screenplay|youtube\s+short|short[ -]form\s+script|commercial\s+script|ugc\s+script)\b/i;
-const GENERIC_POST_REQUEST_PATTERN = /\b(?:post(?!\s*production)|caption|carousel|article|newsletter)\b/i;
-
 type ThinkForgeContentPath = 'post' | 'script';
 
 interface ThinkForgeDocumentIntent {
@@ -37,67 +31,63 @@ interface ThinkForgeDocumentIntent {
   outputKind: ThinkForgeWriterKind;
   contract: ThinkForgeDocumentContract;
   documentLabel: 'post' | 'script';
-  source: 'user_prompt' | 'document_type' | 'default';
+  source: 'content_contract' | 'legacy_document_type';
 }
 
 type ThinkForgeDocumentIntentOrigin = 'user_request' | 'initial_draft_claim';
 
-function normalizeContentRequest(value?: string): string {
-  return (value || '').toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
-}
+export type ThinkForgeDocumentAuthorityErrorCode =
+  | 'DOCUMENT_TYPE_REQUIRED'
+  | 'DOCUMENT_TYPE_UNSUPPORTED';
 
-function isPostContentRequest(value?: string): boolean {
-  const normalized = normalizeContentRequest(value);
-  return normalized === 'post'
-    || normalized === 'article'
-    || normalized === 'social post'
-    || normalized === 'social media post'
-    || normalized === 'caption'
-    || normalized === 'carousel'
-    || POST_CONTENT_REQUEST_PATTERN.test(normalized);
-}
-
-function hasPostContentSignal(value?: string): boolean {
-  const normalized = normalizeContentRequest(value);
-  return isPostContentRequest(normalized) || GENERIC_POST_REQUEST_PATTERN.test(normalized);
-}
-
-function hasScriptContentSignal(value?: string): boolean {
-  return SCRIPT_DOCUMENT_TYPE_PATTERN.test(normalizeContentRequest(value));
-}
-
-function resolvePromptDocumentKind(value?: string): ThinkForgeWriterKind | null {
-  const normalized = normalizeContentRequest(value);
-  if (!normalized) return null;
-
-  if (EXPLICIT_SCRIPT_TARGET_PATTERN.test(normalized) || EXPLICIT_SCRIPT_CREATION_PATTERN.test(normalized)) {
-    return 'video_script';
+export class ThinkForgeDocumentAuthorityError extends Error {
+  constructor(
+    readonly code: ThinkForgeDocumentAuthorityErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ThinkForgeDocumentAuthorityError';
   }
-  if (/\bcarousel\b|\bslides?\b/.test(normalized)) return 'carousel';
-  if (hasPostContentSignal(normalized)) return 'social_post';
-  if (hasScriptContentSignal(normalized)) return 'video_script';
-  return null;
 }
 
-function resolveSelectedWriterKind(
+function resolveAuthoritativeWriterContract(
+  userPrompt: string,
   docType?: string,
   selectedContract?: ThinkForgeDocumentContract | null,
-): ThinkForgeWriterKind | null {
+): { contract: ThinkForgeDocumentContract; source: ThinkForgeDocumentIntent['source'] } {
   if (selectedContract) {
     const contract = ThinkForgeDocumentContractSchema.parse(selectedContract);
-    if (
-      contract.outputKind === 'social_post'
-      || contract.outputKind === 'carousel'
-      || contract.outputKind === 'video_script'
-    ) {
-      return contract.outputKind;
+    if (contract.outputKind === 'social_post' || contract.outputKind === 'carousel' || contract.outputKind === 'video_script') {
+      return { contract, source: 'content_contract' };
     }
+    throw new ThinkForgeDocumentAuthorityError(
+      'DOCUMENT_TYPE_UNSUPPORTED',
+      `The selected ${contract.artifactType} document is not handled by the post or script writer.`,
+    );
   }
 
-  const selectedKind = normalizeThinkForgeDocumentType(docType);
-  return selectedKind === 'social_post' || selectedKind === 'carousel' || selectedKind === 'video_script'
-    ? selectedKind
-    : null;
+  const legacyContract = normalizeThinkForgeDocumentContract(docType);
+  if (!legacyContract) {
+    throw new ThinkForgeDocumentAuthorityError(
+      'DOCUMENT_TYPE_REQUIRED',
+      'Choose a post, carousel, or script document before generating content.',
+    );
+  }
+  if (
+    legacyContract.outputKind !== 'social_post'
+    && legacyContract.outputKind !== 'carousel'
+    && legacyContract.outputKind !== 'video_script'
+  ) {
+    throw new ThinkForgeDocumentAuthorityError(
+      'DOCUMENT_TYPE_UNSUPPORTED',
+      `The selected ${legacyContract.artifactType} document is not handled by the post or script writer.`,
+    );
+  }
+
+  const contract = legacyContract.outputKind === 'carousel' && legacyContract.carouselSlideCount === undefined
+    ? createThinkForgeWriterContract('carousel', { carouselSlideCount: resolveCarouselSlideCount(userPrompt) })
+    : legacyContract;
+  return { contract, source: 'legacy_document_type' };
 }
 
 export function resolveThinkForgeDocumentIntent(
@@ -105,34 +95,8 @@ export function resolveThinkForgeDocumentIntent(
   docType?: string,
   selectedContract?: ThinkForgeDocumentContract | null,
 ): ThinkForgeDocumentIntent {
-  const promptKind = resolvePromptDocumentKind(userPrompt);
-  const selectedKind = resolveSelectedWriterKind(docType, selectedContract);
-
-  let writerKind: ThinkForgeWriterKind;
-  let source: ThinkForgeDocumentIntent['source'];
-
-  if (promptKind) {
-    writerKind = promptKind;
-    source = 'user_prompt';
-  } else if (selectedKind === 'social_post' || selectedKind === 'carousel' || selectedKind === 'video_script') {
-    writerKind = selectedKind;
-    source = 'document_type';
-  } else {
-    writerKind = 'video_script';
-    source = 'default';
-  }
-
-  const parsedSelectedContract = selectedContract
-    ? ThinkForgeDocumentContractSchema.parse(selectedContract)
-    : null;
-  const contract = source === 'document_type' && parsedSelectedContract?.outputKind === writerKind
-    ? parsedSelectedContract
-    : createThinkForgeWriterContract(
-        writerKind,
-        writerKind === 'carousel'
-          ? { carouselSlideCount: resolveCarouselSlideCount(userPrompt) }
-          : undefined,
-      );
+  const { contract, source } = resolveAuthoritativeWriterContract(userPrompt, docType, selectedContract);
+  const writerKind = contract.outputKind as ThinkForgeWriterKind;
   const contentPath = isThinkForgePostKind(writerKind) ? 'post' : 'script';
   return {
     contentPath,
@@ -147,21 +111,20 @@ export function resolveThinkForgeDocumentIntent(
 export function resolveThinkForgeGenerationDocumentIntent(
   userPrompt: string,
   docType?: string,
-  origin: ThinkForgeDocumentIntentOrigin = 'user_request',
+  _origin: ThinkForgeDocumentIntentOrigin = 'user_request',
   selectedContract?: ThinkForgeDocumentContract | null,
 ): ThinkForgeDocumentIntent {
-  // A claimed initial draft is a system action for the format the user already selected.
-  // Only real user requests may override that stored format with prompt wording.
-  return resolveThinkForgeDocumentIntent(origin === 'initial_draft_claim' ? '' : userPrompt, docType, selectedContract);
+  return resolveThinkForgeDocumentIntent(userPrompt, docType, selectedContract);
 }
 
-export function inferRoleFromContext(projectSummary: string, userPrompt: string, explicitDocType?: string): DocumentRoleProfile {
-  const docType = normalizeContentRequest(explicitDocType);
-  const userLower = userPrompt.toLowerCase();
-  const combined = `${projectSummary} ${userPrompt}`.toLowerCase();
+export function inferRoleFromContext(
+  _projectSummary: string,
+  _userPrompt: string,
+  explicitDocType?: string,
+): DocumentRoleProfile {
+  const contract = normalizeThinkForgeDocumentContract(explicitDocType);
 
-  // Post/article/text content - check normalized document type and user prompt first.
-  if (!SCRIPT_DOCUMENT_TYPE_PATTERN.test(docType) && (hasPostContentSignal(docType) || hasPostContentSignal(userLower))) {
+  if (contract?.outputKind === 'social_post' || contract?.outputKind === 'carousel') {
     return {
       role: 'a Senior Content Strategist and Copywriter',
       executionTest: 'A social media manager should be able to say: "I can publish this immediately - it fits the platform, hooks the audience, and drives the action I need."',
@@ -170,7 +133,7 @@ export function inferRoleFromContext(projectSummary: string, userPrompt: string,
     };
   }
 
-  if (/character|backstor|bible|arc|motivation|relationship/i.test(combined)) {
+  if (contract?.artifactType === 'character_bible') {
     return {
       role: 'a Senior Narrative Designer and Character Architect',
       executionTest: 'A writer should be able to say: "I know exactly who this character is and how they behave."',
@@ -179,8 +142,7 @@ export function inferRoleFromContext(projectSummary: string, userPrompt: string,
     };
   }
 
-  // Video: check USER PROMPT
-  if (/video|ad\b|commercial|reel|short[- ]?form|youtube|tiktok|brand[- ]?film|product[- ]?ad|ugc/i.test(userLower)) {
+  if (contract?.outputKind === 'video_script') {
     return {
       role: 'a Senior Creative Director and Video Scriptwriter',
       executionTest: 'A video editor should be able to say: "I know exactly what to show, say, and hear in every second."',
@@ -351,6 +313,10 @@ export function detectPlatform(userPrompt: string, docType?: string, projectSumm
   return 'generic';
 }
 
-export function detectContentPath(userPrompt: string, docType?: string): 'post' | 'script' {
-  return resolveThinkForgeDocumentIntent(userPrompt, docType).contentPath;
+export function detectContentPath(
+  userPrompt: string,
+  docType?: string,
+  selectedContract?: ThinkForgeDocumentContract | null,
+): 'post' | 'script' {
+  return resolveThinkForgeDocumentIntent(userPrompt, docType, selectedContract).contentPath;
 }

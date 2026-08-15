@@ -69,7 +69,7 @@ describe('ThinkForge canonical document contract', () => {
   it('preserves carousel slide count through direct and system generation intent', () => {
     expect(resolveThinkForgeGenerationDocumentIntent(
       'Create a 4-slide LinkedIn carousel about approval bottlenecks.',
-      undefined,
+      'carousel',
       'user_request',
     ).contract).toEqual(createThinkForgeWriterContract('carousel', { carouselSlideCount: 4 }));
 
@@ -95,38 +95,52 @@ describe('ThinkForge canonical document contract', () => {
     expect(prompt).toContain('never pad the count with invented claims');
   });
 
-  it('keeps post, carousel, and video-script intent distinct', () => {
+  it('keeps the selected contract authoritative when prompt topics mention another format', () => {
     expect(resolveThinkForgeDocumentIntent(
       'Write a LinkedIn post about video production workflows.',
       'screenplay',
+      createThinkForgeWriterContract('social_post'),
     )).toMatchObject({ contentPath: 'post', documentKind: 'post', outputKind: 'social_post' });
 
     expect(resolveThinkForgeDocumentIntent(
-      'Create an Instagram carousel for this campaign.',
-      'video_script',
+      'Write a script explaining this campaign.',
+      'screenplay',
+      createThinkForgeWriterContract('carousel', { carouselSlideCount: 5 }),
     )).toMatchObject({ contentPath: 'post', documentKind: 'post', outputKind: 'carousel' });
 
     expect(resolveThinkForgeDocumentIntent(
-      'Write an Instagram reel script with camera direction.',
+      'Write an Instagram post about scripts with camera direction.',
       'post',
+      createThinkForgeWriterContract('video_script'),
     )).toMatchObject({ contentPath: 'script', documentKind: 'script', outputKind: 'video_script' });
   });
 
-  it('uses explicit deliverable grammar instead of ambiguous adjectives', () => {
+  it('fails closed without document authority instead of guessing from prose', () => {
+    expect(() => resolveThinkForgeDocumentIntent(
+      'Write a short, honest LinkedIn post for founders.',
+    )).toThrow(/choose a post, carousel, or script document/i);
+
+    expect(() => resolveThinkForgeDocumentIntent(
+      'Write a video script for this character profile.',
+      'character_bible',
+    )).toThrow(/not handled by the post or script writer/i);
+  });
+
+  it('does not let prompt wording reclassify a selected legacy document', () => {
     expect(resolveThinkForgeDocumentIntent(
       'Write a short, honest LinkedIn post for founders.',
       'video_script',
-    )).toMatchObject({ contentPath: 'post', outputKind: 'social_post', source: 'user_prompt' });
+    )).toMatchObject({ contentPath: 'script', outputKind: 'video_script', source: 'legacy_document_type' });
 
     expect(resolveThinkForgeDocumentIntent(
       'Write a LinkedIn post about scripts that waste production time.',
-      'video_script',
-    )).toMatchObject({ contentPath: 'post', outputKind: 'social_post', source: 'user_prompt' });
+      'social_post',
+    )).toMatchObject({ contentPath: 'post', outputKind: 'social_post', source: 'legacy_document_type' });
 
     expect(resolveThinkForgeDocumentIntent(
       'Turn this LinkedIn post into a reel script with camera direction.',
       'social_post',
-    )).toMatchObject({ contentPath: 'script', outputKind: 'video_script', source: 'user_prompt' });
+    )).toMatchObject({ contentPath: 'post', outputKind: 'social_post', source: 'legacy_document_type' });
   });
 
   it('keeps the persisted canonical contract above loose format metadata for system drafts', () => {
@@ -142,7 +156,7 @@ describe('ThinkForge canonical document contract', () => {
       metadata.format,
       'initial_draft_claim',
       metadata.contentContract,
-    )).toMatchObject({ contentPath: 'post', outputKind: 'carousel', source: 'document_type' });
+    )).toMatchObject({ contentPath: 'post', outputKind: 'carousel', source: 'content_contract' });
   });
 
   it('persists a canonical contract at intake and consumes it in generation', () => {
@@ -163,7 +177,7 @@ describe('ThinkForge canonical document contract', () => {
     )).toMatchObject({
       contentPath: 'post',
       documentType: 'carousel',
-      source: 'document_type',
+      source: 'legacy_document_type',
     });
   });
 
