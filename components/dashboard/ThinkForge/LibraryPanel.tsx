@@ -1,7 +1,8 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Pencil, Trash2, Check, X, FileText } from "lucide-react";
+import { deleteThinkForgeSessionWhenDurable } from "./session-deletion";
 
 export interface SessionMeta {
   id: string;
@@ -31,6 +32,12 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const deletionAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => deletionAbortRef.current?.abort(), []);
+  useEffect(() => {
+    if (!open) deletionAbortRef.current?.abort();
+  }, [open]);
 
   const startEdit = (s: SessionMeta) => {
     setEditingId(s.id);
@@ -64,23 +71,24 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
   const cancelDelete = () => setConfirmingId(null);
 
   const confirmDelete = async (id: string) => {
+    deletionAbortRef.current?.abort();
+    const controller = new AbortController();
+    deletionAbortRef.current = controller;
     setDeletingId(id);
     setLoadError(null);
     try {
-      const res = await fetch(`/api/services/thinkforge/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error?.message || body?.error || `Failed (${res.status})`);
-      }
-      // Remove from local list
+      await deleteThinkForgeSessionWhenDurable(id, { signal: controller.signal });
       setLoaded(prev => prev.filter(s => s.id !== id));
-      // Bubble up if parent wants to maintain a list
       onDeleteSession?.(id);
-    } catch (e: any) {
-      setLoadError(e?.message || 'Failed to delete session');
+    } catch (error: unknown) {
+      const failure = error instanceof Error ? error : new Error('Failed to delete session');
+      if (failure.name !== 'AbortError') setLoadError(failure.message);
     } finally {
-      setDeletingId(null);
-      setConfirmingId(null);
+      if (deletionAbortRef.current === controller) {
+        deletionAbortRef.current = null;
+        setDeletingId(null);
+        setConfirmingId(null);
+      }
     }
   };
 
@@ -151,7 +159,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
           {loading && (
             <div className="rounded-xl bg-[#0F0F0E] p-6 text-center">
               <div className="h-4 w-4 mx-auto mb-2 border-2 border-[#282724] border-t-[#D4A652] rounded-full animate-spin" />
-              <p className="text-[11px] text-[#7A776E]">Loading sessions…</p>
+              <p className="text-[11px] text-[#7A776E]">Loading sessions...</p>
             </div>
           )}
           {!loading && displaySessions.length === 0 && (
@@ -222,7 +230,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
                               onMouseDown={e=>{e.preventDefault(); void confirmDelete(s.id);}}
                               className="px-2 py-1 rounded-md bg-[#D4A652] hover:bg-[#D4A652] text-white text-[11px]"
                             >
-                              {deletingId === s.id ? 'Deleting…' : 'Confirm'}
+                              {deletingId === s.id ? 'Deleting...' : 'Confirm'}
                             </button>
                             <button
                               onMouseDown={e=>{e.preventDefault(); cancelDelete();}}
