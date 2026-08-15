@@ -4,6 +4,8 @@ import type { PostMortemPreparedPlan } from '@/lib/thinkforge/post-mortem/post-m
 import {
   PostMortemJobCheckpointConflictError,
   PostMortemJobLeaseLostError,
+  PostMortemJobResultConflictError,
+  PostMortemJobResultMissingError,
   PostMortemJobStore,
   THINKFORGE_POST_MORTEM_JOB_INDEXES,
   THINKFORGE_POST_MORTEM_JOB_TTL_MS,
@@ -39,6 +41,7 @@ function record(overrides: Partial<PostMortemJobRecord> = {}): PostMortemJobReco
     checkpoint: null,
     checkpointHash: null,
     result: null,
+    resultHash: null,
     error: null,
     createdAt: NOW,
     updatedAt: NOW,
@@ -187,20 +190,55 @@ describe('PostMortemJobStore', () => {
     vi.mocked(collection.updateOne).mockResolvedValue({ acknowledged: true, matchedCount: 1, modifiedCount: 1, upsertedCount: 0, upsertedId: null });
     const store = new PostMortemJobStore(async () => collection);
 
-    await store.complete('postmortem_123', 'lease_1', {
+    await store.saveResult('postmortem_123', 'lease_1', {
       summaryEntryId: 'summary_1',
       lessonsExtracted: 1,
       eventsDeleted: 2,
       entriesDeleted: 3,
     }, NOW);
+    await store.complete('postmortem_123', 'lease_1', NOW);
 
-    expect(collection.updateOne).toHaveBeenCalledWith(
-      { _id: 'postmortem_123', status: 'running', leaseToken: 'lease_1' },
+    expect(collection.updateOne).toHaveBeenLastCalledWith(
+      { _id: 'postmortem_123', status: 'running', leaseToken: 'lease_1', resultHash: { $ne: null } },
       expect.objectContaining({
         $set: expect.objectContaining({ status: 'completed' }),
         $unset: { activeDedupeKey: '', leaseToken: '' },
       }),
     );
+  });
+
+  it('accepts an identical committed-result replay and rejects result drift', async () => {
+    const result = { summaryEntryId: 'summary_1', lessonsExtracted: 1, eventsDeleted: 2, entriesDeleted: 3 };
+    const collection = collectionMock();
+    vi.mocked(collection.updateOne)
+      .mockResolvedValueOnce({ acknowledged: true, matchedCount: 1, modifiedCount: 1, upsertedCount: 0, upsertedId: null })
+      .mockResolvedValue({ acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 0, upsertedId: null });
+    const store = new PostMortemJobStore(async () => collection);
+
+    await store.saveResult('postmortem_123', 'lease_1', result, NOW);
+    const resultHash = (vi.mocked(collection.updateOne).mock.calls[0][1] as {
+      $set: { resultHash: string };
+    }).$set.resultHash;
+    vi.mocked(collection.findOne).mockResolvedValueOnce(record({
+      status: 'running', leaseToken: 'lease_1', result, resultHash,
+    }));
+    await expect(store.saveResult('postmortem_123', 'lease_1', { ...result }, NOW)).resolves.toBeUndefined();
+
+    vi.mocked(collection.findOne).mockResolvedValueOnce(record({
+      status: 'running', leaseToken: 'lease_1', result, resultHash: 'different-hash',
+    }));
+    await expect(store.saveResult('postmortem_123', 'lease_1', result, NOW))
+      .rejects.toBeInstanceOf(PostMortemJobResultConflictError);
+  });
+
+  it('refuses to complete before the committed result is durable', async () => {
+    const collection = collectionMock();
+    vi.mocked(collection.updateOne).mockResolvedValue({ acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 0, upsertedId: null });
+    vi.mocked(collection.findOne).mockResolvedValue(record({ status: 'running', leaseToken: 'lease_1' }));
+    const store = new PostMortemJobStore(async () => collection);
+
+    await expect(store.complete('postmortem_123', 'lease_1', NOW))
+      .rejects.toBeInstanceOf(PostMortemJobResultMissingError);
   });
 
   it('dead-letters the final fenced attempt instead of silently requeueing forever', async () => {

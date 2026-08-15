@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { IndexDescription } from 'mongodb';
 import type {
   PostMortemInput,
@@ -48,6 +49,7 @@ export interface PostMortemJobRecord {
   checkpoint: PostMortemPreparedPlan | null;
   checkpointHash: string | null;
   result: PostMortemResult | null;
+  resultHash: string | null;
   error: PostMortemJobError | null;
   createdAt: Date;
   updatedAt: Date;
@@ -80,4 +82,48 @@ export class PostMortemJobCheckpointConflictError extends Error {
     super('Post-mortem job checkpoint differs from the durable checkpoint.');
     this.name = 'PostMortemJobCheckpointConflictError';
   }
+}
+
+export class PostMortemJobResultConflictError extends Error {
+  constructor() {
+    super('Post-mortem job result differs from the durable result checkpoint.');
+    this.name = 'PostMortemJobResultConflictError';
+  }
+}
+
+export class PostMortemJobResultMissingError extends Error {
+  constructor() {
+    super('Post-mortem job cannot complete before its result is durable.');
+    this.name = 'PostMortemJobResultMissingError';
+  }
+}
+
+export function createPostMortemJobDedupeKey(input: PostMortemJobInput): string {
+  return createHash('sha256').update(JSON.stringify({
+    version: THINKFORGE_POST_MORTEM_JOB_VERSION,
+    userId: input.userId,
+    orgId: input.orgId ?? null,
+    sessionId: input.sessionId,
+  })).digest('hex');
+}
+
+export function hashPostMortemJobValue(value: unknown): string {
+  return createHash('sha256').update(stableStringify(value)).digest('hex');
+}
+
+export function normalizePostMortemJobError(error: unknown, retryable: boolean): PostMortemJobError {
+  const message = (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
+  return { code: error instanceof Error ? error.name || 'processing_failed' : 'processing_failed', message, retryable };
+}
+
+export function clonePostMortemJobValue<T>(value: T): T {
+  return structuredClone(value);
+}
+
+function stableStringify(value: unknown): string {
+  if (value === undefined) return 'undefined';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`;
 }

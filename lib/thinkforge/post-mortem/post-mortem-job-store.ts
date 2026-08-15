@@ -1,17 +1,22 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { MongoClient, type Collection } from 'mongodb';
 import type { PostMortemPreparedPlan, PostMortemResult } from './post-mortem-contract';
 import {
   PostMortemJobCheckpointConflictError,
   PostMortemJobLeaseLostError,
+  PostMortemJobResultConflictError,
+  PostMortemJobResultMissingError,
   THINKFORGE_POST_MORTEM_JOB_COLLECTION,
   THINKFORGE_POST_MORTEM_JOB_INDEXES,
   THINKFORGE_POST_MORTEM_JOB_LEASE_MS,
   THINKFORGE_POST_MORTEM_JOB_MAX_ATTEMPTS,
   THINKFORGE_POST_MORTEM_JOB_TTL_MS,
   THINKFORGE_POST_MORTEM_JOB_VERSION,
+  clonePostMortemJobValue,
+  createPostMortemJobDedupeKey,
+  hashPostMortemJobValue,
+  normalizePostMortemJobError,
   type ClaimPostMortemJobResult,
-  type PostMortemJobError,
   type PostMortemJobInput,
   type PostMortemJobRecord,
   type PostMortemJobSnapshot,
@@ -76,7 +81,7 @@ export class PostMortemJobStore {
       activeDedupeKey: dedupeKey,
       userId: input.userId,
       orgId: input.orgId ?? null,
-      input: clone(input),
+      input: clonePostMortemJobValue(input),
       status: 'queued',
       attemptCount: 0,
       maxAttempts: THINKFORGE_POST_MORTEM_JOB_MAX_ATTEMPTS,
@@ -85,6 +90,7 @@ export class PostMortemJobStore {
       checkpoint: null,
       checkpointHash: null,
       result: null,
+      resultHash: null,
       error: null,
       createdAt: now,
       updatedAt: now,
@@ -157,10 +163,10 @@ export class PostMortemJobStore {
 
   async saveCheckpoint(jobId: string, leaseToken: string, checkpoint: PostMortemPreparedPlan, now = new Date()): Promise<void> {
     const collection = await this.collectionProvider();
-    const checkpointHash = hashValue(checkpoint);
+    const checkpointHash = hashPostMortemJobValue(checkpoint);
     const result = await collection.updateOne(
       { _id: jobId, status: 'running', leaseToken, checkpointHash: null },
-      { $set: { checkpoint: clone(checkpoint), checkpointHash, updatedAt: now } },
+      { $set: { checkpoint: clonePostMortemJobValue(checkpoint), checkpointHash, updatedAt: now } },
     );
     if (result.matchedCount === 1) return;
 
@@ -169,15 +175,33 @@ export class PostMortemJobStore {
     if (current.checkpointHash !== checkpointHash) throw new PostMortemJobCheckpointConflictError();
   }
 
-  async complete(jobId: string, leaseToken: string, result: PostMortemResult, now = new Date()): Promise<void> {
-    const update = await (await this.collectionProvider()).updateOne(
-      { _id: jobId, status: 'running', leaseToken },
+  async saveResult(jobId: string, leaseToken: string, result: PostMortemResult, now = new Date()): Promise<void> {
+    const collection = await this.collectionProvider();
+    const resultHash = hashPostMortemJobValue(result);
+    const update = await collection.updateOne(
+      { _id: jobId, status: 'running', leaseToken, resultHash: null },
+      { $set: { result: clonePostMortemJobValue(result), resultHash, updatedAt: now } },
+    );
+    if (update.matchedCount === 1) return;
+
+    const current = await collection.findOne({ _id: jobId, status: 'running', leaseToken });
+    if (!current) throw new PostMortemJobLeaseLostError();
+    if (current.resultHash !== resultHash) throw new PostMortemJobResultConflictError();
+  }
+
+  async complete(jobId: string, leaseToken: string, now = new Date()): Promise<void> {
+    const collection = await this.collectionProvider();
+    const update = await collection.updateOne(
+      { _id: jobId, status: 'running', leaseToken, resultHash: { $ne: null } },
       {
-        $set: { status: 'completed', result: clone(result), error: null, leaseExpiresAt: null, updatedAt: now },
+        $set: { status: 'completed', error: null, leaseExpiresAt: null, updatedAt: now },
         $unset: { activeDedupeKey: '', leaseToken: '' },
       },
     );
-    if (update.matchedCount !== 1) throw new PostMortemJobLeaseLostError();
+    if (update.matchedCount === 1) return;
+    const current = await collection.findOne({ _id: jobId, status: 'running', leaseToken });
+    if (current && !current.resultHash) throw new PostMortemJobResultMissingError();
+    throw new PostMortemJobLeaseLostError();
   }
 
   async retryOrDeadLetter(
@@ -189,7 +213,7 @@ export class PostMortemJobStore {
     const collection = await this.collectionProvider();
     const current = await collection.findOne({ _id: jobId, status: 'running', leaseToken });
     if (!current) throw new PostMortemJobLeaseLostError();
-    const jobError = normalizeJobError(error, current.attemptCount < current.maxAttempts);
+    const jobError = normalizePostMortemJobError(error, current.attemptCount < current.maxAttempts);
     const terminal = current.attemptCount >= current.maxAttempts;
     const update = await collection.updateOne(
       { _id: jobId, status: 'running', leaseToken, attemptCount: current.attemptCount },
@@ -217,7 +241,7 @@ export class PostMortemJobStore {
   async markDispatchFailed(jobId: string, error: unknown, now = new Date()): Promise<void> {
     await (await this.collectionProvider()).updateOne(
       { _id: jobId, status: 'queued' },
-      { $set: { error: normalizeJobError(error, true), updatedAt: now } },
+      { $set: { error: normalizePostMortemJobError(error, true), updatedAt: now } },
     );
   }
 
@@ -253,44 +277,15 @@ export class PostMortemJobStore {
 
 export const postMortemJobStore = new PostMortemJobStore();
 
-export function createPostMortemJobDedupeKey(input: PostMortemJobInput): string {
-  return createHash('sha256').update(JSON.stringify({
-    version: THINKFORGE_POST_MORTEM_JOB_VERSION,
-    userId: input.userId,
-    orgId: input.orgId ?? null,
-    sessionId: input.sessionId,
-  })).digest('hex');
-}
-
 function toSnapshot(record: PostMortemJobRecord): PostMortemJobSnapshot {
   const { _id: _ignoredId, activeDedupeKey: _ignoredDedupe, leaseToken: _ignoredLease, ...rest } = record;
   return {
-    ...clone(rest),
+    ...clonePostMortemJobValue(rest),
     leaseExpiresAt: record.leaseExpiresAt?.toISOString() ?? null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     expiresAt: record.expiresAt.toISOString(),
   };
-}
-
-function normalizeJobError(error: unknown, retryable: boolean): PostMortemJobError {
-  const message = (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
-  return { code: error instanceof Error ? error.name || 'processing_failed' : 'processing_failed', message, retryable };
-}
-
-function hashValue(value: unknown): string {
-  return createHash('sha256').update(stableStringify(value)).digest('hex');
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`;
-}
-
-function clone<T>(value: T): T {
-  return structuredClone(value);
 }
 
 function isDuplicateKeyError(error: unknown): boolean {

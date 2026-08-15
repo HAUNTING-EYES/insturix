@@ -16,12 +16,14 @@ export const PostMortemInputSchema = z.object({
 
 export type PostMortemInput = z.infer<typeof PostMortemInputSchema>;
 
-export interface PostMortemResult {
-  summaryEntryId: string | null;
-  lessonsExtracted: number;
-  eventsDeleted: number;
-  entriesDeleted: number;
-}
+export const PostMortemResultSchema = z.object({
+  summaryEntryId: z.string().trim().min(1).max(256).nullable(),
+  lessonsExtracted: z.number().int().nonnegative(),
+  eventsDeleted: z.number().int().nonnegative(),
+  entriesDeleted: z.number().int().nonnegative(),
+}).strict();
+
+export type PostMortemResult = z.infer<typeof PostMortemResultSchema>;
 
 export const PostMortemCompressionSchema = z.object({
   projectSummary: z.string().trim().min(1).max(2_000).describe(
