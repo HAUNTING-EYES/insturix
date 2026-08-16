@@ -216,6 +216,61 @@ describe('ThinkForge canonical document contract', () => {
     )).toMatchObject({ contentPath: 'post', outputKind: 'carousel', source: 'content_contract' });
   });
 
+  it('canonicalizes all compatibility fields from the persisted authoring request', () => {
+    const authoringRequest = {
+      version: 1 as const,
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' as const },
+      targetDurationSec: 420,
+    };
+    const metadata = mergeThinkForgeProjectMetadata(
+      {
+        authoringRequest,
+        format: '60-second LinkedIn video script',
+        platform: 'LinkedIn',
+        durationSec: 60,
+      },
+      { format: 'Instagram post', platform: 'Instagram', durationSec: 30 },
+    );
+
+    expect(metadata).toMatchObject({
+      authoringRequest,
+      contentContract: authoringRequest.contentContract,
+      format: '7-minute YouTube video script',
+      platform: 'YouTube',
+      durationSec: 420,
+    });
+  });
+
+  it('rejects competing authoring requests and explicit document contracts', () => {
+    const scriptRequest = {
+      version: 1 as const,
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' as const },
+      targetDurationSec: 420,
+    };
+    const postRequest = {
+      version: 1 as const,
+      contentContract: createThinkForgeWriterContract('social_post'),
+      platformSurface: { id: 'linkedin' as const },
+      postControls: {
+        version: 1 as const,
+        cta: { preference: 'editorial' as const },
+        hashtags: { preference: 'editorial' as const },
+        emoji: { preference: 'editorial' as const },
+      },
+    };
+
+    expect(() => mergeThinkForgeProjectMetadata(
+      { authoringRequest: scriptRequest },
+      { authoringRequest: postRequest },
+    )).toThrow(/conflicting authoring requests/i);
+    expect(() => mergeThinkForgeProjectMetadata(
+      { authoringRequest: scriptRequest },
+      { contentContract: createThinkForgeWriterContract('social_post') },
+    )).toThrow(/conflicts with an explicit project document contract/i);
+  });
+
   it('persists the explicit authoring request at intake and consumes its contract in generation', () => {
     const page = readFileSync(new URL('../../app/dashboard/thinkforge/page.tsx', import.meta.url), 'utf8');
     const service = readFileSync(new URL('../../lib/thinkforge/services/chat-service.ts', import.meta.url), 'utf8');

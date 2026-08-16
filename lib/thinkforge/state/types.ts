@@ -14,6 +14,7 @@ import type { ScriptIntent } from '../protocol/intent';
 import type { SelectedTrend } from '../trends/selected-trend';
 import {
   ThinkForgeAuthoringRequestSchema,
+  buildThinkForgeAuthoringCompatibilityMetadata,
   type ThinkForgeAuthoringRequest,
 } from '../schemas/authoring-request';
 
@@ -160,6 +161,23 @@ export function resolveProjectMetaAuthoringRequest(
   return parsed.data;
 }
 
+function authoringRequestsMatch(
+  left: ThinkForgeAuthoringRequest,
+  right: ThinkForgeAuthoringRequest,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function documentContractsMatch(
+  left: ThinkForgeDocumentContract,
+  right: ThinkForgeDocumentContract,
+): boolean {
+  return left.documentKind === right.documentKind
+    && left.outputKind === right.outputKind
+    && left.artifactType === right.artifactType
+    && left.carouselSlideCount === right.carouselSlideCount;
+}
+
 export function mergeThinkForgeProjectMetadata(
   sessionProjectMeta?: ProjectMeta | null,
   providedProject?: ProjectMeta | null,
@@ -170,17 +188,35 @@ export function mergeThinkForgeProjectMetadata(
     ...(providedProject || {}),
   };
 
-  const authoringRequest = resolveProjectMetaAuthoringRequest(sessionProjectMeta)
-    ?? resolveProjectMetaAuthoringRequest(providedProject);
-  if (authoringRequest) {
-    merged.authoringRequest = authoringRequest;
+  const sessionAuthoringRequest = resolveProjectMetaAuthoringRequest(sessionProjectMeta);
+  const providedAuthoringRequest = resolveProjectMetaAuthoringRequest(providedProject);
+  if (
+    sessionAuthoringRequest
+    && providedAuthoringRequest
+    && !authoringRequestsMatch(sessionAuthoringRequest, providedAuthoringRequest)
+  ) {
+    throw new Error('ThinkForge session and request contain conflicting authoring requests');
   }
 
-  const contentContract = authoringRequest?.contentContract
-    ?? resolveProjectMetaContentContract(sessionProjectMeta)
-    ?? resolveProjectMetaContentContract(providedProject);
-  if (contentContract) {
-    merged.contentContract = contentContract;
+  const authoringRequest = sessionAuthoringRequest ?? providedAuthoringRequest;
+  if (authoringRequest) {
+    const explicitContracts = [sessionProjectMeta, providedProject]
+      .filter((projectMeta): projectMeta is ProjectMeta => projectMeta?.contentContract !== undefined)
+      .map((projectMeta) => resolveProjectMetaContentContract(projectMeta));
+    if (explicitContracts.some((contract) => (
+      contract !== null && !documentContractsMatch(authoringRequest.contentContract, contract)
+    ))) {
+      throw new Error('ThinkForge authoring request conflicts with an explicit project document contract');
+    }
+    Object.assign(merged, buildThinkForgeAuthoringCompatibilityMetadata(authoringRequest));
+  }
+
+  if (!authoringRequest) {
+    const contentContract = resolveProjectMetaContentContract(sessionProjectMeta)
+      ?? resolveProjectMetaContentContract(providedProject);
+    if (contentContract) {
+      merged.contentContract = contentContract;
+    }
   }
 
   for (const key of SOURCE_OF_TRUTH_PROJECT_META_KEYS) {
