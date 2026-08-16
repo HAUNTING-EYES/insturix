@@ -1,6 +1,6 @@
 export const CLICKATRON_CREATIVE_SPEC_VERSION = 1;
 export const CLICKATRON_CAROUSEL_MIN_SLIDES = 2;
-export const CLICKATRON_CAROUSEL_MAX_SLIDES = 7;
+export const CLICKATRON_CAROUSEL_MAX_SLIDES = 10;
 
 export const CLICKATRON_CREATIVE_KINDS = ['single_post_visual', 'carousel'] as const;
 export const CLICKATRON_ASSET_INTENTS = ['post_graphic', 'carousel', 'blog_header', 'thread_visual', 'ad_creative'] as const;

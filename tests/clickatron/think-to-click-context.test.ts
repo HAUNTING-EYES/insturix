@@ -374,7 +374,7 @@ describe("ThinkForge to Clickatron context", () => {
     ];
 
     expect(() => findClickatronCreativeSpecInBlocks(blocks)).toThrow(
-      /between 2 and 7 complete renderPlan\.slides/i,
+      /between 2 and 10 complete renderPlan\.slides/i,
     );
   });
   it("derives a non-sendable carousel draft from visible blocks without putting exact copy in the raster prompt", () => {
@@ -707,16 +707,17 @@ describe("ThinkForge to Clickatron context", () => {
         visualPrompts: { singleImagePrompt: "A restrained editorial proof card." },
       },
       userVisualChoices: { kind: "carousel", slideCount: 5 },
-    })).toThrow(/between 2 and 7 complete renderPlan\.slides/i);
+    })).toThrow(/between 2 and 10 complete renderPlan\.slides/i);
   });
 
   it("rejects invalid carousel counts at the contract boundary", () => {
     expect(normalizeRequestedCarouselSlideCount(undefined)).toBeUndefined();
     expect(normalizeRequestedCarouselSlideCount("   ")).toBeUndefined();
     expect(normalizeRequestedCarouselSlideCount("3")).toBe(3);
-    expect(() => normalizeRequestedCarouselSlideCount(1)).toThrow("between 2 and 7");
-    expect(() => normalizeRequestedCarouselSlideCount(8)).toThrow("between 2 and 7");
-    expect(() => normalizeRequestedCarouselSlideCount(3.5)).toThrow("between 2 and 7");
+    expect(normalizeRequestedCarouselSlideCount(10)).toBe(10);
+    expect(() => normalizeRequestedCarouselSlideCount(1)).toThrow("between 2 and 10");
+    expect(() => normalizeRequestedCarouselSlideCount(11)).toThrow("between 2 and 10");
+    expect(() => normalizeRequestedCarouselSlideCount(3.5)).toThrow("between 2 and 10");
   });
 
   it("derives review-required carousel slides when writer output only has a single image prompt", () => {

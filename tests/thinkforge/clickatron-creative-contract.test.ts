@@ -196,7 +196,7 @@ describe('Clickatron creative contract', () => {
     ).toThrow(/renderPlan\.textPolicy/);
   });
 
-  it('requires carousel specs to include between two and seven complete slide render plans', () => {
+  it('requires carousel specs to include between two and ten complete slide render plans', () => {
     const invalid = {
       ...carouselSpec(2),
       renderPlan: {
@@ -219,7 +219,7 @@ describe('Clickatron creative contract', () => {
 
   it.each([
     ['one slide', carouselSpec(1)],
-    ['eight slides', carouselSpec(8)],
+    ['eleven slides', carouselSpec(11)],
     ['missing image prompt', {
       ...carouselSpec(2),
       renderPlan: {
