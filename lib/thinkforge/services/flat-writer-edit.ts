@@ -16,6 +16,7 @@ import {
   type PostWriterInput,
   type PostWriterResult,
 } from '../agents/post-writer-agent';
+import { buildThinkForgeEditorialPlan } from '../agents/editorial-plan';
 import { resolveThinkForgeAuthoringContext } from '../context/resolved-authoring-context';
 import { getVersion as getWritingKnowledgeVersion } from '../data/writing-graph-query';
 import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
@@ -44,6 +45,7 @@ import {
   resolveProjectMetaAuthoringRequest,
   resolveProjectMetaBrandId,
   resolveProjectMetaContentContract,
+  resolveProjectMetaEditorialAngle,
 } from '../state/types';
 import { applyCommand } from './command-service';
 import * as db from './db';
@@ -193,6 +195,18 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     projectSummary,
     previousLedger: previousWriterOutput.sourceLedger,
   });
+  const editorialPlan = buildThinkForgeEditorialPlan({
+    userPrompt: instruction,
+    authoringRequest,
+    contentSignalProfile,
+    editorialAngle: resolveProjectMetaEditorialAngle(authoringContext.projectMeta),
+    ...(isScript ? { productionBrief } : {}),
+    authorizedFactIds: [
+      ...authoringContext.snapshot.retrieval.projectFactIds,
+      ...authoringContext.snapshot.retrieval.globalFactIds,
+    ],
+    sourceLedgerEntryIds: sourceLedger.entries.map((entry) => entry.referenceId),
+  });
 
   const baseInput = {
     context: {
@@ -209,6 +223,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     contentSignalProfile,
     productionBrief,
     sourceLedger,
+    editorialPlan,
     editContext: { existingContent, instruction, selection },
   };
 

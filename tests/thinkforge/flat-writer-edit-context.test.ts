@@ -4,6 +4,7 @@ import {
   createThinkForgeAuthoringRequest,
 } from '@/lib/thinkforge/schemas/authoring-request';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
+import { buildThinkForgeIdeaAngle } from '@/lib/thinkforge/schemas/idea-angle';
 import { hashThinkForgeTraceValue } from '@/lib/thinkforge/provenance/generation-trace';
 
 const mocks = vi.hoisted(() => ({
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   formatSignalProfile: vi.fn(),
   getScript: vi.fn(),
   getSession: vi.fn(),
+  getWritingKnowledgeIdentity: vi.fn(),
   getWritingKnowledgeVersion: vi.fn(),
   postRun: vi.fn(),
   resolveAuthoringContext: vi.fn(),
@@ -41,7 +43,9 @@ vi.mock('@/lib/thinkforge/context/resolved-authoring-context', () => ({
   resolveThinkForgeAuthoringContext: mocks.resolveAuthoringContext,
 }));
 
-vi.mock('@/lib/thinkforge/data/writing-graph-query', () => ({
+vi.mock('@/lib/thinkforge/data/writing-graph-query', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/thinkforge/data/writing-graph-query')>(),
+  getWritingKnowledgeIdentity: mocks.getWritingKnowledgeIdentity,
   getVersion: mocks.getWritingKnowledgeVersion,
 }));
 
@@ -76,21 +80,50 @@ import { reviseDocumentViaFlatWriter } from '@/lib/thinkforge/services/flat-writ
 
 const signalProfile = {
   profile: { constraints: {}, signals: {}, derived: {}, _inference_metadata: {} },
-  intent: { outputFormat: 'social_post', proofPoints: [], forbiddenTerms: [] },
+  intent: {
+    goal: 'education',
+    outputFormat: 'social_post',
+    proofPoints: [],
+    forbiddenTerms: [],
+  },
   sources: {},
   warnings: [],
 };
 
-const sourceLedger = { ledgerVersion: 1, entries: [] };
+const sourceLedger = {
+  ledgerVersion: 1,
+  entries: [
+    {
+      referenceId: 'brief_user',
+      kind: 'user_brief',
+      title: 'Current edit instruction',
+      summary: 'Make the approved draft more concrete.',
+      confidence: 1,
+      provenance: { origin: 'user_prompt', brandId: 'brand_b', sessionId: 'session_1' },
+    },
+    {
+      referenceId: 'source_current',
+      kind: 'project_fact',
+      title: 'Current approval fact',
+      summary: 'Every launch has one named approval owner.',
+      sourceId: 'fact_project_current',
+      confidence: 0.95,
+      provenance: { origin: 'project_fact', brandId: 'brand_b', sessionId: 'session_1' },
+    },
+  ],
+};
 const HASH = 'a'.repeat(64);
 
-function writerTrace(writerType: 'post' | 'script') {
+function writerTrace(
+  writerType: 'post' | 'script',
+  editorialPlan: Record<string, unknown> = { format: writerType },
+) {
   return {
     version: 1,
     writerType,
     generatedAt: '2026-08-16T00:00:00.000Z',
-    editorialPlan: { format: writerType },
-    editorialPlanHash: HASH,
+    editorialPlan,
+    editorialPlanHash: hashThinkForgeTraceValue(editorialPlan),
     selectedTechniqueIds: [],
     techniqueEvidence: [],
     writingKnowledge: {
@@ -158,8 +191,30 @@ const authoringContext = {
       profileUpdatedAt: '2026-08-13T00:00:00.000Z',
       profileFingerprint: 'a'.repeat(64),
     },
-    retrieval: { projectFactIds: [], globalFactIds: [], interactionPatternTypes: [] },
+    retrieval: {
+      projectFactIds: ['fact_project_current'],
+      globalFactIds: ['fact_global_current'],
+      interactionPatternTypes: [],
+    },
     writingKnowledgeVersion: 'writing-v4',
+  },
+};
+
+const selectedAngle = buildThinkForgeIdeaAngle({
+  ideaId: 'idea_approval_ownership',
+  title: 'The Invisible Approval Queue',
+  strategicPurpose: 'Show operators why unnamed approval ownership delays every launch.',
+  creativeTreatment: 'Follow one launch card through a visible chain of handoffs.',
+});
+
+const selectedAngleAuthoringContext = {
+  ...authoringContext,
+  projectMeta: {
+    ...authoringContext.projectMeta,
+    idea: selectedAngle.title,
+    purpose: selectedAngle.strategicPurpose,
+    style: selectedAngle.creativeTreatment,
+    editorialAngle: selectedAngle,
   },
 };
 
@@ -193,6 +248,10 @@ describe('flat writer edit authoring context', () => {
       projectMeta: authoringContext.projectMeta,
     });
     mocks.resolveAuthoringContext.mockResolvedValue(authoringContext);
+    mocks.getWritingKnowledgeIdentity.mockReturnValue({
+      version: 'writing-v4',
+      source: 'creative-content-knowledge.md',
+    });
     mocks.getWritingKnowledgeVersion.mockReturnValue('writing-v4');
     mocks.resolveSignalProfile.mockReturnValue(signalProfile);
     mocks.evaluateCompliance.mockReturnValue({ score: 100, penalty: 0, violations: [] });
@@ -220,11 +279,18 @@ describe('flat writer edit authoring context', () => {
         writerOutput: { sourceLedger: { ledgerVersion: 1, entries: [{ referenceId: 'brief_user' }] } },
       },
     };
-    mocks.getScript.mockResolvedValueOnce(stored);
-    mocks.postRun.mockResolvedValue({
-      result: postResult(),
-      metadata: { writerTrace: writerTrace('post') },
+    mocks.getSession.mockResolvedValueOnce({
+      _id: 'session_1',
+      userId: 'user_1',
+      orgId: 'org_1',
+      projectMeta: selectedAngleAuthoringContext.projectMeta,
     });
+    mocks.getScript.mockResolvedValueOnce(stored);
+    mocks.resolveAuthoringContext.mockResolvedValueOnce(selectedAngleAuthoringContext);
+    mocks.postRun.mockImplementation(async (input) => ({
+      result: postResult(),
+      metadata: { writerTrace: writerTrace('post', input.editorialPlan) },
+    }));
 
     await reviseDocumentViaFlatWriter({
       userId: 'user_1',
@@ -240,7 +306,7 @@ describe('flat writer edit authoring context', () => {
     expect(mocks.resolveAuthoringContext).toHaveBeenCalledWith(expect.objectContaining({
       userId: 'user_1',
       orgId: 'org_1',
-      sessionProjectMeta: authoringContext.projectMeta,
+      sessionProjectMeta: selectedAngleAuthoringContext.projectMeta,
       currentPrompt: 'Make the CTA more direct.',
       currentScript: stored.content,
       writingKnowledgeVersion: 'writing-v4',
@@ -248,18 +314,31 @@ describe('flat writer edit authoring context', () => {
     expect(mocks.postRun).toHaveBeenCalledWith(expect.objectContaining({
       brandId: 'brand_b',
       authoringRequest: postAuthoringRequest,
-      project: authoringContext.projectMeta,
+      project: selectedAngleAuthoringContext.projectMeta,
       retrievedContext: authoringContext.retrievedContext,
       contentSignalProfile: signalProfile,
       productionBrief,
       sourceLedger,
+      editorialPlan: expect.objectContaining({
+        version: 2,
+        writerKind: 'post',
+        creativeIntent: {
+          source: 'selected_angle',
+          selectedAngle,
+          overridePolicy: 'explicit_current_instruction_only',
+        },
+        evidence: expect.objectContaining({
+          authorizedFactIds: ['fact_project_current', 'fact_global_current'],
+          sourceLedgerEntryIds: ['brief_user', 'source_current'],
+        }),
+      }),
       context: expect.objectContaining({
-        projectSummary: 'Approval ownership',
+        projectSummary: selectedAngle.title,
         systemBrief: expect.stringContaining('Canonical Brand B voice and kill-list.'),
       }),
     }));
     expect(mocks.buildSourceLedger).toHaveBeenCalledWith(expect.objectContaining({
-      projectSummary: 'Approval ownership',
+      projectSummary: selectedAngle.title,
       previousLedger: stored.metadata.writerOutput.sourceLedger,
     }));
     expect(mocks.resolveSignalProfile).toHaveBeenCalledWith(expect.objectContaining({
@@ -286,6 +365,13 @@ describe('flat writer edit authoring context', () => {
             generationTrace: expect.objectContaining({
               operation: { kind: 'edit', id: 'edit:session_1:post_1:v2' },
               document: expect.objectContaining({ expectedVersion: 2, writerType: 'post' }),
+              writer: expect.objectContaining({
+                editorialPlan: expect.objectContaining({
+                  version: 2,
+                  writerKind: 'post',
+                  creativeIntent: expect.objectContaining({ selectedAngle }),
+                }),
+              }),
             }),
           }),
         }),
@@ -323,10 +409,10 @@ describe('flat writer edit authoring context', () => {
     });
     mocks.getScript.mockResolvedValueOnce(stored);
     mocks.resolveAuthoringContext.mockResolvedValueOnce(scriptAuthoringContext);
-    mocks.scriptRun.mockResolvedValue({
+    mocks.scriptRun.mockImplementation(async (input) => ({
       result: scriptResult(),
-      metadata: { writerTrace: writerTrace('script') },
-    });
+      metadata: { writerTrace: writerTrace('script', input.editorialPlan) },
+    }));
 
     await reviseDocumentViaFlatWriter({
       userId: 'user_1',
@@ -344,6 +430,19 @@ describe('flat writer edit authoring context', () => {
       authoringRequest: scriptAuthoringRequest,
       productionBrief,
       sourceLedger,
+      editorialPlan: expect.objectContaining({
+        version: 2,
+        writerKind: 'script',
+        creativeIntent: {
+          source: 'direct_brief',
+          overridePolicy: 'current_instruction',
+        },
+        resolvedProduction: { targetDurationSec: 420 },
+        evidence: expect.objectContaining({
+          authorizedFactIds: ['fact_project_current', 'fact_global_current'],
+          sourceLedgerEntryIds: ['brief_user', 'source_current'],
+        }),
+      }),
       retrievedContext: authoringContext.retrievedContext,
       context: expect.objectContaining({
         systemBrief: expect.stringContaining('<content_signal_profile>resolved</content_signal_profile>'),
@@ -358,6 +457,13 @@ describe('flat writer edit authoring context', () => {
             generationTrace: expect.objectContaining({
               operation: { kind: 'edit', id: 'edit:session_1:script_1:v4' },
               document: expect.objectContaining({ expectedVersion: 4, writerType: 'script' }),
+              writer: expect.objectContaining({
+                editorialPlan: expect.objectContaining({
+                  version: 2,
+                  writerKind: 'script',
+                  resolvedProduction: { targetDurationSec: 420 },
+                }),
+              }),
             }),
           }),
         }),
