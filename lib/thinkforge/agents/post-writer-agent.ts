@@ -10,8 +10,7 @@ import {
   type ThinkForgeContentSignalProfile,
 } from '../signals';
 import { generateStructuredWithWritingContextCache } from '../services/gemini-writing-context-cache';
-import { getAntiAiConstraintBundle, buildWritingKnowledgeBlock } from '../data/writing-graph-query';
-import { extractSignalsFromContext } from '../data/extract-signals';
+import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 import { formatTrendBriefForPrompt } from './trend-brief-context';
 import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
@@ -1314,38 +1313,6 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
       ctaMode: editorialPlan.ctaMode,
     }).replaceAll('<input_data>', 'tf_untrusted_data');
 
-    // Writing knowledge graph: select techniques (DO/WHY/NEVER) from the content signals so the
-    // flat writers get the same craft guidance the orchestrated ScriptAuthor path gets, not just
-    // the anti-filler gate. Signals come from the resolved profile when threaded, else derived.
-    const evidenceIncompatibleTechniques = editorialPlan.sourceBoundary === 'source_only'
-      || editorialPlan.evidenceDensity === 'thin'
-      ? [
-          'outcome_hook',
-          'problem_agitate_solve',
-          'attention_interest_desire_action',
-          'sparkline_structure',
-          'narrative_arc',
-          'urgent_cta',
-        ]
-      : [];
-    const writingBlock = buildWritingKnowledgeBlock(
-      input.contentSignalProfile?.profile.signals ?? extractSignalsFromContext({
-        // This agent always authors a social post. An omitted resolved profile must
-        // use post-specific craft defaults, never the extractor's generic fallback.
-        documentType: 'post',
-        medium: 'post',
-        projectSummary: context.projectSummary,
-        userPrompt,
-      }),
-      {
-        excludeTechniqueIds: [
-          ...evidenceIncompatibleTechniques,
-          'soft_cta',
-          'hard_cta',
-          'urgent_cta',
-        ],
-      },
-    );
     const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);
     const trendBriefForData = `${trendBriefBlock ? `${trendBriefBlock}\n\n` : ''}`;
     const carouselSlideCount = requestedCarouselSlideCount(input);
@@ -1451,7 +1418,7 @@ ${editContext ? `<edit_rules>
 - Keep everything the change does not touch and preserve supplied facts verbatim.
 </edit_rules>
 
-` : ''}${writingBlock ? `${writingBlock}\n\n` : ''}${carouselContractBlock}${postControlContract}${outputFormat}
+` : ''}${carouselContractBlock}${postControlContract}${outputFormat}
 
 Return your response strictly adhering to the JSON schema.`;
 

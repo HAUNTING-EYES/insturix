@@ -230,17 +230,25 @@ describe('assertUsablePostWriterResult', () => {
     expect(prompt).not.toContain('include editable overlay text when text appears');
   });
 
-  it('uses post craft defaults when no resolved signal profile is available', () => {
-    const prompt = new PostWriterAgent().buildPrompt({
-      context: {
-        projectSummary: 'FlowLedger is workflow automation for finance teams preparing audit evidence.',
-      },
-      userPrompt: 'Write a LinkedIn post about SOC 2 evidence. Our beta cut evidence chasing by 37% across 12 pilot teams.',
+  it('keeps the post editorial plan as the only creative-form authority', () => {
+    const input = flowLedgerInput();
+    Object.assign(input.contentSignalProfile!.profile.signals, {
+      certainty: 1,
+      power_dynamic: 'provoke',
+      novelty: 1,
+      pivot_intensity: 1,
+      warmth: 0,
+      visual_dependency: 1,
+      show_tell_ratio: 1,
+      negative_space: 1,
     });
 
-    expect(prompt).toContain('<writing_knowledge>');
-    expect(prompt).not.toContain('HOOK: question_hook');
-    expect(prompt).not.toContain('NARRATION_MODE: narration_complement');
+    const prompt = new PostWriterAgent().buildPrompt(input);
+
+    expect(prompt).toContain('"postEditorialPlan": {');
+    expect(prompt).not.toContain('<writing_knowledge>');
+    expect(prompt).not.toContain('HOOK: provocation_hook');
+    expect(prompt).not.toContain('NARRATION_MODE: narration_minimal');
   });
 
   it('places resolved proof, audience, and explicit claim sources inside the isolated writer data', () => {
