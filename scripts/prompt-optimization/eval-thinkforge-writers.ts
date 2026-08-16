@@ -46,7 +46,6 @@ import {
   type ScriptWriterResult,
   type ScriptWriterInput,
 } from '../../lib/thinkforge/agents/script-writer-agent';
-import { getAntiAiConstraintBundle } from '../../lib/thinkforge/data/writing-graph-query';
 import { resolveContentSignalProfile } from '../../lib/thinkforge/signals';
 import { buildThinkForgeSourceLedger } from '../../lib/thinkforge/provenance/source-ledger';
 import { resolveThinkForgeProductionBrief } from '../../lib/thinkforge/brief/resolve-production-brief';
@@ -73,6 +72,14 @@ import {
   THINKFORGE_WRITER_JUDGE_DIMENSIONS,
   type WriterPromotionRun,
 } from './thinkforge-writer-promotion-gate';
+import {
+  scoreThinkForgeWriterEval,
+  writerEvalGroundingFactLabel,
+  type WriterEvalCase as TestCase,
+  type WriterEvalGroundingResult as GroundingResult,
+  type WriterEvalScoreResult as ScoreResult,
+  type WriterPath,
+} from './thinkforge-writer-eval-scoring';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dirname, '../../.env.local') });
@@ -172,38 +179,9 @@ if (!API_KEY && !dryRun) {
   process.exit(1);
 }
 
-// ---- Anti-AI Constraints (writing graph source of truth) --------------
-
-const ANTI_AI_CONSTRAINTS = getAntiAiConstraintBundle();
-if (ANTI_AI_CONSTRAINTS.constraints.length === 0) {
-  throw new Error('No Anti-AI constraints loaded from writing-knowledge graph. Refusing to run filler eval with an empty oracle.');
-}
-
-const AI_FILLER = ANTI_AI_CONSTRAINTS.fillerPatterns.map(d => ({
-  regex: new RegExp(d.pattern, 'i'),
-  label: d.label,
-}));
-
 // ---- Test Cases ------------------------------------------------------
 // `grounding` = facts that MUST survive into the output (the writers' core promise is factual
 // completeness). Each is a case-insensitive substring; coverage is scored continuously.
-
-type WriterPath = 'post' | 'script';
-type GroundingFact = string | string[];
-type TestSuite = 'core' | 'heldout';
-
-interface TestCase {
-  id: number;
-  suite?: TestSuite;
-  name: string;
-  documentType: string;
-  projectSummary: string;
-  userPrompt: string;
-  systemBrief?: string;
-  expectedPath: WriterPath;
-  grounding?: GroundingFact[];
-  criteria: Record<string, any>;
-}
 
 const TEST_CASES: TestCase[] = [
   {
@@ -216,11 +194,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief:
       'Brand: Insturix. Voice: Professional but approachable, grounded in real workflow pain. Target: Agency owners and creative directors managing 5-15 person teams.',
     expectedPath: 'post',
-    criteria: {
-      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
-      hasHashtags: true, charRange: [800, 3000], noAiFiller: true,
-      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
-    },
+    criteria: {},
   },
   {
     id: 2,
@@ -239,10 +213,7 @@ const TEST_CASES: TestCase[] = [
       't-shirt',
       'redcross.org/donate',
     ],
-    criteria: {
-      noSceneHeadings: true, noVisualLabels: true, noAiFiller: true,
-      hasCTA: true, charRange: [200, 3000], groundingFloor: 0.8,
-    },
+    criteria: { groundingFloor: 0.8 },
   },
   {
     id: 3,
@@ -254,11 +225,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: ContentForge. Voice: Confident, direct, zero fluff.',
     expectedPath: 'post',
     grounding: ['ContentForge', '3x', 'March 3'],
-    criteria: {
-      charRange: [50, 400], noSceneHeadings: true, noVisualLabels: true,
-      noAiFiller: true, hashtagRange: [0, 3], hasSpecificDetails: true,
-      groundingFloor: 0.66,
-    },
+    criteria: { groundingFloor: 0.66 },
   },
   {
     id: 4,
@@ -270,11 +237,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: GlowNaturals. Voice: Warm, inviting, clean beauty enthusiast.',
     expectedPath: 'post',
     grounding: ['vitamin C', '$38'],
-    criteria: {
-      charRange: [150, 2200], noSceneHeadings: true, noVisualLabels: true,
-      noAiFiller: true, hasHashtags: true, hashtagRange: [3, 15], hasCTA: true,
-      groundingFloor: 0.5,
-    },
+    criteria: { groundingFloor: 0.5 },
   },
   {
     id: 5,
@@ -286,10 +249,7 @@ const TEST_CASES: TestCase[] = [
       'Create a 30-second TikTok product ad showing how Insturix saves time for freelance video editors.',
     expectedPath: 'script',
     grounding: ['Insturix'],
-    criteria: {
-      minScenes: 3, maxScenes: 8, hasNarration: true, hasVisual: true,
-      noAiFiller: true, hasSpecificDetails: true, scenePromptsMatchScenes: true,
-    },
+    criteria: {},
   },
   {
     id: 6,
@@ -302,10 +262,7 @@ const TEST_CASES: TestCase[] = [
       'Brand: Oakridge Coffee Co. Voice: Warm, unhurried, sensory-rich. Values: Craft, transparency, terroir.',
     expectedPath: 'script',
     grounding: ['Oakridge', 'Huila'],
-    criteria: {
-      minScenes: 4, maxScenes: 12, hasNarration: true, hasVisual: true,
-      noAiFiller: true, hasSpecificDetails: true, scenePromptsMatchScenes: true,
-    },
+    criteria: {},
   },
   {
     id: 7,
@@ -315,10 +272,7 @@ const TEST_CASES: TestCase[] = [
     userPrompt:
       'Write a 5-minute YouTube script explaining how quantum computing works for a general audience. Include visual direction.',
     expectedPath: 'script',
-    criteria: {
-      minScenes: 4, maxScenes: 14, hasNarration: true, hasVisual: true,
-      noAiFiller: true, hasSpecificDetails: true, scenePromptsMatchScenes: true,
-    },
+    criteria: {},
   },
   {
     id: 8,
@@ -330,11 +284,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: Personal brand of a founder. Voice: Honest, reflective, no toxic positivity.',
     expectedPath: 'post',
     grounding: ['18 months', ['$40K', '$40k', '$40,000', '40k', '40000']],
-    criteria: {
-      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
-      hasHashtags: true, charRange: [800, 3000], noAiFiller: true,
-      hookBeforeFold: true, hasCTA: true, groundingFloor: 0.5,
-    },
+    criteria: { groundingFloor: 0.5 },
   },
   {
     id: 9,
@@ -347,12 +297,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: FlowLedger. Voice: precise, calm, operator-led. Avoid fearmongering. Audience: CFOs, RevOps, compliance owners.',
     expectedPath: 'post',
     grounding: ['FlowLedger', 'SOC 2', 'Q4', '37%', '12 pilot teams', 'CFOs', 'RevOps'],
-    criteria: {
-      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
-      hasHashtags: true, charRange: [500, 1100], noAiFiller: true,
-      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
-      groundingFloor: 0.72,
-    },
+    criteria: { groundingFloor: 0.72 },
   },
   {
     id: 10,
@@ -365,11 +310,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: RiverAid. Voice: local, grateful, practical. Audience: parents, students, neighborhood groups.',
     expectedPath: 'post',
     grounding: ['RiverAid', 'April 22', 'Pier 9', '500 cleanup kits', ['8:30am', '8:30 am', '8:30 a.m.'], 'families', 'riveraid.org/cleanup'],
-    criteria: {
-      noSceneHeadings: true, noVisualLabels: true, noAiFiller: true,
-      hasCTA: true, charRange: [150, 1200], hasSpecificDetails: true,
-      groundingFloor: 0.78,
-    },
+    criteria: { groundingFloor: 0.78 },
   },
   {
     id: 11,
@@ -382,11 +323,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: TrailNest. Voice: tactile, urban-outdoors, not luxury. Audience: weekend campers and commuters.',
     expectedPath: 'post',
     grounding: ['TrailNest', 'PackLight Sling', 'Midnight Moss', 'recycled nylon', '$89', 'Friday', 'subway bench', 'hiking boots'],
-    criteria: {
-      charRange: [150, 2200], noSceneHeadings: true, noVisualLabels: true,
-      noAiFiller: true, hasHashtags: true, hashtagRange: [3, 15], hasCTA: true,
-      hasSpecificDetails: true, groundingFloor: 0.75,
-    },
+    criteria: { groundingFloor: 0.75 },
   },
   {
     id: 12,
@@ -399,12 +336,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: Nimbus Robotics. Voice: builder-to-builder, specific, no corporate wallpaper. Audience: robotics engineers.',
     expectedPath: 'post',
     grounding: ['Nimbus Robotics', 'Senior Perception Engineer', 'Austin', 'Hybrid', 'May 30', 'careers.nimbusrobotics.ai', 'warehouse aisles'],
-    criteria: {
-      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
-      hasHashtags: true, charRange: [700, 2500], noAiFiller: true,
-      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
-      groundingFloor: 0.72,
-    },
+    criteria: { groundingFloor: 0.72 },
   },
   {
     id: 13,
@@ -417,11 +349,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Marca: Luna Verde. Voz: cercana, tranquila, de barrio. No sonar como anuncio masivo.',
     expectedPath: 'post',
     grounding: ['Luna Verde', 'sabado', ['11am', '11 am', '11:00'], 'Calle Prado 14', 'Madrid', '20 plazas', 'cafe gratis', 'lunaverde.es/taller'],
-    criteria: {
-      charRange: [150, 2200], noSceneHeadings: true, noVisualLabels: true,
-      noAiFiller: true, hasHashtags: true, hashtagRange: [3, 12], hasCTA: true,
-      hasSpecificDetails: true, groundingFloor: 0.75,
-    },
+    criteria: { groundingFloor: 0.75 },
   },
   {
     id: 14,
@@ -441,12 +369,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: CivicDesk. Voice: civic, careful, evidence-led. Audience: city managers, 311 directors, public-sector ops teams.',
     expectedPath: 'post',
     grounding: ['CivicDesk', 'city managers', '311 directors', 'budget review season', 'Maple County', '18%', 'six weeks', 'July 8', 'Priya Menon', 'civicdesk.com/webinar'],
-    criteria: {
-      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
-      hasHashtags: true, charRange: [900, 3000], noAiFiller: true,
-      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
-      groundingFloor: 0.8,
-    },
+    criteria: { groundingFloor: 0.8 },
   },
   {
     id: 15,
@@ -459,12 +382,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: Boring Metrics Club. Voice: dry, precise, anti-hype. Audience: bootstrapped founders and operators.',
     expectedPath: 'post',
     grounding: ['Boring Metrics Club', '12 qualified sales calls', '4,000 empty impressions', 'free teardown', 'Thursday'],
-    criteria: {
-      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
-      hasHashtags: true, charRange: [700, 2500], noAiFiller: true,
-      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
-      groundingFloor: 0.8,
-    },
+    criteria: { groundingFloor: 0.8 },
   },
   {
     id: 16,
@@ -477,10 +395,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: TaskFlow. Voice: clear, friendly, jargon-free. Audience: first-time users and non-technical team leads.',
     expectedPath: 'script',
     grounding: ['TaskFlow', 'New Board'],
-    criteria: {
-      minScenes: 3, maxScenes: 9, hasNarration: true, hasVisual: true,
-      noAiFiller: true, hasSpecificDetails: true, scenePromptsMatchScenes: true,
-    },
+    criteria: {},
   },
   {
     id: 17,
@@ -493,12 +408,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: DataPulse. Voice: practical, numbers-first, no hype. Audience: ecommerce founders and operators.',
     expectedPath: 'post',
     grounding: ['DataPulse', 'repeat purchase rate', 'cart abandonment', 'average order value'],
-    criteria: {
-      noSceneHeadings: true, noVisualLabels: true, noVOLabels: true,
-      hasHashtags: true, charRange: [700, 3000], noAiFiller: true,
-      hasSpecificDetails: true, hookBeforeFold: true, hasCTA: true,
-      groundingFloor: 0.75,
-    },
+    criteria: { groundingFloor: 0.75 },
   },
   {
     id: 18,
@@ -511,11 +421,7 @@ const TEST_CASES: TestCase[] = [
     systemBrief: 'Brand: Streaky. Voice: honest, humble, builder-to-builder. No hype.',
     expectedPath: 'post',
     grounding: ['Streaky', ['1,000', '1000', '1k'], ['8 months', 'eight months']],
-    criteria: {
-      charRange: [50, 700], noSceneHeadings: true, noVisualLabels: true,
-      noAiFiller: true, hashtagRange: [0, 3], hasSpecificDetails: true,
-      groundingFloor: 0.66,
-    },
+    criteria: { groundingFloor: 0.66 },
   },
 ];
 
@@ -550,196 +456,6 @@ const LEGACY_PRE_CONTRACT_BASELINES: Record<number, number> = {
   17: 0.88,
   18: 0.88,
 };
-
-// ---- Scoring: structure + filler + specificity -----------------------
-
-interface ScoreResult {
-  passed: number;
-  total: number;
-  ratio: number;
-  checks: Record<string, boolean | string>;
-}
-
-function makeScorer() {
-  const checks: Record<string, boolean | string> = {};
-  let passed = 0;
-  let total = 0;
-  function check(name: string, condition: boolean) {
-    total++;
-    checks[name] = condition;
-    if (condition) passed++;
-  }
-  return {
-    check,
-    result: (): ScoreResult => ({ passed, total, ratio: total > 0 ? passed / total : 0, checks }),
-    checks,
-  };
-}
-
-function countScenes(content: string): number {
-  const headers = content.match(/^#{1,3}\s*(scene\s*\d|\[?\d+[:.)])/gim) || content.match(/^#{1,3}\s*scene\b/gim) || [];
-  return headers.length;
-}
-
-function normalizeFact(text: string): string {
-  return text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function groundingFactLabel(fact: GroundingFact): string {
-  return Array.isArray(fact) ? fact[0] : fact;
-}
-
-function groundingFactVariants(fact: GroundingFact): string[] {
-  return Array.isArray(fact) ? fact : [fact];
-}
-
-function getCtaLine(lines: string[]): string {
-  return lines
-    .filter((line) => line.trim().length > 0)
-    .filter((line) => !/^#\w/.test(line.trim()))
-    .at(-1) ?? '';
-}
-
-const CTA_ACTION_PATTERN =
-  /(?:\b(ask|apply|book|buy|call|claim|comment|contact|dm|donate|discover|download|get|join|learn more|message|register|reply|repost|reserve|save|schedule|send|share|shop|sign ?up|tag|try|visit|watch)\b|inscr[ií]bete|registrate|reg[ií]strate|[uú]nete|reserva|compra|visita|env[ií]a|manda|escr[ií]benos|comenta|comparte)/i;
-
-function scoreStructural(content: string, tc: TestCase): ScoreResult {
-  const s = makeScorer();
-  const c = tc.criteria;
-  const lines = content.split('\n');
-  const fixture = requireRequestFixture(tc);
-
-  if (tc.expectedPath === 'post') {
-    if (c.noSceneHeadings) s.check('no_scene_headings', !/#{1,3}\s*scene\s*\d/i.test(content));
-    if (c.noVisualLabels) s.check('no_visual_labels', !/\*\*Visual/i.test(content));
-    if (c.noVOLabels) s.check('no_vo_labels', !/\*\*VO\b/i.test(content) && !/\*\*Narration/i.test(content));
-    const tags = content.match(/#[\p{L}\p{M}\p{N}_]+/gu) ?? [];
-    s.check('hashtag_control', tags.length === 0);
-    const ctaLine = getCtaLine(lines);
-    const hasCta = /\?/.test(ctaLine) || CTA_ACTION_PATTERN.test(ctaLine);
-    s.check('cta_control', fixture.cta?.preference === 'none' ? !hasCta : hasCta);
-    if (fixture.cta?.action) {
-      s.check('cta_action_preserved', normalizeFact(content).includes(normalizeFact(fixture.cta.action)));
-    }
-    if (fixture.cta?.destination) {
-      s.check('cta_destination_preserved', content.includes(fixture.cta.destination));
-    }
-    s.check('no_h1_title', !content.startsWith('# '));
-  }
-
-  if (tc.expectedPath === 'script') {
-    if (c.hasNarration) s.check('has_narration', /\*\*\s*(narration|vo|voiceover)\b/i.test(content));
-    if (c.hasVisual) s.check('has_visual', /\*\*\s*visual\b/i.test(content));
-  }
-
-  // Universal
-  if (c.noAiFiller) {
-    const found = AI_FILLER.filter(f => f.regex.test(content));
-    s.check('no_ai_filler', found.length === 0);
-    if (found.length > 0) s.checks.filler_details = found.map(f => f.label).join(', ');
-  }
-  return s.result();
-}
-
-// ---- Scoring: grounding (must-appear facts survive into the output) --
-
-interface GroundingResult { coverage: number; present: string[]; missing: string[]; total: number; }
-
-function scoreGrounding(content: string, tc: TestCase): GroundingResult {
-  const facts = tc.grounding || [];
-  if (facts.length === 0) return { coverage: 1, present: [], missing: [], total: 0 };
-  const haystack = normalizeFact(content);
-  const present: string[] = [];
-  const missing: string[] = [];
-  for (const f of facts) {
-    const label = groundingFactLabel(f);
-    const matched = groundingFactVariants(f).some(variant => haystack.includes(normalizeFact(variant)));
-    if (matched) present.push(label); else missing.push(label);
-  }
-  return { coverage: present.length / facts.length, present, missing, total: facts.length };
-}
-
-// ---- Scoring: structured JSON fields (these writers return typed objects) ----
-
-function scoreStructuredFields(
-  result: PostWriterResult | ScriptWriterResult,
-  tc: TestCase,
-): ScoreResult {
-  const s = makeScorer();
-
-  // qualityScore present + in range (self-report; informational but should be well-formed)
-  const qs = (result as any)?.contentAnalysis?.qualityScore;
-  s.check('quality_score_wellformed', typeof qs === 'number' && qs >= 0 && qs <= 100);
-
-  if (tc.expectedPath === 'post') {
-    const r = result as PostWriterResult;
-    s.check('violations_empty', Array.isArray(r.contentAnalysis?.violations) && r.contentAnalysis.violations.length === 0);
-    s.check('clickatron_prompts_present',
-      !!(r.clickatron?.singleImagePrompt || (r.clickatron?.carouselPrompts && r.clickatron.carouselPrompts.length > 0)));
-    s.check('platform_metadata_present', typeof r.metadata?.platform === 'string' && r.metadata.platform.length > 0);
-  } else {
-    const r = result as ScriptWriterResult;
-    s.check('scene_prompts_present', Array.isArray(r.visualMetadata?.scenePrompts) && r.visualMetadata.scenePrompts.length > 0);
-    if (tc.criteria.scenePromptsMatchScenes) {
-      const sceneCount = countScenes(r.content);
-      const promptCount = r.visualMetadata?.scenePrompts?.length || 0;
-      s.check('scene_prompts_match_scenes', sceneCount > 0 && promptCount === sceneCount);
-    }
-    s.check('motion_info_present', typeof r.visualMetadata?.motionInfo === 'string' && r.visualMetadata.motionInfo.length > 0);
-  }
-
-  return s.result();
-}
-
-// ---- Scoring: publishable/editorial quality track --------------------
-
-function scoreQuality(result: PostWriterResult | ScriptWriterResult, tc: TestCase): ScoreResult {
-  const s = makeScorer();
-  const fixture = requireRequestFixture(tc);
-
-  if (tc.expectedPath === 'script') {
-    const script = result as ScriptWriterResult;
-    const scenes = script.sidecar.acts.flatMap((act) => act.narrativeScenes);
-    const beats = scenes.flatMap((scene) => scene.beats);
-    s.check('narrative_hierarchy_nonempty', script.sidecar.acts.length > 0 && scenes.length > 0 && beats.length > 0);
-    s.check('visual_intent_complete', beats.every((beat) => Boolean(beat.visualIntent)));
-    s.check('shot_intent_complete', beats.every((beat) => Boolean(beat.shotIntent)));
-    s.check('beat_channel_semantics', beats.every((beat) => {
-      const hasSpeech = beat.lines.some((line) => line.delivery !== 'on-screen-text' && line.text.trim().length > 0);
-      if (beat.kind === 'visual' || beat.kind === 'transition') return !hasSpeech;
-      if (beat.kind === 'voiceover' || beat.kind === 'dialogue') return hasSpeech;
-      return true;
-    }));
-    s.check(
-      'exact_runtime',
-      fixture.targetDurationSec !== undefined
-        && Math.abs(script.metadata.estimatedTimeSeconds - fixture.targetDurationSec) <= 0.001,
-    );
-    return s.result();
-  }
-
-  const content = (result as PostWriterResult).content;
-
-  const lines = content.split('\n');
-  s.check('substantive_content', content.trim().length > 0);
-
-  const ctaLine = getCtaLine(lines).toLowerCase();
-  const generic = /what do you think\??$|thoughts\??$|agree\??$|right\??$/i.test(ctaLine.trim());
-  const hasCta = /\?/.test(ctaLine) || CTA_ACTION_PATTERN.test(ctaLine);
-  s.check(
-    'cta_discipline',
-    fixture.cta?.preference === 'none'
-      ? !hasCta
-      : hasCta && !generic,
-  );
-
-  return s.result();
-}
 
 interface EvalRequestFixture {
   platformSurface: ThinkForgePlatformSurfaceId;
@@ -969,18 +685,12 @@ async function runOnce(tc: TestCase, currentRunId: number): Promise<RunResult> {
   }
   const elapsed = Date.now() - start;
 
-  const structural = scoreStructural(content, tc);
-  const structured = scoreStructuredFields(result, tc);
-  const quality = scoreQuality(result, tc);
-  const grounding = scoreGrounding(content, tc);
-
-  // Combined structural ratio folds in routing + a grounding floor (if the case sets one).
-  const groundingFloor = tc.criteria.groundingFloor as number | undefined;
-  const structPassed = structural.passed
-    + (routedCorrectly ? 1 : 0)
-    + structured.passed
-    + (groundingFloor !== undefined ? (grounding.coverage >= groundingFloor ? 1 : 0) : 0);
-  const structTotal = structural.total + 1 + structured.total + (groundingFloor !== undefined ? 1 : 0);
+  const scores = scoreThinkForgeWriterEval({
+    result,
+    testCase: tc,
+    authoringRequest,
+    routedCorrectly,
+  });
 
   return {
     runId: currentRunId,
@@ -988,10 +698,13 @@ async function runOnce(tc: TestCase, currentRunId: number): Promise<RunResult> {
     path: routedPath,
     routedCorrectly,
     content,
-    structural, structured, quality, grounding,
+    structural: scores.structural,
+    structured: scores.structured,
+    quality: scores.quality,
+    grounding: scores.grounding,
     visualPromptEvidence: scenePromptsBlob,
     structuredOutputEvidence: result,
-    combinedRatio: structTotal > 0 ? structPassed / structTotal : 0,
+    combinedRatio: scores.combinedRatio,
     elapsed,
   };
 }
@@ -1103,7 +816,7 @@ ${JSON.stringify({
     projectSummary: tc.projectSummary,
     systemBrief: tc.systemBrief ?? null,
     userPrompt: tc.userPrompt,
-    requiredFacts: (tc.grounding ?? []).map(groundingFactLabel),
+    requiredFacts: (tc.grounding ?? []).map(writerEvalGroundingFactLabel),
   },
   generatedContent: result.content,
   structuredWriterOutput: result.structuredOutputEvidence,
@@ -1131,7 +844,7 @@ function dryRunCase(tc: TestCase): void {
   console.log(`  docType=${tc.documentType}  routed=${routedPath}  expected=${tc.expectedPath}  ` +
     `${routedPath === tc.expectedPath ? 'âœ“ routing OK' : 'ðŸ”´ ROUTING MISMATCH'}`);
   if (tc.grounding?.length) {
-    console.log(`  grounding facts (${tc.grounding.length}): ${tc.grounding.map(groundingFactLabel).join(' | ')}`);
+    console.log(`  grounding facts (${tc.grounding.length}): ${tc.grounding.map(writerEvalGroundingFactLabel).join(' | ')}`);
   }
   console.log(`${'='.repeat(72)}`);
   console.log(prompt);
@@ -1319,7 +1032,7 @@ async function main() {
           grounding: {
             coverage: 0,
             present: [],
-            missing: (tc.grounding || []).map(groundingFactLabel),
+            missing: (tc.grounding || []).map(writerEvalGroundingFactLabel),
             total: (tc.grounding || []).length,
           },
           visualPromptEvidence: '',
