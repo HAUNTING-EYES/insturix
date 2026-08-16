@@ -55,6 +55,7 @@ import {
   type ThinkForgePlatformSurfaceId,
 } from '../../lib/thinkforge/schemas/authoring-request';
 import type { RetrievedContext } from '../../lib/thinkforge/context/fetchContextSources';
+import type { ThinkForgeWriterInvocationTraceV1 } from '../../lib/thinkforge/provenance/generation-trace';
 import {
   buildEvalProviderConfig,
   resolveEvalTransientRetryAttempts,
@@ -80,6 +81,13 @@ import {
   type WriterEvalScoreResult as ScoreResult,
   type WriterPath,
 } from './thinkforge-writer-eval-scoring';
+import {
+  createWriterPromotionEvidence,
+  createWriterPromotionReceipt,
+  isIndependentWriterPromotionJudge,
+  readWriterPromotionRepositoryState,
+  type WriterPromotionRepositoryState,
+} from './thinkforge-writer-promotion-evidence';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dirname, '../../.env.local') });
@@ -782,6 +790,7 @@ interface RunResult {
   rejectedOutputEvidence?: unknown;
   judge?: JudgeResult;
   judgeError?: string;
+  writerTrace?: ThinkForgeWriterInvocationTraceV1;
 }
 
 async function runOnce(tc: TestCase, currentRunId: number): Promise<RunResult> {
@@ -794,25 +803,30 @@ async function runOnce(tc: TestCase, currentRunId: number): Promise<RunResult> {
   let content = '';
   let result: PostWriterResult | ScriptWriterResult;
   let scenePromptsBlob = '';
+  let writerTrace: ThinkForgeWriterInvocationTraceV1 | undefined;
 
   if (routedPath === 'post') {
     const agent = new PostWriterAgent();
-    const { result: object } = await withWriterTimeout(
+    const generation = await withWriterTimeout(
       (abortSignal) => agent.runStructured(input as PostWriterInput, undefined, abortSignal),
       EVAL_WRITER_TIMEOUT_MS,
       'writer/' + routedPath,
     );
+    const object = generation.result;
+    writerTrace = generation.metadata?.writerTrace;
     result = object;
     content = object.content;
     scenePromptsBlob = [object.clickatron?.singleImagePrompt, ...(object.clickatron?.carouselPrompts || [])]
       .filter(Boolean).join('\n');
   } else {
     const agent = new ScriptWriterAgent();
-    const { result: object } = await withWriterTimeout(
+    const generation = await withWriterTimeout(
       (abortSignal) => agent.runStructured(input as ScriptWriterInput, undefined, abortSignal),
       EVAL_WRITER_TIMEOUT_MS,
       'writer/' + routedPath,
     );
+    const object = generation.result;
+    writerTrace = generation.metadata?.writerTrace;
     result = object;
     content = object.content;
     scenePromptsBlob = (object.visualMetadata?.scenePrompts || []).join('\n');
@@ -840,6 +854,7 @@ async function runOnce(tc: TestCase, currentRunId: number): Promise<RunResult> {
     structuredOutputEvidence: result,
     combinedRatio: scores.combinedRatio,
     elapsed,
+    writerTrace,
   };
 }
 
@@ -988,6 +1003,7 @@ function dryRunCase(tc: TestCase): void {
 
 async function main() {
   let cases = TEST_CASES;
+  let promotionRepositoryBefore: WriterPromotionRepositoryState | undefined;
   if (testCaseFilter) cases = cases.filter(tc => tc.id === testCaseFilter);
   if (writerFilter) cases = cases.filter(tc => tc.expectedPath === writerFilter);
   if (suiteFilter) cases = cases.filter(tc => (tc.suite ?? 'core') === suiteFilter);
@@ -1008,6 +1024,10 @@ async function main() {
   }
 
   if (dryRun) {
+    if (promotionRequested) {
+      console.error('Promotion cannot run in dry-run mode because no writer or judge evidence is produced.');
+      process.exit(1);
+    }
     console.log('\nDRY RUN â€” building production prompts, NO network calls.\n');
     for (const tc of cases) dryRunCase(tc);
     const mismatches = cases.filter(tc => writerPathForRequest(buildAuthoringRequest(tc)) !== tc.expectedPath);
@@ -1024,6 +1044,10 @@ async function main() {
         maxOutputTokens: 2000,
       })
     : null;
+  if (promotionRequested && judgeConfig && !isIndependentWriterPromotionJudge(judgeConfig)) {
+    console.error('Promotion requires a non-Gemini judge model with independent model DNA.');
+    process.exit(1);
+  }
 
   const runIds = multiRun ? Array.from({ length: 10 }, (_, index) => index + 1) : [runId];
   const writerRunCount = cases.length * runIds.length;
@@ -1069,6 +1093,23 @@ async function main() {
   if (promotionRequested && !confirmPaidRun) {
     console.error('Promotion requires --confirm-paid-run after reviewing the provider-call estimate.');
     process.exit(1);
+  }
+  if (promotionRequested) {
+    try {
+      promotionRepositoryBefore = readWriterPromotionRepositoryState();
+    } catch (error) {
+      console.error(`Promotion requires readable Git state: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+    if (!promotionRepositoryBefore.clean) {
+      console.error(
+        `Promotion requires a clean repository before paid calls; found ${promotionRepositoryBefore.dirtyEntryCount} dirty entries.`,
+      );
+      process.exit(1);
+    }
+    console.log(
+      `Promotion source: ${promotionRepositoryBefore.commitSha} (${promotionRepositoryBefore.branch || 'detached HEAD'}).`,
+    );
   }
   if (minimumProviderCalls > maxProviderCalls) {
     console.error(
@@ -1243,8 +1284,10 @@ async function main() {
     caseName: testCase.name,
     runId: result.runId,
     outputFingerprint: result.outputFingerprint,
+    writerPath: result.path,
     deterministicScore: result.combinedRatio,
     editorialQualityScore: result.quality.total > 0 ? result.quality.ratio : 0,
+    writerTrace: result.writerTrace,
     error: result.error,
     judge: result.judge ? {
       overall: result.judge.overall,
@@ -1259,7 +1302,33 @@ async function main() {
     } : undefined,
     judgeError: result.judgeError,
   }));
-  const promotion = evaluateWriterPromotionGate(promotionRuns, promotionEligible);
+  const heldoutCases = TEST_CASES.filter((testCase) => testCase.suite === 'heldout');
+  const promotionEvidence = promotionEligible && promotionRepositoryBefore && judgeConfig
+    ? createWriterPromotionEvidence({
+        repositoryBefore: promotionRepositoryBefore,
+        repositoryAfter: readWriterPromotionRepositoryState(),
+        corpus: heldoutCases.map((testCase) => ({
+          testCase,
+          requestFixture: REQUEST_FIXTURES[testCase.id],
+        })),
+        corpusCaseIds: heldoutCases.map((testCase) => testCase.id),
+        judge: { provider: judgeConfig.provider, model: judgeConfig.model },
+        providerBudgetSnapshot: providerBudget.snapshot(),
+        runs: promotionRuns,
+      })
+    : undefined;
+  const promotion = evaluateWriterPromotionGate(
+    promotionRuns,
+    promotionEligible,
+    promotionEvidence,
+  );
+  const promotionReceipt = promotion.passed && promotionEvidence
+    ? createWriterPromotionReceipt({
+        evidence: promotionEvidence,
+        runs: promotionRuns,
+        verdict: promotion,
+      })
+    : null;
 
   if (promotionRequested) {
     console.log('\n' + '='.repeat(72));
@@ -1277,13 +1346,18 @@ async function main() {
     if (promotion.failures.length > 0) {
       console.log(`  Failures: ${promotion.failures.join(', ')}`);
     }
+    if (promotionReceipt) {
+      console.log(`  Source commit: ${promotionReceipt.evidence.repositoryBefore.commitSha}`);
+      console.log(`  Corpus hash: ${promotionReceipt.evidence.corpusHash}`);
+      console.log(`  Receipt hash: ${promotionReceipt.receiptHash}`);
+    }
   }
 
   if (jsonOut) {
     const outputPath = resolve(process.cwd(), jsonOut);
     mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, JSON.stringify({
-      version: 2,
+      version: 3,
       generatedAt: new Date().toISOString(),
       suite: suiteFilter,
       runIds,
@@ -1297,6 +1371,8 @@ async function main() {
       providerBudget: providerBudget.snapshot(),
       legacyPreContractBaselines: LEGACY_PRE_CONTRACT_BASELINES,
       promotion,
+      promotionEvidence: promotionEvidence ?? null,
+      promotionReceipt,
       runs: completedRuns.map(({ testCase, result }) => ({
         caseId: testCase.id,
         caseName: testCase.name,

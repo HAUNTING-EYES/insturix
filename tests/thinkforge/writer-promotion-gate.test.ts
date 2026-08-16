@@ -1,9 +1,33 @@
 import { describe, expect, it } from 'vitest';
+import { buildThinkForgeWriterInvocationTrace } from '../../lib/thinkforge/provenance/generation-trace';
 import {
   evaluateWriterPromotionGate,
   type WriterPromotionJudgeResult,
   type WriterPromotionRun,
 } from '../../scripts/prompt-optimization/thinkforge-writer-promotion-gate';
+import {
+  createWriterPromotionEvidence,
+  type WriterPromotionRepositoryState,
+} from '../../scripts/prompt-optimization/thinkforge-writer-promotion-evidence';
+
+const CLEAN_REPOSITORY: WriterPromotionRepositoryState = {
+  commitSha: 'a'.repeat(40),
+  treeSha: 'b'.repeat(40),
+  branch: 'test',
+  clean: true,
+  dirtyEntryCount: 0,
+};
+
+const PASSING_WRITER_TRACE = buildThinkForgeWriterInvocationTrace({
+  writerType: 'post',
+  editorialPlan: { kind: 'test-post-plan' },
+  selectedTechniques: [],
+  promptTemplate: 'Reviewed post writer prompt template.',
+  provider: 'gemini',
+  model: 'gemini-test',
+  cacheStatus: 'inline',
+  generatedAt: '2026-08-16T00:00:00.000Z',
+});
 
 function passingJudge(
   overrides: Partial<WriterPromotionJudgeResult> = {},
@@ -30,15 +54,17 @@ function passingRun(overrides: Partial<WriterPromotionRun> = {}): WriterPromotio
     caseName: 'Held-out B2B SaaS post',
     runId,
     outputFingerprint: overrides.outputFingerprint ?? `case-${caseId}-run-${runId}`,
+    writerPath: 'post',
     deterministicScore: 0.96,
     editorialQualityScore: 0.96,
+    writerTrace: PASSING_WRITER_TRACE,
     judge: passingJudge(),
     ...overrides,
   };
 }
 
 function passingCorpus(): WriterPromotionRun[] {
-  return Array.from({ length: 10 }, (_, caseOffset) => (
+  return Array.from({ length: 15 }, (_, caseOffset) => (
     Array.from({ length: 10 }, (_, runOffset) => passingRun({
       caseId: 9 + caseOffset,
       caseName: `Held-out case ${9 + caseOffset}`,
@@ -47,14 +73,30 @@ function passingCorpus(): WriterPromotionRun[] {
   )).flat();
 }
 
+function evaluate(runs: WriterPromotionRun[], eligible = true) {
+  const caseIds = [...new Set(runs.map((run) => run.caseId))];
+  const evidence = eligible
+    ? createWriterPromotionEvidence({
+        repositoryBefore: CLEAN_REPOSITORY,
+        repositoryAfter: CLEAN_REPOSITORY,
+        corpus: { version: 1, caseIds },
+        corpusCaseIds: caseIds,
+        judge: { provider: 'deepseek', model: 'deepseek-chat' },
+        providerBudgetSnapshot: { providerRequests: runs.length * 2 },
+        runs,
+      })
+    : undefined;
+  return evaluateWriterPromotionGate(runs, eligible, evidence);
+}
+
 describe('ThinkForge writer promotion gate', () => {
   it('passes a complete held-out run with 100% contract validity and publish-ready evidence', () => {
-    const verdict = evaluateWriterPromotionGate(passingCorpus(), true);
+    const verdict = evaluate(passingCorpus());
 
     expect(verdict.passed).toBe(true);
     expect(verdict.metrics).toMatchObject({
-      runCount: 100,
-      caseCount: 10,
+      runCount: 150,
+      caseCount: 15,
       minimumDistinctRunsPerCase: 10,
       duplicateRuns: 0,
       duplicateOutputs: 0,
@@ -67,12 +109,12 @@ describe('ThinkForge writer promotion gate', () => {
 
   it('defines 95% as a publish-ready run rate instead of an every-sample minimum', () => {
     const runs = passingCorpus();
-    for (let index = 0; index < 5; index += 1) {
+    for (let index = 0; index < 7; index += 1) {
       runs[index] = { ...runs[index], judge: passingJudge({ overall: 94 }) };
     }
-    const verdict = evaluateWriterPromotionGate(runs, true);
+    const verdict = evaluate(runs);
 
-    expect(verdict.metrics.publishReadyRate).toBe(0.95);
+    expect(verdict.metrics.publishReadyRate).toBeCloseTo(143 / 150, 10);
     expect(verdict.passed).toBe(true);
   });
 
@@ -82,22 +124,22 @@ describe('ThinkForge writer promotion gate', () => {
       deterministicScore: 1,
       editorialQualityScore: 1,
     }));
-    for (let index = 0; index < 6; index += 1) {
+    for (let index = 0; index < 8; index += 1) {
       runs[index] = { ...runs[index], editorialQualityScore: 0.75 };
     }
-    const verdict = evaluateWriterPromotionGate(runs, true);
+    const verdict = evaluate(runs);
 
     expect(verdict.metrics.deterministicAverage).toBe(1);
     expect(verdict.metrics.editorialQualityMin).toBe(0.75);
-    expect(verdict.metrics.publishReadyRate).toBe(0.94);
+    expect(verdict.metrics.publishReadyRate).toBeCloseTo(142 / 150, 10);
     expect(verdict.passed).toBe(false);
-    expect(verdict.failures).toContain('publish_ready_rate:0.9400');
+    expect(verdict.failures).toContain('publish_ready_rate:0.9467');
   });
 
   it('counts generation errors as zero instead of excluding them from the aggregate', () => {
     const runs = passingCorpus();
     runs[1] = { ...runs[1], error: 'writer timed out', judge: undefined };
-    const verdict = evaluateWriterPromotionGate(runs, true);
+    const verdict = evaluate(runs);
 
     expect(verdict.passed).toBe(false);
     expect(verdict.metrics.deterministicMin).toBe(0);
@@ -116,31 +158,31 @@ describe('ThinkForge writer promotion gate', () => {
       }),
     };
     runs[1] = { ...runs[1], judge: undefined, judgeError: 'invalid JSON' };
-    const verdict = evaluateWriterPromotionGate(runs, true);
+    const verdict = evaluate(runs);
 
     expect(verdict.passed).toBe(false);
-    expect(verdict.metrics.judgeCoverage).toBe(0.99);
+    expect(verdict.metrics.judgeCoverage).toBeCloseTo(149 / 150, 10);
     expect(verdict.failures).toEqual(expect.arrayContaining([
       'judge_errors:1',
-      'judge_coverage:0.9900',
+      'judge_coverage:0.9933',
       'fabrication_hard_fails:1',
       'internal_leakage_hard_fails:1',
     ]));
   });
 
   it('does not promote partial or exploratory runs', () => {
-    const verdict = evaluateWriterPromotionGate([passingRun()], false);
+    const verdict = evaluate([passingRun()], false);
 
     expect(verdict.passed).toBe(false);
     expect(verdict.failures).toContain('run_not_promotion_eligible');
   });
 
-  it('requires ten cases and ten distinct reruns for every case', () => {
-    const nineCases = evaluateWriterPromotionGate(passingCorpus().slice(0, 90), true);
-    const shortCase = evaluateWriterPromotionGate(passingCorpus().slice(0, 99), true);
+  it('requires all fifteen cases and ten distinct reruns for every case', () => {
+    const fourteenCases = evaluate(passingCorpus().slice(0, 140));
+    const shortCase = evaluate(passingCorpus().slice(0, 149));
 
-    expect(nineCases.passed).toBe(false);
-    expect(nineCases.failures).toContain('case_count:9/10');
+    expect(fourteenCases.passed).toBe(false);
+    expect(fourteenCases.failures).toContain('case_count:14/15');
     expect(shortCase.passed).toBe(false);
     expect(shortCase.failures).toContain('runs_per_case_min:9/10');
   });
@@ -149,10 +191,10 @@ describe('ThinkForge writer promotion gate', () => {
     const runs = passingCorpus();
     runs.push({ ...runs[0] });
 
-    const verdict = evaluateWriterPromotionGate(runs, true);
+    const verdict = evaluate(runs);
 
     expect(verdict.passed).toBe(false);
-    expect(verdict.metrics).toMatchObject({ submittedRunCount: 101, runCount: 100, duplicateRuns: 1 });
+    expect(verdict.metrics).toMatchObject({ submittedRunCount: 151, runCount: 150, duplicateRuns: 1 });
     expect(verdict.failures).toContain('duplicate_runs:1');
   });
 
@@ -160,7 +202,7 @@ describe('ThinkForge writer promotion gate', () => {
     const runs = passingCorpus();
     runs[1] = { ...runs[1], outputFingerprint: runs[0]!.outputFingerprint };
 
-    const verdict = evaluateWriterPromotionGate(runs, true);
+    const verdict = evaluate(runs);
 
     expect(verdict.passed).toBe(false);
     expect(verdict.metrics.duplicateOutputs).toBe(1);
@@ -169,17 +211,24 @@ describe('ThinkForge writer promotion gate', () => {
 
   it('does not hide weak Clickatron readiness behind a perfect overall score', () => {
     const runs = passingCorpus();
-    for (let index = 0; index < 6; index += 1) {
+    for (let index = 0; index < 8; index += 1) {
       runs[index] = {
         ...runs[index],
         judge: passingJudge({ overall: 100, clickatronReadiness: 90 }),
       };
     }
 
-    const verdict = evaluateWriterPromotionGate(runs, true);
+    const verdict = evaluate(runs);
 
     expect(verdict.passed).toBe(false);
-    expect(verdict.metrics.publishReadyRate).toBe(0.94);
-    expect(verdict.failures).toContain('publish_ready_rate:0.9400');
+    expect(verdict.metrics.publishReadyRate).toBeCloseTo(142 / 150, 10);
+    expect(verdict.failures).toContain('publish_ready_rate:0.9467');
+  });
+
+  it('cannot promote a mathematically passing run without bound evidence', () => {
+    const verdict = evaluateWriterPromotionGate(passingCorpus(), true);
+
+    expect(verdict.passed).toBe(false);
+    expect(verdict.failures).toContain('missing_promotion_evidence');
   });
 });

@@ -1,3 +1,9 @@
+import {
+  validateWriterPromotionEvidence,
+  type ThinkForgeWriterPromotionEvidenceV1,
+  type WriterPromotionEvidenceRun,
+} from './thinkforge-writer-promotion-evidence';
+
 export const THINKFORGE_WRITER_JUDGE_DIMENSIONS = [
   'brandAdherence',
   'grounding',
@@ -10,7 +16,7 @@ export const THINKFORGE_WRITER_JUDGE_DIMENSIONS = [
 export type WriterPromotionJudgeDimension = typeof THINKFORGE_WRITER_JUDGE_DIMENSIONS[number];
 
 export const THINKFORGE_WRITER_PROMOTION_THRESHOLDS = {
-  minimumCaseCount: 10,
+  minimumCaseCount: 15,
   minimumDistinctRunsPerCase: 10,
   maxDuplicateRuns: 0,
   maxDuplicateOutputs: 0,
@@ -39,13 +45,15 @@ export interface WriterPromotionJudgeResult {
   internalLeakageHardFail: boolean;
 }
 
-export interface WriterPromotionRun {
+export interface WriterPromotionRun extends WriterPromotionEvidenceRun {
   caseId: number;
   caseName: string;
   runId: number;
   outputFingerprint: string;
+  writerPath: 'post' | 'script';
   deterministicScore: number;
   editorialQualityScore: number;
+  writerTrace?: unknown;
   error?: string;
   judge?: WriterPromotionJudgeResult;
   judgeError?: string;
@@ -96,6 +104,7 @@ function atLeast(actual: number, threshold: number): boolean {
 export function evaluateWriterPromotionGate(
   runs: WriterPromotionRun[],
   eligible: boolean,
+  evidence?: ThinkForgeWriterPromotionEvidenceV1,
 ): WriterPromotionVerdict {
   const thresholds = THINKFORGE_WRITER_PROMOTION_THRESHOLDS;
   const uniqueRunsByKey = new Map<string, WriterPromotionRun>();
@@ -181,6 +190,7 @@ export function evaluateWriterPromotionGate(
   const failures: string[] = [];
 
   if (!eligible) failures.push('run_not_promotion_eligible');
+  if (eligible) failures.push(...validateWriterPromotionEvidence(uniqueRuns, evidence));
   if (uniqueRuns.length === 0) failures.push('no_runs');
   if (distinctRunsByCase.size < thresholds.minimumCaseCount) {
     failures.push(`case_count:${distinctRunsByCase.size}/${thresholds.minimumCaseCount}`);
