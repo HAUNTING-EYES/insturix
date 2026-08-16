@@ -17,6 +17,7 @@ import {
   prepareThinkForgeProviderPromptDispatch,
   type ThinkForgeProviderPromptRoute,
 } from '@/lib/thinkforge/privacy/provider-prompt-dispatch';
+import { authorizeThinkForgeEvalProviderDispatch } from '@/lib/thinkforge/eval/provider-budget';
 
 const CACHE_TTL_SECONDS = 1800;
 const CACHE_STORE_TIMEOUT_MS = 1_500;
@@ -699,6 +700,17 @@ function readGeneratedText(response: { text?: string }): string {
   return text;
 }
 
+function writingDispatchInputTokenUpperBound(
+  context: ResolvedWritingContext,
+  prompt: string,
+  systemInstruction: string,
+): number {
+  const billedContext = context.cacheName
+    ? buildWritingContextCacheContent()
+    : systemInstruction;
+  return Math.max(1, Buffer.byteLength(`${billedContext}\n${prompt}`, 'utf8'));
+}
+
 async function readAiSdkUsage(value: unknown): Promise<GeminiWritingContextUsage | undefined> {
   const usage = asRecord(await Promise.resolve(value));
   if (!usage) return undefined;
@@ -748,6 +760,18 @@ export async function generateWithWritingContextCache(
     if (context.cacheName && dispatch.systemInstruction !== context.systemInstruction) {
       throw new Error('Provider privacy gateway cannot rewrite a cached system instruction');
     }
+    authorizeThinkForgeEvalProviderDispatch({
+      role: 'writer',
+      provider: 'gemini',
+      model: toRuntimeModelName(modelName),
+      label: `writing-context/${completionOperation.operation}`,
+      inputTokenUpperBound: writingDispatchInputTokenUpperBound(
+        context,
+        dispatch.prompt,
+        dispatch.systemInstruction,
+      ),
+      maxOutputTokens: input.maxTokens ?? 0,
+    });
     providerCallStarted = true;
     const result = await client.models.generateContent({
       model: toRuntimeModelName(modelName),
@@ -833,6 +857,18 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
     if (context.cacheName && dispatch.systemInstruction !== context.systemInstruction) {
       throw new Error('Provider privacy gateway cannot rewrite a cached system instruction');
     }
+    authorizeThinkForgeEvalProviderDispatch({
+      role: 'writer',
+      provider: 'gemini',
+      model: toRuntimeModelName(modelName),
+      label: `writing-context/${structuredOperation.operation}`,
+      inputTokenUpperBound: writingDispatchInputTokenUpperBound(
+        context,
+        dispatch.prompt,
+        dispatch.systemInstruction,
+      ),
+      maxOutputTokens: input.maxTokens ?? 0,
+    });
     providerCallStarted = true;
     const generation = await awaitStructuredGeneration(
       generateObject({

@@ -58,10 +58,16 @@ import {
 import type { RetrievedContext } from '../../lib/thinkforge/context/fetchContextSources';
 import {
   buildEvalProviderConfig,
+  resolveEvalTransientRetryAttempts,
   runEvalPrompt,
   type EvalProvider,
   type EvalProviderConfig,
 } from './thinkforge-eval-provider-adapter';
+import {
+  runWithThinkForgeEvalProviderBudget,
+  ThinkForgeEvalBudgetExceededError,
+  ThinkForgeEvalProviderBudget,
+} from '../../lib/thinkforge/eval/provider-budget';
 import {
   evaluateWriterPromotionGate,
   THINKFORGE_WRITER_JUDGE_DIMENSIONS,
@@ -110,6 +116,36 @@ const maxProviderCalls = Number.parseInt(
     ?? process.env.THINKFORGE_EVAL_MAX_PROVIDER_CALLS
     ?? '20',
   10,
+);
+const maxWriterCallsArg = process.argv.find(a => a.startsWith('--max-writer-calls='));
+const maxWriterCalls = Number.parseInt(
+  maxWriterCallsArg?.split('=')[1]
+    ?? process.env.THINKFORGE_EVAL_MAX_WRITER_CALLS
+    ?? String(maxProviderCalls),
+  10,
+);
+const maxJudgeCallsArg = process.argv.find(a => a.startsWith('--max-judge-calls='));
+const maxJudgeCalls = Number.parseInt(
+  maxJudgeCallsArg?.split('=')[1]
+    ?? process.env.THINKFORGE_EVAL_MAX_JUDGE_CALLS
+    ?? String(maxProviderCalls),
+  10,
+);
+const maxOutputTokensArg = process.argv.find(a => a.startsWith('--max-output-tokens='));
+const maxOutputTokens = Number.parseInt(
+  maxOutputTokensArg?.split('=')[1]
+    ?? process.env.THINKFORGE_EVAL_MAX_OUTPUT_TOKENS
+    ?? '200000',
+  10,
+);
+const maxEstimatedUsdArg = process.argv.find(a => a.startsWith('--max-estimated-usd='));
+const maxEstimatedUsd = Number.parseFloat(
+  maxEstimatedUsdArg?.split('=')[1]
+    ?? process.env.THINKFORGE_EVAL_MAX_ESTIMATED_USD
+    ?? '2',
+);
+const costSafetyMultiplier = Number.parseFloat(
+  process.env.THINKFORGE_EVAL_COST_SAFETY_MULTIPLIER ?? '2',
 );
 const testCaseArg = process.argv.find(a => a.startsWith('--test-case='));
 const testCaseFilter = testCaseArg ? parseInt(testCaseArg.split('=')[1]) : null;
@@ -1143,7 +1179,13 @@ async function main() {
     : null;
 
   const runIds = multiRun ? Array.from({ length: 10 }, (_, index) => index + 1) : [runId];
-  const expectedProviderCalls = cases.length * runIds.length * (judgeConfig ? 2 : 1);
+  const writerRunCount = cases.length * runIds.length;
+  const judgeRunCount = judgeConfig ? writerRunCount : 0;
+  const minimumProviderCalls = writerRunCount + judgeRunCount;
+  // Both production writers permit one initial generation and one bounded contract repair.
+  const maximumWriterCalls = writerRunCount * 2;
+  const maximumJudgeCalls = judgeRunCount * resolveEvalTransientRetryAttempts();
+  const maximumProviderCalls = maximumWriterCalls + maximumJudgeCalls;
   const promotionCommandComplete = suiteFilter === 'heldout'
     && multiRun
     && judgeConfig !== null
@@ -1151,6 +1193,26 @@ async function main() {
     && writerFilter === null;
   if (!Number.isInteger(maxProviderCalls) || maxProviderCalls < 1) {
     console.error('max-provider-calls must be a positive whole number.');
+    process.exit(1);
+  }
+  if (!Number.isInteger(maxWriterCalls) || maxWriterCalls < 1) {
+    console.error('max-writer-calls must be a positive whole number.');
+    process.exit(1);
+  }
+  if (!Number.isInteger(maxJudgeCalls) || maxJudgeCalls < 1) {
+    console.error('max-judge-calls must be a positive whole number.');
+    process.exit(1);
+  }
+  if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1) {
+    console.error('max-output-tokens must be a positive whole number.');
+    process.exit(1);
+  }
+  if (!Number.isFinite(maxEstimatedUsd) || maxEstimatedUsd < 0) {
+    console.error('max-estimated-usd must be a non-negative number.');
+    process.exit(1);
+  }
+  if (!Number.isFinite(costSafetyMultiplier) || costSafetyMultiplier < 1) {
+    console.error('THINKFORGE_EVAL_COST_SAFETY_MULTIPLIER must be at least 1.');
     process.exit(1);
   }
   if (promotionRequested && !promotionCommandComplete) {
@@ -1161,13 +1223,46 @@ async function main() {
     console.error('Promotion requires --confirm-paid-run after reviewing the provider-call estimate.');
     process.exit(1);
   }
-  if (expectedProviderCalls > maxProviderCalls) {
+  if (minimumProviderCalls > maxProviderCalls) {
     console.error(
-      `Refusing ${expectedProviderCalls} provider calls; raise --max-provider-calls=${expectedProviderCalls} explicitly.`,
+      `Refusing a run requiring at least ${minimumProviderCalls} provider calls; `
+      + `raise --max-provider-calls=${minimumProviderCalls} explicitly.`,
     );
     process.exit(1);
   }
-  console.log(`Provider-call budget: ${expectedProviderCalls}/${maxProviderCalls}`);
+  if (writerRunCount > maxWriterCalls || judgeRunCount > maxJudgeCalls) {
+    console.error(
+      `Role budget is below the minimum plan: writers ${writerRunCount}/${maxWriterCalls}, `
+      + `judges ${judgeRunCount}/${maxJudgeCalls}.`,
+    );
+    process.exit(1);
+  }
+  if (promotionRequested && (
+    maximumProviderCalls > maxProviderCalls
+    || maximumWriterCalls > maxWriterCalls
+    || maximumJudgeCalls > maxJudgeCalls
+  )) {
+    console.error(
+      'Promotion budgets must cover the full bounded retry/repair envelope: '
+      + `provider ${maximumProviderCalls}, writer ${maximumWriterCalls}, judge ${maximumJudgeCalls}.`,
+    );
+    process.exit(1);
+  }
+  const providerBudget = new ThinkForgeEvalProviderBudget({
+    maxProviderRequests: maxProviderCalls,
+    maxWriterRequests: maxWriterCalls,
+    maxJudgeRequests: maxJudgeCalls,
+    maxOutputTokens,
+    maxEstimatedCostUsd: maxEstimatedUsd,
+    costSafetyMultiplier,
+  });
+  console.log(
+    `Provider budget: minimum ${minimumProviderCalls}, bounded maximum ${maximumProviderCalls}; `
+    + `limits requests=${maxProviderCalls}, writer=${maxWriterCalls}, judge=${maxJudgeCalls}, `
+    + `outputTokens=${maxOutputTokens}, estimatedUsd=${maxEstimatedUsd.toFixed(2)}.`,
+  );
+
+  await runWithThinkForgeEvalProviderBudget(providerBudget, async () => {
   const completedRuns: Array<{ testCase: TestCase; result: RunResult }> = [];
 
   for (const tc of cases) {
@@ -1207,6 +1302,7 @@ async function main() {
           console.log(`\n--- CONTENT (first 1200 chars) ---\n${r.content.substring(0, 1200)}\n--- END ---`);
         }
       } catch (e: any) {
+        if (e instanceof ThinkForgeEvalBudgetExceededError) throw e;
         console.log(`ERROR: ${e.message}`);
         const rejectedOutput = captureRejectedOutput && e instanceof Error
           ? (e as Error & { rejectedOutput?: unknown }).rejectedOutput
@@ -1345,7 +1441,13 @@ async function main() {
       suite: suiteFilter,
       runIds,
       judgeProvider,
-      expectedProviderCalls,
+      providerCallPlan: {
+        minimumProviderCalls,
+        maximumProviderCalls,
+        maximumWriterCalls,
+        maximumJudgeCalls,
+      },
+      providerBudget: providerBudget.snapshot(),
       legacyPreContractBaselines: LEGACY_PRE_CONTRACT_BASELINES,
       promotion,
       runs: completedRuns.map(({ testCase, result }) => ({
@@ -1366,6 +1468,7 @@ async function main() {
     console.error('\nTHINKFORGE HELD-OUT QUALITY GATE FAILED.');
     process.exit(1);
   }
+  });
 }
 
 main().then(

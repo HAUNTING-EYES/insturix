@@ -3,8 +3,14 @@ import {
   assertProviderPromptAllowed,
   type ProviderPrivacyAuditRecord,
 } from '../../lib/thinkforge/privacy/provider-privacy-gateway';
+import {
+  authorizeThinkForgeEvalProviderDispatch,
+  estimateThinkForgeEvalProviderCost,
+  type ThinkForgeEvalProvider,
+  type ThinkForgeEvalProviderRole,
+} from '../../lib/thinkforge/eval/provider-budget';
 
-export type EvalProvider = 'gemini' | 'deepseek' | 'openrouter' | 'anthropic';
+export type EvalProvider = ThinkForgeEvalProvider;
 
 export interface EvalUsage {
   promptTokens?: number;
@@ -20,6 +26,7 @@ export interface EvalProviderConfig {
   apiKey: string;
   temperature: number;
   maxOutputTokens: number;
+  budgetRole?: ThinkForgeEvalProviderRole;
 }
 
 export interface EvalRunResult {
@@ -65,38 +72,11 @@ interface ChatCompletionResponse {
   message?: string;
 }
 
-interface PriceHint {
-  inputUsdPerMillion?: number;
-  inputCacheHitUsdPerMillion?: number;
-  outputUsdPerMillion?: number;
-  source: string;
-}
-
 const DEFAULT_MODELS: Record<EvalProvider, string> = {
   gemini: 'gemini-2.5-flash',
   deepseek: 'deepseek-v4-flash',
   openrouter: 'deepseek/deepseek-chat',
   anthropic: 'claude-sonnet-4-6',
-};
-
-const DEFAULT_PRICE_HINTS: Record<string, PriceHint> = {
-  'gemini:gemini-2.5-flash': {
-    inputUsdPerMillion: 0.3,
-    outputUsdPerMillion: 2.5,
-    source: 'builtin:google_gemini_2_5_flash_standard_2026_06_14',
-  },
-  'deepseek:deepseek-v4-flash': {
-    inputUsdPerMillion: 0.14,
-    inputCacheHitUsdPerMillion: 0.0028,
-    outputUsdPerMillion: 0.28,
-    source: 'builtin:deepseek_v4_flash_2026_06_14',
-  },
-  'deepseek:deepseek-chat': {
-    inputUsdPerMillion: 0.14,
-    inputCacheHitUsdPerMillion: 0.0028,
-    outputUsdPerMillion: 0.28,
-    source: 'builtin:deepseek_chat_compat_v4_flash_2026_06_14',
-  },
 };
 
 const DEFAULT_TRANSIENT_RETRY_ATTEMPTS = 3;
@@ -168,13 +148,20 @@ async function runProviderPromptWithRetry(
   config: EvalProviderConfig,
   prompt: string,
 ): Promise<RawEvalRunResult> {
-  const attempts = readPositiveIntEnv('THINKFORGE_EVAL_TRANSIENT_RETRY_ATTEMPTS')
-    ?? DEFAULT_TRANSIENT_RETRY_ATTEMPTS;
+  const attempts = resolveEvalTransientRetryAttempts();
   const requestTimeoutMs = readPositiveIntEnv('THINKFORGE_EVAL_REQUEST_TIMEOUT_MS')
     ?? DEFAULT_REQUEST_TIMEOUT_MS;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    authorizeThinkForgeEvalProviderDispatch({
+      role: config.budgetRole ?? 'judge',
+      provider: config.provider,
+      model: config.model,
+      label: `${config.provider}/${config.model}/attempt-${attempt}`,
+      inputTokenUpperBound: Math.max(1, Buffer.byteLength(prompt, 'utf8')),
+      maxOutputTokens: config.maxOutputTokens,
+    });
     try {
       return await withEvalTimeout(
         (abortSignal) => config.provider === 'gemini'
@@ -213,6 +200,11 @@ function retryDelayMs(attempt: number): number {
 function sleep(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function resolveEvalTransientRetryAttempts(): number {
+  return readPositiveIntEnv('THINKFORGE_EVAL_TRANSIENT_RETRY_ATTEMPTS')
+    ?? DEFAULT_TRANSIENT_RETRY_ATTEMPTS;
 }
 
 export async function withEvalTimeout<T>(
@@ -455,53 +447,11 @@ function estimateCost(config: EvalProviderConfig, usage: EvalUsage | undefined):
   if (!usage?.promptTokens && !usage?.completionTokens) {
     return { note: 'usage_missing' };
   }
-
-  const price = readPriceHint(config.provider, config.model);
-  if (price.inputUsdPerMillion === undefined || price.outputUsdPerMillion === undefined) {
-    return { note: 'price_missing_set_eval_price_env' };
-  }
-
-  const promptTokens = usage.promptTokens ?? 0;
-  const cacheHitTokens = usage.promptCacheHitTokens ?? 0;
-  const cacheMissTokens = usage.promptCacheMissTokens ?? Math.max(0, promptTokens - cacheHitTokens);
-  const input = price.inputCacheHitUsdPerMillion !== undefined
-    && (usage.promptCacheHitTokens !== undefined || usage.promptCacheMissTokens !== undefined)
-    ? (cacheHitTokens / 1_000_000) * price.inputCacheHitUsdPerMillion
-      + (cacheMissTokens / 1_000_000) * price.inputUsdPerMillion
-    : (promptTokens / 1_000_000) * price.inputUsdPerMillion;
-  const output = ((usage.completionTokens ?? 0) / 1_000_000) * price.outputUsdPerMillion;
-  return {
-    estimatedCostUsd: input + output,
-    note: price.source,
-  };
-}
-
-function readPriceHint(provider: EvalProvider, model: string): PriceHint {
-  const modelKey = model.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  const providerKey = provider.toUpperCase();
-  const modelInput = readNumberEnv(`EVAL_PRICE_${providerKey}_${modelKey}_INPUT_PER_1M`);
-  const modelOutput = readNumberEnv(`EVAL_PRICE_${providerKey}_${modelKey}_OUTPUT_PER_1M`);
-  if (modelInput !== undefined || modelOutput !== undefined) {
-    return {
-      inputUsdPerMillion: modelInput,
-      outputUsdPerMillion: modelOutput,
-      source: `env:EVAL_PRICE_${providerKey}_${modelKey}_*`,
-    };
-  }
-
-  const providerInput = readNumberEnv(`EVAL_PRICE_${providerKey}_INPUT_PER_1M`);
-  const providerOutput = readNumberEnv(`EVAL_PRICE_${providerKey}_OUTPUT_PER_1M`);
-  if (providerInput !== undefined || providerOutput !== undefined) {
-    return {
-      inputUsdPerMillion: providerInput,
-      outputUsdPerMillion: providerOutput,
-      source: `env:EVAL_PRICE_${providerKey}_*`,
-    };
-  }
-
-  return DEFAULT_PRICE_HINTS[`${provider}:${model}`] ?? {
-    source: 'price_missing_set_eval_price_env',
-  };
+  return estimateThinkForgeEvalProviderCost({
+    provider: config.provider,
+    model: config.model,
+    usage,
+  });
 }
 
 function readNumberEnv(name: string): number | undefined {
