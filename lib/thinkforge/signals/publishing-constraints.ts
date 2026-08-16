@@ -1,6 +1,12 @@
 import type { OutputFormat } from '@/lib/shared/signals';
+import {
+  ThinkForgeAuthoringRequestSchema,
+  describeThinkForgePlatformSurface,
+  type ThinkForgeAuthoringRequest,
+} from '@/lib/thinkforge/schemas/authoring-request';
 
-export const THINKFORGE_PUBLISHING_CONSTRAINTS_VERSION = 1;
+export const THINKFORGE_PUBLISHING_CONSTRAINTS_VERSION = 2;
+export const THINKFORGE_PUBLISHING_POLICY_VERIFIED_AT = '2026-08-16';
 
 export type ThinkForgePublishingSurface =
   | 'linkedin_post'
@@ -17,6 +23,9 @@ export interface ThinkForgePublishingConstraints extends Record<string, unknown>
   platform: string;
   surface: ThinkForgePublishingSurface;
   policyVersion: number;
+  verifiedAt: string;
+  sourceId?: 'linkedin_ugc_api' | 'x_counting_characters';
+  characterCounting?: 'utf16_code_units_conservative' | 'x_weighted';
   maxCharacters?: number;
   standardMaxCharacters?: number;
   extendedPostsRequireCapability?: boolean;
@@ -25,6 +34,68 @@ export interface ThinkForgePublishingConstraints extends Record<string, unknown>
 
 function normalizePlatformLabel(value: string): string {
   return value.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function resolveTypedPublishingSurface(
+  request: ThinkForgeAuthoringRequest,
+): ThinkForgePublishingSurface {
+  const isVideoScript = request.contentContract.outputKind === 'video_script';
+  switch (request.platformSurface.id) {
+    case 'linkedin':
+      return 'linkedin_post';
+    case 'x':
+      return 'x_post';
+    case 'instagram':
+      return isVideoScript ? 'instagram_reels' : 'instagram_feed';
+    case 'youtube':
+      // The current authoring contract says YouTube, not YouTube Shorts.
+      // A duration alone must never silently change the publishing product.
+      return 'youtube_video';
+    case 'tiktok':
+      return 'tiktok_video';
+    case 'facebook':
+      return 'facebook_post';
+    default:
+      return 'unknown';
+  }
+}
+
+function constraintsForSurface(
+  platform: string,
+  surface: ThinkForgePublishingSurface,
+  outputFormat: OutputFormat,
+): ThinkForgePublishingConstraints {
+  const base: ThinkForgePublishingConstraints = {
+    platform,
+    surface,
+    policyVersion: THINKFORGE_PUBLISHING_CONSTRAINTS_VERSION,
+    verifiedAt: THINKFORGE_PUBLISHING_POLICY_VERIFIED_AT,
+  };
+
+  if (outputFormat === 'social_post' && surface === 'linkedin_post') {
+    return {
+      ...base,
+      sourceId: 'linkedin_ugc_api',
+      characterCounting: 'utf16_code_units_conservative',
+      maxCharacters: 3_000,
+    };
+  }
+
+  if (outputFormat === 'social_post' && surface === 'x_post') {
+    return {
+      ...base,
+      sourceId: 'x_counting_characters',
+      characterCounting: 'x_weighted',
+      standardMaxCharacters: 280,
+      extendedPostsRequireCapability: true,
+    };
+  }
+
+  if (outputFormat === 'video_script' && surface === 'youtube_shorts') {
+    return { ...base, maxDurationSeconds: 180 };
+  }
+
+  return base;
 }
 
 export function resolveThinkForgePublishingSurface(platform: string): ThinkForgePublishingSurface {
@@ -51,30 +122,19 @@ export function resolveThinkForgePublishingConstraints(
   outputFormat: OutputFormat,
 ): ThinkForgePublishingConstraints {
   const surface = resolveThinkForgePublishingSurface(platform);
-  const base: ThinkForgePublishingConstraints = {
-    platform,
-    surface,
-    policyVersion: THINKFORGE_PUBLISHING_CONSTRAINTS_VERSION,
-  };
+  return constraintsForSurface(platform, surface, outputFormat);
+}
 
-  if (outputFormat === 'social_post' && surface === 'linkedin_post') {
-    // LinkedIn Help: ordinary posts accept at most 3,000 characters.
-    return { ...base, maxCharacters: 3_000 };
-  }
-
-  if (outputFormat === 'social_post' && surface === 'x_post') {
-    // X supports longer posts only when the connected account has that capability.
-    return {
-      ...base,
-      standardMaxCharacters: 280,
-      extendedPostsRequireCapability: true,
-    };
-  }
-
-  if (outputFormat === 'video_script' && surface === 'youtube_shorts') {
-    // YouTube Help: square or vertical Shorts may be up to three minutes.
-    return { ...base, maxDurationSeconds: 180 };
-  }
-
-  return base;
+export function resolveThinkForgePublishingConstraintsForAuthoringRequest(
+  requestInput: ThinkForgeAuthoringRequest,
+): ThinkForgePublishingConstraints {
+  const request = ThinkForgeAuthoringRequestSchema.parse(requestInput);
+  const outputFormat: OutputFormat = request.contentContract.outputKind === 'video_script'
+    ? 'video_script'
+    : 'social_post';
+  return constraintsForSurface(
+    describeThinkForgePlatformSurface(request.platformSurface),
+    resolveTypedPublishingSurface(request),
+    outputFormat,
+  );
 }

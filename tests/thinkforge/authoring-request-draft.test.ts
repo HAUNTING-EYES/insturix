@@ -78,6 +78,41 @@ describe('ThinkForge authoring request draft', () => {
     expect(result.error).toMatch(/exact hashtag control requires at least one value/i);
   });
 
+  it.each([
+    [['BrandOps'], /must start with #/i],
+    [['#Brand Ops'], /contain only letters, marks, numbers, or underscores/i],
+    [['#BrandOps', '#brandops'], /must be unique/i],
+  ])('rejects an invalid exact hashtag plan: %j', (hashtags, expectedError) => {
+    const draft = createThinkForgeAuthoringRequestDraft();
+    const result = resolveThinkForgeAuthoringRequestDraft({
+      ...draft,
+      outputKind: 'social_post',
+      platformId: 'instagram',
+      hashtagPreference: 'exact',
+      hashtags,
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error).toMatch(expectedError);
+  });
+
+  it('accepts exact Unicode hashtags without rewriting them', () => {
+    const unicodeHashtag = '#\u0938\u093e\u0915\u094d\u0937\u094d\u092f';
+    const draft = createThinkForgeAuthoringRequestDraft();
+    const result = resolveThinkForgeAuthoringRequestDraft({
+      ...draft,
+      outputKind: 'social_post',
+      platformId: 'instagram',
+      hashtagPreference: 'exact',
+      hashtags: [unicodeHashtag, '#Evidencia_2026'],
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.request.postControls?.hashtags.values).toEqual([unicodeHashtag, '#Evidencia_2026']);
+  });
+
   it('rejects invalid duration seconds and carousel capacity explicitly', () => {
     const draft = createThinkForgeAuthoringRequestDraft();
     expect(resolveThinkForgeAuthoringRequestDraft({

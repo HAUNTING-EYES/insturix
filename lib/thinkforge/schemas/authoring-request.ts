@@ -64,7 +64,13 @@ const ThinkForgeCtaControlSchema = z.object({
 
 const ThinkForgeHashtagControlSchema = z.object({
   preference: z.enum(['editorial', 'none', 'exact']),
-  values: z.array(z.string().trim().min(1).max(100)).max(30).optional(),
+  values: z.array(
+    z.string()
+      .trim()
+      .min(1)
+      .max(100)
+      .regex(/^#[\p{L}\p{M}\p{N}_]+$/u, 'exact hashtags must start with # and contain only letters, marks, numbers, or underscores'),
+  ).max(30).optional(),
 }).superRefine((control, ctx) => {
   if (control.preference === 'exact' && (!control.values || control.values.length === 0)) {
     ctx.addIssue({
@@ -78,6 +84,22 @@ const ThinkForgeHashtagControlSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['values'],
       message: 'hashtag values are only valid when preference is exact',
+    });
+  }
+  if (control.values) {
+    const seen = new Map<string, number>();
+    control.values.forEach((value, index) => {
+      const normalized = value.toLocaleLowerCase();
+      const firstIndex = seen.get(normalized);
+      if (firstIndex !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['values', index],
+          message: `exact hashtags must be unique; duplicates value at index ${firstIndex}`,
+        });
+        return;
+      }
+      seen.set(normalized, index);
     });
   }
 });

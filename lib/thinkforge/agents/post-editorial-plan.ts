@@ -5,8 +5,21 @@ import {
   type TechniqueResult,
 } from '../data/writing-graph-query';
 import type { ThinkForgeContentSignalProfile } from '../signals';
+import {
+  ThinkForgeAuthoringRequestSchema,
+  describeThinkForgePlatformSurface,
+  type ThinkForgeAuthoringRequest,
+  type ThinkForgePostControls,
+} from '../schemas/authoring-request';
+import {
+  resolveThinkForgePublishingConstraints,
+  resolveThinkForgePublishingConstraintsForAuthoringRequest,
+  type ThinkForgePublishingConstraints,
+} from '../signals/publishing-constraints';
 
-type PostCtaMode = 'none' | 'supplied_action' | 'soft' | 'hard' | 'urgent';
+export type PostCtaMode = 'none' | 'supplied_action' | 'soft' | 'hard' | 'urgent';
+export type PostHashtagMode = 'editorial' | 'none' | 'exact';
+export type PostEmojiMode = 'editorial' | 'none' | 'restrained';
 type PostEditorialShape =
   | 'evidence_led'
   | 'announcement'
@@ -18,6 +31,7 @@ type PostSourceBoundary = 'source_only' | 'bounded_implication';
 
 interface PostEditorialPlanInput {
   userPrompt: string;
+  authoringRequest?: ThinkForgeAuthoringRequest | null;
   contentSignalProfile?: ThinkForgeContentSignalProfile;
   retrievedFactCount?: number;
 }
@@ -34,9 +48,15 @@ export interface PostTechniqueDirective {
  * publishing feasibility constraints that the model is not allowed to reinterpret.
  */
 export interface PostEditorialPlan {
+  controlSource: 'authoring_request' | 'legacy_profile';
+  platform: string;
+  publishingConstraints: ThinkForgePublishingConstraints;
   editorialShape: PostEditorialShape;
   sourceBoundary: PostSourceBoundary;
   ctaMode: PostCtaMode;
+  hashtagMode: PostHashtagMode;
+  requiredHashtags: string[];
+  emojiMode: PostEmojiMode;
   explicitLengthRequested: boolean;
   evidenceDensity: 'thin' | 'supported';
   sourceDetailDensity: 'sparse' | 'rich';
@@ -47,6 +67,7 @@ export interface PostEditorialPlan {
   maximumBodyCharacters?: number;
   requiredAudience?: string;
   requiredClaim?: string;
+  requiredAction?: string;
   requiredDestination?: string;
   hookProofMarkers: string[];
   hookRequiresProof: boolean;
@@ -88,11 +109,24 @@ function suppliedActionDestination(userPrompt: string): string | undefined {
   return userPrompt.match(ACTION_DESTINATION_PATTERN)?.[0]?.replace(/[.,;:!?]+$/, '');
 }
 
+function resolvePostAuthoringRequest(
+  requestInput: ThinkForgeAuthoringRequest | null | undefined,
+): ThinkForgeAuthoringRequest | null {
+  if (!requestInput) return null;
+  const request = ThinkForgeAuthoringRequestSchema.parse(requestInput);
+  if (!['social_post', 'carousel'].includes(request.contentContract.outputKind)) {
+    throw new Error('Post editorial planning requires a post or carousel authoring request');
+  }
+  return request;
+}
+
 function classifyEditorialShape(
   profile: ThinkForgeContentSignalProfile | undefined,
   hookProofMarkers: readonly string[],
+  ctaMode: PostCtaMode,
 ): PostEditorialShape {
   if (hookProofMarkers.length > 0) return 'evidence_led';
+  if (ctaMode === 'hard' || ctaMode === 'urgent' || ctaMode === 'supplied_action') return 'conversion';
 
   const goal = profile?.intent.goal.toLocaleLowerCase() ?? '';
   if (goal === 'announcement') return 'announcement';
@@ -157,9 +191,16 @@ function selectStructureDirective(
 
 function resolveCtaMode(
   profile: ThinkForgeContentSignalProfile | undefined,
-  requiredDestination: string | undefined,
+  controls: ThinkForgePostControls | undefined,
+  legacyDestination: string | undefined,
 ): PostCtaMode {
-  if (requiredDestination) return 'supplied_action';
+  if (controls) {
+    if (controls.cta.preference === 'none') return 'none';
+    if (controls.cta.preference === 'soft') return 'soft';
+    if (controls.cta.preference === 'direct') return 'hard';
+    return profile?.profile.constraints.cta_type ?? 'none';
+  }
+  if (legacyDestination) return 'supplied_action';
   return profile?.profile.constraints.cta_type ?? 'none';
 }
 
@@ -186,9 +227,10 @@ function readPlatformCharacterMaximum(
 function resolvedLengthTargets(
   profile: ThinkForgeContentSignalProfile | undefined,
   explicitLengthRequested: boolean,
+  controls?: ThinkForgePostControls,
 ): Pick<PostEditorialPlan, 'targetBodyCharacters' | 'targetBodyWords'> {
   if (!explicitLengthRequested) return {};
-  const target = profile?.profile.constraints.target_length;
+  const target = controls?.targetLength ?? profile?.profile.constraints.target_length;
   if (target?.unit === 'characters') return { targetBodyCharacters: target.value };
   if (target?.unit === 'words') return { targetBodyWords: target.value };
   return {};
@@ -208,12 +250,27 @@ function developmentSequence(
 }
 
 export function buildPostEditorialPlan(input: PostEditorialPlanInput): PostEditorialPlan {
+  const authoringRequest = resolvePostAuthoringRequest(input.authoringRequest);
+  const controls = authoringRequest?.postControls;
   const profile = input.contentSignalProfile;
+  const platform = authoringRequest
+    ? describeThinkForgePlatformSurface(authoringRequest.platformSurface)
+    : profile?.intent.platform || 'unspecified';
+  const publishingConstraints = authoringRequest
+    ? resolveThinkForgePublishingConstraintsForAuthoringRequest(authoringRequest)
+    : resolveThinkForgePublishingConstraints(platform, 'social_post');
   const hookProofMarkers = quantitativeProofMarkers(profile);
   const requiredClaim = requiredProfileValue(profile, 'Required brief claim', hookProofMarkers);
   const requiredAudience = requiredProfileValue(profile, 'Required audience anchor');
-  const requiredDestination = suppliedActionDestination(input.userPrompt);
-  const explicitLengthRequested = EXPLICIT_LENGTH_PATTERN.test(input.userPrompt);
+  const legacyDestination = authoringRequest ? undefined : suppliedActionDestination(input.userPrompt);
+  const ctaMode = resolveCtaMode(profile, controls, legacyDestination);
+  const requiredAction = ctaMode === 'none' ? undefined : controls?.cta.action;
+  const requiredDestination = ctaMode === 'none'
+    ? undefined
+    : controls?.cta.destination ?? legacyDestination;
+  const explicitLengthRequested = controls
+    ? controls.targetLength !== undefined
+    : EXPLICIT_LENGTH_PATTERN.test(input.userPrompt);
   // Resolver proofPoints can repeat one brief fact under multiple labels
   // (for example metric, required claim, and audience). Count the authorized
   // claim once so repeated metadata cannot masquerade as richer evidence.
@@ -222,21 +279,31 @@ export function buildPostEditorialPlan(input: PostEditorialPlanInput): PostEdito
   const evidenceDensity = evidenceUnitCount + retrievedFactCount >= 2 ? 'supported' : 'thin';
   const sourceDetailDensity = evidenceUnitCount + retrievedFactCount >= 3 ? 'rich' : 'sparse';
   const sourceBoundary = retrievedFactCount > 0 ? 'bounded_implication' : 'source_only';
-  const editorialShape = classifyEditorialShape(profile, hookProofMarkers);
-  const ctaMode = resolveCtaMode(profile, requiredDestination);
+  const editorialShape = classifyEditorialShape(profile, hookProofMarkers, ctaMode);
   const selectedHook = selectHookDirective(profile, editorialShape, hookProofMarkers, sourceBoundary);
   const selectedStructure = selectStructureDirective(profile, editorialShape, sourceBoundary, evidenceDensity);
   const selectedCta = selectCtaDirective(ctaMode);
-  const maximumBodyCharacters = readPlatformCharacterMaximum(profile);
-  const lengthTargets = resolvedLengthTargets(profile, explicitLengthRequested);
+  const policyMaximum = publishingConstraints.maxCharacters ?? publishingConstraints.standardMaxCharacters;
+  const maximumBodyCharacters = authoringRequest
+    ? policyMaximum
+    : policyMaximum ?? readPlatformCharacterMaximum(profile);
+  const lengthTargets = resolvedLengthTargets(profile, explicitLengthRequested, controls);
   const visualProofDirection = hookProofMarkers.length > 0
     ? 'Translate supplied proof into an observable text-free contrast using only source-backed subjects, objects, actions, and environments. Keep numbers, labels, and claims in editable copy, not the raster.'
     : undefined;
 
   return {
+    controlSource: authoringRequest ? 'authoring_request' : 'legacy_profile',
+    platform,
+    publishingConstraints,
     editorialShape,
     sourceBoundary,
     ctaMode,
+    hashtagMode: controls?.hashtags.preference ?? 'editorial',
+    requiredHashtags: controls?.hashtags.preference === 'exact'
+      ? [...(controls.hashtags.values ?? [])]
+      : [],
+    emojiMode: controls?.emoji.preference ?? 'editorial',
     explicitLengthRequested,
     evidenceDensity,
     sourceDetailDensity,
@@ -250,6 +317,7 @@ export function buildPostEditorialPlan(input: PostEditorialPlanInput): PostEdito
     ...(maximumBodyCharacters ? { maximumBodyCharacters } : {}),
     ...(requiredAudience ? { requiredAudience } : {}),
     ...(requiredClaim ? { requiredClaim } : {}),
+    ...(requiredAction ? { requiredAction } : {}),
     ...(requiredDestination ? { requiredDestination } : {}),
     hookProofMarkers,
     hookRequiresProof: Boolean(
