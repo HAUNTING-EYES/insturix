@@ -794,21 +794,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
     });
   }, [sessionId, threadId]);
 
-  const updateMessageCard = useCallback((messageId: string, cardId: string, updates: Partial<import('@/lib/thinkforge/state/types').SidecarCard>) => {
-    setMessages(prev => {
-      const next = prev.map(m => {
-        if (m.id === messageId && m.card && m.card.id === cardId) {
-          return { ...m, card: { ...m.card, ...updates, data: { ...m.card.data, ...updates.data } } };
-        }
-        return m;
-      });
-      if (sessionId && threadId) {
-        saveLocal(sessionId, threadId, { chat: next } as any);
-      }
-      return next;
-    });
-  }, [sessionId, threadId]);
-
   return {
     messages,
     isStreaming,
@@ -820,7 +805,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
     refreshMessages,
     clearMessages,
     appendMessage,
-    updateMessageCard,
   } as const;
 }
 

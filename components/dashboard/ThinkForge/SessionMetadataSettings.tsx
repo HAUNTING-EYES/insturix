@@ -27,13 +27,13 @@ interface SessionMetadataSettingsProps {
 }
 
 // Small pill buttons for tone selection
-const TONE_OPTIONS: { value: Idea['tone']; label: string; desc: string; swatch: string }[] = [
-  { value: 'white', label: 'White', desc: 'Facts & Data', swatch: 'bg-white border border-[#282724]' },
-  { value: 'red', label: 'Red', desc: 'Emotion & Feel', swatch: 'bg-[#D4A652]' },
-  { value: 'black', label: 'Black', desc: 'Caution & Risk', swatch: 'bg-black border border-white/30' },
-  { value: 'yellow', label: 'Yellow', desc: 'Benefits & Value', swatch: 'bg-yellow-400' },
-  { value: 'green', label: 'Green', desc: 'Creative Expansion', swatch: 'bg-green-500' },
-  { value: 'blue', label: 'Blue', desc: 'Process & Control', swatch: 'bg-blue-500' }
+const TONE_OPTIONS: { value: Idea['tone']; desc: string; swatch: string }[] = [
+  { value: 'white', desc: 'Facts & Data', swatch: 'bg-white border border-[#282724]' },
+  { value: 'red', desc: 'Emotion & Feel', swatch: 'bg-[#D4A652]' },
+  { value: 'black', desc: 'Caution & Risk', swatch: 'bg-black border border-white/30' },
+  { value: 'yellow', desc: 'Benefits & Value', swatch: 'bg-yellow-400' },
+  { value: 'green', desc: 'Creative Expansion', swatch: 'bg-green-500' },
+  { value: 'blue', desc: 'Process & Control', swatch: 'bg-blue-500' }
 ];
 
 // Predefined option sets
@@ -168,11 +168,6 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
     setSaveState('dirty');
   };
 
-  const issessionNameValid = (() => {
-    const name = (localIdea.sessionName || '').trim();
-    return name.length > 0 && name.length <= 100;
-  })();
-
   const handleTone = (tone: Idea['tone']) => {
     setLocalIdea(prev => ({ ...prev, tone }));
     setSaveState('dirty');
@@ -303,7 +298,7 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
                   lastSavedIdeaRef.current = payload;
                   setSaveState('saved');
                   setNameError(null);
-                } catch (e) {
+                } catch {
                   setNameError('Failed to save Session Name');
                   return;
                 }
@@ -530,7 +525,6 @@ function MultiValueEditor({ label, values, onChange, placeholder, options }: Mul
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const [dropdownStyle, setDropdownStyle] = useState<{top:number;left:number;width:number}>({top:0,left:0,width:0});
 
   const lcInput = input.toLowerCase();
@@ -626,7 +620,6 @@ function MultiValueEditor({ label, values, onChange, placeholder, options }: Mul
             </span>
           ))}
           <input
-            ref={inputRef}
             value={input}
             onChange={(e) => { setInput(e.target.value); setOpen(true); setHighlight(0); }}
             onKeyDown={handleKey}
