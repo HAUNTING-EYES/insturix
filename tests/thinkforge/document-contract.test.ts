@@ -285,7 +285,9 @@ describe('ThinkForge canonical document contract', () => {
     expect(page).toContain('authoringRequest');
     expect(page).toContain('ThinkForgeAuthoringRequestSchema.parse');
     expect(page).not.toContain('resolveCarouselSlideCount');
-    expect(service).toContain('sessionState.metadata.contentContract');
+    expect(service).toContain('resolveProjectMetaAuthoringRequest(sessionState.metadata)');
+    expect(service).toContain('authoringRequest: authoritativeAuthoringRequest');
+    expect(service).toContain('authoritativeAuthoringRequest?.contentContract');
     expect(service).toContain('contentContract: documentIntent.contract');
     expect(service).toContain('ThinkForge generation requires an authoritative document contract');
     expect(service).not.toContain("requestedDocumentIntent?.documentType ?? 'screenplay'");

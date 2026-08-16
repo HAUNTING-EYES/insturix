@@ -3,10 +3,7 @@ import { detect } from 'tinyld';
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
-import {
-  buildPostOutputFormat,
-  detectPlatform,
-} from './prompt-utils';
+import { buildPostOutputFormat } from './prompt-utils';
 import {
   evaluateContentProfileCompliance,
   shouldAutoRepairContentProfileViolations,
@@ -20,12 +17,16 @@ import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 import type { SourceLedger } from '../provenance/source-ledger';
 import { buildPostEditorialPlan, type PostEditorialPlan } from './post-editorial-plan';
-import { resolveThinkForgePublishingConstraints } from '../signals/publishing-constraints';
+import { measureThinkForgePublishableText } from '../signals/publishing-constraints';
+import {
+  THINKFORGE_POST_HASHTAG_MAX,
+  THINKFORGE_RESTRAINED_EMOJI_MAX,
+} from '../schemas/authoring-request';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
   content: z.string().describe('The actual post body formatted for the platform, without the final hashtag line'),
-  hashtags: z.array(z.string()).max(15).describe('Optional publishable hashtags requested by the brief, each beginning with #. Return an empty array when hashtags were not requested; do not put them in content.'),
+  hashtags: z.array(z.string()).max(THINKFORGE_POST_HASHTAG_MAX).describe('Optional publishable hashtags requested by the brief, each beginning with #. Return an empty array when hashtags were not requested; do not put them in content.'),
   contentAnalysis: z.object({
     tone: z.string().describe('The dominant tone used (e.g., Professional, Edgy, Instructive)'),
     vibe: z.string().describe('The overarching vibe or mood of the piece'),
@@ -143,8 +144,10 @@ const THIN_EVIDENCE_EXPANSION_PATTERN =
 
 const POST_DESTINATION_PATTERN = /(?:https?:\/\/|www\.)?\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?/gi;
 
-const HASHTAG_TOKEN_PATTERN = /#[\p{L}\p{N}_]+/gu;
-const HASHTAG_ONLY_LINE_PATTERN = /^(?:#[\p{L}\p{N}_]+\s*)+$/u;
+const HASHTAG_TOKEN_PATTERN = /#[\p{L}\p{M}\p{N}_]+/gu;
+const HASHTAG_ONLY_LINE_PATTERN = /^(?:#[\p{L}\p{M}\p{N}_]+\s*)+$/u;
+const POST_EMOJI_SEGMENT_PATTERN = /[\p{Extended_Pictographic}\p{Regional_Indicator}\u20e3]/u;
+const POST_GRAPHEME_SEGMENTER = new Intl.Segmenter('en', { granularity: 'grapheme' });
 
 const POST_TOPIC_ANCHOR_STOP_WORDS = new Set([
   'about', 'after', 'aimed', 'and', 'before', 'brief', 'caption', 'concrete', 'create',
@@ -168,26 +171,67 @@ const CACHED_POST_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pa
   label: pattern.label,
 }));
 
+function resolvePostEditorialPlanForInput(input: PostWriterInput): PostEditorialPlan {
+  return buildPostEditorialPlan({
+    userPrompt: input.userPrompt,
+    authoringRequest: input.authoringRequest,
+    contentSignalProfile: input.contentSignalProfile,
+    retrievedFactCount: (input.retrievedContext?.projectFacts.length ?? 0)
+      + (input.retrievedContext?.globalFacts.length ?? 0),
+  });
+}
+
 function requestedCarouselSlideCount(input: PostWriterInput): number | undefined {
-  const contract = input.project?.contentContract;
+  const authoritativeContract = input.authoringRequest?.contentContract;
+  const compatibilityContract = input.project?.contentContract;
+  if (
+    authoritativeContract
+    && compatibilityContract
+    && (
+      authoritativeContract.version !== compatibilityContract.version
+      || authoritativeContract.documentKind !== compatibilityContract.documentKind
+      || authoritativeContract.outputKind !== compatibilityContract.outputKind
+      || authoritativeContract.artifactType !== compatibilityContract.artifactType
+      || authoritativeContract.carouselSlideCount !== compatibilityContract.carouselSlideCount
+    )
+  ) {
+    throw new Error('ThinkForge post writer received conflicting authoring and compatibility contracts');
+  }
+  const contract = authoritativeContract ?? compatibilityContract;
   return contract?.outputKind === 'carousel' ? contract.carouselSlideCount : undefined;
 }
 
 function normalizeHashtag(value: string): string | undefined {
   const normalized = value.trim();
-  return /^#[\p{L}\p{N}_]+$/u.test(normalized) ? normalized : undefined;
+  return /^#[\p{L}\p{M}\p{N}_]+$/u.test(normalized) ? normalized : undefined;
 }
 
-function uniqueHashtags(values: readonly string[]): string[] {
+function validateHashtagPlan(values: readonly string[], source: string): string[] {
   const seen = new Set<string>();
   const hashtags: string[] = [];
-  for (const value of values) {
+  values.forEach((value, index) => {
     const hashtag = normalizeHashtag(value);
-    if (!hashtag || seen.has(hashtag.toLocaleLowerCase())) continue;
-    seen.add(hashtag.toLocaleLowerCase());
+    if (!hashtag) {
+      throw new Error(`${POST_CONTRACT_FAILURE_PREFIX} invalid_hashtag:${source}:${index + 1}`);
+    }
+    const key = hashtag.toLocaleLowerCase();
+    if (seen.has(key)) {
+      throw new Error(`${POST_CONTRACT_FAILURE_PREFIX} duplicate_hashtag:${source}:${index + 1}`);
+    }
+    seen.add(key);
     hashtags.push(hashtag);
-  }
+  });
   return hashtags;
+}
+
+function sameHashtagPlan(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length
+    && left.every((value, index) => value.toLocaleLowerCase() === right[index]?.toLocaleLowerCase());
+}
+
+function sameExactHashtagPlan(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length
+    && left.every((value, index) => value === right[index]);
 }
 
 function extractTrailingHashtags(content: string): { body: string; hashtags: string[] } {
@@ -199,31 +243,65 @@ function extractTrailingHashtags(content: string): { body: string; hashtags: str
 
   return {
     body: lines.join('\n').trimEnd(),
-    hashtags: uniqueHashtags(hashtagLines.flatMap((line) => line.match(HASHTAG_TOKEN_PATTERN) ?? [])),
+    hashtags: hashtagLines.flatMap((line) => line.match(HASHTAG_TOKEN_PATTERN) ?? []),
   };
 }
 
-function assemblePostHashtagPlan(result: PostWriterResult): boolean {
+function assemblePostHashtagPlan(
+  result: PostWriterResult,
+  editorialPlan: PostEditorialPlan,
+): boolean {
+  const originalContent = result.content;
+  const originalHashtags = [...result.hashtags];
   const extracted = extractTrailingHashtags(result.content);
-  // The typed plan is the current contract. Trailing content tags are accepted only as a
-  // migration path for legacy model output that did not produce a valid plan.
-  const plannedHashtags = uniqueHashtags(result.hashtags);
-  const selectedHashtags = plannedHashtags.length > 0 ? plannedHashtags : extracted.hashtags;
-  const hashtags = selectedHashtags.slice(0, 15);
+  const plannedHashtags = validateHashtagPlan(result.hashtags, 'structured_field');
+  const trailingHashtags = validateHashtagPlan(extracted.hashtags, 'content_tail');
+  const inlineHashtags = extracted.body.match(HASHTAG_TOKEN_PATTERN) ?? [];
+  let hashtags: string[];
+
+  if (editorialPlan.controlSource === 'authoring_request') {
+    if (editorialPlan.hashtagMode === 'none') {
+      if (inlineHashtags.length > 0) {
+        throw new Error(`${POST_CONTRACT_FAILURE_PREFIX} hashtag_forbidden_in_body`);
+      }
+      hashtags = [];
+    } else if (editorialPlan.hashtagMode === 'exact') {
+      if (inlineHashtags.length > 0) {
+        throw new Error(`${POST_CONTRACT_FAILURE_PREFIX} hashtag_embedded_in_body`);
+      }
+      hashtags = [...editorialPlan.requiredHashtags];
+    } else {
+      if (
+        plannedHashtags.length > 0
+        && trailingHashtags.length > 0
+        && !sameHashtagPlan(plannedHashtags, trailingHashtags)
+      ) {
+        throw new Error(`${POST_CONTRACT_FAILURE_PREFIX} conflicting_hashtag_plans`);
+      }
+      hashtags = plannedHashtags.length > 0 ? plannedHashtags : trailingHashtags;
+    }
+  } else {
+    if (
+      plannedHashtags.length > 0
+      && trailingHashtags.length > 0
+      && !sameHashtagPlan(plannedHashtags, trailingHashtags)
+    ) {
+      throw new Error(`${POST_CONTRACT_FAILURE_PREFIX} conflicting_hashtag_plans`);
+    }
+    hashtags = plannedHashtags.length > 0 ? plannedHashtags : trailingHashtags;
+  }
+
   result.hashtags = hashtags;
   result.content = hashtags.length > 0
     ? `${extracted.body}\n\n${hashtags.join(' ')}`
     : extracted.body;
-  return hashtags.length !== selectedHashtags.length;
+  return result.content !== originalContent || !sameHashtagPlan(result.hashtags, originalHashtags);
 }
 
-function maximumPostCharacters(
-  platform: string,
-  editorialPlan?: PostEditorialPlan,
-): number | undefined {
-  const publishingPolicy = resolveThinkForgePublishingConstraints(platform, 'social_post');
-  const platformMaximum = publishingPolicy.maxCharacters ?? publishingPolicy.standardMaxCharacters;
-  const editorialMaximum = editorialPlan?.maximumBodyCharacters;
+function maximumPostCharacters(editorialPlan: PostEditorialPlan): number | undefined {
+  const platformMaximum = editorialPlan.publishingConstraints.maxCharacters
+    ?? editorialPlan.publishingConstraints.standardMaxCharacters;
+  const editorialMaximum = editorialPlan.maximumBodyCharacters;
   if (platformMaximum === undefined) return editorialMaximum;
   if (editorialMaximum === undefined) return platformMaximum;
   return Math.min(platformMaximum, editorialMaximum);
@@ -241,10 +319,9 @@ interface PostLengthContract {
 }
 
 function resolvePostLengthContract(
-  platform: string,
   editorialPlan: PostEditorialPlan,
 ): PostLengthContract {
-  const publishingMaximum = maximumPostCharacters(platform, editorialPlan);
+  const publishingMaximum = maximumPostCharacters(editorialPlan);
   const targetCharacters = editorialPlan.targetBodyCharacters;
   const targetWords = editorialPlan.targetBodyWords;
 
@@ -272,10 +349,9 @@ function resolvePostLengthContract(
 }
 
 function buildPostLengthContract(
-  platform: string,
   editorialPlan: PostEditorialPlan,
 ): string {
-  const contract = resolvePostLengthContract(platform, editorialPlan);
+  const contract = resolvePostLengthContract(editorialPlan);
   const characterTarget = contract.targetCharacters === undefined
     ? ''
     : `- Explicit character target: ${contract.targetCharacters}; accepted band ${contract.minimumCharacters}-${contract.maximumCharacters}.`;
@@ -290,6 +366,45 @@ ${wordTarget}
 ${contract.maximumCharacters === undefined ? '- No numeric character maximum is asserted.' : `- Final body plus hashtags maximum: ${contract.maximumCharacters} characters.`}
 - When no explicit target exists, use only the length justified by the supported idea. Never pad for a platform recommendation.
 </post_length_contract>`;
+}
+
+type PostOutputPlatform = Parameters<typeof buildPostOutputFormat>[0];
+
+function resolvePostOutputPlatform(editorialPlan: PostEditorialPlan): PostOutputPlatform {
+  switch (editorialPlan.publishingConstraints.surface) {
+    case 'linkedin_post':
+      return 'linkedin';
+    case 'x_post':
+      return 'twitter';
+    case 'instagram_feed':
+    case 'instagram_reels':
+      return 'instagram';
+    case 'facebook_post':
+      return 'facebook';
+    default:
+      return 'generic';
+  }
+}
+
+function countPostEmoji(value: string): number {
+  return [...POST_GRAPHEME_SEGMENTER.segment(value)]
+    .filter((segment) => POST_EMOJI_SEGMENT_PATTERN.test(segment.segment))
+    .length;
+}
+
+function assertPostEditorialPlanFeasible(editorialPlan: PostEditorialPlan): void {
+  if (editorialPlan.hashtagMode !== 'exact' || editorialPlan.requiredHashtags.length === 0) return;
+  const minimumPublishableText = `x\n\n${editorialPlan.requiredHashtags.join(' ')}`;
+  const measurement = measureThinkForgePublishableText(
+    minimumPublishableText,
+    editorialPlan.publishingConstraints,
+  );
+  if (!measurement.valid) {
+    throw new Error(
+      `Exact hashtag plan exceeds the ${editorialPlan.platform} publishing limit: `
+      + `${measurement.characterCount}/${measurement.maximumCharacters ?? 'unknown'} characters`,
+    );
+  }
 }
 
 function getPublishableLines(content: string): string[] {
@@ -805,6 +920,7 @@ interface PostContractRepairDiagnostic {
 function postContractRepairDiagnostics(
   result: PostWriterResult,
   failure: Error,
+  editorialPlan: PostEditorialPlan,
 ): { contentCharacters: number; findings: PostContractRepairDiagnostic[] } {
   const failureCodes = failure.message
     .slice(POST_CONTRACT_FAILURE_PREFIX.length)
@@ -818,7 +934,10 @@ function postContractRepairDiagnostics(
   const hookExcerpt = getPublishableLines(result.content).slice(0, 2).join(' ');
 
   return {
-    contentCharacters: result.content.length,
+    contentCharacters: measureThinkForgePublishableText(
+      result.content,
+      editorialPlan.publishingConstraints,
+    ).characterCount,
     findings: failureCodes.map((code) => {
       const indexedSentence = code.match(
         /^(?:source_only_low_support_sentence|thin_evidence_unsupported_sentence|claim_support_missing|claim_support_duplicate_sentence|claim_support_invalid_source|claim_support_invalid_excerpt|claim_support_low_overlap|claim_support_missing_required_anchor|claim_support_unbounded_implication):(\d+)$/,
@@ -850,15 +969,17 @@ function postContractRepairDiagnostics(
   };
 }
 
-export function assertUsablePostWriterResult(result: PostWriterResult, input: PostWriterInput): void {
-  const platform = detectPlatform(input.userPrompt, undefined, input.context.projectSummary);
-  const editorialPlan = buildPostEditorialPlan({
-    userPrompt: input.userPrompt,
-    contentSignalProfile: input.contentSignalProfile,
-    retrievedFactCount: (input.retrievedContext?.projectFacts.length ?? 0)
-      + (input.retrievedContext?.globalFacts.length ?? 0),
-  });
+export function assertUsablePostWriterResult(
+  result: PostWriterResult,
+  input: PostWriterInput,
+  editorialPlan: PostEditorialPlan = resolvePostEditorialPlanForInput(input),
+): void {
   const content = result.content.trim();
+  const contentMeasurement = measureThinkForgePublishableText(
+    content,
+    editorialPlan.publishingConstraints,
+  );
+  const contentCharacters = contentMeasurement.characterCount;
   const lines = getPublishableLines(content);
   const ctaTail = lines.slice(-3).join('\n');
   const hookLine = lines[0] ?? '';
@@ -866,18 +987,25 @@ export function assertUsablePostWriterResult(result: PostWriterResult, input: Po
   const suppliedContext = getSuppliedPostContext(input);
   const executionAnchors = resolvePostExecutionAnchors(input);
   const requiredProofMarkers = editorialPlan.hookProofMarkers;
-  const lengthContract = resolvePostLengthContract(platform, editorialPlan);
+  const lengthContract = resolvePostLengthContract(editorialPlan);
   const wordCount = content.split(/\s+/).filter(Boolean).length;
+  const extractedHashtags = extractTrailingHashtags(content);
+  const structuredHashtags = validateHashtagPlan(result.hashtags, 'structured_field');
+  const trailingHashtags = validateHashtagPlan(extractedHashtags.hashtags, 'content_tail');
+  const inlineHashtags = extractedHashtags.body.match(HASHTAG_TOKEN_PATTERN) ?? [];
 
   if (content.length === 0) failures.push('empty_content');
-  if (lengthContract.minimumCharacters !== undefined && content.length < lengthContract.minimumCharacters) {
-    failures.push(`content_below_character_target:${content.length}/${lengthContract.minimumCharacters}`);
+  if (lengthContract.minimumCharacters !== undefined && contentCharacters < lengthContract.minimumCharacters) {
+    failures.push(`content_below_character_target:${contentCharacters}/${lengthContract.minimumCharacters}`);
   }
-  if (lengthContract.maximumCharacters !== undefined && content.length > lengthContract.maximumCharacters) {
+  if (lengthContract.maximumCharacters !== undefined && contentCharacters > lengthContract.maximumCharacters) {
     const failureCode = lengthContract.targetCharacters === undefined
       ? `content_over_${lengthContract.maximumCharacters}_chars`
-      : `content_above_character_target:${content.length}/${lengthContract.maximumCharacters}`;
+      : `content_above_character_target:${contentCharacters}/${lengthContract.maximumCharacters}`;
     failures.push(failureCode);
+  }
+  if (!contentMeasurement.valid && contentCharacters <= (contentMeasurement.maximumCharacters ?? Infinity)) {
+    failures.push('platform_text_invalid');
   }
   if (lengthContract.minimumWords !== undefined && wordCount < lengthContract.minimumWords) {
     failures.push(`content_below_word_target:${wordCount}/${lengthContract.minimumWords}`);
@@ -886,10 +1014,32 @@ export function assertUsablePostWriterResult(result: PostWriterResult, input: Po
     failures.push(`content_above_word_target:${wordCount}/${lengthContract.maximumWords}`);
   }
 
-  const ctaRequired = editorialPlan.ctaMode !== 'none';
-  const hasCta = /[?]/.test(ctaTail) || POST_CTA_PATTERN.test(ctaTail);
-  if (ctaRequired && !hasCta) failures.push('missing_required_cta');
   const ctaLine = lines.at(-1) ?? '';
+  const ctaRequired = editorialPlan.ctaMode !== 'none';
+  const hasCta = /[?]/.test(ctaLine)
+    || POST_CTA_PATTERN.test(ctaLine)
+    || Boolean(
+      editorialPlan.requiredAction
+      && containsNormalizedText(ctaTail, editorialPlan.requiredAction)
+    )
+    || Boolean(
+      editorialPlan.requiredDestination
+      && containsNormalizedText(ctaTail, editorialPlan.requiredDestination)
+    );
+  if (ctaRequired && !hasCta) failures.push('missing_required_cta');
+  if (
+    editorialPlan.controlSource === 'authoring_request'
+    && editorialPlan.ctaMode === 'none'
+    && hasCta
+  ) {
+    failures.push('cta_forbidden');
+  }
+  if (
+    editorialPlan.requiredAction
+    && !containsNormalizedText(ctaTail, editorialPlan.requiredAction)
+  ) {
+    failures.push('cta_missing_supplied_action');
+  }
   const hasSourceSpecificCtaQuestion = Boolean(
     executionAnchors.audience
     && executionAnchors.topicTerms.length > 0
@@ -942,6 +1092,32 @@ export function assertUsablePostWriterResult(result: PostWriterResult, input: Po
     && !containsNormalizedText(ctaTail, editorialPlan.requiredDestination)
   ) {
     failures.push('cta_missing_supplied_destination');
+  }
+  if (editorialPlan.controlSource === 'authoring_request') {
+    if (editorialPlan.hashtagMode === 'none') {
+      if (structuredHashtags.length > 0 || trailingHashtags.length > 0 || inlineHashtags.length > 0) {
+        failures.push('hashtags_forbidden');
+      }
+    } else if (editorialPlan.hashtagMode === 'exact') {
+      if (
+        inlineHashtags.length > 0
+        || !sameExactHashtagPlan(structuredHashtags, editorialPlan.requiredHashtags)
+        || !sameExactHashtagPlan(trailingHashtags, editorialPlan.requiredHashtags)
+      ) {
+        failures.push('exact_hashtag_plan_mismatch');
+      }
+    }
+
+    const emojiCount = countPostEmoji(content);
+    if (editorialPlan.emojiMode === 'none' && emojiCount > 0) {
+      failures.push(`emoji_forbidden:${emojiCount}`);
+    }
+    if (
+      editorialPlan.emojiMode === 'restrained'
+      && emojiCount > THINKFORGE_RESTRAINED_EMOJI_MAX
+    ) {
+      failures.push(`emoji_limit_exceeded:${emojiCount}/${THINKFORGE_RESTRAINED_EMOJI_MAX}`);
+    }
   }
   const unsuppliedDestinations = (content.match(POST_DESTINATION_PATTERN) ?? [])
     .map((destination) => destination.replace(/[.,;:!?]+$/, ''))
@@ -1015,6 +1191,12 @@ For missing_required_cta:
 - Execute postEditorialPlan.selectedCta using only the supplied action, offer, urgency, or destination.
 - Do not replace a missing CTA with a generic engagement question.
 
+For cta_forbidden:
+- Remove the closing action, invitation, engagement question, and destination. End on the completed editorial thought.
+
+For cta_missing_supplied_action:
+- Reproduce postEditorialPlan.requiredAction in the closing CTA without replacing it with a synonym or a generic engagement ask.
+
 For generic_clickatron_visual:
 - Replace stock office/team/dashboard language with a text-free scene based on at least two supplied workflow details, objects, audience cues, or outcomes.
 - Keep real copy in the post content only; preserve visual safe space without invented UI, logos, or text.
@@ -1032,6 +1214,16 @@ For hook_missing_required_proof:
 
 For cta_missing_supplied_destination or unsupplied_destination:
 - Preserve postEditorialPlan.requiredDestination exactly in the CTA. Remove every URL or domain that is not present in tf_untrusted_data. Never merge a person's name with a domain.
+
+For invalid_hashtag, duplicate_hashtag, conflicting_hashtag_plans, hashtag_forbidden_in_body, hashtag_embedded_in_body, hashtags_forbidden, or exact_hashtag_plan_mismatch:
+- Return hashtags only in the structured hashtags field. ThinkForge assembles the final hashtag line.
+- If postEditorialPlan.hashtagMode is none, return an empty array and use no inline hashtags.
+- If it is exact, return postEditorialPlan.requiredHashtags in the exact supplied spelling and order, with no additions.
+- Otherwise return only valid, unique, source-grounded hashtags.
+
+For emoji_forbidden or emoji_limit_exceeded:
+- If postEditorialPlan.emojiMode is none, remove every emoji from visible copy.
+- If it is restrained, use no more than ${THINKFORGE_RESTRAINED_EMOJI_MAX} emoji grapheme clusters in the complete post.
 
 For generic_cta_question:
 - Replace a status question with one question that asks the reader to name a concrete bottleneck, handoff, decision, or operating constraint from the brief.
@@ -1111,18 +1303,14 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
   }
 
   buildPromptParts(input: PostWriterInput): IsolatedPromptParts {
-    const { context, userPrompt, retrievedContext, editContext, productionBrief } = input;
-    const platform = detectPlatform(userPrompt, undefined, context.projectSummary);
-    const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
-    const editorialPlan = buildPostEditorialPlan({
-      userPrompt,
-      contentSignalProfile: input.contentSignalProfile,
-      retrievedFactCount: facts.length,
-    });
-    const outputFormat = buildPostOutputFormat(platform, {
+    const { context, userPrompt, editContext, productionBrief } = input;
+    const editorialPlan = resolvePostEditorialPlanForInput(input);
+    assertPostEditorialPlanFeasible(editorialPlan);
+    const outputPlatform = resolvePostOutputPlatform(editorialPlan);
+    const outputFormat = buildPostOutputFormat(outputPlatform, {
       targetCharacters: editorialPlan.targetBodyCharacters,
       targetWords: editorialPlan.targetBodyWords,
-      maximumCharacters: maximumPostCharacters(platform, editorialPlan),
+      maximumCharacters: maximumPostCharacters(editorialPlan),
       ctaMode: editorialPlan.ctaMode,
     }).replaceAll('<input_data>', 'tf_untrusted_data');
 
@@ -1168,12 +1356,23 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
 - Do not return clickatron.singleImagePrompt.
 - Each slide must communicate a distinct grounded unit from tf_untrusted_data; never pad the count with invented claims.
 </carousel_contract>\n\n`;
-    const postLengthContract = buildPostLengthContract(platform, editorialPlan);
+    const postLengthContract = buildPostLengthContract(editorialPlan);
+    const postControlContract = editorialPlan.controlSource === 'authoring_request'
+      ? `<post_control_contract>
+- This is a server-owned contract compiled from the user's explicit intake controls.
+- Target publishing surface: read postEditorialPlan.platform from tf_untrusted_data. Never infer it from userBrief or projectSummary.
+- CTA mode: ${editorialPlan.ctaMode}. Use requiredAction and requiredDestination exactly when present. If mode is none, return no closing action or engagement question.
+- Hashtag mode: ${editorialPlan.hashtagMode}. If none, return an empty hashtags array. If exact, return requiredHashtags in exact spelling and order. Never put hashtags inside content.
+- Emoji mode: ${editorialPlan.emojiMode}. If none, use zero emoji. If restrained, use at most ${THINKFORGE_RESTRAINED_EMOJI_MAX} emoji grapheme clusters.
+</post_control_contract>\n\n`
+      : `<post_control_contract>
+- This caller uses the named legacy compatibility contract. Do not invent a platform, CTA, hashtag quota, emoji quota, or numeric length rule beyond postEditorialPlan.
+</post_control_contract>\n\n`;
 
-    const systemInstruction = `<role>You are an elite ${platform} copywriter and content strategist.</role>
+    const systemInstruction = `<role>You are an elite platform-specific copywriter and content strategist.</role>
 <task>${editContext
       ? 'REVISE the existing post per the requested change and return the COMPLETE revised post'
-      : 'Write ONE final, publishable post for the detected platform'}. Return JSON that matches the schema exactly.</task>
+      : 'Write ONE final, publishable post for the selected publishing surface'}. Return JSON that matches the schema exactly.</task>
 
 <rules>
 SOURCE CATALOG
@@ -1252,7 +1451,7 @@ ${editContext ? `<edit_rules>
 - Keep everything the change does not touch and preserve supplied facts verbatim.
 </edit_rules>
 
-` : ''}${writingBlock ? `${writingBlock}\n\n` : ''}${carouselContractBlock}${outputFormat}
+` : ''}${writingBlock ? `${writingBlock}\n\n` : ''}${carouselContractBlock}${postControlContract}${outputFormat}
 
 Return your response strictly adhering to the JSON schema.`;
 
@@ -1299,13 +1498,7 @@ Return your response strictly adhering to the JSON schema.`;
   ): Promise<AgentStructuredOutput<PostWriterResult>> {
     const promptParts = this.buildPromptParts(input);
     const gen = this.resolveGenConfig(overrides);
-    const platform = detectPlatform(input.userPrompt, undefined, input.context.projectSummary);
-    const editorialPlan = buildPostEditorialPlan({
-      userPrompt: input.userPrompt,
-      contentSignalProfile: input.contentSignalProfile,
-      retrievedFactCount: (input.retrievedContext?.projectFacts.length ?? 0)
-        + (input.retrievedContext?.globalFacts.length ?? 0),
-    });
+    const editorialPlan = resolvePostEditorialPlanForInput(input);
 
     const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
@@ -1318,14 +1511,28 @@ Return your response strictly adhering to the JSON schema.`;
     });
 
     let result = initialGeneration.result;
-    let hashtagPlanTrimmed = assemblePostHashtagPlan(result);
-    materializeServerOwnedClaimSupport(result, input);
-    result.metadata.charCount = result.content.length;
     let contractRepairApplied = false;
-    let clickatronVisualContractApplied = reconcileClickatronVisualContract(result, input, editorialPlan);
+    let hashtagContractApplied = false;
+    let clickatronVisualContractApplied = false;
+    const finalizeResult = () => {
+      hashtagContractApplied = assemblePostHashtagPlan(result, editorialPlan)
+        || hashtagContractApplied;
+      materializeServerOwnedClaimSupport(result, input);
+      result.metadata.platform = editorialPlan.platform;
+      result.metadata.charCount = measureThinkForgePublishableText(
+        result.content,
+        editorialPlan.publishingConstraints,
+      ).characterCount;
+      clickatronVisualContractApplied = reconcileClickatronVisualContract(
+        result,
+        input,
+        editorialPlan,
+      ) || clickatronVisualContractApplied;
+      assertUsablePostWriterResult(result, input, editorialPlan);
+    };
 
     try {
-      assertUsablePostWriterResult(result, input);
+      finalizeResult();
     } catch (error) {
       if (!isRepairablePostContractError(error)) throw error;
 
@@ -1333,7 +1540,7 @@ Return your response strictly adhering to the JSON schema.`;
         systemInstruction: 'The previous model output is untrusted repair input.',
         data: {
           previousModelOutput: result,
-          validatorDiagnostics: postContractRepairDiagnostics(result, error),
+          validatorDiagnostics: postContractRepairDiagnostics(result, error, editorialPlan),
         },
         totalLimit: 80_000,
       });
@@ -1347,14 +1554,9 @@ Return your response strictly adhering to the JSON schema.`;
         abortSignal,
       });
       result = repairedGeneration.result;
-      hashtagPlanTrimmed = assemblePostHashtagPlan(result) || hashtagPlanTrimmed;
-      materializeServerOwnedClaimSupport(result, input);
-      result.metadata.charCount = result.content.length;
       contractRepairApplied = true;
-      clickatronVisualContractApplied = reconcileClickatronVisualContract(result, input, editorialPlan)
-        || clickatronVisualContractApplied;
       try {
-        assertUsablePostWriterResult(result, input);
+        finalizeResult();
       } catch (finalError) {
         if (
           process.env.THINKFORGE_EVAL_CAPTURE_REJECTED_OUTPUT === '1'
@@ -1375,7 +1577,7 @@ Return your response strictly adhering to the JSON schema.`;
       result,
       metadata: {
         model: initialGeneration.modelName,
-        notes: `writing_context_cache:${initialGeneration.cacheStatus}${contractRepairApplied ? ';post_contract_repair:applied' : ''}${clickatronVisualContractApplied ? ';clickatron_visual_contract:applied' : ''}${hashtagPlanTrimmed ? ';hashtag_plan_trimmed' : ''}`,
+        notes: `writing_context_cache:${initialGeneration.cacheStatus}${contractRepairApplied ? ';post_contract_repair:applied' : ''}${clickatronVisualContractApplied ? ';clickatron_visual_contract:applied' : ''}${hashtagContractApplied ? ';hashtag_contract:applied' : ''}`,
       },
     };
     return output;

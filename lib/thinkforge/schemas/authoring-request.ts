@@ -6,6 +6,8 @@ import {
 
 export const THINKFORGE_AUTHORING_REQUEST_VERSION = 1;
 export const THINKFORGE_POST_CONTROLS_VERSION = 1;
+export const THINKFORGE_POST_HASHTAG_MAX = 30;
+export const THINKFORGE_RESTRAINED_EMOJI_MAX = 2;
 
 export const THINKFORGE_PLATFORM_SURFACE_IDS = [
   'linkedin',
@@ -70,7 +72,7 @@ const ThinkForgeHashtagControlSchema = z.object({
       .min(1)
       .max(100)
       .regex(/^#[\p{L}\p{M}\p{N}_]+$/u, 'exact hashtags must start with # and contain only letters, marks, numbers, or underscores'),
-  ).max(30).optional(),
+  ).max(THINKFORGE_POST_HASHTAG_MAX).optional(),
 }).superRefine((control, ctx) => {
   if (control.preference === 'exact' && (!control.values || control.values.length === 0)) {
     ctx.addIssue({
