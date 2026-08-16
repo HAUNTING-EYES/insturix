@@ -135,6 +135,7 @@ export interface TechniqueResult {
   why?: string;
   example?: string;
   whenToUse?: string;
+  sourceLines: [number, number];
 }
 
 export type QualityStatus = 'pass' | 'review' | 'below_standard' | 'reject';
@@ -411,6 +412,7 @@ export function selectTechniques(
         why: technique.why,
         example: technique.example,
         whenToUse: technique.whenToUse,
+        sourceLines: technique.sourceLines,
       });
     }
   }
@@ -589,4 +591,11 @@ export function getPlatform(name: string): PlatformSpec | null {
 export function getVersion(): string {
   const index = loadWritingGraph();
   return index.version;
+}
+
+export function getWritingKnowledgeIdentity(): { version: string; source: string } {
+  return {
+    version: WRITING_KNOWLEDGE_DATA.version,
+    source: WRITING_KNOWLEDGE_DATA.source,
+  };
 }

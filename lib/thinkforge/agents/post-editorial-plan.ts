@@ -41,6 +41,7 @@ export interface PostTechniqueDirective {
   id: string;
   guidance: string;
   avoid: string[];
+  sourceLines: [number, number];
 }
 
 /**
@@ -138,13 +139,14 @@ function classifyEditorialShape(
 }
 
 function toDirective(
-  technique: Pick<TechniqueResult | TechniqueCard, 'id' | 'primary' | 'antiPatterns'> | undefined,
+  technique: Pick<TechniqueResult | TechniqueCard, 'id' | 'primary' | 'antiPatterns' | 'sourceLines'> | undefined,
 ): PostTechniqueDirective | undefined {
   if (!technique?.primary) return undefined;
   return {
     id: technique.id,
     guidance: technique.primary,
     avoid: technique.antiPatterns ?? [],
+    sourceLines: technique.sourceLines,
   };
 }
 

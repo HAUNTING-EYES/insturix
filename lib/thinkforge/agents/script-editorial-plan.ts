@@ -16,6 +16,7 @@ export interface ScriptTechniqueDirective {
   id: string;
   guidance: string;
   avoid: string[];
+  sourceLines: [number, number];
 }
 
 export type ScriptRuntimePlan =
@@ -120,6 +121,7 @@ function directive(technique: TechniqueResult | undefined): ScriptTechniqueDirec
     id: technique.id,
     guidance: technique.primary,
     avoid: technique.antiPatterns ?? [],
+    sourceLines: technique.sourceLines,
   };
 }
 
