@@ -1,5 +1,11 @@
 import { z } from 'zod';
 import type { RetrievedContext, SemanticFact } from '../context';
+import {
+  hasUnicodeFactualMarker,
+  isSubstantiveUnicodeToken,
+  normalizeUnicodeText,
+  unicodeLexicalTokens,
+} from '../text/unicode-text';
 
 export const SOURCE_LEDGER_VERSION = 1 as const;
 
@@ -95,8 +101,7 @@ interface MinimalNarrativeSidecarSourceCarrier {
   }>;
 }
 
-const MAX_BRIEF_CHARS = 1200;
-const MAX_FACT_CHARS = 900;
+const MAX_SOURCE_TEXT_CHARS = 12_000;
 
 const TOKEN_STOP_WORDS = new Set([
   'about',
@@ -124,8 +129,6 @@ const TOKEN_STOP_WORDS = new Set([
   'your',
 ]);
 
-const STRICT_FACT_PATTERN = /(?:https?:\/\/\S+|(?:\$|rs\.?|inr|usd|eur|gbp)\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:%|percent|x|k|m|b|am|pm|hours?|days?|weeks?|months?|years?)\b|\b\d{1,2}:\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b)/i;
-
 function cleanText(value: unknown, maxChars: number): string {
   return String(value ?? '')
     .replace(/\s+/g, ' ')
@@ -150,7 +153,7 @@ function factEntry(
     referenceId,
     kind,
     title: cleanText(fact.title || fact.id || referenceId, 160) || referenceId,
-    summary: cleanText(fact.summary || fact.title || fact.id || referenceId, MAX_FACT_CHARS) || referenceId,
+    summary: cleanText(fact.summary || fact.title || fact.id || referenceId, MAX_SOURCE_TEXT_CHARS) || referenceId,
     sourceId: cleanText(fact.id, 160) || referenceId,
     ...(fact.source ? { sourceUrl: cleanText(fact.source, 500) } : {}),
     confidence: kind === 'project_fact' ? 0.95 : 0.85,
@@ -167,7 +170,7 @@ export function parseSourceLedger(input: unknown): SourceLedger {
 
 export function buildThinkForgeSourceLedger(input: BuildThinkForgeSourceLedgerInput): SourceLedger {
   const entries: SourceLedgerEntry[] = [];
-  const userBrief = cleanText(input.userPrompt, MAX_BRIEF_CHARS);
+  const userBrief = cleanText(input.userPrompt, MAX_SOURCE_TEXT_CHARS);
   if (userBrief) {
     entries.push({
       referenceId: 'brief_user',
@@ -182,11 +185,28 @@ export function buildThinkForgeSourceLedger(input: BuildThinkForgeSourceLedgerIn
     });
   }
 
-  const maxFactEntries = input.maxFactEntries ?? 12;
+  const availableFactSlots = 80 - entries.length;
+  const requestedFactEntries = input.maxFactEntries ?? availableFactSlots;
+  if (!Number.isInteger(requestedFactEntries) || requestedFactEntries < 0) {
+    throw new Error('ThinkForge source ledger maxFactEntries must be a non-negative integer');
+  }
+
+  const promptTokens = tokenSet(input.userPrompt);
   const facts = [
     ...(input.retrievedContext?.projectFacts ?? []).map((fact) => ({ fact, kind: 'project_fact' as const })),
     ...(input.retrievedContext?.globalFacts ?? []).map((fact) => ({ fact, kind: 'global_fact' as const })),
-  ].slice(0, maxFactEntries);
+  ]
+    .map((candidate, originalIndex) => ({
+      ...candidate,
+      originalIndex,
+      relevance: tokenOverlapCount(promptTokens, tokenSet(`${candidate.fact.title} ${candidate.fact.summary}`)),
+    }))
+    .sort((left, right) => (
+      right.relevance - left.relevance
+      || Number(right.kind === 'project_fact') - Number(left.kind === 'project_fact')
+      || left.originalIndex - right.originalIndex
+    ))
+    .slice(0, Math.min(requestedFactEntries, availableFactSlots));
 
   facts.forEach(({ fact, kind }, index) => {
     entries.push(factEntry(fact, kind, `source_${index + 1}`, input));
@@ -234,32 +254,39 @@ function addInvalidRefs(
 }
 
 function tokenSet(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, ' ')
-      .split(/\s+/)
-      .filter((token) => token.length >= 5 && !TOKEN_STOP_WORDS.has(token)),
-  );
+  return new Set(unicodeLexicalTokens(text)
+    .filter((token) => isSubstantiveUnicodeToken(token) && !TOKEN_STOP_WORDS.has(token)));
+}
+
+function tokenOverlapCount(left: Set<string>, right: Set<string>): number {
+  let overlap = 0;
+  for (const token of left) {
+    if (right.has(token)) overlap += 1;
+  }
+  return overlap;
 }
 
 function overlapsEntry(text: string, entry: SourceLedgerEntry): boolean {
-  if (entry.kind === 'user_brief') return false;
+  const normalizedText = normalizeUnicodeText(text);
+  const normalizedSource = normalizeUnicodeText(`${entry.title} ${entry.summary}`);
+  if (
+    normalizedText.length >= 4
+    && normalizedSource.length >= 4
+    && (normalizedText.includes(normalizedSource) || normalizedSource.includes(normalizedText))
+  ) {
+    return true;
+  }
+
   const textTokens = tokenSet(text);
   if (textTokens.size === 0) return false;
   const sourceTokens = tokenSet(`${entry.title} ${entry.summary}`);
-  let overlap = 0;
-  for (const token of sourceTokens) {
-    if (textTokens.has(token)) overlap += 1;
-    if (overlap >= 2) return true;
-  }
-  return false;
+  return tokenOverlapCount(textTokens, sourceTokens) >= 2;
 }
 
 function requiresSourceRef(text: string, ledger: SourceLedger): boolean {
   const normalized = cleanText(text, 4000);
   if (!normalized) return false;
-  if (STRICT_FACT_PATTERN.test(normalized)) return true;
+  if (hasUnicodeFactualMarker(normalized)) return true;
   return ledger.entries.some((entry) => overlapsEntry(normalized, entry));
 }
 

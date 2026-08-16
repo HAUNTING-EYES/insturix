@@ -24,6 +24,15 @@ import {
   THINKFORGE_POST_HASHTAG_MAX,
   THINKFORGE_RESTRAINED_EMOJI_MAX,
 } from '../schemas/authoring-request';
+import {
+  countUnicodeWords,
+  hasUnicodeFactualMarker,
+  isSubstantiveUnicodeToken,
+  isUnicodeQuestion,
+  normalizeUnicodeText,
+  segmentUnicodeSentences,
+  unicodeLexicalTokens,
+} from '../text/unicode-text';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
@@ -40,7 +49,7 @@ export const PostWriterResultSchema = z.object({
       sourceRef: z.string().min(1).max(120).describe('An authorized source ID listed in tf_untrusted_data.claimSources'),
       sourceExcerpt: z.string().min(1).max(1200).optional().describe('Server-owned audit evidence resolved from sourceRef. Do not invent this field.'),
       relationship: z.enum(['verbatim', 'paraphrase', 'bounded_implication']).describe('How the sentence relates to the cited source excerpt'),
-    })).max(24).optional().describe('Hidden factual-support ledger. Required for every substantive declarative sentence when the editorial plan is source-only or evidence-thin.'),
+    })).optional().describe('Hidden factual-support ledger. Required for every factual sentence, and for every substantive declarative sentence when the editorial plan is source-only or evidence-thin.'),
   }),
   clickatron: z.object({
     singleImagePrompt: z.string().optional().describe('A visual-only prompt for one Clickatron raster background. Describe concrete scene, composition, props, lighting, style, mood, and safe zones. Never include readable copy, text-overlay instructions, logos, watermarks, or legible UI labels.'),
@@ -133,7 +142,7 @@ const SOURCE_ONLY_NON_FACTUAL_ACTION_PATTERN =
   /^(?:please\s+)?(?:save|share)\s+(?:this|the)\s+(?:post|caption|guide|date)\b|^(?:guarda|comparte)\s+(?:este|esta|el|la)\s+(?:post|publicacion|guia|fecha)\b/i;
 
 const PURE_ACTION_SENTENCE_PATTERN =
-  /^(?:please\s+)?(?:apply|ask|book|buy|call|claim|comment|compare|contact|dm|donate|download|get|join|keep|learn|map|message|pick|register|reply|repost|reserve|route|save|schedule|send|share|shop|sign\s+up|tag|try|visit|watch)\b|^(?:aplica|comenta|comparte|compara|consulta|descarga|envia|guarda|inscribete|mapea|pregunta|registra|reserva|visita)\b/i;
+  /^(?:please\s+)?(?:apply|ask|book|buy|call|claim|comment|compare|contact|dm|donate|download|get|join|keep|learn|map|message|pick|read|register|reply|repost|reserve|route|save|schedule|send|share|shop|sign\s+up|tag|try|visit|watch)\b|^(?:aplica|comenta|comparte|compara|consulta|descarga|envia|guarda|inscribete|mapea|pregunta|registra|reserva|visita)\b/i;
 
 const BOUNDED_IMPLICATION_MARKER_PATTERN =
   /\b(?:according\s+to|based\s+on|boundary|compare|limited\s+to|measured|not\s+a\s+forecast|pilot|reference|reported|scope|within)\b|\b(?:comparar|limitad[oa]\s+a|medid[oa]|piloto|referencia|segun)\b/i;
@@ -459,7 +468,7 @@ function resolvePostExecutionAnchors(input: PostWriterInput): PostExecutionAncho
   let order = 0;
   for (const source of rankedSources) {
     for (const token of normalizeSourceLanguage(source.value).match(/[\p{L}\p{N}]+/gu) ?? []) {
-      if (/^\d/.test(token) || token.length < 3 || POST_TOPIC_ANCHOR_STOP_WORDS.has(token)) continue;
+      if (/^\p{N}/u.test(token) || token.length < 3 || POST_TOPIC_ANCHOR_STOP_WORDS.has(token)) continue;
       const normalized = sourceCoverageToken(token);
       const current = scores.get(normalized);
       scores.set(normalized, {
@@ -578,9 +587,8 @@ function unsupportedSourceOnlyClaimFamilies(
   if (editorialPlan.sourceBoundary !== 'source_only') return [];
 
   const suppliedContext = normalizeSourceLanguage(getSuppliedPostContext(input));
-  const claimContent = content
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map((sentence) => normalizeSourceLanguage(sentence.trim()))
+  const claimContent = segmentUnicodeSentences(content)
+    .map((sentence) => normalizeSourceLanguage(sentence))
     .filter((sentence) => sentence.length > 0 && !SOURCE_ONLY_NON_FACTUAL_ACTION_PATTERN.test(sentence))
     .join('\n');
   return SOURCE_ONLY_CLAIM_FAMILIES
@@ -589,14 +597,11 @@ function unsupportedSourceOnlyClaimFamilies(
 }
 
 function normalizeSourceLanguage(value: string): string {
-  return value
-    .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
-    .toLocaleLowerCase();
+  return normalizeUnicodeText(value);
 }
 
 function sourceCoverageToken(value: string): string {
-  if (/^\d/.test(value)) return value;
+  if (/^\p{N}/u.test(value)) return value;
   if (value.length > 6 && value.endsWith('ies')) return `${value.slice(0, -3)}y`;
   if (value.length > 6 && value.endsWith('ing')) return value.slice(0, -3);
   if (value.length > 5 && value.endsWith('ed')) return value.slice(0, -2);
@@ -607,10 +612,12 @@ function sourceCoverageToken(value: string): string {
 
 function sourceCoverageTokens(value: string): string[] {
   return [...new Set(
-    normalizeSourceLanguage(value)
-      .match(/[\p{L}\p{N}]+/gu)
-      ?.filter((token) => (token.length >= 4 || /^\d/.test(token)) && !SOURCE_COVERAGE_STOP_WORDS.has(token))
-      .map(sourceCoverageToken) ?? [],
+    unicodeLexicalTokens(value)
+      .filter((token) => (
+        isSubstantiveUnicodeToken(token)
+        && !SOURCE_COVERAGE_STOP_WORDS.has(token)
+      ))
+      .map(sourceCoverageToken),
   )];
 }
 
@@ -633,7 +640,7 @@ function normalizedExtractiveClaimText(value: string): string {
 
 function requiredClaimMaterialAnchors(editorialPlan: PostEditorialPlan): string[] {
   const claimTokens = sourceCoverageTokens(editorialPlan.requiredClaim ?? '');
-  const numericAnchors = claimTokens.filter((token) => /^\d/.test(token));
+  const numericAnchors = claimTokens.filter((token) => /^\p{N}/u.test(token));
   if (numericAnchors.length > 0) return numericAnchors;
 
   return claimTokens.filter((token) => token.length >= 5);
@@ -648,37 +655,61 @@ function hasRequiredClaimMaterialAnchor(
 
   const sentenceTokens = new Set(sourceCoverageTokens(sentence));
   const requiredMatches = anchors.filter((anchor) => sentenceTokens.has(anchor)).length;
-  const requiredMatchCount = anchors.some((anchor) => /^\d/.test(anchor))
+  const requiredMatchCount = anchors.some((anchor) => /^\p{N}/u.test(anchor))
     ? 1
     : Math.min(2, anchors.length);
   return requiredMatches >= requiredMatchCount;
 }
 
 function postContentSentences(content: string): string[] {
-  return content
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map((sentence) => sentence.trim())
+  return segmentUnicodeSentences(content)
     .filter((sentence) => sentence.length > 0 && !HASHTAG_ONLY_LINE_PATTERN.test(sentence));
 }
 
-function requiresClaimSupport(
+function requiresComprehensiveClaimSupport(
   editorialPlan: PostEditorialPlan,
 ): boolean {
   return editorialPlan.sourceBoundary === 'source_only'
     || (editorialPlan.evidenceDensity === 'thin' && Boolean(editorialPlan.requiredClaim));
 }
 
-function claimBearingSentences(content: string): Array<{ sentence: string; index: number }> {
+function sentenceOverlapsAuthorizedSource(
+  sentence: string,
+  sources: Map<string, string>,
+): boolean {
+  const sentenceTokens = new Set(sourceCoverageTokens(sentence));
+  if (sentenceTokens.size === 0) return false;
+
+  return [...sources.values()].some((source) => {
+    const sourceTokens = new Set(sourceCoverageTokens(source));
+    let overlap = 0;
+    for (const token of sentenceTokens) {
+      if (sourceTokens.has(token)) overlap += 1;
+      if (overlap >= 2) return true;
+    }
+    return false;
+  });
+}
+
+function claimBearingSentences(
+  content: string,
+  editorialPlan: PostEditorialPlan,
+  sources: Map<string, string>,
+): Array<{ sentence: string; index: number }> {
+  const comprehensive = requiresComprehensiveClaimSupport(editorialPlan);
   return postContentSentences(content).flatMap((sentence, index) => {
     if (
-      sentence.endsWith('?')
+      isUnicodeQuestion(sentence)
       || PURE_ACTION_SENTENCE_PATTERN.test(normalizeSourceLanguage(sentence))
-      || /https?:\/\/|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?/i.test(sentence)
     ) {
       return [];
     }
 
-    return sourceCoverageTokens(sentence).length >= 2
+    const substantive = sourceCoverageTokens(sentence).length >= 2;
+    const requiresEvidence = comprehensive
+      || hasUnicodeFactualMarker(sentence)
+      || sentenceOverlapsAuthorizedSource(sentence, sources);
+    return substantive && requiresEvidence
       ? [{ sentence, index: index + 1 }]
       : [];
   });
@@ -721,10 +752,7 @@ function sourceExcerptForClaim(sourceText: string, sentence: string): string {
   if (sourceText.length <= 1_200) return sourceText;
 
   const sentenceTokens = new Set(sourceCoverageTokens(sentence));
-  const candidates = sourceText
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map((candidate) => candidate.trim())
-    .filter(Boolean);
+  const candidates = segmentUnicodeSentences(sourceText);
   const bestCandidate = candidates
     .map((candidate, index) => ({
       candidate,
@@ -756,11 +784,10 @@ function claimSupportIssues(
   input: PostWriterInput,
   editorialPlan: PostEditorialPlan,
 ): string[] {
-  if (!requiresClaimSupport(editorialPlan)) return [];
-
   const sources = authorizedClaimSourceMap(input);
   const claimSupport = result.contentAnalysis.claimSupport ?? [];
-  const claimSentences = claimBearingSentences(result.content);
+  const claimSentences = claimBearingSentences(result.content, editorialPlan, sources);
+  if (claimSentences.length === 0 && claimSupport.length === 0) return [];
   const currentSentenceKeys = new Set(claimSentences.map(({ sentence }) => normalizedClaimText(sentence)));
   const staleEntries = claimSupport.some((entry) => !currentSentenceKeys.has(normalizedClaimText(entry.sentence)));
   const issues = staleEntries ? ['claim_support_stale_sentence'] : [];
@@ -857,9 +884,7 @@ function unsupportedSourceOnlySentenceIndexes(
   if (editorialPlan.sourceBoundary !== 'source_only') return [];
 
   const sourceTokens = new Set(sourceCoverageTokens(sourceOnlyEvidenceContext(input)));
-  const sentences = content
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map((sentence) => sentence.trim())
+  const sentences = segmentUnicodeSentences(content)
     .filter((sentence) => sentence.length > 0 && !HASHTAG_ONLY_LINE_PATTERN.test(sentence));
 
   return sentences.flatMap((sentence, index) => {
@@ -895,12 +920,10 @@ function unsupportedThinEvidenceSentenceIndexes(
   }
 
   const sourceTokens = new Set(sourceCoverageTokens(sourceOnlyEvidenceContext(input)));
-  return content
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map((sentence) => sentence.trim())
+  return segmentUnicodeSentences(content)
     .filter((sentence) => sentence.length > 0 && !HASHTAG_ONLY_LINE_PATTERN.test(sentence))
     .flatMap((sentence, index) => {
-      if (sentence.endsWith('?')) return [];
+      if (isUnicodeQuestion(sentence)) return [];
       if (!THIN_EVIDENCE_EXPANSION_PATTERN.test(normalizeSourceLanguage(sentence))) return [];
       const sentenceTokens = sourceCoverageTokens(sentence);
       if (sentenceTokens.length < 4) return [];
@@ -924,9 +947,7 @@ function postContractRepairDiagnostics(
     .split(',')
     .map((code) => code.trim())
     .filter(Boolean);
-  const sentences = result.content
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map((sentence) => sentence.trim())
+  const sentences = segmentUnicodeSentences(result.content)
     .filter((sentence) => sentence.length > 0 && !HASHTAG_ONLY_LINE_PATTERN.test(sentence));
   const hookExcerpt = getPublishableLines(result.content).slice(0, 2).join(' ');
 
@@ -985,7 +1006,7 @@ export function assertUsablePostWriterResult(
   const executionAnchors = resolvePostExecutionAnchors(input);
   const requiredProofMarkers = editorialPlan.hookProofMarkers;
   const lengthContract = resolvePostLengthContract(editorialPlan);
-  const wordCount = content.split(/\s+/).filter(Boolean).length;
+  const wordCount = countUnicodeWords(content);
   const extractedHashtags = extractTrailingHashtags(content);
   const structuredHashtags = validateHashtagPlan(result.hashtags, 'structured_field');
   const trailingHashtags = validateHashtagPlan(extractedHashtags.hashtags, 'content_tail');
@@ -1359,8 +1380,9 @@ SOURCE CATALOG
 - If proof is thin, make the writing specific through only source-supplied audience, workflow, product/category, timing, proof, and scope. Do not invent a pain point, scene, benefit, or operational outcome to create volume. A named audience or season is not evidence of its pain or business impact.
 
 CLAIM-SUPPORT LEDGER
-- When postEditorialPlan.sourceBoundary is source_only, or evidenceDensity is thin and requiredClaim is present, populate contentAnalysis.claimSupport.
-- Add one entry for every substantive declarative sentence in content. Do not add entries for hashtags, questions, or pure action CTAs.
+- Populate contentAnalysis.claimSupport for every factual sentence in every evidence mode.
+- When postEditorialPlan.sourceBoundary is source_only, or evidenceDensity is thin and requiredClaim is present, add one entry for every substantive declarative sentence in content.
+- Do not add entries for hashtags, questions, or pure action CTAs.
 - sentence must be copied exactly from the final content. Return no claimSupport entries for a sentence that is absent from final content.
 - sourceRef must be one of tf_untrusted_data.claimSources[].sourceRef. ThinkForge resolves sourceExcerpt from that authoritative sourceRef after generation; do not invent or summarize source excerpts.
 - Use verbatim for copied claims; a short leading discourse label such as "Specifically," is allowed. When evidenceDensity is thin, a paraphrase cited to brief_user must carry material proof from Required brief claim. Audience, season, topic, or product category alone is not enough. Use bounded_implication only when the sentence explicitly states its measured scope or limitation.
