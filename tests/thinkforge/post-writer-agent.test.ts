@@ -960,7 +960,10 @@ describe('assertUsablePostWriterResult', () => {
         platformSurface: { id: 'x' },
         hashtags: { preference: 'exact', values: exactHashtags },
       }),
-    })).rejects.toThrow(/Exact hashtag plan exceeds the X publishing limit/);
+    })).rejects.toMatchObject({
+      code: 'POST_TARGET_NOT_PUBLISHABLE',
+      message: expect.stringMatching(/Exact hashtag plan exceeds the X publishing limit/),
+    });
     expect(writerMocks.generateStructured).not.toHaveBeenCalled();
   });
 
@@ -1345,6 +1348,20 @@ describe('assertUsablePostWriterResult', () => {
     } catch (error) {
       expect(String(error)).toContain('Post length target exceeds publishing maximum: 5000/3000 characters');
     }
+  });
+
+  it('rejects an impossible word target before making a model call', async () => {
+    const input = flowLedgerInput();
+    input.authoringRequest = postAuthoringRequest({
+      cta: { preference: 'none' },
+      targetLength: { value: 5_000, unit: 'words' },
+    });
+
+    await expect(new PostWriterAgent().runStructured(input)).rejects.toMatchObject({
+      code: 'POST_TARGET_NOT_PUBLISHABLE',
+      message: expect.stringContaining('at least 4500/3000 characters are required'),
+    });
+    expect(writerMocks.generateStructured).not.toHaveBeenCalled();
   });
 
   it('repairs missing source claims and audience labels with a complete replacement object', async () => {

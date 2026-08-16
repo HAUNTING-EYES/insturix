@@ -19,7 +19,10 @@ import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
 import type { SourceLedger } from '../provenance/source-ledger';
 import { buildPostEditorialPlan, type PostEditorialPlan } from './post-editorial-plan';
-import { measureThinkForgePublishableText } from '../signals/publishing-constraints';
+import {
+  assertThinkForgePostTargetFeasible,
+  measureThinkForgePublishableText,
+} from '../signals/publishing-constraints';
 import {
   THINKFORGE_POST_HASHTAG_MAX,
   THINKFORGE_RESTRAINED_EMOJI_MAX,
@@ -331,10 +334,6 @@ function resolvePostLengthContract(
   const targetCharacters = editorialPlan.targetBodyCharacters;
   const targetWords = editorialPlan.targetBodyWords;
 
-  if (targetCharacters !== undefined && publishingMaximum !== undefined && targetCharacters > publishingMaximum) {
-    throw new Error(`Post length target exceeds publishing maximum: ${targetCharacters}/${publishingMaximum} characters`);
-  }
-
   return {
     ...(targetCharacters !== undefined ? {
       targetCharacters,
@@ -399,18 +398,18 @@ function countPostEmoji(value: string): number {
 }
 
 function assertPostEditorialPlanFeasible(editorialPlan: PostEditorialPlan): void {
-  if (editorialPlan.hashtagMode !== 'exact' || editorialPlan.requiredHashtags.length === 0) return;
-  const minimumPublishableText = `x\n\n${editorialPlan.requiredHashtags.join(' ')}`;
-  const measurement = measureThinkForgePublishableText(
-    minimumPublishableText,
-    editorialPlan.publishingConstraints,
-  );
-  if (!measurement.valid) {
-    throw new Error(
-      `Exact hashtag plan exceeds the ${editorialPlan.platform} publishing limit: `
-      + `${measurement.characterCount}/${measurement.maximumCharacters ?? 'unknown'} characters`,
-    );
-  }
+  assertThinkForgePostTargetFeasible({
+    ...(editorialPlan.targetBodyCharacters !== undefined
+      ? { targetCharacters: editorialPlan.targetBodyCharacters }
+      : {}),
+    ...(editorialPlan.targetBodyWords !== undefined
+      ? { targetWords: editorialPlan.targetBodyWords }
+      : {}),
+    ...(editorialPlan.hashtagMode === 'exact'
+      ? { exactHashtags: editorialPlan.requiredHashtags }
+      : {}),
+    tolerance: EXPLICIT_POST_LENGTH_TOLERANCE,
+  }, editorialPlan.publishingConstraints, editorialPlan.platform);
 }
 
 function getPublishableLines(content: string): string[] {
@@ -992,6 +991,7 @@ export function assertUsablePostWriterResult(
   input: PostWriterInput,
   editorialPlan: PostEditorialPlan = resolvePostEditorialPlanForInput(input),
 ): void {
+  assertPostEditorialPlanFeasible(editorialPlan);
   const content = result.content.trim();
   const contentMeasurement = measureThinkForgePublishableText(
     content,

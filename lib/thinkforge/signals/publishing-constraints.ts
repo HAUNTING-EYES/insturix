@@ -10,6 +10,7 @@ import {
 export const THINKFORGE_PUBLISHING_CONSTRAINTS_VERSION = 2;
 export const THINKFORGE_PUBLISHING_POLICY_VERIFIED_AT = '2026-08-16';
 export const THINKFORGE_PUBLISHING_REQUEST_ERROR_CODE = 'PUBLISHING_REQUEST_INCOMPATIBLE';
+export const THINKFORGE_POST_TARGET_ERROR_CODE = 'POST_TARGET_NOT_PUBLISHABLE';
 
 export class ThinkForgePublishingRequestError extends Error {
   readonly code = THINKFORGE_PUBLISHING_REQUEST_ERROR_CODE;
@@ -18,6 +19,22 @@ export class ThinkForgePublishingRequestError extends Error {
     super(message);
     this.name = 'ThinkForgePublishingRequestError';
   }
+}
+
+export class ThinkForgePostTargetError extends Error {
+  readonly code = THINKFORGE_POST_TARGET_ERROR_CODE;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ThinkForgePostTargetError';
+  }
+}
+
+interface ThinkForgePostTargetFeasibilityInput {
+  targetCharacters?: number;
+  targetWords?: number;
+  exactHashtags?: readonly string[];
+  tolerance?: number;
 }
 
 export type ThinkForgePublishingSurface = ThinkForgePublishingSurfaceId | 'unknown';
@@ -173,6 +190,59 @@ export function assertThinkForgePublishingRequestFeasible(
       + `requested ${request.targetDurationSec} seconds`,
     );
   }
+
+  if (!request.postControls) return;
+  const target = request.postControls.targetLength;
+  assertThinkForgePostTargetFeasible({
+    ...(target?.unit === 'characters' ? { targetCharacters: target.value } : {}),
+    ...(target?.unit === 'words' ? { targetWords: target.value } : {}),
+    ...(request.postControls.hashtags.preference === 'exact'
+      ? { exactHashtags: request.postControls.hashtags.values ?? [] }
+      : {}),
+  }, constraints);
+}
+
+export function assertThinkForgePostTargetFeasible(
+  input: ThinkForgePostTargetFeasibilityInput,
+  constraints: ThinkForgePublishingConstraints,
+  platformLabel = constraints.platform,
+): void {
+  const publishingMaximum = constraints.maxCharacters ?? constraints.standardMaxCharacters;
+  if (publishingMaximum === undefined) return;
+
+  if (input.targetCharacters !== undefined && input.targetCharacters > publishingMaximum) {
+    throw new ThinkForgePostTargetError(
+      `Post length target exceeds publishing maximum: ${input.targetCharacters}/${publishingMaximum} characters`,
+    );
+  }
+
+  const exactHashtags = input.exactHashtags ?? [];
+  const hashtagSuffix = exactHashtags.length > 0 ? `\n\n${exactHashtags.join(' ')}` : '';
+  const hashtagCharacters = hashtagSuffix
+    ? measureThinkForgePublishableText(hashtagSuffix, constraints).characterCount
+    : 0;
+  if (1 + hashtagCharacters > publishingMaximum) {
+    throw new ThinkForgePostTargetError(
+      `Exact hashtag plan exceeds the ${platformLabel} publishing limit: `
+      + `${1 + hashtagCharacters}/${publishingMaximum} characters`,
+    );
+  }
+
+  const tolerance = input.tolerance ?? 0.1;
+  const minimumBodyCharacters = input.targetCharacters !== undefined
+    ? Math.floor(input.targetCharacters * (1 - tolerance))
+    : input.targetWords !== undefined
+      ? Math.floor(input.targetWords * (1 - tolerance))
+      : 1;
+  const minimumPublishableCharacters = minimumBodyCharacters + hashtagCharacters;
+  if (minimumPublishableCharacters <= publishingMaximum) return;
+
+  const targetKind = input.targetWords !== undefined ? 'word' : 'character';
+  const hashtagQualifier = hashtagCharacters > 0 ? ' plus exact hashtags' : '';
+  throw new ThinkForgePostTargetError(
+    `Post ${targetKind} target${hashtagQualifier} cannot fit the publishing maximum: at least `
+    + `${minimumPublishableCharacters}/${publishingMaximum} characters are required`,
+  );
 }
 
 /**

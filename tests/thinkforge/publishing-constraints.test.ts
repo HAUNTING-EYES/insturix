@@ -135,6 +135,39 @@ describe('ThinkForge publishing constraints', () => {
     });
   });
 
+  it('proves an impossible LinkedIn word target before generation without assuming a language', () => {
+    const request = createThinkForgeAuthoringRequest({
+      platformSurface: { id: 'linkedin' },
+      publishingSurface: 'linkedin_post',
+      contentContract: createThinkForgeWriterContract('social_post'),
+      postControls: {
+        ...createDefaultThinkForgePostControls(),
+        targetLength: { unit: 'words', value: 5_000 },
+      },
+    });
+
+    expect(() => assertThinkForgePublishingRequestFeasible(request)).toThrowError(
+      expect.objectContaining({ code: 'POST_TARGET_NOT_PUBLISHABLE' }),
+    );
+  });
+
+  it('counts exact hashtags against an explicit body character target', () => {
+    const request = createThinkForgeAuthoringRequest({
+      platformSurface: { id: 'x' },
+      publishingSurface: 'x_post',
+      contentContract: createThinkForgeWriterContract('social_post'),
+      postControls: {
+        ...createDefaultThinkForgePostControls(),
+        targetLength: { unit: 'characters', value: 280 },
+        hashtags: { preference: 'exact', values: ['#campaignlaunch', '#productupdate'] },
+      },
+    });
+
+    expect(() => assertThinkForgePublishingRequestFeasible(request)).toThrowError(
+      expect.objectContaining({ code: 'POST_TARGET_NOT_PUBLISHABLE' }),
+    );
+  });
+
   it('enforces publishing feasibility before either paid ThinkForge entry point', () => {
     const chatRoute = readFileSync('app/api/services/thinkforge/chat/route.ts', 'utf8');
     const ideasRoute = readFileSync('app/api/services/thinkforge/ideas/route.ts', 'utf8');
