@@ -1,4 +1,5 @@
 import type { OutputFormat } from '@/lib/shared/signals';
+import { parseTweet } from 'twitter-text';
 import {
   ThinkForgeAuthoringRequestSchema,
   describeThinkForgePlatformSurface,
@@ -30,6 +31,13 @@ export interface ThinkForgePublishingConstraints extends Record<string, unknown>
   standardMaxCharacters?: number;
   extendedPostsRequireCapability?: boolean;
   maxDurationSeconds?: number;
+}
+
+export interface ThinkForgePublishableTextMeasurement {
+  normalizedText: string;
+  characterCount: number;
+  maximumCharacters?: number;
+  valid: boolean;
 }
 
 function normalizePlatformLabel(value: string): string {
@@ -137,4 +145,45 @@ export function resolveThinkForgePublishingConstraintsForAuthoringRequest(
     resolveTypedPublishingSurface(request),
     outputFormat,
   );
+}
+
+/**
+ * Measures the final publishable text using the counting policy attached to the
+ * resolved publishing surface. X normalizes to NFC and uses twitter-text so
+ * URLs, emoji, CJK, and invalid code points follow X's production semantics.
+ */
+export function measureThinkForgePublishableText(
+  text: string,
+  constraints: ThinkForgePublishingConstraints,
+): ThinkForgePublishableTextMeasurement {
+  const maximumCharacters = constraints.maxCharacters ?? constraints.standardMaxCharacters;
+
+  if (constraints.characterCounting === 'x_weighted') {
+    const normalizedText = text.normalize('NFC');
+    const parsed = parseTweet(normalizedText);
+    return {
+      normalizedText,
+      characterCount: parsed.weightedLength,
+      maximumCharacters,
+      valid: parsed.valid && (
+        maximumCharacters === undefined || parsed.weightedLength <= maximumCharacters
+      ),
+    };
+  }
+
+  if (constraints.characterCounting === 'utf16_code_units_conservative') {
+    return {
+      normalizedText: text,
+      characterCount: text.length,
+      maximumCharacters,
+      valid: maximumCharacters === undefined || text.length <= maximumCharacters,
+    };
+  }
+
+  return {
+    normalizedText: text,
+    characterCount: Array.from(text).length,
+    maximumCharacters,
+    valid: maximumCharacters === undefined || Array.from(text).length <= maximumCharacters,
+  };
 }
