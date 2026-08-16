@@ -8,7 +8,10 @@ import { ChatInput } from "./chat/ChatInput";
 import { ChatHistoryPanel } from "./chat/ChatHistoryPanel";
 import { GenerationProgress } from "./chat/GenerationProgress";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
-import type { ScriptModel } from "@/app/dashboard/thinkforge/hooks/useThinkForgeSession";
+import {
+  scriptModelToUiScript,
+  uiScriptToScriptModel,
+} from "@/app/dashboard/thinkforge/client-script-conversion";
 import type { IdeaCardData, SidecarCardAction } from "@/lib/thinkforge/state/types";
 import { toast } from "@/hooks/use-toast";
 import { extractUrls } from "./PromptPanel";
@@ -118,40 +121,6 @@ function getContextualSuggestions(hasScript: boolean, messageCount: number = 0, 
 
 const STYLE_CORRECTION_RE = /\b(too formal|too casual|punchier|more concise|shorter|longer|simpler|friendlier|serious|tone|less wordy|rewrite|rephrase|sound more|sound less)\b/i;
 
-// Convert Script to ScriptModel format
-function scriptToModel(s: Script | null): ScriptModel | null {
-  if (!s) return null;
-  return {
-    title: s.title || null,
-    content: s.content || null,
-    blocks: Array.isArray((s as any).blocks) && (s as any).blocks.length > 0 ? (s as any).blocks : null,
-    version: (s as any).version,
-    metadata: s.metadata || null,
-  };
-}
-
-// Convert ScriptModel to Script format
-function modelToScript(m: ScriptModel | null): Script | null {
-  if (!m) return null;
-  const title = m.title || "Untitled Script";
-  const content = m.content || "";
-  const paras = content.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  const htmlBody = [`<h1>${title}</h1>`, ...paras.map((p) => `<p>${p}</p>`)].join("\n");
-  return {
-    title,
-    version: (m as any).version,
-    content,
-    body: htmlBody,
-    blocks: Array.isArray(m.blocks) && m.blocks.length > 0 ? (m.blocks as any) : undefined,
-    metadata: m.metadata || undefined,
-    sections: [],
-    tips: [],
-    duration: undefined,
-    targetAudience: undefined,
-    tone: undefined,
-  } as Script;
-}
-
 export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: string) => void }> = ({
   selectedIdea,
   script,
@@ -241,7 +210,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         if (scriptData.metadata) {
           sanitized.metadata = { ...sanitized.metadata, ...scriptData.metadata };
         }
-        const scriptUpdate = modelToScript(sanitized);
+        const scriptUpdate = scriptModelToUiScript(sanitized);
         if (scriptUpdate) {
           onApplyEdit(scriptUpdate);
         }
@@ -288,7 +257,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   );
 
   // Build script payload
-  const scriptPayload = useMemo(() => scriptToModel(script), [script]);
+  const scriptPayload = useMemo(() => uiScriptToScriptModel(script), [script]);
 
   // An initial document draft is created only after an explicit Start Drafting action
   // persists a pending intent on the session. Mounting an old session never creates one.

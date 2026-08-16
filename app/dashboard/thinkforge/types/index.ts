@@ -4,6 +4,7 @@ import type { TiptapJSON } from "@/lib/thinkforge/schemas/tiptap-schema";
 import type { ContentCard } from "@/lib/thinkforge/planning/content-card-contract";
 import type { DocumentType, SidecarCard, SidecarCardAction } from "@/lib/thinkforge/state/types";
 import type { ThinkForgeAuthoringRequest } from "@/lib/thinkforge/schemas/authoring-request";
+import type { ThinkForgeDocumentContract } from "@/lib/thinkforge/schemas/document-contract";
 
 export type { ContentCard, DocumentType, SidecarCard, SidecarCardAction };
 
@@ -36,10 +37,12 @@ export interface Idea {
 }
 
 export interface Script {
-  title?: string;
+  sessionId?: string;
+  title?: string | null;
   version?: number;
   scriptId?: string;
   documentType?: DocumentType;
+  contentContract?: ThinkForgeDocumentContract | Record<string, unknown>;
   originalPrompt?: string;
   duration?: string;
   targetAudience?: string;
@@ -47,9 +50,9 @@ export interface Script {
   // Rich text HTML body for the new editor
   body?: string;
   // Canonical TipTap document from the backend/editor runtime
-  richText?: TiptapJSON;
+  richText?: TiptapJSON | null;
   // Canonical block tree (new canonical format)
-  blocks?: BlockTree | CIRDocument | CIRSection[];
+  blocks?: BlockTree | CIRDocument | CIRSection[] | null;
   // Legacy BlockNote document structure (kept for migration)
   blocksLegacy?: any[];
   sections?: Array<{
@@ -59,9 +62,9 @@ export interface Script {
   }>;
   tips?: string[];
   // Legacy support for scripts that come as simple content string
-  content?: string;
+  content?: string | null;
   // Orchestration metadata from agentic workflow
-  metadata?: {
+  metadata?: (Record<string, any> & {
     workflow?: string;
     thoughts?: string;
     duration_ms?: number;
@@ -80,7 +83,7 @@ export interface Script {
       editedBlocks?: any[];
       originalRange?: { from: number; to: number };
     };
-  };
+  }) | null;
 }
 
 // Script metadata type

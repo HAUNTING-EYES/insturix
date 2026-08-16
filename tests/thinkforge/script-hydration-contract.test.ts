@@ -10,6 +10,10 @@ import {
   resolveThinkForgeGenerationDocumentIntent,
 } from '@/lib/thinkforge/agents/prompt-utils';
 import { sanitizeServerScript } from '@/lib/thinkforge/json';
+import {
+  scriptModelToUiScript,
+  uiScriptToScriptModel,
+} from '@/app/dashboard/thinkforge/client-script-conversion';
 
 function read(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
@@ -51,6 +55,57 @@ describe('ThinkForge script hydration contract', () => {
 
     expect(sanitizeServerScript({ title: 'Partial update' })).not.toHaveProperty('blocks');
     expect(sanitizeServerScript({ title: 'Partial update' })).not.toHaveProperty('sessionId');
+  });
+
+  it('round-trips canonical document fields through the UI without guessing or dropping empty content', () => {
+    const model = sanitizeServerScript({
+      sessionId: 'session_brand_b',
+      scriptId: 'carousel_1',
+      title: null,
+      content: '<script>alert("not markup")</script>',
+      blocks: [],
+      richText: { type: 'doc', content: [] },
+      version: 8,
+      documentType: 'carousel',
+      contentContract: {
+        version: 1,
+        documentKind: 'post',
+        outputKind: 'carousel',
+        artifactType: 'carousel_deck',
+        carouselSlideCount: 5,
+      },
+      metadata: { source: 'ai', workflow: 'create', traceId: 'trace_8' },
+    });
+
+    const uiScript = scriptModelToUiScript(model);
+    expect(uiScript).toMatchObject({
+      sessionId: 'session_brand_b',
+      scriptId: 'carousel_1',
+      title: null,
+      content: '<script>alert("not markup")</script>',
+      blocks: [],
+      richText: { type: 'doc', content: [] },
+      version: 8,
+      documentType: 'carousel',
+      contentContract: model.contentContract,
+      metadata: model.metadata,
+    });
+    expect(uiScript?.body).toContain('&lt;script&gt;');
+    expect(uiScript?.body).not.toContain('<script>');
+    expect(uiScriptToScriptModel(uiScript)).toEqual(model);
+    expect(scriptModelToUiScript({
+      title: null,
+      content: null,
+      blocks: null,
+      richText: null,
+      metadata: null,
+    })).toEqual({
+      title: null,
+      content: null,
+      blocks: null,
+      richText: null,
+      metadata: null,
+    });
   });
 
   it('hydrates every server-owned document field without inventing a document type', () => {
@@ -202,6 +257,10 @@ describe('ThinkForge script hydration contract', () => {
     expect(chatPanel).toContain('onRemoteScriptUpdate: handleScriptUpdate');
     expect(chatPanel).toContain('getActiveScriptId: () => scriptIdRef.current');
     expect(chatPanel).not.toContain('onScriptUpdate: handleScriptUpdate');
+    expect(chatPanel).not.toContain('function modelToScript');
+    expect(chatPanel).not.toContain('function scriptToModel');
+    expect(page).not.toContain('const modelToScript');
+    expect(page).not.toContain('const scriptToModel');
     expect(chatPanel).not.toContain('[ChatPanel.handleSend]');
     expect(page).toContain("const isRemoteAiUpdate = metadata.source === 'ai';");
     expect(page).toContain('scriptHook.setScriptWithoutSave(model);');

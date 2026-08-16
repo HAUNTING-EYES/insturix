@@ -12,7 +12,10 @@ import { BackgroundDecor } from "@/components/dashboard/ThinkForge/BackgroundDec
 import { Script } from "@/app/dashboard/thinkforge/types";
 import { useThinkForgeSession } from "./hooks/useThinkForgeSession";
 import { useThinkForgeScript } from "./hooks/useThinkForgeScript";
-import { ScriptModel } from "./hooks/useThinkForgeSession";
+import {
+	scriptModelToUiScript,
+	uiScriptToScriptModel,
+} from "./client-script-conversion";
 import Dock from "@/components/dashboard/ThinkForge/Dock";
 import { WorkspaceMode } from "@/components/dashboard/ThinkForge/ModeSwitcher";
 import IdeationMode from "@/components/dashboard/ThinkForge/IdeationMode";
@@ -768,41 +771,15 @@ export default function ThinkForgeLanding() {
 		}
 	}, [workspaceMode]);
 
-	// Map between hook ScriptModel and UI Script
-	const modelToScript = useCallback((m: ScriptModel | null): Script | null => {
-		if (!m) return null;
-		const title = m.title || 'Untitled Script';
-		const content = m.content || '';
-		const paras = content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
-		const htmlBody = [`<h1>${title}</h1>`, ...paras.map(p => `<p>${p}</p>`)].join('\n');
-		const script: Script = {
-			title,
-			version: m.version,
-			content,
-			body: htmlBody,
-			blocks: Array.isArray(m.blocks) && m.blocks.length > 0 ? (m.blocks as any) : undefined,
-			metadata: m.metadata || undefined,
-			sections: [], tips: [], duration: undefined, targetAudience: undefined, tone: undefined
-		} as Script;
-		return script;
-	}, []);
-
-	const scriptFromHook: Script | null = useMemo(() => modelToScript(scriptHook.script), [scriptHook.script, modelToScript]);
-
-	const scriptToModel = useCallback((s: Script): ScriptModel => {
-		const model: ScriptModel = {
-			title: s.title,
-			content: s.content || '',
-			blocks: Array.isArray((s as any).blocks) && (s as any).blocks.length > 0 ? (s as any).blocks : null,
-			version: (s as any).version,
-			metadata: s.metadata || null,
-		};
-		return model;
-	}, []);
+	const scriptFromHook: Script | null = useMemo(
+		() => scriptModelToUiScript(scriptHook.script),
+		[scriptHook.script],
+	);
 
 	// Handlers using autosave hook
 	const handleApplyEdit = useCallback((updated: Script) => {
-		const model = scriptToModel(updated);
+		const model = uiScriptToScriptModel(updated);
+		if (!model) return;
 		const metadata = ((updated as any).metadata || {}) as Record<string, unknown>;
 		const isRemoteAiUpdate = metadata.source === 'ai';
 		if (isRemoteAiUpdate) {
@@ -810,7 +787,7 @@ export default function ThinkForgeLanding() {
 			return;
 		}
 		scriptHook.setScriptAndQueueSave(model);
-	}, [scriptHook, scriptToModel]);
+	}, [scriptHook]);
 
 	// Handle script updates from ScriptEditor
 	// NOTE: ScriptEditor already saves to backend via /script/blocks endpoint
@@ -819,8 +796,10 @@ export default function ThinkForgeLanding() {
 		if (!updated) return;
 		// Use setScriptWithoutSave to update state without triggering another save
 		// ScriptEditor handles all persistence directly
-		scriptHook.setScriptWithoutSave(scriptToModel(updated));
-	}, [scriptHook, scriptToModel]);
+		const model = uiScriptToScriptModel(updated);
+		if (!model) return;
+		scriptHook.setScriptWithoutSave(model);
+	}, [scriptHook]);
 
 	// Dock items for ThinkForge features
 	const dockItems = [
