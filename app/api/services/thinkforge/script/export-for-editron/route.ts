@@ -26,6 +26,7 @@ import { extractPlainText, isTiptapJSON } from '@/lib/thinkforge/schemas/tiptap-
 import {
   buildThinkForgeEditronHandoffContext,
   mapScriptSidecarToEditronExport,
+  ThinkForgeSidecarCompilationError,
   type ThinkForgeEditronHandoffContext,
   type ScriptSidecarEditronExport,
 } from '@/lib/thinkforge/export/script-sidecar-to-editron';
@@ -51,6 +52,7 @@ interface ExportSource {
   title: string;
   scenePreview: SceneDescriptor[];
   sidecarExport?: ScriptSidecarEditronExport;
+  sidecarCompilationError?: ThinkForgeSidecarCompilationError;
   thinkforgeContext?: ThinkForgeEditronHandoffContext;
 }
 
@@ -236,6 +238,17 @@ function buildStoredScriptSource(
     };
   } catch (error) {
     if (error instanceof ThinkForgeAuthoringProvenanceError) throw error;
+    if (error instanceof ThinkForgeSidecarCompilationError && error.claimedVersion === 2) {
+      console.error('[export-for-editron] Stored V2 sidecar failed compilation', {
+        code: error.code,
+        claimedVersion: error.claimedVersion,
+      });
+      return {
+        ...storedSource,
+        sidecarCompilationError: error,
+        ...(authoringProvenanceContext ? { thinkforgeContext: authoringProvenanceContext } : {}),
+      };
+    }
     console.warn('[export-for-editron] Ignoring an invalid persisted script sidecar');
     return authoringProvenanceContext
       ? { ...storedSource, thinkforgeContext: authoringProvenanceContext }
@@ -357,6 +370,7 @@ export async function POST(request: NextRequest) {
       : storedSource && exportContentMatches(requestSource.rawContent, storedSource.rawContent)
         ? storedSource
         : undefined;
+    if (sidecarSource?.sidecarCompilationError) throw sidecarSource.sidecarCompilationError;
     const sidecarExport = sidecarSource?.sidecarExport;
     const thinkforgeContext = sidecarSource?.thinkforgeContext;
 
@@ -667,6 +681,21 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('[export-for-editron] Error:', error);
+    if (error instanceof ThinkForgeSidecarCompilationError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'The saved script production contract is invalid and cannot be exported safely.',
+          reason: 'invalid-script-sidecar',
+          retryable: false,
+          diagnostic: {
+            code: error.code,
+            claimedSidecarVersion: error.claimedVersion,
+          },
+        },
+        { status: 422 },
+      );
+    }
     return NextResponse.json(
       { success: false, error: error.message || 'Failed to export script' },
       { status: 500 },

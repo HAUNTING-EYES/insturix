@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { adaptScriptSidecarV1 } from '@/lib/thinkforge/schemas/script-sidecar-v1-adapter';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -10,7 +11,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
 vi.mock('@/lib/pipeline/llm-scene-parser', () => ({
-  LLM_SCENE_PARSER_MAX_INPUT_CHARS: 24_000,
   isLLMParserAvailable: mocks.isLLMParserAvailable,
   parseScriptWithLLM: mocks.parseScriptWithLLM,
 }));
@@ -326,7 +326,7 @@ describe('export-for-editron route', () => {
       sidecarVersion: 1,
       sidecarSource: 'stored-script',
     });
-    expect(payload.productionManifest.thinkforgeContext).toEqual({
+    expect(payload.productionManifest.thinkforgeContext).toMatchObject({
       version: 1,
       authoringProvenance: {
         version: 1,
@@ -344,6 +344,23 @@ describe('export-for-editron route', () => {
       }),
       sourceLedger: expect.objectContaining({ ledgerVersion: 1 }),
       sidecarSourceRefs: ['brief_user'],
+      sidecarCompilation: {
+        version: 1,
+        sourceSidecarVersion: 1,
+        canonicalSidecarVersion: 2,
+        spokenTextSource: 'beat-lines',
+        narrativeSidecar: expect.objectContaining({ sidecarVersion: 2 }),
+        sceneBindings: [{
+          sceneIndex: 0,
+          actId: 'act_1',
+          narrativeSceneId: 'scene_1',
+          beatIds: ['beat_1_1'],
+          lineIds: ['line_1_1'],
+          sourceRefs: ['brief_user'],
+          renderSegmentIds: ['render_segment_1_1'],
+          durationSource: 'legacy-v1',
+        }],
+      },
       avatarDirectives: [{
         sceneIndex: 0,
         durationSeconds: 8,
@@ -537,6 +554,101 @@ describe('export-for-editron route', () => {
       rawContentLength: 24_001,
       maxParserInputChars: 24_000,
     }));
+    expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
+  });
+
+  it('fails closed instead of reparsing an unchanged document with an invalid claimed V2 sidecar', async () => {
+    const savedBlocks = [
+      block('blk_v2_title', 'header', 'Invalid V2 contract'),
+      block('blk_v2_body', 'paragraph', 'This exact saved document must not fall through to prose parsing.'),
+    ];
+    mocks.getSession.mockResolvedValue({ _id: 'tf_session_invalid_v2', userId: 'user_1' });
+    mocks.getScript.mockResolvedValue({
+      _id: 'script_doc_invalid_v2',
+      sessionId: 'tf_session_invalid_v2',
+      scriptId: 'script_invalid_v2',
+      title: 'Invalid V2 contract',
+      content: '',
+      blocks: savedBlocks,
+      metadata: {
+        writerOutput: {
+          writerType: 'script',
+          scriptSidecar: {
+            sidecarVersion: 2,
+            spokenTextSource: 'beat-lines',
+            characters: [],
+            acts: [],
+            sourceRefs: [],
+          },
+        },
+      },
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_invalid_v2',
+      scriptId: 'script_invalid_v2',
+      blocks: savedBlocks,
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(payload).toMatchObject({
+      success: false,
+      reason: 'invalid-script-sidecar',
+      retryable: false,
+      diagnostic: {
+        code: 'invalid-sidecar',
+        claimedSidecarVersion: 2,
+      },
+    });
+    expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
+  });
+
+  it('uses a valid claimed V2 sidecar and transports its normalized narrative hierarchy', async () => {
+    const savedBlocks = [
+      block('blk_v2_valid_title', 'header', 'Same-pass Scene'),
+      block('blk_v2_valid_body', 'paragraph', 'The workflow is clear from the first frame.'),
+    ];
+    const v2 = adaptScriptSidecarV1(scriptSidecar()).sidecar;
+    mocks.getSession.mockResolvedValue({ _id: 'tf_session_valid_v2', userId: 'user_1' });
+    mocks.getScript.mockResolvedValue({
+      _id: 'script_doc_valid_v2',
+      sessionId: 'tf_session_valid_v2',
+      scriptId: 'script_valid_v2',
+      title: 'Same-pass Scene',
+      content: '',
+      blocks: savedBlocks,
+      metadata: { writerOutput: { writerType: 'script', scriptSidecar: v2 } },
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_valid_v2',
+      scriptId: 'script_valid_v2',
+      blocks: savedBlocks,
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.productionManifest.parser).toMatchObject({
+      sidecarUsed: true,
+      sidecarVersion: 2,
+    });
+    expect(payload.productionManifest.thinkforgeContext.sidecarCompilation).toMatchObject({
+      sourceSidecarVersion: 2,
+      canonicalSidecarVersion: 2,
+      narrativeSidecar: {
+        acts: [{
+          id: 'act_1',
+          narrativeScenes: [{
+            id: 'scene_1',
+            beats: [{ id: 'beat_1_1' }],
+          }],
+        }],
+      },
+    });
+    expect(payload.scenes).toHaveLength(1);
     expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
   });
 });
