@@ -4,6 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, Search, TrendingUp, X } from "lucide-react";
 import type { SelectedTrend } from "@/lib/thinkforge/trends/selected-trend";
 import type { TrendCandidate, TrendPlatform } from "@/lib/thinkforge/trends/trend-evidence";
+import {
+  describeThinkForgeAuthoringDeliverable,
+  type ThinkForgeAuthoringRequest,
+} from "@/lib/thinkforge/schemas/authoring-request";
+import {
+  createThinkForgeAuthoringRequestDraft,
+  resolveThinkForgeAuthoringRequestDraft,
+} from "@/lib/thinkforge/schemas/authoring-request-draft";
+import { AuthoringRequestControls } from "./AuthoringRequestControls";
 
 export type TrendTarget = "post" | "script";
 type WorkflowStage = "discover" | "select" | "source" | "analyzing" | "ready";
@@ -12,10 +21,10 @@ type TrendIntakeMode = "discover" | "link";
 interface TrendWorkflowPanelProps {
   open: boolean;
   sessionId: string | null | undefined;
-  initialTarget?: TrendTarget;
+  initialAuthoringRequest?: ThinkForgeAuthoringRequest | null;
   onClose: () => void;
-  onEnsureSession?: (candidate: TrendCandidate, target: TrendTarget) => Promise<string | null>;
-  onGenerate: (prompt: string, sessionId: string, target: TrendTarget, selectedTrend: SelectedTrend) => void;
+  onEnsureSession?: (candidate: TrendCandidate, authoringRequest: ThinkForgeAuthoringRequest) => Promise<string | null>;
+  onGenerate: (prompt: string, sessionId: string, target: TrendTarget, selectedTrend: SelectedTrend, authoringRequest: ThinkForgeAuthoringRequest) => void;
 }
 
 const PLATFORM_OPTIONS: Array<{ value: "all" | TrendPlatform; label: string }> = [
@@ -36,6 +45,23 @@ export function defaultTrendReferenceVideoUrl(candidate?: TrendCandidate): strin
   return candidate?.nextAction === "analyze_reference_video" ? firstSourceUrl(candidate) : "";
 }
 
+export function trendTargetForAuthoringRequest(request: ThinkForgeAuthoringRequest): TrendTarget {
+  return request.contentContract.outputKind === 'video_script' ? 'script' : 'post';
+}
+
+export function buildTrendSelectionPayload(
+  sessionId: string,
+  candidate: TrendCandidate,
+  authoringRequest: ThinkForgeAuthoringRequest,
+) {
+  return {
+    sessionId,
+    candidate,
+    target: trendTargetForAuthoringRequest(authoringRequest),
+    authoringRequest,
+  } as const;
+}
+
 async function readJsonResponse(response: Response): Promise<any> {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -44,11 +70,11 @@ async function readJsonResponse(response: Response): Promise<any> {
   return payload;
 }
 
-export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", onClose, onEnsureSession, onGenerate }: TrendWorkflowPanelProps) {
+export function TrendWorkflowPanel({ open, sessionId, initialAuthoringRequest, onClose, onEnsureSession, onGenerate }: TrendWorkflowPanelProps) {
   const [niche, setNiche] = useState("");
   const [intakeMode, setIntakeMode] = useState<TrendIntakeMode>("discover");
   const [platform, setPlatform] = useState<"all" | TrendPlatform>("all");
-  const [target, setTarget] = useState<TrendTarget>(initialTarget);
+  const [requestDraft, setRequestDraft] = useState(() => createThinkForgeAuthoringRequestDraft(initialAuthoringRequest));
   const [referenceVideoUrl, setReferenceVideoUrl] = useState("");
   const [candidates, setCandidates] = useState<TrendCandidate[]>([]);
   const [selectedTrend, setSelectedTrend] = useState<SelectedTrend | null>(null);
@@ -66,7 +92,8 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
     setCandidates([]);
     setProvider(null);
     setError(null);
-  }, [open, sessionId]);
+    setRequestDraft(createThinkForgeAuthoringRequestDraft(initialAuthoringRequest));
+  }, [open, sessionId, initialAuthoringRequest]);
 
   useEffect(() => {
     if (!open) return;
@@ -91,10 +118,11 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
         setSelectedTrend(restored);
         setNiche(restored.candidate.title);
         setReferenceVideoUrl(defaultTrendReferenceVideoUrl(restored.candidate));
-        setTarget(restored.target === "calendar" ? "post" : restored.target);
         setStage(restored.analysis?.status === "completed" ? "ready" : restored.analysis?.status === "queued" ? "analyzing" : "source");
       })
-      .catch(() => {});
+      .catch((statusError) => {
+        if (!cancelled) setError(statusError instanceof Error ? statusError.message : "Could not restore trend status.");
+      });
     return () => { cancelled = true; };
   }, [open, workflowSessionId]);
 
@@ -144,6 +172,15 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
 
   if (!open) return null;
 
+  const resolveAuthoringRequest = (): ThinkForgeAuthoringRequest | null => {
+    const result = resolveThinkForgeAuthoringRequestDraft(requestDraft);
+    if (!result.success) {
+      setError(result.error);
+      return null;
+    }
+    return result.request;
+  };
+
   const discover = async () => {
     if (niche.trim().length < 2) {
       setError("Enter a public niche, such as B2B SaaS, recruiting, or skincare.");
@@ -172,10 +209,12 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
   };
 
   const selectCandidate = async (candidate: TrendCandidate) => {
+    const authoringRequest = resolveAuthoringRequest();
+    if (!authoringRequest) return;
     setBusy(true);
     setError(null);
     try {
-      const resolvedSessionId = workflowSessionId || await onEnsureSession?.(candidate, target) || null;
+      const resolvedSessionId = workflowSessionId || await onEnsureSession?.(candidate, authoringRequest) || null;
       if (!resolvedSessionId) {
         setError("ThinkForge could not create a session for this trend. Please try again.");
         return;
@@ -184,7 +223,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
       const payload = await readJsonResponse(await fetch("/api/services/thinkforge/trends/select", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: resolvedSessionId, candidate, target }),
+        body: JSON.stringify(buildTrendSelectionPayload(resolvedSessionId, candidate, authoringRequest)),
       }));
       const persistedTrend = payload.selectedTrend as SelectedTrend;
       setSelectedTrend(persistedTrend);
@@ -213,6 +252,8 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
       setError("Add a YouTube link or direct public video URL.");
       return;
     }
+    const authoringRequest = resolveAuthoringRequest();
+    if (!authoringRequest) return;
     setBusy(true);
     setError(null);
     let selectionPersisted = false;
@@ -226,7 +267,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
         }),
       }));
       const candidate = referencePayload.candidate as TrendCandidate;
-      const resolvedSessionId = workflowSessionId || await onEnsureSession?.(candidate, target) || null;
+      const resolvedSessionId = workflowSessionId || await onEnsureSession?.(candidate, authoringRequest) || null;
       if (!resolvedSessionId) {
         setError("ThinkForge could not create a session for this trend. Please try again.");
         return;
@@ -235,7 +276,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
       const payload = await readJsonResponse(await fetch("/api/services/thinkforge/trends/select", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: resolvedSessionId, candidate, target }),
+        body: JSON.stringify(buildTrendSelectionPayload(resolvedSessionId, candidate, authoringRequest)),
       }));
       const persistedTrend = payload.selectedTrend as SelectedTrend;
       setSelectedTrend(persistedTrend);
@@ -270,11 +311,19 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
 
   const generate = () => {
     if (!workflowSessionId || !selectedTrend) return;
+    const authoringRequest = resolveAuthoringRequest();
+    if (!authoringRequest) return;
+    const target = trendTargetForAuthoringRequest(authoringRequest);
+    if (selectedTrend.target !== target) {
+      setError("The saved trend target conflicts with the selected output. Choose the trend again.");
+      return;
+    }
     const analyzed = selectedTrend.analysis?.status === 'completed';
+    const deliverable = describeThinkForgeAuthoringDeliverable(authoringRequest);
     const prompt = analyzed
-      ? "Create a " + target + " using the analyzed trend selected in this session. Preserve its structural mechanics, timing, and audience pattern, but make the idea original, brand-safe, and specific to my brief. Do not copy the reference's wording, logos, claims, or exact performance."
-      : "Create a " + target + " inspired by the trend selected in this session (" + selectedTrend.candidate.title + "). No timing analysis was run on this trend — treat it as contextual inspiration only (topic, platform, audience angle). Design the structure, timing, and format freely to fit my brief, and do not copy the source's wording, logos, claims, or performance.";
-    onGenerate(prompt, workflowSessionId, target, selectedTrend);
+      ? "Create the requested " + deliverable + " using the analyzed trend selected in this session. Preserve its structural mechanics, timing, and audience pattern, but make the idea original, brand-safe, and specific to my brief. Do not copy the reference's wording, logos, claims, or exact performance."
+      : "Create the requested " + deliverable + " inspired by the trend selected in this session (" + selectedTrend.candidate.title + "). No timing analysis was run on this trend; treat it as contextual inspiration only. Design the structure and pacing for the explicit authoring request, and do not copy the source's wording, logos, claims, or performance.";
+    onGenerate(prompt, workflowSessionId, target, selectedTrend, authoringRequest);
     onClose();
   };
 
@@ -302,16 +351,16 @@ export function TrendWorkflowPanel({ open, sessionId, initialTarget = "script", 
         </div>
         <div className="space-y-5 p-5">
           {!selectedTrend && <>
+            <AuthoringRequestControls value={requestDraft} onChange={(nextDraft) => { setRequestDraft(nextDraft); setError(null); }} disabled={busy} />
             <div className="inline-flex rounded-lg border border-[#282724] bg-[#0F0F0E] p-1" role="group" aria-label="Trend source">
               <button type="button" onClick={() => { setIntakeMode("discover"); setError(null); }} aria-pressed={intakeMode === "discover"} className={`rounded-md px-3 py-1.5 text-xs font-medium ${intakeMode === "discover" ? "bg-[#282724] text-[#ECE9E1]" : "text-[#7A776E] hover:text-[#ECE9E1]"}`}>Find trends</button>
               <button type="button" onClick={() => { setIntakeMode("link"); setError(null); }} aria-pressed={intakeMode === "link"} className={`rounded-md px-3 py-1.5 text-xs font-medium ${intakeMode === "link" ? "bg-[#282724] text-[#ECE9E1]" : "text-[#7A776E] hover:text-[#ECE9E1]"}`}>Use video link</button>
             </div>
-            <div className="grid gap-3 sm:grid-cols-[1fr_170px_150px]">
+            <div className="grid gap-3 sm:grid-cols-[1fr_170px]">
               {intakeMode === "discover"
                 ? <label className="text-xs text-[#A7A39A]">Public niche<input value={niche} onChange={(event) => setNiche(event.target.value)} placeholder="e.g. B2B SaaS marketing" className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60" /></label>
                 : <label className="text-xs text-[#A7A39A]">Trend video URL<input value={referenceVideoUrl} onChange={(event) => setReferenceVideoUrl(event.target.value)} placeholder="YouTube or direct public video URL" className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60" /></label>}
               <label className="text-xs text-[#A7A39A]">Platform<select value={platform} onChange={(event) => setPlatform(event.target.value as typeof platform)} className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60">{PLATFORM_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-              <label className="text-xs text-[#A7A39A]">Draft type<select value={target} onChange={(event) => setTarget(event.target.value as TrendTarget)} className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60"><option value="script">Script</option><option value="post">Post</option></select></label>
             </div>
             {intakeMode === "discover"
               ? <button type="button" onClick={discover} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-4 py-2.5 text-sm font-semibold text-[#0B0B0A] disabled:cursor-not-allowed disabled:opacity-50">{busy && stage === "discover" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}Find public trends</button>

@@ -23,8 +23,8 @@ interface IdeationModeProps {
   onRegenerate: () => void;
   onSelectIdea: (idea: IdeaCardData) => void;
   sessionId?: string | null;
-  onEnsureTrendSession?: (candidate: TrendCandidate, target: TrendTarget) => Promise<string | null>;
-  onTrendDraft?: (input: { prompt: string; sessionId: string; target: TrendTarget; selectedTrend: SelectedTrend }) => void;
+  onEnsureTrendSession?: (candidate: TrendCandidate, authoringRequest: ThinkForgeAuthoringRequest) => Promise<string | null>;
+  onTrendDraft?: (input: { prompt: string; sessionId: string; target: TrendTarget; selectedTrend: SelectedTrend; authoringRequest: ThinkForgeAuthoringRequest }) => void;
   isVisible: boolean;
   onUrlSubmit?: (urls: string[], originalPrompt: string, authoringRequest: ThinkForgeAuthoringRequest) => void;
   briefLoading?: boolean;
@@ -74,11 +74,11 @@ export default function IdeationMode({
           <TrendWorkflowPanel
             open={trendWorkflowOpen}
             sessionId={sessionId}
-            initialTarget="script"
+            initialAuthoringRequest={authoringRequest}
             onClose={() => setTrendWorkflowOpen(false)}
             onEnsureSession={onEnsureTrendSession}
-            onGenerate={(draftPrompt, trendSessionId, target, selectedTrend) => {
-              onTrendDraft?.({ prompt: draftPrompt, sessionId: trendSessionId, target, selectedTrend });
+            onGenerate={(draftPrompt, trendSessionId, target, selectedTrend, trendAuthoringRequest) => {
+              onTrendDraft?.({ prompt: draftPrompt, sessionId: trendSessionId, target, selectedTrend, authoringRequest: trendAuthoringRequest });
               setTrendWorkflowOpen(false);
             }}
           />

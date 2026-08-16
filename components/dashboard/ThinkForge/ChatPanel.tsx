@@ -14,10 +14,13 @@ import { toast } from "@/hooks/use-toast";
 import { extractUrls } from "./PromptPanel";
 import { logShadowEvent } from "@/lib/thinkforge/services/shadow-logger";
 import { TrendWorkflowPanel } from "./TrendWorkflowPanel";
+import type { SelectedTrend } from "@/lib/thinkforge/trends/selected-trend";
 import {
   normalizeThinkForgeDocumentContract,
 } from "@/lib/thinkforge/schemas/document-contract";
 import {
+  describeThinkForgeAuthoringDeliverable,
+  describeThinkForgePlatformSurface,
   ThinkForgeAuthoringRequestSchema,
   type ThinkForgeAuthoringRequest,
 } from "@/lib/thinkforge/schemas/authoring-request";
@@ -378,7 +381,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   }, [inputValue, sessionId, chat.isStreaming]);
 
   /** Send a normal chat message (no URL processing) */
-  const sendChatMessage = useCallback((originalPrompt: string) => {
+  const sendChatMessage = useCallback((originalPrompt: string, authoringRequestOverride?: ThinkForgeAuthoringRequest) => {
     if (!sessionId) return;
 
     // Shadow Logger: detect regeneration (user stopped AI then sent a new message)
@@ -457,9 +460,21 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         : 'chat_send';
 
     const currentScriptId = scriptIdRef.current || undefined;
+    const projectPayload = authoringRequestOverride
+      ? {
+          ...sessionPayload,
+          authoringRequest: authoringRequestOverride,
+          contentContract: authoringRequestOverride.contentContract,
+          format: describeThinkForgeAuthoringDeliverable(authoringRequestOverride),
+          platform: describeThinkForgePlatformSurface(authoringRequestOverride.platformSurface),
+          ...(authoringRequestOverride.targetDurationSec !== undefined
+            ? { durationSec: authoringRequestOverride.targetDurationSec }
+            : {}),
+        }
+      : sessionPayload;
     chat.sendMessage(originalPrompt, {
       script: scriptPayload,
-      project: sessionPayload,
+      project: projectPayload,
       onTokenStream: onTokenStream,
       onScriptCreated: onScriptCreated,
       selection: editingSelection?.text,
@@ -635,8 +650,8 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     // Cards are embedded in messages; dismissal is a no-op for now
   }, []);
 
-  const handleGenerateFromTrend = useCallback((prompt: string) => {
-    sendChatMessage(prompt);
+  const handleGenerateFromTrend = useCallback((prompt: string, _sessionId: string, _target: import('./TrendWorkflowPanel').TrendTarget, _selectedTrend: SelectedTrend, trendAuthoringRequest: ThinkForgeAuthoringRequest) => {
+    sendChatMessage(prompt, trendAuthoringRequest);
   }, [sendChatMessage]);
 
   return (
@@ -668,7 +683,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       <TrendWorkflowPanel
         open={trendWorkflowOpen}
         sessionId={sessionId}
-        initialTarget={workspaceMode === "script" ? "script" : "post"}
+        initialAuthoringRequest={selectedIdea.authoringRequest || null}
         onClose={() => setTrendWorkflowOpen(false)}
         onGenerate={handleGenerateFromTrend}
       />

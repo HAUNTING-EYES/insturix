@@ -24,6 +24,8 @@ import {
 	normalizeThinkForgeDocumentContract,
 } from "@/lib/thinkforge/schemas/document-contract";
 import {
+	describeThinkForgeAuthoringDeliverable,
+	describeThinkForgePlatformSurface,
 	ThinkForgeAuthoringRequestSchema,
 	type ThinkForgeAuthoringRequest,
 } from "@/lib/thinkforge/schemas/authoring-request";
@@ -482,28 +484,22 @@ export default function ThinkForgeLanding() {
 		setAuthoringRequest(null);
 	};
 
-	const handleEnsureTrendSession = useCallback(async (candidate: TrendCandidate, target: TrendTarget): Promise<string | null> => {
+	const handleEnsureTrendSession = useCallback(async (candidate: TrendCandidate, authoringRequestInput: ThinkForgeAuthoringRequest): Promise<string | null> => {
+		const authoringRequest = ThinkForgeAuthoringRequestSchema.parse(authoringRequestInput);
 		const title = candidate.title.trim().slice(0, 80);
-		const contentContract = normalizeThinkForgeDocumentContract(target);
-		if (!contentContract) {
-			toast({
-				title: 'Unsupported trend format',
-				description: 'Choose a supported post, carousel, or video-script target.',
-				variant: 'destructive',
-			});
-			return null;
-		}
+		const deliverable = describeThinkForgeAuthoringDeliverable(authoringRequest);
 		const created = await session.hydrate({
 			projectMeta: bindActiveBrandToNewSession({
-				idea: 'Create a ' + target + ' using the analyzed trend: ' + title,
+				idea: 'Create the requested ' + deliverable + ' using the analyzed trend: ' + title,
 				purpose: 'Apply an analyzed public trend format to a brand-specific original draft.',
 				style: 'Original, brand-safe adaptation of the analyzed trend mechanics.',
-				format: target,
-				contentContract,
-				platform: candidate.platform === 'unknown' ? '' : candidate.platform,
-				tone: 'blue',
+				format: deliverable,
+				contentContract: authoringRequest.contentContract,
+				authoringRequest,
+				platform: describeThinkForgePlatformSurface(authoringRequest.platformSurface),
+				...(authoringRequest.targetDurationSec !== undefined ? { durationSec: authoringRequest.targetDurationSec } : {}),
 				sessionName: ('Trend - ' + title).slice(0, 100),
-				originalPrompt: 'Create a ' + target + ' using the analyzed trend: ' + title,
+				originalPrompt: 'Use the selected trend for the requested ' + deliverable + ': ' + title,
 				initialDraftIntent: { status: 'pending', requestedAt: new Date().toISOString() },
 			}),
 		});
@@ -514,22 +510,25 @@ export default function ThinkForgeLanding() {
 		return null;
 	}, [session]);
 
-	const handleTrendDraft = useCallback((input: { prompt: string; sessionId: string; target: TrendTarget; selectedTrend: SelectedTrend }) => {
+	const handleTrendDraft = useCallback((input: { prompt: string; sessionId: string; target: TrendTarget; selectedTrend: SelectedTrend; authoringRequest: ThinkForgeAuthoringRequest }) => {
+		const authoringRequest = ThinkForgeAuthoringRequestSchema.parse(input.authoringRequest);
 		const title = input.selectedTrend.candidate.title.trim();
-		const platform = input.selectedTrend.candidate.platform === 'unknown' ? '' : input.selectedTrend.candidate.platform;
 		const analyzed = input.selectedTrend.analysis?.status === 'completed';
+		const deliverable = describeThinkForgeAuthoringDeliverable(authoringRequest);
 		setSelectedIdea({
 			id: 'trend-' + input.selectedTrend.candidate.candidateId,
 			idea: analyzed
-				? 'Create a ' + input.target + ' using the analyzed trend: ' + title
-				: 'Create a ' + input.target + ' inspired by the trend: ' + title,
+				? 'Create the requested ' + deliverable + ' using the analyzed trend: ' + title
+				: 'Create the requested ' + deliverable + ' inspired by the trend: ' + title,
 			purpose: input.prompt,
 			style: analyzed
 				? 'Original, brand-safe adaptation of the analyzed trend mechanics.'
-				: 'Original, brand-safe draft inspired by the trend topic, platform, and audience angle (no timing analysis was run).',
-			format: input.target,
-			platform,
-			tone: 'blue',
+				: 'Original, brand-safe draft inspired by the trend topic and audience angle (no timing analysis was run).',
+			format: deliverable,
+			platform: describeThinkForgePlatformSurface(authoringRequest.platformSurface),
+			tone: '',
+			durationSec: authoringRequest.targetDurationSec,
+			authoringRequest,
 			sessionName: ('Trend - ' + title).slice(0, 100),
 			originalPrompt: input.prompt,
 		});
@@ -540,7 +539,7 @@ export default function ThinkForgeLanding() {
 		setIdeas([]);
 		setHasSubmitted(false);
 		setPrompt('');
-		setAuthoringRequest(null);
+		setAuthoringRequest(authoringRequest);
 		setWorkspaceMode('scripting');
 	}, []);
 

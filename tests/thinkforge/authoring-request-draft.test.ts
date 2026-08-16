@@ -3,6 +3,11 @@ import {
   createThinkForgeAuthoringRequestDraft,
   resolveThinkForgeAuthoringRequestDraft,
 } from '@/lib/thinkforge/schemas/authoring-request-draft';
+import {
+  buildTrendSelectionPayload,
+  trendTargetForAuthoringRequest,
+} from '@/components/dashboard/ThinkForge/TrendWorkflowPanel';
+import type { TrendCandidate } from '@/lib/thinkforge/trends/trend-evidence';
 
 describe('ThinkForge authoring request draft', () => {
   it('requires explicit output and platform choices', () => {
@@ -92,5 +97,34 @@ describe('ThinkForge authoring request draft', () => {
     expect(carousel.success).toBe(false);
     if (carousel.success) return;
     expect(carousel.error).toMatch(/between 2 and 7/i);
+  });
+
+  it('maps exact carousel and script requests into trend targets without using source platform', () => {
+    const base = createThinkForgeAuthoringRequestDraft();
+    const carousel = resolveThinkForgeAuthoringRequestDraft({
+      ...base,
+      outputKind: 'carousel',
+      platformId: 'linkedin',
+      carouselSlideCount: '5',
+    });
+    const script = resolveThinkForgeAuthoringRequestDraft({
+      ...base,
+      outputKind: 'video_script',
+      platformId: 'youtube',
+      durationMinutes: '7',
+    });
+    expect(carousel.success).toBe(true);
+    expect(script.success).toBe(true);
+    if (!carousel.success || !script.success) return;
+
+    const sourceCandidate = { candidateId: 'instagram-source', platform: 'instagram' } as TrendCandidate;
+    expect(trendTargetForAuthoringRequest(carousel.request)).toBe('post');
+    expect(trendTargetForAuthoringRequest(script.request)).toBe('script');
+    expect(buildTrendSelectionPayload('session_1', sourceCandidate, carousel.request)).toEqual({
+      sessionId: 'session_1',
+      candidate: sourceCandidate,
+      target: 'post',
+      authoringRequest: carousel.request,
+    });
   });
 });
