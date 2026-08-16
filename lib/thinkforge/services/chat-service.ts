@@ -570,6 +570,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         : null;
       const requestedDocumentLabel = requestedDocumentIntent?.documentLabel ?? 'document';
       const eventSessionId = canonicalSessionId;
+      let createdDocumentId: string | null = null;
 
       if (isGenerateIntent) {
         if (!requestedDocumentIntent) {
@@ -587,14 +588,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           // Use the current scriptId as-is.
         } else {
           const newScriptId = crypto.randomUUID();
-          const initialTitle = requestedDocumentIntent.contentPath === 'post' ? 'New Post' : 'New Script';
           effectiveScriptId = newScriptId;
-          await emitEvent('script_created', {
-            scriptId: newScriptId,
-            sessionId: eventSessionId,
-            title: initialTitle,
-            documentType: requestedDocumentIntent.documentType,
-          });
+          createdDocumentId = newScriptId;
         }
       }
 
@@ -1002,6 +997,16 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           }
           savedVersion = saveResult.script.version;
           commitPersisted = true;
+
+          if (createdDocumentId) {
+            if (!(await emitEvent('script_created', {
+              scriptId: createdDocumentId,
+              sessionId: eventSessionId,
+              title: finalTitle,
+              documentType: generatedDocumentType,
+              version: savedVersion,
+            }))) return;
+          }
 
         }
 

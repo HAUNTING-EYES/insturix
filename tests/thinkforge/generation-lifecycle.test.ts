@@ -88,6 +88,24 @@ describe('ThinkForge generation lifecycle', () => {
     expect(service).not.toContain('initializing: true');
   });
 
+  it('publishes a new document identity only after its canonical commit succeeds', () => {
+    const service = read('lib/thinkforge/services/chat-service.ts');
+    const stagedIdentity = service.indexOf('createdDocumentId = newScriptId;');
+    const canonicalCommit = service.indexOf('const saveResult = await applyCommand({', stagedIdentity);
+    const failedCommitGuard = service.indexOf('if (!saveResult.ok)', canonicalCommit);
+    const durableCommit = service.indexOf('commitPersisted = true;', failedCommitGuard);
+    const publishedIdentity = service.indexOf("await emitEvent('script_created'", durableCommit);
+    const publishedDocument = service.indexOf("await emitEvent('script_update'", publishedIdentity);
+
+    expect(stagedIdentity).toBeGreaterThan(-1);
+    expect(canonicalCommit).toBeGreaterThan(stagedIdentity);
+    expect(failedCommitGuard).toBeGreaterThan(canonicalCommit);
+    expect(durableCommit).toBeGreaterThan(failedCommitGuard);
+    expect(publishedIdentity).toBeGreaterThan(durableCommit);
+    expect(publishedDocument).toBeGreaterThan(publishedIdentity);
+    expect(service.slice(stagedIdentity, canonicalCommit)).not.toContain("emitEvent('script_created'");
+  });
+
   it('resolves one authorised authoring context before billing and reuses it in the writer service', () => {
     const route = read('app/api/services/thinkforge/chat/route.ts');
     const service = read('lib/thinkforge/services/chat-service.ts');

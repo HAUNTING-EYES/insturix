@@ -212,7 +212,11 @@ async function readScriptBlocks(
   );
 }
 
-async function readGeneratedScriptUpdate(response: Response): Promise<{ scriptId: string; version: number }> {
+async function readGeneratedScriptUpdate(response: Response): Promise<{
+  scriptId: string;
+  version: number;
+  eventTypes: string[];
+}> {
   const body = await response.text();
   const events = body
     .split(/\r?\n\r?\n/)
@@ -243,7 +247,8 @@ async function readGeneratedScriptUpdate(response: Response): Promise<{ scriptId
   if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
     throw new Error('ThinkForge E2E generation did not emit a positive script_update.script.version.');
   }
-  return { scriptId, version };
+  const eventTypes = events.flatMap((event) => typeof event.type === 'string' ? [event.type] : []);
+  return { scriptId, version, eventTypes };
 }
 
 function requireEvidence<T>(value: T | null | undefined, label: string): T {
@@ -604,6 +609,55 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
     } else {
       expect(creativeSpec?.kind).toBe('single_post_visual');
       expect(creativeSpec?.validation?.status).toBe('ready');
+    }
+
+    if (fixture === 'post') {
+      const documentWriteFailures: string[] = [];
+      const recordDocumentWriteFailure = (response: Response) => {
+        if (response.status() !== 404 && response.status() !== 409) return;
+        const pathname = new URL(response.url()).pathname;
+        if (pathname === '/api/commands' || pathname.startsWith('/api/services/thinkforge/script/')) {
+          documentWriteFailures.push(`${response.status()} ${response.request().method()} ${pathname}`);
+        }
+      };
+      page.on('response', recordDocumentWriteFailure);
+
+      try {
+        const secondChatResponse = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return url.pathname === '/api/services/thinkforge/chat' && response.request().method() === 'POST';
+        });
+        const secondChatInput = page.getByPlaceholder('Ask the AI to write, edit, or improve your script...');
+        await secondChatInput.fill('Create a new LinkedIn post about making campaign handoff ownership visible before launch.');
+        await secondChatInput.press('Enter');
+
+        const completedSecondResponse = await secondChatResponse;
+        expect(completedSecondResponse.status()).toBe(200);
+        expect(await completedSecondResponse.finished()).toBeNull();
+        const secondUpdate = await readGeneratedScriptUpdate(completedSecondResponse);
+        expect(secondUpdate.scriptId).not.toBe(scriptId);
+
+        const createdEventIndex = secondUpdate.eventTypes.indexOf('script_created');
+        const updateEventIndex = secondUpdate.eventTypes.indexOf('script_update');
+        expect(createdEventIndex).toBeGreaterThan(-1);
+        expect(updateEventIndex).toBeGreaterThan(createdEventIndex);
+
+        const secondPersisted = await readCurrentScript(page, sessionId!, secondUpdate.scriptId);
+        expect(secondPersisted.script?.scriptId).toBe(secondUpdate.scriptId);
+        expect(secondPersisted.script?.version).toBe(secondUpdate.version);
+        expect(secondPersisted.script?.content).toContain(scenario.expectedStoredContent);
+        await expect(page.getByText(scenario.expectedVisibleContent, { exact: false }).first()).toBeVisible();
+
+        await page.goto('/dashboard/thinkforge', { waitUntil: 'domcontentloaded' });
+        await expect(page.getByText(scenario.expectedVisibleContent, { exact: false }).first()).toBeVisible();
+        await expect(page.getByText(
+          'Create a new LinkedIn post about making campaign handoff ownership visible before launch.',
+          { exact: true },
+        )).toBeVisible();
+        expect(documentWriteFailures).toEqual([]);
+      } finally {
+        page.off('response', recordDocumentWriteFailure);
+      }
     }
 
     expect(browserFailures, `ThinkForge browser failures:\n${browserFailures.join('\n')}`).toEqual([]);
