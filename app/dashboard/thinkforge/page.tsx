@@ -838,12 +838,6 @@ export default function ThinkForgeLanding() {
 		scriptHook.setScriptWithoutSave(scriptToModel(updated));
 	}, [scriptHook, scriptToModel]);
 
-	const handleRunEdit = useCallback(async (instruction: string, selection?: string) => {
-		// Prefer block-targeted edits with optional selection mapping
-		const res = await scriptHook.runEditBlocks(instruction, selection);
-		return res;
-	}, [scriptHook]);
-
 	// Dock items for ThinkForge features
 	const dockItems = [
 		{
@@ -1016,7 +1010,6 @@ export default function ThinkForgeLanding() {
 				}
 				isSaving={scriptHook.isSaving}
 				onApplyEdit={handleApplyEdit}
-				onRunEdit={handleRunEdit}
 				onUpdateScript={handleUpdateScript}
 				onBack={async () => {
 					// Close the active session and return to ThinkForge home (prompt)

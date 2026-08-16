@@ -26,7 +26,6 @@ interface StoryboardingModeProps {
   initialChatMessages?: any[];
   isSaving: boolean;
   onApplyEdit: (updated: Script) => void;
-  onRunEdit: (instruction: string, selection?: string) => Promise<any>;
   onUpdateScript: (updated: Script | null) => void;
   onBack: () => Promise<void>;
   onImportScript: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string }>;
@@ -49,7 +48,6 @@ export default function StoryboardingMode({
   initialChatMessages,
   isSaving,
   onApplyEdit,
-  onRunEdit,
   onUpdateScript,
   onBack,
   onImportScript,
@@ -235,7 +233,6 @@ export default function StoryboardingMode({
             isScriptLoading={isScriptLoading}
             initialMessages={initialChatMessages}
             onApplyEdit={onApplyEdit}
-            onRunEdit={onRunEdit}
             sessionId={sessionId}
             onOpenSettings={handleOpenSettings}
             onOpenKnowledge={() => setShowKnowledge(true)}

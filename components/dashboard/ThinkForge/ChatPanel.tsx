@@ -25,7 +25,6 @@ interface ChatPanelProps {
   scriptId?: string | null;
   isScriptLoading?: boolean;
   onApplyEdit: (updated: Script) => void;
-  onRunEdit?: (instruction: string, selection?: string) => Promise<any>;
   sessionId?: string | null;
   initialMessages?: any[];
   onOpenSettings?: () => void;
