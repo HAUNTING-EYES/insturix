@@ -9,12 +9,50 @@ import {
   resolveThinkForgeDocumentIntent,
   resolveThinkForgeGenerationDocumentIntent,
 } from '@/lib/thinkforge/agents/prompt-utils';
+import { sanitizeServerScript } from '@/lib/thinkforge/json';
 
 function read(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 }
 
 describe('ThinkForge script hydration contract', () => {
+  it('sanitizes document content without discarding server-owned identity or canonical fields', () => {
+    const richText = { type: 'doc', content: [{ type: 'paragraph' }] };
+    const contentContract = {
+      version: 1,
+      documentKind: 'post',
+      outputKind: 'social_post',
+      artifactType: 'social_post',
+    };
+
+    expect(sanitizeServerScript({
+      sessionId: ' session_a ',
+      scriptId: 'post_1',
+      title: 'Published post',
+      content: 'Exact final copy',
+      blocks: [],
+      richText,
+      version: 5,
+      documentType: 'social_post',
+      contentContract,
+      metadata: { workflow: 'create', source: 'ai' },
+    })).toEqual({
+      sessionId: 'session_a',
+      scriptId: 'post_1',
+      title: 'Published post',
+      content: 'Exact final copy',
+      blocks: [],
+      richText,
+      version: 5,
+      documentType: 'social_post',
+      contentContract,
+      metadata: { workflow: 'create', source: 'ai' },
+    });
+
+    expect(sanitizeServerScript({ title: 'Partial update' })).not.toHaveProperty('blocks');
+    expect(sanitizeServerScript({ title: 'Partial update' })).not.toHaveProperty('sessionId');
+  });
+
   it('hydrates every server-owned document field without inventing a document type', () => {
     const identity = { sessionId: 'session_brand_b', scriptId: 'carousel_q3' };
     const richText = { type: 'doc', content: [{ type: 'paragraph' }] };

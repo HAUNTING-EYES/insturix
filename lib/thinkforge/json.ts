@@ -12,12 +12,17 @@ export const MAX_BLOCKS_SCRIPT = 1000;
 
 export type Block = any;
 export type ScriptModel = {
+  sessionId?: string;
+  scriptId?: string;
   title?: string | null;
   outline?: string | null;
   content?: string | null;
   blocks?: Block[] | null;
+  richText?: Record<string, any> | null;
   version?: number;
-  metadata?: {
+  documentType?: string;
+  contentContract?: Record<string, any>;
+  metadata?: Record<string, any> & {
     workflow?: string;
     thoughts?: string;
     duration_ms?: number;
@@ -138,9 +143,43 @@ export function applyBlockPatches(currentBlocks: Block[] | null | undefined, pay
   return current;
 }
 export function sanitizeServerScript(input: any): ScriptModel {
-  const title = typeof input?.title === 'string' ? input.title.slice(0, 160) : (input?.title ?? null);
-  const blocks = validateThinkForgeBlocks(Array.isArray(input?.blocks) ? input.blocks : []);
-  const metadata = input?.metadata ?? null;
-  const version = typeof input?.version === 'number' ? input.version : undefined;
-  return { title, outline: null, content: null, blocks, metadata, version };
+  const source = input && typeof input === 'object' && !Array.isArray(input)
+    ? input as Record<string, any>
+    : {};
+  const readIdentity = (value: unknown): string | undefined => (
+    typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+  );
+  const readRecord = (value: unknown): Record<string, any> | undefined => (
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, any>
+      : undefined
+  );
+
+  const metadata = readRecord(source.metadata);
+  const sessionId = readIdentity(source.sessionId) || readIdentity(metadata?.sessionId);
+  const scriptId = readIdentity(source.scriptId) || readIdentity(metadata?.scriptId);
+  const title = typeof source.title === 'string' ? source.title.slice(0, 160) : (source.title ?? null);
+  const outline = typeof source.outline === 'string' ? source.outline : (source.outline === null ? null : undefined);
+  const content = typeof source.content === 'string' ? source.content : (source.content === null ? null : undefined);
+  const blocks = Array.isArray(source.blocks) ? validateThinkForgeBlocks(source.blocks) : undefined;
+  const richText = readRecord(source.richText);
+  const version = typeof source.version === 'number' && Number.isFinite(source.version)
+    ? source.version
+    : undefined;
+  const documentType = readIdentity(source.documentType);
+  const contentContract = readRecord(source.contentContract);
+
+  return {
+    ...(sessionId ? { sessionId } : {}),
+    ...(scriptId ? { scriptId } : {}),
+    title,
+    ...(outline !== undefined ? { outline } : {}),
+    ...(content !== undefined ? { content } : {}),
+    ...(blocks !== undefined ? { blocks } : {}),
+    ...(richText ? { richText } : {}),
+    ...(metadata ? { metadata } : { metadata: null }),
+    ...(version !== undefined ? { version } : {}),
+    ...(documentType ? { documentType } : {}),
+    ...(contentContract ? { contentContract } : {}),
+  };
 }

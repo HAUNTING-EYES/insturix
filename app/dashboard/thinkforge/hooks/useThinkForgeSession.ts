@@ -2,42 +2,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
-import { sanitizeServerScript } from "@/lib/thinkforge/json";
+import { sanitizeServerScript, type ScriptModel } from "@/lib/thinkforge/json";
 import { stampThinkForgeDocumentIdentity } from "@/lib/thinkforge/client-document-identity";
 
 export type Block = any;
-export type ScriptModel = {
-  sessionId?: string;
-  scriptId?: string;
-  title?: string | null;
-  outline?: string | null;
-  content?: string | null;
-  blocks?: Block[] | null;
-  richText?: Record<string, any> | null;
-  version?: number;
-  documentType?: string;
-  contentContract?: Record<string, any>;
-  metadata?: {
-    workflow?: string;
-    thoughts?: string;
-    duration_ms?: number;
-    canonicalFormat?: 'CIR' | 'canonical';
-    agent_steps?: Array<{
-      agent?: string;
-      step?: string;
-      output?: string;
-    }>;
-    quality_metrics?: {
-      score?: number;
-      feedback?: string;
-    };
-    selectionEdit?: {
-      applySurgically?: boolean;
-      editedBlocks?: any[];
-      originalRange?: { from: number; to: number };
-    };
-  } | null;
-};
+export type { ScriptModel } from "@/lib/thinkforge/json";
 
 const LS_CURRENT_SESSION = "thinkforge_current_session";
 const LS_SESSION_PREFIX = "thinkforge_session_";
