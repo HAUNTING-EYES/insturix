@@ -3,12 +3,14 @@
 import React from "react";
 import { TrendingUp } from "lucide-react";
 import { useState } from "react";
-import { PromptPanel, UrlBriefResult } from "@/components/dashboard/ThinkForge/PromptPanel";
-import { IdeaGrid, IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
+import { PromptPanel } from "@/components/dashboard/ThinkForge/PromptPanel";
+import { IdeaGrid } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import SessionMetadataSettings from "@/components/dashboard/ThinkForge/SessionMetadataSettings";
 import { TrendWorkflowPanel, type TrendTarget } from "@/components/dashboard/ThinkForge/TrendWorkflowPanel";
 import type { SelectedTrend } from "@/lib/thinkforge/trends/selected-trend";
 import type { TrendCandidate } from "@/lib/thinkforge/trends/trend-evidence";
+import type { IdeaCardData } from "@/lib/thinkforge/state/types";
+import type { ThinkForgeAuthoringRequest } from "@/lib/thinkforge/schemas/authoring-request";
 
 interface IdeationModeProps {
   phase: 'PROMPT' | 'IDEAS' | 'SELECTED';
@@ -18,21 +20,20 @@ interface IdeationModeProps {
   hasSubmitted: boolean;
   ideas: IdeaCardData[];
   selectedIdea: IdeaCardData | null;
-  onSubmit: (e: React.FormEvent) => void;
+  authoringRequest: ThinkForgeAuthoringRequest | null;
+  onSubmit: (e: React.FormEvent, authoringRequest: ThinkForgeAuthoringRequest) => void;
   onRegenerate: () => void;
   onSelectIdea: (idea: IdeaCardData) => void;
   onProceedToChat: (updatedIdea?: IdeaCardData) => void;
   onGoBackToIdeas: () => void;
   onUpdateIdea: (updated: IdeaCardData) => void;
-  onManualSetup: () => void;
   sessionId?: string | null;
   onEnsureTrendSession?: (candidate: TrendCandidate, target: TrendTarget) => Promise<string | null>;
   onTrendDraft?: (input: { prompt: string; sessionId: string; target: TrendTarget; selectedTrend: SelectedTrend }) => void;
   isVisible: boolean;
   sessionCount?: number;
-  onUrlSubmit?: (urls: string[], originalPrompt: string) => void;
+  onUrlSubmit?: (urls: string[], originalPrompt: string, authoringRequest: ThinkForgeAuthoringRequest) => void;
   briefLoading?: boolean;
-  briefResults?: UrlBriefResult[] | null;
 }
 
 export default function IdeationMode({
@@ -43,13 +44,13 @@ export default function IdeationMode({
   hasSubmitted,
   ideas,
   selectedIdea,
+  authoringRequest,
   onSubmit,
   onRegenerate,
   onSelectIdea,
   onProceedToChat,
   onGoBackToIdeas,
   onUpdateIdea,
-  onManualSetup,
   sessionId,
   onEnsureTrendSession,
   onTrendDraft,
@@ -57,7 +58,6 @@ export default function IdeationMode({
   sessionCount = 0,
   onUrlSubmit,
   briefLoading,
-  briefResults,
 }: IdeationModeProps) {
   const [trendWorkflowOpen, setTrendWorkflowOpen] = useState(false);
 
@@ -76,13 +76,10 @@ export default function IdeationMode({
             setPrompt={setPrompt}
             loading={loading}
             hasSubmitted={hasSubmitted}
+            authoringRequest={authoringRequest}
             onSubmit={onSubmit}
-            onRegenerate={onRegenerate}
-            onManualSetup={onManualSetup}
-
             onUrlSubmit={onUrlSubmit}
             briefLoading={briefLoading}
-            briefResults={briefResults}
           />
           <IdeaGrid ideas={ideas} loading={loading} hasSubmitted={hasSubmitted} prompt={prompt} onSelect={onSelectIdea} onRegenerate={onRegenerate} />
           <TrendWorkflowPanel
@@ -113,7 +110,8 @@ export default function IdeationMode({
               durationSec: selectedIdea.durationSec,
               sessionName: selectedIdea.sessionName,
               originalPrompt: selectedIdea.originalPrompt,
-              brandBrief: selectedIdea.brandBrief
+              brandBrief: selectedIdea.brandBrief,
+              authoringRequest: selectedIdea.authoringRequest,
             }}
             onProceedToChat={(upd) => onProceedToChat(upd ? { ...upd, id: String(upd.id) } : undefined)}
             onGoBack={onGoBackToIdeas}

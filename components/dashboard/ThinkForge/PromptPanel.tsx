@@ -1,22 +1,27 @@
 "use client";
-import React from "react";
-import { Loader2 } from "lucide-react";
 
-/**
- * Extract all HTTP(S) URLs from text.
- * Handles full URLs (https://example.com) AND bare domains (example.com).
- * Rejects localhost, file://, ftp://, and other non-http protocols.
- */
+import React from "react";
+import { ArrowRight, Loader2, Sparkles } from "lucide-react";
+import {
+  THINKFORGE_PLATFORM_SURFACE_IDS,
+  createDefaultThinkForgePostControls,
+  createThinkForgeAuthoringRequest,
+  describeThinkForgePlatformSurface,
+  type ThinkForgeAuthoringRequest,
+  type ThinkForgePlatformSurfaceId,
+} from "@/lib/thinkforge/schemas/authoring-request";
+import {
+  createThinkForgeWriterContract,
+  type ThinkForgeWriterKind,
+} from "@/lib/thinkforge/schemas/document-contract";
+
 const URL_EXTRACT_REGEX = /https?:\/\/(?!localhost\b)[^\s<>"')\]]+/gi;
 const BARE_DOMAIN_REGEX = /\b([a-zA-Z0-9][-a-zA-Z0-9]*\.(?:com|io|co|org|net|dev|app|ai|xyz|me|info|biz|us|uk|in|ca|au|de|fr|tech|agency|studio|design|tv|gg|so|to)\b(?:\/[^\s<>"')\]]*)?)/gi;
 
 export function extractUrls(text: string): string[] {
   const seen = new Set<string>();
   const urls: string[] = [];
-
-  // Match full URLs first
-  const fullMatches = text.match(URL_EXTRACT_REGEX) || [];
-  for (const match of fullMatches) {
+  for (const match of text.match(URL_EXTRACT_REGEX) || []) {
     const clean = match.replace(/[.,;:!?)]+$/, '');
     try {
       const url = new URL(clean);
@@ -24,192 +29,358 @@ export function extractUrls(text: string): string[] {
         seen.add(clean);
         urls.push(clean);
       }
-    } catch {}
-  }
-
-  // Match bare domains (insturix.com → https://insturix.com)
-  const bareMatches = text.match(BARE_DOMAIN_REGEX) || [];
-  for (const match of bareMatches) {
-    const clean = match.replace(/[.,;:!?)]+$/, '');
-    const full = `https://${clean}`;
-    if (!seen.has(full)) {
-      try {
-        new URL(full); // validate it parses
-        seen.add(full);
-        urls.push(full);
-      } catch {}
+    } catch {
+      // Ignore malformed candidates; server-side ingestion validates accepted URLs again.
     }
   }
-
+  for (const match of text.match(BARE_DOMAIN_REGEX) || []) {
+    const clean = match.replace(/[.,;:!?)]+$/, '');
+    const full = `https://${clean}`;
+    if (seen.has(full)) continue;
+    try {
+      new URL(full);
+      seen.add(full);
+      urls.push(full);
+    } catch {
+      // Ignore malformed candidates; server-side ingestion validates accepted URLs again.
+    }
+  }
   return urls;
-}
-
-export interface UrlBriefResult {
-  title: string;
-  summary: string;
-  keyTopics?: string[];
-  targetAudience?: string;
-  suggestedAngles?: string[];
-  platform?: string;
-  contentType?: string;
 }
 
 interface PromptPanelProps {
   prompt: string;
-  setPrompt: (v: string) => void;
+  setPrompt: (value: string) => void;
   loading: boolean;
   hasSubmitted: boolean;
-  onSubmit: (e: React.FormEvent) => void;
-  onRegenerate: () => void;
-  onManualSetup?: () => void;
-  onUrlSubmit?: (urls: string[], originalPrompt: string) => void;
+  authoringRequest: ThinkForgeAuthoringRequest | null;
+  onSubmit: (event: React.FormEvent, authoringRequest: ThinkForgeAuthoringRequest) => void;
+  onUrlSubmit?: (
+    urls: string[],
+    originalPrompt: string,
+    authoringRequest: ThinkForgeAuthoringRequest,
+  ) => void;
   briefLoading?: boolean;
-  briefResults?: UrlBriefResult[] | null;
 }
 
-const POST_KEYWORDS = /\b(post|article|blog|essay|thread|newsletter|write|carousel|caption)\b/i;
-const STATIC_POST_KEYWORDS = /\b(post|caption|carousel|slides?)\b/i;
-const CAROUSEL_KEYWORDS = /\b(carousel|slides?)\b/i;
-const SINGLE_POST_KEYWORDS = /\b(single(?:-image)?\s+post|static\s+post)\b/i;
-const CAROUSEL_COUNT_KEYWORDS = /\b[2-7]\s*(?:-\s*)?slides?\b/i;
-const PLATFORM_KEYWORDS = /\b(linkedin|twitter|tweet|instagram|tiktok|youtube|facebook|reddit|medium|pinterest|generic\s+platform|x\s+post)\b/i;
-const PLATFORM_PICKS = [
-  { label: 'LinkedIn', value: 'LinkedIn' },
-  { label: 'Twitter/X', value: 'Twitter/X' },
-  { label: 'Instagram', value: 'Instagram' },
-  { label: 'Medium', value: 'Medium' },
-  { label: 'Blog', value: 'Blog' },
-  { label: 'Newsletter', value: 'Newsletter' },
-  { label: 'Reddit', value: 'Reddit' },
+const OUTPUT_OPTIONS: Array<{ value: ThinkForgeWriterKind; label: string }> = [
+  { value: 'social_post', label: 'Single post' },
+  { value: 'carousel', label: 'Carousel' },
+  { value: 'video_script', label: 'Video script' },
 ];
+
+const PLATFORM_OPTIONS = THINKFORGE_PLATFORM_SURFACE_IDS.map((id) => ({
+  id,
+  label: id === 'custom' ? 'Other' : describeThinkForgePlatformSurface({ id }),
+}));
+
+type PostControlDraft = {
+  cta: 'editorial' | 'none' | 'soft' | 'direct';
+  hashtags: 'editorial' | 'none';
+  emoji: 'editorial' | 'none' | 'restrained';
+};
+
+const DEFAULT_POST_CONTROLS: PostControlDraft = {
+  cta: 'editorial',
+  hashtags: 'editorial',
+  emoji: 'editorial',
+};
+
+function initialKind(request: ThinkForgeAuthoringRequest | null): ThinkForgeWriterKind | '' {
+  const kind = request?.contentContract.outputKind;
+  return kind === 'social_post' || kind === 'carousel' || kind === 'video_script' ? kind : '';
+}
 
 export const PromptPanel: React.FC<PromptPanelProps> = ({
   prompt,
   setPrompt,
   loading,
   hasSubmitted,
+  authoringRequest,
   onSubmit,
-  onRegenerate,
-  onManualSetup,
   onUrlSubmit,
   briefLoading = false,
-  briefResults = null,
 }) => {
   const formRef = React.useRef<HTMLFormElement | null>(null);
-  const [showPlatformPicker, setShowPlatformPicker] = React.useState(false);
-  const [showPostTypePicker, setShowPostTypePicker] = React.useState(false);
-  const [showCarouselCountPicker, setShowCarouselCountPicker] = React.useState(false);
+  const [outputKind, setOutputKind] = React.useState<ThinkForgeWriterKind | ''>(() => initialKind(authoringRequest));
+  const [platformId, setPlatformId] = React.useState<ThinkForgePlatformSurfaceId | ''>(authoringRequest?.platformSurface.id || '');
+  const [customPlatformLabel, setCustomPlatformLabel] = React.useState(authoringRequest?.platformSurface.customLabel || '');
+  const [carouselSlideCount, setCarouselSlideCount] = React.useState<number | undefined>(authoringRequest?.contentContract.carouselSlideCount);
+  const [durationMinutes, setDurationMinutes] = React.useState(() => authoringRequest?.targetDurationSec
+    ? String(Math.floor(authoringRequest.targetDurationSec / 60))
+    : '');
+  const [durationSeconds, setDurationSeconds] = React.useState(() => authoringRequest?.targetDurationSec
+    ? String(authoringRequest.targetDurationSec % 60)
+    : '');
+  const [postControls, setPostControls] = React.useState<PostControlDraft>(() => ({
+    cta: authoringRequest?.postControls?.cta.preference || DEFAULT_POST_CONTROLS.cta,
+    hashtags: authoringRequest?.postControls?.hashtags.preference === 'none' ? 'none' : 'editorial',
+    emoji: authoringRequest?.postControls?.emoji.preference || DEFAULT_POST_CONTROLS.emoji,
+  }));
+  const [validationError, setValidationError] = React.useState<string | null>(null);
 
-  const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (!loading && !briefLoading) {
-        formRef.current?.requestSubmit();
-      }
-    }
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setPrompt(e.target.value);
-  };
-
-  const queuePromptSubmission = (nextPrompt: string) => {
-    setPrompt(nextPrompt);
-    setTimeout(() => formRef.current?.requestSubmit(), 50);
-  };
-
-  const handlePlatformPick = (platform: string) => {
-    setShowPlatformPicker(false);
-    queuePromptSubmission(`${prompt.trim()} - ${platform}`);
-  };
-
-  const handlePostTypePick = (kind: 'single' | 'carousel') => {
-    setShowPostTypePicker(false);
-    queuePromptSubmission(`${prompt.trim()} - ${kind === 'carousel' ? 'carousel' : 'single post'}`);
-  };
-
-  const handleCarouselCountPick = (slideCount: number) => {
-    setShowCarouselCountPicker(false);
-    queuePromptSubmission(`${prompt.trim()} - ${slideCount} slides`);
-  };
-
-  const handleFormSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Platform check FIRST — before URL extraction or submission
-    if (POST_KEYWORDS.test(prompt) && !PLATFORM_KEYWORDS.test(prompt)) {
-      setShowPlatformPicker(true);
-      return;
-    }
-    if (STATIC_POST_KEYWORDS.test(prompt) && !CAROUSEL_KEYWORDS.test(prompt) && !SINGLE_POST_KEYWORDS.test(prompt)) {
-      setShowPostTypePicker(true);
-      return;
-    }
-    if (CAROUSEL_KEYWORDS.test(prompt) && !CAROUSEL_COUNT_KEYWORDS.test(prompt)) {
-      setShowCarouselCountPicker(true);
-      return;
-    }
-
-    const urls = extractUrls(prompt);
-    if (urls.length > 0 && onUrlSubmit) {
-      onUrlSubmit(urls, prompt);
-      return;
-    }
-
-    setShowPlatformPicker(false);
-    setShowPostTypePicker(false);
-    setShowCarouselCountPicker(false);
-    onSubmit(e);
-  };
+  React.useEffect(() => {
+    setOutputKind(initialKind(authoringRequest));
+    setPlatformId(authoringRequest?.platformSurface.id || '');
+    setCustomPlatformLabel(authoringRequest?.platformSurface.customLabel || '');
+    setCarouselSlideCount(authoringRequest?.contentContract.carouselSlideCount);
+    setDurationMinutes(authoringRequest?.targetDurationSec
+      ? String(Math.floor(authoringRequest.targetDurationSec / 60))
+      : '');
+    setDurationSeconds(authoringRequest?.targetDurationSec
+      ? String(authoringRequest.targetDurationSec % 60)
+      : '');
+    setPostControls({
+      cta: authoringRequest?.postControls?.cta.preference || DEFAULT_POST_CONTROLS.cta,
+      hashtags: authoringRequest?.postControls?.hashtags.preference === 'none' ? 'none' : 'editorial',
+      emoji: authoringRequest?.postControls?.emoji.preference || DEFAULT_POST_CONTROLS.emoji,
+    });
+    setValidationError(null);
+  }, [authoringRequest]);
 
   const isProcessing = loading || briefLoading;
+
+  const buildAuthoringRequest = (): ThinkForgeAuthoringRequest | null => {
+    if (!outputKind) {
+      setValidationError('Choose an output type.');
+      return null;
+    }
+    if (!platformId) {
+      setValidationError('Choose a platform.');
+      return null;
+    }
+    if (platformId === 'custom' && !customPlatformLabel.trim()) {
+      setValidationError('Name the destination platform.');
+      return null;
+    }
+    if (outputKind === 'carousel' && carouselSlideCount === undefined) {
+      setValidationError('Choose the carousel slide count.');
+      return null;
+    }
+
+    const mins = durationMinutes.trim() ? Number(durationMinutes) : 0;
+    const secs = durationSeconds.trim() ? Number(durationSeconds) : 0;
+    if (outputKind === 'video_script' && (
+      !Number.isInteger(mins)
+      || !Number.isInteger(secs)
+      || mins < 0
+      || secs < 0
+      || secs > 59
+    )) {
+      setValidationError('Use whole minutes and 0-59 seconds.');
+      return null;
+    }
+    const targetDurationSec = mins * 60 + secs;
+
+    try {
+      const request = createThinkForgeAuthoringRequest({
+        contentContract: createThinkForgeWriterContract(
+          outputKind,
+          outputKind === 'carousel' ? { carouselSlideCount } : undefined,
+        ),
+        platformSurface: platformId === 'custom'
+          ? { id: 'custom', customLabel: customPlatformLabel.trim() }
+          : { id: platformId },
+        ...(outputKind === 'video_script' && targetDurationSec > 0 ? { targetDurationSec } : {}),
+        ...(outputKind !== 'video_script'
+          ? {
+              postControls: {
+                ...createDefaultThinkForgePostControls(),
+                cta: { preference: postControls.cta },
+                hashtags: { preference: postControls.hashtags },
+                emoji: { preference: postControls.emoji },
+              },
+            }
+          : {}),
+      });
+      setValidationError(null);
+      return request;
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : 'Invalid authoring settings.');
+      return null;
+    }
+  };
+
+  const handleFormSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!prompt.trim()) return;
+    const request = buildAuthoringRequest();
+    if (!request) return;
+    const urls = extractUrls(prompt);
+    if (urls.length > 0 && onUrlSubmit) {
+      onUrlSubmit(urls, prompt, request);
+      return;
+    }
+    onSubmit(event, request);
+  };
 
   return (
     <div className="prompt-view" id="s1" style={{ display: hasSubmitted ? 'none' : 'flex' }}>
       <div className="prompt-hero">
-        <h1>Script</h1>
-        <p>Describe your idea, drop a link, or name your niche</p>
+        <h1>ThinkForge</h1>
       </div>
-      
+
+      <div className="w-full max-w-[760px] space-y-3">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Output type">
+          {OUTPUT_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`idea-tag min-h-9 ${outputKind === option.value ? 'border-[#D4A652] text-[#D4A652]' : ''}`}
+              aria-pressed={outputKind === option.value}
+              onClick={() => {
+                setOutputKind(option.value);
+                setValidationError(null);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-[#7A776E]">
+            Platform
+            <select
+              value={platformId}
+              onChange={(event) => {
+                setPlatformId(event.target.value as ThinkForgePlatformSurfaceId | '');
+                setValidationError(null);
+              }}
+              className="mt-1.5 h-10 w-full rounded-[7px] border border-[#282724] bg-[#0F0F0E] px-3 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60"
+            >
+              <option value="">Select</option>
+              {PLATFORM_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          {platformId === 'custom' && (
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-[#7A776E]">
+              Destination
+              <input
+                value={customPlatformLabel}
+                maxLength={80}
+                onChange={(event) => setCustomPlatformLabel(event.target.value)}
+                className="mt-1.5 h-10 w-full rounded-[7px] border border-[#282724] bg-[#0F0F0E] px-3 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60"
+              />
+            </label>
+          )}
+          {outputKind === 'carousel' && (
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-[#7A776E]">
+              Slides
+              <input
+                type="number"
+                min={2}
+                max={7}
+                value={carouselSlideCount ?? ''}
+                onChange={(event) => setCarouselSlideCount(event.target.value ? Number(event.target.value) : undefined)}
+                className="mt-1.5 h-10 w-full rounded-[7px] border border-[#282724] bg-[#0F0F0E] px-3 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60"
+              />
+            </label>
+          )}
+          {outputKind === 'video_script' && (
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[#7A776E]">
+              Target duration
+              <div className="mt-1.5 grid grid-cols-2 gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={durationMinutes}
+                  onChange={(event) => setDurationMinutes(event.target.value)}
+                  placeholder="Minutes"
+                  aria-label="Target duration minutes"
+                  className="h-10 rounded-[7px] border border-[#282724] bg-[#0F0F0E] px-3 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  step={1}
+                  value={durationSeconds}
+                  onChange={(event) => setDurationSeconds(event.target.value)}
+                  placeholder="Seconds"
+                  aria-label="Target duration seconds"
+                  className="h-10 rounded-[7px] border border-[#282724] bg-[#0F0F0E] px-3 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {outputKind && outputKind !== 'video_script' && (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <PreferenceControl
+              label="CTA"
+              value={postControls.cta}
+              options={['editorial', 'none', 'soft', 'direct']}
+              onChange={(cta) => setPostControls((current) => ({ ...current, cta }))}
+            />
+            <PreferenceControl
+              label="Hashtags"
+              value={postControls.hashtags}
+              options={['editorial', 'none']}
+              onChange={(hashtags) => setPostControls((current) => ({ ...current, hashtags }))}
+            />
+            <PreferenceControl
+              label="Emoji"
+              value={postControls.emoji}
+              options={['editorial', 'none', 'restrained']}
+              onChange={(emoji) => setPostControls((current) => ({ ...current, emoji }))}
+            />
+          </div>
+        )}
+      </div>
+
       <form ref={formRef} onSubmit={handleFormSubmit} className="prompt-box" style={{ width: '100%', display: 'block' }}>
-        <textarea 
-          id="promptInput" 
-          rows={3} 
-          placeholder="A behind-the-scenes look at how F1 pit crews train under extreme pressure..."
+        <textarea
+          id="promptInput"
+          rows={3}
+          placeholder="A behind-the-scenes look at how F1 pit crews train under pressure..."
           value={prompt}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
+          onChange={(event) => setPrompt(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              if (!isProcessing) formRef.current?.requestSubmit();
+            }
+          }}
         />
         <div className="prompt-actions">
-          <span className="mono" style={{ color: 'var(--text-faint)' }}>enter ↵</span>
-          <button 
-            type="submit" 
-            className="prompt-cta" 
+          <button
+            type="submit"
+            className="prompt-cta"
             disabled={isProcessing || !prompt.trim()}
+            aria-label="Generate ideas"
+            title="Generate ideas"
           >
-            {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : '→'}
+            {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
           </button>
         </div>
       </form>
-      
-      <button 
-        type="button" 
+
+      {validationError && (
+        <p role="alert" className="w-full max-w-[760px] text-sm text-red-400">{validationError}</p>
+      )}
+
+      <button
+        type="button"
         className="enhance-btn"
-        disabled={isProcessing}
+        disabled={isProcessing || !prompt.trim()}
         onClick={async () => {
-          const niche = prompt.trim();
-          if (!niche) return;
+          const original = prompt.trim();
+          if (!original) return;
           try {
-            const res = await fetch('/api/services/thinkforge/enhance', {
+            const response = await fetch('/api/services/thinkforge/enhance', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: niche }),
+              body: JSON.stringify({ prompt: original }),
             });
-            if (!res.ok) throw new Error('Failed to enhance prompt');
-            const reader = res.body?.getReader();
+            if (!response.ok) throw new Error('Failed to enhance prompt');
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error('Enhance response did not include a stream');
             const decoder = new TextDecoder();
-            if (!reader) return;
-            setPrompt('');
             let enhancedPrompt = '';
             while (true) {
               const { done, value } = await reader.read();
@@ -217,83 +388,43 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
               enhancedPrompt += decoder.decode(value, { stream: true });
               setPrompt(enhancedPrompt);
             }
-          } catch (error) {
-            console.error('Enhance error:', error);
-            setPrompt(niche);
+          } catch {
+            setPrompt(original);
           }
         }}
       >
-        <span className="enhance-icon">✦</span>
-        Enhance with AI
+        <Sparkles className="h-4 w-4" />
+        Enhance
       </button>
-      {showPlatformPicker && (
-        <div className="platform-picker" style={{
-          display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px 0',
-          animation: 'fadeIn 0.15s ease-out',
-        }}>
-          <span style={{ width: '100%', fontSize: '11px', color: '#7A776E', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
-            Which platform?
-          </span>
-          {PLATFORM_PICKS.map(p => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => handlePlatformPick(p.value)}
-              style={{
-                padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 500,
-                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-                color: '#B5B2A8', cursor: 'pointer', transition: 'all 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(212,166,82,0.12)'; e.currentTarget.style.color = '#D4A652'; e.currentTarget.style.borderColor = 'rgba(212,166,82,0.25)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#B5B2A8'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
-            >
-              {p.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => handlePlatformPick('generic platform')}
-            style={{
-              padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 500,
-              background: 'transparent', border: '1px dashed rgba(255,255,255,0.1)',
-              color: '#5F5E5A', cursor: 'pointer', transition: 'all 0.15s',
-            }}
-          >
-            Skip — surprise me
-          </button>
-        </div>
-      )}
-      {showPostTypePicker && (
-        <div className="platform-picker" style={{ display: 'flex', gap: '8px', padding: '12px 0' }}>
-          <span style={{ width: '100%', fontSize: '11px', color: '#7A776E', fontWeight: 600, textTransform: 'uppercase' }}>
-            Which format?
-          </span>
-          <button type="button" onClick={() => handlePostTypePick('single')} className="idea-tag">Single post</button>
-          <button type="button" onClick={() => handlePostTypePick('carousel')} className="idea-tag">Carousel</button>
-        </div>
-      )}
-      {showCarouselCountPicker && (
-        <div className="platform-picker" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px 0' }}>
-          <span style={{ width: '100%', fontSize: '11px', color: '#7A776E', fontWeight: 600, textTransform: 'uppercase' }}>
-            How many slides?
-          </span>
-          {[2, 3, 4, 5, 6, 7].map((slideCount) => (
-            <button key={slideCount} type="button" onClick={() => handleCarouselCountPick(slideCount)} className="idea-tag">
-              {slideCount}
-            </button>
-          ))}
-        </div>
-      )}
 
       <div className="prompt-footer">
         <span className="mono" style={{ color: 'var(--text-faint)' }}>1 credit per generation</span>
-        {onManualSetup && (
-          <button type="button" className="configure" onClick={onManualSetup}>
-            Configure manually →
-          </button>
-        )}
       </div>
     </div>
   );
 };
 
+function PreferenceControl<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly T[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <label className="text-[10px] font-semibold uppercase tracking-wider text-[#7A776E]">
+      {label}
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as T)}
+        className="mt-1.5 h-10 w-full rounded-[7px] border border-[#282724] bg-[#0F0F0E] px-3 text-sm capitalize text-[#ECE9E1] outline-none focus:border-[#D4A652]/60"
+      >
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
+  );
+}

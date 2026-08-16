@@ -12,6 +12,10 @@ import {
 } from '../schemas/document-contract';
 import type { ScriptIntent } from '../protocol/intent';
 import type { SelectedTrend } from '../trends/selected-trend';
+import {
+  ThinkForgeAuthoringRequestSchema,
+  type ThinkForgeAuthoringRequest,
+} from '../schemas/authoring-request';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -32,6 +36,7 @@ export interface IdeaCardData {
   tone: string;
   durationSec?: number;
   sessionName?: string;
+  originalPrompt?: string;
   brandId?: string;
   brandBrief?: string;
   clientId?: string;
@@ -41,6 +46,7 @@ export interface IdeaCardData {
   seriesId?: string;
   calendarItemId?: string;
   contentCardId?: string;
+  authoringRequest?: ThinkForgeAuthoringRequest;
 }
 
 /**
@@ -71,10 +77,12 @@ export interface ProjectMeta {
   style?: string;
   format?: string;
   contentContract?: ThinkForgeDocumentContract;
+  authoringRequest?: ThinkForgeAuthoringRequest;
   platform?: string;
   tone?: string;
   durationSec?: number;
   sessionName?: string;
+  originalPrompt?: string;
   brandId?: string;
   brandBinding?: ThinkForgeSessionBrandBinding;
   brandBrief?: string;
@@ -118,14 +126,38 @@ function firstNonEmptyString(...values: unknown[]): string | undefined {
 export function resolveProjectMetaContentContract(
   projectMeta?: ProjectMeta | null,
 ): ThinkForgeDocumentContract | null {
+  const authoringRequest = resolveProjectMetaAuthoringRequest(projectMeta);
   if (projectMeta?.contentContract !== undefined) {
     const parsed = ThinkForgeDocumentContractSchema.safeParse(projectMeta.contentContract);
     if (!parsed.success) {
       throw new Error('ThinkForge project metadata contains an invalid document contract');
     }
+    if (authoringRequest) {
+      const requestContract = authoringRequest.contentContract;
+      if (
+        parsed.data.documentKind !== requestContract.documentKind
+        || parsed.data.outputKind !== requestContract.outputKind
+        || parsed.data.artifactType !== requestContract.artifactType
+        || parsed.data.carouselSlideCount !== requestContract.carouselSlideCount
+      ) {
+        throw new Error('ThinkForge project metadata contains conflicting authoring and document contracts');
+      }
+    }
     return parsed.data;
   }
+  if (authoringRequest) return authoringRequest.contentContract;
   return normalizeThinkForgeDocumentContract(projectMeta?.format);
+}
+
+export function resolveProjectMetaAuthoringRequest(
+  projectMeta?: ProjectMeta | null,
+): ThinkForgeAuthoringRequest | null {
+  if (projectMeta?.authoringRequest === undefined) return null;
+  const parsed = ThinkForgeAuthoringRequestSchema.safeParse(projectMeta.authoringRequest);
+  if (!parsed.success) {
+    throw new Error('ThinkForge project metadata contains an invalid authoring request');
+  }
+  return parsed.data;
 }
 
 export function mergeThinkForgeProjectMetadata(
@@ -138,7 +170,14 @@ export function mergeThinkForgeProjectMetadata(
     ...(providedProject || {}),
   };
 
-  const contentContract = resolveProjectMetaContentContract(sessionProjectMeta)
+  const authoringRequest = resolveProjectMetaAuthoringRequest(sessionProjectMeta)
+    ?? resolveProjectMetaAuthoringRequest(providedProject);
+  if (authoringRequest) {
+    merged.authoringRequest = authoringRequest;
+  }
+
+  const contentContract = authoringRequest?.contentContract
+    ?? resolveProjectMetaContentContract(sessionProjectMeta)
     ?? resolveProjectMetaContentContract(providedProject);
   if (contentContract) {
     merged.contentContract = contentContract;

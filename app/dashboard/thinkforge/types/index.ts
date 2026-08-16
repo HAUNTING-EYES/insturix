@@ -3,6 +3,7 @@ import type { CIRDocument, CIRSection } from "@/lib/thinkforge/schemas/cir";
 import type { TiptapJSON } from "@/lib/thinkforge/schemas/tiptap-schema";
 import type { ContentCard } from "@/lib/thinkforge/planning/content-card-contract";
 import type { DocumentType, SidecarCard, SidecarCardAction } from "@/lib/thinkforge/state/types";
+import type { ThinkForgeAuthoringRequest } from "@/lib/thinkforge/schemas/authoring-request";
 
 export type { ContentCard, DocumentType, SidecarCard, SidecarCardAction };
 
@@ -31,6 +32,7 @@ export interface Idea {
   sessionName?: string;
   originalPrompt?: string;
   brandBrief?: string;
+  authoringRequest?: ThinkForgeAuthoringRequest;
 }
 
 export interface Script {

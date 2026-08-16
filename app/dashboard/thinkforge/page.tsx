@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion";
 import { FolderOpen, Lightbulb, FileText, Calendar, Brain, Library } from "lucide-react";
 import { toast } from '@/hooks/use-toast';
-import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
+import type { IdeaCardData } from "@/lib/thinkforge/state/types";
 import type { SelectedTrend } from "@/lib/thinkforge/trends/selected-trend";
 import type { TrendCandidate } from "@/lib/thinkforge/trends/trend-evidence";
 import type { TrendTarget } from "@/components/dashboard/ThinkForge/TrendWorkflowPanel";
@@ -22,8 +22,11 @@ import { PipelineBreadcrumb } from "@/components/dashboard/shared/PipelineBreadc
 
 import {
 	normalizeThinkForgeDocumentContract,
-	resolveCarouselSlideCount,
 } from "@/lib/thinkforge/schemas/document-contract";
+import {
+	ThinkForgeAuthoringRequestSchema,
+	type ThinkForgeAuthoringRequest,
+} from "@/lib/thinkforge/schemas/authoring-request";
 import { matchesThinkForgeDocumentIdentity } from "@/lib/thinkforge/client-document-identity";
 import { resolveThinkForgeSessionOpenAction } from "@/lib/thinkforge/session-open-policy";
 import { getActiveBrandIdFromStorage } from "@/components/dashboard/ActiveBrand/ActiveBrandProvider";
@@ -65,10 +68,10 @@ const hasMissingProjectMetaPassthrough = (target: unknown, source: unknown): boo
 };
 
 const resolveIdeaDocumentContract = (idea: IdeaCardData | null | undefined) => {
-	const contract = normalizeThinkForgeDocumentContract(idea?.format);
-	if (contract?.outputKind !== 'carousel') return contract;
-	const carouselSlideCount = resolveCarouselSlideCount(idea?.originalPrompt);
-	return carouselSlideCount === undefined ? contract : { ...contract, carouselSlideCount };
+	if (idea?.authoringRequest !== undefined) {
+		return ThinkForgeAuthoringRequestSchema.parse(idea.authoringRequest).contentContract;
+	}
+	return normalizeThinkForgeDocumentContract(idea?.format);
 };
 
 const buildProjectMetaPayload = (
@@ -76,12 +79,16 @@ const buildProjectMetaPayload = (
 	initialDraftIntent?: Record<string, unknown>,
 ): Record<string, unknown> => {
 	const contentContract = resolveIdeaDocumentContract(idea);
+	const authoringRequest = idea?.authoringRequest === undefined
+		? undefined
+		: ThinkForgeAuthoringRequestSchema.parse(idea.authoringRequest);
 	return {
 		idea: idea?.idea || '',
 		purpose: idea?.purpose || '',
 		style: idea?.style || '',
 		format: idea?.format || '',
 		...(contentContract ? { contentContract } : {}),
+		...(authoringRequest ? { authoringRequest } : {}),
 		platform: idea?.platform || '',
 		tone: idea?.tone || 'blue',
 		sessionName: idea?.sessionName || '',
@@ -93,6 +100,7 @@ const buildProjectMetaPayload = (
 };
 const buildIdeaGenerationPayload = (
 	prompt: string,
+	authoringRequest: ThinkForgeAuthoringRequest,
 	projectMeta?: Record<string, unknown> | null,
 	variationIndex = 0,
 	rejectedIdeas: Array<{ title: string; purpose: string; style: string }> = [],
@@ -101,6 +109,7 @@ const buildIdeaGenerationPayload = (
 	const brandId = toNonEmptyString(scopedMeta.brandId) ?? getActiveBrandIdFromStorage();
 	return {
 		prompt,
+		authoringRequest,
 		variationIndex,
 		rejectedIdeas,
 		...(brandId ? { brandId } : {}),
@@ -122,6 +131,9 @@ const buildIdeaFromSessionMeta = (
   sessionName: toNonEmptyString(projectMeta.sessionName),
   originalPrompt: toNonEmptyString(projectMeta.originalPrompt),
   brandBrief: toNonEmptyString(projectMeta.brandBrief),
+  ...(projectMeta.authoringRequest !== undefined
+	? { authoringRequest: ThinkForgeAuthoringRequestSchema.parse(projectMeta.authoringRequest) }
+	: {}),
   ...pickProjectMetaPassthrough(projectMeta),
 });
 
@@ -137,6 +149,7 @@ export default function ThinkForgeLanding() {
 	const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ideation');
 
 	const [prompt, setPrompt] = useState("");
+	const [authoringRequest, setAuthoringRequest] = useState<ThinkForgeAuthoringRequest | null>(null);
 	const [ideas, setIdeas] = useState<IdeaCardData[]>([]);
 	const [loading, setLoading] = useState(false);
 	// Overlay while opening an existing session from Library
@@ -208,6 +221,7 @@ export default function ThinkForgeLanding() {
 		resumedSessionIdRef.current = restoredSessionId;
 		setActiveScriptId('default');
 		setSelectedIdea(buildIdeaFromSessionMeta(restoredSessionId, session.projectMeta || {}));
+		setAuthoringRequest(null);
 		setWorkspaceMode('scripting');
 	}, [session.restoredSessionId, session.isRestoringCurrentSession, session.sessionId, session.projectMeta]);
 
@@ -215,10 +229,25 @@ export default function ThinkForgeLanding() {
 
 	const generateIdeas = useCallback(async (
 		promptOverride?: string,
-		options?: { variationIndex?: number; rejectedIdeas?: Array<{ title: string; purpose: string; style: string }> },
+		options?: {
+			variationIndex?: number;
+			rejectedIdeas?: Array<{ title: string; purpose: string; style: string }>;
+			authoringRequest?: ThinkForgeAuthoringRequest;
+		},
 	) => {
 		const ideaPrompt = promptOverride || prompt;
 		if (!ideaPrompt.trim()) return;
+		const request = options?.authoringRequest ?? authoringRequest;
+		if (!request) {
+			toast({
+				title: 'Output type required',
+				description: 'Choose an output type and platform before generating ideas.',
+				variant: 'destructive',
+			});
+			return;
+		}
+		const validatedRequest = ThinkForgeAuthoringRequestSchema.parse(request);
+		setAuthoringRequest(validatedRequest);
 		const variationIndex = options?.variationIndex ?? 0;
 		const rejectedIdeas = options?.rejectedIdeas || [];
 		if (variationIndex === 0 && rejectedIdeas.length === 0) {
@@ -236,6 +265,7 @@ export default function ThinkForgeLanding() {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(buildIdeaGenerationPayload(
 					ideaPrompt,
+					validatedRequest,
 					session.projectMeta,
 					variationIndex,
 					rejectedIdeas,
@@ -267,7 +297,16 @@ export default function ThinkForgeLanding() {
 				throw new Error(errData?.error || errData?.message || 'Idea generation failed');
 			}
 			const data = await res.json();
-			const list: IdeaCardData[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
+			const rawList: unknown[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
+			const list = rawList.map((rawIdea) => {
+				if (!rawIdea || typeof rawIdea !== 'object') throw new Error('Idea generation returned an invalid idea');
+				const idea = rawIdea as IdeaCardData;
+				const returnedRequest = ThinkForgeAuthoringRequestSchema.parse(idea.authoringRequest);
+				if (JSON.stringify(returnedRequest) !== JSON.stringify(validatedRequest)) {
+					throw new Error('Idea generation returned a conflicting authoring request');
+				}
+				return { ...idea, authoringRequest: returnedRequest };
+			});
 			if (list.length !== 4) throw new Error('Idea generation returned an invalid idea set');
 			successfulIdeaVariationRef.current = variationIndex;
 			setIdeas(list.map((idea) => ({ ...idea, originalPrompt: ideaPrompt })));
@@ -281,12 +320,12 @@ export default function ThinkForgeLanding() {
 		} finally {
 			setLoading(false);
 		}
-	}, [prompt, session.projectMeta]);
+	}, [prompt, session.projectMeta, authoringRequest]);
 
 
-	const onSubmit = (e: React.FormEvent) => {
+	const onSubmit = (e: React.FormEvent, request: ThinkForgeAuthoringRequest) => {
 		e.preventDefault();
-		generateIdeas();
+		generateIdeas(undefined, { authoringRequest: request });
 	};
 
 	const regenerate = () => {
@@ -316,7 +355,11 @@ export default function ThinkForgeLanding() {
 	 * 4. Update the prompt textarea with the enriched version
 	 * 5. Generate ideas using the enriched prompt directly (no stale state)
 	 */
-	const handleUrlSubmit = useCallback(async (urls: string[], originalPrompt: string) => {
+	const handleUrlSubmit = useCallback(async (
+		urls: string[],
+		originalPrompt: string,
+		request: ThinkForgeAuthoringRequest,
+	) => {
 		if (briefLoading || urls.length === 0) return;
 		setBriefLoading(true);
 		setBriefResults(null);
@@ -395,7 +438,7 @@ export default function ThinkForgeLanding() {
 			setPrompt(enrichedPrompt);
 
 			// Step 6: Generate ideas with the enriched prompt DIRECTLY (bypasses stale state)
-			await generateIdeas(enrichedPrompt);
+			await generateIdeas(enrichedPrompt, { authoringRequest: request });
 		} catch (error) {
 			console.error('[ThinkForge] URL brief extraction failed:', error);
 			toast({
@@ -436,6 +479,7 @@ export default function ThinkForgeLanding() {
 		setIdeas([]);
 		setHasSubmitted(false);
 		setPrompt("");
+		setAuthoringRequest(null);
 	};
 
 	const handleProceedToScript = async (updatedIdea?: IdeaCardData) => {
@@ -469,6 +513,7 @@ export default function ThinkForgeLanding() {
 		setIdeas([]);
 		setHasSubmitted(false);
 		setPrompt("");
+		setAuthoringRequest(null);
 	};
 
 	const handleEnsureTrendSession = useCallback(async (candidate: TrendCandidate, target: TrendTarget): Promise<string | null> => {
@@ -529,26 +574,9 @@ export default function ThinkForgeLanding() {
 		setIdeas([]);
 		setHasSubmitted(false);
 		setPrompt('');
+		setAuthoringRequest(null);
 		setWorkspaceMode('scripting');
 	}, []);
-
-	const handleJumpToSettings = () => {
-		// Initialize empty idea
-		const emptyIdea: IdeaCardData = {
-			id: Date.now().toString(),
-			idea: "",
-			purpose: "",
-			style: "",
-			format: "",
-			platform: "",
-			tone: "white" // Default to neutral/white tone
-		};
-		setSelectedIdea(emptyIdea);
-		setIdeationPhase('SELECTED');
-		// Clear prompt/ideas if they exist to avoid confusion
-		setPrompt("");
-		setHasSubmitted(false);
-	};
 
 	const handleUpdateIdea = async (updated: any) => {
 		try {
@@ -880,6 +908,7 @@ export default function ThinkForgeLanding() {
 						setIdeas([]);
 						setHasSubmitted(false);
 						setPrompt("");
+						setAuthoringRequest(null);
 						setIdeationPhase('PROMPT');
 						setWorkspaceMode('ideation');
 					}
@@ -920,6 +949,7 @@ export default function ThinkForgeLanding() {
 						setPendingSessionId(sid);
 						scriptHook.resetSessionState();
 						setSelectedIdea(buildIdeaFromSessionMeta(sid, data.projectMeta || {}));
+						setAuthoringRequest(null);
 						// Switch to Script mode so ChatPanel mounts and loads recent chats
 						setWorkspaceMode('scripting');
 					} catch (err) {
@@ -955,13 +985,13 @@ export default function ThinkForgeLanding() {
 				hasSubmitted={hasSubmitted}
 				ideas={ideas}
 				selectedIdea={selectedIdea}
+				authoringRequest={authoringRequest}
 				onSubmit={onSubmit}
 				onRegenerate={regenerate}
 				onSelectIdea={handleSelectIdea}
 				onProceedToChat={handleProceedToScript}
 				onGoBackToIdeas={() => setIdeationPhase('IDEAS')}
 				onUpdateIdea={handleUpdateIdea}
-				onManualSetup={handleJumpToSettings}
 				sessionId={activeSessionId}
 				onEnsureTrendSession={handleEnsureTrendSession}
 				onTrendDraft={handleTrendDraft}
@@ -969,7 +999,6 @@ export default function ThinkForgeLanding() {
 				sessionCount={sessions.length}
 				onUrlSubmit={handleUrlSubmit}
 				briefLoading={briefLoading}
-				briefResults={briefResults}
 			/>
 
 			<StoryboardingMode
@@ -998,6 +1027,7 @@ export default function ThinkForgeLanding() {
 					setIdeas([]);
 					setHasSubmitted(false);
 					setPrompt("");
+					setAuthoringRequest(null);
 					setIdeationPhase('PROMPT');
 					setWorkspaceMode('ideation');
 				}}
@@ -1052,6 +1082,7 @@ export default function ThinkForgeLanding() {
 						const sid = data.sessionId;
 						setPendingSessionId(sid);
 						scriptHook.resetSessionState();
+						setAuthoringRequest(null);
 						// Reconstruct selected idea from project meta
 						const pm = data.projectMeta || {};
 						// Derive a stable numeric id from the session id to keep UI keys stable
@@ -1108,6 +1139,7 @@ export default function ThinkForgeLanding() {
 						if (data?.sessionId) {
 							setPendingSessionId(data.sessionId);
 							scriptHook.resetSessionState();
+							setAuthoringRequest(null);
 
 							// Reconstruct idea from project meta if available
 							const pm = data.projectMeta || {};
