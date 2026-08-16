@@ -321,6 +321,42 @@ END_THINKFORGE_CLICKATRON_EXPORT -->`;
     });
     expect(spec?.renderPlan.slides?.[1].textLayers?.[0]?.text).toBe('One named owner moves feedback into a single lane.');
   });
+
+  it('recovers all ten authored slides without applying the obsolete seven-slide cap', () => {
+    const visibleSlides = Array.from(
+      { length: 10 },
+      (_, index) => `Slide ${index + 1}: Exact authored point ${index + 1}.`,
+    ).join('\n\n');
+    const markdown = `${visibleSlides}
+
+<!-- THINKFORGE_CLICKATRON_EXPORT
+{
+  "clickatron": {
+    "schemaVersion": 1,
+    "kind": "carousel",
+    "assetIntent": "carousel",
+    "platform": "instagram",
+    "aspectRatio": "1:1",
+    "source": { "sourceService": "thinkforge", "sourceBlockIds": ["AUTO"] },
+    "userIntent": { "visualMode": "text_forward_graphic", "wantsCarousel": true },
+    "creativeBrief": { "objective": "teach", "coreMessage": "ten exact points" },
+    "renderPlan": {
+      "textPolicy": "editable_text_layers",
+      "imagePrompt": "One shared visual system across the exact authored deck.",
+      "slides": []
+    },
+    "validation": { "status": "ready" }
+  }
+}
+END_THINKFORGE_CLICKATRON_EXPORT -->`;
+
+    const extracted = extractRequiredClickatronCreativeSidecar(markdown);
+    const slides = extracted.exportMeta.clickatron?.renderPlan.slides;
+
+    expect(slides).toHaveLength(10);
+    expect(slides?.[9].textLayers?.[0]?.text).toBe('Exact authored point 10.');
+  });
+
   it('recovers misplaced calendar identifiers before normalization', () => {
     const markdown = `Visible Instagram copy.
 

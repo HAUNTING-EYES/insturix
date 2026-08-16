@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   deriveCarouselVisualSpec,
-  MAX_CAROUSEL_SLIDES,
   type DeriveCarouselInput,
 } from '@/lib/thinkforge/visual-language/derive-carousel-visual-spec';
 
@@ -13,7 +12,7 @@ import {
 const blocks = (n: number): DeriveCarouselInput['blocks'] =>
   Array.from({ length: n }, (_, i) => ({ title: `Slide ${i + 1} title`, text: `Body sentence ${i + 1}. More detail here.` }));
 
-const base: DeriveCarouselInput = { signals: {}, blocks: blocks(5) };
+const base: DeriveCarouselInput = { signals: {}, slideCount: 5, blocks: blocks(5) };
 
 describe('deriveCarouselVisualSpec — visual mode', () => {
   it('data/proof-heavy content → text_forward_graphic', () => {
@@ -40,7 +39,7 @@ describe('deriveCarouselVisualSpec — visual mode', () => {
   it('conversion + brand assets does NOT auto-pick product_mockup (only via override)', () => {
     // "Show the product" can't be inferred from goal+logo — most conversion content is
     // conceptual, not a product render. The deriver must not force product_mockup.
-    const spec = deriveCarouselVisualSpec({ ...base, goal: 'conversion', brandHasLogo: true });
+    const spec = deriveCarouselVisualSpec({ ...base, goal: 'conversion' });
     expect(spec.visualMode).not.toBe('product_mockup');
     const overridden = deriveCarouselVisualSpec({ ...base, overrides: { visualMode: 'product_mockup' } });
     expect(overridden.visualMode).toBe('product_mockup');
@@ -58,27 +57,22 @@ describe('deriveCarouselVisualSpec — visual mode', () => {
   });
 });
 
-describe('deriveCarouselVisualSpec — slide count (platform decides, override wins)', () => {
-  it('instagram defaults to 6, bounded by content', () => {
-    const spec = deriveCarouselVisualSpec({ signals: {}, platform: 'instagram', blocks: blocks(6) });
-    expect(spec.slideCount).toBe(6);
+describe('deriveCarouselVisualSpec — canonical slide count', () => {
+  it('preserves the exact authored ten-slide deck', () => {
+    const spec = deriveCarouselVisualSpec({ signals: {}, slideCount: 10, blocks: blocks(10) });
+    expect(spec.slideCount).toBe(10);
+    expect(spec.slides).toHaveLength(10);
     expect(spec.lowConfidenceFields).not.toContain('slideCount');
   });
 
-  it('slide count never exceeds available content blocks', () => {
-    const spec = deriveCarouselVisualSpec({ signals: {}, platform: 'instagram', blocks: blocks(3) });
-    expect(spec.slideCount).toBe(3); // 6 default clamped down to 3 blocks
+  it('rejects a block/count mismatch instead of inventing or dropping slides', () => {
+    expect(() => deriveCarouselVisualSpec({ signals: {}, slideCount: 5, blocks: blocks(3) }))
+      .toThrow('blocks must match canonical slideCount (3/5)');
   });
 
-  it('unknown platform → generic default, flagged low-confidence', () => {
-    const spec = deriveCarouselVisualSpec({ signals: {}, platform: 'myspace', blocks: blocks(5) });
-    expect(spec.slideCount).toBe(5);
-    expect(spec.lowConfidenceFields).toContain('slideCount');
-  });
-
-  it('override wins and is clamped to the max', () => {
-    const spec = deriveCarouselVisualSpec({ signals: {}, platform: 'tiktok', blocks: blocks(10), overrides: { slideCount: 20 } });
-    expect(spec.slideCount).toBe(MAX_CAROUSEL_SLIDES);
+  it.each([1, 11])('rejects out-of-contract count %s instead of clamping it', (slideCount) => {
+    expect(() => deriveCarouselVisualSpec({ signals: {}, slideCount, blocks: blocks(slideCount) }))
+      .toThrow('slideCount must be an integer between 2 and 10');
   });
 });
 
@@ -115,7 +109,7 @@ describe('deriveCarouselVisualSpec — slide roles + real overlay copy', () => {
   });
 
   it('falls back to first sentence when a block has no title', () => {
-    const spec = deriveCarouselVisualSpec({ signals: {}, blocks: [{ text: 'Hook line here. Second sentence.' }, { text: 'B' }, { text: 'C' }] });
+    const spec = deriveCarouselVisualSpec({ signals: {}, slideCount: 3, blocks: [{ text: 'Hook line here. Second sentence.' }, { text: 'B' }, { text: 'C' }] });
     expect(spec.slides[0].overlayCopy).toBe('Hook line here.');
   });
 });
@@ -157,7 +151,7 @@ describe('deriveCarouselVisualSpec — palette + confidence + determinism', () =
   });
 
   it('rich atoms → high confidence, empty atoms → low', () => {
-    const rich = deriveCarouselVisualSpec({ signals: { logos_load: 0.76, kairos_pressure: 0.78 }, platform: 'instagram', blocks: blocks(6), proofPoints: ['x'] });
+    const rich = deriveCarouselVisualSpec({ signals: { logos_load: 0.76, kairos_pressure: 0.78 }, slideCount: 6, blocks: blocks(6), proofPoints: ['x'] });
     const bare = deriveCarouselVisualSpec(base);
     expect(rich.confidence).toBeGreaterThan(bare.confidence);
     expect(rich.confidence).toBe(1);
@@ -168,11 +162,11 @@ describe('deriveCarouselVisualSpec — palette + confidence + determinism', () =
     expect(deriveCarouselVisualSpec(input)).toEqual(deriveCarouselVisualSpec(input));
   });
 
-  it('always emits a valid, bounded slide set with a rationale', () => {
+  it('always emits the exact canonical slide set with a rationale', () => {
     const spec = deriveCarouselVisualSpec(base);
     expect(spec.slides.length).toBe(spec.slideCount);
-    expect(spec.slideCount).toBeGreaterThanOrEqual(2);
-    expect(spec.slideCount).toBeLessThanOrEqual(MAX_CAROUSEL_SLIDES);
+    expect(spec.slideCount).toBe(5);
+    expect(spec.rationale).toContain('slideCount=5 (canonical authored deck)');
     expect(spec.rationale.length).toBeGreaterThan(0);
   });
 });

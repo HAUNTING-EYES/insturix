@@ -1,5 +1,6 @@
 import type { AgentInput } from '../agents/types';
 import {
+  CLICKATRON_CAROUSEL_MAX_SLIDES,
   normalizeThinkForgeBlockExportMeta,
   type ClickatronAssetIntent,
   type ClickatronCarouselSlideSpec,
@@ -15,14 +16,16 @@ import {
 } from '../schemas/clickatron-creative-contract';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import type { ThinkForgeContentSignalProfile } from '../signals';
-import { deriveCarouselVisualSpec } from '../visual-language/derive-carousel-visual-spec';
+import {
+  deriveCarouselVisualSpec,
+  deriveClickatronVisualStyle,
+} from '../visual-language/derive-carousel-visual-spec';
 
 export const THINKFORGE_CLICKATRON_EXPORT_START = 'THINKFORGE_CLICKATRON_EXPORT';
 export const THINKFORGE_CLICKATRON_EXPORT_END = 'END_THINKFORGE_CLICKATRON_EXPORT';
 
 const SIDECAR_RE = /<!--\s*THINKFORGE_CLICKATRON_EXPORT\s*([\s\S]*?)\s*END_THINKFORGE_CLICKATRON_EXPORT\s*-->/i;
 const SIDECAR_START_RE = /<!--\s*THINKFORGE_CLICKATRON_EXPORT\b/i;
-const MAX_REPAIRED_CAROUSEL_SLIDES = 7;
 const NON_VIDEO_CREATIVE_INTENT_RE =
   /\b(post|posts|caption|captions|carousel|carousels|thread|threads|blog|article|newsletter|social|linkedin|instagram|facebook|pinterest|graphic|static creative|ad creative|blog header|x post)\b/;
 const VIDEO_PRODUCTION_DELIVERABLE_RE =
@@ -296,14 +299,35 @@ function deriveVisualLanguageForSpec(
 ): { visualLanguage: ClickatronVisualLanguage; visualMode: ClickatronVisualMode } {
   const slides = Array.isArray(clickatron.renderPlan?.slides) ? clickatron.renderPlan.slides : [];
   const writerMode = clickatron.userIntent?.visualMode;
-  const spec = deriveCarouselVisualSpec({
+  const styleInput = {
     signals: profile.profile.signals ?? {},
     goal: profile.intent.goal,
     proofPoints: profile.intent.proofPoints,
-    platform: profile.intent.platform,
-    blocks: slides.map((slide) => ({ title: slide.title, text: slide.imagePrompt ?? '' })),
     overrides: writerMode && writerMode !== 'auto' ? { visualMode: writerMode } : undefined,
-  });
+  };
+
+  if (clickatron.kind === 'carousel') {
+    const spec = deriveCarouselVisualSpec({
+      ...styleInput,
+      slideCount: slides.length,
+      blocks: slides.map((slide) => ({ title: slide.title, text: slide.imagePrompt ?? '' })),
+    });
+    return {
+      visualMode: spec.visualMode,
+      visualLanguage: {
+        vibe: spec.vibe,
+        imageStyle: spec.imageStyle,
+        paletteTemperature: spec.palette.temperatureBias,
+        confidence: spec.confidence,
+        lowConfidenceFields: spec.lowConfidenceFields,
+        slideRoles: spec.slides.map((slide) => slide.role),
+        rationale: spec.rationale,
+        derived: true,
+      },
+    };
+  }
+
+  const spec = deriveClickatronVisualStyle(styleInput);
   return {
     visualMode: spec.visualMode,
     visualLanguage: {
@@ -312,7 +336,6 @@ function deriveVisualLanguageForSpec(
       paletteTemperature: spec.palette.temperatureBias,
       confidence: spec.confidence,
       lowConfidenceFields: spec.lowConfidenceFields,
-      ...(clickatron.kind === 'carousel' ? { slideRoles: spec.slides.map((slide) => slide.role) } : {}),
       rationale: spec.rationale,
       derived: true,
     },
@@ -554,7 +577,7 @@ function deriveCarouselSlidesFromVisibleMarkdown(
   if (seeds.length === 0) return undefined;
   const shouldKeepText = textPolicy !== 'no_generated_text';
   const base = promptBase || 'Recovered carousel visual system from ThinkForge visible copy.';
-  return seeds.slice(0, MAX_REPAIRED_CAROUSEL_SLIDES).map((seed, index) => ({
+  return seeds.slice(0, CLICKATRON_CAROUSEL_MAX_SLIDES).map((seed, index) => ({
     id: `slide_${index + 1}`,
     index,
     imagePrompt: [
@@ -619,7 +642,7 @@ function cleanSlideSeedText(value: string): string {
 
 function buildCarouselOverviewImagePrompt(slidePrompts: string[]): string {
   const overview = slidePrompts
-    .slice(0, 6)
+    .slice(0, CLICKATRON_CAROUSEL_MAX_SLIDES)
     .map((prompt, index) => `Slide ${index + 1}: ${prompt}`)
     .join(' ');
   return `Carousel overview for Clickatron. Preserve the shared aspect ratio, visual system, composition language, typography-safe negative space, and brand mood across all slides. ${overview}`;

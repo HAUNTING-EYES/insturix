@@ -12,7 +12,7 @@ const SCENARIOS: Array<{ name: string; input: DeriveCarouselInput }> = [
   {
     name: 'SaaS launch (the real Insturix case) — conversion, has logo',
     input: {
-      signals: {}, goal: 'conversion', platform: 'instagram', brandHasLogo: true,
+      signals: {}, goal: 'conversion', slideCount: 4,
       blocks: [
         { title: 'Your tools are fragmented', text: 'Every app is a silo. Context is rebuilt constantly.' },
         { title: 'This is how businesses get robbed', text: 'Not just time — their potential.' },
@@ -24,7 +24,7 @@ const SCENARIOS: Array<{ name: string; input: DeriveCarouselInput }> = [
   {
     name: 'Educational how-to tutorial',
     input: {
-      signals: { education_intent: 0.78, behavioral_utility: 0.76 }, goal: 'education', platform: 'linkedin',
+      signals: { education_intent: 0.78, behavioral_utility: 0.76 }, goal: 'education', slideCount: 5,
       blocks: [
         { title: 'How to cut your edit time in half', text: 'A 4-step workflow.' },
         { title: 'Step 1: Batch your clips', text: 'Group similar shots first.' },
@@ -37,7 +37,7 @@ const SCENARIOS: Array<{ name: string; input: DeriveCarouselInput }> = [
   {
     name: 'Data / research report — stats-heavy',
     input: {
-      signals: { logos_load: 0.76, specificity_grain: 0.74 }, goal: 'education', platform: 'linkedin',
+      signals: { logos_load: 0.76, specificity_grain: 0.74 }, goal: 'education', slideCount: 3,
       proofPoints: ['73% waste 2h/day', '3x ROI', '40% faster'],
       blocks: [
         { title: '73% of teams waste 2 hours a day', text: 'New research across 500 companies.' },
@@ -49,7 +49,7 @@ const SCENARIOS: Array<{ name: string; input: DeriveCarouselInput }> = [
   {
     name: 'Emotional / personal story',
     input: {
-      signals: { narrative_transportation: 0.74, tension_arc: 0.66, warmth: 0.74 }, goal: 'connection', platform: 'instagram',
+      signals: { narrative_transportation: 0.74, tension_arc: 0.66, warmth: 0.74 }, goal: 'connection', slideCount: 3,
       blocks: [
         { title: 'I almost quit last year', text: 'Burnout nearly took everything.' },
         { title: 'The turning point', text: 'One small change in how I worked.' },
@@ -60,7 +60,7 @@ const SCENARIOS: Array<{ name: string; input: DeriveCarouselInput }> = [
   {
     name: 'Meme / humor',
     input: {
-      signals: { humor: 0.62, entertainment_intent: 0.72, formality: -0.35 }, goal: 'connection', platform: 'tiktok',
+      signals: { humor: 0.62, entertainment_intent: 0.72, formality: -0.35 }, goal: 'connection', slideCount: 2,
       blocks: [
         { title: 'POV: the client says "one small change"', text: 'It is never one small change.' },
         { title: 'Narrator: it was not small', text: 'Three days later...' },
@@ -70,7 +70,7 @@ const SCENARIOS: Array<{ name: string; input: DeriveCarouselInput }> = [
   {
     name: 'Urgent launch — the "urgent but sober" combo',
     input: {
-      signals: { kairos_pressure: 0.78, formality: 0.58, ethos_load: 0.76 }, goal: 'announcement', platform: 'linkedin',
+      signals: { kairos_pressure: 0.78, formality: 0.58, ethos_load: 0.76 }, goal: 'announcement', slideCount: 3,
       blocks: [
         { title: 'Launching Monday', text: 'The wait is over.' },
         { title: 'Built for teams that ship', text: 'Enterprise-grade from day one.' },
@@ -81,7 +81,7 @@ const SCENARIOS: Array<{ name: string; input: DeriveCarouselInput }> = [
   {
     name: 'Minimal input — no signals, no platform, no goal (edge)',
     input: {
-      signals: {},
+      signals: {}, slideCount: 3,
       blocks: [
         { title: 'A', text: 'First point.' },
         { title: 'B', text: 'Second point.' },
@@ -92,21 +92,21 @@ const SCENARIOS: Array<{ name: string; input: DeriveCarouselInput }> = [
   {
     name: 'Very short — 2 blocks only (edge)',
     input: {
-      signals: { kairos_pressure: 0.78 }, platform: 'instagram',
+      signals: { kairos_pressure: 0.78 }, slideCount: 2,
       blocks: [{ title: 'Big news', text: 'We shipped it.' }, { title: 'Try it free', text: 'Link in bio.' }],
     },
   },
   {
     name: 'Contradictory signals (formal AND casual matched — resolver last-write)',
     input: {
-      signals: { formality: -0.35, ethos_load: 0.76 }, goal: 'education', platform: 'linkedin',
+      signals: { formality: -0.35, ethos_load: 0.76 }, goal: 'education', slideCount: 4,
       blocks: [{ title: 'X', text: 'a.' }, { title: 'Y', text: 'b.' }, { title: 'Z', text: 'c.' }, { title: 'W', text: 'd.' }],
     },
   },
   {
     name: 'Conversion but NO brand logo (product_mockup should NOT fire)',
     input: {
-      signals: {}, goal: 'conversion', platform: 'instagram', brandHasLogo: false,
+      signals: {}, goal: 'conversion', slideCount: 3,
       blocks: [{ title: 'Save 10 hours a week', text: 'Automate the busywork.' }, { title: 'Start free', text: 'No card needed.' }, { title: 'Cancel anytime', text: 'Really.' }],
     },
   },
