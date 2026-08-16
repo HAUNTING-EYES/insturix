@@ -263,6 +263,8 @@ describe('ScriptWriterAgent prompt contract', () => {
     expect(prompt).toContain('characterId "host"');
     expect(prompt).toContain('Avatar Vault profile "avatar_profile_primary"');
     expect(prompt).toContain('acts -> narrativeScenes -> beats -> lines');
+    expect(prompt).toContain('Runtime never creates, forbids, or counts acts, scenes, or beats');
+    expect(prompt).toContain('structure.recommendedTechniques are advisory candidates');
     expect(prompt).toContain('Every spoken line declares its actual languageCode');
     expect(prompt).toContain('Do not author visible markdown, duplicate narration fields, or renderPlan');
     expect(prompt).toContain('Do not split, shorten, translate, or move speech merely to satisfy a renderer');

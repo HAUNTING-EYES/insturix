@@ -306,9 +306,33 @@ describe('ThinkForge script production contract', () => {
       maximumSpokenWords: 980,
       selectedTechnique: { id: 'narration_complement' },
     });
-    expect(plan.structure.scope).toBe('full_act_scene');
+    expect(plan.structure.hierarchyPolicy).toBe('content_led');
+    expect(plan.structure.actPolicy).toContain('runtime never creates or forbids acts');
     expect(plan).not.toHaveProperty('targetSceneCount');
     expect(JSON.stringify(plan)).not.toContain('WordsPerScene');
+  });
+
+  it('does not let runtime silently select or reject the creative structure', () => {
+    const profile = sevenMinuteProfile({
+      behavioral_utility: 0.8,
+      kairos_pressure: 0.7,
+      pathos_load: 0.6,
+      audience_awareness: 'problem_aware',
+      education_intent: 0.2,
+    });
+    const shortBrief = {
+      ...sevenMinuteBrief(),
+      output: { ...sevenMinuteBrief().output, targetDurationSec: 30 },
+    };
+
+    const shortPlan = buildScriptEditorialPlan({ productionBrief: shortBrief, contentSignalProfile: profile });
+    const longPlan = buildScriptEditorialPlan({ productionBrief: sevenMinuteBrief(), contentSignalProfile: profile });
+    const shortRecommendations = shortPlan.structure.recommendedTechniques.map((technique) => technique.id);
+    const longRecommendations = longPlan.structure.recommendedTechniques.map((technique) => technique.id);
+
+    expect(shortRecommendations).toEqual(longRecommendations);
+    expect(longRecommendations).toContain('problem_agitate_solve');
+    expect(longPlan.structure).not.toHaveProperty('selectedTechnique');
   });
 
   it('uses the visual-verbal signal mode instead of one universal WPM assumption', () => {
