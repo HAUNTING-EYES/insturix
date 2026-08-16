@@ -6,7 +6,6 @@
 import { generateText } from 'ai';
 import { chatAgent } from '../agents/chat-agent';
 import { runResearchAgent } from '../agents/research-agent';
-import { generateScriptDraft } from '../agents/script-draft-agent';
 import { PostWriterAgent, type PostWriterInput } from '../agents/post-writer-agent';
 import { ScriptWriterAgent, type ScriptWriterInput } from '../agents/script-writer-agent';
 import { runThinkingAgent } from '../agents/thinking-agent';
@@ -39,8 +38,6 @@ import { createThinkForgeModelForRoute } from '../agents/model-factory';
 import { buildIsolatedPromptParts } from '../agents/prompt-boundary';
 import { resolveThinkForgeGenerationDocumentIntent } from '../agents/prompt-utils';
 import { resolveThinkForgeTrendContext } from './trend-context';
-import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
-import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import {
   resolveThinkForgeAuthoringPrompt,
   resolveThinkForgeProductionBrief,
@@ -168,7 +165,6 @@ interface ChatRequest {
   generationId?: string | null;
   threadId?: string | null;
   intentContext?: IntentContextSignals;
-  blueprintArtifacts?: Array<{ type: string; label: string; description?: string; priority?: string }>;
   /** Route-resolved authoring truth. Undefined keeps direct server callers compatible. */
   authoringContext?: ThinkForgeResolvedAuthoringContext | null;
   /** Silent generation (auto-starter draft): run the draft but do NOT persist the triggering
@@ -203,16 +199,10 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     generationId: providedGenerationId,
     threadId: providedThreadId,
     intentContext: providedIntentContext,
-    blueprintArtifacts: providedBlueprintArtifacts,
     authoringContext: providedAuthoringContext,
     silent: isSilent = false,
   } = request;
   const threadId = providedThreadId || 'default';
-
-  // P3.1: the chat request is the work; its org context decides who pays. Resolved ONCE at
-  // work-start and reused for every downstream charge of this stream (the blueprint
-  // per-document deductions below) — the flag/context can never flip mid-stream.
-  const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());
 
   // STEP 5: Explicit session existence verification before processing
   // Load session - require it to exist (no auto-create for chat operations)
@@ -406,138 +396,6 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           await db.appendChatMessage(canonicalSessionId, 'user', prompt, threadId);
         }
         await db.recordChatUsage(userId, canonicalSessionId, chatLimit.planName);
-      }
-
-      // Blueprint initialization — skip intent classification, run full draft pipeline per artifact
-      if (Array.isArray(providedBlueprintArtifacts) && providedBlueprintArtifacts.length > 0) {
-        await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
-          type: 'script_generate',
-          intent: 'blueprint',
-          message: 'Generating blueprint documents',
-        });
-        const artifacts = providedBlueprintArtifacts;
-        const total = artifacts.length;
-        const projectDesc = sessionState.metadata.idea
-          || sessionState.metadata.title
-          || sessionState.metadata.projectName
-          || sessionState.metadata.sessionName
-          || prompt;
-
-        if (!(await emitEvent('token', { content: `Creating ${total} document${total > 1 ? 's' : ''} for your project...\n` }))) return;
-
-        const createdDocs: Array<{ scriptId: string; title: string; documentType: string }> = [];
-
-        for (let i = 0; i < total; i++) {
-          const artifact = artifacts[i];
-          const docType = artifact.type || 'custom';
-          const title = artifact.label || 'Untitled Document';
-          const newScriptId = crypto.randomUUID();
-          const artifactPrompt = `Create a professional "${title}" (${docType.replace(/_/g, ' ')}) document for this project: ${projectDesc}. ${artifact.description || ''}`;
-
-          // Progress is shown via the progress bar, not verbose chat messages
-
-          // Thinking Agent for this artifact
-          try {
-            const thinking = await runThinkingAgent({
-              userPrompt: artifactPrompt,
-              projectSummary: projectDesc,
-              documentType: docType,
-              documentTitle: title,
-            });
-            if (thinking) {
-              await emitEvent('thinking', { content: thinking });
-            }
-          } catch (thinkErr) {
-            console.warn(`[chat-service] Blueprint thinking failed for "${title}" (continuing):`, thinkErr);
-          }
-
-          // Run full draft pipeline
-          if (!(await emitEvent('progress', { progress: (i / total) * 0.9, message: `Writing "${title}"...` }))) return;
-
-          try {
-            const draft = await generateScriptDraft(
-              artifactPrompt,
-              sessionState,
-              null,
-              undefined,
-              {
-                onProgress: async ({ progress, message, completed, total: t }) => {
-                  const overallProgress = (i / total) + (progress / total) * 0.9;
-                  await emitEvent('progress', { progress: overallProgress, message: `[${title}] ${message}`, completed, total: t });
-                },
-                onPartial: async ({ title: dTitle, blocks, richText, content, completed, total: t }) => {
-                  await emitEvent('script_update', {
-                    script: { title: dTitle, blocks, richText, content },
-                    metadata: { workflow: 'blueprint', streaming: true, completed, total: t },
-                  });
-                },
-              },
-              systemBrief,
-              retrievedCtx
-            );
-
-            // Save document
-            await claimCommitOwnership();
-            const saveResult = await applyCommand({
-              type: 'ReplaceDocument',
-              sessionId: canonicalSessionId,
-              baseVersion: 0,
-              source: 'ai',
-              payload: {
-                scriptId: newScriptId,
-                title: draft.title || title,
-                content: draft.content,
-                blocks: draft.blocks,
-                richText: draft.richText as any,
-                documentType: docType,
-                metadata: {
-                  workflow: 'blueprint',
-                  source: 'ai',
-                  ...(draft.signalTrace ? { signalTrace: draft.signalTrace } : {}),
-                },
-              },
-            }, userId, orgId);
-
-            if (!saveResult.ok) {
-              if (!(await emitEvent('token', { content: `Failed to save "${title}": ${saveResult.error}\n` }))) return;
-              continue;
-            }
-
-            commitPersisted = true;
-            createdDocs.push({ scriptId: newScriptId, title: draft.title || title, documentType: docType });
-            await emitEvent('script_created', { scriptId: newScriptId, title: draft.title || title, documentType: docType });
-            if (!(await emitEvent('token', { content: `\n✓ ${draft.title || title}\n` }))) return;
-
-            // Deduct credits per document (P3.1: routed to the wallet resolved at work-start —
-            // an org-context blueprint bills the org wallet, flag off bills personal as before)
-            try {
-              const { CreditsService } = await import('@/lib/services/creditsService');
-              await CreditsService.deductForWallet(billingWallet, 'thinkforge', 'document_creation');
-            } catch (creditErr) {
-              console.warn('[chat-service] Credit deduction failed for blueprint doc:', creditErr);
-            }
-          } catch (draftErr: any) {
-            console.error(`[chat-service] Blueprint draft failed for "${title}":`, draftErr);
-            if (!(await emitEvent('token', { content: `Error creating "${title}": ${draftErr.message || 'Unknown error'}\n` }))) return;
-          }
-        }
-
-        // Summary
-        const summaryMsg = createdDocs.length === total
-          ? `\nAll ${total} documents are ready. Switch between them using the tabs.`
-          : `\n${createdDocs.length} of ${total} documents created.`;
-        if (!(await emitEvent('token', { content: summaryMsg }))) return;
-
-        if (session) {
-          await db.appendChatMessage(canonicalSessionId, 'assistant', `Blueprint initialized: ${createdDocs.map(d => d.title).join(', ')}`, threadId);
-        }
-
-        await emitEvent('progress', { progress: 1, message: 'Blueprint complete' });
-        await emitEvent('done', { sessionId: canonicalSessionId });
-        if (!isStreamClosed) {
-          try { await writer.close(); } catch { /* stream already closed */ }
-        }
-        return;
       }
 
       // 1. Check for confirmation of a previous proposal

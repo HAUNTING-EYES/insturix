@@ -19,6 +19,7 @@ import {
 } from '@/lib/thinkforge/context/brand-authoring-context';
 import { resolveProjectMetaBrandId } from '@/lib/thinkforge/state/types';
 import { getVersion as getWritingKnowledgeVersion } from '@/lib/thinkforge/data/writing-graph-query';
+import { LEGACY_BLUEPRINT_RETIREMENT } from '@/lib/thinkforge/blueprints/legacy-blueprint-retirement';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -99,6 +100,9 @@ export async function POST(req: Request) {
   }
   if (!scriptId) {
     return NextResponse.json({ error: 'Missing scriptId' }, { status: 400 });
+  }
+  if (blueprintArtifacts?.length) {
+    return NextResponse.json(LEGACY_BLUEPRINT_RETIREMENT, { status: 410 });
   }
 
   let authorizedSession: Awaited<ReturnType<typeof db.getSession>>;
@@ -215,7 +219,6 @@ export async function POST(req: Request) {
       generationId,
       threadId,
       intentContext,
-      blueprintArtifacts,
       silent,
       authoringContext,
     }));

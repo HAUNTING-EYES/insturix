@@ -6,7 +6,6 @@ import { createStylistAgent } from '@/lib/thinkforge/agents/stylist-agent';
 import { createSupervisorAgent } from '@/lib/thinkforge/agents/supervisor-agent';
 import { createNullAgent } from '@/lib/thinkforge/agents/null-agent';
 import { createScopeDetectorAgent } from '@/lib/thinkforge/agents/scope-detector-agent';
-import { createDiscoveryAgent, type DiscoveryAgentInput } from '@/lib/thinkforge/agents/discovery-agent';
 import { quickAssembleContext, fetchContextSources, formatSystemBrief } from '@/lib/thinkforge/context';
 import * as db from '@/lib/thinkforge/services/db';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
@@ -18,6 +17,7 @@ import { parseMarkdownToBlocks } from '@/lib/thinkforge/normalization/markdown-p
 import { validateThinkForgeBlocks } from '@/lib/thinkforge/schemas/thinkforge-block';
 import { thinkForgeBlocksToTiptapJSON } from '@/lib/thinkforge/mappers/thinkforge-to-tiptap';
 import { resolveThinkForgeAuthoringProjectMetadata } from '@/lib/thinkforge/context/brand-authoring-context';
+import { LEGACY_BLUEPRINT_RETIREMENT } from '@/lib/thinkforge/blueprints/legacy-blueprint-retirement';
 import crypto from 'crypto';
 import { z } from 'zod';
 
@@ -32,12 +32,6 @@ const SidecarSchema = z.object({
   scriptId: z.string().trim().min(1).optional(),
   specialistRequest: z.string().optional(),
   threadId: z.string().default('default'),
-  artifacts: z.array(z.object({
-    type: z.string(),
-    label: z.string(),
-    description: z.string().optional(),
-    priority: z.string().optional(),
-  }).passthrough()).optional(),
 }).passthrough();
 
 export async function POST(req: Request) {
@@ -60,11 +54,8 @@ export async function POST(req: Request) {
   const { action, sessionId, content, scriptId, specialistRequest } = parsed.data;
   const actionContent = content?.trim() ?? '';
   const specialistInstruction = specialistRequest?.trim() ?? '';
-  if (action === 'initialize_blueprint') {
-    return NextResponse.json({
-      error: 'Blueprint initialization has moved to the chat stream. Use the /api/services/thinkforge/chat endpoint with blueprintArtifacts.',
-      code: 'DEPRECATED_ENDPOINT',
-    }, { status: 410 });
+  if (action === 'discover_blueprint' || action === 'initialize_blueprint') {
+    return NextResponse.json(LEGACY_BLUEPRINT_RETIREMENT, { status: 410 });
   }
   if (action === 'deconstruct' && !actionContent) {
     return NextResponse.json({ error: 'No content to deconstruct' }, { status: 400 });
@@ -77,9 +68,6 @@ export async function POST(req: Request) {
   }
   if (action === 'detect_scope' && !actionContent) {
     return NextResponse.json({ error: 'No project description to analyze' }, { status: 400 });
-  }
-  if (action === 'discover_blueprint' && !actionContent) {
-    return NextResponse.json({ error: 'No project description' }, { status: 400 });
   }
   const requiresStoredDocument = action === 'refine_voice' && !actionContent;
   if (requiresStoredDocument && !scriptId) {
@@ -321,41 +309,6 @@ export async function POST(req: Request) {
           scope: result,
         });
       }
-
-      case 'discover_blueprint': {
-
-        const scopeAgent = createScopeDetectorAgent();
-        const scope = await scopeAgent.detectScope({ context, userPrompt: actionContent });
-
-        const discoveryAgent = createDiscoveryAgent();
-        const proposal = await discoveryAgent.proposeBlueprint({
-          context,
-          userPrompt: actionContent,
-          scope,
-        } as DiscoveryAgentInput);
-
-        return NextResponse.json({
-          type: 'decision',
-          card: {
-            id: crypto.randomUUID(),
-            type: 'decision' as const,
-            title: 'Blueprint Proposal',
-            body: proposal.greeting,
-            data: {
-              artifacts: proposal.artifacts,
-              followUpQuestion: proposal.followUpQuestion,
-              scope,
-            },
-            actions: [
-              { id: 'initialize_blueprint', label: 'Initialize Blueprint', variant: 'primary' },
-              { id: 'customize_blueprint', label: 'Customize', variant: 'secondary' },
-            ],
-            dismissible: true,
-            timestamp: Date.now(),
-          },
-        });
-      }
-
 
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });

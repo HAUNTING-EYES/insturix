@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   checkVoice: vi.fn(),
   checkCredits: vi.fn(),
   createArchitectAgent: vi.fn(),
-  createDiscoveryAgent: vi.fn(),
   createIngestorAgent: vi.fn(),
   createNullAgent: vi.fn(),
   createScopeDetectorAgent: vi.fn(),
@@ -16,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   deduct: vi.fn(),
   detectScope: vi.fn(),
   executeSpecialist: vi.fn(),
+  ensureMigrated: vi.fn(),
   fetchContextSources: vi.fn(),
   formatSystemBrief: vi.fn(),
   getScript: vi.fn(),
@@ -25,11 +25,15 @@ const mocks = vi.hoisted(() => ({
   refund: vi.fn(),
   storyboard: vi.fn(),
   synthesizeAgent: vi.fn(),
-  proposeBlueprint: vi.fn(),
+  processChat: vi.fn(),
+  resolveThinkForgeAuthoringContext: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
 vi.mock('@/lib/services/creditsMiddleware', () => ({ checkCredits: mocks.checkCredits }));
+vi.mock('@/lib/services/creditsMigrationService', () => ({
+  CreditsMigrationService: { ensureMigrated: mocks.ensureMigrated },
+}));
 vi.mock('@/lib/thinkforge/services/command-service', () => ({
   applyCommand: mocks.applyCommand,
 }));
@@ -42,7 +46,9 @@ vi.mock('@/lib/thinkforge/context', () => ({
   fetchContextSources: mocks.fetchContextSources,
   formatSystemBrief: mocks.formatSystemBrief,
   quickAssembleContext: mocks.quickAssembleContext,
+  resolveThinkForgeAuthoringContext: mocks.resolveThinkForgeAuthoringContext,
 }));
+vi.mock('@/lib/thinkforge/services/chat-service', () => ({ processChat: mocks.processChat }));
 vi.mock('@/lib/thinkforge/agents/ingestor-agent', () => ({
   createIngestorAgent: mocks.createIngestorAgent,
 }));
@@ -54,9 +60,6 @@ vi.mock('@/lib/thinkforge/agents/stylist-agent', () => ({
 }));
 vi.mock('@/lib/thinkforge/agents/scope-detector-agent', () => ({
   createScopeDetectorAgent: mocks.createScopeDetectorAgent,
-}));
-vi.mock('@/lib/thinkforge/agents/discovery-agent', () => ({
-  createDiscoveryAgent: mocks.createDiscoveryAgent,
 }));
 vi.mock('@/lib/thinkforge/agents/supervisor-agent', () => ({
   createSupervisorAgent: mocks.createSupervisorAgent,
@@ -95,6 +98,19 @@ function sidecarRequest(action: string, fields: Record<string, unknown> = {}) {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ action, sessionId: 'session_requested', ...fields }),
+  });
+}
+
+function blueprintChatRequest() {
+  return new Request('http://localhost/api/services/thinkforge/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      prompt: 'Initialize these documents.',
+      sessionId: 'session_requested',
+      scriptId: 'script_1',
+      blueprintArtifacts: [{ type: 'budget', label: 'Budget' }],
+    }),
   });
 }
 
@@ -160,12 +176,6 @@ describe('ThinkForge command and sidecar authorization', () => {
       recommendedArtifacts: [],
     });
     mocks.createScopeDetectorAgent.mockReturnValue({ detectScope: mocks.detectScope });
-    mocks.proposeBlueprint.mockResolvedValue({
-      greeting: 'Blueprint ready.',
-      artifacts: [],
-      followUpQuestion: 'Anything else?',
-    });
-    mocks.createDiscoveryAgent.mockReturnValue({ proposeBlueprint: mocks.proposeBlueprint });
     mocks.synthesizeAgent.mockResolvedValue({
       title: 'Specialist Brief',
       persona: 'Specialist',
@@ -236,15 +246,35 @@ describe('ThinkForge command and sidecar authorization', () => {
   it('does not bill incomplete or deprecated sidecar actions', async () => {
     const { POST } = await import('@/app/api/services/thinkforge/sidecar/route');
 
-    const [incomplete, deprecated] = await Promise.all([
+    const [incomplete, initialize, discover] = await Promise.all([
       POST(sidecarRequest('deconstruct')),
       POST(sidecarRequest('initialize_blueprint')),
+      POST(sidecarRequest('discover_blueprint', { content: 'Build a campaign system.' })),
     ]);
 
-    expect([incomplete?.status, deprecated?.status]).toEqual([400, 410]);
+    expect([incomplete?.status, initialize?.status, discover?.status]).toEqual([400, 410, 410]);
+    await expect(initialize?.json()).resolves.toMatchObject({ code: 'LEGACY_BLUEPRINT_RETIRED' });
+    await expect(discover?.json()).resolves.toMatchObject({ code: 'LEGACY_BLUEPRINT_RETIRED' });
     expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.ensureMigrated).not.toHaveBeenCalled();
     expect(mocks.checkCredits).not.toHaveBeenCalled();
     expect(mocks.deduct).not.toHaveBeenCalled();
+  });
+
+  it('rejects legacy chat blueprints before session access, billing, or generation', async () => {
+    const { POST } = await import('@/app/api/services/thinkforge/chat/route');
+
+    const response = await POST(blueprintChatRequest());
+    if (!response) {
+      throw new Error('Chat route returned no response for a retired Blueprint request.');
+    }
+
+    expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toMatchObject({ code: 'LEGACY_BLUEPRINT_RETIRED' });
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.ensureMigrated).not.toHaveBeenCalled();
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.processChat).not.toHaveBeenCalled();
   });
 
   it('uses the canonical session throughout an organization sidecar action', async () => {
@@ -269,7 +299,6 @@ describe('ThinkForge command and sidecar authorization', () => {
     ['refine_voice', { content: 'Review this exact draft.', scriptId: 'unrelated_script' }],
     ['summon_specialist', { specialistRequest: 'Create a launch brief.', scriptId: 'unrelated_script' }],
     ['detect_scope', { content: 'Plan a campaign.', scriptId: 'unrelated_script' }],
-    ['discover_blueprint', { content: 'Build a campaign system.', scriptId: 'unrelated_script' }],
   ])('%s remains document-independent when its complete input is supplied', async (action, fields) => {
     const { POST } = await import('@/app/api/services/thinkforge/sidecar/route');
 
