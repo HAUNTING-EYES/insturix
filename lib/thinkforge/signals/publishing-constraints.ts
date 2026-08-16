@@ -6,6 +6,10 @@ import {
   type ThinkForgeAuthoringRequest,
   type ThinkForgePublishingSurfaceId,
 } from '@/lib/thinkforge/schemas/authoring-request';
+import {
+  resolveThinkForgeCarouselCapabilities,
+  type ThinkForgeCarouselCapabilities,
+} from '@/lib/thinkforge/schemas/carousel-capabilities';
 
 export const THINKFORGE_PUBLISHING_CONSTRAINTS_VERSION = 2;
 export const THINKFORGE_PUBLISHING_POLICY_VERIFIED_AT = '2026-08-16';
@@ -44,12 +48,13 @@ export interface ThinkForgePublishingConstraints extends Record<string, unknown>
   surface: ThinkForgePublishingSurface;
   policyVersion: number;
   verifiedAt: string;
-  sourceId?: 'linkedin_ugc_api' | 'x_counting_characters' | 'youtube_help';
+  sourceId?: 'linkedin_ugc_api' | 'linkedin_document_help' | 'x_counting_characters' | 'youtube_help';
   characterCounting?: 'utf16_code_units_conservative' | 'x_weighted';
   maxCharacters?: number;
   standardMaxCharacters?: number;
   extendedPostsRequireCapability?: boolean;
   maxDurationSeconds?: number;
+  carousel?: ThinkForgeCarouselCapabilities;
 }
 
 export interface ThinkForgePublishableTextMeasurement {
@@ -99,16 +104,27 @@ function constraintsForSurface(
     verifiedAt: THINKFORGE_PUBLISHING_POLICY_VERIFIED_AT,
   };
 
-  if (outputFormat === 'social_post' && surface === 'linkedin_post') {
+  if (outputFormat === 'social_post' && (
+    surface === 'instagram_carousel'
+    || surface === 'linkedin_document_carousel'
+    || surface === 'facebook_carousel'
+    || surface === 'generic_carousel'
+    || surface === 'custom'
+  )) {
     return {
       ...base,
-      sourceId: 'linkedin_ugc_api',
-      characterCounting: 'utf16_code_units_conservative',
-      maxCharacters: 3_000,
+      carousel: resolveThinkForgeCarouselCapabilities(surface),
+      ...(surface === 'linkedin_document_carousel'
+        ? {
+            sourceId: 'linkedin_document_help' as const,
+            characterCounting: 'utf16_code_units_conservative' as const,
+            maxCharacters: 3_000,
+          }
+        : {}),
     };
   }
 
-  if (outputFormat === 'social_post' && surface === 'linkedin_document_carousel') {
+  if (outputFormat === 'social_post' && surface === 'linkedin_post') {
     return {
       ...base,
       sourceId: 'linkedin_ugc_api',

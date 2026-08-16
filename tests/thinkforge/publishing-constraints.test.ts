@@ -24,6 +24,22 @@ function postRequest(
   });
 }
 
+function carouselRequest(
+  publishingSurface: 'instagram_carousel' | 'linkedin_document_carousel' | 'generic_carousel',
+): ThinkForgeAuthoringRequest {
+  const platformId = publishingSurface === 'instagram_carousel'
+    ? 'instagram'
+    : publishingSurface === 'linkedin_document_carousel'
+      ? 'linkedin'
+      : 'generic';
+  return createThinkForgeAuthoringRequest({
+    platformSurface: { id: platformId },
+    publishingSurface,
+    contentContract: createThinkForgeWriterContract('carousel', { carouselSlideCount: 7 }),
+    postControls: createDefaultThinkForgePostControls(),
+  });
+}
+
 describe('ThinkForge publishing constraints', () => {
   it('uses X weighted counting for URLs instead of raw string length', () => {
     const constraints = resolveThinkForgePublishingConstraintsForAuthoringRequest(
@@ -96,6 +112,43 @@ describe('ThinkForge publishing constraints', () => {
     expect(constraints.surface).toBe('unknown');
     expect(measurement.maximumCharacters).toBeUndefined();
     expect(measurement.valid).toBe(true);
+  });
+
+  it('keeps official destination limits separate from one-pass authoring capacity', () => {
+    const instagram = resolveThinkForgePublishingConstraintsForAuthoringRequest(
+      carouselRequest('instagram_carousel'),
+    );
+    const linkedin = resolveThinkForgePublishingConstraintsForAuthoringRequest(
+      carouselRequest('linkedin_document_carousel'),
+    );
+
+    expect(instagram.carousel).toMatchObject({
+      minimumSlides: 2,
+      authoringBatchMaximumSlides: 10,
+      destinationMaximumSlides: 10,
+      effectiveAuthoringMaximumSlides: 10,
+    });
+    expect(linkedin.carousel).toMatchObject({
+      minimumSlides: 2,
+      authoringBatchMaximumSlides: 10,
+      destinationMaximumSlides: 300,
+      effectiveAuthoringMaximumSlides: 10,
+    });
+    expect(instagram.carousel?.destinationPolicy?.sourceUrl).toContain('facebook.com/help/instagram');
+    expect(linkedin.carousel?.destinationPolicy?.sourceUrl).toContain('linkedin.com/help/linkedin');
+  });
+
+  it('does not invent a destination maximum for generic carousels', () => {
+    const constraints = resolveThinkForgePublishingConstraintsForAuthoringRequest(
+      carouselRequest('generic_carousel'),
+    );
+
+    expect(constraints.carousel).toMatchObject({
+      authoringBatchMaximumSlides: 10,
+      effectiveAuthoringMaximumSlides: 10,
+    });
+    expect(constraints.carousel?.destinationMaximumSlides).toBeUndefined();
+    expect(constraints.carousel?.destinationPolicy).toBeUndefined();
   });
 
   it('returns a named actionable error for an explicit overlong YouTube Short', () => {
