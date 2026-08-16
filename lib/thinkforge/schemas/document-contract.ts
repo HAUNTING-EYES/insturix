@@ -1,7 +1,12 @@
 import { z } from 'zod';
+import {
+  THINKFORGE_CAROUSEL_MIN_SLIDES as CAROUSEL_SCHEMA_MIN_SLIDES,
+  THINKFORGE_CAROUSEL_SCHEMA_MAX_SLIDES,
+} from './carousel-capabilities';
 
 export const THINKFORGE_DOCUMENT_CONTRACT_VERSION = 1;
 export const THINKFORGE_CAROUSEL_MIN_SLIDES = 2;
+/** @deprecated Use the explicit authoring or renderer capability for execution limits. */
 export const THINKFORGE_CAROUSEL_MAX_SLIDES = 7;
 const ENGLISH_SLIDE_COUNT_WORDS: Record<string, number> = {
   one: 1,
@@ -65,8 +70,8 @@ export const ThinkForgeDocumentContractSchema = z.object({
   documentKind: ThinkForgeDocumentKindSchema,
   outputKind: ThinkForgeOutputKindSchema,
   artifactType: ThinkForgeArtifactTypeSchema,
-  // Intake intent only. The carousel visual deriver remains the final slide planner.
-  carouselSlideCount: z.number().int().min(THINKFORGE_CAROUSEL_MIN_SLIDES).max(THINKFORGE_CAROUSEL_MAX_SLIDES).optional(),
+  // Typed editorial intent. Destination and executor capacity are validated separately.
+  carouselSlideCount: z.number().int().min(CAROUSEL_SCHEMA_MIN_SLIDES).max(THINKFORGE_CAROUSEL_SCHEMA_MAX_SLIDES).optional(),
 }).superRefine((contract, ctx) => {
   if (contract.version !== THINKFORGE_DOCUMENT_CONTRACT_VERSION) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['version'], message: 'unsupported document contract version' });
@@ -247,8 +252,8 @@ export function resolveCarouselSlideCount(value?: string | null): number | undef
       ? ENGLISH_SLIDE_COUNT_WORDS[wordMatch[1]]
       : undefined;
   if (slideCount === undefined) return undefined;
-  if (!Number.isInteger(slideCount) || slideCount < THINKFORGE_CAROUSEL_MIN_SLIDES || slideCount > THINKFORGE_CAROUSEL_MAX_SLIDES) {
-    throw new Error(`carousel slide count must be between ${THINKFORGE_CAROUSEL_MIN_SLIDES} and ${THINKFORGE_CAROUSEL_MAX_SLIDES}`);
+  if (!Number.isInteger(slideCount) || slideCount < CAROUSEL_SCHEMA_MIN_SLIDES || slideCount > THINKFORGE_CAROUSEL_SCHEMA_MAX_SLIDES) {
+    throw new Error(`carousel slide count must be between ${CAROUSEL_SCHEMA_MIN_SLIDES} and ${THINKFORGE_CAROUSEL_SCHEMA_MAX_SLIDES}`);
   }
   return slideCount;
 }

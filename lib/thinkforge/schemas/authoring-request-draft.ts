@@ -11,8 +11,6 @@ import {
 } from './authoring-request';
 import {
   createThinkForgeWriterContract,
-  THINKFORGE_CAROUSEL_MAX_SLIDES,
-  THINKFORGE_CAROUSEL_MIN_SLIDES,
   type ThinkForgeWriterKind,
 } from './document-contract';
 import { assertThinkForgePublishingRequestFeasible } from '../signals/publishing-constraints';
@@ -112,11 +110,6 @@ export function resolveThinkForgeAuthoringRequestDraft(
     const carouselSlideCount = wholeNumber(draft.carouselSlideCount, 'Carousel slide count');
     if (draft.outputKind === 'carousel') {
       if (carouselSlideCount === undefined) throw new Error('Choose the carousel slide count.');
-      if (carouselSlideCount < THINKFORGE_CAROUSEL_MIN_SLIDES || carouselSlideCount > THINKFORGE_CAROUSEL_MAX_SLIDES) {
-        throw new Error(
-          `Carousel slide count must be between ${THINKFORGE_CAROUSEL_MIN_SLIDES} and ${THINKFORGE_CAROUSEL_MAX_SLIDES}.`,
-        );
-      }
     }
 
     const minutes = wholeNumber(draft.durationMinutes, 'Duration minutes') || 0;

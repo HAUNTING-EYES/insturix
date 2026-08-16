@@ -196,6 +196,30 @@ export function assertThinkForgePublishingRequestFeasible(
 ): void {
   const request = ThinkForgeAuthoringRequestSchema.parse(requestInput);
   const constraints = resolveThinkForgePublishingConstraintsForAuthoringRequest(request);
+  if (request.contentContract.outputKind === 'carousel') {
+    const slideCount = request.contentContract.carouselSlideCount;
+    if (slideCount === undefined) {
+      throw new ThinkForgePublishingRequestError('Carousel authoring requires an explicit slide count');
+    }
+    const carousel = constraints.carousel ?? resolveThinkForgeCarouselCapabilities(undefined);
+    if (
+      carousel.destinationMaximumSlides !== undefined
+      && slideCount > carousel.destinationMaximumSlides
+    ) {
+      throw new ThinkForgePublishingRequestError(
+        `${constraints.surface} supports at most ${carousel.destinationMaximumSlides} slides; requested ${slideCount}`,
+      );
+    }
+    if (slideCount > carousel.authoringBatchMaximumSlides) {
+      const destinationContext = carousel.destinationMaximumSlides !== undefined
+        ? ` The destination permits up to ${carousel.destinationMaximumSlides}.`
+        : '';
+      throw new ThinkForgePublishingRequestError(
+        `ThinkForge one-pass carousel authoring supports at most ${carousel.authoringBatchMaximumSlides} slides; `
+        + `requested ${slideCount}.${destinationContext} Reduce the count before generation.`,
+      );
+    }
+  }
   if (
     request.targetDurationSec !== undefined
     && constraints.maxDurationSeconds !== undefined

@@ -63,8 +63,10 @@ describe('ThinkForge canonical document contract', () => {
       outputKind: 'carousel',
       carouselSlideCount: 6,
     });
-    expect(() => resolveCarouselSlideCount('Create an 8-slide carousel')).toThrow(/between 2 and 7/i);
-    expect(() => resolveCarouselSlideCount('Create an eight-slide carousel')).toThrow(/between 2 and 7/i);
+    expect(resolveCarouselSlideCount('Create an 8-slide carousel')).toBe(8);
+    expect(resolveCarouselSlideCount('Create an eight-slide carousel')).toBe(8);
+    expect(resolveCarouselSlideCount('Create a 300-slide LinkedIn document carousel')).toBe(300);
+    expect(() => resolveCarouselSlideCount('Create a 301-slide carousel')).toThrow(/between 2 and 300/i);
     expect(() => createThinkForgeWriterContract('carousel', { carouselSlideCount: 1 })).toThrow(/(?:greater than or equal to|>=)\s*2/i);
   });
 

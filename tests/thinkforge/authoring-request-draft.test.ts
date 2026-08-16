@@ -133,7 +133,7 @@ describe('ThinkForge authoring request draft', () => {
     expect(result.request.postControls?.hashtags.values).toEqual([unicodeHashtag, '#Evidencia_2026']);
   });
 
-  it('rejects invalid duration seconds and carousel capacity explicitly', () => {
+  it('rejects invalid duration seconds and distinguishes destination from authoring capacity', () => {
     const draft = createThinkForgeAuthoringRequestDraft();
     expect(resolveThinkForgeAuthoringRequestDraft({
       ...draft,
@@ -144,16 +144,38 @@ describe('ThinkForge authoring request draft', () => {
       durationSeconds: '60',
     })).toEqual({ success: false, error: 'Duration seconds must be between 0 and 59.' });
 
-    const carousel = resolveThinkForgeAuthoringRequestDraft({
+    const instagramTen = resolveThinkForgeAuthoringRequestDraft({
       ...draft,
       outputKind: 'carousel',
       platformId: 'instagram',
       publishingSurfaceId: 'instagram_carousel',
-      carouselSlideCount: '8',
+      carouselSlideCount: '10',
     });
-    expect(carousel.success).toBe(false);
-    if (carousel.success) return;
-    expect(carousel.error).toMatch(/between 2 and 7/i);
+    expect(instagramTen.success).toBe(true);
+
+    const instagramEleven = resolveThinkForgeAuthoringRequestDraft({
+      ...draft,
+      outputKind: 'carousel',
+      platformId: 'instagram',
+      publishingSurfaceId: 'instagram_carousel',
+      carouselSlideCount: '11',
+    });
+    expect(instagramEleven).toEqual({
+      success: false,
+      error: 'instagram_carousel supports at most 10 slides; requested 11',
+    });
+
+    const linkedinEleven = resolveThinkForgeAuthoringRequestDraft({
+      ...draft,
+      outputKind: 'carousel',
+      platformId: 'linkedin',
+      publishingSurfaceId: 'linkedin_document_carousel',
+      carouselSlideCount: '11',
+    });
+    expect(linkedinEleven).toEqual({
+      success: false,
+      error: 'ThinkForge one-pass carousel authoring supports at most 10 slides; requested 11. The destination permits up to 300. Reduce the count before generation.',
+    });
   });
 
   it('maps exact carousel and script requests into trend targets without using source platform', () => {
