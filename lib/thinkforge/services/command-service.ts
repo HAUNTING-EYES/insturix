@@ -13,7 +13,7 @@ import {
   normalizeThinkForgeDocumentContract,
   type ThinkForgeDocumentContract,
 } from '@/lib/thinkforge/schemas/document-contract';
-import { reconcileScriptSidecarMetadata } from '@/lib/thinkforge/persistence/script-sidecar-binding';
+import { reconcileWriterOutputMetadata } from '@/lib/thinkforge/persistence/writer-output-binding';
 
 export type CommandType = 'UpdateBlock' | 'InsertBlock' | 'DeleteBlock' | 'ReplaceDocument';
 export type CommandSource = 'user' | 'ai';
@@ -246,7 +246,7 @@ export async function applyCommand(
     : computeContentFromBlocks(nextBlocks);
 
   try {
-    nextMetadata = reconcileScriptSidecarMetadata({
+    nextMetadata = reconcileWriterOutputMetadata({
       existingMetadata: existing?.metadata,
       incomingMetadata: payload.metadata,
       nextMetadata,
@@ -259,8 +259,8 @@ export async function applyCommand(
     return {
       ok: false,
       error: error instanceof Error
-        ? `Invalid script sidecar metadata: ${error.message}`
-        : 'Invalid script sidecar metadata',
+        ? `Invalid writer output metadata: ${error.message}`
+        : 'Invalid writer output metadata',
     };
   }
 

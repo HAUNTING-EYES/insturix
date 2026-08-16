@@ -82,6 +82,7 @@ function existingDocument(input: {
       source: 'ai',
       writerOutput: {
         writerType: 'script',
+        visualPrompts: { scenePrompts: ['An editorial operating-decision scene.'] },
         sidecarVersion: SCRIPT_SIDECAR_V2_VERSION,
         scriptSidecar,
         ...(input.binding !== undefined ? { sidecarBinding: input.binding } : {}),
@@ -171,6 +172,7 @@ describe('ThinkForge script sidecar content binding', () => {
       metadata: {
         writerOutput: {
           writerType: 'script',
+          visualPrompts: { scenePrompts: ['An editorial operating-decision scene.'] },
           sidecarVersion: SCRIPT_SIDECAR_V2_VERSION,
           scriptSidecar,
         },
@@ -255,13 +257,14 @@ describe('ThinkForge script sidecar content binding', () => {
       metadata: {
         writerOutput: {
           writerType: 'script',
+          visualPrompts: { scenePrompts: ['An editorial operating-decision scene.'] },
           sidecarVersion: SCRIPT_SIDECAR_V2_VERSION,
           scriptSidecar: { sidecarVersion: SCRIPT_SIDECAR_V2_VERSION, acts: [] },
         },
       },
     });
 
-    expect(result).toMatchObject({ ok: false, error: expect.stringContaining('Invalid script sidecar metadata') });
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining('Invalid writer output metadata') });
     expect(dbMock.saveScriptWithVersion).not.toHaveBeenCalled();
   });
 });

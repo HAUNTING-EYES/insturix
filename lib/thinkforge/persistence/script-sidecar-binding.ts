@@ -101,8 +101,12 @@ export function hashScriptDocumentContent(content: string): string {
   return sha256(normalizeDocumentContent(content));
 }
 
+export function hashJsonArtifact(value: unknown): string {
+  return sha256(stableSerialize(value).normalize('NFC'));
+}
+
 export function hashScriptSidecar(sidecar: unknown): string {
-  return sha256(stableSerialize(sidecar).normalize('NFC'));
+  return hashJsonArtifact(sidecar);
 }
 
 export function parseScriptSidecarBinding(input: unknown): ScriptSidecarBinding {
