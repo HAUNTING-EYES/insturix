@@ -12,7 +12,6 @@ import {
   resolveThinkForgeDocumentIntent,
   resolveThinkForgeGenerationDocumentIntent,
 } from '@/lib/thinkforge/agents/prompt-utils';
-import { resolveFlatWriterDocumentKind } from '@/lib/thinkforge/services/flat-writer-edit';
 import { mergeThinkForgeProjectMetadata } from '@/lib/thinkforge/state/types';
 import { buildThinkForgeAuthoringCompatibilityMetadata } from '@/lib/thinkforge/schemas/authoring-request';
 
@@ -352,10 +351,4 @@ describe('ThinkForge canonical document contract', () => {
     });
   });
 
-  it('uses persisted kind before markdown heuristics for follow-up edits', () => {
-    expect(resolveFlatWriterDocumentKind('screenplay', 'Plain legacy script content')).toBe('video_script');
-    expect(resolveFlatWriterDocumentKind('post', '# Scene 1\nThis heading is quoted in the post.')).toBe('social_post');
-    expect(resolveFlatWriterDocumentKind('carousel', 'Slide copy')).toBe('carousel');
-    expect(resolveFlatWriterDocumentKind(undefined, '# Scene 1\nOpening')).toBe('video_script');
-  });
 });

@@ -71,20 +71,6 @@ export interface FlatWriterEditArgs {
 
 export type FlatWriterEditResult = db.Script;
 
-export function resolveFlatWriterDocumentKind(
-  documentType: string | undefined,
-  existingContent: string,
-): ThinkForgeWriterKind {
-  const storedKind = normalizeThinkForgeDocumentType(documentType);
-  if (storedKind === 'social_post' || storedKind === 'carousel' || storedKind === 'video_script') {
-    return storedKind;
-  }
-
-  return /^\s*#{1,3}\s+Scene\s+\d+/im.test(existingContent)
-    ? 'video_script'
-    : 'social_post';
-}
-
 function requireExactIdentity(value: unknown, label: 'session' | 'document'): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error(`ThinkForge ${label} identity is required`);
