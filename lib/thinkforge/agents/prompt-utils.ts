@@ -118,6 +118,9 @@ export function resolveThinkForgeGenerationDocumentIntent(
   origin: ThinkForgeDocumentIntentOrigin = 'user_request',
   selectedContract?: ThinkForgeDocumentContract | null,
 ): ThinkForgeDocumentIntent {
+  if (selectedContract) {
+    return resolveThinkForgeDocumentIntent(userPrompt, docType, selectedContract);
+  }
   if (origin === 'user_request') {
     const explicitRequest = resolveExplicitThinkForgeDocumentRequest(userPrompt);
     if (explicitRequest.status === 'unsupported') {
