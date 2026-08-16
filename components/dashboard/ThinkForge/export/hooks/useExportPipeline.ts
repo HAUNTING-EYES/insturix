@@ -436,9 +436,11 @@ export function useExportPipeline(
     () => JSON.stringify(clickatronContextRequestBody),
     [clickatronContextRequestBody],
   );
+  const hasHydratedDocument = Boolean(scriptId?.trim())
+    && (blocks.length > 0 || Boolean(plainText?.trim()));
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!open || !sessionId || !hasHydratedDocument) {
       setResolvedClickatronContext(null);
       return;
     }
@@ -468,7 +470,7 @@ export function useExportPipeline(
       });
 
     return () => controller.abort();
-  }, [clickatronContextRequestBody, clickatronContextRequestKey, sessionId]);
+  }, [clickatronContextRequestBody, clickatronContextRequestKey, hasHydratedDocument, open, sessionId]);
 
   const localClickatronHandoffState = useMemo<ThinkToClickHandoffState | null>(() => {
     if (!sessionId) return null;

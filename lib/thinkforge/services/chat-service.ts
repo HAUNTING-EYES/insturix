@@ -70,6 +70,7 @@ import {
 } from '../document-commit-baseline';
 import { reviseDocumentViaFlatWriter } from './flat-writer-edit';
 import { resolveCanonicalEditSelection } from './canonical-edit-selection';
+import { normalizeCanonicalThinkForgeDocumentState } from '../canonical-document-state';
 import crypto from 'crypto';
 
 const PROMPT_UNDERSTANDING_SEED = 7;
@@ -909,6 +910,15 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             finalRichText = thinkForgeBlocksToTiptapJSON(finalBlocks);
             
           }
+
+          const canonicalGeneratedState = normalizeCanonicalThinkForgeDocumentState({
+            content: finalContent,
+            blocks: finalBlocks,
+            richText: finalRichText,
+          });
+          finalContent = canonicalGeneratedState.content;
+          finalBlocks = canonicalGeneratedState.blocks;
+          finalRichText = canonicalGeneratedState.richText;
 
           // Enforce the resolved profile again at the persistence boundary. Writers repair critical
           // violations once; anything still critical here is rejected and refunded.

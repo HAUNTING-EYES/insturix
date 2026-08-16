@@ -34,6 +34,26 @@ describe('canonical ThinkForge document state', () => {
     })).toThrow(/content conflicts/i);
   });
 
+  it('uses block structure as the canonical markdown form before signing a document', () => {
+    const heading: ThinkForgeBlock = {
+      id: 'block_heading',
+      kind: 'header',
+      content: [{ type: 'text', text: 'Approval ownership', styles: {} }],
+      meta: { level: 3 },
+    };
+    const richText = thinkForgeBlocksToTiptapJSON([heading]);
+
+    const state = normalizeCanonicalThinkForgeDocumentState({
+      blocks: [heading],
+      richText,
+      content: '### Approval ownership',
+    });
+
+    expect(state.content).toBe('### Approval ownership');
+    expect(tiptapJSONToThinkForgeBlocks(richText)[0]?.meta).toEqual({ level: 3 });
+    expect(serializeThinkForgeBlocksToMarkdown(state.blocks)).toBe(state.content);
+  });
+
   it('round-trips every scene slot used by production guidance', () => {
     const scene: ThinkForgeBlock = {
       id: 'block_scene',

@@ -16,4 +16,13 @@ describe('ThinkForge Export to Editron dialog close contract', () => {
     expect(source).toContain('[&>button:last-child]:z-30');
     expect(source).toContain('zIndex: 10');
   });
+
+  it('resolves Clickatron context only for an open dialog with a hydrated document', () => {
+    const source = read('components/dashboard/ThinkForge/export/hooks/useExportPipeline.ts');
+
+    expect(source).toContain('const hasHydratedDocument = Boolean(scriptId?.trim())');
+    expect(source).toContain('blocks.length > 0 || Boolean(plainText?.trim())');
+    expect(source).toContain('if (!open || !sessionId || !hasHydratedDocument)');
+    expect(source).toContain('clickatronContextRequestKey, hasHydratedDocument, open, sessionId');
+  });
 });

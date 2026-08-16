@@ -222,14 +222,24 @@ function tiptapNodeToBlock(node: TiptapBlockContent, index: number): ThinkForgeB
   }
   id = ensureThinkForgeBlockId(id || `blk_${nanoid(8)}_${index}`);
   
-  // Extract meta from custom blocks
-  let meta: { role?: string; goal?: string } | undefined;
+  // Preserve structural and custom-block metadata across editor round trips.
+  let meta: ThinkForgeBlock['meta'];
   if ('attrs' in node && node.attrs) {
     const attrs = node.attrs as Record<string, unknown>;
-    if (attrs.role || attrs.goal) {
+    const role = typeof attrs.role === 'string' && attrs.role ? attrs.role : undefined;
+    const goal = typeof attrs.goal === 'string' && attrs.goal ? attrs.goal : undefined;
+    const headingLevel = type === 'heading'
+      && typeof attrs.level === 'number'
+      && Number.isInteger(attrs.level)
+      && attrs.level >= 1
+      && attrs.level <= 3
+      ? attrs.level
+      : undefined;
+    if (role || goal || headingLevel !== undefined) {
       meta = {
-        role: attrs.role as string | undefined,
-        goal: attrs.goal as string | undefined,
+        ...(role ? { role } : {}),
+        ...(goal ? { goal } : {}),
+        ...(headingLevel !== undefined ? { level: headingLevel } : {}),
       };
     }
   }
