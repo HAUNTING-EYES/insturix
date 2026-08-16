@@ -270,8 +270,9 @@ export default function ScriptEditor({
       },
     },
     onUpdate: ({ editor }) => {
+      const programmaticUpdate = isUpdatingFromPropsRef.current || isSwitchingScriptRef.current;
       queueMicrotask(() => {
-        if (isUpdatingFromPropsRef.current) {
+        if (programmaticUpdate || isUpdatingFromPropsRef.current || isSwitchingScriptRef.current) {
           prevCharCountRef.current = editor.state.doc.textContent.length;
           return;
         }
@@ -1244,7 +1245,7 @@ export default function ScriptEditor({
       void flushPendingDocumentSaveRef.current?.(scheduledDocumentKey);
     }, 1200);
     autosaveTimerRef.current = scheduledTimer;
-  }, [convertEditorToScript, editor, activeIdentity, activeDocumentKey, documentSaveConflict]);
+  }, [convertEditorToScript, editor, activeIdentity, activeDocumentKey, documentSaveConflict, generatingScript]);
 
   // Pause autosave when tab/window is not active to avoid stale saves on return
   useEffect(() => {

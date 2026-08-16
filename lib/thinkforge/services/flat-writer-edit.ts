@@ -20,6 +20,7 @@ import { buildThinkForgeEditorialPlan } from '../agents/editorial-plan';
 import { resolveThinkForgeAuthoringContext } from '../context/resolved-authoring-context';
 import { getVersion as getWritingKnowledgeVersion } from '../data/writing-graph-query';
 import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
+import { normalizeCanonicalThinkForgeDocumentState } from '../canonical-document-state';
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import { buildContinuedThinkForgeSourceLedger } from '../provenance/source-ledger-continuity';
 import {
@@ -234,10 +235,21 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     writerInvocationMetadata?.writerTrace,
   );
 
-  const revised = (result as { content?: string }).content ?? '';
-  if (revised.trim().length < 30) {
+  const writerContent = (result as { content?: string }).content ?? '';
+  if (writerContent.trim().length < 30) {
     throw new Error('flat-writer edit returned empty/too-short content');
   }
+
+  const parsedBlocks = parseMarkdownToBlocks(writerContent);
+  if (!Array.isArray(parsedBlocks) || parsedBlocks.length === 0) {
+    throw new Error('flat-writer edit produced no parseable blocks');
+  }
+  const canonicalState = normalizeCanonicalThinkForgeDocumentState({
+    content: writerContent,
+    blocks: parsedBlocks,
+  });
+  const revised = canonicalState.content;
+  const blocks = canonicalState.blocks;
 
   const compliance = evaluateContentProfileCompliance(revised, contentSignalProfile);
   const profileCompliance = {
@@ -248,11 +260,6 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     violations: formatContentProfileComplianceViolations(compliance.violations),
   };
   assertNoCriticalContentProfileViolations(compliance.violations);
-
-  const blocks = parseMarkdownToBlocks(revised);
-  if (!Array.isArray(blocks) || blocks.length === 0) {
-    throw new Error('flat-writer edit produced no parseable blocks');
-  }
 
   const title = canonicalScript.title;
   const baseVersion = canonicalScript.version ?? 0;
@@ -292,6 +299,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
       title,
       content: revised,
       blocks,
+      richText: canonicalState.richText,
       documentType: documentKind,
       metadata: {
         ...previousMetadata,

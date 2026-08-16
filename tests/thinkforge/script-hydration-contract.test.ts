@@ -292,6 +292,25 @@ describe('ThinkForge script hydration contract', () => {
     expect(source).toContain("if (metadataSource === 'editor' && !isAIGenerated)");
   });
 
+  it('does not reinterpret programmatic hydration as a user autosave', () => {
+    const source = read('components/dashboard/ThinkForge/ScriptEditor.tsx');
+    const capturedOrigin = source.indexOf(
+      'const programmaticUpdate = isUpdatingFromPropsRef.current || isSwitchingScriptRef.current;',
+    );
+    const deferredUpdate = source.indexOf('queueMicrotask(() => {', capturedOrigin);
+    const originGuard = source.indexOf(
+      'if (programmaticUpdate || isUpdatingFromPropsRef.current || isSwitchingScriptRef.current)',
+      deferredUpdate,
+    );
+
+    expect(capturedOrigin).toBeGreaterThan(-1);
+    expect(deferredUpdate).toBeGreaterThan(capturedOrigin);
+    expect(originGuard).toBeGreaterThan(deferredUpdate);
+    expect(source).toContain(
+      '[convertEditorToScript, editor, activeIdentity, activeDocumentKey, documentSaveConflict, generatingScript]',
+    );
+  });
+
   it('applies remote chat script updates once and without queueing a user save', () => {
     const chatPanel = read('components/dashboard/ThinkForge/ChatPanel.tsx');
     const page = read('app/dashboard/thinkforge/page.tsx');

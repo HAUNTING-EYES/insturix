@@ -566,7 +566,7 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
             sessionId,
             scriptId,
             title: 'QA carousel provenance handoff',
-            userVisualChoices: { kind: 'carousel', platform: 'linkedin', aspectRatio: '1:1', slideCount: 3 },
+            userVisualChoices: { kind: 'carousel', platform: 'linkedin', aspectRatio: '1:1', slideCount: 5 },
           }
         : { sessionId, scriptId, title: 'QA provenance handoff' },
     );
@@ -595,7 +595,7 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
     if (fixture === 'carousel') {
       expect(persistedBlocks.contentContract).toMatchObject({ outputKind: 'carousel', carouselSlideCount: 5 });
       expect(creativeSpec?.kind).toBe('carousel');
-      expect(creativeSpec?.renderPlan?.slides).toHaveLength(3);
+      expect(creativeSpec?.renderPlan?.slides).toHaveLength(5);
       expect(creativeSpec?.renderPlan?.slides?.every((slide: { imagePrompt?: string }) => Boolean(slide.imagePrompt))).toBe(true);
       expect(creativeSpec?.validation?.status).toBe('ready');
     } else if (fixture === 'script') {
