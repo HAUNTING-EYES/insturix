@@ -12,6 +12,7 @@ import type { ProductionBrief } from '@/lib/editron/production-brief/production-
 import {
   assertUsableScriptWriterResult,
   materializeScriptWriterResult,
+  resolveScriptGenerationFeasibility,
   resolveScriptRuntimeContract,
   ScriptWriterAgent,
   type ScriptWriterModelOutput,
@@ -256,11 +257,9 @@ describe('ThinkForge script production contract', () => {
       maximumDurationSeconds: 420,
       narrationMode: 'complement',
       targetWordsPerMinute: 120,
-      minimumActiveSpeechWordsPerMinute: 50,
-      minimumActiveSpeechBoundary: 'exclusive',
-      maximumActiveSpeechWordsPerMinute: 170,
+      comfortableMaximumWordsPerMinute: 170,
       fullRuntimeReferenceSpokenWords: 840,
-      fullRuntimeMaximumSpokenWords: 1190,
+      fullRuntimeComfortableMaximumSpokenWords: 1190,
     });
   });
 
@@ -277,7 +276,7 @@ describe('ThinkForge script production contract', () => {
     expect(plan.runtime).toEqual({ policy: 'open' });
     expect(plan.narration.wordBudgetPolicy).toBe('open');
     expect(plan.narration).not.toHaveProperty('fullRuntimeReferenceSpokenWords');
-    expect(plan.narration).not.toHaveProperty('fullRuntimeMaximumSpokenWords');
+    expect(plan.narration).not.toHaveProperty('fullRuntimeComfortableMaximumSpokenWords');
     expect(prompt).toContain('"runtime": {');
     expect(prompt).toContain('"policy": "open"');
     expect(prompt).toContain('"wordBudgetPolicy": "open"');
@@ -285,7 +284,7 @@ describe('ThinkForge script production contract', () => {
     expect(prompt).not.toContain('"minimumDurationSeconds"');
     expect(prompt).not.toContain('"maximumDurationSeconds"');
     expect(prompt).not.toContain('"fullRuntimeReferenceSpokenWords"');
-    expect(prompt).not.toContain('"fullRuntimeMaximumSpokenWords"');
+    expect(prompt).not.toContain('"fullRuntimeComfortableMaximumSpokenWords"');
   });
 
   it('derives hierarchy and narration density without inventing a scene count', () => {
@@ -303,12 +302,11 @@ describe('ThinkForge script production contract', () => {
     expect(plan.narration).toMatchObject({
       mode: 'complement',
       targetWordsPerMinute: 120,
-      minimumActiveSpeechWordsPerMinute: 50,
-      minimumActiveSpeechBoundary: 'exclusive',
-      maximumActiveSpeechWordsPerMinute: 170,
+      comfortableMaximumWordsPerMinute: 170,
+      pacingConstraint: { severity: 'warning', overridable: true },
       wordBudgetPolicy: 'guided',
       fullRuntimeReferenceSpokenWords: 840,
-      fullRuntimeMaximumSpokenWords: 1190,
+      fullRuntimeComfortableMaximumSpokenWords: 1190,
       selectedTechnique: { id: 'narration_complement' },
     });
     expect(plan.structure.hierarchyPolicy).toBe('content_led');
@@ -353,12 +351,11 @@ describe('ThinkForge script production contract', () => {
     expect(plan.narration).toMatchObject({
       mode: 'minimal',
       targetWordsPerMinute: 25,
-      minimumActiveSpeechWordsPerMinute: 0,
-      minimumActiveSpeechBoundary: 'inclusive',
-      maximumActiveSpeechWordsPerMinute: 50,
+      comfortableMaximumWordsPerMinute: 50,
+      pacingConstraint: { severity: 'warning', overridable: true },
       wordBudgetPolicy: 'guided',
       fullRuntimeReferenceSpokenWords: 175,
-      fullRuntimeMaximumSpokenWords: 350,
+      fullRuntimeComfortableMaximumSpokenWords: 350,
       selectedTechnique: { id: 'narration_minimal' },
     });
   });
@@ -404,10 +401,50 @@ describe('ThinkForge script production contract', () => {
       productionBrief: sevenMinuteBrief(),
       contentSignalProfile: sevenMinuteProfile(),
     })).toThrow(/runtime_duration_mismatch:40s\/420s/);
-    expect(() => assertUsableScriptWriterResult(result, {
-      productionBrief: sevenMinuteBrief(),
+  });
+
+  it('preserves an exact fractional runtime instead of rounding it to a whole second', () => {
+    const brief = {
+      ...sevenMinuteBrief(),
+      output: { ...sevenMinuteBrief().output, targetDurationSec: 7.5 },
+    };
+    const plan = buildScriptEditorialPlan({
+      productionBrief: brief,
       contentSignalProfile: sevenMinuteProfile(),
-    })).toThrow(/spoken_density_mismatch/);
+    });
+
+    expect(plan.runtime).toEqual({
+      policy: 'exact',
+      targetDurationSeconds: 7.5,
+      minimumDurationSeconds: 7.5,
+      maximumDurationSeconds: 7.5,
+    });
+  });
+
+  it('rejects a provider-infeasible runtime before making a paid model call', async () => {
+    const impossibleBrief = {
+      ...sevenMinuteBrief(),
+      output: { ...sevenMinuteBrief().output, targetDurationSec: 36_000 },
+    };
+    const input = {
+      context: { projectSummary: 'A feature-length production.' },
+      userPrompt: 'Write a ten-hour documentary script.',
+      productionBrief: impossibleBrief,
+      contentSignalProfile: sevenMinuteProfile(),
+    };
+    const feasibility = resolveScriptGenerationFeasibility(input);
+    const callsBefore = generateStructuredWithWritingContextCacheMock.mock.calls.length;
+
+    expect(feasibility).toMatchObject({
+      mode: 'chaptered_required',
+      requestedDurationSeconds: 36_000,
+      maximumOutputTokens: 65_536,
+    });
+    expect(feasibility.requiredOutputTokens).toBeGreaterThan(feasibility.maximumOutputTokens);
+    await expect(new ScriptWriterAgent().runStructured(input)).rejects.toMatchObject({
+      code: 'SCRIPT_REQUIRES_CHAPTERED_GENERATION',
+    });
+    expect(generateStructuredWithWritingContextCacheMock.mock.calls).toHaveLength(callsBefore);
   });
 
   it('accepts an exact visual runtime without manufacturing a spoken-word quota', () => {

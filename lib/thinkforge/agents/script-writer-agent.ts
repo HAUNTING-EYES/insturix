@@ -28,6 +28,7 @@ import {
   type ThinkForgeContentSignalProfile,
 } from '../signals';
 import { buildScriptEditorialPlan } from './script-editorial-plan';
+import { countUnicodeWords } from '../text/unicode-text';
 
 const ContentAnalysisSchema = z.object({
   hooks: z.array(z.string()).describe('List of key hooks utilized in the script'),
@@ -44,6 +45,7 @@ const WriterMetadataSchema = z.object({
   estimatedTimeSeconds: z.number().nonnegative().describe('Duration derived from narrative intent'),
   platform: z.string().min(1).describe('The targeted publication platform'),
   voiceLanguages: z.array(z.string()).describe('Spoken languages derived from canonical beat lines'),
+  editorialWarnings: z.array(z.string()).optional().describe('Server-owned, non-blocking editorial diagnostics'),
 });
 
 const ScriptVisualMetadataSchema = z.object({
@@ -244,7 +246,6 @@ const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
   'beat_kind_speech_mismatch',
   'beat_kind_missing_speech',
   'narration_mode_missing_speech',
-  'spoken_density_mismatch',
   'missing_cast_character',
   'unused_cast_character',
   'cast_character_has_no_voice',
@@ -284,7 +285,7 @@ Critical rules:
 - Preserve the authored act, narrative-scene, and beat hierarchy unless an editorial contract failure requires changing it. Never split story units to satisfy a renderer.
 - Every beat requires visualIntent, shotIntent, and narrative duration intent. Every spoken line requires its actual languageCode.
 - Omit renderPlan. Technical segmentation is authored later from this narrative sidecar.
-- When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or spoken_density_mismatch, use tf_untrusted_data.editorialPlan as binding. Preserve the exact total runtime, but measure speaking density only inside beats where speech is active. Represent deliberate non-verbal intervals as visual or transition beats. Never pad prose, durations, metadata, or empty lines to game the contract.
+- When the failure includes runtime_duration_mismatch or narration_mode_missing_speech, use tf_untrusted_data.editorialPlan as binding. Preserve the exact total runtime and represent deliberate non-verbal intervals as visual or transition beats. Never pad prose, durations, metadata, or empty lines to game the contract.
 - Preserve source references on every factual scene, beat, and line. Do not create a reference ID that is absent from the Source Ledger.
 </writer_contract_repair>`;
 }
@@ -335,11 +336,9 @@ interface ScriptRuntimeContract {
   maximumDurationSeconds: number;
   narrationMode: ReturnType<typeof buildScriptEditorialPlan>['narration']['mode'];
   targetWordsPerMinute: number;
-  minimumActiveSpeechWordsPerMinute: number;
-  minimumActiveSpeechBoundary: 'inclusive' | 'exclusive';
-  maximumActiveSpeechWordsPerMinute: number;
+  comfortableMaximumWordsPerMinute: number;
   fullRuntimeReferenceSpokenWords: number;
-  fullRuntimeMaximumSpokenWords: number;
+  fullRuntimeComfortableMaximumSpokenWords: number;
 }
 
 /** Derive the enforceable runtime contract from a production brief (or a {@link ProductionBrief}-shaped object). */
@@ -358,58 +357,109 @@ export function resolveScriptRuntimeContract(
     maximumDurationSeconds: plan.runtime.maximumDurationSeconds,
     narrationMode: plan.narration.mode,
     targetWordsPerMinute: plan.narration.targetWordsPerMinute,
-    minimumActiveSpeechWordsPerMinute: plan.narration.minimumActiveSpeechWordsPerMinute,
-    minimumActiveSpeechBoundary: plan.narration.minimumActiveSpeechBoundary,
-    maximumActiveSpeechWordsPerMinute: plan.narration.maximumActiveSpeechWordsPerMinute,
+    comfortableMaximumWordsPerMinute: plan.narration.comfortableMaximumWordsPerMinute,
     fullRuntimeReferenceSpokenWords: plan.narration.fullRuntimeReferenceSpokenWords,
-    fullRuntimeMaximumSpokenWords: plan.narration.fullRuntimeMaximumSpokenWords,
+    fullRuntimeComfortableMaximumSpokenWords:
+      plan.narration.fullRuntimeComfortableMaximumSpokenWords,
   };
 }
 
-/** Reserve enough provider output for the spoken-word ceiling plus structured production metadata. */
-function durationAwareMaxTokens(input: Pick<ScriptWriterInput, 'productionBrief' | 'contentSignalProfile'>): number {
-  const plan = buildScriptEditorialPlan(input);
-  if (plan.runtime.policy !== 'exact' || plan.narration.wordBudgetPolicy !== 'guided') {
-    return SCRIPT_WRITER_DEFAULT_MAX_TOKENS;
+export type ScriptGenerationFeasibility =
+  | {
+      mode: 'single_pass';
+      requiredOutputTokens: number;
+      maximumOutputTokens: number;
+      maximumSinglePassDurationSeconds: number | null;
+    }
+  | {
+      mode: 'chaptered_required';
+      requiredOutputTokens: number;
+      maximumOutputTokens: number;
+      maximumSinglePassDurationSeconds: number;
+      requestedDurationSeconds: number;
+    };
+
+export class ScriptWriterCapacityError extends Error {
+  readonly code = 'SCRIPT_REQUIRES_CHAPTERED_GENERATION';
+  readonly feasibility: Extract<ScriptGenerationFeasibility, { mode: 'chaptered_required' }>;
+
+  constructor(feasibility: Extract<ScriptGenerationFeasibility, { mode: 'chaptered_required' }>) {
+    super(
+      `Script writer requires chaptered generation: requested ${feasibility.requestedDurationSeconds}s `
+      + `needs approximately ${feasibility.requiredOutputTokens} output tokens; the current single-pass `
+      + `writer supports up to ${feasibility.maximumSinglePassDurationSeconds}s without truncation.`,
+    );
+    this.name = 'ScriptWriterCapacityError';
+    this.feasibility = feasibility;
   }
-  const estimated =
-    plan.narration.fullRuntimeMaximumSpokenWords * TOKENS_PER_MAXIMUM_SPOKEN_WORD
-    + plan.runtime.targetDurationSeconds * TOKENS_PER_RUNTIME_SECOND_FOR_SIDECAR;
-  return Math.min(
-    SCRIPT_WRITER_MAX_OUTPUT_TOKENS,
-    Math.max(SCRIPT_WRITER_DEFAULT_MAX_TOKENS, Math.ceil(estimated)),
-  );
 }
 
-interface SpokenBeatMeasurement {
-  label: string;
-  durationSeconds: number;
-  wordCount: number;
+export function resolveScriptGenerationFeasibility(
+  input: Pick<ScriptWriterInput, 'productionBrief' | 'contentSignalProfile'>,
+): ScriptGenerationFeasibility {
+  const plan = buildScriptEditorialPlan(input);
+  if (plan.runtime.policy !== 'exact' || plan.narration.wordBudgetPolicy !== 'guided') {
+    return {
+      mode: 'single_pass',
+      requiredOutputTokens: SCRIPT_WRITER_DEFAULT_MAX_TOKENS,
+      maximumOutputTokens: SCRIPT_WRITER_MAX_OUTPUT_TOKENS,
+      maximumSinglePassDurationSeconds: null,
+    };
+  }
+
+  const estimated = Math.ceil(
+    plan.narration.fullRuntimeComfortableMaximumSpokenWords * TOKENS_PER_MAXIMUM_SPOKEN_WORD
+    + plan.runtime.targetDurationSeconds * TOKENS_PER_RUNTIME_SECOND_FOR_SIDECAR,
+  );
+  const tokensPerRuntimeSecond =
+    (plan.narration.comfortableMaximumWordsPerMinute / 60) * TOKENS_PER_MAXIMUM_SPOKEN_WORD
+    + TOKENS_PER_RUNTIME_SECOND_FOR_SIDECAR;
+  const maximumSinglePassDurationSeconds = Math.floor(
+    SCRIPT_WRITER_MAX_OUTPUT_TOKENS / tokensPerRuntimeSecond,
+  );
+
+  if (estimated > SCRIPT_WRITER_MAX_OUTPUT_TOKENS) {
+    return {
+      mode: 'chaptered_required',
+      requiredOutputTokens: estimated,
+      maximumOutputTokens: SCRIPT_WRITER_MAX_OUTPUT_TOKENS,
+      maximumSinglePassDurationSeconds,
+      requestedDurationSeconds: plan.runtime.targetDurationSeconds,
+    };
+  }
+
+  return {
+    mode: 'single_pass',
+    requiredOutputTokens: Math.max(SCRIPT_WRITER_DEFAULT_MAX_TOKENS, estimated),
+    maximumOutputTokens: SCRIPT_WRITER_MAX_OUTPUT_TOKENS,
+    maximumSinglePassDurationSeconds,
+  };
+}
+
+/** Reserve enough provider output for spoken copy plus structured production metadata. */
+function durationAwareMaxTokens(input: Pick<ScriptWriterInput, 'productionBrief' | 'contentSignalProfile'>): number {
+  const feasibility = resolveScriptGenerationFeasibility(input);
+  if (feasibility.mode === 'chaptered_required') throw new ScriptWriterCapacityError(feasibility);
+  return feasibility.requiredOutputTokens;
 }
 
 function countSpokenWords(beat: NarrativeBeatV2): number {
   return beat.lines.reduce((total, line) => {
     if (line.delivery === 'on-screen-text' || !line.text.trim() || !line.languageCode) return total;
-    const segmenter = new Intl.Segmenter(line.languageCode, { granularity: 'word' });
-    return total + Array.from(segmenter.segment(line.text))
-      .filter((segment) => segment.isWordLike).length;
+    return total + countUnicodeWords(line.text);
   }, 0);
 }
 
-function violatesMinimumActiveSpeechRate(
-  wordsPerMinute: number,
-  contract: ScriptRuntimeContract,
-): boolean {
-  return contract.minimumActiveSpeechBoundary === 'exclusive'
-    ? wordsPerMinute <= contract.minimumActiveSpeechWordsPerMinute
-    : wordsPerMinute < contract.minimumActiveSpeechWordsPerMinute;
+export interface ScriptWriterValidationReport {
+  editorialWarnings: string[];
 }
 
 export function assertUsableScriptWriterResult(
   result: ScriptWriterResult,
   options: ScriptWriterValidationOptions = {},
-): void {
+): ScriptWriterValidationReport {
   const failures: string[] = [];
+  const editorialWarnings: string[] = [];
   let sidecar: ScriptSidecarV2;
   try {
     sidecar = parseScriptSidecarV2(result.sidecar);
@@ -419,7 +469,7 @@ export function assertUsableScriptWriterResult(
   }
 
   const scenes = narrativeScenes(sidecar);
-  const spokenBeatMeasurements: SpokenBeatMeasurement[] = [];
+  const spokenBeatWordCounts: number[] = [];
   const expectedPrompts = scenes.map(promptForScene);
   const expectedDuration = scenes.reduce((sum, scene) => sum + sceneDurationIntent(scene), 0);
   const expectedLanguages = spokenLanguages(sidecar);
@@ -476,11 +526,7 @@ export function assertUsableScriptWriterResult(
         failures.push(`beat_kind_missing_speech:${beatLabel}:${beat.kind}`);
       }
       if (hasSpokenContent && beat.durationIntentSeconds !== undefined) {
-        spokenBeatMeasurements.push({
-          label: beatLabel,
-          durationSeconds: beat.durationIntentSeconds,
-          wordCount: spokenWordCount,
-        });
+        spokenBeatWordCounts.push(spokenWordCount);
       }
 
       return sum + (beat.durationIntentSeconds ?? 0);
@@ -511,27 +557,16 @@ export function assertUsableScriptWriterResult(
     if (expectedDuration < contract.minimumDurationSeconds || expectedDuration > contract.maximumDurationSeconds) {
       failures.push(`runtime_duration_mismatch:${expectedDuration}s/${runtimeTargetSec}s`);
     }
-    if (spokenBeatMeasurements.length === 0 && contract.narrationMode !== 'minimal') {
+    if (spokenBeatWordCounts.length === 0 && contract.narrationMode !== 'minimal') {
       failures.push(`narration_mode_missing_speech:${contract.narrationMode}`);
     }
-    spokenBeatMeasurements.forEach((measurement) => {
-      const wordsPerMinute = (measurement.wordCount / measurement.durationSeconds) * 60;
-      if (
-        violatesMinimumActiveSpeechRate(wordsPerMinute, contract)
-        || wordsPerMinute > contract.maximumActiveSpeechWordsPerMinute
-      ) {
-        failures.push(
-          `spoken_density_mismatch:${measurement.label}:${wordsPerMinute.toFixed(1)}wpm/${contract.narrationMode}`,
-        );
-      }
-    });
-    const totalSpokenWords = spokenBeatMeasurements.reduce(
-      (total, measurement) => total + measurement.wordCount,
-      0,
-    );
-    if (totalSpokenWords > contract.fullRuntimeMaximumSpokenWords) {
-      failures.push(
-        `spoken_density_mismatch:total:${totalSpokenWords}/${contract.fullRuntimeMaximumSpokenWords}`,
+    const totalSpokenWords = spokenBeatWordCounts.reduce((total, wordCount) => total + wordCount, 0);
+    const fullRuntimeWordsPerMinute = expectedDuration > 0
+      ? (totalSpokenWords / expectedDuration) * 60
+      : 0;
+    if (fullRuntimeWordsPerMinute > contract.comfortableMaximumWordsPerMinute) {
+      editorialWarnings.push(
+        `wpm_exceeds_format:${fullRuntimeWordsPerMinute.toFixed(1)}/${contract.comfortableMaximumWordsPerMinute}:${contract.narrationMode}`,
       );
     }
   }
@@ -553,6 +588,8 @@ export function assertUsableScriptWriterResult(
   if (failures.length > 0) {
     throw new ScriptWriterContractError(failures);
   }
+
+  return { editorialWarnings };
 }
 
 export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
@@ -638,7 +675,7 @@ Your task is to write a high-retention, engaging video script.
 1. **One narrative source:** Author the complete script in sidecar with sidecarVersion: ${SCRIPT_SIDECAR_V2_VERSION} and spokenTextSource: "beat-lines". Do not author visible markdown, duplicate narration fields, or renderPlan; the server derives displays and a later technical planner derives render segments.
 2. **Hierarchy:** Use acts -> narrativeScenes -> beats -> lines. A short piece still has one structural act wrapper. The approved brief and selected idea own the creative direction. Create multiple acts only for genuine macro turns in the argument, story, time, or audience understanding. Start a new narrative scene only for a meaningful change in purpose, argument, time/place, speaker mode, evidence, emotion, or visual treatment. Runtime never creates, forbids, or counts acts, scenes, or beats.
 3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover for off-camera speech, sync-dialogue only for speech captured on camera, and on-screen-text only for visible text. Every spoken line identifies speakerId, actual languageCode, delivery, camera presence, and source refs.
-4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. Narration WPM describes active speaking beats, not the whole video: full-runtime word figures are references for an all-spoken script, never quotas. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
+4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. Narration WPM is a full-runtime editorial reference, never a per-beat minimum or a quota. Preserve deliberate pauses, slow dialogue, and visual intervals; do not pad prose to hit a target. The comfortable maximum is an overridable warning, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
 5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Use voiceover/dialogue/mixed for beats with speech; use visual/transition for deliberate non-verbal time. If a mixed beat contains a substantial speech-free interval, represent that interval as its own meaningful visual or transition beat. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
 6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. Never invent proof, testimonials, logos, or product facts.
 7. **Provenance:** Use only Source Ledger referenceId values. Carry refs at sidecar, scene, beat, and line level. Every numeric/date/price/URL/proof/testimonial claim needs a real source ref; an undeclared ref is invalid.
@@ -685,7 +722,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read retrieved facts only from tf_untrusted_data.databankFacts.
 - Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
 - Read output platform and requested deliverable shape only from tf_untrusted_data.productionOutput.
-- Read runtime policy, active-speech narration guidance, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Exact total runtime and beat-channel semantics are binding; full-runtime word figures are guidance for an all-spoken script, and structure recommendations are advisory. An open runtime carries no numeric target.
+- Read runtime policy, full-runtime narration guidance, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Exact total runtime and beat-channel semantics are binding; narration targets are editorial references, pacing excess is a warning, and structure recommendations are advisory. An open runtime carries no numeric target.
 - Read requested spoken and caption languages from tf_untrusted_data.languageRequest. Never substitute a different language because of a downstream provider.`;
 
     return buildIsolatedPromptParts({
@@ -755,10 +792,11 @@ Return your response strictly adhering to the JSON schema.`;
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
     abortSignal?: AbortSignal,
   ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
+    const recommendedMaxTokens = durationAwareMaxTokens(input);
     const promptParts = this.buildPromptParts(input);
     const gen = this.resolveGenConfig({
       ...overrides,
-      maxTokens: overrides?.maxTokens ?? durationAwareMaxTokens(input),
+      maxTokens: overrides?.maxTokens ?? recommendedMaxTokens,
     });
     const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
@@ -773,9 +811,10 @@ Return your response strictly adhering to the JSON schema.`;
     let modelOutput = initialGeneration.result;
     let result = materializeScriptWriterResult(modelOutput);
     let scriptContractRepairApplied = false;
+    let validationReport: ScriptWriterValidationReport;
 
     try {
-      assertUsableScriptWriterResult(result, {
+      validationReport = assertUsableScriptWriterResult(result, {
         sourceLedger: input.sourceLedger,
         productionBrief: input.productionBrief,
         contentSignalProfile: input.contentSignalProfile,
@@ -802,18 +841,22 @@ Return your response strictly adhering to the JSON schema.`;
       result = materializeScriptWriterResult(modelOutput);
       scriptContractRepairApplied = true;
 
-      assertUsableScriptWriterResult(result, {
+      validationReport = assertUsableScriptWriterResult(result, {
         sourceLedger: input.sourceLedger,
         productionBrief: input.productionBrief,
         contentSignalProfile: input.contentSignalProfile,
       });
     }
 
+    if (validationReport.editorialWarnings.length > 0) {
+      result.metadata.editorialWarnings = [...new Set(validationReport.editorialWarnings)];
+    }
+
     return {
       result,
       metadata: {
         model: initialGeneration.modelName,
-        notes: `writing_context_cache:${initialGeneration.cacheStatus}${scriptContractRepairApplied ? ';script_contract_repair:applied' : ''}`,
+        notes: `writing_context_cache:${initialGeneration.cacheStatus}${scriptContractRepairApplied ? ';script_contract_repair:applied' : ''}${validationReport.editorialWarnings.length > 0 ? `;editorial_warnings:${validationReport.editorialWarnings.length}` : ''}`,
       },
     };
   }

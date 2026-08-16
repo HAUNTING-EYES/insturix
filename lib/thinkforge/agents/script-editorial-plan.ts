@@ -30,16 +30,18 @@ export type ScriptRuntimePlan =
 export type ScriptNarrationPlan = {
   mode: ScriptNarrationMode;
   targetWordsPerMinute: number;
-  minimumActiveSpeechWordsPerMinute: number;
-  minimumActiveSpeechBoundary: 'inclusive' | 'exclusive';
-  maximumActiveSpeechWordsPerMinute: number;
+  comfortableMaximumWordsPerMinute: number;
+  pacingConstraint: {
+    severity: 'warning';
+    overridable: true;
+  };
   selectedTechnique?: ScriptTechniqueDirective;
 } & (
   | { wordBudgetPolicy: 'open' }
   | {
       wordBudgetPolicy: 'guided';
       fullRuntimeReferenceSpokenWords: number;
-      fullRuntimeMaximumSpokenWords: number;
+      fullRuntimeComfortableMaximumSpokenWords: number;
     }
 );
 
@@ -61,44 +63,32 @@ export interface ScriptEditorialPlanInput {
 
 interface NarrationRateGuidance {
   target: number;
-  minimumActiveSpeech: number;
-  minimumBoundary: 'inclusive' | 'exclusive';
-  maximumActiveSpeech: number;
+  comfortableMaximum: number;
 }
 
-// These boundaries come from the Creative Content Knowledge narration taxonomy.
-// Complement/counterpoint must stay above the documented 0-50 WPM minimal band;
-// standard spoken delivery uses the documented 120-170 WPM performable range.
+// Mode targets come from the Creative Content Knowledge narration taxonomy. Its only
+// enforceable pacing boundary is an overridable warning above the comfortable format rate;
+// it does not define a per-beat minimum speaking rate.
 const NARRATION_RATE_GUIDANCE: Readonly<Record<ScriptNarrationMode, NarrationRateGuidance>> = {
   anchor: {
     target: 150,
-    minimumActiveSpeech: 120,
-    minimumBoundary: 'inclusive',
-    maximumActiveSpeech: 170,
+    comfortableMaximum: 170,
   },
   complement: {
     target: 120,
-    minimumActiveSpeech: 50,
-    minimumBoundary: 'exclusive',
-    maximumActiveSpeech: 170,
+    comfortableMaximum: 170,
   },
   counterpoint: {
     target: 100,
-    minimumActiveSpeech: 50,
-    minimumBoundary: 'exclusive',
-    maximumActiveSpeech: 170,
+    comfortableMaximum: 170,
   },
   minimal: {
     target: 25,
-    minimumActiveSpeech: 0,
-    minimumBoundary: 'inclusive',
-    maximumActiveSpeech: 50,
+    comfortableMaximum: 50,
   },
   standard_voiceover: {
     target: 150,
-    minimumActiveSpeech: 120,
-    minimumBoundary: 'inclusive',
-    maximumActiveSpeech: 170,
+    comfortableMaximum: 170,
   },
 };
 
@@ -112,7 +102,7 @@ const NARRATION_MODE_BY_TECHNIQUE: Readonly<Record<string, ScriptNarrationMode>>
 function normalizedDurationSeconds(brief: ScriptEditorialPlanInput['productionBrief']): number {
   const value = brief?.output.targetDurationSec;
   return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? Math.round(value)
+    ? Math.round(value * 1_000) / 1_000
     : 0;
 }
 
@@ -172,16 +162,18 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
     narration: {
       mode: narrationMode,
       targetWordsPerMinute: rateGuidance.target,
-      minimumActiveSpeechWordsPerMinute: rateGuidance.minimumActiveSpeech,
-      minimumActiveSpeechBoundary: rateGuidance.minimumBoundary,
-      maximumActiveSpeechWordsPerMinute: rateGuidance.maximumActiveSpeech,
+      comfortableMaximumWordsPerMinute: rateGuidance.comfortableMaximum,
+      pacingConstraint: {
+        severity: 'warning',
+        overridable: true,
+      },
       ...(hasExactRuntime
         ? {
             wordBudgetPolicy: 'guided' as const,
             fullRuntimeReferenceSpokenWords: spokenWords(targetDurationSeconds, rateGuidance.target),
-            fullRuntimeMaximumSpokenWords: spokenWords(
+            fullRuntimeComfortableMaximumSpokenWords: spokenWords(
               targetDurationSeconds,
-              rateGuidance.maximumActiveSpeech,
+              rateGuidance.comfortableMaximum,
             ),
           }
         : { wordBudgetPolicy: 'open' as const }),

@@ -398,24 +398,16 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(() => assertUsableScriptWriterResult(output.result)).not.toThrow();
   });
 
-  it('repairs a sparse seven-minute speaking beat once using active-speech density', async () => {
+  it('accepts deliberate slow speech without spending a repair call', async () => {
     const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
-    const invalid = makeModelOutput({
+    const authored = makeModelOutput({
       metadata: { platform: 'youtube' },
       sidecar: sidecarWithScenes([
         makeScene(1, { durationIntentSeconds: 420, beats: [sparseBeat] }),
       ]),
     });
-    const completeBeat = withSpokenWordCount(makeBeat(1, { durationIntentSeconds: 420 }), 840);
-    const repaired = makeModelOutput({
-      metadata: { platform: 'youtube' },
-      sidecar: sidecarWithScenes([
-        makeScene(1, { durationIntentSeconds: 420, beats: [completeBeat] }),
-      ]),
-    });
     generateStructuredWithWritingContextCacheMock
-      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
-      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+      .mockResolvedValueOnce({ result: authored, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
 
     const output = await new ScriptWriterAgent().runStructured({
       context: { projectSummary: 'Long-form creative production explainer.' },
@@ -423,14 +415,40 @@ describe('ScriptWriterAgent structured generation', () => {
       productionBrief: brief({ targetDurationSec: 420 }),
     });
 
-    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
-    expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
-      .toContain('spoken_density_mismatch');
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
     expect(output.result.metadata.estimatedTimeSeconds).toBe(420);
+    expect(output.result.metadata.editorialWarnings).toBeUndefined();
     expect(output.result.sidecar.renderPlan).toBeUndefined();
     expect(() => assertUsableScriptWriterResult(output.result, {
       productionBrief: brief({ targetDurationSec: 420 }),
     })).not.toThrow();
+  });
+
+  it('returns excessive narration density as a server-owned warning without repair', async () => {
+    const denseBeat = withSpokenWordCount(makeBeat(1, { durationIntentSeconds: 60 }), 180);
+    const authored = makeModelOutput({
+      metadata: { platform: 'youtube' },
+      sidecar: sidecarWithScenes([
+        makeScene(1, { durationIntentSeconds: 60, beats: [denseBeat] }),
+      ]),
+    });
+    generateStructuredWithWritingContextCacheMock.mockResolvedValueOnce({
+      result: authored,
+      cacheStatus: 'hit',
+      modelName: 'models/gemini-2.5-flash',
+    });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'A one-minute production explainer.' },
+      userPrompt: 'Write a one-minute YouTube explainer.',
+      productionBrief: brief({ targetDurationSec: 60 }),
+    });
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
+    expect(output.result.metadata.editorialWarnings).toEqual([
+      'wpm_exceeds_format:180.0/170:standard_voiceover',
+    ]);
+    expect(output.metadata?.notes).toContain('editorial_warnings:1');
   });
 
   it('repairs a critical Brand Vault violation once before returning a script', async () => {
@@ -736,7 +754,7 @@ describe('native Script Sidecar V2 production semantics', () => {
     })).toThrow(/missing_cast_character:host/);
   });
 
-  it('rejects both runtime and active-speech density when a seven-minute request gets a short script', () => {
+  it('rejects runtime without inventing an active-speech floor when a seven-minute request gets a short script', () => {
     let message = '';
     try {
       assertUsableScriptWriterResult(resultFromSidecar(makeSidecar(), 'youtube'), {
@@ -747,19 +765,20 @@ describe('native Script Sidecar V2 production semantics', () => {
     }
 
     expect(message).toContain('runtime_duration_mismatch:42s/420s');
-    expect(message).toContain('spoken_density_mismatch');
+    expect(message).not.toContain('spoken_density_mismatch');
     expect(message).not.toContain('scene_count');
   });
 
-  it('rejects a seven-minute speaking beat backed by sparse audible prose', () => {
+  it('accepts a seven-minute speaking beat with deliberate sparse prose', () => {
     const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
     const sidecar = sidecarWithScenes([
       makeScene(1, { durationIntentSeconds: 420, beats: [sparseBeat] }),
     ]);
 
-    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
+    const report = assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
       productionBrief: brief({ targetDurationSec: 420 }),
-    })).toThrow(/spoken_density_mismatch/);
+    });
+    expect(report.editorialWarnings).toEqual([]);
   });
 
   it('accepts a script that satisfies a 60-second runtime and spoken-word contract', () => {
@@ -768,8 +787,9 @@ describe('native Script Sidecar V2 production semantics', () => {
       makeScene(1, { durationIntentSeconds: 60, beats: [completeBeat] }),
     ]);
 
-    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
+    const report = assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
       productionBrief: brief({ targetDurationSec: 60 }),
-    })).not.toThrow();
+    });
+    expect(report.editorialWarnings).toEqual([]);
   });
 });
