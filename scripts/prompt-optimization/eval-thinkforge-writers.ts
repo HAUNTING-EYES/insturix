@@ -423,6 +423,98 @@ const TEST_CASES: TestCase[] = [
     grounding: ['Streaky', ['1,000', '1000', '1k'], ['8 months', 'eight months']],
     criteria: { groundingFloor: 0.66 },
   },
+  {
+    id: 19,
+    suite: 'heldout',
+    name: 'Held-out seven-minute evidence documentary',
+    documentType: 'video_script',
+    projectSummary: 'HarborGrid documents a synthetic six-month port-electrification pilot for an evidence-led YouTube film.',
+    userPrompt: [
+      'Write a seven-minute YouTube documentary script about HarborGrid, a six-month pilot at two cargo terminals.',
+      'The supplied pilot record says 18 diesel yard tractors were replaced and idling fuel use fell 31% during the measured period.',
+      'Make clear that this is a bounded pilot result, not a forecast for total port emissions.',
+      'Use an investigative structure with concrete visual evidence, a skeptical middle, and a measured conclusion.',
+    ].join(' '),
+    systemBrief: 'Brand: HarborGrid. Voice: investigative, precise, visually literate. Never turn a pilot result into a universal claim.',
+    expectedPath: 'script',
+    grounding: ['HarborGrid', 'six-month', 'two cargo terminals', '18 diesel yard tractors', '31%', ['not a forecast', 'not a prediction']],
+    criteria: { groundingFloor: 0.8 },
+  },
+  {
+    id: 20,
+    suite: 'heldout',
+    name: 'Held-out film-house brand film',
+    documentType: 'video_script',
+    projectSummary: 'Northline Films is producing a visual-first brand film for synthetic workwear label Rook and River.',
+    userPrompt: [
+      'Write a 90-second brand film for Rook and River, made by Northline Films.',
+      'Follow two generations of metalworkers through one morning shift and end at the brand repair desk.',
+      'The only product fact supplied is that Rook and River repairs its jackets; do not invent durability tests or performance claims.',
+      'Keep dialogue sparse and let action, texture, and sound carry the film.',
+    ].join(' '),
+    systemBrief: 'Brand: Rook and River. Voice: restrained, tactile, unsentimental. Film-house audience expects shootable visual storytelling.',
+    expectedPath: 'script',
+    grounding: ['Rook and River', 'Northline Films', 'two generations', ['repair desk', 'repairs its jackets']],
+    criteria: { groundingFloor: 0.75 },
+  },
+  {
+    id: 21,
+    suite: 'heldout',
+    name: 'Held-out Hindi public-service script',
+    documentType: 'video_script',
+    projectSummary: 'Sehat Saathi is a synthetic mobile clinic announcing a recurring village visit in Hindi.',
+    userPrompt: [
+      'सेहत साथी के लिए 75 सेकंड की हिंदी वीडियो स्क्रिप्ट लिखिए।',
+      'मोबाइल क्लिनिक हर मंगलवार तीन गांवों में जाता है। टीकाकरण और मधुमेह जांच निःशुल्क हैं।',
+      'समय जानने के लिए 1800-555-0142 पर कॉल करें। चिकित्सा सलाह या परिणामों की गारंटी न दें।',
+      'दृश्य निर्देश भी हिंदी संदर्भ के अनुरूप और व्यावहारिक रखें।',
+    ].join(' '),
+    systemBrief: 'ब्रांड: सेहत साथी। आवाज़: स्पष्ट, सम्मानजनक, भरोसेमंद। डर या चिकित्सा संबंधी अतिशयोक्ति से बचें।',
+    expectedPath: 'script',
+    grounding: [
+      ['सेहत साथी', 'Sehat Saathi'],
+      ['हर मंगलवार', 'every Tuesday'],
+      ['तीन गांवों', '3 villages', 'three villages'],
+      ['टीकाकरण', 'vaccination'],
+      ['मधुमेह जांच', 'diabetes screening'],
+      ['निःशुल्क', 'free'],
+      '1800-555-0142',
+    ],
+    criteria: { groundingFloor: 0.7, requiredLanguageCodes: ['hi'] },
+  },
+  {
+    id: 22,
+    suite: 'heldout',
+    name: 'Held-out visual-led low-dialogue montage',
+    documentType: 'video_script',
+    projectSummary: 'Foldline is a synthetic ceramics studio showing its seven-day cup-making process.',
+    userPrompt: [
+      'Create a 45-second Instagram video script for Foldline showing one clay cup across a seven-day making process.',
+      'Use no more than 25 spoken words in the entire film; visuals, natural sound, and concise on-screen labels should carry it.',
+      'The supplied stages are wedging, throwing, trimming, glazing, firing, and packing.',
+      'Do not invent sustainability or craftsmanship claims.',
+    ].join(' '),
+    systemBrief: 'Brand: Foldline. Voice: quiet, observant, process-first. The film must remain practical to shoot in one studio.',
+    expectedPath: 'script',
+    grounding: ['Foldline', 'seven-day', 'wedging', 'throwing', 'trimming', 'glazing', 'firing', 'packing'],
+    criteria: { groundingFloor: 0.75, maximumSpokenWords: 25 },
+  },
+  {
+    id: 23,
+    suite: 'heldout',
+    name: 'Held-out named multi-character dialogue',
+    documentType: 'video_script',
+    projectSummary: 'FrameShift is a synthetic film-house team planning a constrained agency interview shoot.',
+    userPrompt: [
+      'Write a two-minute dialogue-led scene for FrameShift with exactly these named speakers: Maya, the producer, and Jon, the cinematographer.',
+      'They must solve a client brief requiring a three-camera interview in one location, with crew call at 6:30am and no overtime.',
+      'Let them disagree about coverage, then reach a concrete shootable plan without inventing more crew or gear.',
+    ].join(' '),
+    systemBrief: 'Brand: FrameShift. Voice: candid, capable, collaborative. Audience: agency producers and film crews.',
+    expectedPath: 'script',
+    grounding: ['FrameShift', 'three-camera interview', 'one location', ['6:30am', '6:30 am'], 'no overtime'],
+    criteria: { groundingFloor: 0.8, requiredCharacterNames: ['Maya', 'Jon'] },
+  },
 ];
 
 // Historical evidence only. These predate explicit authoring requests and cannot gate the
@@ -456,10 +548,14 @@ const LEGACY_PRE_CONTRACT_BASELINES: Record<number, number> = {
   17: 0.88,
   18: 0.88,
 };
+// Cases 19-23 intentionally have no historical baseline. Their first eligible held-out run must
+// create new reviewed evidence; an unevaluated case must never inherit a favorable score.
 
 interface EvalRequestFixture {
   platformSurface: ThinkForgePlatformSurfaceId;
   targetDurationSec?: number;
+  voiceLanguages?: string[];
+  captionLanguages?: string[];
   cta?: {
     preference: 'none' | 'soft' | 'direct';
     action?: string;
@@ -511,6 +607,36 @@ const REQUEST_FIXTURES: Readonly<Record<number, EvalRequestFixture>> = {
   16: { platformSurface: 'generic', targetDurationSec: 60 },
   17: { platformSurface: 'linkedin', cta: { preference: 'none' }, emoji: 'none' },
   18: { platformSurface: 'x', cta: { preference: 'none' }, emoji: 'none' },
+  19: {
+    platformSurface: 'youtube',
+    targetDurationSec: 420,
+    voiceLanguages: ['en-US'],
+    captionLanguages: ['en-US'],
+  },
+  20: {
+    platformSurface: 'generic',
+    targetDurationSec: 90,
+    voiceLanguages: ['en-US'],
+    captionLanguages: ['en-US'],
+  },
+  21: {
+    platformSurface: 'generic',
+    targetDurationSec: 75,
+    voiceLanguages: ['hi-IN'],
+    captionLanguages: ['hi-IN', 'en-US'],
+  },
+  22: {
+    platformSurface: 'instagram',
+    targetDurationSec: 45,
+    voiceLanguages: ['en-US'],
+    captionLanguages: ['en-US'],
+  },
+  23: {
+    platformSurface: 'generic',
+    targetDurationSec: 120,
+    voiceLanguages: ['en-US'],
+    captionLanguages: ['en-US'],
+  },
 };
 
 // ---- Build input (production-shaped AgentInput) ----------------------
@@ -518,7 +644,13 @@ const REQUEST_FIXTURES: Readonly<Record<number, EvalRequestFixture>> = {
 function requireRequestFixture(tc: TestCase): EvalRequestFixture {
   const fixture = REQUEST_FIXTURES[tc.id];
   if (!fixture) throw new Error(`Test case ${tc.id} has no explicit authoring-request fixture`);
-  if (tc.expectedPath === 'post' && (!fixture.cta || !fixture.emoji || fixture.targetDurationSec !== undefined)) {
+  if (tc.expectedPath === 'post' && (
+    !fixture.cta
+    || !fixture.emoji
+    || fixture.targetDurationSec !== undefined
+    || fixture.voiceLanguages !== undefined
+    || fixture.captionLanguages !== undefined
+  )) {
     throw new Error(`Post test case ${tc.id} requires CTA/emoji controls and cannot declare a duration`);
   }
   if (tc.expectedPath === 'script' && (!fixture.targetDurationSec || fixture.cta || fixture.emoji)) {
@@ -583,6 +715,8 @@ function buildInput(
     platform: fixture.platformSurface,
     originalPrompt: tc.userPrompt,
     contentContract: authoringRequest.contentContract,
+    ...(fixture.voiceLanguages ? { voiceLanguages: fixture.voiceLanguages } : {}),
+    ...(fixture.captionLanguages ? { captionLanguages: fixture.captionLanguages } : {}),
   };
   const retrievedContext = buildRetrievedContext(tc);
   const contentSignalProfile = resolveContentSignalProfile({
