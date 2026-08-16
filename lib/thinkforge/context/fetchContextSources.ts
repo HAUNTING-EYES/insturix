@@ -56,6 +56,7 @@ export type ContextRetrievalStatus =
 
 export type ContextRetrievalReason =
   | 'session_not_provided'
+  | 'interaction_scope_not_provided'
   | 'query_not_provided'
   | 'provider_not_configured'
   | 'deadline_exceeded'
@@ -457,12 +458,14 @@ async function fetchHotContext(
   principal: DataBankPrincipal,
   windowDays: number,
   projectId?: string,
+  brandId?: string,
 ): Promise<InteractionPattern[]> {
   const since = new Date();
   since.setDate(since.getDate() - windowDays);
 
   const events = await getRecentInteractionEvents(principal, {
     projectId,
+    brandId: brandId ?? (projectId ? null : undefined),
     types: INTERACTION_TYPES,
     limit: 200,
     since,
@@ -537,6 +540,7 @@ export async function fetchContextSources(
   const keywords = extractKeywords(combinedText);
   const hasRetrievalQuery = combinedText.length > 0;
   const vectorConfigured = isVectorRetrievalConfigured();
+  const hasInteractionScope = Boolean(projectId || brandId);
   const principal: DataBankPrincipal = { userId, orgId: orgId ?? null };
 
   const [brandResolution, projectResult, vectorResult, keywordResult, interactionResult] = await Promise.all([
@@ -552,7 +556,9 @@ export async function fetchContextSources(
     hasRetrievalQuery
       ? executeRetrieval(() => fetchWarmKeywordContext(principal, keywords, maxFacts, brandId))
       : Promise.resolve(skippedRetrieval<SemanticFact>('query_not_provided')),
-    executeRetrieval(() => fetchHotContext(principal, interactionWindowDays, projectId)),
+    hasInteractionScope
+      ? executeRetrieval(() => fetchHotContext(principal, interactionWindowDays, projectId, brandId))
+      : Promise.resolve(skippedRetrieval<InteractionPattern>('interaction_scope_not_provided')),
   ]);
   const projectFacts = projectResult.items;
   const globalFacts = prioritizeGlobalFacts(

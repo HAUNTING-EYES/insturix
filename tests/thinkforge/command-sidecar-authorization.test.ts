@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ThinkForgeBrandAuthorityError } from '@/lib/thinkforge/context/brand-authoring-context';
 
 const mocks = vi.hoisted(() => ({
   applyCommand: vi.fn(),
@@ -13,11 +14,10 @@ const mocks = vi.hoisted(() => ({
   deduct: vi.fn(),
   detectScope: vi.fn(),
   ensureMigrated: vi.fn(),
-  fetchContextSources: vi.fn(),
-  formatSystemBrief: vi.fn(),
   getScript: vi.fn(),
   getSession: vi.fn(),
   getUserPreferences: vi.fn(),
+  has: vi.fn(),
   quickAssembleContext: vi.fn(),
   refund: vi.fn(),
   storyboard: vi.fn(),
@@ -39,8 +39,6 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
   getUserPreferences: mocks.getUserPreferences,
 }));
 vi.mock('@/lib/thinkforge/context', () => ({
-  fetchContextSources: mocks.fetchContextSources,
-  formatSystemBrief: mocks.formatSystemBrief,
   quickAssembleContext: mocks.quickAssembleContext,
   resolveThinkForgeAuthoringContext: mocks.resolveThinkForgeAuthoringContext,
 }));
@@ -107,7 +105,8 @@ function blueprintChatRequest() {
 describe('ThinkForge command and sidecar authorization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1' });
+    mocks.has.mockReturnValue(true);
+    mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1', has: mocks.has });
     mocks.getSession.mockResolvedValue({
       _id: 'session_canonical',
       userId: 'session_owner',
@@ -116,8 +115,12 @@ describe('ThinkForge command and sidecar authorization', () => {
     });
     mocks.getScript.mockResolvedValue(storedScript);
     mocks.getUserPreferences.mockResolvedValue({});
-    mocks.fetchContextSources.mockResolvedValue(null);
-    mocks.formatSystemBrief.mockReturnValue(null);
+    mocks.resolveThinkForgeAuthoringContext.mockResolvedValue({
+      projectMeta: {},
+      retrievedContext: {},
+      systemBrief: '',
+      snapshot: {},
+    });
     mocks.quickAssembleContext.mockReturnValue({});
     mocks.checkCredits.mockResolvedValue({
       allowed: true,
@@ -261,13 +264,36 @@ describe('ThinkForge command and sidecar authorization', () => {
 
     expect(response?.status).toBe(200);
     expect(mocks.getScript).not.toHaveBeenCalled();
-    expect(mocks.fetchContextSources).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mocks.resolveThinkForgeAuthoringContext).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'session_canonical',
       sessionId: 'session_canonical',
       orgId: 'org_1',
       currentScript: '',
     }));
+    expect(mocks.resolveThinkForgeAuthoringContext.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.checkCredits.mock.invocationCallOrder[0]);
     expect(mocks.deduct).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed on missing brand authority before credit checks or model work', async () => {
+    mocks.resolveThinkForgeAuthoringContext.mockRejectedValueOnce(
+      new ThinkForgeBrandAuthorityError(
+        'brand_profile_unavailable',
+        'The selected brand has no accepted profile.',
+      ),
+    );
+    const { POST } = await import('@/app/api/services/thinkforge/sidecar/route');
+
+    const response = await POST(sidecarRequest('deconstruct', { content: 'Analyze this.' }));
+
+    expect(response?.status).toBe(409);
+    await expect(response?.json()).resolves.toMatchObject({
+      code: 'brand_profile_unavailable',
+      message: 'The selected brand has no accepted profile.',
+    });
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.deduct).not.toHaveBeenCalled();
+    expect(mocks.deconstruct).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -317,7 +343,10 @@ describe('ThinkForge command and sidecar authorization', () => {
     expect(mocks.getSession).toHaveBeenCalledWith('session_requested', 'user_1', 'org_1');
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'script_1');
     expect(mocks.getSession.mock.invocationCallOrder[0]).toBeLessThan(mocks.getScript.mock.invocationCallOrder[0]);
-    expect(mocks.getScript.mock.invocationCallOrder[0]).toBeLessThan(mocks.checkCredits.mock.invocationCallOrder[0]);
+    expect(mocks.getScript.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.resolveThinkForgeAuthoringContext.mock.invocationCallOrder[0]);
+    expect(mocks.resolveThinkForgeAuthoringContext.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.checkCredits.mock.invocationCallOrder[0]);
     expect(mocks.checkVoice).toHaveBeenCalledWith(expect.objectContaining({
       userPrompt: 'Existing content',
     }));

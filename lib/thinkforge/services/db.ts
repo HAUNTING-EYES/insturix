@@ -390,6 +390,7 @@ export interface ThinkForgeEvent {
   _id: string;
   projectId: string;
   sessionId?: string;
+  brandId?: string;
   artifactId?: string;
   versionId?: string;
   type: EventType;
@@ -838,6 +839,7 @@ const VersionEdgeSchema = new Schema({
 const EventSchema = new Schema({
   projectId: { type: String, required: true, index: true },
   sessionId: { type: String, index: true },
+  brandId: { type: String, index: true },
   artifactId: { type: String, index: true },
   versionId: { type: String },
   type: {
@@ -859,6 +861,8 @@ const EventSchema = new Schema({
 }, { collection: COLL_EVENTS, timestamps: false });
 EventSchema.index({ ownerType: 1, userId: 1, projectId: 1, createdAt: -1 });
 EventSchema.index({ ownerType: 1, orgId: 1, projectId: 1, createdAt: -1 });
+EventSchema.index({ ownerType: 1, userId: 1, brandId: 1, createdAt: -1 });
+EventSchema.index({ ownerType: 1, orgId: 1, brandId: 1, createdAt: -1 });
 
 // ==================== Model Getters ====================
 // V1 Models (Legacy)
@@ -4390,10 +4394,27 @@ export async function logInteractionEvent(
   }
 ): Promise<void> {
   const principal = resolveDataBankPrincipal(principalInput);
+  const exactProjectId = dataBankString(projectId);
+  const exactSessionId = dataBankString(options?.sessionId) ?? exactProjectId;
+  if (!exactProjectId || exactSessionId !== exactProjectId) {
+    throw new Error('Interaction persistence requires one exact project/session identity.');
+  }
+  const session = await getSession(exactProjectId, principal.userId, principal.orgId);
+  if (!session) {
+    throw new Error('Interaction persistence requires an authorized session.');
+  }
+  assertDataBankSessionPrincipal(principal, session);
+  const rawBinding = session.projectMeta?.brandBinding;
+  const sessionBinding = resolveThinkForgeSessionBrandBinding(session.projectMeta);
+  if (rawBinding && !sessionBinding) {
+    throw new Error('Interaction persistence rejected an invalid session brand binding.');
+  }
+  const brandId = resolveProjectMetaBrandId(session.projectMeta);
   const { EventModel } = await getModels();
   await EventModel.create({
-    projectId,
-    sessionId: options?.sessionId,
+    projectId: exactProjectId,
+    sessionId: exactSessionId,
+    ...(brandId ? { brandId } : {}),
     artifactId: options?.artifactId,
     versionId: options?.versionId,
     type,
@@ -4546,14 +4567,30 @@ export async function deleteProjectScopedEntries(
 export function buildRecentInteractionEventQuery(input: {
   principal: DataBankPrincipal;
   projectId?: string;
+  brandId?: string | null;
   types?: readonly EventType[];
   since?: Date;
 }): Record<string, unknown> {
   const query: Record<string, unknown> = buildInteractionEventPrincipalQuery(input.principal);
+  let hasExactScope = false;
   if (input.projectId !== undefined) {
     const projectId = dataBankString(input.projectId);
     if (!projectId) throw new Error('Interaction retrieval requires a valid project when one is provided.');
     query.projectId = projectId;
+    hasExactScope = true;
+  }
+  if (input.brandId !== undefined) {
+    if (input.brandId === null) {
+      query.brandId = { $exists: false };
+    } else {
+      const brandId = dataBankString(input.brandId);
+      if (!brandId) throw new Error('Interaction retrieval requires a valid brand when one is provided.');
+      query.brandId = brandId;
+    }
+    hasExactScope = true;
+  }
+  if (!hasExactScope) {
+    throw new Error('Interaction retrieval requires an exact project or brand scope.');
   }
   if (input.types?.length) query.type = { $in: [...new Set(input.types)] };
   if (input.since !== undefined) {
@@ -4568,8 +4605,9 @@ export function buildRecentInteractionEventQuery(input: {
 /** Read recent interaction evidence through exact personal/organization authority. */
 export async function getRecentInteractionEvents(
   principal: DataBankPrincipal,
-  options?: {
+  options: {
     projectId?: string;
+    brandId?: string | null;
     types?: EventType[];
     limit?: number;
     since?: Date;
@@ -4580,21 +4618,23 @@ export async function getRecentInteractionEvents(
     const { EventModel } = await getModels();
     const query = buildRecentInteractionEventQuery({
       principal,
-      projectId: options?.projectId,
-      types: options?.types,
-      since: options?.since,
+      projectId: options.projectId,
+      brandId: options.brandId,
+      types: options.types,
+      since: options.since,
     });
 
     const docs = await EventModel
       .find(query)
       .sort({ createdAt: -1 })
-      .limit(Math.max(1, Math.min(options?.limit ?? 50, 500)))
+      .limit(Math.max(1, Math.min(options.limit ?? 50, 500)))
       .lean() as any[];
 
     return docs.map((doc: any) => ({
       _id: String(doc._id),
       projectId: doc.projectId,
       sessionId: doc.sessionId,
+      brandId: doc.brandId,
       artifactId: doc.artifactId,
       versionId: doc.versionId,
       type: doc.type,
@@ -4606,7 +4646,7 @@ export async function getRecentInteractionEvents(
     }));
   } catch (error) {
     console.error('Error getting interaction events:', error);
-    if (options?.strict) throw error;
+    if (options.strict) throw error;
     return [];
   }
 }

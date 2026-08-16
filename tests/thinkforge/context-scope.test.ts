@@ -129,6 +129,72 @@ describe('fetchContextSources scoped DataBank reads', () => {
     mocks.getAuthorizedDataBankEntries.mockResolvedValue([]);
   });
 
+  it('builds exact interaction predicates so Brand A feedback cannot enter Brand B', async () => {
+    const { buildRecentInteractionEventQuery } = await vi.importActual<
+      typeof import('@/lib/thinkforge/services/db')
+    >('@/lib/thinkforge/services/db');
+
+    expect(buildRecentInteractionEventQuery({
+      principal: { userId: 'user_1', orgId: 'org_1' },
+      brandId: 'brand_b',
+      types: ['style_corrected'],
+    })).toEqual({
+      ownerType: 'organization',
+      orgId: 'org_1',
+      brandId: 'brand_b',
+      type: { $in: ['style_corrected'] },
+    });
+    expect(buildRecentInteractionEventQuery({
+      principal: { userId: 'user_1', orgId: null },
+      projectId: 'session_unbranded',
+      brandId: null,
+    })).toEqual({
+      ownerType: 'user',
+      userId: 'user_1',
+      projectId: 'session_unbranded',
+      brandId: { $exists: false },
+    });
+    expect(() => buildRecentInteractionEventQuery({
+      principal: { userId: 'user_1', orgId: null },
+    })).toThrow('exact project or brand scope');
+    expect(() => buildRecentInteractionEventQuery({
+      principal: { userId: 'user_1', orgId: null },
+      brandId: '   ',
+    })).toThrow('valid brand');
+  });
+
+  it('uses brand-scoped hot memory for fresh ideas and skips fresh unbranded history', async () => {
+    await fetchContextSources({
+      userId: 'user_1',
+      orgId: 'org_1',
+      brandId: 'brand_1',
+      currentPrompt: 'write a launch post',
+    });
+
+    expect(mocks.getRecentInteractionEvents).toHaveBeenCalledWith(
+      { userId: 'user_1', orgId: 'org_1' },
+      expect.objectContaining({
+        projectId: undefined,
+        brandId: 'brand_1',
+      }),
+    );
+
+    mocks.getRecentInteractionEvents.mockClear();
+    const unbranded = await fetchContextSources({
+      userId: 'user_1',
+      currentPrompt: 'write a generic post',
+    });
+
+    expect(mocks.getRecentInteractionEvents).not.toHaveBeenCalled();
+    expect(unbranded.interactionPatterns).toEqual([]);
+    expect(unbranded.retrievalDiagnostics?.interactionPatterns).toEqual({
+      status: 'skipped',
+      itemCount: 0,
+      durationMs: 0,
+      reason: 'interaction_scope_not_provided',
+    });
+  });
+
   it('keyword fallback reads only global entries and filters other-brand facts', async () => {
     mocks.getAuthorizedDataBankEntries.mockResolvedValue([
       entry({

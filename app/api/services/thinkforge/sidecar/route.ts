@@ -4,13 +4,17 @@ import { createIngestorAgent } from '@/lib/thinkforge/agents/ingestor-agent';
 import { createArchitectAgent } from '@/lib/thinkforge/agents/architect-agent';
 import { createStylistAgent } from '@/lib/thinkforge/agents/stylist-agent';
 import { createScopeDetectorAgent } from '@/lib/thinkforge/agents/scope-detector-agent';
-import { quickAssembleContext, fetchContextSources, formatSystemBrief } from '@/lib/thinkforge/context';
+import {
+  quickAssembleContext,
+  resolveThinkForgeAuthoringContext,
+  type ThinkForgeResolvedAuthoringContext,
+} from '@/lib/thinkforge/context';
 import * as db from '@/lib/thinkforge/services/db';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
-import { resolveThinkForgeAuthoringProjectMetadata } from '@/lib/thinkforge/context/brand-authoring-context';
+import { ThinkForgeBrandAuthorityError } from '@/lib/thinkforge/context/brand-authoring-context';
 import { LEGACY_BLUEPRINT_RETIREMENT } from '@/lib/thinkforge/blueprints/legacy-blueprint-retirement';
 import crypto from 'crypto';
 import { z } from 'zod';
@@ -33,8 +37,21 @@ const SidecarSchema = z.object({
   threadId: z.string().default('default'),
 }).passthrough();
 
+function authoringContextErrorResponse(error: ThinkForgeBrandAuthorityError): NextResponse {
+  const status = error.code === 'brand_not_found'
+    ? 404
+    : error.code === 'brand_profile_unavailable'
+      ? 409
+      : 503;
+  return NextResponse.json({
+    error: 'Brand context unavailable',
+    code: error.code,
+    message: error.message,
+  }, { status });
+}
+
 export async function POST(req: Request) {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, has } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -107,6 +124,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'No draft content to analyze' }, { status: 400 });
   }
 
+  let authoringContext: ThinkForgeResolvedAuthoringContext;
+  try {
+    authoringContext = await resolveThinkForgeAuthoringContext({
+      userId,
+      orgId: session.orgId ?? null,
+      isOrgAdmin: Boolean(orgId && has?.({ role: 'org:admin' })),
+      sessionProjectMeta: session.projectMeta,
+      projectId: canonicalSessionId,
+      sessionId: canonicalSessionId,
+      currentPrompt: actionContent,
+      currentScript: scriptContent,
+      maxFacts: 5,
+      interactionWindowDays: 30,
+    });
+  } catch (error) {
+    console.error('[ThinkForge Sidecar] Authoring context resolution failed:', error);
+    if (error instanceof ThinkForgeBrandAuthorityError) {
+      return authoringContextErrorResponse(error);
+    }
+    const normalized = toThinkForgeErrorResponse(error);
+    return NextResponse.json(normalized.body, { status: normalized.status });
+  }
+
   // P3.1: the active context at WORK-START decides who pays (stamped surfaces).
   const billingWallet = resolveContextBillingOwner(userId, orgId ?? null, isOrgWalletBillingEnabled());
 
@@ -121,26 +161,8 @@ export async function POST(req: Request) {
   await creditCheck.deduct();
 
   try {
-    const authoringProjectMeta = resolveThinkForgeAuthoringProjectMetadata(session.projectMeta);
-    const [preferences, retrievedCtx] = await Promise.all([
-      db.getUserPreferences(userId),
-      fetchContextSources({
-        userId,
-        projectId: canonicalSessionId,
-        sessionId: canonicalSessionId,
-        brandId: typeof authoringProjectMeta.brandId === 'string'
-          ? authoringProjectMeta.brandId
-          : undefined,
-        orgId: session.orgId ?? null,
-        currentPrompt: actionContent,
-        currentScript: scriptContent,
-        maxFacts: 5,
-        interactionWindowDays: 30,
-      }).catch(() => null),
-    ]);
-
-    const systemBrief = retrievedCtx ? formatSystemBrief(retrievedCtx) : null;
-    const projectContext = { ...authoringProjectMeta, preferences };
+    const preferences = await db.getUserPreferences(userId);
+    const projectContext = { ...authoringContext.projectMeta, preferences };
 
     const context = quickAssembleContext(
       'chat',
@@ -148,7 +170,7 @@ export async function POST(req: Request) {
       script ? { title: script.title, content: scriptContent } : null,
       [],
       null,
-      systemBrief
+      authoringContext.systemBrief || null
     );
 
     switch (action) {
