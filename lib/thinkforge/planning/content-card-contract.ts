@@ -1,3 +1,8 @@
+import {
+  THINKFORGE_CAROUSEL_MAX_SLIDES,
+  THINKFORGE_CAROUSEL_MIN_SLIDES,
+} from '../schemas/document-contract';
+
 export type ContentCardStatus = 'scheduled' | 'draft' | 'published' | 'in_production';
 export type ContentPlanningClickatronStatus =
   | 'not_needed'
@@ -84,6 +89,8 @@ export interface ContentCard {
   seriesId?: string;
   calendarItemId?: string;
   contentFormat?: string;
+  /** Exact user-owned carousel form. Required by CalOS before carousel generation. */
+  carouselSlideCount?: number;
   /** User-requested runtime input. Editron/ThinkForge production-brief resolution remains authoritative. */
   targetDurationSeconds?: number;
   publishWindow?: ContentCardPublishWindow;
@@ -140,6 +147,7 @@ export function normalizeContentCardForStorage(input: unknown, options: Normaliz
     seriesId: readOptionalString(record.seriesId, 'seriesId'),
     calendarItemId: readOptionalString(record.calendarItemId, 'calendarItemId'),
     contentFormat: readOptionalString(record.contentFormat, 'contentFormat'),
+    carouselSlideCount: normalizeCarouselSlideCount(record.carouselSlideCount),
     targetDurationSeconds: normalizeTargetDuration(record.targetDurationSeconds),
     publishWindow: normalizePublishWindow(record.publishWindow),
     trendContext: normalizeTrendContext(record.trendContext),
@@ -259,6 +267,21 @@ function normalizeTargetDuration(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 3600) {
     throw new ContentCardValidationError('targetDurationSeconds must be a whole number from 1 to 3600');
+  }
+  return value;
+}
+
+function normalizeCarouselSlideCount(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (
+    typeof value !== 'number'
+    || !Number.isInteger(value)
+    || value < THINKFORGE_CAROUSEL_MIN_SLIDES
+    || value > THINKFORGE_CAROUSEL_MAX_SLIDES
+  ) {
+    throw new ContentCardValidationError(
+      `carouselSlideCount must be a whole number from ${THINKFORGE_CAROUSEL_MIN_SLIDES} to ${THINKFORGE_CAROUSEL_MAX_SLIDES}`,
+    );
   }
   return value;
 }

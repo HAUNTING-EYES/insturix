@@ -37,6 +37,7 @@ describe('ThinkForge content card contract', () => {
         seriesId: 'series_1',
         calendarItemId: 'cal_1',
         contentFormat: 'carousel',
+        carouselSlideCount: 6,
         publishWindow: { start: '2026-07-03T09:00:00.000Z', end: '2026-07-03T11:00:00.000Z', timezone: 'Asia/Kolkata' },
         trendContext: {
           source: 'meme',
@@ -56,7 +57,25 @@ describe('ThinkForge content card contract', () => {
     expect(card.publishWindow?.timezone).toBe('Asia/Kolkata');
     expect(card.trendContext?.brandFit).toBe(0.88);
     expect(card.trendContext?.nicheMatch).toBe(1);
+    expect(card.carouselSlideCount).toBe(6);
     expect(card.clickatron).toMatchObject({ status: 'ready', creativeSpecId: 'spec_1' });
+  });
+
+  it('rejects invalid carousel slide counts instead of normalizing them', () => {
+    const base = {
+      id: 'card_carousel',
+      title: 'Exact carousel',
+      platform: 'linkedin',
+      contentFormat: 'carousel',
+    };
+    const options = { userId: 'user_1', now: '2026-06-14T00:00:00.000Z' };
+
+    expect(() => normalizeContentCardForStorage({ ...base, carouselSlideCount: 1 }, options))
+      .toThrow(/whole number from 2 to 7/i);
+    expect(() => normalizeContentCardForStorage({ ...base, carouselSlideCount: 8 }, options))
+      .toThrow(/whole number from 2 to 7/i);
+    expect(() => normalizeContentCardForStorage({ ...base, carouselSlideCount: 3.5 }, options))
+      .toThrow(/whole number from 2 to 7/i);
   });
 
   it('merges updates without allowing ownership or identity changes', () => {

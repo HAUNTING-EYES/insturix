@@ -21,6 +21,8 @@ export interface GenerateParams {
   platform: string;
   title: string;
   angle?: string;
+  /** Exact carousel form selected on the calendar card. Never inferred by a writer. */
+  carouselSlideCount?: number;
   /** Exact calendar-owned runtime intent. Required by long_video cadence validation. */
   targetDurationSeconds?: number;
 }

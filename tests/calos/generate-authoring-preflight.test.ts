@@ -85,6 +85,7 @@ describe('CalOS generation authoring preflight', () => {
         contentFormat: 'text',
         title: 'Launch post',
         details: 'Use launch proof.',
+        carouselSlideCount: 6,
         targetDurationSeconds: 90,
       },
       save: mocks.save,
@@ -121,12 +122,14 @@ describe('CalOS generation authoring preflight', () => {
       orgId: 'org_1',
       brandId: 'brand_b',
       deliverableId: 'deliverable_1',
+      carouselSlideCount: 6,
       targetDurationSeconds: 90,
     }));
     expect(mocks.resolveCalosWriterContext.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.checkCredits.mock.invocationCallOrder[0]);
     expect(mocks.generator).toHaveBeenCalledWith(expect.objectContaining({
       authoringContext: expect.objectContaining({ projectMeta: { brandId: 'brand_b' } }),
+      carouselSlideCount: 6,
       targetDurationSeconds: 90,
     }));
     expect(mocks.createLinkedThinkForgeSession).toHaveBeenCalledWith(expect.objectContaining({

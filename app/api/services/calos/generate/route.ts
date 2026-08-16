@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
       platform: deliverable.platform,
       title: deliverable.card.title,
       angle: deliverable.card.details,
+      carouselSlideCount: deliverable.card.carouselSlideCount,
       targetDurationSeconds: deliverable.card.targetDurationSeconds,
     };
 
