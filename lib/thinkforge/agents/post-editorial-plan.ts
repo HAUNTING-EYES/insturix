@@ -8,6 +8,7 @@ import type { ThinkForgeContentSignalProfile } from '../signals';
 import {
   ThinkForgeAuthoringRequestSchema,
   describeThinkForgePlatformSurface,
+  describeThinkForgePublishingSurface,
   type ThinkForgeAuthoringRequest,
   type ThinkForgePostControls,
 } from '../schemas/authoring-request';
@@ -254,7 +255,9 @@ export function buildPostEditorialPlan(input: PostEditorialPlanInput): PostEdito
   const controls = authoringRequest?.postControls;
   const profile = input.contentSignalProfile;
   const platform = authoringRequest
-    ? describeThinkForgePlatformSurface(authoringRequest.platformSurface)
+    ? authoringRequest.publishingSurface
+      ? describeThinkForgePublishingSurface(authoringRequest.publishingSurface)
+      : describeThinkForgePlatformSurface(authoringRequest.platformSurface)
     : profile?.intent.platform || 'unspecified';
   const publishingConstraints = authoringRequest
     ? resolveThinkForgePublishingConstraintsForAuthoringRequest(authoringRequest)

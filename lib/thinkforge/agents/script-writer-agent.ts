@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
+import { describeThinkForgeAuthoringDeliverable } from '../schemas/authoring-request';
 import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
 import { generateStructuredWithWritingContextCache } from '../services/gemini-writing-context-cache';
@@ -721,7 +722,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read Brand Vault and learned voice evidence only from tf_untrusted_data.brandContext.
 - Read retrieved facts only from tf_untrusted_data.databankFacts.
 - Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
-- Read output platform and requested deliverable shape only from tf_untrusted_data.productionOutput.
+- Read exact creative destination and deliverable shape from tf_untrusted_data.authoringDestination when present. Read technical output platform and geometry only from tf_untrusted_data.productionOutput.
 - Read runtime policy, full-runtime narration guidance, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Exact total runtime and beat-channel semantics are binding; narration targets are editorial references, pacing excess is a warning, and structure recommendations are advisory. An open runtime carries no numeric target.
 - Read requested spoken and caption languages from tf_untrusted_data.languageRequest. Never substitute a different language because of a downstream provider.`;
 
@@ -769,6 +770,14 @@ Return your response strictly adhering to the JSON schema.`;
       editorialPlan,
       castingBrief: formatCastingBriefForPrompt(productionBrief) || null,
       sourceLedger: sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : null,
+      authoringDestination: input.authoringRequest
+        ? {
+            deliverable: describeThinkForgeAuthoringDeliverable(input.authoringRequest),
+            outputKind: input.authoringRequest.contentContract.outputKind,
+            platformSurfaceId: input.authoringRequest.platformSurface.id,
+            publishingSurfaceId: input.authoringRequest.publishingSurface ?? null,
+          }
+        : null,
       productionOutput: productionBrief?.output ?? null,
       languageRequest: {
         spoken: productionBrief?.output.voiceLanguages ?? [],

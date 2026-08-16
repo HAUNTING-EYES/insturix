@@ -12,6 +12,7 @@ import {
 import {
   describeThinkForgeAuthoringDeliverable,
   describeThinkForgePlatformSurface,
+  describeThinkForgePublishingSurface,
   ThinkForgeAuthoringRequestSchema,
   type ThinkForgeAuthoringRequest,
 } from '../schemas/authoring-request';
@@ -162,6 +163,12 @@ export class IdeasAgent extends StructuredAgent<IdeasOutput> {
     const trustedContract = [
       `- outputKind: ${contract.outputKind}`,
       `- platformSurfaceId: ${authoringRequest.platformSurface.id}`,
+      ...(authoringRequest.publishingSurface
+        ? [
+            `- publishingSurfaceId: ${authoringRequest.publishingSurface}`,
+            `- publishingSurface: ${describeThinkForgePublishingSurface(authoringRequest.publishingSurface)}`,
+          ]
+        : []),
       ...(contract.carouselSlideCount !== undefined
         ? [`- carouselSlideCount: ${contract.carouselSlideCount}`]
         : []),
@@ -189,7 +196,7 @@ ${isQualityRepair ? '- This is one bounded repair. Resolve every generation.qual
 ## Creative rules
 1. Every idea must be a concrete interpretation of the full brief, not a generic pivot.
 2. Propose four different angles through narrative structure, audience focus, evidence lens, or visual approach.
-3. Every angle must be executable as the exact outputKind and platformSurfaceId above. Topic words never change the contract.
+3. Every angle must be executable as the exact outputKind and publishingSurfaceId above when present; platformSurfaceId is the legacy destination only when no typed publishing surface exists. Topic words never change the contract.
 4. Purpose must state what the angle uniquely achieves.
 5. Titles must use concrete source-backed nouns. Never emit brackets, placeholder letters, or template slots.
 6. Preserve calendar, campaign, series, trend, freshness, and expiry context when supplied.

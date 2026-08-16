@@ -191,6 +191,28 @@ function resolveAuthoringRequest(input: ThinkForgeProductionBriefInput): ThinkFo
 function productionPlatformForAuthoringRequest(
   request: ThinkForgeAuthoringRequest,
 ): Platform | undefined {
+  switch (request.publishingSurface) {
+    case 'instagram_reels':
+      return 'instagram-reels';
+    case 'instagram_feed':
+    case 'instagram_carousel':
+      return 'instagram-feed';
+    case 'youtube_shorts':
+      return 'youtube-shorts';
+    case 'youtube_video':
+    case 'youtube_community_post':
+      return 'youtube';
+    case 'tiktok_video':
+      return 'tiktok';
+    case 'linkedin_post':
+    case 'linkedin_document_carousel':
+      return 'linkedin';
+    case 'x_post':
+      return 'x';
+    default:
+      break;
+  }
+
   switch (request.platformSurface.id) {
     case 'instagram':
       return request.contentContract.outputKind === 'video_script'
