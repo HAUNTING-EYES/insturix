@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ContentCardTrendContext } from '../planning/content-card-contract';
+import { ThinkForgeAuthoringRequestSchema } from '../schemas/authoring-request';
 import { TrendSpecSchema } from '../schemas/trend-spec';
 import {
   TrendCandidateSchema,
@@ -20,6 +21,44 @@ export const TrendSelectionRequestSchema = z.object({
   candidate: TrendCandidateSchema,
   target: TrendSelectionTargetSchema,
 }).strict();
+
+export const TrendSelectionPersistenceRequestSchema = TrendSelectionRequestSchema.extend({
+  authoringRequest: ThinkForgeAuthoringRequestSchema.optional(),
+}).superRefine((selection, ctx) => {
+  const outputKind = selection.authoringRequest?.contentContract.outputKind;
+  if (selection.target === 'calendar') {
+    if (selection.authoringRequest !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['authoringRequest'],
+        message: 'calendar trend selection does not accept an authoring request',
+      });
+    }
+    return;
+  }
+  if (!selection.authoringRequest) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['authoringRequest'],
+      message: 'post and script trend selections require an explicit authoring request',
+    });
+    return;
+  }
+  if (selection.target === 'script' && outputKind !== 'video_script') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['authoringRequest', 'contentContract', 'outputKind'],
+      message: 'script trend selection requires a video_script authoring request',
+    });
+  }
+  if (selection.target === 'post' && outputKind !== 'social_post' && outputKind !== 'carousel') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['authoringRequest', 'contentContract', 'outputKind'],
+      message: 'post trend selection requires a social_post or carousel authoring request',
+    });
+  }
+});
 
 export const TrendSourceKindSchema = z.enum(['asset', 'remote-url']);
 

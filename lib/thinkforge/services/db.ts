@@ -64,6 +64,12 @@ import type { SelectedTrend } from '../trends/selected-trend';
 import type { WalletRef } from '@/lib/editron/services/project-ownership';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
+import {
+  describeThinkForgeAuthoringDeliverable,
+  describeThinkForgePlatformSurface,
+  ThinkForgeAuthoringRequestSchema,
+  type ThinkForgeAuthoringRequest,
+} from '../schemas/authoring-request';
 import type { ScriptSidecarReadResult } from '../schemas/script-sidecar-v1-adapter';
 import {
   resolvePersistedThinkForgeDocumentAuthority,
@@ -1388,16 +1394,36 @@ export async function claimInitialDraftIntent(sessionId: string): Promise<boolea
   return Boolean(session);
 }
 
-/** Atomically records a user-confirmed trend without overwriting other session metadata. */
-export async function setSessionSelectedTrend(sessionId: string, selectedTrend: SelectedTrend): Promise<ProjectMeta> {
+/** Atomically records a user-confirmed trend and its exact destination contract. */
+export async function setSessionSelectedTrend(
+  sessionId: string,
+  selectedTrend: SelectedTrend,
+  authoringRequestInput?: ThinkForgeAuthoringRequest,
+): Promise<ProjectMeta> {
   const { SessionModel } = await getModels();
+  const authoringRequest = authoringRequestInput
+    ? ThinkForgeAuthoringRequestSchema.parse(authoringRequestInput)
+    : undefined;
+  const setFields: Record<string, unknown> = {
+    'projectMeta.selectedTrend': selectedTrend,
+    updatedAt: new Date(),
+  };
+  if (authoringRequest) {
+    setFields['projectMeta.authoringRequest'] = authoringRequest;
+    setFields['projectMeta.contentContract'] = authoringRequest.contentContract;
+    setFields['projectMeta.format'] = describeThinkForgeAuthoringDeliverable(authoringRequest);
+    setFields['projectMeta.platform'] = describeThinkForgePlatformSurface(authoringRequest.platformSurface);
+    if (authoringRequest.targetDurationSec !== undefined) {
+      setFields['projectMeta.durationSec'] = authoringRequest.targetDurationSec;
+    }
+  }
   const doc = await SessionModel.findByIdAndUpdate(
     sessionId,
     {
-      $set: {
-        'projectMeta.selectedTrend': selectedTrend,
-        updatedAt: new Date(),
-      },
+      $set: setFields,
+      ...(authoringRequest && authoringRequest.targetDurationSec === undefined
+        ? { $unset: { 'projectMeta.durationSec': 1 } }
+        : {}),
     },
     { new: true, lean: true },
   ) as any;

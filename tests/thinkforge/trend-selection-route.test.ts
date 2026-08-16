@@ -23,6 +23,11 @@ import {
 } from '@/lib/thinkforge/trends/selected-trend';
 import { TREND_SPEC_VERSION } from '@/lib/thinkforge/schemas/trend-spec';
 import type { TrendCandidate } from '@/lib/thinkforge/trends/trend-evidence';
+import {
+  createDefaultThinkForgePostControls,
+  createThinkForgeAuthoringRequest,
+} from '@/lib/thinkforge/schemas/authoring-request';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 
 function candidate(overrides: Partial<TrendCandidate> = {}): TrendCandidate {
   return {
@@ -59,6 +64,18 @@ function request(body: unknown): Request {
   });
 }
 
+const scriptAuthoringRequest = createThinkForgeAuthoringRequest({
+  contentContract: createThinkForgeWriterContract('video_script'),
+  platformSurface: { id: 'youtube' },
+  targetDurationSec: 420,
+});
+
+const postAuthoringRequest = createThinkForgeAuthoringRequest({
+  contentContract: createThinkForgeWriterContract('social_post'),
+  platformSurface: { id: 'linkedin' },
+  postControls: createDefaultThinkForgePostControls(),
+});
+
 describe('ThinkForge trend selection route', () => {
   beforeEach(() => {
     mocks.auth.mockReset();
@@ -66,9 +83,10 @@ describe('ThinkForge trend selection route', () => {
     mocks.setSessionSelectedTrend.mockReset();
     mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: null });
     mocks.getSession.mockResolvedValue({ _id: 'session_1', userId: 'user_1', projectMeta: { idea: 'Onboarding' } });
-    mocks.setSessionSelectedTrend.mockImplementation(async (_sessionId, selectedTrend) => ({
+    mocks.setSessionSelectedTrend.mockImplementation(async (_sessionId, selectedTrend, authoringRequest) => ({
       idea: 'Onboarding',
       selectedTrend,
+      authoringRequest,
     }));
   });
 
@@ -83,19 +101,28 @@ describe('ThinkForge trend selection route', () => {
   });
 
   it('persists a confirmed selection but never trusts browser TrendSpec readiness', async () => {
-    const response = await POST(request({ sessionId: 'session_1', candidate: candidate(), target: 'script' }));
+    const response = await POST(request({
+      sessionId: 'session_1',
+      candidate: candidate(),
+      target: 'script',
+      authoringRequest: scriptAuthoringRequest,
+    }));
 
     expect(response.status).toBe(200);
     expect(mocks.getSession).toHaveBeenCalledWith('session_1', 'user_1', null);
-    expect(mocks.setSessionSelectedTrend).toHaveBeenCalledWith('session_1', expect.objectContaining({
-      status: 'selected',
-      target: 'script',
-      candidate: expect.objectContaining({
-        trendSpecEligible: false,
-        nextAction: 'analyze_reference_video',
-        title: 'Creator teardown format',
+    expect(mocks.setSessionSelectedTrend).toHaveBeenCalledWith(
+      'session_1',
+      expect.objectContaining({
+        status: 'selected',
+        target: 'script',
+        candidate: expect.objectContaining({
+          trendSpecEligible: false,
+          nextAction: 'analyze_reference_video',
+          title: 'Creator teardown format',
+        }),
       }),
-    }));
+      scriptAuthoringRequest,
+    );
 
     await expect(response.json()).resolves.toMatchObject({
       sessionId: 'session_1',
@@ -113,6 +140,19 @@ describe('ThinkForge trend selection route', () => {
         status: 'suggested',
       },
     });
+  });
+
+  it('rejects a trend target that conflicts with the explicit authoring request', async () => {
+    const response = await POST(request({
+      sessionId: 'session_1',
+      candidate: candidate(),
+      target: 'script',
+      authoringRequest: postAuthoringRequest,
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.setSessionSelectedTrend).not.toHaveBeenCalled();
   });
 
   it('does not advertise article evidence as a video-analysis source', () => {

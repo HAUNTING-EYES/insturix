@@ -6,7 +6,7 @@ import {
   buildSelectedTrend,
   selectedTrendToContentCardContext,
   SelectedTrendInputError,
-  TrendSelectionRequestSchema,
+  TrendSelectionPersistenceRequestSchema,
 } from '@/lib/thinkforge/trends/selected-trend';
 
 export const runtime = 'nodejs';
@@ -25,14 +25,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    const selection = TrendSelectionRequestSchema.parse(body);
+    const selection = TrendSelectionPersistenceRequestSchema.parse(body);
     const session = await db.getSession(selection.sessionId, userId, orgId);
     if (!session) {
       return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
     }
 
     const selectedTrend = buildSelectedTrend(selection);
-    const projectMeta = await db.setSessionSelectedTrend(session._id, selectedTrend);
+    const projectMeta = await db.setSessionSelectedTrend(
+      session._id,
+      selectedTrend,
+      selection.authoringRequest,
+    );
 
     return NextResponse.json({
       sessionId: session._id,
