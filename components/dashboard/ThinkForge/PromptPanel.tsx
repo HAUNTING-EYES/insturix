@@ -156,11 +156,13 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
         onClick={async () => {
           const original = prompt.trim();
           if (!original) return;
+          const request = buildAuthoringRequest();
+          if (!request) return;
           try {
             const response = await fetch('/api/services/thinkforge/enhance', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: original }),
+              body: JSON.stringify({ prompt: original, authoringRequest: request }),
             });
             if (!response.ok) throw new Error('Failed to enhance prompt');
             const reader = response.body?.getReader();

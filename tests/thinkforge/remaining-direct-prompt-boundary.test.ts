@@ -1,4 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createDefaultThinkForgePostControls,
+  createThinkForgeAuthoringRequest,
+} from '@/lib/thinkforge/schemas/authoring-request';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 
 const mocks = vi.hoisted(() => ({
   putGovernedDataBankEntry: vi.fn(),
@@ -188,11 +194,92 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
 
     const response = await POST(new Request('http://localhost/api/services/thinkforge/enhance', {
       method: 'POST',
-      body: JSON.stringify({ prompt: `Enhance this concept. ${INJECTION}` }),
+      body: JSON.stringify({
+        prompt: `Enhance this concept. ${INJECTION}`,
+        authoringRequest: createThinkForgeAuthoringRequest({
+          contentContract: createThinkForgeWriterContract('social_post'),
+          platformSurface: { id: 'linkedin' },
+          publishingSurface: 'linkedin_post',
+          postControls: createDefaultThinkForgePostControls(),
+        }),
+      }),
     }) as never);
 
     expect(response.status).toBe(200);
-    expectIsolatedCall(mocks.streamText.mock.calls.at(-1)?.[0] ?? {});
+    const call = mocks.streamText.mock.calls.at(-1)?.[0] ?? {};
+    expectIsolatedCall(call);
+    expect(call.system).toContain('written social post brief');
+    expect(call.system).not.toContain('YouTube producer');
+    expect(call.system).not.toContain('video concept');
+    expect(call.prompt).toContain('LinkedIn post');
+  });
+
+  it.each([
+    {
+      name: 'carousel',
+      authoringRequest: createThinkForgeAuthoringRequest({
+        contentContract: createThinkForgeWriterContract('carousel', { carouselSlideCount: 7 }),
+        platformSurface: { id: 'instagram' },
+        publishingSurface: 'instagram_carousel',
+        postControls: createDefaultThinkForgePostControls(),
+      }),
+      systemText: '7-slide carousel brief',
+      promptText: '7-slide Instagram carousel',
+      forbiddenSystemText: 'video-script brief',
+    },
+    {
+      name: 'video script',
+      authoringRequest: createThinkForgeAuthoringRequest({
+        contentContract: createThinkForgeWriterContract('video_script'),
+        platformSurface: { id: 'youtube' },
+        publishingSurface: 'youtube_video',
+        targetDurationSec: 420,
+      }),
+      systemText: 'video-script brief',
+      promptText: '7-minute YouTube video script',
+      forbiddenSystemText: 'written social post brief',
+    },
+  ])('preserves $name authority while enhancing', async ({
+    authoringRequest,
+    systemText,
+    promptText,
+    forbiddenSystemText,
+  }) => {
+    mocks.streamText.mockReturnValue({
+      toTextStreamResponse: () => new Response('Enhanced concept'),
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/enhance/route');
+
+    const response = await POST(new Request('http://localhost/api/services/thinkforge/enhance', {
+      method: 'POST',
+      body: JSON.stringify({ prompt: 'Explain the hidden cost of approval loops.', authoringRequest }),
+    }) as never);
+
+    expect(response.status).toBe(200);
+    const call = mocks.streamText.mock.calls.at(-1)?.[0] ?? {};
+    expect(call.system).toContain(systemText);
+    expect(call.system).not.toContain(forbiddenSystemText);
+    expect(call.prompt).toContain(promptText);
+  });
+
+  it('rejects enhancement without typed artifact authority before charging or calling a model', async () => {
+    const { POST } = await import('@/app/api/services/thinkforge/enhance/route');
+
+    const response = await POST(new Request('http://localhost/api/services/thinkforge/enhance', {
+      method: 'POST',
+      body: JSON.stringify({ prompt: 'Make this more specific.' }),
+    }) as never);
+
+    expect(response.status).toBe(422);
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.streamText).not.toHaveBeenCalled();
+  });
+
+  it('sends the validated prompt-panel authoring request to enhancement', () => {
+    const source = readFileSync('components/dashboard/ThinkForge/PromptPanel.tsx', 'utf8');
+
+    expect(source).toContain('const request = buildAuthoringRequest()');
+    expect(source).toContain('JSON.stringify({ prompt: original, authoringRequest: request })');
   });
 
   it('isolates trend candidate metadata from the video-analysis instruction', async () => {
