@@ -33,9 +33,7 @@ export class UnsupportedCalosFormatError extends Error {
 // still use ThinkForge PostWriter output for their copy and hidden visual handoff.
 const FORMAT_ROUTES: Readonly<Record<string, CalosGenerationRouteDescriptor>> = {
   text: { service: "thinkforge", writerKind: "social_post" },
-  thread: { service: "thinkforge", writerKind: "social_post" },
   image: { service: "clickatron", writerKind: "social_post" },
-  story: { service: "clickatron", writerKind: "social_post" },
   carousel: { service: "clickatron", writerKind: "carousel" },
   reel: { service: "thinkforge", writerKind: "video_script" },
   short_video: { service: "thinkforge", writerKind: "video_script" },
