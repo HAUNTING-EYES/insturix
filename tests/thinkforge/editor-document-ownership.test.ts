@@ -53,8 +53,9 @@ describe('ThinkForge editor document ownership', () => {
     const scriptHook = read('app/dashboard/thinkforge/hooks/useThinkForgeScript.ts');
     const chatHook = read('app/dashboard/thinkforge/hooks/useThinkForgeChat.ts');
 
-    expect(scriptHook).toContain('matchesThinkForgeDocumentIdentity(next, activeIdentity)');
-    expect(scriptHook).toContain('stampThinkForgeDocumentIdentity(serverScript, activeIdentity)');
+    expect(scriptHook).toContain("assertCompatibleDocumentIdentity(update, expected, 'Document update')");
+    expect(scriptHook).toContain('matchesThinkForgeDocumentIdentity(scriptToSave, activeIdentity)');
+    expect(scriptHook).toContain('parseThinkForgeLoadedDocument(data, activeIdentity)');
     expect(scriptHook).toContain('sessionIdRef.current !== targetSessionId');
     expect(chatHook).toContain('let resolvedScriptId = options?.scriptId');
     expect(chatHook).toContain('resolvedScriptId = data.scriptId');
