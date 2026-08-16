@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createDefaultThinkForgePostControls,
+  createThinkForgeAuthoringRequest,
+} from '@/lib/thinkforge/schemas/authoring-request';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 
 const mocks = vi.hoisted(() => ({
   applyCommand: vi.fn(),
@@ -75,6 +80,18 @@ const productionBrief = {
   brand: { brandId: 'brand_b' },
 };
 
+const postAuthoringRequest = createThinkForgeAuthoringRequest({
+  contentContract: createThinkForgeWriterContract('social_post'),
+  platformSurface: { id: 'linkedin' },
+  postControls: createDefaultThinkForgePostControls(),
+});
+
+const scriptAuthoringRequest = createThinkForgeAuthoringRequest({
+  contentContract: createThinkForgeWriterContract('video_script'),
+  platformSurface: { id: 'youtube' },
+  targetDurationSec: 420,
+});
+
 const authoringContext = {
   projectMeta: {
     brandId: 'brand_b',
@@ -86,6 +103,8 @@ const authoringContext = {
     },
     format: 'LinkedIn post',
     platform: 'linkedin',
+    authoringRequest: postAuthoringRequest,
+    contentContract: postAuthoringRequest.contentContract,
     idea: 'Approval ownership',
   },
   retrievedContext: {
@@ -157,6 +176,7 @@ describe('flat writer edit authoring context', () => {
       blocks: [{ id: 'old' }],
       version: 1,
       documentType: 'social_post',
+      contentContract: postAuthoringRequest.contentContract,
       metadata: {
         retained: 'yes',
         writerOutput: { sourceLedger: { ledgerVersion: 1, entries: [{ referenceId: 'brief_user' }] } },
@@ -186,6 +206,7 @@ describe('flat writer edit authoring context', () => {
     }));
     expect(mocks.postRun).toHaveBeenCalledWith(expect.objectContaining({
       brandId: 'brand_b',
+      authoringRequest: postAuthoringRequest,
       project: authoringContext.projectMeta,
       retrievedContext: authoringContext.retrievedContext,
       contentSignalProfile: signalProfile,
@@ -199,6 +220,13 @@ describe('flat writer edit authoring context', () => {
     expect(mocks.buildSourceLedger).toHaveBeenCalledWith(expect.objectContaining({
       projectSummary: 'Approval ownership',
       previousLedger: stored.metadata.writerOutput.sourceLedger,
+    }));
+    expect(mocks.resolveSignalProfile).toHaveBeenCalledWith(expect.objectContaining({
+      authoringRequest: postAuthoringRequest,
+      contentContract: postAuthoringRequest.contentContract,
+    }));
+    expect(mocks.resolveProductionBrief).toHaveBeenCalledWith(expect.objectContaining({
+      authoringRequest: postAuthoringRequest,
     }));
     expect(mocks.scriptRun).not.toHaveBeenCalled();
     expect(mocks.applyCommand).toHaveBeenCalledWith(expect.objectContaining({
@@ -217,6 +245,16 @@ describe('flat writer edit authoring context', () => {
   });
 
   it('sends the same resolved authority, brief, and ledger to script edits', async () => {
+    const scriptAuthoringContext = {
+      ...authoringContext,
+      projectMeta: {
+        ...authoringContext.projectMeta,
+        format: '7-minute YouTube video script',
+        platform: 'youtube',
+        authoringRequest: scriptAuthoringRequest,
+        contentContract: scriptAuthoringRequest.contentContract,
+      },
+    };
     const stored = {
       sessionId: 'session_1',
       scriptId: 'script_1',
@@ -225,9 +263,17 @@ describe('flat writer edit authoring context', () => {
       blocks: [{ id: 'old' }],
       version: 3,
       documentType: 'video_script',
+      contentContract: scriptAuthoringRequest.contentContract,
       metadata: {},
     };
+    mocks.getSession.mockResolvedValueOnce({
+      _id: 'session_1',
+      userId: 'user_1',
+      orgId: 'org_1',
+      projectMeta: scriptAuthoringContext.projectMeta,
+    });
     mocks.getScript.mockResolvedValueOnce(stored);
+    mocks.resolveAuthoringContext.mockResolvedValueOnce(scriptAuthoringContext);
     mocks.scriptRun.mockResolvedValue({ result: scriptResult() });
 
     await reviseDocumentViaFlatWriter({
@@ -243,6 +289,7 @@ describe('flat writer edit authoring context', () => {
 
     expect(mocks.scriptRun).toHaveBeenCalledWith(expect.objectContaining({
       brandId: 'brand_b',
+      authoringRequest: scriptAuthoringRequest,
       productionBrief,
       sourceLedger,
       retrievedContext: authoringContext.retrievedContext,
@@ -260,6 +307,40 @@ describe('flat writer edit authoring context', () => {
         }),
       }),
     }), 'user_1', 'org_1');
+  });
+
+  it('fails before generation when the persisted authoring request is missing', async () => {
+    const legacyProjectMeta = {
+      ...authoringContext.projectMeta,
+      authoringRequest: undefined,
+    };
+    mocks.resolveAuthoringContext.mockResolvedValueOnce({
+      ...authoringContext,
+      projectMeta: legacyProjectMeta,
+    });
+    mocks.getScript.mockResolvedValueOnce({
+      sessionId: 'session_1',
+      scriptId: 'post_legacy',
+      title: 'Legacy post',
+      content: 'Legacy content that must not be edited from guessed controls.',
+      blocks: [{ id: 'legacy' }],
+      version: 2,
+      documentType: 'social_post',
+      contentContract: postAuthoringRequest.contentContract,
+      metadata: {},
+    });
+
+    await expect(reviseDocumentViaFlatWriter({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_1',
+      scriptId: 'post_legacy',
+      instruction: 'Rewrite this post.',
+    })).rejects.toThrow(/requires a persisted authoring request/i);
+
+    expect(mocks.postRun).not.toHaveBeenCalled();
+    expect(mocks.scriptRun).not.toHaveBeenCalled();
+    expect(mocks.applyCommand).not.toHaveBeenCalled();
   });
 
   it('fails before generation when the session or brand authority cannot be resolved', async () => {
@@ -287,6 +368,7 @@ describe('flat writer edit authoring context', () => {
       blocks: [{ id: 'canonical_block' }],
       version: 4,
       documentType: 'social_post',
+      contentContract: postAuthoringRequest.contentContract,
       metadata: {},
     });
     mocks.resolveAuthoringContext.mockRejectedValueOnce(new Error('brand_profile_unavailable'));

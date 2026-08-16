@@ -32,7 +32,11 @@ import {
   formatContentSignalProfileForPrompt,
   resolveContentSignalProfile,
 } from '../signals';
-import { resolveProjectMetaBrandId } from '../state/types';
+import {
+  resolveProjectMetaAuthoringRequest,
+  resolveProjectMetaBrandId,
+  resolveProjectMetaContentContract,
+} from '../state/types';
 import { applyCommand } from './command-service';
 import * as db from './db';
 
@@ -132,9 +136,21 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     currentScript: existingContent,
     writingKnowledgeVersion: getWritingKnowledgeVersion(),
   });
+  const authoringRequest = resolveProjectMetaAuthoringRequest(authoringContext.projectMeta);
+  if (!authoringRequest) {
+    throw new Error('ThinkForge document edit requires a persisted authoring request');
+  }
+  if (canonicalScript.contentContract === undefined) {
+    throw new Error('Stored ThinkForge document is missing its authoring contract');
+  }
+  resolveProjectMetaContentContract({
+    authoringRequest,
+    contentContract: canonicalScript.contentContract,
+  });
   const brandId = resolveProjectMetaBrandId(authoringContext.projectMeta);
   const contentSignalProfile = resolveContentSignalProfile({
     userPrompt: instruction,
+    authoringRequest,
     documentType: documentKind,
     platform: authoringContext.projectMeta.platform,
     brandId,
@@ -156,6 +172,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   const productionBrief = resolveThinkForgeProductionBrief({
     userPrompt: instruction,
     project: authoringContext.projectMeta,
+    authoringRequest,
     documentType: documentKind,
     contentPath: isScript ? 'script' : 'post',
     brandId,
@@ -190,6 +207,7 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
       systemBrief: groundedSystemBrief,
     },
     userPrompt: instruction,
+    authoringRequest,
     retrievedContext: authoringContext.retrievedContext,
     project: authoringContext.projectMeta,
     sessionId: canonicalSessionId,
