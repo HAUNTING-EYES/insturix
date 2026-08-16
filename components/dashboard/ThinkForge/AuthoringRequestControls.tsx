@@ -9,10 +9,10 @@ import {
 } from "@/lib/thinkforge/schemas/authoring-request";
 import type { ThinkForgeAuthoringRequestDraft } from "@/lib/thinkforge/schemas/authoring-request-draft";
 import {
-  THINKFORGE_CAROUSEL_MAX_SLIDES,
   THINKFORGE_CAROUSEL_MIN_SLIDES,
-  type ThinkForgeWriterKind,
-} from "@/lib/thinkforge/schemas/document-contract";
+  resolveThinkForgeCarouselCapabilities,
+} from "@/lib/thinkforge/schemas/carousel-capabilities";
+import type { ThinkForgeWriterKind } from "@/lib/thinkforge/schemas/document-contract";
 
 interface AuthoringRequestControlsProps {
   value: ThinkForgeAuthoringRequestDraft;
@@ -35,6 +35,9 @@ export function AuthoringRequestControls({ value, onChange, disabled = false }: 
   const publishingOptions = value.outputKind
     ? listThinkForgePublishingSurfaces(value.outputKind)
     : [];
+  const carouselCapabilities = resolveThinkForgeCarouselCapabilities(
+    value.publishingSurfaceId || undefined,
+  );
   const selectOutputKind = (outputKind: ThinkForgeWriterKind) => {
     const destinationStillApplies = value.publishingSurfaceId
       && listThinkForgePublishingSurfaces(outputKind).some(({ id }) => id === value.publishingSurfaceId);
@@ -115,7 +118,7 @@ export function AuthoringRequestControls({ value, onChange, disabled = false }: 
             <input
               type="number"
               min={THINKFORGE_CAROUSEL_MIN_SLIDES}
-              max={THINKFORGE_CAROUSEL_MAX_SLIDES}
+              max={carouselCapabilities.effectiveAuthoringMaximumSlides}
               step={1}
               value={value.carouselSlideCount}
               disabled={disabled}

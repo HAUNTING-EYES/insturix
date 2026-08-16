@@ -1,7 +1,7 @@
 import {
-  THINKFORGE_CAROUSEL_MAX_SLIDES,
+  THINKFORGE_CAROUSEL_AUTHORING_BATCH_MAX_SLIDES,
   THINKFORGE_CAROUSEL_MIN_SLIDES,
-} from '../schemas/document-contract';
+} from '../schemas/carousel-capabilities';
 
 export type ContentCardStatus = 'scheduled' | 'draft' | 'published' | 'in_production';
 export type ContentPlanningClickatronStatus =
@@ -277,10 +277,10 @@ function normalizeCarouselSlideCount(value: unknown): number | undefined {
     typeof value !== 'number'
     || !Number.isInteger(value)
     || value < THINKFORGE_CAROUSEL_MIN_SLIDES
-    || value > THINKFORGE_CAROUSEL_MAX_SLIDES
+    || value > THINKFORGE_CAROUSEL_AUTHORING_BATCH_MAX_SLIDES
   ) {
     throw new ContentCardValidationError(
-      `carouselSlideCount must be a whole number from ${THINKFORGE_CAROUSEL_MIN_SLIDES} to ${THINKFORGE_CAROUSEL_MAX_SLIDES}`,
+      `carouselSlideCount must be a whole number from ${THINKFORGE_CAROUSEL_MIN_SLIDES} to ${THINKFORGE_CAROUSEL_AUTHORING_BATCH_MAX_SLIDES}`,
     );
   }
   return value;

@@ -71,11 +71,13 @@ describe('ThinkForge content card contract', () => {
     const options = { userId: 'user_1', now: '2026-06-14T00:00:00.000Z' };
 
     expect(() => normalizeContentCardForStorage({ ...base, carouselSlideCount: 1 }, options))
-      .toThrow(/whole number from 2 to 7/i);
-    expect(() => normalizeContentCardForStorage({ ...base, carouselSlideCount: 8 }, options))
-      .toThrow(/whole number from 2 to 7/i);
+      .toThrow(/whole number from 2 to 10/i);
+    expect(normalizeContentCardForStorage({ ...base, carouselSlideCount: 10 }, options).carouselSlideCount)
+      .toBe(10);
+    expect(() => normalizeContentCardForStorage({ ...base, carouselSlideCount: 11 }, options))
+      .toThrow(/whole number from 2 to 10/i);
     expect(() => normalizeContentCardForStorage({ ...base, carouselSlideCount: 3.5 }, options))
-      .toThrow(/whole number from 2 to 7/i);
+      .toThrow(/whole number from 2 to 10/i);
   });
 
   it('merges updates without allowing ownership or identity changes', () => {
