@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createCurrentWriterOutputBinding } from '@/lib/thinkforge/persistence/writer-output-binding';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -71,6 +72,38 @@ function storedDocument(sessionId: string, scriptId: string) {
       content: [{ type: 'text', text: 'One useful, exact document.', styles: {} }],
     }],
     metadata: {},
+    version: 1,
+  };
+}
+
+function boundPostDocument(status: 'current' | 'stale' = 'current') {
+  const content = status === 'current' ? 'Current post copy.' : 'Edited post copy.';
+  const writerOutput = {
+    writerType: 'post',
+    visualPrompts: { singleImagePrompt: 'A precise evidence-led editorial visual.' },
+  };
+  const current = createCurrentWriterOutputBinding({
+    documentContent: 'Current post copy.',
+    documentVersion: 1,
+    writerOutput,
+  });
+  return {
+    ...storedDocument('session_canonical', 'post_1'),
+    content,
+    version: status === 'current' ? 1 : 2,
+    metadata: {
+      writerOutput: {
+        ...writerOutput,
+        artifactBinding: status === 'current'
+          ? current
+          : {
+              ...current,
+              status: 'stale',
+              staleReason: 'content_changed_without_fresh_writer_output',
+              staleAtVersion: 2,
+            },
+      },
+    },
   };
 }
 
@@ -150,6 +183,47 @@ describe('ThinkForge Clickatron document identity', () => {
     expect(await response.json()).toEqual({ error: 'ThinkForge document not found' });
     expect(mocks.findLinkBySessionId).not.toHaveBeenCalled();
     expect(mocks.createProjectLink).not.toHaveBeenCalled();
+  });
+
+  it('rejects stale hidden prompts before creating or reading a project link', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_1' },
+    });
+    mocks.getScript.mockResolvedValue(boundPostDocument('stale'));
+    const { POST } = await import('@/app/api/services/thinkforge/clickatron-context/route');
+
+    const response = await POST(postRequest(
+      'http://localhost/api/services/thinkforge/clickatron-context',
+      { sessionId: 'session_alias', scriptId: 'post_1', kind: 'single', platform: 'linkedin' },
+    ));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'writer-output-stale' });
+    expect(mocks.findLinkBySessionId).not.toHaveBeenCalled();
+    expect(mocks.createProjectLink).not.toHaveBeenCalled();
+  });
+
+  it('admits a writer prompt only when its document binding is current', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_1' },
+    });
+    mocks.getScript.mockResolvedValue(boundPostDocument());
+    const { POST } = await import('@/app/api/services/thinkforge/clickatron-context/route');
+
+    const response = await POST(postRequest(
+      'http://localhost/api/services/thinkforge/clickatron-context',
+      { sessionId: 'session_alias', scriptId: 'post_1', kind: 'single', platform: 'linkedin' },
+    ));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.context.sessionDraft.prompt).toContain('precise evidence-led editorial visual');
   });
 });
 

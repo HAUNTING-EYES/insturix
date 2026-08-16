@@ -9,6 +9,10 @@ import {
   toNonEmptyString,
   type ThinkToClickVisibleContentChoices,
 } from "@/lib/thinkforge/clickatron-context";
+import {
+  PersistedWriterOutputError,
+  requireCurrentPersistedWriterOutput,
+} from "@/lib/thinkforge/persistence/writer-output-reader";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +69,22 @@ export async function POST(request: Request) {
     if (!script) {
       return NextResponse.json({ error: "ThinkForge document not found" }, { status: 404 });
     }
+    let writerOutput: Record<string, unknown> | undefined;
+    try {
+      writerOutput = requireCurrentPersistedWriterOutput({
+        metadata: script.metadata,
+        documentContent: script.content,
+        documentVersion: script.version,
+      });
+    } catch (error) {
+      if (error instanceof PersistedWriterOutputError) {
+        return NextResponse.json(
+          { error: error.message, code: error.code },
+          { status: error.code === "writer-output-payload-invalid" ? 422 : 409 },
+        );
+      }
+      throw error;
+    }
     let projectLink = await findLinkBySessionId(userId, canonicalSessionId);
 
     if (!projectLink) {
@@ -98,7 +118,7 @@ export async function POST(request: Request) {
       blocks: script?.blocks,
       userVisualChoices,
       signalTrace: script?.metadata?.signalTrace,
-      writerOutput: script?.metadata?.writerOutput,
+      writerOutput,
       authoringContextSnapshot: script?.metadata?.authoringContextSnapshot,
       title: toNonEmptyString(body.title),
       aspectRatio: toNonEmptyString(body.aspectRatio),
