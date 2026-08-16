@@ -78,15 +78,15 @@ const buildProjectMetaPayload = (
 	const contentContract = resolveIdeaDocumentContract(idea);
 	return {
 		idea: idea?.idea || '',
-		purpose: (idea as any)?.purpose || '',
-		style: (idea as any)?.style || '',
-		format: (idea as any)?.format || '',
+		purpose: idea?.purpose || '',
+		style: idea?.style || '',
+		format: idea?.format || '',
 		...(contentContract ? { contentContract } : {}),
-		platform: (idea as any)?.platform || '',
+		platform: idea?.platform || '',
 		tone: idea?.tone || 'blue',
-		sessionName: (idea as any)?.sessionName || '',
-		originalPrompt: (idea as any)?.originalPrompt || '',
-		brandBrief: (idea as any)?.brandBrief || '',
+		sessionName: idea?.sessionName || '',
+		originalPrompt: idea?.originalPrompt || '',
+		brandBrief: idea?.brandBrief || '',
 		...pickProjectMetaPassthrough(idea),
 		...(initialDraftIntent ? { initialDraftIntent } : {}),
 	};
@@ -212,7 +212,6 @@ export default function ThinkForgeLanding() {
 	}, [session.restoredSessionId, session.isRestoringCurrentSession, session.sessionId, session.projectMeta]);
 
 	const panelRef = useRef<HTMLElement | null>(null);
-	const edgeHoverTimeout = useRef<NodeJS.Timeout | null>(null);
 
 	const generateIdeas = useCallback(async (
 		promptOverride?: string,
@@ -657,18 +656,13 @@ export default function ThinkForgeLanding() {
 
 	const currentSessionId = session.sessionId;
 	const selectedIdeaId = selectedIdea?.id;
-	const selectedIdeaText = selectedIdea?.idea;
-	const selectedIdeaTone = selectedIdea?.tone;
 
 	useEffect(() => {
 		if (workspaceMode !== 'scripting') return;
 		if (!selectedIdea) return;
 		if (currentSessionId || pendingSessionId) return;
 		if (hasHydratedRef.current) return;
-		if (hydratingRef.current) {
-			console.log('[ThinkForge] Hydration skipped — already in progress');
-			return;
-		}
+		if (hydratingRef.current) return;
 
 		// Debounce creation slightly and cancel if user navigates away
 		if (creationTimerRef.current) clearTimeout(creationTimerRef.current);
@@ -681,10 +675,7 @@ export default function ThinkForgeLanding() {
 			if (workspaceMode !== 'scripting' || !selectedIdea) return;
 			if (currentSessionId || pendingSessionId) return;
 			if (hasHydratedRef.current) return;
-			if (hydratingRef.current) {
-				console.log('[ThinkForge] Hydration skipped — already in progress');
-				return;
-			}
+			if (hydratingRef.current) return;
 
 			hydratingRef.current = true;
 
