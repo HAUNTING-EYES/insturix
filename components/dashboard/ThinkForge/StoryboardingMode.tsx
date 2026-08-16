@@ -9,8 +9,7 @@ import { KnowledgePanel } from "@/components/dashboard/ThinkForge/KnowledgePanel
 import { ExportToEditronDialog } from "@/components/dashboard/ThinkForge/export/ExportToEditronDialog";
 import { ClickatronHandoffDialog } from "@/components/dashboard/ThinkForge/export/ClickatronHandoffDialog";
 import { ShootKitDialog } from "@/components/dashboard/ThinkForge/production/ShootKitDialog";
-import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
-import type { ProjectMeta } from "@/lib/thinkforge/state/types";
+import type { IdeaCardData, ProjectMeta } from "@/lib/thinkforge/state/types";
 import { Script } from "@/app/dashboard/thinkforge/types";
 import SessionMetadataSettings from "./SessionMetadataSettings";
 import { AnimatePresence, motion } from "framer-motion";
@@ -184,7 +183,8 @@ export default function StoryboardingMode({
               platform: selectedIdea.platform,
               tone: selectedIdea.tone as any,
               originalPrompt: selectedIdea.originalPrompt,
-              brandBrief: selectedIdea.brandBrief
+              brandBrief: selectedIdea.brandBrief,
+              authoringRequest: selectedIdea.authoringRequest,
             }}
             script={script}
             sessionId={sessionId}
@@ -216,18 +216,7 @@ export default function StoryboardingMode({
         <div className="chat-col" style={{ display: 'flex', flexDirection: 'column' }}>
           <ChatPanel
             key={(sessionId || 'no-session')}
-            selectedIdea={{
-              id: Number(selectedIdea.id),
-              idea: selectedIdea.idea,
-              purpose: selectedIdea.purpose,
-              style: selectedIdea.style,
-              format: selectedIdea.format,
-              platform: selectedIdea.platform,
-              tone: selectedIdea.tone as any,
-              sessionName: selectedIdea.sessionName,
-              originalPrompt: selectedIdea.originalPrompt,
-              brandBrief: selectedIdea.brandBrief
-            }}
+            selectedIdea={selectedIdea}
             script={script}
             scriptId={scriptId}
             isScriptLoading={isScriptLoading}
@@ -319,7 +308,8 @@ export default function StoryboardingMode({
                     tone: selectedIdea.tone as any,
                     sessionName: selectedIdea.sessionName,
                     originalPrompt: selectedIdea.originalPrompt,
-                    brandBrief: selectedIdea.brandBrief
+                    brandBrief: selectedIdea.brandBrief,
+                    authoringRequest: selectedIdea.authoringRequest,
                   }}
                   onProceedToChat={handleCloseSettings}
                   onGoBack={onGoToIdeation}

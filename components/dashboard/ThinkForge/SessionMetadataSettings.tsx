@@ -8,6 +8,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Idea } from "@/app/dashboard/thinkforge/types";
 import { getToneDescription } from "@/app/dashboard/thinkforge/utils/toneUtils";
 import { getToneColorClass } from "@/lib/thinkforge/tone";
+import {
+  ThinkForgeAuthoringRequestSchema,
+  describeThinkForgeAuthoringDeliverable,
+  describeThinkForgePlatformSurface,
+  type ThinkForgeAuthoringRequest,
+} from "@/lib/thinkforge/schemas/authoring-request";
 
 interface SessionMetadataSettingsProps {
   idea: Idea;
@@ -31,14 +37,8 @@ const TONE_OPTIONS: { value: Idea['tone']; label: string; desc: string; swatch: 
 ];
 
 // Predefined option sets
-const PLATFORM_OPTIONS = [
-  'YouTube','Instagram','TikTok','LinkedIn','Twitter/X','Reddit','Medium','Blog','Podcast','Newsletter','Facebook','Pinterest'
-];
 const STYLE_OPTIONS = [
   'Educational','Entertaining','Inspirational','Analytical','Storytelling','Tutorial','Conversational','Humorous','Professional','Casual'
-];
-const FORMAT_OPTIONS = [
-  'Short-form Video','Long-form Video','Blog Post','Tweet Thread','Carousel','Podcast Episode','Newsletter Issue','Script Outline','Listicle','Case Study','How-To Guide','Explainer'
 ];
 // Explicit target-length presets, mirroring Editron's confirm-choices DURATION_PRESET_SECONDS
 // but extended for long-form (short + 3/5/7/10/15 min). The user's chosen length is a direct
@@ -55,6 +55,11 @@ const DURATION_OPTIONS = [
   { label: '15m', seconds: 900 },
 ];
 
+function resolveIdeaAuthoringRequest(idea: Idea): ThinkForgeAuthoringRequest | null {
+  if (idea.authoringRequest === undefined) return null;
+  return ThinkForgeAuthoringRequestSchema.parse(idea.authoringRequest);
+}
+
 export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBack, onUpdateIdea, hideNavigation = false, sessionCount = 0 }: SessionMetadataSettingsProps) {
   // Generate default Session Name if not set
   const getDefaultSessionName = (incoming: Idea) => (incoming.sessionName && incoming.sessionName.trim().length > 0)
@@ -64,12 +69,10 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
   const [saveState, setSaveState] = useState<'clean' | 'dirty' | 'saving' | 'saved'>('clean');
   const [nameError, setNameError] = useState<string | null>(null);
   // Multi-value chip states (parsed from idea on mount)
-  const [platforms, setPlatforms] = useState<string[]>(() => idea.platform.split(/,\s*/).filter(Boolean));
   const [styles, setStyles] = useState<string[]>(() => idea.style.split(/,\s*/).filter(Boolean));
-  const [formats, setFormats] = useState<string[]>(() => idea.format.split(/,\s*/).filter(Boolean));
-  const [durationSec, setDurationSec] = useState<number | undefined>(idea.durationSec);
   const [customMin, setCustomMin] = useState('');
   const [customSec, setCustomSec] = useState('');
+  const [durationError, setDurationError] = useState<string | null>(null);
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const savedIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -86,17 +89,17 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
       idea.style !== prev.style ||
       idea.format !== prev.format ||
       idea.platform !== prev.platform ||
-      idea.tone !== prev.tone
+      idea.tone !== prev.tone ||
+      idea.durationSec !== prev.durationSec ||
+      JSON.stringify(idea.authoringRequest) !== JSON.stringify(prev.authoringRequest)
     );
     if (changed) {
       const normalizedIdea = { ...idea, sessionName: getDefaultSessionName(idea) };
       setLocalIdea(normalizedIdea);
-      setPlatforms(idea.platform.split(/,\s*/).filter(Boolean));
       setStyles(idea.style.split(/,\s*/).filter(Boolean));
-      setFormats(idea.format.split(/,\s*/).filter(Boolean));
-      setDurationSec(idea.durationSec);
       setCustomMin('');
       setCustomSec('');
+      setDurationError(null);
       if (!idea.sessionName || !idea.sessionName.trim()) {
         setSaveState('dirty');
       } else {
@@ -143,14 +146,6 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
 
   // When multi-value arrays change, reflect into localIdea fields
   useEffect(() => {
-    const newVal = platforms.join(', ');
-    if (newVal !== localIdea.platform) {
-        setLocalIdea(prev => ({ ...prev, platform: newVal }));
-        setSaveState('dirty');
-    }
-  }, [platforms]);
-  
-  useEffect(() => {
     const newVal = styles.join(', ');
     if (newVal !== localIdea.style) {
         setLocalIdea(prev => ({ ...prev, style: newVal }));
@@ -158,14 +153,6 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
     }
   }, [styles]);
   
-  useEffect(() => {
-    const newVal = formats.join(', ');
-    if (newVal !== localIdea.format) {
-        setLocalIdea(prev => ({ ...prev, format: newVal }));
-        setSaveState('dirty');
-    }
-  }, [formats]);
-
   const handleChange = (key: keyof Idea) => (e: ChangeEvent<HTMLTextAreaElement>) => {
     let value = e.target.value;
     if (key === 'sessionName') {
@@ -191,42 +178,49 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
     setSaveState('dirty');
   };
 
-  const durationLongLabel = (seconds: number): string => {
-    if (seconds % 3600 === 0) return `${seconds / 3600}-hour`;
-    if (seconds % 60 === 0) return `${seconds / 60}-minute`;
-    return `${seconds}-second`;
-  };
-
   const durationShortLabel = (seconds: number): string => {
     if (seconds % 60 === 0) return `${seconds / 60} min`;
     if (seconds > 60) return `${Math.round((seconds / 60) * 10) / 10} min`;
     return `${seconds}s`;
   };
 
-  const isVideoIdea = durationSec !== undefined
-    || formats.some((f) => /\b(video|film|documentary|reel|shorts?|vlog|youtube|tiktok)\b/i.test(f));
+  const authoringRequest = resolveIdeaAuthoringRequest(localIdea);
+  const durationSec = authoringRequest?.targetDurationSec;
+  const isVideoIdea = authoringRequest?.contentContract.outputKind === 'video_script';
 
   const applyVideoDuration = (seconds: number | undefined) => {
-    setDurationSec(seconds);
-    setLocalIdea(prev => ({ ...prev, durationSec: seconds }));
-    setSaveState('dirty');
-    if (seconds === undefined) return;
-    const label = durationLongLabel(seconds);
-    // Keep the format field honest for downstream writers: drop short-form entries and
-    // surface the chosen length ("7-minute video").
-    setFormats(prev => {
-      const withoutShort = prev.filter((f) => !/\b(short\s*videos?|shorts?\b|reels?\b|tiktok|reel\b)\b/i.test(f));
-      const already = withoutShort.some((f) => f.toLowerCase().includes(label.toLowerCase()));
-      return already ? withoutShort : [`${label} video`, ...withoutShort];
+    if (!authoringRequest || authoringRequest.contentContract.outputKind !== 'video_script') {
+      setDurationError('Only a video-script session can carry a target duration.');
+      return;
+    }
+    const nextRequest = ThinkForgeAuthoringRequestSchema.parse({
+      ...authoringRequest,
+      targetDurationSec: seconds,
     });
+    setLocalIdea(prev => ({
+      ...prev,
+      authoringRequest: nextRequest,
+      durationSec: seconds,
+      format: describeThinkForgeAuthoringDeliverable(nextRequest),
+      platform: describeThinkForgePlatformSurface(nextRequest.platformSurface),
+    }));
+    setDurationError(null);
+    setSaveState('dirty');
   };
 
   const applyCustomDuration = () => {
-    const mins = parseFloat(customMin);
-    const secs = parseFloat(customSec);
-    if (!Number.isFinite(mins) || mins < 0) return;
-    const total = Math.round(mins * 60) + (Number.isFinite(secs) && secs > 0 ? Math.round(secs) : 0);
-    if (total > 0) applyVideoDuration(total);
+    const mins = customMin.trim() ? Number(customMin) : 0;
+    const secs = customSec.trim() ? Number(customSec) : 0;
+    if (!Number.isInteger(mins) || mins < 0 || !Number.isInteger(secs) || secs < 0 || secs > 59) {
+      setDurationError('Use whole minutes and 0-59 seconds.');
+      return;
+    }
+    const total = mins * 60 + secs;
+    if (total < 1) {
+      setDurationError('Target duration must be at least one second.');
+      return;
+    }
+    applyVideoDuration(total);
   };
 
   return (
@@ -386,20 +380,18 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
                 onChange={setStyles}
                 options={STYLE_OPTIONS}
               />
-              <MultiValueEditor
-                label="Format"
-                placeholder="Add formats"
-                values={formats}
-                onChange={setFormats}
-                options={FORMAT_OPTIONS}
-              />
-              <MultiValueEditor
-                label="Platform"
-                placeholder="Add platforms"
-                values={platforms}
-                onChange={setPlatforms}
-                options={PLATFORM_OPTIONS}
-              />
+              <div className="rounded-xl border border-[#1C1B19] bg-[#131312] p-4">
+                <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest text-[#7A776E]">Output</label>
+                <p className="text-sm text-[#ECE9E1]">
+                  {authoringRequest ? describeThinkForgeAuthoringDeliverable(authoringRequest) : localIdea.format}
+                </p>
+              </div>
+              <div className="rounded-xl border border-[#1C1B19] bg-[#131312] p-4">
+                <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest text-[#7A776E]">Platform</label>
+                <p className="text-sm text-[#ECE9E1]">
+                  {authoringRequest ? describeThinkForgePlatformSurface(authoringRequest.platformSurface) : localIdea.platform}
+                </p>
+              </div>
               {isVideoIdea && (
                 <div className="rounded-xl border border-[#1C1B19] bg-[#131312] p-4 md:col-span-2">
                   <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest text-[#7A776E]">
@@ -450,9 +442,10 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
                       Set length
                     </button>
                     {durationSec !== undefined && (
-                      <span className="text-[11px] font-medium text-[#ECE9E1]">→ {durationShortLabel(durationSec)}</span>
+                      <span className="text-[11px] font-medium text-[#ECE9E1]">{durationShortLabel(durationSec)}</span>
                     )}
                   </div>
+                  {durationError && <p className="mt-2 text-xs text-red-400" role="alert">{durationError}</p>}
                 </div>
               )}
             </div>

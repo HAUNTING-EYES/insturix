@@ -1,6 +1,12 @@
 "use client";
 import React, { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { ArrowRight, RefreshCw } from "lucide-react";
+import type { IdeaCardData } from "@/lib/thinkforge/state/types";
+import {
+  ThinkForgeAuthoringRequestSchema,
+  describeThinkForgeAuthoringDeliverable,
+  describeThinkForgePlatformSurface,
+} from "@/lib/thinkforge/schemas/authoring-request";
 
 interface IdeaGridProps {
   ideas: IdeaCardData[];
@@ -15,6 +21,26 @@ function formatDuration(seconds: number): string {
   if (seconds % 3600 === 0) return `${seconds / 3600} hr`;
   if (seconds % 60 === 0) return `${seconds / 60} min`;
   return `${seconds}s`;
+}
+
+function describeIdeaContract(idea: IdeaCardData): {
+  deliverable: string;
+  platform: string;
+  durationSec?: number;
+} {
+  if (idea.authoringRequest === undefined) {
+    return {
+      deliverable: idea.format,
+      platform: idea.platform,
+      ...(idea.durationSec !== undefined ? { durationSec: idea.durationSec } : {}),
+    };
+  }
+  const request = ThinkForgeAuthoringRequestSchema.parse(idea.authoringRequest);
+  return {
+    deliverable: describeThinkForgeAuthoringDeliverable(request),
+    platform: describeThinkForgePlatformSurface(request.platformSurface),
+    ...(request.targetDurationSec !== undefined ? { durationSec: request.targetDurationSec } : {}),
+  };
 }
 
 export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted, prompt, onSelect, onRegenerate }) => {
@@ -45,7 +71,9 @@ export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted
             </div>
           ))
         ) : (
-          ideas.map((idea, i) => (
+          ideas.map((idea, i) => {
+            const contract = describeIdeaContract(idea);
+            return (
             <div key={idea.id} className="idea-card" onClick={() => setExpandedIdea(idea)}>
               <div className="idea-card-head">
                 <div className="dot-8" style={{ background: `var(--cat-${idea.tone === 'white' ? 'purple' : idea.tone === 'red' ? 'pink' : 'cyan'})` }}></div>
@@ -53,15 +81,16 @@ export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted
               </div>
               <h3>{idea.idea}</h3>
               <div className="meta">
-                <strong>Format:</strong> {idea.format}
+                <strong>Output:</strong> {contract.deliverable}
               </div>
               <div className="idea-tags">
-                <span className="idea-tag">{idea.platform}</span>
-                {idea.durationSec !== undefined && <span className="idea-tag">{formatDuration(idea.durationSec)}</span>}
+                <span className="idea-tag">{contract.platform}</span>
+                {contract.durationSec !== undefined && <span className="idea-tag">{formatDuration(contract.durationSec)}</span>}
                 {idea.tone && <span className="idea-tag">{idea.tone}</span>}
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -72,7 +101,7 @@ export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                 <span className="mono" style={{ color: 'var(--accent-gold)' }} id="expLabel">idea details</span>
                 <div className="dot-8" id="expDot" style={{ background: `var(--cat-${expandedIdea.tone === 'white' ? 'purple' : expandedIdea.tone === 'red' ? 'pink' : 'cyan'})` }}></div>
-                <span className="mono" style={{ color: 'var(--text-faint)', fontSize: '10px', marginLeft: 'auto' }}>click any field to edit</span>
+                <span className="mono" style={{ color: 'var(--text-faint)', fontSize: '10px', marginLeft: 'auto' }}>edit title, purpose, or style</span>
               </div>
               <div
                 className="expand-title"
@@ -100,22 +129,16 @@ export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted
                   >{expandedIdea.style}</p>
                 </div>
                 <div className="expand-field">
-                  <label>format</label>
-                  <p id="expFormat" contentEditable suppressContentEditableWarning
-                    onBlur={(e) => setExpandedIdea({ ...expandedIdea, format: e.currentTarget.textContent || expandedIdea.format })}
-                    style={{ outline: 'none', cursor: 'text' }}
-                  >{expandedIdea.format}</p>
+                  <label>output</label>
+                  <p id="expFormat">{describeIdeaContract(expandedIdea).deliverable}</p>
                 </div>
                 <div className="expand-field">
                   <label>platform</label>
-                  <p id="expPlatform" contentEditable suppressContentEditableWarning
-                    onBlur={(e) => setExpandedIdea({ ...expandedIdea, platform: e.currentTarget.textContent || expandedIdea.platform })}
-                    style={{ outline: 'none', cursor: 'text' }}
-                  >{expandedIdea.platform}</p>
+                  <p id="expPlatform">{describeIdeaContract(expandedIdea).platform}</p>
                 </div>
               </div>
             </div>
-            <button className="start-btn" onClick={() => onSelect(expandedIdea)}>Start drafting <span>→</span></button>
+            <button className="start-btn" onClick={() => onSelect(expandedIdea)}>Start drafting <ArrowRight className="h-4 w-4" /></button>
           </div>
         )}
       </div>
@@ -123,17 +146,4 @@ export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted
   );
 };
 
-// Also define the types so other files don't break
-export interface IdeaCardData {
-  id: string;
-  idea: string;
-  purpose: string;
-  style: string;
-  format: string;
-  platform: string;
-  tone: string;
-  durationSec?: number;
-  sessionName?: string;
-  originalPrompt?: string;
-  brandBrief?: string;
-}
+export type { IdeaCardData } from "@/lib/thinkforge/state/types";

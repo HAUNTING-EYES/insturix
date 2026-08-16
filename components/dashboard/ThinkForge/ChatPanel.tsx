@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Idea, Script } from "@/app/dashboard/thinkforge/types";
+import { Script } from "@/app/dashboard/thinkforge/types";
 import { useThinkForgeChat } from "@/app/dashboard/thinkforge/hooks/useThinkForgeChat";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatMessages } from "./chat/ChatMessages";
@@ -9,18 +9,21 @@ import { ChatHistoryPanel } from "./chat/ChatHistoryPanel";
 import { GenerationProgress } from "./chat/GenerationProgress";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import type { ScriptModel } from "@/app/dashboard/thinkforge/hooks/useThinkForgeSession";
-import type { SidecarCardAction } from "@/lib/thinkforge/state/types";
+import type { IdeaCardData, SidecarCardAction } from "@/lib/thinkforge/state/types";
 import { toast } from "@/hooks/use-toast";
 import { extractUrls } from "./PromptPanel";
 import { logShadowEvent } from "@/lib/thinkforge/services/shadow-logger";
 import { TrendWorkflowPanel } from "./TrendWorkflowPanel";
 import {
   normalizeThinkForgeDocumentContract,
-  resolveCarouselSlideCount,
 } from "@/lib/thinkforge/schemas/document-contract";
+import {
+  ThinkForgeAuthoringRequestSchema,
+  type ThinkForgeAuthoringRequest,
+} from "@/lib/thinkforge/schemas/authoring-request";
 
 interface ChatPanelProps {
-  selectedIdea: Idea;
+  selectedIdea: IdeaCardData;
   script: Script | null;
   scriptId?: string | null;
   isScriptLoading?: boolean;
@@ -39,28 +42,27 @@ interface ChatPanelProps {
 }
 
 // Context-aware suggestion pools
-const EMPTY_SCRIPT_SUGGESTIONS = [
-  "Write a quick 60-second draft for this idea",
-  "Create a hook + outline to get me started",
-  "Give me 3 scroll-stopping hooks",
-  "Draft a content brief I can work from",
+const EMPTY_DOCUMENT_SUGGESTIONS = [
+  "Create the complete first draft for this idea",
+  "Build a clear structure before drafting",
+  "Give me 3 distinct opening approaches",
+  "Draft a creative brief I can work from",
 ];
 
-const HAS_SCRIPT_SUGGESTIONS = [
-  "Make this punchier — cut the fluff",
-  "Rewrite the opening hook to be more attention-grabbing",
-  "Add a call-to-action at the end",
-  "Change the tone to feel more conversational",
-  "Shorten this to under 60 seconds",
-  "Expand on the main point with more detail",
+const HAS_DOCUMENT_SUGGESTIONS = [
+  "Make this more specific and remove generic language",
+  "Give the opening a sharper point of view",
+  "Strengthen the ending without forcing a CTA",
+  "Adjust the voice while preserving the brand constraints",
+  "Tighten this without changing the requested duration",
+  "Develop the central idea with stronger evidence",
 ];
 
-// Deliverable-style suggestions the AI shows proactively
-const DELIVERABLE_SUGGESTIONS = [
-  "📋 Generate a shot list for this script",
-  "🎬 Create B-roll ideas to pair with this",
-  "📝 Write social media captions for this content",
-  "🔄 Create an alternative version of this script",
+const ADVANCED_DOCUMENT_SUGGESTIONS = [
+  "Create an alternative opening approach",
+  "Turn the strongest evidence into a concrete example",
+  "Adapt this for a different audience segment",
+  "Flag anything generic, unsupported, or off-brand",
 ];
 
 const PROJECT_META_PASSTHROUGH_KEYS = [
@@ -91,14 +93,9 @@ function pickProjectMetaPassthrough(source: unknown): Record<string, string> {
   }, {});
 }
 
-function resolveSelectedIdeaContentContract(idea: Idea) {
-  const contract = normalizeThinkForgeDocumentContract(idea?.format);
-  if (contract?.outputKind !== 'carousel') return contract;
-
-  const carouselSlideCount = resolveCarouselSlideCount(idea?.originalPrompt);
-  return carouselSlideCount === undefined
-    ? contract
-    : { ...contract, carouselSlideCount };
+function resolveSelectedIdeaAuthoringRequest(idea: IdeaCardData): ThinkForgeAuthoringRequest | null {
+  if (idea.authoringRequest === undefined) return null;
+  return ThinkForgeAuthoringRequestSchema.parse(idea.authoringRequest);
 }
 
 function getContextualSuggestions(hasScript: boolean, messageCount: number = 0, count: number = 3, seed: string = ''): string[] {
@@ -116,9 +113,9 @@ function getContextualSuggestions(hasScript: boolean, messageCount: number = 0, 
     return out;
   };
   if (hasScript && messageCount >= 3) {
-    return [...pick(HAS_SCRIPT_SUGGESTIONS, 2), ...pick(DELIVERABLE_SUGGESTIONS, 1)].slice(0, count);
+    return [...pick(HAS_DOCUMENT_SUGGESTIONS, 2), ...pick(ADVANCED_DOCUMENT_SUGGESTIONS, 1)].slice(0, count);
   }
-  return pick(hasScript ? HAS_SCRIPT_SUGGESTIONS : EMPTY_SCRIPT_SUGGESTIONS, count);
+  return pick(hasScript ? HAS_DOCUMENT_SUGGESTIONS : EMPTY_DOCUMENT_SUGGESTIONS, count);
 }
 
 const STYLE_CORRECTION_RE = /\b(too formal|too casual|punchier|more concise|shorter|longer|simpler|friendlier|serious|tone|less wordy|rewrite|rephrase|sound more|sound less)\b/i;
@@ -266,17 +263,20 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   // Build project payload from selected idea
   const sessionPayload = useMemo(
     () => {
-      const contentContract = resolveSelectedIdeaContentContract(selectedIdea);
+      const authoringRequest = resolveSelectedIdeaAuthoringRequest(selectedIdea);
+      const contentContract = authoringRequest?.contentContract
+        ?? normalizeThinkForgeDocumentContract(selectedIdea.format);
       return {
-        idea: selectedIdea?.idea,
-        purpose: (selectedIdea as any)?.purpose,
-        style: (selectedIdea as any)?.style,
-        format: (selectedIdea as any)?.format,
+        idea: selectedIdea.idea,
+        purpose: selectedIdea.purpose,
+        style: selectedIdea.style,
+        format: selectedIdea.format,
         ...(contentContract ? { contentContract } : {}),
-        platform: (selectedIdea as any)?.platform,
-        tone: selectedIdea?.tone,
-        sessionName: (selectedIdea as any)?.sessionName,
-        originalPrompt: (selectedIdea as any)?.originalPrompt,
+        ...(authoringRequest ? { authoringRequest } : {}),
+        platform: selectedIdea.platform,
+        tone: selectedIdea.tone,
+        sessionName: selectedIdea.sessionName,
+        originalPrompt: selectedIdea.originalPrompt,
         ...pickProjectMetaPassthrough(selectedIdea),
       };
     },
@@ -314,7 +314,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         initialDraftClaimedSessionRef.current = sessionId;
         if (claim?.initialDraftClaimed !== true) return;
 
-        const initialDraftPrompt = `Create the complete first draft for this idea: "${selectedIdea.idea}". Follow the selected document format and platform. Keep the content specific to the idea, begin with a strong hook, and include a clear ending.`;
+        const initialDraftPrompt = `Create the complete first draft for the persisted authoring request and this selected idea: "${selectedIdea.idea}". Preserve the exact deliverable, platform, duration or slide count, brand constraints, and evidence attached to the session.`;
         void chat.sendMessage(initialDraftPrompt, {
           silent: true,
           script: scriptPayload,

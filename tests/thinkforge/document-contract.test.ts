@@ -230,6 +230,26 @@ describe('ThinkForge canonical document contract', () => {
     expect(service).not.toContain('collectExemplarPassively');
   });
 
+  it('keeps client drafting on the typed contract without duration or carousel prose parsing', () => {
+    const ideaGrid = readFileSync(new URL('../../components/dashboard/ThinkForge/IdeaGrid.tsx', import.meta.url), 'utf8');
+    const chatPanel = readFileSync(new URL('../../components/dashboard/ThinkForge/ChatPanel.tsx', import.meta.url), 'utf8');
+    const settings = readFileSync(new URL('../../components/dashboard/ThinkForge/SessionMetadataSettings.tsx', import.meta.url), 'utf8');
+    const storyboarding = readFileSync(new URL('../../components/dashboard/ThinkForge/StoryboardingMode.tsx', import.meta.url), 'utf8');
+
+    expect(ideaGrid).toContain('describeThinkForgeAuthoringDeliverable');
+    expect(ideaGrid).not.toContain('setExpandedIdea({ ...expandedIdea, format:');
+    expect(ideaGrid).not.toContain('setExpandedIdea({ ...expandedIdea, platform:');
+    expect(chatPanel).toContain('resolveSelectedIdeaAuthoringRequest');
+    expect(chatPanel).toContain('...(authoringRequest ? { authoringRequest } : {})');
+    expect(chatPanel).not.toContain('resolveCarouselSlideCount');
+    expect(chatPanel).not.toContain('60-second');
+    expect(chatPanel).not.toContain('under 60 seconds');
+    expect(settings).toContain("contentContract.outputKind === 'video_script'");
+    expect(settings).not.toContain('formats.some');
+    expect(settings).not.toContain('setFormats');
+    expect(storyboarding).toContain('selectedIdea={selectedIdea}');
+  });
+
   it('uses the selected canonical kind for system-triggered initial drafts', () => {
     expect(resolveThinkForgeGenerationDocumentIntent(
       'Create the complete first draft for this idea.',
