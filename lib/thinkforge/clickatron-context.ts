@@ -9,6 +9,7 @@ import {
   normalizeClickatronCarouselSlideCount,
   normalizeClickatronCreativeSpec,
   type ClickatronCreativeKind,
+  type ClickatronCarouselSlideSpec,
   type ClickatronCreativeSpec,
   type ClickatronCreativeValidation,
   type ClickatronPlatform,
@@ -17,6 +18,11 @@ import {
   type ClickatronTextPolicy,
   type ClickatronVisualMode,
 } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
+import {
+  ThinkForgePostCarouselDeckSchema,
+  type ThinkForgePostCarouselDeck,
+  type ThinkForgePostCarouselSlide,
+} from "@/lib/thinkforge/schemas/post-carousel-deck";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 import { projectThinkForgeAuthoringProvenance } from "@/lib/thinkforge/context/authoring-provenance";
@@ -127,6 +133,10 @@ function compactRecord<T extends Record<string, unknown>>(record: T): Partial<T>
 function toPlainRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
 }
 
 function enumValue<T extends readonly string[]>(value: unknown, values: T, fallback: T[number]): T[number] {
@@ -330,6 +340,138 @@ function derivedCarouselSlidesFromVisibleBlocks(
   });
 }
 
+function normalizeComparableCopy(value: string | undefined): string {
+  return (value || "")
+    .normalize("NFC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase();
+}
+
+function readCanonicalCarouselDeck(
+  visualPrompts: Record<string, unknown>,
+): ThinkForgePostCarouselDeck | undefined {
+  if (!hasOwn(visualPrompts, "carouselDeck")) return undefined;
+  const parsed = ThinkForgePostCarouselDeckSchema.safeParse(visualPrompts.carouselDeck);
+  if (!parsed.success) {
+    const details = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "carouselDeck"}: ${issue.message}`)
+      .join("; ");
+    throw new Error(`Persisted ThinkForge carousel deck is invalid: ${details}`);
+  }
+  return parsed.data;
+}
+
+function assertCanonicalDeckLegacyMirror(
+  visualPrompts: Record<string, unknown>,
+  deck: ThinkForgePostCarouselDeck,
+): void {
+  if (!hasOwn(visualPrompts, "carouselPrompts")) return;
+  if (!Array.isArray(visualPrompts.carouselPrompts)
+    || visualPrompts.carouselPrompts.some((prompt) => typeof prompt !== "string" || prompt.trim().length === 0)) {
+    throw new Error("Persisted ThinkForge carousel prompt mirror is malformed");
+  }
+  const mirror = visualPrompts.carouselPrompts.map((prompt) => (prompt as string).trim());
+  const canonical = deck.slides.map((slide) => slide.imagePrompt.trim());
+  if (mirror.length !== canonical.length || mirror.some((prompt, index) => prompt !== canonical[index])) {
+    throw new Error("Persisted ThinkForge carousel prompt mirror contradicts the canonical carousel deck");
+  }
+}
+
+function canonicalSlideRole(slide: ThinkForgePostCarouselSlide): "hook" | "headline" | "cta" {
+  if (slide.role === "hook") return "hook";
+  if (slide.role === "cta") return "cta";
+  return "headline";
+}
+
+function canonicalCarouselSlideBlockGroups(
+  summary: ReturnType<typeof summarizeVisibleBlocks>,
+  deck: ThinkForgePostCarouselDeck,
+): Array<Array<{ id: string; kind: ThinkForgeBlock["kind"]; text?: string; sceneText?: string }>> {
+  let cursor = 0;
+  return deck.slides.map((slide, index) => {
+    const marker = normalizeComparableCopy(`Slide ${index + 1}`);
+    const markerIndex = summary.sourceBlocks.findIndex(
+      (block, position) => position >= cursor
+        && block.kind === "header"
+        && normalizeComparableCopy(block.text) === marker,
+    );
+    if (markerIndex < 0) {
+      throw new Error(`Canonical carousel deck does not match the visible document: missing Slide ${index + 1} marker`);
+    }
+
+    const boundaryIndex = summary.sourceBlocks.findIndex((block, position) => {
+      if (position <= markerIndex || block.kind !== "header") return false;
+      const text = normalizeComparableCopy(block.text);
+      return text === "caption" || /^slide \d+$/.test(text);
+    });
+    const end = boundaryIndex < 0 ? summary.sourceBlocks.length : boundaryIndex;
+    const group = summary.sourceBlocks.slice(markerIndex, end);
+    const authoredBlocks = group.slice(1);
+    const expectedHeadline = normalizeComparableCopy(slide.headline);
+    const expectedBody = normalizeComparableCopy(slide.body);
+    const visibleHeadline = authoredBlocks[0]?.kind === "header"
+      ? normalizeComparableCopy(authoredBlocks[0].text)
+      : "";
+    const visibleBody = normalizeComparableCopy(
+      authoredBlocks.slice(1).map((block) => block.text || block.sceneText).filter(Boolean).join(" "),
+    );
+    if (visibleHeadline !== expectedHeadline || visibleBody !== expectedBody) {
+      throw new Error(`Canonical carousel deck does not match the visible document at Slide ${index + 1}`);
+    }
+    cursor = end;
+    return group;
+  });
+}
+
+function canonicalCarouselSlides(
+  summary: ReturnType<typeof summarizeVisibleBlocks>,
+  deck: ThinkForgePostCarouselDeck,
+  textPolicy: ClickatronTextPolicy,
+): ClickatronCarouselSlideSpec[] {
+  const blockGroups = canonicalCarouselSlideBlockGroups(summary, deck);
+  return deck.slides.map((slide, index) => {
+    const group = blockGroups[index];
+    const headlineBlock = group.find(
+      (block) => normalizeComparableCopy(block.text) === normalizeComparableCopy(slide.headline),
+    );
+    const bodyBlock = slide.body
+      ? group.find((block) => normalizeComparableCopy(block.text) === normalizeComparableCopy(slide.body))
+      : undefined;
+    const textLayers: ClickatronTextLayer[] | undefined = textPolicy === "no_generated_text"
+      ? undefined
+      : [
+          {
+            id: `slide_${index + 1}_headline`,
+            text: slide.headline,
+            role: canonicalSlideRole(slide),
+            priority: slide.role === "hook" || slide.role === "cta" ? 100 : 90,
+            ...(headlineBlock ? { sourceBlockId: headlineBlock.id } : {}),
+            locked: true,
+          },
+          ...(slide.body ? [{
+            id: `slide_${index + 1}_body`,
+            text: slide.body,
+            role: "body" as const,
+            priority: 70,
+            ...(bodyBlock ? { sourceBlockId: bodyBlock.id } : {}),
+            locked: true,
+          }] : []),
+        ];
+
+    return {
+      id: `slide_${index + 1}`,
+      index,
+      title: slide.headline,
+      sourceBlockIds: group.map((block) => block.id),
+      sourceRefs: [...slide.sourceRefs],
+      imagePrompt: slide.imagePrompt,
+      layoutIntent: "Keep authored headline and body as editable layers; render the image prompt only as the visual background.",
+      ...(textLayers ? { textLayers } : {}),
+    };
+  });
+}
+
 function applyRequestedCarouselSlideCount(
   spec: ClickatronCreativeSpec | undefined,
   input: ThinkToClickContextInput,
@@ -366,7 +508,14 @@ function applyRequestedCarouselSlideCount(
 
 function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput, visualPrompts: Record<string, unknown>): ClickatronCreativeSpec | undefined {
   const summary = summarizeVisibleBlocks(input.blocks);
-  if (summary.sourceBlockIds.length === 0) return undefined;
+  const canonicalDeck = readCanonicalCarouselDeck(visualPrompts);
+  if (canonicalDeck) assertCanonicalDeckLegacyMirror(visualPrompts, canonicalDeck);
+  if (summary.sourceBlockIds.length === 0) {
+    if (canonicalDeck) {
+      throw new Error("Canonical ThinkForge carousel deck has no bound visible document blocks");
+    }
+    return undefined;
+  }
 
   const choices = input.userVisualChoices || {};
   const writerOutput = toPlainRecord(input.writerOutput);
@@ -381,7 +530,7 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
     : [];
   const singleImagePrompt = toNonEmptyString(visualPrompts.singleImagePrompt);
 
-  const hasCarousel = carouselPrompts.length > 0;
+  const hasCarousel = Boolean(canonicalDeck) || carouselPrompts.length > 0;
   const hasScene = scenePrompts.length > 0;
   const hasStaticClickatronPrompt = Boolean(singleImagePrompt) || hasCarousel;
   const hasScriptSceneOnlyPrompt = writerType === "script" && !hasStaticClickatronPrompt && hasScene;
@@ -430,11 +579,12 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
   const title = toNonEmptyString(input.title);
   const objective = title ? `Create a Clickatron visual for ${title}.` : "Create a Clickatron visual from ThinkForge writer output.";
   const coreMessage = summary.visibleText ? summary.visibleText.slice(0, 240) : "Writer generated visual.";
+  const primaryCarouselPrompt = canonicalDeck?.slides[0]?.imagePrompt || carouselPrompts[0];
 
   let imagePrompt = "";
   if (wantsCarousel) {
     imagePrompt = hasCarousel 
-      ? `Carousel overview: Maintain a consistent visual system across slides. ${carouselPrompts[0]}`
+      ? `Carousel overview: Maintain a consistent visual system across slides. ${primaryCarouselPrompt}`
       : hasScene
         ? `Video storyboard overview: Maintain a consistent visual style across scenes. ${scenePrompts[0]}`
         : singleImagePrompt 
@@ -443,18 +593,25 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
   } else {
     imagePrompt = singleImagePrompt 
       ? singleImagePrompt 
-      : hasCarousel && carouselPrompts[0]
-        ? carouselPrompts[0] as string
+      : hasCarousel && primaryCarouselPrompt
+        ? primaryCarouselPrompt
         : hasScene && scenePrompts[0]
           ? scenePrompts[0] as string
           : "Single visual generated from writer output.";
   }
 
-  let slides: any[] | undefined;
+  let slides: ClickatronCarouselSlideSpec[] | undefined;
   if (wantsCarousel) {
-    const allPrompts: string[] = hasCarousel ? carouselPrompts as string[] : hasScene ? scenePrompts as string[] : [];
+    if (canonicalDeck) {
+      slides = canonicalCarouselSlides(summary, canonicalDeck, textPolicy);
+    }
+    const allPrompts: string[] = !canonicalDeck && carouselPrompts.length > 0
+      ? carouselPrompts
+      : hasScene
+        ? scenePrompts
+        : [];
     const promptsArray = allPrompts;
-    if (promptsArray.length > 0) {
+    if (!slides && promptsArray.length > 0) {
       slides = promptsArray.map((promptText, index) => {
         const block = summary.sourceBlocks[index] || summary.sourceBlocks[0];
         const slideTextLayers = block ? visibleTextLayers([block], textPolicy) : undefined;
@@ -468,7 +625,7 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
           ...(slideTextLayers ? { textLayers: slideTextLayers } : {}),
         };
       });
-    } else if (singleImagePrompt) {
+    } else if (!slides && singleImagePrompt) {
       slides = derivedCarouselSlidesFromVisibleBlocks(
         summary,
         textPolicy,
@@ -714,6 +871,7 @@ export function buildThinkToClickContext(input: ThinkToClickContextInput): Think
 
   if (visualPrompts && (
     toNonEmptyString(visualPrompts.singleImagePrompt) ||
+    hasOwn(visualPrompts, "carouselDeck") ||
     (Array.isArray(visualPrompts.carouselPrompts) && visualPrompts.carouselPrompts.some((prompt) => toNonEmptyString(prompt))) ||
     (Array.isArray(visualPrompts.scenePrompts) && visualPrompts.scenePrompts.some((prompt) => toNonEmptyString(prompt)))
   )) {

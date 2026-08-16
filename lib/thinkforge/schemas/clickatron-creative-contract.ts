@@ -83,6 +83,8 @@ export interface ClickatronCarouselSlideSpec {
   index: number;
   title?: string;
   sourceBlockIds?: string[];
+  /** Source-ledger references supporting this slide's authored claims. */
+  sourceRefs?: string[];
   imagePrompt: string;
   layoutIntent?: string;
   textLayers?: ClickatronTextLayer[];
@@ -380,6 +382,7 @@ function normalizeSlide(value: unknown, field: string): ClickatronCarouselSlideS
     index,
     ...(readOptionalString(input.title, `${field}.title`) ? { title: readString(input.title, `${field}.title`) } : {}),
     ...(readOptionalStringArray(input.sourceBlockIds, `${field}.sourceBlockIds`) ? { sourceBlockIds: readStringArray(input.sourceBlockIds, `${field}.sourceBlockIds`) } : {}),
+    ...(readOptionalStringArray(input.sourceRefs, `${field}.sourceRefs`) ? { sourceRefs: readStringArray(input.sourceRefs, `${field}.sourceRefs`) } : {}),
     imagePrompt: readString(input.imagePrompt, `${field}.imagePrompt`),
     ...(readOptionalString(input.layoutIntent, `${field}.layoutIntent`) ? { layoutIntent: readString(input.layoutIntent, `${field}.layoutIntent`) } : {}),
     ...(normalizeTextLayers(input.textLayers, `${field}.textLayers`) ? { textLayers: normalizeTextLayers(input.textLayers, `${field}.textLayers`) } : {}),

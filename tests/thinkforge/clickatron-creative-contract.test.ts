@@ -86,6 +86,7 @@ function carouselSpec(slideCount: number) {
       slides: Array.from({ length: slideCount }, (_, index) => ({
         id: `slide_${index + 1}`,
         index,
+        sourceRefs: [`source_${index + 1}`],
         imagePrompt: `Complete visual prompt for carousel slide ${index + 1}.`,
       })),
     },
@@ -205,6 +206,15 @@ describe('Clickatron creative contract', () => {
     };
 
     expect(() => normalizeClickatronCreativeSpec(invalid)).toThrow(/carousel specs require/i);
+  });
+
+  it('preserves source-ledger references on canonical carousel slides', () => {
+    const spec = normalizeClickatronCreativeSpec(carouselSpec(2));
+
+    expect(spec.renderPlan.slides?.map((slide) => slide.sourceRefs)).toEqual([
+      ['source_1'],
+      ['source_2'],
+    ]);
   });
 
   it.each([

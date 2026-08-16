@@ -8,6 +8,8 @@ import {
 import { mergeThinkForgeProjectMetadata } from "@/lib/thinkforge/state/types";
 import type { ClickatronCreativeSpec } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
+import { parseMarkdownToBlocks } from "@/lib/thinkforge/normalization/markdown-parser";
+import { renderThinkForgePostCarouselDocument } from "@/lib/thinkforge/schemas/post-carousel-deck";
 
 describe("ThinkForge to Clickatron context", () => {
   it("preserves BrandVault and project-link provenance for Clickatron", () => {
@@ -531,6 +533,119 @@ describe("ThinkForge to Clickatron context", () => {
       assetIntent: "post_graphic",
     });
     expect(overriddenSpec.renderPlan.slides).toBeUndefined();
+  });
+
+  it("compiles canonical carousel copy and provenance into exact editable Clickatron slides", () => {
+    const carouselDeck = {
+      version: 1,
+      slides: [
+        {
+          role: "hook" as const,
+          headline: "Your approval queue is a waiting room",
+          body: "Five channels create five versions of the truth.",
+          sourceRefs: ["source_approval_a"],
+          imagePrompt: "Five document lanes converging into one calm review desk, with generous headline safe space.",
+        },
+        {
+          role: "cta" as const,
+          headline: "Give every asset one final owner",
+          body: "Name the decision-maker before production starts.",
+          sourceRefs: ["source_approval_b"],
+          imagePrompt: "One illuminated approval lane ending at a single accountable owner, with generous headline safe space.",
+        },
+      ],
+    };
+    const blocks = parseMarkdownToBlocks(renderThinkForgePostCarouselDocument(
+      carouselDeck,
+      "A short caption that remains outside the slide plan.",
+    ));
+    const context = buildThinkToClickContext({
+      sessionId: "tf_canonical_carousel",
+      blocks,
+      projectMeta: {
+        platform: "LinkedIn",
+        contentContract: {
+          version: 1,
+          documentKind: "post",
+          outputKind: "carousel",
+          artifactType: "carousel_deck",
+        },
+      },
+      writerOutput: {
+        writerType: "post",
+        writerMetadata: { platform: "linkedin" },
+        visualPrompts: {
+          carouselDeck,
+          carouselPrompts: carouselDeck.slides.map((slide) => slide.imagePrompt),
+        },
+      },
+    });
+    const spec = (context.metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+
+    expect(spec.validation.status).toBe("ready");
+    expect(spec.renderPlan.slides).toHaveLength(2);
+    expect(spec.renderPlan.slides?.[0]).toMatchObject({
+      title: "Your approval queue is a waiting room",
+      sourceRefs: ["source_approval_a"],
+      textLayers: [
+        { text: "Your approval queue is a waiting room", role: "hook", locked: true },
+        { text: "Five channels create five versions of the truth.", role: "body", locked: true },
+      ],
+    });
+    expect(spec.renderPlan.slides?.[1]).toMatchObject({
+      sourceRefs: ["source_approval_b"],
+      textLayers: [
+        { text: "Give every asset one final owner", role: "cta" },
+        { text: "Name the decision-maker before production starts.", role: "body" },
+      ],
+    });
+    expect(spec.renderPlan.slides?.[0].textLayers?.some((layer) => layer.text === "Slide 1")).toBe(false);
+    expect(spec.renderPlan.slides?.[0].sourceBlockIds?.length).toBeGreaterThanOrEqual(3);
+
+    const singleVisual = buildThinkToClickContext({
+      sessionId: "tf_canonical_carousel_single_override",
+      blocks,
+      writerOutput: {
+        writerType: "post",
+        visualPrompts: { carouselDeck },
+      },
+      userVisualChoices: { kind: "single_post_visual" },
+    });
+    expect(singleVisual.sessionDraft?.prompt).toContain(carouselDeck.slides[0].imagePrompt);
+  });
+
+  it("fails closed when a canonical carousel deck diverges from its document or legacy mirror", () => {
+    const carouselDeck = {
+      version: 1,
+      slides: [
+        { role: "hook" as const, headline: "First truth", sourceRefs: ["source_1"], imagePrompt: "Visual one with safe space." },
+        { role: "proof" as const, headline: "Second truth", sourceRefs: ["source_2"], imagePrompt: "Visual two with safe space." },
+      ],
+    };
+    const writerOutput = {
+      writerType: "post",
+      visualPrompts: { carouselDeck },
+    };
+
+    expect(() => buildThinkToClickContext({
+      sessionId: "tf_tampered_carousel",
+      blocks: parseMarkdownToBlocks("## Slide 1\n\n### Replaced copy\n\n## Slide 2\n\n### Second truth"),
+      writerOutput,
+      userVisualChoices: { kind: "carousel" },
+    })).toThrow(/does not match the visible document at Slide 1/);
+
+    expect(() => buildThinkToClickContext({
+      sessionId: "tf_contradictory_carousel",
+      blocks: parseMarkdownToBlocks(renderThinkForgePostCarouselDocument(carouselDeck, "")),
+      writerOutput: {
+        ...writerOutput,
+        visualPrompts: {
+          carouselDeck,
+          carouselPrompts: ["Different prompt one", "Different prompt two"],
+        },
+      },
+      userVisualChoices: { kind: "carousel" },
+    })).toThrow(/prompt mirror contradicts the canonical carousel deck/);
   });
 
   it("does not re-author a carousel to satisfy a requested count", () => {
