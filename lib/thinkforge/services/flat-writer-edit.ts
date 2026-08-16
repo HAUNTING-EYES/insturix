@@ -20,7 +20,7 @@ import { resolveThinkForgeAuthoringContext } from '../context/resolved-authoring
 import { getVersion as getWritingKnowledgeVersion } from '../data/writing-graph-query';
 import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-brief';
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
-import { buildThinkForgeSourceLedger } from '../provenance/source-ledger';
+import { buildContinuedThinkForgeSourceLedger } from '../provenance/source-ledger-continuity';
 import {
   isThinkForgePostKind,
   normalizeThinkForgeDocumentType,
@@ -160,11 +160,20 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     contentPath: isScript ? 'script' : 'post',
     brandId,
   });
-  const sourceLedger = buildThinkForgeSourceLedger({
+  const previousMetadata = canonicalScript.metadata && typeof canonicalScript.metadata === 'object'
+    ? canonicalScript.metadata as Record<string, unknown>
+    : {};
+  const previousWriterOutput = previousMetadata.writerOutput
+    && typeof previousMetadata.writerOutput === 'object'
+    && !Array.isArray(previousMetadata.writerOutput)
+    ? previousMetadata.writerOutput as Record<string, unknown>
+    : {};
+  const sourceLedger = buildContinuedThinkForgeSourceLedger({
     userPrompt: instruction,
     retrievedContext: authoringContext.retrievedContext,
     brandId,
     sessionId: canonicalSessionId,
+    previousLedger: previousWriterOutput.sourceLedger,
   });
 
   const baseInput = {
@@ -201,12 +210,9 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   }
 
   const title = canonicalScript.title;
-  const previousMetadata = canonicalScript.metadata && typeof canonicalScript.metadata === 'object'
-    ? canonicalScript.metadata
-    : {};
   const writerOutput = isScript
     ? scriptWriterMetadata(result as ScriptWriterResult, sourceLedger)
-    : postWriterMetadata(result as PostWriterResult);
+    : postWriterMetadata(result as PostWriterResult, sourceLedger);
   const saveResult = await applyCommand({
     type: 'ReplaceDocument',
     sessionId: canonicalSessionId,
@@ -238,19 +244,23 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   return saveResult.script;
 }
 
-function postWriterMetadata(result: PostWriterResult): Record<string, unknown> {
+function postWriterMetadata(
+  result: PostWriterResult,
+  sourceLedger: ReturnType<typeof buildContinuedThinkForgeSourceLedger>,
+): Record<string, unknown> {
   return {
     writerType: 'post',
     contentAnalysis: result.contentAnalysis,
     hashtags: result.hashtags,
     visualPrompts: result.clickatron,
+    sourceLedger,
     writerMetadata: result.metadata,
   };
 }
 
 function scriptWriterMetadata(
   result: ScriptWriterResult,
-  sourceLedger: ReturnType<typeof buildThinkForgeSourceLedger>,
+  sourceLedger: ReturnType<typeof buildContinuedThinkForgeSourceLedger>,
 ): Record<string, unknown> {
   return {
     writerType: 'script',

@@ -39,8 +39,8 @@ vi.mock('@/lib/thinkforge/brief/resolve-production-brief', () => ({
   resolveThinkForgeProductionBrief: mocks.resolveProductionBrief,
 }));
 
-vi.mock('@/lib/thinkforge/provenance/source-ledger', () => ({
-  buildThinkForgeSourceLedger: mocks.buildSourceLedger,
+vi.mock('@/lib/thinkforge/provenance/source-ledger-continuity', () => ({
+  buildContinuedThinkForgeSourceLedger: mocks.buildSourceLedger,
 }));
 
 vi.mock('@/lib/thinkforge/signals', () => ({
@@ -157,7 +157,10 @@ describe('flat writer edit authoring context', () => {
       blocks: [{ id: 'old' }],
       version: 1,
       documentType: 'social_post',
-      metadata: { retained: 'yes' },
+      metadata: {
+        retained: 'yes',
+        writerOutput: { sourceLedger: { ledgerVersion: 1, entries: [{ referenceId: 'brief_user' }] } },
+      },
     };
     mocks.getScript.mockResolvedValueOnce(stored);
     mocks.postRun.mockResolvedValue({ result: postResult() });
@@ -192,6 +195,9 @@ describe('flat writer edit authoring context', () => {
         systemBrief: expect.stringContaining('Canonical Brand B voice and kill-list.'),
       }),
     }));
+    expect(mocks.buildSourceLedger).toHaveBeenCalledWith(expect.objectContaining({
+      previousLedger: stored.metadata.writerOutput.sourceLedger,
+    }));
     expect(mocks.scriptRun).not.toHaveBeenCalled();
     expect(mocks.applyCommand).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({
@@ -202,7 +208,7 @@ describe('flat writer edit authoring context', () => {
           authoringContextSnapshot: authoringContext.snapshot,
           signalTrace: expect.objectContaining({ version: 1 }),
           briefSnapshot: productionBrief,
-          writerOutput: expect.objectContaining({ writerType: 'post' }),
+          writerOutput: expect.objectContaining({ writerType: 'post', sourceLedger }),
         }),
       }),
     }), 'user_1', 'org_1');
