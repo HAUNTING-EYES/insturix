@@ -163,9 +163,9 @@ export function inferRoleFromContext(
   if (contract?.outputKind === 'social_post' || contract?.outputKind === 'carousel') {
     return {
       role: 'a Senior Content Strategist and Copywriter',
-      executionTest: 'A social media manager should be able to say: "I can publish this immediately - it fits the platform, hooks the audience, and drives the action I need."',
-      outputFeeling: 'a polished, platform-ready post or article - not a brief, not a script, not an outline',
-      sectionGuidance: '- Write the FINAL copy. Not a script. Not production notes. The actual words that will be published.\n- No scene headings. No **Visual:** or **Narration:** labels. This is TEXT content.\n- Use markdown for emphasis (**bold**, *italic*) but keep formatting minimal.\n- Match the platform voice: LinkedIn is professional-conversational, Twitter is punchy, Instagram is visual-first captions.',
+      executionTest: 'A social media manager should be able to say: "I can publish this immediately - it is grounded, fits the selected surface, and serves the stated communication goal."',
+      outputFeeling: 'polished, platform-ready post copy - not a brief, not a script, not an outline',
+      sectionGuidance: '- Write the FINAL copy. Not a script. Not production notes. The actual words that will be published.\n- No scene headings. No **Visual:** or **Narration:** labels. This is TEXT content.\n- Use markdown for emphasis (**bold**, *italic*) but keep formatting minimal.\n- Preserve the resolved brand voice and user-selected tone. Treat the platform as a delivery constraint, not a substitute voice.',
     };
   }
 
@@ -213,7 +213,7 @@ export const PLATFORM_CONFIGS: Record<PlatformType, PlatformConfig> = {
     charMax: '3,000',
     foldChars: 210,
     hashtagRange: '3-5',
-    extraGuidance: 'Professional-conversational tone. Line breaks for rhythm. One-liners for punch.',
+    extraGuidance: 'Preserve the resolved brand voice. Use line breaks only where they improve scanning; do not force one-line punch formatting.',
   },
   twitter: {
     name: 'Twitter/X',
@@ -221,7 +221,7 @@ export const PLATFORM_CONFIGS: Record<PlatformType, PlatformConfig> = {
     charMax: '280',
     foldChars: 280,
     hashtagRange: '1-2',
-    extraGuidance: 'Punchy, direct. Every word counts. Thread format if content exceeds 280 chars.',
+    extraGuidance: 'Return one complete post. Do not silently convert overflow into a thread; a thread requires an explicit output choice.',
   },
   instagram: {
     name: 'Instagram',
@@ -229,7 +229,7 @@ export const PLATFORM_CONFIGS: Record<PlatformType, PlatformConfig> = {
     charMax: '2,200',
     foldChars: 125,
     hashtagRange: '5-10',
-    extraGuidance: 'Visual-first language. Emoji sparingly. Caption supports the image.',
+    extraGuidance: 'Write caption copy that complements the visual. Emoji use comes only from the resolved post controls.',
   },
   facebook: {
     name: 'Facebook',
@@ -237,7 +237,7 @@ export const PLATFORM_CONFIGS: Record<PlatformType, PlatformConfig> = {
     charMax: '63,206',
     foldChars: 477,
     hashtagRange: '1-3',
-    extraGuidance: 'Conversational. Can be longer but front-load the value.',
+    extraGuidance: 'Preserve the resolved brand voice. Let the supported idea determine paragraphing instead of imposing a conversational style.',
   },
   generic: {
     name: 'social media',
@@ -245,7 +245,7 @@ export const PLATFORM_CONFIGS: Record<PlatformType, PlatformConfig> = {
     charMax: '3,000',
     foldChars: 210,
     hashtagRange: '3-5',
-    extraGuidance: 'Professional-conversational. Platform-agnostic but engagement-focused.',
+    extraGuidance: 'Do not infer a platform-specific tone, length target, hashtag quota, CTA, emoji style, or thread format.',
   },
 };
 
