@@ -18,7 +18,8 @@
  */
 
 import { z } from 'zod';
-import type { CreativeSignals } from '../../shared/signals/types';
+import { computeDerivedSignals } from '../../shared/signals/validation';
+import type { CreativeSignals, CTAType, DerivedSignals } from '../../shared/signals/types';
 import writingKnowledgeJson from './writing-knowledge.json';
 import antiAiFillerPatternsJson from './ai-filler-patterns.json';
 
@@ -93,6 +94,10 @@ export interface WritingKnowledgeBlockOptions {
   /** Server-owned feasibility constraints may rule out otherwise well-scored techniques. */
   excludeTechniqueIds?: readonly string[];
 }
+
+export type WritingTechniqueInputs = Partial<CreativeSignals & DerivedSignals> & {
+  cta_type?: CTAType;
+};
 
 export interface PlatformSpec {
   name: string;
@@ -312,12 +317,31 @@ function loadWritingGraph(): WritingIndex {
 // ─── Signal Value Lookup ────────────────────────────────────────────────────
 
 function getSignalValue(
-  signals: Partial<CreativeSignals>,
+  signals: WritingTechniqueInputs,
   signalId: string,
 ): number | string | boolean | null {
   const val = (signals as Record<string, unknown>)[signalId];
   if (val === undefined) return null;
   return val as number | string | boolean | null;
+}
+
+function resolveWritingTechniqueInputs(inputs: WritingTechniqueInputs): WritingTechniqueInputs {
+  return {
+    ...inputs,
+    ...computeDerivedSignals(inputs),
+  };
+}
+
+function inhibitorFires(
+  index: WritingIndex,
+  inhibitor: Inhibitor,
+  value: number,
+): boolean {
+  const definition = index.signals.get(inhibitor.signal);
+  if (definition?.range.type === 'bipolar' && inhibitor.threshold < 0) {
+    return value < inhibitor.threshold;
+  }
+  return value > inhibitor.threshold;
 }
 
 // ─── Core Selection Algorithm (Part 4.0) ────────────────────────────────────
@@ -335,11 +359,12 @@ function getSignalValue(
  *   4. Return top N with score > 0, sorted descending
  */
 export function selectTechniques(
-  signals: Partial<CreativeSignals>,
+  signals: WritingTechniqueInputs,
   category: string,
   maxResults: number = 3,
 ): TechniqueResult[] {
   const index = loadWritingGraph();
+  const resolvedInputs = resolveWritingTechniqueInputs(signals);
 
   const candidates = index.techniquesByCategory.get(category);
   if (!candidates) return [];
@@ -351,8 +376,8 @@ export function selectTechniques(
     let inhibited = false;
 
     for (const inhibitor of technique.inhibitors) {
-      const value = getSignalValue(signals, inhibitor.signal);
-      if (typeof value === 'number' && value > inhibitor.threshold) {
+      const value = getSignalValue(resolvedInputs, inhibitor.signal);
+      if (typeof value === 'number' && inhibitorFires(index, inhibitor, value)) {
         inhibited = true;
         break;
       }
@@ -360,14 +385,14 @@ export function selectTechniques(
     if (inhibited) continue;
 
     for (const condition of technique.activation) {
-      const value = getSignalValue(signals, condition.signal);
+      const value = getSignalValue(resolvedInputs, condition.signal);
 
       if (condition.value !== undefined) {
         score += value === condition.value ? condition.weight : 0;
       } else if (condition.min !== undefined && condition.max !== undefined) {
         if (typeof value === 'number') {
           if (value >= condition.min && value <= condition.max) {
-            score += condition.weight * value;
+            score += condition.weight;
           } else {
             score -= condition.weight * 0.5;
           }
@@ -398,7 +423,7 @@ export function selectTechniques(
  * Returns a map of category → ranked techniques.
  */
 export function selectAllTechniques(
-  signals: Partial<CreativeSignals>,
+  signals: WritingTechniqueInputs,
   maxPerCategory: number = 2,
 ): Map<string, TechniqueResult[]> {
   const index = loadWritingGraph();
@@ -525,7 +550,7 @@ export function getAntiAiConstraintBundle(): AntiAiConstraintBundle {
  * stacks. Missing or invalid policy assets fail closed instead of silently disabling craft rules.
  */
 export function buildWritingKnowledgeBlock(
-  signals: Partial<CreativeSignals>,
+  signals: WritingTechniqueInputs,
   options: WritingKnowledgeBlockOptions = {},
 ): string {
   const techniqueMap = selectAllTechniques(signals, 2);
