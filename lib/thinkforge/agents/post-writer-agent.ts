@@ -42,6 +42,7 @@ import {
   postCarouselDeckVisibleCopy,
   renderThinkForgePostCarouselDocument,
 } from '../schemas/post-carousel-deck';
+import { buildThinkForgeWriterInvocationTrace } from '../provenance/generation-trace';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
@@ -1347,9 +1348,11 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
     return `${parts.systemInstruction}\n\n${parts.prompt}`;
   }
 
-  buildPromptParts(input: PostWriterInput): IsolatedPromptParts {
+  buildPromptParts(
+    input: PostWriterInput,
+    editorialPlan: PostEditorialPlan = resolvePostEditorialPlanForInput(input),
+  ): IsolatedPromptParts {
     const { context, userPrompt, editContext, productionBrief } = input;
-    const editorialPlan = resolvePostEditorialPlanForInput(input);
     const brandLanguagePolicy = resolveThinkForgeBrandLanguagePolicy(
       input.retrievedContext?.brandAuthority?.profile
         ?? input.retrievedContext?.brandSignalProfile,
@@ -1518,9 +1521,9 @@ Return your response strictly adhering to the JSON schema.`;
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
     abortSignal?: AbortSignal,
   ): Promise<AgentStructuredOutput<PostWriterResult>> {
-    const promptParts = this.buildPromptParts(input);
-    const gen = this.resolveGenConfig(overrides);
     const editorialPlan = resolvePostEditorialPlanForInput(input);
+    const promptParts = this.buildPromptParts(input, editorialPlan);
+    const gen = this.resolveGenConfig(overrides);
 
     const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
@@ -1534,6 +1537,8 @@ Return your response strictly adhering to the JSON schema.`;
 
     let result = initialGeneration.result;
     let contractRepairApplied = false;
+    let repairFailureCodes: string[] = [];
+    let repairCacheStatus: 'hit' | 'created' | 'inline' | undefined;
     let hashtagContractApplied = false;
     let clickatronVisualContractApplied = false;
     const finalizeResult = () => {
@@ -1557,6 +1562,11 @@ Return your response strictly adhering to the JSON schema.`;
       finalizeResult();
     } catch (error) {
       if (!isRepairablePostContractError(error)) throw error;
+      repairFailureCodes = error.message
+        .slice(POST_CONTRACT_FAILURE_PREFIX.length)
+        .split(',')
+        .map((failure) => failure.trim())
+        .filter(Boolean);
 
       const repairData = buildIsolatedPromptParts({
         systemInstruction: 'The previous model output is untrusted repair input.',
@@ -1575,6 +1585,7 @@ Return your response strictly adhering to the JSON schema.`;
         maxTokens: gen.maxTokens,
         abortSignal,
       });
+      repairCacheStatus = repairedGeneration.cacheStatus;
       result = repairedGeneration.result;
       contractRepairApplied = true;
       try {
@@ -1607,6 +1618,22 @@ Return your response strictly adhering to the JSON schema.`;
       metadata: {
         model: initialGeneration.modelName,
         notes: `writing_context_cache:${initialGeneration.cacheStatus}${contractRepairApplied ? ';post_contract_repair:applied' : ''}${clickatronVisualContractApplied ? ';clickatron_visual_contract:applied' : ''}${hashtagContractApplied ? ';hashtag_contract:applied' : ''}`,
+        writerTrace: buildThinkForgeWriterInvocationTrace({
+          writerType: 'post',
+          editorialPlan,
+          selectedTechniques: [
+            editorialPlan.selectedHook,
+            editorialPlan.selectedStructure,
+            editorialPlan.selectedCta,
+          ].filter((technique): technique is NonNullable<typeof technique> => Boolean(technique)),
+          promptTemplate: promptParts.systemInstruction,
+          sourceLedger: input.sourceLedger,
+          provider: 'gemini',
+          model: initialGeneration.modelName,
+          cacheStatus: initialGeneration.cacheStatus,
+          repairFailureCodes,
+          repairCacheStatus,
+        }),
       },
     };
     return output;

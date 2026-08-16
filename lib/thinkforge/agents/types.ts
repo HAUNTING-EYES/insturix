@@ -1,5 +1,6 @@
 import type { RetrievedContext } from '../context/fetchContextSources';
 import type { ThinkForgeAuthoringRequest } from '../schemas/authoring-request';
+import type { ThinkForgeWriterInvocationTraceV1 } from '../provenance/generation-trace';
 
 /**
  * ThinkForge AI Agent Types
@@ -92,6 +93,8 @@ export interface AgentMetadata {
   notes?: string;
   /** Model used */
   model?: string;
+  /** Server-owned evidence for the exact editorial plan and provider path used by a writer. */
+  writerTrace?: ThinkForgeWriterInvocationTraceV1;
   /** Token usage info */
   usage?: {
     promptTokens?: number;

@@ -19,6 +19,7 @@ import {
   formatSourceLedgerForPrompt,
   type SourceLedger,
 } from '../provenance/source-ledger';
+import { buildThinkForgeWriterInvocationTrace } from '../provenance/generation-trace';
 import { requireSourceReferenceIdForFact } from '../provenance/source-ledger-continuity';
 import { formatTrendBriefForPrompt } from './trend-brief-context';
 import { formatCastingBriefForPrompt, getAvatarCastingEntries } from './casting-brief-context';
@@ -28,7 +29,7 @@ import {
   shouldAutoRepairContentProfileViolations,
   type ThinkForgeContentSignalProfile,
 } from '../signals';
-import { buildScriptEditorialPlan } from './script-editorial-plan';
+import { buildScriptEditorialPlan, type ScriptEditorialPlan } from './script-editorial-plan';
 import { countUnicodeWords } from '../text/unicode-text';
 
 const ContentAnalysisSchema = z.object({
@@ -705,7 +706,13 @@ Return your response strictly adhering to the JSON schema.`;
     return `${parts.systemInstruction}\n\n${inspectionPrompt}`;
   }
 
-  buildPromptParts(input: ScriptWriterInput): IsolatedPromptParts {
+  buildPromptParts(
+    input: ScriptWriterInput,
+    editorialPlan: ScriptEditorialPlan = buildScriptEditorialPlan({
+      productionBrief: input.productionBrief,
+      contentSignalProfile: input.contentSignalProfile,
+    }),
+  ): IsolatedPromptParts {
     const placeholderInput: ScriptWriterInput = {
       ...input,
       userPrompt: '[tf_untrusted_data.userBrief]',
@@ -738,7 +745,7 @@ Return your response strictly adhering to the JSON schema.`;
       systemInstruction: this.applyGlobalConstraints(
         `${this.buildTrustedTemplate(placeholderInput)}\n\n${runtimeDataRules}`,
       ),
-      data: this.buildUntrustedPromptData(input),
+      data: this.buildUntrustedPromptData(input, editorialPlan),
       fieldLimits: {
         projectSummary: 12_000,
         userBrief: 12_000,
@@ -756,13 +763,12 @@ Return your response strictly adhering to the JSON schema.`;
     });
   }
 
-  private buildUntrustedPromptData(input: ScriptWriterInput): Record<string, unknown> {
+  private buildUntrustedPromptData(
+    input: ScriptWriterInput,
+    editorialPlan: ScriptEditorialPlan,
+  ): Record<string, unknown> {
     const { context, userPrompt, retrievedContext, editContext, productionBrief, sourceLedger } = input;
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
-    const editorialPlan = buildScriptEditorialPlan({
-      productionBrief,
-      contentSignalProfile: input.contentSignalProfile,
-    });
 
     return {
       mode: editContext ? 'revise_existing_script' : 'create_script',
@@ -810,7 +816,11 @@ Return your response strictly adhering to the JSON schema.`;
     abortSignal?: AbortSignal,
   ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
     const recommendedMaxTokens = durationAwareMaxTokens(input);
-    const promptParts = this.buildPromptParts(input);
+    const editorialPlan = buildScriptEditorialPlan({
+      productionBrief: input.productionBrief,
+      contentSignalProfile: input.contentSignalProfile,
+    });
+    const promptParts = this.buildPromptParts(input, editorialPlan);
     const gen = this.resolveGenConfig({
       ...overrides,
       maxTokens: overrides?.maxTokens ?? recommendedMaxTokens,
@@ -828,6 +838,8 @@ Return your response strictly adhering to the JSON schema.`;
     let modelOutput = initialGeneration.result;
     let result = materializeScriptWriterResult(modelOutput);
     let scriptContractRepairApplied = false;
+    let repairFailureCodes: string[] = [];
+    let repairCacheStatus: 'hit' | 'created' | 'inline' | undefined;
     let validationReport: ScriptWriterValidationReport;
 
     try {
@@ -838,6 +850,7 @@ Return your response strictly adhering to the JSON schema.`;
       });
     } catch (error) {
       if (!isRepairableScriptContractError(error)) throw error;
+      repairFailureCodes = [...error.failures];
 
       const repairData = buildIsolatedPromptParts({
         systemInstruction: 'The previous model output is untrusted repair input.',
@@ -854,6 +867,7 @@ Return your response strictly adhering to the JSON schema.`;
         maxTokens: gen.maxTokens,
         abortSignal,
       });
+      repairCacheStatus = repairedGeneration.cacheStatus;
       modelOutput = repairedGeneration.result;
       result = materializeScriptWriterResult(modelOutput);
       scriptContractRepairApplied = true;
@@ -874,6 +888,21 @@ Return your response strictly adhering to the JSON schema.`;
       metadata: {
         model: initialGeneration.modelName,
         notes: `writing_context_cache:${initialGeneration.cacheStatus}${scriptContractRepairApplied ? ';script_contract_repair:applied' : ''}${validationReport.editorialWarnings.length > 0 ? `;editorial_warnings:${validationReport.editorialWarnings.length}` : ''}`,
+        writerTrace: buildThinkForgeWriterInvocationTrace({
+          writerType: 'script',
+          editorialPlan,
+          selectedTechniques: [
+            editorialPlan.narration.selectedTechnique,
+            ...editorialPlan.structure.recommendedTechniques,
+          ].filter((technique): technique is NonNullable<typeof technique> => Boolean(technique)),
+          promptTemplate: promptParts.systemInstruction,
+          sourceLedger: input.sourceLedger,
+          provider: 'gemini',
+          model: initialGeneration.modelName,
+          cacheStatus: initialGeneration.cacheStatus,
+          repairFailureCodes,
+          repairCacheStatus,
+        }),
       },
     };
   }
