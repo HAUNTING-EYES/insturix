@@ -7,14 +7,11 @@ const mocks = vi.hoisted(() => ({
   checkCredits: vi.fn(),
   createArchitectAgent: vi.fn(),
   createIngestorAgent: vi.fn(),
-  createNullAgent: vi.fn(),
   createScopeDetectorAgent: vi.fn(),
   createStylistAgent: vi.fn(),
-  createSupervisorAgent: vi.fn(),
   deconstruct: vi.fn(),
   deduct: vi.fn(),
   detectScope: vi.fn(),
-  executeSpecialist: vi.fn(),
   ensureMigrated: vi.fn(),
   fetchContextSources: vi.fn(),
   formatSystemBrief: vi.fn(),
@@ -24,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   quickAssembleContext: vi.fn(),
   refund: vi.fn(),
   storyboard: vi.fn(),
-  synthesizeAgent: vi.fn(),
   processChat: vi.fn(),
   resolveThinkForgeAuthoringContext: vi.fn(),
 }));
@@ -60,12 +56,6 @@ vi.mock('@/lib/thinkforge/agents/stylist-agent', () => ({
 }));
 vi.mock('@/lib/thinkforge/agents/scope-detector-agent', () => ({
   createScopeDetectorAgent: mocks.createScopeDetectorAgent,
-}));
-vi.mock('@/lib/thinkforge/agents/supervisor-agent', () => ({
-  createSupervisorAgent: mocks.createSupervisorAgent,
-}));
-vi.mock('@/lib/thinkforge/agents/null-agent', () => ({
-  createNullAgent: mocks.createNullAgent,
 }));
 
 const storedScript = {
@@ -112,13 +102,6 @@ function blueprintChatRequest() {
       blueprintArtifacts: [{ type: 'budget', label: 'Budget' }],
     }),
   });
-}
-
-async function specialistStream() {
-  async function* stream() {
-    yield '# Specialist Brief\n\nA complete specialist document with useful production detail.';
-  }
-  return { stream: stream() };
 }
 
 describe('ThinkForge command and sidecar authorization', () => {
@@ -176,14 +159,6 @@ describe('ThinkForge command and sidecar authorization', () => {
       recommendedArtifacts: [],
     });
     mocks.createScopeDetectorAgent.mockReturnValue({ detectScope: mocks.detectScope });
-    mocks.synthesizeAgent.mockResolvedValue({
-      title: 'Specialist Brief',
-      persona: 'Specialist',
-      documentType: 'document',
-    });
-    mocks.createSupervisorAgent.mockReturnValue({ synthesizeAgent: mocks.synthesizeAgent });
-    mocks.executeSpecialist.mockImplementation(specialistStream);
-    mocks.createNullAgent.mockReturnValue({ execute: mocks.executeSpecialist });
   });
 
   it('runtime-validates generic commands and preserves organization context', async () => {
@@ -246,15 +221,17 @@ describe('ThinkForge command and sidecar authorization', () => {
   it('does not bill incomplete or deprecated sidecar actions', async () => {
     const { POST } = await import('@/app/api/services/thinkforge/sidecar/route');
 
-    const [incomplete, initialize, discover] = await Promise.all([
+    const [incomplete, initialize, discover, specialist] = await Promise.all([
       POST(sidecarRequest('deconstruct')),
       POST(sidecarRequest('initialize_blueprint')),
       POST(sidecarRequest('discover_blueprint', { content: 'Build a campaign system.' })),
+      POST(sidecarRequest('summon_specialist', { specialistRequest: 'Create a launch brief.' })),
     ]);
 
-    expect([incomplete?.status, initialize?.status, discover?.status]).toEqual([400, 410, 410]);
+    expect([incomplete?.status, initialize?.status, discover?.status, specialist?.status]).toEqual([400, 410, 410, 410]);
     await expect(initialize?.json()).resolves.toMatchObject({ code: 'LEGACY_BLUEPRINT_RETIRED' });
     await expect(discover?.json()).resolves.toMatchObject({ code: 'LEGACY_BLUEPRINT_RETIRED' });
+    await expect(specialist?.json()).resolves.toMatchObject({ code: 'LEGACY_SPECIALIST_RETIRED' });
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(mocks.ensureMigrated).not.toHaveBeenCalled();
     expect(mocks.checkCredits).not.toHaveBeenCalled();
@@ -297,7 +274,6 @@ describe('ThinkForge command and sidecar authorization', () => {
     ['deconstruct', { content: 'Analyze this.', scriptId: 'unrelated_script' }],
     ['storyboard', { content: 'Storyboard this selection.', scriptId: 'unrelated_script' }],
     ['refine_voice', { content: 'Review this exact draft.', scriptId: 'unrelated_script' }],
-    ['summon_specialist', { specialistRequest: 'Create a launch brief.', scriptId: 'unrelated_script' }],
     ['detect_scope', { content: 'Plan a campaign.', scriptId: 'unrelated_script' }],
   ])('%s remains document-independent when its complete input is supplied', async (action, fields) => {
     const { POST } = await import('@/app/api/services/thinkforge/sidecar/route');
@@ -360,20 +336,4 @@ describe('ThinkForge command and sidecar authorization', () => {
     expect(mocks.checkVoice).not.toHaveBeenCalled();
   });
 
-  it('refunds and fails when specialist persistence does not commit', async () => {
-    mocks.applyCommand.mockResolvedValue({ ok: false, error: 'Version conflict' });
-    const { POST } = await import('@/app/api/services/thinkforge/sidecar/route');
-
-    const response = await POST(sidecarRequest('summon_specialist', {
-      specialistRequest: 'Create a launch brief.',
-    }));
-
-    expect(response?.status).toBe(500);
-    expect(mocks.applyCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 'session_canonical' }),
-      'user_1',
-      'org_1',
-    );
-    expect(mocks.refund).toHaveBeenCalledOnce();
-  });
 });
