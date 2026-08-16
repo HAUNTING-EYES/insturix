@@ -215,12 +215,13 @@ describe('ThinkForge canonical document contract', () => {
     )).toMatchObject({ contentPath: 'post', outputKind: 'carousel', source: 'content_contract' });
   });
 
-  it('persists a canonical contract at intake and consumes it in generation', () => {
+  it('persists the explicit authoring request at intake and consumes its contract in generation', () => {
     const page = readFileSync(new URL('../../app/dashboard/thinkforge/page.tsx', import.meta.url), 'utf8');
     const service = readFileSync(new URL('../../lib/thinkforge/services/chat-service.ts', import.meta.url), 'utf8');
 
-    expect(page).toContain('contentContract');
-    expect(page).toContain('resolveCarouselSlideCount');
+    expect(page).toContain('authoringRequest');
+    expect(page).toContain('ThinkForgeAuthoringRequestSchema.parse');
+    expect(page).not.toContain('resolveCarouselSlideCount');
     expect(service).toContain('sessionState.metadata.contentContract');
     expect(service).toContain('contentContract: documentIntent.contract');
     expect(service).toContain('ThinkForge generation requires an authoritative document contract');
