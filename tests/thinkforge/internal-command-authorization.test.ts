@@ -274,6 +274,8 @@ describe('ThinkForge internal command authorization', () => {
     expect(source).toContain('db.getSession(exactSessionId, userId, orgId)');
     expect(source).not.toContain('sessionId || session._id');
     expect(source).not.toContain('sessionId || session!._id');
-    expect(source.match(/\}, userId, orgId\);/g)).toHaveLength(3);
+    expect(source).toContain('reviseDocumentViaFlatWriter({');
+    expect(source).not.toContain('createScriptRefinementAgent');
+    expect(source.match(/\}, userId, orgId\);/g)).toHaveLength(2);
   });
 });

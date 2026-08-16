@@ -10,7 +10,6 @@ import { generateScriptDraft } from '../agents/script-draft-agent';
 import { PostWriterAgent, type PostWriterInput } from '../agents/post-writer-agent';
 import { ScriptWriterAgent, type ScriptWriterInput } from '../agents/script-writer-agent';
 import { runThinkingAgent } from '../agents/thinking-agent';
-import { createScriptRefinementAgent } from '../agents/script-refinement-agent';
 import {
   quickAssembleContext,
   resolveThinkForgeAuthoringContext,
@@ -31,7 +30,7 @@ import {
   type ScriptState,
 } from '../state/types';
 import { validateThinkForgeBlocks, type ThinkForgeBlock, ensureThinkForgeBlockId, normalizeThinkForgeRichText } from '../schemas/thinkforge-block';
-import { applyThinkForgeBlockPatches, extractTextFromRichText } from '../utils/thinkforge-block-patch';
+import { extractTextFromRichText } from '../utils/thinkforge-block-patch';
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
@@ -63,6 +62,8 @@ import {
   createThinkForgeDocumentCommitBaseline,
   resolveThinkForgeCommitBaseVersion,
 } from '../document-commit-baseline';
+import { reviseDocumentViaFlatWriter } from './flat-writer-edit';
+import { resolveCanonicalEditSelection } from './canonical-edit-selection';
 import crypto from 'crypto';
 
 const PROMPT_UNDERSTANDING_SEED = 7;
@@ -139,24 +140,6 @@ function resolveSectionBlockIds(blocks: ThinkForgeBlock[], anchorIds: string[]):
   }
 
   return blocks.slice(headerIdx, endIdx + 1).map((b) => b.id);
-}
-
-function resolveContextWindowTF(blocks: ThinkForgeBlock[], targetIds: string[], window: number = 1): ThinkForgeBlock[] {
-  if (!Array.isArray(blocks) || blocks.length === 0 || targetIds.length === 0) return [];
-  const indices = targetIds
-    .map((id) => blocks.findIndex((b) => b.id === id))
-    .filter((i) => i >= 0);
-  if (!indices.length) return [];
-  const start = Math.max(0, Math.min(...indices) - window);
-  const end = Math.min(blocks.length - 1, Math.max(...indices) + window);
-  return blocks.slice(start, end + 1);
-}
-
-function formatBlocksForPromptTF(blocks: ThinkForgeBlock[]): string {
-  return blocks
-    .map((b) => `[${b.id}] (${b.kind}) ${extractTextFromRichText(b.content)}`.trim())
-    .filter(Boolean)
-    .join('\n');
 }
 
 function suggestInsertionPointTF(blocks: ThinkForgeBlock[]): { insertAfterBlockId?: string; atEnd?: boolean } {
@@ -760,153 +743,50 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         return;
       }
       if (shouldRunEdit && hasExistingScript && !wantsFullRegenerate) {
-        // Use selection blocks if provided (surgical editing)
-        const useSelectionBlocks = providedSelectionBlocks && providedSelectionBlocks.length > 0;
-        const blocksToEdit = useSelectionBlocks
-          ? validateThinkForgeBlocks(providedSelectionBlocks)
-          : resolveContextWindowTF(thinkforgeBlocks, blockIds.filter(id => id !== '__END__'), 1);
+        const canonicalSelection = resolveCanonicalEditSelection({
+          blocks: thinkforgeBlocks,
+          targetBlockIds: blockIds,
+          requestedSelection: selection,
+        });
+        await claimCommitOwnership();
+        const revised = await reviseDocumentViaFlatWriter({
+          userId,
+          orgId,
+          sessionId: canonicalSessionId,
+          scriptId: effectiveScriptId!,
+          instruction: effectivePrompt,
+          selection: canonicalSelection,
+        });
+        commitPersisted = true;
 
-        const promptBlocks = formatBlocksForPromptTF(blocksToEdit);
+        const revisedBlocks = validateThinkForgeBlocks(revised.blocks ?? []);
+        const revisedRichText = revised.richText ?? thinkForgeBlocksToTiptapJSON(revisedBlocks);
+        if (!(await emitEvent('script_update', {
+          script: {
+            scriptId: effectiveScriptId,
+            sessionId: eventSessionId,
+            title: revised.title,
+            blocks: revisedBlocks,
+            richText: revisedRichText,
+            content: revised.content,
+            version: revised.version,
+            documentType: revised.documentType,
+            contentContract: revised.contentContract,
+          },
+          metadata: {
+            workflow: 'edit',
+            source: 'ai',
+            scriptId: effectiveScriptId,
+            sessionId: eventSessionId,
+            thoughts: 'Document revised through its canonical writer',
+            duration_ms: 0,
+            agent_steps: [],
+          },
+        }))) return;
 
-        const refinementContext = quickAssembleContext(
-          'script_refinement',
-          sessionState.metadata,
-          { title: script!.title || '', content: promptBlocks, blocks: blocksToEdit },
-          [],
-          null,
-          systemBrief
-        );
-
-        const isAddition = /\b(add|insert|append|new section|new step)\b/i.test(effectivePrompt);
-        const agentPrompt = useSelectionBlocks
-          ? `Edit the following selected content. Change request: ${effectivePrompt}. 
-
-CRITICAL: You are editing a SELECTION from a larger document. 
-- Preserve the exact structure: if input has headings, return headings with same levels
-- Preserve lists: if input has bullet/numbered lists, return lists
-- Preserve blockquotes/callouts: if input has "why" blocks, return "why" blocks
-- Preserve horizontal rules: if input has dividers, return dividers
-- Only modify the content within the selection, not the structure
-- Return blocks that match the input structure exactly`
-          : isAddition
-            ? `Add a new section about the following request immediately AFTER ${blockIds[0] === '__END__' ? 'the end of the document' : 'blockId ' + blockIds[0]}. Request: ${effectivePrompt}. If adding a new block, use blockId: "NEW_BLOCK" in your patches.`
-            : `Edit only these blockIds: ${blockIds.join(', ')}. Change request: ${effectivePrompt}`;
-
-        const agent = createScriptRefinementAgent({ maxTokens: 900, temperature: 0.3 });
-
-        // For selection-based editing, refine only the selected blocks
-        // The agent needs the full document context but will only modify selected blocks
-        const refined = await agent.refineScript(
-          { context: refinementContext, userPrompt: agentPrompt },
-          useSelectionBlocks ? blocksToEdit : thinkforgeBlocks
-        );
-
-        let finalBlocks: ThinkForgeBlock[];
-        let finalRichText: TiptapJSON;
-
-        if (useSelectionBlocks && providedSelectionRange) {
-          // Surgical editing: only replace the selected blocks
-          // The refined blocks are the replacement for the selection
-          finalBlocks = thinkforgeBlocks; // Keep all blocks, we'll replace selection in editor
-          finalRichText = thinkForgeBlocksToTiptapJSON(thinkforgeBlocks); // Full document
-
-          // Include selection metadata for surgical application
-          const scriptUpdate = {
-            script: {
-              scriptId: effectiveScriptId,
-              sessionId: eventSessionId,
-              title: script!.title,
-              blocks: finalBlocks,
-              richText: finalRichText,
-              content: script!.content || ''
-            },
-            metadata: {
-              workflow: 'refine',
-              source: 'ai',
-              scriptId: effectiveScriptId,
-              sessionId: eventSessionId,
-              thoughts: 'Script refined surgically on selection',
-              duration_ms: 0,
-              agent_steps: [],
-              // Selection metadata for surgical editing
-              selectionEdit: {
-                editedBlocks: refined.blocks,
-                originalRange: providedSelectionRange,
-                applySurgically: true,
-              }
-            }
-          };
-
-          await claimCommitOwnership();
-          if (!(await emitEvent('script_update', scriptUpdate))) return;
-          commitPersisted = true;
-        } else {
-          // Traditional block-based editing
-          const anchorId = blockIds[0];
-          const mergedBlocks = applyThinkForgeBlockPatches(thinkforgeBlocks, refined.patches || [], {
-            insertAfterId: anchorId === '__END__' ? thinkforgeBlocks[thinkforgeBlocks.length - 1]?.id : anchorId,
-            defaultKind: 'paragraph',
-          });
-
-          const mergedContent = mergedBlocks.map((b) => extractTextFromRichText(b.content)).join('\n\n');
-
-          // Convert to Tiptap JSON AST
-          finalRichText = thinkForgeBlocksToTiptapJSON(mergedBlocks);
-          finalBlocks = mergedBlocks;
-
-          let savedVersion: number | undefined;
-          if (session) {
-            await claimCommitOwnership();
-            const baseVersion = resolveThinkForgeCommitBaseVersion(commitBaseline, effectiveScriptId!);
-            const saveResult = await applyCommand({
-              type: 'ReplaceDocument',
-              sessionId: canonicalSessionId,
-              baseVersion,
-              source: 'ai',
-              payload: {
-                scriptId: effectiveScriptId,
-                title: refined.title || script!.title,
-                content: mergedContent || script!.content || '',
-                blocks: mergedBlocks,
-                richText: finalRichText as any,
-                metadata: {
-                  workflow: 'refine',
-                  source: 'ai',
-                },
-              }
-            }, userId, orgId);
-            if (!saveResult.ok) {
-              throw new Error(saveResult.error);
-            }
-            savedVersion = saveResult.script.version;
-            commitPersisted = true;
-          }
-
-          const scriptUpdate = {
-            script: {
-              scriptId: effectiveScriptId,
-              sessionId: eventSessionId,
-              title: refined.title || script!.title,
-              blocks: mergedBlocks,
-              richText: finalRichText,
-              content: mergedContent || script!.content || '',
-              version: savedVersion
-            },
-            metadata: {
-              workflow: 'refine',
-              source: 'ai',
-              scriptId: effectiveScriptId,
-              sessionId: eventSessionId,
-              thoughts: 'Script refined surgically',
-              duration_ms: 0,
-              agent_steps: []
-            }
-          };
-
-          if (!(await emitEvent('script_update', scriptUpdate))) return;
-        }
-
-        finalResponse = 'Update applied to selected blocks only.';
+        finalResponse = canonicalSelection
+          ? 'Update applied to the selected content.'
+          : 'Update applied to the document.';
         if (!(await emitEvent('token', { content: finalResponse }))) return;
 
         if (session) {
