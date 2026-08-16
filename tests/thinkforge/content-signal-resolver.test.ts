@@ -9,6 +9,7 @@ import {
   type BrandSignalProfile,
 } from '@/lib/shared/brand-signal-profile';
 import type { UnifiedBrand } from '@/lib/shared/brand-registry';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 
 function brand(): UnifiedBrand {
   return {
@@ -55,6 +56,46 @@ function setSignal<T>(signal: BrandSignal<T>, value: T, confidence: number): voi
 }
 
 describe('resolveContentSignalProfile', () => {
+  it('keeps typed output and platform authority above contradictory prose and legacy fields', () => {
+    const authoringRequest = {
+      version: 1 as const,
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' as const },
+      targetDurationSec: 420,
+    };
+    const resolved = resolveContentSignalProfile({
+      userPrompt: 'Write a short LinkedIn post about our seven-minute YouTube documentary.',
+      authoringRequest,
+      contentContract: authoringRequest.contentContract,
+      project: { format: 'Instagram post', platform: 'LinkedIn' },
+    });
+
+    expect(resolved.profile.constraints.output_format).toBe('video_script');
+    expect(resolved.intent.platform).toBe('YouTube');
+  });
+
+  it('preserves an exact custom platform label and rejects a competing contract', () => {
+    const authoringRequest = {
+      version: 1 as const,
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: {
+        id: 'custom' as const,
+        customLabel: 'Instagram-adjacent partner portal',
+      },
+      targetDurationSec: 420,
+    };
+
+    expect(resolveContentSignalProfile({
+      userPrompt: 'Draft the selected deliverable.',
+      authoringRequest,
+    }).intent.platform).toBe('Instagram-adjacent partner portal');
+    expect(() => resolveContentSignalProfile({
+      userPrompt: 'Draft the selected deliverable.',
+      authoringRequest,
+      contentContract: createThinkForgeWriterContract('social_post'),
+    })).toThrow(/conflicting authoring and document contracts/i);
+  });
+
   it('resolves brand, platform, proof, and forbidden terms for social posts', () => {
     const resolved = resolveContentSignalProfile({
       userPrompt: 'Write a warm LinkedIn post for agency founders about reducing content approval time by 37%.',

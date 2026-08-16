@@ -8,6 +8,11 @@ import {
   normalizeThinkForgeDocumentContract,
   type ThinkForgeDocumentContract,
 } from '../schemas/document-contract';
+import {
+  ThinkForgeAuthoringRequestSchema,
+  describeThinkForgePlatformSurface,
+  type ThinkForgeAuthoringRequest,
+} from '../schemas/authoring-request';
 import type {
   ContentSignalProfile,
   ContentConstraints,
@@ -24,6 +29,7 @@ type SignalSource = InferenceMetadata['source'];
 
 export interface ResolveContentSignalProfileInput {
   userPrompt: string;
+  authoringRequest?: ThinkForgeAuthoringRequest | null;
   contentContract?: ThinkForgeDocumentContract | null;
   documentType?: string;
   medium?: string;
@@ -141,6 +147,15 @@ const EXPLICIT_LANGUAGE_ALIASES = [...new Map([
 export function resolveContentSignalProfile(
   input: ResolveContentSignalProfileInput,
 ): ThinkForgeContentSignalProfile {
+  const authoringRequest = input.authoringRequest
+    ? ThinkForgeAuthoringRequestSchema.parse(input.authoringRequest)
+    : null;
+  if (authoringRequest && input.contentContract) {
+    const contentContract = ThinkForgeDocumentContractSchema.parse(input.contentContract);
+    if (JSON.stringify(authoringRequest.contentContract) !== JSON.stringify(contentContract)) {
+      throw new Error('Content signal resolution received conflicting authoring and document contracts');
+    }
+  }
   const context = input.context;
   const project = input.project;
   const retrieved = input.retrievedContext;
@@ -264,6 +279,11 @@ function inferOutputFormat(
   input: ResolveContentSignalProfileInput,
   combinedText: string,
 ): OutputFormat {
+  if (input.authoringRequest) {
+    return outputFormatFromDocumentContract(
+      ThinkForgeAuthoringRequestSchema.parse(input.authoringRequest).contentContract,
+    );
+  }
   if (input.contentContract) {
     return outputFormatFromDocumentContract(
       ThinkForgeDocumentContractSchema.parse(input.contentContract),
@@ -298,6 +318,11 @@ function outputFormatFromDocumentContract(contract: ThinkForgeDocumentContract):
 }
 
 function inferPlatform(input: ResolveContentSignalProfileInput, combinedText: string): string | undefined {
+  if (input.authoringRequest) {
+    return describeThinkForgePlatformSurface(
+      ThinkForgeAuthoringRequestSchema.parse(input.authoringRequest).platformSurface,
+    );
+  }
   const direct = input.platform || input.project?.platform;
   if (direct?.trim()) return normalizePlatform(direct);
 

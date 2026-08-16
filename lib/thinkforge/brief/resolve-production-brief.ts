@@ -10,12 +10,18 @@ import type {
 } from '@/lib/editron/production-brief/production-brief';
 import type { ProjectMeta } from '@/lib/thinkforge/state/types';
 import { applyTrendSpecToBrief } from './apply-trend-spec';
+import {
+  ThinkForgeAuthoringRequestSchema,
+  describeThinkForgeAuthoringDeliverable,
+  type ThinkForgeAuthoringRequest,
+} from '@/lib/thinkforge/schemas/authoring-request';
 
 type ProjectRecord = Record<string, unknown>;
 
 export interface ThinkForgeProductionBriefInput {
   userPrompt: string;
   project?: ProjectMeta | null;
+  authoringRequest?: ThinkForgeAuthoringRequest | null;
   requested?: IntakeSignals['requested'];
   documentType?: string | null;
   contentPath?: string | null;
@@ -169,9 +175,56 @@ function buildRequested(project?: ProjectMeta | null): IntakeSignals['requested'
   return Object.keys(requested).length > 0 ? requested : undefined;
 }
 
+function resolveAuthoringRequest(input: ThinkForgeProductionBriefInput): ThinkForgeAuthoringRequest | null {
+  const provided = input.authoringRequest
+    ? ThinkForgeAuthoringRequestSchema.parse(input.authoringRequest)
+    : null;
+  const persisted = input.project?.authoringRequest
+    ? ThinkForgeAuthoringRequestSchema.parse(input.project.authoringRequest)
+    : null;
+  if (provided && persisted && JSON.stringify(provided) !== JSON.stringify(persisted)) {
+    throw new Error('Production brief received conflicting authoring requests');
+  }
+  return provided ?? persisted;
+}
+
+function productionPlatformForAuthoringRequest(
+  request: ThinkForgeAuthoringRequest,
+): Platform | undefined {
+  switch (request.platformSurface.id) {
+    case 'instagram':
+      return request.contentContract.outputKind === 'video_script'
+        ? 'instagram-reels'
+        : 'instagram-feed';
+    case 'youtube':
+      return 'youtube';
+    case 'tiktok':
+      return 'tiktok';
+    case 'linkedin':
+      return 'linkedin';
+    case 'x':
+      return 'x';
+    default:
+      return undefined;
+  }
+}
+
+function buildAuthoringRequested(
+  request: ThinkForgeAuthoringRequest,
+): IntakeSignals['requested'] {
+  const platform = productionPlatformForAuthoringRequest(request);
+  return {
+    ...(platform ? { platform } : {}),
+    ...(request.targetDurationSec !== undefined
+      ? { targetDurationSec: request.targetDurationSec }
+      : {}),
+  };
+}
+
 function mergeRequested(
   project?: ProjectMeta | null,
   explicit?: IntakeSignals['requested'],
+  authoringRequest?: ThinkForgeAuthoringRequest | null,
 ): IntakeSignals['requested'] | undefined {
   const requested: NonNullable<IntakeSignals['requested']> = {
     ...(buildRequested(project) ?? {}),
@@ -181,6 +234,12 @@ function mergeRequested(
     if (value !== undefined) {
       (requested as Record<string, unknown>)[key] = value;
     }
+  }
+
+  if (authoringRequest) {
+    delete requested.platform;
+    delete requested.targetDurationSec;
+    Object.assign(requested, buildAuthoringRequested(authoringRequest));
   }
 
   return Object.keys(requested).length > 0 ? requested : undefined;
@@ -210,13 +269,16 @@ function buildBrandDefaults(project?: ProjectMeta | null): BrandDefaults | null 
 
 export function resolveThinkForgeProductionBrief(input: ThinkForgeProductionBriefInput): ProductionBrief {
   const project = input.project ?? null;
+  const authoringRequest = resolveAuthoringRequest(input);
   const brandId = firstString(input.brandId, project?.brandId);
   const brand = buildBrandDefaults(project);
   const brief = resolveProductionBrief({
     entryPoint: 'thinkforge',
     assetCount: 0,
     totalDurationSec: null,
-    contentType: firstString(project?.format, input.documentType, input.contentPath) ?? null,
+    contentType: authoringRequest
+      ? describeThinkForgeAuthoringDeliverable(authoringRequest)
+      : firstString(project?.format, input.documentType, input.contentPath) ?? null,
     speechCoverage: null,
     // A brand attachment is a server-authorized Brand Vault identity, never a
     // legacy browser snapshot that happened to contain free-text context.
@@ -224,7 +286,7 @@ export function resolveThinkForgeProductionBrief(input: ThinkForgeProductionBrie
     connectedPlatforms: normalizePlatformList(firstPresent(project, ['connectedPlatforms', 'postingPlatforms'])),
     brand,
     prompt: input.userPrompt,
-    requested: mergeRequested(project, input.requested),
+    requested: mergeRequested(project, input.requested, authoringRequest),
   });
 
   const resolvedBrief = {

@@ -23,6 +23,7 @@ import * as db from './db';
 import { applyCommand } from './command-service';
 import { appendEvent } from './event-log';
 import {
+  resolveProjectMetaAuthoringRequest,
   resolveProjectMetaBrandId,
   type SessionState,
   type ProjectMeta,
@@ -294,6 +295,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     version: 1,
     lastUpdated: new Date()
   };
+  const authoritativeAuthoringRequest = resolveProjectMetaAuthoringRequest(sessionState.metadata);
 
   // Create SSE stream
   const stream = new TransformStream();
@@ -539,17 +541,6 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       const documentIntentOrigin = providedIntentContext?.lastUserAction === 'initial_draft_claim'
         ? 'initial_draft_claim'
         : 'user_request';
-      const requestedDocumentIntent = shouldRunGeneration
-        ? resolveThinkForgeGenerationDocumentIntent(
-            effectivePrompt,
-            sessionState.metadata.format,
-            documentIntentOrigin,
-            sessionState.metadata.contentContract,
-          )
-        : null;
-      const requestedDocumentLabel = requestedDocumentIntent?.documentLabel ?? 'document';
-      const eventSessionId = canonicalSessionId;
-
       const isCanvasEmpty = (() => {
         if (!script) return true;
         const hasBlocks = Array.isArray((script as any)?.blocks) && (script as any).blocks.length > 0;
@@ -557,6 +548,19 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         const hasContent = typeof (script as any)?.content === 'string' && (script as any).content.trim().length > 0;
         return !(hasBlocks || hasRichText || hasContent);
       })();
+      if (shouldRunGeneration && !authoritativeAuthoringRequest) {
+        throw new Error('ThinkForge generation requires a confirmed authoring request');
+      }
+      const requestedDocumentIntent = shouldRunGeneration
+        ? resolveThinkForgeGenerationDocumentIntent(
+            effectivePrompt,
+            sessionState.metadata.format,
+            documentIntentOrigin,
+            authoritativeAuthoringRequest?.contentContract,
+          )
+        : null;
+      const requestedDocumentLabel = requestedDocumentIntent?.documentLabel ?? 'document';
+      const eventSessionId = canonicalSessionId;
 
       if (isGenerateIntent) {
         if (!requestedDocumentIntent) {
@@ -711,10 +715,12 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
         const resolvedSignalProfile = resolveContentSignalProfile({
           userPrompt: authoringPrompt,
+          authoringRequest: authoritativeAuthoringRequest,
           documentType: documentIntent.documentType,
           contentContract: documentIntent.contract,
           brandId: sessionState.metadata.brandId,
           sessionId: sessionState.sessionId,
+          project: sessionState.metadata,
           retrievedContext: retrievedCtx || undefined,
         });
         let groundedSystemBrief = [systemBrief, formatContentSignalProfileForPrompt(resolvedSignalProfile)]
@@ -754,7 +760,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         let briefSnapshot = resolveThinkForgeProductionBrief({
           userPrompt: authoringPrompt,
           project: sessionState.metadata,
-          requested: promptUnderstanding?.requested,
+          authoringRequest: authoritativeAuthoringRequest,
           documentType: generatedDocumentType,
           contentPath,
           brandId: sessionState.metadata.brandId,
@@ -799,6 +805,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               groundedSystemBrief
             ),
             userPrompt: authoringPrompt,
+            authoringRequest: authoritativeAuthoringRequest,
             retrievedContext: retrievedCtx || undefined,
             project: sessionState.metadata,
             sessionId: sessionState.sessionId,

@@ -1,6 +1,8 @@
+import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
 
 import { resolveThinkForgeProductionBrief } from '@/lib/thinkforge/brief/resolve-production-brief';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 import { TREND_SPEC_VERSION, type TrendSpec } from '@/lib/thinkforge/schemas/trend-spec';
 import type { ProjectMeta } from '@/lib/thinkforge/state/types';
 import {
@@ -127,6 +129,72 @@ describe('resolveThinkForgeProductionBrief', () => {
         'deliverables',
       ]),
     );
+  });
+
+  it('keeps a confirmed 7-minute YouTube request above stale and inferred metadata', () => {
+    const authoringRequest = {
+      version: 1 as const,
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' as const },
+      targetDurationSec: 420,
+    };
+
+    const brief = resolveThinkForgeProductionBrief({
+      userPrompt: 'Use the selected brief even if this sentence mentions a short LinkedIn post.',
+      project: {
+        platform: 'linkedin',
+        format: 'social post',
+        durationSec: 60,
+        preferences: { targetDurationSec: 60 },
+      },
+      authoringRequest,
+      requested: {
+        platform: 'tiktok',
+        targetDurationSec: 30,
+      },
+      documentType: 'post',
+      contentPath: 'post',
+    });
+
+    expect(brief.output.platform).toBe('youtube');
+    expect(brief.output.targetDurationSec).toBe(420);
+    expect(brief.resolution.confirmed).toEqual(
+      expect.arrayContaining(['platform', 'targetDurationSec']),
+    );
+  });
+
+  it('rejects competing typed requests and keeps chat wiring on the same authority', () => {
+    const scriptRequest = {
+      version: 1 as const,
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' as const },
+      targetDurationSec: 420,
+    };
+    const postRequest = {
+      version: 1 as const,
+      contentContract: createThinkForgeWriterContract('social_post'),
+      platformSurface: { id: 'linkedin' as const },
+      postControls: {
+        version: 1 as const,
+        cta: { preference: 'editorial' as const },
+        hashtags: { preference: 'editorial' as const },
+        emoji: { preference: 'editorial' as const },
+      },
+    };
+
+    expect(() => resolveThinkForgeProductionBrief({
+      userPrompt: 'Draft the confirmed deliverable.',
+      project: { authoringRequest: postRequest },
+      authoringRequest: scriptRequest,
+    })).toThrow(/conflicting authoring requests/i);
+
+    const chatService = readFileSync(
+      'lib/thinkforge/services/chat-service.ts',
+      'utf8',
+    );
+    expect(chatService.match(/authoringRequest: authoritativeAuthoringRequest/g)).toHaveLength(3);
+    expect(chatService).toContain('ThinkForge generation requires a confirmed authoring request');
+    expect(chatService).not.toContain('requested: promptUnderstanding?.requested');
   });
 
   it('does not parse platform or duration out of prompt text', () => {
