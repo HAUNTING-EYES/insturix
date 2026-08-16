@@ -13,6 +13,7 @@ import {
   normalizeThinkForgeDocumentContract,
   type ThinkForgeDocumentContract,
 } from '@/lib/thinkforge/schemas/document-contract';
+import { reconcileScriptSidecarMetadata } from '@/lib/thinkforge/persistence/script-sidecar-binding';
 
 export type CommandType = 'UpdateBlock' | 'InsertBlock' | 'DeleteBlock' | 'ReplaceDocument';
 export type CommandSource = 'user' | 'ai';
@@ -243,6 +244,25 @@ export async function applyCommand(
   const nextContent = type === 'ReplaceDocument'
     ? replacementContent ?? ''
     : computeContentFromBlocks(nextBlocks);
+
+  try {
+    nextMetadata = reconcileScriptSidecarMetadata({
+      existingMetadata: existing?.metadata,
+      incomingMetadata: payload.metadata,
+      nextMetadata,
+      source: request.source,
+      previousContent: typeof existing?.content === 'string' ? existing.content : '',
+      nextContent,
+      previousVersion: currentVersion,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error
+        ? `Invalid script sidecar metadata: ${error.message}`
+        : 'Invalid script sidecar metadata',
+    };
+  }
 
   const saveResult = await db.saveScriptWithVersion(
     canonicalSessionId,
