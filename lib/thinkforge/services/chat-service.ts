@@ -50,6 +50,7 @@ import { persistGroundedResearchMemory } from '../provenance/research-memory';
 import {
   resolveContentSignalProfile,
   formatContentSignalProfileForPrompt,
+  assertNoCriticalContentProfileViolations,
   evaluateContentProfileCompliance,
   formatContentProfileComplianceViolations,
   shouldAutoRepairContentProfileViolations,
@@ -879,12 +880,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             
           }
 
-          // Stack A profile-compliance: run the same post-gen scoring Stack B runs (forbidden
-          // terms, missing proof points, platform length, format mismatch, internal metadata
-          // leakage, missing CTA) on the flat writers' output. Stack A has no stylist rewrite
-          // stage, so this measures + persists + logs loud on critical (rather than auto-repairing);
-          // criticals are real defects (leaked metadata, forbidden brand term, script labels in a
-          // social post) that should be visible. Needs the resolved profile to have facts to check.
+          // Enforce the resolved profile again at the persistence boundary. Writers repair critical
+          // violations once; anything still critical here is rejected and refunded.
           if (resolvedSignalProfile && finalContent) {
             const compliance = evaluateContentProfileCompliance(finalContent, resolvedSignalProfile);
             if (compliance.violations.length > 0 && writerOutputMetadata) {
@@ -894,6 +891,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
                 hasCritical,
                 violations: formatContentProfileComplianceViolations(compliance.violations),
               };
+              assertNoCriticalContentProfileViolations(compliance.violations);
               (hasCritical ? console.error : console.warn)(
                 `[ThinkForge:ProfileCompliance] Stack A score ${compliance.score}/100${hasCritical ? ' — CRITICAL' : ''}. Violations: ${compliance.violations.map((v) => v.id).join(', ')}`,
               );

@@ -7,6 +7,8 @@ export {
 } from './content-signal-resolver';
 
 export {
+  assertNoCriticalContentProfileViolations,
+  ContentProfileComplianceError,
   evaluateContentProfileCompliance,
   formatContentProfileComplianceViolations,
   shouldAutoRepairContentProfileViolations,

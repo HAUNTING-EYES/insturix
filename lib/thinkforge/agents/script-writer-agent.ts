@@ -22,7 +22,11 @@ import { requireSourceReferenceIdForFact } from '../provenance/source-ledger-con
 import { formatTrendBriefForPrompt } from './trend-brief-context';
 import { formatCastingBriefForPrompt, getAvatarCastingEntries } from './casting-brief-context';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
-import type { ThinkForgeContentSignalProfile } from '../signals';
+import {
+  evaluateContentProfileCompliance,
+  shouldAutoRepairContentProfileViolations,
+  type ThinkForgeContentSignalProfile,
+} from '../signals';
 import { buildScriptEditorialPlan } from './script-editorial-plan';
 
 const ContentAnalysisSchema = z.object({
@@ -244,6 +248,10 @@ const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
   'invalid_source_ref',
   'missing_source_ref',
   'platform_mismatch',
+  'profile_forbidden_term',
+  'profile_missing_required_brief_claim',
+  'profile_missing_required_audience_anchor',
+  'profile_internal_metadata_leaked',
 ]);
 
 function contractFailureCode(failure: string): string {
@@ -470,6 +478,18 @@ export function assertUsableScriptWriterResult(
   }
 
   failures.push(...findSourceLedgerIssuesForNarrativeSidecar(sidecar, options.sourceLedger));
+
+  if (options.contentSignalProfile) {
+    const profileCompliance = evaluateContentProfileCompliance(
+      result.content,
+      options.contentSignalProfile,
+    );
+    if (shouldAutoRepairContentProfileViolations(profileCompliance.violations)) {
+      failures.push(...profileCompliance.violations
+        .filter((violation) => violation.severity === 'critical')
+        .map((violation) => violation.id));
+    }
+  }
 
   if (failures.length > 0) {
     throw new ScriptWriterContractError(failures);

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { generateStructuredWithWritingContextCacheMock } = vi.hoisted(() => ({
@@ -26,6 +27,7 @@ import {
   type NarrativeSceneV2,
   type ScriptWriterSidecarV2,
 } from '@/lib/thinkforge/schemas/script-sidecar-v2';
+import { resolveContentSignalProfile } from '@/lib/thinkforge/signals';
 
 type ShotIntent = NonNullable<NarrativeBeatV2['shotIntent']>;
 
@@ -427,6 +429,50 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(() => assertUsableScriptWriterResult(output.result, {
       productionBrief: brief({ targetDurationSec: 420 }),
     })).not.toThrow();
+  });
+
+  it('repairs a critical Brand Vault violation once before returning a script', async () => {
+    const invalid = makeModelOutput();
+    invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0]!.text =
+      'This game-changing approval workflow fixes every launch.';
+    const repaired = makeModelOutput();
+    const contentSignalProfile = resolveContentSignalProfile({
+      userPrompt: 'Write a short video script about approval workflow ownership.',
+      project: { platform: 'Instagram', format: 'script' },
+      retrievedContext: {
+        brandDNA: { killList: ['game-changing'] },
+        projectFacts: [],
+        globalFacts: [],
+        semanticFacts: [],
+        interactionPatterns: [],
+      },
+    });
+    generateStructuredWithWritingContextCacheMock
+      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
+      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Approval workflow launch.' },
+      userPrompt: 'Write a short video script about approval workflow ownership.',
+      contentSignalProfile,
+    });
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
+    expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
+      .toContain('profile_forbidden_term');
+    expect(output.result.content).not.toContain('game-changing');
+  });
+
+  it('keeps a second critical Brand Vault violation out of persistence', () => {
+    const service = readFileSync(
+      new URL('../../lib/thinkforge/services/chat-service.ts', import.meta.url),
+      'utf8',
+    );
+    const profileGate = service.indexOf('assertNoCriticalContentProfileViolations(compliance.violations)');
+    const persistence = service.indexOf("type: 'ReplaceDocument'", profileGate);
+
+    expect(profileGate).toBeGreaterThan(-1);
+    expect(persistence).toBeGreaterThan(profileGate);
   });
 
   it('materializes deterministic markdown and one visual prompt per narrative scene', () => {

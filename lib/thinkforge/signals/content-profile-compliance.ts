@@ -16,6 +16,17 @@ export interface ContentProfileComplianceResult {
   violations: ContentProfileComplianceViolation[];
 }
 
+export class ContentProfileComplianceError extends Error {
+  readonly violations: readonly ContentProfileComplianceViolation[];
+
+  constructor(violations: readonly ContentProfileComplianceViolation[]) {
+    const critical = violations.filter((violation) => violation.severity === 'critical');
+    super(`ThinkForge output failed profile compliance: ${critical.map((violation) => violation.id).join(', ')}`);
+    this.name = 'ContentProfileComplianceError';
+    this.violations = critical;
+  }
+}
+
 const SCRIPT_LABEL_RE = /(^|\n)\s*(?:#{2,3}\s*\[[0-9:.-]+|(?:\*\*)?(?:VO|On-Camera|Visual|Audio|Scene|Camera|Framing|Motion|Duration|Transition)(?:\s*\*\*)?\s*:)/i;
 const INTERNAL_PROFILE_RE = /<content_signal_profile>|<signal_execution_rules>|"_inference_metadata"|THINKFORGE_CLICKATRON_EXPORT/i;
 
@@ -53,6 +64,14 @@ export function shouldAutoRepairContentProfileViolations(
   violations: readonly ContentProfileComplianceViolation[],
 ): boolean {
   return violations.some((violation) => violation.severity === 'critical');
+}
+
+export function assertNoCriticalContentProfileViolations(
+  violations: readonly ContentProfileComplianceViolation[],
+): void {
+  if (shouldAutoRepairContentProfileViolations(violations)) {
+    throw new ContentProfileComplianceError(violations);
+  }
 }
 
 function detectForbiddenTerms(
