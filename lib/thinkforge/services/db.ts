@@ -700,7 +700,13 @@ const ScriptSchema = new Schema({
   createdFromIntent: { type: String },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
-}, { collection: COLL_SCRIPTS, timestamps: false });
+}, {
+  collection: COLL_SCRIPTS,
+  timestamps: false,
+  // Provenance hashes attest to the exact JSON artifact. Mongoose's default
+  // minimization removes nested empty objects and invalidates those receipts.
+  minimize: false,
+});
 
 ScriptSchema.index(
   { sessionId: 1, scriptId: 1 },
@@ -1700,6 +1706,14 @@ export type SaveScriptWithVersionResult =
   | { ok: true; script: Script }
   | { ok: false; error: 'Version conflict'; currentVersion: number };
 
+function clonePersistableScriptMetadata(metadata: NonNullable<Script['metadata']>): Script['metadata'] {
+  const serialized = JSON.stringify(metadata);
+  if (serialized === undefined) {
+    throw new Error('ThinkForge document metadata must be JSON-serializable');
+  }
+  return JSON.parse(serialized) as Script['metadata'];
+}
+
 export async function saveScriptWithVersion(
   sessionId: string,
   script: Partial<Script>,
@@ -1759,7 +1773,7 @@ export async function saveScriptWithVersion(
         doc.richText = script.richText;
       }
       if (script.metadata !== undefined) {
-        doc.metadata = script.metadata;
+        doc.metadata = clonePersistableScriptMetadata(script.metadata);
       }
 
       const created = await ScriptModel.create(doc);
@@ -1785,7 +1799,7 @@ export async function saveScriptWithVersion(
       updateDoc.richText = script.richText;
     }
     if (script.metadata !== undefined) {
-      updateDoc.metadata = script.metadata;
+      updateDoc.metadata = clonePersistableScriptMetadata(script.metadata);
     }
 
     const updated = await ScriptModel.findOneAndUpdate(

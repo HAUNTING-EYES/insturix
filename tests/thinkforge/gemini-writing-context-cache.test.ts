@@ -52,6 +52,7 @@ import {
   type ScriptWriterModelOutput,
 } from '@/lib/thinkforge/agents/script-writer-agent';
 import { prepareThinkForgeProviderPromptDispatch } from '@/lib/thinkforge/privacy/provider-prompt-dispatch';
+import { hashThinkForgeTraceValue } from '@/lib/thinkforge/provenance/generation-trace';
 import { SCRIPT_SIDECAR_V2_VERSION } from '@/lib/thinkforge/schemas/script-sidecar-v2';
 
 function nativeV2CacheOutput(): ScriptWriterModelOutput {
@@ -420,7 +421,7 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
 
     expect(result.modelName).toBe('thinkforge-e2e-stub');
     expect(result.cacheStatus).toBe('inline');
-    expect(result.result.content).toContain('Most LinkedIn content teams');
+    expect(result.result.content).toContain('Make approval ownership visible before a campaign launch.');
     expect(result.result.clickatron.singleImagePrompt).toContain('no readable text or logos');
     expect(sdkMocks.createCache).not.toHaveBeenCalled();
     expect(sdkMocks.generateObject).not.toHaveBeenCalled();
@@ -473,6 +474,48 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(scene?.beats[0]?.lines[0]?.sourceRefs).toContain('brief_user');
     expect(sdkMocks.createCache).toHaveBeenCalledTimes(1);
     expect(sdkMocks.generateObject).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the script fixture on Sidecar v2 with a content-led seven-minute runtime', async () => {
+    vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', 'script');
+    vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'tf-e2e-test-run');
+
+    const fixture = await generateStructuredWithWritingContextCache({
+      prompt: 'Create a seven-minute montage-driven YouTube documentary.',
+      schema: ScriptWriterModelOutputSchema,
+    });
+    const scenes = fixture.result.sidecar.acts.flatMap((act) => act.narrativeScenes);
+    const durations = scenes.map((scene) => scene.durationIntentSeconds ?? 0);
+
+    expect(fixture).toMatchObject({
+      cacheStatus: 'inline',
+      modelName: 'thinkforge-e2e-stub',
+    });
+    expect(fixture.result.sidecar.sidecarVersion).toBe(2);
+    expect(fixture.result.sidecar.spokenTextSource).toBe('beat-lines');
+    expect(fixture.result.sidecar).not.toHaveProperty('renderPlan');
+    expect(scenes).toHaveLength(6);
+    expect(durations.reduce((total, duration) => total + duration, 0)).toBe(420);
+    expect(new Set(durations).size).toBeGreaterThan(1);
+    expect(durations.every((duration) => duration > 0)).toBe(true);
+    expect(sdkMocks.createCache).not.toHaveBeenCalled();
+    expect(sdkMocks.generateObject).not.toHaveBeenCalled();
+  });
+
+  it('hashes the exact JSON-persistable trace representation', () => {
+    const inMemory = {
+      sourceSummary: {
+        brandId: 'brand_b',
+        projectName: undefined,
+      },
+      resolvedProduction: {},
+      arrayValue: [undefined],
+    };
+    const persisted = JSON.parse(JSON.stringify(inMemory)) as Record<string, unknown>;
+
+    expect(hashThinkForgeTraceValue(inMemory)).toBe(hashThinkForgeTraceValue(persisted));
+    expect(hashThinkForgeTraceValue({ resolvedProduction: {} }))
+      .not.toBe(hashThinkForgeTraceValue({}));
   });
 
   it('reuses one stable cache while sending each trusted instruction in its request contract', async () => {

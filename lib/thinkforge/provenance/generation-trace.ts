@@ -133,7 +133,6 @@ type WritingCacheStatus = 'hit' | 'created' | 'inline';
 
 function stableSerialize(value: unknown): string {
   if (value === null) return 'null';
-  if (value === undefined) return '"[undefined]"';
   if (typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
   const record = value as Record<string, unknown>;
@@ -144,7 +143,14 @@ function stableSerialize(value: unknown): string {
 }
 
 export function hashThinkForgeTraceValue(value: unknown): string {
-  return createHash('sha256').update(stableSerialize(value).normalize('NFC')).digest('hex');
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) {
+    throw new Error('ThinkForge trace evidence must be JSON-serializable');
+  }
+  const persistedValue = JSON.parse(serialized) as unknown;
+  return createHash('sha256')
+    .update(stableSerialize(persistedValue).normalize('NFC'))
+    .digest('hex');
 }
 
 export function requireThinkForgeWriterInvocationTrace(
