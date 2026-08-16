@@ -187,6 +187,7 @@ export default function StoryboardingMode({
             scriptId={scriptId}
             tabsRefreshTrigger={tabsRefreshTrigger}
             isSaving={isSaving}
+            isScriptLoading={isScriptLoading}
             onTokenStream={(callback) => {
               tokenStreamCallbackRef.current = callback;
             }}

@@ -35,14 +35,23 @@ describe('ThinkForge editor document ownership', () => {
     expect(createThinkForgeDocumentKey(identity)).toBe('session_new:post_new');
   });
 
-  it('resets document ownership before loading and isolates stale async work', () => {
+  it('lets the parent own initial loading and isolates stale async work', () => {
     const editor = read('components/dashboard/ThinkForge/ScriptEditor.tsx');
+    const panel = read('components/dashboard/ThinkForge/ScriptPanel.tsx');
+    const storyboarding = read('components/dashboard/ThinkForge/StoryboardingMode.tsx');
     const resetIndex = editor.indexOf('activeDocumentKeyRef.current = activeDocumentKey');
-    const loadIndex = editor.indexOf('const loadBlocks = async');
+    const hydrateIndex = editor.indexOf('const decision = resolveThinkForgeInitialHydration');
+    const blocksRouteConsumers = editor.match(/\/api\/services\/thinkforge\/script\/blocks\?/g) || [];
 
     expect(resetIndex).toBeGreaterThan(-1);
-    expect(loadIndex).toBeGreaterThan(resetIndex);
-    expect(editor).toContain('loadAbortControllerRef.current?.abort()');
+    expect(hydrateIndex).toBeGreaterThan(resetIndex);
+    expect(editor).not.toContain('const loadBlocks = async');
+    expect(editor).not.toContain('loadAbortControllerRef');
+    expect(editor).not.toContain('notifyHydratedScript');
+    expect(blocksRouteConsumers).toHaveLength(2);
+    expect(storyboarding).toContain('isScriptLoading={isScriptLoading}');
+    expect(panel).toContain('isDocumentLoading={isScriptLoading}');
+    expect(editor).toContain('isLoading: isDocumentLoading');
     expect(editor).toContain('enqueueThinkForgeDocumentSave');
     expect(editor).toContain('flushPendingDocumentSaveRef.current?.(previousDocumentKey)');
     expect(editor).toContain('matchesThinkForgeDocumentIdentity(script, activeIdentity)');

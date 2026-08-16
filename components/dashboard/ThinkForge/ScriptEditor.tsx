@@ -47,6 +47,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Script, Idea } from '@/app/dashboard/thinkforge/types';
+import { resolveThinkForgeInitialHydration } from '@/app/dashboard/thinkforge/client-script-conversion';
 import { getToneColorClass } from '@/lib/thinkforge/tone';
 
 // Tiptap imports
@@ -139,6 +140,7 @@ interface ScriptEditorProps {
   scriptId?: string | null;
   onEditScript: (updatedScript: Script) => void;
   generatingScript?: boolean;
+  isDocumentLoading?: boolean;
   isSaving?: boolean;
   onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string }>;
   onNewScript?: () => Promise<string | null>;
@@ -155,6 +157,7 @@ export default function ScriptEditor({
   scriptId,
   onEditScript,
   generatingScript = false,
+  isDocumentLoading = false,
   isSaving = false,
   onImportScript,
   onNewScript,
@@ -183,14 +186,14 @@ export default function ScriptEditor({
   const lastAutosaveHashRef = useRef<string>('');
   const autosavePausedRef = useRef(false);
   const scriptVersionRef = useRef<number>(0);
-  const loadAbortControllerRef = useRef<AbortController | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
   const pendingConflictSaveRef = useRef<PendingDocumentSave | null>(null);
   const flushPendingDocumentSaveRef = useRef<((documentKey?: string) => Promise<void>) | null>(null);
   const [documentSaveConflict, setDocumentSaveConflict] = useState<DocumentSaveConflict | null>(null);
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
   const [conflictResolutionError, setConflictResolutionError] = useState<string | null>(null);
-  const prevScriptBlocksRef = useRef<string>('');
+  const [documentHydrationError, setDocumentHydrationError] = useState<string | null>(null);
+  const prevRemoteContentRef = useRef<string>('');
   const prevMetadataRef = useRef<string>('');
   const isSwitchingScriptRef = useRef(false);
 
@@ -237,7 +240,6 @@ export default function ScriptEditor({
     [activeIdentity],
   );
   const activeDocumentKeyRef = useRef<string | null>(activeDocumentKey);
-  const documentEpochRef = useRef(0);
 
   const getEffectiveTitle = useCallback(() => {
     return loadedTitleRef.current || script?.title || 'Untitled Script';
@@ -433,8 +435,8 @@ export default function ScriptEditor({
   // This prevents user input from colliding with streaming tokens.
   useEffect(() => {
     if (!editor) return;
-    editor.setEditable(!generatingScript);
-  }, [editor, generatingScript]);
+    editor.setEditable(!generatingScript && !isDocumentLoading && !documentHydrationError);
+  }, [editor, generatingScript, isDocumentLoading, documentHydrationError]);
 
 
 
@@ -442,8 +444,8 @@ export default function ScriptEditor({
   // CRITICAL: Only call setContent when restoring a version or initial load
   // Autosave and polling must NEVER call setContent
   const safeSetContent = useCallback(
-    (content: TiptapJSON | string, reason: string) => {
-      if (!editor) return;
+    (content: TiptapJSON | string, reason: string): boolean => {
+      if (!editor) return false;
 
       // CRITICAL: Only allow setContent for:
       // 1. Initial loads (api/prop)
@@ -451,39 +453,34 @@ export default function ScriptEditor({
       // 3. AI updates (but only if no local edits)
       // 4. New script button (clearing editor)
       // 5. Clear editor operations
-      const isInitialLoad = reason === 'initial-load-api' || reason === 'initial-load-prop';
+      const isInitialLoad = reason === 'initial-load-prop';
       const isVersionRestore = reason === 'version-restore' || isRestoringVersionRef.current;
       const isAIUpdate = reason === 'ai-update';
       const isConflictRecovery = reason === 'conflict-recovery';
-      const isNewScript = reason === 'new-script-button' || reason === 'clear-editor-new-script' || reason === 'clear-editor-new-session' || reason === 'document-switch';
+      const isNewScript = reason === 'document-switch';
 
       // Block setContent if:
       // - Not initial load, not restore, not new script, and has local edits
       // - Not initial load, not restore, not new script, and user is typing
       if (!isInitialLoad && !isVersionRestore && !isConflictRecovery && !isNewScript) {
         if (hasLocalEditsRef.current && !isAIUpdate) {
-          return;
+          return false;
         }
         if (isUserTypingRef.current && !isAIUpdate) {
-          return;
+          return false;
         }
       }
 
       try {
         isUpdatingFromPropsRef.current = true;
-        editor.commands.setContent(content as any);
+        const accepted = editor.commands.setContent(content as any);
+        if (!accepted) throw new Error('TipTap rejected the document content.');
         isUpdatingFromPropsRef.current = false;
-
+        return true;
       } catch (error) {
         console.error(`ScriptEditor: setContent failed (${reason})`, error);
         isUpdatingFromPropsRef.current = false;
-
-        // Fallback to empty document
-        try {
-          editor.commands.setContent(DEFAULT_EMPTY_DOCUMENT as any);
-        } catch (fallbackError) {
-          console.error(`ScriptEditor: Fallback setContent failed`, fallbackError);
-        }
+        return false;
       }
     },
     [editor]
@@ -496,7 +493,7 @@ export default function ScriptEditor({
     (content: TiptapJSON | string, reason: string) => {
       if (!editor) return false;
 
-      const isInitialLoad = reason === 'initial-load-api' || reason === 'initial-load-prop';
+      const isInitialLoad = reason === 'initial-load-prop';
       const isVersionRestore = reason === 'version-restore' || isRestoringVersionRef.current;
       const isAIUpdate = reason === 'ai-update';  // AI-generated content should be allowed
 
@@ -524,7 +521,7 @@ export default function ScriptEditor({
         return false;
       }
 
-      safeSetContent(content, reason);
+      if (!safeSetContent(content, reason)) return false;
       // Only clear unsaved changes flag if this is an initial load
       // User edits should preserve the flag
       if (isInitialLoad) {
@@ -570,52 +567,24 @@ export default function ScriptEditor({
     }
   }, [editor, sessionId, versionManagerLoading, versionManagerError, createVersion]);
 
-  // Sync hydrated content into parent state (no backend save)
-  const notifyHydratedScript = useCallback((tiptapContent: TiptapJSON) => {
-    if (!onEditScript || !activeIdentity) return;
-    try {
-      const blocks = tiptapJSONToThinkForgeBlocks(tiptapContent);
-      const validated = validateThinkForgeBlocks(blocks);
-      const hydratedScript = stampThinkForgeDocumentIdentity({
-        title: getEffectiveTitle(),
-        version: (script as any)?.version ?? scriptVersionRef.current,
-        blocks: validated,
-        richText: tiptapContent,
-        content: '',
-        body: '',
-        sections: script?.sections || [],
-        tips: script?.tips || [],
-        duration: script?.duration,
-        targetAudience: script?.targetAudience,
-        tone: script?.tone,
-        metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap' as any }
-      }, activeIdentity);
-      onEditScript(hydratedScript as any);
-    } catch (error) {
-      console.error('ScriptEditor: Failed to sync hydrated script', error);
-    }
-  }, [onEditScript, script, getEffectiveTitle, activeIdentity]);
-
-  // Load blocks from API or script.blocks prop - only on initial mount or scriptId change
+  // The parent hook owns initial document loading. The editor applies that exact
+  // document once per identity and owns only subsequent user edits.
   const initialLoadDoneRef = useRef(false);
 
-  // Document identity owns reset, load, and save cancellation. This effect must
-  // run before the loader below whenever the active session/document changes.
+  // Document identity owns reset and save cancellation. Parent hydration runs
+  // only after this layout effect establishes the new document boundary.
   useLayoutEffect(() => {
     const previousDocumentKey = activeDocumentKeyRef.current;
     if (previousDocumentKey && previousDocumentKey !== activeDocumentKey) {
       void flushPendingDocumentSaveRef.current?.(previousDocumentKey);
     }
     activeDocumentKeyRef.current = activeDocumentKey;
-    documentEpochRef.current += 1;
-    loadAbortControllerRef.current?.abort();
-    loadAbortControllerRef.current = null;
 
     isSwitchingScriptRef.current = true;
     initialLoadDoneRef.current = false;
     lastLoadedContentRef.current = '';
     lastAutosaveHashRef.current = '';
-    prevScriptBlocksRef.current = '';
+    prevRemoteContentRef.current = '';
     prevMetadataRef.current = '';
     pendingBlocksRef.current = null;
     loadedTitleRef.current = null;
@@ -625,12 +594,16 @@ export default function ScriptEditor({
     lastUserInputTimeRef.current = 0;
     hasLocalEditsRef.current = false;
     isRestoringVersionRef.current = false;
+    setDocumentHydrationError(null);
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     }
     if (editor) {
-      safeSetContent(DEFAULT_EMPTY_DOCUMENT as TiptapJSON, 'document-switch');
+      if (!safeSetContent(DEFAULT_EMPTY_DOCUMENT as TiptapJSON, 'document-switch')) {
+        setDocumentHydrationError('Unable to reset the editor for the selected document.');
+        return;
+      }
       lastLoadedContentRef.current = JSON.stringify(DEFAULT_EMPTY_DOCUMENT);
     }
   }, [activeDocumentKey, editor, safeSetContent]);
@@ -668,7 +641,9 @@ export default function ScriptEditor({
         updatedScript: recoveredScript,
       };
 
-      safeSetContent(tiptapContent, 'conflict-recovery');
+      if (!safeSetContent(tiptapContent, 'conflict-recovery')) {
+        throw new Error('Unable to restore the preserved conflict draft in the editor.');
+      }
       initialLoadDoneRef.current = true;
       isSwitchingScriptRef.current = false;
       scriptVersionRef.current = recovered.currentVersion;
@@ -682,6 +657,7 @@ export default function ScriptEditor({
         currentVersion: recovered.currentVersion,
       });
       setConflictResolutionError(null);
+      setDocumentHydrationError(null);
       setHasUnsavedChanges(true);
       hasLocalEditsRef.current = true;
       isUserTypingRef.current = false;
@@ -694,170 +670,83 @@ export default function ScriptEditor({
   }, [activeDocumentKey, activeIdentity, editor, onEditScript, safeSetContent, script]);
 
   useEffect(() => {
-    const loadBlocks = async () => {
-      if (!editor || !activeIdentity || !activeDocumentKey) return;
-      const forceHydration = isSwitchingScriptRef.current;
-      const scheduledDocumentKey = activeDocumentKey;
-      const scheduledEpoch = documentEpochRef.current;
-      const controller = new AbortController();
-      loadAbortControllerRef.current?.abort();
-      loadAbortControllerRef.current = controller;
-      const isCurrentLoad = () => (
-        !controller.signal.aborted
-        && activeDocumentKeyRef.current === scheduledDocumentKey
-        && documentEpochRef.current === scheduledEpoch
-      );
+    if (!editor || !activeIdentity || !activeDocumentKey || initialLoadDoneRef.current) return;
 
-      const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
-      const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
+    const decision = resolveThinkForgeInitialHydration({
+      isLoading: isDocumentLoading,
+      script: script ?? null,
+      identity: activeIdentity,
+    });
+    if (decision.status === 'waiting') {
+      setDocumentHydrationError(null);
+      return;
+    }
+    if (decision.status === 'identity_mismatch') {
+      setDocumentHydrationError('The loaded document does not match the selected session. Reopen the document.');
+      return;
+    }
 
-      if (!forceHydration && (hasUnsavedChanges || autosaveTimerRef.current || userRecentlyTyped)) {
-        return;
-      }
-
+    const scheduledDocumentKey = activeDocumentKey;
+    let cancelled = false;
+    const hydrateFromParent = async () => {
       try {
-        // Try to fetch from API if session is available
-        if (activeIdentity) {
-          const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(activeIdentity.sessionId)}&scriptId=${encodeURIComponent(activeIdentity.scriptId)}`, {
-            cache: 'no-store',
-            headers: { 'Cache-Control': 'no-cache' },
-            signal: controller.signal,
-          });
-          if (response.ok) {
-            const data = await response.json();
-            if (!isCurrentLoad()) return;
-            if (typeof data?.version === 'number') {
-              scriptVersionRef.current = data.version;
-            }
-            if (data?.title) {
-              loadedTitleRef.current = data.title;
-            }
-
-            // Check if response has richText (Tiptap JSON) or blocks (ThinkForge format)
-            let tiptapContent: TiptapJSON | string | null = null;
-            if (data.richText && isTiptapJSON(data.richText)) {
-              tiptapContent = data.richText;
-            } else if (data.content) {
-              tiptapContent = await marked.parse(data.content);
-            } else if (data.blocks) {
-              tiptapContent = toTiptapJSON(data.blocks);
-            } else if (forceHydration) {
-              tiptapContent = DEFAULT_EMPTY_DOCUMENT as TiptapJSON;
-            } else {
-              console.warn('ScriptEditor: API returned no valid content');
-              return;
-            }
-
-            if (!isCurrentLoad()) return;
-            const finalCheck = Date.now() - lastUserInputTimeRef.current;
-            if (!forceHydration && (isUserTypingRef.current || finalCheck < USER_TYPING_TIMEOUT || hasUnsavedChanges)) {
-              return;
-            }
-
-            const hasContent = !!(typeof tiptapContent === 'string' ? tiptapContent.length > 0 : tiptapContent?.content && tiptapContent.content.length > 0);
-            if (tiptapContent && (hasContent || forceHydration)) {
-              const applied = applyContentToEditor(tiptapContent, 'initial-load-api');
-              if (applied) {
-                initialLoadDoneRef.current = true;
-                notifyHydratedScript(tiptapContent as any);
-              }
-              return;
-            }
-            console.warn('ScriptEditor: API returned empty content');
-          }
+        let tiptapContent: TiptapJSON | string;
+        if (decision.source === 'rich_text') {
+          tiptapContent = validateTiptapJSON(decision.value);
+        } else if (decision.source === 'blocks') {
+          tiptapContent = toTiptapJSON(decision.value);
+        } else if (decision.source === 'content') {
+          tiptapContent = await marked.parse(decision.value);
+        } else {
+          tiptapContent = DEFAULT_EMPTY_DOCUMENT as TiptapJSON;
         }
 
-        // Fall back to the matching script prop when the API has no usable document.
-        if (script?.blocks && matchesThinkForgeDocumentIdentity(script, activeIdentity)) {
-          const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
-          const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
+        if (cancelled || activeDocumentKeyRef.current !== scheduledDocumentKey) return;
+        const contentHash = JSON.stringify(tiptapContent);
+        const alreadyApplied = contentHash === lastLoadedContentRef.current;
+        if (!alreadyApplied && !applyContentToEditor(tiptapContent, 'initial-load-prop')) {
+          throw new Error('The editor rejected the loaded document.');
+        }
 
-          if (forceHydration || (!hasUnsavedChanges && !userRecentlyTyped)) {
-            let tiptapContent: TiptapJSON | string;
-            if (script.richText && isTiptapJSON(script.richText)) {
-              tiptapContent = script.richText;
-            } else if (script.blocks) {
-              tiptapContent = toTiptapJSON(script.blocks);
-            } else {
-              tiptapContent = await marked.parse(script.content || '');
-            }
-            const hasContent = !!(typeof tiptapContent === 'string' ? tiptapContent.length > 0 : tiptapContent?.content && tiptapContent.content.length > 0);
-            if (hasContent || forceHydration) {
-              const applied = applyContentToEditor(tiptapContent, 'initial-load-prop');
-              if (applied) {
-                initialLoadDoneRef.current = true;
-                notifyHydratedScript(tiptapContent as any);
-              }
-            } else {
-              console.warn('ScriptEditor: Prop blocks were invalid');
-            }
-          }
-        } else if (forceHydration) {
-          const tiptapContent = DEFAULT_EMPTY_DOCUMENT as TiptapJSON;
-          const applied = applyContentToEditor(tiptapContent, 'initial-load-prop');
-          if (applied) {
-            initialLoadDoneRef.current = true;
-            notifyHydratedScript(tiptapContent);
-          }
+        if (typeof script?.version === 'number' && Number.isFinite(script.version)) {
+          scriptVersionRef.current = script.version;
         }
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          console.error("ScriptEditor: Failed to fetch from API:", error);
-        }
-      } finally {
-        if (isCurrentLoad() && forceHydration) {
-          isSwitchingScriptRef.current = false;
-        }
-        if (loadAbortControllerRef.current === controller) {
-          loadAbortControllerRef.current = null;
-        }
+        loadedTitleRef.current = typeof script?.title === 'string' ? script.title : null;
+        initialLoadDoneRef.current = true;
+        isSwitchingScriptRef.current = false;
+        setHasUnsavedChanges(false);
+        hasLocalEditsRef.current = false;
+        isUserTypingRef.current = false;
+        setDocumentHydrationError(null);
+      } catch (error) {
+        if (cancelled || activeDocumentKeyRef.current !== scheduledDocumentKey) return;
+        const message = error instanceof Error ? error.message : 'Unable to hydrate the selected document.';
+        console.error('ScriptEditor: Parent document hydration failed', error);
+        setDocumentHydrationError(message);
       }
     };
 
-    // Only load on initial mount or when scriptId changes
-    if (editor && !initialLoadDoneRef.current) {
-      loadBlocks();
-    }
-  }, [activeDocumentKey, activeIdentity, editor, hasUnsavedChanges, notifyHydratedScript]);
+    void hydrateFromParent();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDocumentKey, activeIdentity, applyContentToEditor, editor, isDocumentLoading, script]);
 
 
-  // Handle script reset (when script becomes empty/null - e.g., New Script button)
-  useEffect(() => {
-    if (!editor) return;
-
-    // Check if script was reset to empty (blocks is null or empty array)
-    const isScriptEmpty = !script?.blocks || (Array.isArray(script.blocks) && script.blocks.length === 0);
-    const hasContent = editor.getJSON().content && editor.getJSON().content.length > 0;
-
-    const metadataSource = (script?.metadata as any)?.source;
-    // If script is empty but editor has content, clear the editor
-    // Skip clearing if the update originated from editor autosave to avoid lossy wipes
-    if (metadataSource === 'editor' && hasContent) {
-      return;
-    }
-    if (isScriptEmpty && hasContent && !isUpdatingFromPropsRef.current) {
-      try {
-        isUpdatingFromPropsRef.current = true;
-        safeSetContent(DEFAULT_EMPTY_DOCUMENT as TiptapJSON, 'clear-editor-new-script');
-        lastLoadedContentRef.current = JSON.stringify(DEFAULT_EMPTY_DOCUMENT);
-        hasLocalEditsRef.current = false;
-        setHasUnsavedChanges(false);
-        isUpdatingFromPropsRef.current = false;
-      } catch (error) {
-        console.error('Failed to clear editor on script reset:', error);
-        isUpdatingFromPropsRef.current = false;
-      }
-    }
-  }, [script?.blocks, editor, safeSetContent]);
-
-  // Handle script.blocks updates from AI generation (via chat)
+  // Apply completed AI documents from the parent-owned canonical payload.
 
   useEffect(() => {
-    if (!editor || !activeIdentity || !activeDocumentKey || (!script?.blocks && !script?.content)) {
+    if (!editor || !activeIdentity || !activeDocumentKey || (!script?.blocks && !script?.content && !script?.richText)) {
       return;
     }
 
     if (!matchesThinkForgeDocumentIdentity(script, activeIdentity)) return;
+    const hydrationDecision = resolveThinkForgeInitialHydration({
+      isLoading: false,
+      script,
+      identity: activeIdentity,
+    });
+    if (hydrationDecision.status !== 'ready' || hydrationDecision.source === 'empty') return;
     const updateDocumentKey = activeDocumentKey;
 
     // Skip full content updates during streaming (streaming handles incremental updates)
@@ -921,15 +810,19 @@ export default function ScriptEditor({
     }
 
 
-    const scriptBlocksHash = JSON.stringify(script.blocks);
+    const remoteContentHash = JSON.stringify({
+      blocks: script.blocks,
+      richText: script.richText,
+      content: script.content,
+    });
     const metadataHash = JSON.stringify(script.metadata);
 
     // Skip if already processed
-    if (scriptBlocksHash === prevScriptBlocksRef.current && metadataHash === prevMetadataRef.current) {
+    if (remoteContentHash === prevRemoteContentRef.current && metadataHash === prevMetadataRef.current) {
       return;
     }
 
-    prevScriptBlocksRef.current = scriptBlocksHash;
+    prevRemoteContentRef.current = remoteContentHash;
     prevMetadataRef.current = metadataHash;
 
     try {
@@ -947,27 +840,28 @@ export default function ScriptEditor({
           pendingBlocksRef.current = Array.isArray(script.blocks) ? script.blocks : null;
           return;
         }
-        let tiptapPromise: Promise<TiptapJSON | string>;
-        if (script.richText && isTiptapJSON(script.richText)) {
-          tiptapPromise = Promise.resolve(script.richText);
-        } else if (script.blocks) {
-          tiptapPromise = Promise.resolve(toTiptapJSON(script.blocks));
-        } else {
-          tiptapPromise = Promise.resolve(marked.parse(script.content || ''));
-        }
+        const tiptapPromise: Promise<TiptapJSON | string> = hydrationDecision.source === 'rich_text'
+          ? Promise.resolve().then(() => validateTiptapJSON(hydrationDecision.value))
+          : hydrationDecision.source === 'blocks'
+            ? Promise.resolve().then(() => toTiptapJSON(hydrationDecision.value))
+            : Promise.resolve(marked.parse(hydrationDecision.value));
 
         tiptapPromise.then((tiptapContent) => {
           if (activeDocumentKeyRef.current !== updateDocumentKey) return;
           const applied = applyContentToEditor(tiptapContent, 'ai-update');
           if (applied) {
+            setDocumentHydrationError(null);
             createVersionSnapshot('AI edit');
           }
-        }).catch(err => console.error('[Script] Hydration error:', err));
+        }).catch((error) => {
+          console.error('[Script] Hydration error:', error);
+          setDocumentHydrationError(error instanceof Error ? error.message : 'Unable to apply the generated document.');
+        });
       });
     } catch (error) {
       console.error('[Script] Hydration failed:', error);
     }
-  }, [script?.blocks, script?.metadata, editor, activeIdentity, activeDocumentKey, generatingScript, streamingTiptap, createVersionSnapshot]);
+  }, [script?.blocks, script?.content, script?.richText, script?.metadata, editor, activeIdentity, activeDocumentKey, generatingScript, streamingTiptap, createVersionSnapshot, applyContentToEditor]);
 
   // Poll for blocks during generation
   // CRITICAL: Must never overwrite user edits - user input is source of truth
@@ -1525,7 +1419,6 @@ export default function ScriptEditor({
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
       if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current);
       if (observerTimerRef.current) clearTimeout(observerTimerRef.current);
-      loadAbortControllerRef.current?.abort();
     };
   }, []);
 
@@ -1816,8 +1709,27 @@ export default function ScriptEditor({
         </div>
       )}
 
+      {isDocumentLoading && !generatingScript && (
+        <div className="flex min-h-[600px] items-center justify-center" role="status" aria-live="polite">
+          <div className="flex items-center gap-3 text-sm text-[#A7A39A]">
+            <Loader2 className="h-5 w-5 animate-spin text-[#D4A652]" />
+            <span>Loading document...</span>
+          </div>
+        </div>
+      )}
+
+      {documentHydrationError && !isDocumentLoading && (
+        <div className="mx-4 my-6 flex items-start gap-3 border border-red-900/50 bg-red-950/20 p-4 text-sm text-red-200" role="alert">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+          <div className="min-w-0">
+            <p className="font-medium">Unable to open this document</p>
+            <p className="mt-1 break-words text-red-300/80">{documentHydrationError}</p>
+          </div>
+        </div>
+      )}
+
       {/* Editor or Preview */}
-      {(!generatingScript || script || liveContent) ? (
+      {!isDocumentLoading && !documentHydrationError && (!generatingScript || script || liveContent) ? (
         <Card className="bg-[#0F0F0E] border-[#1C1B19]">
           <CardContent className="p-0">
             <div

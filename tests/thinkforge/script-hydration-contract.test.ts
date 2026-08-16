@@ -276,16 +276,19 @@ describe('ThinkForge script hydration contract', () => {
     });
   });
 
-  it('does not convert completed AI generation into an editor-owned autosave', () => {
+  it('keeps completed AI generation parent-owned and never clears valid text-only output', () => {
     const source = read('components/dashboard/ThinkForge/ScriptEditor.tsx');
-    const notifyHydratedScript = source.slice(
-      source.indexOf('const notifyHydratedScript'),
-      source.indexOf('// Load blocks from API or script.blocks prop'),
-    );
 
     expect(source).not.toContain('Force autosave after generation finishes');
-    expect(notifyHydratedScript).toContain("canonicalFormat: 'tiptap'");
-    expect(notifyHydratedScript).not.toContain("source: 'editor'");
+    expect(source).not.toContain('notifyHydratedScript');
+    expect(source).not.toContain("'initial-load-api'");
+    expect(source).not.toContain('clear-editor-new-script');
+    expect(source).not.toContain('Fallback setContent failed');
+    expect(source).toContain('resolveThinkForgeInitialHydration');
+    expect(source).toContain('blocks: script.blocks');
+    expect(source).toContain('richText: script.richText');
+    expect(source).toContain('content: script.content');
+    expect(source).toContain("hydrationDecision.source === 'empty'");
     expect(source).toContain("if (metadataSource === 'editor' && !isAIGenerated)");
   });
 

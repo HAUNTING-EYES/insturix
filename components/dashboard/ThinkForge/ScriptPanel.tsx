@@ -15,6 +15,7 @@ interface ScriptPanelProps {
   scriptId?: string | null;
   tabsRefreshTrigger?: number;
   isSaving?: boolean;
+  isScriptLoading?: boolean;
   onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string } | { ok: boolean; applied?: any; error?: string }> | { ok: boolean; applied?: any; error?: string };
   onSwitchScript?: (scriptId: string) => void;
   onTabClose?: (scriptId: string) => void;
@@ -43,7 +44,7 @@ function persistClosedTabIds(sessionId: string, ids: Set<string>) {
   } catch { /* silent */ }
 }
 
-export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, sessionId, scriptId, tabsRefreshTrigger, isSaving, onImportScript, onSwitchScript, onTabClose, onTokenStream, onGetSelection, onEditSelection, generatingScript, onModeChange, documentTabs }) => {
+export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, sessionId, scriptId, tabsRefreshTrigger, isSaving, isScriptLoading, onImportScript, onSwitchScript, onTabClose, onTokenStream, onGetSelection, onEditSelection, generatingScript, onModeChange, documentTabs }) => {
   const [mode, setMode] = useState<PanelMode>('scripting');
   const [tabs, setTabs] = useState<DocumentTab[]>(documentTabs || []);
   const [tabOrder, setTabOrder] = useState<string[]>([]);
@@ -224,6 +225,7 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                            scriptId={scriptId || undefined}
                   onEditScript={onUpdate}
                   isSaving={isSaving}
+                  isDocumentLoading={isScriptLoading}
                   onImportScript={onImportScript ? async (data) => onImportScript(data) : undefined}
                            onSwitchScript={onSwitchScript}
                   onTokenStream={(callback) => {
