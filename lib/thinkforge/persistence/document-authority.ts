@@ -1,6 +1,8 @@
 import {
   ThinkForgeDocumentContractSchema,
   normalizeThinkForgeDocumentContract,
+  thinkForgeDocumentContractMatchesClassification,
+  thinkForgeDocumentContractsMatchExactly,
   type ThinkForgeDocumentContract,
 } from '../schemas/document-contract';
 
@@ -50,16 +52,6 @@ export type ThinkForgeDocumentClassification = Pick<
 
 function canonicalDocumentType(contract: ThinkForgeDocumentContract): string {
   return contract.documentKind === 'document' ? contract.artifactType : contract.outputKind;
-}
-
-function contractsDescribeSameKind(
-  left: ThinkForgeDocumentContract,
-  right: ThinkForgeDocumentContract,
-): boolean {
-  return left.version === right.version
-    && left.documentKind === right.documentKind
-    && left.outputKind === right.outputKind
-    && left.artifactType === right.artifactType;
 }
 
 function requireExactString(
@@ -119,7 +111,7 @@ function assertMatchingKind(
   typeContract: ThinkForgeDocumentContract,
   code: ThinkForgeDocumentAuthorityErrorCode,
 ): void {
-  if (!contractsDescribeSameKind(contract, typeContract)) {
+  if (!thinkForgeDocumentContractMatchesClassification(contract, typeContract)) {
     throw new ThinkForgeDocumentAuthorityError(code, 'ThinkForge document contract conflicts with document type');
   }
 }
@@ -180,16 +172,18 @@ export function resolveThinkForgeDocumentWriteClassification(
   }
 
   if (existingAuthority) {
-    if (explicitContract && !contractsDescribeSameKind(existingAuthority.contentContract, explicitContract)) {
+    if (explicitContract
+      && !thinkForgeDocumentContractsMatchExactly(existingAuthority.contentContract, explicitContract)) {
       throw new ThinkForgeDocumentAuthorityError(
         'IMMUTABLE_DOCUMENT_KIND',
-        'ThinkForge document kind cannot change after creation',
+        'ThinkForge document contract cannot change after creation',
       );
     }
-    if (explicitType && !contractsDescribeSameKind(existingAuthority.contentContract, explicitType.contract)) {
+    if (explicitType
+      && !thinkForgeDocumentContractMatchesClassification(existingAuthority.contentContract, explicitType.contract)) {
       throw new ThinkForgeDocumentAuthorityError(
         'IMMUTABLE_DOCUMENT_KIND',
-        'ThinkForge document kind cannot change after creation',
+        'ThinkForge document contract cannot change after creation',
       );
     }
     return {

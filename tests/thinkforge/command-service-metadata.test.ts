@@ -394,6 +394,75 @@ describe('ThinkForge command-service metadata persistence', () => {
     );
   });
 
+  it('rejects changing the persisted carousel slide count through an explicit contract', async () => {
+    const storedContract = createThinkForgeWriterContract('carousel', { carouselSlideCount: 5 });
+    dbMock.getScript.mockResolvedValue({
+      _id: 'mongo_script_carousel',
+      sessionId: 'session_001',
+      scriptId: 'doc_carousel',
+      title: 'Carousel Draft',
+      content: 'Draft caption',
+      blocks: [block],
+      documentType: 'carousel',
+      contentContract: storedContract,
+      version: 2,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    });
+
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_001',
+      baseVersion: 2,
+      source: 'user',
+      payload: {
+        scriptId: 'doc_carousel',
+        blocks: [block],
+        contentContract: createThinkForgeWriterContract('carousel', { carouselSlideCount: 6 }),
+      },
+    }, 'user_001');
+
+    expect(result).toEqual({ ok: false, error: 'Document contract is immutable' });
+    expect(dbMock.saveScriptWithVersion).not.toHaveBeenCalled();
+  });
+
+  it('accepts a count-less carousel type update without erasing the persisted slide count', async () => {
+    const storedContract = createThinkForgeWriterContract('carousel', { carouselSlideCount: 5 });
+    dbMock.getScript.mockResolvedValue({
+      _id: 'mongo_script_carousel',
+      sessionId: 'session_001',
+      scriptId: 'doc_carousel',
+      title: 'Carousel Draft',
+      content: 'Draft caption',
+      blocks: [block],
+      documentType: 'carousel',
+      contentContract: storedContract,
+      version: 2,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    });
+
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId: 'session_001',
+      baseVersion: 2,
+      source: 'user',
+      payload: {
+        scriptId: 'doc_carousel',
+        blocks: [block],
+        documentType: 'carousel',
+      },
+    }, 'user_001');
+
+    expect(result.ok).toBe(true);
+    expect(dbMock.saveScriptWithVersion).toHaveBeenCalledWith(
+      'session_001',
+      expect.objectContaining({ contentContract: storedContract }),
+      2,
+      'doc_carousel',
+    );
+  });
+
   it('dual-reads legacy post aliases and preserves their contract during block edits', async () => {
     const metadata = {
       signalTrace: {

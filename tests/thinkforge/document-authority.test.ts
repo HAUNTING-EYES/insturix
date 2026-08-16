@@ -25,6 +25,16 @@ function activePost(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function activeCarousel(overrides: Record<string, unknown> = {}) {
+  return activePost({
+    scriptId: 'carousel_1',
+    title: 'Launch carousel',
+    documentType: 'carousel',
+    contentContract: createThinkForgeWriterContract('carousel', { carouselSlideCount: 5 }),
+    ...overrides,
+  });
+}
+
 function expectAuthorityError(run: () => unknown, code: ThinkForgeDocumentAuthorityError['code']) {
   try {
     run();
@@ -107,6 +117,26 @@ describe('ThinkForge document write authority', () => {
       }, activePost()),
       'IMMUTABLE_DOCUMENT_KIND',
     );
+  });
+
+  it('rejects changing an existing carousel slide-count contract', () => {
+    expectAuthorityError(
+      () => resolveThinkForgeDocumentWriteClassification({
+        contentContract: createThinkForgeWriterContract('carousel', { carouselSlideCount: 6 }),
+      }, activeCarousel()),
+      'IMMUTABLE_DOCUMENT_KIND',
+    );
+  });
+
+  it('treats a count-less carousel type as classification without erasing the stored count', () => {
+    const storedContract = createThinkForgeWriterContract('carousel', { carouselSlideCount: 5 });
+    expect(resolveThinkForgeDocumentWriteClassification(
+      { documentType: 'carousel' },
+      activeCarousel({ contentContract: storedContract }),
+    )).toEqual({
+      documentType: 'carousel',
+      contentContract: storedContract,
+    });
   });
 
   it('keeps runtime storage free of legacy screenplay and ID fallbacks', () => {

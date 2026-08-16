@@ -11,6 +11,8 @@ import * as db from '@/lib/thinkforge/services/db';
 import {
   ThinkForgeDocumentContractSchema,
   normalizeThinkForgeDocumentContract,
+  thinkForgeDocumentContractMatchesClassification,
+  thinkForgeDocumentContractsMatchExactly,
   type ThinkForgeDocumentContract,
 } from '@/lib/thinkforge/schemas/document-contract';
 import { reconcileWriterOutputMetadata } from '@/lib/thinkforge/persistence/writer-output-binding';
@@ -65,16 +67,6 @@ function computeContentFromBlocks(blocks: ThinkForgeBlock[]): string {
 
 function canonicalDocumentType(contract: ThinkForgeDocumentContract): string {
   return contract.documentKind === 'document' ? contract.artifactType : contract.outputKind;
-}
-
-function contractsMatch(
-  left: ThinkForgeDocumentContract,
-  right: ThinkForgeDocumentContract,
-): boolean {
-  return left.version === right.version
-    && left.documentKind === right.documentKind
-    && left.outputKind === right.outputKind
-    && left.artifactType === right.artifactType;
 }
 
 function parseStoredContract(script: db.Script): ThinkForgeDocumentContract | null {
@@ -173,16 +165,23 @@ export async function applyCommand(
     }
 
     if (explicitContract?.success && explicitDocumentType
-      && !contractsMatch(explicitContract.data, explicitDocumentType)) {
+      && !thinkForgeDocumentContractMatchesClassification(explicitContract.data, explicitDocumentType)) {
       return { ok: false, error: 'Document contract conflicts with document type' };
     }
 
+    if (existing && nextContract) {
+      if (explicitContract?.success
+        && !thinkForgeDocumentContractsMatchExactly(nextContract, explicitContract.data)) {
+        return { ok: false, error: 'Document contract is immutable' };
+      }
+      if (explicitDocumentType
+        && !thinkForgeDocumentContractMatchesClassification(nextContract, explicitDocumentType)) {
+        return { ok: false, error: 'Document contract is immutable' };
+      }
+    }
     const requestedContract = explicitContract?.success
       ? explicitContract.data
       : explicitDocumentType;
-    if (existing && requestedContract && nextContract && !contractsMatch(nextContract, requestedContract)) {
-      return { ok: false, error: 'Document contract is immutable' };
-    }
     if (!existing && requestedContract) {
       nextContract = requestedContract;
     }

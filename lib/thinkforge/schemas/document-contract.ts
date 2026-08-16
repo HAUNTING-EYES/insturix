@@ -99,6 +99,33 @@ export const ThinkForgeDocumentContractSchema = z.object({
 
 export type ThinkForgeDocumentContract = z.infer<typeof ThinkForgeDocumentContractSchema>;
 
+export function thinkForgeDocumentContractsDescribeSameKind(
+  left: ThinkForgeDocumentContract,
+  right: ThinkForgeDocumentContract,
+): boolean {
+  return left.version === right.version
+    && left.documentKind === right.documentKind
+    && left.outputKind === right.outputKind
+    && left.artifactType === right.artifactType;
+}
+
+export function thinkForgeDocumentContractMatchesClassification(
+  contract: ThinkForgeDocumentContract,
+  classification: ThinkForgeDocumentContract,
+): boolean {
+  return thinkForgeDocumentContractsDescribeSameKind(contract, classification)
+    && (classification.carouselSlideCount === undefined
+      || contract.carouselSlideCount === classification.carouselSlideCount);
+}
+
+export function thinkForgeDocumentContractsMatchExactly(
+  left: ThinkForgeDocumentContract,
+  right: ThinkForgeDocumentContract,
+): boolean {
+  return thinkForgeDocumentContractsDescribeSameKind(left, right)
+    && left.carouselSlideCount === right.carouselSlideCount;
+}
+
 const TECHNICAL_ARTIFACT_TYPES = new Set<ThinkForgeArtifactType>([
   'vfx_brief',
   'budget',
