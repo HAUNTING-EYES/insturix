@@ -109,7 +109,7 @@ export function buildBrandContextFlat(brand: UnifiedBrand | null): string {
  */
 const ACCEPTED_SIGNAL_FLOOR = 0.5;
 
-function isAcceptedSignalUsable(signal: BrandSignal<unknown>): boolean {
+export function isAcceptedSignalUsable(signal: BrandSignal<unknown>): boolean {
   return (
     signal.confidence >= ACCEPTED_SIGNAL_FLOOR &&
     signal.trustLevel !== 'fallback_default' &&

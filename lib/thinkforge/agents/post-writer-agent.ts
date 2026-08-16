@@ -10,7 +10,10 @@ import {
   type ThinkForgeContentSignalProfile,
 } from '../signals';
 import { generateStructuredWithWritingContextCache } from '../services/gemini-writing-context-cache';
-import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
+import {
+  findDisallowedThinkForgeAiFiller,
+  resolveThinkForgeBrandLanguagePolicy,
+} from '../data/brand-language-policy';
 import { formatTrendBriefForPrompt } from './trend-brief-context';
 import type { ThinkForgeDocumentContract } from '../schemas/document-contract';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
@@ -164,11 +167,6 @@ const SOURCE_COVERAGE_STOP_WORDS = new Set([
   'hasta', 'para', 'pero', 'porque', 'sobre', 'tambien', 'todas', 'todos', 'una', 'unas',
   'unos',
 ]);
-
-const CACHED_POST_AI_FILLER = getAntiAiConstraintBundle().fillerPatterns.map((pattern) => ({
-  regex: new RegExp(pattern.pattern, 'i'),
-  label: pattern.label,
-}));
 
 function resolvePostEditorialPlanForInput(input: PostWriterInput): PostEditorialPlan {
   return buildPostEditorialPlan({
@@ -1148,9 +1146,14 @@ export function assertUsablePostWriterResult(
     if (result.clickatron?.singleImagePrompt) failures.push('carousel_returned_single_image_prompt');
   }
 
-  const filler = CACHED_POST_AI_FILLER.find((pattern) => pattern.regex.test(
+  const brandLanguagePolicy = resolveThinkForgeBrandLanguagePolicy(
+    input.retrievedContext?.brandAuthority?.profile
+      ?? input.retrievedContext?.brandSignalProfile,
+  );
+  const filler = findDisallowedThinkForgeAiFiller(
     contentWithoutRequiredSourceClaims(content, input),
-  ));
+    brandLanguagePolicy,
+  )[0];
   if (filler) failures.push(`banned_phrase:${filler.label}`);
 
   if (input.contentSignalProfile) {
@@ -1304,6 +1307,10 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
   buildPromptParts(input: PostWriterInput): IsolatedPromptParts {
     const { context, userPrompt, editContext, productionBrief } = input;
     const editorialPlan = resolvePostEditorialPlanForInput(input);
+    const brandLanguagePolicy = resolveThinkForgeBrandLanguagePolicy(
+      input.retrievedContext?.brandAuthority?.profile
+        ?? input.retrievedContext?.brandSignalProfile,
+    );
     assertPostEditorialPlanFeasible(editorialPlan);
     const outputPlatform = resolvePostOutputPlatform(editorialPlan);
     const outputFormat = buildPostOutputFormat(outputPlatform, {
@@ -1427,6 +1434,7 @@ Return your response strictly adhering to the JSON schema.`;
       data: {
         projectSummary: context.projectSummary || null,
         brandContext: context.systemBrief || null,
+        antiAiPolicy: brandLanguagePolicy,
         userBrief: userPrompt,
         claimSources: authorizedClaimSources(input),
         contentSignalProfile: input.contentSignalProfile ? {

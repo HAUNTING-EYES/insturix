@@ -305,7 +305,8 @@ CLICKATRON OUTPUT
 
 ANTI-AI CONSTRAINTS (from writing-knowledge graph)
 ${antiAiConstraints}
-  Treat banned_phrase_list entries as literal forbidden substrings in final content.
+  Treat banned_phrase_list entries as literal forbidden substrings in final content, except when the match occurs entirely inside an exact phrase listed in tf_untrusted_data.antiAiPolicy.approvedRecurringPhrases.
+  The exception applies only to that exact full phrase occurrence. The same banned word elsewhere remains forbidden, and the accepted Brand Vault kill list always wins.
   Before returning, scan the final content and rewrite any sentence violating these constraints.
 </output_format>`;
 }

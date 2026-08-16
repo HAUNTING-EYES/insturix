@@ -26,6 +26,10 @@ import {
   type ThinkForgePostControls,
 } from '@/lib/thinkforge/schemas/authoring-request';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
+import {
+  findDisallowedThinkForgeAiFiller,
+  resolveThinkForgeBrandLanguagePolicy,
+} from '@/lib/thinkforge/data/brand-language-policy';
 
 function postAuthoringRequest(overrides: {
   platformSurface?: ThinkForgePlatformSurface;
@@ -1117,6 +1121,84 @@ describe('assertUsablePostWriterResult', () => {
     expect(output.result.content).toBe(completeLinkedInPost());
     expect(output.result.metadata.charCount).toBe(completeLinkedInPost().length);
     expect(output.metadata?.notes).toBe('writing_context_cache:hit;post_contract_repair:applied');
+  });
+
+  it('exempts filler only inside an exact accepted recurring phrase', () => {
+    const signal = (value: string[]) => ({
+      value,
+      confidence: 0.9,
+      trustLevel: 'manual_user_entry',
+      authorityClass: 'brand_preference',
+      evidenceIds: ['evidence_1'],
+    });
+    const profile = {
+      voice: {
+        recurringPhrases: signal(['Leverage one approval owner']),
+        killList: signal([]),
+      },
+    } as any;
+    const policy = resolveThinkForgeBrandLanguagePolicy(profile);
+
+    expect(findDisallowedThinkForgeAiFiller(
+      'Leverage one approval owner. Do not leverage every comment thread.',
+      policy,
+    )).toEqual([
+      expect.objectContaining({ label: 'leverage', matchedText: 'leverage' }),
+    ]);
+  });
+
+  it('lets the accepted kill list override a conflicting recurring phrase', () => {
+    const signal = (value: string[], authorityClass = 'brand_preference') => ({
+      value,
+      confidence: 0.95,
+      trustLevel: 'manual_user_entry',
+      authorityClass,
+      evidenceIds: ['evidence_1'],
+    });
+    const profile = {
+      voice: {
+        recurringPhrases: signal(['Leverage one approval owner']),
+        killList: signal(['leverage'], 'brand_constraint'),
+      },
+    } as any;
+
+    const policy = resolveThinkForgeBrandLanguagePolicy(profile);
+    expect(policy.approvedRecurringPhrases).toEqual([]);
+    expect(findDisallowedThinkForgeAiFiller('Leverage one approval owner.', policy))
+      .toEqual([expect.objectContaining({ label: 'leverage' })]);
+  });
+
+  it('keeps approved recurring phrases in untrusted prompt data', () => {
+    const signal = (value: string[]) => ({
+      value,
+      confidence: 0.9,
+      trustLevel: 'manual_user_entry',
+      authorityClass: 'brand_preference',
+      evidenceIds: ['evidence_1'],
+    });
+    const profile = {
+      voice: {
+        recurringPhrases: signal(['Leverage one approval owner']),
+        killList: signal([]),
+      },
+    } as any;
+    const input = {
+      ...baseInput,
+      retrievedContext: {
+        brandDNA: {},
+        brandSignalProfile: profile,
+        brandAuthority: null,
+        projectFacts: [],
+        globalFacts: [],
+        semanticFacts: [],
+        interactionPatterns: [],
+      },
+    } as PostWriterInput;
+
+    const parts = new PostWriterAgent().buildPromptParts(input);
+    expect(parts.systemInstruction).not.toContain('Leverage one approval owner');
+    expect(parts.prompt).toContain('Leverage one approval owner');
+    expect(parts.systemInstruction).toContain('antiAiPolicy.approvedRecurringPhrases');
   });
 
   it('performs one constrained repair for a generic CTA', async () => {
