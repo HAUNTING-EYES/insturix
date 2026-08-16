@@ -57,6 +57,7 @@ import {
 } from './thinkforge-eval-provider-adapter';
 import {
   evaluateWriterPromotionGate,
+  THINKFORGE_WRITER_JUDGE_DIMENSIONS,
   type WriterPromotionRun,
 } from './thinkforge-writer-promotion-gate';
 
@@ -1122,10 +1123,16 @@ async function main() {
     caseName: testCase.name,
     seed: result.seed,
     deterministicScore: result.combinedRatio,
-    editorialQualityScore: result.quality.total > 0 ? result.quality.ratio : 1,
+    editorialQualityScore: result.quality.total > 0 ? result.quality.ratio : 0,
     error: result.error,
     judge: result.judge ? {
       overall: result.judge.overall,
+      brandAdherence: result.judge.brandAdherence,
+      grounding: result.judge.grounding,
+      specificity: result.judge.specificity,
+      platformFit: result.judge.platformFit,
+      ctaUsefulness: result.judge.ctaUsefulness,
+      clickatronReadiness: result.judge.clickatronReadiness,
       fabricationHardFail: result.judge.fabricationHardFail,
       internalLeakageHardFail: result.judge.internalLeakageHardFail,
     } : undefined,
@@ -1142,6 +1149,11 @@ async function main() {
   console.log(`  Deterministic: min ${(promotion.metrics.deterministicMin * 100).toFixed(2)}% avg ${(promotion.metrics.deterministicAverage * 100).toFixed(2)}%`);
   console.log(`  Editorial quality: min ${(promotion.metrics.editorialQualityMin * 100).toFixed(2)}% avg ${(promotion.metrics.editorialQualityAverage * 100).toFixed(2)}%`);
   console.log(`  Independent judge: min ${promotion.metrics.judgeMin.toFixed(2)}% avg ${promotion.metrics.judgeAverage.toFixed(2)}% coverage ${(promotion.metrics.judgeCoverage * 100).toFixed(2)}%`);
+  for (const dimension of THINKFORGE_WRITER_JUDGE_DIMENSIONS) {
+    console.log(
+      `    ${dimension}: min ${promotion.metrics.judgeDimensionMin[dimension].toFixed(2)}% avg ${promotion.metrics.judgeDimensionAverage[dimension].toFixed(2)}%`,
+    );
+  }
   if (promotion.failures.length > 0) {
     console.log(`  Failures: ${promotion.failures.join(', ')}`);
   }
@@ -1168,6 +1180,10 @@ async function main() {
 
   if (regressionFailed) {
     console.error('\nðŸ”´ REGRESSION DETECTED â€” one or more cases fell below baseline. Exiting non-zero.');
+    process.exit(1);
+  }
+  if (completedRuns.some(({ result }) => Boolean(result.error))) {
+    console.error('\nTHINKFORGE WRITER EVAL FAILED: one or more writer runs errored.');
     process.exit(1);
   }
   if (promotionEligible && !promotion.passed) {
