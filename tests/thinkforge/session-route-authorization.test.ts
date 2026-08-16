@@ -734,17 +734,17 @@ describe('ThinkForge session route authorization', () => {
     });
     const response = await callIdeas({
       prompt: 'Create a post for my brand about product adoption.',
-      brandId: 'brand_allowed',
-      brandBrief: 'Stale browser scan: make every idea about the old founder interview.',
+      brandScope: { mode: 'brand', brandId: 'brand_allowed' },
       authoringRequest,
     });
 
     if (!response) throw new Error('Ideas route did not return a response');
     expect(response.status).toBe(200);
-    expect(mocks.listAuthorizedBrandScopes).toHaveBeenCalledWith({
+    expect(mocks.authorizeBrandScope).toHaveBeenCalledWith({
       userId: 'user_1',
       orgId: 'org_1',
       isOrgAdmin: false,
+      brandId: 'brand_allowed',
     });
     expect(mocks.resolveThinkForgeAuthoringContext).toHaveBeenCalledWith(expect.objectContaining({
       userId: 'user_1',
@@ -769,27 +769,24 @@ describe('ThinkForge session route authorization', () => {
     );
   });
 
-  it.each([
-    'Create a post for my brand about product adoption.',
-    'Create a post for Allowed Brand about product adoption.',
-  ])('requires explicit brand selection instead of inferring authority from %s', async (prompt) => {
+  it('rejects a missing brand decision before credits or model work', async () => {
     const authoringRequest = createThinkForgeAuthoringRequest({
       contentContract: createThinkForgeWriterContract('social_post'),
       platformSurface: { id: 'linkedin' },
       postControls: createDefaultThinkForgePostControls(),
     });
 
-    const response = await callIdeas({ prompt, authoringRequest });
+    const response = await callIdeas({ prompt: 'Create a general post.', authoringRequest });
 
     if (!response) throw new Error('Ideas route did not return a response');
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ code: 'brand_context_required' });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'invalid_idea_generation_request' });
     expect(mocks.resolveThinkForgeAuthoringContext).not.toHaveBeenCalled();
     expect(mocks.createIdeasAgent).not.toHaveBeenCalled();
     expect(mocks.deductCredits).not.toHaveBeenCalled();
   });
 
-  it('keeps a deliberately unbranded idea request unbranded even when only one brand is available', async () => {
+  it('rejects an unbranded claim when an authorized brand exists', async () => {
     const authoringRequest = createThinkForgeAuthoringRequest({
       contentContract: createThinkForgeWriterContract('social_post'),
       platformSurface: { id: 'linkedin' },
@@ -799,6 +796,28 @@ describe('ThinkForge session route authorization', () => {
     const response = await callIdeas({
       prompt: 'Create a general post about product adoption.',
       authoringRequest,
+      brandScope: { mode: 'unbranded', reason: 'no_authorized_brands' },
+    });
+
+    if (!response) throw new Error('Ideas route did not return a response');
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'brand_selection_required' });
+    expect(mocks.resolveThinkForgeAuthoringContext).not.toHaveBeenCalled();
+    expect(mocks.createIdeasAgent).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+  });
+
+  it('allows verified unbranded generation only when no authorized brand exists', async () => {
+    mocks.listAuthorizedBrandScopes.mockResolvedValueOnce([]);
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('social_post'),
+      platformSurface: { id: 'linkedin' },
+      postControls: createDefaultThinkForgePostControls(),
+    });
+    const response = await callIdeas({
+      prompt: 'Create a general post about product adoption.',
+      authoringRequest,
+      brandScope: { mode: 'unbranded', reason: 'no_authorized_brands' },
     });
 
     if (!response) throw new Error('Ideas route did not return a response');
@@ -809,6 +828,29 @@ describe('ThinkForge session route authorization', () => {
     const body = await response.json();
     expect(body.grounding).toEqual({ brandId: null, brandName: null });
     expect(body.ideas[0]).not.toHaveProperty('brandId');
+  });
+
+  it('fails closed before credits when brand authority lookup fails unexpectedly', async () => {
+    mocks.authorizeBrandScope.mockRejectedValueOnce(new Error('database unavailable'));
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('social_post'),
+      platformSurface: { id: 'linkedin' },
+      postControls: createDefaultThinkForgePostControls(),
+    });
+
+    const response = await callIdeas({
+      prompt: 'Create a launch post.',
+      authoringRequest,
+      brandScope: { mode: 'brand', brandId: 'brand_allowed' },
+    });
+
+    if (!response) throw new Error('Ideas route did not return a response');
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: 'brand_scope_unavailable' });
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.resolveThinkForgeAuthoringContext).not.toHaveBeenCalled();
+    expect(mocks.createIdeasAgent).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
   });
 
   it('rejects foreign-session AI edits before credits or model work', async () => {

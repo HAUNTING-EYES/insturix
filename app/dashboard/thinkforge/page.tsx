@@ -36,6 +36,11 @@ import {
 import { matchesThinkForgeDocumentIdentity } from "@/lib/thinkforge/client-document-identity";
 import { resolveThinkForgeSessionOpenAction } from "@/lib/thinkforge/session-open-policy";
 import { getActiveBrandIdFromStorage } from "@/components/dashboard/ActiveBrand/ActiveBrandProvider";
+import { useActiveBrand } from "@/components/dashboard/ActiveBrand/ActiveBrandProvider";
+import {
+	createThinkForgeIdeaGenerationRequest,
+	resolveThinkForgeIdeaBrandScope,
+} from "@/lib/thinkforge/schemas/idea-generation-request";
 const PROJECT_META_PASSTHROUGH_KEYS = [
 	'brandId',
 	'brandBrief',
@@ -108,25 +113,6 @@ const buildProjectMetaPayload = (
 		...(initialDraftIntent ? { initialDraftIntent } : {}),
 	};
 };
-const buildIdeaGenerationPayload = (
-	prompt: string,
-	authoringRequest: ThinkForgeAuthoringRequest,
-	projectMeta?: Record<string, unknown> | null,
-	variationIndex = 0,
-	rejectedIdeas: Array<{ title: string; purpose: string; style: string }> = [],
-): Record<string, unknown> => {
-	const scopedMeta = pickProjectMetaPassthrough(projectMeta);
-	const brandId = toNonEmptyString(scopedMeta.brandId) ?? getActiveBrandIdFromStorage();
-	return {
-		prompt,
-		authoringRequest,
-		variationIndex,
-		rejectedIdeas,
-		...(brandId ? { brandId } : {}),
-		...(Object.keys(scopedMeta).length > 0 ? { projectMeta: scopedMeta } : {}),
-	};
-};
-
 const buildIdeaFromSessionMeta = (
   sessionId: string,
   projectMeta: Record<string, unknown>,
@@ -159,6 +145,7 @@ const bindActiveBrandToNewSession = (projectMeta: Record<string, unknown>): Reco
 
 
 export default function ThinkForgeLanding() {
+	const { activeBrand, brands: availableBrands, isLoading: isBrandListLoading } = useActiveBrand();
 	// Mode state
 	const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ideation');
 
@@ -271,6 +258,21 @@ export default function ThinkForgeLanding() {
 			return;
 		}
 		const validatedRequest = ThinkForgeAuthoringRequestSchema.parse(request);
+		const brandScopeResolution = resolveThinkForgeIdeaBrandScope({
+			activeBrandId: activeBrand?.brandId,
+			availableBrandCount: availableBrands.length,
+			brandListSettled: !isBrandListLoading,
+		});
+		if (brandScopeResolution.status !== 'ready') {
+			toast({
+				title: brandScopeResolution.status === 'pending' ? 'Brands are loading' : 'Brand selection required',
+				description: brandScopeResolution.status === 'pending'
+					? 'Wait for Brand Vault to finish loading, then try again.'
+					: 'Select the brand this content belongs to before generating ideas.',
+				variant: 'destructive',
+			});
+			return;
+		}
 		setAuthoringRequest(validatedRequest);
 		const variationIndex = options?.variationIndex ?? 0;
 		const rejectedIdeas = options?.rejectedIdeas || [];
@@ -287,13 +289,13 @@ export default function ThinkForgeLanding() {
 			const res = await fetch('/api/services/thinkforge/ideas', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(buildIdeaGenerationPayload(
-					ideaPrompt,
-					validatedRequest,
-					session.projectMeta,
+				body: JSON.stringify(createThinkForgeIdeaGenerationRequest({
+					prompt: ideaPrompt,
+					authoringRequest: validatedRequest,
+					brandScope: brandScopeResolution.scope,
 					variationIndex,
 					rejectedIdeas,
-				))
+				})),
 			});
 			// Handle insufficient credits (new credits system)
 			if (res.status === 402) {
@@ -307,7 +309,7 @@ export default function ThinkForgeLanding() {
 			}
 			if (!res.ok) {
 				const errData = await res.json().catch(() => ({}));
-				if (res.status === 409 && errData?.code === 'brand_context_required') {
+				if (res.status === 409 && ['brand_context_required', 'brand_selection_required'].includes(errData?.code)) {
 					const names = Array.isArray(errData.availableBrands)
 						? errData.availableBrands.map((brand: any) => brand?.name).filter(Boolean).slice(0, 3).join(', ')
 						: '';
@@ -344,7 +346,7 @@ export default function ThinkForgeLanding() {
 		} finally {
 			setLoading(false);
 		}
-	}, [prompt, session.projectMeta, authoringRequest]);
+	}, [prompt, authoringRequest, activeBrand?.brandId, availableBrands.length, isBrandListLoading]);
 
 
 	const onSubmit = (e: React.FormEvent, request: ThinkForgeAuthoringRequest) => {
@@ -704,9 +706,7 @@ export default function ThinkForgeLanding() {
 					? { status: 'pending', requestedAt: new Date().toISOString() }
 					: undefined;
 				const created = await session.hydrate({
-					projectMeta: bindActiveBrandToNewSession(
-						buildProjectMetaPayload(selectedIdea, initialDraftIntent),
-					),
+					projectMeta: buildProjectMetaPayload(selectedIdea, initialDraftIntent),
 				});
 				// Check mount state after async operations
 				if (!isMountedRef.current) {
