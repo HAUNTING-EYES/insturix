@@ -1,4 +1,13 @@
 import type { CalosService, CalosServiceRef } from "@/schemas/calos-deliverable";
+import type { PostWriterResult } from "@/lib/thinkforge/agents/post-writer-agent";
+import type { ScriptWriterResult } from "@/lib/thinkforge/agents/script-writer-agent";
+import type { ThinkForgeAuthoringContextSnapshot } from "@/lib/thinkforge/context/brand-authoring-context";
+import type { SourceLedger } from "@/lib/thinkforge/provenance/source-ledger";
+import type {
+  ThinkForgeDocumentContract,
+  ThinkForgeWriterKind,
+} from "@/lib/thinkforge/schemas/document-contract";
+import type { ThinkForgeSignalTrace } from "@/lib/thinkforge/signals/signal-trace";
 
 export interface GenerateParams {
   ownerUserId: string;
@@ -11,13 +20,53 @@ export interface GenerateParams {
   platform: string;
   title: string;
   angle?: string;
+  /** Exact calendar-owned runtime intent. Required by long_video cadence validation. */
+  targetDurationSeconds?: number;
 }
+
+export interface ThinkForgePostWriterOutput {
+  writerType: "post";
+  contentAnalysis: PostWriterResult["contentAnalysis"];
+  hashtags: PostWriterResult["hashtags"];
+  visualPrompts: PostWriterResult["clickatron"];
+  sourceLedger: SourceLedger;
+  writerMetadata: PostWriterResult["metadata"];
+}
+
+export interface ThinkForgeScriptWriterOutput {
+  writerType: "script";
+  contentAnalysis: ScriptWriterResult["contentAnalysis"];
+  visualPrompts: ScriptWriterResult["visualMetadata"];
+  scriptSidecar: ScriptWriterResult["sidecar"];
+  sidecarVersion: ScriptWriterResult["sidecar"]["sidecarVersion"];
+  sourceLedger: SourceLedger;
+  writerMetadata: ScriptWriterResult["metadata"];
+}
+
+interface ThinkForgeArtifactBase {
+  content: string;
+  contentContract: ThinkForgeDocumentContract;
+  authoringContextSnapshot: ThinkForgeAuthoringContextSnapshot;
+  signalTrace: ThinkForgeSignalTrace;
+}
+
+export type ThinkForgeGeneratedArtifact =
+  | (ThinkForgeArtifactBase & {
+      documentType: Extract<ThinkForgeWriterKind, "social_post" | "carousel">;
+      writerOutput: ThinkForgePostWriterOutput;
+    })
+  | (ThinkForgeArtifactBase & {
+      documentType: Extract<ThinkForgeWriterKind, "video_script">;
+      writerOutput: ThinkForgeScriptWriterOutput;
+    });
 
 export interface GenerateResult {
   ok: boolean;
   serviceRef?: Pick<CalosServiceRef, "jobId" | "sessionId" | "projectId" | "variationId">;
   assetUrl?: string | null;
   assetText?: string | null;
+  /** Complete ThinkForge artifact. Required when a writer ran; never reconstruct it from assetText. */
+  thinkforgeArtifact?: ThinkForgeGeneratedArtifact;
   /** Editorial status to land the deliverable in. Defaults to 'generated'. A generator that only
    *  produced a draft/brief (e.g. graphics: copy + image prompt, image still pending) returns
    *  'drafting' so we don't claim a finished asset. */
