@@ -32,7 +32,6 @@ interface ChatPanelProps {
   initialMessages?: any[];
   onOpenSettings?: () => void;
   onOpenKnowledge?: () => void;
-  onSwitchSession?: (sessionId: string) => Promise<void>;
   onScriptCreated?: (scriptId: string) => void;
   onGetSelection?: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null;
   editingSelection?: { text: string; range: { from: number; to: number }; blocks: any[] } | null;
@@ -164,7 +163,6 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   initialMessages,
   onOpenSettings,
   onOpenKnowledge,
-  onSwitchSession,
   onScriptCreated,
   onTokenStream,
   onGetSelection,

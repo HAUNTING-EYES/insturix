@@ -30,7 +30,6 @@ interface StoryboardingModeProps {
   onImportScript: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string }>;
   onGoToIdeation: () => void;
   onUpdateIdea?: (idea: IdeaCardData) => void;
-  onSwitchSession?: (sessionId: string) => Promise<void>;
   onScriptCreated?: (scriptId: string) => void;
   onSwitchScript?: (scriptId: string) => void;
   onTabClose?: (scriptId: string) => void;
@@ -52,7 +51,6 @@ export default function StoryboardingMode({
   onImportScript,
   onGoToIdeation,
   onUpdateIdea,
-  onSwitchSession,
   onScriptCreated,
   onSwitchScript,
   onTabClose
@@ -225,7 +223,6 @@ export default function StoryboardingMode({
             sessionId={sessionId}
             onOpenSettings={handleOpenSettings}
             onOpenKnowledge={() => setShowKnowledge(true)}
-            onSwitchSession={onSwitchSession}
             onScriptCreated={onScriptCreated}
             onTokenStream={handleTokenStream}
             onGetSelection={handleGetSelection}

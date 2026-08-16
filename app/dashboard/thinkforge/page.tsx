@@ -165,7 +165,7 @@ export default function ThinkForgeLanding() {
 
 	const [selectedIdea, setSelectedIdea] = useState<IdeaCardData | null>(null);
 	// Internal phase for Ideation mode
-	const [ideationPhase, setIdeationPhase] = useState<'PROMPT' | 'IDEAS' | 'SELECTED'>('PROMPT');
+	const [ideationPhase, setIdeationPhase] = useState<'PROMPT' | 'IDEAS'>('PROMPT');
 
 	const [sessions, setSessions] = useState<SessionMeta[]>([]);
 	const initialDraftRequestedRef = useRef(false);
@@ -475,40 +475,6 @@ export default function ThinkForgeLanding() {
 		scriptHook.resetSessionState();
 		setPendingSessionId(null);
 		setWorkspaceMode('scripting');
-		setIdeationPhase('PROMPT');
-		setIdeas([]);
-		setHasSubmitted(false);
-		setPrompt("");
-		setAuthoringRequest(null);
-	};
-
-	const handleProceedToScript = async (updatedIdea?: IdeaCardData) => {
-		initialDraftRequestedRef.current = false;
-		const targetIdea = updatedIdea || selectedIdea;
-		if (!resolveIdeaDocumentContract(targetIdea)) {
-			toast({
-				title: 'Content format required',
-				description: 'Choose a post, carousel, or video-script format before continuing.',
-				variant: 'destructive',
-			});
-			return;
-		}
-		const name = (targetIdea?.sessionName || '').trim();
-		if (!name || name.length > 100) {
-			toast({
-				title: 'Session name required',
-				description: 'Please enter a Session name (max 100 chars) before continuing.',
-				variant: 'destructive',
-			});
-			return;
-		}
-		// Ensure any previous session is fully closed before entering SCRIPT
-		try { await session.closeSession(); } catch (err) { console.warn('[ThinkForge] closeSession warning:', err); }
-		// Clear any stale script immediately before creating a new session
-		scriptHook.resetSessionState();
-		setPendingSessionId(null);
-		setWorkspaceMode('scripting');
-		// Reset ideation phase back to start so user can generate new ideas when returning
 		setIdeationPhase('PROMPT');
 		setIdeas([]);
 		setHasSubmitted(false);
@@ -978,19 +944,14 @@ export default function ThinkForgeLanding() {
 				loading={loading}
 				hasSubmitted={hasSubmitted}
 				ideas={ideas}
-				selectedIdea={selectedIdea}
 				authoringRequest={authoringRequest}
 				onSubmit={onSubmit}
 				onRegenerate={regenerate}
 				onSelectIdea={handleSelectIdea}
-				onProceedToChat={handleProceedToScript}
-				onGoBackToIdeas={() => setIdeationPhase('IDEAS')}
-				onUpdateIdea={handleUpdateIdea}
 				sessionId={activeSessionId}
 				onEnsureTrendSession={handleEnsureTrendSession}
 				onTrendDraft={handleTrendDraft}
 				isVisible={workspaceMode === 'ideation'}
-				sessionCount={sessions.length}
 				onUrlSubmit={handleUrlSubmit}
 				briefLoading={briefLoading}
 			/>
@@ -1060,58 +1021,6 @@ export default function ThinkForgeLanding() {
 					}
 				}}
 				onGoToIdeation={() => setWorkspaceMode('ideation')}
-				onSwitchSession={async (id) => {
-					try {
-						// Ensure current script is saved before switching sessions
-						if (scriptHook.script) {
-							await scriptHook.autosave(scriptHook.script);
-						}
-						// Clear UI while switching to prevent stale hydration
-						scriptHook.resetSessionState();
-						setOpeningSession(true);
-						// Hydrate backend with target session and immediately use returned data
-						const data = await session.hydrate({ sessionId: id, scriptId: 'default' });
-						if (!data) { setOpeningSession(false); return; }
-						const sid = data.sessionId;
-						setPendingSessionId(sid);
-						scriptHook.resetSessionState();
-						setAuthoringRequest(null);
-						// Reconstruct selected idea from project meta
-						const pm = data.projectMeta || {};
-						// Derive a stable numeric id from the session id to keep UI keys stable
-						const stableId = (() => {
-							let h = 0;
-							for (let i = 0; i < String(id).length; i++) {
-								h = (h * 31 + String(id).charCodeAt(i)) >>> 0;
-							}
-							return h || Date.now();
-						})();
-						const ideaObj = {
-							id: stableId,
-							idea: pm.idea || 'Untitled',
-							purpose: pm.purpose || '',
-							style: pm.style || '',
-							format: pm.format || '',
-							platform: pm.platform || '',
-							tone: (pm.tone || 'blue') as any,
-							sessionName: pm.sessionName || undefined,
-							...pickProjectMetaPassthrough(pm),
-						} as any;
-						setSelectedIdea(ideaObj);
-						// Switch to Script mode so ChatPanel mounts and loads recent chats
-						setWorkspaceMode('scripting');
-					} catch (err) {
-						console.error('[ThinkForge] Failed to switch session:', err);
-						toast({
-							title: 'Failed to switch session',
-							description: 'Could not load the selected session.',
-							variant: 'destructive',
-						});
-					} finally {
-						// Immediately clear overlay - no setTimeout for correctness
-						setOpeningSession(false);
-					}
-				}}
 				onUpdateIdea={(updatedIdea) => {
 					setSelectedIdea(updatedIdea);
 					handleUpdateIdea({ ...updatedIdea, id: String(updatedIdea.id) });
