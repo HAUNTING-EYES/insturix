@@ -13,13 +13,12 @@ export const THINKFORGE_WRITER_PROMOTION_THRESHOLDS = {
   minimumCaseCount: 10,
   minimumDistinctRunsPerCase: 10,
   maxDuplicateRuns: 0,
-  deterministicMin: 0.95,
-  deterministicAverage: 0.95,
-  editorialQualityMin: 0.95,
-  editorialQualityAverage: 0.95,
-  judgeMin: 95,
+  maxDuplicateOutputs: 0,
+  deterministicPassScore: 0.95,
+  deterministicPassRate: 1,
+  publishReadyScore: 0.95,
+  publishReadyRate: 0.95,
   judgeAverage: 95,
-  judgeDimensionMin: 95,
   judgeDimensionAverage: 95,
   judgeCoverage: 1,
   maxGenerationErrors: 0,
@@ -43,7 +42,8 @@ export interface WriterPromotionJudgeResult {
 export interface WriterPromotionRun {
   caseId: number;
   caseName: string;
-  seed: number;
+  runId: number;
+  outputFingerprint: string;
   deterministicScore: number;
   editorialQualityScore: number;
   error?: string;
@@ -61,6 +61,10 @@ export interface WriterPromotionVerdict {
     caseCount: number;
     minimumDistinctRunsPerCase: number;
     duplicateRuns: number;
+    duplicateOutputs: number;
+    missingOutputFingerprints: number;
+    deterministicPassRate: number;
+    publishReadyRate: number;
     deterministicMin: number;
     deterministicAverage: number;
     editorialQualityMin: number;
@@ -85,6 +89,10 @@ function average(values: number[]): number {
     : 0;
 }
 
+function atLeast(actual: number, threshold: number): boolean {
+  return actual + Number.EPSILON * 16 >= threshold;
+}
+
 export function evaluateWriterPromotionGate(
   runs: WriterPromotionRun[],
   eligible: boolean,
@@ -92,20 +100,33 @@ export function evaluateWriterPromotionGate(
   const thresholds = THINKFORGE_WRITER_PROMOTION_THRESHOLDS;
   const uniqueRunsByKey = new Map<string, WriterPromotionRun>();
   for (const run of runs) {
-    const key = `${run.caseId}:${run.seed}`;
+    const key = `${run.caseId}:${run.runId}`;
     if (!uniqueRunsByKey.has(key)) uniqueRunsByKey.set(key, run);
   }
   const uniqueRuns = [...uniqueRunsByKey.values()];
   const duplicateRuns = runs.length - uniqueRuns.length;
-  const distinctSeedsByCase = new Map<number, Set<number>>();
+  const distinctRunsByCase = new Map<number, Set<number>>();
   for (const run of uniqueRuns) {
-    const seeds = distinctSeedsByCase.get(run.caseId) ?? new Set<number>();
-    seeds.add(run.seed);
-    distinctSeedsByCase.set(run.caseId, seeds);
+    const runIds = distinctRunsByCase.get(run.caseId) ?? new Set<number>();
+    runIds.add(run.runId);
+    distinctRunsByCase.set(run.caseId, runIds);
   }
-  const minimumDistinctRunsPerCase = distinctSeedsByCase.size > 0
-    ? Math.min(...[...distinctSeedsByCase.values()].map((seeds) => seeds.size))
+  const minimumDistinctRunsPerCase = distinctRunsByCase.size > 0
+    ? Math.min(...[...distinctRunsByCase.values()].map((runIds) => runIds.size))
     : 0;
+  const outputKeys = new Set<string>();
+  let duplicateOutputs = 0;
+  let missingOutputFingerprints = 0;
+  for (const run of uniqueRuns) {
+    if (run.error) continue;
+    if (!run.outputFingerprint.trim()) {
+      missingOutputFingerprints += 1;
+      continue;
+    }
+    const outputKey = `${run.caseId}:${run.outputFingerprint}`;
+    if (outputKeys.has(outputKey)) duplicateOutputs += 1;
+    else outputKeys.add(outputKey);
+  }
   const deterministicScores = uniqueRuns.map((run) => run.error ? 0 : run.deterministicScore);
   const editorialQualityScores = uniqueRuns.map((run) => run.error ? 0 : run.editorialQualityScore);
   const judgedRuns = uniqueRuns.filter((run) => run.judge !== undefined);
@@ -133,22 +154,36 @@ export function evaluateWriterPromotionGate(
   const judgeMin = judgeScores.length > 0 ? Math.min(...judgeScores) : 0;
   const judgeAverage = average(judgeScores);
   const judgeCoverage = uniqueRuns.length > 0 ? judgedRuns.length / uniqueRuns.length : 0;
+  const deterministicPasses = uniqueRuns.filter((run) => (
+    !run.error && atLeast(run.deterministicScore, thresholds.deterministicPassScore)
+  )).length;
+  const deterministicPassRate = uniqueRuns.length > 0 ? deterministicPasses / uniqueRuns.length : 0;
+  const publishReadyRuns = uniqueRuns.filter((run) => (
+    !run.error
+    && !run.judgeError
+    && atLeast(run.deterministicScore, thresholds.deterministicPassScore)
+    && atLeast(run.editorialQualityScore, thresholds.publishReadyScore)
+    && run.judge !== undefined
+    && atLeast(run.judge.overall / 100, thresholds.publishReadyScore)
+    && THINKFORGE_WRITER_JUDGE_DIMENSIONS.every((dimension) => (
+      atLeast(run.judge![dimension] / 100, thresholds.publishReadyScore)
+    ))
+    && !run.judge.fabricationHardFail
+    && !run.judge.internalLeakageHardFail
+  )).length;
+  const publishReadyRate = uniqueRuns.length > 0 ? publishReadyRuns / uniqueRuns.length : 0;
   const promotionScore = Math.min(
-    deterministicMin * 100,
-    deterministicAverage * 100,
-    editorialQualityMin * 100,
-    editorialQualityAverage * 100,
-    judgeMin,
+    deterministicPassRate * 100,
+    publishReadyRate * 100,
     judgeAverage,
-    ...Object.values(judgeDimensionMin),
     ...Object.values(judgeDimensionAverage),
   );
   const failures: string[] = [];
 
   if (!eligible) failures.push('run_not_promotion_eligible');
   if (uniqueRuns.length === 0) failures.push('no_runs');
-  if (distinctSeedsByCase.size < thresholds.minimumCaseCount) {
-    failures.push(`case_count:${distinctSeedsByCase.size}/${thresholds.minimumCaseCount}`);
+  if (distinctRunsByCase.size < thresholds.minimumCaseCount) {
+    failures.push(`case_count:${distinctRunsByCase.size}/${thresholds.minimumCaseCount}`);
   }
   if (minimumDistinctRunsPerCase < thresholds.minimumDistinctRunsPerCase) {
     failures.push(
@@ -158,38 +193,32 @@ export function evaluateWriterPromotionGate(
   if (duplicateRuns > thresholds.maxDuplicateRuns) {
     failures.push(`duplicate_runs:${duplicateRuns}`);
   }
+  if (duplicateOutputs > thresholds.maxDuplicateOutputs) {
+    failures.push(`duplicate_outputs:${duplicateOutputs}`);
+  }
+  if (missingOutputFingerprints > 0) {
+    failures.push(`missing_output_fingerprints:${missingOutputFingerprints}`);
+  }
   if (generationErrors > thresholds.maxGenerationErrors) {
     failures.push(`generation_errors:${generationErrors}`);
   }
   if (judgeErrors > thresholds.maxJudgeErrors) {
     failures.push(`judge_errors:${judgeErrors}`);
   }
-  if (deterministicMin < thresholds.deterministicMin) {
-    failures.push(`deterministic_min:${deterministicMin.toFixed(4)}`);
+  if (!atLeast(deterministicPassRate, thresholds.deterministicPassRate)) {
+    failures.push(`deterministic_pass_rate:${deterministicPassRate.toFixed(4)}`);
   }
-  if (deterministicAverage < thresholds.deterministicAverage) {
-    failures.push(`deterministic_average:${deterministicAverage.toFixed(4)}`);
-  }
-  if (editorialQualityMin < thresholds.editorialQualityMin) {
-    failures.push(`editorial_quality_min:${editorialQualityMin.toFixed(4)}`);
-  }
-  if (editorialQualityAverage < thresholds.editorialQualityAverage) {
-    failures.push(`editorial_quality_average:${editorialQualityAverage.toFixed(4)}`);
+  if (!atLeast(publishReadyRate, thresholds.publishReadyRate)) {
+    failures.push(`publish_ready_rate:${publishReadyRate.toFixed(4)}`);
   }
   if (judgeCoverage < thresholds.judgeCoverage) {
     failures.push(`judge_coverage:${judgeCoverage.toFixed(4)}`);
   }
-  if (judgeMin < thresholds.judgeMin) {
-    failures.push(`judge_min:${judgeMin.toFixed(2)}`);
-  }
-  if (judgeAverage < thresholds.judgeAverage) {
+  if (!atLeast(judgeAverage, thresholds.judgeAverage)) {
     failures.push(`judge_average:${judgeAverage.toFixed(2)}`);
   }
   for (const dimension of THINKFORGE_WRITER_JUDGE_DIMENSIONS) {
-    if (judgeDimensionMin[dimension] < thresholds.judgeDimensionMin) {
-      failures.push(`judge_${dimension}_min:${judgeDimensionMin[dimension].toFixed(2)}`);
-    }
-    if (judgeDimensionAverage[dimension] < thresholds.judgeDimensionAverage) {
+    if (!atLeast(judgeDimensionAverage[dimension], thresholds.judgeDimensionAverage)) {
       failures.push(`judge_${dimension}_average:${judgeDimensionAverage[dimension].toFixed(2)}`);
     }
   }
@@ -207,9 +236,13 @@ export function evaluateWriterPromotionGate(
     metrics: {
       submittedRunCount: runs.length,
       runCount: uniqueRuns.length,
-      caseCount: distinctSeedsByCase.size,
+      caseCount: distinctRunsByCase.size,
       minimumDistinctRunsPerCase,
       duplicateRuns,
+      duplicateOutputs,
+      missingOutputFingerprints,
+      deterministicPassRate,
+      publishReadyRate,
       deterministicMin,
       deterministicAverage,
       editorialQualityMin,

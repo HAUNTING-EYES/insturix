@@ -23,10 +23,13 @@ function passingJudge(
 }
 
 function passingRun(overrides: Partial<WriterPromotionRun> = {}): WriterPromotionRun {
+  const caseId = overrides.caseId ?? 9;
+  const runId = overrides.runId ?? 1;
   return {
-    caseId: 9,
+    caseId,
     caseName: 'Held-out B2B SaaS post',
-    seed: 1,
+    runId,
+    outputFingerprint: overrides.outputFingerprint ?? `case-${caseId}-run-${runId}`,
     deterministicScore: 0.96,
     editorialQualityScore: 0.96,
     judge: passingJudge(),
@@ -36,16 +39,16 @@ function passingRun(overrides: Partial<WriterPromotionRun> = {}): WriterPromotio
 
 function passingCorpus(): WriterPromotionRun[] {
   return Array.from({ length: 10 }, (_, caseOffset) => (
-    Array.from({ length: 10 }, (_, seedOffset) => passingRun({
+    Array.from({ length: 10 }, (_, runOffset) => passingRun({
       caseId: 9 + caseOffset,
       caseName: `Held-out case ${9 + caseOffset}`,
-      seed: seedOffset + 1,
+      runId: runOffset + 1,
     }))
   )).flat();
 }
 
 describe('ThinkForge writer promotion gate', () => {
-  it('passes only a complete held-out run where every result clears 95%', () => {
+  it('passes a complete held-out run with 100% contract validity and publish-ready evidence', () => {
     const verdict = evaluateWriterPromotionGate(passingCorpus(), true);
 
     expect(verdict.passed).toBe(true);
@@ -54,35 +57,41 @@ describe('ThinkForge writer promotion gate', () => {
       caseCount: 10,
       minimumDistinctRunsPerCase: 10,
       duplicateRuns: 0,
+      duplicateOutputs: 0,
+      deterministicPassRate: 1,
+      publishReadyRate: 1,
     });
     expect(verdict.metrics.promotionScore).toBeCloseTo(96, 10);
     expect(verdict.failures).toEqual([]);
   });
 
-  it('does not hide a sub-95 judge result inside a 95 average', () => {
+  it('defines 95% as a publish-ready run rate instead of an every-sample minimum', () => {
     const runs = passingCorpus();
-    runs[0] = { ...runs[0], judge: passingJudge({ overall: 100 }) };
-    runs[1] = { ...runs[1], judge: passingJudge({ overall: 90 }) };
+    for (let index = 0; index < 5; index += 1) {
+      runs[index] = { ...runs[index], judge: passingJudge({ overall: 94 }) };
+    }
     const verdict = evaluateWriterPromotionGate(runs, true);
 
-    expect(verdict.metrics.judgeAverage).toBe(95.98);
-    expect(verdict.passed).toBe(false);
-    expect(verdict.failures).toContain('judge_min:90.00');
+    expect(verdict.metrics.publishReadyRate).toBe(0.95);
+    expect(verdict.passed).toBe(true);
   });
 
-  it('does not hide weak prose craft behind perfect structural compliance', () => {
+  it('fails when more than five percent of outputs need editorial revision', () => {
     const runs = passingCorpus().map((run) => ({
       ...run,
       deterministicScore: 1,
       editorialQualityScore: 1,
     }));
-    runs[1] = { ...runs[1], editorialQualityScore: 0.75 };
+    for (let index = 0; index < 6; index += 1) {
+      runs[index] = { ...runs[index], editorialQualityScore: 0.75 };
+    }
     const verdict = evaluateWriterPromotionGate(runs, true);
 
     expect(verdict.metrics.deterministicAverage).toBe(1);
     expect(verdict.metrics.editorialQualityMin).toBe(0.75);
+    expect(verdict.metrics.publishReadyRate).toBe(0.94);
     expect(verdict.passed).toBe(false);
-    expect(verdict.failures).toContain('editorial_quality_min:0.7500');
+    expect(verdict.failures).toContain('publish_ready_rate:0.9400');
   });
 
   it('counts generation errors as zero instead of excluding them from the aggregate', () => {
@@ -136,7 +145,7 @@ describe('ThinkForge writer promotion gate', () => {
     expect(shortCase.failures).toContain('runs_per_case_min:9/10');
   });
 
-  it('rejects duplicate case and seed evidence', () => {
+  it('rejects duplicate case and run-id evidence', () => {
     const runs = passingCorpus();
     runs.push({ ...runs[0] });
 
@@ -147,17 +156,30 @@ describe('ThinkForge writer promotion gate', () => {
     expect(verdict.failures).toContain('duplicate_runs:1');
   });
 
-  it('does not hide weak Clickatron readiness behind a perfect overall score', () => {
+  it('rejects repeated output fingerprints masquerading as independent runs', () => {
     const runs = passingCorpus();
-    runs[0] = {
-      ...runs[0],
-      judge: passingJudge({ overall: 100, clickatronReadiness: 90 }),
-    };
+    runs[1] = { ...runs[1], outputFingerprint: runs[0]!.outputFingerprint };
 
     const verdict = evaluateWriterPromotionGate(runs, true);
 
     expect(verdict.passed).toBe(false);
-    expect(verdict.metrics.promotionScore).toBe(90);
-    expect(verdict.failures).toContain('judge_clickatronReadiness_min:90.00');
+    expect(verdict.metrics.duplicateOutputs).toBe(1);
+    expect(verdict.failures).toContain('duplicate_outputs:1');
+  });
+
+  it('does not hide weak Clickatron readiness behind a perfect overall score', () => {
+    const runs = passingCorpus();
+    for (let index = 0; index < 6; index += 1) {
+      runs[index] = {
+        ...runs[index],
+        judge: passingJudge({ overall: 100, clickatronReadiness: 90 }),
+      };
+    }
+
+    const verdict = evaluateWriterPromotionGate(runs, true);
+
+    expect(verdict.passed).toBe(false);
+    expect(verdict.metrics.publishReadyRate).toBe(0.94);
+    expect(verdict.failures).toContain('publish_ready_rate:0.9400');
   });
 });

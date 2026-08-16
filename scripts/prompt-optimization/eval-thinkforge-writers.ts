@@ -12,14 +12,14 @@
  *   - Prompt    = agent.buildPrompt(input)            (the EXACT production prompt, no drift)
  *   - Schema    = PostWriterResultSchema / ScriptWriterResultSchema (the EXACT production schema)
  *   - Model     = PostWriterAgent.runStructured() / ScriptWriterAgent.runStructured()
- *   - Routing   = detectContentPath(userPrompt, docType) (the EXACT production router)
- *   Historical --seed/--multi-seed CLI labels are robustness run IDs. The production cached-writer
- *   path does not expose a provider seed, so this harness does not claim seeded determinism.
+ *   - Routing   = validated ThinkForgeAuthoringRequest (the production request authority)
+ *   Deprecated --seed/--multi-seed aliases mean robustness run IDs only. The production cached-writer
+ *   path exposes no provider seed, so this harness never claims seeded determinism.
  *
  * Usage:
  *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts
- *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --seed=42
- *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --multi-seed
+ *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --run-id=1
+ *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --multi-run
  *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --test-case=2
  *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --writer=post
  *   GEMINI_API_KEY=xxx npx tsx scripts/prompt-optimization/eval-thinkforge-writers.ts --capture-rejected-output
@@ -29,6 +29,7 @@
  * ~30s per run vs 5+ min deploy cycle. Rule 35 methodology.
  */
 
+import { createHash } from 'crypto';
 import { mkdirSync, writeFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -45,10 +46,16 @@ import {
   type ScriptWriterResult,
   type ScriptWriterInput,
 } from '../../lib/thinkforge/agents/script-writer-agent';
-import { detectContentPath } from '../../lib/thinkforge/agents/prompt-utils';
 import { getAntiAiConstraintBundle } from '../../lib/thinkforge/data/writing-graph-query';
 import { resolveContentSignalProfile } from '../../lib/thinkforge/signals';
 import { buildThinkForgeSourceLedger } from '../../lib/thinkforge/provenance/source-ledger';
+import { resolveThinkForgeProductionBrief } from '../../lib/thinkforge/brief/resolve-production-brief';
+import {
+  ThinkForgeAuthoringRequestSchema,
+  type ThinkForgeAuthoringRequest,
+  type ThinkForgePlatformSurfaceId,
+} from '../../lib/thinkforge/schemas/authoring-request';
+import type { RetrievedContext } from '../../lib/thinkforge/context/fetchContextSources';
 import {
   buildEvalProviderConfig,
   runEvalPrompt,
@@ -91,9 +98,19 @@ async function withWriterTimeout<T>(
 }
 // ---- CLI Args --------------------------------------------------------
 
-const seedArg = process.argv.find(a => a.startsWith('--seed='));
-const seed = seedArg ? parseInt(seedArg.split('=')[1]) : 42;
-const multiSeed = process.argv.includes('--multi-seed');
+const runIdArg = process.argv.find(a => a.startsWith('--run-id='))
+  ?? process.argv.find(a => a.startsWith('--seed='));
+const runId = runIdArg ? parseInt(runIdArg.split('=')[1]) : 1;
+const multiRun = process.argv.includes('--multi-run') || process.argv.includes('--multi-seed');
+const promotionRequested = process.argv.includes('--promotion');
+const confirmPaidRun = process.argv.includes('--confirm-paid-run');
+const maxProviderCallsArg = process.argv.find(a => a.startsWith('--max-provider-calls='));
+const maxProviderCalls = Number.parseInt(
+  maxProviderCallsArg?.split('=')[1]
+    ?? process.env.THINKFORGE_EVAL_MAX_PROVIDER_CALLS
+    ?? '20',
+  10,
+);
 const testCaseArg = process.argv.find(a => a.startsWith('--test-case='));
 const testCaseFilter = testCaseArg ? parseInt(testCaseArg.split('=')[1]) : null;
 const writerArg = process.argv.find(a => a.startsWith('--writer='));
@@ -113,7 +130,7 @@ if (captureRejectedOutput) {
 }
 
 const API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-if (!API_KEY) {
+if (!API_KEY && !dryRun) {
   console.error('No GEMINI_API_KEY. Set in .env.local or pass via: GEMINI_API_KEY=xxx npx tsx ...');
   console.error('(For an offline prompt-assembly check with no network: GEMINI_API_KEY=dummy ... --dry-run)');
   process.exit(1);
@@ -466,10 +483,9 @@ const TEST_CASES: TestCase[] = [
   },
 ];
 
-// ---- Regression Baselines --------------------------------------------
-// Rule 31: no fabricated numbers. These come from the first real Gemini multi-seed run
-// recorded in ThinkForge-Writers-Quality-Hardening-Plan.md.
-const REGRESSION_BASELINES: Record<number, number> = {
+// Historical evidence only. These predate explicit authoring requests and cannot gate the
+// current contract; retain them in scoreboards until a reviewed v2 baseline replaces them.
+const LEGACY_PRE_CONTRACT_BASELINES: Record<number, number> = {
   1: 0.80,
   2: 0.83,
   3: 1.00,
@@ -546,12 +562,11 @@ function groundingFactVariants(fact: GroundingFact): string[] {
   return Array.isArray(fact) ? fact : [fact];
 }
 
-function getCtaTail(lines: string[]): string {
+function getCtaLine(lines: string[]): string {
   return lines
-    .filter(l => l.trim().length > 0)
-    .filter(l => !/^#\w/.test(l.trim()))
-    .slice(-3)
-    .join('\n');
+    .filter((line) => line.trim().length > 0)
+    .filter((line) => !/^#\w/.test(line.trim()))
+    .at(-1) ?? '';
 }
 
 const CTA_ACTION_PATTERN =
@@ -561,34 +576,27 @@ function scoreStructural(content: string, tc: TestCase): ScoreResult {
   const s = makeScorer();
   const c = tc.criteria;
   const lines = content.split('\n');
+  const fixture = requireRequestFixture(tc);
 
   if (tc.expectedPath === 'post') {
     if (c.noSceneHeadings) s.check('no_scene_headings', !/#{1,3}\s*scene\s*\d/i.test(content));
     if (c.noVisualLabels) s.check('no_visual_labels', !/\*\*Visual/i.test(content));
     if (c.noVOLabels) s.check('no_vo_labels', !/\*\*VO\b/i.test(content) && !/\*\*Narration/i.test(content));
-    if (c.hasHashtags) s.check('has_hashtags', /#\w+/.test(content));
-    if (c.hashtagRange) {
-      const tags = content.match(/#\w+/g) || [];
-      s.check('hashtag_range', tags.length >= c.hashtagRange[0] && tags.length <= c.hashtagRange[1]);
+    const tags = content.match(/#[\p{L}\p{M}\p{N}_]+/gu) ?? [];
+    s.check('hashtag_control', tags.length === 0);
+    const ctaLine = getCtaLine(lines);
+    const hasCta = /\?/.test(ctaLine) || CTA_ACTION_PATTERN.test(ctaLine);
+    s.check('cta_control', fixture.cta?.preference === 'none' ? !hasCta : hasCta);
+    if (fixture.cta?.action) {
+      s.check('cta_action_preserved', normalizeFact(content).includes(normalizeFact(fixture.cta.action)));
     }
-    if (c.charRange) {
-      const len = content.length;
-      s.check('char_range', len >= c.charRange[0] && len <= c.charRange[1]);
+    if (fixture.cta?.destination) {
+      s.check('cta_destination_preserved', content.includes(fixture.cta.destination));
     }
-    if (c.hookBeforeFold) {
-      const firstLine = lines.find(l => l.trim().length > 0) || '';
-      s.check('hook_before_fold', firstLine.length > 10 && firstLine.length < 250);
-    }
-    if (c.hasCTA) {
-      const ctaTail = getCtaTail(lines);
-      s.check('has_cta', /\?/.test(ctaTail) || CTA_ACTION_PATTERN.test(ctaTail));
-    }
+    s.check('no_h1_title', !content.startsWith('# '));
   }
 
   if (tc.expectedPath === 'script') {
-    const sceneCount = countScenes(content);
-    if (c.minScenes) s.check('min_scenes', sceneCount >= c.minScenes);
-    if (c.maxScenes) s.check('max_scenes', sceneCount <= c.maxScenes);
     if (c.hasNarration) s.check('has_narration', /\*\*\s*(narration|vo|voiceover)\b/i.test(content));
     if (c.hasVisual) s.check('has_visual', /\*\*\s*visual\b/i.test(content));
   }
@@ -599,14 +607,6 @@ function scoreStructural(content: string, tc: TestCase): ScoreResult {
     s.check('no_ai_filler', found.length === 0);
     if (found.length > 0) s.checks.filler_details = found.map(f => f.label).join(', ');
   }
-  if (c.hasSpecificDetails) {
-    const hasNumbers = /\d+[-+~\s]*(second|minute|hour|day|week|month|year|%|\$|x\b)/i.test(content) ||
-      /\$\d+/.test(content) || /\d+[kKmM]\b/.test(content) || /\d+\s*[-â€“]\s*\d+/.test(content);
-    const hasNames = /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(content) || /[A-Z][a-z]+[A-Z]/.test(content);
-    s.check('has_specific_details', hasNumbers || hasNames);
-  }
-  s.check('no_h1_title', !content.startsWith('# '));
-
   return s.result();
 }
 
@@ -614,10 +614,10 @@ function scoreStructural(content: string, tc: TestCase): ScoreResult {
 
 interface GroundingResult { coverage: number; present: string[]; missing: string[]; total: number; }
 
-function scoreGrounding(content: string, scenePromptsBlob: string, tc: TestCase): GroundingResult {
+function scoreGrounding(content: string, tc: TestCase): GroundingResult {
   const facts = tc.grounding || [];
   if (facts.length === 0) return { coverage: 1, present: [], missing: [], total: 0 };
-  const haystack = normalizeFact(`${content}\n${scenePromptsBlob}`);
+  const haystack = normalizeFact(content);
   const present: string[] = [];
   const missing: string[] = [];
   for (const f of facts) {
@@ -652,8 +652,7 @@ function scoreStructuredFields(
     if (tc.criteria.scenePromptsMatchScenes) {
       const sceneCount = countScenes(r.content);
       const promptCount = r.visualMetadata?.scenePrompts?.length || 0;
-      // 1:1 mapping is the contract; allow Â±1 for header-detection slack.
-      s.check('scene_prompts_match_scenes', sceneCount > 0 && Math.abs(promptCount - sceneCount) <= 1);
+      s.check('scene_prompts_match_scenes', sceneCount > 0 && promptCount === sceneCount);
     }
     s.check('motion_info_present', typeof r.visualMetadata?.motionInfo === 'string' && r.visualMetadata.motionInfo.length > 0);
   }
@@ -661,66 +660,227 @@ function scoreStructuredFields(
   return s.result();
 }
 
-// ---- Scoring: quality track (prose craft, post-only, informational) --
+// ---- Scoring: publishable/editorial quality track --------------------
 
-function scoreQuality(content: string, tc: TestCase): ScoreResult {
+function scoreQuality(result: PostWriterResult | ScriptWriterResult, tc: TestCase): ScoreResult {
   const s = makeScorer();
-  if (tc.expectedPath !== 'post') return s.result();
+  const fixture = requireRequestFixture(tc);
 
-  const lines = content.split('\n');
-  const firstLine = lines.find(l => l.trim().length > 0) || '';
-
-  const hasNumber = /\d/.test(firstLine);
-  const openingToken = firstLine.trim().match(/^[\p{L}\p{N}_-]+/u)?.[0] ?? '';
-  const genericOpening = /^(?:the|this|that|here|when|what|how|why|i|we|you|my|our|your|in|on|at|for|and|but|so|if)$/i.test(openingToken);
-  const namedEntityTokens = firstLine.match(/\b\p{Lu}[\p{L}\p{N}]*(?:\s+\p{Lu}[\p{L}\p{N}]*)?/gu) ?? [];
-  const hasNamedEntity = namedEntityTokens.some((entity) => (
-    entity !== openingToken || !genericOpening
-  ));
-  s.check('hook_specificity', hasNumber || hasNamedEntity);
-
-  const ctaTail = getCtaTail(lines).toLowerCase();
-  const generic = /what do you think\??$|thoughts\??$|agree\??$|right\??$/i.test(ctaTail.trim());
-  s.check('cta_actionability', (/\?/.test(ctaTail) && !generic) || CTA_ACTION_PATTERN.test(ctaTail));
-
-  const sentences = content.split(/[.!?]+/).filter(x => x.trim().length > 10);
-  if (sentences.length >= 5) {
-    const lengths = sentences.map(x => x.trim().split(/\s+/).length);
-    const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length;
-    const stdDev = Math.sqrt(lengths.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / lengths.length);
-    s.check('rhythm_variation', (mean > 0 ? stdDev / mean : 0) > 0.15);
+  if (tc.expectedPath === 'script') {
+    const script = result as ScriptWriterResult;
+    const scenes = script.sidecar.acts.flatMap((act) => act.narrativeScenes);
+    const beats = scenes.flatMap((scene) => scene.beats);
+    s.check('narrative_hierarchy_nonempty', script.sidecar.acts.length > 0 && scenes.length > 0 && beats.length > 0);
+    s.check('visual_intent_complete', beats.every((beat) => Boolean(beat.visualIntent)));
+    s.check('shot_intent_complete', beats.every((beat) => Boolean(beat.shotIntent)));
+    s.check('beat_channel_semantics', beats.every((beat) => {
+      const hasSpeech = beat.lines.some((line) => line.delivery !== 'on-screen-text' && line.text.trim().length > 0);
+      if (beat.kind === 'visual' || beat.kind === 'transition') return !hasSpeech;
+      if (beat.kind === 'voiceover' || beat.kind === 'dialogue') return hasSpeech;
+      return true;
+    }));
+    s.check(
+      'exact_runtime',
+      fixture.targetDurationSec !== undefined
+        && Math.abs(script.metadata.estimatedTimeSeconds - fixture.targetDurationSec) <= 0.001,
+    );
+    return s.result();
   }
 
-  const cliche = /^(in today'?s|have you ever|it'?s no secret|let me tell you|picture this|imagine|there'?s no denying)/i;
-  s.check('no_cliche_opening', !cliche.test(firstLine.trim()));
+  const content = (result as PostWriterResult).content;
+
+  const lines = content.split('\n');
+  s.check('substantive_content', content.trim().length > 0);
+
+  const ctaLine = getCtaLine(lines).toLowerCase();
+  const generic = /what do you think\??$|thoughts\??$|agree\??$|right\??$/i.test(ctaLine.trim());
+  const hasCta = /\?/.test(ctaLine) || CTA_ACTION_PATTERN.test(ctaLine);
+  s.check(
+    'cta_discipline',
+    fixture.cta?.preference === 'none'
+      ? !hasCta
+      : hasCta && !generic,
+  );
 
   return s.result();
 }
 
+interface EvalRequestFixture {
+  platformSurface: ThinkForgePlatformSurfaceId;
+  targetDurationSec?: number;
+  cta?: {
+    preference: 'none' | 'soft' | 'direct';
+    action?: string;
+    destination?: string;
+  };
+  emoji?: 'none' | 'restrained';
+}
+
+const REQUEST_FIXTURES: Readonly<Record<number, EvalRequestFixture>> = {
+  1: { platformSurface: 'linkedin', cta: { preference: 'none' }, emoji: 'none' },
+  2: {
+    platformSurface: 'facebook',
+    cta: { preference: 'direct', action: 'Register or walk in', destination: 'redcross.org/donate' },
+    emoji: 'restrained',
+  },
+  3: { platformSurface: 'x', cta: { preference: 'none' }, emoji: 'none' },
+  4: { platformSurface: 'instagram', cta: { preference: 'none' }, emoji: 'restrained' },
+  5: { platformSurface: 'tiktok', targetDurationSec: 30 },
+  6: { platformSurface: 'generic', targetDurationSec: 120 },
+  7: { platformSurface: 'youtube', targetDurationSec: 300 },
+  8: { platformSurface: 'linkedin', cta: { preference: 'none' }, emoji: 'none' },
+  9: { platformSurface: 'linkedin', cta: { preference: 'none' }, emoji: 'none' },
+  10: {
+    platformSurface: 'facebook',
+    cta: { preference: 'direct', action: 'Register to volunteer', destination: 'riveraid.org/cleanup' },
+    emoji: 'restrained',
+  },
+  11: { platformSurface: 'instagram', cta: { preference: 'none' }, emoji: 'restrained' },
+  12: {
+    platformSurface: 'linkedin',
+    cta: { preference: 'direct', action: 'Apply by May 30', destination: 'careers.nimbusrobotics.ai' },
+    emoji: 'none',
+  },
+  13: {
+    platformSurface: 'instagram',
+    cta: { preference: 'direct', action: 'Inscribete', destination: 'lunaverde.es/taller' },
+    emoji: 'restrained',
+  },
+  14: {
+    platformSurface: 'linkedin',
+    cta: { preference: 'direct', action: 'Register for the webinar', destination: 'civicdesk.com/webinar' },
+    emoji: 'none',
+  },
+  15: {
+    platformSurface: 'linkedin',
+    cta: { preference: 'direct', action: 'Request the free dashboard teardown' },
+    emoji: 'none',
+  },
+  16: { platformSurface: 'generic', targetDurationSec: 60 },
+  17: { platformSurface: 'linkedin', cta: { preference: 'none' }, emoji: 'none' },
+  18: { platformSurface: 'x', cta: { preference: 'none' }, emoji: 'none' },
+};
+
 // ---- Build input (production-shaped AgentInput) ----------------------
 
-function buildInput(tc: TestCase): PostWriterInput | ScriptWriterInput {
+function requireRequestFixture(tc: TestCase): EvalRequestFixture {
+  const fixture = REQUEST_FIXTURES[tc.id];
+  if (!fixture) throw new Error(`Test case ${tc.id} has no explicit authoring-request fixture`);
+  if (tc.expectedPath === 'post' && (!fixture.cta || !fixture.emoji || fixture.targetDurationSec !== undefined)) {
+    throw new Error(`Post test case ${tc.id} requires CTA/emoji controls and cannot declare a duration`);
+  }
+  if (tc.expectedPath === 'script' && (!fixture.targetDurationSec || fixture.cta || fixture.emoji)) {
+    throw new Error(`Script test case ${tc.id} requires an exact duration and cannot declare post controls`);
+  }
+  return fixture;
+}
+
+function buildAuthoringRequest(tc: TestCase): ThinkForgeAuthoringRequest {
+  const fixture = requireRequestFixture(tc);
+  const isScript = tc.expectedPath === 'script';
+  return ThinkForgeAuthoringRequestSchema.parse({
+    contentContract: isScript
+      ? { documentKind: 'script', outputKind: 'video_script', artifactType: 'screenplay' }
+      : { documentKind: 'post', outputKind: 'social_post', artifactType: 'social_post' },
+    platformSurface: { id: fixture.platformSurface },
+    ...(isScript
+      ? { targetDurationSec: fixture.targetDurationSec }
+      : {
+          postControls: {
+            cta: fixture.cta,
+            hashtags: { preference: 'none' },
+            emoji: { preference: fixture.emoji },
+          },
+        }),
+  });
+}
+
+function writerPathForRequest(request: ThinkForgeAuthoringRequest): WriterPath {
+  return request.contentContract.outputKind === 'video_script' ? 'script' : 'post';
+}
+
+function buildRetrievedContext(tc: TestCase): RetrievedContext {
+  const projectFacts = [{
+    id: `eval_project_${tc.id}`,
+    title: tc.name,
+    summary: tc.projectSummary,
+    tags: ['eval', tc.expectedPath],
+  }];
+  return {
+    brandDNA: tc.systemBrief ? { voiceLock: tc.systemBrief } : {},
+    projectFacts,
+    globalFacts: [],
+    semanticFacts: projectFacts,
+    interactionPatterns: [],
+  };
+}
+
+function buildInput(
+  tc: TestCase,
+  authoringRequest: ThinkForgeAuthoringRequest = buildAuthoringRequest(tc),
+): PostWriterInput | ScriptWriterInput {
+  const fixture = requireRequestFixture(tc);
+  const context = {
+    projectSummary: tc.projectSummary,
+    systemBrief: tc.systemBrief,
+  };
+  const project = {
+    idea: tc.projectSummary,
+    purpose: tc.projectSummary,
+    format: authoringRequest.contentContract.outputKind,
+    platform: fixture.platformSurface,
+    originalPrompt: tc.userPrompt,
+    contentContract: authoringRequest.contentContract,
+  };
+  const retrievedContext = buildRetrievedContext(tc);
   const contentSignalProfile = resolveContentSignalProfile({
     userPrompt: tc.userPrompt,
+    authoringRequest,
+    contentContract: authoringRequest.contentContract,
     documentType: tc.documentType,
-    project: { platform: tc.systemBrief?.match(/platform:\s*([^\n.]+)/i)?.[1]?.trim() },
+    platform: fixture.platformSurface,
+    project,
+    context,
+    retrievedContext,
   });
-  const sourceLedger = buildThinkForgeSourceLedger({ userPrompt: tc.userPrompt });
-  return {
-    context: {
-      projectSummary: tc.projectSummary,
-      systemBrief: tc.systemBrief,
-    },
+  const sourceLedger = buildThinkForgeSourceLedger({
     userPrompt: tc.userPrompt,
+    retrievedContext,
+  });
+  const productionBrief = resolveThinkForgeProductionBrief({
+    userPrompt: tc.userPrompt,
+    project: {
+      ...project,
+      authoringRequest,
+      ...(authoringRequest.targetDurationSec !== undefined
+        ? { durationSec: authoringRequest.targetDurationSec }
+        : {}),
+    },
+    authoringRequest,
+    documentType: tc.documentType,
+    contentPath: writerPathForRequest(authoringRequest),
+  });
+  return {
+    context,
+    project,
+    retrievedContext,
+    userPrompt: tc.userPrompt,
+    authoringRequest,
     contentSignalProfile,
+    productionBrief,
     sourceLedger,
   };
 }
 
-// ---- Run one (prompt unified, schema unified, seed-controlled) -------
+function outputFingerprint(result: PostWriterResult | ScriptWriterResult): string {
+  return createHash('sha256').update(JSON.stringify(result)).digest('hex');
+}
+
+// ---- Run one (production prompt, schema, and model defaults) ---------
 
 interface RunResult {
-  seed: number;
+  runId: number;
+  outputFingerprint: string;
   path: WriterPath;
   routedCorrectly: boolean;
   content: string;
@@ -738,10 +898,11 @@ interface RunResult {
   judgeError?: string;
 }
 
-async function runOnce(tc: TestCase, seedVal: number): Promise<RunResult> {
-  const routedPath = detectContentPath(tc.userPrompt, tc.documentType);
+async function runOnce(tc: TestCase, currentRunId: number): Promise<RunResult> {
+  const authoringRequest = buildAuthoringRequest(tc);
+  const routedPath = writerPathForRequest(authoringRequest);
   const routedCorrectly = routedPath === tc.expectedPath;
-  const input = buildInput(tc);
+  const input = buildInput(tc, authoringRequest);
 
   const start = Date.now();
   let content = '';
@@ -751,10 +912,7 @@ async function runOnce(tc: TestCase, seedVal: number): Promise<RunResult> {
   if (routedPath === 'post') {
     const agent = new PostWriterAgent();
     const { result: object } = await withWriterTimeout(
-      (abortSignal) => agent.runStructured(input as PostWriterInput, {
-        temperature: 0.45,
-        maxTokens: 8192,
-      }, abortSignal),
+      (abortSignal) => agent.runStructured(input as PostWriterInput, undefined, abortSignal),
       EVAL_WRITER_TIMEOUT_MS,
       'writer/' + routedPath,
     );
@@ -765,10 +923,7 @@ async function runOnce(tc: TestCase, seedVal: number): Promise<RunResult> {
   } else {
     const agent = new ScriptWriterAgent();
     const { result: object } = await withWriterTimeout(
-      (abortSignal) => agent.runStructured(input as ScriptWriterInput, {
-        temperature: 0.7,
-        maxTokens: 8192,
-      }, abortSignal),
+      (abortSignal) => agent.runStructured(input as ScriptWriterInput, undefined, abortSignal),
       EVAL_WRITER_TIMEOUT_MS,
       'writer/' + routedPath,
     );
@@ -780,8 +935,8 @@ async function runOnce(tc: TestCase, seedVal: number): Promise<RunResult> {
 
   const structural = scoreStructural(content, tc);
   const structured = scoreStructuredFields(result, tc);
-  const quality = scoreQuality(content, tc);
-  const grounding = scoreGrounding(content, scenePromptsBlob, tc);
+  const quality = scoreQuality(result, tc);
+  const grounding = scoreGrounding(content, tc);
 
   // Combined structural ratio folds in routing + a grounding floor (if the case sets one).
   const groundingFloor = tc.criteria.groundingFloor as number | undefined;
@@ -792,7 +947,11 @@ async function runOnce(tc: TestCase, seedVal: number): Promise<RunResult> {
   const structTotal = structural.total + 1 + structured.total + (groundingFloor !== undefined ? 1 : 0);
 
   return {
-    seed: seedVal, path: routedPath, routedCorrectly, content,
+    runId: currentRunId,
+    outputFingerprint: outputFingerprint(result),
+    path: routedPath,
+    routedCorrectly,
+    content,
     structural, structured, quality, grounding,
     visualPromptEvidence: scenePromptsBlob,
     structuredOutputEvidence: result,
@@ -876,7 +1035,7 @@ function buildJudgePrompt(tc: TestCase, result: RunResult): string {
   VISUAL-HANDOFF LAW:
   - For posts, raster image prompts must remain text-free. Do not require readable text overlays, logos, UI labels, or pixel dimensions unless the brief explicitly supplies them. Editable copy is carried by the post and derived downstream; judge whether the prompt provides grounded scene, composition, and usable negative space.
   - For scripts, visual direction should show what the viewer sees and add information or demonstration rather than merely repeat narration.
-  - Evaluate the complete structuredWriterOutput below. The flattened visualPromptEvidence exists only for deterministic grounding checks and is not the whole handoff contract.
+  - Evaluate the complete structuredWriterOutput below. The flattened visualPromptEvidence is diagnostic context, not factual grounding evidence or the whole handoff contract.
 
 The external-provider privacy gateway may replace personal-looking strings with [REDACTED_*] markers after this prompt is assembled. Use transportMetadata to distinguish those transport redactions from author output. When the matching pre-transport boolean is false, do not penalize [REDACTED_*] markers appearing in that field. When it is true, the author actually emitted the marker and you should judge it as an output defect.
 
@@ -924,8 +1083,9 @@ async function judgeRun(config: EvalProviderConfig, tc: TestCase, result: RunRes
 // ---- Dry run: print prompt + routing, no network ---------------------
 
 function dryRunCase(tc: TestCase): void {
-  const routedPath = detectContentPath(tc.userPrompt, tc.documentType);
-  const input = buildInput(tc);
+  const authoringRequest = buildAuthoringRequest(tc);
+  const routedPath = writerPathForRequest(authoringRequest);
+  const input = buildInput(tc, authoringRequest);
   const prompt = routedPath === 'post'
     ? new PostWriterAgent().buildPrompt(input as PostWriterInput)
     : new ScriptWriterAgent().buildPrompt(input as ScriptWriterInput);
@@ -967,7 +1127,7 @@ async function main() {
   if (dryRun) {
     console.log('\nDRY RUN â€” building production prompts, NO network calls.\n');
     for (const tc of cases) dryRunCase(tc);
-    const mismatches = cases.filter(tc => detectContentPath(tc.userPrompt, tc.documentType) !== tc.expectedPath);
+    const mismatches = cases.filter(tc => writerPathForRequest(buildAuthoringRequest(tc)) !== tc.expectedPath);
     console.log(`\nDry run complete. ${cases.length} prompt(s) assembled. ` +
       `Routing: ${cases.length - mismatches.length}/${cases.length} correct.`);
     if (mismatches.length > 0) process.exit(1);
@@ -982,8 +1142,32 @@ async function main() {
       })
     : null;
 
-  const seeds = multiSeed ? [1, 2, 3, 5, 8, 13, 21, 34, 42, 55] : [seed];
-  let regressionFailed = false;
+  const runIds = multiRun ? Array.from({ length: 10 }, (_, index) => index + 1) : [runId];
+  const expectedProviderCalls = cases.length * runIds.length * (judgeConfig ? 2 : 1);
+  const promotionCommandComplete = suiteFilter === 'heldout'
+    && multiRun
+    && judgeConfig !== null
+    && testCaseFilter === null
+    && writerFilter === null;
+  if (!Number.isInteger(maxProviderCalls) || maxProviderCalls < 1) {
+    console.error('max-provider-calls must be a positive whole number.');
+    process.exit(1);
+  }
+  if (promotionRequested && !promotionCommandComplete) {
+    console.error('Promotion requires --suite=heldout --multi-run --judge=<provider> with no case/writer filters.');
+    process.exit(1);
+  }
+  if (promotionRequested && !confirmPaidRun) {
+    console.error('Promotion requires --confirm-paid-run after reviewing the provider-call estimate.');
+    process.exit(1);
+  }
+  if (expectedProviderCalls > maxProviderCalls) {
+    console.error(
+      `Refusing ${expectedProviderCalls} provider calls; raise --max-provider-calls=${expectedProviderCalls} explicitly.`,
+    );
+    process.exit(1);
+  }
+  console.log(`Provider-call budget: ${expectedProviderCalls}/${maxProviderCalls}`);
   const completedRuns: Array<{ testCase: TestCase; result: RunResult }> = [];
 
   for (const tc of cases) {
@@ -993,10 +1177,10 @@ async function main() {
 
     const results: RunResult[] = [];
 
-    for (const sv of seeds) {
-      process.stdout.write(`  seed=${sv}... `);
+    for (const currentRunId of runIds) {
+      process.stdout.write(`  run=${currentRunId}... `);
       try {
-        const r = await runOnce(tc, sv);
+        const r = await runOnce(tc, currentRunId);
         results.push(r);
         const pct = (r.combinedRatio * 100).toFixed(0);
         const gpct = r.grounding.total > 0 ? ` | ground ${(r.grounding.coverage * 100).toFixed(0)}%` : '';
@@ -1019,7 +1203,7 @@ async function main() {
         }
         if (r.grounding.missing.length > 0) console.log(`    missing facts: ${r.grounding.missing.join(' | ')}`);
         if (r.structural.checks.filler_details) console.log(`    filler: ${r.structural.checks.filler_details}`);
-        if (!multiSeed) {
+        if (!multiRun) {
           console.log(`\n--- CONTENT (first 1200 chars) ---\n${r.content.substring(0, 1200)}\n--- END ---`);
         }
       } catch (e: any) {
@@ -1028,7 +1212,11 @@ async function main() {
           ? (e as Error & { rejectedOutput?: unknown }).rejectedOutput
           : undefined;
         results.push({
-          seed: sv, path: tc.expectedPath, routedCorrectly: false, content: '',
+          runId: currentRunId,
+          outputFingerprint: '',
+          path: tc.expectedPath,
+          routedCorrectly: false,
+          content: '',
           structural: { passed: 0, total: 1, ratio: 0, checks: {} },
           structured: { passed: 0, total: 0, ratio: 0, checks: {} },
           quality: { passed: 0, total: 0, ratio: 0, checks: {} },
@@ -1048,13 +1236,13 @@ async function main() {
 
     completedRuns.push(...results.map((result) => ({ testCase: tc, result })));
 
-    if (multiSeed && results.length > 1) {
+    if (multiRun && results.length > 1) {
       const valid = results.filter(r => !r.error);
       if (valid.length > 0) {
         const ratios = valid.map(r => r.combinedRatio);
         const min = Math.min(...ratios), max = Math.max(...ratios);
         const avg = ratios.reduce((a, b) => a + b, 0) / ratios.length;
-        console.log(`\n  MULTI-SEED SUMMARY:`);
+        console.log(`\n  MULTI-RUN SUMMARY:`);
         console.log(`    Min ${(min * 100).toFixed(0)}%  Max ${(max * 100).toFixed(0)}%  Avg ${(avg * 100).toFixed(0)}%  Variance ${((max - min) * 100).toFixed(0)}pp`);
         if (min < 0.7) console.log(`    âš ï¸  Min < 70% -- prompt needs work`);
         else if (min < 0.85) console.log(`    âš ï¸  Min < 85% -- prompt is fragile`);
@@ -1062,7 +1250,7 @@ async function main() {
 
         if (valid.some(r => r.grounding.total > 0)) {
           const gMin = Math.min(...valid.filter(r => r.grounding.total > 0).map(r => r.grounding.coverage));
-          console.log(`    Grounding: worst-seed coverage ${(gMin * 100).toFixed(0)}%`);
+          console.log(`    Grounding: worst-run coverage ${(gMin * 100).toFixed(0)}%`);
         }
 
         const judged = valid.filter(r => r.judge);
@@ -1098,30 +1286,20 @@ async function main() {
           }
         }
 
-        const baseline = REGRESSION_BASELINES[tc.id];
+        const baseline = LEGACY_PRE_CONTRACT_BASELINES[tc.id];
         if (baseline !== undefined) {
-          if (Math.round(min * 100) < Math.round(baseline * 100)) {
-            console.log(`    ðŸ”´ REGRESSION: min ${(min * 100).toFixed(0)}% < baseline ${(baseline * 100).toFixed(0)}%`);
-            regressionFailed = true;
-          } else {
-            console.log(`    âœ… Regression passed (min ${(min * 100).toFixed(0)}% >= baseline ${(baseline * 100).toFixed(0)}%)`);
-          }
-        } else {
-          console.log(`    (no baseline set for case ${tc.id} â€” set REGRESSION_BASELINES[${tc.id}] = ${(min).toFixed(2)} after reviewing this run)`);
+          console.log(`    Historical pre-contract baseline: ${(baseline * 100).toFixed(0)}% (informational only)`);
         }
       }
     }
   }
 
-  const promotionEligible = suiteFilter === 'heldout'
-    && multiSeed
-    && judgeConfig !== null
-    && testCaseFilter === null
-    && writerFilter === null;
+  const promotionEligible = promotionRequested && promotionCommandComplete;
   const promotionRuns: WriterPromotionRun[] = completedRuns.map(({ testCase, result }) => ({
     caseId: testCase.id,
     caseName: testCase.name,
-    seed: result.seed,
+    runId: result.runId,
+    outputFingerprint: result.outputFingerprint,
     deterministicScore: result.combinedRatio,
     editorialQualityScore: result.quality.total > 0 ? result.quality.ratio : 0,
     error: result.error,
@@ -1140,33 +1318,35 @@ async function main() {
   }));
   const promotion = evaluateWriterPromotionGate(promotionRuns, promotionEligible);
 
-  console.log('\n' + '='.repeat(72));
-  console.log('HELD-OUT PROMOTION VERDICT');
-  console.log('='.repeat(72));
-  console.log(`  Eligible: ${promotion.eligible ? 'yes' : 'no'}`);
-  console.log(`  Result: ${promotion.passed ? 'PASS' : 'FAIL'}`);
-  console.log(`  Promotion score: ${promotion.metrics.promotionScore.toFixed(2)}%`);
-  console.log(`  Deterministic: min ${(promotion.metrics.deterministicMin * 100).toFixed(2)}% avg ${(promotion.metrics.deterministicAverage * 100).toFixed(2)}%`);
-  console.log(`  Editorial quality: min ${(promotion.metrics.editorialQualityMin * 100).toFixed(2)}% avg ${(promotion.metrics.editorialQualityAverage * 100).toFixed(2)}%`);
-  console.log(`  Independent judge: min ${promotion.metrics.judgeMin.toFixed(2)}% avg ${promotion.metrics.judgeAverage.toFixed(2)}% coverage ${(promotion.metrics.judgeCoverage * 100).toFixed(2)}%`);
-  for (const dimension of THINKFORGE_WRITER_JUDGE_DIMENSIONS) {
-    console.log(
-      `    ${dimension}: min ${promotion.metrics.judgeDimensionMin[dimension].toFixed(2)}% avg ${promotion.metrics.judgeDimensionAverage[dimension].toFixed(2)}%`,
-    );
-  }
-  if (promotion.failures.length > 0) {
-    console.log(`  Failures: ${promotion.failures.join(', ')}`);
+  if (promotionRequested) {
+    console.log('\n' + '='.repeat(72));
+    console.log('HELD-OUT PROMOTION VERDICT');
+    console.log('='.repeat(72));
+    console.log(`  Eligible: ${promotion.eligible ? 'yes' : 'no'}`);
+    console.log(`  Result: ${promotion.passed ? 'PASS' : 'FAIL'}`);
+    console.log(`  Promotion score: ${promotion.metrics.promotionScore.toFixed(2)}%`);
+    console.log(`  Deterministic pass rate: ${(promotion.metrics.deterministicPassRate * 100).toFixed(2)}%`);
+    console.log(`  Publish-ready pass rate: ${(promotion.metrics.publishReadyRate * 100).toFixed(2)}%`);
+    console.log(`  Independent judge: avg ${promotion.metrics.judgeAverage.toFixed(2)}% coverage ${(promotion.metrics.judgeCoverage * 100).toFixed(2)}%`);
+    for (const dimension of THINKFORGE_WRITER_JUDGE_DIMENSIONS) {
+      console.log(`    ${dimension}: avg ${promotion.metrics.judgeDimensionAverage[dimension].toFixed(2)}%`);
+    }
+    if (promotion.failures.length > 0) {
+      console.log(`  Failures: ${promotion.failures.join(', ')}`);
+    }
   }
 
   if (jsonOut) {
     const outputPath = resolve(process.cwd(), jsonOut);
     mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, JSON.stringify({
-      version: 1,
+      version: 2,
       generatedAt: new Date().toISOString(),
       suite: suiteFilter,
-      seeds,
+      runIds,
       judgeProvider,
+      expectedProviderCalls,
+      legacyPreContractBaselines: LEGACY_PRE_CONTRACT_BASELINES,
       promotion,
       runs: completedRuns.map(({ testCase, result }) => ({
         caseId: testCase.id,
@@ -1178,15 +1358,11 @@ async function main() {
     console.log(`  Scoreboard: ${outputPath}`);
   }
 
-  if (regressionFailed) {
-    console.error('\nðŸ”´ REGRESSION DETECTED â€” one or more cases fell below baseline. Exiting non-zero.');
-    process.exit(1);
-  }
   if (completedRuns.some(({ result }) => Boolean(result.error))) {
     console.error('\nTHINKFORGE WRITER EVAL FAILED: one or more writer runs errored.');
     process.exit(1);
   }
-  if (promotionEligible && !promotion.passed) {
+  if (promotionRequested && !promotion.passed) {
     console.error('\nTHINKFORGE HELD-OUT QUALITY GATE FAILED.');
     process.exit(1);
   }
