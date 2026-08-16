@@ -24,22 +24,34 @@ export interface ScriptTechniqueDirective {
   avoid: string[];
 }
 
+export type ScriptRuntimePlan =
+  | { policy: 'open' }
+  | {
+      policy: 'exact';
+      targetDurationSeconds: number;
+      minimumDurationSeconds: number;
+      maximumDurationSeconds: number;
+    };
+
+export type ScriptNarrationPlan = {
+  mode: ScriptNarrationMode;
+  targetWordsPerMinute: number;
+  minimumWordsPerMinute: number;
+  maximumWordsPerMinute: number;
+  selectedTechnique?: ScriptTechniqueDirective;
+} & (
+  | { wordBudgetPolicy: 'open' }
+  | {
+      wordBudgetPolicy: 'exact';
+      targetSpokenWords: number;
+      minimumSpokenWords: number;
+      maximumSpokenWords: number;
+    }
+);
+
 export interface ScriptEditorialPlan {
-  runtime: {
-    targetDurationSeconds: number;
-    minimumDurationSeconds: number;
-    maximumDurationSeconds: number;
-  };
-  narration: {
-    mode: ScriptNarrationMode;
-    targetWordsPerMinute: number;
-    minimumWordsPerMinute: number;
-    maximumWordsPerMinute: number;
-    targetSpokenWords: number;
-    minimumSpokenWords: number;
-    maximumSpokenWords: number;
-    selectedTechnique?: ScriptTechniqueDirective;
-  };
+  runtime: ScriptRuntimePlan;
+  narration: ScriptNarrationPlan;
   structure: {
     scope: ScriptDurationScope;
     actPolicy: string;
@@ -141,6 +153,7 @@ function spokenWords(targetDurationSeconds: number, wordsPerMinute: number): num
  */
 export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): ScriptEditorialPlan {
   const targetDurationSeconds = normalizedDurationSeconds(input.productionBrief);
+  const hasExactRuntime = targetDurationSeconds > 0;
   const signals = input.contentSignalProfile?.profile.signals;
   const selectedNarration = selectNarrationTechnique(signals);
   const narrationMode = selectedNarration
@@ -153,19 +166,27 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
   const structureDirective = directive(selectedStructure);
 
   return {
-    runtime: {
-      targetDurationSeconds,
-      minimumDurationSeconds: targetDurationSeconds,
-      maximumDurationSeconds: targetDurationSeconds,
-    },
+    runtime: hasExactRuntime
+      ? {
+          policy: 'exact',
+          targetDurationSeconds,
+          minimumDurationSeconds: targetDurationSeconds,
+          maximumDurationSeconds: targetDurationSeconds,
+        }
+      : { policy: 'open' },
     narration: {
       mode: narrationMode,
       targetWordsPerMinute: rateBand.target,
       minimumWordsPerMinute: rateBand.minimum,
       maximumWordsPerMinute: rateBand.maximum,
-      targetSpokenWords: spokenWords(targetDurationSeconds, rateBand.target),
-      minimumSpokenWords: spokenWords(targetDurationSeconds, rateBand.minimum),
-      maximumSpokenWords: spokenWords(targetDurationSeconds, rateBand.maximum),
+      ...(hasExactRuntime
+        ? {
+            wordBudgetPolicy: 'exact' as const,
+            targetSpokenWords: spokenWords(targetDurationSeconds, rateBand.target),
+            minimumSpokenWords: spokenWords(targetDurationSeconds, rateBand.minimum),
+            maximumSpokenWords: spokenWords(targetDurationSeconds, rateBand.maximum),
+          }
+        : { wordBudgetPolicy: 'open' as const }),
       ...(narrationDirective ? { selectedTechnique: narrationDirective } : {}),
     },
     structure: {

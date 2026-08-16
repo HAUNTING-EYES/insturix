@@ -330,13 +330,16 @@ interface ScriptRuntimeContract {
 export function resolveScriptRuntimeContract(
   brief: { output?: { targetDurationSec?: number | null } } | null | undefined,
   contentSignalProfile?: ThinkForgeContentSignalProfile | null,
-): ScriptRuntimeContract {
+): ScriptRuntimeContract | null {
   const plan = buildScriptEditorialPlan({
     productionBrief: brief as Pick<ProductionBrief, 'output'> | null | undefined,
     contentSignalProfile,
   });
+  if (plan.runtime.policy !== 'exact' || plan.narration.wordBudgetPolicy !== 'exact') return null;
   return {
-    ...plan.runtime,
+    targetDurationSeconds: plan.runtime.targetDurationSeconds,
+    minimumDurationSeconds: plan.runtime.minimumDurationSeconds,
+    maximumDurationSeconds: plan.runtime.maximumDurationSeconds,
     targetSpokenWords: plan.narration.targetSpokenWords,
     minimumSpokenWords: plan.narration.minimumSpokenWords,
     maximumSpokenWords: plan.narration.maximumSpokenWords,
@@ -346,7 +349,9 @@ export function resolveScriptRuntimeContract(
 /** Reserve enough provider output for the spoken-word ceiling plus structured production metadata. */
 function durationAwareMaxTokens(input: Pick<ScriptWriterInput, 'productionBrief' | 'contentSignalProfile'>): number {
   const plan = buildScriptEditorialPlan(input);
-  if (plan.runtime.targetDurationSeconds <= 0) return SCRIPT_WRITER_DEFAULT_MAX_TOKENS;
+  if (plan.runtime.policy !== 'exact' || plan.narration.wordBudgetPolicy !== 'exact') {
+    return SCRIPT_WRITER_DEFAULT_MAX_TOKENS;
+  }
   const estimated =
     plan.narration.maximumSpokenWords * TOKENS_PER_MAXIMUM_SPOKEN_WORD
     + plan.runtime.targetDurationSeconds * TOKENS_PER_RUNTIME_SECOND_FOR_SIDECAR;
@@ -439,6 +444,9 @@ export function assertUsableScriptWriterResult(
   const runtimeTargetSec = options.productionBrief?.output.targetDurationSec;
   if (typeof runtimeTargetSec === 'number' && Number.isFinite(runtimeTargetSec) && runtimeTargetSec > 0) {
     const contract = resolveScriptRuntimeContract(options.productionBrief, options.contentSignalProfile);
+    if (!contract) {
+      throw new ScriptWriterContractError(['runtime_contract_unavailable']);
+    }
     const spokenWords = sidecar.acts.reduce((actTotal, act) => actTotal + act.narrativeScenes.reduce(
       (sceneTotal, scene) => sceneTotal + scene.beats.reduce(
         (beatTotal, beat) => beatTotal + beat.lines.reduce((lineTotal, line) => {
@@ -550,8 +558,8 @@ Your task is to write a high-retention, engaging video script.
 1. **One narrative source:** Author the complete script in sidecar with sidecarVersion: ${SCRIPT_SIDECAR_V2_VERSION} and spokenTextSource: "beat-lines". Do not author visible markdown, duplicate narration fields, or renderPlan; the server derives displays and a later technical planner derives render segments.
 2. **Hierarchy:** Use acts -> narrativeScenes -> beats -> lines. A short piece still has one structural act wrapper. Create multiple acts only when the binding editorial plan activates act scope and the material contains genuine macro turns. Start a new narrative scene only for a meaningful change in purpose, argument, time/place, speaker mode, evidence, emotion, or visual treatment. Duration never decides scene count.
 3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover for off-camera speech, sync-dialogue only for speech captured on camera, and on-screen-text only for visible text. Every spoken line identifies speakerId, actual languageCode, delivery, camera presence, and source refs.
-4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan as binding: its hierarchy scope, act policy, selected graph structure/narration techniques, anti-patterns, exact runtime, and spoken-word band. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
-5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene; scene durations must sum to the requested total. A long coherent scene or beat may remain long. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
+4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan as binding: its hierarchy scope, act policy, selected graph structure/narration techniques, anti-patterns, and runtime policy. When runtime.policy is "exact", meet its exact total and the exact narration word budget. When it is "open", let the supported narrative determine the runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
+5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
 6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. Never invent proof, testimonials, logos, or product facts.
 7. **Provenance:** Use only Source Ledger referenceId values. Carry refs at sidecar, scene, beat, and line level. Every numeric/date/price/URL/proof/testimonial claim needs a real source ref; an undeclared ref is invalid.
 8. **Visual and audio intent:** Every beat needs concrete visualIntent, including motion, quality, asset recommendation, and intended on-screen text when relevant. Describe what the viewer can actually see; avoid empty style adjectives. Add audioIntent when ambience, music, or SFX serves the beat.
@@ -597,7 +605,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read retrieved facts only from tf_untrusted_data.databankFacts.
 - Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
 - Read output platform and requested deliverable shape only from tf_untrusted_data.productionOutput.
-- Read runtime, narration density, scope hierarchy, scene-boundary policy, and selected graph techniques only from tf_untrusted_data.editorialPlan. It is binding.
+- Read runtime policy, narration density, scope hierarchy, scene-boundary policy, and selected graph techniques only from tf_untrusted_data.editorialPlan. It is binding. An open runtime carries no numeric target.
 - Read requested spoken and caption languages from tf_untrusted_data.languageRequest. Never substitute a different language because of a downstream provider.`;
 
     return buildIsolatedPromptParts({
