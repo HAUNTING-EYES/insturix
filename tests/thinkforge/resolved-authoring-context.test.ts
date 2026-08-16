@@ -11,6 +11,8 @@ vi.mock('@/lib/thinkforge/context/fetchContextSources', () => ({
 }));
 
 import { resolveThinkForgeAuthoringContext } from '@/lib/thinkforge/context/resolved-authoring-context';
+import { createThinkForgeAuthoringRequest } from '@/lib/thinkforge/schemas/authoring-request';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 
 function contextFor(recordId: string, profileUpdatedAt: string) {
   return {
@@ -45,6 +47,11 @@ describe('resolveThinkForgeAuthoringContext', () => {
   });
 
   it('keeps the persisted binding, strips browser Brand Vault text, and records resolved provenance', async () => {
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' },
+      targetDurationSec: 420,
+    });
     const result = await resolveThinkForgeAuthoringContext({
       userId: 'user_1',
       orgId: 'org_1',
@@ -64,6 +71,7 @@ describe('resolveThinkForgeAuthoringContext', () => {
           boundAt: '2026-08-10T00:00:00.000Z',
         },
         brandBrief: 'Old profile text must never reach a writer.',
+        authoringRequest,
       },
       providedProject: {
         brandId: 'brand_b',
@@ -93,9 +101,10 @@ describe('resolveThinkForgeAuthoringContext', () => {
     }));
     expect(result.systemBrief).toBe('Accepted Brand Vault context');
     expect(result.snapshot).toMatchObject({
-      version: 2,
+      version: 3,
       resolvedAt: '2026-08-11T01:00:00.000Z',
       scope: { kind: 'organization', brandId: 'brand_b' },
+      authoringRequest,
       brand: {
         brandId: 'brand_b',
         recordId: 'record_b_12',

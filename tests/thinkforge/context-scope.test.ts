@@ -6,6 +6,8 @@ import {
   ThinkForgeBrandAuthorityError,
 } from '@/lib/thinkforge/context/brand-authoring-context';
 import { resolvePersistedThinkForgeProjectMetadata } from '@/lib/thinkforge/state/types';
+import { createThinkForgeAuthoringRequest } from '@/lib/thinkforge/schemas/authoring-request';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 import type { DataBankEntry } from '@/lib/thinkforge/services/db';
 import type { BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
 
@@ -455,8 +457,14 @@ describe('fetchContextSources scoped DataBank reads', () => {
 
   it('records a privacy-safe authoring context snapshot for the accepted profile and retrieved facts', () => {
     const profile = acceptedProfile();
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' },
+      targetDurationSec: 420,
+    });
     const snapshot = buildThinkForgeAuthoringContextSnapshot({
       orgId: 'org_1',
+      authoringRequest,
       retrievedContext: {
         brandAuthority: {
           brandId: 'brand_1',
@@ -481,9 +489,10 @@ describe('fetchContextSources scoped DataBank reads', () => {
     });
 
     expect(snapshot).toMatchObject({
-      version: 2,
+      version: 3,
       resolvedAt: '2026-08-11T09:00:00.000Z',
       scope: { kind: 'organization', brandId: 'brand_1' },
+      authoringRequest,
       brand: {
         brandId: 'brand_1',
         recordId: 'record_brand_1',

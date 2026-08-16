@@ -14,6 +14,10 @@ import {
   type ProjectMeta,
   type ThinkForgeSessionBrandBinding,
 } from '../state/types';
+import {
+  ThinkForgeAuthoringRequestSchema,
+  type ThinkForgeAuthoringRequest,
+} from '../schemas/authoring-request';
 import type {
   ContextRetrievalDiagnostic,
   ContextRetrievalDiagnostics,
@@ -29,7 +33,7 @@ export type ThinkForgeBrandAuthority = {
   profile: BrandSignalProfile;
 };
 
-export const THINKFORGE_AUTHORING_CONTEXT_SNAPSHOT_VERSION = 2;
+export const THINKFORGE_AUTHORING_CONTEXT_SNAPSHOT_VERSION = 3;
 
 /**
  * Server-only provenance for a generated document. It identifies the accepted
@@ -63,7 +67,15 @@ export type ThinkForgeAuthoringContextSnapshotV1 = ThinkForgeAuthoringContextSna
 };
 
 export type ThinkForgeAuthoringContextSnapshotV2 = ThinkForgeAuthoringContextSnapshotBase & {
+  version: 2;
+  retrieval: ThinkForgeAuthoringContextSnapshotRetrieval & {
+    diagnostics: ContextRetrievalDiagnostics;
+  };
+};
+
+export type ThinkForgeAuthoringContextSnapshotV3 = ThinkForgeAuthoringContextSnapshotBase & {
   version: typeof THINKFORGE_AUTHORING_CONTEXT_SNAPSHOT_VERSION;
+  authoringRequest: ThinkForgeAuthoringRequest | null;
   retrieval: ThinkForgeAuthoringContextSnapshotRetrieval & {
     diagnostics: ContextRetrievalDiagnostics;
   };
@@ -71,7 +83,8 @@ export type ThinkForgeAuthoringContextSnapshotV2 = ThinkForgeAuthoringContextSna
 
 export type ThinkForgeAuthoringContextSnapshot =
   | ThinkForgeAuthoringContextSnapshotV1
-  | ThinkForgeAuthoringContextSnapshotV2;
+  | ThinkForgeAuthoringContextSnapshotV2
+  | ThinkForgeAuthoringContextSnapshotV3;
 
 /**
  * The cross-service-safe subset of a document's authoring snapshot. Retrieval
@@ -166,11 +179,15 @@ export function buildThinkForgeAuthoringContextSnapshot(input: {
     RetrievedContext,
     'brandAuthority' | 'projectFacts' | 'globalFacts' | 'interactionPatterns' | 'retrievalDiagnostics'
   > | null;
+  authoringRequest?: ThinkForgeAuthoringRequest | null;
   writingKnowledgeVersion?: string | null;
   resolvedAt?: Date;
-}): ThinkForgeAuthoringContextSnapshotV2 {
+}): ThinkForgeAuthoringContextSnapshotV3 {
   const context = input.retrievedContext;
   const authority = context?.brandAuthority ?? null;
+  const authoringRequest = input.authoringRequest
+    ? ThinkForgeAuthoringRequestSchema.parse(input.authoringRequest)
+    : null;
   const brand = authority
     ? {
         brandId: authority.brandId,
@@ -190,6 +207,7 @@ export function buildThinkForgeAuthoringContextSnapshot(input: {
       ...(authority ? { brandId: authority.brandId } : {}),
     },
     ...(brand ? { brand } : {}),
+    authoringRequest,
     retrieval: {
       projectFactIds: uniqueSorted(context?.projectFacts.map((fact) => fact.id) ?? []),
       globalFactIds: uniqueSorted(context?.globalFacts.map((fact) => fact.id) ?? []),

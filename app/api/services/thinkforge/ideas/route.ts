@@ -204,7 +204,10 @@ export async function POST(req: Request) {
 				userId,
 				orgId: orgId ?? null,
 				isOrgAdmin,
-				providedProject: brandScope.brandId ? { brandId: brandScope.brandId } : undefined,
+				providedProject: {
+					...(brandScope.brandId ? { brandId: brandScope.brandId } : {}),
+					authoringRequest,
+				},
 				currentPrompt: prompt,
 				maxFacts: 6,
 			});

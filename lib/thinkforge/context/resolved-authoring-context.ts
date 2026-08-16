@@ -12,6 +12,7 @@ import {
 } from '@/lib/thinkforge/context/brand-authoring-context';
 import {
   matchesThinkForgeSessionBrandBindingPrincipal,
+  resolveProjectMetaAuthoringRequest,
   resolveProjectMetaBrandId,
   resolveThinkForgeSessionBrandBinding,
   type ProjectMeta,
@@ -92,6 +93,7 @@ export async function resolveThinkForgeAuthoringContext(
     snapshot: buildThinkForgeAuthoringContextSnapshot({
       orgId: input.orgId ?? null,
       retrievedContext,
+      authoringRequest: resolveProjectMetaAuthoringRequest(projectMeta),
       writingKnowledgeVersion: input.writingKnowledgeVersion,
       resolvedAt: input.resolvedAt,
     }),
