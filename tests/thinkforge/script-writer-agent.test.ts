@@ -18,6 +18,7 @@ import {
   type ScriptWriterResult,
 } from '@/lib/thinkforge/agents/script-writer-agent';
 import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
+import { buildContinuedThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger-continuity';
 import {
   SCRIPT_SIDECAR_V2_VERSION,
   ScriptSidecarV2Schema,
@@ -268,6 +269,40 @@ describe('ScriptWriterAgent prompt contract', () => {
     expect(prompt).toContain('Never invent equipment');
     expect(prompt).not.toContain('on-camera speaking beat >10s');
     expect(prompt).not.toContain('unsupported spoken language');
+  });
+
+  it('maps reordered retrieved facts to their immutable ledger references', () => {
+    const factA = { id: 'fact_a', title: 'Fact A', summary: 'Earlier approved evidence.', tags: [] };
+    const factB = { id: 'fact_b', title: 'Fact B', summary: 'Current approved evidence.', tags: [] };
+    const retrieved = (projectFacts: typeof factA[]) => ({
+      brandDNA: {},
+      projectFacts,
+      globalFacts: [],
+      semanticFacts: [],
+      interactionPatterns: [],
+    });
+    const original = buildContinuedThinkForgeSourceLedger({
+      userPrompt: 'Write the original script.',
+      retrievedContext: retrieved([factA, factB]),
+    });
+    const edited = buildContinuedThinkForgeSourceLedger({
+      userPrompt: 'Tighten the opening.',
+      retrievedContext: retrieved([factB]),
+      previousLedger: original,
+    });
+    const prompt = new ScriptWriterAgent().buildPrompt({
+      context: { projectSummary: 'Evidence-led script.' },
+      userPrompt: 'Tighten the opening.',
+      retrievedContext: retrieved([factB]),
+      sourceLedger: edited,
+      editContext: {
+        existingContent: 'An existing script grounded in approved evidence.',
+        instruction: 'Tighten the opening.',
+      },
+    });
+
+    expect(prompt).toMatch(/"sourceId"\s*:\s*"source_2"[\s\S]{0,160}"title"\s*:\s*"Fact B"/);
+    expect(prompt).toContain('brief_edit_1');
   });
 });
 

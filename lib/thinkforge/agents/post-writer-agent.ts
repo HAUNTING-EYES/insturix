@@ -580,15 +580,17 @@ function authorizedClaimSources(input: PostWriterInput): AuthorizedClaimSource[]
     sources.set(sourceRef, { sourceRef, sourceText: text, sourceKind });
   };
 
-  // The original request is canonical for brief_user. A compacted ledger copy must never
-  // silently replace it, because claim excerpts are checked against this exact catalog.
-  addSource('brief_user', input.userPrompt, 'user_brief');
-  addSource('project_summary', input.context.projectSummary, 'project_summary');
-
-  for (const entry of input.sourceLedger?.entries ?? []) {
-    addSource(entry.referenceId, `${entry.title}\n${entry.summary}`, entry.kind);
+  const ledgerEntries = input.sourceLedger?.entries ?? [];
+  if (ledgerEntries.length > 0) {
+    for (const entry of ledgerEntries) {
+      addSource(entry.referenceId, entry.summary, entry.kind);
+    }
+    return [...sources.values()];
   }
 
+  // Compatibility for direct callers that have not supplied a canonical ledger.
+  addSource('brief_user', input.userPrompt, 'user_brief');
+  addSource('project_summary', input.context.projectSummary, 'project_summary');
   const retrievedFacts = [
     ...(input.retrievedContext?.projectFacts ?? []),
     ...(input.retrievedContext?.globalFacts ?? []),

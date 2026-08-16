@@ -18,6 +18,7 @@ import {
   formatSourceLedgerForPrompt,
   type SourceLedger,
 } from '../provenance/source-ledger';
+import { requireSourceReferenceIdForFact } from '../provenance/source-ledger-continuity';
 import { formatTrendBriefForPrompt } from './trend-brief-context';
 import { formatCastingBriefForPrompt, getAvatarCastingEntries } from './casting-brief-context';
 import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-boundary';
@@ -644,7 +645,7 @@ Return your response strictly adhering to the JSON schema.`;
       userBrief: userPrompt,
       brandContext: context.systemBrief || null,
       databankFacts: facts.map((fact, index) => ({
-        sourceId: `source_${index + 1}`,
+        sourceId: requireSourceReferenceIdForFact(sourceLedger, fact, index),
         title: fact.title,
         summary: fact.summary,
       })),

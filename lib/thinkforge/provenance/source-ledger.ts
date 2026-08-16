@@ -210,7 +210,7 @@ export function formatSourceLedgerForPrompt(ledger: SourceLedger): string {
   return [
     '## Source Ledger',
     'Use ONLY these referenceId values in sidecar.sourceRefs, scene.sourceRefs, and line.sourceRefs.',
-    'Use brief_user for factual claims supplied by the user brief. Use source_N for DataBank/project/global facts.',
+    'Copy reference IDs exactly as listed. User briefs, edit instructions, project summaries, and fact revisions may each have distinct IDs.',
     'Numeric claims, dates, prices, URLs, named proof, testimonials, and sourced stats must carry at least one sourceRef.',
     rows,
   ].join('\n');

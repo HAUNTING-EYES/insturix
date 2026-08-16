@@ -18,6 +18,7 @@ import {
 } from '@/lib/thinkforge/agents/post-writer-agent';
 import { resolveContentSignalProfile } from '@/lib/thinkforge/signals';
 import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
+import { buildContinuedThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger-continuity';
 
 const baseInput: PostWriterInput = {
   context: {
@@ -84,7 +85,10 @@ function flowLedgerInput(): PostWriterInput {
       documentType: 'post',
       project: { platform: 'LinkedIn', format: 'post' },
     }),
-    sourceLedger: buildThinkForgeSourceLedger({ userPrompt }),
+    sourceLedger: buildContinuedThinkForgeSourceLedger({
+      userPrompt,
+      projectSummary: 'FlowLedger is workflow automation for finance teams preparing audit evidence.',
+    }),
   };
 }
 
@@ -223,6 +227,45 @@ describe('assertUsablePostWriterResult', () => {
     expect(prompt).toContain('ThinkForge resolves sourceExcerpt from that authoritative sourceRef');
     expect(prompt).not.toContain('HOOK: outcome_hook');
     expect(prompt).not.toContain('CTA: hard_cta');
+  });
+
+  it('uses immutable ledger IDs across edits instead of remapping the current prompt and facts', () => {
+    const factA = { id: 'fact_a', title: 'Original fact', summary: 'Original approved evidence.', tags: [] };
+    const factB = { id: 'fact_b', title: 'Current fact', summary: 'Current approved evidence.', tags: [] };
+    const retrieved = (projectFacts: typeof factA[]) => ({
+      brandDNA: {},
+      projectFacts,
+      globalFacts: [],
+      semanticFacts: [],
+      interactionPatterns: [],
+    });
+    const original = buildContinuedThinkForgeSourceLedger({
+      userPrompt: 'Original claim supplied by the user.',
+      projectSummary: 'Approved project summary.',
+      retrievedContext: retrieved([factA, factB]),
+    });
+    const edited = buildContinuedThinkForgeSourceLedger({
+      userPrompt: 'Make the CTA more direct.',
+      projectSummary: 'Approved project summary.',
+      retrievedContext: retrieved([factB]),
+      previousLedger: original,
+    });
+    const prompt = new PostWriterAgent().buildPrompt({
+      context: { projectSummary: 'Approved project summary.' },
+      userPrompt: 'Make the CTA more direct.',
+      retrievedContext: retrieved([factB]),
+      sourceLedger: edited,
+      editContext: {
+        existingContent: 'A complete existing post with the original approved claim.',
+        instruction: 'Make the CTA more direct.',
+      },
+    });
+
+    expect(prompt).toContain('"sourceRef": "brief_user"');
+    expect(prompt).toContain('"sourceText": "Original claim supplied by the user."');
+    expect(prompt).toContain('"sourceRef": "brief_edit_1"');
+    expect(prompt).toContain('"sourceRef": "project_summary"');
+    expect(prompt).toContain('"sourceRef": "source_2"');
   });
 
   it('rejects a stale hidden claim ledger instead of accepting a different visible post', () => {
