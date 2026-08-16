@@ -1,5 +1,5 @@
 import type { OutputFormat } from '@/lib/shared/signals';
-import { parseTweet } from 'twitter-text';
+import twitterText from 'twitter-text';
 import {
   ThinkForgeAuthoringRequestSchema,
   describeThinkForgePlatformSurface,
@@ -160,7 +160,7 @@ export function measureThinkForgePublishableText(
 
   if (constraints.characterCounting === 'x_weighted') {
     const normalizedText = text.normalize('NFC');
-    const parsed = parseTweet(normalizedText);
+    const parsed = twitterText.parseTweet(normalizedText);
     return {
       normalizedText,
       characterCount: parsed.weightedLength,
