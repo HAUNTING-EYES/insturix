@@ -1,6 +1,7 @@
 import type { RetrievedContext } from '../context/fetchContextSources';
 import type { ThinkForgeAuthoringRequest } from '../schemas/authoring-request';
 import type { ThinkForgeWriterInvocationTraceV1 } from '../provenance/generation-trace';
+import type { ThinkForgeEditorialPlan } from './editorial-plan';
 
 /**
  * ThinkForge AI Agent Types
@@ -48,6 +49,8 @@ export interface AgentInput {
   userPrompt: string;
   /** Server-validated output choice for agents that propose a new document. */
   authoringRequest?: ThinkForgeAuthoringRequest;
+  /** Server-owned doctrine, evidence, and output decisions for this generation. */
+  editorialPlan?: ThinkForgeEditorialPlan;
   /** Generation mode selector */
   generationMode?: 'manual' | 'playbook' | 'narrative';
   /** Orchestration-owned identity for deterministic creative regeneration. */

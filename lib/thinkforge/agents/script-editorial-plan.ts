@@ -1,4 +1,4 @@
-import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
+import type { BriefOutputSpec } from '@/lib/editron/production-brief/production-brief';
 import {
   selectTechniques,
   type TechniqueResult,
@@ -60,7 +60,9 @@ export interface ScriptEditorialPlan {
 }
 
 export interface ScriptEditorialPlanInput {
-  productionBrief?: Pick<ProductionBrief, 'output'> | null;
+  productionBrief?: {
+    output: Pick<BriefOutputSpec, 'targetDurationSec'>;
+  } | null;
   contentSignalProfile?: ThinkForgeContentSignalProfile | null;
 }
 
