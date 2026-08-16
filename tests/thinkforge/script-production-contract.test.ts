@@ -22,7 +22,10 @@ import {
   resolveThinkForgeProductionBrief,
 } from '@/lib/thinkforge/brief/resolve-production-brief';
 import { buildScriptShotPlan } from '@/lib/thinkforge/production/build-script-shot-plan';
-import type { ScriptSidecar } from '@/lib/thinkforge/schemas/script-sidecar';
+import {
+  SCRIPT_SIDECAR_V2_VERSION,
+  type ScriptWriterSidecarV2,
+} from '@/lib/thinkforge/schemas/script-sidecar-v2';
 import type { CreativeSignals } from '@/lib/shared/signals/types';
 import type { ThinkForgeContentSignalProfile } from '@/lib/thinkforge/signals';
 
@@ -35,6 +38,7 @@ function sevenMinuteBrief(): ProductionBrief {
       targetDurationSec: 420,
       aspectRatio: '16:9',
       count: 1,
+      voiceLanguages: ['en'],
       intent: 'Explain the hidden cost of disconnected creative tools.',
     },
     brand: null,
@@ -86,42 +90,78 @@ function sevenMinuteProfile(
   };
 }
 
-function shortSidecar(): ScriptSidecar {
+function shotIntent() {
   return {
-    sidecarVersion: 1,
+    narrativePurpose: 'Show the repeated transfer cost without inventing production facts.',
+    emotionalBeat: 'Controlled frustration.',
+    energy: 0.45,
+    visualPriority: 'The repeated transfer between disconnected tools.',
+    action: 'still' as const,
+    desiredFraming: 'medium' as const,
+    desiredAngle: 'eye-level' as const,
+    desiredMovement: 'push-in' as const,
+    movementMotivation: 'Increase focus as the hidden cost becomes clear.',
+    simultaneousPerformers: 0,
+    spokenAudio: false,
+    performance: [],
+    continuity: { wardrobe: [], props: ['project board'], previousSceneIds: [] },
+  };
+}
+
+function shortSidecar(): ScriptWriterSidecarV2 {
+  return {
+    sidecarVersion: SCRIPT_SIDECAR_V2_VERSION,
+    spokenTextSource: 'beat-lines',
     characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }],
-    scenes: [{
+    acts: [{
+      id: 'act_1',
       title: 'The hidden tax',
-      narration: 'Disconnected creative tools quietly waste attention before the real work can begin.',
-      visualDescription: 'A creator repeatedly moves the same project between five disconnected application windows.',
-      videoMotionPrompt: 'Slow lateral move across the repeated export and upload actions.',
-      audioDescription: 'Clear narrator voice with restrained room tone.',
-      musicDescription: 'A restrained documentary pulse.',
-      sfxDescription: 'Soft notification clicks.',
-      durationSeconds: 40,
-      mood: 'serious',
-      imageQualityTokens: 'documentary realism, readable interface shapes',
-      videoQualityTokens: 'stable motion, coherent screen direction',
-      generationUnitId: 'scene_1',
-      primaryVisualForUnit: true,
-      sceneType: 'montage',
-      assetRecommendation: 'stock',
-      lines: [{
-        text: 'Disconnected creative tools quietly waste attention before the real work can begin.',
-        speakerId: 'narrator',
-        onCamera: false,
-        delivery: 'voiceover',
+      narrativePurpose: 'Expose the cost of disconnected creative tools.',
+      narrativeScenes: [{
+        id: 'scene_1',
+        title: 'The hidden tax',
+        narrativePurpose: 'Show attention lost before the real creative work begins.',
+        durationIntentSeconds: 40,
+        mood: 'serious',
+        charactersPresent: [],
         sourceRefs: [],
+        beats: [{
+          id: 'beat_1',
+          kind: 'voiceover',
+          narrativePurpose: 'State the operational cost.',
+          durationIntentSeconds: 40,
+          lines: [{
+            id: 'line_1',
+            text: 'Disconnected creative tools quietly waste attention before the real work can begin.',
+            speakerId: 'narrator',
+            languageCode: 'en',
+            onCamera: false,
+            delivery: 'voiceover',
+            sourceRefs: [],
+          }],
+          visualIntent: {
+            description: 'A creator moves one project between five disconnected application windows.',
+            motion: 'A slow lateral move follows the repeated export and upload actions.',
+            onScreenText: [],
+            imageQualityTokens: 'documentary realism with readable interface shapes',
+            videoQualityTokens: 'stable motion and coherent screen direction',
+            assetRecommendation: 'stock',
+          },
+          audioIntent: {
+            ambience: 'Restrained room tone.',
+            music: 'A quiet documentary pulse.',
+            sfx: ['Soft notification clicks.'],
+          },
+          shotIntent: shotIntent(),
+          sourceRefs: [],
+        }],
       }],
-      sourceRefs: [],
-      charactersPresent: ['narrator'],
-      relipSafe: false,
     }],
-    overallMusicPrompt: 'Restrained documentary pulse.',
-    characterDescriptions: {},
-    colorPalette: ['charcoal', 'warm white'],
-    environmentNotes: 'A real creative workspace.',
-    suggestedProfileCategory: 'production-mode',
+    creativeDirection: {
+      overallMusicPrompt: 'Restrained documentary pulse.',
+      colorPalette: ['charcoal', 'warm white'],
+      environmentNotes: 'A real creative workspace.',
+    },
     sourceRefs: [],
   };
 }
@@ -129,13 +169,13 @@ function shortSidecar(): ScriptSidecar {
 function shortModelOutput(): ScriptWriterModelOutput {
   return {
     contentAnalysis: {
-      hooks: ['The invisible tax on creative work'],
+      hooks: ['The invisible tax on creative work.'],
       theme: 'Disconnected tools destroy focus.',
-      emphasisPoints: ['Repeated transfers'],
+      emphasisPoints: ['Repeated transfers.'],
       qualityScore: 90,
     },
     visualMetadata: { motionInfo: 'Restrained documentary pacing.' },
-    metadata: { platform: 'youtube', voiceLanguage: 'en', estimatedTimeSeconds: 40 },
+    metadata: { platform: 'youtube' },
     sidecar: shortSidecar(),
   };
 }
@@ -143,7 +183,7 @@ function shortModelOutput(): ScriptWriterModelOutput {
 function shootKitProfile() {
   return {
     version: 1,
-    profileId: 'legacy_sidecar_profile',
+    profileId: 'native_v2_profile',
     spaces: [{
       id: 'room_a',
       label: 'Home office',
@@ -198,15 +238,15 @@ describe('ThinkForge script production contract', () => {
   });
 
   it('lets semantically parsed output knobs override session defaults', () => {
-    const brief = resolveThinkForgeProductionBrief({
+    const productionBrief = resolveThinkForgeProductionBrief({
       userPrompt: 'Make a seven minute YouTube video.',
       project: { platform: 'linkedin', preferences: { targetDurationSec: 60 } },
       requested: { platform: 'youtube', targetDurationSec: 420 },
     });
 
-    expect(brief.output.platform).toBe('youtube');
-    expect(brief.output.targetDurationSec).toBe(420);
-    expect(brief.resolution.confirmed).toEqual(expect.arrayContaining(['platform', 'targetDurationSec']));
+    expect(productionBrief.output.platform).toBe('youtube');
+    expect(productionBrief.output.targetDurationSec).toBe(420);
+    expect(productionBrief.resolution.confirmed).toEqual(expect.arrayContaining(['platform', 'targetDurationSec']));
   });
 
   it('derives a bounded long-form runtime contract for seven minutes', () => {
@@ -220,6 +260,32 @@ describe('ThinkForge script production contract', () => {
     });
   });
 
+  it('keeps unspecified runtime open without leaking zero numeric budgets into prompt data', () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-key';
+    const plan = buildScriptEditorialPlan({ productionBrief: null });
+    const prompt = new ScriptWriterAgent().buildPromptParts({
+      context: { projectSummary: 'Write the supported story at its natural length.' },
+      userPrompt: 'Explain the workflow clearly.',
+      productionBrief: null,
+    }).prompt;
+
+    expect(resolveScriptRuntimeContract(null)).toBeNull();
+    expect(plan.runtime).toEqual({ policy: 'open' });
+    expect(plan.narration.wordBudgetPolicy).toBe('open');
+    expect(plan.narration).not.toHaveProperty('targetSpokenWords');
+    expect(plan.narration).not.toHaveProperty('minimumSpokenWords');
+    expect(plan.narration).not.toHaveProperty('maximumSpokenWords');
+    expect(prompt).toContain('"runtime": {');
+    expect(prompt).toContain('"policy": "open"');
+    expect(prompt).toContain('"wordBudgetPolicy": "open"');
+    expect(prompt).not.toContain('"targetDurationSeconds"');
+    expect(prompt).not.toContain('"minimumDurationSeconds"');
+    expect(prompt).not.toContain('"maximumDurationSeconds"');
+    expect(prompt).not.toContain('"targetSpokenWords"');
+    expect(prompt).not.toContain('"minimumSpokenWords"');
+    expect(prompt).not.toContain('"maximumSpokenWords"');
+  });
+
   it('derives hierarchy and narration density without inventing a scene count', () => {
     const plan = buildScriptEditorialPlan({
       productionBrief: sevenMinuteBrief(),
@@ -227,6 +293,7 @@ describe('ThinkForge script production contract', () => {
     });
 
     expect(plan.runtime).toEqual({
+      policy: 'exact',
       targetDurationSeconds: 420,
       minimumDurationSeconds: 420,
       maximumDurationSeconds: 420,
@@ -279,26 +346,30 @@ describe('ThinkForge script production contract', () => {
         contentSignalProfile: sevenMinuteProfile(),
       })).rejects.toThrow('stop after inspection');
 
-      expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          maxTokens: 18_760,
-          prompt: expect.stringContaining('"editorialPlan": {'),
-        }),
-      );
-      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).toContain('"targetDurationSeconds": 420');
-      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).toContain('"mode": "complement"');
-      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).not.toContain('targetSceneCount');
-      expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt).not.toContain('targetWordsPerScene');
+      expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledWith(expect.objectContaining({
+        maxTokens: 18_760,
+        prompt: expect.stringContaining('"editorialPlan": {'),
+      }));
+      const prompt = generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt;
+      expect(prompt).toContain('"targetDurationSeconds": 420');
+      expect(prompt).toContain('"mode": "complement"');
+      expect(prompt).not.toContain('targetSceneCount');
+      expect(prompt).not.toContain('targetWordsPerScene');
     } finally {
       if (previousKey === undefined) delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = previousKey;
     }
   });
 
-  it('rejects a short script that claims to satisfy a seven-minute brief', () => {
+  it('rejects sparse native V2 output that claims to satisfy seven minutes', () => {
     const result = materializeScriptWriterResult(shortModelOutput());
 
-    expect(result.metadata.estimatedTimeSeconds).toBe(40);
+    expect(shortModelOutput().metadata).toEqual({ platform: 'youtube' });
+    expect(result.metadata).toMatchObject({
+      estimatedTimeSeconds: 40,
+      platform: 'youtube',
+      voiceLanguages: ['en'],
+    });
     expect(() => assertUsableScriptWriterResult(result, {
       productionBrief: sevenMinuteBrief(),
       contentSignalProfile: sevenMinuteProfile(),
@@ -309,12 +380,12 @@ describe('ThinkForge script production contract', () => {
     })).toThrow(/spoken_word_count_mismatch/);
   });
 
-  it('upgrades legacy render metadata before reporting the next real Shoot Kit requirement', () => {
-    const legacyStoredSidecar = { ...shortSidecar() } as Record<string, unknown>;
-    delete legacyStoredSidecar.characterDescriptions;
+  it('reports missing narrative shot intent to Shoot Kit without inventing one', () => {
+    const nativeSidecar = shortSidecar();
+    delete nativeSidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent;
 
     expect(buildScriptShotPlan({
-      sidecar: legacyStoredSidecar,
+      sidecar: nativeSidecar,
       profile: shootKitProfile(),
       aspectRatio: '16:9',
     })).toMatchObject({

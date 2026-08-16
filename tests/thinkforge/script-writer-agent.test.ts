@@ -7,6 +7,8 @@ const { generateStructuredWithWritingContextCacheMock } = vi.hoisted(() => ({
 vi.mock('@/lib/thinkforge/services/gemini-writing-context-cache', () => ({
   generateStructuredWithWritingContextCache: generateStructuredWithWritingContextCacheMock,
 }));
+
+import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import {
   assertUsableScriptWriterResult,
   materializeScriptWriterResult,
@@ -15,30 +17,26 @@ import {
   type ScriptWriterModelOutput,
   type ScriptWriterResult,
 } from '@/lib/thinkforge/agents/script-writer-agent';
-import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
-import { SCRIPT_SIDECAR_VERSION, type ScriptSidecar } from '@/lib/thinkforge/schemas/script-sidecar';
 import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
+import {
+  SCRIPT_SIDECAR_V2_VERSION,
+  ScriptSidecarV2Schema,
+  type NarrativeBeatV2,
+  type NarrativeSceneV2,
+  type ScriptWriterSidecarV2,
+} from '@/lib/thinkforge/schemas/script-sidecar-v2';
 
-type SidecarScene = ScriptSidecar['scenes'][number];
+type ShotIntent = NonNullable<NarrativeBeatV2['shotIntent']>;
 
-const canonicalScript = `## Scene 1: The stalled launch
-**Narration:** Ops teams do not lose a launch in one dramatic failure. They lose it in tiny approval loops that never get owned.
-**Visual:** Split screen of scattered comments, calendar slips, and one owner moving cards into a single approval lane.
+const narrator = { id: 'narrator', name: 'Narrator', role: 'narrator' as const };
+const host = { id: 'host', name: 'Host', role: 'host' as const };
 
-## Scene 2: The cleaner lane
-**Narration:** Put one person in charge of final feedback, and the team stops rewriting the same decision five times.
-**Visual:** Clean production board with one highlighted approval owner and a finished asset moving to publish.`;
-
-const hostCharacter = { id: 'host', name: 'Host', role: 'host' as const };
-
-function makeShotIntent(
-  overrides: Partial<NonNullable<SidecarScene['shotIntent']>> = {},
-): NonNullable<SidecarScene['shotIntent']> {
+function makeShotIntent(overrides: Partial<ShotIntent> = {}): ShotIntent {
   return {
-    narrativePurpose: 'Make the operational problem immediately visible.',
+    narrativePurpose: 'Make the operational change concrete.',
     emotionalBeat: 'Recognition followed by controlled relief.',
     energy: 0.55,
-    visualPriority: 'The single approval owner remains readable.',
+    visualPriority: 'One accountable approval owner remains readable.',
     action: 'still',
     desiredFraming: 'medium',
     desiredAngle: 'eye-level',
@@ -51,263 +49,225 @@ function makeShotIntent(
   };
 }
 
-function makeOnCameraScene(overrides: Partial<SidecarScene> = {}): SidecarScene {
+function makeBeat(index: number, overrides: Partial<NarrativeBeatV2> = {}): NarrativeBeatV2 {
   return {
-    title: 'Host explains the fix',
-    narration: 'Put one accountable owner between draft and publish.',
-    visualDescription: 'Host speaking to camera, face visible, medium close-up, light occlusion, moderate motion.',
-    videoMotionPrompt: 'static tripod framing with one measured hand gesture',
-    audioDescription: '',
-    musicDescription: 'quiet pulse under the host line',
-    sfxDescription: '',
-    durationSeconds: 8,
-    mood: 'serious',
-    imageQualityTokens: 'clean studio lighting, clear face framing',
-    videoQualityTokens: 'steady talking-head frame, lip-sync safe',
-    generationUnitId: 'scene_1',
-    primaryVisualForUnit: true,
-    sceneType: 'talking-head',
-    assetRecommendation: 'ai-video',
-    lines: [
-      {
-        text: 'Put one accountable owner between draft and publish.',
-        speakerId: 'host',
-        onCamera: true,
-        delivery: 'sync-dialogue',
-        sourceRefs: [],
-      },
-    ],
-    charactersPresent: ['host'],
-    shotIntent: makeShotIntent({
-      narrativePurpose: 'Deliver the corrective action directly to the viewer.',
-      emotionalBeat: 'Calm authority.',
-      action: 'talking',
-      desiredFraming: 'medium-close-up',
-      simultaneousPerformers: 1,
-      spokenAudio: true,
-      performance: [{
-        characterId: 'host',
-        stance: 'seated',
-        emotion: 'confident',
-        intensity: 0.45,
-        gaze: 'into camera',
-        posture: 'upright and open',
-        gesture: 'one measured hand gesture',
-        movement: 'mostly still',
-      }],
-    }),
-    relipSafe: true,
-    relipSafety: { faceVisibility: 'visible', occlusion: 'light', motion: 'moderate' },
+    id: `beat_${index}`,
+    kind: 'voiceover',
+    narrativePurpose: index === 1
+      ? 'Expose the hidden cost of scattered approval loops.'
+      : 'Show the simpler operating model.',
+    durationIntentSeconds: 21,
+    lines: [{
+      id: `line_${index}`,
+      text: index === 1
+        ? 'Launches rarely fail in one dramatic moment; they stall inside approval loops that nobody owns.'
+        : 'One accountable owner turns repeated feedback into a decision the team can actually ship.',
+      speakerId: 'narrator',
+      languageCode: 'en',
+      onCamera: false,
+      delivery: 'voiceover',
+      sourceRefs: [],
+    }],
+    visualIntent: {
+      description: index === 1
+        ? 'Scattered comments and slipped calendar cards surround an ownerless approval board.'
+        : 'A clean production board highlights one approval owner and a finished asset.',
+      motion: index === 1
+        ? 'A restrained push toward the unresolved board.'
+        : 'A gentle pan reveals the named owner.',
+      onScreenText: [],
+      imageQualityTokens: 'clean product-documentary lighting',
+      videoQualityTokens: 'stable movement with readable workflow detail',
+      assetRecommendation: 'ai-video',
+    },
+    audioIntent: {
+      ambience: 'Quiet operations workspace.',
+      music: index === 1 ? 'Subtle tension.' : 'Restrained lift.',
+      sfx: [],
+    },
+    shotIntent: makeShotIntent(index === 1
+      ? { desiredMovement: 'push-in', movementMotivation: 'Move closer as the hidden cost becomes clear.' }
+      : { desiredMovement: 'pan', movementMotivation: 'Reveal the named owner after the clean workflow.' }),
     sourceRefs: [],
     ...overrides,
   };
 }
 
-function makeSidecar(overrides: Partial<ScriptSidecar> = {}): ScriptSidecar {
+function makeScene(index: number, overrides: Partial<NarrativeSceneV2> = {}): NarrativeSceneV2 {
   return {
-    sidecarVersion: SCRIPT_SIDECAR_VERSION,
-    characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }],
-    overallMusicPrompt: 'restrained documentary bed with light pulse',
-    characterDescriptions: {},
-    colorPalette: ['charcoal', 'warm white', 'muted yellow'],
-    environmentNotes: 'Operations workspace with launch board and calendar.',
-    suggestedProfileCategory: 'production-mode',
+    id: `scene_${index}`,
+    title: index === 1 ? 'The stalled launch' : 'The cleaner lane',
+    narrativePurpose: index === 1
+      ? 'Reveal why approval work stalls.'
+      : 'Resolve the problem with clear ownership.',
+    durationIntentSeconds: 21,
+    mood: index === 1 ? 'serious' : 'calm',
+    charactersPresent: [],
     sourceRefs: [],
-    scenes: [
-      {
-        title: 'The stalled launch',
-        narration: 'Ops teams do not lose a launch in one dramatic failure.',
-        visualDescription: 'Scattered comments, calendar slips, and an ownerless approval board.',
-        videoMotionPrompt: 'slow push across the stalled board',
-        audioDescription: '',
-        musicDescription: 'subtle tension',
-        sfxDescription: '',
-        durationSeconds: 21,
-        mood: 'serious',
-        imageQualityTokens: 'clean product-documentary lighting',
-        videoQualityTokens: 'steady camera, readable interface details',
-        generationUnitId: 'scene_1',
-        primaryVisualForUnit: true,
-        sceneType: 'montage',
-        assetRecommendation: 'ai-video',
-        lines: [
-          {
-            text: 'Ops teams do not lose a launch in one dramatic failure.',
-            speakerId: 'narrator',
-            onCamera: false,
-            delivery: 'voiceover',
-            sourceRefs: [],
-          },
-        ],
-        charactersPresent: ['narrator'],
-        shotIntent: makeShotIntent({
-          desiredMovement: 'push-in',
-          movementMotivation: 'Move closer as the hidden approval cost becomes clear.',
-        }),
-        relipSafe: false,
-        sourceRefs: [],
-      },
-      {
-        title: 'The cleaner lane',
-        narration: 'Put one person in charge of final feedback.',
-        visualDescription: 'A clean production board with one highlighted approval owner.',
-        videoMotionPrompt: 'gentle pan to the highlighted approval owner',
-        audioDescription: '',
-        musicDescription: 'quiet lift',
-        sfxDescription: '',
-        durationSeconds: 21,
-        mood: 'calm',
-        imageQualityTokens: 'polished interface closeup',
-        videoQualityTokens: 'smooth motion, crisp UI',
-        generationUnitId: 'scene_2',
-        primaryVisualForUnit: true,
-        sceneType: 'montage',
-        assetRecommendation: 'ai-video',
-        lines: [
-          {
-            text: 'Put one person in charge of final feedback.',
-            speakerId: 'narrator',
-            onCamera: false,
-            delivery: 'voiceover',
-            sourceRefs: [],
-          },
-        ],
-        charactersPresent: ['narrator'],
-        shotIntent: makeShotIntent({
-          narrativePurpose: 'Show the simpler operating model.',
-          emotionalBeat: 'Relief and control.',
-          desiredMovement: 'pan',
-          movementMotivation: 'Reveal the named owner after showing the clean workflow.',
-          continuity: {
-            wardrobe: [],
-            props: ['approval board'],
-            previousSceneIds: ['scene_1'],
-          },
-        }),
-        relipSafe: false,
-        sourceRefs: [],
-      },
-    ],
+    beats: [makeBeat(index)],
     ...overrides,
   };
 }
 
-function withSpokenWords(scene: SidecarScene, count: number): SidecarScene {
-  const spokenText = Array.from({ length: count }, (_, index) => `word${index + 1}`).join(' ');
-  const firstLine = scene.lines[0]!;
+function makeSidecar(overrides: Partial<ScriptWriterSidecarV2> = {}): ScriptWriterSidecarV2 {
   return {
-    ...scene,
-    narration: spokenText,
-    lines: [{ ...firstLine, text: spokenText }],
+    sidecarVersion: SCRIPT_SIDECAR_V2_VERSION,
+    spokenTextSource: 'beat-lines',
+    characters: [narrator],
+    acts: [{
+      id: 'act_1',
+      title: 'Approval ownership',
+      narrativePurpose: 'Move from hidden friction to a practical operating decision.',
+      narrativeScenes: [makeScene(1), makeScene(2)],
+    }],
+    creativeDirection: {
+      overallMusicPrompt: 'Restrained documentary bed with a light pulse.',
+      colorPalette: ['charcoal', 'warm white', 'muted yellow'],
+      environmentNotes: 'A practical operations workspace.',
+    },
+    sourceRefs: [],
+    ...overrides,
   };
 }
 
-function makeResult(overrides: Partial<ScriptWriterResult> = {}): ScriptWriterResult {
+function sidecarWithScenes(
+  scenes: NarrativeSceneV2[],
+  overrides: Partial<ScriptWriterSidecarV2> = {},
+): ScriptWriterSidecarV2 {
+  return makeSidecar({
+    acts: [{
+      id: 'act_1',
+      title: 'Approval ownership',
+      narrativePurpose: 'Move from hidden friction to a practical operating decision.',
+      narrativeScenes: scenes,
+    }],
+    ...overrides,
+  });
+}
+
+function makeModelOutput(overrides: Partial<ScriptWriterModelOutput> = {}): ScriptWriterModelOutput {
   return {
-    content: canonicalScript,
     contentAnalysis: {
-      hooks: ['approval loops cost launches'],
-      theme: 'single-owner approvals',
-      emphasisPoints: ['hidden cost', 'ownership fix'],
+      hooks: ['Approval loops cost launches.'],
+      theme: 'Single-owner approvals.',
+      emphasisPoints: ['Hidden cost', 'Ownership fix'],
       qualityScore: 92,
     },
     visualMetadata: {
-      motionInfo: 'restrained documentary pacing with clean interface closeups',
-      scenePrompts: [
-        'Scene 1 visual: scattered comments, slipped calendar, stalled launch board, anxious ops team.',
-        'Scene 2 visual: one approval owner, clean board, finished asset moving toward publish.',
-      ],
+      motionInfo: 'Restrained documentary pacing with clear workflow details.',
     },
-    metadata: {
-      estimatedTimeSeconds: 42,
-      platform: 'instagram',
-      voiceLanguage: 'en',
-    },
+    metadata: { platform: 'instagram' },
     sidecar: makeSidecar(),
     ...overrides,
   };
 }
 
-function makeModelOutput(overrides: Partial<ScriptWriterModelOutput> = {}): ScriptWriterModelOutput {
-  const result = makeResult();
+function resultFromSidecar(sidecar: ScriptWriterSidecarV2, platform = 'instagram'): ScriptWriterResult {
+  return materializeScriptWriterResult(makeModelOutput({ sidecar, metadata: { platform } }));
+}
+
+function makeResult(overrides: Partial<ScriptWriterResult> = {}): ScriptWriterResult {
+  return { ...resultFromSidecar(makeSidecar()), ...overrides };
+}
+
+function withSpokenWordCount(beat: NarrativeBeatV2, count: number): NarrativeBeatV2 {
+  const firstLine = beat.lines[0]!;
   return {
-    contentAnalysis: result.contentAnalysis,
-    visualMetadata: { motionInfo: result.visualMetadata.motionInfo },
-    metadata: result.metadata,
-    sidecar: result.sidecar,
-    ...overrides,
+    ...beat,
+    lines: [{
+      ...firstLine,
+      text: Array.from({ length: count }, (_, index) => `word${index + 1}`).join(' '),
+    }],
   };
 }
 
-/** A minimal uncast brief with only a runtime target — isolates the runtime-contract gate. */
-function productionBriefWithDuration(targetDurationSec: number): ProductionBrief {
+function brief(options: {
+  targetDurationSec?: number;
+  voiceLanguages?: string[];
+  platform?: ProductionBrief['output']['platform'];
+  casting?: ProductionBrief['casting'];
+} = {}): ProductionBrief {
   return {
     entryPoint: 'thinkforge',
     output: {
       format: 'reel',
-      platform: 'youtube',
+      platform: options.platform ?? 'youtube',
       aspectRatio: '16:9',
-      targetDurationSec,
+      ...(options.targetDurationSec ? { targetDurationSec: options.targetDurationSec } : {}),
       count: 1,
-      voiceLanguages: ['en'],
+      voiceLanguages: options.voiceLanguages ?? ['en'],
     },
     resolution: {
       fieldConfidence: {},
       inferred: [],
       confirmed: [],
     },
+    ...(options.casting ? { casting: options.casting } : {}),
   };
 }
 
-function productionBriefWithCasting(): ProductionBrief {
-  return {
-    entryPoint: 'thinkforge',
-    output: {
-      format: 'reel',
-      platform: 'instagram-reels',
-      aspectRatio: '9:16',
-      targetDurationSec: 30,
-      count: 1,
-      voiceLanguages: ['en'],
-    },
-    resolution: {
-      fieldConfidence: {},
-      inferred: [],
-      confirmed: [],
-    },
+function castingBrief(voice: 'cloned' | 'preset' | 'none'): ProductionBrief {
+  const voiceBinding = voice === 'cloned'
+    ? { mode: 'cloned' as const, voiceReferenceUrl: 'https://cdn.example.test/host.wav' }
+    : voice === 'preset'
+      ? { mode: 'preset' as const, ttsVoiceId: 'voice_warm_1' }
+      : { mode: 'none' as const };
+  return brief({
+    platform: 'instagram-reels',
+    voiceLanguages: ['en'],
     casting: {
       map: {
         host: {
           avatarProfileId: 'avatar_profile_primary',
-          voice: { mode: 'cloned', voiceReferenceUrl: 'https://cdn.example.test/avatar/voice.wav' },
+          voice: voiceBinding,
         },
       },
     },
-  };
+  });
+}
+
+function hostVoiceoverSidecar(): ScriptWriterSidecarV2 {
+  const beat = makeBeat(1, {
+    lines: [{
+      id: 'line_host_1',
+      text: 'Put one accountable owner between draft and publish.',
+      speakerId: 'host',
+      languageCode: 'en',
+      onCamera: false,
+      delivery: 'voiceover',
+      sourceRefs: [],
+    }],
+    shotIntent: makeShotIntent(),
+  });
+  return sidecarWithScenes([
+    makeScene(1, { durationIntentSeconds: 21, beats: [beat] }),
+  ], { characters: [host] });
 }
 
 describe('ScriptWriterAgent prompt contract', () => {
-  it('injects resolved avatar casting ids and relip rules into the writer prompt', () => {
+  it('describes native narrative authoring and keeps renderer constraints downstream', () => {
     process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
     const prompt = new ScriptWriterAgent().buildPrompt({
       context: {
         projectSummary: 'Founder-led launch reel.',
         systemBrief: 'Brand voice: direct, practical, warm.',
       },
-      userPrompt: 'Make me the on-camera host for this launch reel.',
-      productionBrief: productionBriefWithCasting(),
+      userPrompt: 'Make me the host, speaking only when the story needs it.',
+      productionBrief: castingBrief('cloned'),
     });
 
     expect(prompt).toContain('## Avatar Casting Contract');
     expect(prompt).toContain('characterId "host"');
     expect(prompt).toContain('Avatar Vault profile "avatar_profile_primary"');
-    expect(prompt).toContain('delivery: "sync-dialogue"');
-    expect(prompt).toContain('face visible');
-    expect(prompt).toContain('subShots do not split a lip-sync job');
+    expect(prompt).toContain('acts -> narrativeScenes -> beats -> lines');
+    expect(prompt).toContain('Every spoken line declares its actual languageCode');
+    expect(prompt).toContain('Do not author visible markdown, duplicate narration fields, or renderPlan');
+    expect(prompt).toContain('Do not split, shorten, translate, or move speech merely to satisfy a renderer');
     expect(prompt).toContain('Never target an arbitrary on-camera ratio');
-    expect(prompt).not.toContain('50%');
-    expect(prompt).toContain('Production shot intent');
-    expect(prompt).toContain('never invent equipment');
+    expect(prompt).toContain('Do not mention lip-sync job length');
+    expect(prompt).toContain('Never invent equipment');
+    expect(prompt).not.toContain('on-camera speaking beat >10s');
+    expect(prompt).not.toContain('unsupported spoken language');
   });
 });
 
@@ -316,9 +276,10 @@ describe('ScriptWriterAgent structured generation', () => {
     generateStructuredWithWritingContextCacheMock.mockReset();
   });
 
-  it('uses one schema-constrained cached completion without a fallback generation', async () => {
+  it('uses one schema-constrained cached completion and derives result metadata', async () => {
+    const modelOutput = makeModelOutput();
     generateStructuredWithWritingContextCacheMock.mockResolvedValue({
-      result: makeModelOutput(),
+      result: modelOutput,
       cacheStatus: 'hit',
       modelName: 'models/gemini-2.5-flash',
     });
@@ -333,30 +294,58 @@ describe('ScriptWriterAgent structured generation', () => {
       schema: ScriptWriterModelOutputSchema,
       prompt: expect.stringContaining('Write a short Instagram video script for the launch.'),
     }));
+    expect(modelOutput.metadata).toEqual({ platform: 'instagram' });
+    expect(output.result.metadata).toEqual({
+      estimatedTimeSeconds: 42,
+      platform: 'instagram',
+      voiceLanguages: ['en'],
+    });
     expect(output.metadata?.notes).toBe('writing_context_cache:hit');
-    expect(output.result).toEqual(materializeScriptWriterResult(makeModelOutput()));
+    expect(output.result).toEqual(materializeScriptWriterResult(modelOutput));
   });
 
-  it('repairs an overlong on-camera scene into valid canonical relip scenes', async () => {
-    const invalid = makeModelOutput({
-      sidecar: makeSidecar({
-        characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
-        scenes: [makeOnCameraScene({ durationSeconds: 15 }), makeSidecar().scenes[1]!],
-      }),
-    });
-    const repaired = makeModelOutput({
-      sidecar: makeSidecar({
-        characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
-        scenes: [makeOnCameraScene({ durationSeconds: 8 }), makeSidecar().scenes[1]!],
-      }),
-    });
+  it.each([
+    {
+      name: 'spoken-line language',
+      failure: 'missing_spoken_line_language',
+      mutate: (output: ScriptWriterModelOutput) => {
+        delete output.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0]!.languageCode;
+      },
+    },
+    {
+      name: 'scene and beat duration intent',
+      failure: 'missing_scene_duration',
+      mutate: (output: ScriptWriterModelOutput) => {
+        const scene = output.sidecar.acts[0]!.narrativeScenes[0]!;
+        delete scene.durationIntentSeconds;
+        delete scene.beats[0]!.durationIntentSeconds;
+      },
+    },
+    {
+      name: 'shot intent',
+      failure: 'missing_shot_intent',
+      mutate: (output: ScriptWriterModelOutput) => {
+        delete output.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent;
+      },
+    },
+    {
+      name: 'visual intent',
+      failure: 'missing_visual_intent',
+      mutate: (output: ScriptWriterModelOutput) => {
+        delete output.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.visualIntent;
+      },
+    },
+  ])('performs one bounded repair for missing $name', async ({ failure, mutate }) => {
+    const invalid = makeModelOutput();
+    mutate(invalid);
+    const repaired = makeModelOutput();
     generateStructuredWithWritingContextCacheMock
       .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
       .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
 
     const output = await new ScriptWriterAgent().runStructured({
-      context: { projectSummary: 'Founder-led launch reel.' },
-      userPrompt: 'Write a short Instagram reel with the founder speaking to camera.',
+      context: { projectSummary: 'Approval workflow launch.' },
+      userPrompt: 'Write the complete video script.',
     });
 
     expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
@@ -364,29 +353,26 @@ describe('ScriptWriterAgent structured generation', () => {
       schema: ScriptWriterModelOutputSchema,
       temperature: 0.25,
       prompt: expect.stringContaining('<writer_contract_repair>'),
+      systemInstruction: expect.stringContaining(failure),
     });
     expect(output.metadata?.notes).toContain('script_contract_repair:applied');
     expect(() => assertUsableScriptWriterResult(output.result)).not.toThrow();
   });
 
-  it('repairs a declared long runtime when the audible lines are too short', async () => {
+  it('repairs sparse seven-minute prose once using the runtime contract', async () => {
+    const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
     const invalid = makeModelOutput({
-      sidecar: makeSidecar({
-        scenes: makeSidecar().scenes.map((scene, index) => ({
-          ...scene,
-          durationSeconds: 210,
-          generationUnitId: `scene_${index + 1}`,
-        })),
-      }),
+      metadata: { platform: 'youtube' },
+      sidecar: sidecarWithScenes([
+        makeScene(1, { durationIntentSeconds: 420, beats: [sparseBeat] }),
+      ]),
     });
+    const completeBeat = withSpokenWordCount(makeBeat(1, { durationIntentSeconds: 420 }), 840);
     const repaired = makeModelOutput({
-      sidecar: makeSidecar({
-        scenes: makeSidecar().scenes.map((scene, index) => ({
-          ...withSpokenWords(scene, 425),
-          durationSeconds: 210,
-          generationUnitId: `scene_${index + 1}`,
-        })),
-      }),
+      metadata: { platform: 'youtube' },
+      sidecar: sidecarWithScenes([
+        makeScene(1, { durationIntentSeconds: 420, beats: [completeBeat] }),
+      ]),
     });
     generateStructuredWithWritingContextCacheMock
       .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
@@ -395,62 +381,49 @@ describe('ScriptWriterAgent structured generation', () => {
     const output = await new ScriptWriterAgent().runStructured({
       context: { projectSummary: 'Long-form creative production explainer.' },
       userPrompt: 'Write a seven-minute YouTube explainer.',
-      productionBrief: productionBriefWithDuration(420),
+      productionBrief: brief({ targetDurationSec: 420 }),
     });
 
     expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
-    expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]).toMatchObject({
-      temperature: 0.25,
-      systemInstruction: expect.stringContaining('spoken_word_count_mismatch'),
-    });
-    expect(output.metadata?.notes).toContain('script_contract_repair:applied');
+    expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
+      .toContain('spoken_word_count_mismatch');
+    expect(output.result.metadata.estimatedTimeSeconds).toBe(420);
+    expect(output.result.sidecar.renderPlan).toBeUndefined();
     expect(() => assertUsableScriptWriterResult(output.result, {
-      productionBrief: productionBriefWithDuration(420),
+      productionBrief: brief({ targetDurationSec: 420 }),
     })).not.toThrow();
   });
 
-  it('derives every editor scene and visual prompt from the canonical sidecar', () => {
-    const baseScenes = makeSidecar().scenes;
-    const sixSceneSidecar = makeSidecar({
-      scenes: Array.from({ length: 6 }, (_, index) => ({
-        ...baseScenes[index % baseScenes.length]!,
-        title: `Beat ${index + 1}`,
-        generationUnitId: `scene_${index + 1}`,
-      })),
-    });
-
-    const result = materializeScriptWriterResult(makeModelOutput({ sidecar: sixSceneSidecar }));
-
-    expect(result.content.match(/^## Scene \d+/gm)).toHaveLength(6);
-    expect(result.visualMetadata.scenePrompts).toHaveLength(6);
-    expect(() => assertUsableScriptWriterResult(result)).not.toThrow();
-  });
-
-  it('projects line-level speech into markdown without creating extra scene headers', () => {
-    const sidecar = makeSidecar({
-      scenes: [
-        {
-          ...makeSidecar().scenes[0]!,
-          narration: 'This stale narration must not ship.',
+  it('materializes deterministic markdown and one visual prompt per narrative scene', () => {
+    const firstScene = makeScene(1, {
+      beats: [
+        makeBeat(1, {
+          durationIntentSeconds: 10,
           lines: [{
-            ...makeSidecar().scenes[0]!.lines[0]!,
-            text: 'The approved spoken line stays with its narrator.\n## Scene 99: not a real scene',
+            ...makeBeat(1).lines[0]!,
+            text: 'The approved line stays canonical.\n## Scene 99: not a real scene',
           }],
-        },
-        makeSidecar().scenes[1]!,
+        }),
+        makeBeat(3, { durationIntentSeconds: 11 }),
       ],
     });
+    const modelOutput = makeModelOutput({
+      sidecar: sidecarWithScenes([firstScene, makeScene(2)]),
+    });
 
-    const result = materializeScriptWriterResult(makeModelOutput({ sidecar }));
+    const first = materializeScriptWriterResult(modelOutput);
+    const second = materializeScriptWriterResult(modelOutput);
 
-    expect(result.sidecar.scenes[0]?.narration).toBe(
-      'The approved spoken line stays with its narrator. ## Scene 99: not a real scene',
-    );
-    expect(result.content).toContain('The approved spoken line stays with its narrator. ## Scene 99: not a real scene');
-    expect(result.content.match(/^## Scene \d+/gm)).toHaveLength(2);
+    expect(first).toEqual(second);
+    expect(first.content.match(/^## Scene \d+/gm)).toHaveLength(2);
+    expect(first.content.match(/^### Beat \d+/gm)).toHaveLength(2);
+    expect(first.content).toContain('The approved line stays canonical. ## Scene 99: not a real scene');
+    expect(first.visualMetadata.scenePrompts).toHaveLength(2);
+    expect(first.visualMetadata.scenePrompts[0]).toContain('Beat 1:');
+    expect(first.visualMetadata.scenePrompts[0]).toContain('Beat 2:');
   });
 
-  it('surfaces a structured-generation failure instead of starting a second model call', async () => {
+  it('surfaces an unrepairable provider failure without starting another call', async () => {
     generateStructuredWithWritingContextCacheMock.mockRejectedValue(new Error('invalid sidecar enum'));
 
     await expect(new ScriptWriterAgent().runStructured({
@@ -462,372 +435,258 @@ describe('ScriptWriterAgent structured generation', () => {
   });
 });
 
-describe('assertUsableScriptWriterResult', () => {
-  it('accepts canonical markdown scene scripts that can hydrate a script board', () => {
-    expect(() => assertUsableScriptWriterResult(makeResult())).not.toThrow();
+describe('native Script Sidecar V2 production semantics', () => {
+  it('accepts a 420-second coherent narrative beat without a render plan', () => {
+    const longBeat = withSpokenWordCount(makeBeat(1, { durationIntentSeconds: 420 }), 840);
+    const sidecar = sidecarWithScenes([
+      makeScene(1, { durationIntentSeconds: 420, beats: [longBeat] }),
+    ]);
+    const result = resultFromSidecar(sidecar, 'youtube');
+    const authoredScene = result.sidecar.acts[0]!.narrativeScenes[0]!;
+    const authoredBeat = authoredScene.beats[0]!;
+
+    expect(sidecar).not.toHaveProperty('renderPlan');
+    expect(result.sidecar.acts[0]?.narrativeScenes).toHaveLength(1);
+    expect(authoredScene.narrativePurpose).toBe('Reveal why approval work stalls.');
+    expect(authoredScene.durationIntentSeconds).toBe(420);
+    expect(authoredScene.beats).toHaveLength(1);
+    expect(authoredBeat.narrativePurpose).toBe('Expose the hidden cost of scattered approval loops.');
+    expect(authoredBeat.durationIntentSeconds).toBe(420);
+    expect(authoredScene.beats.some((beat) => beat.durationIntentSeconds === 60)).toBe(false);
+    expect(result.metadata.estimatedTimeSeconds).toBe(420);
+    expect(() => assertUsableScriptWriterResult(result, {
+      productionBrief: brief({ targetDurationSec: 420 }),
+    })).not.toThrow();
   });
 
-  it('does not discard a structurally valid script because a soft editorial heuristic matches', () => {
-    const result = makeResult({
-      content: canonicalScript.replace('Put one person in charge', 'Foster one accountable owner'),
-    });
-
-    expect(() => assertUsableScriptWriterResult(result)).not.toThrow();
-  });
-
-  it('uses structural relip evidence instead of requiring a particular face-visibility phrase', () => {
-    const result = makeResult({
-      sidecar: makeSidecar({
-        characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
-        scenes: [
-          makeOnCameraScene({
-            visualDescription: 'A founder seated at a clean desk, addressing the viewer with an open posture.',
-          }),
-          makeSidecar().scenes[1]!,
-        ],
-      }),
-    });
-
-    expect(() => assertUsableScriptWriterResult(result)).not.toThrow();
-  });
-
-  it('rejects on-camera dialogue that omits structural relip evidence', () => {
-    const unsafeScene = { ...makeOnCameraScene(), relipSafety: undefined };
-
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({
-          sidecar: makeSidecar({
-            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
-            scenes: [unsafeScene, makeSidecar().scenes[1]!],
-          }),
-        }),
-      ),
-    ).toThrow(/relip_face_visibility_undeclared/);
-  });
-
-  it('rejects raw ThinkForge block dumps inside the script content field', () => {
-    const rawBlockDump = JSON.stringify({
-      blocks: [
-        { kind: 'header', content: [{ type: 'text', text: 'Scene 1: The stalled launch' }] },
-        { kind: 'paragraph', content: [{ type: 'text', text: 'This is not a usable script board.' }] },
-      ],
-    });
-
-    expect(() => assertUsableScriptWriterResult(makeResult({ content: rawBlockDump }))).toThrow(
-      /schema_artifact_content/,
-    );
-  });
-
-  it('rejects prose that has no scene contract for downstream boards', () => {
-    const blocklessProse = [
-      'The launch slipped because every team member thought someone else had the final say.',
-      'The stronger move is to assign one approval owner before production begins, then route every objection through that owner.',
-      'That makes the creative path visible, reduces duplicate feedback, and gives the publish team a real finish line.',
-    ].join(' ');
-
-    expect(() => assertUsableScriptWriterResult(makeResult({ content: blocklessProse }))).toThrow(
-      /missing_scene_headers/,
-    );
-  });
-
-  it('rejects scripts whose scene prompts cannot map one-to-one to scenes', () => {
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({
-          visualMetadata: {
-            motionInfo: 'restrained documentary pacing',
-            scenePrompts: ['Only one prompt for two script scenes.'],
-          },
-        }),
-      ),
-    ).toThrow(/scene_prompt_count_mismatch:1\/2/);
-  });
-
-  it('rejects scripts without a valid same-pass sidecar', () => {
-    expect(() =>
-      assertUsableScriptWriterResult({
-        ...makeResult(),
-        sidecar: undefined as unknown as ScriptWriterResult['sidecar'],
-      }),
-    ).toThrow(/invalid_sidecar/);
-  });
-
-  it('rejects new writer output when any canonical scene omits shot intent', () => {
-    const sceneWithoutIntent = { ...makeSidecar().scenes[0]!, shotIntent: undefined };
-
-    expect(() => assertUsableScriptWriterResult(makeResult({
-      sidecar: makeSidecar({ scenes: [sceneWithoutIntent, makeSidecar().scenes[1]!] }),
-    }))).toThrow(/missing_shot_intent:scene_1/);
-  });
-
-  it('rejects shot intent that invents a visible character outside the sidecar cast', () => {
-    const scene = {
-      ...makeSidecar().scenes[0]!,
-      charactersPresent: ['narrator', 'invented_host'],
-      shotIntent: makeShotIntent({
-        simultaneousPerformers: 1,
-        performance: [{
-          characterId: 'invented_host',
-          stance: 'standing',
-          emotion: 'confident',
-          intensity: 0.6,
-          gaze: 'into camera',
-          posture: 'upright',
-          gesture: 'open hands',
-          movement: 'still',
-        }],
-      }),
-    };
-
-    expect(() => assertUsableScriptWriterResult(makeResult({
-      sidecar: makeSidecar({ scenes: [scene, makeSidecar().scenes[1]!] }),
-    }))).toThrow(/shot_intent_character_unknown:invented_host/);
-  });
-
-  it('rejects sidecars whose scene count does not match the visible script', () => {
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({
-          sidecar: makeSidecar({ scenes: [makeSidecar().scenes[0]!] }),
-        }),
-      ),
-    ).toThrow(/sidecar_scene_count_mismatch:1\/2/);
-  });
-
-  it('rejects sidecar source refs that are not in the source ledger', () => {
-    const scene = {
-      ...makeSidecar().scenes[0]!,
-      sourceRefs: ['missing_ref'],
+  it('preserves requested Hindi and multilingual lines instead of forcing English', () => {
+    const beat = makeBeat(1, {
       lines: [
         {
-          ...makeSidecar().scenes[0]!.lines[0]!,
-          sourceRefs: ['missing_ref'],
+          id: 'line_hi',
+          text: 'Yeh kahani seedhe asli samasya se shuru hoti hai.',
+          speakerId: 'narrator',
+          languageCode: 'hi',
+          onCamera: false,
+          delivery: 'voiceover',
+          sourceRefs: [],
         },
-      ],
-    };
-
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({
-          sidecar: makeSidecar({ sourceRefs: ['missing_ref'], scenes: [scene, makeSidecar().scenes[1]!] }),
-        }),
-        { sourceLedger: buildThinkForgeSourceLedger({ userPrompt: 'Adobe raised prices by 12 percent.' }) },
-      ),
-    ).toThrow(/invalid_source_ref:sidecar:missing_ref/);
-  });
-
-  it('rejects numeric factual claims without source refs when a ledger is present', () => {
-    const scene = {
-      ...makeSidecar().scenes[0]!,
-      title: 'The price jump',
-      narration: 'Adobe raised prices by 12 percent.',
-      lines: [
         {
-          ...makeSidecar().scenes[0]!.lines[0]!,
-          text: 'Adobe raised prices by 12 percent.',
+          id: 'line_en',
+          text: 'Then the evidence moves the argument forward.',
+          speakerId: 'narrator',
+          languageCode: 'en',
+          onCamera: false,
+          delivery: 'voiceover',
           sourceRefs: [],
         },
       ],
-      sourceRefs: [],
+    });
+    const result = resultFromSidecar(sidecarWithScenes([
+      makeScene(1, { beats: [beat] }),
+    ]), 'youtube');
+
+    expect(result.metadata.voiceLanguages).toEqual(['hi', 'en']);
+    expect(result.content).toContain('Yeh kahani seedhe asli samasya se shuru hoti hai.');
+    expect(() => assertUsableScriptWriterResult(result, {
+      productionBrief: brief({ voiceLanguages: ['hi', 'en'] }),
+    })).not.toThrow();
+  });
+
+  it('rejects a technical render plan at the model-facing writer boundary', () => {
+    const canonicalLine = makeSidecar().acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0]!;
+    const candidate = {
+      ...makeModelOutput(),
+      sidecar: {
+        ...makeSidecar(),
+        renderPlan: {
+          version: 1,
+          source: 'technical-planner',
+          renderSegments: [{
+            id: 'render_segment_1',
+            kind: 'voiceover',
+            narrativeSceneId: 'scene_1',
+            beatId: 'beat_1',
+            lineSpans: [{
+              lineId: canonicalLine.id,
+              startOffsetUtf16: 0,
+              endOffsetUtf16: 10,
+            }],
+            durationSeconds: 21,
+          }],
+        },
+      },
     };
 
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({
-          sidecar: makeSidecar({ scenes: [scene, makeSidecar().scenes[1]!] }),
-        }),
-        { sourceLedger: buildThinkForgeSourceLedger({ userPrompt: 'Adobe raised prices by 12 percent.' }) },
-      ),
-    ).toThrow(/missing_source_ref:scene_1/);
+    const writerOutput = ScriptWriterModelOutputSchema.safeParse(candidate);
+    const persistedSidecar = ScriptSidecarV2Schema.safeParse(candidate.sidecar);
+
+    expect(writerOutput.success).toBe(false);
+    if (!writerOutput.success) {
+      expect(writerOutput.error.issues.some((issue) => issue.path.join('.') === 'sidecar')).toBe(true);
+    }
+    expect(persistedSidecar.success).toBe(true);
   });
 
-  it('rejects spoken languages unsupported by the writer capability surface', () => {
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({
-          metadata: {
-            estimatedTimeSeconds: 42,
-            platform: 'instagram',
-            voiceLanguage: 'hi',
-          },
-        }),
-      ),
-    ).toThrow(/unsupported_voice_language:hi/);
+  it('rejects any tampering with server-materialized content, prompts, duration, or languages', () => {
+    const result = makeResult();
+
+    expect(() => assertUsableScriptWriterResult({ ...result, content: 'tampered prose' }))
+      .toThrow(/materialized_content_mismatch/);
+    expect(() => assertUsableScriptWriterResult({
+      ...result,
+      visualMetadata: { ...result.visualMetadata, scenePrompts: ['tampered prompt'] },
+    })).toThrow(/materialized_scene_prompts_mismatch/);
+    expect(() => assertUsableScriptWriterResult({
+      ...result,
+      metadata: { ...result.metadata, estimatedTimeSeconds: 60 },
+    })).toThrow(/materialized_duration_mismatch/);
+    expect(() => assertUsableScriptWriterResult({
+      ...result,
+      metadata: { ...result.metadata, voiceLanguages: ['hi'] },
+    })).toThrow(/materialized_voice_languages_mismatch/);
   });
 
-  it('rejects on-camera sync dialogue when the visual is not relip-safe', () => {
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({
-          sidecar: makeSidecar({
-            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
-            scenes: [
-              makeOnCameraScene({
-                visualDescription: 'A masked host in silhouette with the face covered and turned away.',
-              }),
-              makeSidecar().scenes[1]!,
-            ],
-          }),
-        }),
-      ),
-    ).toThrow(/relip_face_not_visible|relip_unsafe_occlusion/);
+  it('rejects an invalid same-pass sidecar', () => {
+    expect(() => assertUsableScriptWriterResult({
+      ...makeResult(),
+      sidecar: undefined as unknown as ScriptWriterResult['sidecar'],
+    })).toThrow(/invalid_sidecar/);
   });
 
-  it('rejects overlong on-camera scenes because sub-shots do not split an Editron relip job', () => {
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({
-          sidecar: makeSidecar({
-            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
-            scenes: [makeOnCameraScene({ durationSeconds: 12 }), makeSidecar().scenes[1]!],
-          }),
-        }),
-      ),
-    ).toThrow(/on_camera_scene_exceeds_relip_limit:scene_1:12s/);
-  });
-
-  it('does not impose an invented on-camera speaking ratio', () => {
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({
-          sidecar: makeSidecar({
-            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
-            scenes: [
-              makeOnCameraScene({ generationUnitId: 'scene_1' }),
-              makeOnCameraScene({ title: 'Host closes the loop', generationUnitId: 'scene_2' }),
-            ],
-          }),
-        }),
-      ),
-    ).not.toThrow();
-  });
-
-  it('rejects scripts that omit a resolved avatar-cast character', () => {
-    expect(() =>
-      assertUsableScriptWriterResult(makeResult(), {
-        productionBrief: productionBriefWithCasting(),
+  it('accepts factual claims when scene, beat, and line provenance resolve', () => {
+    const ledger = buildThinkForgeSourceLedger({ userPrompt: 'Adobe raised prices by 12 percent.' });
+    const factBeat = makeBeat(1, {
+      narrativePurpose: 'Explain why Adobe raised prices by 12 percent.',
+      visualIntent: {
+        ...makeBeat(1).visualIntent!,
+        description: 'A 12 percent price change is shown as a sourced abstract comparison.',
+      },
+      sourceRefs: ['brief_user'],
+      lines: [{
+        ...makeBeat(1).lines[0]!,
+        text: 'Adobe raised prices by 12 percent.',
+        sourceRefs: ['brief_user'],
+      }],
+    });
+    const sidecar = sidecarWithScenes([
+      makeScene(1, {
+        title: 'The 12 percent change',
+        narrativePurpose: 'Explain the sourced 12 percent change.',
+        sourceRefs: ['brief_user'],
+        beats: [factBeat],
       }),
-    ).toThrow(/missing_cast_character:host/);
+    ], { sourceRefs: ['brief_user'] });
+
+    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar), {
+      sourceLedger: ledger,
+    })).not.toThrow();
   });
 
-  it('rejects avatar-cast character speech authored as voiceover', () => {
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({
-          sidecar: makeSidecar({
-            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
-            scenes: [
-              makeOnCameraScene({
-                relipSafe: false,
-                shotIntent: makeShotIntent({
-                  action: 'talking',
-                  desiredFraming: 'medium-close-up',
-                  simultaneousPerformers: 1,
-                  performance: [{
-                    characterId: 'host',
-                    stance: 'seated',
-                    emotion: 'confident',
-                    intensity: 0.45,
-                    gaze: 'into camera',
-                    posture: 'upright and open',
-                    gesture: 'one measured hand gesture',
-                    movement: 'mostly still',
-                  }],
-                  spokenAudio: false,
-                }),
-                lines: [
-                  {
-                    text: 'Put one accountable owner between draft and publish.',
-                    speakerId: 'host',
-                    onCamera: false,
-                    delivery: 'voiceover',
-                    sourceRefs: [],
-                  },
-                ],
-              }),
-              makeSidecar().scenes[1]!,
-            ],
-          }),
-        }),
-        { productionBrief: productionBriefWithCasting() },
-      ),
-    ).toThrow(/cast_character_speech_not_sync_dialogue:host:scene_1/);
-  });
+  it('reports missing factual provenance independently at scene, beat, and line level', () => {
+    const ledger = buildThinkForgeSourceLedger({ userPrompt: 'Adobe raised prices by 12 percent.' });
+    const factBeat = makeBeat(1, {
+      narrativePurpose: 'Explain the 12 percent price change.',
+      visualIntent: {
+        ...makeBeat(1).visualIntent!,
+        description: 'A 12 percent price change appears in the comparison.',
+      },
+      sourceRefs: [],
+      lines: [{
+        ...makeBeat(1).lines[0]!,
+        text: 'Adobe raised prices by 12 percent.',
+        sourceRefs: [],
+      }],
+    });
+    const sidecar = sidecarWithScenes([
+      makeScene(1, {
+        title: 'The 12 percent change',
+        narrativePurpose: 'Explain the sourced 12 percent change.',
+        sourceRefs: [],
+        beats: [factBeat],
+      }),
+    ], { sourceRefs: ['brief_user'] });
 
-  it('accepts a resolved avatar-cast character with relip-safe sync dialogue', () => {
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({
-          sidecar: makeSidecar({
-            characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }, hostCharacter],
-            scenes: [
-              withSpokenWords(makeOnCameraScene(), 30),
-              withSpokenWords({ ...makeSidecar().scenes[1]!, durationSeconds: 22 }, 30),
-            ],
-          }),
-        }),
-        { productionBrief: productionBriefWithCasting() },
-      ),
-    ).not.toThrow();
-  });
-
-  // Regression guard for the live incident: a 7-minute (420s) request silently produced a
-  // ~60s script because the runtime contract never gated output. Runtime and spoken material
-  // are hard requirements; scene count is an editorial decision, not a duration formula.
-  it('rejects a short sidecar against a 7-minute runtime contract (420s ask, 42s script)', () => {
     let message = '';
     try {
-      assertUsableScriptWriterResult(
-        makeResult(), // default fixture: 2 scenes summing 42s
-        { productionBrief: productionBriefWithDuration(420) },
-      );
+      assertUsableScriptWriterResult(resultFromSidecar(sidecar), { sourceLedger: ledger });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain('missing_source_ref:act_1.scene_1');
+    expect(message).toContain('missing_source_ref:act_1.scene_1.beat_1');
+    expect(message).toContain('missing_source_ref:act_1.scene_1.beat_1.line_1');
+  });
+
+  it('rejects source references that do not exist in the authorised ledger', () => {
+    const ledger = buildThinkForgeSourceLedger({ userPrompt: 'Adobe raised prices by 12 percent.' });
+    const sidecar = makeSidecar({ sourceRefs: ['missing_ref'] });
+
+    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar), {
+      sourceLedger: ledger,
+    })).toThrow(/invalid_source_ref:sidecar:missing_ref/);
+  });
+
+  it('rejects spoken lines for a cast character whose voice mode is none', () => {
+    const result = resultFromSidecar(hostVoiceoverSidecar(), 'instagram-reels');
+
+    expect(() => assertUsableScriptWriterResult(result, {
+      productionBrief: castingBrief('none'),
+    })).toThrow(/cast_character_has_no_voice:host/);
+  });
+
+  it.each(['cloned', 'preset'] as const)(
+    'allows %s avatar voice binding to deliver an off-camera voiceover',
+    (voice) => {
+      const result = resultFromSidecar(hostVoiceoverSidecar(), 'instagram-reels');
+
+      expect(() => assertUsableScriptWriterResult(result, {
+        productionBrief: castingBrief(voice),
+      })).not.toThrow();
+    },
+  );
+
+  it('rejects a script that omits a resolved avatar-cast character', () => {
+    expect(() => assertUsableScriptWriterResult(makeResult(), {
+      productionBrief: castingBrief('cloned'),
+    })).toThrow(/missing_cast_character:host/);
+  });
+
+  it('rejects both runtime and prose density when a seven-minute request gets a short script', () => {
+    let message = '';
+    try {
+      assertUsableScriptWriterResult(resultFromSidecar(makeSidecar(), 'youtube'), {
+        productionBrief: brief({ targetDurationSec: 420 }),
+      });
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
 
     expect(message).toContain('runtime_duration_mismatch:42s/420s');
     expect(message).toContain('spoken_word_count_mismatch');
-    expect(message).not.toContain('scene_count_under_runtime_floor');
+    expect(message).not.toContain('scene_count');
   });
 
-  it('accepts long editorial scenes without imposing a seconds-per-scene floor', () => {
-    const scenes = makeSidecar().scenes.map((scene, i) => ({
-      ...withSpokenWords(scene, 425),
-      durationSeconds: 210,
-      generationUnitId: `scene_${i + 1}`,
-    }));
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({ sidecar: makeSidecar({ scenes }) }),
-        { productionBrief: productionBriefWithDuration(420) },
-      ),
-    ).not.toThrow();
+  it('rejects seven-minute duration metadata backed by sparse audible prose', () => {
+    const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
+    const sidecar = sidecarWithScenes([
+      makeScene(1, { durationIntentSeconds: 420, beats: [sparseBeat] }),
+    ]);
+
+    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
+      productionBrief: brief({ targetDurationSec: 420 }),
+    })).toThrow(/spoken_word_count_mismatch/);
   });
 
-  it('accepts a script that exactly satisfies its runtime and spoken-word contract', () => {
-    const scenes = makeSidecar().scenes.map((scene) => ({
-      ...withSpokenWords(scene, 60),
-      durationSeconds: 30,
-    }));
-    expect(() =>
-      assertUsableScriptWriterResult(
-        makeResult({ sidecar: makeSidecar({ scenes }) }), // 60s total for a 60s ask
-        { productionBrief: productionBriefWithDuration(60) },
-      ),
-    ).not.toThrow();
-  });
+  it('accepts a script that satisfies a 60-second runtime and spoken-word contract', () => {
+    const completeBeat = withSpokenWordCount(makeBeat(1, { durationIntentSeconds: 60 }), 120);
+    const sidecar = sidecarWithScenes([
+      makeScene(1, { durationIntentSeconds: 60, beats: [completeBeat] }),
+    ]);
 
-  it('rejects a script that claims a seven-minute runtime with sparse audible narration', () => {
-    const scenes = makeSidecar().scenes.map((scene, index) => ({
-      ...scene,
-      durationSeconds: 210,
-      generationUnitId: `scene_${index + 1}`,
-    }));
-
-    expect(() => assertUsableScriptWriterResult(
-      makeResult({ sidecar: makeSidecar({ scenes }) }),
-      { productionBrief: productionBriefWithDuration(420) },
-    )).toThrow(/spoken_word_count_mismatch/);
+    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
+      productionBrief: brief({ targetDurationSec: 60 }),
+    })).not.toThrow();
   });
 });

@@ -49,8 +49,92 @@ import { PostWriterAgent, PostWriterResultSchema } from '@/lib/thinkforge/agents
 import {
   ScriptWriterAgent,
   ScriptWriterModelOutputSchema,
+  type ScriptWriterModelOutput,
 } from '@/lib/thinkforge/agents/script-writer-agent';
 import { prepareThinkForgeProviderPromptDispatch } from '@/lib/thinkforge/privacy/provider-prompt-dispatch';
+import { SCRIPT_SIDECAR_V2_VERSION } from '@/lib/thinkforge/schemas/script-sidecar-v2';
+
+function nativeV2CacheOutput(): ScriptWriterModelOutput {
+  return {
+    contentAnalysis: {
+      hooks: ['Approval ownership is a launch constraint.'],
+      theme: 'Make approval ownership visible before a campaign launch.',
+      emphasisPoints: ['One named owner', 'One visible review lane'],
+      qualityScore: 92,
+    },
+    visualMetadata: {
+      motionInfo: 'Measured editorial pacing with practical workflow detail.',
+    },
+    metadata: { platform: 'youtube-shorts' },
+    sidecar: {
+      sidecarVersion: SCRIPT_SIDECAR_V2_VERSION,
+      spokenTextSource: 'beat-lines',
+      characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }],
+      acts: [{
+        id: 'act_1',
+        title: 'Approval ownership',
+        narrativePurpose: 'Move from launch friction to one accountable decision path.',
+        narrativeScenes: [{
+          id: 'scene_1',
+          title: 'The visible decision path',
+          narrativePurpose: 'Show how one owner and one review lane restore momentum.',
+          durationIntentSeconds: 60,
+          charactersPresent: [],
+          sourceRefs: ['brief_user'],
+          beats: [{
+            id: 'beat_1',
+            kind: 'voiceover',
+            narrativePurpose: 'Explain the complete approval workflow as one coherent beat.',
+            durationIntentSeconds: 60,
+            lines: [{
+              id: 'line_1',
+              text: 'Campaign work moves when one named owner can explain what changed, why it changed, and whether the decision is ready to ship.',
+              speakerId: 'narrator',
+              languageCode: 'en',
+              onCamera: false,
+              delivery: 'voiceover',
+              sourceRefs: ['brief_user'],
+            }],
+            visualIntent: {
+              description: 'One campaign board turns scattered feedback into a visible approval lane.',
+              motion: 'A restrained push follows the decision from review to publish.',
+              onScreenText: [],
+              imageQualityTokens: 'editorial detail with controlled contrast',
+              videoQualityTokens: 'stable camera and coherent screen direction',
+              assetRecommendation: 'ai-video',
+            },
+            audioIntent: {
+              ambience: 'Quiet campaign workspace.',
+              music: 'Restrained optimistic pulse.',
+              sfx: [],
+            },
+            shotIntent: {
+              narrativePurpose: 'Make the approval path concrete.',
+              emotionalBeat: 'Calm clarity replaces deadline anxiety.',
+              energy: 0.45,
+              visualPriority: 'The decision artifact and its owner.',
+              action: 'still',
+              desiredFraming: 'medium-close-up',
+              desiredAngle: 'eye-level',
+              desiredMovement: 'static',
+              simultaneousPerformers: 0,
+              spokenAudio: false,
+              performance: [],
+              continuity: { wardrobe: [], props: ['approval artifact'], previousSceneIds: [] },
+            },
+            sourceRefs: ['brief_user'],
+          }],
+        }],
+      }],
+      creativeDirection: {
+        overallMusicPrompt: 'Precise editorial rhythm with a restrained optimistic finish.',
+        colorPalette: ['#0F172A', '#D97706', '#F8FAFC'],
+        environmentNotes: 'A practical campaign operations workspace.',
+      },
+      sourceRefs: ['brief_user'],
+    },
+  };
+}
 
 describe('ThinkForge Gemini writing context cache helpers', () => {
   beforeEach(() => {
@@ -355,7 +439,7 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(sdkMocks.generateObject).not.toHaveBeenCalled();
   });
 
-  it('supports schema-validated carousel and script fixtures for browser coverage', async () => {
+  it('supports the carousel fixture and dispatches a schema-validated native V2 script', async () => {
     vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'tf-e2e-test-run');
     vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', 'carousel');
 
@@ -366,19 +450,29 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(carousel.result.clickatron.carouselPrompts).toHaveLength(5);
     expect(carousel.result.clickatron.singleImagePrompt).toBeUndefined();
 
-    vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', 'script');
+    vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', '');
+    const nativeV2 = ScriptWriterModelOutputSchema.parse(nativeV2CacheOutput());
+    sdkMocks.generateObject.mockResolvedValueOnce({ object: nativeV2 });
     const script = await generateStructuredWithWritingContextCache({
       prompt: 'Create a 60-second video script.',
       schema: ScriptWriterModelOutputSchema,
     });
-    expect(script.result.sidecar.scenes).toHaveLength(6);
-    expect(script.result.sidecar.scenes.every((scene) => scene.durationSeconds === 10)).toBe(true);
-    expect(script.result.sidecar.scenes.every((scene) => scene.shotIntent?.spokenAudio === false)).toBe(true);
+
+    const scene = script.result.sidecar.acts[0]?.narrativeScenes[0];
+    expect(script.result.sidecar.acts).toHaveLength(1);
+    expect(script.result.sidecar.acts[0]?.narrativeScenes).toHaveLength(1);
+    expect(scene?.durationIntentSeconds).toBe(60);
+    expect(scene?.beats).toHaveLength(1);
+    expect(scene?.beats[0]?.durationIntentSeconds).toBe(60);
+    expect(scene?.beats[0]?.lines[0]?.languageCode).toBe('en');
+    expect(scene?.beats[0]?.shotIntent?.spokenAudio).toBe(false);
+    expect(script.result.sidecar).not.toHaveProperty('renderPlan');
     expect(script.result.sidecar.sourceRefs).toEqual(['brief_user']);
-    expect(script.result.sidecar.scenes.every((scene) => scene.sourceRefs.includes('brief_user'))).toBe(true);
-    expect(script.result.sidecar.scenes.every((scene) => scene.lines.every((line) => line.sourceRefs?.includes('brief_user')))).toBe(true);
-    expect(sdkMocks.createCache).not.toHaveBeenCalled();
-    expect(sdkMocks.generateObject).not.toHaveBeenCalled();
+    expect(scene?.sourceRefs).toContain('brief_user');
+    expect(scene?.beats[0]?.sourceRefs).toContain('brief_user');
+    expect(scene?.beats[0]?.lines[0]?.sourceRefs).toContain('brief_user');
+    expect(sdkMocks.createCache).toHaveBeenCalledTimes(1);
+    expect(sdkMocks.generateObject).toHaveBeenCalledTimes(1);
   });
 
   it('reuses one stable cache while sending each trusted instruction in its request contract', async () => {
