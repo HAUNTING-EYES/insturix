@@ -4,11 +4,15 @@ import {
   createThinkForgeAuthoringRequest,
 } from '@/lib/thinkforge/schemas/authoring-request';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
+import { hashThinkForgeTraceValue } from '@/lib/thinkforge/provenance/generation-trace';
 
 const mocks = vi.hoisted(() => ({
   applyCommand: vi.fn(),
+  assertNoCriticalCompliance: vi.fn(),
   buildSourceLedger: vi.fn(),
   buildSignalTrace: vi.fn(),
+  evaluateCompliance: vi.fn(),
+  formatCompliance: vi.fn(),
   formatSignalProfile: vi.fn(),
   getScript: vi.fn(),
   getSession: vi.fn(),
@@ -18,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   resolveProductionBrief: vi.fn(),
   resolveSignalProfile: vi.fn(),
   scriptRun: vi.fn(),
+  shouldAutoRepairCompliance: vi.fn(),
 }));
 
 vi.mock('@/lib/thinkforge/agents/post-writer-agent', () => ({
@@ -49,9 +54,13 @@ vi.mock('@/lib/thinkforge/provenance/source-ledger-continuity', () => ({
 }));
 
 vi.mock('@/lib/thinkforge/signals', () => ({
+  assertNoCriticalContentProfileViolations: mocks.assertNoCriticalCompliance,
   buildThinkForgeSignalTrace: mocks.buildSignalTrace,
+  evaluateContentProfileCompliance: mocks.evaluateCompliance,
+  formatContentProfileComplianceViolations: mocks.formatCompliance,
   formatContentSignalProfileForPrompt: mocks.formatSignalProfile,
   resolveContentSignalProfile: mocks.resolveSignalProfile,
+  shouldAutoRepairContentProfileViolations: mocks.shouldAutoRepairCompliance,
 }));
 
 vi.mock('@/lib/thinkforge/services/command-service', () => ({
@@ -73,6 +82,32 @@ const signalProfile = {
 };
 
 const sourceLedger = { ledgerVersion: 1, entries: [] };
+const HASH = 'a'.repeat(64);
+
+function writerTrace(writerType: 'post' | 'script') {
+  return {
+    version: 1,
+    writerType,
+    generatedAt: '2026-08-16T00:00:00.000Z',
+    editorialPlan: { format: writerType },
+    editorialPlanHash: HASH,
+    selectedTechniqueIds: [],
+    techniqueEvidence: [],
+    writingKnowledge: {
+      version: 'writing-v4',
+      source: 'creative-content-knowledge.md',
+      contentHash: HASH,
+    },
+    promptTemplateHash: HASH,
+    sourceLedgerHash: hashThinkForgeTraceValue(sourceLedger),
+    provider: {
+      provider: 'gemini',
+      model: 'models/gemini-2.5-flash',
+      cacheStatus: 'hit',
+    },
+    repair: { applied: false, failureCodes: [] },
+  };
+}
 const productionBrief = {
   output: { platform: 'linkedin', count: 1, format: 'auto-edit' },
   resolution: { fieldConfidence: {}, confirmed: [], inferred: [] },
@@ -160,6 +195,9 @@ describe('flat writer edit authoring context', () => {
     mocks.resolveAuthoringContext.mockResolvedValue(authoringContext);
     mocks.getWritingKnowledgeVersion.mockReturnValue('writing-v4');
     mocks.resolveSignalProfile.mockReturnValue(signalProfile);
+    mocks.evaluateCompliance.mockReturnValue({ score: 100, penalty: 0, violations: [] });
+    mocks.formatCompliance.mockReturnValue([]);
+    mocks.shouldAutoRepairCompliance.mockReturnValue(false);
     mocks.formatSignalProfile.mockReturnValue('<content_signal_profile>resolved</content_signal_profile>');
     mocks.buildSignalTrace.mockReturnValue({ version: 1, selectedIntent: { outputFormat: 'social_post' } });
     mocks.resolveProductionBrief.mockReturnValue(productionBrief);
@@ -183,7 +221,10 @@ describe('flat writer edit authoring context', () => {
       },
     };
     mocks.getScript.mockResolvedValueOnce(stored);
-    mocks.postRun.mockResolvedValue({ result: postResult() });
+    mocks.postRun.mockResolvedValue({
+      result: postResult(),
+      metadata: { writerTrace: writerTrace('post') },
+    });
 
     await reviseDocumentViaFlatWriter({
       userId: 'user_1',
@@ -238,7 +279,15 @@ describe('flat writer edit authoring context', () => {
           authoringContextSnapshot: authoringContext.snapshot,
           signalTrace: expect.objectContaining({ version: 1 }),
           briefSnapshot: productionBrief,
-          writerOutput: expect.objectContaining({ writerType: 'post', sourceLedger }),
+          writerOutput: expect.objectContaining({
+            writerType: 'post',
+            sourceLedger,
+            profileCompliance: expect.objectContaining({ score: 100, hasCritical: false }),
+            generationTrace: expect.objectContaining({
+              operation: { kind: 'edit', id: 'edit:session_1:post_1:v2' },
+              document: expect.objectContaining({ expectedVersion: 2, writerType: 'post' }),
+            }),
+          }),
         }),
       }),
     }), 'user_1', 'org_1');
@@ -274,7 +323,10 @@ describe('flat writer edit authoring context', () => {
     });
     mocks.getScript.mockResolvedValueOnce(stored);
     mocks.resolveAuthoringContext.mockResolvedValueOnce(scriptAuthoringContext);
-    mocks.scriptRun.mockResolvedValue({ result: scriptResult() });
+    mocks.scriptRun.mockResolvedValue({
+      result: scriptResult(),
+      metadata: { writerTrace: writerTrace('script') },
+    });
 
     await reviseDocumentViaFlatWriter({
       userId: 'user_1',
@@ -303,6 +355,10 @@ describe('flat writer edit authoring context', () => {
           writerOutput: expect.objectContaining({
             writerType: 'script',
             sourceLedger,
+            generationTrace: expect.objectContaining({
+              operation: { kind: 'edit', id: 'edit:session_1:script_1:v4' },
+              document: expect.objectContaining({ expectedVersion: 4, writerType: 'script' }),
+            }),
           }),
         }),
       }),

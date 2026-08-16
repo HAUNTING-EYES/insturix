@@ -22,15 +22,23 @@ import { resolveThinkForgeProductionBrief } from '../brief/resolve-production-br
 import { parseMarkdownToBlocks } from '../normalization/markdown-parser';
 import { buildContinuedThinkForgeSourceLedger } from '../provenance/source-ledger-continuity';
 import {
+  buildThinkForgeDocumentGenerationTrace,
+  requireThinkForgeWriterInvocationTrace,
+} from '../provenance/generation-trace';
+import {
   isThinkForgePostKind,
   normalizeThinkForgeDocumentType,
   ThinkForgeDocumentContractSchema,
   type ThinkForgeWriterKind,
 } from '../schemas/document-contract';
 import {
+  assertNoCriticalContentProfileViolations,
   buildThinkForgeSignalTrace,
+  evaluateContentProfileCompliance,
   formatContentSignalProfileForPrompt,
+  formatContentProfileComplianceViolations,
   resolveContentSignalProfile,
+  shouldAutoRepairContentProfileViolations,
 } from '../signals';
 import {
   resolveProjectMetaAuthoringRequest,
@@ -218,14 +226,27 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     editContext: { existingContent, instruction, selection },
   };
 
-  const { result } = isScript
+  const { result, metadata: writerInvocationMetadata } = isScript
     ? await new ScriptWriterAgent().runStructured(baseInput as unknown as ScriptWriterInput)
     : await new PostWriterAgent().runStructured(baseInput as unknown as PostWriterInput);
+  const writerInvocationTrace = requireThinkForgeWriterInvocationTrace(
+    writerInvocationMetadata?.writerTrace,
+  );
 
   const revised = (result as { content?: string }).content ?? '';
   if (revised.trim().length < 30) {
     throw new Error('flat-writer edit returned empty/too-short content');
   }
+
+  const compliance = evaluateContentProfileCompliance(revised, contentSignalProfile);
+  const profileCompliance = {
+    score: compliance.score,
+    penalty: compliance.penalty,
+    hasCritical: shouldAutoRepairContentProfileViolations(compliance.violations),
+    violationIds: compliance.violations.map((violation) => violation.id),
+    violations: formatContentProfileComplianceViolations(compliance.violations),
+  };
+  assertNoCriticalContentProfileViolations(compliance.violations);
 
   const blocks = parseMarkdownToBlocks(revised);
   if (!Array.isArray(blocks) || blocks.length === 0) {
@@ -233,13 +254,37 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   }
 
   const title = canonicalScript.title;
-  const writerOutput = isScript
-    ? scriptWriterMetadata(result as ScriptWriterResult, sourceLedger)
-    : postWriterMetadata(result as PostWriterResult, sourceLedger);
+  const baseVersion = canonicalScript.version ?? 0;
+  const generationTrace = buildThinkForgeDocumentGenerationTrace({
+    operation: {
+      kind: 'edit',
+      id: `edit:${canonicalSessionId}:${scriptId}:v${baseVersion + 1}`,
+    },
+    document: {
+      sessionId: canonicalSessionId,
+      scriptId,
+      expectedVersion: baseVersion + 1,
+      writerType: isScript ? 'script' : 'post',
+    },
+    writerTrace: writerInvocationTrace,
+    authoringContextSnapshot: authoringContext.snapshot,
+    signalTrace,
+    productionBrief,
+    sourceLedger,
+    outputContent: revised,
+    qualityGateEvidence: profileCompliance,
+  });
+  const writerOutput = {
+    ...(isScript
+      ? scriptWriterMetadata(result as ScriptWriterResult, sourceLedger)
+      : postWriterMetadata(result as PostWriterResult, sourceLedger)),
+    profileCompliance,
+    generationTrace,
+  };
   const saveResult = await applyCommand({
     type: 'ReplaceDocument',
     sessionId: canonicalSessionId,
-    baseVersion: canonicalScript.version ?? 0,
+    baseVersion,
     source: 'ai',
     payload: {
       scriptId,

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildThinkForgeDocumentGenerationTrace,
   buildThinkForgeWriterInvocationTrace,
+  hashThinkForgeTraceValue,
+  ThinkForgeDocumentGenerationTraceV1Schema,
   ThinkForgeWriterInvocationTraceV1Schema,
 } from '@/lib/thinkforge/provenance/generation-trace';
 
@@ -94,5 +97,58 @@ describe('ThinkForge writer invocation trace', () => {
     expect(second.promptTemplateHash).not.toBe(first.promptTemplateHash);
     expect(second.sourceLedgerHash).not.toBe(first.sourceLedgerHash);
     expect(first.repair).toEqual({ applied: false, failureCodes: [] });
+  });
+
+  it('binds a saved document version to its writer, context, sources, output, and quality gate', () => {
+    const sourceLedger = {
+      ledgerVersion: 1 as const,
+      entries: [{
+        referenceId: 'brief_user',
+        kind: 'user_brief' as const,
+        title: 'User brief',
+        summary: 'A seven-minute documentary.',
+        confidence: 1,
+        provenance: { origin: 'user_prompt' },
+      }],
+    };
+    const writerTrace = buildThinkForgeWriterInvocationTrace({
+      writerType: 'script',
+      editorialPlan: { runtime: { targetDurationSeconds: 420 } },
+      selectedTechniques: [{ id: 'narration_complement', sourceLines: [800, 820] }],
+      promptTemplate: 'Trusted script writer template v1',
+      sourceLedger,
+      provider: 'gemini',
+      model: 'models/gemini-2.5-flash',
+      cacheStatus: 'hit',
+      generatedAt: '2026-08-16T00:00:00.000Z',
+    });
+    const outputContent = 'A complete, source-grounded documentary script.';
+    const trace = buildThinkForgeDocumentGenerationTrace({
+      operation: { kind: 'create', id: 'generation_1' },
+      document: {
+        sessionId: 'session_1',
+        scriptId: 'script_1',
+        expectedVersion: 4,
+        writerType: 'script',
+      },
+      writerTrace,
+      authoringContextSnapshot: { brand: { brandId: 'brand_b', revision: 13 } },
+      signalTrace: { selectedIntent: { outputFormat: 'video_script' } },
+      productionBrief: { output: { platform: 'youtube' }, targetDurationSec: 420 },
+      sourceLedger,
+      outputContent,
+      qualityGateEvidence: { score: 100, violationIds: [] },
+    });
+
+    expect(ThinkForgeDocumentGenerationTraceV1Schema.parse(trace)).toEqual(trace);
+    expect(trace.document).toMatchObject({ expectedVersion: 4, writerType: 'script' });
+    expect(trace.sourceLedgerHash).toBe(writerTrace.sourceLedgerHash);
+    expect(trace.outputHash).toBe(hashThinkForgeTraceValue(outputContent));
+    expect(trace.qualityGate.status).toBe('passed');
+
+    expect(() => ThinkForgeDocumentGenerationTraceV1Schema.parse({
+      ...trace,
+      document: { ...trace.document, writerType: 'post' },
+    })).toThrow(/writer type does not match/i);
   });
 });

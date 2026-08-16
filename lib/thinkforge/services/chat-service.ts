@@ -48,6 +48,11 @@ import { buildKnobParserSystemInstruction, parsePromptUnderstanding } from '../i
 import { buildContinuedThinkForgeSourceLedger } from '../provenance/source-ledger-continuity';
 import { persistGroundedResearchMemory } from '../provenance/research-memory';
 import {
+  buildThinkForgeDocumentGenerationTrace,
+  requireThinkForgeWriterInvocationTrace,
+  type ThinkForgeWriterInvocationTraceV1,
+} from '../provenance/generation-trace';
+import {
   resolveContentSignalProfile,
   formatContentSignalProfileForPrompt,
   assertNoCriticalContentProfileViolations,
@@ -707,6 +712,9 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         let finalRichText: TiptapJSON = { type: 'doc', content: [] } as any;
         let signalTrace: any = undefined;
         let writerOutputMetadata: Record<string, any> | undefined;
+        let writerInvocationTrace: ThinkForgeWriterInvocationTraceV1 | undefined;
+        let generationSourceLedger: ReturnType<typeof buildContinuedThinkForgeSourceLedger> | undefined;
+        let profileComplianceMetadata: Record<string, unknown> | undefined;
         const authoringContextSnapshot = authoringContext?.snapshot
           ?? buildThinkForgeAuthoringContextSnapshot({
             orgId: session.orgId ?? null,
@@ -796,6 +804,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             sessionId: sessionState.sessionId,
             projectSummary,
           });
+          generationSourceLedger = sourceLedger;
 
           const baseInput = {
             context: quickAssembleContext(
@@ -819,7 +828,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
           if (contentPath === 'post') {
             const writer = new PostWriterAgent();
-            const { result } = await writer.runStructured(baseInput as PostWriterInput);
+            const { result, metadata } = await writer.runStructured(baseInput as PostWriterInput);
+            writerInvocationTrace = requireThinkForgeWriterInvocationTrace(metadata?.writerTrace);
             finalContent = result.content;
             finalTitle = result.metadata?.platform ? `${result.metadata.platform} Post` : 'Social Post';
             writerOutputMetadata = {
@@ -849,7 +859,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             
           } else {
             const writer = new ScriptWriterAgent();
-            const { result } = await writer.runStructured(baseInput as ScriptWriterInput);
+            const { result, metadata } = await writer.runStructured(baseInput as ScriptWriterInput);
+            writerInvocationTrace = requireThinkForgeWriterInvocationTrace(metadata?.writerTrace);
             finalContent = result.content;
             finalTitle = 'Video Script';
             writerOutputMetadata = {
@@ -885,14 +896,19 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           // violations once; anything still critical here is rejected and refunded.
           if (resolvedSignalProfile && finalContent) {
             const compliance = evaluateContentProfileCompliance(finalContent, resolvedSignalProfile);
-            if (compliance.violations.length > 0 && writerOutputMetadata) {
-              const hasCritical = shouldAutoRepairContentProfileViolations(compliance.violations);
-              writerOutputMetadata.profileCompliance = {
-                score: compliance.score,
-                hasCritical,
-                violations: formatContentProfileComplianceViolations(compliance.violations),
-              };
-              assertNoCriticalContentProfileViolations(compliance.violations);
+            const hasCritical = shouldAutoRepairContentProfileViolations(compliance.violations);
+            profileComplianceMetadata = {
+              score: compliance.score,
+              penalty: compliance.penalty,
+              hasCritical,
+              violationIds: compliance.violations.map((violation) => violation.id),
+              violations: formatContentProfileComplianceViolations(compliance.violations),
+            };
+            if (writerOutputMetadata) {
+              writerOutputMetadata.profileCompliance = profileComplianceMetadata;
+            }
+            assertNoCriticalContentProfileViolations(compliance.violations);
+            if (compliance.violations.length > 0) {
               (hasCritical ? console.error : console.warn)(
                 `[ThinkForge:ProfileCompliance] Stack A score ${compliance.score}/100${hasCritical ? ' — CRITICAL' : ''}. Violations: ${compliance.violations.map((v) => v.id).join(', ')}`,
               );
@@ -904,11 +920,31 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           throw writerError;
         }
 
+        if (!writerOutputMetadata || !writerInvocationTrace || !generationSourceLedger || !profileComplianceMetadata) {
+          throw new Error('ThinkForge writer generation is missing required provenance evidence');
+        }
+
         // Save new script with richText (Tiptap JSON AST)
         let savedVersion: number | undefined;
         if (session) {
           await claimCommitOwnership();
           const baseVersion = resolveThinkForgeCommitBaseVersion(commitBaseline, effectiveScriptId!);
+          writerOutputMetadata.generationTrace = buildThinkForgeDocumentGenerationTrace({
+            operation: { kind: 'create', id: activeGenerationId },
+            document: {
+              sessionId: canonicalSessionId,
+              scriptId: effectiveScriptId!,
+              expectedVersion: baseVersion + 1,
+              writerType: contentPath === 'post' ? 'post' : 'script',
+            },
+            writerTrace: writerInvocationTrace,
+            authoringContextSnapshot,
+            signalTrace,
+            productionBrief: briefSnapshot,
+            sourceLedger: generationSourceLedger,
+            outputContent: finalContent,
+            qualityGateEvidence: profileComplianceMetadata,
+          });
           const saveResult = await applyCommand({
             type: 'ReplaceDocument',
             sessionId: canonicalSessionId,
