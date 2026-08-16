@@ -192,10 +192,12 @@ describe('flat writer edit authoring context', () => {
       productionBrief,
       sourceLedger,
       context: expect.objectContaining({
+        projectSummary: 'Approval ownership',
         systemBrief: expect.stringContaining('Canonical Brand B voice and kill-list.'),
       }),
     }));
     expect(mocks.buildSourceLedger).toHaveBeenCalledWith(expect.objectContaining({
+      projectSummary: 'Approval ownership',
       previousLedger: stored.metadata.writerOutput.sourceLedger,
     }));
     expect(mocks.scriptRun).not.toHaveBeenCalled();

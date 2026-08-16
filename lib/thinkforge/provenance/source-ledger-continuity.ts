@@ -11,6 +11,7 @@ const MAX_LEDGER_ENTRIES = 80;
 
 export interface BuildContinuedSourceLedgerInput extends BuildThinkForgeSourceLedgerInput {
   previousLedger?: unknown;
+  projectSummary?: string | null;
 }
 
 function normalized(value: string): string {
@@ -40,16 +41,44 @@ function latestFactRevision(
   return [...entries].reverse().find((entry) => entry.sourceId === candidate.sourceId);
 }
 
+function nextProjectSummaryReference(entries: SourceLedgerEntry[]): string {
+  const latest = entries.reduce((maximum, entry) => {
+    if (entry.referenceId === 'project_summary') return Math.max(maximum, 1);
+    const match = /^project_summary_(\d+)$/.exec(entry.referenceId);
+    return match ? Math.max(maximum, Number(match[1])) : maximum;
+  }, 0);
+  return latest === 0 ? 'project_summary' : `project_summary_${latest + 1}`;
+}
+
 export function buildContinuedThinkForgeSourceLedger(
   input: BuildContinuedSourceLedgerInput,
 ): SourceLedger {
   const current = buildThinkForgeSourceLedger(input);
-  if (input.previousLedger === undefined || input.previousLedger === null) return current;
+  const previous = input.previousLedger === undefined || input.previousLedger === null
+    ? null
+    : parseSourceLedger(input.previousLedger);
+  const entries = [...(previous?.entries ?? [])];
+  const projectSummary = normalized(input.projectSummary ?? '');
+  const currentEntries = [...current.entries];
+  if (projectSummary) {
+    const firstFactIndex = currentEntries.findIndex((entry) => entry.kind !== 'user_brief');
+    const projectEntry: SourceLedgerEntry = {
+      referenceId: 'project_summary',
+      kind: 'project_fact',
+      title: 'Project summary',
+      summary: projectSummary.slice(0, 900),
+      sourceId: 'project_summary',
+      confidence: 1,
+      provenance: {
+        origin: 'project_summary',
+        ...(input.brandId ? { brandId: input.brandId } : {}),
+        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      },
+    };
+    currentEntries.splice(firstFactIndex < 0 ? currentEntries.length : firstFactIndex, 0, projectEntry);
+  }
 
-  const previous = parseSourceLedger(input.previousLedger);
-  const entries = [...previous.entries];
-
-  for (const candidate of current.entries) {
+  for (const candidate of currentEntries) {
     if (candidate.kind === 'user_brief') {
       if (entries.some((entry) => entry.kind === 'user_brief' && sameEvidence(entry, candidate))) continue;
       const hasOriginalBrief = entries.some((entry) => entry.referenceId === 'brief_user');
@@ -61,6 +90,20 @@ export function buildContinuedThinkForgeSourceLedger(
             provenance: { ...candidate.provenance, origin: 'user_edit' },
           }
         : candidate);
+      continue;
+    }
+
+    if (candidate.sourceId === 'project_summary') {
+      const priorRevision = latestFactRevision(entries, candidate);
+      if (priorRevision && sameEvidence(priorRevision, candidate)) continue;
+      entries.push({
+        ...candidate,
+        referenceId: nextProjectSummaryReference(entries),
+        provenance: {
+          ...candidate.provenance,
+          ...(priorRevision ? { supersedesReferenceId: priorRevision.referenceId } : {}),
+        },
+      });
       continue;
     }
 

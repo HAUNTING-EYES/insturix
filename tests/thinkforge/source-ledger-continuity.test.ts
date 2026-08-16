@@ -62,6 +62,25 @@ describe('ThinkForge source ledger continuity', () => {
     expect(requireSourceReferenceIdForFact(revised, revisedFact, 0)).toBe('source_2');
   });
 
+  it('makes project summaries explicit and revisions immutable', () => {
+    const original = buildContinuedThinkForgeSourceLedger({
+      userPrompt: 'Write the launch post.',
+      projectSummary: 'The beta serves independent finance teams.',
+    });
+    const revised = buildContinuedThinkForgeSourceLedger({
+      userPrompt: 'Write the launch post.',
+      projectSummary: 'The beta now serves independent agencies.',
+      previousLedger: original,
+    });
+
+    expect(original.entries.map((entry) => entry.referenceId)).toEqual(['brief_user', 'project_summary']);
+    expect(revised.entries.at(-1)).toMatchObject({
+      referenceId: 'project_summary_2',
+      sourceId: 'project_summary',
+      provenance: { supersedesReferenceId: 'project_summary' },
+    });
+  });
+
   it('deduplicates repeated edit evidence and rejects malformed prior ledgers', () => {
     const first = buildContinuedThinkForgeSourceLedger({ userPrompt: 'Keep this exact instruction.' });
     const repeated = buildContinuedThinkForgeSourceLedger({

@@ -160,6 +160,12 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     contentPath: isScript ? 'script' : 'post',
     brandId,
   });
+  const projectSummary = [
+    authoringContext.projectMeta.idea,
+    authoringContext.projectMeta.purpose,
+    authoringContext.projectMeta.projectName,
+    authoringContext.projectMeta.title,
+  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0) ?? '';
   const previousMetadata = canonicalScript.metadata && typeof canonicalScript.metadata === 'object'
     ? canonicalScript.metadata as Record<string, unknown>
     : {};
@@ -173,14 +179,13 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     retrievedContext: authoringContext.retrievedContext,
     brandId,
     sessionId: canonicalSessionId,
+    projectSummary,
     previousLedger: previousWriterOutput.sourceLedger,
   });
 
   const baseInput = {
     context: {
-      projectSummary: canonicalScript.title
-        ? `Editing document: ${canonicalScript.title}`
-        : '',
+      projectSummary,
       currentScript: existingContent,
       systemBrief: groundedSystemBrief,
     },

@@ -47,7 +47,7 @@ import {
 } from '../brief/resolve-production-brief';
 import { resolveThinkForgeAvatarCasting, type ThinkForgeCastingMetadata } from '../casting/resolve-casting';
 import { buildKnobParserSystemInstruction, parsePromptUnderstanding } from '../intake/prompt-knob-parser';
-import { buildThinkForgeSourceLedger } from '../provenance/source-ledger';
+import { buildContinuedThinkForgeSourceLedger } from '../provenance/source-ledger-continuity';
 import { persistGroundedResearchMemory } from '../provenance/research-memory';
 import {
   resolveContentSignalProfile,
@@ -917,11 +917,18 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         }
 
         try {
-          const sourceLedger = buildThinkForgeSourceLedger({
+          const projectSummary = [
+            sessionState.metadata.idea,
+            sessionState.metadata.purpose,
+            sessionState.metadata.projectName,
+            sessionState.metadata.title,
+          ].find((value): value is string => typeof value === 'string' && value.trim().length > 0) ?? '';
+          const sourceLedger = buildContinuedThinkForgeSourceLedger({
             userPrompt: authoringPrompt,
             retrievedContext: retrievedCtx || undefined,
             brandId: sessionState.metadata.brandId,
             sessionId: sessionState.sessionId,
+            projectSummary,
           });
 
           const baseInput = {
@@ -953,6 +960,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               contentAnalysis: result.contentAnalysis,
               hashtags: result.hashtags,
               visualPrompts: result.clickatron,
+              sourceLedger,
               writerMetadata: result.metadata,
               ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),
             };
