@@ -58,32 +58,6 @@ export {
   createIdeasAgent,
 } from './ideas-agent';
 
-// Script Draft Agent
-export {
-  ScriptDraftAgent,
-  createScriptDraftAgent,
-  generateScriptDraft,
-} from './script-draft-agent';
-
-// Script Author Agent
-export {
-  ScriptAuthorAgent,
-  createScriptAuthorAgent,
-} from './script-author-agent';
-
-export {
-  ScriptContractAgent,
-  createScriptContractAgent,
-  NarrativeContractSchema,
-} from './script-contract-agent';
-
-// Script Refinement Agent
-export {
-  ScriptRefinementAgent,
-  createScriptRefinementAgent,
-  refineScriptDraft,
-} from './script-refinement-agent';
-
 // Thinking Agent
 export {
   runThinkingAgent,
