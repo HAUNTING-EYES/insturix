@@ -1,4 +1,5 @@
 import type { RetrievedContext } from '../context/fetchContextSources';
+import type { ThinkForgeAuthoringRequest } from '../schemas/authoring-request';
 
 /**
  * ThinkForge AI Agent Types
@@ -44,6 +45,8 @@ export interface AgentInput {
   retrievedContext?: RetrievedContext | null;
   /** The user's prompt/instruction */
   userPrompt: string;
+  /** Server-validated output choice for agents that propose a new document. */
+  authoringRequest?: ThinkForgeAuthoringRequest;
   /** Generation mode selector */
   generationMode?: 'manual' | 'playbook' | 'narrative';
   /** Orchestration-owned identity for deterministic creative regeneration. */

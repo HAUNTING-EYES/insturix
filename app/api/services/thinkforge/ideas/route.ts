@@ -11,6 +11,10 @@ import {
 	BrandScopeAuthorizationError,
 	listAuthorizedBrandScopes,
 } from '@/lib/shared/brand-scope';
+import {
+	ThinkForgeAuthoringRequestSchema,
+	type ThinkForgeAuthoringRequest,
+} from '@/lib/thinkforge/schemas/authoring-request';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -113,9 +117,22 @@ export async function POST(req: Request) {
 	let requestedBrandId: string | undefined;
 	let variationIndex = 0;
 	let rejectedIdeas: RejectedIdeaEvidence[] = [];
+	let authoringRequest: ThinkForgeAuthoringRequest;
 	try {
 		const body = await req.json();
 		prompt = String(body?.prompt || '');
+		const parsedAuthoringRequest = ThinkForgeAuthoringRequestSchema.safeParse(body?.authoringRequest);
+		if (!parsedAuthoringRequest.success) {
+			return NextResponse.json(
+				{
+					error: 'Invalid authoring request',
+					code: 'invalid_authoring_request',
+					details: parsedAuthoringRequest.error.flatten(),
+				},
+				{ status: 422 },
+			);
+		}
+		authoringRequest = parsedAuthoringRequest.data;
 		const projectMeta = toProjectMeta(body?.projectMeta);
 		requestedBrandId = toNonEmptyString(body?.brandId) || toNonEmptyString(projectMeta.brandId);
 		if (Number.isInteger(body?.variationIndex) && body.variationIndex >= 0 && body.variationIndex <= 1000) {
@@ -218,6 +235,7 @@ export async function POST(req: Request) {
 			requireBrandGrounding: requiresBrandContext,
 			variationIndex,
 			rejectedIdeas,
+			authoringRequest,
 		});
 		const scopedIdeas = ideas.map((idea) => ({
 			...idea,
@@ -232,6 +250,7 @@ export async function POST(req: Request) {
 			generation: {
 				variationIndex,
 				rejectedIdeaCount: rejectedIdeas.length,
+				authoringRequest,
 				authoringContextSnapshot,
 			},
 		});
