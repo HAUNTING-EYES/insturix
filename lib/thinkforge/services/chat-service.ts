@@ -711,6 +711,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           ?? buildThinkForgeAuthoringContextSnapshot({
             orgId: session.orgId ?? null,
             retrievedContext: retrievedCtx,
+            authoringRequest: authoritativeAuthoringRequest,
             writingKnowledgeVersion: getWritingKnowledgeVersion(),
           });
 

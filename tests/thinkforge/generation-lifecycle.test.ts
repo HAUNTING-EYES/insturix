@@ -101,6 +101,9 @@ describe('ThinkForge generation lifecycle', () => {
     expect(service).toContain('resolveThinkForgeAuthoringContext({');
     expect(service).not.toContain('fetchContextSources({');
     expect(service).toContain('const authoringContextSnapshot = authoringContext?.snapshot');
+    expect(service).toMatch(
+      /buildThinkForgeAuthoringContextSnapshot\(\{[\s\S]{0,240}authoringRequest: authoritativeAuthoringRequest/,
+    );
   });
 
   it('fails closed when the required production brief cannot be resolved', () => {

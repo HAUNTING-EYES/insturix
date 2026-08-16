@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
+import {
+  createDefaultThinkForgePostControls,
+  createThinkForgeAuthoringRequest,
+} from '@/lib/thinkforge/schemas/authoring-request';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -713,10 +717,16 @@ describe('ThinkForge session route authorization', () => {
   });
 
   it('uses only the authorized selected Vault brand when generating ideas', async () => {
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('social_post'),
+      platformSurface: { id: 'linkedin' },
+      postControls: createDefaultThinkForgePostControls(),
+    });
     const response = await callIdeas({
       prompt: 'Create a post for my brand about product adoption.',
       brandId: 'brand_allowed',
       brandBrief: 'Stale browser scan: make every idea about the old founder interview.',
+      authoringRequest,
     });
 
     if (!response) throw new Error('Ideas route did not return a response');
@@ -729,7 +739,7 @@ describe('ThinkForge session route authorization', () => {
     expect(mocks.resolveThinkForgeAuthoringContext).toHaveBeenCalledWith(expect.objectContaining({
       userId: 'user_1',
       orgId: 'org_1',
-      providedProject: { brandId: 'brand_allowed' },
+      providedProject: { brandId: 'brand_allowed', authoringRequest },
     }));
     const body = await response.json();
     expect(body.grounding).toMatchObject({
@@ -738,6 +748,7 @@ describe('ThinkForge session route authorization', () => {
     });
     expect(body.ideas[0]).toMatchObject({ brandId: 'brand_allowed' });
     expect(body.ideas[0].brandBrief).toBeUndefined();
+    expect(body.generation.authoringRequest).toEqual(authoringRequest);
     expect(body.generation.authoringContextSnapshot).toMatchObject({
       brand: { brandId: 'brand_allowed', recordId: 'record_allowed' },
     });
