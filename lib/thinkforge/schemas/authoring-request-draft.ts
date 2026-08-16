@@ -2,9 +2,12 @@ import { ZodError } from 'zod';
 import {
   createDefaultThinkForgePostControls,
   createThinkForgeAuthoringRequest,
+  inferLegacyThinkForgePublishingSurface,
+  platformForThinkForgePublishingSurface,
   ThinkForgeAuthoringRequestSchema,
   type ThinkForgeAuthoringRequest,
   type ThinkForgePlatformSurfaceId,
+  type ThinkForgePublishingSurfaceId,
 } from './authoring-request';
 import {
   createThinkForgeWriterContract,
@@ -12,10 +15,12 @@ import {
   THINKFORGE_CAROUSEL_MIN_SLIDES,
   type ThinkForgeWriterKind,
 } from './document-contract';
+import { assertThinkForgePublishingRequestFeasible } from '../signals/publishing-constraints';
 
 export type ThinkForgeAuthoringRequestDraft = {
   outputKind: ThinkForgeWriterKind | '';
   platformId: ThinkForgePlatformSurfaceId | '';
+  publishingSurfaceId: ThinkForgePublishingSurfaceId | '';
   customPlatformLabel: string;
   carouselSlideCount: string;
   durationMinutes: string;
@@ -65,6 +70,9 @@ export function createThinkForgeAuthoringRequestDraft(
   return {
     outputKind: request?.contentContract.outputKind as ThinkForgeWriterKind | undefined || '',
     platformId: request?.platformSurface.id || '',
+    publishingSurfaceId: request?.publishingSurface
+      ?? (request ? inferLegacyThinkForgePublishingSurface(request) : undefined)
+      ?? '',
     customPlatformLabel: request?.platformSurface.customLabel || '',
     carouselSlideCount: request?.contentContract.carouselSlideCount !== undefined
       ? String(request.contentContract.carouselSlideCount)
@@ -91,8 +99,13 @@ export function resolveThinkForgeAuthoringRequestDraft(
 ): ResolveThinkForgeAuthoringRequestDraftResult {
   try {
     if (!draft.outputKind) throw new Error('Choose an output type.');
-    if (!draft.platformId) throw new Error('Choose a platform.');
-    if (draft.platformId === 'custom' && !draft.customPlatformLabel.trim()) {
+    if (!draft.publishingSurfaceId) throw new Error('Choose a publishing destination.');
+    const resolvedPlatformId = platformForThinkForgePublishingSurface(draft.publishingSurfaceId);
+    if (draft.platformId && draft.platformId !== resolvedPlatformId) {
+      throw new Error('Publishing destination conflicts with the selected platform.');
+    }
+    const platformId = resolvedPlatformId;
+    if (platformId === 'custom' && !draft.customPlatformLabel.trim()) {
       throw new Error('Name the destination platform.');
     }
 
@@ -124,9 +137,10 @@ export function resolveThinkForgeAuthoringRequestDraft(
         draft.outputKind,
         draft.outputKind === 'carousel' ? { carouselSlideCount } : undefined,
       ),
-      platformSurface: draft.platformId === 'custom'
+      platformSurface: platformId === 'custom'
         ? { id: 'custom', customLabel: draft.customPlatformLabel.trim() }
-        : { id: draft.platformId },
+        : { id: platformId },
+      publishingSurface: draft.publishingSurfaceId,
       ...(draft.outputKind === 'video_script' && targetDurationSec > 0 ? { targetDurationSec } : {}),
       ...(draft.outputKind !== 'video_script'
         ? {
@@ -148,6 +162,7 @@ export function resolveThinkForgeAuthoringRequestDraft(
           }
         : {}),
     });
+    assertThinkForgePublishingRequestFeasible(request);
     return { success: true, request };
   } catch (error) {
     return { success: false, error: validationMessage(error) };

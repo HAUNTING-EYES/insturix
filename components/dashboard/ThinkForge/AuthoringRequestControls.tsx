@@ -3,8 +3,9 @@
 import React from "react";
 import { Plus, X } from "lucide-react";
 import {
-  THINKFORGE_PLATFORM_SURFACE_IDS,
-  describeThinkForgePlatformSurface,
+  listThinkForgePublishingSurfaces,
+  platformForThinkForgePublishingSurface,
+  type ThinkForgePublishingSurfaceId,
 } from "@/lib/thinkforge/schemas/authoring-request";
 import type { ThinkForgeAuthoringRequestDraft } from "@/lib/thinkforge/schemas/authoring-request-draft";
 import {
@@ -25,17 +26,37 @@ const OUTPUT_OPTIONS: Array<{ value: ThinkForgeWriterKind; label: string }> = [
   { value: 'video_script', label: 'Video script' },
 ];
 
-const PLATFORM_OPTIONS = THINKFORGE_PLATFORM_SURFACE_IDS.map((id) => ({
-  id,
-  label: id === 'custom' ? 'Other' : describeThinkForgePlatformSurface({ id }),
-}));
-
 const controlClass = "mt-1.5 h-10 w-full rounded-[7px] border border-[#282724] bg-[#0F0F0E] px-3 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60 disabled:cursor-not-allowed disabled:opacity-50";
 const labelClass = "text-[10px] font-semibold uppercase tracking-wider text-[#7A776E]";
 
 export function AuthoringRequestControls({ value, onChange, disabled = false }: AuthoringRequestControlsProps) {
   const [hashtagInput, setHashtagInput] = React.useState('');
   const patch = (updates: Partial<ThinkForgeAuthoringRequestDraft>) => onChange({ ...value, ...updates });
+  const publishingOptions = value.outputKind
+    ? listThinkForgePublishingSurfaces(value.outputKind)
+    : [];
+  const selectOutputKind = (outputKind: ThinkForgeWriterKind) => {
+    const destinationStillApplies = value.publishingSurfaceId
+      && listThinkForgePublishingSurfaces(outputKind).some(({ id }) => id === value.publishingSurfaceId);
+    patch({
+      outputKind,
+      ...(!destinationStillApplies
+        ? { publishingSurfaceId: '', platformId: '', customPlatformLabel: '' }
+        : {}),
+    });
+  };
+  const selectPublishingSurface = (publishingSurfaceId: ThinkForgePublishingSurfaceId | '') => {
+    if (!publishingSurfaceId) {
+      patch({ publishingSurfaceId: '', platformId: '', customPlatformLabel: '' });
+      return;
+    }
+    const platformId = platformForThinkForgePublishingSurface(publishingSurfaceId);
+    patch({
+      publishingSurfaceId,
+      platformId,
+      ...(platformId !== 'custom' ? { customPlatformLabel: '' } : {}),
+    });
+  };
 
   const addHashtag = () => {
     const next = hashtagInput.trim();
@@ -54,7 +75,7 @@ export function AuthoringRequestControls({ value, onChange, disabled = false }: 
             disabled={disabled}
             className={`idea-tag min-h-9 ${value.outputKind === option.value ? 'border-[#D4A652] text-[#D4A652]' : ''}`}
             aria-pressed={value.outputKind === option.value}
-            onClick={() => patch({ outputKind: option.value })}
+            onClick={() => selectOutputKind(option.value)}
           >
             {option.label}
           </button>
@@ -63,15 +84,15 @@ export function AuthoringRequestControls({ value, onChange, disabled = false }: 
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className={labelClass}>
-          Platform
+          Publishing destination
           <select
-            value={value.platformId}
+            value={value.publishingSurfaceId}
             disabled={disabled}
-            onChange={(event) => patch({ platformId: event.target.value as ThinkForgeAuthoringRequestDraft['platformId'] })}
+            onChange={(event) => selectPublishingSurface(event.target.value as ThinkForgePublishingSurfaceId | '')}
             className={controlClass}
           >
             <option value="">Select</option>
-            {PLATFORM_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+            {publishingOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
           </select>
         </label>
 

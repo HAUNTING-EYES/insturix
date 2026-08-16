@@ -4,28 +4,20 @@ import {
   ThinkForgeAuthoringRequestSchema,
   describeThinkForgePlatformSurface,
   type ThinkForgeAuthoringRequest,
+  type ThinkForgePublishingSurfaceId,
 } from '@/lib/thinkforge/schemas/authoring-request';
 
 export const THINKFORGE_PUBLISHING_CONSTRAINTS_VERSION = 2;
 export const THINKFORGE_PUBLISHING_POLICY_VERIFIED_AT = '2026-08-16';
 
-export type ThinkForgePublishingSurface =
-  | 'linkedin_post'
-  | 'x_post'
-  | 'instagram_feed'
-  | 'instagram_reels'
-  | 'youtube_video'
-  | 'youtube_shorts'
-  | 'tiktok_video'
-  | 'facebook_post'
-  | 'unknown';
+export type ThinkForgePublishingSurface = ThinkForgePublishingSurfaceId | 'unknown';
 
 export interface ThinkForgePublishingConstraints extends Record<string, unknown> {
   platform: string;
   surface: ThinkForgePublishingSurface;
   policyVersion: number;
   verifiedAt: string;
-  sourceId?: 'linkedin_ugc_api' | 'x_counting_characters';
+  sourceId?: 'linkedin_ugc_api' | 'x_counting_characters' | 'youtube_help';
   characterCounting?: 'utf16_code_units_conservative' | 'x_weighted';
   maxCharacters?: number;
   standardMaxCharacters?: number;
@@ -47,22 +39,22 @@ function normalizePlatformLabel(value: string): string {
 function resolveTypedPublishingSurface(
   request: ThinkForgeAuthoringRequest,
 ): ThinkForgePublishingSurface {
+  if (request.publishingSurface) return request.publishingSurface;
   const isVideoScript = request.contentContract.outputKind === 'video_script';
+  const isCarousel = request.contentContract.outputKind === 'carousel';
   switch (request.platformSurface.id) {
     case 'linkedin':
-      return 'linkedin_post';
+      return isCarousel ? 'linkedin_document_carousel' : 'linkedin_post';
     case 'x':
       return 'x_post';
     case 'instagram':
-      return isVideoScript ? 'instagram_reels' : 'instagram_feed';
+      return isVideoScript ? 'instagram_reels' : isCarousel ? 'instagram_carousel' : 'instagram_feed';
     case 'youtube':
-      // The current authoring contract says YouTube, not YouTube Shorts.
-      // A duration alone must never silently change the publishing product.
-      return 'youtube_video';
+      return request.contentContract.outputKind === 'social_post' ? 'youtube_community_post' : 'unknown';
     case 'tiktok':
       return 'tiktok_video';
     case 'facebook':
-      return 'facebook_post';
+      return isVideoScript ? 'facebook_reels' : isCarousel ? 'facebook_carousel' : 'facebook_post';
     default:
       return 'unknown';
   }
@@ -89,6 +81,15 @@ function constraintsForSurface(
     };
   }
 
+  if (outputFormat === 'social_post' && surface === 'linkedin_document_carousel') {
+    return {
+      ...base,
+      sourceId: 'linkedin_ugc_api',
+      characterCounting: 'utf16_code_units_conservative',
+      maxCharacters: 3_000,
+    };
+  }
+
   if (outputFormat === 'social_post' && surface === 'x_post') {
     return {
       ...base,
@@ -100,7 +101,7 @@ function constraintsForSurface(
   }
 
   if (outputFormat === 'video_script' && surface === 'youtube_shorts') {
-    return { ...base, maxDurationSeconds: 180 };
+    return { ...base, sourceId: 'youtube_help', maxDurationSeconds: 180 };
   }
 
   return base;
@@ -145,6 +146,23 @@ export function resolveThinkForgePublishingConstraintsForAuthoringRequest(
     resolveTypedPublishingSurface(request),
     outputFormat,
   );
+}
+
+export function assertThinkForgePublishingRequestFeasible(
+  requestInput: ThinkForgeAuthoringRequest,
+): void {
+  const request = ThinkForgeAuthoringRequestSchema.parse(requestInput);
+  const constraints = resolveThinkForgePublishingConstraintsForAuthoringRequest(request);
+  if (
+    request.targetDurationSec !== undefined
+    && constraints.maxDurationSeconds !== undefined
+    && request.targetDurationSec > constraints.maxDurationSeconds
+  ) {
+    throw new Error(
+      `${constraints.surface} supports at most ${constraints.maxDurationSeconds} seconds; `
+      + `requested ${request.targetDurationSec} seconds`,
+    );
+  }
 }
 
 /**

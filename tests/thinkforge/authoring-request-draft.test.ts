@@ -9,6 +9,9 @@ import {
 } from '@/components/dashboard/ThinkForge/TrendWorkflowPanel';
 import type { TrendCandidate } from '@/lib/thinkforge/trends/trend-evidence';
 import { resolveThinkForgePlatformSurfaceFromLabel } from '@/lib/thinkforge/schemas/authoring-request';
+import {
+  resolveThinkForgePublishingConstraintsForAuthoringRequest,
+} from '@/lib/thinkforge/signals/publishing-constraints';
 
 describe('ThinkForge authoring request draft', () => {
   it('normalizes exact platform aliases and preserves unknown destinations explicitly', () => {
@@ -21,7 +24,7 @@ describe('ThinkForge authoring request draft', () => {
     expect(() => resolveThinkForgePlatformSurfaceFromLabel('')).toThrow();
   });
 
-  it('requires explicit output and platform choices', () => {
+  it('requires explicit output and publishing-destination choices', () => {
     const result = resolveThinkForgeAuthoringRequestDraft(createThinkForgeAuthoringRequestDraft());
     expect(result).toEqual({ success: false, error: 'Choose an output type.' });
   });
@@ -32,6 +35,7 @@ describe('ThinkForge authoring request draft', () => {
       ...draft,
       outputKind: 'video_script',
       platformId: 'youtube',
+      publishingSurfaceId: 'youtube_video',
       durationMinutes: '7',
       durationSeconds: '0',
     });
@@ -48,6 +52,7 @@ describe('ThinkForge authoring request draft', () => {
       ...draft,
       outputKind: 'social_post',
       platformId: 'custom',
+      publishingSurfaceId: 'custom',
       customPlatformLabel: 'Client community',
       ctaPreference: 'direct',
       ctaAction: 'Book the audit',
@@ -63,6 +68,7 @@ describe('ThinkForge authoring request draft', () => {
 
     expect(createThinkForgeAuthoringRequestDraft(result.request)).toMatchObject({
       platformId: 'custom',
+      publishingSurfaceId: 'custom',
       customPlatformLabel: 'Client community',
       ctaPreference: 'direct',
       ctaAction: 'Book the audit',
@@ -81,6 +87,7 @@ describe('ThinkForge authoring request draft', () => {
       ...draft,
       outputKind: 'social_post',
       platformId: 'linkedin',
+      publishingSurfaceId: 'linkedin_post',
       hashtagPreference: 'exact',
       hashtags: [],
     });
@@ -99,6 +106,7 @@ describe('ThinkForge authoring request draft', () => {
       ...draft,
       outputKind: 'social_post',
       platformId: 'instagram',
+      publishingSurfaceId: 'instagram_feed',
       hashtagPreference: 'exact',
       hashtags,
     });
@@ -115,6 +123,7 @@ describe('ThinkForge authoring request draft', () => {
       ...draft,
       outputKind: 'social_post',
       platformId: 'instagram',
+      publishingSurfaceId: 'instagram_feed',
       hashtagPreference: 'exact',
       hashtags: [unicodeHashtag, '#Evidencia_2026'],
     });
@@ -130,6 +139,7 @@ describe('ThinkForge authoring request draft', () => {
       ...draft,
       outputKind: 'video_script',
       platformId: 'youtube',
+      publishingSurfaceId: 'youtube_video',
       durationMinutes: '1',
       durationSeconds: '60',
     })).toEqual({ success: false, error: 'Duration seconds must be between 0 and 59.' });
@@ -138,6 +148,7 @@ describe('ThinkForge authoring request draft', () => {
       ...draft,
       outputKind: 'carousel',
       platformId: 'instagram',
+      publishingSurfaceId: 'instagram_carousel',
       carouselSlideCount: '8',
     });
     expect(carousel.success).toBe(false);
@@ -151,12 +162,14 @@ describe('ThinkForge authoring request draft', () => {
       ...base,
       outputKind: 'carousel',
       platformId: 'linkedin',
+      publishingSurfaceId: 'linkedin_document_carousel',
       carouselSlideCount: '5',
     });
     const script = resolveThinkForgeAuthoringRequestDraft({
       ...base,
       outputKind: 'video_script',
       platformId: 'youtube',
+      publishingSurfaceId: 'youtube_video',
       durationMinutes: '7',
     });
     expect(carousel.success).toBe(true);
@@ -171,6 +184,67 @@ describe('ThinkForge authoring request draft', () => {
       candidate: sourceCandidate,
       target: 'post',
       authoringRequest: carousel.request,
+    });
+  });
+
+  it('keeps YouTube long-form and Shorts explicit and rejects an overlong Short before generation', () => {
+    const base = createThinkForgeAuthoringRequestDraft();
+    const ambiguous = resolveThinkForgeAuthoringRequestDraft({
+      ...base,
+      outputKind: 'video_script',
+      platformId: 'youtube',
+      durationMinutes: '1',
+    });
+    expect(ambiguous).toEqual({ success: false, error: 'Choose a publishing destination.' });
+
+    const longForm = resolveThinkForgeAuthoringRequestDraft({
+      ...base,
+      outputKind: 'video_script',
+      platformId: 'youtube',
+      publishingSurfaceId: 'youtube_video',
+      durationMinutes: '7',
+    });
+    const overlongShort = resolveThinkForgeAuthoringRequestDraft({
+      ...base,
+      outputKind: 'video_script',
+      platformId: 'youtube',
+      publishingSurfaceId: 'youtube_shorts',
+      durationMinutes: '7',
+    });
+    const validShort = resolveThinkForgeAuthoringRequestDraft({
+      ...base,
+      outputKind: 'video_script',
+      platformId: 'youtube',
+      publishingSurfaceId: 'youtube_shorts',
+      durationMinutes: '3',
+    });
+    expect(longForm.success).toBe(true);
+    expect(overlongShort).toEqual({
+      success: false,
+      error: 'youtube_shorts supports at most 180 seconds; requested 420 seconds',
+    });
+    expect(validShort.success).toBe(true);
+    if (!longForm.success || !validShort.success) return;
+
+    expect(resolveThinkForgePublishingConstraintsForAuthoringRequest(longForm.request).surface)
+      .toBe('youtube_video');
+    expect(resolveThinkForgePublishingConstraintsForAuthoringRequest(validShort.request)).toMatchObject({
+      surface: 'youtube_shorts',
+      sourceId: 'youtube_help',
+      maxDurationSeconds: 180,
+    });
+  });
+
+  it('rejects mismatched product and platform pairs', () => {
+    const result = resolveThinkForgeAuthoringRequestDraft({
+      ...createThinkForgeAuthoringRequestDraft(),
+      outputKind: 'social_post',
+      platformId: 'instagram',
+      publishingSurfaceId: 'linkedin_post',
+    });
+    expect(result).toEqual({
+      success: false,
+      error: 'Publishing destination conflicts with the selected platform.',
     });
   });
 });

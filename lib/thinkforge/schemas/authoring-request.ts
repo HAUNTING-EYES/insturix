@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   ThinkForgeDocumentContractSchema,
   type ThinkForgeDocumentContract,
+  type ThinkForgeWriterKind,
 } from './document-contract';
 
 export const THINKFORGE_AUTHORING_REQUEST_VERSION = 1;
@@ -50,6 +51,81 @@ export const ThinkForgePlatformSurfaceSchema = z.object({
 });
 
 export type ThinkForgePlatformSurface = z.infer<typeof ThinkForgePlatformSurfaceSchema>;
+
+export const THINKFORGE_PUBLISHING_SURFACE_IDS = [
+  'linkedin_post',
+  'linkedin_document_carousel',
+  'x_post',
+  'instagram_feed',
+  'instagram_carousel',
+  'instagram_reels',
+  'facebook_post',
+  'facebook_carousel',
+  'facebook_reels',
+  'youtube_community_post',
+  'youtube_video',
+  'youtube_shorts',
+  'tiktok_video',
+  'reddit_post',
+  'generic_post',
+  'generic_carousel',
+  'generic_video',
+  'custom',
+] as const;
+
+export const ThinkForgePublishingSurfaceIdSchema = z.enum(THINKFORGE_PUBLISHING_SURFACE_IDS);
+export type ThinkForgePublishingSurfaceId = z.infer<typeof ThinkForgePublishingSurfaceIdSchema>;
+
+interface ThinkForgePublishingSurfaceDefinition {
+  label: string;
+  platformId: ThinkForgePlatformSurfaceId;
+  outputKinds: readonly ThinkForgeWriterKind[];
+}
+
+const PUBLISHING_SURFACE_DEFINITIONS: Readonly<Record<
+  ThinkForgePublishingSurfaceId,
+  ThinkForgePublishingSurfaceDefinition
+>> = {
+  linkedin_post: { label: 'LinkedIn post', platformId: 'linkedin', outputKinds: ['social_post'] },
+  linkedin_document_carousel: { label: 'LinkedIn document carousel', platformId: 'linkedin', outputKinds: ['carousel'] },
+  x_post: { label: 'X post', platformId: 'x', outputKinds: ['social_post'] },
+  instagram_feed: { label: 'Instagram feed post', platformId: 'instagram', outputKinds: ['social_post'] },
+  instagram_carousel: { label: 'Instagram carousel', platformId: 'instagram', outputKinds: ['carousel'] },
+  instagram_reels: { label: 'Instagram Reel', platformId: 'instagram', outputKinds: ['video_script'] },
+  facebook_post: { label: 'Facebook post', platformId: 'facebook', outputKinds: ['social_post'] },
+  facebook_carousel: { label: 'Facebook carousel', platformId: 'facebook', outputKinds: ['carousel'] },
+  facebook_reels: { label: 'Facebook Reel', platformId: 'facebook', outputKinds: ['video_script'] },
+  youtube_community_post: { label: 'YouTube Community post', platformId: 'youtube', outputKinds: ['social_post'] },
+  youtube_video: { label: 'YouTube video', platformId: 'youtube', outputKinds: ['video_script'] },
+  youtube_shorts: { label: 'YouTube Short', platformId: 'youtube', outputKinds: ['video_script'] },
+  tiktok_video: { label: 'TikTok video', platformId: 'tiktok', outputKinds: ['video_script'] },
+  reddit_post: { label: 'Reddit post', platformId: 'reddit', outputKinds: ['social_post'] },
+  generic_post: { label: 'General social post', platformId: 'generic', outputKinds: ['social_post'] },
+  generic_carousel: { label: 'General carousel', platformId: 'generic', outputKinds: ['carousel'] },
+  generic_video: { label: 'General video', platformId: 'generic', outputKinds: ['video_script'] },
+  custom: { label: 'Other destination', platformId: 'custom', outputKinds: ['social_post', 'carousel', 'video_script'] },
+};
+
+export function listThinkForgePublishingSurfaces(
+  outputKind: ThinkForgeWriterKind,
+): Array<{ id: ThinkForgePublishingSurfaceId; label: string; platformId: ThinkForgePlatformSurfaceId }> {
+  return THINKFORGE_PUBLISHING_SURFACE_IDS.flatMap((id) => {
+    const definition = PUBLISHING_SURFACE_DEFINITIONS[id];
+    return definition.outputKinds.includes(outputKind)
+      ? [{ id, label: definition.label, platformId: definition.platformId }]
+      : [];
+  });
+}
+
+export function describeThinkForgePublishingSurface(surface: ThinkForgePublishingSurfaceId): string {
+  return PUBLISHING_SURFACE_DEFINITIONS[surface].label;
+}
+
+export function platformForThinkForgePublishingSurface(
+  surface: ThinkForgePublishingSurfaceId,
+): ThinkForgePlatformSurfaceId {
+  return PUBLISHING_SURFACE_DEFINITIONS[surface].platformId;
+}
 
 const ThinkForgeCtaControlSchema = z.object({
   preference: z.enum(['editorial', 'none', 'soft', 'direct']),
@@ -133,6 +209,7 @@ export const ThinkForgeAuthoringRequestSchema = z.object({
   version: z.number().int().default(THINKFORGE_AUTHORING_REQUEST_VERSION),
   contentContract: ThinkForgeDocumentContractSchema,
   platformSurface: ThinkForgePlatformSurfaceSchema,
+  publishingSurface: ThinkForgePublishingSurfaceIdSchema.optional(),
   targetDurationSec: z.number().int().positive().safe().optional(),
   postControls: ThinkForgePostControlsSchema.optional(),
 }).superRefine((request, ctx) => {
@@ -180,9 +257,36 @@ export const ThinkForgeAuthoringRequestSchema = z.object({
       message: 'post authoring requires explicit post controls',
     });
   }
+  if (request.publishingSurface) {
+    const definition = PUBLISHING_SURFACE_DEFINITIONS[request.publishingSurface];
+    if (!definition.outputKinds.includes(writerKind as ThinkForgeWriterKind)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['publishingSurface'],
+        message: `${request.publishingSurface} is incompatible with ${writerKind}`,
+      });
+    }
+    if (definition.platformId !== request.platformSurface.id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['publishingSurface'],
+        message: `${request.publishingSurface} does not belong to platform ${request.platformSurface.id}`,
+      });
+    }
+  }
 });
 
 export type ThinkForgeAuthoringRequest = z.infer<typeof ThinkForgeAuthoringRequestSchema>;
+
+export function inferLegacyThinkForgePublishingSurface(
+  requestInput: Pick<ThinkForgeAuthoringRequest, 'contentContract' | 'platformSurface'>,
+): ThinkForgePublishingSurfaceId | undefined {
+  const outputKind = requestInput.contentContract.outputKind;
+  const platformId = requestInput.platformSurface.id;
+  const matching = listThinkForgePublishingSurfaces(outputKind as ThinkForgeWriterKind)
+    .filter((surface) => surface.platformId === platformId);
+  return matching.length === 1 ? matching[0]?.id : undefined;
+}
 
 const PLATFORM_LABELS: Record<Exclude<ThinkForgePlatformSurfaceId, 'custom'>, string> = {
   linkedin: 'LinkedIn',
@@ -263,16 +367,21 @@ function describeDuration(seconds: number): string {
 
 export function describeThinkForgeAuthoringDeliverable(requestInput: ThinkForgeAuthoringRequest): string {
   const request = ThinkForgeAuthoringRequestSchema.parse(requestInput);
-  const platform = describeThinkForgePlatformSurface(request.platformSurface);
+  const platform = request.publishingSurface
+    ? describeThinkForgePublishingSurface(request.publishingSurface)
+    : describeThinkForgePlatformSurface(request.platformSurface);
   const writerKind = request.contentContract.outputKind;
-  if (writerKind === 'social_post') return `${platform} post`;
+  if (writerKind === 'social_post') return request.publishingSurface ? platform : `${platform} post`;
   if (writerKind === 'carousel') {
-    return `${request.contentContract.carouselSlideCount}-slide ${platform} carousel`;
+    return request.publishingSurface
+      ? `${request.contentContract.carouselSlideCount}-slide ${platform}`
+      : `${request.contentContract.carouselSlideCount}-slide ${platform} carousel`;
   }
   if (writerKind === 'video_script') {
+    const scriptLabel = request.publishingSurface ? `${platform} script` : `${platform} video script`;
     return request.targetDurationSec
-      ? `${describeDuration(request.targetDurationSec)} ${platform} video script`
-      : `${platform} video script`;
+      ? `${describeDuration(request.targetDurationSec)} ${scriptLabel}`
+      : scriptLabel;
   }
   throw new Error(`unsupported ThinkForge writer kind: ${writerKind}`);
 }
@@ -297,7 +406,9 @@ export function buildThinkForgeAuthoringCompatibilityMetadata(
     authoringRequest,
     contentContract: authoringRequest.contentContract,
     format: describeThinkForgeAuthoringDeliverable(authoringRequest),
-    platform: describeThinkForgePlatformSurface(authoringRequest.platformSurface),
+    platform: authoringRequest.publishingSurface
+      ? describeThinkForgePublishingSurface(authoringRequest.publishingSurface)
+      : describeThinkForgePlatformSurface(authoringRequest.platformSurface),
     durationSec: authoringRequest.targetDurationSec,
   };
 }
@@ -314,6 +425,7 @@ export function createDefaultThinkForgePostControls(): ThinkForgePostControls {
 export function createThinkForgeAuthoringRequest(input: {
   contentContract: ThinkForgeDocumentContract;
   platformSurface: ThinkForgePlatformSurface;
+  publishingSurface?: ThinkForgePublishingSurfaceId;
   targetDurationSec?: number;
   postControls?: ThinkForgePostControls;
 }): ThinkForgeAuthoringRequest {
