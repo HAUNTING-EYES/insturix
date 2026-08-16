@@ -769,6 +769,48 @@ describe('ThinkForge session route authorization', () => {
     );
   });
 
+  it.each([
+    'Create a post for my brand about product adoption.',
+    'Create a post for Allowed Brand about product adoption.',
+  ])('requires explicit brand selection instead of inferring authority from %s', async (prompt) => {
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('social_post'),
+      platformSurface: { id: 'linkedin' },
+      postControls: createDefaultThinkForgePostControls(),
+    });
+
+    const response = await callIdeas({ prompt, authoringRequest });
+
+    if (!response) throw new Error('Ideas route did not return a response');
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'brand_context_required' });
+    expect(mocks.resolveThinkForgeAuthoringContext).not.toHaveBeenCalled();
+    expect(mocks.createIdeasAgent).not.toHaveBeenCalled();
+    expect(mocks.deductCredits).not.toHaveBeenCalled();
+  });
+
+  it('keeps a deliberately unbranded idea request unbranded even when only one brand is available', async () => {
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('social_post'),
+      platformSurface: { id: 'linkedin' },
+      postControls: createDefaultThinkForgePostControls(),
+    });
+
+    const response = await callIdeas({
+      prompt: 'Create a general post about product adoption.',
+      authoringRequest,
+    });
+
+    if (!response) throw new Error('Ideas route did not return a response');
+    expect(response.status).toBe(200);
+    expect(mocks.resolveThinkForgeAuthoringContext).toHaveBeenCalledWith(expect.objectContaining({
+      providedProject: { authoringRequest },
+    }));
+    const body = await response.json();
+    expect(body.grounding).toEqual({ brandId: null, brandName: null });
+    expect(body.ideas[0]).not.toHaveProperty('brandId');
+  });
+
   it('rejects foreign-session AI edits before credits or model work', async () => {
     mocks.getSession.mockResolvedValue(null);
 

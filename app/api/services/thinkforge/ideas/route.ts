@@ -82,25 +82,17 @@ function resolveBrandScope(
 		return { brandId: matched.brandId, brandName: matched.name };
 	}
 
-	if (candidates.length === 1) {
-		return { brandId: candidates[0].brandId, brandName: candidates[0].name };
-	}
-
 	const namedMatches = candidates.filter((candidate) => promptMentionsBrandName(prompt, candidate.name));
-	if (namedMatches.length === 1) {
-		return { brandId: namedMatches[0].brandId, brandName: namedMatches[0].name };
-	}
-
-	if (BRAND_GROUNDED_INTENT.test(prompt)) {
+	if (BRAND_GROUNDED_INTENT.test(prompt) || namedMatches.length > 0) {
 		return {
 			error: {
 				status: 409,
 				body: {
 					error: 'Brand context required',
 					code: 'brand_context_required',
-					message: candidates.length > 1
-						? 'This request references your brand, but multiple brands are available. Select a brand before generating ideas.'
-						: 'This request references your brand, but ThinkForge could not find an accepted brand context.',
+					message: candidates.length > 0
+						? 'This request references a brand, but no brand was explicitly selected. Select the intended brand before generating ideas.'
+						: 'This request references a brand, but ThinkForge could not find an accepted brand context.',
 					availableBrands: candidates.map(({ brandId, name }) => ({ brandId, name })),
 				},
 			},
