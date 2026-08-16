@@ -17,9 +17,10 @@
  *   - Brand Studio UI (signal definitions, technique browsing)
  */
 
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { z } from 'zod';
 import type { CreativeSignals } from '../../shared/signals/types';
+import writingKnowledgeJson from './writing-knowledge.json';
+import antiAiFillerPatternsJson from './ai-filler-patterns.json';
 
 // ─── JSON Data Types ────────────────────────────────────────────────────────
 
@@ -155,49 +156,122 @@ interface WritingIndex {
 
 // ─── Loading ────────────────────────────────────────────────────────────────
 
+const WritingKnowledgeEnvelopeSchema = z.object({
+  version: z.string().min(1),
+  stats: z.object({
+    signals: z.number().int().nonnegative(),
+    techniques: z.number().int().nonnegative(),
+    constraints: z.number().int().nonnegative(),
+    platforms: z.number().int().nonnegative(),
+  }),
+  selectionAlgorithm: z.object({
+    qualityScoring: z.object({
+      startScore: z.number().finite(),
+      autoReviewThreshold: z.number().finite(),
+      belowStandard: z.number().finite(),
+      hardReject: z.number().finite(),
+    }),
+  }).passthrough(),
+  signals: z.array(z.object({ id: z.string().min(1) }).passthrough()).min(1),
+  techniques: z.array(z.object({
+    id: z.string().min(1),
+    category: z.string().min(1),
+    activation: z.array(z.object({ signal: z.string().min(1) }).passthrough()),
+    inhibitors: z.array(z.object({ signal: z.string().min(1) }).passthrough()),
+  }).passthrough()).min(1),
+  constraints: z.array(z.object({
+    id: z.string().min(1),
+    severity: z.enum(['critical', 'warning', 'info']),
+  }).passthrough()).min(1),
+  platforms: z.array(z.object({ name: z.string().min(1) }).passthrough()).min(1),
+}).passthrough();
+
+const AntiAiFillerPatternsSchema = z.array(z.object({
+  pattern: z.string().min(1),
+  label: z.string().min(1),
+})).min(1);
+
+function assertUniqueIds(kind: string, ids: readonly string[]): void {
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const normalized = id.toLocaleLowerCase();
+    if (seen.has(normalized)) {
+      throw new Error(`Writing knowledge contains duplicate ${kind} ID: ${id}`);
+    }
+    seen.add(normalized);
+  }
+}
+
+function parseWritingKnowledgeData(value: unknown): WritingKnowledgeData {
+  const parsed = WritingKnowledgeEnvelopeSchema.parse(value);
+  const collections = [
+    ['signals', parsed.signals.length, parsed.stats.signals],
+    ['techniques', parsed.techniques.length, parsed.stats.techniques],
+    ['constraints', parsed.constraints.length, parsed.stats.constraints],
+    ['platforms', parsed.platforms.length, parsed.stats.platforms],
+  ] as const;
+  for (const [kind, actual, declared] of collections) {
+    if (actual !== declared) {
+      throw new Error(`Writing knowledge ${kind} count mismatch: ${actual}/${declared}`);
+    }
+  }
+
+  assertUniqueIds('signal', parsed.signals.map((item) => item.id));
+  assertUniqueIds('technique', parsed.techniques.map((item) => item.id));
+  assertUniqueIds('constraint', parsed.constraints.map((item) => item.id));
+  assertUniqueIds('platform', parsed.platforms.map((item) => item.name));
+
+  const techniqueInputIds = new Set([
+    ...parsed.signals.map((item) => item.id),
+    'cognitive_load',
+    'information_density',
+    'persuasion_intent',
+    'cta_type',
+  ]);
+  for (const technique of parsed.techniques) {
+    for (const reference of [...technique.activation, ...technique.inhibitors]) {
+      if (!techniqueInputIds.has(reference.signal)) {
+        throw new Error(`Writing technique ${technique.id} references unknown signal: ${reference.signal}`);
+      }
+    }
+  }
+
+  const quality = parsed.selectionAlgorithm.qualityScoring;
+  if (!(
+    quality.startScore > quality.autoReviewThreshold
+    && quality.autoReviewThreshold > quality.belowStandard
+    && quality.belowStandard > quality.hardReject
+  )) {
+    throw new Error('Writing knowledge quality thresholds are not strictly ordered');
+  }
+
+  return value as WritingKnowledgeData;
+}
+
+function parseAntiAiFillerPatterns(value: unknown): AntiAiFillerPattern[] {
+  const parsed = AntiAiFillerPatternsSchema.parse(value);
+  assertUniqueIds('AI filler label', parsed.map((item) => item.label));
+  for (const definition of parsed) {
+    try {
+      new RegExp(definition.pattern, 'gi');
+    } catch (error) {
+      throw new Error(`Invalid AI filler pattern "${definition.label}"`, { cause: error });
+    }
+  }
+  return parsed;
+}
+
+const WRITING_KNOWLEDGE_DATA = parseWritingKnowledgeData(writingKnowledgeJson);
+const ANTI_AI_FILLER_PATTERNS = parseAntiAiFillerPatterns(antiAiFillerPatternsJson);
+
 let cachedIndex: WritingIndex | null = null;
-let cachedAntiAiFillerPatterns: AntiAiFillerPattern[] | null = null;
 
-function loadWritingGraph(): WritingIndex | null {
+function loadWritingGraph(): WritingIndex {
   if (cachedIndex) return cachedIndex;
-
-  let data: WritingKnowledgeData;
-  const attempts: string[] = [];
-  if (typeof __dirname !== 'undefined') {
-    attempts.push(join(__dirname, 'writing-knowledge.json'));
-  }
-  attempts.push(
-    join(process.cwd(), 'lib', 'thinkforge', 'data', 'writing-knowledge.json'),
-    join(process.cwd(), '.next', 'server', 'lib', 'thinkforge', 'data', 'writing-knowledge.json'),
-  );
-
-  let loaded = false;
-  const failReasons: string[] = [];
-
-  for (const attempt of attempts) {
-    try {
-      data = JSON.parse(readFileSync(attempt, 'utf8'));
-      loaded = true;
-      break;
-    } catch (e: any) {
-      failReasons.push(`${attempt}: ${e.code || e.message}`);
-    }
-  }
-
-  if (!loaded) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      data = require('./writing-knowledge.json');
-      loaded = true;
-    } catch (e: any) {
-      failReasons.push(`require(): ${e.code || e.message}`);
-      console.error(`[WritingGraphQuery] FAILED ALL PATHS:\n  ${failReasons.join('\n  ')}`);
-      return null;
-    }
-  }
+  const data = WRITING_KNOWLEDGE_DATA;
 
   const index: WritingIndex = {
-    version: data!.version,
+    version: data.version,
     signals: new Map(),
     techniquesByCategory: new Map(),
     techniquesById: new Map(),
@@ -205,29 +279,29 @@ function loadWritingGraph(): WritingIndex | null {
     constraintsBySection: new Map(),
     platforms: new Map(),
     primarySignals: [],
-    qualityScoring: data!.selectionAlgorithm.qualityScoring,
+    qualityScoring: data.selectionAlgorithm.qualityScoring,
   };
 
-  for (const signal of data!.signals) {
+  for (const signal of data.signals) {
     index.signals.set(signal.id, signal);
     if (signal.primary) index.primarySignals.push(signal);
   }
 
-  for (const technique of data!.techniques) {
+  for (const technique of data.techniques) {
     index.techniquesById.set(technique.id, technique);
     const cat = technique.category || 'unknown';
     if (!index.techniquesByCategory.has(cat)) index.techniquesByCategory.set(cat, []);
     index.techniquesByCategory.get(cat)!.push(technique);
   }
 
-  for (const constraint of data!.constraints) {
+  for (const constraint of data.constraints) {
     index.constraints.set(constraint.id, constraint);
     const section = constraint.section || 'unknown';
     if (!index.constraintsBySection.has(section)) index.constraintsBySection.set(section, []);
     index.constraintsBySection.get(section)!.push(constraint);
   }
 
-  for (const platform of data!.platforms) {
+  for (const platform of data.platforms) {
     index.platforms.set(platform.name.toLowerCase(), platform);
   }
 
@@ -266,7 +340,6 @@ export function selectTechniques(
   maxResults: number = 3,
 ): TechniqueResult[] {
   const index = loadWritingGraph();
-  if (!index) return [];
 
   const candidates = index.techniquesByCategory.get(category);
   if (!candidates) return [];
@@ -329,7 +402,6 @@ export function selectAllTechniques(
   maxPerCategory: number = 2,
 ): Map<string, TechniqueResult[]> {
   const index = loadWritingGraph();
-  if (!index) return new Map();
 
   const result = new Map<string, TechniqueResult[]>();
   index.techniquesByCategory.forEach((_, category) => {
@@ -351,14 +423,13 @@ export function computeQualityScore(
   violationIds: string[],
 ): QualityScore {
   const index = loadWritingGraph();
-  if (!index) return { score: 100, status: 'pass', violations: [] };
 
   const violations: QualityScore['violations'] = [];
   let totalDeduction = 0;
 
   for (const id of violationIds) {
     const constraint = index.constraints.get(id);
-    if (!constraint) continue;
+    if (!constraint) throw new Error(`Unknown writing quality constraint: ${id}`);
 
     const deduction = constraint.deduction ?? (
       constraint.severity === 'critical' ? 15 :
@@ -382,17 +453,16 @@ export function computeQualityScore(
 
 export function getPrimarySignals(): SignalDefinition[] {
   const index = loadWritingGraph();
-  return index?.primarySignals ?? [];
+  return index.primarySignals;
 }
 
 export function getSignalDefinition(signalId: string): SignalDefinition | null {
   const index = loadWritingGraph();
-  return index?.signals.get(signalId) ?? null;
+  return index.signals.get(signalId) ?? null;
 }
 
 export function getAllSignals(): SignalDefinition[] {
   const index = loadWritingGraph();
-  if (!index) return [];
   const result: SignalDefinition[] = [];
   index.signals.forEach(s => result.push(s));
   return result;
@@ -400,12 +470,11 @@ export function getAllSignals(): SignalDefinition[] {
 
 export function getTechniqueById(techniqueId: string): TechniqueCard | null {
   const index = loadWritingGraph();
-  return index?.techniquesById.get(techniqueId) ?? null;
+  return index.techniquesById.get(techniqueId) ?? null;
 }
 
 export function getTechniqueCategories(): string[] {
   const index = loadWritingGraph();
-  if (!index) return [];
   const result: string[] = [];
   index.techniquesByCategory.forEach((_, k) => result.push(k));
   return result;
@@ -413,7 +482,6 @@ export function getTechniqueCategories(): string[] {
 
 export function getConstraints(section?: string): ConstraintDef[] {
   const index = loadWritingGraph();
-  if (!index) return [];
   if (section) return index.constraintsBySection.get(section) ?? [];
   const result: ConstraintDef[] = [];
   index.constraints.forEach(c => result.push(c));
@@ -421,28 +489,7 @@ export function getConstraints(section?: string): ConstraintDef[] {
 }
 
 export function loadAntiAiFillerPatterns(): AntiAiFillerPattern[] {
-  if (cachedAntiAiFillerPatterns) return cachedAntiAiFillerPatterns;
-
-  const attempts: string[] = [];
-  if (typeof __dirname !== 'undefined') {
-    attempts.push(join(__dirname, 'ai-filler-patterns.json'));
-  }
-  attempts.push(
-    join(process.cwd(), 'lib', 'thinkforge', 'data', 'ai-filler-patterns.json'),
-    join(process.cwd(), '.next', 'server', 'lib', 'thinkforge', 'data', 'ai-filler-patterns.json'),
-  );
-
-  for (const attempt of attempts) {
-    try {
-      cachedAntiAiFillerPatterns = JSON.parse(readFileSync(attempt, 'utf8')) as AntiAiFillerPattern[];
-      return cachedAntiAiFillerPatterns;
-    } catch {
-      // Try the next runtime path.
-    }
-  }
-
-  cachedAntiAiFillerPatterns = [];
-  return cachedAntiAiFillerPatterns;
+  return ANTI_AI_FILLER_PATTERNS.map((definition) => ({ ...definition }));
 }
 
 function formatAntiAiConstraintForPrompt(constraint: ConstraintDef): string {
@@ -475,51 +522,46 @@ export function getAntiAiConstraintBundle(): AntiAiConstraintBundle {
  * (DO / EXAMPLE / WHY / NEVER), selected deterministically from the creative signals, plus a
  * grounded-specificity quality line. Single source of truth shared by every writer
  * (ScriptAuthor + the flat Post/Script writers) so technique injection can't drift between
- * stacks. Returns '' when nothing matches (caller omits the block). Never throws.
+ * stacks. Missing or invalid policy assets fail closed instead of silently disabling craft rules.
  */
 export function buildWritingKnowledgeBlock(
   signals: Partial<CreativeSignals>,
   options: WritingKnowledgeBlockOptions = {},
 ): string {
-  try {
-    const techniqueMap = selectAllTechniques(signals, 2);
-    const antiAiConstraints = getConstraints('Anti-AI Constraints');
-    const excludedTechniqueIds = new Set(options.excludeTechniqueIds ?? []);
+  const techniqueMap = selectAllTechniques(signals, 2);
+  const antiAiConstraints = getConstraints('Anti-AI Constraints');
+  const excludedTechniqueIds = new Set(options.excludeTechniqueIds ?? []);
 
-    if (techniqueMap.size === 0 && antiAiConstraints.length === 0) {
-      return '';
-    }
-
-    const lines: string[] = ['<writing_knowledge>'];
-
-    techniqueMap.forEach((techniques: TechniqueResult[], category: string) => {
-      const top = techniques.find((technique) => !excludedTechniqueIds.has(technique.id));
-      if (!top) return;
-      lines.push(`${category.toUpperCase()}: ${top.id}`);
-      if (top.primary) lines.push(`  DO: ${top.primary}`);
-      if (top.example) lines.push(`  EXAMPLE: ${top.example}`);
-      if (top.why) lines.push(`  WHY: ${top.why}`);
-      if (top.antiPatterns && top.antiPatterns.length > 0) {
-        lines.push(`  NEVER: ${top.antiPatterns.join(' | ')}`);
-      }
-    });
-
-    lines.push('');
-    lines.push('QUALITY: Be SPECIFIC with supplied facts only. If no metric is supplied, use concrete scene, pain, consequence, or image instead of inventing numbers. Vary sentence rhythm. No AI filler.');
-    lines.push('</writing_knowledge>');
-    return lines.join('\n');
-  } catch (e) {
-    console.error('[ThinkForge:WritingKnowledge] Failed to build knowledge block:', e);
-    return '';
+  if (techniqueMap.size === 0 && antiAiConstraints.length === 0) {
+    throw new Error('Writing knowledge produced no techniques or anti-AI constraints');
   }
+
+  const lines: string[] = ['<writing_knowledge>'];
+
+  techniqueMap.forEach((techniques: TechniqueResult[], category: string) => {
+    const top = techniques.find((technique) => !excludedTechniqueIds.has(technique.id));
+    if (!top) return;
+    lines.push(`${category.toUpperCase()}: ${top.id}`);
+    if (top.primary) lines.push(`  DO: ${top.primary}`);
+    if (top.example) lines.push(`  EXAMPLE: ${top.example}`);
+    if (top.why) lines.push(`  WHY: ${top.why}`);
+    if (top.antiPatterns && top.antiPatterns.length > 0) {
+      lines.push(`  NEVER: ${top.antiPatterns.join(' | ')}`);
+    }
+  });
+
+  lines.push('');
+  lines.push('QUALITY: Be SPECIFIC with supplied facts only. If no metric is supplied, use concrete scene, pain, consequence, or image instead of inventing numbers. Vary sentence rhythm. No AI filler.');
+  lines.push('</writing_knowledge>');
+  return lines.join('\n');
 }
 
 export function getPlatform(name: string): PlatformSpec | null {
   const index = loadWritingGraph();
-  return index?.platforms.get(name.toLowerCase()) ?? null;
+  return index.platforms.get(name.toLowerCase()) ?? null;
 }
 
-export function getVersion(): string | null {
+export function getVersion(): string {
   const index = loadWritingGraph();
-  return index?.version ?? null;
+  return index.version;
 }

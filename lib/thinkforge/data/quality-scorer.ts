@@ -22,14 +22,10 @@ export type ContentQualityScore = Omit<QualityScore, 'violations'> & {
 };
 
 function loadFillerPatterns(): Array<{ pattern: RegExp; label: string }> {
-  return loadAntiAiFillerPatterns().flatMap((definition) => {
-    try {
-      return [{ pattern: new RegExp(definition.pattern, 'gi'), label: definition.label }];
-    } catch {
-      console.warn(`[QualityScorer] Ignoring invalid AI filler pattern: ${definition.label}`);
-      return [];
-    }
-  });
+  return loadAntiAiFillerPatterns().map((definition) => ({
+    pattern: new RegExp(definition.pattern, 'gi'),
+    label: definition.label,
+  }));
 }
 
 const AI_FILLER_PATTERNS = loadFillerPatterns();
