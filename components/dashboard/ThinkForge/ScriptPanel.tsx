@@ -11,13 +11,11 @@ interface ScriptPanelProps {
   selectedIdea: Idea;
   script: Script | null;
   onUpdate: (s: Script | null) => void;
-  onBack: () => void;
   sessionId?: string | null;
   scriptId?: string | null;
   tabsRefreshTrigger?: number;
   isSaving?: boolean;
   onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string } | { ok: boolean; applied?: any; error?: string }> | { ok: boolean; applied?: any; error?: string };
-  onScriptCreated?: (scriptId: string) => void;
   onSwitchScript?: (scriptId: string) => void;
   onTabClose?: (scriptId: string) => void;
   onTokenStream?: (callback: (tokens: string) => void) => void;
@@ -45,7 +43,7 @@ function persistClosedTabIds(sessionId: string, ids: Set<string>) {
   } catch { /* silent */ }
 }
 
-export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId, scriptId, tabsRefreshTrigger, isSaving, onImportScript, onScriptCreated, onSwitchScript, onTabClose, onTokenStream, onGetSelection, onEditSelection, generatingScript, onModeChange, documentTabs }) => {
+export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, sessionId, scriptId, tabsRefreshTrigger, isSaving, onImportScript, onSwitchScript, onTabClose, onTokenStream, onGetSelection, onEditSelection, generatingScript, onModeChange, documentTabs }) => {
   const [mode, setMode] = useState<PanelMode>('scripting');
   const [tabs, setTabs] = useState<DocumentTab[]>(documentTabs || []);
   const [tabOrder, setTabOrder] = useState<string[]>([]);
@@ -224,7 +222,6 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                   selectedIdea={selectedIdea}
                   sessionId={sessionId || undefined}
                            scriptId={scriptId || undefined}
-                  onBackToChat={onBack}
                   onEditScript={onUpdate}
                   isSaving={isSaving}
                   onImportScript={onImportScript ? async (data) => onImportScript(data) : undefined}

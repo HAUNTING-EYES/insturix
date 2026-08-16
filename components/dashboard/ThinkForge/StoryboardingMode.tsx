@@ -26,7 +26,6 @@ interface StoryboardingModeProps {
   isSaving: boolean;
   onApplyEdit: (updated: Script) => void;
   onUpdateScript: (updated: Script | null) => void;
-  onBack: () => Promise<void>;
   onImportScript: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string }>;
   onGoToIdeation: () => void;
   onUpdateIdea?: (idea: IdeaCardData) => void;
@@ -47,7 +46,6 @@ export default function StoryboardingMode({
   isSaving,
   onApplyEdit,
   onUpdateScript,
-  onBack,
   onImportScript,
   onGoToIdeation,
   onUpdateIdea,
@@ -196,9 +194,7 @@ export default function StoryboardingMode({
               selectionGetterRef.current = callback;
             }}
             onUpdate={onUpdateScript}
-            onBack={onBack}
             onImportScript={onImportScript}
-            onScriptCreated={onScriptCreated}
             onSwitchScript={onSwitchScript}
             onTabClose={onTabClose}
             onEditSelection={handleEditSelection}

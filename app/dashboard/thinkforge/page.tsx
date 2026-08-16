@@ -970,19 +970,6 @@ export default function ThinkForgeLanding() {
 				isSaving={scriptHook.isSaving}
 				onApplyEdit={handleApplyEdit}
 				onUpdateScript={handleUpdateScript}
-				onBack={async () => {
-					// Close the active session and return to ThinkForge home (prompt)
-					await session.closeSession();
-					setPendingSessionId(null);
-					scriptHook.resetSessionState();
-					setSelectedIdea(null);
-					setIdeas([]);
-					setHasSubmitted(false);
-					setPrompt("");
-					setAuthoringRequest(null);
-					setIdeationPhase('PROMPT');
-					setWorkspaceMode('ideation');
-				}}
 				onScriptCreated={(scriptId) => {
 					setActiveScriptId(scriptId);
 					setTabsRefreshCounter(c => c + 1);

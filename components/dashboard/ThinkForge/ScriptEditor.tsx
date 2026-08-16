@@ -66,7 +66,6 @@ import { validateThinkForgeBlocks } from "@/lib/thinkforge/schemas/thinkforge-bl
 import { validateTiptapJSON, isTiptapJSON, extractPlainText } from "@/lib/thinkforge/schemas/tiptap-validation";
 import { buildScriptHtmlDocument, buildScriptText, downloadBlob, printHtmlDocument } from "@/lib/thinkforge/export/export-utils";
 import type { TiptapJSON } from "@/lib/thinkforge/schemas/tiptap-schema";
-import { useStreamingBlocks } from "@/lib/thinkforge/hooks/useStreamingBlocks";
 import { useVersionManager } from "@/app/dashboard/thinkforge/hooks/useVersionManager";
 import { logShadowEvent } from "@/lib/thinkforge/services/shadow-logger";
 import {
@@ -100,12 +99,6 @@ import { marked } from 'marked';
 
 // Import selection editing utilities
 import { serializeSelectionToThinkForgeBlocks, applyAIEditToSelection, isSelectionEditable } from "@/lib/thinkforge/utils/selection-editing";
-
-// Type aliases for cursor preservation
-type BlockId = string;
-interface CursorPosition {
-  pos: number;
-}
 
 interface PendingDocumentSave {
   documentKey: string;
@@ -144,7 +137,6 @@ interface ScriptEditorProps {
   selectedIdea: Idea;
   sessionId?: string;
   scriptId?: string | null;
-  onBackToChat: () => void;
   onEditScript: (updatedScript: Script) => void;
   generatingScript?: boolean;
   isSaving?: boolean;
@@ -161,7 +153,6 @@ export default function ScriptEditor({
   selectedIdea,
   sessionId,
   scriptId,
-  onBackToChat,
   onEditScript,
   generatingScript = false,
   isSaving = false,
@@ -171,11 +162,7 @@ export default function ScriptEditor({
   onTokenStream, // Optional callback to receive streaming tokens
   onGetSelection, // Optional callback setter for getting current selection
   onEditSelection,
-}: ScriptEditorProps & {
-  onTokenStream?: (callback: (tokens: string) => void) => void;
-  onGetSelection?: (callback: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null) => void;
-  onEditSelection?: (text: string, range: { from: number; to: number }, blocks: any[]) => void;
-}) {
+}: ScriptEditorProps) {
   const [selectedText, setSelectedText] = useState<string>('');
   const [selectionRange, setSelectionRange] = useState<{ from: number; to: number } | null>(null);
   const [selectionPos, setSelectionPos] = useState<{ top: number; left: number } | null>(null);
@@ -193,7 +180,6 @@ export default function ScriptEditor({
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUpdatingFromPropsRef = useRef(false);
   const lastLoadedContentRef = useRef<string>(''); // Track last loaded content to avoid unnecessary reloads
-  const isProgrammaticUpdateRef = useRef(false);
   const lastAutosaveHashRef = useRef<string>('');
   const autosavePausedRef = useRef(false);
   const scriptVersionRef = useRef<number>(0);
@@ -220,10 +206,6 @@ export default function ScriptEditor({
   // CRITICAL: Guards for Branch Editor restore and local edits
   const isRestoringVersionRef = useRef(false); // Only true when restoring a version
   const hasLocalEditsRef = useRef(false); // True if user has made local edits
-  const isHydratedOnceRef = useRef(false); // True after initial hydration
-
-  // Cursor preservation state
-  const cursorPositionRef = useRef<CursorPosition | null>(null);
 
   // Refs for callbacks to avoid initialization order issues
   const handleContentChangeRef = useRef<(() => void) | null>(null);
@@ -271,20 +253,6 @@ export default function ScriptEditor({
   } = versionManager;
   const lastVersionHashRef = useRef<string | null>(null);
 
-  // Streaming state
-  const [streamingUrl, setStreamingUrl] = useState<string | null>(null);
-  const streamingBlocks = useStreamingBlocks(streamingUrl, {
-    onComplete: () => {
-      setStreamingUrl(null);
-    },
-    onError: (error) => {
-      console.error("Streaming error:", error);
-      setStreamingUrl(null);
-    },
-  });
-
-
-
   const editorExtensions = useMemo(() => getThinkForgeExtensions({
     placeholder: 'Start writing your script...',
   }), []);
@@ -301,7 +269,7 @@ export default function ScriptEditor({
     },
     onUpdate: ({ editor }) => {
       queueMicrotask(() => {
-        if (isUpdatingFromPropsRef.current || isProgrammaticUpdateRef.current) {
+        if (isUpdatingFromPropsRef.current) {
           prevCharCountRef.current = editor.state.doc.textContent.length;
           return;
         }
@@ -506,10 +474,6 @@ export default function ScriptEditor({
         editor.commands.setContent(content as any);
         isUpdatingFromPropsRef.current = false;
 
-        // Mark as hydrated after initial load
-        if (isInitialLoad || isConflictRecovery) {
-          isHydratedOnceRef.current = true;
-        }
       } catch (error) {
         console.error(`ScriptEditor: setContent failed (${reason})`, error);
         isUpdatingFromPropsRef.current = false;
@@ -605,31 +569,6 @@ export default function ScriptEditor({
       console.error('ScriptEditor: Failed to create version snapshot', error);
     }
   }, [editor, sessionId, versionManagerLoading, versionManagerError, createVersion]);
-
-  // Store cursor position before updates
-  const storeCursorPosition = useCallback(() => {
-    if (!editor) return;
-    try {
-      const { from } = editor.state.selection;
-      cursorPositionRef.current = { pos: from };
-    } catch (error) {
-      // Ignore errors in cursor tracking
-    }
-  }, [editor]);
-
-  // Restore cursor position after updates
-  const restoreCursorPosition = useCallback(() => {
-    if (!cursorPositionRef.current || !editor) return;
-
-    try {
-      const { pos } = cursorPositionRef.current;
-      const maxPos = editor.state.doc.content.size;
-      const safePos = Math.min(pos, maxPos);
-      editor.commands.setTextSelection(safePos);
-    } catch (error) {
-      // Ignore errors in cursor restoration
-    }
-  }, [editor]);
 
   // Sync hydrated content into parent state (no backend save)
   const notifyHydratedScript = useCallback((tiptapContent: TiptapJSON) => {
@@ -1132,18 +1071,6 @@ export default function ScriptEditor({
     hasUnsavedChanges,
     applyContentToEditor,
   ]);
-  // Integrate streaming blocks
-  useEffect(() => {
-    if (streamingBlocks.blocks.length > 0 && editor) {
-      try {
-        const tiptapContent = toTiptapJSON(streamingBlocks.blocks);
-        applyContentToEditor(tiptapContent, 'streaming-update');
-      } catch (error) {
-        console.error("ScriptEditor: Failed to integrate streaming content:", error);
-      }
-    }
-  }, [streamingBlocks.blocks, editor]);
-
   // TipTap JSON is runtime truth; convert only at persistence/export boundaries.
   const convertEditorToScript = useCallback((): Script => {
     const effectiveTitle = getEffectiveTitle();
@@ -1164,8 +1091,6 @@ export default function ScriptEditor({
       }, activeIdentity) as any;
     }
 
-    storeCursorPosition();
-
     const tiptapJSON = editor.getJSON() as TiptapJSON;
 
     const thinkforgeBlocks = tiptapJSONToThinkForgeBlocks(tiptapJSON);
@@ -1185,7 +1110,7 @@ export default function ScriptEditor({
       tone: script?.tone,
       metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap', source: 'editor' as any }
     }, activeIdentity) as any;
-  }, [editor, script, storeCursorPosition, getEffectiveTitle, activeIdentity]);
+  }, [editor, script, getEffectiveTitle, activeIdentity]);
 
   const finishDocumentSave = useCallback((pending: PendingDocumentSave, version: number): void => {
     if (activeDocumentKeyRef.current !== pending.documentKey) return;
@@ -1370,7 +1295,7 @@ export default function ScriptEditor({
     if (isSwitchingScriptRef.current) {
       return;
     }
-    if (isUpdatingFromPropsRef.current || isProgrammaticUpdateRef.current || generatingScript || autosavePausedRef.current) {
+    if (isUpdatingFromPropsRef.current || generatingScript || autosavePausedRef.current) {
       return;
     }
     if (!activeIdentity || !activeDocumentKey) return;
