@@ -41,11 +41,18 @@ function formatChoice(choice: BriefTrendChoice): string {
 export function formatTrendBriefForPrompt(productionBrief?: ProductionBrief | null): string {
   const trend = productionBrief?.trend;
   if (!trend) return '';
+  const outputDuration = productionBrief.output.targetDurationSec;
+  const timingRule = trend.applicationMode === 'embedded_motif'
+    ? `- Apply the ${formatSeconds(trend.selectedDurationSec)} trend timing once as a bounded motif inside the `
+      + `${outputDuration === null || outputDuration === undefined ? 'larger output' : `${formatSeconds(outputDuration)} output`}. `
+      + 'Do not repeat, stretch, or pad the motif to fill the full runtime.'
+    : '- The TrendSpec timing owns the full output. Preserve its whole-section boundaries exactly.';
 
   const lines = [
     '<trend_brief source="production_brief">',
     `Trend ID: ${trend.trendId}`,
     `Alignment frame: ${trend.alignmentFrame}`,
+    `Timing application: ${trend.applicationMode}.`,
     `Duration: natural ${formatSeconds(trend.naturalDurationSec)}, selected ${formatSeconds(trend.selectedDurationSec)}.`,
     `Whole-section duration boundaries: ${formatBoundaries(trend.durationBoundariesSec)}.`,
     '',
@@ -53,7 +60,8 @@ export function formatTrendBriefForPrompt(productionBrief?: ProductionBrief | nu
     '- Treat copy slots as required semantic beats, not visible labels.',
     '- Preserve invariants as creative constraints; do not invent unsupported trend metrics.',
     '- Use variables as the safe user-choice surface, not as final render instructions.',
-    '- If extending duration, extend only by the supplied whole-section boundaries.',
+    '- Never change the final output runtime to match the trend.',
+    timingRule,
   ];
 
   if (trend.copyFields.length > 0) {

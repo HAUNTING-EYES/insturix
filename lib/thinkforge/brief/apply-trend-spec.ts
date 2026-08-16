@@ -12,7 +12,21 @@ const TREND_DURATION_CONFIDENCE = 0.92;
 export interface ApplyTrendSpecToBriefInput {
   brief: ProductionBrief;
   trendSpec: unknown;
-  requestedDurationSec?: number | null;
+}
+
+export class ThinkForgeTrendDurationError extends Error {
+  readonly code = 'TREND_DURATION_INCOMPATIBLE';
+
+  constructor(
+    readonly requestedDurationSec: number,
+    readonly naturalDurationSec: number,
+  ) {
+    super(
+      `The selected trend needs ${naturalDurationSec}s, but the explicitly requested output is `
+      + `${requestedDurationSec}s. Increase the duration or choose a shorter trend.`,
+    );
+    this.name = 'ThinkForgeTrendDurationError';
+  }
 }
 
 function roundSeconds(ms: number): number {
@@ -41,22 +55,45 @@ function durationBoundariesSec(spec: TrendSpec): number[] {
   return Array.from(new Set(boundaries)).sort((a, b) => a - b);
 }
 
-function selectedDurationSec(spec: TrendSpec, requestedDurationSec?: number | null): { selected: number; warnings: string[] } {
+function resolveTrendDuration(
+  spec: TrendSpec,
+  confirmedDurationSec?: number | null,
+): {
+  outputDurationSec: number;
+  selectedDurationSec: number;
+  applicationMode: 'full_output' | 'embedded_motif';
+  warnings: string[];
+} {
   const natural = roundSeconds(spec.beatGrid.totalMs);
-  const boundaries = durationBoundariesSec(spec);
-  const requested = typeof requestedDurationSec === 'number' && Number.isFinite(requestedDurationSec) && requestedDurationSec > 0
-    ? requestedDurationSec
-    : natural;
-  const selected = boundaries.find((boundary) => boundary >= requested) ?? natural;
-  const warnings: string[] = [];
-
-  if (requested > natural) {
-    warnings.push('requested_duration_exceeds_known_trend_sections');
-  } else if (Math.abs(selected - requested) > 0.001) {
-    warnings.push('requested_duration_snapped_to_section_boundary');
+  if (confirmedDurationSec === undefined || confirmedDurationSec === null) {
+    return {
+      outputDurationSec: natural,
+      selectedDurationSec: natural,
+      applicationMode: 'full_output',
+      warnings: [],
+    };
   }
 
-  return { selected, warnings };
+  if (!Number.isFinite(confirmedDurationSec) || confirmedDurationSec <= 0) {
+    throw new Error('Confirmed targetDurationSec must be a finite positive number');
+  }
+  if (confirmedDurationSec < natural) {
+    throw new ThinkForgeTrendDurationError(confirmedDurationSec, natural);
+  }
+  if (Math.abs(confirmedDurationSec - natural) <= 0.001) {
+    return {
+      outputDurationSec: confirmedDurationSec,
+      selectedDurationSec: natural,
+      applicationMode: 'full_output',
+      warnings: [],
+    };
+  }
+  return {
+    outputDurationSec: confirmedDurationSec,
+    selectedDurationSec: natural,
+    applicationMode: 'embedded_motif',
+    warnings: ['explicit_duration_preserved_trend_used_as_motif'],
+  };
 }
 
 function copyField(slot: TrendSpec['copyFormula']['slots'][number]): BriefTrendCopyField {
@@ -92,9 +129,10 @@ function choiceFromVariable(variable: TrendVariable, index: number): BriefTrendC
 export function applyTrendSpecToBrief(input: ApplyTrendSpecToBriefInput): ProductionBrief {
   const spec = parseTrendSpec(input.trendSpec);
   const existingConfirmed = new Set(input.brief.resolution.confirmed);
-  const requestedDuration = input.requestedDurationSec
-    ?? (existingConfirmed.has('targetDurationSec') ? input.brief.output.targetDurationSec : null);
-  const duration = selectedDurationSec(spec, requestedDuration);
+  const confirmedDuration = existingConfirmed.has('targetDurationSec')
+    ? input.brief.output.targetDurationSec
+    : null;
+  const duration = resolveTrendDuration(spec, confirmedDuration);
   const naturalDurationSec = roundSeconds(spec.beatGrid.totalMs);
   const inferred = new Set(input.brief.resolution.inferred);
 
@@ -102,7 +140,7 @@ export function applyTrendSpecToBrief(input: ApplyTrendSpecToBriefInput): Produc
 
   const output = {
     ...input.brief.output,
-    targetDurationSec: duration.selected,
+    targetDurationSec: duration.outputDurationSec,
   };
 
   return {
@@ -124,8 +162,9 @@ export function applyTrendSpecToBrief(input: ApplyTrendSpecToBriefInput): Produc
     trend: {
       trendId: spec.trendId,
       alignmentFrame: spec.alignmentFrame,
+      applicationMode: duration.applicationMode,
       naturalDurationSec,
-      selectedDurationSec: duration.selected,
+      selectedDurationSec: duration.selectedDurationSec,
       durationBoundariesSec: durationBoundariesSec(spec),
       copyFields: spec.copyFormula.slots.map(copyField),
       constraints: spec.invariants.map(constraintFromInvariant),

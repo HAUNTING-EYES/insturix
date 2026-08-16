@@ -293,20 +293,40 @@ describe('resolveThinkForgeProductionBrief', () => {
     expect(brief.trend?.warnings).toBeUndefined();
   });
 
-  it('snaps explicit TrendSpec duration requests to whole section boundaries', () => {
-    const brief = resolveThinkForgeProductionBrief({
-      userPrompt: 'Make the trend edit a little longer',
+  it('rejects a trend that cannot fit an explicitly shorter output', () => {
+    expect(() => resolveThinkForgeProductionBrief({
+      userPrompt: 'Make the trend edit four seconds long',
       project: {
         preferences: {
           targetDurationSec: 4,
           trendSpec: trendSpec(),
         },
       },
+    })).toThrowError(expect.objectContaining({
+      code: 'TREND_DURATION_INCOMPATIBLE',
+    }));
+  });
+
+  it('preserves an explicit long-form runtime and embeds the shorter trend as a motif', () => {
+    const brief = resolveThinkForgeProductionBrief({
+      userPrompt: 'Make a seven-minute documentary using this trend.',
+      authoringRequest: {
+        version: 1,
+        contentContract: createThinkForgeWriterContract('video_script'),
+        platformSurface: { id: 'youtube' },
+        targetDurationSec: 420,
+      },
+      trendSpec: trendSpec(),
     });
 
-    expect(brief.output.targetDurationSec).toBe(7.5);
+    expect(brief.output.targetDurationSec).toBe(420);
     expect(brief.resolution.confirmed).toContain('targetDurationSec');
-    expect(brief.trend?.warnings).toEqual(['requested_duration_snapped_to_section_boundary']);
+    expect(brief.trend).toMatchObject({
+      naturalDurationSec: 7.5,
+      selectedDurationSec: 7.5,
+      applicationMode: 'embedded_motif',
+      warnings: ['explicit_duration_preserved_trend_used_as_motif'],
+    });
   });
 
   it('uses the completed selected trend ahead of a stale legacy preference', () => {

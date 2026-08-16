@@ -106,6 +106,7 @@ export interface BriefTrendChoice {
 export interface BriefTrendContext {
   trendId: string;
   alignmentFrame: 'beat-space' | 'slot-space';
+  applicationMode: 'full_output' | 'embedded_motif';
   naturalDurationSec: number;
   selectedDurationSec: number;
   durationBoundariesSec: number[];
