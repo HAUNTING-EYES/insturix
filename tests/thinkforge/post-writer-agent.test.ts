@@ -220,9 +220,8 @@ describe('assertUsablePostWriterResult', () => {
     const prompt = new PostWriterAgent().buildPrompt(baseInput);
 
     expect(prompt).toContain('Keep every image prompt visual-only.');
-    expect(prompt).toContain('Exact copy remains in content and is derived into editable Clickatron text layers downstream.');
+    expect(prompt).toContain('For a single post, exact copy remains in content and is derived into editable Clickatron text layers downstream.');
     expect(prompt).toContain('abstract or defocused shapes with no legible text or invented brand marks');
-    expect(prompt).toContain('ThinkForge derives final editable copy from the post content downstream.');
     expect(prompt).toContain('Technique guidance defines editorial form only.');
     expect(prompt).toContain('The brief has no explicit length target.');
     expect(prompt).toContain('Ground each prompt in at least two supplied visual cues');

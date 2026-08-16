@@ -403,19 +403,29 @@ describe('ThinkForge session route authorization', () => {
   });
 
   it('loads script, chat, and preferences concurrently after canonical session resolution', async () => {
+    let markScriptReadStarted!: () => void;
+    const scriptReadStarted = new Promise<void>((resolve) => {
+      markScriptReadStarted = resolve;
+    });
     let releaseScript!: (value: null) => void;
     const pendingScript = new Promise<null>((resolve) => {
       releaseScript = resolve;
     });
-    mocks.getScript.mockReturnValueOnce(pendingScript);
+    mocks.getScript.mockImplementationOnce(() => {
+      markScriptReadStarted();
+      return pendingScript;
+    });
 
     const responsePromise = callSessionHydrate();
-    await vi.waitFor(() => expect(mocks.getScript).toHaveBeenCalledOnce());
-
-    const allReadsStartedBeforeScriptCompleted =
-      mocks.getChatHistory.mock.calls.length === 1 &&
-      mocks.getUserPreferences.mock.calls.length === 1;
-    releaseScript(null);
+    let allReadsStartedBeforeScriptCompleted = false;
+    try {
+      await scriptReadStarted;
+      allReadsStartedBeforeScriptCompleted =
+        mocks.getChatHistory.mock.calls.length === 1 &&
+        mocks.getUserPreferences.mock.calls.length === 1;
+    } finally {
+      releaseScript(null);
+    }
 
     const response = await responsePromise;
     expect(response.status).toBe(200);
