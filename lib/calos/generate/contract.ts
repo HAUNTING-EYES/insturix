@@ -1,6 +1,7 @@
 import type { CalosService, CalosServiceRef } from "@/schemas/calos-deliverable";
 import type { PostWriterResult } from "@/lib/thinkforge/agents/post-writer-agent";
 import type { ScriptWriterResult } from "@/lib/thinkforge/agents/script-writer-agent";
+import type { ProductionBrief } from "@/lib/editron/production-brief/production-brief";
 import type { ThinkForgeAuthoringContextSnapshot } from "@/lib/thinkforge/context/brand-authoring-context";
 import type { SourceLedger } from "@/lib/thinkforge/provenance/source-ledger";
 import type {
@@ -46,6 +47,7 @@ export interface ThinkForgeScriptWriterOutput {
 interface ThinkForgeArtifactBase {
   content: string;
   contentContract: ThinkForgeDocumentContract;
+  briefSnapshot: ProductionBrief;
   authoringContextSnapshot: ThinkForgeAuthoringContextSnapshot;
   signalTrace: ThinkForgeSignalTrace;
 }

@@ -1,20 +1,22 @@
 import type { GenerateParams, GenerateResult } from "../contract";
-import { isVideoFormat } from "../route-map";
+import { resolveCalosGenerationRoute } from "../route-map";
 import { runPostWriter } from "./_post-writer";
-import { runScriptWriter } from "./_script-writer";
+import { runScriptWriterExecution } from "./_script-writer";
+import { buildPostWriterArtifact, buildScriptWriterArtifact } from "./_writer-artifact";
 
-/**
- * ThinkForge writer: produces a planned card's text deliverable. For VIDEO formats that's a SCRIPT
- * (ScriptWriterAgent) — CalOS writes the script, then the user takes it into Editron or shoots their
- * own footage; for everything else it's post copy (PostWriterAgent). Returns the draft as assetText.
- */
+/** Generate a complete canonical ThinkForge artifact for a CalOS text or video deliverable. */
 export async function thinkforgeGenerator(params: GenerateParams): Promise<GenerateResult> {
   try {
-    const content = isVideoFormat(params.format ?? "")
-      ? await runScriptWriter(params)
-      : (await runPostWriter(params)).content;
-    if (!content) return { ok: false, error: "Writer returned empty content" };
-    return { ok: true, assetText: content };
+    const route = resolveCalosGenerationRoute(params.format);
+    const thinkforgeArtifact = route.documentType === "video_script"
+      ? buildScriptWriterArtifact(await runScriptWriterExecution(params))
+      : buildPostWriterArtifact(await runPostWriter(params));
+
+    return {
+      ok: true,
+      assetText: thinkforgeArtifact.content,
+      thinkforgeArtifact,
+    };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "ThinkForge generation failed" };
   }
