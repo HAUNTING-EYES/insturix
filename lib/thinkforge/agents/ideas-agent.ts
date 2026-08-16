@@ -35,7 +35,6 @@ export interface IdeasGroundingContext {
   systemBrief?: string;
   brandId?: string;
   brandName?: string;
-  requireBrandGrounding?: boolean;
   variationIndex?: number;
   rejectedIdeas?: Array<{
     title: string;

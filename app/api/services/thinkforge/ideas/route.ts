@@ -136,7 +136,6 @@ export async function POST(req: Request) {
 			systemBrief: systemBrief || undefined,
 			brandId: resolvedBrandScope.brandId,
 			brandName: resolvedBrandScope.brandName,
-			requireBrandGrounding: requiresBrandContext,
 			variationIndex,
 			rejectedIdeas,
 			authoringRequest,
