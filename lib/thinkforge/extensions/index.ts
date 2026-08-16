@@ -6,8 +6,6 @@
  */
 
 import StarterKit from '@tiptap/starter-kit';
-import Underline from '@tiptap/extension-underline';
-import Link from '@tiptap/extension-link';
 import Highlight from '@tiptap/extension-highlight';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Extension } from '@tiptap/core';
@@ -53,9 +51,7 @@ const DEFAULT_PLACEHOLDER = 'Start writing your script...';
  * Get the complete set of Tiptap extensions for ThinkForge.
  * 
  * This includes:
- * - StarterKit (paragraph, heading, bulletList, orderedList, listItem, blockquote, codeBlock, horizontalRule, hardBreak, bold, italic, strike, code)
- * - Underline mark
- * - Link mark
+ * - StarterKit (core nodes and marks, including configured underline and link marks)
  * - Highlight mark
  * - Placeholder extension
  * - Custom ThinkForge blocks (actionBlock, whyBlock, exampleBlock)
@@ -108,6 +104,19 @@ export function getThinkForgeExtensions(options: ThinkForgeEditorOptions = {}): 
           class: 'thinkforge-paragraph',
         },
       },
+      underline: {
+        HTMLAttributes: {
+          class: 'thinkforge-underline',
+        },
+      },
+      link: {
+        openOnClick: openLinkOnClick,
+        HTMLAttributes: {
+          class: 'thinkforge-link',
+          rel: 'noopener noreferrer',
+          target: '_blank',
+        },
+      },
       // Configure horizontal rule
       horizontalRule: {
         HTMLAttributes: {
@@ -118,22 +127,6 @@ export function getThinkForgeExtensions(options: ThinkForgeEditorOptions = {}): 
 
     // Stable block IDs for all top-level blocks
     BlockIdExtension,
-
-    // Additional marks not in StarterKit
-    Underline.configure({
-      HTMLAttributes: {
-        class: 'thinkforge-underline',
-      },
-    }),
-
-    Link.configure({
-      openOnClick: openLinkOnClick,
-      HTMLAttributes: {
-        class: 'thinkforge-link',
-        rel: 'noopener noreferrer',
-        target: '_blank',
-      },
-    }),
 
     Highlight.configure({
       multicolor: true,
