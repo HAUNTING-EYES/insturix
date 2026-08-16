@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { IdeasAgent, type IdeasGroundingContext } from '@/lib/thinkforge/agents/ideas-agent';
 import { ChatAgent } from '@/lib/thinkforge/agents/chat-agent';
+import { buildThinkForgeEditorialPlan } from '@/lib/thinkforge/agents/editorial-plan';
 import { formatSystemBrief, type RetrievedContext } from '@/lib/thinkforge/context';
 import {
   createDefaultThinkForgePostControls,
@@ -49,7 +50,14 @@ function withRequest(
   authoringRequest: ThinkForgeAuthoringRequest,
   context: Omit<IdeasGroundingContext, 'authoringRequest'> = {},
 ): IdeasGroundingContext {
-  return { ...context, authoringRequest };
+  return {
+    ...context,
+    authoringRequest,
+    editorialPlan: context.editorialPlan ?? buildThinkForgeEditorialPlan({
+      userPrompt: 'Focused ideation regression request.',
+      authoringRequest,
+    }),
+  };
 }
 
 function diverseIdeas() {
@@ -86,6 +94,49 @@ function diverseIdeas() {
 }
 
 describe('IdeasAgent typed authoring contract', () => {
+  it('consumes the server editorial plan inside the isolated data boundary', () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const agent = new IdeasAgent();
+    const editorialPlan = buildThinkForgeEditorialPlan({
+      userPrompt: 'Create a grounded LinkedIn post for agency operators.',
+      authoringRequest: LINKEDIN_POST_REQUEST,
+      authorizedFactIds: ['fact_agency_workflow'],
+      sourceLedgerEntryIds: ['brief_user', 'source_1'],
+    });
+
+    const parts = agent.buildPromptParts({
+      context: {
+        projectSummary: 'Agency content operations.',
+        systemBrief: 'Brand voice: calm and precise.',
+      },
+      userPrompt: 'Create a grounded LinkedIn post for agency operators.',
+      authoringRequest: LINKEDIN_POST_REQUEST,
+      editorialPlan,
+    });
+
+    expect(parts.systemInstruction).toContain('tf_untrusted_data.editorialPlan');
+    expect(parts.prompt).toContain('"editorialPlan"');
+    expect(parts.prompt).toContain('"fact_agency_workflow"');
+    expect(parts.prompt).toContain('"factualClaimPolicy": "authorized_sources_only"');
+  });
+
+  it('fails before model invocation when the production editorial plan is missing or conflicts', async () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const agent = new IdeasAgent(undefined, { embeddingProvider: async () => null });
+    const mismatchedPlan = buildThinkForgeEditorialPlan({
+      userPrompt: 'Create a seven-minute operations documentary.',
+      authoringRequest: YOUTUBE_LONG_SCRIPT_REQUEST,
+    });
+
+    await expect(agent.generateIdeas('Create a LinkedIn post.', {
+      authoringRequest: LINKEDIN_POST_REQUEST,
+    })).rejects.toThrow('requires a server editorial plan');
+    await expect(agent.generateIdeas('Create a LinkedIn post.', {
+      authoringRequest: LINKEDIN_POST_REQUEST,
+      editorialPlan: mismatchedPlan,
+    })).rejects.toThrow('conflicts with the idea authoring request');
+  });
+
   it('keeps calendar and trend context while fixing carousel form outside prose', () => {
     process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
     const agent = new IdeasAgent();
@@ -327,6 +378,13 @@ describe('IdeasAgent typed authoring contract', () => {
       expect(idea.format).toBe('7-minute YouTube video script');
       expect(idea.platform).toBe('YouTube');
       expect(idea.durationSec).toBe(420);
+      expect(idea.editorialAngle).toEqual({
+        version: 1,
+        ideaId: idea.id,
+        title: idea.idea,
+        strategicPurpose: idea.purpose,
+        creativeTreatment: idea.style,
+      });
     }
     expect(runStructured.mock.calls[0]?.[0].authoringRequest).toEqual(YOUTUBE_LONG_SCRIPT_REQUEST);
   });

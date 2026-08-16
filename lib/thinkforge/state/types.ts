@@ -17,6 +17,7 @@ import {
   buildThinkForgeAuthoringCompatibilityMetadata,
   type ThinkForgeAuthoringRequest,
 } from '../schemas/authoring-request';
+import type { ThinkForgeIdeaAngle } from '../schemas/idea-angle';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -48,6 +49,7 @@ export interface IdeaCardData {
   calendarItemId?: string;
   contentCardId?: string;
   authoringRequest?: ThinkForgeAuthoringRequest;
+  editorialAngle?: ThinkForgeIdeaAngle;
 }
 
 /**

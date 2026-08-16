@@ -3,8 +3,14 @@ import { auth } from '@clerk/nextjs/server';
 import { createIdeasAgent } from '@/lib/thinkforge/agents/ideas-agent';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
-import { resolveThinkForgeAuthoringContext } from '@/lib/thinkforge/context';
+import {
+	resolveThinkForgeAuthoringContext,
+	type ThinkForgeResolvedAuthoringContext,
+} from '@/lib/thinkforge/context';
 import type { ThinkForgeAuthoringContextSnapshot } from '@/lib/thinkforge/context/brand-authoring-context';
+import { buildThinkForgeEditorialPlan } from '@/lib/thinkforge/agents/editorial-plan';
+import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
+import { resolveContentSignalProfile } from '@/lib/thinkforge/signals';
 import { resolveContextBillingOwner } from '@/lib/editron/services/project-ownership';
 import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import {
@@ -100,8 +106,9 @@ export async function POST(req: Request) {
 	try {
 		let systemBrief = '';
 		let authoringContextSnapshot: ThinkForgeAuthoringContextSnapshot | undefined;
+		let authoringContext: ThinkForgeResolvedAuthoringContext | null = null;
 		try {
-			const authoringContext = await resolveThinkForgeAuthoringContext({
+			authoringContext = await resolveThinkForgeAuthoringContext({
 				userId,
 				orgId: orgId ?? null,
 				isOrgAdmin,
@@ -121,6 +128,34 @@ export async function POST(req: Request) {
 			console.warn('[ThinkForge ideas] Context fetch failed for unbranded request:', contextError);
 		}
 
+		const sourceLedger = buildThinkForgeSourceLedger({
+			userPrompt: prompt,
+			retrievedContext: authoringContext?.retrievedContext,
+			brandId: resolvedBrandScope.brandId,
+			maxFactEntries: 6,
+		});
+		const contentSignalProfile = resolveContentSignalProfile({
+			userPrompt: prompt,
+			authoringRequest,
+			contentContract: authoringRequest.contentContract,
+			brandId: resolvedBrandScope.brandId,
+			project: authoringContext?.projectMeta,
+			context: { projectSummary: '', systemBrief },
+			retrievedContext: authoringContext?.retrievedContext,
+		});
+		const editorialPlan = buildThinkForgeEditorialPlan({
+			userPrompt: prompt,
+			authoringRequest,
+			contentSignalProfile,
+			authorizedFactIds: authoringContext
+				? [
+					...authoringContext.snapshot.retrieval.projectFactIds,
+					...authoringContext.snapshot.retrieval.globalFactIds,
+				]
+				: [],
+			sourceLedgerEntryIds: sourceLedger.entries.map((entry) => entry.referenceId),
+		});
+
 		await creditCheck.deduct();
 		deducted = true;
 
@@ -139,6 +174,7 @@ export async function POST(req: Request) {
 			variationIndex,
 			rejectedIdeas,
 			authoringRequest,
+			editorialPlan,
 		});
 		const scopedIdeas = ideas.map((idea) => ({
 			...idea,
