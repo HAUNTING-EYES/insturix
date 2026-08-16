@@ -398,16 +398,24 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(() => assertUsableScriptWriterResult(output.result)).not.toThrow();
   });
 
-  it('accepts deliberate slow speech without spending a repair call', async () => {
+  it('repairs a script whose spoken substance cannot occupy its claimed runtime', async () => {
     const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
-    const authored = makeModelOutput({
+    const invalid = makeModelOutput({
       metadata: { platform: 'youtube' },
       sidecar: sidecarWithScenes([
         makeScene(1, { durationIntentSeconds: 420, beats: [sparseBeat] }),
       ]),
     });
+    const slowButCompleteBeat = withSpokenWordCount(makeBeat(1, { durationIntentSeconds: 420 }), 840);
+    const repaired = makeModelOutput({
+      metadata: { platform: 'youtube' },
+      sidecar: sidecarWithScenes([
+        makeScene(1, { durationIntentSeconds: 420, beats: [slowButCompleteBeat] }),
+      ]),
+    });
     generateStructuredWithWritingContextCacheMock
-      .mockResolvedValueOnce({ result: authored, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
+      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
 
     const output = await new ScriptWriterAgent().runStructured({
       context: { projectSummary: 'Long-form creative production explainer.' },
@@ -415,10 +423,13 @@ describe('ScriptWriterAgent structured generation', () => {
       productionBrief: brief({ targetDurationSec: 420 }),
     });
 
-    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
+    expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
+      .toContain('narration_density_below_mode');
     expect(output.result.metadata.estimatedTimeSeconds).toBe(420);
     expect(output.result.metadata.editorialWarnings).toBeUndefined();
     expect(output.result.sidecar.renderPlan).toBeUndefined();
+    expect(output.metadata?.notes).toContain('script_contract_repair:applied');
     expect(() => assertUsableScriptWriterResult(output.result, {
       productionBrief: brief({ targetDurationSec: 420 }),
     })).not.toThrow();
@@ -769,16 +780,18 @@ describe('native Script Sidecar V2 production semantics', () => {
     expect(message).not.toContain('scene_count');
   });
 
-  it('accepts a seven-minute speaking beat with deliberate sparse prose', () => {
+  it('rejects a seven-minute speaking beat with only a few words without inventing scene rules', () => {
     const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
     const sidecar = sidecarWithScenes([
       makeScene(1, { durationIntentSeconds: 420, beats: [sparseBeat] }),
     ]);
 
-    const report = assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
+    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
       productionBrief: brief({ targetDurationSec: 420 }),
-    });
-    expect(report.editorialWarnings).toEqual([]);
+    })).toThrow(/narration_density_below_mode/);
+    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
+      productionBrief: brief({ targetDurationSec: 420 }),
+    })).not.toThrow(/scene_count|60s|per_scene/);
   });
 
   it('accepts a script that satisfies a 60-second runtime and spoken-word contract', () => {

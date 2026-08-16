@@ -29,6 +29,7 @@ export type ScriptRuntimePlan =
 
 export type ScriptNarrationPlan = {
   mode: ScriptNarrationMode;
+  minimumModeWordsPerMinute: number;
   targetWordsPerMinute: number;
   comfortableMaximumWordsPerMinute: number;
   pacingConstraint: {
@@ -40,6 +41,7 @@ export type ScriptNarrationPlan = {
   | { wordBudgetPolicy: 'open' }
   | {
       wordBudgetPolicy: 'guided';
+      fullRuntimeMinimumSpokenWords: number;
       fullRuntimeReferenceSpokenWords: number;
       fullRuntimeComfortableMaximumSpokenWords: number;
     }
@@ -62,31 +64,37 @@ export interface ScriptEditorialPlanInput {
 }
 
 interface NarrationRateGuidance {
+  minimumModeDensity: number;
   target: number;
   comfortableMaximum: number;
 }
 
-// Mode targets come from the Creative Content Knowledge narration taxonomy. Its only
-// enforceable pacing boundary is an overridable warning above the comfortable format rate;
-// it does not define a per-beat minimum speaking rate.
+// These are full-runtime mode boundaries, never per-scene or per-beat quotas. The knowledge
+// base defines slow VO at 120 WPM and minimal narration at 0-50 WPM; 51 is therefore the
+// lowest density that can still claim a non-minimal visual-verbal relationship.
 const NARRATION_RATE_GUIDANCE: Readonly<Record<ScriptNarrationMode, NarrationRateGuidance>> = {
   anchor: {
+    minimumModeDensity: 120,
     target: 150,
     comfortableMaximum: 170,
   },
   complement: {
+    minimumModeDensity: 51,
     target: 120,
     comfortableMaximum: 170,
   },
   counterpoint: {
+    minimumModeDensity: 51,
     target: 100,
     comfortableMaximum: 170,
   },
   minimal: {
+    minimumModeDensity: 0,
     target: 25,
     comfortableMaximum: 50,
   },
   standard_voiceover: {
+    minimumModeDensity: 120,
     target: 150,
     comfortableMaximum: 170,
   },
@@ -134,6 +142,10 @@ function spokenWords(targetDurationSeconds: number, wordsPerMinute: number): num
   return Math.round((targetDurationSeconds / 60) * wordsPerMinute);
 }
 
+function minimumSpokenWords(targetDurationSeconds: number, wordsPerMinute: number): number {
+  return Math.ceil((targetDurationSeconds / 60) * wordsPerMinute);
+}
+
 /**
  * Resolve writing form from the accepted brief and content-signal graph. Runtime sets the
  * production envelope; the approved creative direction and material determine hierarchy.
@@ -161,6 +173,7 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
       : { policy: 'open' },
     narration: {
       mode: narrationMode,
+      minimumModeWordsPerMinute: rateGuidance.minimumModeDensity,
       targetWordsPerMinute: rateGuidance.target,
       comfortableMaximumWordsPerMinute: rateGuidance.comfortableMaximum,
       pacingConstraint: {
@@ -170,6 +183,10 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
       ...(hasExactRuntime
         ? {
             wordBudgetPolicy: 'guided' as const,
+            fullRuntimeMinimumSpokenWords: minimumSpokenWords(
+              targetDurationSeconds,
+              rateGuidance.minimumModeDensity,
+            ),
             fullRuntimeReferenceSpokenWords: spokenWords(targetDurationSeconds, rateGuidance.target),
             fullRuntimeComfortableMaximumSpokenWords: spokenWords(
               targetDurationSeconds,

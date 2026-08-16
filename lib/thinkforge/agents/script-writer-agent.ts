@@ -247,6 +247,7 @@ const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
   'beat_kind_speech_mismatch',
   'beat_kind_missing_speech',
   'narration_mode_missing_speech',
+  'narration_density_below_mode',
   'missing_cast_character',
   'unused_cast_character',
   'cast_character_has_no_voice',
@@ -286,7 +287,7 @@ Critical rules:
 - Preserve the authored act, narrative-scene, and beat hierarchy unless an editorial contract failure requires changing it. Never split story units to satisfy a renderer.
 - Every beat requires visualIntent, shotIntent, and narrative duration intent. Every spoken line requires its actual languageCode.
 - Omit renderPlan. Technical segmentation is authored later from this narrative sidecar.
-- When the failure includes runtime_duration_mismatch or narration_mode_missing_speech, use tf_untrusted_data.editorialPlan as binding. Preserve the exact total runtime and represent deliberate non-verbal intervals as visual or transition beats. Never pad prose, durations, metadata, or empty lines to game the contract.
+- When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or narration_density_below_mode, use tf_untrusted_data.editorialPlan as binding. Preserve the exact total runtime and selected narration mode. Develop the supported argument or story with substantive beats; represent deliberate non-verbal intervals as visual or transition beats. Never pad prose, durations, metadata, or empty lines to game the contract.
 - Preserve source references on every factual scene, beat, and line. Do not create a reference ID that is absent from the Source Ledger.
 </writer_contract_repair>`;
 }
@@ -336,6 +337,7 @@ interface ScriptRuntimeContract {
   minimumDurationSeconds: number;
   maximumDurationSeconds: number;
   narrationMode: ReturnType<typeof buildScriptEditorialPlan>['narration']['mode'];
+  minimumModeWordsPerMinute: number;
   targetWordsPerMinute: number;
   comfortableMaximumWordsPerMinute: number;
   fullRuntimeReferenceSpokenWords: number;
@@ -357,6 +359,7 @@ export function resolveScriptRuntimeContract(
     minimumDurationSeconds: plan.runtime.minimumDurationSeconds,
     maximumDurationSeconds: plan.runtime.maximumDurationSeconds,
     narrationMode: plan.narration.mode,
+    minimumModeWordsPerMinute: plan.narration.minimumModeWordsPerMinute,
     targetWordsPerMinute: plan.narration.targetWordsPerMinute,
     comfortableMaximumWordsPerMinute: plan.narration.comfortableMaximumWordsPerMinute,
     fullRuntimeReferenceSpokenWords: plan.narration.fullRuntimeReferenceSpokenWords,
@@ -565,6 +568,11 @@ export function assertUsableScriptWriterResult(
     const fullRuntimeWordsPerMinute = expectedDuration > 0
       ? (totalSpokenWords / expectedDuration) * 60
       : 0;
+    if (totalSpokenWords > 0 && fullRuntimeWordsPerMinute < contract.minimumModeWordsPerMinute) {
+      failures.push(
+        `narration_density_below_mode:${fullRuntimeWordsPerMinute.toFixed(1)}/${contract.minimumModeWordsPerMinute}:${contract.narrationMode}`,
+      );
+    }
     if (fullRuntimeWordsPerMinute > contract.comfortableMaximumWordsPerMinute) {
       editorialWarnings.push(
         `wpm_exceeds_format:${fullRuntimeWordsPerMinute.toFixed(1)}/${contract.comfortableMaximumWordsPerMinute}:${contract.narrationMode}`,
@@ -676,7 +684,7 @@ Your task is to write a high-retention, engaging video script.
 1. **One narrative source:** Author the complete script in sidecar with sidecarVersion: ${SCRIPT_SIDECAR_V2_VERSION} and spokenTextSource: "beat-lines". Do not author visible markdown, duplicate narration fields, or renderPlan; the server derives displays and a later technical planner derives render segments.
 2. **Hierarchy:** Use acts -> narrativeScenes -> beats -> lines. A short piece still has one structural act wrapper. The approved brief and selected idea own the creative direction. Create multiple acts only for genuine macro turns in the argument, story, time, or audience understanding. Start a new narrative scene only for a meaningful change in purpose, argument, time/place, speaker mode, evidence, emotion, or visual treatment. Runtime never creates, forbids, or counts acts, scenes, or beats.
 3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover for off-camera speech, sync-dialogue only for speech captured on camera, and on-screen-text only for visible text. Every spoken line identifies speakerId, actual languageCode, delivery, camera presence, and source refs.
-4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. Narration WPM is a full-runtime editorial reference, never a per-beat minimum or a quota. Preserve deliberate pauses, slow dialogue, and visual intervals; do not pad prose to hit a target. The comfortable maximum is an overridable warning, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
+4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. Narration density is a full-runtime mode contract, never a per-beat quota: anchor/standard voiceover cannot fall below the knowledge base's 120 WPM slow-VO floor; complement/counterpoint must remain above the 0-50 WPM minimal-narration band; minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum is an overridable warning, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
 5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Use voiceover/dialogue/mixed for beats with speech; use visual/transition for deliberate non-verbal time. If a mixed beat contains a substantial speech-free interval, represent that interval as its own meaningful visual or transition beat. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
 6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. Never invent proof, testimonials, logos, or product facts.
 7. **Provenance:** Use only Source Ledger referenceId values. Carry refs at sidecar, scene, beat, and line level. Every numeric/date/price/URL/proof/testimonial claim needs a real source ref; an undeclared ref is invalid.
@@ -723,7 +731,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read retrieved facts only from tf_untrusted_data.databankFacts.
 - Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
 - Read exact creative destination and deliverable shape from tf_untrusted_data.authoringDestination when present. Read technical output platform and geometry only from tf_untrusted_data.productionOutput.
-- Read runtime policy, full-runtime narration guidance, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Exact total runtime and beat-channel semantics are binding; narration targets are editorial references, pacing excess is a warning, and structure recommendations are advisory. An open runtime carries no numeric target.
+- Read runtime policy, full-runtime narration mode boundaries, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Exact total runtime, mode-compatible minimum density, and beat-channel semantics are binding; target density is guidance, pacing excess is a warning, and structure recommendations are advisory. An open runtime carries no numeric target.
 - Read requested spoken and caption languages from tf_untrusted_data.languageRequest. Never substitute a different language because of a downstream provider.`;
 
     return buildIsolatedPromptParts({

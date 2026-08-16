@@ -256,6 +256,7 @@ describe('ThinkForge script production contract', () => {
       minimumDurationSeconds: 420,
       maximumDurationSeconds: 420,
       narrationMode: 'complement',
+      minimumModeWordsPerMinute: 51,
       targetWordsPerMinute: 120,
       comfortableMaximumWordsPerMinute: 170,
       fullRuntimeReferenceSpokenWords: 840,
@@ -301,10 +302,12 @@ describe('ThinkForge script production contract', () => {
     });
     expect(plan.narration).toMatchObject({
       mode: 'complement',
+      minimumModeWordsPerMinute: 51,
       targetWordsPerMinute: 120,
       comfortableMaximumWordsPerMinute: 170,
       pacingConstraint: { severity: 'warning', overridable: true },
       wordBudgetPolicy: 'guided',
+      fullRuntimeMinimumSpokenWords: 357,
       fullRuntimeReferenceSpokenWords: 840,
       fullRuntimeComfortableMaximumSpokenWords: 1190,
       selectedTechnique: { id: 'narration_complement' },
@@ -350,10 +353,12 @@ describe('ThinkForge script production contract', () => {
 
     expect(plan.narration).toMatchObject({
       mode: 'minimal',
+      minimumModeWordsPerMinute: 0,
       targetWordsPerMinute: 25,
       comfortableMaximumWordsPerMinute: 50,
       pacingConstraint: { severity: 'warning', overridable: true },
       wordBudgetPolicy: 'guided',
+      fullRuntimeMinimumSpokenWords: 0,
       fullRuntimeReferenceSpokenWords: 175,
       fullRuntimeComfortableMaximumSpokenWords: 350,
       selectedTechnique: { id: 'narration_minimal' },
