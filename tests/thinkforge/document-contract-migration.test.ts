@@ -16,13 +16,40 @@ function plan(documents: Array<Record<string, unknown>>, projectMeta?: Record<st
 describe('ThinkForge document contract migration', () => {
   it('preserves a valid stored contract as the highest authority', () => {
     const contentContract = createThinkForgeWriterContract('carousel', { carouselSlideCount: 5 });
-    const result = plan([{ scriptId: 'deck_1', title: 'Launch', contentContract }]);
+    const result = plan([{
+      scriptId: 'deck_1',
+      title: 'Launch',
+      documentType: 'carousel',
+      contentContract,
+    }]);
 
     expect(result.summary).toEqual({ scanned: 1, active: 1, quarantined: 0 });
     expect(result.decisions[0]).toMatchObject({
       status: 'active',
       source: 'stored_contract',
       update: { scriptId: 'deck_1', documentType: 'carousel', contentContract },
+    });
+  });
+
+  it('quarantines a stored carousel contract without an authoritative slide count', () => {
+    const result = plan([{
+      scriptId: 'deck_1',
+      contentContract: createThinkForgeWriterContract('carousel'),
+    }]);
+
+    expect(result.summary).toEqual({ scanned: 1, active: 0, quarantined: 1 });
+    expect(result.decisions[0]).toMatchObject({
+      status: 'quarantined',
+      reason: 'carousel contract is missing an authoritative slide count',
+    });
+  });
+
+  it('quarantines a legacy carousel label instead of guessing its slide count', () => {
+    const result = plan([{ scriptId: 'deck_1', documentType: 'carousel' }]);
+
+    expect(result.decisions[0]).toMatchObject({
+      status: 'quarantined',
+      reason: 'carousel contract is missing an authoritative slide count',
     });
   });
 

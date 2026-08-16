@@ -1,6 +1,7 @@
 import {
   ThinkForgeDocumentContractSchema,
   normalizeThinkForgeDocumentContract,
+  thinkForgeDocumentContractMatchesClassification,
   type ThinkForgeDocumentContract,
 } from '../schemas/document-contract';
 import type { ObjectId } from 'mongodb';
@@ -87,14 +88,6 @@ function parseExactIdentity(value: unknown, label: string): ParsedIdentity {
   return { status: 'exact', value };
 }
 
-function contractsMatch(left: ThinkForgeDocumentContract, right: ThinkForgeDocumentContract): boolean {
-  return left.version === right.version
-    && left.documentKind === right.documentKind
-    && left.outputKind === right.outputKind
-    && left.artifactType === right.artifactType
-    && left.carouselSlideCount === right.carouselSlideCount;
-}
-
 function canonicalDocumentType(contract: ThinkForgeDocumentContract): string {
   return contract.documentKind === 'document' ? contract.artifactType : contract.outputKind;
 }
@@ -137,6 +130,15 @@ function isLegacyScreenplayDefault(value: unknown): boolean {
   return typeof value === 'string' && value.trim().toLowerCase() === 'screenplay';
 }
 
+function requireMigrationReadyContract(
+  contract: ThinkForgeDocumentContract,
+): ThinkForgeDocumentContract {
+  if (contract.outputKind === 'carousel' && contract.carouselSlideCount === undefined) {
+    throw new Error('carousel contract is missing an authoritative slide count');
+  }
+  return contract;
+}
+
 function resolveMigrationContract(
   document: LegacyThinkForgeDocumentRecord,
   session?: LegacyThinkForgeSessionRecord,
@@ -148,29 +150,42 @@ function resolveMigrationContract(
   const storedTypeIsLegacyDefault = isLegacyScreenplayDefault(document.documentType);
 
   if (storedContract && storedTypeContract && !storedTypeIsLegacyDefault
-    && !contractsMatch(storedContract, storedTypeContract)) {
+    && !thinkForgeDocumentContractMatchesClassification(storedContract, storedTypeContract)) {
     throw new Error('stored contentContract conflicts with stored documentType');
   }
-  if (storedContract) return { contract: storedContract, source: 'stored_contract' };
+  if (storedContract) {
+    return { contract: requireMigrationReadyContract(storedContract), source: 'stored_contract' };
+  }
   if (storedTypeContract && !storedTypeIsLegacyDefault) {
-    return { contract: storedTypeContract, source: 'stored_document_type' };
+    return {
+      contract: requireMigrationReadyContract(storedTypeContract),
+      source: 'stored_document_type',
+    };
   }
 
   const projectMeta = asRecord(session?.projectMeta);
   if (projectMeta?.contentContract !== undefined && projectMeta.contentContract !== null) {
     return {
-      contract: parseContractValue(projectMeta.contentContract, 'session contentContract'),
+      contract: requireMigrationReadyContract(
+        parseContractValue(projectMeta.contentContract, 'session contentContract'),
+      ),
       source: 'session_contract',
     };
   }
 
   const sessionFormatContract = parseSessionFormat(projectMeta?.format);
   if (sessionFormatContract) {
-    return { contract: sessionFormatContract, source: 'session_format' };
+    return {
+      contract: requireMigrationReadyContract(sessionFormatContract),
+      source: 'session_format',
+    };
   }
 
   if (storedTypeContract) {
-    return { contract: storedTypeContract, source: 'legacy_stored_document_type' };
+    return {
+      contract: requireMigrationReadyContract(storedTypeContract),
+      source: 'legacy_stored_document_type',
+    };
   }
 
   throw new Error('no persisted document authority is available');
