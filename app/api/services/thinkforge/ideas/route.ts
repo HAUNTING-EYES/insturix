@@ -15,6 +15,8 @@ import {
 	ThinkForgeAuthoringRequestSchema,
 	type ThinkForgeAuthoringRequest,
 } from '@/lib/thinkforge/schemas/authoring-request';
+import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
+import { assertThinkForgePublishingRequestFeasible } from '@/lib/thinkforge/signals/publishing-constraints';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -157,6 +159,12 @@ export async function POST(req: Request) {
 		return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
 	}
 	if (!prompt.trim()) return NextResponse.json({ error: 'Missing prompt' }, { status: 400 });
+	try {
+		assertThinkForgePublishingRequestFeasible(authoringRequest);
+	} catch (error) {
+		const normalized = toThinkForgeErrorResponse(error);
+		return NextResponse.json(normalized.body, { status: normalized.status });
+	}
 
 	await CreditsMigrationService.ensureMigrated(userId);
 

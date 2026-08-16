@@ -10,6 +10,12 @@ export type ThinkForgeError =
       retryable: false;
     }
   | {
+      type: 'needs_user_input';
+      code: string;
+      message: string;
+      retryable: false;
+    }
+  | {
       type: 'internal_error';
       message: string;
       retryable: false;
@@ -39,7 +45,33 @@ export function isContractViolation(error: unknown): boolean {
   );
 }
 
+const ACTIONABLE_AUTHORING_ERROR_CODES = new Set([
+  'PUBLISHING_REQUEST_INCOMPATIBLE',
+  'POST_TARGET_NOT_PUBLISHABLE',
+  'SCRIPT_REQUIRES_CHAPTERED_GENERATION',
+]);
+
+export function isActionableAuthoringError(error: unknown): boolean {
+  const code = String((error as { code?: unknown } | null)?.code ?? '');
+  return ACTIONABLE_AUTHORING_ERROR_CODES.has(code);
+}
+
 export function toThinkForgeErrorResponse(error: unknown): { status: number; body: { error: ThinkForgeError } } {
+  if (isActionableAuthoringError(error)) {
+    const actionable = error as { code: string; message?: string };
+    return {
+      status: 422,
+      body: {
+        error: {
+          type: 'needs_user_input',
+          code: actionable.code,
+          message: actionable.message || 'The authoring request needs an explicit compatible choice.',
+          retryable: false,
+        },
+      },
+    };
+  }
+
   if (isContractViolation(error)) {
     return {
       status: 500,

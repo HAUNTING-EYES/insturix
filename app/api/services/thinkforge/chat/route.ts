@@ -17,9 +17,13 @@ import {
   resolveThinkForgeAuthoringProjectMetadata,
   ThinkForgeBrandAuthorityError,
 } from '@/lib/thinkforge/context/brand-authoring-context';
-import { resolveProjectMetaBrandId } from '@/lib/thinkforge/state/types';
+import { resolveProjectMetaAuthoringRequest, resolveProjectMetaBrandId } from '@/lib/thinkforge/state/types';
 import { getVersion as getWritingKnowledgeVersion } from '@/lib/thinkforge/data/writing-graph-query';
 import { LEGACY_BLUEPRINT_RETIREMENT } from '@/lib/thinkforge/blueprints/legacy-blueprint-retirement';
+import {
+  assertThinkForgePublishingRequestFeasible,
+  ThinkForgePublishingRequestError,
+} from '@/lib/thinkforge/signals/publishing-constraints';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -126,6 +130,8 @@ export async function POST(req: Request) {
   try {
     const projectMeta = resolveThinkForgeAuthoringProjectMetadata(authorizedSession.projectMeta, project);
     requestedBrandId = resolveProjectMetaBrandId(projectMeta);
+    const authoringRequest = resolveProjectMetaAuthoringRequest(projectMeta);
+    if (authoringRequest) assertThinkForgePublishingRequestFeasible(authoringRequest);
     authoringContext = await resolveThinkForgeAuthoringContext({
       userId,
       orgId: orgId ?? null,
@@ -141,6 +147,10 @@ export async function POST(req: Request) {
       writingKnowledgeVersion: getWritingKnowledgeVersion(),
     });
   } catch (error) {
+    if (error instanceof ThinkForgePublishingRequestError) {
+      const normalized = toThinkForgeErrorResponse(error);
+      return NextResponse.json(normalized.body, { status: normalized.status });
+    }
     if (error instanceof ThinkForgeBrandAuthorityError) {
       return authoringContextErrorResponse(error);
     }

@@ -9,6 +9,16 @@ import {
 
 export const THINKFORGE_PUBLISHING_CONSTRAINTS_VERSION = 2;
 export const THINKFORGE_PUBLISHING_POLICY_VERIFIED_AT = '2026-08-16';
+export const THINKFORGE_PUBLISHING_REQUEST_ERROR_CODE = 'PUBLISHING_REQUEST_INCOMPATIBLE';
+
+export class ThinkForgePublishingRequestError extends Error {
+  readonly code = THINKFORGE_PUBLISHING_REQUEST_ERROR_CODE;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ThinkForgePublishingRequestError';
+  }
+}
 
 export type ThinkForgePublishingSurface = ThinkForgePublishingSurfaceId | 'unknown';
 
@@ -158,7 +168,7 @@ export function assertThinkForgePublishingRequestFeasible(
     && constraints.maxDurationSeconds !== undefined
     && request.targetDurationSec > constraints.maxDurationSeconds
   ) {
-    throw new Error(
+    throw new ThinkForgePublishingRequestError(
       `${constraints.surface} supports at most ${constraints.maxDurationSeconds} seconds; `
       + `requested ${request.targetDurationSec} seconds`,
     );
