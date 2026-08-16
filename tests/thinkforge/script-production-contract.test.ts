@@ -254,9 +254,13 @@ describe('ThinkForge script production contract', () => {
       targetDurationSeconds: 420,
       minimumDurationSeconds: 420,
       maximumDurationSeconds: 420,
-      targetSpokenWords: 840,
-      minimumSpokenWords: 700,
-      maximumSpokenWords: 980,
+      narrationMode: 'complement',
+      targetWordsPerMinute: 120,
+      minimumActiveSpeechWordsPerMinute: 50,
+      minimumActiveSpeechBoundary: 'exclusive',
+      maximumActiveSpeechWordsPerMinute: 170,
+      fullRuntimeReferenceSpokenWords: 840,
+      fullRuntimeMaximumSpokenWords: 1190,
     });
   });
 
@@ -272,18 +276,16 @@ describe('ThinkForge script production contract', () => {
     expect(resolveScriptRuntimeContract(null)).toBeNull();
     expect(plan.runtime).toEqual({ policy: 'open' });
     expect(plan.narration.wordBudgetPolicy).toBe('open');
-    expect(plan.narration).not.toHaveProperty('targetSpokenWords');
-    expect(plan.narration).not.toHaveProperty('minimumSpokenWords');
-    expect(plan.narration).not.toHaveProperty('maximumSpokenWords');
+    expect(plan.narration).not.toHaveProperty('fullRuntimeReferenceSpokenWords');
+    expect(plan.narration).not.toHaveProperty('fullRuntimeMaximumSpokenWords');
     expect(prompt).toContain('"runtime": {');
     expect(prompt).toContain('"policy": "open"');
     expect(prompt).toContain('"wordBudgetPolicy": "open"');
     expect(prompt).not.toContain('"targetDurationSeconds"');
     expect(prompt).not.toContain('"minimumDurationSeconds"');
     expect(prompt).not.toContain('"maximumDurationSeconds"');
-    expect(prompt).not.toContain('"targetSpokenWords"');
-    expect(prompt).not.toContain('"minimumSpokenWords"');
-    expect(prompt).not.toContain('"maximumSpokenWords"');
+    expect(prompt).not.toContain('"fullRuntimeReferenceSpokenWords"');
+    expect(prompt).not.toContain('"fullRuntimeMaximumSpokenWords"');
   });
 
   it('derives hierarchy and narration density without inventing a scene count', () => {
@@ -301,9 +303,12 @@ describe('ThinkForge script production contract', () => {
     expect(plan.narration).toMatchObject({
       mode: 'complement',
       targetWordsPerMinute: 120,
-      targetSpokenWords: 840,
-      minimumSpokenWords: 700,
-      maximumSpokenWords: 980,
+      minimumActiveSpeechWordsPerMinute: 50,
+      minimumActiveSpeechBoundary: 'exclusive',
+      maximumActiveSpeechWordsPerMinute: 170,
+      wordBudgetPolicy: 'guided',
+      fullRuntimeReferenceSpokenWords: 840,
+      fullRuntimeMaximumSpokenWords: 1190,
       selectedTechnique: { id: 'narration_complement' },
     });
     expect(plan.structure.hierarchyPolicy).toBe('content_led');
@@ -348,11 +353,12 @@ describe('ThinkForge script production contract', () => {
     expect(plan.narration).toMatchObject({
       mode: 'minimal',
       targetWordsPerMinute: 25,
-      minimumWordsPerMinute: 0,
-      maximumWordsPerMinute: 50,
-      targetSpokenWords: 175,
-      minimumSpokenWords: 0,
-      maximumSpokenWords: 350,
+      minimumActiveSpeechWordsPerMinute: 0,
+      minimumActiveSpeechBoundary: 'inclusive',
+      maximumActiveSpeechWordsPerMinute: 50,
+      wordBudgetPolicy: 'guided',
+      fullRuntimeReferenceSpokenWords: 175,
+      fullRuntimeMaximumSpokenWords: 350,
       selectedTechnique: { id: 'narration_minimal' },
     });
   });
@@ -371,7 +377,7 @@ describe('ThinkForge script production contract', () => {
       })).rejects.toThrow('stop after inspection');
 
       expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledWith(expect.objectContaining({
-        maxTokens: 18_760,
+        maxTokens: 21_700,
         prompt: expect.stringContaining('"editorialPlan": {'),
       }));
       const prompt = generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt;
@@ -401,7 +407,32 @@ describe('ThinkForge script production contract', () => {
     expect(() => assertUsableScriptWriterResult(result, {
       productionBrief: sevenMinuteBrief(),
       contentSignalProfile: sevenMinuteProfile(),
-    })).toThrow(/spoken_word_count_mismatch/);
+    })).toThrow(/spoken_density_mismatch/);
+  });
+
+  it('accepts an exact visual runtime without manufacturing a spoken-word quota', () => {
+    const sidecar = shortSidecar();
+    const scene = sidecar.acts[0]!.narrativeScenes[0]!;
+    const beat = scene.beats[0]!;
+    scene.durationIntentSeconds = 420;
+    beat.durationIntentSeconds = 420;
+    beat.kind = 'visual';
+    beat.lines = [];
+    const result = materializeScriptWriterResult({
+      ...shortModelOutput(),
+      sidecar,
+    });
+
+    expect(() => assertUsableScriptWriterResult(result, {
+      productionBrief: sevenMinuteBrief(),
+      contentSignalProfile: sevenMinuteProfile({
+        visual_dependency: 0.9,
+        show_tell_ratio: 0.9,
+        negative_space: 0.8,
+      }),
+    })).not.toThrow();
+    expect(result.metadata.estimatedTimeSeconds).toBe(420);
+    expect(result.metadata.voiceLanguages).toEqual([]);
   });
 
   it('reports missing narrative shot intent to Shoot Kit without inventing one', () => {

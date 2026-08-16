@@ -10,7 +10,7 @@ export type ThinkForgeCompletedGenerationDelivery =
   | { type: 'switch_document'; scriptId: string }
   | { type: 'missing_document' };
 
-const RUNTIME_CONTRACT_FAILURE_PATTERN = /\b(?:runtime_duration_mismatch|spoken_word_count_mismatch)\b/i;
+const RUNTIME_CONTRACT_FAILURE_PATTERN = /\b(?:runtime_duration_mismatch|spoken_word_count_mismatch|spoken_density_mismatch|narration_mode_missing_speech)\b/i;
 const TIMEOUT_FAILURE_PATTERN = /\b(?:timed out|timeout)\b/i;
 
 function readNonEmptyString(value: unknown): string | null {

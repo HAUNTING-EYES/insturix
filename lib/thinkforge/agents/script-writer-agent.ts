@@ -241,7 +241,10 @@ const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
   'missing_beat_duration',
   'scene_beat_duration_mismatch',
   'runtime_duration_mismatch',
-  'spoken_word_count_mismatch',
+  'beat_kind_speech_mismatch',
+  'beat_kind_missing_speech',
+  'narration_mode_missing_speech',
+  'spoken_density_mismatch',
   'missing_cast_character',
   'unused_cast_character',
   'cast_character_has_no_voice',
@@ -281,7 +284,7 @@ Critical rules:
 - Preserve the authored act, narrative-scene, and beat hierarchy unless an editorial contract failure requires changing it. Never split story units to satisfy a renderer.
 - Every beat requires visualIntent, shotIntent, and narrative duration intent. Every spoken line requires its actual languageCode.
 - Omit renderPlan. Technical segmentation is authored later from this narrative sidecar.
-- When the failure includes runtime_duration_mismatch or spoken_word_count_mismatch, use tf_untrusted_data.editorialPlan as binding. Rebuild the audible prose and editorial allocation to meet its total runtime and narration-mode word band; changing durations, metadata, or empty lines alone does not repair a word-count failure.
+- When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or spoken_density_mismatch, use tf_untrusted_data.editorialPlan as binding. Preserve the exact total runtime, but measure speaking density only inside beats where speech is active. Represent deliberate non-verbal intervals as visual or transition beats. Never pad prose, durations, metadata, or empty lines to game the contract.
 - Preserve source references on every factual scene, beat, and line. Do not create a reference ID that is absent from the Source Ledger.
 </writer_contract_repair>`;
 }
@@ -330,9 +333,13 @@ interface ScriptRuntimeContract {
   targetDurationSeconds: number;
   minimumDurationSeconds: number;
   maximumDurationSeconds: number;
-  targetSpokenWords: number;
-  minimumSpokenWords: number;
-  maximumSpokenWords: number;
+  narrationMode: ReturnType<typeof buildScriptEditorialPlan>['narration']['mode'];
+  targetWordsPerMinute: number;
+  minimumActiveSpeechWordsPerMinute: number;
+  minimumActiveSpeechBoundary: 'inclusive' | 'exclusive';
+  maximumActiveSpeechWordsPerMinute: number;
+  fullRuntimeReferenceSpokenWords: number;
+  fullRuntimeMaximumSpokenWords: number;
 }
 
 /** Derive the enforceable runtime contract from a production brief (or a {@link ProductionBrief}-shaped object). */
@@ -344,30 +351,58 @@ export function resolveScriptRuntimeContract(
     productionBrief: brief as Pick<ProductionBrief, 'output'> | null | undefined,
     contentSignalProfile,
   });
-  if (plan.runtime.policy !== 'exact' || plan.narration.wordBudgetPolicy !== 'exact') return null;
+  if (plan.runtime.policy !== 'exact' || plan.narration.wordBudgetPolicy !== 'guided') return null;
   return {
     targetDurationSeconds: plan.runtime.targetDurationSeconds,
     minimumDurationSeconds: plan.runtime.minimumDurationSeconds,
     maximumDurationSeconds: plan.runtime.maximumDurationSeconds,
-    targetSpokenWords: plan.narration.targetSpokenWords,
-    minimumSpokenWords: plan.narration.minimumSpokenWords,
-    maximumSpokenWords: plan.narration.maximumSpokenWords,
+    narrationMode: plan.narration.mode,
+    targetWordsPerMinute: plan.narration.targetWordsPerMinute,
+    minimumActiveSpeechWordsPerMinute: plan.narration.minimumActiveSpeechWordsPerMinute,
+    minimumActiveSpeechBoundary: plan.narration.minimumActiveSpeechBoundary,
+    maximumActiveSpeechWordsPerMinute: plan.narration.maximumActiveSpeechWordsPerMinute,
+    fullRuntimeReferenceSpokenWords: plan.narration.fullRuntimeReferenceSpokenWords,
+    fullRuntimeMaximumSpokenWords: plan.narration.fullRuntimeMaximumSpokenWords,
   };
 }
 
 /** Reserve enough provider output for the spoken-word ceiling plus structured production metadata. */
 function durationAwareMaxTokens(input: Pick<ScriptWriterInput, 'productionBrief' | 'contentSignalProfile'>): number {
   const plan = buildScriptEditorialPlan(input);
-  if (plan.runtime.policy !== 'exact' || plan.narration.wordBudgetPolicy !== 'exact') {
+  if (plan.runtime.policy !== 'exact' || plan.narration.wordBudgetPolicy !== 'guided') {
     return SCRIPT_WRITER_DEFAULT_MAX_TOKENS;
   }
   const estimated =
-    plan.narration.maximumSpokenWords * TOKENS_PER_MAXIMUM_SPOKEN_WORD
+    plan.narration.fullRuntimeMaximumSpokenWords * TOKENS_PER_MAXIMUM_SPOKEN_WORD
     + plan.runtime.targetDurationSeconds * TOKENS_PER_RUNTIME_SECOND_FOR_SIDECAR;
   return Math.min(
     SCRIPT_WRITER_MAX_OUTPUT_TOKENS,
     Math.max(SCRIPT_WRITER_DEFAULT_MAX_TOKENS, Math.ceil(estimated)),
   );
+}
+
+interface SpokenBeatMeasurement {
+  label: string;
+  durationSeconds: number;
+  wordCount: number;
+}
+
+function countSpokenWords(beat: NarrativeBeatV2): number {
+  return beat.lines.reduce((total, line) => {
+    if (line.delivery === 'on-screen-text' || !line.text.trim() || !line.languageCode) return total;
+    const segmenter = new Intl.Segmenter(line.languageCode, { granularity: 'word' });
+    return total + Array.from(segmenter.segment(line.text))
+      .filter((segment) => segment.isWordLike).length;
+  }, 0);
+}
+
+function violatesMinimumActiveSpeechRate(
+  wordsPerMinute: number,
+  contract: ScriptRuntimeContract,
+): boolean {
+  return contract.minimumActiveSpeechBoundary === 'exclusive'
+    ? wordsPerMinute <= contract.minimumActiveSpeechWordsPerMinute
+    : wordsPerMinute < contract.minimumActiveSpeechWordsPerMinute;
 }
 
 export function assertUsableScriptWriterResult(
@@ -384,6 +419,7 @@ export function assertUsableScriptWriterResult(
   }
 
   const scenes = narrativeScenes(sidecar);
+  const spokenBeatMeasurements: SpokenBeatMeasurement[] = [];
   const expectedPrompts = scenes.map(promptForScene);
   const expectedDuration = scenes.reduce((sum, scene) => sum + sceneDurationIntent(scene), 0);
   const expectedLanguages = spokenLanguages(sidecar);
@@ -431,6 +467,22 @@ export function assertUsableScriptWriterResult(
         }
       });
 
+      const spokenWordCount = countSpokenWords(beat);
+      const hasSpokenContent = spokenWordCount > 0;
+      if (hasSpokenContent && (beat.kind === 'visual' || beat.kind === 'transition')) {
+        failures.push(`beat_kind_speech_mismatch:${beatLabel}:${beat.kind}`);
+      }
+      if (!hasSpokenContent && (beat.kind === 'voiceover' || beat.kind === 'dialogue')) {
+        failures.push(`beat_kind_missing_speech:${beatLabel}:${beat.kind}`);
+      }
+      if (hasSpokenContent && beat.durationIntentSeconds !== undefined) {
+        spokenBeatMeasurements.push({
+          label: beatLabel,
+          durationSeconds: beat.durationIntentSeconds,
+          wordCount: spokenWordCount,
+        });
+      }
+
       return sum + (beat.durationIntentSeconds ?? 0);
     }, 0);
 
@@ -456,24 +508,31 @@ export function assertUsableScriptWriterResult(
     if (!contract) {
       throw new ScriptWriterContractError(['runtime_contract_unavailable']);
     }
-    const spokenWords = sidecar.acts.reduce((actTotal, act) => actTotal + act.narrativeScenes.reduce(
-      (sceneTotal, scene) => sceneTotal + scene.beats.reduce(
-        (beatTotal, beat) => beatTotal + beat.lines.reduce((lineTotal, line) => {
-          if (line.delivery === 'on-screen-text' || !line.text.trim() || !line.languageCode) return lineTotal;
-          const segmenter = new Intl.Segmenter(line.languageCode, { granularity: 'word' });
-          return lineTotal + Array.from(segmenter.segment(line.text))
-            .filter((segment) => segment.isWordLike).length;
-        }, 0),
-        0,
-      ),
-      0,
-    ), 0);
-
     if (expectedDuration < contract.minimumDurationSeconds || expectedDuration > contract.maximumDurationSeconds) {
       failures.push(`runtime_duration_mismatch:${expectedDuration}s/${runtimeTargetSec}s`);
     }
-    if (spokenWords < contract.minimumSpokenWords || spokenWords > contract.maximumSpokenWords) {
-      failures.push(`spoken_word_count_mismatch:${spokenWords}/${contract.targetSpokenWords}`);
+    if (spokenBeatMeasurements.length === 0 && contract.narrationMode !== 'minimal') {
+      failures.push(`narration_mode_missing_speech:${contract.narrationMode}`);
+    }
+    spokenBeatMeasurements.forEach((measurement) => {
+      const wordsPerMinute = (measurement.wordCount / measurement.durationSeconds) * 60;
+      if (
+        violatesMinimumActiveSpeechRate(wordsPerMinute, contract)
+        || wordsPerMinute > contract.maximumActiveSpeechWordsPerMinute
+      ) {
+        failures.push(
+          `spoken_density_mismatch:${measurement.label}:${wordsPerMinute.toFixed(1)}wpm/${contract.narrationMode}`,
+        );
+      }
+    });
+    const totalSpokenWords = spokenBeatMeasurements.reduce(
+      (total, measurement) => total + measurement.wordCount,
+      0,
+    );
+    if (totalSpokenWords > contract.fullRuntimeMaximumSpokenWords) {
+      failures.push(
+        `spoken_density_mismatch:total:${totalSpokenWords}/${contract.fullRuntimeMaximumSpokenWords}`,
+      );
     }
   }
 
@@ -579,8 +638,8 @@ Your task is to write a high-retention, engaging video script.
 1. **One narrative source:** Author the complete script in sidecar with sidecarVersion: ${SCRIPT_SIDECAR_V2_VERSION} and spokenTextSource: "beat-lines". Do not author visible markdown, duplicate narration fields, or renderPlan; the server derives displays and a later technical planner derives render segments.
 2. **Hierarchy:** Use acts -> narrativeScenes -> beats -> lines. A short piece still has one structural act wrapper. The approved brief and selected idea own the creative direction. Create multiple acts only for genuine macro turns in the argument, story, time, or audience understanding. Start a new narrative scene only for a meaningful change in purpose, argument, time/place, speaker mode, evidence, emotion, or visual treatment. Runtime never creates, forbids, or counts acts, scenes, or beats.
 3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover for off-camera speech, sync-dialogue only for speech captured on camera, and on-screen-text only for visible text. Every spoken line identifies speakerId, actual languageCode, delivery, camera presence, and source refs.
-4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total and narration word band. When it is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
-5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
+4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. Narration WPM describes active speaking beats, not the whole video: full-runtime word figures are references for an all-spoken script, never quotas. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
+5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Use voiceover/dialogue/mixed for beats with speech; use visual/transition for deliberate non-verbal time. If a mixed beat contains a substantial speech-free interval, represent that interval as its own meaningful visual or transition beat. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
 6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. Never invent proof, testimonials, logos, or product facts.
 7. **Provenance:** Use only Source Ledger referenceId values. Carry refs at sidecar, scene, beat, and line level. Every numeric/date/price/URL/proof/testimonial claim needs a real source ref; an undeclared ref is invalid.
 8. **Visual and audio intent:** Every beat needs concrete visualIntent, including motion, quality, asset recommendation, and intended on-screen text when relevant. Describe what the viewer can actually see; avoid empty style adjectives. Add audioIntent when ambience, music, or SFX serves the beat.
@@ -626,7 +685,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read retrieved facts only from tf_untrusted_data.databankFacts.
 - Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
 - Read output platform and requested deliverable shape only from tf_untrusted_data.productionOutput.
-- Read runtime policy, narration density, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Runtime, narration, and boundary policies are binding; structure recommendations are advisory. An open runtime carries no numeric target.
+- Read runtime policy, active-speech narration guidance, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Exact total runtime and beat-channel semantics are binding; full-runtime word figures are guidance for an all-spoken script, and structure recommendations are advisory. An open runtime carries no numeric target.
 - Read requested spoken and caption languages from tf_untrusted_data.languageRequest. Never substitute a different language because of a downstream provider.`;
 
     return buildIsolatedPromptParts({

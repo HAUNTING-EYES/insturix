@@ -398,7 +398,7 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(() => assertUsableScriptWriterResult(output.result)).not.toThrow();
   });
 
-  it('repairs sparse seven-minute prose once using the runtime contract', async () => {
+  it('repairs a sparse seven-minute speaking beat once using active-speech density', async () => {
     const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
     const invalid = makeModelOutput({
       metadata: { platform: 'youtube' },
@@ -425,7 +425,7 @@ describe('ScriptWriterAgent structured generation', () => {
 
     expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
     expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
-      .toContain('spoken_word_count_mismatch');
+      .toContain('spoken_density_mismatch');
     expect(output.result.metadata.estimatedTimeSeconds).toBe(420);
     expect(output.result.sidecar.renderPlan).toBeUndefined();
     expect(() => assertUsableScriptWriterResult(output.result, {
@@ -736,7 +736,7 @@ describe('native Script Sidecar V2 production semantics', () => {
     })).toThrow(/missing_cast_character:host/);
   });
 
-  it('rejects both runtime and prose density when a seven-minute request gets a short script', () => {
+  it('rejects both runtime and active-speech density when a seven-minute request gets a short script', () => {
     let message = '';
     try {
       assertUsableScriptWriterResult(resultFromSidecar(makeSidecar(), 'youtube'), {
@@ -747,11 +747,11 @@ describe('native Script Sidecar V2 production semantics', () => {
     }
 
     expect(message).toContain('runtime_duration_mismatch:42s/420s');
-    expect(message).toContain('spoken_word_count_mismatch');
+    expect(message).toContain('spoken_density_mismatch');
     expect(message).not.toContain('scene_count');
   });
 
-  it('rejects seven-minute duration metadata backed by sparse audible prose', () => {
+  it('rejects a seven-minute speaking beat backed by sparse audible prose', () => {
     const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
     const sidecar = sidecarWithScenes([
       makeScene(1, { durationIntentSeconds: 420, beats: [sparseBeat] }),
@@ -759,7 +759,7 @@ describe('native Script Sidecar V2 production semantics', () => {
 
     expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
       productionBrief: brief({ targetDurationSec: 420 }),
-    })).toThrow(/spoken_word_count_mismatch/);
+    })).toThrow(/spoken_density_mismatch/);
   });
 
   it('accepts a script that satisfies a 60-second runtime and spoken-word contract', () => {

@@ -30,16 +30,16 @@ export type ScriptRuntimePlan =
 export type ScriptNarrationPlan = {
   mode: ScriptNarrationMode;
   targetWordsPerMinute: number;
-  minimumWordsPerMinute: number;
-  maximumWordsPerMinute: number;
+  minimumActiveSpeechWordsPerMinute: number;
+  minimumActiveSpeechBoundary: 'inclusive' | 'exclusive';
+  maximumActiveSpeechWordsPerMinute: number;
   selectedTechnique?: ScriptTechniqueDirective;
 } & (
   | { wordBudgetPolicy: 'open' }
   | {
-      wordBudgetPolicy: 'exact';
-      targetSpokenWords: number;
-      minimumSpokenWords: number;
-      maximumSpokenWords: number;
+      wordBudgetPolicy: 'guided';
+      fullRuntimeReferenceSpokenWords: number;
+      fullRuntimeMaximumSpokenWords: number;
     }
 );
 
@@ -59,18 +59,47 @@ export interface ScriptEditorialPlanInput {
   contentSignalProfile?: ThinkForgeContentSignalProfile | null;
 }
 
-interface NarrationRateBand {
+interface NarrationRateGuidance {
   target: number;
-  minimum: number;
-  maximum: number;
+  minimumActiveSpeech: number;
+  minimumBoundary: 'inclusive' | 'exclusive';
+  maximumActiveSpeech: number;
 }
 
-const NARRATION_RATE_BANDS: Readonly<Record<ScriptNarrationMode, NarrationRateBand>> = {
-  anchor: { target: 150, minimum: 130, maximum: 170 },
-  complement: { target: 120, minimum: 100, maximum: 140 },
-  counterpoint: { target: 100, minimum: 80, maximum: 120 },
-  minimal: { target: 25, minimum: 0, maximum: 50 },
-  standard_voiceover: { target: 150, minimum: 120, maximum: 170 },
+// These boundaries come from the Creative Content Knowledge narration taxonomy.
+// Complement/counterpoint must stay above the documented 0-50 WPM minimal band;
+// standard spoken delivery uses the documented 120-170 WPM performable range.
+const NARRATION_RATE_GUIDANCE: Readonly<Record<ScriptNarrationMode, NarrationRateGuidance>> = {
+  anchor: {
+    target: 150,
+    minimumActiveSpeech: 120,
+    minimumBoundary: 'inclusive',
+    maximumActiveSpeech: 170,
+  },
+  complement: {
+    target: 120,
+    minimumActiveSpeech: 50,
+    minimumBoundary: 'exclusive',
+    maximumActiveSpeech: 170,
+  },
+  counterpoint: {
+    target: 100,
+    minimumActiveSpeech: 50,
+    minimumBoundary: 'exclusive',
+    maximumActiveSpeech: 170,
+  },
+  minimal: {
+    target: 25,
+    minimumActiveSpeech: 0,
+    minimumBoundary: 'inclusive',
+    maximumActiveSpeech: 50,
+  },
+  standard_voiceover: {
+    target: 150,
+    minimumActiveSpeech: 120,
+    minimumBoundary: 'inclusive',
+    maximumActiveSpeech: 170,
+  },
 };
 
 const NARRATION_MODE_BY_TECHNIQUE: Readonly<Record<string, ScriptNarrationMode>> = {
@@ -127,7 +156,7 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
   const narrationMode = selectedNarration
     ? NARRATION_MODE_BY_TECHNIQUE[selectedNarration.id] ?? 'standard_voiceover'
     : 'standard_voiceover';
-  const rateBand = NARRATION_RATE_BANDS[narrationMode];
+  const rateGuidance = NARRATION_RATE_GUIDANCE[narrationMode];
   const narrationDirective = directive(selectedNarration);
   const recommendedStructures = selectStructureTechniques(signals);
 
@@ -142,15 +171,18 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
       : { policy: 'open' },
     narration: {
       mode: narrationMode,
-      targetWordsPerMinute: rateBand.target,
-      minimumWordsPerMinute: rateBand.minimum,
-      maximumWordsPerMinute: rateBand.maximum,
+      targetWordsPerMinute: rateGuidance.target,
+      minimumActiveSpeechWordsPerMinute: rateGuidance.minimumActiveSpeech,
+      minimumActiveSpeechBoundary: rateGuidance.minimumBoundary,
+      maximumActiveSpeechWordsPerMinute: rateGuidance.maximumActiveSpeech,
       ...(hasExactRuntime
         ? {
-            wordBudgetPolicy: 'exact' as const,
-            targetSpokenWords: spokenWords(targetDurationSeconds, rateBand.target),
-            minimumSpokenWords: spokenWords(targetDurationSeconds, rateBand.minimum),
-            maximumSpokenWords: spokenWords(targetDurationSeconds, rateBand.maximum),
+            wordBudgetPolicy: 'guided' as const,
+            fullRuntimeReferenceSpokenWords: spokenWords(targetDurationSeconds, rateGuidance.target),
+            fullRuntimeMaximumSpokenWords: spokenWords(
+              targetDurationSeconds,
+              rateGuidance.maximumActiveSpeech,
+            ),
           }
         : { wordBudgetPolicy: 'open' as const }),
       ...(narrationDirective ? { selectedTechnique: narrationDirective } : {}),
