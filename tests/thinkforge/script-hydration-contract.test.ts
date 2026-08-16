@@ -219,8 +219,10 @@ describe('ThinkForge script hydration contract', () => {
     expect(chatPanel).toContain("lastUserAction: 'initial_draft_claim'");
     expect(chatPanel).toContain('Create the complete first draft for the persisted authoring request');
     expect(chatPanel).toContain('resolveSelectedIdeaAuthoringRequest(selectedIdea)');
-    expect(chatPanel).toContain('authoringRequest?.contentContract');
-    expect(chatPanel).toContain('...(authoringRequest ? { authoringRequest } : {})');
+    expect(chatPanel).toContain('buildThinkForgeAuthoringCompatibilityMetadata(selectedAuthoringRequest)');
+    expect(chatPanel).toContain('hasDocumentContent || !selectedAuthoringRequest');
+    expect(chatPanel).toContain('!effectiveAuthoringRequest && !hasDocumentContent');
+    expect(chatPanel).not.toContain('normalizeThinkForgeDocumentContract(selectedIdea.format)');
     expect(chatPanel).not.toContain('resolveCarouselSlideCount');
     expect(chatPanel).not.toContain('complete first script draft');
     expect(chatPanel).not.toContain('autoStartFired');
