@@ -22,6 +22,7 @@
     "indexnow": "node scripts/indexnow-submit.mjs",
     "update-thinkforge-plans": "node scripts/updateThinkForgePlans.js",
     "migrate:socialize": "node --loader ts-node/esm scripts/run-migrate-socialize.mjs",
+    "migrate:thinkforge-authoring-requests": "tsx scripts/migrate-thinkforge-authoring-requests.ts",
     "test": "vitest run",
     "test:editron-browser": "playwright test --project=editron-chat-chromium",
     "preflight:thinkforge-editron": "vitest run tests/pipeline/thinkforge-editron-dry-run.test.ts tests/pipeline/storyboard-source-session-contract.test.ts tests/pipeline/video-model-configs.test.ts tests/pipeline/video-generation-fallback.test.ts tests/pipeline/storyboard-timeout-cleanup.test.ts tests/editron/import-from-script-route.test.ts tests/thinkforge/export-for-editron-route.test.ts tests/editron/r2-public-url.test.ts",
