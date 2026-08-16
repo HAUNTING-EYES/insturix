@@ -487,17 +487,14 @@ export function buildWritingKnowledgeBlock(
     const excludedTechniqueIds = new Set(options.excludeTechniqueIds ?? []);
 
     if (techniqueMap.size === 0 && antiAiConstraints.length === 0) {
-      console.log('[ThinkForge:WritingKnowledge] No techniques or constraints matched. Signals provided:', Object.keys(signals).length);
       return '';
     }
 
     const lines: string[] = ['<writing_knowledge>'];
-    let techniqueCount = 0;
 
     techniqueMap.forEach((techniques: TechniqueResult[], category: string) => {
       const top = techniques.find((technique) => !excludedTechniqueIds.has(technique.id));
       if (!top) return;
-      techniqueCount++;
       lines.push(`${category.toUpperCase()}: ${top.id}`);
       if (top.primary) lines.push(`  DO: ${top.primary}`);
       if (top.example) lines.push(`  EXAMPLE: ${top.example}`);
@@ -510,7 +507,6 @@ export function buildWritingKnowledgeBlock(
     lines.push('');
     lines.push('QUALITY: Be SPECIFIC with supplied facts only. If no metric is supplied, use concrete scene, pain, consequence, or image instead of inventing numbers. Vary sentence rhythm. No AI filler.');
     lines.push('</writing_knowledge>');
-    console.log(`[ThinkForge:WritingKnowledge] Injected ${techniqueCount} techniques + ${antiAiConstraints.length} constraints`);
     return lines.join('\n');
   } catch (e) {
     console.error('[ThinkForge:WritingKnowledge] Failed to build knowledge block:', e);
