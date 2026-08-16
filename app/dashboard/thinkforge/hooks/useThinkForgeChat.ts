@@ -238,7 +238,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         workspaceMode?: "script" | "whiteboard" | "unknown";
         lastUserAction?: string;
       };
-      blueprintArtifacts?: Array<{ type: string; label: string; description?: string; priority?: string }>;
       /** Silent auto-starter draft: trigger generation without showing/persisting a user bubble. */
       silent?: boolean;
     }
@@ -324,7 +323,6 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
           generationId,
           threadId,
           intentContext: options?.intentContext,
-          blueprintArtifacts: options?.blueprintArtifacts,
           silent: options?.silent,
         }),
         signal: controller.signal,

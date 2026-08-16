@@ -7,14 +7,12 @@ import { ChatMessages } from "./chat/ChatMessages";
 import { ChatInput } from "./chat/ChatInput";
 import { ChatHistoryPanel } from "./chat/ChatHistoryPanel";
 import { GenerationProgress } from "./chat/GenerationProgress";
-import { SidecarActions, type SidecarActionType } from "./chat/SidecarActions";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import type { ScriptModel } from "@/app/dashboard/thinkforge/hooks/useThinkForgeSession";
-import type { SidecarCard, SidecarCardAction } from "@/lib/thinkforge/state/types";
+import type { SidecarCardAction } from "@/lib/thinkforge/state/types";
 import { toast } from "@/hooks/use-toast";
 import { extractUrls } from "./PromptPanel";
 import { logShadowEvent } from "@/lib/thinkforge/services/shadow-logger";
-import { BlueprintCustomizer } from "./chat/BlueprintCustomizer";
 import { TrendWorkflowPanel } from "./TrendWorkflowPanel";
 import {
   normalizeThinkForgeDocumentContract,
@@ -188,12 +186,6 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const initialDraftClaimedSessionRef = React.useRef<string | null>(null);
   const [briefExtracting, setBriefExtracting] = useState(false);
   const justStoppedStreamRef = React.useRef(false);
-  const [sidecarLoading, setSidecarLoading] = useState<SidecarActionType | null>(null);
-  const [customizingBlueprint, setCustomizingBlueprint] = useState<{
-    messageId: string;
-    cardId: string;
-    artifacts: Array<{ type: string; label: string; description?: string; priority?: string }>;
-  } | null>(null);
   const [trendWorkflowOpen, setTrendWorkflowOpen] = useState(false);
 
   useEffect(() => {
@@ -632,144 +624,15 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     setHistoryOpen(true);
   }, [sessionId, chat, upsertThread]);
 
-  // ---------------------------------------------------------------------------
-  // Sidecar Action Handler
-  // ---------------------------------------------------------------------------
-  const handleSidecarAction = useCallback(async (action: SidecarActionType) => {
-    if (!sessionId || sidecarLoading) return;
-    setSidecarLoading(action);
-
-    try {
-      let content = '';
-      let specialistRequest = '';
-
-      if (action === 'storyboard') {
-        const selection = onGetSelection?.();
-        if (!selection || selection.blocks.length === 0) {
-          toast({ title: 'No selection', description: 'Select text in the editor to storyboard.' });
-          return;
-        }
-        content = selection.blocks.map((b: any) => {
-          if (b?.content && Array.isArray(b.content)) {
-            return b.content.map((n: any) => n?.text || '').join('');
-          }
-          return b?.text || '';
-        }).join('\n');
-      } else if (action === 'refine_voice') {
-        content = script?.content || '';
-        if (!content.trim()) {
-          toast({ title: 'No draft', description: 'Write something in the editor first.' });
-          return;
-        }
-      } else if (action === 'deconstruct') {
-        content = inputValue.trim() || script?.content || '';
-        if (!content) {
-          toast({ title: 'No content', description: 'Enter text or drop a link to deconstruct.' });
-          return;
-        }
-        setInputValue('');
-      } else if (action === 'summon_specialist') {
-        specialistRequest = inputValue.trim();
-        if (!specialistRequest) {
-          toast({ title: 'Describe the specialist', description: 'Type what kind of expert you need (e.g., "VFX cost estimator").' });
-          return;
-        }
-        setInputValue('');
-      } else if (action === 'discover_blueprint') {
-        content = selectedIdea?.idea || inputValue.trim() || '';
-        if (!content) {
-          toast({ title: 'No project description', description: 'Enter a project description first.' });
-          return;
-        }
-      }
-
-      const res = await fetch('/api/services/thinkforge/sidecar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          sessionId,
-          content,
-          scriptId: scriptIdRef.current || undefined,
-          specialistRequest,
-          threadId: activeThreadId,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Request failed' }));
-        throw new Error(err.error || 'Sidecar action failed');
-      }
-
-      const data = await res.json();
-
-      if (data.card) {
-        chat.appendMessage({
-          id: `sidecar-${Date.now()}`,
-          role: 'assistant',
-          content: '',
-          timestamp: new Date(),
-          card: data.card as SidecarCard,
-        });
-      }
-    } catch (err: any) {
-      console.error('[Sidecar] Action failed:', err);
-      chat.appendMessage({
-        id: `sidecar-error-${Date.now()}`,
-        role: 'assistant',
-        content: '',
-        timestamp: new Date(),
-        card: {
-          id: `err-${Date.now()}`,
-          type: 'error',
-          title: 'Action Failed',
-          body: err?.message || 'Something went wrong. Please try again.',
-          actions: [{ id: 'retry', label: 'Retry', variant: 'primary' }],
-          dismissible: true,
-          timestamp: Date.now(),
-        } as SidecarCard,
-      });
-    } finally {
-      setSidecarLoading(null);
-    }
-  }, [sessionId, sidecarLoading, inputValue, script, selectedIdea, onGetSelection, activeThreadId, chat]);
-
   const handleCardAction = useCallback(async (action: SidecarCardAction) => {
     if (action.id === 'open_tab' && action.payload?.scriptId && onScriptCreated) {
       onScriptCreated(action.payload.scriptId);
     } else if (action.id === 'retry') {
       toast({ title: 'Retry', description: 'Please try the action again.' });
-    } else if (action.id === 'initialize_blueprint') {
-      if (!sessionId || !action.payload?.artifacts) {
-        toast({ title: 'Error', description: 'Missing blueprint data.', variant: 'destructive' });
-        return;
-      }
-      const artifacts: Array<{ type: string; label: string; description?: string; priority?: string }> = action.payload.artifacts;
-
-      setSidecarLoading('discover_blueprint' as SidecarActionType);
-
-      await chat.sendMessage(
-        `Initialize blueprint with ${artifacts.length} documents: ${artifacts.map(a => a.label).join(', ')}`,
-        {
-          blueprintArtifacts: artifacts,
-          onScriptCreated: (scriptId: string) => {
-            if (onScriptCreated) onScriptCreated(scriptId);
-          },
-        }
-      );
-
-      setSidecarLoading(null);
-    } else if (action.id === 'customize_blueprint') {
-      const artifacts = action.payload?.artifacts;
-      const cardId = action.payload?.cardId;
-      if (!artifacts || !cardId) return;
-      const matchMsg = chat.messages.find(m => m.card?.id === cardId);
-      if (!matchMsg) return;
-      setCustomizingBlueprint({ messageId: matchMsg.id, cardId, artifacts });
     } else if (action.id === 'copy_hooks' || action.id === 'copy_shots') {
       toast({ title: 'Copied', description: 'Content copied to clipboard.' });
     }
-  }, [onScriptCreated, sessionId, chat]);
+  }, [onScriptCreated]);
 
   const handleCardDismiss = useCallback((cardId: string) => {
     // Cards are embedded in messages; dismissal is a no-op for now
@@ -779,11 +642,6 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     sendChatMessage(prompt);
   }, [sendChatMessage]);
 
-  const hasEditorSelection = useMemo(() => {
-    if (editingSelection) return true;
-    return false;
-  }, [editingSelection]);
-
   return (
     <div className="flex flex-col h-full bg-[#0F0F0E] animate-in fade-in-0 duration-300">
       <ChatHeader
@@ -791,16 +649,6 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         onOpenSettings={onOpenSettings}
         onOpenKnowledge={onOpenKnowledge}
         onNewChat={handleNewChat}
-      />
-
-      {/* Sidecar Action Buttons */}
-      <SidecarActions
-        onAction={handleSidecarAction}
-        disabled={!sessionId || chat.isStreaming}
-        hasSelection={hasEditorSelection}
-        hasScript={!!script?.content}
-        hasContent={!!inputValue.trim() || !!script?.content}
-        loading={sidecarLoading}
       />
 
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden relative">
@@ -816,24 +664,6 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
           progressOverride={chat.generationProgress}
           messageOverride={chat.generationMessage}
         />
-
-        {customizingBlueprint && (
-          <div className="absolute inset-0 z-30 flex items-end p-3 bg-[#0B0B0A] backdrop-blur-sm">
-            <BlueprintCustomizer
-              artifacts={customizingBlueprint.artifacts}
-              onSave={(updated) => {
-                chat.updateMessageCard(
-                  customizingBlueprint.messageId,
-                  customizingBlueprint.cardId,
-                  { data: { artifacts: updated } }
-                );
-                setCustomizingBlueprint(null);
-                toast({ title: 'Blueprint Updated', description: `${updated.length} documents configured.` });
-              }}
-              onCancel={() => setCustomizingBlueprint(null)}
-            />
-          </div>
-        )}
 
         <div className="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-neutral-900/60 to-transparent pointer-events-none" />
       </div>
