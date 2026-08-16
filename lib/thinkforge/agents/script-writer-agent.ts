@@ -30,6 +30,11 @@ import {
   type ThinkForgeContentSignalProfile,
 } from '../signals';
 import { buildScriptEditorialPlan, type ScriptEditorialPlan } from './script-editorial-plan';
+import {
+  requireThinkForgeEditorialPlanForWriter,
+  type ThinkForgeEditorialCreativeIntent,
+  type ThinkForgeScriptEditorialPlanArtifact,
+} from './editorial-plan';
 import { countUnicodeWords } from '../text/unicode-text';
 
 const ContentAnalysisSchema = z.object({
@@ -78,6 +83,12 @@ export const ScriptWriterResultSchema = z.object({
 export type ScriptWriterResult = z.infer<typeof ScriptWriterResultSchema>;
 export type ScriptWriterModelOutput = z.infer<typeof ScriptWriterModelOutputSchema>;
 
+interface ResolvedScriptEditorialContext {
+  executionPlan: ScriptEditorialPlan;
+  creativeIntent: ThinkForgeEditorialCreativeIntent;
+  tracePlan: ThinkForgeScriptEditorialPlanArtifact | ScriptEditorialPlan;
+}
+
 /**
  * Edit framing for the revise-existing-content path (P5).
  * When present, the writer REVISES `existingContent` per `instruction` and returns the COMPLETE
@@ -107,6 +118,34 @@ interface ScriptWriterValidationOptions {
   sourceLedger?: SourceLedger | null;
   productionBrief?: ProductionBrief | null;
   contentSignalProfile?: ThinkForgeContentSignalProfile | null;
+}
+
+function resolveScriptEditorialContext(input: ScriptWriterInput): ResolvedScriptEditorialContext {
+  if (input.editorialPlan) {
+    const artifact = requireThinkForgeEditorialPlanForWriter(
+      input.editorialPlan,
+      'script',
+      input.authoringRequest,
+    );
+    return {
+      executionPlan: artifact.execution.plan,
+      creativeIntent: artifact.creativeIntent,
+      tracePlan: artifact,
+    };
+  }
+
+  const executionPlan = buildScriptEditorialPlan({
+    productionBrief: input.productionBrief,
+    contentSignalProfile: input.contentSignalProfile,
+  });
+  return {
+    executionPlan,
+    creativeIntent: {
+      source: 'direct_brief',
+      overridePolicy: 'current_instruction',
+    },
+    tracePlan: executionPlan,
+  };
 }
 
 function singleLineScriptField(value: string): string {
@@ -402,7 +441,12 @@ export class ScriptWriterCapacityError extends Error {
 export function resolveScriptGenerationFeasibility(
   input: Pick<ScriptWriterInput, 'productionBrief' | 'contentSignalProfile'>,
 ): ScriptGenerationFeasibility {
-  const plan = buildScriptEditorialPlan(input);
+  return resolveScriptGenerationFeasibilityForPlan(buildScriptEditorialPlan(input));
+}
+
+function resolveScriptGenerationFeasibilityForPlan(
+  plan: ScriptEditorialPlan,
+): ScriptGenerationFeasibility {
   if (plan.runtime.policy !== 'exact' || plan.narration.wordBudgetPolicy !== 'guided') {
     return {
       mode: 'single_pass',
@@ -442,8 +486,8 @@ export function resolveScriptGenerationFeasibility(
 }
 
 /** Reserve enough provider output for spoken copy plus structured production metadata. */
-function durationAwareMaxTokens(input: Pick<ScriptWriterInput, 'productionBrief' | 'contentSignalProfile'>): number {
-  const feasibility = resolveScriptGenerationFeasibility(input);
+function durationAwareMaxTokens(plan: ScriptEditorialPlan): number {
+  const feasibility = resolveScriptGenerationFeasibilityForPlan(plan);
   if (feasibility.mode === 'chaptered_required') throw new ScriptWriterCapacityError(feasibility);
   return feasibility.requiredOutputTokens;
 }
@@ -683,7 +727,7 @@ Your task is to write a high-retention, engaging video script.
     // 3. Script Writing Rules
     prompt += `## Generation Requirements
 1. **One narrative source:** Author the complete script in sidecar with sidecarVersion: ${SCRIPT_SIDECAR_V2_VERSION} and spokenTextSource: "beat-lines". Do not author visible markdown, duplicate narration fields, or renderPlan; the server derives displays and a later technical planner derives render segments.
-2. **Hierarchy:** Use acts -> narrativeScenes -> beats -> lines. A short piece still has one structural act wrapper. The approved brief and selected idea own the creative direction. Create multiple acts only for genuine macro turns in the argument, story, time, or audience understanding. Start a new narrative scene only for a meaningful change in purpose, argument, time/place, speaker mode, evidence, emotion, or visual treatment. Runtime never creates, forbids, or counts acts, scenes, or beats.
+2. **Hierarchy and creative intent:** Use acts -> narrativeScenes -> beats -> lines. A short piece still has one structural act wrapper. tf_untrusted_data.creativeIntent is the server-resolved binding creative direction. When its source is selected_angle, execute its title, strategic purpose, and creative treatment as one coherent angle; the broad user brief and project summary are background and must not replace it. Depart only when the current edit instruction explicitly asks to replace that direction. Creative intent is framing, not evidence, and cannot override Brand Vault constraints, factual provenance, compliance, or the output contract. Create multiple acts only for genuine macro turns in the argument, story, time, or audience understanding. Start a new narrative scene only for a meaningful change in purpose, argument, time/place, speaker mode, evidence, emotion, or visual treatment. Runtime never creates, forbids, or counts acts, scenes, or beats.
 3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover for off-camera speech, sync-dialogue only for speech captured on camera, and on-screen-text only for visible text. Every spoken line identifies speakerId, actual languageCode, delivery, camera presence, and source refs.
 4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. Narration density is a full-runtime mode contract, never a per-beat quota: anchor/standard voiceover cannot fall below the knowledge base's 120 WPM slow-VO floor; complement/counterpoint must remain above the 0-50 WPM minimal-narration band; minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum is an overridable warning, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
 5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Use voiceover/dialogue/mixed for beats with speech; use visual/transition for deliberate non-verbal time. If a mixed beat contains a substantial speech-free interval, represent that interval as its own meaningful visual or transition beat. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
@@ -708,11 +752,9 @@ Return your response strictly adhering to the JSON schema.`;
 
   buildPromptParts(
     input: ScriptWriterInput,
-    editorialPlan: ScriptEditorialPlan = buildScriptEditorialPlan({
-      productionBrief: input.productionBrief,
-      contentSignalProfile: input.contentSignalProfile,
-    }),
+    resolvedEditorial: ResolvedScriptEditorialContext = resolveScriptEditorialContext(input),
   ): IsolatedPromptParts {
+    const editorialPlan = resolvedEditorial.executionPlan;
     const placeholderInput: ScriptWriterInput = {
       ...input,
       userPrompt: '[tf_untrusted_data.userBrief]',
@@ -737,6 +779,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read Brand Vault and learned voice evidence only from tf_untrusted_data.brandContext.
 - Read retrieved facts only from tf_untrusted_data.databankFacts.
 - Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
+- Read binding creative direction only from tf_untrusted_data.creativeIntent. A selected angle survives ordinary generation and revision; only an explicit current edit instruction may replace it.
 - Read exact creative destination and deliverable shape from tf_untrusted_data.authoringDestination when present. Read technical output platform and geometry only from tf_untrusted_data.productionOutput.
 - Read runtime policy, full-runtime narration mode boundaries, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Exact total runtime, mode-compatible minimum density, and beat-channel semantics are binding; target density is guidance, pacing excess is a warning, and structure recommendations are advisory. An open runtime carries no numeric target.
 - Read requested spoken and caption languages from tf_untrusted_data.languageRequest. Never substitute a different language because of a downstream provider.`;
@@ -745,7 +788,7 @@ Return your response strictly adhering to the JSON schema.`;
       systemInstruction: this.applyGlobalConstraints(
         `${this.buildTrustedTemplate(placeholderInput)}\n\n${runtimeDataRules}`,
       ),
-      data: this.buildUntrustedPromptData(input, editorialPlan),
+      data: this.buildUntrustedPromptData(input, editorialPlan, resolvedEditorial.creativeIntent),
       fieldLimits: {
         projectSummary: 12_000,
         userBrief: 12_000,
@@ -766,6 +809,7 @@ Return your response strictly adhering to the JSON schema.`;
   private buildUntrustedPromptData(
     input: ScriptWriterInput,
     editorialPlan: ScriptEditorialPlan,
+    creativeIntent: ThinkForgeEditorialCreativeIntent,
   ): Record<string, unknown> {
     const { context, userPrompt, retrievedContext, editContext, productionBrief, sourceLedger } = input;
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
@@ -781,6 +825,7 @@ Return your response strictly adhering to the JSON schema.`;
         summary: fact.summary,
       })),
       trendBrief: formatTrendBriefForPrompt(productionBrief) || null,
+      creativeIntent,
       editorialPlan,
       castingBrief: formatCastingBriefForPrompt(productionBrief) || null,
       sourceLedger: sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : null,
@@ -815,12 +860,10 @@ Return your response strictly adhering to the JSON schema.`;
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
     abortSignal?: AbortSignal,
   ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
-    const recommendedMaxTokens = durationAwareMaxTokens(input);
-    const editorialPlan = buildScriptEditorialPlan({
-      productionBrief: input.productionBrief,
-      contentSignalProfile: input.contentSignalProfile,
-    });
-    const promptParts = this.buildPromptParts(input, editorialPlan);
+    const resolvedEditorial = resolveScriptEditorialContext(input);
+    const editorialPlan = resolvedEditorial.executionPlan;
+    const recommendedMaxTokens = durationAwareMaxTokens(editorialPlan);
+    const promptParts = this.buildPromptParts(input, resolvedEditorial);
     const gen = this.resolveGenConfig({
       ...overrides,
       maxTokens: overrides?.maxTokens ?? recommendedMaxTokens,
@@ -890,7 +933,7 @@ Return your response strictly adhering to the JSON schema.`;
         notes: `writing_context_cache:${initialGeneration.cacheStatus}${scriptContractRepairApplied ? ';script_contract_repair:applied' : ''}${validationReport.editorialWarnings.length > 0 ? `;editorial_warnings:${validationReport.editorialWarnings.length}` : ''}`,
         writerTrace: buildThinkForgeWriterInvocationTrace({
           writerType: 'script',
-          editorialPlan,
+          editorialPlan: resolvedEditorial.tracePlan,
           selectedTechniques: [
             editorialPlan.narration.selectedTechnique,
             ...editorialPlan.structure.recommendedTechniques,

@@ -8,6 +8,7 @@ import { chatAgent } from '../agents/chat-agent';
 import { runResearchAgent } from '../agents/research-agent';
 import { PostWriterAgent, type PostWriterInput } from '../agents/post-writer-agent';
 import { ScriptWriterAgent, type ScriptWriterInput } from '../agents/script-writer-agent';
+import { buildThinkForgeEditorialPlan } from '../agents/editorial-plan';
 import { runThinkingAgent } from '../agents/thinking-agent';
 import {
   quickAssembleContext,
@@ -25,6 +26,7 @@ import { appendEvent } from './event-log';
 import {
   resolveProjectMetaAuthoringRequest,
   resolveProjectMetaBrandId,
+  resolveProjectMetaEditorialAngle,
   type SessionState,
   type ProjectMeta,
   type ScriptState,
@@ -670,6 +672,9 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         if (!requestedDocumentIntent) {
           throw new Error('ThinkForge generation requires an authoritative document contract');
         }
+        if (!authoritativeAuthoringRequest) {
+          throw new Error('ThinkForge generation requires a confirmed authoring request');
+        }
         const documentIntent = requestedDocumentIntent;
         const contentPath = documentIntent.contentPath;
         const generatedDocumentType = documentIntent.documentType;
@@ -805,6 +810,18 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             projectSummary,
           });
           generationSourceLedger = sourceLedger;
+          const editorialPlan = buildThinkForgeEditorialPlan({
+            userPrompt: authoringPrompt,
+            authoringRequest: authoritativeAuthoringRequest,
+            contentSignalProfile: resolvedSignalProfile,
+            editorialAngle: resolveProjectMetaEditorialAngle(sessionState.metadata),
+            ...(contentPath === 'post' ? {} : { productionBrief: briefSnapshot }),
+            authorizedFactIds: [
+              ...authoringContextSnapshot.retrieval.projectFactIds,
+              ...authoringContextSnapshot.retrieval.globalFactIds,
+            ],
+            sourceLedgerEntryIds: sourceLedger.entries.map((entry) => entry.referenceId),
+          });
 
           const baseInput = {
             context: quickAssembleContext(
@@ -824,6 +841,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             contentSignalProfile: resolvedSignalProfile,
             productionBrief: briefSnapshot,
             sourceLedger,
+            editorialPlan,
           };
 
           if (contentPath === 'post') {

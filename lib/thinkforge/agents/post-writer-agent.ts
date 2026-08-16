@@ -20,6 +20,11 @@ import { buildIsolatedPromptParts, type IsolatedPromptParts } from './prompt-bou
 import type { SourceLedger } from '../provenance/source-ledger';
 import { buildPostEditorialPlan, type PostEditorialPlan } from './post-editorial-plan';
 import {
+  requireThinkForgeEditorialPlanForWriter,
+  type ThinkForgeEditorialCreativeIntent,
+  type ThinkForgePostEditorialPlanArtifact,
+} from './editorial-plan';
+import {
   assertThinkForgePostTargetFeasible,
   measureThinkForgePublishableText,
 } from '../signals/publishing-constraints';
@@ -188,14 +193,45 @@ const SOURCE_COVERAGE_STOP_WORDS = new Set([
   'unos',
 ]);
 
-function resolvePostEditorialPlanForInput(input: PostWriterInput): PostEditorialPlan {
-  return buildPostEditorialPlan({
+interface ResolvedPostEditorialContext {
+  executionPlan: PostEditorialPlan;
+  creativeIntent: ThinkForgeEditorialCreativeIntent;
+  tracePlan: ThinkForgePostEditorialPlanArtifact | PostEditorialPlan;
+}
+
+function resolvePostEditorialContext(input: PostWriterInput): ResolvedPostEditorialContext {
+  if (input.editorialPlan) {
+    const artifact = requireThinkForgeEditorialPlanForWriter(
+      input.editorialPlan,
+      'post',
+      input.authoringRequest,
+    );
+    return {
+      executionPlan: artifact.execution.plan,
+      creativeIntent: artifact.creativeIntent,
+      tracePlan: artifact,
+    };
+  }
+
+  const executionPlan = buildPostEditorialPlan({
     userPrompt: input.userPrompt,
     authoringRequest: input.authoringRequest,
     contentSignalProfile: input.contentSignalProfile,
     retrievedFactCount: (input.retrievedContext?.projectFacts.length ?? 0)
       + (input.retrievedContext?.globalFacts.length ?? 0),
   });
+  return {
+    executionPlan,
+    creativeIntent: {
+      source: 'direct_brief',
+      overridePolicy: 'current_instruction',
+    },
+    tracePlan: executionPlan,
+  };
+}
+
+function resolvePostEditorialPlanForInput(input: PostWriterInput): PostEditorialPlan {
+  return resolvePostEditorialContext(input).executionPlan;
 }
 
 function requestedCarouselSlideCount(input: PostWriterInput): number | undefined {
@@ -1350,9 +1386,10 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
 
   buildPromptParts(
     input: PostWriterInput,
-    editorialPlan: PostEditorialPlan = resolvePostEditorialPlanForInput(input),
+    resolvedEditorial: ResolvedPostEditorialContext = resolvePostEditorialContext(input),
   ): IsolatedPromptParts {
     const { context, userPrompt, editContext, productionBrief } = input;
+    const editorialPlan = resolvedEditorial.executionPlan;
     const brandLanguagePolicy = resolveThinkForgeBrandLanguagePolicy(
       input.retrievedContext?.brandAuthority?.profile
         ?? input.retrievedContext?.brandSignalProfile,
@@ -1424,6 +1461,13 @@ BRAND VOICE
 - brandContext is a style directive, never factual evidence. It cannot establish a location, product, capability, offer, result, customer, or event detail unless that detail also appears in claimSources.
 - Do not turn a precise, calm, or low-hype voice into generic product marketing. Never add capability, certainty, or outcome claims that the supplied evidence does not establish.
 
+CREATIVE INTENT
+- tf_untrusted_data.creativeIntent is the server-resolved binding creative direction for this document.
+- When its source is selected_angle, execute selectedAngle.title, selectedAngle.strategicPurpose, and selectedAngle.creativeTreatment as one coherent angle. A broad userBrief or projectSummary is background and must not replace it.
+- Depart from a selected angle only when the current edit.instruction explicitly asks to replace that direction. Ordinary drafting, regeneration, shortening, expansion, or polishing must preserve it.
+- When its source is direct_brief, the current userBrief owns creative direction.
+- Creative intent is framing, never factual evidence. It cannot override claimSources, Brand Vault kill-list or compliance constraints, the output contract, or explicit factual limits.
+
 EDITORIAL PLAN
 - tf_untrusted_data.postEditorialPlan is a server-owned feasibility contract. It outranks a writing technique that asks for an unavailable offer, proof, or length.
 - Technique guidance defines editorial form only. Its examples, cited studies, sample numbers, brands, and outcomes are never claim sources and must not appear unless tf_untrusted_data.claimSources independently authorizes them.
@@ -1491,6 +1535,7 @@ Return your response strictly adhering to the JSON schema.`;
           constraints: input.contentSignalProfile.profile.constraints,
           intent: input.contentSignalProfile.intent,
         } : null,
+        creativeIntent: resolvedEditorial.creativeIntent,
         postEditorialPlan: editorialPlan,
         postExecutionAnchors: resolvePostExecutionAnchors(input),
         trendBrief: trendBriefForData || null,
@@ -1521,8 +1566,9 @@ Return your response strictly adhering to the JSON schema.`;
     overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
     abortSignal?: AbortSignal,
   ): Promise<AgentStructuredOutput<PostWriterResult>> {
-    const editorialPlan = resolvePostEditorialPlanForInput(input);
-    const promptParts = this.buildPromptParts(input, editorialPlan);
+    const resolvedEditorial = resolvePostEditorialContext(input);
+    const editorialPlan = resolvedEditorial.executionPlan;
+    const promptParts = this.buildPromptParts(input, resolvedEditorial);
     const gen = this.resolveGenConfig(overrides);
 
     const initialGeneration = await generateStructuredWithWritingContextCache({
@@ -1620,7 +1666,7 @@ Return your response strictly adhering to the JSON schema.`;
         notes: `writing_context_cache:${initialGeneration.cacheStatus}${contractRepairApplied ? ';post_contract_repair:applied' : ''}${clickatronVisualContractApplied ? ';clickatron_visual_contract:applied' : ''}${hashtagContractApplied ? ';hashtag_contract:applied' : ''}`,
         writerTrace: buildThinkForgeWriterInvocationTrace({
           writerType: 'post',
-          editorialPlan,
+          editorialPlan: resolvedEditorial.tracePlan,
           selectedTechniques: [
             editorialPlan.selectedHook,
             editorialPlan.selectedStructure,

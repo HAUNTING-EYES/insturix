@@ -1,11 +1,16 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   THINKFORGE_EDITORIAL_PLAN_VERSION,
   ThinkForgeEditorialPlanError,
   buildThinkForgeEditorialPlan,
+  requireThinkForgeEditorialPlanForWriter,
 } from '@/lib/thinkforge/agents/editorial-plan';
 import { buildPostEditorialPlan } from '@/lib/thinkforge/agents/post-editorial-plan';
+import { PostWriterAgent } from '@/lib/thinkforge/agents/post-writer-agent';
 import { buildScriptEditorialPlan } from '@/lib/thinkforge/agents/script-editorial-plan';
+import { ScriptWriterAgent } from '@/lib/thinkforge/agents/script-writer-agent';
 import {
   getWritingKnowledgeIdentity,
   selectTechniques,
@@ -15,6 +20,7 @@ import {
   createThinkForgeAuthoringRequest,
 } from '@/lib/thinkforge/schemas/authoring-request';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
+import { buildThinkForgeIdeaAngle } from '@/lib/thinkforge/schemas/idea-angle';
 import { resolveContentSignalProfile } from '@/lib/thinkforge/signals/content-signal-resolver';
 import type { ThinkForgeContentSignalProfile } from '@/lib/thinkforge/signals';
 
@@ -205,5 +211,170 @@ describe('ThinkForge editorial doctrine provenance', () => {
     })).toThrowError(expect.objectContaining<Partial<ThinkForgeEditorialPlanError>>({
       code: 'EDITORIAL_PLAN_EVIDENCE_INVALID',
     }));
+  });
+
+  it('binds a selected angle while rebuilding evidence from the current generation context', () => {
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('social_post'),
+      platformSurface: { id: 'linkedin' },
+      postControls: createDefaultThinkForgePostControls(),
+    });
+    const editorialAngle = buildThinkForgeIdeaAngle({
+      ideaId: 'idea_quiet_cost',
+      title: 'The Cost of Quiet Automation',
+      strategicPurpose: 'Show operators the hidden review work behind apparently automatic systems.',
+      creativeTreatment: 'An evidence-led teardown built around one approval trail.',
+    });
+    const first = buildThinkForgeEditorialPlan({
+      userPrompt: 'Make a post about responsible AI.',
+      authoringRequest,
+      editorialAngle,
+      authorizedFactIds: ['fact_old'],
+      sourceLedgerEntryIds: ['brief_user', 'source_old'],
+    });
+    const refreshed = buildThinkForgeEditorialPlan({
+      userPrompt: 'Make a post about responsible AI.',
+      authoringRequest,
+      editorialAngle,
+      authorizedFactIds: ['fact_current'],
+      sourceLedgerEntryIds: ['brief_user', 'source_current'],
+    });
+
+    expect(first.creativeIntent).toEqual({
+      source: 'selected_angle',
+      selectedAngle: editorialAngle,
+      overridePolicy: 'explicit_current_instruction_only',
+    });
+    expect(refreshed.creativeIntent).toEqual(first.creativeIntent);
+    expect(refreshed.evidence.authorizedFactIds).toEqual(['fact_current']);
+    expect(refreshed.evidence.sourceLedgerEntryIds).toEqual(['brief_user', 'source_current']);
+    expect(refreshed.doctrine).toMatchObject(getWritingKnowledgeIdentity());
+    expect(refreshed).not.toBe(first);
+  });
+
+  it('rejects malformed angles and writer-family mismatches before generation', () => {
+    const postRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('social_post'),
+      platformSurface: { id: 'linkedin' },
+      postControls: createDefaultThinkForgePostControls(),
+    });
+
+    expect(() => buildThinkForgeEditorialPlan({
+      userPrompt: 'Write the selected angle.',
+      authoringRequest: postRequest,
+      editorialAngle: {
+        version: 1,
+        ideaId: 'idea_invalid',
+        title: 'Incomplete angle',
+        strategicPurpose: '',
+        creativeTreatment: 'A treatment.',
+      },
+    })).toThrowError(expect.objectContaining<Partial<ThinkForgeEditorialPlanError>>({
+      code: 'EDITORIAL_PLAN_ANGLE_INVALID',
+    }));
+
+    const postPlan = buildThinkForgeEditorialPlan({
+      userPrompt: 'Write the selected angle.',
+      authoringRequest: postRequest,
+    });
+    expect(() => requireThinkForgeEditorialPlanForWriter(
+      postPlan,
+      'script',
+      postRequest,
+    )).toThrowError(expect.objectContaining<Partial<ThinkForgeEditorialPlanError>>({
+      code: 'EDITORIAL_PLAN_INPUT_CONFLICT',
+    }));
+  });
+
+  it('feeds the same selected-angle artifact into post and script prompt construction', () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const broadBrief = 'Make content about responsible AI.';
+    const editorialAngle = buildThinkForgeIdeaAngle({
+      ideaId: 'idea_quiet_cost',
+      title: 'The Cost of Quiet Automation',
+      strategicPurpose: 'Show operators the hidden review work behind apparently automatic systems.',
+      creativeTreatment: 'An evidence-led teardown built around one approval trail.',
+    });
+    const postRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('social_post'),
+      platformSurface: { id: 'linkedin' },
+      postControls: createDefaultThinkForgePostControls(),
+    });
+    const scriptRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' },
+    });
+    const postPlan = buildThinkForgeEditorialPlan({
+      userPrompt: broadBrief,
+      authoringRequest: postRequest,
+      editorialAngle,
+    });
+    const scriptPlan = buildThinkForgeEditorialPlan({
+      userPrompt: broadBrief,
+      authoringRequest: scriptRequest,
+      editorialAngle,
+    });
+    const context = {
+      projectSummary: broadBrief,
+      systemBrief: 'Brand voice: precise, calm, and evidence-led.',
+    };
+
+    const postPrompt = new PostWriterAgent().buildPromptParts({
+      context,
+      userPrompt: broadBrief,
+      authoringRequest: postRequest,
+      editorialPlan: postPlan,
+    });
+    const scriptPrompt = new ScriptWriterAgent().buildPromptParts({
+      context,
+      userPrompt: broadBrief,
+      authoringRequest: scriptRequest,
+      editorialPlan: scriptPlan,
+    });
+
+    for (const parts of [postPrompt, scriptPrompt]) {
+      expect(parts.systemInstruction).toContain('tf_untrusted_data.creativeIntent');
+      expect(parts.systemInstruction).toContain('binding creative direction');
+      expect(parts.prompt).toContain('"source": "selected_angle"');
+      expect(parts.prompt).toContain('"title": "The Cost of Quiet Automation"');
+      expect(parts.prompt).toContain('"strategicPurpose": "Show operators the hidden review work');
+      expect(parts.prompt).toContain('"creativeTreatment": "An evidence-led teardown');
+      expect(parts.prompt).toContain(broadBrief);
+    }
+  });
+
+  it('builds the production writer artifact after current evidence resolution and before dispatch', () => {
+    const service = readFileSync(
+      join(process.cwd(), 'lib/thinkforge/services/chat-service.ts'),
+      'utf8',
+    );
+    const sourceLedgerIndex = service.indexOf(
+      'const sourceLedger = buildContinuedThinkForgeSourceLedger({',
+    );
+    const editorialPlanIndex = service.indexOf(
+      'const editorialPlan = buildThinkForgeEditorialPlan({',
+    );
+    const baseInputIndex = service.indexOf('const baseInput = {', editorialPlanIndex);
+    const postDispatchIndex = service.indexOf(
+      'writer.runStructured(baseInput as PostWriterInput)',
+      baseInputIndex,
+    );
+    const scriptDispatchIndex = service.indexOf(
+      'writer.runStructured(baseInput as ScriptWriterInput)',
+      baseInputIndex,
+    );
+    const planBuild = service.slice(editorialPlanIndex, baseInputIndex);
+    const writerInput = service.slice(baseInputIndex, postDispatchIndex);
+
+    expect(sourceLedgerIndex).toBeGreaterThan(-1);
+    expect(editorialPlanIndex).toBeGreaterThan(sourceLedgerIndex);
+    expect(baseInputIndex).toBeGreaterThan(editorialPlanIndex);
+    expect(postDispatchIndex).toBeGreaterThan(baseInputIndex);
+    expect(scriptDispatchIndex).toBeGreaterThan(postDispatchIndex);
+    expect(planBuild).toContain('resolveProjectMetaEditorialAngle(sessionState.metadata)');
+    expect(planBuild).toContain('authoringContextSnapshot.retrieval.projectFactIds');
+    expect(planBuild).toContain('authoringContextSnapshot.retrieval.globalFactIds');
+    expect(planBuild).toContain('sourceLedger.entries.map((entry) => entry.referenceId)');
+    expect(writerInput).toContain('editorialPlan,');
   });
 });
