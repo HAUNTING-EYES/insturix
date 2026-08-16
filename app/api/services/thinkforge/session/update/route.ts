@@ -4,7 +4,9 @@ import * as db from '@/lib/thinkforge/services/db';
 import {
   resolveProjectMetaBrandId,
   matchesThinkForgeSessionBrandBindingPrincipal,
+  resolvePersistedThinkForgeProjectMetadata,
   resolveThinkForgeSessionBrandBinding,
+  ThinkForgeEditorialAnglePersistenceError,
   type ProjectMeta,
 } from '@/lib/thinkforge/state/types';
 import { createThinkForgeSessionBrandBinding } from '@/lib/thinkforge/context/brand-authoring-context';
@@ -69,7 +71,7 @@ export async function POST(req: Request) {
     }
 
     const effectiveBrandId = existingBrandId ?? requestedBrandId;
-    let persistedProjectMeta: ProjectMeta = incomingProjectMeta;
+    let authorizedIncomingProjectMeta: ProjectMeta = incomingProjectMeta;
     if (effectiveBrandId) {
       const authorizedBrand = await authorizeBrandScope({
         userId,
@@ -77,7 +79,7 @@ export async function POST(req: Request) {
         isOrgAdmin: orgId ? has({ role: 'org:admin' }) : false,
         brandId: effectiveBrandId,
       });
-      persistedProjectMeta = {
+      authorizedIncomingProjectMeta = {
         ...incomingProjectMeta,
         brandId: authorizedBrand.brandId,
         brandBinding: currentExistingBinding ?? createThinkForgeSessionBrandBinding({
@@ -86,6 +88,10 @@ export async function POST(req: Request) {
         }),
       };
     }
+    const persistedProjectMeta = resolvePersistedThinkForgeProjectMetadata(
+      existing.projectMeta,
+      authorizedIncomingProjectMeta,
+    );
 
     const session = await db.getOrCreateSession(
       userId,
@@ -100,6 +106,12 @@ export async function POST(req: Request) {
       projectMeta: session.projectMeta || {},
     });
   } catch (error: any) {
+    if (error instanceof ThinkForgeEditorialAnglePersistenceError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 422 },
+      );
+    }
     if (error instanceof BrandScopeAuthorizationError) {
       return NextResponse.json(
         { error: error.message, code: error.code },

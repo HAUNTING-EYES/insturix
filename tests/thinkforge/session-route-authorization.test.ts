@@ -4,6 +4,12 @@ import {
   createDefaultThinkForgePostControls,
   createThinkForgeAuthoringRequest,
 } from '@/lib/thinkforge/schemas/authoring-request';
+import { buildThinkForgeIdeaAngle } from '@/lib/thinkforge/schemas/idea-angle';
+import {
+  resolvePersistedThinkForgeProjectMetadata,
+  resolveProjectMetaEditorialAngle,
+  synchronizeThinkForgeIdeaEditorialAngle,
+} from '@/lib/thinkforge/state/types';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -476,6 +482,125 @@ describe('ThinkForge session route authorization', () => {
 
     expect(response.status).toBe(200);
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'default');
+  });
+
+  it('keeps one angle identity while explicit idea edits revise its content', () => {
+    const original = buildThinkForgeIdeaAngle({
+      ideaId: 'idea_2',
+      title: 'Original angle',
+      strategicPurpose: 'Explain the original operational problem.',
+      creativeTreatment: 'Evidence-led teardown',
+    });
+
+    const synchronized = synchronizeThinkForgeIdeaEditorialAngle({
+      idea: 'Revised angle',
+      purpose: 'Show the problem through one operator instead.',
+      style: 'Observational day-in-the-life',
+      editorialAngle: original,
+    });
+    expect(synchronized).toEqual({
+      version: 1,
+      ideaId: 'idea_2',
+      title: 'Revised angle',
+      strategicPurpose: 'Show the problem through one operator instead.',
+      creativeTreatment: 'Observational day-in-the-life',
+    });
+
+    expect(resolvePersistedThinkForgeProjectMetadata(
+      {
+        idea: original.title,
+        purpose: original.strategicPurpose,
+        style: original.creativeTreatment,
+        editorialAngle: original,
+      },
+      {
+        idea: 'Revised angle',
+        purpose: 'Show the problem through one operator instead.',
+        style: 'Observational day-in-the-life',
+      },
+    ).editorialAngle).toEqual(synchronized);
+
+    const replacement = buildThinkForgeIdeaAngle({
+      ...original,
+      ideaId: 'idea_replacement',
+    });
+    expect(() => resolvePersistedThinkForgeProjectMetadata(
+      {
+        idea: original.title,
+        purpose: original.strategicPurpose,
+        style: original.creativeTreatment,
+        editorialAngle: original,
+      },
+      { editorialAngle: replacement },
+    )).toThrow('editorial angle identity cannot be changed');
+
+    expect(() => resolveProjectMetaEditorialAngle({
+      idea: 'Visible title that disagrees',
+      purpose: original.strategicPurpose,
+      style: original.creativeTreatment,
+      editorialAngle: original,
+    })).toThrow('does not match its visible idea metadata');
+  });
+
+  it('normalizes the selected angle before creating a session', async () => {
+    const original = buildThinkForgeIdeaAngle({
+      ideaId: 'idea_3',
+      title: 'Initial title',
+      strategicPurpose: 'Initial purpose',
+      creativeTreatment: 'Initial treatment',
+    });
+    const response = await callSessionHydrate({
+      projectMeta: {
+        idea: 'User-edited title',
+        purpose: 'User-edited purpose',
+        style: 'User-edited treatment',
+        editorialAngle: original,
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.getOrCreateSession).toHaveBeenCalledWith(
+      'user_1',
+      undefined,
+      expect.objectContaining({
+        editorialAngle: {
+          version: 1,
+          ideaId: 'idea_3',
+          title: 'User-edited title',
+          strategicPurpose: 'User-edited purpose',
+          creativeTreatment: 'User-edited treatment',
+        },
+      }),
+      'org_1',
+      'Session Owner',
+    );
+  });
+
+  it('rejects malformed angle metadata on create and update before persistence', async () => {
+    const malformedProjectMeta = {
+      idea: 'A title',
+      purpose: 'A purpose',
+      style: 'A treatment',
+      editorialAngle: {
+        version: 2,
+        ideaId: 'idea_1',
+        title: 'A title',
+        strategicPurpose: 'A purpose',
+        creativeTreatment: 'A treatment',
+      },
+    };
+
+    const createResponse = await callSessionHydrate({ projectMeta: malformedProjectMeta });
+    expect(createResponse.status).toBe(422);
+    await expect(createResponse.json()).resolves.toMatchObject({ code: 'invalid_editorial_angle' });
+
+    const updateResponse = await callSessionMetadataUpdate({
+      sessionId: 'session_requested',
+      projectMeta: malformedProjectMeta,
+    });
+    expect(updateResponse.status).toBe(422);
+    await expect(updateResponse.json()).resolves.toMatchObject({ code: 'invalid_editorial_angle' });
+    expect(mocks.getOrCreateSession).not.toHaveBeenCalled();
   });
 
   it('requires exact document identity and canonical organization scope for session summaries', async () => {

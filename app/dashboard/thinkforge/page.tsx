@@ -3,7 +3,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion";
 import { FolderOpen, Lightbulb, FileText, Calendar, Brain, Library } from "lucide-react";
 import { toast } from '@/hooks/use-toast';
-import type { IdeaCardData } from "@/lib/thinkforge/state/types";
+import {
+	resolveProjectMetaEditorialAngle,
+	synchronizeThinkForgeIdeaEditorialAngle,
+	type IdeaCardData,
+} from "@/lib/thinkforge/state/types";
 import type { SelectedTrend } from "@/lib/thinkforge/trends/selected-trend";
 import type { TrendCandidate } from "@/lib/thinkforge/trends/trend-evidence";
 import type { TrendTarget } from "@/components/dashboard/ThinkForge/TrendWorkflowPanel";
@@ -96,6 +100,7 @@ const buildProjectMetaPayload = (
 		? buildThinkForgeAuthoringCompatibilityMetadata(authoringRequest)
 		: undefined;
 	const contentContract = authoringMetadata?.contentContract ?? resolveIdeaDocumentContract(idea);
+	const editorialAngle = synchronizeThinkForgeIdeaEditorialAngle(idea || {});
 	return {
 		idea: idea?.idea || '',
 		purpose: idea?.purpose || '',
@@ -105,6 +110,7 @@ const buildProjectMetaPayload = (
 		platform: idea?.platform || '',
 		durationSec: idea?.durationSec,
 		...(authoringMetadata || {}),
+		...(editorialAngle ? { editorialAngle } : {}),
 		tone: idea?.tone || 'blue',
 		sessionName: idea?.sessionName || '',
 		originalPrompt: idea?.originalPrompt || '',
@@ -120,6 +126,7 @@ const buildIdeaFromSessionMeta = (
 	const authoringRequest = projectMeta.authoringRequest === undefined
 		? undefined
 		: ThinkForgeAuthoringRequestSchema.parse(projectMeta.authoringRequest);
+	const editorialAngle = resolveProjectMetaEditorialAngle(projectMeta);
 	return {
 		id: sessionId,
 		idea: toNonEmptyString(projectMeta.idea) || 'Untitled',
@@ -129,6 +136,7 @@ const buildIdeaFromSessionMeta = (
 		platform: toNonEmptyString(projectMeta.platform) || '',
 		durationSec: typeof projectMeta.durationSec === 'number' ? projectMeta.durationSec : undefined,
 		...(authoringRequest ? buildThinkForgeAuthoringCompatibilityMetadata(authoringRequest) : {}),
+		...(editorialAngle ? { editorialAngle } : {}),
 		tone: toNonEmptyString(projectMeta.tone) || 'blue',
 		sessionName: toNonEmptyString(projectMeta.sessionName),
 		originalPrompt: toNonEmptyString(projectMeta.originalPrompt),
@@ -192,6 +200,7 @@ export default function ThinkForgeLanding() {
 		const projectAuthoringRequest = pm.authoringRequest === undefined
 			? undefined
 			: ThinkForgeAuthoringRequestSchema.parse(pm.authoringRequest);
+		const projectEditorialAngle = resolveProjectMetaEditorialAngle(pm);
 		const shouldPatch = (
 			(!selectedIdea.sessionName && pm.sessionName) ||
 			(!selectedIdea.idea && pm.idea) ||
@@ -202,7 +211,9 @@ export default function ThinkForgeLanding() {
 			(!selectedIdea.tone && pm.tone) ||
 			hasMissingProjectMetaPassthrough(selectedIdea, pm) ||
 			(projectAuthoringRequest !== undefined
-				&& JSON.stringify(selectedIdea.authoringRequest) !== JSON.stringify(projectAuthoringRequest))
+				&& JSON.stringify(selectedIdea.authoringRequest) !== JSON.stringify(projectAuthoringRequest)) ||
+			(projectEditorialAngle !== undefined
+				&& JSON.stringify(selectedIdea.editorialAngle) !== JSON.stringify(projectEditorialAngle))
 		);
 		if (!shouldPatch) return;
 		setSelectedIdea({
@@ -217,6 +228,7 @@ export default function ThinkForgeLanding() {
 			...(projectAuthoringRequest
 				? buildThinkForgeAuthoringCompatibilityMetadata(projectAuthoringRequest)
 				: {}),
+			...(projectEditorialAngle ? { editorialAngle: projectEditorialAngle } : {}),
 			tone: (selectedIdea.tone || pm.tone || 'blue') as any,
 		});
 		if (projectAuthoringRequest) setAuthoringRequest(projectAuthoringRequest);
@@ -328,10 +340,18 @@ export default function ThinkForgeLanding() {
 				if (!rawIdea || typeof rawIdea !== 'object') throw new Error('Idea generation returned an invalid idea');
 				const idea = rawIdea as IdeaCardData;
 				const returnedRequest = ThinkForgeAuthoringRequestSchema.parse(idea.authoringRequest);
+				const returnedEditorialAngle = resolveProjectMetaEditorialAngle(idea);
 				if (JSON.stringify(returnedRequest) !== JSON.stringify(validatedRequest)) {
 					throw new Error('Idea generation returned a conflicting authoring request');
 				}
-				return { ...idea, authoringRequest: returnedRequest };
+				if (!returnedEditorialAngle) {
+					throw new Error('Idea generation returned no editorial angle');
+				}
+				return {
+					...idea,
+					authoringRequest: returnedRequest,
+					editorialAngle: returnedEditorialAngle,
+				};
 			});
 			if (list.length !== 4) throw new Error('Idea generation returned an invalid idea set');
 			successfulIdeaVariationRef.current = variationIndex;
@@ -570,7 +590,12 @@ export default function ThinkForgeLanding() {
 	const handleUpdateIdea = async (updated: any) => {
 		try {
 			const trimmedName = (updated.sessionName || '').trim().slice(0, 100);
-			updated = { ...updated, sessionName: trimmedName };
+			const editorialAngle = synchronizeThinkForgeIdeaEditorialAngle(updated);
+			updated = {
+				...updated,
+				sessionName: trimmedName,
+				...(editorialAngle ? { editorialAngle } : {}),
+			};
 			if (!trimmedName) {
 				toast({ title: 'Session name required', description: 'Please enter a Session name (max 100 chars).' });
 				return;
@@ -1026,30 +1051,15 @@ export default function ThinkForgeLanding() {
 						if (data?.sessionId) {
 							setPendingSessionId(data.sessionId);
 							scriptHook.resetSessionState();
-							setAuthoringRequest(null);
 
-							// Reconstruct idea from project meta if available
+							// Reconstruct idea from the same canonical metadata path used by Library.
 							const pm = data.projectMeta || {};
 							if (pm.idea) {
-								const stableId = (() => {
-									let h = 0;
-									for (let i = 0; i < String(sessionId).length; i++) {
-										h = (h * 31 + String(sessionId).charCodeAt(i)) >>> 0;
-									}
-									return h || Date.now();
-								})();
-								const ideaObj = {
-									id: stableId,
-									idea: pm.idea || 'Untitled',
-									purpose: pm.purpose || '',
-									style: pm.style || '',
-									format: pm.format || '',
-									platform: pm.platform || '',
-									tone: (pm.tone || 'blue') as any,
-									sessionName: pm.sessionName || undefined,
-									...pickProjectMetaPassthrough(pm),
-								} as any;
-								setSelectedIdea(ideaObj);
+								const restoredIdea = buildIdeaFromSessionMeta(String(data.sessionId), pm);
+								setSelectedIdea(restoredIdea);
+								setAuthoringRequest(restoredIdea.authoringRequest || null);
+							} else {
+								setAuthoringRequest(null);
 							}
 
 							// Switch to SCRIPT mode

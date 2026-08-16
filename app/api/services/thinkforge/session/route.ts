@@ -11,7 +11,9 @@ import {
 } from '@/lib/thinkforge/context/brand-authoring-context';
 import {
   matchesThinkForgeSessionBrandBindingPrincipal,
+  resolvePersistedThinkForgeProjectMetadata,
   resolveThinkForgeSessionBrandBinding,
+  ThinkForgeEditorialAnglePersistenceError,
   type ProjectMeta,
 } from '@/lib/thinkforge/state/types';
 import {
@@ -110,15 +112,21 @@ export async function POST(req: Request) {
         ? existingSession.projectMeta.brandId.trim()
         : '');
     const effectiveBrandId = requestedBrandId || existingBrandId;
+    if (requestedBrandId && existingBrandId && existingBrandId !== requestedBrandId) {
+      return NextResponse.json({
+        error: 'Brand binding cannot be changed for an existing ThinkForge session.',
+        code: 'brand_binding_immutable',
+      }, { status: 409 });
+    }
+
+    if (projectMeta) {
+      projectMeta = resolvePersistedThinkForgeProjectMetadata(
+        existingSession?.projectMeta,
+        projectMeta,
+      );
+    }
+
     if (effectiveBrandId) {
-
-      if (requestedBrandId && existingBrandId && existingBrandId !== requestedBrandId) {
-        return NextResponse.json({
-          error: 'Brand binding cannot be changed for an existing ThinkForge session.',
-          code: 'brand_binding_immutable',
-        }, { status: 409 });
-      }
-
       const authorizedBrand = await authorizeBrandScope({
         userId,
         orgId: orgId ?? null,
@@ -226,6 +234,12 @@ export async function POST(req: Request) {
       },
     });
   } catch (error: any) {
+    if (error instanceof ThinkForgeEditorialAnglePersistenceError) {
+      return NextResponse.json({
+        error: error.message,
+        code: error.code,
+      }, { status: 422 });
+    }
     if (error instanceof BrandScopeAuthorizationError) {
       return NextResponse.json({
         error: error.message,

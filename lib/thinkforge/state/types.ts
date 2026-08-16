@@ -17,7 +17,11 @@ import {
   buildThinkForgeAuthoringCompatibilityMetadata,
   type ThinkForgeAuthoringRequest,
 } from '../schemas/authoring-request';
-import type { ThinkForgeIdeaAngle } from '../schemas/idea-angle';
+import {
+  buildThinkForgeIdeaAngle,
+  ThinkForgeIdeaAngleSchema,
+  type ThinkForgeIdeaAngle,
+} from '../schemas/idea-angle';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -81,6 +85,7 @@ export interface ProjectMeta {
   format?: string;
   contentContract?: ThinkForgeDocumentContract;
   authoringRequest?: ThinkForgeAuthoringRequest;
+  editorialAngle?: ThinkForgeIdeaAngle;
   platform?: string;
   tone?: string;
   durationSec?: number;
@@ -103,6 +108,7 @@ export interface ProjectMeta {
 const SOURCE_OF_TRUTH_PROJECT_META_KEYS: Array<keyof ProjectMeta> = [
   'brandId',
   'brandBinding',
+  'editorialAngle',
   'clientId',
   'clientName',
   'campaignId',
@@ -180,6 +186,72 @@ function documentContractsMatch(
     && left.carouselSlideCount === right.carouselSlideCount;
 }
 
+export class ThinkForgeEditorialAnglePersistenceError extends Error {
+  readonly code = 'invalid_editorial_angle';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'ThinkForgeEditorialAnglePersistenceError';
+  }
+}
+
+type ThinkForgeIdeaAngleCarrier = {
+  idea?: unknown;
+  purpose?: unknown;
+  style?: unknown;
+  editorialAngle?: unknown;
+};
+
+function parseThinkForgeIdeaEditorialAngle(
+  value: unknown,
+): ThinkForgeIdeaAngle | undefined {
+  if (value === undefined) return undefined;
+  const parsed = ThinkForgeIdeaAngleSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new ThinkForgeEditorialAnglePersistenceError(
+      'ThinkForge project metadata contains an invalid editorial angle',
+    );
+  }
+  return parsed.data;
+}
+
+export function synchronizeThinkForgeIdeaEditorialAngle(
+  input: ThinkForgeIdeaAngleCarrier,
+): ThinkForgeIdeaAngle | undefined {
+  const editorialAngle = parseThinkForgeIdeaEditorialAngle(input.editorialAngle);
+  if (!editorialAngle) return undefined;
+
+  const title = firstNonEmptyString(input.idea);
+  const strategicPurpose = firstNonEmptyString(input.purpose);
+  const creativeTreatment = firstNonEmptyString(input.style);
+  if (!title || !strategicPurpose || !creativeTreatment) {
+    throw new ThinkForgeEditorialAnglePersistenceError(
+      'ThinkForge editorial angle requires idea, purpose, and style metadata',
+    );
+  }
+
+  return buildThinkForgeIdeaAngle({
+    ideaId: editorialAngle.ideaId,
+    title,
+    strategicPurpose,
+    creativeTreatment,
+  });
+}
+
+export function resolveProjectMetaEditorialAngle(
+  projectMeta?: ThinkForgeIdeaAngleCarrier | null,
+): ThinkForgeIdeaAngle | undefined {
+  if (projectMeta?.editorialAngle === undefined) return undefined;
+  const parsed = parseThinkForgeIdeaEditorialAngle(projectMeta.editorialAngle);
+  const synchronized = synchronizeThinkForgeIdeaEditorialAngle(projectMeta);
+  if (!parsed || !synchronized || JSON.stringify(parsed) !== JSON.stringify(synchronized)) {
+    throw new ThinkForgeEditorialAnglePersistenceError(
+      'ThinkForge editorial angle does not match its visible idea metadata',
+    );
+  }
+  return parsed;
+}
+
 export function mergeThinkForgeProjectMetadata(
   sessionProjectMeta?: ProjectMeta | null,
   providedProject?: ProjectMeta | null,
@@ -189,6 +261,18 @@ export function mergeThinkForgeProjectMetadata(
     ...(sessionProjectMeta || {}),
     ...(providedProject || {}),
   };
+
+  const sessionEditorialAngle = parseThinkForgeIdeaEditorialAngle(sessionProjectMeta?.editorialAngle);
+  const providedEditorialAngle = parseThinkForgeIdeaEditorialAngle(providedProject?.editorialAngle);
+  if (
+    sessionEditorialAngle
+    && providedEditorialAngle
+    && sessionEditorialAngle.ideaId !== providedEditorialAngle.ideaId
+  ) {
+    throw new ThinkForgeEditorialAnglePersistenceError(
+      'ThinkForge session editorial angle identity cannot be changed',
+    );
+  }
 
   const sessionAuthoringRequest = resolveProjectMetaAuthoringRequest(sessionProjectMeta);
   const providedAuthoringRequest = resolveProjectMetaAuthoringRequest(providedProject);
@@ -227,6 +311,14 @@ export function mergeThinkForgeProjectMetadata(
     if (!hasProjectMetaValue(providedValue) && hasProjectMetaValue(sessionValue)) {
       (merged as Record<string, unknown>)[key] = sessionValue;
     }
+  }
+
+  const authoritativeEditorialAngle = sessionEditorialAngle ?? providedEditorialAngle;
+  if (authoritativeEditorialAngle) {
+    merged.editorialAngle = synchronizeThinkForgeIdeaEditorialAngle({
+      ...merged,
+      editorialAngle: authoritativeEditorialAngle,
+    });
   }
 
   if (preferences) {
