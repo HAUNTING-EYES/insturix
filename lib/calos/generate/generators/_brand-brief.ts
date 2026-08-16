@@ -1,4 +1,5 @@
 import { getVersion as getWritingKnowledgeVersion } from '@/lib/thinkforge/data/writing-graph-query';
+import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import {
   buildThinkForgeAuthoringContextSnapshot,
 } from '@/lib/thinkforge/context/brand-authoring-context';
@@ -7,13 +8,21 @@ import {
   type ThinkForgeResolvedAuthoringContext,
 } from '@/lib/thinkforge/context/resolved-authoring-context';
 import type { SemanticFact } from '@/lib/thinkforge/context';
+import { resolveThinkForgeProductionBrief } from '@/lib/thinkforge/brief/resolve-production-brief';
+import {
+  buildThinkForgeSourceLedger,
+  type SourceLedger,
+} from '@/lib/thinkforge/provenance/source-ledger';
 import {
   buildThinkForgeSignalTrace,
   formatContentSignalProfileForPrompt,
   resolveContentSignalProfile,
   type ThinkForgeContentSignalProfile,
 } from '@/lib/thinkforge/signals';
-import { resolveCalosGenerationRoute } from '../route-map';
+import {
+  resolveCalosGenerationRoute,
+  type CalosGenerationRoute,
+} from '../route-map';
 import type { GenerateParams } from '../contract';
 import { resolveCalosReferenceFacts } from './_campaign-references';
 
@@ -26,6 +35,14 @@ export type CalosWriterParams = GenerateParams & {
   /** Server-preflighted only; never accepted from a browser request. */
   authoringContext?: CalosWriterContext;
 };
+
+export interface CalosWriterExecutionContext {
+  authoringContext: CalosWriterContext;
+  route: CalosGenerationRoute;
+  userPrompt: string;
+  sourceLedger: SourceLedger;
+  productionBrief: ProductionBrief;
+}
 
 function canonicalOptional(value: string | null | undefined): string | null {
   return value?.trim() || null;
@@ -152,5 +169,35 @@ export async function resolveCalosWriterContext(
     ].filter(Boolean).join('\n\n'),
     contentSignalProfile,
     signalTrace: buildThinkForgeSignalTrace(contentSignalProfile),
+  };
+}
+
+/** One immutable input bundle shared by every CalOS call into a ThinkForge writer. */
+export async function resolveCalosWriterExecutionContext(
+  params: CalosWriterParams,
+): Promise<CalosWriterExecutionContext> {
+  const authoringContext = await resolveCalosWriterContext(params);
+  const route = resolveCalosGenerationRoute(params.format);
+  const userPrompt = buildCalosWriterPrompt(params);
+  const sourceLedger = buildThinkForgeSourceLedger({
+    userPrompt,
+    retrievedContext: authoringContext.retrievedContext,
+    brandId: authoringContext.projectMeta.brandId,
+    maxFactEntries: 72,
+  });
+  const productionBrief = resolveThinkForgeProductionBrief({
+    userPrompt,
+    project: authoringContext.projectMeta,
+    documentType: route.documentType,
+    contentPath: route.documentType,
+    brandId: authoringContext.projectMeta.brandId,
+  });
+
+  return {
+    authoringContext,
+    route,
+    userPrompt,
+    sourceLedger,
+    productionBrief,
   };
 }

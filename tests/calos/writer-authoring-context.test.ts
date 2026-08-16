@@ -1,17 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  resolveCalosWriterContext: vi.fn(),
-  resolveReferenceBlock: vi.fn(),
+  resolveCalosWriterExecutionContext: vi.fn(),
   postRunStructured: vi.fn(),
   scriptRunStructured: vi.fn(),
 }));
 
 vi.mock('@/lib/calos/generate/generators/_brand-brief', () => ({
-  resolveCalosWriterContext: mocks.resolveCalosWriterContext,
-}));
-vi.mock('@/lib/calos/generate/generators/_campaign-references', () => ({
-  resolveReferenceBlock: mocks.resolveReferenceBlock,
+  resolveCalosWriterExecutionContext: mocks.resolveCalosWriterExecutionContext,
 }));
 vi.mock('@/lib/thinkforge/agents/post-writer-agent', () => ({
   PostWriterAgent: function PostWriterAgent() {
@@ -30,12 +26,27 @@ const params = {
   brandId: 'brand_b',
   campaignId: 'campaign_1',
   deliverableId: 'deliverable_1',
-  format: 'linkedin_post',
+  format: 'text',
   platform: 'linkedin',
   title: 'A grounded launch idea',
   angle: 'Show the actual customer workflow.',
 };
 
+const sourceLedger = {
+  ledgerVersion: 1,
+  entries: [{
+    referenceId: 'source_1',
+    kind: 'project_fact',
+    title: 'Launch date',
+    summary: 'Launch is on Friday.',
+    sourceId: 'calos_campaign_launch',
+    confidence: 0.95,
+    provenance: { origin: 'project_fact', brandId: 'brand_b' },
+  }],
+};
+const productionBrief = {
+  output: { platform: 'linkedin', targetDurationSec: 420 },
+};
 const writerContext = {
   projectMeta: {
     brandId: 'brand_b',
@@ -46,83 +57,105 @@ const writerContext = {
   systemBrief: 'Accepted Brand Vault revision plus resolved content signals.',
   retrievedContext: {
     brandDNA: { killList: ['synergy'] },
-    projectFacts: [{ id: 'fact_1', title: 'Launch date', summary: 'Launch is on Friday.', tags: [] }],
+    projectFacts: [{ id: 'calos_campaign_launch', title: 'Launch date', summary: 'Launch is on Friday.', tags: [] }],
     globalFacts: [],
     semanticFacts: [],
     interactionPatterns: [],
   },
-  snapshot: { version: 1 },
+  snapshot: { version: 2 },
   contentSignalProfile: { profile: { signals: {}, constraints: {}, derived: {} } },
   signalTrace: { version: 1 },
 };
+const execution = {
+  authoringContext: writerContext,
+  route: {
+    format: 'text',
+    service: 'thinkforge',
+    writerKind: 'social_post',
+    documentType: 'social_post',
+    contentContract: { version: 1, documentKind: 'post', outputKind: 'social_post', artifactType: 'social_post' },
+  },
+  userPrompt: 'A grounded launch idea\nBrief: Show the actual customer workflow.\nFormat: text\nPlatform: linkedin',
+  sourceLedger,
+  productionBrief,
+};
+const postResult = {
+  content: 'A complete **platform** post.',
+  hashtags: ['#Launch'],
+  contentAnalysis: {
+    tone: 'Precise',
+    vibe: 'Grounded',
+    theme: 'Launch',
+    qualityScore: 95,
+    violations: [],
+  },
+  clickatron: { singleImagePrompt: 'A real product workflow in natural light.' },
+  metadata: { platform: 'linkedin', charCount: 25 },
+};
+const scriptResult = {
+  content: 'A complete seven-minute video script.',
+  contentAnalysis: { hooks: [], theme: 'Launch', emphasisPoints: [], qualityScore: 95 },
+  visualMetadata: { motionInfo: 'restrained', scenePrompts: ['A grounded launch scene'] },
+  metadata: { platform: 'youtube', estimatedTimeSeconds: 420, voiceLanguages: ['en'] },
+  sidecar: { sidecarVersion: 2 },
+};
 
-describe('CalOS canonical ThinkForge authoring context', () => {
+describe('CalOS canonical ThinkForge writer inputs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.resolveCalosWriterContext.mockResolvedValue(writerContext);
-    mocks.resolveReferenceBlock.mockResolvedValue('\n\n<reference_material>Launch is on Friday.</reference_material>');
-    mocks.postRunStructured.mockResolvedValue({
-      result: {
-        content: 'A complete platform post.',
-        clickatron: { singleImagePrompt: 'A real product workflow in natural light.' },
-      },
-    });
-    mocks.scriptRunStructured.mockResolvedValue({ result: { content: 'A complete video script.' } });
+    mocks.resolveCalosWriterExecutionContext.mockResolvedValue(execution);
+    mocks.postRunStructured.mockResolvedValue({ result: postResult });
+    mocks.scriptRunStructured.mockResolvedValue({ result: scriptResult });
   });
 
-  it('passes the resolved Brand Vault context, facts, and signal profile to PostWriter', async () => {
+  it('passes one resolved ledger, brief, signal profile, and contract to PostWriter', async () => {
     const { runPostWriter } = await import('@/lib/calos/generate/generators/_post-writer');
 
-    await expect(runPostWriter(params)).resolves.toEqual({
+    const output = await runPostWriter(params);
+
+    expect(output).toMatchObject({
       content: 'A complete platform post.',
       imagePrompt: 'A real product workflow in natural light.',
+      result: postResult,
+      sourceLedger,
+      productionBrief,
     });
-
-    expect(mocks.resolveCalosWriterContext).toHaveBeenCalledWith(params);
-    expect(mocks.resolveReferenceBlock).toHaveBeenCalledWith({
-      campaignId: 'campaign_1',
-      brandId: 'brand_b',
-      ownerUserId: 'user_1',
-      orgId: 'org_1',
-    });
+    expect(mocks.resolveCalosWriterExecutionContext).toHaveBeenCalledWith(params);
     expect(mocks.postRunStructured).toHaveBeenCalledWith(expect.objectContaining({
       brandId: 'brand_b',
       project: writerContext.projectMeta,
       retrievedContext: writerContext.retrievedContext,
       contentSignalProfile: writerContext.contentSignalProfile,
-      context: {
-        projectSummary: 'A grounded launch idea',
-        systemBrief: writerContext.systemBrief,
-      },
-      userPrompt: expect.stringContaining('<reference_material>'),
+      productionBrief,
+      sourceLedger,
+      userPrompt: execution.userPrompt,
     }));
+    expect(execution.userPrompt).not.toContain('<reference_material>');
   });
 
-  it('passes the same resolved Brand Vault context and facts to ScriptWriter', async () => {
-    const { runScriptWriter } = await import('@/lib/calos/generate/generators/_script-writer');
+  it('passes exact runtime and provenance to ScriptWriter and preserves its full result', async () => {
+    const { runScriptWriter, runScriptWriterExecution } = await import('@/lib/calos/generate/generators/_script-writer');
+    const scriptParams = { ...params, format: 'long_video', targetDurationSeconds: 420 };
 
-    await expect(runScriptWriter({ ...params, format: 'youtube_video' })).resolves.toBe('A complete video script.');
-
-    expect(mocks.resolveReferenceBlock).toHaveBeenCalledWith({
-      campaignId: 'campaign_1',
-      brandId: 'brand_b',
-      ownerUserId: 'user_1',
-      orgId: 'org_1',
+    await expect(runScriptWriter(scriptParams)).resolves.toBe('A complete seven-minute video script.');
+    await expect(runScriptWriterExecution(scriptParams)).resolves.toMatchObject({
+      content: 'A complete seven-minute video script.',
+      result: scriptResult,
+      sourceLedger,
+      productionBrief,
     });
     expect(mocks.scriptRunStructured).toHaveBeenCalledWith(expect.objectContaining({
-      brandId: 'brand_b',
-      project: writerContext.projectMeta,
-      retrievedContext: writerContext.retrievedContext,
-      context: {
-        projectSummary: 'A grounded launch idea',
-        systemBrief: writerContext.systemBrief,
-      },
-      userPrompt: expect.stringContaining('<reference_material>'),
+      contentSignalProfile: writerContext.contentSignalProfile,
+      productionBrief,
+      sourceLedger,
+      userPrompt: execution.userPrompt,
     }));
   });
 
-  it('does not silently write brandless content when authoritative context resolution fails', async () => {
-    mocks.resolveCalosWriterContext.mockRejectedValueOnce(new Error('Brand Vault profile is unavailable.'));
+  it('does not invoke a writer when canonical execution context resolution fails', async () => {
+    mocks.resolveCalosWriterExecutionContext.mockRejectedValueOnce(
+      new Error('Brand Vault profile is unavailable.'),
+    );
     const { runPostWriter } = await import('@/lib/calos/generate/generators/_post-writer');
 
     await expect(runPostWriter(params)).rejects.toThrow('Brand Vault profile is unavailable.');

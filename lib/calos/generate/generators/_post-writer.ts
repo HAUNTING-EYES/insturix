@@ -1,41 +1,22 @@
-import { resolveCalosWriterContext, type CalosWriterParams } from "./_brand-brief";
-import { resolveReferenceBlock } from "./_campaign-references";
+import type { PostWriterResult } from "@/lib/thinkforge/agents/post-writer-agent";
+import {
+  resolveCalosWriterExecutionContext,
+  type CalosWriterExecutionContext,
+  type CalosWriterParams,
+} from "./_brand-brief";
 
-export interface PostWriterOutput {
+export interface PostWriterOutput extends CalosWriterExecutionContext {
   /** On-brand post copy / caption, ready for the platform (markdown emphasis stripped). */
   content: string;
-  /** The tailored single-image prompt PostWriter emits alongside the copy (props + text overlays).
-   *  The graphics generator uses this to kick off Clickatron image generation; undefined when the
-   *  writer didn't propose an image. */
+  result: PostWriterResult;
+  /** Tailored single-image prompt emitted by PostWriter for Clickatron. */
   imagePrompt?: string;
 }
 
-/**
- * Shared PostWriter call for the text + graphics generators. Resolves brand context (best-effort)
- * and runs ThinkForge's PostWriterAgent, returning the on-brand post copy / caption AND the tailored
- * single-image prompt PostWriter emits (previously discarded — now carried so CalOS can drive image
- * generation for graphics cards; the caption path simply ignores `imagePrompt`).
- */
+/** Shared canonical PostWriter call for text and graphics deliverables. */
 export async function runPostWriter(params: CalosWriterParams): Promise<PostWriterOutput> {
-  const [authoringContext, referenceBlock] = await Promise.all([
-    resolveCalosWriterContext(params),
-    resolveReferenceBlock({
-      campaignId: params.campaignId,
-      brandId: params.brandId,
-      ownerUserId: params.ownerUserId,
-      orgId: params.orgId,
-    }),
-  ]);
-
-  const userPrompt =
-    [
-      params.title,
-      params.angle ? `Angle: ${params.angle}` : "",
-      `Platform: ${params.platform}`,
-    ]
-      .filter(Boolean)
-      .join("\n") + referenceBlock;
-
+  const execution = await resolveCalosWriterExecutionContext(params);
+  const { authoringContext, userPrompt, sourceLedger, productionBrief } = execution;
   const { PostWriterAgent } = await import("@/lib/thinkforge/agents/post-writer-agent");
   const writer = new PostWriterAgent();
   const { result } = await writer.runStructured({
@@ -48,17 +29,20 @@ export async function runPostWriter(params: CalosWriterParams): Promise<PostWrit
     project: authoringContext.projectMeta,
     retrievedContext: authoringContext.retrievedContext,
     contentSignalProfile: authoringContext.contentSignalProfile,
+    productionBrief,
+    sourceLedger,
   });
 
-  const imagePrompt = result?.clickatron?.singleImagePrompt?.trim();
+  const imagePrompt = result.clickatron.singleImagePrompt?.trim();
   return {
-    content: stripMarkdownEmphasis(result?.content?.trim() ?? ""),
+    ...execution,
+    result,
+    content: stripMarkdownEmphasis(result.content.trim()),
     ...(imagePrompt ? { imagePrompt } : {}),
   };
 }
 
-/** Social platforms render copy as plain text — strip markdown bold markers so posts don't show
- *  literal **asterisks** (LinkedIn/X/IG don't render them). */
+/** Social platforms render copy as plain text, not Markdown emphasis. */
 function stripMarkdownEmphasis(text: string): string {
   return text.replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1");
 }

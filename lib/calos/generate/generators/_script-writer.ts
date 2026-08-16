@@ -1,35 +1,21 @@
-import { resolveCalosWriterContext, type CalosWriterParams } from "./_brand-brief";
-import { resolveReferenceBlock } from "./_campaign-references";
+import type { ScriptWriterResult } from "@/lib/thinkforge/agents/script-writer-agent";
+import {
+  resolveCalosWriterExecutionContext,
+  type CalosWriterExecutionContext,
+  type CalosWriterParams,
+} from "./_brand-brief";
 
-/**
- * ScriptWriter call for CalOS video deliverables.
- *
- * A video card's deliverable IS a script: CalOS writes it from the card's idea + small brief via
- * ThinkForge's ScriptWriterAgent. The user then drives the video forward themselves — ThinkForge ->
- * Editron for an AI-assisted edit, or take the script and shoot/upload their own footage. CalOS
- * never renders the video (Editron has no headless render entry point). Returns the script markdown.
- */
-export async function runScriptWriter(params: CalosWriterParams): Promise<string> {
-  const [authoringContext, referenceBlock] = await Promise.all([
-    resolveCalosWriterContext(params),
-    resolveReferenceBlock({
-      campaignId: params.campaignId,
-      brandId: params.brandId,
-      ownerUserId: params.ownerUserId,
-      orgId: params.orgId,
-    }),
-  ]);
+export interface ScriptWriterExecution extends CalosWriterExecutionContext {
+  content: string;
+  result: ScriptWriterResult;
+}
 
-  const userPrompt =
-    [
-      params.title, // the idea
-      params.angle ? `Brief: ${params.angle}` : "", // the small brief (card.details)
-      params.format ? `Format: ${params.format}` : "",
-      `Platform: ${params.platform}`,
-    ]
-      .filter(Boolean)
-      .join("\n") + referenceBlock;
-
+/** Canonical ScriptWriter call for a CalOS video deliverable. */
+export async function runScriptWriterExecution(
+  params: CalosWriterParams,
+): Promise<ScriptWriterExecution> {
+  const execution = await resolveCalosWriterExecutionContext(params);
+  const { authoringContext, userPrompt, sourceLedger, productionBrief } = execution;
   const { ScriptWriterAgent } = await import("@/lib/thinkforge/agents/script-writer-agent");
   const writer = new ScriptWriterAgent();
   const { result } = await writer.runStructured({
@@ -41,7 +27,19 @@ export async function runScriptWriter(params: CalosWriterParams): Promise<string
     brandId: authoringContext.projectMeta.brandId,
     project: authoringContext.projectMeta,
     retrievedContext: authoringContext.retrievedContext,
+    contentSignalProfile: authoringContext.contentSignalProfile,
+    productionBrief,
+    sourceLedger,
   });
 
-  return result?.content?.trim() ?? "";
+  return {
+    ...execution,
+    result,
+    content: result.content.trim(),
+  };
+}
+
+/** Backward-compatible text projection for callers not yet migrated to the full artifact. */
+export async function runScriptWriter(params: CalosWriterParams): Promise<string> {
+  return (await runScriptWriterExecution(params)).content;
 }

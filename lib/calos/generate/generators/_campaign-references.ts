@@ -88,18 +88,3 @@ export async function resolveCalosReferenceFacts(
   }
   return facts;
 }
-
-/** @deprecated CalOS writers migrate to the canonical resolved context in the next batch. */
-export async function resolveReferenceBlock(
-  params: CalosReferenceEvidenceParams,
-): Promise<string> {
-  const facts = await resolveCalosReferenceFacts(params);
-  if (facts.length === 0) return "";
-  return [
-    "",
-    "<reference_material>",
-    "Use only the authorized source evidence below for factual claims:",
-    ...facts.map((fact) => `Source: ${fact.title}\n${fact.summary}`),
-    "</reference_material>",
-  ].join("\n");
-}
