@@ -2,67 +2,104 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import CalosCampaign, { type CalosCampaignReference } from "@/schemas/calos-campaign";
 import CalosBrandReferences from "@/schemas/calos-brand-references";
 import { calosScope } from "@/lib/calos/scope";
-
-/**
- * Resolve the reference material the CalOS writers generate FROM (Phase B — the payoff for uploaded
- * references). Pulls BOTH:
- *   - BRAND references (always, by brandId) — the baseline, so references work even with no campaign, and
- *   - CAMPAIGN references (when the card belongs to a campaign) — layered on top.
- * Only `ready` references with IngestorAgent-derived facts contribute; the merged block is appended to
- * the writer's userPrompt so posts/scripts are grounded in the user's actual source material.
- *
- * Best-effort by contract: any miss/error returns "" so generation proceeds reference-less (a missing
- * reference must never fail a write). The caller's authenticated CalOS scope is mandatory: brandId
- * alone is never enough to retrieve reference material.
- */
+import type { SemanticFact } from "@/lib/thinkforge/context";
 
 type RefDoc = { references?: CalosCampaignReference[] } | null;
+type ReferenceScope = "brand" | "campaign";
 
-export interface ReferenceBlockParams {
+export interface CalosReferenceEvidenceParams {
   campaignId?: string | null;
   brandId: string;
   ownerUserId: string;
   orgId?: string | null;
 }
 
-const readyRefs = (refs: CalosCampaignReference[] | undefined): CalosCampaignReference[] =>
-  (refs ?? []).filter((r) => r.status === "ready" && r.ingested);
+export const MAX_CALOS_WRITING_REFERENCES = 60;
+const MAX_REFERENCE_EVIDENCE_CHARS = 4_000;
 
-function formatReference(r: CalosCampaignReference): string {
-  const facts = (r.ingested?.atomicFacts ?? []).slice(0, 12).map((f) => `- ${f}`).join("\n");
-  const hooks = (r.ingested?.viralHooks ?? []).slice(0, 6).join(" | ");
-  const parts = [`Source: ${r.name}`];
-  if (r.ingested?.summary) parts.push(r.ingested.summary);
-  if (facts) parts.push(`Facts:\n${facts}`);
-  if (hooks) parts.push(`Hooks to consider: ${hooks}`);
-  return parts.join("\n");
+function cleanEvidence(value: unknown): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
 
-export async function resolveReferenceBlock(
-  { campaignId, brandId, ownerUserId, orgId }: ReferenceBlockParams,
-): Promise<string> {
-  if (!brandId || !ownerUserId) return "";
-  try {
-    await connectToDatabase();
-    const scope = calosScope({ userId: ownerUserId, orgId }, brandId);
-    const [brandDoc, campaignDoc] = await Promise.all([
-      CalosBrandReferences.findOne(scope).select("references").lean<RefDoc>().catch(() => null),
-      campaignId
-        ? CalosCampaign.findOne({ _id: campaignId, ...scope, deletedAt: null }).select("references").lean<RefDoc>().catch(() => null)
-        : Promise.resolve<RefDoc>(null),
-    ]);
+function readyReferences(refs: CalosCampaignReference[] | undefined): CalosCampaignReference[] {
+  return (refs ?? []).filter((reference) => reference.status === "ready" && reference.ingested);
+}
 
-    const refs = [...readyRefs(brandDoc?.references), ...readyRefs(campaignDoc?.references)];
-    if (!refs.length) return "";
+function referenceFact(reference: CalosCampaignReference, scope: ReferenceScope): SemanticFact | null {
+  const evidence = Array.from(new Set([
+    cleanEvidence(reference.ingested?.summary),
+    ...(reference.ingested?.atomicFacts ?? []).map(cleanEvidence),
+  ].filter(Boolean)));
+  if (evidence.length === 0) return null;
 
-    return (
-      `\n\n<reference_material>\n` +
-      `Ground this in the source materials below — prefer their specifics over generic claims, and ` +
-      `never invent facts that contradict them:\n\n` +
-      `${refs.map(formatReference).join("\n\n")}\n` +
-      `</reference_material>`
+  const summary = evidence.join("\n");
+  if (summary.length > MAX_REFERENCE_EVIDENCE_CHARS) {
+    throw new Error(
+      `CalOS ${scope} reference ${reference.id} exceeds ${MAX_REFERENCE_EVIDENCE_CHARS} evidence characters.`,
     );
-  } catch {
-    return "";
   }
+
+  return {
+    id: `calos_${scope}_${reference.id}`,
+    title: cleanEvidence(reference.name) || `${scope} reference ${reference.id}`,
+    summary,
+    tags: ["calos-reference", `${scope}-reference`, reference.type],
+    ...(cleanEvidence(reference.url) ? { source: cleanEvidence(reference.url) } : {}),
+  };
+}
+
+/**
+ * Return ACL-scoped writing evidence as typed facts. Infrastructure failures are intentionally
+ * propagated: silently dropping user-supplied evidence would produce a different document than
+ * the one the user authorized.
+ */
+export async function resolveCalosReferenceFacts(
+  { campaignId, brandId, ownerUserId, orgId }: CalosReferenceEvidenceParams,
+): Promise<SemanticFact[]> {
+  const canonicalBrandId = brandId.trim();
+  const canonicalOwnerUserId = ownerUserId.trim();
+  if (!canonicalBrandId || !canonicalOwnerUserId) {
+    throw new Error("CalOS reference evidence requires an authenticated owner and selected brand.");
+  }
+
+  await connectToDatabase();
+  const scope = calosScope(
+    { userId: canonicalOwnerUserId, orgId },
+    canonicalBrandId,
+  );
+  const [brandDoc, campaignDoc] = await Promise.all([
+    CalosBrandReferences.findOne(scope).select("references").lean<RefDoc>(),
+    campaignId
+      ? CalosCampaign.findOne({ _id: campaignId, ...scope, deletedAt: null })
+          .select("references")
+          .lean<RefDoc>()
+      : Promise.resolve<RefDoc>(null),
+  ]);
+
+  const facts = [
+    ...readyReferences(brandDoc?.references).map((reference) => referenceFact(reference, "brand")),
+    ...readyReferences(campaignDoc?.references).map((reference) => referenceFact(reference, "campaign")),
+  ].filter((fact): fact is SemanticFact => fact !== null);
+
+  if (facts.length > MAX_CALOS_WRITING_REFERENCES) {
+    throw new Error(
+      `CalOS generation supports at most ${MAX_CALOS_WRITING_REFERENCES} ready writing references per deliverable.`,
+    );
+  }
+  return facts;
+}
+
+/** @deprecated CalOS writers migrate to the canonical resolved context in the next batch. */
+export async function resolveReferenceBlock(
+  params: CalosReferenceEvidenceParams,
+): Promise<string> {
+  const facts = await resolveCalosReferenceFacts(params);
+  if (facts.length === 0) return "";
+  return [
+    "",
+    "<reference_material>",
+    "Use only the authorized source evidence below for factual claims:",
+    ...facts.map((fact) => `Source: ${fact.title}\n${fact.summary}`),
+    "</reference_material>",
+  ].join("\n");
 }
