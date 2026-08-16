@@ -7,6 +7,7 @@ import {
   getCanonicalBeatSpokenText,
   parseScriptSidecarV2,
   SCRIPT_SIDECAR_V2_VERSION,
+  ScriptWriterSidecarV2Schema,
 } from '@/lib/thinkforge/schemas/script-sidecar-v2';
 import {
   parseScriptSidecar,
@@ -339,6 +340,14 @@ describe('Script Sidecar V2 narrative contract', () => {
 
     beat.lines[1]!.languageCode = 'English';
     expect(() => parseScriptSidecarV2(input)).toThrow(/languageCode/);
+  });
+
+  it('keeps technical render plans outside the model-facing writer schema', () => {
+    const { renderPlan: _renderPlan, ...narrativeOnly } = v2Sidecar();
+
+    expect(ScriptWriterSidecarV2Schema.safeParse(narrativeOnly).success).toBe(true);
+    expect(ScriptWriterSidecarV2Schema.safeParse(v2Sidecar()).success).toBe(false);
+    expect(parseScriptSidecarV2(v2Sidecar()).renderPlan?.renderSegments).toHaveLength(3);
   });
 
   it('rejects broken scene, beat, line, and offset references in render segments', () => {

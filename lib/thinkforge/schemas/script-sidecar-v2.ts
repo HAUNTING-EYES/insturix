@@ -162,17 +162,27 @@ function validateSourceRefs(
   });
 }
 
-export const ScriptSidecarV2Schema = z.object({
+const ScriptNarrativeSidecarV2ObjectSchema = z.object({
   // The version is defaulted for structured authoring, then enforced below.
   sidecarVersion: z.number().int().default(SCRIPT_SIDECAR_V2_VERSION),
   spokenTextSource: z.literal('beat-lines').default('beat-lines'),
   characters: z.array(NarrativeCharacterV2Schema).default([]),
   acts: z.array(NarrativeActV2Schema).min(1),
-  renderPlan: ScriptRenderPlanV2Schema.optional(),
   creativeDirection: CreativeDirectionV2Schema.optional(),
   briefId: IdentifierSchema.optional(),
   sourceRefs: SourceRefsSchema,
-}).strict().superRefine((sidecar, ctx) => {
+}).strict();
+
+const ScriptSidecarV2ObjectSchema = ScriptNarrativeSidecarV2ObjectSchema.extend({
+  renderPlan: ScriptRenderPlanV2Schema.optional(),
+}).strict();
+
+type ScriptSidecarV2ValidationInput = z.infer<typeof ScriptSidecarV2ObjectSchema>;
+
+function validateScriptSidecarV2(
+  sidecar: ScriptSidecarV2ValidationInput,
+  ctx: z.RefinementCtx,
+): void {
   if (sidecar.sidecarVersion !== SCRIPT_SIDECAR_V2_VERSION) {
     addContractIssue(ctx, ['sidecarVersion'], `Expected Script Sidecar version ${SCRIPT_SIDECAR_V2_VERSION}.`);
   }
@@ -340,7 +350,16 @@ export const ScriptSidecarV2Schema = z.object({
       }
     });
   });
-});
+}
+
+export const ScriptSidecarV2Schema = ScriptSidecarV2ObjectSchema.superRefine(
+  validateScriptSidecarV2,
+);
+
+/** Model-facing authoring contract: narrative intent only, with no technical render-plan field. */
+export const ScriptWriterSidecarV2Schema = ScriptNarrativeSidecarV2ObjectSchema.superRefine(
+  (sidecar, ctx) => validateScriptSidecarV2({ ...sidecar, renderPlan: undefined }, ctx),
+);
 
 export type NarrativeCharacterV2 = z.infer<typeof NarrativeCharacterV2Schema>;
 export type NarrativeLineV2 = z.infer<typeof NarrativeLineV2Schema>;
@@ -349,6 +368,7 @@ export type NarrativeSceneV2 = z.infer<typeof NarrativeSceneV2Schema>;
 export type NarrativeActV2 = z.infer<typeof NarrativeActV2Schema>;
 export type ProviderRenderSegmentV2 = z.infer<typeof ProviderRenderSegmentV2Schema>;
 export type ScriptSidecarV2 = z.infer<typeof ScriptSidecarV2Schema>;
+export type ScriptWriterSidecarV2 = z.infer<typeof ScriptWriterSidecarV2Schema>;
 
 /** Audible text has exactly one owner: ordered beat lines, never render segments. */
 export function getCanonicalBeatSpokenText(

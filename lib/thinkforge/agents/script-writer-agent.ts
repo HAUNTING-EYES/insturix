@@ -8,6 +8,7 @@ import {
   parseScriptSidecarV2,
   SCRIPT_SIDECAR_V2_VERSION,
   ScriptSidecarV2Schema,
+  ScriptWriterSidecarV2Schema,
   type NarrativeBeatV2,
   type NarrativeSceneV2,
   type ScriptSidecarV2,
@@ -53,7 +54,7 @@ export const ScriptWriterModelOutputSchema = z.object({
     motionInfo: z.string().describe('General motion graphic styling instructions'),
   }),
   metadata: WriterModelMetadataSchema,
-  sidecar: ScriptSidecarV2Schema.describe('Canonical Script Sidecar v2 emitted in the single writer pass'),
+  sidecar: ScriptWriterSidecarV2Schema.describe('Canonical narrative-only Script Sidecar v2'),
 });
 
 // Public writer result consumed by the editor and exports after deterministic materialization.
