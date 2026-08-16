@@ -15,7 +15,13 @@ export async function runScriptWriterExecution(
   params: CalosWriterParams,
 ): Promise<ScriptWriterExecution> {
   const execution = await resolveCalosWriterExecutionContext(params);
-  const { authoringContext, userPrompt, sourceLedger, productionBrief } = execution;
+  const {
+    authoringContext,
+    authoringRequest,
+    userPrompt,
+    sourceLedger,
+    productionBrief,
+  } = execution;
   const { ScriptWriterAgent } = await import("@/lib/thinkforge/agents/script-writer-agent");
   const writer = new ScriptWriterAgent();
   const { result } = await writer.runStructured({
@@ -24,6 +30,7 @@ export async function runScriptWriterExecution(
       systemBrief: authoringContext.systemBrief,
     },
     userPrompt,
+    authoringRequest,
     brandId: authoringContext.projectMeta.brandId,
     project: authoringContext.projectMeta,
     retrievedContext: authoringContext.retrievedContext,

@@ -16,7 +16,13 @@ export interface PostWriterOutput extends CalosWriterExecutionContext {
 /** Shared canonical PostWriter call for text and graphics deliverables. */
 export async function runPostWriter(params: CalosWriterParams): Promise<PostWriterOutput> {
   const execution = await resolveCalosWriterExecutionContext(params);
-  const { authoringContext, userPrompt, sourceLedger, productionBrief } = execution;
+  const {
+    authoringContext,
+    authoringRequest,
+    userPrompt,
+    sourceLedger,
+    productionBrief,
+  } = execution;
   const { PostWriterAgent } = await import("@/lib/thinkforge/agents/post-writer-agent");
   const writer = new PostWriterAgent();
   const { result } = await writer.runStructured({
@@ -25,6 +31,7 @@ export async function runPostWriter(params: CalosWriterParams): Promise<PostWrit
       systemBrief: authoringContext.systemBrief,
     },
     userPrompt,
+    authoringRequest,
     brandId: authoringContext.projectMeta.brandId,
     project: authoringContext.projectMeta,
     retrievedContext: authoringContext.retrievedContext,

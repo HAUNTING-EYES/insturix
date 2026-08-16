@@ -44,8 +44,38 @@ const sourceLedger = {
     provenance: { origin: 'project_fact', brandId: 'brand_b' },
   }],
 };
-const productionBrief = {
-  output: { platform: 'linkedin', targetDurationSec: 420 },
+const postAuthoringRequest = {
+  version: 1,
+  contentContract: {
+    version: 1,
+    documentKind: 'post',
+    outputKind: 'social_post',
+    artifactType: 'social_post',
+  },
+  platformSurface: { id: 'linkedin' },
+  postControls: {
+    version: 1,
+    cta: { preference: 'editorial' },
+    hashtags: { preference: 'editorial' },
+    emoji: { preference: 'editorial' },
+  },
+} as const;
+const scriptAuthoringRequest = {
+  version: 1,
+  contentContract: {
+    version: 1,
+    documentKind: 'script',
+    outputKind: 'video_script',
+    artifactType: 'screenplay',
+  },
+  platformSurface: { id: 'youtube' },
+  targetDurationSec: 420,
+} as const;
+const postProductionBrief = {
+  output: { platform: 'linkedin' },
+};
+const scriptProductionBrief = {
+  output: { platform: 'youtube', targetDurationSec: 420 },
 };
 const writerContext = {
   projectMeta: {
@@ -53,6 +83,7 @@ const writerContext = {
     title: 'A grounded launch idea',
     campaignId: 'campaign_1',
     contentCardId: 'deliverable_1',
+    authoringRequest: postAuthoringRequest,
   },
   systemBrief: 'Accepted Brand Vault revision plus resolved content signals.',
   retrievedContext: {
@@ -76,8 +107,9 @@ const execution = {
     contentContract: { version: 1, documentKind: 'post', outputKind: 'social_post', artifactType: 'social_post' },
   },
   userPrompt: 'A grounded launch idea\nBrief: Show the actual customer workflow.\nFormat: text\nPlatform: linkedin',
+  authoringRequest: postAuthoringRequest,
   sourceLedger,
-  productionBrief,
+  productionBrief: postProductionBrief,
 };
 const postResult = {
   content: 'A complete **platform** post.',
@@ -118,7 +150,7 @@ describe('CalOS canonical ThinkForge writer inputs', () => {
       imagePrompt: 'A real product workflow in natural light.',
       result: postResult,
       sourceLedger,
-      productionBrief,
+      productionBrief: postProductionBrief,
     });
     expect(mocks.resolveCalosWriterExecutionContext).toHaveBeenCalledWith(params);
     expect(mocks.postRunStructured).toHaveBeenCalledWith(expect.objectContaining({
@@ -126,9 +158,10 @@ describe('CalOS canonical ThinkForge writer inputs', () => {
       project: writerContext.projectMeta,
       retrievedContext: writerContext.retrievedContext,
       contentSignalProfile: writerContext.contentSignalProfile,
-      productionBrief,
+      productionBrief: postProductionBrief,
       sourceLedger,
       userPrompt: execution.userPrompt,
+      authoringRequest: postAuthoringRequest,
     }));
     expect(execution.userPrompt).not.toContain('<reference_material>');
   });
@@ -136,19 +169,45 @@ describe('CalOS canonical ThinkForge writer inputs', () => {
   it('passes exact runtime and provenance to ScriptWriter and preserves its full result', async () => {
     const { runScriptWriter, runScriptWriterExecution } = await import('@/lib/calos/generate/generators/_script-writer');
     const scriptParams = { ...params, format: 'long_video', targetDurationSeconds: 420 };
+    const scriptExecution = {
+      ...execution,
+      authoringContext: {
+        ...writerContext,
+        projectMeta: {
+          ...writerContext.projectMeta,
+          platform: 'YouTube',
+          format: '7-minute YouTube video script',
+          durationSec: 420,
+          contentContract: scriptAuthoringRequest.contentContract,
+          authoringRequest: scriptAuthoringRequest,
+        },
+      },
+      authoringRequest: scriptAuthoringRequest,
+      route: {
+        format: 'long_video',
+        service: 'thinkforge',
+        writerKind: 'video_script',
+        documentType: 'video_script',
+        contentContract: scriptAuthoringRequest.contentContract,
+      },
+      userPrompt: 'A grounded launch idea\nBrief: Show the actual customer workflow.\nFormat: long_video\nPlatform: youtube',
+      productionBrief: scriptProductionBrief,
+    };
+    mocks.resolveCalosWriterExecutionContext.mockResolvedValue(scriptExecution);
 
     await expect(runScriptWriter(scriptParams)).resolves.toBe('A complete seven-minute video script.');
     await expect(runScriptWriterExecution(scriptParams)).resolves.toMatchObject({
       content: 'A complete seven-minute video script.',
       result: scriptResult,
       sourceLedger,
-      productionBrief,
+      productionBrief: scriptProductionBrief,
     });
     expect(mocks.scriptRunStructured).toHaveBeenCalledWith(expect.objectContaining({
       contentSignalProfile: writerContext.contentSignalProfile,
-      productionBrief,
+      productionBrief: scriptProductionBrief,
       sourceLedger,
-      userPrompt: execution.userPrompt,
+      userPrompt: scriptExecution.userPrompt,
+      authoringRequest: scriptAuthoringRequest,
     }));
   });
 

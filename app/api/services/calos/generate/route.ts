@@ -7,6 +7,7 @@ import {
   UnsupportedCalosFormatError,
 } from "@/lib/calos/generate/route-map";
 import {
+  CalosAuthoringContractError,
   resolveCalosWriterContext,
   type CalosWriterContext,
 } from "@/lib/calos/generate/generators/_brand-brief";
@@ -107,6 +108,13 @@ export async function POST(req: NextRequest) {
       try {
         authoringContext = await resolveCalosWriterContext(params);
       } catch (error) {
+        if (error instanceof CalosAuthoringContractError) {
+          return NextResponse.json({
+            error: "Authoring settings incomplete",
+            code: error.code,
+            message: error.message,
+          }, { status: 422 });
+        }
         if (error instanceof ThinkForgeBrandAuthorityError) {
           const status = error.code === "brand_not_found"
             ? 404

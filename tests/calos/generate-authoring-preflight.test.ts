@@ -30,6 +30,12 @@ vi.mock('@/lib/services/creditsMiddleware', () => ({ checkCredits: mocks.checkCr
 vi.mock('@/lib/calos/generate/register', () => ({}));
 vi.mock('@/lib/calos/generate/generators/_brand-brief', () => ({
   resolveCalosWriterContext: mocks.resolveCalosWriterContext,
+  CalosAuthoringContractError: class CalosAuthoringContractError extends Error {
+    constructor(readonly code: string, message: string) {
+      super(message);
+      this.name = 'CalosAuthoringContractError';
+    }
+  },
 }));
 vi.mock('@/lib/calos/create-thinkforge-session', () => ({
   createLinkedThinkForgeSession: mocks.createLinkedThinkForgeSession,
@@ -85,8 +91,6 @@ describe('CalOS generation authoring preflight', () => {
         contentFormat: 'text',
         title: 'Launch post',
         details: 'Use launch proof.',
-        carouselSlideCount: 6,
-        targetDurationSeconds: 90,
       },
       save: mocks.save,
     });
@@ -111,7 +115,7 @@ describe('CalOS generation authoring preflight', () => {
     mocks.save.mockResolvedValue(undefined);
   });
 
-  it('resolves before charging and forwards exact context, duration, and artifact', async () => {
+  it('resolves before charging and forwards exact context and artifact', async () => {
     const { POST } = await import('@/app/api/services/calos/generate/route');
 
     const response = await POST(request() as never);
@@ -122,15 +126,11 @@ describe('CalOS generation authoring preflight', () => {
       orgId: 'org_1',
       brandId: 'brand_b',
       deliverableId: 'deliverable_1',
-      carouselSlideCount: 6,
-      targetDurationSeconds: 90,
     }));
     expect(mocks.resolveCalosWriterContext.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.checkCredits.mock.invocationCallOrder[0]);
     expect(mocks.generator).toHaveBeenCalledWith(expect.objectContaining({
       authoringContext: expect.objectContaining({ projectMeta: { brandId: 'brand_b' } }),
-      carouselSlideCount: 6,
-      targetDurationSeconds: 90,
     }));
     expect(mocks.createLinkedThinkForgeSession).toHaveBeenCalledWith(expect.objectContaining({
       brandId: 'brand_b',
@@ -142,6 +142,42 @@ describe('CalOS generation authoring preflight', () => {
       status: 'generated',
       sessionId: 'session_linked',
     });
+  });
+
+  it('returns 422 without charging when a carousel has no slide count', async () => {
+    mocks.findOne.mockResolvedValueOnce({
+      campaignId: 'campaign_1',
+      platform: 'instagram',
+      card: {
+        id: 'deliverable_1',
+        contentFormat: 'carousel',
+        title: 'Launch carousel',
+        details: 'Use launch proof.',
+      },
+      save: mocks.save,
+    });
+    const { CalosAuthoringContractError } = await import(
+      '@/lib/calos/generate/generators/_brand-brief'
+    );
+    mocks.resolveCalosWriterContext.mockRejectedValueOnce(
+      new CalosAuthoringContractError(
+        'carousel_slide_count_required',
+        'Choose the carousel slide count before generation.',
+      ),
+    );
+    const { POST } = await import('@/app/api/services/calos/generate/route');
+
+    const response = await POST(request() as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(payload).toEqual({
+      error: 'Authoring settings incomplete',
+      code: 'carousel_slide_count_required',
+      message: 'Choose the carousel slide count before generation.',
+    });
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.generator).not.toHaveBeenCalled();
   });
 
   it('does not charge or invoke a writer when the selected brand has no accepted profile', async () => {
