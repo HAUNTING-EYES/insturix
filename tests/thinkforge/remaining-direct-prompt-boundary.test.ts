@@ -5,6 +5,11 @@ import {
   createThinkForgeAuthoringRequest,
 } from '@/lib/thinkforge/schemas/authoring-request';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
+import {
+  createThinkForgePromptEnhancementRequest,
+  ThinkForgePromptEnhancementRequestSchema,
+} from '@/lib/thinkforge/schemas/prompt-enhancement';
+import { describeThinkForgePromptEnhancementPolicy } from '@/lib/thinkforge/services/prompt-enhancement';
 
 const mocks = vi.hoisted(() => ({
   putGovernedDataBankEntry: vi.fn(),
@@ -194,7 +199,7 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
 
     const response = await POST(new Request('http://localhost/api/services/thinkforge/enhance', {
       method: 'POST',
-      body: JSON.stringify({
+      body: JSON.stringify(createThinkForgePromptEnhancementRequest({
         prompt: `Enhance this concept. ${INJECTION}`,
         authoringRequest: createThinkForgeAuthoringRequest({
           contentContract: createThinkForgeWriterContract('social_post'),
@@ -202,7 +207,7 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
           publishingSurface: 'linkedin_post',
           postControls: createDefaultThinkForgePostControls(),
         }),
-      }),
+      })),
     }) as never);
 
     expect(response.status).toBe(200);
@@ -252,7 +257,10 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
 
     const response = await POST(new Request('http://localhost/api/services/thinkforge/enhance', {
       method: 'POST',
-      body: JSON.stringify({ prompt: 'Explain the hidden cost of approval loops.', authoringRequest }),
+      body: JSON.stringify(createThinkForgePromptEnhancementRequest({
+        prompt: 'Explain the hidden cost of approval loops.',
+        authoringRequest,
+      })),
     }) as never);
 
     expect(response.status).toBe(200);
@@ -275,11 +283,59 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
     expect(mocks.streamText).not.toHaveBeenCalled();
   });
 
-  it('sends the validated prompt-panel authoring request to enhancement', () => {
+  it('rejects malformed, oversized, and extended enhancement envelopes', () => {
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('social_post'),
+      platformSurface: { id: 'linkedin' },
+      postControls: createDefaultThinkForgePostControls(),
+    });
+    const valid = createThinkForgePromptEnhancementRequest({
+      prompt: 'Explain the hidden cost of approval loops.',
+      authoringRequest,
+    });
+
+    expect(ThinkForgePromptEnhancementRequestSchema.safeParse({
+      ...valid,
+      prompt: 'x'.repeat(8_001),
+    }).success).toBe(false);
+    expect(ThinkForgePromptEnhancementRequestSchema.safeParse({
+      ...valid,
+      outputKind: 'video_script',
+    }).success).toBe(false);
+    expect(ThinkForgePromptEnhancementRequestSchema.safeParse({
+      prompt: valid.prompt,
+      authoringRequest,
+    }).success).toBe(false);
+  });
+
+  it('fails closed when an unsupported artifact reaches the enhancement policy', () => {
+    const unsupported = {
+      ...createThinkForgeAuthoringRequest({
+        contentContract: createThinkForgeWriterContract('social_post'),
+        platformSurface: { id: 'linkedin' },
+        postControls: createDefaultThinkForgePostControls(),
+      }),
+      contentContract: {
+        version: 1,
+        documentKind: 'document',
+        outputKind: 'written_document',
+        artifactType: 'custom',
+      },
+    } as never;
+
+    expect(() => describeThinkForgePromptEnhancementPolicy(unsupported)).toThrow(
+      'unsupported prompt enhancement output kind: written_document',
+    );
+  });
+
+  it('owns enhancement streams and sends the validated request envelope', () => {
     const source = readFileSync('components/dashboard/ThinkForge/PromptPanel.tsx', 'utf8');
 
     expect(source).toContain('const request = buildAuthoringRequest()');
-    expect(source).toContain('JSON.stringify({ prompt: original, authoringRequest: request })');
+    expect(source).toContain('createThinkForgePromptEnhancementRequest({');
+    expect(source).toContain('enhancementOperationRef.current?.id !== operationId');
+    expect(source).toContain('signal: controller.signal');
+    expect(source).toContain('const isProcessing = loading || briefLoading || enhancing');
   });
 
   it('isolates trend candidate metadata from the video-analysis instruction', async () => {
