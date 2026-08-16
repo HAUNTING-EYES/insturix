@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   checkCredits: vi.fn(),
   deduct: vi.fn(),
   ensureMigrated: vi.fn(),
+  getOrCreateSessionForContentCard: vi.fn(),
   getOrCreateSession: vi.fn(),
   getScript: vi.fn(),
   getSession: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock('@/lib/thinkforge/errors/thinkforge-error', () => ({
   })),
 }));
 vi.mock('@/lib/thinkforge/services/db', () => ({
+  getOrCreateSessionForContentCard: mocks.getOrCreateSessionForContentCard,
   getOrCreateSession: mocks.getOrCreateSession,
   getScript: mocks.getScript,
   getSession: mocks.getSession,
@@ -92,6 +94,7 @@ describe('ThinkForge internal command authorization', () => {
       },
     }));
     mocks.getOrCreateSession.mockResolvedValue({ _id: 'session_canonical' });
+    mocks.getOrCreateSessionForContentCard.mockResolvedValue({ _id: 'session_canonical' });
     mocks.applyCommand.mockResolvedValue({ ok: true, script: { version: 1 } });
     mocks.resolveThinkForgeAuthoringContext.mockResolvedValue(null);
   });
@@ -185,6 +188,40 @@ describe('ThinkForge internal command authorization', () => {
     }
   });
 
+  it('derives one opaque content-card session ID per exact owner scope, brand, and card', async () => {
+    const actualDb = await vi.importActual<typeof import('@/lib/thinkforge/services/db')>(
+      '@/lib/thinkforge/services/db',
+    );
+    const base = { brandId: 'brand_1', contentCardId: 'card_1' };
+
+    const firstOrgActor = actualDb.buildThinkForgeContentCardSessionId({
+      ...base,
+      userId: 'user_1',
+      orgId: 'org_1',
+    });
+    const secondOrgActor = actualDb.buildThinkForgeContentCardSessionId({
+      ...base,
+      userId: 'user_2',
+      orgId: 'org_1',
+    });
+    const otherBrand = actualDb.buildThinkForgeContentCardSessionId({
+      ...base,
+      brandId: 'brand_2',
+      userId: 'user_1',
+      orgId: 'org_1',
+    });
+    const personal = actualDb.buildThinkForgeContentCardSessionId({
+      ...base,
+      userId: 'user_1',
+      orgId: null,
+    });
+
+    expect(firstOrgActor).toBe(secondOrgActor);
+    expect(firstOrgActor).not.toBe(otherBrand);
+    expect(firstOrgActor).not.toBe(personal);
+    expect(firstOrgActor).toMatch(/^session_calos_[a-f0-9]{64}$/);
+  });
+
   it('keeps org identity in CalOS persistence and never links an unsaved session', async () => {
     const { createLinkedThinkForgeSession } = await import('@/lib/calos/create-thinkforge-session');
     const params = {
@@ -193,43 +230,81 @@ describe('ThinkForge internal command authorization', () => {
       brandId: 'brand_1',
       deliverableId: 'deliverable_1',
       campaignId: 'campaign_1',
-      format: 'linkedin_post',
+      format: 'text',
+      platform: 'linkedin',
       title: 'Launch post',
-      content: 'A complete launch post with enough content to persist.',
-      authoringContextSnapshot: {
-        version: 1 as const,
-        resolvedAt: '2026-08-12T00:00:00.000Z',
-        scope: { kind: 'organization' as const, brandId: 'brand_1' },
-        brand: {
-          brandId: 'brand_1',
-          recordId: 'record_1',
-          profileUpdatedAt: '2026-08-12T00:00:00.000Z',
-          profileFingerprint: 'a'.repeat(64),
+      artifact: {
+        content: 'A complete launch post with enough content to persist.',
+        documentType: 'social_post' as const,
+        contentContract: {
+          version: 1 as const,
+          documentKind: 'post' as const,
+          outputKind: 'social_post' as const,
+          artifactType: 'social_post' as const,
         },
-        retrieval: { projectFactIds: [], globalFactIds: [], interactionPatternTypes: [] },
-        writingKnowledgeVersion: 'writing-knowledge-v3',
-      },
-      signalTrace: {
-        outputFormat: 'social_post',
-        goal: 'awareness',
-        angle: 'launch',
-        enforcedConstraints: {},
-        selectedIntent: {
-          proofPoints: [],
-          forbiddenTerms: [],
-          structuralHints: [],
-          visualNeeds: [],
-          clickatron: { requested: false, assetIntent: 'none' as const, rationale: [] },
+        briefSnapshot: {
+          output: {
+            platform: 'linkedin' as const,
+            targetDurationSec: null,
+            count: 1,
+            format: 'auto-edit' as const,
+          },
+          resolution: {
+            fieldConfidence: { platform: 1 },
+            confirmed: ['platform' as const],
+            inferred: [],
+          },
+          entryPoint: 'thinkforge' as const,
         },
-        sourceSummary: {
-          brandContextPresent: true,
-          brandVaultProfilePresent: true,
-          projectFactsUsed: 0,
-          globalFactsUsed: 0,
-          interactionPatternsUsed: 0,
+        authoringContextSnapshot: {
+          version: 1 as const,
+          resolvedAt: '2026-08-12T00:00:00.000Z',
+          scope: { kind: 'organization' as const, brandId: 'brand_1' },
+          brand: {
+            brandId: 'brand_1',
+            recordId: 'record_1',
+            profileUpdatedAt: '2026-08-12T00:00:00.000Z',
+            profileFingerprint: 'a'.repeat(64),
+          },
+          retrieval: { projectFactIds: [], globalFactIds: [], interactionPatternTypes: [] },
+          writingKnowledgeVersion: 'writing-knowledge-v3',
         },
-        provenanceSummary: [],
-        warnings: [],
+        signalTrace: {
+          outputFormat: 'social_post',
+          goal: 'awareness',
+          angle: 'launch',
+          enforcedConstraints: {},
+          selectedIntent: {
+            proofPoints: [],
+            forbiddenTerms: [],
+            structuralHints: [],
+            visualNeeds: [],
+            clickatron: { requested: false, assetIntent: 'none' as const, rationale: [] },
+          },
+          sourceSummary: {
+            brandContextPresent: true,
+            brandVaultProfilePresent: true,
+            projectFactsUsed: 0,
+            globalFactsUsed: 0,
+            interactionPatternsUsed: 0,
+          },
+          provenanceSummary: [],
+          warnings: [],
+        },
+        writerOutput: {
+          writerType: 'post' as const,
+          contentAnalysis: {
+            tone: 'precise',
+            vibe: 'grounded',
+            theme: 'launch',
+            qualityScore: 96,
+            violations: [],
+          },
+          hashtags: ['#Launch'],
+          visualPrompts: { singleImagePrompt: 'A brand-safe launch scene.' },
+          sourceLedger: { ledgerVersion: 1 as const, entries: [] },
+          writerMetadata: { platform: 'linkedin', charCount: 58 },
+        },
       },
     };
 
@@ -240,26 +315,34 @@ describe('ThinkForge internal command authorization', () => {
     expect(savedCommand).toMatchObject({
       sessionId: 'session_canonical',
       payload: {
+        documentType: 'social_post',
+        contentContract: { outputKind: 'social_post' },
         metadata: {
-          source: 'calos',
+          origin: 'calos',
           authoringContextSnapshot: { brand: { brandId: 'brand_1' } },
           signalTrace: { outputFormat: 'social_post' },
+          briefSnapshot: { output: { platform: 'linkedin' } },
+          writerOutput: { writerType: 'post' },
         },
       },
     });
-    expect(mocks.getOrCreateSession).toHaveBeenCalledWith(
-      'user_1',
-      undefined,
+    expect(mocks.getOrCreateSessionForContentCard).toHaveBeenCalledWith(
       expect.objectContaining({
-        brandId: 'brand_1',
-        brandBinding: expect.objectContaining({ brandId: 'brand_1', scope: 'organization' }),
-        format: 'linkedin_post',
+        userId: 'user_1',
+        orgId: 'org_1',
+        contentCardId: 'deliverable_1',
+        projectMeta: expect.objectContaining({
+          brandId: 'brand_1',
+          brandBinding: expect.objectContaining({ brandId: 'brand_1', scope: 'organization' }),
+          format: 'text',
+          platform: 'linkedin',
+          contentContract: expect.objectContaining({ outputKind: 'social_post' }),
+        }),
       }),
-      'org_1',
     );
 
     mocks.applyCommand.mockResolvedValueOnce({ ok: false, error: 'Version conflict' });
-    await expect(createLinkedThinkForgeSession(params)).resolves.toBeNull();
+    await expect(createLinkedThinkForgeSession(params)).rejects.toThrow('Version conflict');
   });
 
   it('uses only canonical session IDs and org-aware commands inside processChat', () => {
@@ -276,6 +359,6 @@ describe('ThinkForge internal command authorization', () => {
     expect(source).not.toContain('sessionId || session!._id');
     expect(source).toContain('reviseDocumentViaFlatWriter({');
     expect(source).not.toContain('createScriptRefinementAgent');
-    expect(source.match(/\}, userId, orgId\);/g)).toHaveLength(2);
+    expect(source.match(/\}, userId, orgId\);/g)).toHaveLength(1);
   });
 });

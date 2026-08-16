@@ -53,7 +53,10 @@ function blockMutation(collection: string, operation: string): never {
 }
 
 import {
+  matchesThinkForgeSessionBrandBindingPrincipal,
+  resolveProjectMetaBrandId,
   resolvePersistedThinkForgeProjectMetadata,
+  resolveThinkForgeSessionBrandBinding,
   type ChatMessage,
   type ProjectMeta,
 } from '../state/types';
@@ -930,6 +933,159 @@ export function buildThinkForgeSessionPrincipalQuery(input: {
         userId,
         $or: [{ orgId: { $exists: false } }, { orgId: null }],
       };
+}
+
+export interface ContentCardLinkedSessionInput {
+  userId: string;
+  orgId?: string | null;
+  brandId: string;
+  contentCardId: string;
+  projectMeta: ProjectMeta;
+  createdByName?: string;
+}
+
+function normalizedContentCardSessionIdentity(input: Omit<ContentCardLinkedSessionInput, 'projectMeta' | 'createdByName'>) {
+  const userId = input.userId.trim();
+  const orgId = input.orgId?.trim() || null;
+  const brandId = input.brandId.trim();
+  const contentCardId = input.contentCardId.trim();
+  if (!userId || !brandId || !contentCardId) {
+    throw new Error('Content-card session authority requires an exact user, brand, and card.');
+  }
+  return { userId, orgId, brandId, contentCardId };
+}
+
+/** Stable across retries and collaborators in the same organization; opaque outside the database. */
+export function buildThinkForgeContentCardSessionId(
+  input: Omit<ContentCardLinkedSessionInput, 'projectMeta' | 'createdByName'>,
+): string {
+  const identity = normalizedContentCardSessionIdentity(input);
+  const owner = identity.orgId ? `organization:${identity.orgId}` : `user:${identity.userId}`;
+  const digest = crypto
+    .createHash('sha256')
+    .update([owner, identity.brandId, identity.contentCardId].join('\u0000'), 'utf8')
+    .digest('hex');
+  return `session_calos_${digest}`;
+}
+
+function assertLinkedProjectMetadata(input: {
+  projectMeta: ProjectMeta;
+  brandId: string;
+  contentCardId: string;
+  orgId: string | null;
+}): void {
+  const metadataBrandId = resolveProjectMetaBrandId(input.projectMeta)?.trim();
+  const metadataCardId = input.projectMeta.contentCardId?.trim();
+  const binding = resolveThinkForgeSessionBrandBinding(input.projectMeta);
+  if (metadataBrandId !== input.brandId || metadataCardId !== input.contentCardId) {
+    throw new Error('Content-card session metadata conflicts with its brand or card authority.');
+  }
+  if (!binding || !matchesThinkForgeSessionBrandBindingPrincipal(binding, input.orgId)) {
+    throw new Error('Content-card session metadata has no valid principal-bound brand binding.');
+  }
+}
+
+function isMongoDuplicateKeyError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error
+    && Number((error as { code?: unknown }).code) === 11000);
+}
+
+/**
+ * One scoped CalOS content card owns one ThinkForge session. Existing legacy random-ID links are
+ * reused; new links use a deterministic ID so concurrent retries converge on Mongo's _id invariant.
+ */
+export async function getOrCreateSessionForContentCard(
+  input: ContentCardLinkedSessionInput,
+): Promise<Session> {
+  const identity = normalizedContentCardSessionIdentity(input);
+  assertLinkedProjectMetadata({
+    projectMeta: input.projectMeta,
+    brandId: identity.brandId,
+    contentCardId: identity.contentCardId,
+    orgId: identity.orgId,
+  });
+
+  const { SessionModel } = await getModels();
+  const principalQuery = identity.orgId
+    ? { orgId: identity.orgId }
+    : {
+        userId: identity.userId,
+        $or: [{ orgId: { $exists: false } }, { orgId: null }],
+      };
+  const linkedQuery = {
+    ...principalQuery,
+    'projectMeta.brandId': identity.brandId,
+    'projectMeta.contentCardId': identity.contentCardId,
+  };
+
+  const persistExisting = async (existing: any): Promise<Session> => {
+    const existingMeta = (existing.projectMeta || {}) as ProjectMeta;
+    assertLinkedProjectMetadata({
+      projectMeta: existingMeta,
+      brandId: identity.brandId,
+      contentCardId: identity.contentCardId,
+      orgId: identity.orgId,
+    });
+    const projectMeta = resolvePersistedThinkForgeProjectMetadata(existingMeta, input.projectMeta);
+    assertLinkedProjectMetadata({
+      projectMeta,
+      brandId: identity.brandId,
+      contentCardId: identity.contentCardId,
+      orgId: identity.orgId,
+    });
+    const updatedAt = new Date();
+    await SessionModel.updateOne(
+      buildThinkForgeSessionPrincipalQuery({
+        sessionId: String(existing._id),
+        userId: identity.userId,
+        orgId: identity.orgId,
+      }),
+      { $set: { projectMeta, updatedAt } },
+    );
+    return {
+      _id: String(existing._id),
+      userId: existing.userId,
+      orgId: existing.orgId,
+      createdByName: existing.createdByName,
+      projectMeta,
+      activeGeneration: existing.activeGeneration || null,
+      createdAt: existing.createdAt,
+      updatedAt,
+    };
+  };
+
+  const legacyOrExisting = await SessionModel.findOne(linkedQuery).lean() as any;
+  if (legacyOrExisting) return persistExisting(legacyOrExisting);
+
+  const sessionId = buildThinkForgeContentCardSessionId(identity);
+  const now = new Date();
+  const doc = {
+    _id: sessionId,
+    userId: identity.userId,
+    orgId: identity.orgId || undefined,
+    createdByName: input.createdByName,
+    projectMeta: input.projectMeta,
+    activeGeneration: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  try {
+    await SessionModel.create(doc);
+    return doc as Session;
+  } catch (error) {
+    if (!isMongoDuplicateKeyError(error)) throw error;
+    const raced = await SessionModel.findOne(
+      buildThinkForgeSessionPrincipalQuery({
+        sessionId,
+        userId: identity.userId,
+        orgId: identity.orgId,
+      }),
+    ).lean() as any;
+    if (!raced) {
+      throw new Error('Concurrent content-card session creation did not resolve to the active principal.');
+    }
+    return persistExisting(raced);
+  }
 }
 
 export async function getSession(sessionId: string, userId: string, orgId?: string | null): Promise<Session | null> {

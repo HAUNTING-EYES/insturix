@@ -5,13 +5,14 @@ const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   connectToDatabase: vi.fn(),
   findOne: vi.fn(),
-  serviceForFormat: vi.fn(),
+  resolveCalosGenerationRoute: vi.fn(),
   getGenerator: vi.fn(),
   calosScope: vi.fn(),
   checkCredits: vi.fn(),
   createLinkedThinkForgeSession: vi.fn(),
   resolveCalosWriterContext: vi.fn(),
   deduct: vi.fn(),
+  refund: vi.fn(),
   generator: vi.fn(),
   save: vi.fn(),
 }));
@@ -19,7 +20,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
 vi.mock('@/schemas/ConnectToDatabase', () => ({ default: mocks.connectToDatabase }));
 vi.mock('@/schemas/calos-deliverable', () => ({ default: { findOne: mocks.findOne } }));
-vi.mock('@/lib/calos/generate/route-map', () => ({ serviceForFormat: mocks.serviceForFormat }));
+vi.mock('@/lib/calos/generate/route-map', () => ({
+  resolveCalosGenerationRoute: mocks.resolveCalosGenerationRoute,
+  UnsupportedCalosFormatError: class UnsupportedCalosFormatError extends Error {},
+}));
 vi.mock('@/lib/calos/generate/contract', () => ({ getGenerator: mocks.getGenerator }));
 vi.mock('@/lib/calos/scope', () => ({ calosScope: mocks.calosScope }));
 vi.mock('@/lib/services/creditsMiddleware', () => ({ checkCredits: mocks.checkCredits }));
@@ -38,6 +42,35 @@ function request(): Request {
   });
 }
 
+const artifact = {
+  content: 'A generated CalOS post.',
+  documentType: 'social_post',
+  contentContract: {
+    version: 1,
+    documentKind: 'post',
+    outputKind: 'social_post',
+    artifactType: 'social_post',
+  },
+  briefSnapshot: { output: { platform: 'linkedin', targetDurationSec: null } },
+  authoringContextSnapshot: {
+    version: 1,
+    resolvedAt: '2026-08-16T00:00:00.000Z',
+    scope: { kind: 'organization', brandId: 'brand_b' },
+    brand: { brandId: 'brand_b' },
+    retrieval: { projectFactIds: [], globalFactIds: [], interactionPatternTypes: [] },
+    writingKnowledgeVersion: 'writing-knowledge-v3',
+  },
+  signalTrace: { outputFormat: 'social_post' },
+  writerOutput: {
+    writerType: 'post',
+    contentAnalysis: { qualityScore: 96 },
+    hashtags: [],
+    visualPrompts: { singleImagePrompt: 'A brand-safe launch scene.' },
+    sourceLedger: { ledgerVersion: 1, entries: [] },
+    writerMetadata: { platform: 'linkedin' },
+  },
+};
+
 describe('CalOS generation authoring preflight', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -47,23 +80,37 @@ describe('CalOS generation authoring preflight', () => {
     mocks.findOne.mockResolvedValue({
       campaignId: 'campaign_1',
       platform: 'linkedin',
-      card: { id: 'deliverable_1', contentFormat: 'linkedin_post', title: 'Launch post', details: 'Use launch proof.' },
+      card: {
+        id: 'deliverable_1',
+        contentFormat: 'text',
+        title: 'Launch post',
+        details: 'Use launch proof.',
+        targetDurationSeconds: 90,
+      },
       save: mocks.save,
     });
-    mocks.serviceForFormat.mockReturnValue('thinkforge');
+    mocks.resolveCalosGenerationRoute.mockReturnValue({ service: 'thinkforge' });
     mocks.getGenerator.mockReturnValue(mocks.generator);
     mocks.resolveCalosWriterContext.mockResolvedValue({
       projectMeta: { brandId: 'brand_b' },
       snapshot: { version: 1, brand: { brandId: 'brand_b' } },
       signalTrace: { outputFormat: 'social_post' },
     });
-    mocks.checkCredits.mockResolvedValue({ allowed: true, deduct: mocks.deduct });
-    mocks.generator.mockResolvedValue({ ok: true, assetText: 'A generated CalOS post.' });
+    mocks.checkCredits.mockResolvedValue({
+      allowed: true,
+      deduct: mocks.deduct,
+      refund: mocks.refund,
+    });
+    mocks.generator.mockResolvedValue({
+      ok: true,
+      assetText: artifact.content,
+      thinkforgeArtifact: artifact,
+    });
     mocks.createLinkedThinkForgeSession.mockResolvedValue('session_linked');
     mocks.save.mockResolvedValue(undefined);
   });
 
-  it('resolves once before charging and forwards that exact context to the generator', async () => {
+  it('resolves before charging and forwards exact context, duration, and artifact', async () => {
     const { POST } = await import('@/app/api/services/calos/generate/route');
 
     const response = await POST(request() as never);
@@ -74,18 +121,24 @@ describe('CalOS generation authoring preflight', () => {
       orgId: 'org_1',
       brandId: 'brand_b',
       deliverableId: 'deliverable_1',
+      targetDurationSeconds: 90,
     }));
     expect(mocks.resolveCalosWriterContext.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.checkCredits.mock.invocationCallOrder[0]);
     expect(mocks.generator).toHaveBeenCalledWith(expect.objectContaining({
       authoringContext: expect.objectContaining({ projectMeta: { brandId: 'brand_b' } }),
+      targetDurationSeconds: 90,
     }));
     expect(mocks.createLinkedThinkForgeSession).toHaveBeenCalledWith(expect.objectContaining({
       brandId: 'brand_b',
-      format: 'linkedin_post',
-      authoringContextSnapshot: { version: 1, brand: { brandId: 'brand_b' } },
-      signalTrace: { outputFormat: 'social_post' },
+      format: 'text',
+      platform: 'linkedin',
+      artifact,
     }));
+    await expect(response.json()).resolves.toMatchObject({
+      status: 'generated',
+      sessionId: 'session_linked',
+    });
   });
 
   it('does not charge or invoke a writer when the selected brand has no accepted profile', async () => {
@@ -104,5 +157,51 @@ describe('CalOS generation authoring preflight', () => {
     });
     expect(mocks.checkCredits).not.toHaveBeenCalled();
     expect(mocks.generator).not.toHaveBeenCalled();
+  });
+
+  it('refunds and fails when canonical persistence cannot complete', async () => {
+    mocks.createLinkedThinkForgeSession.mockRejectedValueOnce(new Error('Version conflict'));
+    const { POST } = await import('@/app/api/services/calos/generate/route');
+
+    const response = await POST(request() as never);
+
+    expect(response.status).toBe(502);
+    expect(mocks.refund).toHaveBeenCalledWith('Version conflict');
+    expect(mocks.save).toHaveBeenCalled();
+  });
+
+  it('rejects a visible-copy result that has no canonical artifact', async () => {
+    mocks.generator.mockResolvedValueOnce({ ok: true, assetText: 'Orphaned visible copy.' });
+    const { POST } = await import('@/app/api/services/calos/generate/route');
+
+    const response = await POST(request() as never);
+
+    expect(response.status).toBe(502);
+    expect(mocks.createLinkedThinkForgeSession).not.toHaveBeenCalled();
+    expect(mocks.refund).toHaveBeenCalledWith('Generator returned no canonical ThinkForge artifact.');
+  });
+
+  it('does not report a drafting carousel as generated', async () => {
+    const carouselArtifact = {
+      ...artifact,
+      documentType: 'carousel',
+      contentContract: {
+        version: 1,
+        documentKind: 'post',
+        outputKind: 'carousel',
+        artifactType: 'carousel',
+      },
+    };
+    mocks.generator.mockResolvedValueOnce({
+      ok: true,
+      status: 'drafting',
+      assetText: carouselArtifact.content,
+      thinkforgeArtifact: carouselArtifact,
+    });
+    const { POST } = await import('@/app/api/services/calos/generate/route');
+
+    const response = await POST(request() as never);
+
+    await expect(response.json()).resolves.toMatchObject({ status: 'drafting' });
   });
 });
