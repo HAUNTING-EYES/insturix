@@ -1566,37 +1566,41 @@ export async function updateGenerationState(
   return null;
 }
 
-export async function updateSession(sessionId: string, updates: Partial<Session>): Promise<Session> {
-  try {
-    const { SessionModel } = await getModels();
-    const updateDoc = {
-      ...updates,
-      ...((updates as any).blocks ? { blocks: enforceThinkForgeBlocks((updates as any).blocks) } : {}),
-      updatedAt: new Date()
-    };
+export async function setSessionProductionConfiguration(
+  sessionId: string,
+  input: {
+    capabilityProfile: unknown;
+    shotSettings: unknown;
+  },
+): Promise<Session> {
+  const { SessionModel } = await getModels();
+  const updatedAt = new Date();
+  const doc = await SessionModel.findByIdAndUpdate(
+    sessionId,
+    {
+      $set: {
+        'projectMeta.productionCapabilityProfile': input.capabilityProfile,
+        'projectMeta.productionShotSettings': input.shotSettings,
+        updatedAt,
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
 
-    const doc = await SessionModel.findByIdAndUpdate(
-      sessionId,
-      { $set: updateDoc },
-      { new: true, lean: true }
-    ) as any;
-
-    if (!doc) {
-      throw new Error(`Session ${sessionId} not found`);
-    }
-
-    return {
-      _id: String(doc._id),
-      userId: doc.userId,
-      projectMeta: doc.projectMeta || {},
-      activeGeneration: doc.activeGeneration || null,
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt
-    } as Session;
-  } catch (error) {
-    console.error('Error updating session:', error);
-    throw error;
+  if (!doc) {
+    throw new Error(`Session ${sessionId} not found`);
   }
+
+  return {
+    _id: String(doc._id),
+    userId: doc.userId,
+    orgId: doc.orgId,
+    createdByName: doc.createdByName,
+    projectMeta: doc.projectMeta || {},
+    activeGeneration: doc.activeGeneration || null,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+  };
 }
 
 export async function getUserSessions(userId: string, orgId?: string | null): Promise<Session[]> {

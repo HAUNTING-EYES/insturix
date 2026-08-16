@@ -15,7 +15,6 @@ import {
   ThinkForgeScriptSidecarAuthorityError,
 } from '@/lib/thinkforge/persistence/script-sidecar-reader';
 import * as db from '@/lib/thinkforge/services/db';
-import type { ProjectMeta } from '@/lib/thinkforge/state/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,10 +32,6 @@ const SaveShotPlanRequestSchema = z.object({
 }).strict();
 
 type ShotPlanSettings = z.infer<typeof ShotPlanSettingsSchema>;
-interface ProductionProjectMeta extends ProjectMeta {
-  productionCapabilityProfile?: ProductionCapabilityProfile;
-  productionShotSettings?: ShotPlanSettings;
-}
 
 function recordOf(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -175,15 +170,9 @@ export async function POST(request: Request) {
   const script = await db.getScript(session._id, scriptId);
   if (!script) return NextResponse.json({ error: 'Document not found' }, { status: 404 });
 
-  const projectMeta: ProductionProjectMeta = session.projectMeta || {};
-  const nextProjectMeta: ProductionProjectMeta = {
-    ...projectMeta,
-    productionCapabilityProfile: profile,
-    productionShotSettings: settings,
-  };
-  await db.updateSession(String(session._id), {
-    projectMeta: nextProjectMeta,
-    updatedAt: new Date(),
+  await db.setSessionProductionConfiguration(String(session._id), {
+    capabilityProfile: profile,
+    shotSettings: settings,
   });
 
   try {

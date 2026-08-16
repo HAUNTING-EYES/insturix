@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { createCurrentWriterOutputBinding } from '@/lib/thinkforge/persistence/writer-output-binding';
 
 const mocks = vi.hoisted(() => ({
@@ -7,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   findLinkBySessionId: vi.fn(),
   getScript: vi.fn(),
   getSession: vi.fn(),
-  updateSession: vi.fn(),
+  setSessionProductionConfiguration: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }));
@@ -18,7 +19,7 @@ vi.mock('@/lib/shared/project-links', () => ({
 vi.mock('@/lib/thinkforge/services/db', () => ({
   getScript: mocks.getScript,
   getSession: mocks.getSession,
-  updateSession: mocks.updateSession,
+  setSessionProductionConfiguration: mocks.setSessionProductionConfiguration,
 }));
 
 const profile = {
@@ -267,7 +268,7 @@ describe('ThinkForge Shoot Kit document identity', () => {
     ]));
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(mocks.getScript).not.toHaveBeenCalled();
-    expect(mocks.updateSession).not.toHaveBeenCalled();
+    expect(mocks.setSessionProductionConfiguration).not.toHaveBeenCalled();
   });
 
   it('reads the exact document through the authorized canonical session', async () => {
@@ -318,6 +319,43 @@ describe('ThinkForge Shoot Kit document identity', () => {
     expect(await response.json()).toEqual({ error: 'Document not found' });
     expect(mocks.getSession).toHaveBeenCalledWith('session_alias', 'user_member', 'org_1');
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'missing_script');
-    expect(mocks.updateSession).not.toHaveBeenCalled();
+    expect(mocks.setSessionProductionConfiguration).not.toHaveBeenCalled();
+  });
+
+  it('atomically persists only production fields after exact document authorization', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: {
+        brandId: 'brand_preserved',
+        selectedTrend: { candidate: { candidateId: 'trend_preserved' } },
+      },
+    });
+    mocks.getScript.mockResolvedValue(storedDocument('session_canonical', 'script_1'));
+    mocks.setSessionProductionConfiguration.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/production/shot-plan/route');
+
+    const response = await POST(postRequest(
+      'http://localhost/api/services/thinkforge/production/shot-plan',
+      { sessionId: 'session_alias', scriptId: 'script_1', profile, settings },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.getSession).toHaveBeenCalledWith('session_alias', 'user_member', 'org_1');
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'script_1');
+    expect(mocks.setSessionProductionConfiguration).toHaveBeenCalledWith(
+      'session_canonical',
+      { capabilityProfile: profile, shotSettings: settings },
+    );
+
+    const dbSource = readFileSync('lib/thinkforge/services/db.ts', 'utf8');
+    expect(dbSource).toContain("'projectMeta.productionCapabilityProfile': input.capabilityProfile");
+    expect(dbSource).toContain("'projectMeta.productionShotSettings': input.shotSettings");
+    expect(dbSource).not.toContain('export async function updateSession(');
   });
 });
