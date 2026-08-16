@@ -41,6 +41,46 @@ const THINKFORGE_E2E_POST_FIXTURE = {
 const THINKFORGE_E2E_CAROUSEL_FIXTURE = {
   ...THINKFORGE_E2E_POST_FIXTURE,
   clickatron: {
+    carouselDeck: {
+      version: 1,
+      slides: [
+        {
+          role: 'hook',
+          headline: 'Approval drag starts before the deadline',
+          body: 'Scattered notes hide who owns the final decision.',
+          sourceRefs: ['brief_user'],
+          imagePrompt: 'Editorial overhead of scattered approval notes around one clear decision card, dark-and-amber system, ample empty space, no readable text or logos.',
+        },
+        {
+          role: 'problem',
+          headline: 'Five reviewers do not create one owner',
+          body: 'The delay lives in an invisible decision path, not the draft itself.',
+          sourceRefs: ['brief_user'],
+          imagePrompt: 'A content lead tracing a clean approval path across abstract cards on a desk, restrained editorial photography, no readable text or logos.',
+        },
+        {
+          role: 'process',
+          headline: 'Put feedback in one visible lane',
+          body: 'Make each change, reason, and release decision inspectable.',
+          sourceRefs: ['brief_user'],
+          imagePrompt: 'Close detail of grouped feedback markers becoming one ordered review lane, soft directional light, no readable text or logos.',
+        },
+        {
+          role: 'insight',
+          headline: 'A named owner closes the status chase',
+          body: 'The team can see what changed and whether the decision is complete.',
+          sourceRefs: ['brief_user'],
+          imagePrompt: 'A calm team handoff with one owner marking a completed decision, consistent dark-and-amber palette, no readable text or logos.',
+        },
+        {
+          role: 'cta',
+          headline: 'Make the next release decision visible',
+          body: 'Reply WORKFLOW for the campaign operating checklist.',
+          sourceRefs: ['brief_user'],
+          imagePrompt: 'A tidy campaign workspace ready to publish, approval record visible only as abstract shapes, generous empty space, no readable text or logos.',
+        },
+      ],
+    },
     carouselPrompts: [
       'Editorial overhead of scattered approval notes around one clear decision card, dark-and-amber system, ample empty space, no readable text or logos.',
       'A content lead tracing a clean approval path across abstract cards on a desk, restrained editorial photography, no readable text or logos.',

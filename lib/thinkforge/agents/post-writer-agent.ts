@@ -36,6 +36,12 @@ import {
   segmentUnicodeSentences,
   unicodeLexicalTokens,
 } from '../text/unicode-text';
+import {
+  ThinkForgePostCarouselDeckSchema,
+  postCarouselDeckContractIssues,
+  postCarouselDeckVisibleCopy,
+  renderThinkForgePostCarouselDocument,
+} from '../schemas/post-carousel-deck';
 
 // Flat PostWriter Output Contract
 export const PostWriterResultSchema = z.object({
@@ -56,7 +62,8 @@ export const PostWriterResultSchema = z.object({
   }),
   clickatron: z.object({
     singleImagePrompt: z.string().optional().describe('A visual-only prompt for one Clickatron raster background. Describe concrete scene, composition, props, lighting, style, mood, and safe zones. Never include readable copy, text-overlay instructions, logos, watermarks, or legible UI labels.'),
-    carouselPrompts: z.array(z.string()).optional().describe('One visual-only raster-background prompt per carousel slide. Each prompt must describe a distinct grounded scene and consistent visual system without readable copy, text-overlay instructions, logos, watermarks, or legible UI labels.'),
+    carouselDeck: ThinkForgePostCarouselDeckSchema.optional().describe('Canonical carousel deliverable. For carousel requests, return one ordered slide per requested count with editable visible copy, editorial role, authorized sourceRefs, and a visual-only imagePrompt.'),
+    carouselPrompts: z.array(z.string()).optional().describe('Legacy compatibility mirror. The server replaces this field from carouselDeck.slides[].imagePrompt; do not treat it as an independent authoring surface.'),
   }),
   metadata: z.object({
     platform: z.string().describe('The targeted platform (linkedin, twitter, etc)'),
@@ -564,8 +571,12 @@ function reconcileClickatronVisualContract(
   if (result.clickatron.singleImagePrompt) {
     result.clickatron.singleImagePrompt = normalizePrompt(result.clickatron.singleImagePrompt);
   }
-  if (result.clickatron.carouselPrompts) {
-    result.clickatron.carouselPrompts = result.clickatron.carouselPrompts.map(normalizePrompt);
+  if (result.clickatron.carouselDeck) {
+    result.clickatron.carouselDeck.slides = result.clickatron.carouselDeck.slides.map((slide) => ({
+      ...slide,
+      imagePrompt: normalizePrompt(slide.imagePrompt),
+    }));
+    result.clickatron.carouselPrompts = result.clickatron.carouselDeck.slides.map((slide) => slide.imagePrompt);
   }
 
   return changed;
@@ -993,6 +1004,8 @@ export function assertUsablePostWriterResult(
 ): void {
   assertPostEditorialPlanFeasible(editorialPlan);
   const content = result.content.trim();
+  const carouselCopy = postCarouselDeckVisibleCopy(result.clickatron.carouselDeck);
+  const allVisibleCopy = [content, carouselCopy].filter(Boolean).join('\n\n');
   const contentMeasurement = measureThinkForgePublishableText(
     content,
     editorialPlan.publishingConstraints,
@@ -1079,12 +1092,12 @@ export function assertUsablePostWriterResult(
   if (OUTREACH_CTA_PATTERN.test(ctaLine) && !SUPPLIED_OUTREACH_ROUTE_PATTERN.test(suppliedContext)) {
     failures.push('generic_cta');
   }
-  if (!(result.clickatron?.singleImagePrompt || result.clickatron?.carouselPrompts?.length)) {
+  if (!(result.clickatron?.singleImagePrompt || result.clickatron?.carouselDeck?.slides.length)) {
     failures.push('missing_clickatron_prompt');
   }
   const visualPrompts = [
     result.clickatron?.singleImagePrompt,
-    ...(result.clickatron?.carouselPrompts ?? []),
+    ...(result.clickatron?.carouselDeck?.slides.map((slide) => slide.imagePrompt) ?? []),
   ].filter((prompt): prompt is string => typeof prompt === 'string' && prompt.trim().length > 0);
   if (visualPrompts.some((prompt) => GENERIC_VISUAL_HANDOFF_PATTERN.test(prompt))) {
     failures.push('generic_clickatron_visual');
@@ -1149,22 +1162,25 @@ export function assertUsablePostWriterResult(
   ) {
     failures.push('clickatron_missing_source_anchors');
   }
-  failures.push(...unsupportedSourceOnlyClaimFamilies(content, input, editorialPlan)
+  failures.push(...unsupportedSourceOnlyClaimFamilies(allVisibleCopy, input, editorialPlan)
     .map((family) => `source_only_unsupported_claim:${family}`));
-  failures.push(...unsupportedSourceOnlySentenceIndexes(content, input, editorialPlan)
+  failures.push(...unsupportedSourceOnlySentenceIndexes(allVisibleCopy, input, editorialPlan)
     .map((index) => `source_only_low_support_sentence:${index}`));
-  failures.push(...unsupportedThinEvidenceSentenceIndexes(content, input, editorialPlan)
+  failures.push(...unsupportedThinEvidenceSentenceIndexes(allVisibleCopy, input, editorialPlan)
     .map((index) => `thin_evidence_unsupported_sentence:${index}`));
   failures.push(...claimSupportIssues(result, input, editorialPlan));
-  const languageIssue = outputLanguageIssue(content, input);
+  const languageIssue = outputLanguageIssue(allVisibleCopy, input);
   if (languageIssue) failures.push(languageIssue);
   const carouselSlideCount = requestedCarouselSlideCount(input);
   if (carouselSlideCount !== undefined) {
-    const promptCount = result.clickatron?.carouselPrompts?.length ?? 0;
-    if (promptCount !== carouselSlideCount) {
-      failures.push(`carousel_prompt_count_mismatch:${promptCount}/${carouselSlideCount}`);
-    }
+    failures.push(...postCarouselDeckContractIssues({
+      deck: result.clickatron.carouselDeck,
+      requestedSlideCount: carouselSlideCount,
+      authorizedSourceRefs: new Set(authorizedClaimSources(input).map((source) => source.sourceRef)),
+    }));
     if (result.clickatron?.singleImagePrompt) failures.push('carousel_returned_single_image_prompt');
+  } else if (result.clickatron.carouselDeck?.slides.length) {
+    failures.push('single_post_returned_carousel_deck');
   }
 
   const brandLanguagePolicy = resolveThinkForgeBrandLanguagePolicy(
@@ -1172,13 +1188,13 @@ export function assertUsablePostWriterResult(
       ?? input.retrievedContext?.brandSignalProfile,
   );
   const filler = findDisallowedThinkForgeAiFiller(
-    contentWithoutRequiredSourceClaims(content, input),
+    contentWithoutRequiredSourceClaims(allVisibleCopy, input),
     brandLanguagePolicy,
   )[0];
   if (filler) failures.push(`banned_phrase:${filler.label}`);
 
   if (input.contentSignalProfile) {
-    const profileCompliance = evaluateContentProfileCompliance(content, input.contentSignalProfile);
+    const profileCompliance = evaluateContentProfileCompliance(allVisibleCopy, input.contentSignalProfile);
     if (shouldAutoRepairContentProfileViolations(profileCompliance.violations)) {
       failures.push(...profileCompliance.violations
         .filter((violation) => violation.severity === 'critical')
@@ -1303,6 +1319,12 @@ REPAIR DIAGNOSTICS
 For profile_missing_required_brief_claim or profile_missing_required_audience_anchor:
 - Copy the corresponding Required brief claim and Required audience anchor from tf_untrusted_data.contentSignalProfile exactly into natural post copy.
 - Do not weaken, expand, or paraphrase an explicit factual claim while repairing it.
+
+For carousel_deck_missing, carousel_deck_count_mismatch, carousel_slide_duplicate, or carousel_slide_invalid_source:
+- Rebuild clickatron.carouselDeck as the sole ordered slide authority.
+- Return exactly the requested number of distinct slides. Do not split one sentence mechanically or invent a new fact to fill a slot.
+- Each slide must carry at least one sourceRef from tf_untrusted_data.claimSources and use only claims supported by those references.
+- Keep clickatron.carouselPrompts absent or empty; ThinkForge derives that legacy field from the validated deck.
 </post_contract_repair>`;
 }
 
@@ -1347,9 +1369,11 @@ export class PostWriterAgent extends StructuredAgent<PostWriterResult> {
     const carouselContractBlock = carouselSlideCount === undefined
       ? ''
       : `<carousel_contract>
-- Return exactly ${carouselSlideCount} entries in clickatron.carouselPrompts, one per slide.
+- Return exactly ${carouselSlideCount} entries in clickatron.carouselDeck.slides, in publishing order.
+- For every slide, provide a distinct editorial role, final editable headline/body copy, authorized sourceRefs from tf_untrusted_data.claimSources, and one visual-only imagePrompt.
 - Do not return clickatron.singleImagePrompt.
-- Each slide must communicate a distinct grounded unit from tf_untrusted_data; never pad the count with invented claims.
+- Do not author clickatron.carouselPrompts as a second plan; ThinkForge derives that legacy mirror from the validated deck.
+- Each slide must communicate a distinct grounded unit from tf_untrusted_data; never pad the count with invented claims or repeated copy.
 </carousel_contract>\n\n`;
     const postLengthContract = buildPostLengthContract(editorialPlan);
     const postControlContract = editorialPlan.controlSource === 'authoring_request'
@@ -1437,7 +1461,8 @@ VISUAL HANDOFF
 - The clickatron field is part of the deliverable, not optional decoration.
 - Image prompts must carry the same source facts as the post through scene, composition, props, lighting, style, mood, and layout.
 - Keep every image prompt visual-only. Never include exact headlines, captions, dates, hashtags, CTA copy, "Text Overlay:" metadata, logos, watermarks, or readable UI labels.
-- Exact copy remains in content and is derived into editable Clickatron text layers downstream.
+- For a carousel, exact per-slide copy belongs in clickatron.carouselDeck.slides; the caption belongs in content. ThinkForge renders both into the visible document after validation.
+- For a single post, exact copy remains in content and is derived into editable Clickatron text layers downstream.
 - When a scene contains screens or interfaces, describe them as abstract or defocused shapes with no legible text or invented brand marks.
 </rules>
 
@@ -1568,6 +1593,13 @@ Return your response strictly adhering to the JSON schema.`;
         }
         throw finalError;
       }
+    }
+
+    if (result.clickatron.carouselDeck) {
+      result.content = renderThinkForgePostCarouselDocument(
+        result.clickatron.carouselDeck,
+        result.content,
+      );
     }
 
     const output: AgentStructuredOutput<PostWriterResult> = {

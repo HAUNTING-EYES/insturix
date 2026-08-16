@@ -297,11 +297,12 @@ PLATFORM CONSTRAINTS (${config.name})
   - ${maximumLength}
   - ${config.extraGuidance}
 CLICKATRON OUTPUT
-  - Fill clickatron.singleImagePrompt or clickatron.carouselPrompts.
+  - For one image, fill clickatron.singleImagePrompt.
+  - For a carousel, fill clickatron.carouselDeck.slides as the canonical ordered deck. Each slide owns final editable headline/body copy, an editorial role, authorized sourceRefs, and one visual-only imagePrompt.
   - Include only source facts that can be conveyed visually: subject, environment, props, activity, mood, composition, lighting, and brand-safe visual style.
   - Ground each prompt in at least two supplied visual cues, including an action, object, environment, or workflow cue. Do not substitute generic office, team, or dashboard scenery for the actual concept.
   - Describe safe zones and visual hierarchy without supplying headlines, captions, dates, CTA copy, text-overlay instructions, logos, watermarks, or readable UI.
-  - For carouselPrompts, each slide prompt must describe its distinct visual message; ThinkForge derives final editable copy from the post content downstream.
+  - Do not maintain a second carousel plan in clickatron.carouselPrompts. ThinkForge derives that compatibility field from the validated carousel deck.
 
 ANTI-AI CONSTRAINTS (from writing-knowledge graph)
 ${antiAiConstraints}

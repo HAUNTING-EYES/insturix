@@ -93,7 +93,8 @@ describe('ThinkForge canonical document contract', () => {
     };
     const prompt = new PostWriterAgent().buildPrompt(input);
 
-    expect(prompt).toContain('Return exactly 5 entries in clickatron.carouselPrompts');
+    expect(prompt).toContain('Return exactly 5 entries in clickatron.carouselDeck.slides');
+    expect(prompt).toContain('authorized sourceRefs from tf_untrusted_data.claimSources');
     expect(prompt).toContain('never pad the count with invented claims');
   });
 
