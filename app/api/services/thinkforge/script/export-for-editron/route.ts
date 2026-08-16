@@ -2,8 +2,8 @@
  * POST /api/services/thinkforge/script/export-for-editron
  *
  * Export a ThinkForge script as SceneDescriptors for Editron.
- * Uses Gemini Flash LLM for intelligent scene extraction (primary),
- * falls back to regex parsing if LLM is unavailable.
+ * Uses an authoritative ThinkForge sidecar for generated scripts. LLM/regex parsing is
+ * reserved for documents that never had a production-aware sidecar.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -31,6 +31,10 @@ import {
   type ScriptSidecarEditronExport,
 } from '@/lib/thinkforge/export/script-sidecar-to-editron';
 import { ThinkForgeAuthoringProvenanceError } from '@/lib/thinkforge/context/brand-authoring-context';
+import {
+  requireCurrentPersistedScriptSidecar,
+  ThinkForgeScriptSidecarAuthorityError,
+} from '@/lib/thinkforge/persistence/script-sidecar-reader';
 import { resolveProjectMetaBrandId } from '@/lib/thinkforge/state/types';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
@@ -119,8 +123,11 @@ function chooseRawContent(blocks: any[] | undefined, plainText: unknown): string
   return fromBlocks.length > plain.length ? fromBlocks : plain;
 }
 
-function exportContentMatches(left: string, right: string): boolean {
-  return left.replace(/\s+/g, ' ').trim() === right.replace(/\s+/g, ' ').trim();
+function exportContentMatches(left: ExportSource, right: ExportSource): boolean {
+  const leftText = left.blocks?.length ? blockText(left.blocks) : left.rawContent;
+  const rightText = right.blocks?.length ? blockText(right.blocks) : right.rawContent;
+  const normalize = (value: string) => value.normalize('NFC').replace(/\s+/g, ' ').trim();
+  return normalize(leftText) === normalize(rightText);
 }
 
 function previewScenesForSource(source: Pick<ExportSource, 'blocks' | 'cir' | 'rawContent'>): SceneDescriptor[] {
@@ -218,20 +225,26 @@ function buildStoredScriptSource(
   const authoringProvenanceContext = authoringContext.authoringProvenance
     ? authoringContext
     : undefined;
-  if (!writerOutput?.scriptSidecar) {
+  const authoritativeSidecar = requireCurrentPersistedScriptSidecar({
+    metadata,
+    documentContent: typeof script.content === 'string' ? script.content : '',
+    documentVersion: typeof script.version === 'number' ? script.version : 0,
+  });
+  if (!authoritativeSidecar) {
     return authoringProvenanceContext
       ? { ...storedSource, thinkforgeContext: authoringProvenanceContext }
       : storedSource;
   }
+  const rawSidecar = authoritativeSidecar.rawSidecar;
 
   try {
     return {
       ...storedSource,
-      sidecarExport: mapScriptSidecarToEditronExport(writerOutput.scriptSidecar),
+      sidecarExport: mapScriptSidecarToEditronExport(rawSidecar),
       thinkforgeContext: buildThinkForgeEditronHandoffContext({
-        sidecar: writerOutput.scriptSidecar,
+        sidecar: rawSidecar,
         briefSnapshot: metadata?.briefSnapshot,
-        sourceLedger: writerOutput.sourceLedger,
+        sourceLedger: writerOutput?.sourceLedger,
         authoringContextSnapshot: metadata?.authoringContextSnapshot,
         expectedBrandId: resolveProjectMetaBrandId(session.projectMeta),
       }),
@@ -338,6 +351,18 @@ export async function POST(request: NextRequest) {
     try {
       storedSource = buildStoredScriptSource(session, storedScript);
     } catch (error) {
+      if (error instanceof ThinkForgeScriptSidecarAuthorityError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: error.message,
+            reason: error.code,
+            retryable: false,
+            diagnostic: { bindingReason: error.bindingReason },
+          },
+          { status: error.code === 'script-sidecar-payload-invalid' ? 422 : 409 },
+        );
+      }
       if (error instanceof ThinkForgeAuthoringProvenanceError) {
         return NextResponse.json(
           {
@@ -365,11 +390,22 @@ export async function POST(request: NextRequest) {
         }));
       }
     }
-    const sidecarSource = activeSource.source === 'stored-script'
-      ? activeSource
-      : storedSource && exportContentMatches(requestSource.rawContent, storedSource.rawContent)
-        ? storedSource
-        : undefined;
+    if (
+      storedSource?.sidecarExport
+      && activeSource.source !== 'stored-script'
+      && !exportContentMatches(requestSource, storedSource)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'The editor contains changes that have not been committed to the saved script contract.',
+          reason: 'document-not-committed',
+          retryable: true,
+        },
+        { status: 409 },
+      );
+    }
+    const sidecarSource = storedSource?.sidecarExport ? storedSource : undefined;
     if (sidecarSource?.sidecarCompilationError) throw sidecarSource.sidecarCompilationError;
     const sidecarExport = sidecarSource?.sidecarExport;
     const thinkforgeContext = sidecarSource?.thinkforgeContext;

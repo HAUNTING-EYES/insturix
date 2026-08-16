@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { serializeThinkForgeBlocksToMarkdown } from '@/lib/thinkforge/canonical-document-state';
+import { createCurrentScriptSidecarBinding } from '@/lib/thinkforge/persistence/script-sidecar-binding';
 import { adaptScriptSidecarV1 } from '@/lib/thinkforge/schemas/script-sidecar-v1-adapter';
+import type { ThinkForgeBlock } from '@/lib/thinkforge/schemas/thinkforge-block';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -26,7 +29,7 @@ function request(body: Record<string, unknown>): Request {
   });
 }
 
-function block(id: string, kind: string, text: string) {
+function block(id: string, kind: ThinkForgeBlock['kind'], text: string): ThinkForgeBlock {
   return {
     id,
     kind,
@@ -71,6 +74,25 @@ function scriptSidecar() {
     globalEditDirections: { pacing: 'medium' },
     suggestedProfileCategory: 'production-mode',
     sourceRefs: ['brief_user'],
+  };
+}
+
+function boundWriterOutput(
+  documentContent: string,
+  value: Record<string, unknown>,
+  documentVersion: number,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    ...extra,
+    writerType: 'script',
+    sidecarVersion: value.sidecarVersion,
+    scriptSidecar: value,
+    sidecarBinding: createCurrentScriptSidecarBinding({
+      documentContent,
+      documentVersion,
+      sidecar: value,
+    }),
   };
 }
 describe('export-for-editron route', () => {
@@ -247,6 +269,8 @@ describe('export-for-editron route', () => {
       block('blk_1', 'header', 'Same-pass Scene'),
       block('blk_2', 'paragraph', 'The workflow is clear from the first frame.'),
     ];
+    const savedContent = serializeThinkForgeBlocksToMarkdown(savedBlocks);
+    const persistedSidecar = scriptSidecar();
     mocks.getSession.mockResolvedValue({
       _id: 'tf_session_sidecar',
       userId: 'user_1',
@@ -257,8 +281,9 @@ describe('export-for-editron route', () => {
       sessionId: 'tf_session_sidecar',
       scriptId: 'script_sidecar',
       title: 'Same-pass Scene',
-      content: '',
+      content: savedContent,
       blocks: savedBlocks,
+      version: 1,
       metadata: {
         briefSnapshot: {
           output: { platform: 'youtube', targetDurationSec: 8, aspectRatio: '16:9', count: 1, format: 'auto-edit' },
@@ -286,9 +311,7 @@ describe('export-for-editron route', () => {
           },
           writingKnowledgeVersion: 'writing-knowledge-v3',
         },
-        writerOutput: {
-          writerType: 'script',
-          scriptSidecar: scriptSidecar(),
+        writerOutput: boundWriterOutput(savedContent, persistedSidecar, 1, {
           sourceLedger: {
             ledgerVersion: 1,
             entries: [{
@@ -300,7 +323,7 @@ describe('export-for-editron route', () => {
               provenance: { origin: 'user_prompt' },
             }],
           },
-        },
+        }),
       },
     });
     const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
@@ -422,16 +445,19 @@ describe('export-for-editron route', () => {
     });
     expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
   });
-  it('does not reuse a persisted sidecar after the export source was edited', async () => {
+  it('rejects browser-ahead edits instead of reparsing around a persisted sidecar', async () => {
+    const savedContent = 'This is the saved script.';
+    const persistedSidecar = scriptSidecar();
     mocks.getSession.mockResolvedValue({ _id: 'tf_session_edited', userId: 'user_1' });
     mocks.getScript.mockResolvedValue({
       _id: 'script_doc_edited',
       sessionId: 'tf_session_edited',
       scriptId: 'script_edited',
       title: 'Saved script',
-      content: 'This is the saved script.',
+      content: savedContent,
       blocks: [],
-      metadata: { writerOutput: { writerType: 'script', scriptSidecar: scriptSidecar() } },
+      version: 1,
+      metadata: { writerOutput: boundWriterOutput(savedContent, persistedSidecar, 1) },
     });
     const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
 
@@ -442,12 +468,10 @@ describe('export-for-editron route', () => {
     }) as never);
     const payload = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(mocks.parseScriptWithLLM).toHaveBeenCalledWith(
-      'This is a materially edited script.',
-      expect.any(Object),
-    );
-    expect(payload.productionManifest.parser.sidecarUsed).toBe(false);
+    expect(response.status).toBe(409);
+    expect(payload.reason).toBe('document-not-committed');
+    expect(payload.retryable).toBe(true);
+    expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
   });
   it('recovers the stored script when the request is a stale one-block title snapshot', async () => {
     mocks.isLLMParserAvailable.mockReturnValue(false);
@@ -562,25 +586,25 @@ describe('export-for-editron route', () => {
       block('blk_v2_title', 'header', 'Invalid V2 contract'),
       block('blk_v2_body', 'paragraph', 'This exact saved document must not fall through to prose parsing.'),
     ];
+    const savedContent = serializeThinkForgeBlocksToMarkdown(savedBlocks);
+    const invalidSidecar = {
+      sidecarVersion: 2,
+      spokenTextSource: 'beat-lines',
+      characters: [],
+      acts: [],
+      sourceRefs: [],
+    };
     mocks.getSession.mockResolvedValue({ _id: 'tf_session_invalid_v2', userId: 'user_1' });
     mocks.getScript.mockResolvedValue({
       _id: 'script_doc_invalid_v2',
       sessionId: 'tf_session_invalid_v2',
       scriptId: 'script_invalid_v2',
       title: 'Invalid V2 contract',
-      content: '',
+      content: savedContent,
       blocks: savedBlocks,
+      version: 1,
       metadata: {
-        writerOutput: {
-          writerType: 'script',
-          scriptSidecar: {
-            sidecarVersion: 2,
-            spokenTextSource: 'beat-lines',
-            characters: [],
-            acts: [],
-            sourceRefs: [],
-          },
-        },
+        writerOutput: boundWriterOutput(savedContent, invalidSidecar, 1),
       },
     });
     const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
@@ -595,11 +619,10 @@ describe('export-for-editron route', () => {
     expect(response.status).toBe(422);
     expect(payload).toMatchObject({
       success: false,
-      reason: 'invalid-script-sidecar',
+      reason: 'script-sidecar-payload-invalid',
       retryable: false,
       diagnostic: {
-        code: 'invalid-sidecar',
-        claimedSidecarVersion: 2,
+        bindingReason: 'sidecar_schema_invalid',
       },
     });
     expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
@@ -610,6 +633,7 @@ describe('export-for-editron route', () => {
       block('blk_v2_valid_title', 'header', 'Same-pass Scene'),
       block('blk_v2_valid_body', 'paragraph', 'The workflow is clear from the first frame.'),
     ];
+    const savedContent = serializeThinkForgeBlocksToMarkdown(savedBlocks);
     const v2 = adaptScriptSidecarV1(scriptSidecar()).sidecar;
     mocks.getSession.mockResolvedValue({ _id: 'tf_session_valid_v2', userId: 'user_1' });
     mocks.getScript.mockResolvedValue({
@@ -617,9 +641,10 @@ describe('export-for-editron route', () => {
       sessionId: 'tf_session_valid_v2',
       scriptId: 'script_valid_v2',
       title: 'Same-pass Scene',
-      content: '',
+      content: savedContent,
       blocks: savedBlocks,
-      metadata: { writerOutput: { writerType: 'script', scriptSidecar: v2 } },
+      version: 1,
+      metadata: { writerOutput: boundWriterOutput(savedContent, v2, 1) },
     });
     const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
 

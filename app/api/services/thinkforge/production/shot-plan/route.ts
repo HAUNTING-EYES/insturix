@@ -10,6 +10,10 @@ import {
   ProductionCapabilityProfileSchema,
   type ProductionCapabilityProfile,
 } from '@/lib/thinkforge/production/production-capability-profile';
+import {
+  requireCurrentPersistedScriptSidecar,
+  ThinkForgeScriptSidecarAuthorityError,
+} from '@/lib/thinkforge/persistence/script-sidecar-reader';
 import * as db from '@/lib/thinkforge/services/db';
 import type { ProjectMeta } from '@/lib/thinkforge/state/types';
 
@@ -40,19 +44,34 @@ function recordOf(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function sidecarFromScript(script: Awaited<ReturnType<typeof db.getScript>>): unknown {
-  const metadata = recordOf(script?.metadata);
-  const writerOutput = recordOf(metadata?.writerOutput);
-  return writerOutput?.scriptSidecar;
-}
-
 function buildPlanPayload(
   script: Awaited<ReturnType<typeof db.getScript>>,
   profile: ProductionCapabilityProfile,
   settings: ShotPlanSettings,
 ) {
-  const sidecar = sidecarFromScript(script);
-  if (!sidecar) {
+  let authority;
+  try {
+    authority = requireCurrentPersistedScriptSidecar({
+      metadata: script?.metadata,
+      documentContent: typeof script?.content === 'string' ? script.content : '',
+      documentVersion: typeof script?.version === 'number' ? script.version : 0,
+    });
+  } catch (error) {
+    if (!(error instanceof ThinkForgeScriptSidecarAuthorityError)) throw error;
+    return {
+      status: 'needs-user-input' as const,
+      profile,
+      settings,
+      plan: null,
+      issues: [{
+        code: error.code,
+        message: error.message,
+        questions: ['Regenerate or revise this script to refresh its production contract.'],
+      }],
+    };
+  }
+
+  if (!authority) {
     return {
       status: 'needs-user-input' as const,
       profile,
@@ -67,7 +86,7 @@ function buildPlanPayload(
   }
 
   const result = buildScriptShotPlan({
-    sidecar,
+    sidecar: authority.rawSidecar,
     profile,
     aspectRatio: settings.aspectRatio,
     tier: settings.tier,

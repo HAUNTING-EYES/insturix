@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { z } from 'zod';
-import { readPersistedScriptSidecar } from './script-sidecar-reader';
+import { readScriptSidecar } from '../schemas/script-sidecar-v1-adapter';
 
 export const SCRIPT_SIDECAR_BINDING_VERSION = 1 as const;
 
@@ -216,8 +216,18 @@ export function reconcileScriptSidecarMetadata(input: {
     && hasOwn(incomingWriterOutput, 'scriptSidecar');
 
   if (hasFreshSidecar) {
-    const persistedRead = readPersistedScriptSidecar(withWriterOutput({}, nextWriterOutput));
-    if (!persistedRead) throw new Error('Fresh script writer metadata is missing its sidecar.');
+    const persistedRead = readScriptSidecar(nextWriterOutput.scriptSidecar);
+    if (hasOwn(nextWriterOutput, 'sidecarVersion')) {
+      const envelopeVersion = nextWriterOutput.sidecarVersion;
+      if (typeof envelopeVersion !== 'number' || !Number.isInteger(envelopeVersion)) {
+        throw new Error('Fresh script sidecar envelope version must be an integer.');
+      }
+      if (envelopeVersion !== persistedRead.sourceVersion) {
+        throw new Error(
+          `Fresh script sidecar version mismatch: envelope ${envelopeVersion}, payload ${persistedRead.sourceVersion}.`,
+        );
+      }
+    }
     return withWriterOutput(nextMetadata, {
       ...nextWriterOutput,
       sidecarBinding: createCurrentScriptSidecarBinding({
