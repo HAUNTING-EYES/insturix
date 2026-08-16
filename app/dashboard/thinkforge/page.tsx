@@ -24,6 +24,7 @@ import {
 	normalizeThinkForgeDocumentContract,
 } from "@/lib/thinkforge/schemas/document-contract";
 import {
+	buildThinkForgeAuthoringCompatibilityMetadata,
 	describeThinkForgeAuthoringDeliverable,
 	describeThinkForgePlatformSurface,
 	ThinkForgeAuthoringRequestSchema,
@@ -80,18 +81,22 @@ const buildProjectMetaPayload = (
 	idea: IdeaCardData | null | undefined,
 	initialDraftIntent?: Record<string, unknown>,
 ): Record<string, unknown> => {
-	const contentContract = resolveIdeaDocumentContract(idea);
 	const authoringRequest = idea?.authoringRequest === undefined
 		? undefined
 		: ThinkForgeAuthoringRequestSchema.parse(idea.authoringRequest);
+	const authoringMetadata = authoringRequest
+		? buildThinkForgeAuthoringCompatibilityMetadata(authoringRequest)
+		: undefined;
+	const contentContract = authoringMetadata?.contentContract ?? resolveIdeaDocumentContract(idea);
 	return {
 		idea: idea?.idea || '',
 		purpose: idea?.purpose || '',
 		style: idea?.style || '',
 		format: idea?.format || '',
 		...(contentContract ? { contentContract } : {}),
-		...(authoringRequest ? { authoringRequest } : {}),
 		platform: idea?.platform || '',
+		durationSec: idea?.durationSec,
+		...(authoringMetadata || {}),
 		tone: idea?.tone || 'blue',
 		sessionName: idea?.sessionName || '',
 		originalPrompt: idea?.originalPrompt || '',
@@ -122,22 +127,26 @@ const buildIdeaGenerationPayload = (
 const buildIdeaFromSessionMeta = (
   sessionId: string,
   projectMeta: Record<string, unknown>,
-): IdeaCardData => ({
-  id: sessionId,
-  idea: toNonEmptyString(projectMeta.idea) || 'Untitled',
-  purpose: toNonEmptyString(projectMeta.purpose) || '',
-  style: toNonEmptyString(projectMeta.style) || '',
-  format: toNonEmptyString(projectMeta.format) || '',
-  platform: toNonEmptyString(projectMeta.platform) || '',
-  tone: toNonEmptyString(projectMeta.tone) || 'blue',
-  sessionName: toNonEmptyString(projectMeta.sessionName),
-  originalPrompt: toNonEmptyString(projectMeta.originalPrompt),
-  brandBrief: toNonEmptyString(projectMeta.brandBrief),
-  ...(projectMeta.authoringRequest !== undefined
-	? { authoringRequest: ThinkForgeAuthoringRequestSchema.parse(projectMeta.authoringRequest) }
-	: {}),
-  ...pickProjectMetaPassthrough(projectMeta),
-});
+): IdeaCardData => {
+	const authoringRequest = projectMeta.authoringRequest === undefined
+		? undefined
+		: ThinkForgeAuthoringRequestSchema.parse(projectMeta.authoringRequest);
+	return {
+		id: sessionId,
+		idea: toNonEmptyString(projectMeta.idea) || 'Untitled',
+		purpose: toNonEmptyString(projectMeta.purpose) || '',
+		style: toNonEmptyString(projectMeta.style) || '',
+		format: toNonEmptyString(projectMeta.format) || '',
+		platform: toNonEmptyString(projectMeta.platform) || '',
+		durationSec: typeof projectMeta.durationSec === 'number' ? projectMeta.durationSec : undefined,
+		...(authoringRequest ? buildThinkForgeAuthoringCompatibilityMetadata(authoringRequest) : {}),
+		tone: toNonEmptyString(projectMeta.tone) || 'blue',
+		sessionName: toNonEmptyString(projectMeta.sessionName),
+		originalPrompt: toNonEmptyString(projectMeta.originalPrompt),
+		brandBrief: toNonEmptyString(projectMeta.brandBrief),
+		...pickProjectMetaPassthrough(projectMeta),
+	};
+};
 
 const bindActiveBrandToNewSession = (projectMeta: Record<string, unknown>): Record<string, unknown> => {
 	if (toNonEmptyString(projectMeta.brandId)) return projectMeta;
@@ -190,6 +199,9 @@ export default function ThinkForgeLanding() {
 	useEffect(() => {
 		if (workspaceMode !== 'scripting' || !selectedIdea) return;
 		const pm = session.projectMeta || {};
+		const projectAuthoringRequest = pm.authoringRequest === undefined
+			? undefined
+			: ThinkForgeAuthoringRequestSchema.parse(pm.authoringRequest);
 		const shouldPatch = (
 			(!selectedIdea.sessionName && pm.sessionName) ||
 			(!selectedIdea.idea && pm.idea) ||
@@ -198,7 +210,9 @@ export default function ThinkForgeLanding() {
 			(!selectedIdea.format && pm.format) ||
 			(!selectedIdea.platform && pm.platform) ||
 			(!selectedIdea.tone && pm.tone) ||
-			hasMissingProjectMetaPassthrough(selectedIdea, pm)
+			hasMissingProjectMetaPassthrough(selectedIdea, pm) ||
+			(projectAuthoringRequest !== undefined
+				&& JSON.stringify(selectedIdea.authoringRequest) !== JSON.stringify(projectAuthoringRequest))
 		);
 		if (!shouldPatch) return;
 		setSelectedIdea({
@@ -210,8 +224,12 @@ export default function ThinkForgeLanding() {
 			style: selectedIdea.style || pm.style || '',
 			format: selectedIdea.format || pm.format || '',
 			platform: selectedIdea.platform || pm.platform || '',
+			...(projectAuthoringRequest
+				? buildThinkForgeAuthoringCompatibilityMetadata(projectAuthoringRequest)
+				: {}),
 			tone: (selectedIdea.tone || pm.tone || 'blue') as any,
 		});
+		if (projectAuthoringRequest) setAuthoringRequest(projectAuthoringRequest);
 	}, [workspaceMode, selectedIdea, session.projectMeta]);
 
 	useEffect(() => {
@@ -222,8 +240,9 @@ export default function ThinkForgeLanding() {
 
 		resumedSessionIdRef.current = restoredSessionId;
 		setActiveScriptId('default');
-		setSelectedIdea(buildIdeaFromSessionMeta(restoredSessionId, session.projectMeta || {}));
-		setAuthoringRequest(null);
+		const restoredIdea = buildIdeaFromSessionMeta(restoredSessionId, session.projectMeta || {});
+		setSelectedIdea(restoredIdea);
+		setAuthoringRequest(restoredIdea.authoringRequest || null);
 		setWorkspaceMode('scripting');
 	}, [session.restoredSessionId, session.isRestoringCurrentSession, session.sessionId, session.projectMeta]);
 
@@ -907,8 +926,9 @@ export default function ThinkForgeLanding() {
 						const sid = data.sessionId;
 						setPendingSessionId(sid);
 						scriptHook.resetSessionState();
-						setSelectedIdea(buildIdeaFromSessionMeta(sid, data.projectMeta || {}));
-						setAuthoringRequest(null);
+						const restoredIdea = buildIdeaFromSessionMeta(sid, data.projectMeta || {});
+						setSelectedIdea(restoredIdea);
+						setAuthoringRequest(restoredIdea.authoringRequest || null);
 						// Switch to Script mode so ChatPanel mounts and loads recent chats
 						setWorkspaceMode('scripting');
 					} catch (err) {

@@ -10,6 +10,7 @@ import { getToneDescription } from "@/app/dashboard/thinkforge/utils/toneUtils";
 import { getToneColorClass } from "@/lib/thinkforge/tone";
 import {
   ThinkForgeAuthoringRequestSchema,
+  buildThinkForgeAuthoringCompatibilityMetadata,
   describeThinkForgeAuthoringDeliverable,
   describeThinkForgePlatformSurface,
   type ThinkForgeAuthoringRequest,
@@ -60,12 +61,28 @@ function resolveIdeaAuthoringRequest(idea: Idea): ThinkForgeAuthoringRequest | n
   return ThinkForgeAuthoringRequestSchema.parse(idea.authoringRequest);
 }
 
+function synchronizeIdeaWithAuthoringRequest(idea: Idea): Idea {
+  const authoringRequest = resolveIdeaAuthoringRequest(idea);
+  if (!authoringRequest) return idea;
+  const metadata = buildThinkForgeAuthoringCompatibilityMetadata(authoringRequest);
+  return {
+    ...idea,
+    authoringRequest: metadata.authoringRequest,
+    format: metadata.format,
+    platform: metadata.platform,
+    durationSec: metadata.durationSec,
+  };
+}
+
 export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBack, onUpdateIdea, hideNavigation = false, sessionCount = 0 }: SessionMetadataSettingsProps) {
   // Generate default Session Name if not set
   const getDefaultSessionName = (incoming: Idea) => (incoming.sessionName && incoming.sessionName.trim().length > 0)
     ? incoming.sessionName
     : `Session #${sessionCount + 1}`;
-  const [localIdea, setLocalIdea] = useState<Idea>({ ...idea, sessionName: getDefaultSessionName(idea) });
+  const [localIdea, setLocalIdea] = useState<Idea>(() => synchronizeIdeaWithAuthoringRequest({
+    ...idea,
+    sessionName: getDefaultSessionName(idea),
+  }));
   const [saveState, setSaveState] = useState<'clean' | 'dirty' | 'saving' | 'saved'>('clean');
   const [nameError, setNameError] = useState<string | null>(null);
   // Multi-value chip states (parsed from idea on mount)
@@ -76,7 +93,7 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
   
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const savedIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastSavedIdeaRef = useRef<Idea>(idea);
+  const lastSavedIdeaRef = useRef<Idea>(synchronizeIdeaWithAuthoringRequest(idea));
 
   useEffect(() => {
     // Sync when idea prop changes (e.g., returning from script or switching session)
@@ -94,7 +111,10 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
       JSON.stringify(idea.authoringRequest) !== JSON.stringify(prev.authoringRequest)
     );
     if (changed) {
-      const normalizedIdea = { ...idea, sessionName: getDefaultSessionName(idea) };
+      const normalizedIdea = synchronizeIdeaWithAuthoringRequest({
+        ...idea,
+        sessionName: getDefaultSessionName(idea),
+      });
       setLocalIdea(normalizedIdea);
       setStyles(idea.style.split(/,\s*/).filter(Boolean));
       setCustomMin('');
@@ -125,8 +145,12 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
     saveTimeoutRef.current = setTimeout(async () => {
       setSaveState('saving');
       try {
-        await onUpdateIdea(localIdea);
-        lastSavedIdeaRef.current = localIdea;
+        const ideaToSave = synchronizeIdeaWithAuthoringRequest(localIdea);
+        await onUpdateIdea(ideaToSave);
+        lastSavedIdeaRef.current = ideaToSave;
+        if (JSON.stringify(ideaToSave) !== JSON.stringify(localIdea)) {
+          setLocalIdea(ideaToSave);
+        }
         setSaveState('saved');
 
         if (savedIndicatorTimeoutRef.current) clearTimeout(savedIndicatorTimeoutRef.current);
@@ -192,12 +216,13 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
       ...authoringRequest,
       targetDurationSec: seconds,
     });
+    const metadata = buildThinkForgeAuthoringCompatibilityMetadata(nextRequest);
     setLocalIdea(prev => ({
       ...prev,
-      authoringRequest: nextRequest,
-      durationSec: seconds,
-      format: describeThinkForgeAuthoringDeliverable(nextRequest),
-      platform: describeThinkForgePlatformSurface(nextRequest.platformSurface),
+      authoringRequest: metadata.authoringRequest,
+      durationSec: metadata.durationSec,
+      format: metadata.format,
+      platform: metadata.platform,
     }));
     setDurationError(null);
     setSaveState('dirty');

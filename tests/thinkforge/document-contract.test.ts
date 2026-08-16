@@ -14,6 +14,7 @@ import {
 } from '@/lib/thinkforge/agents/prompt-utils';
 import { resolveFlatWriterDocumentKind } from '@/lib/thinkforge/services/flat-writer-edit';
 import { mergeThinkForgeProjectMetadata } from '@/lib/thinkforge/state/types';
+import { buildThinkForgeAuthoringCompatibilityMetadata } from '@/lib/thinkforge/schemas/authoring-request';
 
 describe('ThinkForge canonical document contract', () => {
   it('normalizes legacy and user-facing labels at the boundary', () => {
@@ -231,6 +232,7 @@ describe('ThinkForge canonical document contract', () => {
   });
 
   it('keeps client drafting on the typed contract without duration or carousel prose parsing', () => {
+    const page = readFileSync(new URL('../../app/dashboard/thinkforge/page.tsx', import.meta.url), 'utf8');
     const ideaGrid = readFileSync(new URL('../../components/dashboard/ThinkForge/IdeaGrid.tsx', import.meta.url), 'utf8');
     const chatPanel = readFileSync(new URL('../../components/dashboard/ThinkForge/ChatPanel.tsx', import.meta.url), 'utf8');
     const settings = readFileSync(new URL('../../components/dashboard/ThinkForge/SessionMetadataSettings.tsx', import.meta.url), 'utf8');
@@ -240,14 +242,35 @@ describe('ThinkForge canonical document contract', () => {
     expect(ideaGrid).not.toContain('setExpandedIdea({ ...expandedIdea, format:');
     expect(ideaGrid).not.toContain('setExpandedIdea({ ...expandedIdea, platform:');
     expect(chatPanel).toContain('resolveSelectedIdeaAuthoringRequest');
-    expect(chatPanel).toContain('...(authoringRequest ? { authoringRequest } : {})');
+    expect(chatPanel).toContain('buildThinkForgeAuthoringCompatibilityMetadata');
+    expect(chatPanel).toContain('!effectiveAuthoringRequest && !hasDocumentContent');
+    expect(chatPanel).not.toContain('normalizeThinkForgeDocumentContract(selectedIdea.format)');
     expect(chatPanel).not.toContain('resolveCarouselSlideCount');
     expect(chatPanel).not.toContain('60-second');
     expect(chatPanel).not.toContain('under 60 seconds');
     expect(settings).toContain("contentContract.outputKind === 'video_script'");
+    expect(settings).toContain('synchronizeIdeaWithAuthoringRequest');
     expect(settings).not.toContain('formats.some');
     expect(settings).not.toContain('setFormats');
     expect(storyboarding).toContain('selectedIdea={selectedIdea}');
+    expect(page).toContain('setAuthoringRequest(restoredIdea.authoringRequest || null)');
+  });
+
+  it('derives compatibility metadata from an arbitrary explicit script duration', () => {
+    const metadata = buildThinkForgeAuthoringCompatibilityMetadata({
+      version: 1,
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' },
+      targetDurationSec: 420,
+    });
+
+    expect(metadata).toMatchObject({
+      durationSec: 420,
+      format: '7-minute YouTube video script',
+      platform: 'YouTube',
+      contentContract: createThinkForgeWriterContract('video_script'),
+    });
+    expect(metadata.authoringRequest.targetDurationSec).toBe(420);
   });
 
   it('uses the selected canonical kind for system-triggered initial drafts', () => {

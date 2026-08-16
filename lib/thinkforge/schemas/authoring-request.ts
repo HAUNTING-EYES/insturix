@@ -206,6 +206,31 @@ export function describeThinkForgeAuthoringDeliverable(requestInput: ThinkForgeA
   throw new Error(`unsupported ThinkForge writer kind: ${writerKind}`);
 }
 
+export interface ThinkForgeAuthoringCompatibilityMetadata {
+  authoringRequest: ThinkForgeAuthoringRequest;
+  contentContract: ThinkForgeDocumentContract;
+  format: string;
+  platform: string;
+  durationSec: number | undefined;
+}
+
+/**
+ * Legacy display fields remain persisted for older readers, but they are always
+ * derived from the validated request and never act as independent authority.
+ */
+export function buildThinkForgeAuthoringCompatibilityMetadata(
+  requestInput: ThinkForgeAuthoringRequest,
+): ThinkForgeAuthoringCompatibilityMetadata {
+  const authoringRequest = ThinkForgeAuthoringRequestSchema.parse(requestInput);
+  return {
+    authoringRequest,
+    contentContract: authoringRequest.contentContract,
+    format: describeThinkForgeAuthoringDeliverable(authoringRequest),
+    platform: describeThinkForgePlatformSurface(authoringRequest.platformSurface),
+    durationSec: authoringRequest.targetDurationSec,
+  };
+}
+
 export function createDefaultThinkForgePostControls(): ThinkForgePostControls {
   return {
     version: THINKFORGE_POST_CONTROLS_VERSION,

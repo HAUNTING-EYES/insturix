@@ -16,12 +16,8 @@ import { logShadowEvent } from "@/lib/thinkforge/services/shadow-logger";
 import { TrendWorkflowPanel } from "./TrendWorkflowPanel";
 import type { SelectedTrend } from "@/lib/thinkforge/trends/selected-trend";
 import {
-  normalizeThinkForgeDocumentContract,
-} from "@/lib/thinkforge/schemas/document-contract";
-import {
-  describeThinkForgeAuthoringDeliverable,
-  describeThinkForgePlatformSurface,
   ThinkForgeAuthoringRequestSchema,
+  buildThinkForgeAuthoringCompatibilityMetadata,
   type ThinkForgeAuthoringRequest,
 } from "@/lib/thinkforge/schemas/authoring-request";
 
@@ -192,6 +188,13 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const threadRegistryKey = useMemo(() => (
     sessionId ? `thinkforge_chat_threads_${sessionId}` : null
   ), [sessionId]);
+  const selectedAuthoringRequest = useMemo(
+    () => resolveSelectedIdeaAuthoringRequest(selectedIdea),
+    [selectedIdea],
+  );
+  const hasDocumentContent = Boolean(
+    script?.content || (Array.isArray(script?.blocks) && script.blocks.length > 0),
+  );
 
   useEffect(() => {
     if (!sessionId) return;
@@ -264,24 +267,24 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   // Build project payload from selected idea
   const sessionPayload = useMemo(
     () => {
-      const authoringRequest = resolveSelectedIdeaAuthoringRequest(selectedIdea);
-      const contentContract = authoringRequest?.contentContract
-        ?? normalizeThinkForgeDocumentContract(selectedIdea.format);
+      const authoringMetadata = selectedAuthoringRequest
+        ? buildThinkForgeAuthoringCompatibilityMetadata(selectedAuthoringRequest)
+        : undefined;
       return {
         idea: selectedIdea.idea,
         purpose: selectedIdea.purpose,
         style: selectedIdea.style,
         format: selectedIdea.format,
-        ...(contentContract ? { contentContract } : {}),
-        ...(authoringRequest ? { authoringRequest } : {}),
         platform: selectedIdea.platform,
+        durationSec: selectedIdea.durationSec,
+        ...(authoringMetadata || {}),
         tone: selectedIdea.tone,
         sessionName: selectedIdea.sessionName,
         originalPrompt: selectedIdea.originalPrompt,
         ...pickProjectMetaPassthrough(selectedIdea),
       };
     },
-    [selectedIdea]
+    [selectedIdea, selectedAuthoringRequest]
   );
 
   // Build script payload
@@ -294,11 +297,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     if (initialDraftClaimedSessionRef.current === sessionId) return;
     if (!selectedIdea?.idea || chat.messages.length > 0 || chat.isStreaming) return;
 
-    const hasScript = Boolean(
-      script?.content ||
-      (Array.isArray(script?.blocks) && script.blocks.length > 0),
-    );
-    if (hasScript) return;
+    if (hasDocumentContent || !selectedAuthoringRequest) return;
 
     void (async () => {
       try {
@@ -345,6 +344,8 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     selectedIdea?.idea,
     script?.content,
     script?.blocks,
+    hasDocumentContent,
+    selectedAuthoringRequest,
     chat.messages.length,
     chat.isStreaming,
     chat.sendMessage,
@@ -365,6 +366,15 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       });
       return;
     }
+    if (!selectedAuthoringRequest && !hasDocumentContent) {
+      toast({
+        title: 'Confirm output settings',
+        description: 'Choose the output type, destination, and required length in session settings before drafting.',
+        variant: 'destructive',
+      });
+      onOpenSettings?.();
+      return;
+    }
 
     const originalPrompt = inputValue.trim();
 
@@ -378,11 +388,23 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
 
     // No URLs — normal send flow
     sendChatMessage(originalPrompt);
-  }, [inputValue, sessionId, chat.isStreaming]);
+  }, [inputValue, sessionId, chat.isStreaming, selectedAuthoringRequest, hasDocumentContent, onOpenSettings]);
 
   /** Send a normal chat message (no URL processing) */
   const sendChatMessage = useCallback((originalPrompt: string, authoringRequestOverride?: ThinkForgeAuthoringRequest) => {
     if (!sessionId) return;
+    const effectiveAuthoringRequest = authoringRequestOverride
+      ? ThinkForgeAuthoringRequestSchema.parse(authoringRequestOverride)
+      : selectedAuthoringRequest;
+    if (!effectiveAuthoringRequest && !hasDocumentContent) {
+      toast({
+        title: 'Confirm output settings',
+        description: 'This empty session has no authoritative authoring request. Confirm its output settings before drafting.',
+        variant: 'destructive',
+      });
+      onOpenSettings?.();
+      return;
+    }
 
     // Shadow Logger: detect regeneration (user stopped AI then sent a new message)
     if (justStoppedStreamRef.current) {
@@ -460,16 +482,10 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         : 'chat_send';
 
     const currentScriptId = scriptIdRef.current || undefined;
-    const projectPayload = authoringRequestOverride
+    const projectPayload = effectiveAuthoringRequest
       ? {
           ...sessionPayload,
-          authoringRequest: authoringRequestOverride,
-          contentContract: authoringRequestOverride.contentContract,
-          format: describeThinkForgeAuthoringDeliverable(authoringRequestOverride),
-          platform: describeThinkForgePlatformSurface(authoringRequestOverride.platformSurface),
-          ...(authoringRequestOverride.targetDurationSec !== undefined
-            ? { durationSec: authoringRequestOverride.targetDurationSec }
-            : {}),
+          ...buildThinkForgeAuthoringCompatibilityMetadata(effectiveAuthoringRequest),
         }
       : sessionPayload;
     chat.sendMessage(originalPrompt, {
@@ -499,7 +515,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         }
       }, 0);
     }
-  }, [sessionId, activeThreadId, chat, scriptPayload, sessionPayload, handleScriptUpdate, onTokenStream, onGetSelection, editingSelection, onCancelEditSelection, upsertThread]);
+  }, [sessionId, selectedAuthoringRequest, hasDocumentContent, onOpenSettings, activeThreadId, chat, scriptPayload, sessionPayload, handleScriptUpdate, onTokenStream, onGetSelection, editingSelection, onCancelEditSelection, upsertThread]);
 
   /**
    * Handle URLs detected in chat input.
