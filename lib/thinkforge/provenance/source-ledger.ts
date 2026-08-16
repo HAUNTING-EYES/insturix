@@ -72,6 +72,29 @@ interface MinimalSourceRefCarrier {
   }>;
 }
 
+interface MinimalNarrativeSidecarSourceCarrier {
+  sourceRefs?: string[];
+  acts?: Array<{
+    narrativeScenes?: Array<{
+      title?: string;
+      narrativePurpose?: string;
+      sourceRefs?: string[];
+      beats?: Array<{
+        narrativePurpose?: string;
+        sourceRefs?: string[];
+        visualIntent?: {
+          description?: string;
+          onScreenText?: string[];
+        };
+        lines?: Array<{
+          text?: string;
+          sourceRefs?: string[];
+        }>;
+      }>;
+    }>;
+  }>;
+}
+
 const MAX_BRIEF_CHARS = 1200;
 const MAX_FACT_CHARS = 900;
 
@@ -267,6 +290,55 @@ export function findSourceLedgerIssuesForSidecar(
       if (requiresSourceRef(line.text ?? '', parsedLedger) && (line.sourceRefs ?? []).length === 0) {
         issues.push(`missing_source_ref:${lineLabel}`);
       }
+    });
+  });
+
+  return issues;
+}
+
+export function findSourceLedgerIssuesForNarrativeSidecar(
+  sidecar: MinimalNarrativeSidecarSourceCarrier,
+  ledger: SourceLedger | null | undefined,
+): string[] {
+  if (!ledger) return [];
+
+  const parsedLedger = parseSourceLedger(ledger);
+  const allowed = ledgerReferenceIds(parsedLedger);
+  const issues: string[] = [];
+
+  addInvalidRefs(issues, sidecar.sourceRefs, allowed, 'sidecar');
+
+  sidecar.acts?.forEach((act, actIndex) => {
+    act.narrativeScenes?.forEach((scene, sceneIndex) => {
+      const sceneLabel = `act_${actIndex + 1}.scene_${sceneIndex + 1}`;
+      addInvalidRefs(issues, scene.sourceRefs, allowed, sceneLabel);
+
+      const sceneFactText = [scene.title, scene.narrativePurpose].filter(Boolean).join(' ');
+      if (requiresSourceRef(sceneFactText, parsedLedger) && (scene.sourceRefs ?? []).length === 0) {
+        issues.push(`missing_source_ref:${sceneLabel}`);
+      }
+
+      scene.beats?.forEach((beat, beatIndex) => {
+        const beatLabel = `${sceneLabel}.beat_${beatIndex + 1}`;
+        addInvalidRefs(issues, beat.sourceRefs, allowed, beatLabel);
+
+        const beatFactText = [
+          beat.narrativePurpose,
+          beat.visualIntent?.description,
+          ...(beat.visualIntent?.onScreenText ?? []),
+        ].filter(Boolean).join(' ');
+        if (requiresSourceRef(beatFactText, parsedLedger) && (beat.sourceRefs ?? []).length === 0) {
+          issues.push(`missing_source_ref:${beatLabel}`);
+        }
+
+        beat.lines?.forEach((line, lineIndex) => {
+          const lineLabel = `${beatLabel}.line_${lineIndex + 1}`;
+          addInvalidRefs(issues, line.sourceRefs, allowed, lineLabel);
+          if (requiresSourceRef(line.text ?? '', parsedLedger) && (line.sourceRefs ?? []).length === 0) {
+            issues.push(`missing_source_ref:${lineLabel}`);
+          }
+        });
+      });
     });
   });
 

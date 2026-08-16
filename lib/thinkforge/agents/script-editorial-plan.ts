@@ -113,7 +113,6 @@ function directive(technique: TechniqueResult | undefined): ScriptTechniqueDirec
 function structureTechniqueFitsDuration(techniqueId: string, targetDurationSeconds: number): boolean {
   if (targetDurationSeconds <= 0) return true;
   if (techniqueId === 'problem_agitate_solve') return targetDurationSeconds <= 60;
-  if (techniqueId === 'attention_interest_desire_action') return targetDurationSeconds <= 180;
   return true;
 }
 
@@ -175,8 +174,8 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
       sceneBoundaryPolicy: [
         'Start a new scene only when narrative purpose, argument stage, time or place, speaker mode, evidence unit, emotional beat, or visual treatment meaningfully changes.',
         'Never create, split, merge, or pad editorial scenes to satisfy a seconds-per-scene formula.',
-        'Use subShots for meaningful visual coverage changes inside one editorial scene; subShots are not extra story beats.',
-        'Only on-camera sync-dialogue generation segments obey the downstream lip-sync duration cap.',
+        'Use beats for meaningful developments inside one editorial scene; technical render segments are not extra story beats.',
+        'Keep provider compatibility and render-job segmentation out of the editorial hierarchy.',
       ],
       ...(structureDirective ? { selectedTechnique: structureDirective } : {}),
     },
