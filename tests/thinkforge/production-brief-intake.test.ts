@@ -192,7 +192,18 @@ describe('resolveThinkForgeProductionBrief', () => {
       'lib/thinkforge/services/chat-service.ts',
       'utf8',
     );
-    expect(chatService.match(/authoringRequest: authoritativeAuthoringRequest/g)).toHaveLength(3);
+    expect(chatService).toMatch(
+      /buildThinkForgeAuthoringContextSnapshot\(\{[\s\S]{0,300}authoringRequest: authoritativeAuthoringRequest/,
+    );
+    expect(chatService).toMatch(
+      /resolveContentSignalProfile\(\{[\s\S]{0,300}authoringRequest: authoritativeAuthoringRequest/,
+    );
+    expect(chatService).toMatch(
+      /resolveThinkForgeProductionBrief\(\{[\s\S]{0,300}authoringRequest: authoritativeAuthoringRequest/,
+    );
+    expect(chatService).toMatch(
+      /const baseInput = \{[\s\S]{0,600}authoringRequest: authoritativeAuthoringRequest/,
+    );
     expect(chatService).toContain('ThinkForge generation requires a confirmed authoring request');
     expect(chatService).not.toContain('requested: promptUnderstanding?.requested');
   });
