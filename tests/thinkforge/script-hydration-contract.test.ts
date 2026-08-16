@@ -11,6 +11,7 @@ import {
 } from '@/lib/thinkforge/agents/prompt-utils';
 import { sanitizeServerScript } from '@/lib/thinkforge/json';
 import {
+  resolveThinkForgeInitialHydration,
   scriptModelToUiScript,
   uiScriptToScriptModel,
 } from '@/app/dashboard/thinkforge/client-script-conversion';
@@ -106,6 +107,45 @@ describe('ThinkForge script hydration contract', () => {
       richText: null,
       metadata: null,
     });
+  });
+
+  it('resolves initial editor hydration only from the matching parent-owned document', () => {
+    const identity = { sessionId: 'session_b', scriptId: 'post_2' };
+    const matchingBase = {
+      ...identity,
+      metadata: identity,
+    };
+
+    expect(resolveThinkForgeInitialHydration({
+      isLoading: true,
+      script: { ...matchingBase, content: 'stale while loading' },
+      identity,
+    })).toEqual({ status: 'waiting' });
+    expect(resolveThinkForgeInitialHydration({
+      isLoading: false,
+      script: { sessionId: 'session_a', scriptId: 'post_2', content: 'wrong session' },
+      identity,
+    })).toEqual({ status: 'identity_mismatch' });
+    expect(resolveThinkForgeInitialHydration({
+      isLoading: false,
+      script: { ...matchingBase, blocks: [], content: 'Visible generated post' },
+      identity,
+    })).toEqual({ status: 'ready', source: 'content', value: 'Visible generated post' });
+    expect(resolveThinkForgeInitialHydration({
+      isLoading: false,
+      script: { ...matchingBase, blocks: [{ id: 'block_1' }], content: 'Derived text' } as any,
+      identity,
+    })).toMatchObject({ status: 'ready', source: 'blocks' });
+    expect(resolveThinkForgeInitialHydration({
+      isLoading: false,
+      script: { ...matchingBase, richText: { type: 'doc', content: [] }, blocks: [{ id: 'block_1' }] } as any,
+      identity,
+    })).toMatchObject({ status: 'ready', source: 'rich_text' });
+    expect(resolveThinkForgeInitialHydration({
+      isLoading: false,
+      script: null,
+      identity,
+    })).toEqual({ status: 'ready', source: 'empty' });
   });
 
   it('hydrates every server-owned document field without inventing a document type', () => {

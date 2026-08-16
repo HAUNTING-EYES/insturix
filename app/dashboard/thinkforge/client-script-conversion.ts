@@ -1,5 +1,42 @@
 import type { Script } from "@/app/dashboard/thinkforge/types";
 import type { ScriptModel } from "@/lib/thinkforge/json";
+import {
+  matchesThinkForgeDocumentIdentity,
+  type ThinkForgeDocumentIdentity,
+} from "@/lib/thinkforge/client-document-identity";
+
+export type ThinkForgeInitialHydrationDecision =
+  | { status: 'waiting' }
+  | { status: 'identity_mismatch' }
+  | { status: 'ready'; source: 'rich_text'; value: NonNullable<Script['richText']> }
+  | { status: 'ready'; source: 'blocks'; value: NonNullable<Script['blocks']> }
+  | { status: 'ready'; source: 'content'; value: string }
+  | { status: 'ready'; source: 'empty' };
+
+export function resolveThinkForgeInitialHydration(input: {
+  isLoading: boolean;
+  script: Script | null;
+  identity: ThinkForgeDocumentIdentity;
+}): ThinkForgeInitialHydrationDecision {
+  if (input.isLoading) return { status: 'waiting' };
+  if (!input.script) return { status: 'ready', source: 'empty' };
+  if (!matchesThinkForgeDocumentIdentity(input.script, input.identity)) {
+    return { status: 'identity_mismatch' };
+  }
+
+  if (input.script.richText !== undefined && input.script.richText !== null) {
+    return { status: 'ready', source: 'rich_text', value: input.script.richText };
+  }
+  if (input.script.blocks !== undefined && input.script.blocks !== null) {
+    if (!Array.isArray(input.script.blocks) || input.script.blocks.length > 0) {
+      return { status: 'ready', source: 'blocks', value: input.script.blocks };
+    }
+  }
+  if (typeof input.script.content === 'string' && input.script.content.length > 0) {
+    return { status: 'ready', source: 'content', value: input.script.content };
+  }
+  return { status: 'ready', source: 'empty' };
+}
 
 function escapeHtml(value: string): string {
   return value
