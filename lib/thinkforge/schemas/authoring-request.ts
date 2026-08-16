@@ -200,6 +200,53 @@ const PLATFORM_LABELS: Record<Exclude<ThinkForgePlatformSurfaceId, 'custom'>, st
   generic: 'General',
 };
 
+const PLATFORM_SURFACE_ALIASES: Readonly<Record<string, Exclude<ThinkForgePlatformSurfaceId, 'custom'>>> = {
+  linkedin: 'linkedin',
+  'linkedin post': 'linkedin',
+  instagram: 'instagram',
+  'instagram feed': 'instagram',
+  'instagram reel': 'instagram',
+  'instagram reels': 'instagram',
+  facebook: 'facebook',
+  'facebook post': 'facebook',
+  'facebook reel': 'facebook',
+  'facebook reels': 'facebook',
+  x: 'x',
+  twitter: 'x',
+  'x post': 'x',
+  'twitter post': 'x',
+  'twitter x': 'x',
+  youtube: 'youtube',
+  'youtube video': 'youtube',
+  'youtube short': 'youtube',
+  'youtube shorts': 'youtube',
+  tiktok: 'tiktok',
+  'tik tok': 'tiktok',
+  reddit: 'reddit',
+  medium: 'medium',
+  blog: 'blog',
+  newsletter: 'newsletter',
+  podcast: 'podcast',
+  internal: 'internal',
+  general: 'generic',
+  generic: 'generic',
+};
+
+export function resolveThinkForgePlatformSurfaceFromLabel(
+  label: string,
+): ThinkForgePlatformSurface {
+  const customLabel = label.trim();
+  const normalized = customLabel
+    .toLocaleLowerCase()
+    .replace(/[\/_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const id = PLATFORM_SURFACE_ALIASES[normalized];
+  return ThinkForgePlatformSurfaceSchema.parse(
+    id ? { id } : { id: 'custom', customLabel },
+  );
+}
+
 export function describeThinkForgePlatformSurface(surface: ThinkForgePlatformSurface): string {
   if (surface.id !== 'custom') return PLATFORM_LABELS[surface.id];
   if (!surface.customLabel) {

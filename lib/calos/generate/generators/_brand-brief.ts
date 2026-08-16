@@ -10,6 +10,15 @@ import {
 import type { SemanticFact } from '@/lib/thinkforge/context';
 import { resolveThinkForgeProductionBrief } from '@/lib/thinkforge/brief/resolve-production-brief';
 import {
+  buildThinkForgeAuthoringCompatibilityMetadata,
+  createDefaultThinkForgePostControls,
+  createThinkForgeAuthoringRequest,
+  resolveThinkForgePlatformSurfaceFromLabel,
+  type ThinkForgeAuthoringRequest,
+} from '@/lib/thinkforge/schemas/authoring-request';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
+import { resolveProjectMetaAuthoringRequest } from '@/lib/thinkforge/state/types';
+import {
   buildThinkForgeSourceLedger,
   type SourceLedger,
 } from '@/lib/thinkforge/provenance/source-ledger';
@@ -39,9 +48,79 @@ export type CalosWriterParams = GenerateParams & {
 export interface CalosWriterExecutionContext {
   authoringContext: CalosWriterContext;
   route: CalosGenerationRoute;
+  authoringRequest: ThinkForgeAuthoringRequest;
   userPrompt: string;
   sourceLedger: SourceLedger;
   productionBrief: ProductionBrief;
+}
+
+export type CalosAuthoringContractErrorCode =
+  | 'carousel_slide_count_required'
+  | 'carousel_slide_count_not_applicable'
+  | 'target_duration_not_applicable'
+  | 'long_video_duration_required';
+
+export class CalosAuthoringContractError extends Error {
+  constructor(
+    readonly code: CalosAuthoringContractErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CalosAuthoringContractError';
+  }
+}
+
+interface CalosAuthoringAuthority {
+  route: CalosGenerationRoute;
+  authoringRequest: ThinkForgeAuthoringRequest;
+}
+
+function resolveCalosAuthoringAuthority(params: GenerateParams): CalosAuthoringAuthority {
+  const baseRoute = resolveCalosGenerationRoute(params.format);
+  const isCarousel = baseRoute.documentType === 'carousel';
+  const isVideo = baseRoute.documentType === 'video_script';
+  if (isCarousel && params.carouselSlideCount === undefined) {
+    throw new CalosAuthoringContractError(
+      'carousel_slide_count_required',
+      'Choose the carousel slide count before generating this calendar card.',
+    );
+  }
+  if (!isCarousel && params.carouselSlideCount !== undefined) {
+    throw new CalosAuthoringContractError(
+      'carousel_slide_count_not_applicable',
+      'Carousel slide count is only valid for a carousel deliverable.',
+    );
+  }
+  if (!isVideo && params.targetDurationSeconds !== undefined) {
+    throw new CalosAuthoringContractError(
+      'target_duration_not_applicable',
+      'Target duration is only valid for a video-script deliverable.',
+    );
+  }
+  if (baseRoute.format === 'long_video' && params.targetDurationSeconds === undefined) {
+    throw new CalosAuthoringContractError(
+      'long_video_duration_required',
+      'Choose the long-video runtime before generating this calendar card.',
+    );
+  }
+
+  const contentContract = isCarousel
+    ? createThinkForgeWriterContract('carousel', {
+        carouselSlideCount: params.carouselSlideCount,
+      })
+    : baseRoute.contentContract;
+  const authoringRequest = createThinkForgeAuthoringRequest({
+    contentContract,
+    platformSurface: resolveThinkForgePlatformSurfaceFromLabel(params.platform),
+    ...(isVideo && params.targetDurationSeconds !== undefined
+      ? { targetDurationSec: params.targetDurationSeconds }
+      : {}),
+    ...(!isVideo ? { postControls: createDefaultThinkForgePostControls() } : {}),
+  });
+  return {
+    route: { ...baseRoute, contentContract },
+    authoringRequest,
+  };
 }
 
 function canonicalOptional(value: string | null | undefined): string | null {
@@ -51,18 +130,21 @@ function canonicalOptional(value: string | null | undefined): string | null {
 function assertPreflightedContextMatchesParams(
   context: CalosWriterContext,
   params: GenerateParams,
+  expectedAuthoringRequest: ThinkForgeAuthoringRequest,
 ): CalosWriterContext {
   const resolvedBrandId = context.projectMeta.brandId?.trim();
   const snapshotBrandId = context.snapshot.brand?.brandId?.trim();
   const resolvedCardId = context.projectMeta.contentCardId?.trim();
   const resolvedCampaignId = canonicalOptional(context.projectMeta.campaignId);
   const expectedScope = params.orgId ? 'organization' : 'personal';
+  const actualAuthoringRequest = resolveProjectMetaAuthoringRequest(context.projectMeta);
   if (
     resolvedBrandId !== params.brandId
     || snapshotBrandId !== params.brandId
     || resolvedCardId !== params.deliverableId
     || resolvedCampaignId !== canonicalOptional(params.campaignId)
     || context.snapshot.scope.kind !== expectedScope
+    || JSON.stringify(actualAuthoringRequest) !== JSON.stringify(expectedAuthoringRequest)
   ) {
     throw new Error('CalOS preflighted authoring context does not match the requested deliverable scope.');
   }
@@ -96,13 +178,14 @@ function mergeFacts(primary: SemanticFact[], secondary: SemanticFact[]): Semanti
 export async function resolveCalosWriterContext(
   params: CalosWriterParams,
 ): Promise<CalosWriterContext> {
+  const { route, authoringRequest } = resolveCalosAuthoringAuthority(params);
   if (params.authoringContext) {
-    return assertPreflightedContextMatchesParams(params.authoringContext, params);
+    return assertPreflightedContextMatchesParams(params.authoringContext, params, authoringRequest);
   }
 
-  const route = resolveCalosGenerationRoute(params.format);
   const userPrompt = buildCalosWriterPrompt(params);
   const writingKnowledgeVersion = getWritingKnowledgeVersion();
+  const compatibilityMetadata = buildThinkForgeAuthoringCompatibilityMetadata(authoringRequest);
   const [resolved, referenceFacts] = await Promise.all([
     resolveThinkForgeAuthoringContext({
       userId: params.ownerUserId,
@@ -110,12 +193,9 @@ export async function resolveCalosWriterContext(
       providedProject: {
         title: params.title,
         idea: params.angle,
-        format: route.format,
-        contentContract: route.contentContract,
-        platform: params.platform,
+        ...compatibilityMetadata,
         brandId: params.brandId,
         contentCardId: params.deliverableId,
-        ...(params.targetDurationSeconds ? { durationSec: params.targetDurationSeconds } : {}),
         ...(params.campaignId ? { campaignId: params.campaignId } : {}),
       },
       currentPrompt: userPrompt,
@@ -139,13 +219,13 @@ export async function resolveCalosWriterContext(
   };
   const projectMeta = {
     ...resolved.projectMeta,
-    format: route.format,
-    contentContract: route.contentContract,
+    ...compatibilityMetadata,
     contentCardId: params.deliverableId,
-    ...(params.targetDurationSeconds ? { durationSec: params.targetDurationSeconds } : {}),
   };
   const contentSignalProfile = resolveContentSignalProfile({
     userPrompt,
+    authoringRequest,
+    contentContract: authoringRequest.contentContract,
     documentType: route.documentType,
     medium: route.format,
     platform: params.platform,
@@ -176,8 +256,8 @@ export async function resolveCalosWriterContext(
 export async function resolveCalosWriterExecutionContext(
   params: CalosWriterParams,
 ): Promise<CalosWriterExecutionContext> {
+  const { route, authoringRequest } = resolveCalosAuthoringAuthority(params);
   const authoringContext = await resolveCalosWriterContext(params);
-  const route = resolveCalosGenerationRoute(params.format);
   const userPrompt = buildCalosWriterPrompt(params);
   const sourceLedger = buildThinkForgeSourceLedger({
     userPrompt,
@@ -188,6 +268,7 @@ export async function resolveCalosWriterExecutionContext(
   const productionBrief = resolveThinkForgeProductionBrief({
     userPrompt,
     project: authoringContext.projectMeta,
+    authoringRequest,
     documentType: route.documentType,
     contentPath: route.documentType,
     brandId: authoringContext.projectMeta.brandId,
@@ -196,6 +277,7 @@ export async function resolveCalosWriterExecutionContext(
   return {
     authoringContext,
     route,
+    authoringRequest,
     userPrompt,
     sourceLedger,
     productionBrief,

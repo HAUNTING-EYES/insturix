@@ -8,8 +8,19 @@ import {
   trendTargetForAuthoringRequest,
 } from '@/components/dashboard/ThinkForge/TrendWorkflowPanel';
 import type { TrendCandidate } from '@/lib/thinkforge/trends/trend-evidence';
+import { resolveThinkForgePlatformSurfaceFromLabel } from '@/lib/thinkforge/schemas/authoring-request';
 
 describe('ThinkForge authoring request draft', () => {
+  it('normalizes exact platform aliases and preserves unknown destinations explicitly', () => {
+    expect(resolveThinkForgePlatformSurfaceFromLabel('Twitter/X')).toEqual({ id: 'x' });
+    expect(resolveThinkForgePlatformSurfaceFromLabel('YouTube Shorts')).toEqual({ id: 'youtube' });
+    expect(resolveThinkForgePlatformSurfaceFromLabel('Client Community')).toEqual({
+      id: 'custom',
+      customLabel: 'Client Community',
+    });
+    expect(() => resolveThinkForgePlatformSurfaceFromLabel('')).toThrow();
+  });
+
   it('requires explicit output and platform choices', () => {
     const result = resolveThinkForgeAuthoringRequestDraft(createThinkForgeAuthoringRequestDraft());
     expect(result).toEqual({ success: false, error: 'Choose an output type.' });

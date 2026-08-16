@@ -92,11 +92,15 @@ describe('resolveCalosWriterContext', () => {
       currentPrompt: expect.stringContaining('Target duration: 420 seconds'),
       writingKnowledgeVersion: 'writing-knowledge-v3',
       providedProject: expect.objectContaining({
-        format: 'long_video',
+        format: '7-minute YouTube video script',
         durationSec: 420,
         contentCardId: 'deliverable_1',
         campaignId: 'campaign_1',
         contentContract: expect.objectContaining({ outputKind: 'video_script' }),
+        authoringRequest: expect.objectContaining({
+          targetDurationSec: 420,
+          platformSurface: { id: 'youtube' },
+        }),
       }),
     }));
     expect(mocks.resolveCalosReferenceFacts).toHaveBeenCalledWith({
@@ -108,6 +112,8 @@ describe('resolveCalosWriterContext', () => {
     expect(mocks.resolveContentSignalProfile).toHaveBeenCalledWith(expect.objectContaining({
       brandId: 'brand_b',
       documentType: 'video_script',
+      authoringRequest: expect.objectContaining({ targetDurationSec: 420 }),
+      contentContract: expect.objectContaining({ outputKind: 'video_script' }),
       retrievedContext: expect.objectContaining({ projectFacts: [referenceFact] }),
     }));
     expect(mocks.buildThinkForgeAuthoringContextSnapshot).toHaveBeenCalledWith(expect.objectContaining({
@@ -116,7 +122,62 @@ describe('resolveCalosWriterContext', () => {
       writingKnowledgeVersion: 'writing-knowledge-v3',
     }));
     expect(result.snapshot.retrieval.projectFactIds).toEqual(['calos_campaign_launch']);
-    expect(result.projectMeta).toMatchObject({ durationSec: 420, contentCardId: 'deliverable_1' });
+    expect(result.projectMeta).toMatchObject({
+      durationSec: 420,
+      contentCardId: 'deliverable_1',
+      authoringRequest: {
+        version: 1,
+        targetDurationSec: 420,
+        platformSurface: { id: 'youtube' },
+        contentContract: expect.objectContaining({ outputKind: 'video_script' }),
+      },
+    });
+  });
+
+  it('builds an exact carousel request and refuses to guess a missing count', async () => {
+    const { resolveCalosWriterContext, CalosAuthoringContractError } = await import(
+      '@/lib/calos/generate/generators/_brand-brief'
+    );
+    const carouselParams = {
+      ...params,
+      format: 'carousel',
+      platform: 'instagram',
+      targetDurationSeconds: undefined,
+      carouselSlideCount: 6,
+    };
+
+    const result = await resolveCalosWriterContext(carouselParams);
+
+    expect(result.projectMeta.authoringRequest).toMatchObject({
+      platformSurface: { id: 'instagram' },
+      contentContract: { outputKind: 'carousel', carouselSlideCount: 6 },
+      postControls: expect.objectContaining({ version: 1 }),
+    });
+    expect(mocks.resolveContentSignalProfile).toHaveBeenCalledWith(expect.objectContaining({
+      authoringRequest: expect.objectContaining({
+        contentContract: expect.objectContaining({ carouselSlideCount: 6 }),
+      }),
+    }));
+
+    await expect(resolveCalosWriterContext({
+      ...carouselParams,
+      carouselSlideCount: undefined,
+    })).rejects.toEqual(expect.objectContaining({
+      name: CalosAuthoringContractError.name,
+      code: 'carousel_slide_count_required',
+    }));
+  });
+
+  it('rejects a duration attached to a non-video deliverable before context resolution', async () => {
+    const { resolveCalosWriterContext } = await import('@/lib/calos/generate/generators/_brand-brief');
+
+    await expect(resolveCalosWriterContext({
+      ...params,
+      format: 'text',
+      platform: 'linkedin',
+      targetDurationSeconds: 90,
+    })).rejects.toMatchObject({ code: 'target_duration_not_applicable' });
+    expect(mocks.resolveThinkForgeAuthoringContext).not.toHaveBeenCalled();
   });
 
   it('propagates Brand Vault and reference failures instead of creating a generic draft', async () => {
