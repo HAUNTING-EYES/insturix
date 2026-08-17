@@ -1,6 +1,8 @@
 import type { BrandSignalProfile } from './brand-signal-profile';
 import {
   acceptBrandSignalProfileDraft,
+  bindBrandSignalDraftToAcceptedRevision,
+  brandSignalDraftMatchesAcceptedRevision,
   createBrandSignalProfileDraft,
   rejectBrandSignalProfileDraft,
   supersedeBrandSignalProfileRecord,
@@ -59,15 +61,19 @@ export class InMemoryBrandSignalProfileRepository {
 
   saveDraft(profile: BrandSignalProfile, options: BrandSignalLifecycleOptions = {}): BrandSignalProfileRecord {
     const draft = createBrandSignalProfileDraft(profile, options);
-    this.records.set(draft.id, cloneRecord(draft));
-    this.appendEvent('draft_saved', draft, options);
-    return cloneRecord(draft);
+    return this.saveRecord(draft, options);
   }
 
   saveRecord(record: BrandSignalProfileRecord, options: BrandSignalLifecycleOptions = {}): BrandSignalProfileRecord {
-    this.records.set(record.id, cloneRecord(record));
-    this.appendEvent(record.status === 'draft' ? 'draft_saved' : 'record_superseded', record, options);
-    return cloneRecord(record);
+    const existing = this.records.get(record.id);
+    const next = record.status === 'draft'
+      ? existing?.status === 'draft' && existing.baseAcceptedRevision !== undefined
+        ? { ...record, baseAcceptedRevision: existing.baseAcceptedRevision }
+        : bindBrandSignalDraftToAcceptedRevision(record, this.currentAcceptedFor(record))
+      : record;
+    this.records.set(next.id, cloneRecord(next));
+    this.appendEvent(next.status === 'draft' ? 'draft_saved' : 'record_superseded', next, options);
+    return cloneRecord(next);
   }
 
   getRecord(id: string): BrandSignalProfileRecord | null {
@@ -95,6 +101,15 @@ export class InMemoryBrandSignalProfileRepository {
     if (!draft) return failure('not_found', 'record', `Brand signal profile record "${id}" was not found.`);
     if (draft.status !== 'draft') {
       return failure('not_draft', 'status', `Only draft profiles can be accepted. Current status: ${draft.status}.`);
+    }
+    if (!brandSignalDraftMatchesAcceptedRevision(draft, this.currentAcceptedFor(draft))) {
+      const result = failure(
+        'conflict',
+        'baseAcceptedRevision',
+        'The accepted brand profile changed after this draft was created. Refresh and create a new draft from the current accepted revision.',
+      );
+      this.appendEvent('draft_accept_failed', draft, options, { issues: result.ok ? [] : result.issues });
+      return result;
     }
 
     const accepted = acceptBrandSignalProfileDraft(draft, options);
@@ -159,6 +174,12 @@ export class InMemoryBrandSignalProfileRepository {
       superseded.push(next);
     }
     return superseded;
+  }
+
+  private currentAcceptedFor(record: BrandSignalProfileRecord): BrandSignalProfileRecord | null {
+    return [...this.records.values()]
+      .filter((candidate) => candidate.status === 'accepted' && sharesAcceptedScope(candidate, record))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
   }
 
   private appendEvent(

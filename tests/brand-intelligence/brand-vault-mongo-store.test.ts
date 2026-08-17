@@ -208,6 +208,20 @@ describe('Brand Vault Mongo refinery store', () => {
     expect((await store.getRecord(record.id))?.status).toBe('draft');
   });
 
+  it('does not let an older draft supersede a newer accepted revision', async () => {
+    const store = createBrandVaultMongoRefineryStore({ collections: createMemoryCollections() });
+    await store.saveRecord(draftRecord({ id: 'stale_a', name: 'Candidate A', now: '2026-06-10T09:12:00.000Z' }));
+    await store.saveRecord(draftRecord({ id: 'stale_b', name: 'Candidate B', now: '2026-06-10T09:13:00.000Z' }));
+
+    const acceptedA = await store.acceptDraft('stale_a', { now: '2026-06-10T09:14:00.000Z' });
+    if (!acceptedA.ok) throw new Error('Expected candidate A to be accepted.');
+    const staleB = await store.acceptDraft('stale_b', { now: '2026-06-10T09:15:00.000Z' });
+
+    expect(staleB).toMatchObject({ ok: false, code: 'conflict' });
+    expect(await store.getRecord('stale_b')).toMatchObject({ status: 'draft', baseAcceptedRevision: null });
+    expect((await store.getLatestAcceptedRecord({ brandId: 'shared_brand', userId: 'shared_user' }))?.id).toBe('stale_a');
+  });
+
   it('keeps the prior accepted profile visible when an atomic replacement aborts', async () => {
     let active = createMemoryCollections();
     let rejectReplacement = false;

@@ -45,6 +45,7 @@ describe('BrandSignalProfile repository', () => {
 
     const stored = repo.getRecord('draft_repo_1');
     expect(stored?.status).toBe('draft');
+    expect(stored?.baseAcceptedRevision).toBeNull();
     expect(stored?.review.required).toBe(true);
     expect(repo.listEvents('draft_repo_1').map((event) => event.type)).toEqual(['draft_saved']);
   });
@@ -83,6 +84,20 @@ describe('BrandSignalProfile repository', () => {
     expect(repo.getRecord('draft_v1')?.status).toBe('superseded');
     expect(repo.getRecord('draft_v2')?.status).toBe('accepted');
     expect(repo.listRecords({ brandId: 'brand_repo', userId: 'user_repo', status: 'accepted' })).toHaveLength(1);
+  });
+
+  it('rejects a draft when another draft has already advanced the accepted revision', () => {
+    const repo = createInMemoryBrandSignalProfileRepository();
+    repo.saveDraft(profile({ name: 'Candidate A' }), { id: 'candidate_a', now: NOW });
+    repo.saveDraft(profile({ name: 'Candidate B' }), { id: 'candidate_b', now: '2026-06-09T04:01:00.000Z' });
+
+    const acceptedA = repo.acceptDraft('candidate_a', { now: '2026-06-09T04:02:00.000Z' });
+    if (!acceptedA.ok) throw new Error('Expected candidate A to be accepted.');
+    const staleB = repo.acceptDraft('candidate_b', { now: '2026-06-09T04:03:00.000Z' });
+
+    expect(staleB).toMatchObject({ ok: false, code: 'conflict' });
+    expect(repo.getRecord('candidate_b')).toMatchObject({ status: 'draft', baseAcceptedRevision: null });
+    expect(repo.getLatestAcceptedRecord({ brandId: 'brand_repo', orgId: 'org_repo' })?.id).toBe('candidate_a');
   });
 
   it('keeps accepted profiles isolated by organization', () => {

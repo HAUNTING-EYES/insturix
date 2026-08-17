@@ -40,6 +40,11 @@ export interface BrandSignalProfileRecord {
   profile: BrandSignalProfile;
   createdAt: string;
   updatedAt: string;
+  /** Exact accepted revision this draft branched from; null means no accepted revision existed. */
+  baseAcceptedRevision?: {
+    recordId: string;
+    updatedAt: string;
+  } | null;
   review: {
     required: boolean;
     reasons: string[];
@@ -49,6 +54,29 @@ export interface BrandSignalProfileRecord {
     rejectedBy?: string;
     rejectionReason?: string;
   };
+}
+
+export function bindBrandSignalDraftToAcceptedRevision(
+  record: BrandSignalProfileRecord,
+  accepted: BrandSignalProfileRecord | null,
+): BrandSignalProfileRecord {
+  if (record.status !== 'draft' || record.baseAcceptedRevision !== undefined) return record;
+  return {
+    ...record,
+    baseAcceptedRevision: accepted
+      ? { recordId: accepted.id, updatedAt: accepted.updatedAt }
+      : null,
+  };
+}
+
+export function brandSignalDraftMatchesAcceptedRevision(
+  draft: BrandSignalProfileRecord,
+  accepted: BrandSignalProfileRecord | null,
+): boolean {
+  if (draft.status !== 'draft' || draft.baseAcceptedRevision === undefined) return false;
+  if (draft.baseAcceptedRevision === null) return accepted === null;
+  return accepted?.id === draft.baseAcceptedRevision.recordId
+    && accepted.updatedAt === draft.baseAcceptedRevision.updatedAt;
 }
 
 export interface BrandSignalLifecycleOptions {

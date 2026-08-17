@@ -11,6 +11,8 @@ import {
 import type { BrandSignalProfile } from './brand-signal-profile';
 import {
   acceptBrandSignalProfileDraft,
+  bindBrandSignalDraftToAcceptedRevision,
+  brandSignalDraftMatchesAcceptedRevision,
   rejectBrandSignalProfileDraft,
   supersedeBrandSignalProfileRecord,
   type BrandSignalLifecycleOptions,
@@ -134,9 +136,22 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     options: BrandSignalLifecycleOptions = {},
   ): Promise<BrandSignalProfileRecord> {
     const collections = await this.getCollections();
-    await upsertRecord(collections.profiles, record);
-    await appendEvent(collections.events, record.status === 'draft' ? 'draft_saved' : 'record_superseded', record, options);
-    return clone(record);
+    let next = record;
+    if (record.status === 'draft') {
+      const existing = await collections.profiles.findOne({ _id: record.id } as Filter<BrandVaultMongoProfileDocument>);
+      if (existing?.record.status === 'draft' && existing.record.baseAcceptedRevision !== undefined) {
+        next = { ...record, baseAcceptedRevision: existing.record.baseAcceptedRevision };
+      } else if (record.baseAcceptedRevision === undefined) {
+        const accepted = await collections.profiles
+          .find(toAcceptedScopeFilter(record))
+          .sort({ updatedAt: -1 })
+          .toArray();
+        next = bindBrandSignalDraftToAcceptedRevision(record, accepted[0]?.record ?? null);
+      }
+    }
+    await upsertRecord(collections.profiles, next);
+    await appendEvent(collections.events, next.status === 'draft' ? 'draft_saved' : 'record_superseded', next, options);
+    return clone(next);
   }
 
   async patchDraftProductUi(input: {
@@ -186,6 +201,21 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
         if (!draft) return failure('not_found', 'record', `Brand signal profile record "${id}" was not found.`);
         if (draft.status !== 'draft') {
           return failure('not_draft', 'status', `Only draft profiles can be accepted. Current status: ${draft.status}.`);
+        }
+        const acceptedDocs = await collections.profiles
+          .find(toAcceptedScopeFilter(draft))
+          .sort({ updatedAt: -1 })
+          .toArray();
+        if (!brandSignalDraftMatchesAcceptedRevision(draft, acceptedDocs[0]?.record ?? null)) {
+          const result = failure(
+            'conflict',
+            'baseAcceptedRevision',
+            'The accepted brand profile changed after this draft was created. Refresh and create a new draft from the current accepted revision.',
+          );
+          await appendEvent(collections.events, 'draft_accept_failed', draft, options, {
+            issues: result.ok ? [] : result.issues,
+          });
+          return result;
         }
 
         const accepted = acceptBrandSignalProfileDraft(draft, options);
