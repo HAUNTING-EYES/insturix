@@ -95,6 +95,10 @@ import {
   readWriterPromotionRepositoryState,
   type WriterPromotionRepositoryState,
 } from './thinkforge-writer-promotion-evidence';
+import {
+  ADDITIONAL_BLIND_HELDOUT_CASES,
+  ADDITIONAL_BLIND_HELDOUT_REQUEST_FIXTURES,
+} from './thinkforge-writer-blind-heldout-corpus';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dirname, '../../.env.local') });
@@ -539,6 +543,7 @@ const TEST_CASES: EvalTestCase[] = [
     grounding: ['FrameShift', 'three-camera interview', 'one location', ['6:30am', '6:30 am'], 'no overtime'],
     criteria: { groundingFloor: 0.8, requiredCharacterNames: ['Maya', 'Jon'] },
   },
+  ...ADDITIONAL_BLIND_HELDOUT_CASES,
 ];
 
 function evalSuiteForCase(testCase: EvalTestCase): EvalSuite {
@@ -605,7 +610,7 @@ const LEGACY_PRE_CONTRACT_BASELINES: Record<number, number> = {
   17: 0.88,
   18: 0.88,
 };
-// Cases 19-23 intentionally have no historical baseline. Their first eligible held-out run must
+// Cases 19-33 intentionally have no historical baseline. Their first eligible held-out run must
 // create new reviewed evidence; an unevaluated case must never inherit a favorable score.
 
 interface EvalRequestFixture {
@@ -694,6 +699,7 @@ const REQUEST_FIXTURES: Readonly<Record<number, EvalRequestFixture>> = {
     voiceLanguages: ['en-US'],
     captionLanguages: ['en-US'],
   },
+  ...ADDITIONAL_BLIND_HELDOUT_REQUEST_FIXTURES,
 };
 
 // ---- Build input (production-shaped AgentInput) ----------------------

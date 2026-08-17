@@ -240,17 +240,19 @@ describe('ThinkForge eval provider budget', () => {
 });
 
 describe('ThinkForge writer paid-run preflight', () => {
-  it('keeps tuned regressions separate and fails closed with only five blind cases', () => {
+  it('keeps tuned regressions separate and exposes fifteen genuinely blind cases', () => {
     const manifest = getThinkForgeWriterEvalCorpusManifest();
 
     expect(manifest.knownRegressionCaseIds).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
-    expect(manifest.blindHeldoutCaseIds).toEqual([19, 20, 21, 22, 23]);
+    expect(manifest.blindHeldoutCaseIds).toEqual([
+      19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
+    ]);
     expect(manifest).toMatchObject({
       requiredBlindHeldoutCases: 15,
-      blindHeldoutShortfall: 10,
-      promotionReady: false,
+      blindHeldoutShortfall: 0,
+      promotionReady: true,
     });
-    expect(assertThinkForgeBlindHeldoutCorpusReady).toThrow('5/15 genuinely blind cases');
+    expect(assertThinkForgeBlindHeldoutCorpusReady).not.toThrow();
   });
 
   it('enumerates writer repair, cache lookup/create, and judge retry requests', () => {
@@ -266,10 +268,10 @@ describe('ThinkForge writer paid-run preflight', () => {
       },
     });
     const budget = new ThinkForgeEvalProviderBudget({
-      maxProviderRequests: 450,
-      maxWriterRequests: 100,
-      maxJudgeRequests: 150,
-      maxContextCacheRequests: 200,
+      maxProviderRequests: 1_350,
+      maxWriterRequests: 300,
+      maxJudgeRequests: 450,
+      maxContextCacheRequests: 600,
       maxOutputTokens: 10_000_000,
       maxEstimatedCostUsd: 1_000,
       costSafetyMultiplier: 2,
@@ -277,10 +279,10 @@ describe('ThinkForge writer paid-run preflight', () => {
     const planned = budget.assertCanCoverEnvelope(dispatches);
 
     expect(planned).toMatchObject({
-      providerRequests: 450,
-      writerRequests: 100,
-      judgeRequests: 150,
-      contextCacheRequests: 200,
+      providerRequests: 1_350,
+      writerRequests: 300,
+      judgeRequests: 450,
+      contextCacheRequests: 600,
     });
     expect(planned.reservedOutputTokens).toBeGreaterThan(1_000_000);
     expect(planned.estimatedCostUpperBoundUsd).toBeGreaterThan(0);
