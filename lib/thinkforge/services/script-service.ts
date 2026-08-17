@@ -44,6 +44,9 @@ function buildReplaceDocumentPayload(scriptId: string, script: ScriptPayload): R
 export async function executeScriptOperation(operation: ScriptOperation): Promise<Script | null> {
   const { sessionId, action, script, scriptId, userId, orgId, baseVersion } = operation;
   const exactScriptId = requireExactScriptId(scriptId);
+  if ((action === 'save' || action === 'update') && baseVersion === undefined) {
+    throw new Error('baseVersion is required for document mutations');
+  }
   const session = await db.getSession(sessionId, userId, orgId);
   if (!session) {
     throw new Error('Session not found');
@@ -63,7 +66,7 @@ export async function executeScriptOperation(operation: ScriptOperation): Promis
         const result = await applyCommand({
           type: 'ReplaceDocument',
           sessionId: canonicalSessionId,
-          baseVersion: typeof baseVersion === 'number' ? baseVersion : 0,
+          baseVersion: baseVersion!,
           source: 'user',
           payload: buildReplaceDocumentPayload(exactScriptId, script),
         }, userId, orgId);
@@ -77,4 +80,3 @@ export async function executeScriptOperation(operation: ScriptOperation): Promis
       throw new Error(`Unknown action: ${action}`);
   }
 }
-

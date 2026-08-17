@@ -46,6 +46,9 @@ export async function POST(req: Request) {
   if (scriptId.trim() !== scriptId) {
     return NextResponse.json({ error: 'Invalid scriptId' }, { status: 400 });
   }
+  if (baseVersion === undefined) {
+    return NextResponse.json({ error: 'baseVersion is required for document mutations' }, { status: 400 });
+  }
 
   let validatedRichText = undefined;
   if (script?.richText !== undefined) {
@@ -66,11 +69,6 @@ export async function POST(req: Request) {
     }
     const canonicalSessionId = session._id;
 
-    let effectiveBaseVersion = typeof baseVersion === 'number' ? baseVersion : undefined;
-    if (effectiveBaseVersion === undefined) {
-      const existing = await db.getScript(canonicalSessionId, scriptId);
-      effectiveBaseVersion = existing?.version ?? 0;
-    }
     const replacementPayload: Record<string, unknown> = {
       scriptId,
       title: script?.title || 'Untitled Script',
@@ -84,7 +82,7 @@ export async function POST(req: Request) {
     const result = await applyCommand({
       type: 'ReplaceDocument',
       sessionId: canonicalSessionId,
-      baseVersion: effectiveBaseVersion,
+      baseVersion,
       source: 'user',
       payload: replacementPayload,
     }, userId, orgId);

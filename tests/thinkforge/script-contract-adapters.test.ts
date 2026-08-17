@@ -253,6 +253,7 @@ describe('ThinkForge script contract adapters', () => {
         body: JSON.stringify({
           sessionId: 'session_001',
           scriptId: 'post_001',
+          baseVersion: 2,
           blocks: [],
           richText: invalidRichText,
         }),
@@ -263,6 +264,7 @@ describe('ThinkForge script contract adapters', () => {
         body: JSON.stringify({
           sessionId: 'session_001',
           scriptId: 'post_001',
+          baseVersion: 2,
           script: { blocks: [], richText: invalidRichText },
         }),
       })),
@@ -272,6 +274,42 @@ describe('ThinkForge script contract adapters', () => {
     await Promise.all(responses.map(async (response) => {
       await expect(response.json()).resolves.toMatchObject({ error: 'Invalid richText' });
     }));
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.getScript).not.toHaveBeenCalled();
+    expect(mocks.applyCommand).not.toHaveBeenCalled();
+  });
+
+  it('rejects document mutations without the client-observed base version', async () => {
+    const [{ POST: unifiedScript }, { POST: saveBlocks }, { POST: saveScript }] = await Promise.all([
+      import('@/app/api/services/thinkforge/script/route'),
+      import('@/app/api/services/thinkforge/script/blocks/route'),
+      import('@/app/api/services/thinkforge/script/save/route'),
+    ]);
+    const requests = [
+      unifiedScript(new Request('http://localhost/api/services/thinkforge/script', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'session_001',
+          scriptId: 'post_001',
+          action: 'save',
+          script: { content: 'Unsafe write.' },
+        }),
+      })),
+      saveBlocks(new Request('http://localhost/api/services/thinkforge/script/blocks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 'session_001', scriptId: 'post_001', blocks: [] }),
+      })),
+      saveScript(new Request('http://localhost/api/services/thinkforge/script/save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: 'session_001', scriptId: 'post_001', script: { content: 'Unsafe write.' } }),
+      })),
+    ];
+
+    const responses = await Promise.all(requests);
+    expect(responses.map((response) => response.status)).toEqual([400, 400, 400]);
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(mocks.getScript).not.toHaveBeenCalled();
     expect(mocks.applyCommand).not.toHaveBeenCalled();
@@ -438,6 +476,7 @@ describe('ThinkForge script contract adapters', () => {
         body: JSON.stringify({
           sessionId: 'session_foreign',
           scriptId: 'post_001',
+          baseVersion: 2,
           script: { title: 'Blocked save', content: 'Must not persist.', blocks: [] },
         }),
       })),
@@ -512,6 +551,7 @@ describe('ThinkForge script contract adapters', () => {
         body: JSON.stringify({
           sessionId: 'session_alias',
           scriptId: 'post_001',
+          baseVersion: 2,
           script: { title: 'Organization save', content: 'Authorized.', blocks: [] },
         }),
       },

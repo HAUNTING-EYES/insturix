@@ -128,13 +128,21 @@ export const ScriptOpSchema = z.object({
   scriptId: ExactThinkForgeIdSchema,
   action: z.enum(['get', 'save', 'update']),
   script: ScriptPayloadSchema.optional(),
-  baseVersion: z.number().optional(),
-}).passthrough();
+  baseVersion: z.number().int().nonnegative().optional(),
+}).passthrough().superRefine((value, ctx) => {
+  if ((value.action === 'save' || value.action === 'update') && value.baseVersion === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['baseVersion'],
+      message: 'baseVersion is required for document mutations',
+    });
+  }
+});
 
 export const SaveScriptSchema = z.object({
   sessionId: z.string().min(1),
   scriptId: z.string().optional(),
-  baseVersion: z.number().optional(),
+  baseVersion: z.number().int().nonnegative().optional(),
   script: ScriptPayloadSchema.optional(),
 }).passthrough();
 
@@ -145,5 +153,5 @@ export const SaveBlocksSchema = z.object({
   richText: z.record(z.string(), z.any()).optional(),
   title: z.string().optional(),
   content: z.string().optional(),
-  baseVersion: z.number().optional(),
+  baseVersion: z.number().int().nonnegative().optional(),
 }).passthrough();
