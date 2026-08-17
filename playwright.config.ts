@@ -11,6 +11,8 @@ const testEnvironment = Object.fromEntries(
   Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
 );
 const thinkForgeE2EDatabaseUri = process.env.THINKFORGE_E2E_DATABASE_URI?.trim();
+const thinkForgeE2ERedisRestUrl = process.env.THINKFORGE_E2E_REDIS_REST_URL?.trim();
+const thinkForgeE2ERedisRestToken = process.env.THINKFORGE_E2E_REDIS_REST_TOKEN?.trim();
 const thinkForgeE2ERunId = process.env.THINKFORGE_E2E_RUN_ID?.trim() || '';
 const thinkForgeE2EApplicationDatabaseName = thinkForgeE2ERunId
   ? `thinkforge_e2e_${thinkForgeE2ERunId}`
@@ -32,6 +34,9 @@ if (thinkForgeE2EMode) {
   }
   if (!thinkForgeE2EDatabaseUri) {
     throw new Error('ThinkForge E2E requires THINKFORGE_E2E_DATABASE_URI for an isolated QA database.');
+  }
+  if (!thinkForgeE2ERedisRestUrl || !thinkForgeE2ERedisRestToken) {
+    throw new Error('ThinkForge E2E requires explicit Redis credentials for production idempotency checks.');
   }
   const requestedBrandVaultDatabase = process.env.THINKFORGE_E2E_BRAND_VAULT_DATABASE_NAME?.trim();
   if (requestedBrandVaultDatabase && requestedBrandVaultDatabase !== thinkForgeE2EBrandVaultDatabaseName) {
@@ -56,8 +61,8 @@ const thinkForgeE2EEnvironment = {
   BRAND_VAULT_PERSISTENCE: 'mongo',
   UPSTASH_VECTOR_REST_URL: '',
   UPSTASH_VECTOR_REST_TOKEN: '',
-  UPSTASH_REDIS_REST_URL: '',
-  UPSTASH_REDIS_REST_TOKEN: '',
+  UPSTASH_REDIS_REST_URL: thinkForgeE2ERedisRestUrl ?? '',
+  UPSTASH_REDIS_REST_TOKEN: thinkForgeE2ERedisRestToken ?? '',
   QSTASH_TOKEN: '',
   QSTASH_URL: '',
   QSTASH_CURRENT_SIGNING_KEY: '',

@@ -382,7 +382,16 @@ function configuredBrowserScenarios(): ThinkForgeBrowserScenario[] {
   return fixtures.map((fixture) => buildBrowserScenario(fixture, configured === 'auto'));
 }
 
-function observeBrowserFailures(page: Page): string[] {
+interface ExpectedHttpFailure {
+  status: number;
+  method: string;
+  pathname: string;
+}
+
+function observeBrowserFailures(
+  page: Page,
+  expectedHttpFailures: readonly ExpectedHttpFailure[] = [],
+): string[] {
   const failures: string[] = [];
   const add = (message: string) => {
     if (!failures.includes(message)) failures.push(message);
@@ -390,12 +399,22 @@ function observeBrowserFailures(page: Page): string[] {
 
   page.on('pageerror', (error) => add(`pageerror: ${error.message}`));
   page.on('console', (message) => {
-    if (message.type() === 'error') add(`console.error: ${message.text()}`);
+    if (message.type() !== 'error') return;
+    // Chromium duplicates HTTP failures as URL-less console messages. The
+    // response listener below owns status + route classification.
+    if (message.text().startsWith('Failed to load resource: the server responded with a status of')) return;
+    add(`console.error: ${message.text()}`);
   });
   page.on('response', (response) => {
-    if (response.status() >= 500) {
-      add(`server response: ${response.status()} ${response.request().method()} ${response.url()}`);
-    }
+    if (response.status() < 400) return;
+    const pathname = new URL(response.url()).pathname;
+    const method = response.request().method();
+    if (expectedHttpFailures.some((expected) => (
+      expected.status === response.status()
+      && expected.method === method
+      && expected.pathname === pathname
+    ))) return;
+    add(`server response: ${response.status()} ${method} ${response.url()}`);
   });
 
   return failures;
@@ -984,7 +1003,7 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
         page,
         '/api/services/clickatron/session',
         buildClickatronSessionFormData(handoffState),
-        `thinkforge-${runId}-${fixture}-${scriptId}`,
+        `thinkforge-${runId}-${fixture}-${sessionId}-${scriptId}`,
       );
       const expectedVariationCount = fixture === 'carousel' ? 5 : 1;
       const variations = clickatronSession.variations ?? [];
@@ -1004,11 +1023,15 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
 
     if (fixture === 'script') {
       const scriptContent = requireEvidence(revised.script?.content, 'the persisted V2 script content');
+      const scriptBlocks = requireEvidence(
+        (await readScriptBlocks(page, sessionId!, scriptId)).blocks,
+        'the persisted V2 script blocks',
+      );
       const editronExport = await fetchBrowserJson<EditronExportPayload>(
         page,
         '/api/services/thinkforge/script/export-for-editron',
         'POST',
-        { sessionId, scriptId, plainText: scriptContent, brandId },
+        { sessionId, scriptId, blocks: scriptBlocks, plainText: scriptContent, brandId },
       );
 
       expect(editronExport.success).toBe(true);
@@ -1157,7 +1180,10 @@ test.describe.serial('ThinkForge organization brand authority isolation', () => 
       organizationArtifact,
       'the admin-created organization artifact from the serial authority phase',
     );
-    const browserFailures = observeBrowserFailures(page);
+    const browserFailures = observeBrowserFailures(page, [
+      { status: 404, method: 'POST', pathname: '/api/services/thinkforge/session' },
+      { status: 404, method: 'POST', pathname: '/api/services/thinkforge/chat' },
+    ]);
     await signInThinkForgeBrowserUser(page, tenant.restrictedMember.email);
     const organizationId = requireEvidence(
       await setActiveClerkOrganization(page, tenant.organization.slug),
