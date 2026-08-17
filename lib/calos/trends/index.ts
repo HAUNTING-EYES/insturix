@@ -29,10 +29,13 @@ class CompositeTrendsProvider implements TrendsProvider {
     return this.providers.length > 0;
   }
   async getTrends(query: TrendQuery): Promise<Trend[]> {
+    query.abortSignal?.throwIfAborted();
     const settled = await Promise.allSettled(this.providers.map((p) => p.getTrends(query)));
+    query.abortSignal?.throwIfAborted();
     const seen = new Set<string>();
     const merged: Trend[] = [];
     for (const r of settled) {
+      query.abortSignal?.throwIfAborted();
       if (r.status !== "fulfilled") continue;
       for (const t of r.value) {
         const key = t.title.toLowerCase().trim();

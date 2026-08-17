@@ -66,6 +66,7 @@ export class PerplexityTrendsProvider implements TrendsProvider {
   }
 
   async getTrends(query: TrendQuery): Promise<Trend[]> {
+    query.abortSignal?.throwIfAborted();
     if (!this.apiKey) return [];
 
     const niche = String(query.niche ?? "").slice(0, 300).trim();
@@ -79,7 +80,13 @@ export class PerplexityTrendsProvider implements TrendsProvider {
     const maxTokens = readPositiveInt(process.env.PERPLEXITY_TRENDS_MAX_TOKENS) ?? DEFAULT_MAX_TOKENS;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const abortFromCaller = () => controller.abort(query.abortSignal?.reason);
+    query.abortSignal?.addEventListener("abort", abortFromCaller, { once: true });
+    if (query.abortSignal?.aborted) abortFromCaller();
+    const timer = setTimeout(
+      () => controller.abort(new DOMException("Perplexity trends request timed out.", "TimeoutError")),
+      this.timeoutMs,
+    );
     const startedAt = Date.now();
     let responseStatus: number | undefined;
 
@@ -132,6 +139,7 @@ export class PerplexityTrendsProvider implements TrendsProvider {
         functionMs: Date.now() - startedAt,
         usage: raw.usage,
       });
+      query.abortSignal?.throwIfAborted();
 
       return trends;
     } catch (error) {
@@ -145,12 +153,16 @@ export class PerplexityTrendsProvider implements TrendsProvider {
         functionMs: Date.now() - startedAt,
         error,
       });
-      if (error instanceof Error && error.name === "AbortError") {
+      if (query.abortSignal?.aborted) {
+        query.abortSignal.throwIfAborted();
+      }
+      if (controller.signal.aborted) {
         throw new Error("Perplexity trends request timed out.");
       }
       throw error instanceof Error ? error : new Error(String(error));
     } finally {
       clearTimeout(timer);
+      query.abortSignal?.removeEventListener("abort", abortFromCaller);
     }
   }
 }

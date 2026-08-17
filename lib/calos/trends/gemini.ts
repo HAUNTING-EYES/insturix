@@ -29,6 +29,7 @@ export class GeminiTrendsProvider implements TrendsProvider {
   }
 
   async getTrends(query: TrendQuery): Promise<Trend[]> {
+    query.abortSignal?.throwIfAborted();
     if (!this.hasKey) return [];
 
     const niche = String(query.niche ?? "").slice(0, 300).trim();
@@ -38,6 +39,7 @@ export class GeminiTrendsProvider implements TrendsProvider {
     const location = String(query.location ?? "").slice(0, 120).trim();
 
     const genAI = await getGenAI();
+    query.abortSignal?.throwIfAborted();
     const model = genAI.getGenerativeModel({
       model: process.env.LLM_TRENDS_MODEL || "gemini-2.5-flash",
       tools: [{ googleSearch: {} }],
@@ -73,7 +75,8 @@ export class GeminiTrendsProvider implements TrendsProvider {
     let text = "";
     const startedAt = Date.now();
     try {
-      const result = await model.generateContent(prompt);
+      const result = await model.generateContent(prompt, { signal: query.abortSignal });
+      query.abortSignal?.throwIfAborted();
       text = result?.response?.text?.() ?? "";
       const trends = parseTrends(text, limit);
       await recordGeminiTrendsCost(query, {
@@ -85,6 +88,7 @@ export class GeminiTrendsProvider implements TrendsProvider {
         functionMs: Date.now() - startedAt,
         usage: readGeminiUsage(result),
       });
+      query.abortSignal?.throwIfAborted();
 
       return trends;
     } catch (err) {
@@ -95,6 +99,9 @@ export class GeminiTrendsProvider implements TrendsProvider {
         functionMs: Date.now() - startedAt,
         error: err,
       });
+      if (query.abortSignal?.aborted) {
+        query.abortSignal.throwIfAborted();
+      }
       // Fail loud (R18N): surface the real error so a broken key/grounding call is obvious,
       // rather than silently returning [] and masking it as "no trends".
       console.error("[GeminiTrendsProvider] grounded trends request failed:", err);

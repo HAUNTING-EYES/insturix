@@ -22,6 +22,7 @@ export class AgentReachTrendsProvider implements TrendsProvider {
   }
 
   async getTrends(query: TrendQuery): Promise<Trend[]> {
+    query.abortSignal?.throwIfAborted();
     if (!this.baseUrl) return [];
 
     const res = await fetch(`${this.baseUrl.replace(/\/$/, "")}/trends`, {
@@ -37,13 +38,16 @@ export class AgentReachTrendsProvider implements TrendsProvider {
         platforms: query.platforms ?? ["reddit", "twitter", "youtube"],
         limit: query.limit ?? 10,
       }),
+      signal: query.abortSignal,
     });
+    query.abortSignal?.throwIfAborted();
 
     if (!res.ok) {
       throw new Error(`Agent-Reach trends request failed (${res.status})`);
     }
 
     const data = await res.json();
+    query.abortSignal?.throwIfAborted();
     const raw: unknown[] = Array.isArray(data?.trends) ? data.trends : [];
 
     // Normalize + clamp. Trend strings are untrusted; cap length so a hostile source can't

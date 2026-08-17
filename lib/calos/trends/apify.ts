@@ -26,6 +26,7 @@ export class ApifyTrendsProvider implements TrendsProvider {
   }
 
   async getTrends(query: TrendQuery): Promise<Trend[]> {
+    query.abortSignal?.throwIfAborted();
     if (!this.available()) return [];
     const limit = Math.min(Math.max(query.limit ?? 10, 1), 25);
 
@@ -49,7 +50,13 @@ export class ApifyTrendsProvider implements TrendsProvider {
     };
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 50_000);
+    const abortFromCaller = () => controller.abort(query.abortSignal?.reason);
+    query.abortSignal?.addEventListener("abort", abortFromCaller, { once: true });
+    if (query.abortSignal?.aborted) abortFromCaller();
+    const timer = setTimeout(
+      () => controller.abort(new DOMException("Apify trends request timed out.", "TimeoutError")),
+      50_000,
+    );
     const startedAt = Date.now();
     let responseStatus: number | undefined;
     try {
@@ -78,6 +85,7 @@ export class ApifyTrendsProvider implements TrendsProvider {
         bytesIn: byteLength(body),
         functionMs: Date.now() - startedAt,
       });
+      query.abortSignal?.throwIfAborted();
 
       return trends;
     } catch (error) {
@@ -88,9 +96,13 @@ export class ApifyTrendsProvider implements TrendsProvider {
         functionMs: Date.now() - startedAt,
         error,
       });
+      if (query.abortSignal?.aborted) {
+        query.abortSignal.throwIfAborted();
+      }
       throw error;
     } finally {
       clearTimeout(timer);
+      query.abortSignal?.removeEventListener("abort", abortFromCaller);
     }
   }
 }
