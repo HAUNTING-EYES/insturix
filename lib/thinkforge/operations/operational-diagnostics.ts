@@ -6,6 +6,10 @@ import {
   hashThinkForgeTraceValue,
 } from '../provenance/generation-trace';
 import { THINKFORGE_REFINERY_JOB_COLLECTION } from '../refinery/refinery-job';
+import {
+  THINKFORGE_GENERATION_RECEIPT_COLLECTION,
+  verifyThinkForgeGenerationReceipt,
+} from '../provenance/generation-receipt';
 
 const THINKFORGE_SESSION_COLLECTION = 'thinkforge_sessions';
 const THINKFORGE_SCRIPT_COLLECTION = 'thinkforge_scripts';
@@ -65,6 +69,12 @@ export interface ThinkForgeDocumentDiagnostics {
     repairApplied: boolean | null;
     repairFailureCodes: string[];
     generatedAt: string | null;
+  } | null;
+  generationReceipt: {
+    id: string | null;
+    persistedAt: string | null;
+    valid: boolean;
+    codes: string[];
   } | null;
   traceIntegrity: {
     valid: boolean;
@@ -222,6 +232,7 @@ export function diagnoseThinkForgeDocumentEvidence(input: {
   scriptId: string;
   session: Document | null;
   script: Document | null;
+  generationReceipt?: Document | null;
 }): ThinkForgeDocumentDiagnostics {
   const { sessionId, scriptId, session, script } = input;
   const codes: string[] = [];
@@ -232,6 +243,16 @@ export function diagnoseThinkForgeDocumentEvidence(input: {
   const snapshot = toRecord(metadata?.authoringContextSnapshot);
   const rawTrace = writerOutput?.generationTrace;
   const parsedTrace = ThinkForgeDocumentGenerationTraceV1Schema.safeParse(rawTrace);
+  const receiptCodes: string[] = [];
+  let verifiedReceipt: ReturnType<typeof verifyThinkForgeGenerationReceipt> | null = null;
+
+  if (input.generationReceipt) {
+    try {
+      verifiedReceipt = verifyThinkForgeGenerationReceipt(input.generationReceipt);
+    } catch {
+      receiptCodes.push('generation_receipt_invalid');
+    }
+  }
 
   if (!session) codes.push('session_missing');
   if (!script) codes.push('document_missing');
@@ -246,7 +267,21 @@ export function diagnoseThinkForgeDocumentEvidence(input: {
     pushHashDiagnostic(codes, 'source_ledger', parsedTrace.data.sourceLedgerHash, writerOutput?.sourceLedger);
     pushHashDiagnostic(codes, 'quality_gate', parsedTrace.data.qualityGate.evidenceHash, writerOutput?.profileCompliance);
     pushHashDiagnostic(codes, 'output', parsedTrace.data.outputHash, script?.content);
+    if (parsedTrace.data.document.expectedVersion !== toNumberOrNull(script?.version)) {
+      codes.push('document_version_trace_mismatch');
+    }
+    if (!input.generationReceipt) {
+      receiptCodes.push('generation_receipt_missing');
+    } else if (verifiedReceipt && (
+      verifiedReceipt.document.sessionId !== sessionId
+      || verifiedReceipt.document.scriptId !== scriptId
+      || verifiedReceipt.document.version !== toNumberOrNull(script?.version)
+      || verifiedReceipt.generationTraceHash !== hashThinkForgeTraceValue(parsedTrace.data)
+    )) {
+      receiptCodes.push('generation_receipt_document_mismatch');
+    }
   }
+  codes.push(...receiptCodes);
 
   const boundBrandId = toStringOrNull(sessionBrandBinding?.brandId);
   const snapshotBrandId = toStringOrNull(readPath(snapshot, ['brand', 'brandId']));
@@ -294,6 +329,15 @@ export function diagnoseThinkForgeDocumentEvidence(input: {
           repairApplied: trace.writer.repair.applied,
           repairFailureCodes: [...trace.writer.repair.failureCodes],
           generatedAt: trace.writer.generatedAt,
+        }
+      : null,
+    generationReceipt: input.generationReceipt
+      ? {
+          id: verifiedReceipt?.id ?? toStringOrNull(input.generationReceipt.id),
+          persistedAt: verifiedReceipt?.persistedAt
+            ?? toIsoStringOrNull(input.generationReceipt.persistedAt),
+          valid: receiptCodes.length === 0,
+          codes: [...new Set(receiptCodes)].sort(),
         }
       : null,
     traceIntegrity: {
@@ -360,11 +404,20 @@ export async function getThinkForgeOperationalDiagnostics(input: {
         },
       ),
     ]);
+    const documentVersion = toNumberOrNull(script?.version);
+    const generationReceipt = documentVersion === null
+      ? null
+      : await database.collection(THINKFORGE_GENERATION_RECEIPT_COLLECTION).findOne({
+          'document.sessionId': input.sessionId,
+          'document.scriptId': input.scriptId,
+          'document.version': documentVersion,
+        });
     document = diagnoseThinkForgeDocumentEvidence({
       sessionId: input.sessionId,
       scriptId: input.scriptId,
       session,
       script,
+      generationReceipt,
     });
     if (!document.traceIntegrity.valid) {
       alerts.push({

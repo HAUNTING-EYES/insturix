@@ -3,6 +3,7 @@ import {
   buildThinkForgeDocumentGenerationTrace,
   buildThinkForgeWriterInvocationTrace,
 } from '@/lib/thinkforge/provenance/generation-trace';
+import { buildThinkForgeGenerationReceipt } from '@/lib/thinkforge/provenance/generation-receipt';
 import { diagnoseThinkForgeDocumentEvidence } from '@/lib/thinkforge/operations/operational-diagnostics';
 
 function createEvidence() {
@@ -66,6 +67,25 @@ function createEvidence() {
     outputContent: content,
     qualityGateEvidence: profileCompliance,
   });
+  const metadata = {
+    authoringContextSnapshot: snapshot,
+    signalTrace,
+    briefSnapshot,
+    writerOutput: {
+      generationTrace,
+      sourceLedger,
+      profileCompliance,
+    },
+  };
+  const generationReceipt = buildThinkForgeGenerationReceipt({
+    userId: 'user_b',
+    sessionId: 'session_b',
+    scriptId: 'script_b',
+    documentVersion: 1,
+    outputContent: content,
+    metadata,
+    persistedAt: new Date('2026-08-17T00:01:00.000Z'),
+  });
   return {
     snapshot,
     signalTrace,
@@ -74,6 +94,8 @@ function createEvidence() {
     profileCompliance,
     content,
     generationTrace,
+    metadata,
+    generationReceipt,
   };
 }
 
@@ -98,20 +120,17 @@ describe('ThinkForge operational document diagnostics', () => {
         documentType: 'script',
         contentContract: { outputKind: 'video_script' },
         content: evidence.content,
-        metadata: {
-          authoringContextSnapshot: evidence.snapshot,
-          signalTrace: evidence.signalTrace,
-          briefSnapshot: evidence.briefSnapshot,
-          writerOutput: {
-            generationTrace: evidence.generationTrace,
-            sourceLedger: evidence.sourceLedger,
-            profileCompliance: evidence.profileCompliance,
-          },
-        },
+        metadata: evidence.metadata,
       },
+      generationReceipt: evidence.generationReceipt,
     });
 
     expect(diagnostics.traceIntegrity).toEqual({ valid: true, codes: [] });
+    expect(diagnostics.generationReceipt).toMatchObject({
+      id: expect.stringMatching(/^tfgr_/),
+      valid: true,
+      codes: [],
+    });
     expect(diagnostics.authoringContext).toMatchObject({
       brand: { brandId: 'brand_b', recordId: 'profile_b_13' },
       projectFactIds: ['fact_project_b'],
@@ -145,12 +164,64 @@ describe('ThinkForge operational document diagnostics', () => {
           },
         },
       },
+      generationReceipt: evidence.generationReceipt,
     });
 
     expect(diagnostics.traceIntegrity.valid).toBe(false);
     expect(diagnostics.traceIntegrity.codes).toEqual(expect.arrayContaining([
       'brand_binding_snapshot_mismatch',
+      'document_version_trace_mismatch',
+      'generation_receipt_document_mismatch',
       'output_hash_mismatch',
     ]));
+  });
+
+  it('fails closed when a traced document has no immutable generation receipt', () => {
+    const evidence = createEvidence();
+    const diagnostics = diagnoseThinkForgeDocumentEvidence({
+      sessionId: 'session_b',
+      scriptId: 'script_b',
+      session: { projectMeta: { brandBinding: { version: 2, brandId: 'brand_b' } } },
+      script: {
+        version: 1,
+        documentType: 'script',
+        contentContract: { outputKind: 'video_script' },
+        content: evidence.content,
+        metadata: evidence.metadata,
+      },
+      generationReceipt: null,
+    });
+
+    expect(diagnostics.generationReceipt).toBeNull();
+    expect(diagnostics.traceIntegrity).toEqual({
+      valid: false,
+      codes: ['generation_receipt_missing'],
+    });
+  });
+
+  it('reports a tampered immutable receipt independently of document trace parsing', () => {
+    const evidence = createEvidence();
+    const diagnostics = diagnoseThinkForgeDocumentEvidence({
+      sessionId: 'session_b',
+      scriptId: 'script_b',
+      session: { projectMeta: { brandBinding: { version: 2, brandId: 'brand_b' } } },
+      script: {
+        version: 1,
+        documentType: 'script',
+        contentContract: { outputKind: 'video_script' },
+        content: evidence.content,
+        metadata: evidence.metadata,
+      },
+      generationReceipt: {
+        ...evidence.generationReceipt,
+        receiptHash: '0'.repeat(64),
+      },
+    });
+
+    expect(diagnostics.generationReceipt).toMatchObject({
+      valid: false,
+      codes: ['generation_receipt_invalid'],
+    });
+    expect(diagnostics.traceIntegrity.codes).toContain('generation_receipt_invalid');
   });
 });
