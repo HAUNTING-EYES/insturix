@@ -70,4 +70,20 @@ describe('ThinkForge editor document ownership', () => {
     expect(chatHook).toContain('resolvedScriptId = data.scriptId');
     expect(chatHook).toContain('const recoveryScriptId = resolvedScriptId || options?.scriptId');
   });
+
+  it('resets document-bound controls and retains visible hydration failures', () => {
+    const storyboarding = read('components/dashboard/ThinkForge/StoryboardingMode.tsx');
+    const editor = read('components/dashboard/ThinkForge/ScriptEditor.tsx');
+
+    expect(storyboarding).toContain('}, [sessionId, scriptId]);');
+    expect(storyboarding).toContain('setShowExportDialog(false)');
+    expect(storyboarding).toContain('setShowClickatronDialog(false)');
+    expect(storyboarding).toContain('setShowShootKit(false)');
+    expect(storyboarding).toContain('setEditingSelection(null)');
+    expect(storyboarding).toContain("setScriptPanelMode('script')");
+    expect(storyboarding).toContain('tokenStreamCallbackRef.current = null');
+    expect(storyboarding).toContain('selectionGetterRef.current = null');
+    expect(editor).toContain('documentHydrationError');
+    expect(editor).toContain('role="alert"');
+  });
 });

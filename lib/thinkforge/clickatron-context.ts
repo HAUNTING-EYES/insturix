@@ -23,6 +23,7 @@ import {
   type ThinkForgePostCarouselDeck,
   type ThinkForgePostCarouselSlide,
 } from "@/lib/thinkforge/schemas/post-carousel-deck";
+import type { ThinkForgeDocumentContract } from "@/lib/thinkforge/schemas/document-contract";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 import { projectThinkForgeAuthoringProvenance } from "@/lib/thinkforge/context/authoring-provenance";
@@ -54,6 +55,8 @@ export interface ThinkToClickContextInput {
   scriptId?: string;
   projectId?: string;
   projectMeta?: ProjectMeta | null;
+  /** The saved document contract. When supplied, mutable session metadata cannot reclassify the export. */
+  contentContract?: ThinkForgeDocumentContract | null;
   projectLink?: Pick<ProjectLink, "universalId" | "brandId" | "sourceScriptId"> | null;
   creativeSpec?: ClickatronCreativeSpec | null;
   blocks?: ThinkForgeBlock[] | null;
@@ -80,6 +83,20 @@ export interface ThinkToClickVisibleContentChoices {
   imageStyle?: string;
   notes?: string;
   slideCount?: number | string;
+}
+
+function resolveClickatronKindFromDocumentContract(
+  input: Pick<ThinkToClickContextInput, "contentContract" | "projectMeta">,
+): ClickatronCreativeKind | undefined {
+  // Presence is meaningful: a caller that loaded the saved document must not
+  // fall back to stale session metadata when that document has no contract.
+  const outputKind = input.contentContract !== undefined
+    ? input.contentContract?.outputKind
+    : input.projectMeta?.contentContract?.outputKind;
+
+  if (outputKind === "carousel") return "carousel";
+  if (outputKind === "social_post") return "single_post_visual";
+  return undefined;
 }
 
 export interface ThinkToClickSessionDraft {
@@ -551,11 +568,7 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
     .filter((t: unknown): t is string => typeof t === "string" && t.trim().length > 0)
     .map((t: string) => `Do not use visible text "${t}".`);
 
-  const contractKind = input.projectMeta?.contentContract?.outputKind === "carousel"
-    ? "carousel"
-    : input.projectMeta?.contentContract?.outputKind === "social_post"
-      ? "single_post_visual"
-      : undefined;
+  const contractKind = resolveClickatronKindFromDocumentContract(input);
   let kind: ClickatronCreativeKind = contractKind || "single_post_visual";
   if (choices.kind) {
     kind = enumValue(choices.kind, ["single_post_visual", "carousel"] as const, "single_post_visual");
@@ -710,11 +723,7 @@ export function buildVisibleContentClickatronCreativeSpec(input: ThinkToClickCon
   if (summary.sourceBlockIds.length === 0 || !summary.visibleText) return undefined;
 
   const choices = input.userVisualChoices || {};
-  const contractKind = input.projectMeta?.contentContract?.outputKind === "carousel"
-    ? "carousel"
-    : input.projectMeta?.contentContract?.outputKind === "social_post"
-      ? "single_post_visual"
-      : undefined;
+  const contractKind = resolveClickatronKindFromDocumentContract(input);
   const kind = choices.kind
     ? enumValue(choices.kind, ["single_post_visual", "carousel"] as const, "single_post_visual")
     : contractKind || "single_post_visual";

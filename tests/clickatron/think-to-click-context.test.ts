@@ -453,7 +453,7 @@ describe("ThinkForge to Clickatron context", () => {
     expect((context.metadata.thinkforge as Record<string, unknown>).signalTrace).toBeUndefined();
   });
 
-  it("uses the persisted document contract for writer handoff until the user explicitly overrides it", () => {
+  it("uses the saved document contract instead of stale session metadata until the user explicitly overrides it", () => {
     const blocks: ThinkForgeBlock[] = Array.from({ length: 6 }, (_, index) => ({
       id: `blk_carousel_${index + 1}`,
       kind: "paragraph",
@@ -464,13 +464,19 @@ describe("ThinkForge to Clickatron context", () => {
       scriptId: "script_instagram_carousel",
       title: "Brand consistency carousel",
       blocks,
+      contentContract: {
+        version: 1,
+        documentKind: "post" as const,
+        outputKind: "carousel" as const,
+        artifactType: "carousel_deck" as const,
+      },
       projectMeta: {
         platform: "Instagram",
         contentContract: {
           version: 1,
           documentKind: "post" as const,
-          outputKind: "carousel" as const,
-          artifactType: "carousel_deck" as const,
+          outputKind: "social_post" as const,
+          artifactType: "social_post" as const,
         },
       },
       writerOutput: {

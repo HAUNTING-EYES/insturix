@@ -117,6 +117,7 @@ export async function POST(request: Request) {
       scriptId,
       projectId: requestedProjectId,
       projectMeta,
+      contentContract: script.contentContract,
       projectLink,
       creativeSpec: findClickatronCreativeSpecInBlocks(script?.blocks),
       blocks: script?.blocks,

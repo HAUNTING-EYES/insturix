@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import clsx from "clsx";
 import { Clapperboard, FileText, X } from "lucide-react";
 import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
@@ -87,6 +87,19 @@ export default function StoryboardingMode({
     }
     return null;
   }).current;
+
+  useEffect(() => {
+    setShowSettings(false);
+    setShowKnowledge(false);
+    setShowExportDialog(false);
+    setShowClickatronDialog(false);
+    setShowShootKit(false);
+    setEditingSelection(null);
+    setGenerationState({ intent: null, isStreaming: false });
+    setScriptPanelMode('script');
+    tokenStreamCallbackRef.current = null;
+    selectionGetterRef.current = null;
+  }, [sessionId, scriptId]);
 
   const handleOpenSettings = () => setShowSettings(true);
   const handleCloseSettings = () => setShowSettings(false);
