@@ -136,8 +136,9 @@ describe('ThinkForge direct-call prompt boundaries', () => {
   });
 
   it('skips optional pre-generation thinking for an explicit non-production browser fixture', async () => {
+    vi.stubEnv('THINKFORGE_E2E_MODE', '1');
     vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', 'script');
-    vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'tf-e2e-test-run');
+    vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'tfdirect1');
     const { runThinkingAgent } = await import('@/lib/thinkforge/agents/thinking-agent');
 
     await expect(runThinkingAgent({ userPrompt: 'Create a test script.' })).resolves.toBe('');

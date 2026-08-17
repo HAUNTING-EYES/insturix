@@ -356,11 +356,11 @@ describe('ThinkForge editorial doctrine provenance', () => {
     );
     const baseInputIndex = service.indexOf('const baseInput = {', editorialPlanIndex);
     const postDispatchIndex = service.indexOf(
-      'writer.runStructured(baseInput as PostWriterInput)',
+      'writer.runStructured(baseInput as PostWriterInput, undefined, abortSignal)',
       baseInputIndex,
     );
     const scriptDispatchIndex = service.indexOf(
-      'writer.runStructured(baseInput as ScriptWriterInput)',
+      'writer.runStructured(baseInput as ScriptWriterInput, undefined, abortSignal)',
       baseInputIndex,
     );
     const planBuild = service.slice(editorialPlanIndex, baseInputIndex);
