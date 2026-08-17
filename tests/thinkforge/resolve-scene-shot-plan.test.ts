@@ -94,6 +94,47 @@ describe('resolveSceneShotPlan', () => {
     expect(result.plan.feasibility.warnings.join(' ')).toMatch(/room depth/);
   });
 
+  it('uses normalized marks without inventing room depth when measurements are absent', () => {
+    const inputProfile = profile();
+    const room = inputProfile.spaces[0] as unknown as Record<string, unknown>;
+    delete room.dimensionsM;
+    delete room.usableDepthM;
+    const inputIntent = {
+      ...intent(),
+      desiredMovement: 'static',
+      movementMotivation: undefined,
+      desiredFraming: 'wide',
+    };
+
+    const result = resolveSceneShotPlan({ profile: inputProfile, intent: inputIntent });
+
+    expect(result.status).toBe('resolved');
+    if (result.status !== 'resolved') return;
+    expect(result.plan.coordinateSystem.unit).toBe('normalized');
+    expect(result.plan.scenes[0]?.camera.framing).toBe('wide');
+    expect(result.plan.feasibility.status).toBe('ready-with-assumptions');
+    expect(result.plan.feasibility.assumptions.join(' ')).toMatch(/depth is unknown/i);
+    const cameraInstruction = result.plan.setupGroups[0]?.instructions[0] ?? '';
+    expect(cameraInstruction).toMatch(/live preview/);
+    expect(cameraInstruction).not.toMatch(/\d+(?:\.\d+)?m\b/);
+  });
+
+  it('treats an explicitly supplied usable depth as measured evidence', () => {
+    const inputProfile = profile();
+    const room = inputProfile.spaces[0] as unknown as Record<string, unknown>;
+    delete room.dimensionsM;
+
+    const result = resolveSceneShotPlan({
+      profile: inputProfile,
+      intent: { ...intent(), desiredMovement: 'static', movementMotivation: undefined },
+    });
+
+    expect(result.status).toBe('resolved');
+    if (result.status !== 'resolved') return;
+    expect(result.plan.coordinateSystem.unit).toBe('meters');
+    expect(result.plan.setupGroups[0]?.instructions[0]).toMatch(/m from the lead performer/);
+  });
+
   it('keeps demonstrations readable instead of honoring an unusably wide creative request', () => {
     const result = resolveSceneShotPlan({
       profile: profile(),

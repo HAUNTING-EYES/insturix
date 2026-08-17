@@ -134,14 +134,25 @@ function heightForAngle(angle: CameraAngle, eyeHeight: number): number {
   return eyeHeight;
 }
 
+const NORMALIZED_CAMERA_DISTANCE: Record<ShotFraming, number> = {
+  'extreme-close-up': 0.32,
+  'close-up': 0.42,
+  'medium-close-up': 0.52,
+  medium: 0.62,
+  'medium-wide': 0.72,
+  wide: 0.84,
+  'extreme-wide': 0.92,
+  'over-shoulder': 0.62,
+  insert: 0.34,
+};
+
 function movementPath(
   movement: CameraMovement,
   distance: number,
   maxDistance: number,
-  unit: 'meters' | 'normalized',
 ): Array<{ x: number; y: number; z: number }> {
-  const d = unit === 'meters' ? distance : Math.min(0.9, distance / 3.5);
-  const maxD = unit === 'meters' ? maxDistance : 0.95;
+  const d = distance;
+  const maxD = maxDistance;
   if (movement === 'push-in' || movement === 'dolly') return [{ x: 0, y: 0, z: -d }, { x: 0, y: 0, z: -(d * 0.78) }];
   if (movement === 'pull-out') return [{ x: 0, y: 0, z: -d }, { x: 0, y: 0, z: -Math.min(maxD, d * 1.2) }];
   if (movement === 'tracking') return [{ x: -0.45, y: 0, z: -d }, { x: 0.45, y: 0, z: -d }];
@@ -215,21 +226,33 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
   }
 
   const space = profile.spaces[0];
-  const metricSpace = Boolean(space?.dimensionsM);
+  const measuredDepthM = space?.usableDepthM ?? space?.dimensionsM?.depth;
+  const metricSpace = measuredDepthM !== undefined;
   const coordinateUnit: 'meters' | 'normalized' = metricSpace ? 'meters' : 'normalized';
-  if (!metricSpace) assumptions.push('Room dimensions are unknown; diagram positions use normalized coordinates and must be confirmed on location.');
-  const availableDepthM = space?.usableDepthM ?? space?.dimensionsM?.depth ?? 4;
-  const maxCameraDistanceM = Math.max(0, availableDepthM - 0.8);
   const focalLengthEquivalentMm = focalLengthForCamera(camera);
-  const framingResolution = resolveFramingForDepth(framing, maxCameraDistanceM, focalLengthEquivalentMm, orientation);
-  if (!framingResolution) {
-    blockers.push({ code: 'room_depth', message: `The available depth (${availableDepthM.toFixed(1)}m) cannot safely fit the requested shot.` });
-    questions.push('Can you provide a deeper room, a wider lens, or approve a tighter insert-style shot?');
-    return { status: 'needs-user-input', blockers, questions };
-  }
-  if (framingResolution.changed) {
-    warnings.push(`Framing changed from ${framing} to ${framingResolution.framing} to fit the available room depth.`);
-    framing = framingResolution.framing;
+  let cameraDistance = NORMALIZED_CAMERA_DISTANCE[framing];
+  let maxCameraDistance = 0.95;
+  if (metricSpace) {
+    maxCameraDistance = Math.max(0, measuredDepthM - 0.8);
+    const framingResolution = resolveFramingForDepth(
+      framing,
+      maxCameraDistance,
+      focalLengthEquivalentMm,
+      orientation,
+    );
+    if (!framingResolution) {
+      blockers.push({ code: 'room_depth', message: `The available depth (${measuredDepthM.toFixed(1)}m) cannot safely fit the requested shot.` });
+      questions.push('Can you provide a deeper room, a wider lens, or approve a tighter insert-style shot?');
+      return { status: 'needs-user-input', blockers, questions };
+    }
+    if (framingResolution.changed) {
+      warnings.push(`Framing changed from ${framing} to ${framingResolution.framing} to fit the available room depth.`);
+      framing = framingResolution.framing;
+    }
+    cameraDistance = framingResolution.distanceM;
+  } else {
+    assumptions.push('Room depth is unknown; camera, performer, and light marks use normalized coordinates and must be physically confirmed before recording.');
+    assumptions.push(`The ${framing} framing can be achieved in the selected space; adjust the normalized camera mark using the live preview.`);
   }
 
   let angle: CameraAngle = intent.desiredAngle;
@@ -358,9 +381,7 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
   const sceneKey = safeId(intent.sceneId);
   const setupId = `setup_${sceneKey}`;
   const cameraMarkId = `camera_${sceneKey}`;
-  const distance = coordinateUnit === 'meters'
-    ? framingResolution.distanceM
-    : Math.min(0.9, framingResolution.distanceM / 3.5);
+  const distance = cameraDistance;
   const eyeHeight = coordinateUnit === 'meters' ? leadEyeHeight : 0.5;
   const cameraHeight = coordinateUnit === 'meters' ? heightForAngle(angle, leadEyeHeight) : angle === 'high' ? 0.72 : angle === 'low' ? 0.3 : 0.5;
   const performerSpacing = coordinateUnit === 'meters' ? 0.8 : 0.35;
@@ -486,7 +507,9 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
       performerMarks,
       audioMarks,
       instructions: [
-        `Place the camera ${coordinateUnit === 'meters' ? `${framingResolution.distanceM.toFixed(1)}m` : 'at the marked normalized distance'} from the lead performer at ${angle} height.`,
+        coordinateUnit === 'meters'
+          ? `Place the camera ${cameraDistance.toFixed(1)}m from the lead performer at ${angle} height.`
+          : `Start at the normalized camera mark, then adjust with the live preview until the ${framing} framing is achieved; confirm the position and any movement path are safe before recording.`,
         supportResourceId ? `Stabilize the camera with ${resources.find((resource) => resource.id === supportResourceId)?.label ?? 'the selected support'}.` : 'Assign the camera operator before recording.',
         ...(keyResource ? [`Place ${keyResource.label} about 45 degrees to the performer and keep it outside frame.`] : []),
         ...(fillResource ? [`Place ${fillResource.label} opposite the key to soften facial shadows.`] : []),
@@ -510,7 +533,7 @@ export function resolveSceneShotPlan(input: ResolveSceneShotPlanInput): SceneSho
         framing,
         angle,
         movement,
-        movementPath: movementPath(movement, framingResolution.distanceM, maxCameraDistanceM, coordinateUnit),
+        movementPath: movementPath(movement, cameraDistance, maxCameraDistance),
         focalLengthEquivalentMm,
       },
       activeLightMarkIds: lightMarks.map((mark) => mark.id),
