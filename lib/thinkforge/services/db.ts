@@ -1706,11 +1706,11 @@ export async function getScript(sessionId: string, scriptId: string): Promise<Sc
   }
 }
 
-export type SaveScriptWithVersionResult =
+type SaveScriptWithVersionResult =
   | { ok: true; script: Script }
   | { ok: false; error: 'Version conflict'; currentVersion: number };
 
-export type SaveApprovedShootKitSnapshotResult =
+type SaveApprovedShootKitSnapshotResult =
   | { ok: true; script: Script }
   | { ok: false; error: 'Document conflict'; currentVersion: number };
 
