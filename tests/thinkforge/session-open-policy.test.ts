@@ -1,7 +1,12 @@
 import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
 import { resolveHydratedScriptSnapshot } from '@/app/dashboard/thinkforge/hooks/useThinkForgeScript';
-import { resolveThinkForgeSessionOpenAction } from '@/lib/thinkforge/session-open-policy';
+import {
+  createThinkForgeSessionDocumentTarget,
+  resolveThinkForgeSessionOpenAction,
+  shouldApplyThinkForgeSessionHydrationResult,
+  transitionThinkForgeSessionHydrationFailure,
+} from '@/lib/thinkforge/session-open-policy';
 
 function read(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
@@ -59,6 +64,78 @@ describe('ThinkForge session open policy', () => {
     })).toBe('hydrate_target');
   });
 
+  it('retains a failed hydration visibly until the user retries or changes session', () => {
+    const target = createThinkForgeSessionDocumentTarget('session_a', 'default');
+    const otherTarget = createThinkForgeSessionDocumentTarget('session_b', 'default');
+    expect(target).not.toBeNull();
+    expect(otherTarget).not.toBeNull();
+
+    const failure = transitionThinkForgeSessionHydrationFailure(null, {
+      type: 'failed',
+      target: target!,
+      message: 'Could not load the selected document.',
+    });
+    expect(transitionThinkForgeSessionHydrationFailure(failure, {
+      type: 'started',
+      target: target!,
+    })).toEqual(failure);
+    expect(transitionThinkForgeSessionHydrationFailure(failure, {
+      type: 'started',
+      target: otherTarget!,
+    })).toBeNull();
+
+    const page = read('app/dashboard/thinkforge/page.tsx');
+    expect(page).toContain('data-testid="thinkforge-session-hydration-error"');
+    expect(page).toContain('role="alert"');
+    expect(page).toContain('session.hydrationFailure.message');
+    expect(page).toContain('handleOpenSession(session.hydrationFailure!.target.sessionId)');
+  });
+
+  it('clears the retained failure only after the exact retry succeeds', () => {
+    const target = createThinkForgeSessionDocumentTarget('session_a', 'default')!;
+    const failure = transitionThinkForgeSessionHydrationFailure(null, {
+      type: 'failed',
+      target,
+      message: 'Could not load the selected document.',
+    });
+    const retrying = transitionThinkForgeSessionHydrationFailure(failure, {
+      type: 'started',
+      target,
+    });
+
+    expect(retrying).toEqual(failure);
+    expect(transitionThinkForgeSessionHydrationFailure(retrying, {
+      type: 'succeeded',
+      target,
+    })).toBeNull();
+  });
+
+  it('ignores aborted and stale hydration responses', () => {
+    expect(shouldApplyThinkForgeSessionHydrationResult({
+      requestRevision: 4,
+      activeRequestRevision: 4,
+      aborted: false,
+    })).toBe(true);
+    expect(shouldApplyThinkForgeSessionHydrationResult({
+      requestRevision: 3,
+      activeRequestRevision: 4,
+      aborted: false,
+    })).toBe(false);
+    expect(shouldApplyThinkForgeSessionHydrationResult({
+      requestRevision: 4,
+      activeRequestRevision: 4,
+      aborted: true,
+    })).toBe(false);
+
+    const sessionHook = read('app/dashboard/thinkforge/hooks/useThinkForgeSession.ts');
+    const page = read('app/dashboard/thinkforge/page.tsx');
+    expect(sessionHook).toContain('if (!isCurrentRequest()) return null;');
+    expect(sessionHook).toContain('Hydration response identity does not match the requested document');
+    expect(page).toContain('const isCurrentSessionOpen = () => sessionOpenRevisionRef.current === openRevision;');
+    expect(page).toContain('if (!isCurrentSessionOpen()) return;');
+    expect(page).toContain('if (!data || !isCurrentSessionOpen()) return;');
+  });
+
   it('rehydrates when the target differs or the workspace is not scripting', () => {
     expect(resolveThinkForgeSessionOpenAction({
       targetSessionId: 'session_b',
@@ -108,7 +185,8 @@ describe('ThinkForge session open policy', () => {
     expect(page).toContain('resolveThinkForgeSessionOpenAction({');
     expect(page).toContain('matchesThinkForgeDocumentIdentity(scriptHook.script');
     expect(page).toContain("if (openAction === 'focus_current')");
-    expect(page).toContain("const data = await session.hydrate({ sessionId: id, scriptId: 'default' });");
+    expect(page).toContain('const data = await session.hydrate({');
+    expect(page).toContain('allowCachedFallback: false');
     expect(page).toContain('session.hydratedScriptSnapshot');
 
     const route = read('app/api/services/thinkforge/session/route.ts');

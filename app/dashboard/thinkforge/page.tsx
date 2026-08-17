@@ -1,7 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { FolderOpen, Lightbulb, FileText, Calendar, Brain, Library } from "lucide-react";
+import { AlertCircle, FolderOpen, Lightbulb, FileText, Calendar, Brain, Library, RotateCcw } from "lucide-react";
 import { toast } from '@/hooks/use-toast';
 import {
 	resolveProjectMetaEditorialAngle,
@@ -181,6 +181,7 @@ export default function ThinkForgeLanding() {
 	const successfulIdeaVariationRef = useRef(-1);
 	const rejectedIdeasRef = useRef<Array<{ title: string; purpose: string; style: string }>>([]);
 	const resumedSessionIdRef = useRef<string | null>(null);
+	const sessionOpenRevisionRef = useRef(0);
 
 	// Modular hooks
 	const session = useThinkForgeSession();
@@ -826,6 +827,65 @@ export default function ThinkForgeLanding() {
 		scriptHook.setScriptWithoutSave(model);
 	}, [scriptHook]);
 
+	const handleOpenSession = async (id: string) => {
+		const openRevision = sessionOpenRevisionRef.current + 1;
+		sessionOpenRevisionRef.current = openRevision;
+		const isCurrentSessionOpen = () => sessionOpenRevisionRef.current === openRevision;
+
+		try {
+			const openAction = resolveThinkForgeSessionOpenAction({
+				targetSessionId: id,
+				activeSessionId,
+				workspaceMode,
+				hasHydratedWorkspace: Boolean(
+					selectedIdea
+					&& matchesThinkForgeDocumentIdentity(scriptHook.script, {
+						sessionId: id,
+						scriptId: activeScriptId || 'default',
+					}),
+				),
+			});
+			if (openAction === 'focus_current') {
+				setLibraryOpen(false);
+				setWorkspaceMode('scripting');
+				return;
+			}
+
+			if (scriptHook.script) {
+				await scriptHook.autosave(scriptHook.script);
+			}
+			if (!isCurrentSessionOpen()) return;
+
+			scriptHook.resetSessionState();
+			setOpeningSession(true);
+			const data = await session.hydrate({
+				sessionId: id,
+				scriptId: 'default',
+				allowCachedFallback: false,
+			});
+			if (!data || !isCurrentSessionOpen()) return;
+
+			const sid = data.sessionId;
+			setPendingSessionId(sid);
+			scriptHook.resetSessionState();
+			const restoredIdea = buildIdeaFromSessionMeta(sid, data.projectMeta || {});
+			setSelectedIdea(restoredIdea);
+			setAuthoringRequest(restoredIdea.authoringRequest || null);
+			setWorkspaceMode('scripting');
+			setLibraryOpen(false);
+		} catch (err) {
+			if (!isCurrentSessionOpen()) return;
+			console.error('[ThinkForge] Failed to open session:', err);
+			toast({
+				title: 'Failed to open session',
+				description: 'Could not load the selected session.',
+				variant: 'destructive',
+			});
+		} finally {
+			if (isCurrentSessionOpen()) setOpeningSession(false);
+		}
+	};
+
 	// Dock items for ThinkForge features
 	const dockItems = [
 		{
@@ -882,6 +942,7 @@ export default function ThinkForgeLanding() {
 				onDeleteSession={async (id) => {
 					const active = (pendingSessionId || session.sessionId);
 					if (active && id === active) {
+						sessionOpenRevisionRef.current += 1;
 						// If the deleted session is currently active, close it and reset UI
 						await session.closeSession();
 						setPendingSessionId(null);
@@ -896,57 +957,7 @@ export default function ThinkForgeLanding() {
 					}
 				}}
 				// When sessions prop is omitted, component fetches via hook
-				onOpenSession={async (id) => {
-					try {
-						const openAction = resolveThinkForgeSessionOpenAction({
-							targetSessionId: id,
-							activeSessionId,
-							workspaceMode,
-							hasHydratedWorkspace: Boolean(
-								selectedIdea
-								&& matchesThinkForgeDocumentIdentity(scriptHook.script, {
-									sessionId: id,
-									scriptId: activeScriptId || 'default',
-								}),
-							),
-						});
-						if (openAction === 'focus_current') {
-							setLibraryOpen(false);
-							setWorkspaceMode('scripting');
-							return;
-						}
-
-						// Ensure current script is saved before switching sessions
-						if (scriptHook.script) {
-							await scriptHook.autosave(scriptHook.script);
-						}
-						// Clear UI while switching to prevent stale hydration
-						scriptHook.resetSessionState();
-						setLibraryOpen(false);
-						setOpeningSession(true);
-						// Hydrate backend with target session and immediately use returned data
-						const data = await session.hydrate({ sessionId: id, scriptId: 'default' });
-						if (!data) { setOpeningSession(false); return; }
-						const sid = data.sessionId;
-						setPendingSessionId(sid);
-						scriptHook.resetSessionState();
-						const restoredIdea = buildIdeaFromSessionMeta(sid, data.projectMeta || {});
-						setSelectedIdea(restoredIdea);
-						setAuthoringRequest(restoredIdea.authoringRequest || null);
-						// Switch to Script mode so ChatPanel mounts and loads recent chats
-						setWorkspaceMode('scripting');
-					} catch (err) {
-						console.error('[ThinkForge] Failed to open session:', err);
-						toast({
-							title: 'Failed to open session',
-							description: 'Could not load the selected session.',
-							variant: 'destructive',
-						});
-					} finally {
-						// Immediately clear overlay - no setTimeout for correctness
-						setOpeningSession(false);
-					}
-				}}
+				onOpenSession={handleOpenSession}
 			/>
 			<AnimatePresence>
 				{libraryOpen && (
@@ -1075,8 +1086,31 @@ export default function ThinkForgeLanding() {
 				}}
 			/>
 
+			{session.hydrationFailure && (
+				<div
+					role="alert"
+					data-testid="thinkforge-session-hydration-error"
+					className="fixed left-4 right-4 top-20 z-[60] mx-auto flex max-w-xl items-start gap-3 border border-red-500/40 bg-[#171111] p-4 text-white shadow-2xl"
+				>
+					<AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" aria-hidden="true" />
+					<div className="min-w-0 flex-1">
+						<p className="text-sm font-medium">Could not load this document</p>
+						<p className="mt-1 text-sm text-white/70">{session.hydrationFailure.message}</p>
+					</div>
+					<button
+						type="button"
+						className="inline-flex h-9 shrink-0 items-center gap-2 border border-white/20 px-3 text-sm font-medium text-white transition-colors hover:bg-white/10 disabled:cursor-wait disabled:opacity-50"
+						disabled={session.isHydrating}
+						onClick={() => void handleOpenSession(session.hydrationFailure!.target.sessionId)}
+					>
+						<RotateCcw className="h-4 w-4" aria-hidden="true" />
+						{session.isHydrating ? 'Retrying...' : 'Retry'}
+					</button>
+				</div>
+			)}
+
 			{/* Full-screen loading overlay while opening a session from Library */}
-			{openingSession && (
+			{(openingSession || session.isHydrating) && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95">
 					<div className="flex flex-col items-center gap-4 text-white">
 						<div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
