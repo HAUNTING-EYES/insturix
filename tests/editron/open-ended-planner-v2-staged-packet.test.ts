@@ -13,6 +13,7 @@ import {
   buildDevelopmentReferenceNativeVideoStageOnePacketV2,
   buildDevelopmentStageOnePacketsV2,
   buildNextProviderStagePacketV2,
+  validateProviderStageArtifactV2,
   type HashedStagePacketV2,
 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
@@ -351,5 +352,69 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     expect(hashCanonicalJsonV1(material)).toBe(planHash);
     expect(frozenPlan.noProviderTelemetry).toMatchObject({ provider: 'NO_PROVIDER', model: 'NO_MODEL', finishReason: 'NOT_DISPATCHED_V2_1B', inputTokens: 0, visibleOutputTokens: 0, reasoningTokens: 0, providerCostUsd: 0, parseStatus: 'NOT_ATTEMPTED' });
     expect(Object.keys(frozenPlan.noProviderTelemetry)).toHaveLength(18);
+  });
+});
+
+describe('open-ended planner V2R selected-operator node contract', () => {
+  const stageOne = buildDevelopmentStageOnePacketsV2();
+  const first = stageOne.find(({ packet }) => packet.taskId === 'DEV-02' && packet.conditionId === 'BASELINE' && packet.inputArm === 'MULTIMODAL') as HashedStagePacketV2;
+
+  function v2rNode(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      intentNodeId: 'node-1',
+      operationFamily: 'generated-composition',
+      targetClaimIds: ['claim-layout'],
+      selectedOperatorId: 'generated_composition_program',
+      alternativeOperatorIds: [],
+      executionForm: 'GENERATED_COMPOSITION',
+      requiresNodeIds: [],
+      invalidates: ['RENDER_PROOF'],
+      evidenceIds: ['EV-DEV02-R1'],
+      failureDisposition: 'NEEDS_REVIEW',
+      ...overrides,
+    };
+  }
+
+  function v2rStageTwoArtifact(): Record<string, unknown> {
+    return { ...prior('EditorialIntentGraphV2', 'DEV-02'), nodes: [v2rNode()] };
+  }
+
+  it('issues a stage-2 contract that requires exactly one selected operator per node', () => {
+    const second = buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('ReferenceBlueprintV2', 'DEV-02'), nodeContractVersion: 'V2R' });
+    const nodeSchema = (second.packet.outputContract.properties as Record<string, { items: { required: string[]; properties: Record<string, unknown> } }>).nodes.items;
+    expect(nodeSchema.required).toEqual(expect.arrayContaining(['selectedOperatorId', 'alternativeOperatorIds']));
+    expect(nodeSchema.required).not.toContain('candidateCapabilityIds');
+    expect(nodeSchema.properties.selectedOperatorId).toEqual({ type: 'string', minLength: 1 });
+    expect(nodeSchema.properties.failureDisposition).toEqual({ type: 'string', enum: ['NEEDS_REVIEW', 'FAIL'] });
+    expect(second.packet.instructions).toEqual(expect.arrayContaining([
+      expect.stringContaining('exactly one selectedOperatorId'),
+      expect.stringContaining('never through an empty, placeholder, or pseudo operator node'),
+    ]));
+    expect(validateProviderStageArtifactV2(second, v2rStageTwoArtifact())).toEqual([]);
+  });
+
+  it('rejects stage-2 nodes that keep the ambiguous candidate list or omit the selected operator', () => {
+    const second = buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('ReferenceBlueprintV2', 'DEV-02'), nodeContractVersion: 'V2R' });
+    const legacy = v2rStageTwoArtifact();
+    legacy.nodes = [{ intentNodeId: 'node-1', operationFamily: 'generated-composition', targetClaimIds: ['claim-layout'], candidateCapabilityIds: ['generated_composition_program'], executionForm: 'GENERATED_COMPOSITION', requiresNodeIds: [], invalidates: ['RENDER_PROOF'], evidenceIds: ['EV-DEV02-R1'], failureDisposition: 'NEEDS_REVIEW' }];
+    expect(validateProviderStageArtifactV2(second, legacy)).toEqual(expect.arrayContaining([
+      expect.stringContaining('nodes[0].selectedOperatorId:REQUIRED'),
+      expect.stringContaining('nodes[0].candidateCapabilityIds:ADDITIONAL'),
+    ]));
+    const emptySelected = v2rStageTwoArtifact();
+    emptySelected.nodes = [v2rNode({ selectedOperatorId: '' })];
+    expect(validateProviderStageArtifactV2(second, emptySelected)).toEqual(expect.arrayContaining([
+      expect.stringContaining('nodes[0].selectedOperatorId:STRING'),
+    ]));
+  });
+
+  it('keeps the default V2 node contract bit-identical for historical packets', () => {
+    const second = buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('ReferenceBlueprintV2', 'DEV-02') });
+    const nodeSchema = (second.packet.outputContract.properties as Record<string, { items: { required: string[] } }>).nodes.items;
+    expect(nodeSchema.required).toContain('candidateCapabilityIds');
+    expect(nodeSchema.required).not.toContain('selectedOperatorId');
+    expect(second.packet.instructions.join('\n')).not.toContain('selectedOperatorId');
+    const again = buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('ReferenceBlueprintV2', 'DEV-02') });
+    expect(again.packetHash).toBe(second.packetHash);
   });
 });

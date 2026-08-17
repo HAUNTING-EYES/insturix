@@ -17,6 +17,13 @@ import {
   hashTemporalReferenceEvidenceV2,
   type TemporalReferenceEvidenceV2,
 } from './media-materializer-v2';
+import {
+  STAGE2_SELECTED_OPERATOR_INSTRUCTIONS_V2R,
+  STAGE2_SELECTED_OPERATOR_NODE_SCHEMA_V2R,
+  STAGE3_SELECTED_OPERATOR_NODE_SCHEMA_V2R,
+  referencedOperatorIdsV2R,
+  selectedOperatorDriftDiagnosticsV2R,
+} from './stage2-selected-operator-contract-v2r';
 
 export const INPUT_ARMS_V2 = ['MULTIMODAL', 'TEXT_EVIDENCE_ONLY'] as const;
 export const REFERENCE_IMAGE_INPUT_ARM_V2 = 'REFERENCE_IMAGE_EVIDENCE' as const;
@@ -33,6 +40,7 @@ export type InputArmV2 = typeof INPUT_ARMS_V2[number]
   | typeof REFERENCE_NATIVE_VIDEO_INPUT_ARM_V2;
 type ExecutionFormArmV2 = typeof EXECUTION_FORM_ARMS_V2[number];
 type StageV2 = 1 | 2 | 3 | 4 | 5;
+export type NodeContractVersionV2 = 'V2' | 'V2R';
 type JsonRecord = Record<string, unknown>;
 
 interface EvidenceV2 { evidenceId: string; kind: string; binding: string; value: unknown }
@@ -195,6 +203,7 @@ export function buildNextProviderStagePacketV2(input: {
   executionFormArm: ExecutionFormArmV2;
   priorArtifact: PriorArtifactV2;
   stageThreeSource?: StageThreeEvidenceSourceV2;
+  nodeContractVersion?: NodeContractVersionV2;
 }): HashedStagePacketV2 {
   if (input.previousPacket.packet.stage !== input.stage - 1) fail('NON_SEQUENTIAL_STAGE', 'Stages must be built sequentially');
   const expectedType = ['ReferenceBlueprintV2', 'EditorialIntentGraphV2', 'EvidenceBoundIntentGraphV2', 'CompiledOperationGraphV2'][input.stage - 2];
@@ -207,16 +216,17 @@ export function buildNextProviderStagePacketV2(input: {
   }
   const sourceTask = developmentTasksV2().find(({ taskId }) => taskId === input.previousPacket.packet.taskId) ?? fail('TASK_MISSING', 'Development task disappeared');
   const condition = sourceTask.conditionCases.find(({ conditionId }) => conditionId === input.previousPacket.packet.conditionId) ?? fail('CONDITION_MISSING', 'Condition disappeared');
+  const nodeContractVersion: NodeContractVersionV2 = input.nodeContractVersion ?? 'V2';
   const modelInput: JsonRecord = {
     priorArtifact: input.priorArtifact,
     priorArtifactHash: hashCanonicalJsonV1(input.priorArtifact),
     condition: publicCondition(condition),
-    ...(input.stage <= 4 ? { operatorCatalog: publicOperatorCatalog(input.stage, input.priorArtifact) } : {}),
+    ...(input.stage <= 4 ? { operatorCatalog: publicOperatorCatalog(input.stage, input.priorArtifact, nodeContractVersion) } : {}),
     ...(input.stage === 3 ? {
       evidencePack: stageThreeEvidencePack(sourceTask, condition, input.stageThreeSource),
     } : {}),
     ...(input.stage === 4 ? {
-      compilationSources: stageFourCompilationSources(sourceTask, condition, input.priorArtifact, input.previousPacket.packet),
+      compilationSources: stageFourCompilationSources(sourceTask, condition, input.priorArtifact, input.previousPacket.packet, nodeContractVersion),
       compilationPolicy: stageFourCompilationPolicy(sourceTask.taskId),
     } : {}),
     ...(input.stage === 2 ? { routingExperiment: routingExperiment(input.executionFormArm) } : {}),
@@ -224,7 +234,7 @@ export function buildNextProviderStagePacketV2(input: {
   const packet = packetBase({
     stage: input.stage, taskId: sourceTask.taskId, conditionId: condition.conditionId,
     inputArm: input.previousPacket.packet.inputArm, executionFormArm: input.executionFormArm,
-    modelInput,
+    modelInput, nodeContractVersion,
   });
   return hashPacket(packet, []);
 }
@@ -443,11 +453,22 @@ function referenceAttachmentDescriptor(attachment: ProviderTransportAttachmentV2
   };
 }
 
-function packetBase(input: { stage: StageV2; taskId: string; conditionId: string; inputArm: InputArmV2; executionFormArm: ExecutionFormArmV2 | 'NOT_APPLICABLE_PRE_ROUTING'; modelInput: JsonRecord }): ProviderStagePacketV2 {
+function packetBase(input: { stage: StageV2; taskId: string; conditionId: string; inputArm: InputArmV2; executionFormArm: ExecutionFormArmV2 | 'NOT_APPLICABLE_PRE_ROUTING'; modelInput: JsonRecord; nodeContractVersion?: NodeContractVersionV2 }): ProviderStagePacketV2 {
   const stage = benchmarkJson.stages.find((entry) => entry.stage === input.stage) ?? fail('STAGE_MISSING', String(input.stage));
-  const packet: ProviderStagePacketV2 = { packetVersion: 'EDITRON_OE_PROVIDER_STAGE_PACKET_V2', authority: 'RESEARCH_ONLY_NO_PROVIDER_DISPATCH_OR_PROJECT_MUTATION', stage: input.stage, stageName: stage.name, taskId: input.taskId, conditionId: input.conditionId, inputArm: input.inputArm, executionFormArm: input.executionFormArm, instructions: STAGE_INSTRUCTIONS[input.stage], stageBudget: STAGE_BUDGETS[input.stage], modelInput: input.modelInput, outputContract: outputContract(input.stage, input.taskId, input.executionFormArm) };
+  const nodeContractVersion: NodeContractVersionV2 = input.nodeContractVersion ?? 'V2';
+  const packet: ProviderStagePacketV2 = { packetVersion: 'EDITRON_OE_PROVIDER_STAGE_PACKET_V2', authority: 'RESEARCH_ONLY_NO_PROVIDER_DISPATCH_OR_PROJECT_MUTATION', stage: input.stage, stageName: stage.name, taskId: input.taskId, conditionId: input.conditionId, inputArm: input.inputArm, executionFormArm: input.executionFormArm, instructions: stageInstructions(input.stage, nodeContractVersion), stageBudget: STAGE_BUDGETS[input.stage], modelInput: input.modelInput, outputContract: outputContract(input.stage, input.taskId, input.executionFormArm, nodeContractVersion) };
   assertNoEvaluatorLeakV2(packet);
   return packet;
+}
+
+function stageInstructions(stage: StageV2, nodeContractVersion: NodeContractVersionV2): string[] {
+  if (nodeContractVersion === 'V2R' && stage === 2) {
+    return [...STAGE_INSTRUCTIONS[2], ...STAGE2_SELECTED_OPERATOR_INSTRUCTIONS_V2R.stage2];
+  }
+  if (nodeContractVersion === 'V2R' && stage === 3) {
+    return [...STAGE_INSTRUCTIONS[3], ...STAGE2_SELECTED_OPERATOR_INSTRUCTIONS_V2R.stage3];
+  }
+  return STAGE_INSTRUCTIONS[stage];
 }
 
 function hashPacket(packet: ProviderStagePacketV2, attachments: HashedStagePacketV2['transportAttachments']): HashedStagePacketV2 {
@@ -502,12 +523,18 @@ function withoutReferenceAnswerLeak(evidence: EvidenceV2[], referenceMedia: Medi
   });
 }
 
-function publicOperatorCatalog(stage: number, priorArtifact: PriorArtifactV2): JsonRecord {
+function publicOperatorCatalog(
+  stage: number,
+  priorArtifact: PriorArtifactV2,
+  nodeContractVersion: NodeContractVersionV2 = 'V2',
+): JsonRecord {
   const referencedIds = stage >= 3
-    ? new Set((Array.isArray(priorArtifact.nodes) ? priorArtifact.nodes : [])
-      .flatMap((node) => isRecord(node) && Array.isArray(node.candidateCapabilityIds)
-        ? node.candidateCapabilityIds.filter((id): id is string => typeof id === 'string')
-        : []))
+    ? new Set(nodeContractVersion === 'V2R'
+      ? referencedOperatorIdsV2R(priorArtifact.nodes)
+      : (Array.isArray(priorArtifact.nodes) ? priorArtifact.nodes : [])
+        .flatMap((node) => isRecord(node) && Array.isArray(node.candidateCapabilityIds)
+          ? node.candidateCapabilityIds.filter((id): id is string => typeof id === 'string')
+          : []))
     : null;
   const operators = operatorCatalogJson.operators
     .filter((operator) => !referencedIds || referencedIds.has(operator.operatorId))
@@ -598,6 +625,7 @@ function stageFourCompilationSources(
   condition: ConditionCaseV2,
   evidenceBoundIntent: PriorArtifactV2,
   stageThreePacket: ProviderStagePacketV2,
+  nodeContractVersion: NodeContractVersionV2 = 'V2',
 ): JsonRecord {
   const editorialIntent = stageSources(task.taskId).editorialIntent;
   if (editorialIntent.taskId !== task.taskId) {
@@ -610,6 +638,12 @@ function stageFourCompilationSources(
   }
   for (const [intentNodeId, sourceNode] of sourceNodes) {
     const boundNode = boundNodes.get(intentNodeId) ?? fail('STAGE4_INTENT_NODE_MISSING', intentNodeId);
+    if (nodeContractVersion === 'V2R') {
+      if (selectedOperatorDriftDiagnosticsV2R([sourceNode], [boundNode]).length) {
+        fail('STAGE4_CAPABILITY_SET_DRIFT', intentNodeId);
+      }
+      continue;
+    }
     if (!sameStringSet(strings(sourceNode.candidateCapabilityIds), strings(boundNode.candidateCapabilityIds))) {
       fail('STAGE4_CAPABILITY_SET_DRIFT', intentNodeId);
     }
@@ -758,7 +792,7 @@ function routingExperiment(arm: ExecutionFormArmV2): JsonRecord {
   };
 }
 
-function outputContract(stage: StageV2, taskId: string, arm: ExecutionFormArmV2 | 'NOT_APPLICABLE_PRE_ROUTING'): JsonRecord {
+function outputContract(stage: StageV2, taskId: string, arm: ExecutionFormArmV2 | 'NOT_APPLICABLE_PRE_ROUTING', nodeContractVersion: NodeContractVersionV2 = 'V2'): JsonRecord {
   const artifactType = ['ReferenceBlueprintV2', 'EditorialIntentGraphV2', 'EvidenceBoundIntentGraphV2', 'CompiledOperationGraphV2', 'ProceedOrStopDecisionV2'][stage - 1];
   const source = stage === 3
     ? stageThreeOutputContractV2(taskId)
@@ -769,6 +803,12 @@ function outputContract(stage: StageV2, taskId: string, arm: ExecutionFormArmV2 
   const properties = source.properties
     ? JSON.parse(JSON.stringify(source.properties)) as JsonRecord
     : Object.fromEntries(source.required.map((field) => [field, outputFieldSchema(field, artifactType, taskId, arm)]));
+  if (nodeContractVersion === 'V2R' && stage === 2) {
+    properties.nodes = { type: 'array', items: STAGE2_SELECTED_OPERATOR_NODE_SCHEMA_V2R };
+  }
+  if (nodeContractVersion === 'V2R' && stage === 3) {
+    properties.nodes = { type: 'array', minItems: 1, items: STAGE3_SELECTED_OPERATOR_NODE_SCHEMA_V2R };
+  }
   properties.artifactType = { const: artifactType };
   properties.taskId = { const: taskId };
   if (stage === 2) properties.executionForm = outputFieldSchema('executionForm', artifactType, taskId, arm);
