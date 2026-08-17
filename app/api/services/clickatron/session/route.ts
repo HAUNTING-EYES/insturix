@@ -34,6 +34,7 @@ import {
   ClickatronCarouselAdmissionError,
   type ClickatronCarouselSlideSpec,
 } from '@/lib/thinkforge/schemas/clickatron-creative-contract';
+import { resolveClickatronE2EMediaFixture } from '@/lib/clickatron/e2e-media-fixture';
 
 interface CarouselParseResult {
   slides: ClickatronCarouselSlideSpec[];
@@ -174,6 +175,16 @@ export async function POST(request: Request) {
     const carouselSlides = carouselParse.slides;
     const quantity = carouselSlides.length > 0 ? carouselSlides.length : 1;
     const referenceImages = formData.getAll('referenceImage') as File[];
+    const e2eMediaFixture = resolveClickatronE2EMediaFixture();
+    if (e2eMediaFixture && referenceImages.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'Clickatron E2E media fixtures do not accept uploaded reference images.',
+          code: 'E2E_REFERENCE_IMAGES_FORBIDDEN',
+        },
+        { status: 422 },
+      );
+    }
     const rawAspectRatio = formData.get('aspectRatio') || '16:9';
     let aspectRatio: string;
     try {
@@ -274,12 +285,14 @@ export async function POST(request: Request) {
     }
 
     // Admission control uses the same final model the worker is required to run.
-    const creditCheck = await checkCredits(userId, 'clickatron', 'variation', {
-      quantity,
-      model: resolvedModel.modelId,
-    });
-    if (!creditCheck.allowed) {
-      return creditCheck.errorResponse;
+    if (!e2eMediaFixture) {
+      const creditCheck = await checkCredits(userId, 'clickatron', 'variation', {
+        quantity,
+        model: resolvedModel.modelId,
+      });
+      if (!creditCheck.allowed) {
+        return creditCheck.errorResponse;
+      }
     }
 
     const validatedData = {
@@ -344,19 +357,25 @@ export async function POST(request: Request) {
           slideIndex,
           ...(slide.title ? { slideTitle: slide.title } : {}),
           isCarouselSlide: true,
+          ...(e2eMediaFixture ? {
+            e2eMediaFixture: {
+              mode: e2eMediaFixture.mode,
+              runId: e2eMediaFixture.runId,
+            },
+          } : {}),
         };
         variationsToCreate.push({
           id: nanoid(),
           prompt: slide.imagePrompt,
           // A carousel slide always has a prompt, so it never starts blank.
-          status: 'generating',
+          status: e2eMediaFixture ? 'completed' : 'generating',
           aspectRatio: validatedData.aspectRatio,
           modelId: validatedData.modelId,
           createdAt: new Date(),
           updatedAt: new Date(),
           fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
-          imageRef: '',
-          thumbnailRef: '',
+          imageRef: e2eMediaFixture?.imageRef ?? '',
+          thumbnailRef: e2eMediaFixture?.imageRef ?? '',
           referenceImageRefs: [],
           metadata: slideMetadata,
         });
@@ -365,16 +384,26 @@ export async function POST(request: Request) {
       variationsToCreate.push({
         id: nanoid(),
         prompt: validatedData.prompt,
-        status: isBlankProject ? 'blank' : 'generating',
+        status: isBlankProject ? 'blank' : e2eMediaFixture ? 'completed' : 'generating',
         aspectRatio: validatedData.aspectRatio,
         modelId: validatedData.modelId,
         createdAt: new Date(),
         updatedAt: new Date(),
         fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
-        imageRef: '',
-        thumbnailRef: '',
+        imageRef: !isBlankProject && e2eMediaFixture ? e2eMediaFixture.imageRef : '',
+        thumbnailRef: !isBlankProject && e2eMediaFixture ? e2eMediaFixture.imageRef : '',
         referenceImageRefs: [],
-        ...(hasCreationMetadata ? { metadata: creationMetadata } : {}),
+        ...(hasCreationMetadata || e2eMediaFixture ? {
+          metadata: {
+            ...creationMetadata,
+            ...(e2eMediaFixture ? {
+              e2eMediaFixture: {
+                mode: e2eMediaFixture.mode,
+                runId: e2eMediaFixture.runId,
+              },
+            } : {}),
+          },
+        } : {}),
       });
     }
 
@@ -433,7 +462,7 @@ export async function POST(request: Request) {
     };
 
     // Only deduct credits and create jobs if it's NOT a blank project.
-    if (!isBlankSession) {
+    if (!isBlankSession && !e2eMediaFixture) {
       // The batch check above is admission control. Billing and terminal state
       // are owned independently by each durable variation job.
       for (const variation of variationsToCreate) {
