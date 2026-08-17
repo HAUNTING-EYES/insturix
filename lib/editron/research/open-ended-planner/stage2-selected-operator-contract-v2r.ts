@@ -32,7 +32,7 @@ export const STAGE2_SELECTED_OPERATOR_NODE_SCHEMA_V2R = deepFreezeV1({
     executionForm: { type: 'string', enum: ['NATIVE', 'GENERATED_COMPOSITION'] },
     requiresNodeIds: stringArraySchema,
     invalidates: stringArraySchema,
-    evidenceIds: { ...stringArraySchema, minItems: 1 },
+    evidenceIds: stringArraySchema,
     failureDisposition: { type: 'string', enum: ['NEEDS_REVIEW', 'FAIL'] },
   },
   additionalProperties: false,
@@ -75,13 +75,19 @@ function nodeIdOfV2R(node: JsonRecord, index: number): string {
 export function referencedOperatorIdsV2R(nodes: unknown): string[] {
   const ids = new Set<string>();
   for (const node of Array.isArray(nodes) ? nodes : []) {
-    if (!isRecordV2R(node)) continue;
-    if (typeof node.selectedOperatorId === 'string' && node.selectedOperatorId) {
-      ids.add(node.selectedOperatorId);
-    }
-    for (const alternative of stringsV2R(node.alternativeOperatorIds)) ids.add(alternative);
+    for (const operatorId of nodeCapabilityIdsV2R(node)) ids.add(operatorId);
   }
   return [...ids];
+}
+
+export function nodeCapabilityIdsV2R(node: unknown): string[] {
+  if (!isRecordV2R(node)) return [];
+  const ids: string[] = [];
+  if (typeof node.selectedOperatorId === 'string' && node.selectedOperatorId) {
+    ids.push(node.selectedOperatorId);
+  }
+  for (const alternative of stringsV2R(node.alternativeOperatorIds)) ids.push(alternative);
+  return ids;
 }
 
 export function validateSelectedOperatorNodesV2R(

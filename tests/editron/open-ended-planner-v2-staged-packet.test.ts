@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EXECUTION_FORM_ARMS_V2,
   assertNoEvaluatorLeakV2,
+  buildDev01TruthfulStageOneTextPacketV2,
   buildDevelopmentNoProviderPlanV2,
   buildDevelopmentReferenceImageStageOnePacketV2,
   buildDevelopmentReferenceImageSequenceStageOnePacketV2,
@@ -17,6 +18,8 @@ import {
   type HashedStagePacketV2,
 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import { getCanonicalDev01Stage123V2 } from '@/lib/editron/research/open-ended-planner/dev01-stage123-canonical-v2';
+import { validateSelectedOperatorNodesV2R } from '@/lib/editron/research/open-ended-planner/stage2-selected-operator-contract-v2r';
 import canonicalEvidenceBoundIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-evidence-bound-intent-v2.json';
 import canonicalEditorialIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-editorial-intent-v2.json';
 import canonicalReferenceBlueprintJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-reference-blueprint-v2.json';
@@ -416,5 +419,67 @@ describe('open-ended planner V2R selected-operator node contract', () => {
     expect(second.packet.instructions.join('\n')).not.toContain('selectedOperatorId');
     const again = buildNextProviderStagePacketV2({ previousPacket: first, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: prior('ReferenceBlueprintV2', 'DEV-02') });
     expect(again.packetHash).toBe(second.packetHash);
+  });
+});
+
+describe('open-ended planner V2R DEV-01 canonical chain', () => {
+  const canonical = getCanonicalDev01Stage123V2();
+  const asPrior = (artifact: unknown): { artifactType: string; taskId: string; [key: string]: unknown } => artifact as { artifactType: string; taskId: string; [key: string]: unknown };
+  const dev01Operators = new Set([
+    'read_project_file', 'get_timeline_view', 'find_transcript_moment', 'resolve_transcript_edit',
+    'cut_section', 'find_visual_moment', 'resolve_keyframe_edit', 'set_keyframes',
+    'find_audio_moment', 'apply_audio_ducking',
+  ]);
+
+  it('decomposes the canonical DEV-01 intent into one catalog-known selected operator per node', () => {
+    const intentNodes = (canonical.editorialIntentV2R.nodes as unknown[]);
+    expect(intentNodes).toHaveLength(12);
+    expect(validateSelectedOperatorNodesV2R(intentNodes, dev01Operators)).toEqual([]);
+    const boundNodes = (canonical.evidenceBoundIntentsV2R.BASELINE.nodes as unknown[]);
+    expect(boundNodes).toHaveLength(12);
+    const selectedIds = intentNodes.map((node) => (node as { selectedOperatorId: string }).selectedOperatorId).sort();
+    expect(new Set(selectedIds).size).toBe(10);
+    expect(selectedIds.filter((id) => id === 'read_project_file')).toHaveLength(2);
+    expect(selectedIds.filter((id) => id === 'get_timeline_view')).toHaveLength(2);
+  });
+
+  it('builds the connected DEV-01 stage 2-4 V2R chain without operator drift', () => {
+    const stageOne = buildDev01TruthfulStageOneTextPacketV2('BASELINE');
+    const second = buildNextProviderStagePacketV2({ previousPacket: stageOne, stage: 2, executionFormArm: 'FORCED_NATIVE', priorArtifact: asPrior(canonical.referenceBlueprints.BASELINE), nodeContractVersion: 'V2R' });
+    expect(second.packet.instructions).toEqual(expect.arrayContaining([
+      expect.stringContaining('exactly one selectedOperatorId'),
+    ]));
+    const third = buildNextProviderStagePacketV2({ previousPacket: second, stage: 3, executionFormArm: 'FORCED_NATIVE', priorArtifact: asPrior(canonical.editorialIntentV2R), nodeContractVersion: 'V2R' });
+    expect((third.packet.modelInput.operatorCatalog as { operators: unknown[] }).operators).toHaveLength(10);
+    expect(third.packet.instructions).toEqual(expect.arrayContaining([
+      expect.stringContaining('must not add, drop, or substitute operators'),
+    ]));
+    const fourth = buildNextProviderStagePacketV2({ previousPacket: third, stage: 4, executionFormArm: 'FORCED_NATIVE', priorArtifact: asPrior(canonical.evidenceBoundIntentsV2R.BASELINE), nodeContractVersion: 'V2R' });
+    expect(fourth.packet.modelInput).toHaveProperty('compilationSources.sourceEditorialIntentHash', hashCanonicalJsonV1(canonical.editorialIntentV2R));
+    expect(fourth.packet.modelInput).toHaveProperty('compilationSources.sourceEditorialIntent', canonical.editorialIntentV2R);
+  });
+
+  it('refuses V2R stage-4 compilation when bound nodes drift from the selected operators', () => {
+    const stageOne = buildDev01TruthfulStageOneTextPacketV2('BASELINE');
+    const second = buildNextProviderStagePacketV2({ previousPacket: stageOne, stage: 2, executionFormArm: 'FORCED_NATIVE', priorArtifact: asPrior(canonical.referenceBlueprints.BASELINE), nodeContractVersion: 'V2R' });
+    const third = buildNextProviderStagePacketV2({ previousPacket: second, stage: 3, executionFormArm: 'FORCED_NATIVE', priorArtifact: asPrior(canonical.editorialIntentV2R), nodeContractVersion: 'V2R' });
+    const drifted = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as { nodes: Array<{ selectedOperatorId: string }>; [key: string]: unknown };
+    drifted.nodes[4].selectedOperatorId = 'get_timeline_view';
+    let driftError: unknown;
+    try {
+      buildNextProviderStagePacketV2({ previousPacket: third, stage: 4, executionFormArm: 'FORCED_NATIVE', priorArtifact: asPrior(drifted), nodeContractVersion: 'V2R' });
+    } catch (error) {
+      driftError = error;
+    }
+    expect(driftError).toMatchObject({ code: 'STAGE4_CAPABILITY_SET_DRIFT' });
+  });
+
+  it('keeps the withheld-visual V2R condition unverifiable and therefore non-compilable', () => {
+    expect(canonical.evidenceBoundIntentsV2R.VISUAL_EVIDENCE_WITHHELD.stageDisposition).toBe('UNVERIFIABLE');
+    const stageOne = buildDev01TruthfulStageOneTextPacketV2('VISUAL_EVIDENCE_WITHHELD');
+    const second = buildNextProviderStagePacketV2({ previousPacket: stageOne, stage: 2, executionFormArm: 'FORCED_NATIVE', priorArtifact: asPrior(canonical.referenceBlueprints.VISUAL_EVIDENCE_WITHHELD), nodeContractVersion: 'V2R' });
+    const third = buildNextProviderStagePacketV2({ previousPacket: second, stage: 3, executionFormArm: 'FORCED_NATIVE', priorArtifact: asPrior(canonical.editorialIntentV2R), nodeContractVersion: 'V2R' });
+    expect(() => buildNextProviderStagePacketV2({ previousPacket: third, stage: 4, executionFormArm: 'FORCED_NATIVE', priorArtifact: asPrior(canonical.evidenceBoundIntentsV2R.VISUAL_EVIDENCE_WITHHELD), nodeContractVersion: 'V2R' }))
+      .toThrow(/STAGE4_PRIOR_STAGE_NOT_COMPILABLE|cannot compile/);
   });
 });

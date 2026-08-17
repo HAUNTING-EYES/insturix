@@ -627,7 +627,7 @@ function stageFourCompilationSources(
   stageThreePacket: ProviderStagePacketV2,
   nodeContractVersion: NodeContractVersionV2 = 'V2',
 ): JsonRecord {
-  const editorialIntent = stageSources(task.taskId).editorialIntent;
+  const editorialIntent = stageSources(task.taskId, nodeContractVersion).editorialIntent;
   if (editorialIntent.taskId !== task.taskId) {
     fail('STAGE4_EDITORIAL_INTENT_MISSING', task.taskId);
   }
@@ -671,10 +671,13 @@ function stageFourCompilationSources(
   };
 }
 
-function stageSources(taskId: string): { editorialIntent: JsonRecord; evidencePacks: Record<string, JsonRecord> } {
+function stageSources(taskId: string, nodeContractVersion: NodeContractVersionV2 = 'V2'): { editorialIntent: JsonRecord; evidencePacks: Record<string, JsonRecord> } {
   if (taskId === 'DEV-01') {
     const source = getCanonicalDev01Stage123V2();
-    return { editorialIntent: source.editorialIntent, evidencePacks: source.evidencePacks };
+    return {
+      editorialIntent: nodeContractVersion === 'V2R' ? source.editorialIntentV2R : source.editorialIntent,
+      evidencePacks: source.evidencePacks,
+    };
   }
   if (taskId === 'DEV-02') return {
     editorialIntent: dev02CanonicalIntentJson as unknown as JsonRecord,

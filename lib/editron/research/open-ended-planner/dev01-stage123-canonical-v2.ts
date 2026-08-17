@@ -13,6 +13,8 @@ export interface Dev01Stage123CanonicalV2 {
   editorialIntent: JsonRecord;
   evidencePacks: Record<Dev01ConditionV2, JsonRecord>;
   evidenceBoundIntents: Record<Dev01ConditionV2, JsonRecord>;
+  editorialIntentV2R: JsonRecord;
+  evidenceBoundIntentsV2R: Record<Dev01ConditionV2, JsonRecord>;
 }
 
 const fixture = getCanonicalDev01NativeProxyFixtureV2();
@@ -45,6 +47,11 @@ function buildCanonical(): Dev01Stage123CanonicalV2 {
     evidenceBoundIntents: {
       BASELINE: evidenceBoundIntent(false),
       VISUAL_EVIDENCE_WITHHELD: evidenceBoundIntent(true),
+    },
+    editorialIntentV2R: editorialIntentV2R(),
+    evidenceBoundIntentsV2R: {
+      BASELINE: evidenceBoundIntentV2R(false),
+      VISUAL_EVIDENCE_WITHHELD: evidenceBoundIntentV2R(true),
     },
   };
 }
@@ -208,6 +215,95 @@ function evidenceBoundIntent(withholdVisual: boolean): JsonRecord {
   };
 }
 
+function editorialIntentV2R(): JsonRecord {
+  const coverage = hardClaimIds.map((claimId) => ({ claimId, status: 'COVERED', ownerRefs: claimOwners(claimId), reasonCodes: ['CERTIFIED_FAMILY_OWNER_REQUIRED'] }));
+  return {
+    artifactType: 'EditorialIntentGraphV2', taskId: 'DEV-01', executionForm: 'NATIVE',
+    routeDecision: { scopeClassification: 'NATIVE_ONLY_PLAN', coverageStatus: 'COMPLETE', candidateForms: [{ form: 'NATIVE', hardGateStatus: 'ELIGIBLE', claimCoverage: coverage, representabilitySignals: ['NONE'], blockers: [], ownerRefs: ['resolve_transcript_edit', 'cut_section', 'resolve_keyframe_edit', 'set_keyframes', 'apply_audio_ducking'], evidenceIds: allEvidenceIds }], selectedReasonCodes: ['ALL_HARD_TARGETS_HAVE_NATIVE_FAMILY_OWNERS'], generatedIslandClaimIds: [], nativeSurroundClaimIds: hardClaimIds },
+    nodes: [
+      intentNodeV2R('node-observe-project', 'project_observation', hardClaimIds, 'read_project_file', [], []),
+      intentNodeV2R('node-observe-timeline', 'timeline_observation', hardClaimIds, 'get_timeline_view', ['node-observe-project'], []),
+      intentNodeV2R('node-find-transcript', 'transcript_moment_location', ['claim-remove-dead-air', 'claim-preserve-speech'], 'find_transcript_moment', ['node-observe-project', 'node-observe-timeline'], ['EV-DEV01-T1']),
+      intentNodeV2R('node-resolve-cut', 'transcript_range_resolution', ['claim-remove-dead-air', 'claim-preserve-speech'], 'resolve_transcript_edit', ['node-find-transcript'], ['EV-DEV01-T1']),
+      intentNodeV2R('node-cut', 'transcript_safe_timeline_cut', ['claim-remove-dead-air', 'claim-preserve-speech'], 'cut_section', ['node-resolve-cut'], ['EV-DEV01-T1']),
+      intentNodeV2R('node-find-product', 'post_cut_visual_moment_location', ['claim-product-push-in'], 'find_visual_moment', ['node-cut'], ['EV-DEV01-V1']),
+      intentNodeV2R('node-resolve-product', 'post_cut_keyframe_target_resolution', ['claim-product-push-in'], 'resolve_keyframe_edit', ['node-find-product'], ['EV-DEV01-V1']),
+      intentNodeV2R('node-push-in', 'product_keyframed_transform', ['claim-product-push-in'], 'set_keyframes', ['node-resolve-product'], ['EV-DEV01-V1']),
+      intentNodeV2R('node-find-audio', 'speech_moment_location', ['claim-dialogue-ducking', 'claim-preserve-speech'], 'find_audio_moment', ['node-cut'], ['EV-DEV01-A1']),
+      intentNodeV2R('node-duck', 'dialogue_conditioned_bgm_ducking', ['claim-dialogue-ducking', 'claim-preserve-speech'], 'apply_audio_ducking', ['node-find-audio'], ['EV-DEV01-A1']),
+      intentNodeV2R('node-proof-project', 'post_mutation_project_state_proof', hardClaimIds, 'read_project_file', ['node-push-in', 'node-duck'], allEvidenceIds),
+      intentNodeV2R('node-proof-timeline', 'post_mutation_timeline_proof', hardClaimIds, 'get_timeline_view', ['node-proof-project'], allEvidenceIds),
+    ],
+    edges: [
+      edge('observe-project-observe-timeline', 'node-observe-project', 'node-observe-timeline', 'DATA'),
+      edge('observe-find-transcript', 'node-observe-timeline', 'node-find-transcript', 'DATA'),
+      edge('find-resolve-cut', 'node-find-transcript', 'node-resolve-cut', 'DATA'),
+      edge('resolve-cut-cut', 'node-resolve-cut', 'node-cut', 'DATA'),
+      edge('cut-find-product', 'node-cut', 'node-find-product', 'READ_AFTER_WRITE'),
+      edge('find-resolve-product', 'node-find-product', 'node-resolve-product', 'DATA'),
+      edge('resolve-product-push', 'node-resolve-product', 'node-push-in', 'DATA'),
+      edge('cut-find-audio', 'node-cut', 'node-find-audio', 'TIME_ANCHOR'),
+      edge('find-audio-duck', 'node-find-audio', 'node-duck', 'DATA'),
+      edge('push-proof-project', 'node-push-in', 'node-proof-project', 'PROOF'),
+      edge('duck-proof-project', 'node-duck', 'node-proof-project', 'PROOF'),
+      edge('proof-project-proof-timeline', 'node-proof-project', 'node-proof-timeline', 'PROOF'),
+    ],
+    preservationIntents: [
+      preservation('preserve-spoken-words', 'claim-preserve-speech', 'All spoken words and word order survive the cut.', 'dialogue:dev01-dialogue-truth-v2@R7', 'RENDERED_AUDIO_PRESERVATION'),
+      preservation('preserve-source-identities', 'claim-preserve-speech', 'Host, dialogue and BGM source identities remain unchanged.', 'project:oe-dev-01@R7', 'ASSET_AND_STATE'),
+      preservation('preserve-bgm-outside-speech', 'claim-dialogue-ducking', 'BGM restores outside remapped speech ranges.', 'audio:dev01-bgm-truth-v2@R7', 'RENDERED_AUDIO_MIX'),
+      preservation('preserve-non-target-state', 'claim-product-push-in', 'Non-target overlays, canvas and unrelated geometry remain unchanged.', 'project:oe-dev-01@R7', 'STATE_RELOAD'),
+    ],
+    unresolvedRequirements: [{ requirementId: 'req-post-cut-coordinate-binding', kind: 'EVIDENCE', detail: 'Stage 3 must bind source reveal evidence and the cut transform contract before keyframe compilation.', targetClaimIds: ['claim-product-push-in'], disposition: 'NEEDS_REVIEW' }],
+  };
+}
+
+function evidenceBoundIntentV2R(withholdVisual: boolean): JsonRecord {
+  const visualStatus = withholdVisual ? 'UNVERIFIABLE' : 'BOUND';
+  const visualUnresolved = withholdVisual ? ['req-product-visual-evidence'] : [];
+  const node = (intentNodeId: string, selectedOperatorId: string, bindingIds: string[], proofIds: string[], status = 'BOUND', unresolved: string[] = []) => ({ intentNodeId, selectedOperatorId, alternativeOperatorIds: [], evidenceBindingIds: bindingIds, preservationIds: ['preserve-spoken-words', 'preserve-source-identities', 'preserve-non-target-state'], proofObligationIds: proofIds, bindingStatus: status, unresolvedRequirementIds: unresolved });
+  return {
+    artifactType: 'EvidenceBoundIntentGraphV2', taskId: 'DEV-01', stageDisposition: withholdVisual ? 'UNVERIFIABLE' : 'READY_FOR_COMPILATION',
+    nodes: [
+      node('node-observe-project', 'read_project_file', ['bind-project'], ['proof-revision', 'proof-state']),
+      node('node-observe-timeline', 'get_timeline_view', ['bind-project'], ['proof-revision', 'proof-state']),
+      node('node-find-transcript', 'find_transcript_moment', ['bind-transcript'], ['proof-speech']),
+      node('node-resolve-cut', 'resolve_transcript_edit', ['bind-transcript'], ['proof-speech']),
+      node('node-cut', 'cut_section', ['bind-transcript'], ['proof-speech', 'proof-state']),
+      node('node-find-product', 'find_visual_moment', ['bind-product'], ['proof-product'], visualStatus, visualUnresolved),
+      node('node-resolve-product', 'resolve_keyframe_edit', ['bind-product'], ['proof-product'], visualStatus, visualUnresolved),
+      node('node-push-in', 'set_keyframes', ['bind-product'], ['proof-product', 'proof-state'], visualStatus, visualUnresolved),
+      node('node-find-audio', 'find_audio_moment', ['bind-audio'], ['proof-audio-mix', 'proof-speech']),
+      node('node-duck', 'apply_audio_ducking', ['bind-audio'], ['proof-audio-mix', 'proof-speech']),
+      node('node-proof-project', 'read_project_file', ['bind-project', 'bind-transcript', 'bind-audio', ...(withholdVisual ? [] : ['bind-product'])], ['proof-revision', 'proof-speech', 'proof-product', 'proof-audio-mix', 'proof-state'], visualStatus, visualUnresolved),
+      node('node-proof-timeline', 'get_timeline_view', ['bind-project', 'bind-transcript', 'bind-audio', ...(withholdVisual ? [] : ['bind-product'])], ['proof-revision', 'proof-speech', 'proof-product', 'proof-audio-mix', 'proof-state'], visualStatus, visualUnresolved),
+    ],
+    evidenceBindings: [
+      { bindingId: 'bind-project', factIds: ['fact-project-revision', 'fact-project-timebase', 'fact-source-fixture'], nodeIds: ['node-observe-project', 'node-observe-timeline', 'node-proof-project', 'node-proof-timeline'], status: 'BOUND' },
+      { bindingId: 'bind-transcript', factIds: ['fact-transcript-cut'], nodeIds: ['node-find-transcript', 'node-resolve-cut', 'node-cut'], status: 'BOUND' },
+      { bindingId: 'bind-product', factIds: withholdVisual ? ['fact-source-fixture'] : ['fact-product-reveal', 'fact-source-fixture'], nodeIds: ['node-find-product', 'node-resolve-product', 'node-push-in'], status: visualStatus },
+      { bindingId: 'bind-audio', factIds: ['fact-audio-stems'], nodeIds: ['node-find-audio', 'node-duck'], status: 'BOUND' },
+    ],
+    rightsDecision: { decisionId: 'rights-dev01-owned-fixture', status: 'COMPLIANT', policyFactIds: ['fact-rights-policy', 'fact-source-fixture'], allowedAssetIds: Object.values(fixture.assets), deniedActions: ['REMOTE_MEDIA_RETRIEVAL', 'UNDECLARED_ASSET_USE'], reasonCodes: ['OWNED_FIXTURE_ONLY'] },
+    privacyDecision: { decisionId: 'privacy-dev01-no-egress', status: 'COMPLIANT', policyFactIds: ['fact-privacy-policy'], egressDisposition: 'DENIED', reasonCodes: ['NO_NETWORK_EGRESS_PLANNED'] },
+    revisionBinding: { projectId: 'oe-dev-01', expectedProjectRevision: 'R7', timebaseFactId: 'fact-project-timebase', status: 'BOUND' },
+    preservationBindings: [
+      { preservationId: 'preserve-spoken-words', factIds: ['fact-transcript-cut', 'fact-audio-stems'], status: 'BOUND' },
+      { preservationId: 'preserve-source-identities', factIds: ['fact-source-fixture'], status: 'BOUND' },
+      { preservationId: 'preserve-bgm-outside-speech', factIds: ['fact-audio-stems'], status: 'BOUND' },
+      { preservationId: 'preserve-non-target-state', factIds: ['fact-project-revision'], status: 'BOUND' },
+    ],
+    proofPlan: [
+      proof('proof-revision', 'REVISION_FRESHNESS', ['node-observe-project', 'node-observe-timeline', 'node-proof-project', 'node-proof-timeline'], hardClaimIds, ['fact-project-revision']),
+      proof('proof-speech', 'SPEECH_PRESERVATION', ['node-cut', 'node-duck', 'node-proof-project', 'node-proof-timeline'], ['claim-preserve-speech'], ['fact-transcript-cut', 'fact-audio-stems']),
+      proof('proof-product', 'RENDERED_GEOMETRY', ['node-push-in', 'node-proof-project', 'node-proof-timeline'], ['claim-product-push-in'], withholdVisual ? ['fact-source-fixture'] : ['fact-product-reveal'], withholdVisual ? 'UNVERIFIABLE' : 'PLANNED'),
+      proof('proof-audio-mix', 'RENDERED_AUDIO_MIX', ['node-duck', 'node-proof-project'], ['claim-dialogue-ducking'], ['fact-audio-stems']),
+      proof('proof-state', 'STATE_RELOAD', ['node-cut', 'node-push-in', 'node-proof-project', 'node-proof-timeline'], hardClaimIds, ['fact-project-revision', 'fact-source-fixture']),
+    ],
+    unresolvedRequirements: withholdVisual ? [{ requirementId: 'req-product-visual-evidence', kind: 'EVIDENCE', factIds: [], disposition: 'UNVERIFIABLE' }] : [],
+  };
+}
+
 function projectScope(start: string, endExclusive: string): JsonRecord { return { coordinateDomain: 'PROJECT_TICK', timebaseId: 'oe-dev-01:timeline', timebaseVersion: 'DEV01_TRUTH_V2', rate: { numerator: '30', denominator: '1' }, start, endExclusive }; }
 function sourceScope(start: string, endExclusive: string): JsonRecord { return { coordinateDomain: 'SOURCE_FRAME', timebaseId: `${fixture.assets.hostVideoAssetId}:source`, timebaseVersion: 'DEV01_TRUTH_V2', rate: { numerator: '30', denominator: '1' }, start, endExclusive }; }
 function observation(dimension: string, text: string, applicability: string, evidenceId: string, certainty = 'OBSERVED'): JsonRecord { return { dimension, observation: text, applicability, strength: 'HARD', certainty, evidenceIds: evidenceId ? [evidenceId] : [] }; }
@@ -215,6 +311,7 @@ function claim(claimId: string, claimKind: string, scope: JsonRecord, subjects: 
 function claimOwners(claimId: string): string[] { if (claimId === 'claim-remove-dead-air' || claimId === 'claim-preserve-speech') return ['resolve_transcript_edit', 'cut_section']; if (claimId === 'claim-product-push-in') return ['resolve_keyframe_edit', 'set_keyframes']; return ['apply_audio_ducking']; }
 function supportFact(operatorId: string): JsonRecord { const mutating = ['cut_section', 'set_keyframes', 'apply_audio_ducking'].includes(operatorId); return { factId: `fact-support-${operatorId}`, kind: 'CAPABILITY_SUPPORT', operatorId, supportStatus: mutating ? operatorId === 'set_keyframes' ? 'LIVE_NATIVE_RECEIPT_PARTIAL' : 'LIVE_MULTIWRITE_UNCERTIFIED' : 'LIVE_READ_UNCERTIFIED', compilerEligibility: mutating ? 'ISOLATED_PROXY_ONLY' : 'RESEARCH_READ_ONLY' }; }
 function intentNode(intentNodeId: string, operationFamily: string, targetClaimIds: string[], candidateCapabilityIds: string[], requiresNodeIds: string[], evidenceIds: string[]): JsonRecord { return { intentNodeId, operationFamily, targetClaimIds, candidateCapabilityIds, executionForm: 'NATIVE', requiresNodeIds, invalidates: ['STATE_RELOAD_PROOF', 'RENDERED_OUTPUT_PROOF'], evidenceIds, failureDisposition: 'FAIL' }; }
+function intentNodeV2R(intentNodeId: string, operationFamily: string, targetClaimIds: string[], selectedOperatorId: string, requiresNodeIds: string[], evidenceIds: string[]): JsonRecord { return { intentNodeId, operationFamily, targetClaimIds, selectedOperatorId, alternativeOperatorIds: [], executionForm: 'NATIVE', requiresNodeIds, invalidates: ['STATE_RELOAD_PROOF', 'RENDERED_OUTPUT_PROOF'], evidenceIds, failureDisposition: 'FAIL' }; }
 function edge(edgeId: string, fromNodeId: string, toNodeId: string, edgeType: string): JsonRecord { return { edgeId, fromNodeId, toNodeId, edgeType }; }
 function preservation(preservationId: string, claimId: string, rule: string, scopeRef: string, proofKind: string): JsonRecord { return { preservationId, claimId, rule, scopeRef, proofKind }; }
 function proof(proofObligationId: string, kind: string, nodeIds: string[], targetClaimIds: string[], requiredFactIds: string[], status = 'PLANNED'): JsonRecord { return { proofObligationId, kind, nodeIds, targetClaimIds, requiredFactIds, status }; }
