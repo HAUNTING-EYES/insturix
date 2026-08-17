@@ -77,6 +77,16 @@ const postProductionBrief = {
 const scriptProductionBrief = {
   output: { platform: 'youtube', targetDurationSec: 420 },
 };
+const postEditorialPlan = {
+  version: 2,
+  writerKind: 'post',
+  execution: { kind: 'post' },
+};
+const scriptEditorialPlan = {
+  version: 2,
+  writerKind: 'script',
+  execution: { kind: 'script' },
+};
 const writerContext = {
   projectMeta: {
     brandId: 'brand_b',
@@ -110,6 +120,7 @@ const execution = {
   authoringRequest: postAuthoringRequest,
   sourceLedger,
   productionBrief: postProductionBrief,
+  editorialPlan: postEditorialPlan,
 };
 const postResult = {
   content: 'A complete **platform** post.',
@@ -160,6 +171,7 @@ describe('CalOS canonical ThinkForge writer inputs', () => {
       contentSignalProfile: writerContext.contentSignalProfile,
       productionBrief: postProductionBrief,
       sourceLedger,
+      editorialPlan: postEditorialPlan,
       userPrompt: execution.userPrompt,
       authoringRequest: postAuthoringRequest,
     }));
@@ -192,6 +204,7 @@ describe('CalOS canonical ThinkForge writer inputs', () => {
       },
       userPrompt: 'A grounded launch idea\nBrief: Show the actual customer workflow.\nFormat: long_video\nPlatform: youtube',
       productionBrief: scriptProductionBrief,
+      editorialPlan: scriptEditorialPlan,
     };
     mocks.resolveCalosWriterExecutionContext.mockResolvedValue(scriptExecution);
 
@@ -206,6 +219,7 @@ describe('CalOS canonical ThinkForge writer inputs', () => {
       contentSignalProfile: writerContext.contentSignalProfile,
       productionBrief: scriptProductionBrief,
       sourceLedger,
+      editorialPlan: scriptEditorialPlan,
       userPrompt: scriptExecution.userPrompt,
       authoringRequest: scriptAuthoringRequest,
     }));

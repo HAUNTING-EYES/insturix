@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({
   resolveContentSignalProfile: vi.fn(),
   formatContentSignalProfileForPrompt: vi.fn(),
   buildThinkForgeSignalTrace: vi.fn(),
+  buildThinkForgeEditorialPlan: vi.fn(),
   getWritingKnowledgeVersion: vi.fn(),
+  resolveThinkForgeProductionBrief: vi.fn(),
 }));
 
 vi.mock('@/lib/thinkforge/context/resolved-authoring-context', () => ({
@@ -22,6 +24,12 @@ vi.mock('@/lib/thinkforge/signals', () => ({
 }));
 vi.mock('@/lib/thinkforge/data/writing-graph-query', () => ({
   getVersion: mocks.getWritingKnowledgeVersion,
+}));
+vi.mock('@/lib/thinkforge/agents/editorial-plan', () => ({
+  buildThinkForgeEditorialPlan: mocks.buildThinkForgeEditorialPlan,
+}));
+vi.mock('@/lib/thinkforge/brief/resolve-production-brief', () => ({
+  resolveThinkForgeProductionBrief: mocks.resolveThinkForgeProductionBrief,
 }));
 
 const params = {
@@ -43,6 +51,8 @@ const referenceFact = {
   summary: 'The launch is on Friday.',
   tags: ['calos-reference', 'campaign-reference'],
 };
+const productionBrief = { output: { platform: 'youtube', targetDurationSec: 420 } };
+const editorialPlan = { version: 2, writerKind: 'script', execution: { kind: 'script' } };
 
 describe('resolveCalosWriterContext', () => {
   beforeEach(() => {
@@ -74,6 +84,8 @@ describe('resolveCalosWriterContext', () => {
     mocks.resolveContentSignalProfile.mockReturnValue({ profile: { signals: {} } });
     mocks.formatContentSignalProfileForPrompt.mockReturnValue('<content_signal_profile>resolved</content_signal_profile>');
     mocks.buildThinkForgeSignalTrace.mockReturnValue({ version: 1, brandId: 'brand_b' });
+    mocks.resolveThinkForgeProductionBrief.mockReturnValue(productionBrief);
+    mocks.buildThinkForgeEditorialPlan.mockReturnValue(editorialPlan);
   });
 
   it('resolves Brand Vault, references, signals, duration, and snapshot as one context', async () => {
@@ -157,6 +169,29 @@ describe('resolveCalosWriterContext', () => {
       name: CalosAuthoringContractError.name,
       code: 'carousel_slide_count_required',
     }));
+  });
+
+  it('builds one editorial plan from the canonical snapshot, ledger, and production brief', async () => {
+    const { resolveCalosWriterExecutionContext } = await import(
+      '@/lib/calos/generate/generators/_brand-brief'
+    );
+
+    const result = await resolveCalosWriterExecutionContext(params);
+
+    expect(mocks.resolveThinkForgeProductionBrief).toHaveBeenCalledWith(expect.objectContaining({
+      authoringRequest: expect.objectContaining({ targetDurationSec: 420 }),
+      documentType: 'video_script',
+      brandId: 'brand_b',
+    }));
+    expect(mocks.buildThinkForgeEditorialPlan).toHaveBeenCalledWith(expect.objectContaining({
+      userPrompt: expect.stringContaining('Target duration: 420 seconds'),
+      authoringRequest: expect.objectContaining({ targetDurationSec: 420 }),
+      contentSignalProfile: { profile: { signals: {} } },
+      productionBrief,
+      authorizedFactIds: ['calos_campaign_launch'],
+      sourceLedgerEntryIds: ['brief_user', 'source_1'],
+    }));
+    expect(result.editorialPlan).toBe(editorialPlan);
   });
 
   it('rejects a duration attached to a non-video deliverable before context resolution', async () => {

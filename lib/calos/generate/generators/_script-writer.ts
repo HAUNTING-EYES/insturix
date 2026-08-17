@@ -21,6 +21,7 @@ export async function runScriptWriterExecution(
     userPrompt,
     sourceLedger,
     productionBrief,
+    editorialPlan,
   } = execution;
   const { ScriptWriterAgent } = await import("@/lib/thinkforge/agents/script-writer-agent");
   const writer = new ScriptWriterAgent();
@@ -37,6 +38,7 @@ export async function runScriptWriterExecution(
     contentSignalProfile: authoringContext.contentSignalProfile,
     productionBrief,
     sourceLedger,
+    editorialPlan,
   });
 
   return {

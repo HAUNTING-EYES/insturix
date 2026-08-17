@@ -22,6 +22,7 @@ export async function runPostWriter(params: CalosWriterParams): Promise<PostWrit
     userPrompt,
     sourceLedger,
     productionBrief,
+    editorialPlan,
   } = execution;
   const { PostWriterAgent } = await import("@/lib/thinkforge/agents/post-writer-agent");
   const writer = new PostWriterAgent();
@@ -38,6 +39,7 @@ export async function runPostWriter(params: CalosWriterParams): Promise<PostWrit
     contentSignalProfile: authoringContext.contentSignalProfile,
     productionBrief,
     sourceLedger,
+    editorialPlan,
   });
 
   const imagePrompt = result.clickatron.singleImagePrompt?.trim();
