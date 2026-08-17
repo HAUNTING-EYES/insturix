@@ -121,7 +121,7 @@ export function isThinkForgeRefineryWorkerConfigured(): boolean {
   return Boolean(process.env.QSTASH_TOKEN) && (isDev || Boolean(process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.QSTASH_NEXT_SIGNING_KEY));
 }
 
-export function createThinkForgeRefineryDedupeKey(input: Pick<CreateThinkForgeRefineryJobInput, 'userId' | 'orgId' | 'sessionId' | 'urls'>): string {
+function createThinkForgeRefineryDedupeKey(input: Pick<CreateThinkForgeRefineryJobInput, 'userId' | 'orgId' | 'sessionId' | 'urls'>): string {
   const payload = JSON.stringify({
     version: THINKFORGE_REFINERY_JOB_VERSION,
     userId: input.userId,
@@ -185,7 +185,7 @@ export async function getThinkForgeRefineryJob(jobId: string, userId: string, or
   return document ? toSnapshot(document) : null;
 }
 
-export async function setThinkForgeRefineryJobQueueMessage(jobId: string, queueMessageId: string): Promise<void> {
+async function setThinkForgeRefineryJobQueueMessage(jobId: string, queueMessageId: string): Promise<void> {
   const collection = await jobCollection();
   await collection.updateOne(
     { _id: jobId, status: 'queued' },
@@ -288,7 +288,7 @@ export async function chargeThinkForgeRefineryJob(job: ThinkForgeRefineryJobSnap
   return { ok: false, code: 'charge_failed', message: 'Unable to persist the refinery charge receipt.' };
 }
 
-export async function completeThinkForgeRefineryJob(jobId: string, result: RefineryResult): Promise<void> {
+async function completeThinkForgeRefineryJob(jobId: string, result: RefineryResult): Promise<void> {
   const collection = await jobCollection();
   await collection.updateOne(
     { _id: jobId, status: 'running' },
