@@ -4,6 +4,7 @@ import {
   mapScriptSidecarToEditronExport,
   ThinkForgeSidecarCompilationError,
 } from '@/lib/thinkforge/export/script-sidecar-to-editron';
+import { parseScriptSidecarV2 } from '@/lib/thinkforge/schemas/script-sidecar-v2';
 
 function shotIntent() {
   return {
@@ -351,6 +352,33 @@ describe('ThinkForge Script Sidecar to Editron compiler', () => {
     });
     expect(result.sidecarCompilation.narrativeSidecar.acts[0]?.narrativeScenes[0]?.beats[0]?.shotIntent)
       .toEqual(shotIntent());
+  });
+
+  it('adds a technical render plan for a fully timed native V2 sidecar without splitting narrative scenes', () => {
+    const fixture = v2Sidecar();
+    const synthesisAct = fixture.acts[1]!;
+    const synthesisScene = synthesisAct.narrativeScenes[0]!;
+    const input = parseScriptSidecarV2({
+      sidecarVersion: 2,
+      spokenTextSource: 'beat-lines',
+      characters: fixture.characters,
+      acts: [{
+        ...synthesisAct,
+        narrativeScenes: [{ ...synthesisScene, durationIntentSeconds: 15 }],
+      }],
+      sourceRefs: fixture.sourceRefs,
+    });
+
+    const result = mapScriptSidecarToEditronExport(input);
+
+    expect(result.scenes).toHaveLength(1);
+    expect(result.sidecarCompilation.narrativeSidecar.acts).toEqual(input.acts);
+    expect(result.sidecarCompilation.narrativeSidecar.renderPlan).toMatchObject({
+      source: 'technical-planner',
+    });
+    expect(result.sidecarCompilation.sceneBindings.every(
+      (binding) => binding.renderSegmentIds.length > 0,
+    )).toBe(true);
   });
 
   it('preserves sanitized casting bindings and line-level source references in V2 handoff context', () => {

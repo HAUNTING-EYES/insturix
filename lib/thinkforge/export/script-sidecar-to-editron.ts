@@ -16,6 +16,10 @@ import {
   projectThinkForgeAuthoringProvenance,
   type ThinkForgeAuthoringProvenance,
 } from '@/lib/thinkforge/context/brand-authoring-context';
+import {
+  attachTechnicalRenderPlan,
+  ThinkForgeRenderPlanError,
+} from '@/lib/thinkforge/production/build-script-render-plan';
 
 export const THINKFORGE_EDITRON_HANDOFF_VERSION = 1 as const;
 export const THINKFORGE_EDITRON_SIDECAR_COMPILATION_VERSION = 1 as const;
@@ -85,7 +89,8 @@ export type ThinkForgeSidecarCompilationErrorCode =
   | 'invalid-sidecar'
   | 'compiler-invariant'
   | 'scene-duration-unresolved'
-  | 'scene-visual-intent-missing';
+  | 'scene-visual-intent-missing'
+  | 'render-plan-unresolved';
 
 export class ThinkForgeSidecarCompilationError extends Error {
   readonly code: ThinkForgeSidecarCompilationErrorCode;
@@ -367,6 +372,23 @@ function compileScriptSidecar(input: unknown): CompiledSidecar {
       message: `Script sidecar validation failed${claimedVersion ? ` for version ${claimedVersion}` : ''}.`,
       originalError: error,
     });
+  }
+
+  if (readResult.sourceVersion === SCRIPT_SIDECAR_V2_VERSION && !readResult.sidecar.renderPlan) {
+    try {
+      readResult = {
+        sourceVersion: SCRIPT_SIDECAR_V2_VERSION,
+        sidecar: attachTechnicalRenderPlan(readResult.sidecar),
+      };
+    } catch (error) {
+      if (!(error instanceof ThinkForgeRenderPlanError)) throw error;
+      throw new ThinkForgeSidecarCompilationError({
+        code: 'render-plan-unresolved',
+        claimedVersion: SCRIPT_SIDECAR_V2_VERSION,
+        message: error.message,
+        originalError: error,
+      });
+    }
   }
 
   const compiled = readResult.sourceVersion === SCRIPT_SIDECAR_VERSION
