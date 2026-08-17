@@ -69,13 +69,17 @@ import {
   resolveThinkForgeCommitBaseVersion,
 } from '../document-commit-baseline';
 import { reviseDocumentViaFlatWriter } from './flat-writer-edit';
+import { retryOnceOnOverload } from './retry-on-overload';
 import { resolveCanonicalEditSelection } from './canonical-edit-selection';
 import { normalizeCanonicalThinkForgeDocumentState } from '../canonical-document-state';
 import crypto from 'crypto';
 
 const PROMPT_UNDERSTANDING_SEED = 7;
 
-export async function resolveScriptPromptUnderstanding(userPrompt: string) {
+export async function resolveScriptPromptUnderstanding(
+  userPrompt: string,
+  abortSignal?: AbortSignal,
+) {
   return parsePromptUnderstanding(userPrompt, async () => {
     const promptParts = buildIsolatedPromptParts({
       systemInstruction: buildKnobParserSystemInstruction(),
@@ -92,6 +96,7 @@ export async function resolveScriptPromptUnderstanding(userPrompt: string) {
       prompt: promptParts.prompt,
       temperature: 0,
       seed: PROMPT_UNDERSTANDING_SEED,
+      abortSignal,
     });
     return text;
   });
@@ -177,6 +182,8 @@ interface ChatRequest {
   intentContext?: IntentContextSignals;
   /** Route-resolved authoring truth. Undefined keeps direct server callers compatible. */
   authoringContext?: ThinkForgeResolvedAuthoringContext | null;
+  /** Request lifetime signal. Provider work must stop when the caller disconnects. */
+  abortSignal?: AbortSignal;
   /** Silent generation (auto-starter draft): run the draft but do NOT persist the triggering
    *  prompt as a visible user chat message. The assistant progress + script still stream. */
   silent?: boolean;
@@ -210,6 +217,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     threadId: providedThreadId,
     intentContext: providedIntentContext,
     authoringContext: providedAuthoringContext,
+    abortSignal,
     silent: isSilent = false,
   } = request;
   const threadId = providedThreadId || 'default';
@@ -224,6 +232,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   if (!exactProvidedScriptId || exactProvidedScriptId !== providedScriptId) {
     throw new Error('scriptId must be a non-empty trimmed string');
   }
+  abortSignal?.throwIfAborted();
 
   const session = await db.getSession(exactSessionId, userId, orgId);
   if (!session) {
@@ -278,6 +287,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     db.getUserPreferences(userId),
     authoringContextPromise,
   ]);
+  abortSignal?.throwIfAborted();
   const resolvedProjectMeta = authoringContext?.projectMeta ?? baseProjectMeta;
   const retrievedCtx = authoringContext?.retrievedContext ?? null;
   const systemBrief = authoringContext?.systemBrief ?? null;
@@ -316,6 +326,10 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
   // Helper function to safely write to stream
   const safeWrite = async (data: string): Promise<boolean> => {
+    if (abortSignal?.aborted) {
+      isStreamClosed = true;
+      return false;
+    }
     if (isStreamClosed) return false;
     try {
       await writer.write(encoder.encode(data));
@@ -363,6 +377,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     };
 
     try {
+      abortSignal?.throwIfAborted();
       if (!providedGenerationId) {
         const now = new Date();
         const admitted = await db.setActiveGeneration(canonicalSessionId, userId, {
@@ -614,7 +629,6 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           targetBlockIds: blockIds,
           requestedSelection: selection,
         });
-        await claimCommitOwnership();
         const revised = await reviseDocumentViaFlatWriter({
           userId,
           orgId,
@@ -622,6 +636,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           scriptId: effectiveScriptId!,
           instruction: effectivePrompt,
           selection: canonicalSelection,
+          abortSignal,
+          beforeCommit: claimCommitOwnership,
         });
         commitPersisted = true;
 
@@ -765,7 +781,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         }
 
         if (contentPath !== 'post') {
-          promptUnderstanding = await resolveScriptPromptUnderstanding(authoringPrompt);
+          promptUnderstanding = await resolveScriptPromptUnderstanding(authoringPrompt, abortSignal);
         }
 
         let briefSnapshot = resolveThinkForgeProductionBrief({
@@ -842,7 +858,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
           if (contentPath === 'post') {
             const writer = new PostWriterAgent();
-            const { result, metadata } = await writer.runStructured(baseInput as PostWriterInput);
+            const { result, metadata } = await retryOnceOnOverload(
+              () => writer.runStructured(baseInput as PostWriterInput, undefined, abortSignal),
+              700,
+              abortSignal,
+            );
             writerInvocationTrace = requireThinkForgeWriterInvocationTrace(metadata?.writerTrace);
             finalContent = result.content;
             finalTitle = result.metadata?.platform ? `${result.metadata.platform} Post` : 'Social Post';
@@ -873,7 +893,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             
           } else {
             const writer = new ScriptWriterAgent();
-            const { result, metadata } = await writer.runStructured(baseInput as ScriptWriterInput);
+            const { result, metadata } = await retryOnceOnOverload(
+              () => writer.runStructured(baseInput as ScriptWriterInput, undefined, abortSignal),
+              700,
+              abortSignal,
+            );
             writerInvocationTrace = requireThinkForgeWriterInvocationTrace(metadata?.writerTrace);
             finalContent = result.content;
             finalTitle = 'Video Script';
@@ -1060,11 +1084,15 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         finalResponse += searchingMsg;
 
         try {
-          const researchResult = await runResearchAgent(prompt, {
-            sessionState,
-            project,
-            systemBrief,
-          });
+          const researchResult = await retryOnceOnOverload(
+            () => runResearchAgent(prompt, {
+              sessionState,
+              project,
+              systemBrief,
+            }, abortSignal),
+            700,
+            abortSignal,
+          );
 
           // Emit the full research response as a single token event
           if (!(await emitEvent('token', { content: researchResult.text }))) return;
@@ -1102,13 +1130,17 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       } else {
         // Regular chat response - stream tokens
         const project = sessionState.metadata;
-        const chatStream = await chatAgent(prompt, {
-          sessionState,
-          script: null,
-          project,
-          selection: selection || null,
-          systemBrief,
-        });
+        const chatStream = await retryOnceOnOverload(
+          () => chatAgent(prompt, {
+            sessionState,
+            script: null,
+            project,
+            selection: selection || null,
+            systemBrief,
+          }, abortSignal),
+          700,
+          abortSignal,
+        );
 
         // Convert plain text stream to SSE format
         const reader = chatStream.getReader();
@@ -1146,11 +1178,13 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         await emitEvent('done', { sessionId: canonicalSessionId });
       }
     } catch (error: any) {
-      const isAbortError = error?.name === 'InvalidStateError' ||
+      const isAbortError = error?.name === 'AbortError' ||
+        error?.code === 'ABORT_ERR' ||
+        error?.name === 'InvalidStateError' ||
         error?.code === 'ERR_INVALID_STATE' ||
         error?.message?.includes('WritableStream is closed') ||
         error?.message?.includes('ResponseAborted');
-      const wasAborted = isAbortError || isStreamClosed;
+      const wasAborted = abortSignal?.aborted === true || isAbortError || isStreamClosed;
       const terminalStatus = commitPersisted
         ? 'completed'
         : wasAborted
@@ -1182,9 +1216,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       if (session && !generationTerminalized) {
         const terminalStatus = terminalFailureMessage
           ? 'failed'
-          : commitPersisted || !isStreamClosed
+          : commitPersisted
             ? 'completed'
-            : 'cancelled';
+            : abortSignal?.aborted || isStreamClosed
+              ? 'cancelled'
+              : 'completed';
         try {
           await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
             status: terminalStatus,

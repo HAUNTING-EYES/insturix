@@ -6,6 +6,7 @@ import {
   shouldProbeThinkForgeGeneration,
   shouldScheduleThinkForgeGenerationPolling,
 } from '@/lib/thinkforge/client-generation-lifecycle';
+import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
 
 const lifecycleMocks = vi.hoisted(() => {
   class GenerationStateConflictError extends Error {}
@@ -55,7 +56,54 @@ function stopRequest(body: Record<string, unknown>) {
   });
 }
 
+function overloadError(): Error & { status: number } {
+  return Object.assign(new Error('provider temporarily overloaded'), { status: 503 });
+}
+
 describe('ThinkForge generation lifecycle', () => {
+  it('retries the failing provider operation exactly once on a temporary overload', async () => {
+    const operation = vi.fn()
+      .mockRejectedValueOnce(overloadError())
+      .mockResolvedValueOnce('generated');
+
+    await expect(retryOnceOnOverload(operation, 0)).resolves.toBe('generated');
+    expect(operation).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry contract failures or loop after a second overload', async () => {
+    const contractFailure = vi.fn().mockRejectedValue(new Error('document contract failed'));
+    const repeatedOverload = vi.fn()
+      .mockRejectedValueOnce(overloadError())
+      .mockRejectedValueOnce(overloadError());
+
+    await expect(retryOnceOnOverload(contractFailure, 0)).rejects.toThrow('document contract failed');
+    await expect(retryOnceOnOverload(repeatedOverload, 0)).rejects.toMatchObject({ status: 503 });
+    expect(contractFailure).toHaveBeenCalledTimes(1);
+    expect(repeatedOverload).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not dispatch provider work when the request is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException('caller disconnected', 'AbortError'));
+    const operation = vi.fn().mockResolvedValue('must not run');
+
+    await expect(retryOnceOnOverload(operation, 0, controller.signal)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(operation).not.toHaveBeenCalled();
+  });
+
+  it('cancels overload backoff without dispatching the retry', async () => {
+    const controller = new AbortController();
+    const operation = vi.fn().mockRejectedValue(overloadError());
+    const pending = retryOnceOnOverload(operation, 10_000, controller.signal);
+    await Promise.resolve();
+    controller.abort(new DOMException('caller disconnected', 'AbortError'));
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
+
   it('uses atomic ownership and terminal transitions in persistence', () => {
     const source = read('lib/thinkforge/services/db.ts');
 
@@ -81,8 +129,15 @@ describe('ThinkForge generation lifecycle', () => {
     expect(route).toContain('const deduction = await creditCheck.deduct()');
     expect(route).toContain('await db.setActiveGeneration(');
     expect(route.indexOf('await db.setActiveGeneration(')).toBeLessThan(route.indexOf('processChat({'));
+    expect(route).toContain('abortSignal: req.signal');
+    expect(route).not.toContain('retryOnceOnOverload(() => processChat');
     expect(service).toContain('claimCommitOwnership');
-    expect(service).toContain("commitPersisted || !isStreamClosed");
+    expect(service).toContain('abortSignal?.aborted === true || isAbortError || isStreamClosed');
+    expect(service).toContain('writer.runStructured(baseInput as PostWriterInput, undefined, abortSignal)');
+    expect(service).toContain('writer.runStructured(baseInput as ScriptWriterInput, undefined, abortSignal)');
+    expect(service).toContain('beforeCommit: claimCommitOwnership');
+    expect(service.indexOf('beforeCommit: claimCommitOwnership'))
+      .toBeGreaterThan(service.indexOf('reviseDocumentViaFlatWriter({'));
     expect(service.indexOf("terminalFailureMessage = 'Chat limit reached"))
       .toBeLessThan(service.indexOf("await emitEvent('done', { sessionId: canonicalSessionId, quota })"));
     expect(service).not.toContain('initializing: true');

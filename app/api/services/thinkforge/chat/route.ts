@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { processChat } from '@/lib/thinkforge/services/chat-service';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
-import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
 import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
 import { getCreditCost } from '@/lib/config/creditCosts';
@@ -213,7 +212,7 @@ export async function POST(req: Request) {
       throw new Error('This session is finishing another generation. Please retry in a moment.');
     }
 
-    const stream = await retryOnceOnOverload(() => processChat({
+    const stream = await processChat({
       sessionId: canonicalSessionId,
       orgId,
       isOrgAdmin,
@@ -231,7 +230,8 @@ export async function POST(req: Request) {
       intentContext,
       silent,
       authoringContext,
-    }));
+      abortSignal: req.signal,
+    });
 
     return new Response(stream, {
       headers: {

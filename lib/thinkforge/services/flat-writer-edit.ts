@@ -50,6 +50,7 @@ import {
 } from '../state/types';
 import { applyCommand } from './command-service';
 import * as db from './db';
+import { retryOnceOnOverload } from './retry-on-overload';
 
 export interface FlatWriterEditArgs {
   userId: string;
@@ -58,6 +59,8 @@ export interface FlatWriterEditArgs {
   scriptId: string;
   instruction: string;
   selection?: string;
+  abortSignal?: AbortSignal;
+  beforeCommit?: () => Promise<void>;
   /** @deprecated Ignored. Persisted document state is loaded by exact identity. */
   existingScript?: {
     title?: string;
@@ -104,7 +107,7 @@ function resolveStoredWriterKind(script: db.Script): ThinkForgeWriterKind {
 }
 
 export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Promise<FlatWriterEditResult> {
-  const { userId, orgId, instruction, selection } = args;
+  const { userId, orgId, instruction, selection, abortSignal, beforeCommit } = args;
   const sessionId = requireExactIdentity(args.sessionId, 'session');
   const scriptId = requireExactIdentity(args.scriptId, 'document');
 
@@ -228,9 +231,26 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
     editContext: { existingContent, instruction, selection },
   };
 
-  const { result, metadata: writerInvocationMetadata } = isScript
-    ? await new ScriptWriterAgent().runStructured(baseInput as unknown as ScriptWriterInput)
-    : await new PostWriterAgent().runStructured(baseInput as unknown as PostWriterInput);
+  type FlatWriterStructuredOutput =
+    | Awaited<ReturnType<ScriptWriterAgent['runStructured']>>
+    | Awaited<ReturnType<PostWriterAgent['runStructured']>>;
+  const runWriter = (): Promise<FlatWriterStructuredOutput> => {
+    if (isScript) {
+      const writer = new ScriptWriterAgent();
+      return abortSignal
+        ? writer.runStructured(baseInput as unknown as ScriptWriterInput, undefined, abortSignal)
+        : writer.runStructured(baseInput as unknown as ScriptWriterInput);
+    }
+    const writer = new PostWriterAgent();
+    return abortSignal
+      ? writer.runStructured(baseInput as unknown as PostWriterInput, undefined, abortSignal)
+      : writer.runStructured(baseInput as unknown as PostWriterInput);
+  };
+  const { result, metadata: writerInvocationMetadata } = await retryOnceOnOverload<FlatWriterStructuredOutput>(
+    runWriter,
+    700,
+    abortSignal,
+  );
   const writerInvocationTrace = requireThinkForgeWriterInvocationTrace(
     writerInvocationMetadata?.writerTrace,
   );
@@ -285,10 +305,12 @@ export async function reviseDocumentViaFlatWriter(args: FlatWriterEditArgs): Pro
   const writerOutput = {
     ...(isScript
       ? scriptWriterMetadata(result as ScriptWriterResult, sourceLedger)
-      : postWriterMetadata(result as PostWriterResult, sourceLedger)),
+      : postWriterMetadata(result as unknown as PostWriterResult, sourceLedger)),
     profileCompliance,
     generationTrace,
   };
+  abortSignal?.throwIfAborted();
+  await beforeCommit?.();
   const saveResult = await applyCommand({
     type: 'ReplaceDocument',
     sessionId: canonicalSessionId,
