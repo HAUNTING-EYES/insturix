@@ -10,15 +10,102 @@
  * and accepted Brand Vault profiles (/api/brand-vault/brands, scanned+accepted), deduped by brandId — so
  * a brand you scanned shows up even if it was never manually created.
  *
- * ponytail: selection persists in localStorage under the SAME key Brand Vault already uses, so the two
- * stay in sync with zero extra plumbing. Upgrade path: Clerk user metadata for cross-device persistence.
+ * Selection persists per signed-in account + Clerk organization. The current tab owns a scope pointer in
+ * sessionStorage, so two tabs in different organizations cannot redirect each other's brand selection.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/nextjs';
 
-const ACTIVE_BRAND_KEY = 'brand_vault_selected_brand_id';
+const LEGACY_ACTIVE_BRAND_KEY = 'brand_vault_selected_brand_id';
+const ACTIVE_BRAND_SCOPE_POINTER_KEY = 'brand_vault_active_scope_v2';
+const ACTIVE_BRAND_SELECTION_PREFIX = 'brand_vault_selected_brand_id_v2:';
+
+export interface ActiveBrandScope {
+  userId: string;
+  orgId: string | null;
+}
+
+export interface ActiveBrandStorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+export function createActiveBrandScope(
+  userId: string | null | undefined,
+  orgId: string | null | undefined,
+): ActiveBrandScope | null {
+  const normalizedUserId = userId?.trim();
+  if (!normalizedUserId) return null;
+  return { userId: normalizedUserId, orgId: orgId?.trim() || null };
+}
+
+export function getActiveBrandScopeIdentity(scope: ActiveBrandScope | null): string {
+  if (!scope) return 'signed-out';
+  const account = `user:${encodeURIComponent(scope.userId)}`;
+  return scope.orgId ? `${account}:org:${encodeURIComponent(scope.orgId)}` : `${account}:personal`;
+}
+
+function getActiveBrandStorageKeyFromIdentity(scopeIdentity: string): string {
+  return `${ACTIVE_BRAND_SELECTION_PREFIX}${scopeIdentity}`;
+}
+
+export function getActiveBrandStorageKey(scope: ActiveBrandScope): string {
+  return getActiveBrandStorageKeyFromIdentity(getActiveBrandScopeIdentity(scope));
+}
+
+export function getActiveBrandListQueryKey(scope: ActiveBrandScope | null) {
+  return ['active-brand', 'brands', getActiveBrandScopeIdentity(scope)] as const;
+}
+
+export function getActiveBrandAccessQueryKey(scope: ActiveBrandScope | null) {
+  return ['active-brand', 'access-map', getActiveBrandScopeIdentity(scope)] as const;
+}
+
+export function readScopedActiveBrandId(
+  storage: ActiveBrandStorageLike,
+  scope: ActiveBrandScope,
+): string | null {
+  return storage.getItem(getActiveBrandStorageKey(scope));
+}
+
+export function writeScopedActiveBrandId(
+  storage: ActiveBrandStorageLike,
+  scope: ActiveBrandScope,
+  brandId: string | null,
+): void {
+  const key = getActiveBrandStorageKey(scope);
+  const normalizedBrandId = brandId?.trim() || null;
+  if (normalizedBrandId) storage.setItem(key, normalizedBrandId);
+  else storage.removeItem(key);
+}
+
+export function activateActiveBrandStorageScope(
+  persistentStorage: ActiveBrandStorageLike,
+  tabStorage: ActiveBrandStorageLike,
+  scope: ActiveBrandScope | null,
+): string | null {
+  // The old unscoped key must never survive a scope transition. Brand Vault still reads it in one legacy
+  // view, where its absence safely resolves from the server-filtered brand list.
+  persistentStorage.removeItem(LEGACY_ACTIVE_BRAND_KEY);
+  if (!scope) {
+    tabStorage.removeItem(ACTIVE_BRAND_SCOPE_POINTER_KEY);
+    return null;
+  }
+  tabStorage.setItem(ACTIVE_BRAND_SCOPE_POINTER_KEY, getActiveBrandScopeIdentity(scope));
+  return readScopedActiveBrandId(persistentStorage, scope);
+}
+
+export function reconcileActiveBrandSelection(
+  selectedBrandId: string | null | undefined,
+  brands: readonly ActiveBrandOption[],
+): string | null {
+  const normalized = selectedBrandId?.trim();
+  if (!normalized) return null;
+  return brands.some((brand) => brand.brandId === normalized) ? normalized : null;
+}
 
 /**
  * Read the currently-selected brandId straight from storage (the source the provider writes through).
@@ -26,9 +113,13 @@ const ACTIVE_BRAND_KEY = 'brand_vault_selected_brand_id';
  * without subscribing to the context. Returns undefined when nothing is selected, so callers can spread it
  * into a JSON body and have the key omitted (routes then create an unscoped project, exactly as before).
  */
-export function getActiveBrandIdFromStorage(): string | undefined {
+export function getActiveBrandIdFromStorage(scope?: ActiveBrandScope): string | undefined {
   if (typeof window === 'undefined') return undefined;
-  return window.localStorage.getItem(ACTIVE_BRAND_KEY) ?? undefined;
+  const scopeIdentity = scope
+    ? getActiveBrandScopeIdentity(scope)
+    : window.sessionStorage.getItem(ACTIVE_BRAND_SCOPE_POINTER_KEY);
+  if (!scopeIdentity || scopeIdentity === 'signed-out') return undefined;
+  return window.localStorage.getItem(getActiveBrandStorageKeyFromIdentity(scopeIdentity)) ?? undefined;
 }
 
 /**
@@ -40,10 +131,17 @@ export function getActiveBrandIdFromStorage(): string | undefined {
  */
 export const ACTIVE_BRAND_CHANGED_EVENT = 'active-brand-changed';
 
-export function setActiveBrandIdInStorage(brandId: string | null): void {
+export function setActiveBrandIdInStorage(brandId: string | null, scope?: ActiveBrandScope): void {
   if (typeof window === 'undefined') return;
-  if (brandId) window.localStorage.setItem(ACTIVE_BRAND_KEY, brandId);
-  else window.localStorage.removeItem(ACTIVE_BRAND_KEY);
+  const scopeIdentity = scope
+    ? getActiveBrandScopeIdentity(scope)
+    : window.sessionStorage.getItem(ACTIVE_BRAND_SCOPE_POINTER_KEY);
+  if (!scopeIdentity || scopeIdentity === 'signed-out') return;
+  const key = getActiveBrandStorageKeyFromIdentity(scopeIdentity);
+  const normalizedBrandId = brandId?.trim() || null;
+  if (normalizedBrandId) window.localStorage.setItem(key, normalizedBrandId);
+  else window.localStorage.removeItem(key);
+  window.localStorage.removeItem(LEGACY_ACTIVE_BRAND_KEY);
   window.dispatchEvent(new Event(ACTIVE_BRAND_CHANGED_EVENT));
 }
 
@@ -105,12 +203,36 @@ async function fetchAllBrands(): Promise<ActiveBrandOption[]> {
 }
 
 export function ActiveBrandProvider({ children }: { children: ReactNode }) {
-  const { isSignedIn } = useAuth();
-  const [activeBrandId, setActiveBrandIdState] = useState<string | null>(null);
+  const { isSignedIn, userId, orgId } = useAuth();
+  const queryClient = useQueryClient();
+  const scope = useMemo(() => createActiveBrandScope(userId, orgId), [orgId, userId]);
+  const scopeIdentity = getActiveBrandScopeIdentity(scope);
+  const previousScopeIdentityRef = useRef<string | null>(null);
+  const [selection, setSelection] = useState<{ scopeIdentity: string; brandId: string | null }>({
+    scopeIdentity: 'signed-out',
+    brandId: null,
+  });
+  const selectedForCurrentScope = selection.scopeIdentity === scopeIdentity ? selection.brandId : null;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const sync = () => setActiveBrandIdState(window.localStorage.getItem(ACTIVE_BRAND_KEY));
+    const previousScopeIdentity = previousScopeIdentityRef.current;
+    if (previousScopeIdentity && previousScopeIdentity !== scopeIdentity) {
+      queryClient.removeQueries({
+        queryKey: ['active-brand', 'brands', previousScopeIdentity],
+        exact: true,
+      });
+      queryClient.removeQueries({
+        queryKey: ['active-brand', 'access-map', previousScopeIdentity],
+        exact: true,
+      });
+    }
+    previousScopeIdentityRef.current = scopeIdentity;
+
+    const sync = () => {
+      const brandId = activateActiveBrandStorageScope(window.localStorage, window.sessionStorage, scope);
+      setSelection({ scopeIdentity, brandId });
+    };
     sync();
     // Same-tab writes signal via the custom event; cross-tab writes via the native 'storage' event.
     window.addEventListener(ACTIVE_BRAND_CHANGED_EVENT, sync);
@@ -119,27 +241,34 @@ export function ActiveBrandProvider({ children }: { children: ReactNode }) {
       window.removeEventListener(ACTIVE_BRAND_CHANGED_EVENT, sync);
       window.removeEventListener('storage', sync);
     };
-  }, []);
+  }, [queryClient, scope, scopeIdentity]);
 
   const { data: brands = [], isLoading } = useQuery({
-    queryKey: ['active-brand', 'brands'],
+    queryKey: getActiveBrandListQueryKey(scope),
     queryFn: fetchAllBrands,
-    enabled: Boolean(isSignedIn),
-    staleTime: 60 * 1000,
+    enabled: Boolean(isSignedIn && scope),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
   });
 
-  const setActiveBrandId = useCallback((brandId: string | null) => {
-    setActiveBrandIdState(brandId);
-    setActiveBrandIdInStorage(brandId);
-  }, []);
+  const activeBrandId = reconcileActiveBrandSelection(selectedForCurrentScope, brands);
 
-  // Default to the first brand when none is selected, or the stored one no longer exists.
+  const setActiveBrandId = useCallback((brandId: string | null) => {
+    if (!scope) return;
+    const authorizedBrandId = reconcileActiveBrandSelection(brandId, brands);
+    setSelection({ scopeIdentity, brandId: authorizedBrandId });
+    setActiveBrandIdInStorage(authorizedBrandId, scope);
+  }, [brands, scope, scopeIdentity]);
+
+  // A stored brand is only a preference. If the server-authorized list no longer contains it, erase it.
+  // Never guess another brand: an explicit selection is required in the new account/org scope.
   useEffect(() => {
-    if (!brands.length) return;
-    if (!activeBrandId || !brands.some((b) => b.brandId === activeBrandId)) {
-      setActiveBrandId(brands[0].brandId);
-    }
-  }, [brands, activeBrandId, setActiveBrandId]);
+    if (!scope || isLoading || !selectedForCurrentScope || activeBrandId) return;
+    setSelection({ scopeIdentity, brandId: null });
+    setActiveBrandIdInStorage(null, scope);
+  }, [activeBrandId, isLoading, scope, scopeIdentity, selectedForCurrentScope]);
 
   const value = useMemo<ActiveBrandContextValue>(
     () => ({

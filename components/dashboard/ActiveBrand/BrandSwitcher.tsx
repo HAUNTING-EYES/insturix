@@ -5,19 +5,26 @@
  * zero per-service code). Reads/writes the shared active-brand context. Hidden on public report routes.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
 import { Building2, Check, ChevronDown, Globe, Lock } from 'lucide-react';
-import { useActiveBrand } from './ActiveBrandProvider';
+import {
+  createActiveBrandScope,
+  getActiveBrandAccessQueryKey,
+  getActiveBrandScopeIdentity,
+  useActiveBrand,
+} from './ActiveBrandProvider';
 import { BrandAccessEditor } from './BrandAccessEditor';
 
 export function BrandSwitcher() {
   const pathname = usePathname();
   const { brands, activeBrand, setActiveBrandId, isLoading } = useActiveBrand();
-  const { orgRole } = useAuth();
+  const { userId, orgId, orgRole } = useAuth();
   const isAdmin = orgRole === 'org:admin';
+  const scope = useMemo(() => createActiveBrandScope(userId, orgId), [orgId, userId]);
+  const scopeIdentity = getActiveBrandScopeIdentity(scope);
   const [open, setOpen] = useState(false);
   const [editingBrand, setEditingBrand] = useState<{ brandId: string; name: string } | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -25,16 +32,25 @@ export function BrandSwitcher() {
   // Access chips (#3 — option C): the org's restricted-brand map. Admin-only data; the endpoint returns
   // an empty map for non-admins, and chips render only when isAdmin, so members never see them.
   const { data: accessData } = useQuery({
-    queryKey: ['brand-access-map'],
+    queryKey: getActiveBrandAccessQueryKey(scope),
     queryFn: async (): Promise<{ ok: boolean; grants: Record<string, string[]> }> => {
       const res = await fetch('/api/brand-vault/brands/access', { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to load brand access map');
       return res.json();
     },
-    enabled: open && isAdmin,
-    staleTime: 30 * 1000,
+    enabled: Boolean(scope && open && isAdmin),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
   });
   const accessGrants = accessData?.grants ?? {};
+
+  useEffect(() => {
+    // A modal or access map opened under one organization is never valid in another authority scope.
+    setOpen(false);
+    setEditingBrand(null);
+  }, [scopeIdentity]);
 
   useEffect(() => {
     if (!open) return;
