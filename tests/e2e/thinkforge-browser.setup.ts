@@ -29,6 +29,13 @@ interface ClerkTestClient {
     deleteUser(userId: string): Promise<void>;
   };
   organizations: {
+    getOrganizationList(input: { query: string; limit: number }): Promise<{
+      data: Array<{
+        id: string;
+        slug: string;
+        privateMetadata: Record<string, unknown>;
+      }>;
+    }>;
     createOrganization(input: {
       name: string;
       slug: string;
@@ -52,6 +59,38 @@ interface ClerkTestClient {
       role: 'org:admin' | 'org:member';
     }): Promise<unknown>;
   };
+}
+
+async function ensureClerkOrganization(
+  client: ClerkTestClient,
+  input: {
+    name: string;
+    slug: string;
+    createdBy: string;
+    runId: string;
+  },
+): Promise<{ id: string }> {
+  const listed = await client.organizations.getOrganizationList({
+    query: input.slug,
+    limit: 100,
+  });
+  const existing = listed.data.find((organization) => organization.slug === input.slug);
+  if (existing) {
+    if (existing.privateMetadata?.thinkforgeE2ERunId !== input.runId
+      || existing.privateMetadata?.disposable !== true) {
+      throw new Error(
+        `ThinkForge E2E refused to reuse organization slug ${input.slug}: ownership metadata does not match run ${input.runId}.`,
+      );
+    }
+    return { id: existing.id };
+  }
+
+  return client.organizations.createOrganization({
+    name: input.name,
+    slug: input.slug,
+    createdBy: input.createdBy,
+    privateMetadata: { thinkforgeE2ERunId: input.runId, disposable: true },
+  });
 }
 
 const requireFromProject = createRequire(import.meta.url);
@@ -103,11 +142,18 @@ async function clearE2EDatabase(client: MongoClient, databaseName: string): Prom
   }
 
   const collections = await database.listCollections({}, { nameOnly: true }).toArray();
-  await Promise.all(
-    collections
-      .filter(({ name }) => !name.startsWith('system.'))
-      .map(({ name }) => database.collection(name).deleteMany({})),
-  );
+  for (const { name } of collections) {
+    if (name.startsWith('system.')) continue;
+    try {
+      await database.dropCollection(name);
+    } catch (error) {
+      if (isMongoNamespaceMissingError(error)) continue;
+      throw new Error(
+        `ThinkForge E2E could not release disposable collection ${databaseName}.${name}.`,
+        { cause: error },
+      );
+    }
+  }
 }
 
 function isMongoDropPermissionError(error: unknown): boolean {
@@ -115,6 +161,13 @@ function isMongoDropPermissionError(error: unknown): boolean {
     && error !== null
     && 'code' in error
     && error.code === 8000;
+}
+
+function isMongoNamespaceMissingError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && (('code' in error && error.code === 26)
+      || ('codeName' in error && error.codeName === 'NamespaceNotFound'));
 }
 
 async function ensureClerkUser(
@@ -422,11 +475,11 @@ export default async function setupThinkForgeBrowserGate(): Promise<() => Promis
   try {
     admin = await ensureClerkUser(clerk, fixture.admin);
     restrictedMember = await ensureClerkUser(clerk, fixture.restrictedMember);
-    const organization = await clerk.organizations.createOrganization({
+    const organization = await ensureClerkOrganization(clerk, {
       name: fixture.organization.name,
       slug: fixture.organization.slug,
       createdBy: admin.id,
-      privateMetadata: { thinkforgeE2ERunId: fixture.runId, disposable: true },
+      runId: fixture.runId,
     });
     organizationId = organization.id;
     await ensureClerkOrganizationMembership({
