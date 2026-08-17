@@ -4,8 +4,8 @@ import {
   acceptThinkForgeServerDocument,
   clearThinkForgeConflictDraft,
   clearThinkForgeDocumentSaveQueuesForTests,
+  commitThinkForgeRebasedDocument,
   enqueueThinkForgeDocumentSave,
-  overwriteThinkForgeDocumentAfterConflict,
   preserveThinkForgeConflictDraft,
   readThinkForgeConflictDraft,
   restoreThinkForgeDocumentConflict,
@@ -14,13 +14,20 @@ import {
 } from '../../lib/thinkforge/client-document-save-queue';
 
 function request(contentHash: string, baseVersion = 1): ThinkForgeDocumentSaveRequest {
+  const baseRichText = {
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: `base_${baseVersion}` }] }],
+  };
   return {
     sessionId: 'session_1',
     scriptId: 'default',
     baseVersion,
+    baseTitle: 'Draft',
+    baseRichText,
+    baseContentHash: JSON.stringify(baseRichText),
     title: 'Draft',
     content: '',
-    richText: { type: 'doc', content: [{ type: 'paragraph', text: contentHash }] },
+    richText: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: contentHash }] }] },
     contentHash,
   };
 }
@@ -50,9 +57,12 @@ describe('ThinkForge document save queue', () => {
     await expect(first).resolves.toMatchObject({ status: 'saved', version: 2 });
     await expect(second).resolves.toMatchObject({ status: 'saved', version: 3 });
     expect(seen.map((item) => item.baseVersion)).toEqual([1, 2]);
+    expect(seen[1].baseTitle).toBe(seen[0].title);
+    expect(seen[1].baseRichText).toEqual(seen[0].richText);
+    expect(seen[1].baseContentHash).toBe(JSON.stringify(seen[0].richText));
   });
 
-  it('blocks every queued save after a conflict until the user explicitly overwrites', async () => {
+  it('blocks every queued save after a conflict until a rebased draft is committed', async () => {
     const transport: ThinkForgeDocumentSaveTransport = vi.fn()
       .mockResolvedValueOnce({ status: 'conflict', currentVersion: 7, contentHash: 'hash_1' })
       .mockImplementationOnce(async (input: ThinkForgeDocumentSaveRequest) => ({
@@ -68,8 +78,12 @@ describe('ThinkForge document save queue', () => {
     await expect(second).resolves.toMatchObject({ status: 'conflict', currentVersion: 7 });
     expect(transport).toHaveBeenCalledTimes(1);
 
-    await expect(overwriteThinkForgeDocumentAfterConflict(
-      request('hash_2'),
+    const rebased = {
+      ...request('hash_2', 7),
+      baseVersion: 7,
+    };
+    await expect(commitThinkForgeRebasedDocument(
+      rebased,
       7,
       transport,
     )).resolves.toMatchObject({ status: 'saved', version: 8 });
@@ -92,6 +106,8 @@ describe('ThinkForge document save queue', () => {
       6,
       7,
       'server_hash',
+      'Server draft',
+      { type: 'doc', content: [] },
     )).toThrow('conflict changed');
 
     acceptThinkForgeServerDocument(
@@ -99,6 +115,8 @@ describe('ThinkForge document save queue', () => {
       7,
       9,
       'server_hash',
+      'Server draft',
+      { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'server' }] }] },
     );
     await expect(enqueueThinkForgeDocumentSave(request('hash_2', 7), transport))
       .resolves.toMatchObject({ status: 'saved', version: 10 });
@@ -143,7 +161,8 @@ describe('ThinkForge document save queue', () => {
       .resolves.toMatchObject({ status: 'conflict', currentVersion: 7 });
     expect(transport).not.toHaveBeenCalled();
 
-    await expect(overwriteThinkForgeDocumentAfterConflict(draft, 7, transport))
+    const rebased = { ...draft, baseVersion: 7 };
+    await expect(commitThinkForgeRebasedDocument(rebased, 7, transport))
       .resolves.toMatchObject({ status: 'saved', version: 8 });
     expect(transport).toHaveBeenCalledWith(expect.objectContaining({ baseVersion: 7 }));
   });

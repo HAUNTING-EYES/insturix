@@ -4,25 +4,37 @@ export interface ThinkForgeDocumentSaveRequest {
   sessionId: string;
   scriptId: string;
   baseVersion: number;
+  baseTitle: string;
+  baseRichText: Record<string, unknown>;
+  baseContentHash: string;
   title: string;
   content: string;
   richText: Record<string, unknown>;
   contentHash: string;
 }
 
-export type ThinkForgeDocumentSaveResult =
+export type ThinkForgeDocumentSaveTransportResult =
   | { status: 'saved'; version: number; contentHash: string }
   | { status: 'conflict'; currentVersion: number; contentHash: string };
 
+export type ThinkForgeDocumentSaveResult =
+  | Extract<ThinkForgeDocumentSaveTransportResult, { status: 'saved' }>
+  | (Extract<ThinkForgeDocumentSaveTransportResult, { status: 'conflict' }> & {
+      conflictRequest: ThinkForgeDocumentSaveRequest;
+    });
+
 export type ThinkForgeDocumentSaveTransport = (
   request: ThinkForgeDocumentSaveRequest,
-) => Promise<ThinkForgeDocumentSaveResult>;
+) => Promise<ThinkForgeDocumentSaveTransportResult>;
 
 interface DocumentQueueState {
   tail: Promise<void>;
   version?: number;
   lastSavedHash?: string;
+  lastSavedTitle?: string;
+  lastSavedRichText?: Record<string, unknown>;
   conflictVersion?: number;
+  conflictRequest?: ThinkForgeDocumentSaveRequest;
 }
 
 export interface ThinkForgePreservedConflictDraft {
@@ -46,25 +58,29 @@ export function enqueueThinkForgeDocumentSave(
 
   const task = state.tail.then(async () => {
     if (state.conflictVersion !== undefined) {
+      const conflictRequest = inheritConflictBase(request, state.conflictRequest);
+      state.conflictRequest = conflictRequest;
       return {
         status: 'conflict',
         currentVersion: state.conflictVersion,
         contentHash: request.contentHash,
+        conflictRequest,
       } as const;
     }
     if (state.lastSavedHash === request.contentHash && state.version !== undefined) {
       return { status: 'saved', version: state.version, contentHash: request.contentHash } as const;
     }
-    const queuedRequest = {
-      ...request,
-      baseVersion: Math.max(request.baseVersion, state.version ?? 0),
-    };
+    const queuedRequest = advanceRequestBase(request, state);
     const result = await transport(queuedRequest);
     if (result.status === 'saved') {
       state.version = result.version;
       state.lastSavedHash = result.contentHash;
+      state.lastSavedTitle = queuedRequest.title;
+      state.lastSavedRichText = queuedRequest.richText;
     } else {
       state.conflictVersion = result.currentVersion;
+      state.conflictRequest = queuedRequest;
+      return { ...result, conflictRequest: queuedRequest };
     }
     return result;
   });
@@ -72,7 +88,7 @@ export function enqueueThinkForgeDocumentSave(
   return task;
 }
 
-export function overwriteThinkForgeDocumentAfterConflict(
+export function commitThinkForgeRebasedDocument(
   request: ThinkForgeDocumentSaveRequest,
   expectedCurrentVersion: number,
   transport: ThinkForgeDocumentSaveTransport = persistThinkForgeDocument,
@@ -87,17 +103,22 @@ export function overwriteThinkForgeDocumentAfterConflict(
     if (state.conflictVersion !== expectedCurrentVersion) {
       throw new Error('Document save conflict changed before it was resolved.');
     }
+    if (request.baseVersion < expectedCurrentVersion) {
+      throw new Error('Rebased document targets an older server version than the active conflict.');
+    }
 
-    const result = await transport({
-      ...request,
-      baseVersion: expectedCurrentVersion,
-    });
+    const result = await transport(request);
     if (result.status === 'saved') {
       state.version = result.version;
       state.lastSavedHash = result.contentHash;
+      state.lastSavedTitle = request.title;
+      state.lastSavedRichText = request.richText;
       state.conflictVersion = undefined;
+      state.conflictRequest = undefined;
     } else {
       state.conflictVersion = result.currentVersion;
+      state.conflictRequest = request;
+      return { ...result, conflictRequest: request };
     }
     return result;
   });
@@ -110,6 +131,8 @@ export function acceptThinkForgeServerDocument(
   expectedConflictVersion: number,
   loadedVersion: number,
   contentHash: string,
+  title: string,
+  richText: Record<string, unknown>,
 ): void {
   const state = queues.get(documentKey(identity));
   if (!state || state.conflictVersion !== expectedConflictVersion) {
@@ -117,18 +140,21 @@ export function acceptThinkForgeServerDocument(
   }
   state.version = loadedVersion;
   state.lastSavedHash = contentHash;
+  state.lastSavedTitle = title;
+  state.lastSavedRichText = richText;
   state.conflictVersion = undefined;
+  state.conflictRequest = undefined;
 }
 
 export function restoreThinkForgeDocumentConflict(
-  identity: Pick<ThinkForgeDocumentSaveRequest, 'sessionId' | 'scriptId'>,
+  request: ThinkForgeDocumentSaveRequest,
   currentVersion: number,
 ): void {
   if (!Number.isInteger(currentVersion) || currentVersion < 0) {
     throw new Error('Stored document conflict version is invalid.');
   }
 
-  const key = documentKey(identity);
+  const key = documentKey(request);
   const state = queues.get(key) ?? { tail: Promise.resolve() };
   if (state.conflictVersion !== undefined && state.conflictVersion !== currentVersion) {
     throw new Error('Stored document conflict differs from the active conflict.');
@@ -137,6 +163,7 @@ export function restoreThinkForgeDocumentConflict(
     throw new Error('Stored document conflict is older than the active document queue.');
   }
   state.conflictVersion = currentVersion;
+  state.conflictRequest = request;
   queues.set(key, state);
 }
 
@@ -180,7 +207,10 @@ export function readThinkForgeConflictDraft(
     throw new Error('Stored document conflict draft has an invalid conflict version.');
   }
   if (typeof request.title !== 'string'
+    || typeof request.baseTitle !== 'string'
     || typeof request.content !== 'string'
+    || typeof request.baseContentHash !== 'string'
+    || !request.baseContentHash
     || typeof request.contentHash !== 'string'
     || !request.contentHash) {
     throw new Error('Stored document conflict draft has invalid document fields.');
@@ -188,14 +218,25 @@ export function readThinkForgeConflictDraft(
   if (!isTiptapJSON(request.richText)) {
     throw new Error('Stored document conflict draft has invalid rich text.');
   }
+  if (!isTiptapJSON(request.baseRichText)) {
+    throw new Error('Stored document conflict draft has invalid base rich text.');
+  }
 
   const richText = validateTiptapJSON(request.richText);
+  const baseRichText = validateTiptapJSON(request.baseRichText);
   if (JSON.stringify(richText) !== request.contentHash) {
     throw new Error('Stored document conflict draft failed its content integrity check.');
   }
+  if (JSON.stringify(baseRichText) !== request.baseContentHash) {
+    throw new Error('Stored document conflict draft failed its base-content integrity check.');
+  }
 
   return {
-    request: { ...request, richText: richText as unknown as Record<string, unknown> },
+    request: {
+      ...request,
+      richText: richText as unknown as Record<string, unknown>,
+      baseRichText: baseRichText as unknown as Record<string, unknown>,
+    },
     currentVersion: parsed.currentVersion as number,
     preservedAt: typeof parsed.preservedAt === 'string' ? parsed.preservedAt : '',
   };
@@ -217,7 +258,7 @@ export function clearThinkForgeDocumentSaveQueuesForTests(): void {
 
 async function persistThinkForgeDocument(
   request: ThinkForgeDocumentSaveRequest,
-): Promise<ThinkForgeDocumentSaveResult> {
+): Promise<ThinkForgeDocumentSaveTransportResult> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     const controller = new AbortController();
@@ -270,6 +311,39 @@ async function persistThinkForgeDocument(
     }
   }
   throw lastError instanceof Error ? lastError : new Error('Document save failed after retries.');
+}
+
+function advanceRequestBase(
+  request: ThinkForgeDocumentSaveRequest,
+  state: DocumentQueueState,
+): ThinkForgeDocumentSaveRequest {
+  if (state.version === undefined || state.version <= request.baseVersion) return request;
+  if (!state.lastSavedRichText || state.lastSavedTitle === undefined) {
+    throw new Error('Document queue advanced without retaining its committed base snapshot.');
+  }
+  return {
+    ...request,
+    baseVersion: state.version,
+    baseTitle: state.lastSavedTitle,
+    baseRichText: state.lastSavedRichText,
+    baseContentHash: JSON.stringify(state.lastSavedRichText),
+  };
+}
+
+function inheritConflictBase(
+  request: ThinkForgeDocumentSaveRequest,
+  conflictRequest?: ThinkForgeDocumentSaveRequest,
+): ThinkForgeDocumentSaveRequest {
+  if (!conflictRequest) {
+    throw new Error('Document conflict is missing its base snapshot.');
+  }
+  return {
+    ...request,
+    baseVersion: conflictRequest.baseVersion,
+    baseTitle: conflictRequest.baseTitle,
+    baseRichText: conflictRequest.baseRichText,
+    baseContentHash: conflictRequest.baseContentHash,
+  };
 }
 
 function documentKey(request: Pick<ThinkForgeDocumentSaveRequest, 'sessionId' | 'scriptId'>): string {

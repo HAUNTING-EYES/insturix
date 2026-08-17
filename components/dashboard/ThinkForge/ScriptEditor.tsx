@@ -78,13 +78,14 @@ import {
 import {
   acceptThinkForgeServerDocument,
   clearThinkForgeConflictDraft,
+  commitThinkForgeRebasedDocument,
   enqueueThinkForgeDocumentSave,
-  overwriteThinkForgeDocumentAfterConflict,
   preserveThinkForgeConflictDraft,
   readThinkForgeConflictDraft,
   restoreThinkForgeDocumentConflict,
   type ThinkForgeDocumentSaveRequest,
 } from '@/lib/thinkforge/client-document-save-queue';
+import { rebaseThinkForgeDocument } from '@/lib/thinkforge/client-document-rebase';
 
 // Import FormatToolbar
 import { FormatToolbar } from "./FormatToolbar";
@@ -110,6 +111,17 @@ interface PendingDocumentSave {
 interface DocumentSaveConflict {
   documentKey: string;
   currentVersion: number;
+}
+
+async function fetchLatestThinkForgeDocument(
+  request: Pick<ThinkForgeDocumentSaveRequest, 'sessionId' | 'scriptId'>,
+): Promise<Response> {
+  const response = await fetch(
+    `/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(request.sessionId)}&scriptId=${encodeURIComponent(request.scriptId)}`,
+    { cache: 'no-store' },
+  );
+  if (!response.ok) throw new Error(`Latest document load failed (${response.status}).`);
+  return response;
 }
 
 /**
@@ -186,6 +198,8 @@ export default function ScriptEditor({
   const lastAutosaveHashRef = useRef<string>('');
   const autosavePausedRef = useRef(false);
   const scriptVersionRef = useRef<number>(0);
+  const committedTitleRef = useRef<string>('Untitled Script');
+  const committedRichTextRef = useRef<TiptapJSON>(DEFAULT_EMPTY_DOCUMENT as TiptapJSON);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
   const pendingConflictSaveRef = useRef<PendingDocumentSave | null>(null);
   const flushPendingDocumentSaveRef = useRef<((documentKey?: string) => Promise<void>) | null>(null);
@@ -362,6 +376,7 @@ export default function ScriptEditor({
           editor.commands.setContent(tiptapContent as any);
           isUpdatingFromPropsRef.current = false;
           lastLoadedContentRef.current = contentHash;
+          committedRichTextRef.current = validateTiptapJSON(editor.getJSON());
         }
       } catch (error) {
         console.error('[Script] Pending hydration failed:', error);
@@ -497,6 +512,7 @@ export default function ScriptEditor({
       const isInitialLoad = reason === 'initial-load-prop';
       const isVersionRestore = reason === 'version-restore' || isRestoringVersionRef.current;
       const isAIUpdate = reason === 'ai-update';  // AI-generated content should be allowed
+      const isRemoteUpdate = isInitialLoad || isAIUpdate || reason === 'polling-update';
 
       // CRITICAL: Never apply remote updates if user is actively typing (except initial load/restore/AI)
       const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
@@ -535,6 +551,7 @@ export default function ScriptEditor({
         hasLocalEditsRef.current = false;
       }
       lastLoadedContentRef.current = contentHash;
+      if (isRemoteUpdate) committedRichTextRef.current = validateTiptapJSON(editor.getJSON());
       return true;
     },
     [editor, safeSetContent, hasUnsavedChanges]
@@ -590,6 +607,8 @@ export default function ScriptEditor({
     pendingBlocksRef.current = null;
     loadedTitleRef.current = null;
     scriptVersionRef.current = 0;
+    committedTitleRef.current = 'Untitled Script';
+    committedRichTextRef.current = DEFAULT_EMPTY_DOCUMENT as TiptapJSON;
     setHasUnsavedChanges(false);
     isUserTypingRef.current = false;
     lastUserInputTimeRef.current = 0;
@@ -616,7 +635,7 @@ export default function ScriptEditor({
       const recovered = readThinkForgeConflictDraft(activeIdentity);
       if (!recovered) return;
 
-      restoreThinkForgeDocumentConflict(activeIdentity, recovered.currentVersion);
+      restoreThinkForgeDocumentConflict(recovered.request, recovered.currentVersion);
       const tiptapContent = validateTiptapJSON(recovered.request.richText);
       const blocks = validateThinkForgeBlocks(tiptapJSONToThinkForgeBlocks(tiptapContent));
       const matchingScript = script && matchesThinkForgeDocumentIdentity(script, activeIdentity)
@@ -647,8 +666,10 @@ export default function ScriptEditor({
       }
       initialLoadDoneRef.current = true;
       isSwitchingScriptRef.current = false;
-      scriptVersionRef.current = recovered.currentVersion;
+      scriptVersionRef.current = recovered.request.baseVersion;
       loadedTitleRef.current = recovered.request.title || null;
+      committedTitleRef.current = recovered.request.baseTitle;
+      committedRichTextRef.current = validateTiptapJSON(recovered.request.baseRichText);
       lastLoadedContentRef.current = '';
       lastAutosaveHashRef.current = '';
       pendingDocumentSaveRef.current = null;
@@ -713,6 +734,8 @@ export default function ScriptEditor({
           scriptVersionRef.current = script.version;
         }
         loadedTitleRef.current = typeof script?.title === 'string' ? script.title : null;
+        committedTitleRef.current = typeof script?.title === 'string' ? script.title : 'Untitled Script';
+        committedRichTextRef.current = validateTiptapJSON(editor.getJSON());
         initialLoadDoneRef.current = true;
         isSwitchingScriptRef.current = false;
         setHasUnsavedChanges(false);
@@ -851,6 +874,10 @@ export default function ScriptEditor({
           if (activeDocumentKeyRef.current !== updateDocumentKey) return;
           const applied = applyContentToEditor(tiptapContent, 'ai-update');
           if (applied) {
+            if (typeof script?.version === 'number' && Number.isFinite(script.version)) {
+              scriptVersionRef.current = script.version;
+            }
+            committedTitleRef.current = typeof script?.title === 'string' ? script.title : getEffectiveTitle();
             setDocumentHydrationError(null);
             createVersionSnapshot('AI edit');
           }
@@ -862,7 +889,7 @@ export default function ScriptEditor({
     } catch (error) {
       console.error('[Script] Hydration failed:', error);
     }
-  }, [script?.blocks, script?.content, script?.richText, script?.metadata, editor, activeIdentity, activeDocumentKey, generatingScript, streamingTiptap, createVersionSnapshot, applyContentToEditor]);
+  }, [script?.blocks, script?.content, script?.richText, script?.metadata, script?.version, script?.title, editor, activeIdentity, activeDocumentKey, generatingScript, streamingTiptap, createVersionSnapshot, applyContentToEditor, getEffectiveTitle]);
 
   // Poll for blocks during generation
   // CRITICAL: Must never overwrite user edits - user input is source of truth
@@ -941,6 +968,10 @@ export default function ScriptEditor({
         const applied = applyContentToEditor(tiptapContent, 'polling-update');
         if (applied && activeDocumentKeyRef.current === pollDocumentKey) {
           lastLoadedContentRef.current = contentHash;
+          if (typeof data.version === 'number' && Number.isFinite(data.version)) {
+            scriptVersionRef.current = data.version;
+          }
+          committedTitleRef.current = typeof data.title === 'string' ? data.title : getEffectiveTitle();
         }
       } catch (error) {
         if (!(error instanceof DOMException && error.name === 'AbortError')) {
@@ -965,6 +996,7 @@ export default function ScriptEditor({
     generatingScript,
     hasUnsavedChanges,
     applyContentToEditor,
+    getEffectiveTitle,
   ]);
   // TipTap JSON is runtime truth; convert only at persistence/export boundaries.
   const convertEditorToScript = useCallback((): Script => {
@@ -1011,6 +1043,8 @@ export default function ScriptEditor({
     if (activeDocumentKeyRef.current !== pending.documentKey) return;
 
     scriptVersionRef.current = version;
+    committedTitleRef.current = pending.request.title;
+    committedRichTextRef.current = validateTiptapJSON(pending.request.richText);
     const committedScript = { ...pending.updatedScript, version } as Script;
     onEditScript(committedScript);
 
@@ -1032,11 +1066,13 @@ export default function ScriptEditor({
   const recordDocumentConflict = useCallback((
     pending: PendingDocumentSave,
     currentVersion: number,
+    conflictRequest: ThinkForgeDocumentSaveRequest = pending.request,
   ): void => {
     if (activeDocumentKeyRef.current !== pending.documentKey) return;
-    pendingConflictSaveRef.current = pending;
+    const conflictedPending = { ...pending, request: conflictRequest };
+    pendingConflictSaveRef.current = conflictedPending;
     try {
-      preserveThinkForgeConflictDraft(pending.request, currentVersion);
+      preserveThinkForgeConflictDraft(conflictRequest, currentVersion);
     } catch (error) {
       console.error('ScriptEditor: Failed to preserve conflict draft', error);
     }
@@ -1057,7 +1093,7 @@ export default function ScriptEditor({
     try {
       const result = await enqueueThinkForgeDocumentSave(pending.request);
       if (result.status === 'conflict') {
-        recordDocumentConflict(pending, result.currentVersion);
+        recordDocumentConflict(pending, result.currentVersion, result.conflictRequest);
         return;
       }
       finishDocumentSave(pending, result.version);
@@ -1080,21 +1116,20 @@ export default function ScriptEditor({
     setIsResolvingConflict(true);
     setConflictResolutionError(null);
     try {
-      const response = await fetch(
-        `/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(pending.request.sessionId)}&scriptId=${encodeURIComponent(pending.request.scriptId)}`,
-        { cache: 'no-store' },
-      );
-      if (!response.ok) throw new Error(`Latest document load failed (${response.status}).`);
+      const response = await fetchLatestThinkForgeDocument(pending.request);
       const data = await response.json();
       if (typeof data?.version !== 'number') throw new Error('Latest document response omitted its version.');
+      if (typeof data.title !== 'string') throw new Error('Latest document response omitted its title.');
 
       const tiptapContent = data.richText && isTiptapJSON(data.richText)
         ? validateTiptapJSON(data.richText)
-        : toTiptapJSON(data.blocks);
+        : Array.isArray(data.blocks)
+          ? toTiptapJSON(data.blocks)
+          : (() => { throw new Error('Latest document response omitted canonical content.'); })();
       const blocks = validateThinkForgeBlocks(tiptapJSONToThinkForgeBlocks(tiptapContent));
       const contentHash = JSON.stringify(tiptapContent);
       const loadedScript = stampThinkForgeDocumentIdentity({
-        title: typeof data.title === 'string' ? data.title : 'Untitled Script',
+        title: data.title,
         version: data.version,
         content: typeof data.content === 'string' ? data.content : '',
         blocks,
@@ -1118,10 +1153,14 @@ export default function ScriptEditor({
         conflict.currentVersion,
         data.version,
         contentHash,
+        loadedScript.title || 'Untitled Script',
+        tiptapContent as unknown as Record<string, unknown>,
       );
 
       scriptVersionRef.current = data.version;
       loadedTitleRef.current = loadedScript.title || null;
+      committedTitleRef.current = loadedScript.title || 'Untitled Script';
+      committedRichTextRef.current = tiptapContent;
       lastLoadedContentRef.current = contentHash;
       lastAutosaveHashRef.current = contentHash;
       pendingConflictSaveRef.current = null;
@@ -1138,10 +1177,10 @@ export default function ScriptEditor({
     }
   }, [documentSaveConflict, editor, onEditScript]);
 
-  const handleOverwriteLatestDocument = useCallback(async (): Promise<void> => {
+  const handleRebaseDocument = useCallback(async (): Promise<void> => {
     const conflict = documentSaveConflict;
     const pending = pendingConflictSaveRef.current;
-    if (!conflict || !pending) return;
+    if (!conflict || !pending || !editor) return;
     if (activeDocumentKeyRef.current !== conflict.documentKey) {
       setConflictResolutionError('The active document changed. Reopen the conflicted document to resolve it.');
       return;
@@ -1150,25 +1189,97 @@ export default function ScriptEditor({
     setIsResolvingConflict(true);
     setConflictResolutionError(null);
     try {
-      const result = await overwriteThinkForgeDocumentAfterConflict(
-        pending.request,
+      const response = await fetchLatestThinkForgeDocument(pending.request);
+      const data = await response.json();
+      if (typeof data?.version !== 'number') throw new Error('Latest document response omitted its version.');
+      if (typeof data.title !== 'string') throw new Error('Latest document response omitted its title.');
+
+      const remoteRichText = data.richText && isTiptapJSON(data.richText)
+        ? validateTiptapJSON(data.richText)
+        : Array.isArray(data.blocks)
+          ? toTiptapJSON(data.blocks)
+          : (() => { throw new Error('Latest document response omitted canonical content.'); })();
+      if (JSON.stringify(editor.getJSON()) !== pending.request.contentHash) {
+        throw new Error('The local draft changed while the conflict was being resolved. Retry the merge.');
+      }
+
+      const rebase = rebaseThinkForgeDocument({
+        base: {
+          title: pending.request.baseTitle,
+          richText: pending.request.baseRichText,
+        },
+        local: {
+          title: pending.request.title,
+          richText: pending.request.richText,
+        },
+        remote: {
+          title: data.title,
+          richText: remoteRichText as unknown as Record<string, unknown>,
+        },
+      });
+      if (rebase.status === 'conflict') {
+        const locations = rebase.conflicts.slice(0, 3).map((item) => item.path).join(', ');
+        throw new Error(`Both versions changed the same content (${locations}). Your draft is preserved; resolve that section or load the latest version.`);
+      }
+
+      const mergedRequest: ThinkForgeDocumentSaveRequest = {
+        ...pending.request,
+        baseVersion: data.version,
+        baseTitle: data.title,
+        baseRichText: remoteRichText as unknown as Record<string, unknown>,
+        baseContentHash: JSON.stringify(remoteRichText),
+        title: rebase.title,
+        richText: rebase.richText as unknown as Record<string, unknown>,
+        content: extractPlainText(rebase.richText),
+        contentHash: JSON.stringify(rebase.richText),
+      };
+      const mergedScript = stampThinkForgeDocumentIdentity({
+        ...pending.updatedScript,
+        title: rebase.title,
+        content: mergedRequest.content,
+        body: mergedRequest.content,
+        blocks: validateThinkForgeBlocks(tiptapJSONToThinkForgeBlocks(rebase.richText)),
+        richText: rebase.richText,
+        version: data.version,
+      }, {
+        sessionId: pending.request.sessionId,
+        scriptId: pending.request.scriptId,
+      }) as unknown as Script;
+      const mergedPending: PendingDocumentSave = {
+        documentKey: pending.documentKey,
+        request: mergedRequest,
+        updatedScript: mergedScript,
+      };
+
+      isUpdatingFromPropsRef.current = true;
+      try {
+        const applied = editor.commands.setContent(rebase.richText as any);
+        if (!applied) throw new Error('The editor rejected the merged document.');
+      } finally {
+        isUpdatingFromPropsRef.current = false;
+      }
+      pendingConflictSaveRef.current = mergedPending;
+      preserveThinkForgeConflictDraft(mergedRequest, data.version);
+
+      const result = await commitThinkForgeRebasedDocument(
+        mergedRequest,
         conflict.currentVersion,
       );
       if (result.status === 'conflict') {
-        recordDocumentConflict(pending, result.currentVersion);
+        recordDocumentConflict(mergedPending, result.currentVersion, result.conflictRequest);
         return;
       }
 
       pendingConflictSaveRef.current = null;
       setDocumentSaveConflict(null);
-      clearThinkForgeConflictDraft(pending.request);
-      finishDocumentSave(pending, result.version);
+      clearThinkForgeConflictDraft(mergedRequest);
+      finishDocumentSave(mergedPending, result.version);
     } catch (error) {
-      setConflictResolutionError(error instanceof Error ? error.message : 'Document overwrite failed.');
+      setConflictResolutionError(error instanceof Error ? error.message : 'Document merge failed.');
     } finally {
       setIsResolvingConflict(false);
     }
-  }, [documentSaveConflict, finishDocumentSave, recordDocumentConflict]);
+  }, [documentSaveConflict, editor, finishDocumentSave, recordDocumentConflict]);
 
   // Sync last version hash when the version manager updates its current version
   useEffect(() => {
@@ -1219,6 +1330,9 @@ export default function ScriptEditor({
         sessionId: activeIdentity.sessionId,
         scriptId: activeIdentity.scriptId,
         baseVersion: scriptVersionRef.current,
+        baseTitle: committedTitleRef.current,
+        baseRichText: committedRichTextRef.current as unknown as Record<string, unknown>,
+        baseContentHash: JSON.stringify(committedRichTextRef.current),
         title: updatedScript.title || 'Untitled Script',
         content: updatedScript.content || '',
         richText: currentJSON as unknown as Record<string, unknown>,
@@ -1826,7 +1940,7 @@ export default function ScriptEditor({
               A newer document version exists
             </AlertDialogTitle>
             <AlertDialogDescription className="text-[#A7A39A]">
-              ThinkForge stopped autosave before overwriting it. Load the latest saved version, or explicitly replace it with the draft currently in this editor.
+              ThinkForge stopped autosave before losing either version. Merge non-overlapping changes, or load the latest saved version.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {conflictResolutionError && (
@@ -1845,11 +1959,11 @@ export default function ScriptEditor({
             <Button
               type="button"
               disabled={isResolvingConflict}
-              onClick={() => void handleOverwriteLatestDocument()}
+              onClick={() => void handleRebaseDocument()}
               className="bg-[#D4A652] text-black hover:bg-[#E0B75F]"
             >
               {isResolvingConflict ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Replace with my draft
+              Merge changes
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
