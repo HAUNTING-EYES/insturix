@@ -3,6 +3,7 @@ import {
   formatSystemBrief,
   type FetchContextOptions,
   type RetrievedContext,
+  type SemanticFact,
 } from '@/lib/thinkforge/context/fetchContextSources';
 import {
   buildThinkForgeAuthoringContextSnapshot,
@@ -37,6 +38,8 @@ export interface ResolveThinkForgeAuthoringContextInput {
   currentScript?: string;
   maxFacts?: number;
   interactionWindowDays?: number;
+  /** Trusted server-side facts that must participate in the same brief and immutable snapshot. */
+  additionalProjectFacts?: readonly SemanticFact[];
   writingKnowledgeVersion?: string | null;
   resolvedAt?: Date;
 }
@@ -84,7 +87,11 @@ export async function resolveThinkForgeAuthoringContext(
     maxFacts: input.maxFacts,
     interactionWindowDays: input.interactionWindowDays,
   };
-  const retrievedContext = await fetchContextSources(retrievalOptions);
+  const fetchedContext = await fetchContextSources(retrievalOptions);
+  const retrievedContext = mergeAdditionalProjectFacts(
+    fetchedContext,
+    input.additionalProjectFacts ?? [],
+  );
 
   return {
     projectMeta,
@@ -98,4 +105,30 @@ export async function resolveThinkForgeAuthoringContext(
       resolvedAt: input.resolvedAt,
     }),
   };
+}
+
+function mergeAdditionalProjectFacts(
+  context: RetrievedContext,
+  additionalProjectFacts: readonly SemanticFact[],
+): RetrievedContext {
+  if (additionalProjectFacts.length === 0) return context;
+  const projectFacts = mergeSemanticFacts(additionalProjectFacts, context.projectFacts ?? []);
+  return {
+    ...context,
+    projectFacts,
+    semanticFacts: mergeSemanticFacts(
+      projectFacts,
+      context.semanticFacts ?? [],
+      context.globalFacts ?? [],
+    ),
+  };
+}
+
+function mergeSemanticFacts(...groups: ReadonlyArray<readonly SemanticFact[]>): SemanticFact[] {
+  const seen = new Set<string>();
+  return groups.flatMap((group) => group).filter((fact) => {
+    if (seen.has(fact.id)) return false;
+    seen.add(fact.id);
+    return true;
+  });
 }

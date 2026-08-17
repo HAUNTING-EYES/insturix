@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   resolveThinkForgeAuthoringContext: vi.fn(),
-  buildThinkForgeAuthoringContextSnapshot: vi.fn(),
   resolveCalosReferenceFacts: vi.fn(),
   resolveContentSignalProfile: vi.fn(),
   formatContentSignalProfileForPrompt: vi.fn(),
@@ -12,9 +11,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/thinkforge/context/resolved-authoring-context', () => ({
   resolveThinkForgeAuthoringContext: mocks.resolveThinkForgeAuthoringContext,
-}));
-vi.mock('@/lib/thinkforge/context/brand-authoring-context', () => ({
-  buildThinkForgeAuthoringContextSnapshot: mocks.buildThinkForgeAuthoringContextSnapshot,
 }));
 vi.mock('@/lib/calos/generate/generators/_campaign-references', () => ({
   resolveCalosReferenceFacts: mocks.resolveCalosReferenceFacts,
@@ -62,20 +58,19 @@ describe('resolveCalosWriterContext', () => {
       systemBrief: 'Accepted Brand Vault revision 12.',
       retrievedContext: {
         brandDNA: {},
-        projectFacts: [],
+        projectFacts: [referenceFact],
         globalFacts: [],
-        semanticFacts: [],
+        semanticFacts: [referenceFact],
         interactionPatterns: [],
       },
-      snapshot: { version: 2, scope: { kind: 'organization' }, brand: { brandId: 'brand_b' } },
+      snapshot: {
+        version: 3,
+        scope: { kind: 'organization' },
+        brand: { brandId: 'brand_b' },
+        retrieval: { projectFactIds: ['calos_campaign_launch'], globalFactIds: [] },
+      },
     });
     mocks.resolveCalosReferenceFacts.mockResolvedValue([referenceFact]);
-    mocks.buildThinkForgeAuthoringContextSnapshot.mockReturnValue({
-      version: 2,
-      scope: { kind: 'organization' },
-      brand: { brandId: 'brand_b' },
-      retrieval: { projectFactIds: ['calos_campaign_launch'] },
-    });
     mocks.resolveContentSignalProfile.mockReturnValue({ profile: { signals: {} } });
     mocks.formatContentSignalProfileForPrompt.mockReturnValue('<content_signal_profile>resolved</content_signal_profile>');
     mocks.buildThinkForgeSignalTrace.mockReturnValue({ version: 1, brandId: 'brand_b' });
@@ -91,6 +86,7 @@ describe('resolveCalosWriterContext', () => {
       orgId: 'org_1',
       currentPrompt: expect.stringContaining('Target duration: 420 seconds'),
       writingKnowledgeVersion: 'writing-knowledge-v3',
+      additionalProjectFacts: [referenceFact],
       providedProject: expect.objectContaining({
         format: '7-minute YouTube video script',
         durationSec: 420,
@@ -115,11 +111,6 @@ describe('resolveCalosWriterContext', () => {
       authoringRequest: expect.objectContaining({ targetDurationSec: 420 }),
       contentContract: expect.objectContaining({ outputKind: 'video_script' }),
       retrievedContext: expect.objectContaining({ projectFacts: [referenceFact] }),
-    }));
-    expect(mocks.buildThinkForgeAuthoringContextSnapshot).toHaveBeenCalledWith(expect.objectContaining({
-      orgId: 'org_1',
-      retrievedContext: expect.objectContaining({ projectFacts: [referenceFact] }),
-      writingKnowledgeVersion: 'writing-knowledge-v3',
     }));
     expect(result.snapshot.retrieval.projectFactIds).toEqual(['calos_campaign_launch']);
     expect(result.projectMeta).toMatchObject({

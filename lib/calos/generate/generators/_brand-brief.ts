@@ -1,14 +1,14 @@
 import { getVersion as getWritingKnowledgeVersion } from '@/lib/thinkforge/data/writing-graph-query';
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import {
-  buildThinkForgeAuthoringContextSnapshot,
-} from '@/lib/thinkforge/context/brand-authoring-context';
-import {
   resolveThinkForgeAuthoringContext,
   type ThinkForgeResolvedAuthoringContext,
 } from '@/lib/thinkforge/context/resolved-authoring-context';
-import type { SemanticFact } from '@/lib/thinkforge/context';
 import { resolveThinkForgeProductionBrief } from '@/lib/thinkforge/brief/resolve-production-brief';
+import {
+  buildThinkForgeEditorialPlan,
+  type ThinkForgeEditorialPlan,
+} from '@/lib/thinkforge/agents/editorial-plan';
 import {
   buildThinkForgeAuthoringCompatibilityMetadata,
   createDefaultThinkForgePostControls,
@@ -52,6 +52,7 @@ export interface CalosWriterExecutionContext {
   userPrompt: string;
   sourceLedger: SourceLedger;
   productionBrief: ProductionBrief;
+  editorialPlan: ThinkForgeEditorialPlan;
 }
 
 export type CalosAuthoringContractErrorCode =
@@ -161,15 +162,6 @@ function buildCalosWriterPrompt(params: GenerateParams): string {
   ].filter(Boolean).join('\n');
 }
 
-function mergeFacts(primary: SemanticFact[], secondary: SemanticFact[]): SemanticFact[] {
-  const seen = new Set<string>();
-  return [...primary, ...secondary].filter((fact) => {
-    if (seen.has(fact.id)) return false;
-    seen.add(fact.id);
-    return true;
-  });
-}
-
 /**
  * CalOS writes through ThinkForge's authoritative authoring-context resolver. References are
  * merged before signal resolution, so the signal trace, snapshot, prompts, and source ledger all
@@ -186,37 +178,29 @@ export async function resolveCalosWriterContext(
   const userPrompt = buildCalosWriterPrompt(params);
   const writingKnowledgeVersion = getWritingKnowledgeVersion();
   const compatibilityMetadata = buildThinkForgeAuthoringCompatibilityMetadata(authoringRequest);
-  const [resolved, referenceFacts] = await Promise.all([
-    resolveThinkForgeAuthoringContext({
-      userId: params.ownerUserId,
-      orgId: params.orgId ?? null,
-      providedProject: {
-        title: params.title,
-        idea: params.angle,
-        ...compatibilityMetadata,
-        brandId: params.brandId,
-        contentCardId: params.deliverableId,
-        ...(params.campaignId ? { campaignId: params.campaignId } : {}),
-      },
-      currentPrompt: userPrompt,
-      maxFacts: 5,
-      interactionWindowDays: 30,
-      writingKnowledgeVersion,
-    }),
-    resolveCalosReferenceFacts({
-      campaignId: params.campaignId,
+  const referenceFacts = await resolveCalosReferenceFacts({
+    campaignId: params.campaignId,
+    brandId: params.brandId,
+    ownerUserId: params.ownerUserId,
+    orgId: params.orgId,
+  });
+  const resolved = await resolveThinkForgeAuthoringContext({
+    userId: params.ownerUserId,
+    orgId: params.orgId ?? null,
+    providedProject: {
+      title: params.title,
+      idea: params.angle,
+      ...compatibilityMetadata,
       brandId: params.brandId,
-      ownerUserId: params.ownerUserId,
-      orgId: params.orgId,
-    }),
-  ]);
-
-  const projectFacts = mergeFacts(referenceFacts, resolved.retrievedContext.projectFacts ?? []);
-  const retrievedContext = {
-    ...resolved.retrievedContext,
-    projectFacts,
-    semanticFacts: mergeFacts(projectFacts, resolved.retrievedContext.globalFacts ?? []),
-  };
+      contentCardId: params.deliverableId,
+      ...(params.campaignId ? { campaignId: params.campaignId } : {}),
+    },
+    currentPrompt: userPrompt,
+    maxFacts: 5,
+    interactionWindowDays: 30,
+    additionalProjectFacts: referenceFacts,
+    writingKnowledgeVersion,
+  });
   const projectMeta = {
     ...resolved.projectMeta,
     ...compatibilityMetadata,
@@ -231,18 +215,12 @@ export async function resolveCalosWriterContext(
     platform: params.platform,
     brandId: projectMeta.brandId,
     project: projectMeta,
-    retrievedContext,
+    retrievedContext: resolved.retrievedContext,
   });
 
   return {
     ...resolved,
     projectMeta,
-    retrievedContext,
-    snapshot: buildThinkForgeAuthoringContextSnapshot({
-      orgId: params.orgId ?? null,
-      retrievedContext,
-      writingKnowledgeVersion,
-    }),
     systemBrief: [
       resolved.systemBrief,
       formatContentSignalProfileForPrompt(contentSignalProfile),
@@ -273,6 +251,17 @@ export async function resolveCalosWriterExecutionContext(
     contentPath: route.documentType,
     brandId: authoringContext.projectMeta.brandId,
   });
+  const editorialPlan = buildThinkForgeEditorialPlan({
+    userPrompt,
+    authoringRequest,
+    contentSignalProfile: authoringContext.contentSignalProfile,
+    ...(route.documentType === 'video_script' ? { productionBrief } : {}),
+    authorizedFactIds: [
+      ...authoringContext.snapshot.retrieval.projectFactIds,
+      ...authoringContext.snapshot.retrieval.globalFactIds,
+    ],
+    sourceLedgerEntryIds: sourceLedger.entries.map((entry) => entry.referenceId),
+  });
 
   return {
     authoringContext,
@@ -281,5 +270,6 @@ export async function resolveCalosWriterExecutionContext(
     userPrompt,
     sourceLedger,
     productionBrief,
+    editorialPlan,
   };
 }

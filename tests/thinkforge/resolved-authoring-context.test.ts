@@ -155,6 +155,37 @@ describe('resolveThinkForgeAuthoringContext', () => {
     expect(second.snapshot.brand?.profileUpdatedAt).toBe('2026-08-12T00:00:00.000Z');
   });
 
+  it('merges trusted server facts before building the brief and immutable snapshot', async () => {
+    const campaignFact = {
+      id: 'campaign_fact_1',
+      title: 'Campaign launch',
+      summary: 'The approved launch date is Friday.',
+      tags: ['campaign-reference'],
+    };
+    mocks.formatSystemBrief.mockImplementation((context) => (
+      `facts:${context.projectFacts.map((fact: { id: string }) => fact.id).join(',')}`
+    ));
+
+    const result = await resolveThinkForgeAuthoringContext({
+      userId: 'user_1',
+      providedProject: { brandId: 'brand_b' },
+      additionalProjectFacts: [campaignFact],
+    });
+
+    expect(result.retrievedContext.projectFacts.map((fact) => fact.id)).toEqual([
+      'campaign_fact_1',
+      'project_fact_1',
+    ]);
+    expect(result.retrievedContext.semanticFacts.map((fact) => fact.id)).toEqual([
+      'campaign_fact_1',
+      'project_fact_1',
+      'global_fact_1',
+    ]);
+    expect(result.systemBrief).toBe('facts:campaign_fact_1,project_fact_1');
+    expect(result.snapshot.retrieval.projectFactIds).toEqual(['campaign_fact_1', 'project_fact_1']);
+    expect(mocks.formatSystemBrief).toHaveBeenCalledWith(result.retrievedContext);
+  });
+
   it('does not downgrade an explicit Brand Vault resolution failure into unbranded authoring', async () => {
     mocks.fetchContextSources.mockRejectedValueOnce(new Error('The selected brand no longer has an accepted profile.'));
 
