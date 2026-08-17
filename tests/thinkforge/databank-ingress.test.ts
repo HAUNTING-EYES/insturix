@@ -8,9 +8,11 @@ const mocks = vi.hoisted(() => ({
   authorizeBrandScope: vi.fn(),
   deleteAuthorizedDataBankEntry: vi.fn(),
   getAuthorizedDataBankEntries: vi.fn(),
+  getAuthorizedDataBankReviewCandidates: vi.fn(),
   getAuthorizedProjectScopedEntries: vi.fn(),
   getSession: vi.fn(),
   promoteAuthorizedDataBankEntryToGlobal: vi.fn(),
+  reviewAuthorizedDataBankEntry: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({
@@ -22,9 +24,11 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
   assertDataBankSessionPrincipal: mocks.assertDataBankSessionPrincipal,
   deleteAuthorizedDataBankEntry: mocks.deleteAuthorizedDataBankEntry,
   getAuthorizedDataBankEntries: mocks.getAuthorizedDataBankEntries,
+  getAuthorizedDataBankReviewCandidates: mocks.getAuthorizedDataBankReviewCandidates,
   getAuthorizedProjectScopedEntries: mocks.getAuthorizedProjectScopedEntries,
   getSession: mocks.getSession,
   promoteAuthorizedDataBankEntryToGlobal: mocks.promoteAuthorizedDataBankEntryToGlobal,
+  reviewAuthorizedDataBankEntry: mocks.reviewAuthorizedDataBankEntry,
 }));
 
 vi.mock('@/lib/shared/brand-scope', async (importOriginal) => ({
@@ -51,8 +55,10 @@ describe('ThinkForge DataBank ingress', () => {
     mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: null, has: vi.fn(() => false) });
     mocks.assertDataBankSessionPrincipal.mockReturnValue({ ownerType: 'user', userId: 'user_1' });
     mocks.getAuthorizedDataBankEntries.mockResolvedValue([]);
+    mocks.getAuthorizedDataBankReviewCandidates.mockResolvedValue([]);
     mocks.getAuthorizedProjectScopedEntries.mockResolvedValue([]);
     mocks.promoteAuthorizedDataBankEntryToGlobal.mockResolvedValue('promoted');
+    mocks.reviewAuthorizedDataBankEntry.mockResolvedValue('approved');
   });
 
   it('rejects direct global writes from request bodies', async () => {
@@ -196,6 +202,84 @@ describe('ThinkForge DataBank ingress', () => {
       'entry_1',
       { userId: 'user_1', orgId: 'org_1' },
     );
+  });
+
+  it('lists pending generated learning only through the owner review query', async () => {
+    mocks.getAuthorizedDataBankReviewCandidates.mockResolvedValue([{ _id: 'candidate_1' }]);
+
+    const response = await GET(new Request(
+      'http://localhost/api/services/thinkforge/databank?reviewStatus=pending&sessionId=tf_session_1&limit=20',
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.getAuthorizedDataBankReviewCandidates).toHaveBeenCalledWith(
+      { userId: 'user_1', orgId: null },
+      { sessionId: 'tf_session_1', limit: 20 },
+    );
+    expect(mocks.getAuthorizedDataBankEntries).not.toHaveBeenCalled();
+  });
+
+  it('requires an organization administrator to review generated learning', async () => {
+    const has = vi.fn(() => false);
+    mocks.auth.mockResolvedValue({ userId: 'member_1', orgId: 'org_1', has });
+
+    const listResponse = await GET(new Request(
+      'http://localhost/api/services/thinkforge/databank?reviewStatus=pending',
+    ));
+    const reviewResponse = await PATCH(request({
+      id: 'candidate_1',
+      action: 'review',
+      decision: 'approved',
+    }));
+
+    expect(listResponse.status).toBe(403);
+    expect(reviewResponse.status).toBe(403);
+    expect(mocks.getAuthorizedDataBankReviewCandidates).not.toHaveBeenCalled();
+    expect(mocks.reviewAuthorizedDataBankEntry).not.toHaveBeenCalled();
+  });
+
+  it('reviews a candidate through an exact principal and surfaces stale decisions', async () => {
+    const approved = await PATCH(request({
+      id: 'candidate_1',
+      action: 'review',
+      decision: 'approved',
+    }));
+
+    expect(approved.status).toBe(200);
+    expect(mocks.reviewAuthorizedDataBankEntry).toHaveBeenCalledWith(
+      'candidate_1',
+      { userId: 'user_1', orgId: null },
+      'approved',
+    );
+
+    mocks.reviewAuthorizedDataBankEntry.mockResolvedValue('not_pending');
+    const repeated = await PATCH(request({
+      id: 'candidate_1',
+      action: 'review',
+      decision: 'rejected',
+    }));
+    expect(repeated.status).toBe(409);
+  });
+
+  it('builds a review predicate that cannot enter normal verified retrieval', async () => {
+    const db = await vi.importActual<typeof import('@/lib/thinkforge/services/db')>(
+      '@/lib/thinkforge/services/db',
+    );
+    const query = db.buildAuthorizedDataBankReviewQuery(
+      { userId: 'user_1', orgId: null },
+      'session_1',
+      new Date('2026-08-17T00:00:00.000Z'),
+    );
+
+    expect(query).toMatchObject({
+      $and: expect.arrayContaining([
+        { provenanceStatus: 'quarantined' },
+        { provenanceReason: 'pending_owner_review' },
+        { reviewStatus: 'pending' },
+        { sessionId: 'session_1' },
+      ]),
+    });
+    expect(query.$and).not.toContainEqual({ provenanceStatus: 'verified' });
   });
 
   it('does not promote an entry outside the active principal', async () => {

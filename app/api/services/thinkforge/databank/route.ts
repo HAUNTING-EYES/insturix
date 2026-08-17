@@ -6,9 +6,11 @@ import {
     assertDataBankSessionPrincipal,
     deleteAuthorizedDataBankEntry,
     getAuthorizedDataBankEntries,
+    getAuthorizedDataBankReviewCandidates,
     getAuthorizedProjectScopedEntries,
     getSession,
     promoteAuthorizedDataBankEntryToGlobal,
+    reviewAuthorizedDataBankEntry,
     type DataBankEntryType,
 } from '@/lib/thinkforge/services/db';
 import { authorizeBrandScope, BrandScopeAuthorizationError } from '@/lib/shared/brand-scope';
@@ -36,14 +38,21 @@ const DataBankPostSchema = z.object({
     scope: z.enum(['project', 'global']).optional(),
 }).strict();
 
-const DataBankPatchSchema = z.object({
-    id: z.string().trim().min(1).max(200),
-    action: z.literal('promote'),
-    target: z.discriminatedUnion('memoryScope', [
-        z.object({ memoryScope: z.literal('brand'), brandId: z.string().trim().min(1).max(200) }).strict(),
-        z.object({ memoryScope: z.literal('universal') }).strict(),
-    ]),
-}).strict();
+const DataBankPatchSchema = z.discriminatedUnion('action', [
+    z.object({
+        id: z.string().trim().min(1).max(200),
+        action: z.literal('promote'),
+        target: z.discriminatedUnion('memoryScope', [
+            z.object({ memoryScope: z.literal('brand'), brandId: z.string().trim().min(1).max(200) }).strict(),
+            z.object({ memoryScope: z.literal('universal') }).strict(),
+        ]),
+    }).strict(),
+    z.object({
+        id: z.string().trim().min(1).max(200),
+        action: z.literal('review'),
+        decision: z.enum(['approved', 'rejected']),
+    }).strict(),
+]);
 
 /**
  * DataBank API - tiered knowledge storage
@@ -55,7 +64,7 @@ const DataBankPatchSchema = z.object({
  */
 
 export async function GET(req: Request) {
-    const { userId, orgId } = await auth();
+    const { userId, orgId, has } = await auth();
     if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
     const { searchParams } = new URL(req.url);
@@ -66,6 +75,7 @@ export async function GET(req: Request) {
     const limit = parseDataBankLimit(searchParams.get('limit'));
     const tags = parseQueryTags(searchParams.get('tags'));
     const dataScope = searchParams.get('dataScope');
+    const reviewStatus = searchParams.get('reviewStatus');
     const principal = { userId, orgId: orgId ?? null };
 
     if (rawType && !type) {
@@ -83,8 +93,19 @@ export async function GET(req: Request) {
     if (dataScope && dataScope !== 'global' && dataScope !== 'project') {
         return NextResponse.json({ error: 'dataScope must be global or project' }, { status: 400 });
     }
+    if (reviewStatus && reviewStatus !== 'pending') {
+        return NextResponse.json({ error: 'reviewStatus must be pending when provided' }, { status: 400 });
+    }
 
     try {
+        if (reviewStatus === 'pending') {
+            if (orgId && !has({ role: 'org:admin' })) {
+                return NextResponse.json({ error: 'Organization memory review requires an administrator' }, { status: 403 });
+            }
+            const entries = await getAuthorizedDataBankReviewCandidates(principal, { sessionId: sessionId ?? undefined, limit });
+            return NextResponse.json({ entries });
+        }
+
         if (dataScope === 'global') {
             const entries = await getAuthorizedDataBankEntries(principal, {
                 type,
@@ -189,10 +210,25 @@ export async function PATCH(req: Request) {
 
     const parsedBody = await parseBoundedJson(req, DataBankPatchSchema);
     if (!parsedBody.ok) return parsedBody.response;
-    const { id, target } = parsedBody.value;
+    const patch = parsedBody.value;
     const principal = { userId, orgId: orgId ?? null };
 
     try {
+        if (patch.action === 'review') {
+            if (orgId && !has({ role: 'org:admin' })) {
+                return NextResponse.json({ error: 'Organization memory review requires an administrator' }, { status: 403 });
+            }
+            const result = await reviewAuthorizedDataBankEntry(patch.id, principal, patch.decision);
+            if (result === 'approved' || result === 'rejected') {
+                return NextResponse.json({ success: true, action: 'reviewed', decision: result });
+            }
+            if (result === 'not_found') {
+                return NextResponse.json({ error: 'Entry not found in this workspace' }, { status: 404 });
+            }
+            return NextResponse.json({ error: 'Entry is not awaiting review' }, { status: 409 });
+        }
+
+        const { id, target } = patch;
         if (target.memoryScope === 'brand') {
             await authorizeBrandScope({
                 userId,

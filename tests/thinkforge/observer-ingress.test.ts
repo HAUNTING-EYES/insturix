@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { POST } from '@/app/api/services/thinkforge/events/observe/route';
 
 const mocks = vi.hoisted(() => ({
-  addGovernedDataBankEntry: vi.fn(),
+  addGovernedDataBankReviewCandidate: vi.fn(),
   assertDataBankSessionPrincipal: vi.fn(),
   auth: vi.fn(),
   checkDuplicateBeforeSave: vi.fn(),
   createThinkForgeModelForRoute: vi.fn(),
-  embedDataBankEntry: vi.fn(),
   generateObject: vi.fn(),
   getSession: vi.fn(),
   readAiSdkUsage: vi.fn(),
@@ -23,13 +23,12 @@ vi.mock('@/lib/thinkforge/agents/model-factory', () => ({
   resolveThinkForgeProviderRoute: mocks.resolveThinkForgeProviderRoute,
 }));
 vi.mock('@/lib/thinkforge/services/db', () => ({
-  addGovernedDataBankEntry: mocks.addGovernedDataBankEntry,
+  addGovernedDataBankReviewCandidate: mocks.addGovernedDataBankReviewCandidate,
   assertDataBankSessionPrincipal: mocks.assertDataBankSessionPrincipal,
   getSession: mocks.getSession,
 }));
 vi.mock('@/lib/thinkforge/services/embedding-service', () => ({
   checkDuplicateBeforeSave: mocks.checkDuplicateBeforeSave,
-  embedDataBankEntry: mocks.embedDataBankEntry,
 }));
 vi.mock('@/lib/thinkforge/services/provider-cost-telemetry', () => ({
   readAiSdkUsage: mocks.readAiSdkUsage,
@@ -61,7 +60,6 @@ describe('ThinkForge observer ingress', () => {
     });
     mocks.createThinkForgeModelForRoute.mockReturnValue('model');
     mocks.checkDuplicateBeforeSave.mockResolvedValue(false);
-    mocks.embedDataBankEntry.mockResolvedValue(true);
     mocks.readAiSdkUsage.mockResolvedValue(undefined);
     mocks.recordThinkForgeDirectCost.mockResolvedValue(undefined);
     mocks.safeJsonLength.mockReturnValue(0);
@@ -81,11 +79,14 @@ describe('ThinkForge observer ingress', () => {
       userId: 'user_1',
       projectMeta: {},
     });
-    mocks.addGovernedDataBankEntry.mockResolvedValue({
+    mocks.addGovernedDataBankReviewCandidate.mockResolvedValue({
       _id: 'entry_1',
       userId: 'user_1',
       sessionId: 'tf_session_1',
       scope: 'project',
+      provenanceStatus: 'quarantined',
+      provenanceReason: 'pending_owner_review',
+      reviewStatus: 'pending',
     });
   });
 
@@ -135,7 +136,7 @@ describe('ThinkForge observer ingress', () => {
 
     expect(response.status).toBe(403);
     expect(mocks.generateObject).not.toHaveBeenCalled();
-    expect(mocks.addGovernedDataBankEntry).not.toHaveBeenCalled();
+    expect(mocks.addGovernedDataBankReviewCandidate).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });
 
@@ -152,7 +153,7 @@ describe('ThinkForge observer ingress', () => {
       privacyClass: 'business_confidential',
       modelName: 'gemini-2.5-flash',
     });
-    expect(mocks.addGovernedDataBankEntry).toHaveBeenCalledWith(
+    expect(mocks.addGovernedDataBankReviewCandidate).toHaveBeenCalledWith(
       { userId: 'user_1' },
       'tf_session_1',
       expect.objectContaining({
@@ -171,7 +172,9 @@ describe('ThinkForge observer ingress', () => {
         },
       }),
     );
-    expect(mocks.embedDataBankEntry).toHaveBeenCalledTimes(1);
+    await expect(json(response.clone())).resolves.toMatchObject({ reviewPendingCount: 1 });
+    const routeSource = readFileSync('app/api/services/thinkforge/events/observe/route.ts', 'utf8');
+    expect(routeSource).not.toContain('embedDataBankEntry');
   });
 
   it('propagates the Clerk organization principal and ignores browser governance fields', async () => {
@@ -200,7 +203,7 @@ describe('ThinkForge observer ingress', () => {
       { userId: 'member_1', orgId: 'org_1' },
       session,
     );
-    expect(mocks.addGovernedDataBankEntry).toHaveBeenCalledWith(
+    expect(mocks.addGovernedDataBankReviewCandidate).toHaveBeenCalledWith(
       { userId: 'member_1', orgId: 'org_1' },
       'tf_org_session',
       expect.objectContaining({
@@ -237,8 +240,8 @@ describe('ThinkForge observer ingress', () => {
       sensitiveRejectedCount: 3,
       persistedCount: 1,
     });
-    expect(mocks.addGovernedDataBankEntry).toHaveBeenCalledTimes(1);
-    expect(mocks.addGovernedDataBankEntry).toHaveBeenCalledWith(
+    expect(mocks.addGovernedDataBankReviewCandidate).toHaveBeenCalledTimes(1);
+    expect(mocks.addGovernedDataBankReviewCandidate).toHaveBeenCalledWith(
       { userId: 'user_1' },
       'tf_session_1',
       expect.objectContaining({
@@ -263,13 +266,13 @@ describe('ThinkForge observer ingress', () => {
       reason: 'child_data_not_observed',
     });
     expect(mocks.generateObject).not.toHaveBeenCalled();
-    expect(mocks.addGovernedDataBankEntry).not.toHaveBeenCalled();
+    expect(mocks.addGovernedDataBankReviewCandidate).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });
 
-  it('returns an observable failure when embedding fails', async () => {
+  it('returns an observable failure when candidate persistence fails', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    mocks.embedDataBankEntry.mockRejectedValue(new Error('vector unavailable'));
+    mocks.addGovernedDataBankReviewCandidate.mockRejectedValue(new Error('databank unavailable'));
 
     const response = await POST(request({
       text: LONG_TEXT,

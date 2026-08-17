@@ -2879,6 +2879,7 @@ export type EmbeddingStatus = 'pending' | 'processing' | 'success' | 'failed';
 export type DataBankScope = 'project' | 'global';
 export type DataBankMemoryScope = 'project' | 'brand' | 'universal';
 export type DataBankProvenanceStatus = 'verified' | 'quarantined';
+export type DataBankReviewStatus = 'pending' | 'approved' | 'rejected';
 export type DataBankOwnerType = 'user' | 'organization';
 export type DataBankClassification = 'public' | 'business_confidential' | 'personal' | 'child_data';
 export type DataBankConsentStatus = 'not_required' | 'granted' | 'withdrawn';
@@ -2914,7 +2915,8 @@ export type DataBankProvenanceReason =
   | 'conflicting_memory_scopes'
   | 'missing_brand_id'
   | 'conflicting_brand_ids'
-  | 'universal_memory_has_brand';
+  | 'universal_memory_has_brand'
+  | 'pending_owner_review';
 
 /** Bump when vector metadata changes in a retrieval-relevant way. */
 export const DATA_BANK_EMBEDDING_METADATA_VERSION = 3;
@@ -2939,6 +2941,9 @@ export interface DataBankEntry {
   brandId?: string;
   provenanceStatus?: DataBankProvenanceStatus;
   provenanceReason?: DataBankProvenanceReason;
+  reviewStatus?: DataBankReviewStatus;
+  reviewedBy?: string;
+  reviewedAt?: Date;
   title: string;
   content: Record<string, any>;
   sourceUrl?: string;
@@ -2990,8 +2995,12 @@ const DataBankSchema = new Schema({
       'missing_brand_id',
       'conflicting_brand_ids',
       'universal_memory_has_brand',
+      'pending_owner_review',
     ],
   },
+  reviewStatus: { type: String, enum: ['pending', 'approved', 'rejected'], index: true },
+  reviewedBy: { type: String },
+  reviewedAt: { type: Date },
   type: {
     type: String,
     required: true,
@@ -3037,6 +3046,7 @@ DataBankSchema.index({ userId: 1, embeddingStatus: 1 });
 DataBankSchema.index({ userId: 1, scope: 1 });
 DataBankSchema.index({ userId: 1, scope: 1, memoryScope: 1, brandId: 1 });
 DataBankSchema.index({ ownerType: 1, orgId: 1, scope: 1, memoryScope: 1, brandId: 1 });
+DataBankSchema.index({ ownerType: 1, orgId: 1, reviewStatus: 1, createdAt: -1 });
 DataBankSchema.index({ lifecycleStatus: 1, expiresAt: 1 });
 DataBankSchema.index({ embeddingStatus: 1, embeddingNextRetryAt: 1, createdAt: 1 });
 DataBankSchema.index({ embeddingStatus: 1, embeddingLeaseExpiresAt: 1 });
@@ -3400,6 +3410,19 @@ export async function addGovernedDataBankEntry(
   return writeGovernedDataBankEntry(principalInput, sessionId, entry);
 }
 
+/** Persist generated learning as non-retrievable evidence until an owner reviews it. */
+export async function addGovernedDataBankReviewCandidate(
+  principalInput: DataBankPrincipal,
+  sessionId: string,
+  entry: GovernedDataBankEntryWrite,
+): Promise<DataBankEntry> {
+  return writeGovernedDataBankEntry(principalInput, sessionId, entry, undefined, {
+    provenanceStatus: 'quarantined',
+    provenanceReason: 'pending_owner_review',
+    reviewStatus: 'pending',
+  });
+}
+
 /**
  * Idempotently persist a governed record for a server-owned operation slot.
  * Reusing a slot with different immutable content is an integrity error.
@@ -3418,6 +3441,7 @@ async function writeGovernedDataBankEntry(
   sessionId: string,
   entry: GovernedDataBankEntryWrite,
   operationKey?: string,
+  admission?: Pick<DataBankEntry, 'provenanceStatus' | 'provenanceReason' | 'reviewStatus'>,
 ): Promise<DataBankEntry> {
   const principal = resolveDataBankPrincipal(principalInput);
   const normalizedSessionId = dataBankString(sessionId);
@@ -3445,6 +3469,7 @@ async function writeGovernedDataBankEntry(
     },
     authority,
     operationKey,
+    admission,
   );
 }
 
@@ -3453,6 +3478,7 @@ async function createDataBankEntryRecord(
   entry: DataBankEntryWrite,
   authority: ReturnType<typeof resolveDataBankEntryAuthority>,
   operationKey?: string,
+  admission?: Pick<DataBankEntry, 'provenanceStatus' | 'provenanceReason' | 'reviewStatus'>,
 ): Promise<DataBankEntry> {
   await connectToThinkForgeDb();
   const model = getDataBankModel();
@@ -3467,7 +3493,9 @@ async function createDataBankEntryRecord(
     scope: provenance.scope,
     memoryScope: provenance.memoryScope,
     brandId: provenance.brandId,
-    provenanceStatus: 'verified',
+    provenanceStatus: admission?.provenanceStatus ?? 'verified',
+    provenanceReason: admission?.provenanceReason,
+    reviewStatus: admission?.reviewStatus,
     title: entry.title,
     content: entry.content,
     sourceUrl: entry.sourceUrl,
@@ -3519,6 +3547,9 @@ function dataBankImmutableWriteFingerprint(entry: DataBankEntry): string {
     orgId: dataBankString(entry.orgId) ?? null,
     classification: dataBankString(entry.classification) ?? null,
     consentStatus: dataBankString(entry.consentStatus) ?? null,
+    provenanceStatus: dataBankString(entry.provenanceStatus) ?? null,
+    provenanceReason: dataBankString(entry.provenanceReason) ?? null,
+    reviewStatus: dataBankString(entry.reviewStatus) ?? null,
     type: entry.type,
     title: entry.title,
     content: entry.content,
@@ -3554,6 +3585,98 @@ export async function getAuthorizedDataBankEntries(
     .limit(Math.max(1, Math.min(options?.limit ?? 100, 500)))
     .lean();
   return docs as unknown as DataBankEntry[];
+}
+
+/** Build the owner-only query for generated learning awaiting an explicit decision. */
+export function buildAuthorizedDataBankReviewQuery(
+  principalInput: DataBankPrincipal,
+  sessionId?: string,
+  now = new Date(),
+): DataBankOwnershipQuery {
+  const normalizedSessionId = dataBankString(sessionId);
+  return {
+    $and: [
+      buildDataBankPrincipalQuery(principalInput),
+      { provenanceStatus: 'quarantined' },
+      { provenanceReason: 'pending_owner_review' },
+      { reviewStatus: 'pending' },
+      ...currentDataBankLifecycleClauses(now),
+      ...(normalizedSessionId ? [{ sessionId: normalizedSessionId }] : []),
+    ],
+  };
+}
+
+export async function getAuthorizedDataBankReviewCandidates(
+  principalInput: DataBankPrincipal,
+  options?: { sessionId?: string; limit?: number; now?: Date },
+): Promise<DataBankEntry[]> {
+  await connectToThinkForgeDb();
+  const docs = await getDataBankModel()
+    .find(buildAuthorizedDataBankReviewQuery(principalInput, options?.sessionId, options?.now))
+    .sort({ createdAt: -1 })
+    .limit(Math.max(1, Math.min(options?.limit ?? 100, 500)))
+    .lean();
+  return docs as unknown as DataBankEntry[];
+}
+
+export type DataBankReviewResult = 'approved' | 'rejected' | 'not_found' | 'not_pending';
+
+/** Atomically admit or reject one owner-visible generated learning candidate. */
+export async function reviewAuthorizedDataBankEntry(
+  entryId: string,
+  principalInput: DataBankPrincipal,
+  decision: Exclude<DataBankReviewStatus, 'pending'>,
+): Promise<DataBankReviewResult> {
+  const normalizedEntryId = dataBankString(entryId);
+  if (!normalizedEntryId) throw new Error('DataBank review requires an entry ID.');
+  await connectToThinkForgeDb();
+  const principal = resolveDataBankPrincipal(principalInput);
+  const now = new Date();
+  const update = decision === 'approved'
+    ? {
+      $set: {
+        provenanceStatus: 'verified',
+        reviewStatus: 'approved',
+        reviewedBy: principal.userId,
+        reviewedAt: now,
+        embeddingStatus: 'pending',
+        embeddingAttempts: 0,
+        updatedAt: now,
+      },
+      $unset: {
+        provenanceReason: '',
+        embeddingLastAttemptAt: '',
+        embeddingNextRetryAt: '',
+        embeddingLeaseExpiresAt: '',
+        embeddingLeaseId: '',
+      },
+    }
+    : {
+      $set: {
+        reviewStatus: 'rejected',
+        reviewedBy: principal.userId,
+        reviewedAt: now,
+        lifecycleStatus: 'superseded',
+        updatedAt: now,
+      },
+      $unset: {
+        embeddingNextRetryAt: '',
+        embeddingLeaseExpiresAt: '',
+        embeddingLeaseId: '',
+      },
+    };
+  const reviewed = await getDataBankModel().findOneAndUpdate(
+    { _id: normalizedEntryId, ...buildAuthorizedDataBankReviewQuery(principal, undefined, now) },
+    update,
+    { new: true },
+  ).lean() as DataBankEntry | null;
+  if (reviewed) return decision;
+
+  const visible = await getDataBankModel().exists({
+    _id: normalizedEntryId,
+    ...buildDataBankPrincipalQuery(principal),
+  });
+  return visible ? 'not_pending' : 'not_found';
 }
 
 /** Read current project memory through exact user/organization authority. */
