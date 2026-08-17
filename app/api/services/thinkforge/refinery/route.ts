@@ -9,7 +9,7 @@ import {
   dispatchThinkForgeRefineryJob,
   getThinkForgeRefineryJob,
   isThinkForgeRefineryWorkerConfigured,
-  markThinkForgeRefineryDispatchFailed,
+  recordThinkForgeRefineryDispatchFailure,
   type ThinkForgeRefineryJobSnapshot,
 } from '@/lib/thinkforge/refinery/refinery-job';
 import {
@@ -37,10 +37,32 @@ function toClientJob(job: ThinkForgeRefineryJobSnapshot) {
     attemptCount: job.attemptCount,
     maxAttempts: job.maxAttempts,
     result: job.result,
-    error: job.error,
+    error: job.error ? {
+      code: job.error.code,
+      message: publicRefineryErrorMessage(job.error.code),
+      retryable: job.error.retryable,
+    } : null,
+    chargeStatus: job.charge.status,
+    deadLetteredAt: job.deadLetteredAt,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
   };
+}
+
+function publicRefineryErrorMessage(code: string): string {
+  switch (code) {
+    case 'dispatch_failed':
+      return 'Research is queued and automatic dispatch recovery is in progress.';
+    case 'transient_failure':
+      return 'Research processing is retrying automatically.';
+    case 'insufficient_credits':
+      return 'There are not enough credits to analyze these sources.';
+    case 'attempts_exhausted':
+    case 'processing_failed':
+      return 'Research processing could not complete after repeated attempts.';
+    default:
+      return 'Research processing could not complete.';
+  }
 }
 
 /**
@@ -100,9 +122,15 @@ export async function POST(request: Request) {
     const queueMessageId = await dispatchThinkForgeRefineryJob(job);
     return NextResponse.json({ job: toClientJob(job), queueMessageId }, { status: 202 });
   } catch (error) {
-    await markThinkForgeRefineryDispatchFailed(job.id, error);
-    console.error('[ThinkForge:Refinery] Queue dispatch failed:', error);
-    return NextResponse.json({ error: 'Research processing could not be queued. Please try again.' }, { status: 503 });
+    const deferred = await recordThinkForgeRefineryDispatchFailure(job.id, error);
+    console.warn('[ThinkForge:Refinery] Initial dispatch failed; durable recovery remains queued.', {
+      jobId: job.id,
+      error: error instanceof Error ? error.message : 'unknown',
+    });
+    return NextResponse.json({
+      job: toClientJob(deferred ?? job),
+      queueState: 'recovery_pending',
+    }, { status: 202 });
   }
 }
 

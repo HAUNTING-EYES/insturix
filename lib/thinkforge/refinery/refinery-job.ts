@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Client } from '@upstash/qstash';
-import { MongoClient, type Collection, type Filter, type IndexDescription } from 'mongodb';
+import { MongoClient, type Collection, type Filter, type IndexDescription, type UpdateFilter } from 'mongodb';
 import { getCreditCost } from '@/lib/config/creditCosts';
 import type { WalletRef } from '@/lib/editron/services/project-ownership';
 import { runRefineryAgent, type RefineryResult } from '@/lib/thinkforge/agents/refinery-agent';
@@ -8,11 +8,11 @@ import { runRefineryAgent, type RefineryResult } from '@/lib/thinkforge/agents/r
 export const THINKFORGE_REFINERY_JOB_VERSION = 1;
 export const THINKFORGE_REFINERY_JOB_COLLECTION = 'thinkforge_refinery_jobs';
 const MAX_ATTEMPTS = 3;
-const LEASE_MS = 3 * 60_000;
+const LEASE_MS = 4 * 60_000;
 const JOB_TTL_MS = 14 * 24 * 60 * 60_000;
 const RECOVERY_STALE_MS = 2 * 60_000;
 
-export type ThinkForgeRefineryJobStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type ThinkForgeRefineryJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'dead_letter';
 
 export interface ThinkForgeRefineryJobSnapshot {
   id: string;
@@ -28,6 +28,7 @@ export interface ThinkForgeRefineryJobSnapshot {
   status: ThinkForgeRefineryJobStatus;
   attemptCount: number;
   maxAttempts: number;
+  leaseToken: string | null;
   leaseExpiresAt: string | null;
   queueMessageId: string | null;
   charge: {
@@ -37,16 +38,21 @@ export interface ThinkForgeRefineryJobSnapshot {
     status: 'pending' | 'charged' | 'refunded' | 'refund_pending';
   };
   result: RefineryResult | null;
-  error: { code: string; message: string } | null;
+  error: { code: string; message: string; retryable: boolean } | null;
+  deadLetteredAt: string | null;
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
 }
 
-interface ThinkForgeRefineryJobDocument extends ThinkForgeRefineryJobSnapshot {
+interface ThinkForgeRefineryJobDocument extends Omit<ThinkForgeRefineryJobSnapshot, 'leaseToken' | 'deadLetteredAt'> {
   _id: string;
   /** Sparse unique index: unset only after a terminal outcome. */
   activeDedupeKey?: string;
+  /** Optional for rows created before tokenized leases were introduced. */
+  leaseToken?: string | null;
+  /** Optional for rows created before the explicit dead-letter lifecycle. */
+  deadLetteredAt?: string | null;
 }
 
 export interface CreateThinkForgeRefineryJobInput {
@@ -59,7 +65,7 @@ export interface CreateThinkForgeRefineryJobInput {
 
 export type ClaimRefineryJobResult =
   | { kind: 'claimed'; job: ThinkForgeRefineryJobSnapshot }
-  | { kind: 'skipped'; reason: 'not_found' | 'terminal' | 'lease_held' };
+  | { kind: 'skipped'; reason: 'not_found' | 'terminal' | 'lease_held' | 'attempts_exhausted' };
 
 export type ChargeRefineryJobResult =
   | { ok: true; job: ThinkForgeRefineryJobSnapshot }
@@ -78,7 +84,14 @@ function clone<T>(value: T): T {
 
 function toSnapshot(document: ThinkForgeRefineryJobDocument): ThinkForgeRefineryJobSnapshot {
   const { _id: _ignored, activeDedupeKey: _activeDedupeKey, ...snapshot } = document;
-  return clone(snapshot);
+  return clone({
+    ...snapshot,
+    leaseToken: snapshot.leaseToken ?? null,
+    deadLetteredAt: snapshot.deadLetteredAt ?? null,
+    error: snapshot.error
+      ? { ...snapshot.error, retryable: snapshot.error.retryable ?? false }
+      : null,
+  });
 }
 
 async function jobCollection(): Promise<Collection<ThinkForgeRefineryJobDocument>> {
@@ -100,6 +113,7 @@ async function jobCollection(): Promise<Collection<ThinkForgeRefineryJobDocument
       { key: { idempotencyKey: 1 }, name: 'thinkforge_refinery_job_idempotency', unique: true },
       { key: { activeDedupeKey: 1 }, name: 'thinkforge_refinery_job_active_dedupe', unique: true, sparse: true },
       { key: { userId: 1, status: 1, updatedAt: -1 }, name: 'thinkforge_refinery_job_user_status' },
+      { key: { status: 1, 'charge.status': 1, updatedAt: 1 }, name: 'thinkforge_refinery_job_reconciliation' },
       { key: { expiresAt: 1 }, name: 'thinkforge_refinery_job_ttl', expireAfterSeconds: 0 },
     ];
     await collection.createIndexes(indexes);
@@ -112,8 +126,60 @@ function isDuplicateKeyError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: unknown }).code === 11000);
 }
 
-function terminalUpdate(now = nowIso()) {
-  return { $unset: { activeDedupeKey: '' as const }, $set: { leaseExpiresAt: null, updatedAt: now } };
+function terminalUpdate(
+  fields: Partial<ThinkForgeRefineryJobDocument>,
+  now = nowIso(),
+): UpdateFilter<ThinkForgeRefineryJobDocument> {
+  return {
+    $unset: { activeDedupeKey: '' as const },
+    $set: { ...fields, leaseToken: null, leaseExpiresAt: null, updatedAt: now },
+  };
+}
+
+function refineryError(code: string, message: string, retryable: boolean) {
+  return { code, message: message.trim().slice(0, 1_000), retryable };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function claimedLeaseFilter(job: ThinkForgeRefineryJobSnapshot): Filter<ThinkForgeRefineryJobDocument> {
+  if (!job.leaseToken) throw new Error('Claimed refinery job is missing its lease token.');
+  return {
+    _id: job.id,
+    status: 'running',
+    attemptCount: job.attemptCount,
+    leaseToken: job.leaseToken,
+  };
+}
+
+async function deadLetterExhaustedRefineryJob(
+  collection: Collection<ThinkForgeRefineryJobDocument>,
+  job: ThinkForgeRefineryJobDocument,
+  now: string,
+): Promise<boolean> {
+  const ownership: Filter<ThinkForgeRefineryJobDocument> = job.status === 'running'
+    ? {
+        _id: job.id,
+        status: 'running',
+        attemptCount: job.attemptCount,
+        leaseExpiresAt: job.leaseExpiresAt,
+      }
+    : { _id: job.id, status: 'queued', attemptCount: job.attemptCount };
+  const update = await collection.updateOne(
+    ownership,
+    terminalUpdate({
+      status: 'dead_letter',
+      deadLetteredAt: now,
+      error: refineryError(
+        'attempts_exhausted',
+        'Research processing exhausted its delivery attempts.',
+        false,
+      ),
+    }, now),
+  );
+  return update.matchedCount === 1;
 }
 
 export function isThinkForgeRefineryWorkerConfigured(): boolean {
@@ -154,6 +220,7 @@ export async function createOrGetQueuedThinkForgeRefineryJob(input: CreateThinkF
     status: 'queued',
     attemptCount: 0,
     maxAttempts: MAX_ATTEMPTS,
+    leaseToken: null,
     leaseExpiresAt: null,
     queueMessageId: null,
     charge: {
@@ -164,6 +231,7 @@ export async function createOrGetQueuedThinkForgeRefineryJob(input: CreateThinkF
     },
     result: null,
     error: null,
+    deadLetteredAt: null,
     createdAt,
     updatedAt: createdAt,
     expiresAt: new Date(Date.now() + JOB_TTL_MS).toISOString(),
@@ -193,41 +261,50 @@ async function setThinkForgeRefineryJobQueueMessage(jobId: string, queueMessageI
   );
 }
 
-export async function markThinkForgeRefineryDispatchFailed(jobId: string, error: unknown): Promise<void> {
+export async function recordThinkForgeRefineryDispatchFailure(
+  jobId: string,
+  error: unknown,
+): Promise<ThinkForgeRefineryJobSnapshot | null> {
   const collection = await jobCollection();
-  const message = error instanceof Error ? error.message : String(error);
-  await collection.updateOne(
-    { _id: jobId, status: 'queued', 'charge.status': 'pending' },
+  const updated = await collection.findOneAndUpdate(
+    { _id: jobId, status: 'queued' },
     {
-      ...terminalUpdate(),
       $set: {
-        leaseExpiresAt: null,
-        error: { code: 'dispatch_failed', message },
+        error: refineryError('dispatch_failed', errorMessage(error), true),
         updatedAt: nowIso(),
-        status: 'failed',
       },
     },
+    { returnDocument: 'after' },
   );
+  return updated ? toSnapshot(updated) : null;
 }
 
 export async function claimThinkForgeRefineryJob(jobId: string): Promise<ClaimRefineryJobResult> {
   const collection = await jobCollection();
   const current = await collection.findOne({ _id: jobId });
   if (!current) return { kind: 'skipped', reason: 'not_found' };
-  if (current.status === 'completed' || current.status === 'failed') return { kind: 'skipped', reason: 'terminal' };
+  if (current.status === 'completed' || current.status === 'failed' || current.status === 'dead_letter') {
+    return { kind: 'skipped', reason: 'terminal' };
+  }
 
   const now = new Date();
   const leaseExpiresAt = current.leaseExpiresAt ? new Date(current.leaseExpiresAt) : null;
   if (current.status === 'running' && leaseExpiresAt && leaseExpiresAt > now) return { kind: 'skipped', reason: 'lease_held' };
+  if (current.attemptCount >= current.maxAttempts) {
+    await deadLetterExhaustedRefineryJob(collection, current, now.toISOString());
+    return { kind: 'skipped', reason: 'attempts_exhausted' };
+  }
 
+  const leaseToken = randomUUID();
   const filter: Filter<ThinkForgeRefineryJobDocument> = current.status === 'running'
-    ? { _id: jobId, status: 'running', leaseExpiresAt: current.leaseExpiresAt }
-    : { _id: jobId, status: 'queued' };
+    ? { _id: jobId, status: 'running', attemptCount: current.attemptCount, leaseExpiresAt: current.leaseExpiresAt }
+    : { _id: jobId, status: 'queued', attemptCount: current.attemptCount };
   const updated = await collection.findOneAndUpdate(
     filter,
     {
       $set: {
         status: 'running',
+        leaseToken,
         leaseExpiresAt: new Date(now.getTime() + LEASE_MS).toISOString(),
         updatedAt: now.toISOString(),
         error: null,
@@ -249,7 +326,7 @@ export async function chargeThinkForgeRefineryJob(job: ThinkForgeRefineryJobSnap
   if (job.charge.amount === 0) {
     const collection = await jobCollection();
     const updated = await collection.findOneAndUpdate(
-      { _id: job.id, status: 'running', 'charge.status': 'pending' },
+      { ...claimedLeaseFilter(job), 'charge.status': 'pending' },
       { $set: { 'charge.status': 'charged', 'charge.transactionId': 'no_charge', updatedAt: nowIso() } },
       { returnDocument: 'after' },
     );
@@ -271,7 +348,7 @@ export async function chargeThinkForgeRefineryJob(job: ThinkForgeRefineryJobSnap
 
   const collection = await jobCollection();
   const updated = await collection.findOneAndUpdate(
-    { _id: job.id, status: 'running', 'charge.status': 'pending' },
+    { ...claimedLeaseFilter(job), 'charge.status': 'pending' },
     {
       $set: {
         'charge.status': 'charged',
@@ -288,70 +365,88 @@ export async function chargeThinkForgeRefineryJob(job: ThinkForgeRefineryJobSnap
   return { ok: false, code: 'charge_failed', message: 'Unable to persist the refinery charge receipt.' };
 }
 
-async function completeThinkForgeRefineryJob(jobId: string, result: RefineryResult): Promise<void> {
+async function completeThinkForgeRefineryJob(job: ThinkForgeRefineryJobSnapshot, result: RefineryResult): Promise<void> {
   const collection = await jobCollection();
-  await collection.updateOne(
-    { _id: jobId, status: 'running' },
-    {
-      ...terminalUpdate(),
-      $set: {
-        leaseExpiresAt: null,
-        updatedAt: nowIso(),
-        status: 'completed',
-        result: clone(result),
-      },
-    },
+  const update = await collection.updateOne(
+    claimedLeaseFilter(job),
+    terminalUpdate({ status: 'completed', result: clone(result), error: null }),
   );
+  if (update.matchedCount !== 1) throw new Error('Refinery job lease was lost before completion.');
 }
 
-export async function failThinkForgeRefineryJob(jobId: string, code: string, message: string): Promise<void> {
+export async function failThinkForgeRefineryJob(
+  job: ThinkForgeRefineryJobSnapshot,
+  code: string,
+  message: string,
+): Promise<void> {
   const collection = await jobCollection();
-  await collection.updateOne(
-    { _id: jobId, status: { $in: ['queued', 'running'] } },
-    {
-      ...terminalUpdate(),
-      $set: {
-        leaseExpiresAt: null,
-        updatedAt: nowIso(),
-        status: 'failed',
-        error: { code, message },
-      },
-    },
+  const update = await collection.updateOne(
+    claimedLeaseFilter(job),
+    terminalUpdate({ status: 'failed', error: refineryError(code, message, false) }),
   );
+  if (update.matchedCount !== 1) throw new Error('Refinery job lease was lost before failure was recorded.');
 }
 
-export async function retryOrFailThinkForgeRefineryJob(job: ThinkForgeRefineryJobSnapshot, error: unknown): Promise<'retrying' | 'failed'> {
+export function decideThinkForgeRefineryFailureTransition(
+  job: Pick<ThinkForgeRefineryJobSnapshot, 'attemptCount' | 'maxAttempts'>,
+): 'queued' | 'dead_letter' {
+  return job.attemptCount < job.maxAttempts ? 'queued' : 'dead_letter';
+}
+
+export async function retryOrDeadLetterThinkForgeRefineryJob(
+  job: ThinkForgeRefineryJobSnapshot,
+  error: unknown,
+): Promise<'queued' | 'dead_letter'> {
   const collection = await jobCollection();
-  const message = error instanceof Error ? error.message : String(error);
-  if (job.attemptCount < job.maxAttempts) {
-    await collection.updateOne(
-      { _id: job.id, status: 'running', attemptCount: job.attemptCount },
+  const message = errorMessage(error);
+  if (decideThinkForgeRefineryFailureTransition(job) === 'queued') {
+    const update = await collection.updateOne(
+      claimedLeaseFilter(job),
       {
         $set: {
           status: 'queued',
+          leaseToken: null,
           leaseExpiresAt: null,
-          error: { code: 'transient_failure', message },
+          error: refineryError('transient_failure', message, true),
           updatedAt: nowIso(),
         },
       },
     );
-    return 'retrying';
+    if (update.matchedCount !== 1) throw new Error('Refinery job lease was lost before retry was recorded.');
+    return 'queued';
   }
-  await failThinkForgeRefineryJob(job.id, 'processing_failed', message);
-  return 'failed';
+  const update = await collection.updateOne(
+    claimedLeaseFilter(job),
+    terminalUpdate({
+      status: 'dead_letter',
+      deadLetteredAt: nowIso(),
+      error: refineryError('processing_failed', message, false),
+    }),
+  );
+  if (update.matchedCount !== 1) throw new Error('Refinery job lease was lost before dead letter was recorded.');
+  return 'dead_letter';
 }
 
 export async function refundThinkForgeRefineryJob(jobId: string, reason: string): Promise<'refunded' | 'already_refunded' | 'refund_pending'> {
   const collection = await jobCollection();
   const job = await collection.findOne({ _id: jobId });
-  if (!job || job.charge.status === 'refunded' || job.charge.amount === 0 || job.charge.transactionId === 'no_charge') {
-    return job?.charge.status === 'refunded' ? 'already_refunded' : 'refunded';
+  if (!job || job.charge.status === 'refunded') {
+    return job ? 'already_refunded' : 'refunded';
   }
-  const claimed = await collection.findOneAndUpdate(
-    { _id: jobId, 'charge.status': 'charged' },
-    { $set: { 'charge.status': 'refund_pending', updatedAt: nowIso() } },
-    { returnDocument: 'after' },
-  );
+  if (job.charge.amount === 0 || job.charge.transactionId === 'no_charge') {
+    await collection.updateOne(
+      { _id: jobId, 'charge.status': { $ne: 'refunded' } },
+      { $set: { 'charge.status': 'refunded', updatedAt: nowIso() } },
+    );
+    return 'refunded';
+  }
+  const claimed = job.charge.status === 'refund_pending'
+    ? job
+    : await collection.findOneAndUpdate(
+        { _id: jobId, 'charge.status': 'charged' },
+        { $set: { 'charge.status': 'refund_pending', updatedAt: nowIso() } },
+        { returnDocument: 'after' },
+      );
   if (!claimed) return 'already_refunded';
 
   try {
@@ -391,7 +486,7 @@ export async function runClaimedThinkForgeRefineryJob(job: ThinkForgeRefineryJob
   if (result.processed === 0) {
     throw new Error('None of the supplied research sources could be analyzed.');
   }
-  await completeThinkForgeRefineryJob(job.id, result);
+  await completeThinkForgeRefineryJob(job, result);
 }
 
 export async function dispatchThinkForgeRefineryJob(job: ThinkForgeRefineryJobSnapshot): Promise<string> {
@@ -415,10 +510,12 @@ export async function recoverStalledThinkForgeRefineryJobs(limit = 25): Promise<
   candidates: number;
   dispatched: number;
   failed: number;
+  deadLettered: number;
+  refundCandidates: number;
+  refundsResolved: number;
+  refundsPending: number;
 }> {
-  if (!isThinkForgeRefineryWorkerConfigured()) {
-    throw new Error('ThinkForge refinery worker is not configured.');
-  }
+  const workerConfigured = isThinkForgeRefineryWorkerConfigured();
   const collection = await jobCollection();
   const staleBefore = new Date(Date.now() - RECOVERY_STALE_MS).toISOString();
   const candidates = await collection.find({
@@ -428,10 +525,37 @@ export async function recoverStalledThinkForgeRefineryJobs(limit = 25): Promise<
     ],
   }).sort({ updatedAt: 1 }).limit(Math.max(1, Math.min(limit, 100))).toArray();
 
-  const results = await Promise.allSettled(candidates.map((candidate) => dispatchThinkForgeRefineryJob(toSnapshot(candidate))));
+  const exhausted = candidates.filter((candidate) => candidate.attemptCount >= candidate.maxAttempts);
+  const deadLetterResults = await Promise.all(
+    exhausted.map((candidate) => deadLetterExhaustedRefineryJob(collection, candidate, nowIso())),
+  );
+  const dispatchable = candidates.filter((candidate) => candidate.attemptCount < candidate.maxAttempts);
+  const results = workerConfigured
+    ? await Promise.allSettled(
+        dispatchable.map((candidate) => dispatchThinkForgeRefineryJob(toSnapshot(candidate))),
+      )
+    : [];
+  const refundable = await collection.find({
+    status: { $in: ['failed', 'dead_letter'] },
+    'charge.status': { $in: ['charged', 'refund_pending'] },
+    'charge.transactionId': { $ne: 'no_charge' },
+  }).sort({ updatedAt: 1 }).limit(Math.max(1, Math.min(limit, 100))).toArray();
+  const refundResults = await Promise.allSettled(refundable.map((candidate) => (
+    refundThinkForgeRefineryJob(candidate.id, 'ThinkForge research processing did not complete.')
+  )));
+  const refundStatuses = refundResults.map((result) => (
+    result.status === 'fulfilled' ? result.value : 'refund_pending'
+  ));
+  if (!workerConfigured) {
+    throw new Error('ThinkForge refinery worker is not configured.');
+  }
   return {
     candidates: candidates.length,
     dispatched: results.filter((result) => result.status === 'fulfilled').length,
     failed: results.filter((result) => result.status === 'rejected').length,
+    deadLettered: deadLetterResults.filter(Boolean).length,
+    refundCandidates: refundable.length,
+    refundsResolved: refundStatuses.filter((status) => status === 'refunded' || status === 'already_refunded').length,
+    refundsPending: refundStatuses.filter((status) => status === 'refund_pending').length,
   };
 }
