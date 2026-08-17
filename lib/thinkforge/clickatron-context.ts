@@ -822,8 +822,7 @@ function buildClickatronSessionPrompt(creativeSpec: ClickatronCreativeSpec): str
     slideLines && slideLines.length > 0 ? `Carousel slide plan:\n${slideLines.join("\n")}` : undefined,
   ]
     .filter(Boolean)
-    .join("\n\n")
-    .slice(0, 4000);
+    .join("\n\n");
 }
 
 function buildClickatronSessionDraft(

@@ -23,8 +23,7 @@ export function buildClickatronPromptFromHandoff(handoffState: ThinkToClickHando
     choiceLines.length > 0 ? `User visual choices:\n${choiceLines.join("\n")}` : "",
   ]
     .filter(Boolean)
-    .join("\n\n")
-    .slice(0, 4000);
+    .join("\n\n");
 }
 
 export function buildClickatronMetadataFromHandoff(handoffState: ThinkToClickHandoffState): Record<string, unknown> {

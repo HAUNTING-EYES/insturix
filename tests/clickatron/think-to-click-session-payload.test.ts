@@ -254,6 +254,27 @@ describe("ThinkForge to Clickatron session payload", () => {
     expect(metadata.clickatron.creativeSpec.validation.status).toBe("ready");
   });
 
+  it("preserves late prompt constraints instead of silently truncating the handoff", () => {
+    const spec = creativeSpec();
+    spec.renderPlan.imagePrompt = `${"Layered editorial evidence with deliberate composition. ".repeat(90)}NON_NEGOTIABLE_END_CONSTRAINT`;
+    const context = buildThinkToClickContext({
+      sessionId: "tf_session_long_prompt",
+      scriptId: "script_long_prompt",
+      creativeSpec: spec,
+      projectMeta: { brandId: "brand_current" },
+    });
+    const state = buildThinkToClickHandoffState({
+      context,
+      blocks: sourceBlocks(),
+    });
+
+    const formData = buildClickatronSessionFormData(state);
+    const prompt = String(formData.get("prompt"));
+
+    expect(prompt.length).toBeGreaterThan(4_000);
+    expect(prompt).toContain("NON_NEGOTIABLE_END_CONSTRAINT");
+  });
+
   it("throws instead of building a fallback payload when no session payload exists", () => {
     const state = buildThinkToClickHandoffState({
       context: buildThinkToClickContext({ sessionId: "tf_session_123" }),
