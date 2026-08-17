@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createCurrentWriterOutputBinding } from '@/lib/thinkforge/persistence/writer-output-binding';
+import { createCurrentScriptSidecarBinding } from '@/lib/thinkforge/persistence/script-sidecar-binding';
+import { resolveSceneShotPlan } from '@/lib/thinkforge/production/resolve-scene-shot-plan';
+import {
+  createApprovedShootKitSnapshot,
+  verifyApprovedShootKitSnapshot,
+} from '@/lib/thinkforge/production/shoot-kit-snapshot';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -8,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   findLinkBySessionId: vi.fn(),
   getScript: vi.fn(),
   getSession: vi.fn(),
+  saveApprovedShootKitSnapshot: vi.fn(),
   setSessionProductionConfiguration: vi.fn(),
 }));
 
@@ -19,6 +26,7 @@ vi.mock('@/lib/shared/project-links', () => ({
 vi.mock('@/lib/thinkforge/services/db', () => ({
   getScript: mocks.getScript,
   getSession: mocks.getSession,
+  saveApprovedShootKitSnapshot: mocks.saveApprovedShootKitSnapshot,
   setSessionProductionConfiguration: mocks.setSessionProductionConfiguration,
 }));
 
@@ -76,6 +84,86 @@ function storedDocument(sessionId: string, scriptId: string) {
     version: 1,
   };
 }
+
+function productionSidecar() {
+  return {
+    sidecarVersion: 1,
+    characters: [{ id: 'host', name: 'Host', role: 'host' }],
+    overallMusicPrompt: '',
+    characterDescriptions: {},
+    colorPalette: [],
+    environmentNotes: '',
+    suggestedProfileCategory: 'production-mode',
+    sourceRefs: [],
+    scenes: [{
+      title: 'Evidence',
+      narration: 'Show the evidence without changing the claim.',
+      visualDescription: 'The evidence remains readable in a stable medium shot.',
+      videoMotionPrompt: '',
+      audioDescription: '',
+      musicDescription: '',
+      sfxDescription: '',
+      durationSeconds: 8,
+      mood: 'serious',
+      imageQualityTokens: '',
+      videoQualityTokens: '',
+      generationUnitId: 'unit_evidence',
+      primaryVisualForUnit: true,
+      sceneType: 'continuous',
+      assetRecommendation: 'ai-video',
+      lines: [{
+        text: 'Show the evidence without changing the claim.',
+        speakerId: 'host',
+        onCamera: false,
+        delivery: 'voiceover',
+        sourceRefs: [],
+      }],
+      charactersPresent: ['host'],
+      sourceRefs: [],
+      shotIntent: {
+        narrativePurpose: 'Make the evidence legible.',
+        emotionalBeat: 'Measured confidence.',
+        energy: 0.4,
+        visualPriority: 'The evidence in frame.',
+        action: 'still',
+        desiredFraming: 'medium',
+        desiredAngle: 'eye-level',
+        desiredMovement: 'static',
+        simultaneousPerformers: 0,
+        spokenAudio: false,
+        performance: [],
+        continuity: { wardrobe: [], props: [], previousSceneIds: [] },
+      },
+    }],
+  };
+}
+
+function productionDocument(sessionId: string, scriptId: string) {
+  const document = storedDocument(sessionId, scriptId);
+  const sidecar = productionSidecar();
+  return {
+    ...document,
+    metadata: {
+      writerOutput: {
+        sidecarVersion: 1,
+        scriptSidecar: sidecar,
+        sidecarBinding: createCurrentScriptSidecarBinding({
+          documentContent: document.content,
+          documentVersion: document.version,
+          sidecar,
+        }),
+      },
+    },
+  };
+}
+
+const productionProfile = {
+  ...profile,
+  equipment: [
+    { id: 'phone', label: 'Phone', category: 'camera', kind: 'phone', availability: 'owned' },
+    { id: 'tripod', label: 'Tripod', category: 'support', kind: 'tripod', availability: 'owned' },
+  ],
+};
 
 function boundPostDocument(status: 'current' | 'stale' = 'current') {
   const content = status === 'current' ? 'Current post copy.' : 'Edited post copy.';
@@ -304,13 +392,14 @@ describe('ThinkForge Shoot Kit document identity', () => {
   });
 
   it('rejects a missing POST document ID before session access or mutation', async () => {
-    const { POST } = await import('@/app/api/services/thinkforge/production/shot-plan/route');
+    const { GET, POST } = await import('@/app/api/services/thinkforge/production/shot-plan/route');
 
     const response = await POST(postRequest(
       'http://localhost/api/services/thinkforge/production/shot-plan',
       {
         sessionId: 'session_alias',
         scriptId: '   ',
+        expectedDocumentVersion: 1,
         profile,
         settings,
       },
@@ -359,13 +448,14 @@ describe('ThinkForge Shoot Kit document identity', () => {
       projectMeta: {},
     });
     mocks.getScript.mockResolvedValue(null);
-    const { POST } = await import('@/app/api/services/thinkforge/production/shot-plan/route');
+    const route = await import('@/app/api/services/thinkforge/production/shot-plan/route');
 
-    const response = await POST(postRequest(
+    const response = await route.POST(postRequest(
       'http://localhost/api/services/thinkforge/production/shot-plan',
       {
         sessionId: 'session_alias',
         scriptId: 'missing_script',
+        expectedDocumentVersion: 1,
         profile,
         settings,
       },
@@ -378,7 +468,7 @@ describe('ThinkForge Shoot Kit document identity', () => {
     expect(mocks.setSessionProductionConfiguration).not.toHaveBeenCalled();
   });
 
-  it('atomically persists only production fields after exact document authorization', async () => {
+  it('persists reusable production defaults without fabricating an approved snapshot', async () => {
     mocks.getSession.mockResolvedValue({
       _id: 'session_canonical',
       userId: 'session_owner',
@@ -394,11 +484,17 @@ describe('ThinkForge Shoot Kit document identity', () => {
       userId: 'session_owner',
       orgId: 'org_1',
     });
-    const { POST } = await import('@/app/api/services/thinkforge/production/shot-plan/route');
+    const route = await import('@/app/api/services/thinkforge/production/shot-plan/route');
 
-    const response = await POST(postRequest(
+    const response = await route.POST(postRequest(
       'http://localhost/api/services/thinkforge/production/shot-plan',
-      { sessionId: 'session_alias', scriptId: 'script_1', profile, settings },
+      {
+        sessionId: 'session_alias',
+        scriptId: 'script_1',
+        expectedDocumentVersion: 1,
+        profile,
+        settings,
+      },
     ));
 
     expect(response.status).toBe(200);
@@ -408,10 +504,177 @@ describe('ThinkForge Shoot Kit document identity', () => {
       'session_canonical',
       { capabilityProfile: profile, shotSettings: settings },
     );
+    expect(mocks.saveApprovedShootKitSnapshot).not.toHaveBeenCalled();
 
     const dbSource = readFileSync('lib/thinkforge/services/db.ts', 'utf8');
     expect(dbSource).toContain("'projectMeta.productionCapabilityProfile': input.capabilityProfile");
     expect(dbSource).toContain("'projectMeta.productionShotSettings': input.shotSettings");
+    expect(dbSource).toContain("'metadata.approvedShootKitSnapshot': snapshot");
+    expect(dbSource).toContain("'metadata.writerOutput.sidecarBinding.sidecarHash': input.expectedSidecarHash");
     expect(dbSource).not.toContain('export async function updateSession(');
+  });
+
+  it('rejects approval when the viewed document version is stale', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: {},
+    });
+    mocks.getScript.mockResolvedValue({
+      ...storedDocument('session_canonical', 'script_1'),
+      version: 3,
+    });
+    const route = await import('@/app/api/services/thinkforge/production/shot-plan/route');
+
+    const response = await route.POST(postRequest(
+      'http://localhost/api/services/thinkforge/production/shot-plan',
+      {
+        sessionId: 'session_alias',
+        scriptId: 'script_1',
+        expectedDocumentVersion: 2,
+        profile,
+        settings,
+      },
+    ));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      reason: 'document-version-conflict',
+      currentVersion: 3,
+    });
+    expect(mocks.setSessionProductionConfiguration).not.toHaveBeenCalled();
+    expect(mocks.saveApprovedShootKitSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('persists and returns an approved snapshot for the exact bound document', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: {},
+    });
+    mocks.getScript.mockResolvedValue(productionDocument('session_canonical', 'script_1'));
+    mocks.saveApprovedShootKitSnapshot.mockResolvedValue({
+      ok: true,
+      script: productionDocument('session_canonical', 'script_1'),
+    });
+    mocks.setSessionProductionConfiguration.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+    });
+    const route = await import('@/app/api/services/thinkforge/production/shot-plan/route');
+
+    const response = await route.POST(postRequest(
+      'http://localhost/api/services/thinkforge/production/shot-plan',
+      {
+        sessionId: 'session_alias',
+        scriptId: 'script_1',
+        expectedDocumentVersion: 1,
+        profile: productionProfile,
+        settings,
+      },
+    ));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      status: 'ready',
+      documentVersion: 1,
+      approval: { status: 'approved', approvedBy: 'user_member' },
+    });
+    expect(mocks.saveApprovedShootKitSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session_canonical',
+      scriptId: 'script_1',
+      expectedVersion: 1,
+      expectedContent: 'One useful, exact document.',
+      snapshot: expect.objectContaining({ status: 'approved' }),
+    }));
+
+    const approvedSnapshot = mocks.saveApprovedShootKitSnapshot.mock.calls[0]![0].snapshot;
+    const approvedDocument = productionDocument('session_canonical', 'script_1');
+    (approvedDocument.metadata as Record<string, unknown>).approvedShootKitSnapshot = approvedSnapshot;
+    mocks.getScript.mockResolvedValue(approvedDocument);
+    const readResponse = await route.GET(new Request(
+      'http://localhost/api/services/thinkforge/production/shot-plan?sessionId=session_alias&scriptId=script_1',
+    ));
+
+    expect(readResponse.status).toBe(200);
+    expect(await readResponse.json()).toMatchObject({
+      status: 'ready',
+      documentVersion: 1,
+      approval: {
+        status: 'approved',
+        snapshotHash: approvedSnapshot.snapshotHash,
+      },
+    });
+  });
+});
+
+describe('approved Shoot Kit snapshot contract', () => {
+  it('binds approval to the exact document and rejects a later revision', () => {
+    const capabilityProfile = {
+      ...profile,
+      equipment: [
+        { id: 'phone', label: 'Phone', category: 'camera', kind: 'phone', availability: 'owned' },
+        { id: 'tripod', label: 'Tripod', category: 'support', kind: 'tripod', availability: 'owned' },
+      ],
+    };
+    const resolution = resolveSceneShotPlan({
+      profile: capabilityProfile,
+      intent: {
+        sceneId: 'scene_1',
+        sidecarSceneIndex: 0,
+        generationUnitId: 'unit_1',
+        durationSec: 8,
+        aspectRatio: '16:9',
+        narrativePurpose: 'Show the evidence clearly.',
+        emotionalBeat: 'Measured confidence.',
+        energy: 0.4,
+        visualPriority: 'The evidence in frame.',
+        action: 'still',
+        desiredFraming: 'medium',
+        desiredAngle: 'eye-level',
+        desiredMovement: 'static',
+        simultaneousPerformers: 0,
+        spokenAudio: false,
+        performance: [],
+      },
+    });
+    expect(resolution.status).toBe('resolved');
+    if (resolution.status !== 'resolved') return;
+
+    const snapshot = createApprovedShootKitSnapshot({
+      sessionId: 'session_1',
+      scriptId: 'script_1',
+      sourceDocument: {
+        version: 4,
+        contentHash: 'a'.repeat(64),
+        sidecarHash: 'b'.repeat(64),
+      },
+      profile: capabilityProfile,
+      settings,
+      plan: resolution.plan,
+      approvedBy: 'user_1',
+      approvedAt: new Date('2026-08-17T00:00:00.000Z'),
+    });
+
+    expect(verifyApprovedShootKitSnapshot({
+      snapshot,
+      sessionId: 'session_1',
+      scriptId: 'script_1',
+      documentVersion: 4,
+      documentHash: 'a'.repeat(64),
+      sidecarHash: 'b'.repeat(64),
+    })).toMatchObject({ current: true });
+    expect(verifyApprovedShootKitSnapshot({
+      snapshot,
+      sessionId: 'session_1',
+      scriptId: 'script_1',
+      documentVersion: 5,
+      documentHash: 'a'.repeat(64),
+      sidecarHash: 'b'.repeat(64),
+    })).toMatchObject({ current: false, reason: 'document_version_mismatch' });
   });
 });

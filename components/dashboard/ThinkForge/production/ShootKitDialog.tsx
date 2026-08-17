@@ -16,6 +16,7 @@
 import React from "react";
 import {
   AlertCircle,
+  CheckCircle2,
   Clapperboard,
   Loader2,
   RefreshCw,
@@ -35,10 +36,16 @@ import { ShootKitResult } from "./ShootKitResult";
 
 const ENDPOINT = "/api/services/thinkforge/production/shot-plan";
 
-type ShotPlanResponse =
+type ShotPlanResponse = (
   | { status: "needs-profile"; profile: null; settings: ShootKitSettings | null; plan: null; issues: [] }
   | { status: "needs-user-input"; profile: ProductionCapabilityProfile | null; settings: ShootKitSettings | null; plan: null; issues: ScriptShotPlanIssue[] }
-  | { status: "ready"; profile: ProductionCapabilityProfile; settings: ShootKitSettings; plan: ShotPlan; issues: [] };
+  | { status: "ready"; profile: ProductionCapabilityProfile; settings: ShootKitSettings; plan: ShotPlan; issues: [] }
+) & {
+  documentVersion: number;
+  approval:
+    | { status: "preview"; reason: string }
+    | { status: "approved"; snapshotHash: string; approvedAt: string; approvedBy: string };
+};
 
 interface HttpError {
   message: string;
@@ -68,6 +75,7 @@ function httpErrorFrom(status: number, body: unknown): HttpError {
   const base: Record<number, string> = {
     400: serverMessage || "The request was rejected. Adjust your inputs and try again.",
     401: "Your session expired. Refresh the page and sign in again.",
+    409: serverMessage || "The script changed. Reload the Shoot Kit before approving it.",
     404: "This ThinkForge session could not be found.",
     422: serverMessage || "The production plan could not be validated.",
   };
@@ -136,6 +144,11 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
 
   const submitPlan = React.useCallback(async (profile: ProductionCapabilityProfile, settings: ShootKitSettings) => {
     if (submitLockRef.current || !sessionId) return;
+    const current = dataRef.current;
+    if (!current || !Number.isInteger(current.documentVersion) || current.documentVersion < 1) {
+      setError({ message: "Reload the Shoot Kit before approving this plan." });
+      return;
+    }
     submitLockRef.current = true;
     setSubmitting(true);
     try {
@@ -143,7 +156,13 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
         url: ENDPOINT,
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, scriptId, profile, settings }),
+        body: JSON.stringify({
+          sessionId,
+          scriptId,
+          expectedDocumentVersion: current.documentVersion,
+          profile,
+          settings,
+        }),
       });
       if (result.ok && result.body.status === "ready") setEditing(false);
     } finally {
@@ -227,7 +246,37 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
               </button>
             </div>
           ) : showResult && data.status === "ready" ? (
-            <ShootKitResult plan={data.plan} onEditInputs={() => setEditing(true)} refreshing={refreshing} />
+            <>
+              <div
+                className="mb-3 flex items-center justify-between gap-3 border-y px-3 py-2"
+                style={{ borderColor: "#282724", background: data.approval.status === "approved" ? "#5FA36A12" : "#D4A65210" }}
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  {data.approval.status === "approved" ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-[#5FA36A]" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 shrink-0 text-[#D4A652]" />
+                  )}
+                  <span className="text-[11px] text-[#B5B2A8]">
+                    {data.approval.status === "approved"
+                      ? `Approved for document v${data.documentVersion}`
+                      : `Preview for document v${data.documentVersion}`}
+                  </span>
+                </div>
+                {data.approval.status !== "approved" && (
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => void submitPlan(data.profile, data.settings)}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-[7px] border border-[#D4A65255] px-3 py-1.5 text-[11px] text-[#D4A652] transition-colors duration-[250ms] hover:bg-[#D4A65212] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    Approve plan
+                  </button>
+                )}
+              </div>
+              <ShootKitResult plan={data.plan} onEditInputs={() => setEditing(true)} refreshing={refreshing} />
+            </>
           ) : (
             <ShootKitProfileForm
               key={formEpoch}

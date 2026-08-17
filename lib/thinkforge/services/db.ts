@@ -1710,12 +1710,71 @@ export type SaveScriptWithVersionResult =
   | { ok: true; script: Script }
   | { ok: false; error: 'Version conflict'; currentVersion: number };
 
+export type SaveApprovedShootKitSnapshotResult =
+  | { ok: true; script: Script }
+  | { ok: false; error: 'Document conflict'; currentVersion: number };
+
 function clonePersistableScriptMetadata(metadata: NonNullable<Script['metadata']>): Script['metadata'] {
   const serialized = JSON.stringify(metadata);
   if (serialized === undefined) {
     throw new Error('ThinkForge document metadata must be JSON-serializable');
   }
   return JSON.parse(serialized) as Script['metadata'];
+}
+
+export async function saveApprovedShootKitSnapshot(input: {
+  sessionId: string;
+  scriptId: string;
+  expectedVersion: number;
+  expectedContent: string;
+  expectedSidecarHash: string;
+  snapshot: unknown;
+}): Promise<SaveApprovedShootKitSnapshotResult> {
+  const exactSessionId = input.sessionId.trim();
+  const exactScriptId = input.scriptId.trim();
+  if (!exactSessionId || exactSessionId !== input.sessionId) {
+    throw new Error('ThinkForge session ID must be a non-empty trimmed string');
+  }
+  if (!exactScriptId || exactScriptId !== input.scriptId) {
+    throw new Error('ThinkForge document ID must be a non-empty trimmed string');
+  }
+  if (!Number.isInteger(input.expectedVersion) || input.expectedVersion <= 0) {
+    throw new Error('Shoot Kit source document version must be a positive integer');
+  }
+  if (!/^[a-f0-9]{64}$/u.test(input.expectedSidecarHash)) {
+    throw new Error('Shoot Kit source sidecar hash must be a SHA-256 digest');
+  }
+  const snapshot = clonePersistableScriptMetadata({ snapshot: input.snapshot })?.snapshot;
+  const { ScriptModel } = await getModels();
+  const updated = await ScriptModel.findOneAndUpdate(
+    {
+      sessionId: exactSessionId,
+      scriptId: exactScriptId,
+      recordStatus: 'active',
+      version: input.expectedVersion,
+      content: input.expectedContent,
+      'metadata.writerOutput.sidecarBinding.sidecarHash': input.expectedSidecarHash,
+    },
+    {
+      $set: {
+        'metadata.approvedShootKitSnapshot': snapshot,
+        updatedAt: new Date(),
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  if (updated) return { ok: true, script: mapStoredScript(updated) };
+  const latest = await ScriptModel.findOne({
+    sessionId: exactSessionId,
+    scriptId: exactScriptId,
+    recordStatus: 'active',
+  }).lean() as any;
+  return {
+    ok: false,
+    error: 'Document conflict',
+    currentVersion: typeof latest?.version === 'number' ? latest.version : 0,
+  };
 }
 
 export async function saveScriptWithVersion(

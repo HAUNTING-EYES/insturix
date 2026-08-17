@@ -4,34 +4,35 @@ import { z } from 'zod';
 
 import {
   buildScriptShotPlan,
-  SHOOT_KIT_ASPECT_RATIOS,
 } from '@/lib/thinkforge/production/build-script-shot-plan';
 import {
   ProductionCapabilityProfileSchema,
   type ProductionCapabilityProfile,
 } from '@/lib/thinkforge/production/production-capability-profile';
 import {
+  APPROVED_SHOOT_KIT_SNAPSHOT_METADATA_KEY,
+  createApprovedShootKitSnapshot,
+  ShootKitSettingsSchema,
+  verifyApprovedShootKitSnapshot,
+  type ShootKitSettings,
+} from '@/lib/thinkforge/production/shoot-kit-snapshot';
+import {
   requireCurrentPersistedScriptSidecar,
   ThinkForgeScriptSidecarAuthorityError,
+  type AuthoritativePersistedScriptSidecar,
 } from '@/lib/thinkforge/persistence/script-sidecar-reader';
 import * as db from '@/lib/thinkforge/services/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const ShotPlanSettingsSchema = z.object({
-  aspectRatio: z.enum(SHOOT_KIT_ASPECT_RATIOS),
-  tier: z.enum(['no-spend', 'minimum-upgrade', 'enhanced']),
-}).strict();
-
 const SaveShotPlanRequestSchema = z.object({
   sessionId: z.string().trim().min(1),
   scriptId: z.string().trim().min(1),
+  expectedDocumentVersion: z.number().int().positive(),
   profile: ProductionCapabilityProfileSchema,
-  settings: ShotPlanSettingsSchema,
+  settings: ShootKitSettingsSchema,
 }).strict();
-
-type ShotPlanSettings = z.infer<typeof ShotPlanSettingsSchema>;
 
 function recordOf(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -39,54 +40,68 @@ function recordOf(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function buildPlanPayload(
+function documentVersion(script: Awaited<ReturnType<typeof db.getScript>>): number {
+  return typeof script?.version === 'number' && Number.isInteger(script.version) && script.version > 0
+    ? script.version
+    : 0;
+}
+
+function resolveSidecarAuthority(
   script: Awaited<ReturnType<typeof db.getScript>>,
-  profile: ProductionCapabilityProfile,
-  settings: ShotPlanSettings,
-) {
-  let authority;
+): { authority: AuthoritativePersistedScriptSidecar; issue?: never } | {
+  authority?: never;
+  issue: { code: string; message: string; questions: string[] };
+} {
   try {
-    authority = requireCurrentPersistedScriptSidecar({
+    const authority = requireCurrentPersistedScriptSidecar({
       metadata: script?.metadata,
       documentContent: typeof script?.content === 'string' ? script.content : '',
-      documentVersion: typeof script?.version === 'number' ? script.version : 0,
+      documentVersion: documentVersion(script),
     });
-  } catch (error) {
-    if (!(error instanceof ThinkForgeScriptSidecarAuthorityError)) throw error;
+    if (authority) return { authority };
     return {
-      status: 'needs-user-input' as const,
-      profile,
-      settings,
-      plan: null,
-      issues: [{
-        code: error.code,
-        message: error.message,
-        questions: ['Regenerate or revise this script to refresh its production contract.'],
-      }],
-    };
-  }
-
-  if (!authority) {
-    return {
-      status: 'needs-user-input' as const,
-      profile,
-      settings,
-      plan: null,
-      issues: [{
+      issue: {
         code: 'missing_script_sidecar',
         message: 'This document has no production-aware script sidecar.',
         questions: ['Generate or revise a video script before opening its Shoot Kit.'],
-      }],
+      },
+    };
+  } catch (error) {
+    if (!(error instanceof ThinkForgeScriptSidecarAuthorityError)) throw error;
+    return {
+      issue: {
+        code: error.code,
+        message: error.message,
+        questions: ['Regenerate or revise this script to refresh its production contract.'],
+      },
     };
   }
+}
 
+function previewApproval(reason: string) {
+  return { status: 'preview' as const, reason };
+}
+
+function buildPlanPayload(input: {
+  authority: AuthoritativePersistedScriptSidecar;
+  profile: ProductionCapabilityProfile;
+  settings: ShootKitSettings;
+  documentVersion: number;
+  approvalReason: string;
+}) {
   const result = buildScriptShotPlan({
-    sidecar: authority.rawSidecar,
-    profile,
-    aspectRatio: settings.aspectRatio,
-    tier: settings.tier,
+    sidecar: input.authority.rawSidecar,
+    profile: input.profile,
+    aspectRatio: input.settings.aspectRatio,
+    tier: input.settings.tier,
   });
-  return { ...result, profile, settings };
+  return {
+    ...result,
+    profile: input.profile,
+    settings: input.settings,
+    documentVersion: input.documentVersion,
+    approval: previewApproval(input.approvalReason),
+  };
 }
 
 export async function GET(request: Request) {
@@ -101,14 +116,52 @@ export async function GET(request: Request) {
 
   const session = await db.getSession(sessionId, userId, orgId);
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-  const script = await db.getScript(session._id, scriptId);
+  const canonicalSessionId = String(session._id);
+  const script = await db.getScript(canonicalSessionId, scriptId);
   if (!script) return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+  const currentDocumentVersion = documentVersion(script);
+  if (currentDocumentVersion === 0) {
+    return NextResponse.json({ error: 'Invalid document version' }, { status: 422 });
+  }
+
+  const sidecarResolution = resolveSidecarAuthority(script);
+  const metadata = recordOf(script.metadata) ?? {};
+  const storedSnapshot = metadata[APPROVED_SHOOT_KIT_SNAPSHOT_METADATA_KEY];
+  let approvalReason = 'snapshot_missing';
+  if (sidecarResolution.authority) {
+    const verification = verifyApprovedShootKitSnapshot({
+      snapshot: storedSnapshot,
+      sessionId: canonicalSessionId,
+      scriptId,
+      documentVersion: currentDocumentVersion,
+      documentHash: sidecarResolution.authority.binding.documentHash,
+      sidecarHash: sidecarResolution.authority.binding.sidecarHash,
+    });
+    if (verification.current) {
+      const snapshot = verification.snapshot;
+      return NextResponse.json({
+        status: 'ready',
+        profile: snapshot.profile,
+        settings: snapshot.settings,
+        plan: snapshot.plan,
+        issues: [],
+        documentVersion: currentDocumentVersion,
+        approval: {
+          status: 'approved',
+          snapshotHash: snapshot.snapshotHash,
+          approvedAt: snapshot.approvedAt,
+          approvedBy: snapshot.approvedBy,
+        },
+      });
+    }
+    approvalReason = verification.reason;
+  }
 
   const projectMeta = recordOf(session.projectMeta) ?? {};
   const profileResult = ProductionCapabilityProfileSchema.safeParse(
     projectMeta.productionCapabilityProfile,
   );
-  const settingsResult = ShotPlanSettingsSchema.safeParse(projectMeta.productionShotSettings);
+  const settingsResult = ShootKitSettingsSchema.safeParse(projectMeta.productionShotSettings);
   if (!profileResult.success) {
     return NextResponse.json({
       status: 'needs-profile',
@@ -116,6 +169,8 @@ export async function GET(request: Request) {
       settings: settingsResult.success ? settingsResult.data : null,
       plan: null,
       issues: [],
+      documentVersion: currentDocumentVersion,
+      approval: previewApproval(approvalReason),
     });
   }
   if (!settingsResult.success) {
@@ -129,15 +184,30 @@ export async function GET(request: Request) {
         message: 'Choose an aspect ratio and production tier for this Shoot Kit.',
         questions: ['Which aspect ratio and spending tier should this shoot use?'],
       }],
+      documentVersion: currentDocumentVersion,
+      approval: previewApproval(approvalReason),
+    });
+  }
+  if (sidecarResolution.issue) {
+    return NextResponse.json({
+      status: 'needs-user-input',
+      profile: profileResult.data,
+      settings: settingsResult.data,
+      plan: null,
+      issues: [sidecarResolution.issue],
+      documentVersion: currentDocumentVersion,
+      approval: previewApproval(approvalReason),
     });
   }
 
   try {
-    return NextResponse.json(buildPlanPayload(
-      script,
-      profileResult.data,
-      settingsResult.data,
-    ));
+    return NextResponse.json(buildPlanPayload({
+      authority: sidecarResolution.authority,
+      profile: profileResult.data,
+      settings: settingsResult.data,
+      documentVersion: currentDocumentVersion,
+      approvalReason,
+    }));
   } catch (error) {
     return NextResponse.json({
       error: 'Invalid production contract',
@@ -164,19 +234,100 @@ export async function POST(request: Request) {
     }, { status: 400 });
   }
 
-  const { sessionId, scriptId, profile, settings } = parsed.data;
+  const { sessionId, scriptId, expectedDocumentVersion, profile, settings } = parsed.data;
   const session = await db.getSession(sessionId, userId, orgId);
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-  const script = await db.getScript(session._id, scriptId);
+  const canonicalSessionId = String(session._id);
+  const script = await db.getScript(canonicalSessionId, scriptId);
   if (!script) return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+  const currentDocumentVersion = documentVersion(script);
+  if (currentDocumentVersion !== expectedDocumentVersion) {
+    return NextResponse.json({
+      error: 'The script changed while the Shoot Kit was open. Reload before approving it.',
+      reason: 'document-version-conflict',
+      currentVersion: currentDocumentVersion,
+    }, { status: 409 });
+  }
 
-  await db.setSessionProductionConfiguration(String(session._id), {
-    capabilityProfile: profile,
-    shotSettings: settings,
-  });
+  const sidecarResolution = resolveSidecarAuthority(script);
+  if (sidecarResolution.issue) {
+    await db.setSessionProductionConfiguration(canonicalSessionId, {
+      capabilityProfile: profile,
+      shotSettings: settings,
+    });
+    return NextResponse.json({
+      status: 'needs-user-input',
+      profile,
+      settings,
+      plan: null,
+      issues: [sidecarResolution.issue],
+      documentVersion: currentDocumentVersion,
+      approval: previewApproval('production_contract_unavailable'),
+    });
+  }
 
   try {
-    return NextResponse.json(buildPlanPayload(script, profile, settings));
+    const payload = buildPlanPayload({
+      authority: sidecarResolution.authority,
+      profile,
+      settings,
+      documentVersion: currentDocumentVersion,
+      approvalReason: 'not_approved',
+    });
+    if (payload.status !== 'ready') {
+      await db.setSessionProductionConfiguration(canonicalSessionId, {
+        capabilityProfile: profile,
+        shotSettings: settings,
+      });
+      return NextResponse.json(payload);
+    }
+
+    const snapshot = createApprovedShootKitSnapshot({
+      sessionId: canonicalSessionId,
+      scriptId,
+      sourceDocument: {
+        version: currentDocumentVersion,
+        contentHash: sidecarResolution.authority.binding.documentHash,
+        sidecarHash: sidecarResolution.authority.binding.sidecarHash,
+      },
+      profile,
+      settings,
+      plan: payload.plan,
+      approvedBy: userId,
+    });
+    const saved = await db.saveApprovedShootKitSnapshot({
+      sessionId: canonicalSessionId,
+      scriptId,
+      expectedVersion: currentDocumentVersion,
+      expectedContent: script.content,
+      expectedSidecarHash: sidecarResolution.authority.binding.sidecarHash,
+      snapshot,
+    });
+    if (!saved.ok) {
+      return NextResponse.json({
+        error: 'The script or its production contract changed before approval could be saved.',
+        reason: 'document-version-conflict',
+        currentVersion: saved.currentVersion,
+      }, { status: 409 });
+    }
+    await db.setSessionProductionConfiguration(canonicalSessionId, {
+      capabilityProfile: profile,
+      shotSettings: settings,
+    });
+    return NextResponse.json({
+      status: 'ready',
+      profile: snapshot.profile,
+      settings: snapshot.settings,
+      plan: snapshot.plan,
+      issues: [],
+      documentVersion: currentDocumentVersion,
+      approval: {
+        status: 'approved',
+        snapshotHash: snapshot.snapshotHash,
+        approvedAt: snapshot.approvedAt,
+        approvedBy: snapshot.approvedBy,
+      },
+    });
   } catch (error) {
     return NextResponse.json({
       error: 'Invalid production contract',
