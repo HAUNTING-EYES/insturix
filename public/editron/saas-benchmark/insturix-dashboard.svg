@@ -1,0 +1,29 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900">
+  <rect width="1440" height="900" rx="44" fill="#111418"/>
+  <rect x="36" y="36" width="1368" height="828" rx="34" fill="#171b21" stroke="#313741" stroke-width="3"/>
+  <rect x="72" y="78" width="246" height="744" rx="28" fill="#0f1216"/>
+  <rect x="350" y="78" width="982" height="112" rx="26" fill="#202630"/>
+  <circle cx="116" cy="122" r="18" fill="#ff5a1f"/>
+  <rect x="148" y="106" width="112" height="18" rx="9" fill="#fff7ef" opacity=".85"/>
+  <rect x="112" y="196" width="166" height="18" rx="9" fill="#69717f"/>
+  <rect x="112" y="250" width="126" height="18" rx="9" fill="#69717f"/>
+  <rect x="112" y="304" width="184" height="18" rx="9" fill="#69717f"/>
+  <rect x="112" y="358" width="142" height="18" rx="9" fill="#69717f"/>
+  <text x="386" y="145" fill="#fff7ef" font-family="Inter,Arial" font-size="46" font-weight="800">Production command center</text>
+  <rect x="350" y="226" width="300" height="202" rx="30" fill="#242b35" stroke="#343d49" stroke-width="2"/>
+  <rect x="692" y="226" width="300" height="202" rx="30" fill="#242b35" stroke="#343d49" stroke-width="2"/>
+  <rect x="1032" y="226" width="300" height="202" rx="30" fill="#242b35" stroke="#343d49" stroke-width="2"/>
+  <rect x="390" y="270" width="128" height="20" rx="10" fill="#ff5a1f"/>
+  <rect x="390" y="318" width="204" height="20" rx="10" fill="#606a77"/>
+  <rect x="390" y="360" width="166" height="20" rx="10" fill="#606a77"/>
+  <rect x="732" y="270" width="128" height="20" rx="10" fill="#64d6bf"/>
+  <rect x="732" y="318" width="214" height="20" rx="10" fill="#606a77"/>
+  <rect x="732" y="360" width="152" height="20" rx="10" fill="#606a77"/>
+  <rect x="1072" y="270" width="128" height="20" rx="10" fill="#ffd166"/>
+  <rect x="1072" y="318" width="210" height="20" rx="10" fill="#606a77"/>
+  <rect x="1072" y="360" width="176" height="20" rx="10" fill="#606a77"/>
+  <rect x="350" y="468" width="982" height="286" rx="30" fill="#101419" stroke="#343d49" stroke-width="2"/>
+  <path d="M418 698 C540 540 650 630 760 552 S970 528 1264 624" fill="none" stroke="#ff5a1f" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="760" cy="552" r="24" fill="#ff5a1f"/>
+  <circle cx="1264" cy="624" r="24" fill="#64d6bf"/>
+</svg>

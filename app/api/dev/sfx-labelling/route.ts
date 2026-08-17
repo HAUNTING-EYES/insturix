@@ -146,8 +146,13 @@ h1{font-size:18px;margin:0 0 4px}.hint{color:#9a978f;font-size:12px;margin-botto
 .cand .name{flex:1;font-size:12px}
 .lbl{font-size:12px}.lbl label{margin-right:6px}
 input[type=checkbox]{accent-color:#d4a652}
+input[type=text]{background:#0e0e10;color:#e8e6e1;border:1px solid #2c2b29;border-radius:6px;padding:7px 8px}
 textarea{width:100%;box-sizing:border-box;background:#0e0e10;color:#e8e6e1;border:1px solid #2c2b29;border-radius:6px;font:12px monospace;padding:6px}
 button{margin-top:8px;background:#d4a652;color:#0b0b0a;border:0;border-radius:6px;padding:8px 12px;font-weight:600;cursor:pointer}
+button:disabled{cursor:default;opacity:.55}
+.reviewer-setup{border:1px solid #2c2b29;border-radius:8px;padding:12px;background:#16161a;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.reviewer-setup button{margin-top:0}
+.reviewer-setup .status{flex-basis:100%}
 .status{font-size:11px;color:#7a776f}
 </style></head><body>
 <h1>SFX labelling — internal reviewer</h1>
@@ -163,8 +168,7 @@ window.__SFX_LABELLING_OPPORTUNITIES__ = ${JSON.stringify(opportunities)};
   window.renderReviewerPage(container, {
     opportunities: window.__SFX_LABELLING_OPPORTUNITIES__,
     fetchImpl: window.fetch.bind(window),
-    storage: window.localStorage,
-    promptImpl: window.prompt
+    storage: window.localStorage
   });
 })();
 </script></body></html>`;

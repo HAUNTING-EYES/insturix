@@ -65,6 +65,7 @@ import {
 } from './chat-analysis-coordinate-space';
 import { buildChatProjectReadModel } from './chat-project-read-model';
 import { cutTimelineRange } from '../services/timeline-range-cut';
+import { buildKeyframeMutationPatch } from '../services/keyframe-mutation';
 import {
   constrainChatOverlayPlacement,
   EDITRON_TITLE_SAFE_MARGIN,
@@ -5116,6 +5117,10 @@ NEVER ask the user which clips — default to applyToAll: true.`,
       value: z.number().describe("Value at this frame"),
       easing: z.enum(['linear', 'ease-in', 'ease-out', 'ease-in-out']).default('ease-in-out'),
     })).min(2).describe("At least 2 keyframes required (start and end values)"),
+    focalPoint: z.object({
+      x: z.number().min(0).max(1),
+      y: z.number().min(0).max(1),
+    }).strict().optional().describe("Optional normalized focal point supplied by resolve_keyframe_edit for scale keyframes."),
   });
 
   const setKeyframes = tool(
@@ -5129,33 +5134,19 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           return errorEnvelope(`Overlay ${input.overlayId} not found`);
         }
 
-        // Initialize keyframeTracks if not present
-        if (!overlay.keyframeTracks) overlay.keyframeTracks = [];
-
-        // If speed property, also set speedCurve for video overlays
-        if (input.property === 'speed' && overlay.type === 'video') {
-          (overlay as any).speedCurve = input.keyframes;
-        }
-
-        // Remove existing track for this property (replace, don't append)
-        overlay.keyframeTracks = overlay.keyframeTracks.filter(
-          (t: any) => t.property !== input.property,
-        );
-
-        // Add new track
-        overlay.keyframeTracks.push({
+        const resolvedMutation = buildKeyframeMutationPatch({
+          overlay,
           property: input.property,
           keyframes: input.keyframes,
+          focalPoint: input.focalPoint,
         });
-
-        await projectService.updateOverlay(userId, projectId, overlay.id, {
-          keyframeTracks: overlay.keyframeTracks,
-        } as any);
+        await projectService.updateOverlay(userId, projectId, overlay.id, resolvedMutation.patch as any);
 
         return successEnvelope({
           overlayId: input.overlayId,
           property: input.property,
           keyframeCount: input.keyframes.length,
+          ...(resolvedMutation.focal ? { focal: resolvedMutation.focal } : {}),
           message: `Set ${input.keyframes.length} keyframes for ${input.property} on overlay ${input.overlayId}`,
         });
       } catch (err: any) {

@@ -1,7 +1,14 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
+import {
+  readDev02Stage4RoleSymbolsFromBlockedGraphV2,
+  type Dev02Stage4RoleSymbolsV2,
+} from './dev02-stage4-role-resolver-v2';
 import { assertDev02GeneratedCompositionResearchProxyCapabilityV1 } from './generated-composition-research-proxy-capability-v1';
 import { verifyGeneratedCompositionProgramV1 } from './generated-composition-program-verifier-v1';
-import { evaluateStage4CompiledGraphArtifactV2 } from './stage4-compilation-evaluator-v2';
+import {
+  evaluateStage4CompiledGraphArtifactV2,
+  type Stage4CompilationSourceV2,
+} from './stage4-compilation-evaluator-v2';
 import { compileCanonicalStage4DeterministicBaselineV2 } from './stage4-deterministic-compiler-v2';
 import { STAGE4_RESEARCH_PROXY_COMPILER_VERSION_V2 } from './stage4-research-proxy-compiler-v2';
 
@@ -20,16 +27,44 @@ export interface Stage4ResearchProxyEvaluationV2 {
   diagnostics: readonly string[];
 }
 
-export function evaluateStage4ResearchProxyPreviewV2(value: unknown): Readonly<Stage4ResearchProxyEvaluationV2> {
+export interface Stage4ResearchProxyEvaluationSourceV2 {
+  sourceBlockedGraph: unknown;
+  sourceCompilationSource: Stage4CompilationSourceV2;
+}
+
+export function evaluateStage4ResearchProxyPreviewV2(
+  value: unknown,
+  source?: Stage4ResearchProxyEvaluationSourceV2,
+): Readonly<Stage4ResearchProxyEvaluationV2> {
   const graph = record(value);
   if (!Object.keys(graph).length) return emptyEvaluation();
   const diagnostics: string[] = [];
-  const sourceGraph = compileCanonicalStage4DeterministicBaselineV2();
-  const sourceEvaluation = evaluateStage4CompiledGraphArtifactV2(sourceGraph);
+  const embeddedSourceGraph = record(graph.sourceBlockedGraph);
+  const embeddedCompilationSource = isRecord(graph.sourceCompilationSource)
+    ? graph.sourceCompilationSource as unknown as Stage4CompilationSourceV2
+    : undefined;
+  const sourceGraph = source
+    ? record(source.sourceBlockedGraph)
+    : Object.keys(embeddedSourceGraph).length
+      ? embeddedSourceGraph
+      : compileCanonicalStage4DeterministicBaselineV2();
+  const compilationSource = source?.sourceCompilationSource ?? embeddedCompilationSource;
+  const sourceEvaluation = evaluateStage4CompiledGraphArtifactV2(
+    sourceGraph,
+    compilationSource,
+  );
   if (sourceEvaluation.disposition !== 'CAPABILITY_BLOCKED' || sourceEvaluation.diagnostics.length
-    || graph.sourceBlockedGraphHash !== hashCanonicalJsonV1(sourceGraph)) {
+    || graph.sourceBlockedGraphHash !== hashCanonicalJsonV1(sourceGraph)
+    || hashCanonicalJsonV1(record(graph.sourceBlockedGraph)) !== graph.sourceBlockedGraphHash
+    || (compilationSource
+      ? graph.sourceCompilationSourceHash !== hashCanonicalJsonV1(compilationSource)
+        || hashCanonicalJsonV1(record(graph.sourceCompilationSource)) !== graph.sourceCompilationSourceHash
+      : graph.sourceCompilationSourceHash !== null || graph.sourceCompilationSource !== null)) {
     diagnostics.push('SOURCE_BLOCKED_GRAPH_DRIFT');
   }
+  let roles: Readonly<Dev02Stage4RoleSymbolsV2> | undefined;
+  try { roles = readDev02Stage4RoleSymbolsFromBlockedGraphV2(sourceGraph); }
+  catch { diagnostics.push('SOURCE_BLOCKED_ROLE_SYMBOLS_INVALID'); }
   for (const field of [
     'taskId', 'sourceEditorialIntentHash', 'sourceEvidenceBoundIntentHash', 'evidencePackHash',
     'operatorCatalogVersion', 'projectId', 'expectedProjectRevision',
@@ -54,7 +89,7 @@ export function evaluateStage4ResearchProxyPreviewV2(value: unknown): Readonly<S
 
   const nodes = records(graph.nodes);
   const sourceNodes = records(sourceGraph.nodes);
-  const previewNodes = nodes.filter((node) => node.intentNodeId === 'node-generated-island');
+  const previewNodes = nodes.filter((node) => node.intentNodeId === roles?.generatedIslandIntentNodeId);
   if (nodes.length !== sourceNodes.length + 1 || previewNodes.length !== 1) diagnostics.push('PREVIEW_NODE_SET_INVALID');
   if (hashCanonicalJsonV1(nodes.slice(0, sourceNodes.length)) !== hashCanonicalJsonV1(sourceNodes)) {
     diagnostics.push('PREVIEW_SOURCE_NODE_DRIFT');
@@ -90,8 +125,11 @@ export function evaluateStage4ResearchProxyPreviewV2(value: unknown): Readonly<S
     || graph.compileDisposition !== 'COMPILED_RESEARCH_PROXY_PREVIEW'
     || graph.executionEligibility !== 'RESEARCH_PROXY_ONLY') diagnostics.push('PREVIEW_EXECUTION_DISPOSITION_DRIFT');
   if (graph.fullProjectExecutionEligibility !== 'NOT_EXECUTABLE'
-    || !sameArray(strings(graph.previewEligibleIntentNodeIds), ['node-generated-island'])
-    || !sameArray(strings(graph.unresolvedFullProjectIntentNodeIds), ['node-native-continuation', 'node-proof'])
+    || !roles
+    || !sameArray(strings(graph.previewEligibleIntentNodeIds), [roles.generatedIslandIntentNodeId])
+    || !sameArray(strings(graph.unresolvedFullProjectIntentNodeIds), [
+      roles.nativeContinuationIntentNodeId, roles.proofIntentNodeId,
+    ])
     || !records(graph.diagnostics).some((entry) => entry.code === 'FULL_PROJECT_DEPENDENCY_BLOCKED')) {
     diagnostics.push('FULL_PROJECT_HONESTY_DRIFT');
   }

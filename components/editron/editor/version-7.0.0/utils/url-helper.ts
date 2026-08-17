@@ -9,8 +9,18 @@
  * Get the base URL from environment variables or default to localhost:3000
  */
 export const getBaseUrl = (): string => {
-  // Use environment variable if available, otherwise default to localhost:3000
-  return process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+  const configured = process.env.NEXT_PUBLIC_BASE_URL;
+  if (configured) return configured;
+  // A render with no baked base URL must FAIL LOUD. The localhost default
+  // silently starved every Lambda chunk (renders pxccevxbml, nw1v19u75d:
+  // 900s timeouts with zero recorded errors) because frames were fetched
+  // from the Lambda's own empty localhost:3000.
+  if (typeof window === "undefined" || (window as { remotion_isRendering?: boolean }).remotion_isRendering) {
+    throw new Error(
+      "NEXT_PUBLIC_BASE_URL is not baked into this bundle — refusing the localhost fallback during a render. Rebuild the Remotion site with the env set.",
+    );
+  }
+  return "http://localhost:3000";
 };
 
 /**

@@ -7,9 +7,13 @@ import sharp, { type OverlayOptions } from 'sharp';
 import { describe, expect, it } from 'vitest';
 
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import { resolveDev02RenderedProofClaimBindingsV1 } from '@/lib/editron/research/open-ended-planner/dev02-rendered-proof-claim-policy-v1';
 import { evaluateDev02GeneratedCompositionRenderedProofV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-dev02-rendered-proof-v1';
 import type { GeneratedCompositionProxyReceiptV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-proxy-renderer-v1';
-import { DEV02_GENERATED_COMPOSITION_PROGRAM_V1 } from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-generated-composition-program-v1';
+import {
+  DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1,
+  DEV02_GENERATED_COMPOSITION_PROGRAM_V1,
+} from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-generated-composition-program-v1';
 
 describe('open-ended planner V2 DEV-02 rendered proof policy', () => {
   it('passes objective filmstrip gates while keeping regulatory flash safety and creative taste unverifiable', async () => {
@@ -35,6 +39,63 @@ describe('open-ended planner V2 DEV-02 rendered proof policy', () => {
       expect(proof.technicalDisposition).toBe('FAIL');
       expect(proof.checks.filter(({ status }) => status === 'FAIL').map(({ checkId }) => checkId)).toEqual(expect.arrayContaining(['SETTLED_PANEL_GEOMETRY', 'OPPOSED_PANEL_MOTION', 'BOUNDARY_CONTINUITY']));
     } finally { await fs.rm(scratch, { recursive: true, force: true }); }
+  });
+
+  it('rejects a corrupted localized receipt identity before reading rendered frames', async () => {
+    const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'editron-dev02-proof-identity-'));
+    try {
+      const fixture = await proofFixture(scratch);
+      const corruptedReceipt = {
+        ...fixture.proxyReceipt,
+        receiptHash: 'e'.repeat(64),
+      };
+      await expect(evaluateDev02GeneratedCompositionRenderedProofV1({
+        ...fixture,
+        proxyReceipt: corruptedReceipt,
+      })).rejects.toThrow('localized proxy receipt identity drift');
+    } finally { await fs.rm(scratch, { recursive: true, force: true }); }
+  });
+
+  it('binds arbitrary claim IDs by semantics and rejects Qwen-shaped omissions', () => {
+    const complete = semanticBlueprint(true);
+    expect(resolveDev02RenderedProofClaimBindingsV1({
+      expectedMeasurementRefs: complete.targetClaims.map(({ claimId }) => claimId),
+      referenceBlueprint: complete,
+    })).toEqual({
+      settledGeometry: ['PANEL-LAYOUT'],
+      titleForm: ['TITLE-CENTRE', 'TITLE-SHAPE', 'TITLE-YELLOW'],
+      opposedMotion: ['PANEL-OPPOSED'],
+      phaseStructure: ['PHASE-BUILD', 'PHASE-HOLD', 'PHASE-TAKEOVER'],
+      fullCanvasRelease: ['PHASE-TAKEOVER'],
+      boundaryContinuity: ['PHASE-TAKEOVER'],
+    });
+
+    const missing = semanticBlueprint(false);
+    expect(() => resolveDev02RenderedProofClaimBindingsV1({
+      expectedMeasurementRefs: missing.targetClaims.map(({ claimId }) => claimId),
+      referenceBlueprint: missing,
+    })).toThrow('DEV02_RENDERED_PROOF_SEMANTIC_CLAIMS_MISSING:OPPOSED_PANEL_MOTION,TITLE_YELLOW');
+  });
+
+  it('binds provider-neutral structured claims without accepting missing opposed motion', () => {
+    const complete = providerVocabularyBlueprint(true);
+    expect(resolveDev02RenderedProofClaimBindingsV1({
+      expectedMeasurementRefs: complete.targetClaims.map(({ claimId }) => claimId),
+      referenceBlueprint: complete,
+    })).toEqual({
+      settledGeometry: ['PANEL-COUNT', 'GUTTERS'],
+      titleForm: ['TITLE-CENTRE', 'TITLE-BANDS'],
+      opposedMotion: ['OPPOSED'],
+      phaseStructure: ['BUILD', 'HOLD', 'TAKEOVER'],
+      fullCanvasRelease: ['TAKEOVER'],
+      boundaryContinuity: ['TAKEOVER'],
+    });
+
+    const missing = providerVocabularyBlueprint(false);
+    expect(() => resolveDev02RenderedProofClaimBindingsV1({
+      expectedMeasurementRefs: missing.targetClaims.map(({ claimId }) => claimId),
+      referenceBlueprint: missing,
+    })).toThrow('DEV02_RENDERED_PROOF_SEMANTIC_CLAIMS_MISSING:OPPOSED_PANEL_MOTION');
   });
 });
 
@@ -65,7 +126,43 @@ async function proofFixture(root: string, adversarial = false) {
     stateEffects: [] as const, workspaceDir: root,
   };
   const proxyReceipt = { ...unsignedReceipt, receiptHash: hashCanonicalJsonV1(unsignedReceipt) } satisfies GeneratedCompositionProxyReceiptV1;
-  return { program, proxyReceipt, authoritativeProxyReceiptHash: proxyReceipt.receiptHash, boundaryReferencePath };
+  return {
+    program, proxyReceipt, authoritativeProxyReceiptHash: proxyReceipt.receiptHash,
+    boundaryReferencePath, referenceBlueprint: DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1,
+  };
+}
+
+function semanticBlueprint(complete: boolean) {
+  const targetClaims = [
+    { claimId: 'PANEL-LAYOUT', claimKind: 'mosaic_grid_layout', subjects: ['left-top', 'left-bottom', 'centre', 'right-top', 'right-bottom'], desired: { value: 'five panels with black gutters' } },
+    { claimId: 'TITLE-CENTRE', claimKind: 'title_horizontal_centring', desired: { value: 'centred' } },
+    { claimId: 'TITLE-SHAPE', claimKind: 'title_two_line_shape', desired: { value: 'two-line title' } },
+    { claimId: 'PHASE-BUILD', claimKind: 'entrance_completion', desired: { value: 'build completes' } },
+    { claimId: 'PHASE-HOLD', claimKind: 'hold_static', desired: { value: 'static hold' } },
+    { claimId: 'PHASE-TAKEOVER', claimKind: 'centre_takeover', desired: { value: 'centre fills frame' } },
+  ];
+  if (complete) targetClaims.push(
+    { claimId: 'TITLE-YELLOW', claimKind: 'title_yellow_treatment', desired: { value: 'solid saturated yellow fill' } },
+    { claimId: 'PANEL-OPPOSED', claimKind: 'panel_motion_direction', desired: { value: 'centre rises while side panels descend' } },
+  );
+  return { targetClaims };
+}
+
+function providerVocabularyBlueprint(includeOpposedMotion: boolean) {
+  const targetClaims = [
+    { claimId: 'PANEL-COUNT', claimKind: 'held_layout_structure', subjects: ['stacked layout'], desired: { valueType: 'visible_panel_count', value: '5', unit: 'panels' } },
+    { claimId: 'GUTTERS', claimKind: 'negative_space_treatment', desired: { value: 'visible black separating gutters' } },
+    { claimId: 'TITLE-CENTRE', claimKind: 'title_placement_and_legibility', desired: { value: 'horizontally centered title' } },
+    { claimId: 'TITLE-BANDS', claimKind: 'title_band_structure_and_colour', desired: { value: 'two bright-yellow bands' } },
+    { claimId: 'BUILD', claimKind: 'layout_build_timing', desired: { value: 'two structural build steps' } },
+    { claimId: 'HOLD', claimKind: 'completed_layout_hold', desired: { value: 'maintain the completed arrangement' } },
+    { claimId: 'TAKEOVER', claimKind: 'center_panel_exit_state', relation: 'CONTINUES_INTO', desired: { value: 'center image occupies the entire frame' } },
+  ];
+  if (includeOpposedMotion) targetClaims.push({
+    claimId: 'OPPOSED', claimKind: 'relational_panel_motion', relation: 'MOVES_RELATIVE_TO',
+    desired: { value: 'centre panels rise while side panels descend' },
+  });
+  return { targetClaims };
 }
 
 async function renderPanels(output: string, canvas: { width: number; height: number }, input: { centreY: number; sidesY: number; settled: boolean; eraseGutter?: boolean }): Promise<string> {

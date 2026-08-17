@@ -22,6 +22,7 @@ function makeElement(tag: string) {
     src: '',
     controls: false,
     preload: '',
+    disabled: false,
     appendChild(child: unknown) {
       (this.children as unknown[]).push(child);
       return child;
@@ -51,12 +52,10 @@ function runPage(opts: {
   opportunities: Array<{ opportunityId: string; role?: string; surface?: string; note?: string }>;
   fetchImpl: (url: string, init?: unknown) => Promise<{ json: () => Promise<unknown> }>;
   storage?: { getItem: (k: string) => string | null; setItem: (k: string, v: string) => void };
-  promptImpl?: (msg: string) => string | null;
   reviewerId?: string;
 }) {
   const { windowObj, documentObj, container } = makeDom();
   const storage = opts.storage ?? { getItem: () => null, setItem: () => undefined };
-  const promptImpl = opts.promptImpl ?? (() => 'reviewer-test');
   const fn = new Function('window', 'document', REVIEWER_PAGE_SCRIPT);
   fn(windowObj, documentObj);
   const render = windowObj.renderReviewerPage as (container: unknown, deps: unknown) => void;
@@ -64,7 +63,6 @@ function runPage(opts: {
     opportunities: opts.opportunities,
     fetchImpl: opts.fetchImpl,
     storage,
-    promptImpl,
     reviewerId: opts.reviewerId,
   });
   return { windowObj, documentObj, container };
@@ -141,6 +139,43 @@ const OPS = [
 describe('S2-L1-R reviewer UI (browser-level, exact shipped script)', () => {
   afterEach(() => {
     // no persistent state in tests
+  });
+
+  it('renders an inline reviewer identity gate and loads only after a valid identity is confirmed', async () => {
+    const stored = new Map<string, string>();
+    let candidateRequests = 0;
+    const { container } = runPage({
+      opportunities: OPS,
+      fetchImpl: async () => {
+        candidateRequests += 1;
+        return { json: async () => candidatePayload('x') };
+      },
+      storage: {
+        getItem: (key) => stored.get(key) ?? null,
+        setItem: (key, value) => stored.set(key, value),
+      },
+    });
+
+    const setup = (container.children as Array<Record<string, unknown> & { children: unknown[] }>)[0];
+    expect(setup.className).toBe('reviewer-setup');
+    expect(candidateRequests).toBe(0);
+
+    const label = setup.children[0] as Record<string, unknown> & { children: unknown[] };
+    const input = label.children[1] as Record<string, unknown>;
+    const startButton = setup.children[1] as Record<string, unknown> & { fire: (type: string) => void };
+    const status = setup.children[2] as Record<string, unknown>;
+
+    input.value = 'invalid reviewer id';
+    startButton.fire('click');
+    expect(candidateRequests).toBe(0);
+    expect(String(status.textContent)).toContain('Reviewer ID must be');
+
+    input.value = 'human-listener-a';
+    startButton.fire('click');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(stored.get('sfx-reviewer')).toBe('human-listener-a');
+    expect(candidateRequests).toBe(2);
+    expect((container.children as unknown[]).length).toBe(3);
   });
 
   it('page loads without runtime error and renders all opportunities', async () => {

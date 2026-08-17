@@ -11,7 +11,8 @@ import {
   type SerializedProviderRequestV2,
 } from './provider-codecs-v2';
 import { runProviderStageV2, type ProviderPricingV2 } from './provider-transport-v2';
-import { buildDevelopmentSmokePreflightV2 } from './smoke-preflight-v2';
+import { bindIssuedStage2PacketV2 } from './issued-stage2-packet-v2';
+import { getIssuedStageRouteSourceV2 } from './issued-stage-route-source-v2';
 import {
   buildDevelopmentReferenceImageSequenceStageOnePacketV2,
   buildNextProviderStagePacketV2,
@@ -91,7 +92,7 @@ const generatedOwner = (() => {
 })();
 
 export async function buildStage2RoutingSmokePreflightV2(): Promise<Readonly<Record<string, unknown>>> {
-  const source = await buildDevelopmentSmokePreflightV2() as unknown as { planHash: string; routes: RouteV2[] };
+  const source = getIssuedStageRouteSourceV2() as unknown as { planHash: string; routes: RouteV2[] };
   const routes = source.routes.filter(({ routeId }) => ROUTE_IDS.has(routeId));
   if (routes.length !== ROUTE_IDS.size) throw new Error('STAGE2_ROUTE_SET_INCOMPLETE');
   const artifact = stage2Artifact();
@@ -262,7 +263,7 @@ export function evaluateStage2RoutingArtifactV2(value: unknown): Readonly<Routin
 }
 
 function stage2Artifact(): HashedStagePacketV2 {
-  return buildNextProviderStagePacketV2({ previousPacket: buildDevelopmentReferenceImageSequenceStageOnePacketV2('DEV-02', 'BASELINE'), stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: blueprint as { artifactType: string; taskId: string; [key: string]: unknown } });
+  return bindIssuedStage2PacketV2(buildNextProviderStagePacketV2({ previousPacket: buildDevelopmentReferenceImageSequenceStageOnePacketV2('DEV-02', 'BASELINE'), stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: blueprint as { artifactType: string; taskId: string; [key: string]: unknown } }));
 }
 
 async function countRequest(input: { attempt: 1 | 2; request: SerializedProviderRequestV2; priorRequest?: SerializedProviderRequestV2; priorInputTokens?: number; route: ProviderRouteV2; row: RowV2; fetchImpl: FetchV2 }): Promise<JsonRecord> {

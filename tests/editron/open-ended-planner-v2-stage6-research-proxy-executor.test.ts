@@ -10,6 +10,7 @@ import {
   type GeneratedCompositionSandboxRequestV1,
   type GeneratedCompositionSandboxWorkerResultV1,
 } from '@/lib/editron/research/open-ended-planner/generated-composition-sandbox-contract-v1';
+import { compileStage4DeterministicBaselineV2 } from '@/lib/editron/research/open-ended-planner/stage4-deterministic-compiler-v2';
 import { compileStage4ResearchProxyPreviewV2 } from '@/lib/editron/research/open-ended-planner/stage4-research-proxy-compiler-v2';
 import { executeStage6ResearchProxyPreviewV2 } from '@/lib/editron/research/open-ended-planner/stage6-research-proxy-executor-v2';
 import { evaluateStage6ResearchProxyExecutionV2 } from '@/lib/editron/research/open-ended-planner/stage6-research-proxy-evaluator-v2';
@@ -20,6 +21,10 @@ import {
   DEV02_GENERATED_COMPOSITION_SOURCE_BUNDLE_V1,
   DEV02_GENERATED_COMPOSITION_SUPPLEMENTAL_FACTS_V1,
 } from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-generated-composition-program-v1';
+import canonicalBoundJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-evidence-bound-intent-v2.json';
+import canonicalIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-editorial-intent-v2.json';
+import canonicalReferenceJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-reference-blueprint-v2.json';
+import canonicalEvidencePackJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-stage3-evidence-pack-v2.json';
 
 describe('open-ended planner V2 Stage 6 research proxy executor', () => {
   it('runs the authorized graph through the existing sandbox boundary and returns no project effects', async () => {
@@ -41,6 +46,21 @@ describe('open-ended planner V2 Stage 6 research proxy executor', () => {
       proof: { projectMutation: 'NONE', renderedEvidence: 'CAPTURED_UNJUDGED' },
       fullProjectExecutionEligibility: 'NOT_EXECUTABLE', stateEffects: [],
     });
+  });
+
+  it('binds the preview request by promoted operator identity rather than a provider intent-node label', async () => {
+    const fixture = fixtureGraph({ providerIntentId: 'N-GEN-ISLAND' });
+    const graph = fixture.graph;
+    expect(graph.previewEligibleIntentNodeIds).toEqual(['N-GEN-ISLAND']);
+
+    const evidence = await executeStage6ResearchProxyPreviewV2({
+      graph, operatorId: 'admin', executionId: 'stage6-provider-node-label',
+      createdAt: '2026-08-15T00:00:00.000Z', materializedInputs: fixture.inputs,
+      sandboxEnvironment: promotedSandbox(), sandboxExecutor: async ({ request }) => sandboxFixture(request),
+    });
+
+    expect(evaluateStage6ResearchProxyExecutionV2({ graph, evidence }))
+      .toMatchObject({ disposition: 'PASS', requestBinding: 'PASS', diagnostics: [] });
   });
 
   it('never calls the sandbox for a falsely-ready graph or wrong materialized media', async () => {
@@ -89,7 +109,7 @@ describe('open-ended planner V2 Stage 6 research proxy executor', () => {
   });
 });
 
-function fixtureGraph() {
+function fixtureGraph(options: { providerIntentId?: string } = {}) {
   const wide = Buffer.from('stage6-wide'); const close = Buffer.from('stage6-close'); const font = Buffer.from('stage6-font');
   const evidencePack = structuredClone(DEV02_GENERATED_COMPOSITION_EVIDENCE_PACK_V1) as any;
   for (const fact of evidencePack.facts) {
@@ -103,10 +123,17 @@ function fixtureGraph() {
   program.projectBinding.evidencePackHash = hashCanonicalJsonV1(evidencePack);
   program.sourceSlots[0].assetVersion = `sha256:${sha(wide)}`; program.sourceSlots[1].assetVersion = `sha256:${sha(close)}`;
   program.fontSlots[0].fileSha256 = sha(font); program.fontSlots[0].fontAssetVersion = `sha256:${sha(font)}`;
+  const sourceCompilation = options.providerIntentId
+    ? providerCompilationSource(options.providerIntentId)
+    : undefined;
   const graph = compileStage4ResearchProxyPreviewV2({
     program, sourceBundle: DEV02_GENERATED_COMPOSITION_SOURCE_BUNDLE_V1, evidencePack,
     referenceBlueprint: DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1, supplementalFacts,
     capabilityPromotion: DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V1,
+    ...(sourceCompilation ? {
+      sourceBlockedGraph: compileStage4DeterministicBaselineV2(sourceCompilation),
+      sourceCompilationSource: sourceCompilation,
+    } : {}),
   });
   return {
     graph,
@@ -116,6 +143,25 @@ function fixtureGraph() {
       { kind: 'FONT' as const, bindingId: 'font-noto-sans-v27-regular', fileName: 'noto-sans.ttf', bytes: font },
     ],
   };
+}
+
+function providerCompilationSource(intentNodeId: string) {
+  const rename = new Map([['node-generated-island', intentNodeId]]);
+  return {
+    referenceBlueprint: canonicalReferenceJson,
+    editorialIntent: replaceRoleIds(structuredClone(canonicalIntentJson), rename),
+    evidenceBoundIntent: replaceRoleIds(structuredClone(canonicalBoundJson), rename),
+    evidencePack: canonicalEvidencePackJson,
+  };
+}
+
+function replaceRoleIds(value: unknown, rename: Map<string, string>): unknown {
+  if (typeof value === 'string') return rename.get(value) ?? value;
+  if (Array.isArray(value)) return value.map((entry) => replaceRoleIds(entry, rename));
+  if (value != null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, replaceRoleIds(entry, rename)]));
+  }
+  return value;
 }
 
 function sandboxFixture(request: GeneratedCompositionSandboxRequestV1) {

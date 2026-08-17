@@ -51,7 +51,7 @@ export function evaluateStage6ResearchProxyExecutionV2(input: {
   const host = record(evidence.sandboxHostReceipt);
   const capability = record(graph.capabilityPromotion);
   const implementation = record(capability.implementation);
-  const previewNode = records(graph.nodes).find((node) => node.intentNodeId === 'node-generated-island') ?? {};
+  const previewNode = records(graph.nodes).find((node) => node.operatorId === capability.operatorId) ?? {};
   const previewInputs = record(previewNode.inputs);
   if (request && (request.programHash !== previewInputs.programHash
     || request.sourceBundleHash !== previewInputs.sourceBundleHash

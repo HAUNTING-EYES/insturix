@@ -12,6 +12,7 @@ describe('open-ended planner V2 isolated Stage-3 evidence-binding smoke', () => 
   it('freezes Luna and Terra against one canonical intent and evidence pack', async () => {
     const plan = await buildStage3EvidenceBindingSmokePreflightV2() as Plan;
     expect(plan.planHash).toBe('7dd99573b5afdcebcc8f3e4616db54a62e4211e5e1ba2a1396180539f92c8b9c');
+    expect(plan.packetHash).toBe('bc561a66bc15e0d914e47d905ad4629b01fdb92fac519a5fc1d3720d30a1762a');
     expect(plan.rows).toHaveLength(2);
     expect(plan.spend).toMatchObject({ plannedProviderCalls: 2, absoluteMaxSpendUsd: 0.4 });
     expect(new Set(plan.rows.map(({ packetHash }) => packetHash)).size).toBe(1);
@@ -67,5 +68,5 @@ function boundArtifact() {
 function openAI(model: string, artifact: unknown) { return { id: `resp-${model}`, model, status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(artifact) }] }], usage: { input_tokens: 7_200, output_tokens: 1_800, output_tokens_details: { reasoning_tokens: 400 }, total_tokens: 9_000 } }; }
 function response(body: unknown): Response { return new Response(JSON.stringify(body), { status: 200 }); }
 
-type Plan = Awaited<ReturnType<typeof buildStage3EvidenceBindingSmokePreflightV2>> & { planHash: string; canonicalIntentHash: string; rows: Array<{ packetHash: string; priorArtifactHash: string; localInputTokenUpperBound: number; maxInputTokens: number }>; spend: { plannedProviderCalls: number; absoluteMaxSpendUsd: number }; exclusions: Array<{ routeId: string; reason: string }> };
+type Plan = Awaited<ReturnType<typeof buildStage3EvidenceBindingSmokePreflightV2>> & { planHash: string; packetHash: string; canonicalIntentHash: string; rows: Array<{ packetHash: string; priorArtifactHash: string; localInputTokenUpperBound: number; maxInputTokens: number }>; spend: { plannedProviderCalls: number; absoluteMaxSpendUsd: number }; exclusions: Array<{ routeId: string; reason: string }> };
 type Receipt = { rows: Array<{ run: { disposition: string }; evidenceBindingEvaluation: { disposition: string; diagnostics: string[] } }>; actualProviderCostUsd: number };

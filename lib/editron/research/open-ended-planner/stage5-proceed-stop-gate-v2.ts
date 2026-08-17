@@ -1,5 +1,12 @@
 import { deepFreezeV1 } from './contracts-v1';
+import { evaluateDev02HybridStage4GraphV2 } from './dev02-hybrid-stage4-evaluator-v2';
+import { evaluateDev04Stage4CapabilityGapV2 } from './dev04-capability-gap-chain-v2';
 import { evaluateStage4CompiledGraphArtifactV2 } from './stage4-compilation-evaluator-v2';
+import {
+  evaluateDev01Stage4CompiledGraphV2,
+  type Dev01Stage4SourceV2,
+} from './stage4-dev01-native-evaluator-v2';
+import { evaluateDev03Stage4CompiledGraphV2 } from './stage4-dev03-native-evaluator-v2';
 import { evaluateStage4ResearchProxyPreviewV2 } from './stage4-research-proxy-evaluator-v2';
 
 type JsonRecord = Record<string, unknown>;
@@ -28,9 +35,30 @@ export interface ProceedOrStopDecisionV2 {
   };
 }
 
-export function decideStage5ProceedOrStopV2(compiledGraph: unknown): Readonly<ProceedOrStopDecisionV2> {
+export interface Stage5EvaluationContextV2 {
+  dev01Source?: Dev01Stage4SourceV2;
+}
+
+export function decideStage5ProceedOrStopV2(
+  compiledGraph: unknown,
+  context: Stage5EvaluationContextV2 = {},
+): Readonly<ProceedOrStopDecisionV2> {
   const graph = record(compiledGraph);
   const taskId = text(graph.taskId) || 'UNBOUND_TASK';
+  if (graph.artifactType === 'CompiledDev02HybridResearchGraphV2') {
+    const evaluation = evaluateDev02HybridStage4GraphV2(compiledGraph);
+    if (evaluation.assessment === 'PASS') {
+      return decision(taskId, 'PROCEED', 'DEV02_FULL_HYBRID_RESEARCH_PROXY_VERIFIED', [], [],
+        'The complete DEV-02 hybrid reel may be rendered as a bounded research proxy. Project mutation remains denied.',
+        { scope: 'BOUNDED_RESEARCH_PROXY_PREVIEW_ONLY', projectMutation: 'DENY', fullProjectExecution: 'DENY' });
+    }
+    if (evaluation.assessment === 'UNVERIFIABLE') {
+      return decision(taskId, 'UNVERIFIABLE', 'DEV02_FULL_HYBRID_RESEARCH_PROXY_UNVERIFIABLE', [], [],
+        'The complete DEV-02 hybrid graph could not be verified. Nothing was executed.');
+    }
+    return decision(taskId, 'FAIL', 'DEV02_FULL_HYBRID_RESEARCH_PROXY_INVALID', [], [],
+      'The complete DEV-02 hybrid graph failed independent validation. Nothing was executed.');
+  }
   if (graph.artifactType === 'CompiledResearchProxyPreviewGraphV2') {
     const evaluation = evaluateStage4ResearchProxyPreviewV2(compiledGraph);
     if (evaluation.disposition === 'PASS') {
@@ -45,7 +73,7 @@ export function decideStage5ProceedOrStopV2(compiledGraph: unknown): Readonly<Pr
     return decision(taskId, 'FAIL', 'STAGE4_RESEARCH_PROXY_INVALID', [], [],
       'The research preview graph failed independent validation. Nothing was executed.');
   }
-  const evaluation = evaluateStage4CompiledGraphArtifactV2(compiledGraph);
+  const evaluation = evaluateCompiledGraphForTask(taskId, compiledGraph, context);
 
   if (evaluation.disposition === 'FAIL') {
     return decision(taskId, 'FAIL', 'STAGE4_GRAPH_INVALID', [], [],
@@ -62,16 +90,37 @@ export function decideStage5ProceedOrStopV2(compiledGraph: unknown): Readonly<Pr
   }
   if (evaluation.disposition === 'PASS' && graph.executionEligibility === 'RESEARCH_PROXY_ONLY') {
     return decision(taskId, 'PROCEED', 'RESEARCH_PROXY_GRAPH_VERIFIED', [], [],
-      'The research proxy graph passed independent validation and may proceed to bounded proxy execution.');
+      'The research proxy graph passed independent validation and may proceed to bounded proxy execution. The project and full edit remain untouched.',
+      { scope: 'BOUNDED_RESEARCH_PROXY_PREVIEW_ONLY', projectMutation: 'DENY', fullProjectExecution: 'DENY' });
   }
   return decision(taskId, 'FAIL', 'STAGE5_UNRECOGNIZED_COMPILATION_STATE', [], [],
     'The compilation state has no safe execution disposition. Nothing was executed.');
 }
 
+function evaluateCompiledGraphForTask(
+  taskId: string,
+  compiledGraph: unknown,
+  context: Stage5EvaluationContextV2,
+): {
+  disposition: 'PASS' | 'FAIL' | 'UNVERIFIABLE' | 'CAPABILITY_BLOCKED';
+  diagnostics: readonly string[];
+} {
+  if (taskId === 'DEV-01') {
+    const evaluation = evaluateDev01Stage4CompiledGraphV2(compiledGraph, context.dev01Source);
+    return { disposition: evaluation.assessment, diagnostics: evaluation.diagnostics };
+  }
+  if (taskId === 'DEV-03') {
+    const evaluation = evaluateDev03Stage4CompiledGraphV2(compiledGraph);
+    return { disposition: evaluation.assessment, diagnostics: evaluation.diagnostics };
+  }
+  if (taskId === 'DEV-04') return evaluateDev04Stage4CapabilityGapV2(compiledGraph);
+  return evaluateStage4CompiledGraphArtifactV2(compiledGraph);
+}
+
 function collectMissingCapabilityIds(graph: JsonRecord): string[] {
   return unique(records(graph.diagnostics)
     .filter((entry) => entry.code === 'CAPABILITY_NOT_IMPLEMENTED' && entry.disposition === 'CAPABILITY_GAP')
-    .flatMap((entry) => strings(entry.operatorIds)))
+    .flatMap((entry) => [...strings(entry.capabilityIds), ...strings(entry.operatorIds)]))
     .sort(compareUtf16);
 }
 

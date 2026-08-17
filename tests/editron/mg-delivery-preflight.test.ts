@@ -49,6 +49,9 @@ describe('computeMGRenderPreflight (Fix-4 consolidation of the existing ledger)'
       outcomes: [{ jobId: 'mgr_missing', status: 'queued', momentId: 'm2' }],
     });
     const pre = computeMGRenderPreflight(p as never, { now: NOW });
+    // Current cloud-render default: this is an honest degraded result, not yet
+    // the visible IF1-style non-success receipt required by the target plan.
+    expect(pre.policy).toBe('degraded_allowed');
     expect(pre.expected).toContain('mgr_missing');
     expect(pre.missingMGs).toEqual([
       expect.objectContaining({

@@ -4,6 +4,7 @@ import evidencePackJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev
 import operatorCatalogJson from '@/tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json';
 
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
+import { normalizeDev02Stage4SourceRelativeArtifactV2 } from './dev02-stage4-source-normalizer-v2';
 
 type JsonRecord = Record<string, unknown>;
 type DimensionV2 = 'PASS' | 'FAIL' | 'UNVERIFIABLE';
@@ -19,6 +20,13 @@ export interface Stage4CompilationEvaluationV2 {
   proofAndPreservation: DimensionV2;
   capabilityHonesty: DimensionV2;
   diagnostics: readonly string[];
+}
+
+export interface Stage4CompilationSourceV2 {
+  referenceBlueprint?: unknown;
+  editorialIntent: unknown;
+  evidenceBoundIntent: unknown;
+  evidencePack: unknown;
 }
 
 const editorialIntent = canonicalEditorialIntentJson as unknown as JsonRecord;
@@ -39,11 +47,22 @@ const policyFactIds = new Set(['fact-rights-policy', 'fact-privacy-egress-policy
 const allowedAssetIds = new Set(strings(record(evidenceBoundIntent.rightsDecision).allowedAssetIds));
 const knownOverlayIds = new Set(['ov-next']);
 
-export function evaluateStage4CompiledGraphArtifactV2(value: unknown): Readonly<Stage4CompilationEvaluationV2> {
-  const artifact = record(value);
-  if (!Object.keys(artifact).length) return emptyEvaluation();
+export function evaluateStage4CompiledGraphArtifactV2(
+  value: unknown,
+  source?: Stage4CompilationSourceV2,
+): Readonly<Stage4CompilationEvaluationV2> {
+  const receivedArtifact = record(value);
+  if (!Object.keys(receivedArtifact).length) return emptyEvaluation();
+  let artifact = receivedArtifact;
+  if (source) {
+    try {
+      artifact = record(normalizeDev02Stage4SourceRelativeArtifactV2(receivedArtifact, source));
+    } catch (error) {
+      return sourceRelativeFailure(error);
+    }
+  }
   const diagnostics: string[] = [];
-  validateSourceChain(artifact, diagnostics);
+  validateSourceChain(artifact, diagnostics, source);
 
   const nodes = records(artifact.nodes);
   const nodeIds = new Set<string>();
@@ -88,12 +107,16 @@ export function evaluateStage4CompiledGraphArtifactV2(value: unknown): Readonly<
   });
 }
 
-function validateSourceChain(artifact: JsonRecord, diagnostics: string[]): void {
+function validateSourceChain(
+  artifact: JsonRecord,
+  diagnostics: string[],
+  source?: Stage4CompilationSourceV2,
+): void {
   const expected = {
     taskId: 'DEV-02',
-    sourceEditorialIntentHash: hashCanonicalJsonV1(editorialIntent),
-    sourceEvidenceBoundIntentHash: hashCanonicalJsonV1(evidenceBoundIntent),
-    evidencePackHash: hashCanonicalJsonV1(evidencePack),
+    sourceEditorialIntentHash: hashCanonicalJsonV1(source?.editorialIntent ?? editorialIntent),
+    sourceEvidenceBoundIntentHash: hashCanonicalJsonV1(source?.evidenceBoundIntent ?? evidenceBoundIntent),
+    evidencePackHash: hashCanonicalJsonV1(source?.evidencePack ?? evidencePack),
     operatorCatalogVersion: String(operatorCatalog.version),
     projectId: 'oe-dev-02',
     expectedProjectRevision: 'R3',
@@ -307,6 +330,15 @@ function ownerRef(operator: JsonRecord): string {
   return `${String(owner.path)}#${String(owner.symbol)}`;
 }
 function emptyEvaluation(): Readonly<Stage4CompilationEvaluationV2> { return deepFreezeV1({ disposition: 'UNVERIFIABLE', sourceChain: 'UNVERIFIABLE', operatorResolution: 'UNVERIFIABLE', inputBindings: 'UNVERIFIABLE', dependencyGraph: 'UNVERIFIABLE', nodeContract: 'UNVERIFIABLE', policyAndRevision: 'UNVERIFIABLE', proofAndPreservation: 'UNVERIFIABLE', capabilityHonesty: 'UNVERIFIABLE', diagnostics: ['NO_ACCEPTED_ARTIFACT'] }); }
+function sourceRelativeFailure(error: unknown): Readonly<Stage4CompilationEvaluationV2> {
+  return deepFreezeV1({
+    disposition: 'FAIL', sourceChain: 'FAIL', operatorResolution: 'UNVERIFIABLE',
+    inputBindings: 'UNVERIFIABLE', dependencyGraph: 'UNVERIFIABLE', nodeContract: 'UNVERIFIABLE',
+    policyAndRevision: 'UNVERIFIABLE', proofAndPreservation: 'UNVERIFIABLE',
+    capabilityHonesty: 'UNVERIFIABLE',
+    diagnostics: [`SOURCE_CHAIN_SOURCE_RELATIVE_RESOLUTION:${error instanceof Error ? error.message : String(error)}`],
+  });
+}
 function dimension(diagnostics: string[], pattern: RegExp): DimensionV2 { return diagnostics.some((entry) => pattern.test(entry)) ? 'FAIL' : 'PASS'; }
 function hasCycle(adjacency: Map<string, Set<string>>): boolean { const active = new Set<string>(); const done = new Set<string>(); const visit = (node: string): boolean => { if (active.has(node)) return true; if (done.has(node)) return false; active.add(node); for (const next of adjacency.get(node) ?? []) if (visit(next)) return true; active.delete(node); done.add(node); return false; }; return [...adjacency.keys()].some(visit); }
 function reachable(start: string, target: string, adjacency: Map<string, Set<string>>): boolean { const pending = [start]; const seen = new Set<string>(); while (pending.length) { const node = pending.pop() as string; if (node === target && node !== start) return true; if (seen.has(node)) continue; seen.add(node); pending.push(...(adjacency.get(node) ?? [])); } return false; }

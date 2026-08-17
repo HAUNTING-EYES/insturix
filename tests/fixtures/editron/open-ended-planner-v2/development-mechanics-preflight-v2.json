@@ -357,7 +357,7 @@
       {
         "stage": 2,
         "maxInputTokens": 50000,
-        "maxVisibleOutputTokens": 4000,
+        "maxVisibleOutputTokens": 8000,
         "maxReasoningTokens": 5000,
         "maxWallClockMs": 40000,
         "maxProviderCostUsd": 0.3
@@ -365,7 +365,7 @@
       {
         "stage": 3,
         "maxInputTokens": 32000,
-        "maxVisibleOutputTokens": 2400,
+        "maxVisibleOutputTokens": 4000,
         "maxReasoningTokens": 3000,
         "maxWallClockMs": 45000,
         "maxProviderCostUsd": 0.2
@@ -400,5 +400,5 @@
     "appliesBefore": "ANY_NEW_PROVIDER_NETWORK_CALL"
   },
   "stateEffects": [],
-  "planHash": "19ece98a4ec54f85029a5be926ae858c45fdb9d9f618d4dd96122ab20764c87c"
+  "planHash": "20be5d552ed1ad96bd65d8b08ed57cb0aaa070d2e7999f3e6f1cefd03aed89eb"
 }

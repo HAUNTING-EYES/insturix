@@ -40,8 +40,24 @@ async function main() {
   console.log('QC duration:', project.durationInFrames, 'frames @', project.fps, 'fps =', Math.round(Number(project.durationInFrames) / Number(project.fps)), 's');
   console.log('QC dims:', JSON.stringify(project.playerDimensions), 'aspect:', project.aspectRatio, 'status:', project.autoEditStatus);
 
+  // Lambda has no window: editor-relative `/proxy?src=<abs>` media URLs resolve
+  // to localhost:3000 there (proven: render pxccevxbml starved all chunks).
+  // Unwrap to the inner absolute asset-proxy URL, which Lambda fetches directly.
+  const deproxy = (v: unknown): unknown => {
+    if (typeof v === 'string' && v.includes('/proxy?src=')) {
+      const m = v.match(/[?&]src=([^&]+)/);
+      if (m) return decodeURIComponent(m[1]);
+    }
+    if (Array.isArray(v)) return v.map(deproxy);
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, deproxy(x)]));
+    }
+    return v;
+  };
+  const cleanOverlays = deproxy(overlays) as typeof overlays;
+
   const inputProps = buildLambdaRenderInputProps({
-    overlays: overlays as never,
+    overlays: cleanOverlays as never,
     durationInFrames: Number(project.durationInFrames),
     fps: Number(project.fps),
     width: Number(project.playerDimensions?.width ?? 1080),

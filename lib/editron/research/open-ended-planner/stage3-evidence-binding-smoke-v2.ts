@@ -11,7 +11,9 @@ import {
   type SerializedProviderRequestV2,
 } from './provider-codecs-v2';
 import { runProviderStageV2, type ProviderPricingV2 } from './provider-transport-v2';
-import { buildDevelopmentSmokePreflightV2 } from './smoke-preflight-v2';
+import { bindIssuedStage2PacketV2 } from './issued-stage2-packet-v2';
+import { bindIssuedStage3PacketV2 } from './issued-stage3-packet-v2';
+import { getIssuedStageRouteSourceV2 } from './issued-stage-route-source-v2';
 import {
   buildDevelopmentReferenceImageSequenceStageOnePacketV2,
   buildNextProviderStagePacketV2,
@@ -81,7 +83,7 @@ const intent = canonicalIntentJson as unknown as JsonRecord;
 const evidencePack = evidencePackJson as unknown as JsonRecord;
 
 export async function buildStage3EvidenceBindingSmokePreflightV2(): Promise<Readonly<JsonRecord>> {
-  const source = await buildDevelopmentSmokePreflightV2() as unknown as { planHash: string; routes: RouteV2[] };
+  const source = getIssuedStageRouteSourceV2() as unknown as { planHash: string; routes: RouteV2[] };
   const routes = source.routes.filter(({ routeId }) => ROUTE_IDS.has(routeId));
   if (routes.length !== ROUTE_IDS.size || routes.some(({ provider }) => provider !== 'openai')) {
     throw new Error('STAGE3_ROUTE_SET_INCOMPLETE');
@@ -265,8 +267,9 @@ export function evaluateStage3EvidenceBindingArtifactV2(value: unknown): Readonl
 
 function stageThreePacket(): HashedStagePacketV2 {
   const stageOne = buildDevelopmentReferenceImageSequenceStageOnePacketV2('DEV-02', 'BASELINE');
-  const stageTwo = buildNextProviderStagePacketV2({ previousPacket: stageOne, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: canonicalBlueprintJson as JsonRecord & { artifactType: string; taskId: string } });
-  return buildNextProviderStagePacketV2({ previousPacket: stageTwo, stage: 3, executionFormArm: 'FREE_CHOICE', priorArtifact: intent as JsonRecord & { artifactType: string; taskId: string } });
+  const stageTwo = bindIssuedStage2PacketV2(buildNextProviderStagePacketV2({ previousPacket: stageOne, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: canonicalBlueprintJson as JsonRecord & { artifactType: string; taskId: string } }));
+  const currentPacket = buildNextProviderStagePacketV2({ previousPacket: stageTwo, stage: 3, executionFormArm: 'FREE_CHOICE', priorArtifact: intent as JsonRecord & { artifactType: string; taskId: string } });
+  return bindIssuedStage3PacketV2(currentPacket);
 }
 
 function countInputTokens(input: { attempt: 1 | 2; request: SerializedProviderRequestV2; priorRequest?: SerializedProviderRequestV2; priorInputTokens?: number; row: RowV2 }): number {

@@ -1,0 +1,2796 @@
+{
+  "artifactType": "EditronCapabilityOwnerReconciliationV1",
+  "schemaVersion": 1,
+  "authority": "RESEARCH_CENSUS_NO_RUNTIME_MUTATION",
+  "domain": "VISUAL_KEYFRAME_TRANSITION_CAPTION_RENDER",
+  "status": "DOMAIN_RECONCILED_CATALOG_NOT_POPULATED",
+  "sourceBinding": {
+    "worktree": "D:/google downloads/Front-End-main/editron-worktree",
+    "branch": "infrastructure-improvs-+Editron",
+    "commit": "a5dffffa5aeaf9f34feadba9533f8d8aa03ddcc9",
+    "workingTreeDirty": true,
+    "generatedAt": "2026-08-18T17:30:00+05:30",
+    "sourceSurfaceSnapshotHash": "a453fec27ef72e9497fa15ba8b9419023619e0f45e50ad9b674825ac5c84d95a",
+    "snapshotAlgorithm": "sha256(sorted(path + NUL + sha256(rawFileBytes)).join(LF))",
+    "evidenceSnapshotHash": "e5eb96e172fa15f2aa0cba7e11e5d44453aff034373ee92f4f5bd8b4bed87382",
+    "evidencePaths": [
+      "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+      "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+      "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+      "components/editron/editor/version-7.0.0/components/overlays/captions/caption-style-panel.tsx",
+      "components/editron/editor/version-7.0.0/components/overlays/captions/captions-panel.tsx",
+      "components/editron/editor/version-7.0.0/components/overlays/shared/keyframe-inspector-panel.tsx",
+      "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+      "components/editron/editor/version-7.0.0/components/overlays/video/video-layer-content.tsx",
+      "components/editron/editor/version-7.0.0/components/timeline/timeline-grid.tsx",
+      "components/editron/editor/version-7.0.0/components/transitions/transition-browser-panel.tsx",
+      "components/editron/editor/version-7.0.0/contexts/keyframe-context.tsx",
+      "components/editron/editor/version-7.0.0/hooks/use-keyframes.tsx",
+      "components/editron/editor/version-7.0.0/types.ts",
+      "lib/editron/agent/chat-visual-tools.ts",
+      "lib/editron/agent/tools.ts",
+      "lib/editron/data/transition-system.ts",
+      "lib/editron/services/canonical-caption-track.ts",
+      "lib/editron/services/caption-form.ts",
+      "lib/editron/services/caption-preset-registry.ts",
+      "lib/editron/services/chat-canonical-caption-adapter.ts",
+      "lib/editron/services/edl-executor.ts",
+      "lib/editron/services/keyframe-mutation.ts",
+      "lib/editron/services/project-service.ts",
+      "lib/editron/services/transition-boundary.ts",
+      "lib/editron/services/transition-form.ts",
+      "lib/editron/services/transition-render-form.ts",
+      "lib/editron/services/zoom-form.ts"
+    ]
+  },
+  "candidateCount": 24,
+  "candidates": [
+    {
+      "candidateId": "caption.canonical-install",
+      "family": "captions",
+      "kind": "MUTATE",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "manual.editor-context-functions",
+        "persistence.project-service-public-methods",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "const addCaptions = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/services/chat-canonical-caption-adapter.ts",
+          "symbol": "planChatCanonicalCaptionTrack"
+        },
+        "formOwner": {
+          "path": "lib/editron/services/canonical-caption-track.ts",
+          "symbol": "installCanonicalCaptionTrack"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "replaceOverlayFamilyAtomic"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async replaceOverlayFamilyAtomic("
+        },
+        "storedState": [
+          "one canonical caption overlay plus its word timing, display configuration, style audit and source metadata"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+            "symbol": "CaptionLayerContent"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "PROJECT_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The adapter plans from a loaded project and replaceOverlayFamilyAtomic compares the loaded updatedAt before one overlay-family CAS. The boolean tool response still does not expose the writer receipt."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "caption.install.canonical-chat-only",
+          "statement": "Chat delegates to the canonical caption form/track owners and commits once, but manual caption creation remains a separate local-state path.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/tools.ts",
+              "symbol": "planChatCanonicalCaptionTrack"
+            },
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/captions/captions-panel.tsx",
+              "symbol": "addOverlay(newCaptionOverlay)"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Expose the same canonical install command to manual UI without replacing manually authored caption tracks.",
+        "Bind returned ProjectMutationReceiptV1 and rendered caption proof to the operation."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "const addCaptions = tool("
+        },
+        {
+          "path": "lib/editron/services/chat-canonical-caption-adapter.ts",
+          "symbol": "planChatCanonicalCaptionTrack"
+        },
+        {
+          "path": "lib/editron/services/canonical-caption-track.ts",
+          "symbol": "installCanonicalCaptionTrack"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async replaceOverlayFamilyAtomic("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+          "symbol": "CaptionLayerContent"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/captions-panel.tsx",
+          "symbol": "addOverlay(newCaptionOverlay)"
+        }
+      ]
+    },
+    {
+      "candidateId": "caption.canonical-refresh",
+      "family": "captions",
+      "kind": "MUTATE",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "WRAPPER_ONLY",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "persistence.project-service-public-methods"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "const refreshCaptionsAI = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/services/chat-canonical-caption-adapter.ts",
+          "symbol": "planChatCanonicalCaptionTrack"
+        },
+        "formOwner": {
+          "path": "lib/editron/services/canonical-caption-track.ts",
+          "symbol": "installCanonicalCaptionTrack"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "replaceOverlayFamilyAtomic"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async replaceOverlayFamilyAtomic("
+        },
+        "storedState": [
+          "replacement canonical caption overlay family"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+            "symbol": "CaptionLayerContent"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "PROJECT_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "Refresh uses the same one-write overlay-family CAS as install."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "INFO",
+          "code": "caption.refresh.wrapper",
+          "statement": "Refresh is an overwrite-mode caller of the same canonical install owner, not a second atomic capability.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/tools.ts",
+              "symbol": "overwrite: true"
+            },
+            {
+              "path": "lib/editron/services/chat-canonical-caption-adapter.ts",
+              "symbol": "planChatCanonicalCaptionTrack"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Represent overwrite/refresh as an input disposition of the canonical install operation."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "const refreshCaptionsAI = tool("
+        },
+        {
+          "path": "lib/editron/services/chat-canonical-caption-adapter.ts",
+          "symbol": "planChatCanonicalCaptionTrack"
+        },
+        {
+          "path": "lib/editron/services/canonical-caption-track.ts",
+          "symbol": "installCanonicalCaptionTrack"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async replaceOverlayFamilyAtomic("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+          "symbol": "CaptionLayerContent"
+        }
+      ]
+    },
+    {
+      "candidateId": "caption.canonical-restyle",
+      "family": "captions",
+      "kind": "MUTATE",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "manual.editor-context-functions",
+        "persistence.project-service-public-methods"
+      ],
+      "surfaces": [
+        "MANUAL_UI",
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "SHARED_PERSISTENCE_DIVERGENT_EXECUTION",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "const batchEditCaptions = tool("
+          },
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-style-panel.tsx",
+            "symbol": "toolName: 'batch_edit_captions'"
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/services/chat-canonical-caption-adapter.ts",
+          "symbol": "planChatCanonicalCaptionRestyle"
+        },
+        "formOwner": {
+          "path": "lib/editron/services/canonical-caption-track.ts",
+          "symbol": "restyleCanonicalCaptionTracks"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "replaceOverlayFamilyAtomic"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async replaceOverlayFamilyAtomic("
+        },
+        "storedState": [
+          "canonical caption presentation and requested style intent across caption tracks"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+            "symbol": "CaptionLayerContent"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "PROJECT_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The batch style action plans all caption changes and persists them through one overlay-family CAS."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "caption.restyle.manual-split",
+          "statement": "The manual style panel can call canonical batch restyle, but it also supports direct local per-overlay template/style edits that bypass the canonical resolver.",
+          "evidenceRefs": [
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-style-panel.tsx",
+              "symbol": "toolName: 'batch_edit_captions'"
+            },
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-style-panel.tsx",
+              "symbol": "const applyTemplate ="
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Route every supported manual caption style edit through a shared command or explicitly preserve a manual-authoring lane.",
+        "Certify font availability, brand-vault selection, collision, accessibility and rendered proof."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "const batchEditCaptions = tool("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-style-panel.tsx",
+          "symbol": "toolName: 'batch_edit_captions'"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-style-panel.tsx",
+          "symbol": "const applyTemplate ="
+        },
+        {
+          "path": "lib/editron/services/chat-canonical-caption-adapter.ts",
+          "symbol": "planChatCanonicalCaptionRestyle"
+        },
+        {
+          "path": "lib/editron/services/canonical-caption-track.ts",
+          "symbol": "restyleCanonicalCaptionTracks"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async replaceOverlayFamilyAtomic("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+          "symbol": "CaptionLayerContent"
+        }
+      ]
+    },
+    {
+      "candidateId": "caption.fancy-html",
+      "family": "captions",
+      "kind": "WORKFLOW",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "COMPOUND_MULTIWRITE",
+      "catalogDisposition": "WRAPPER_ONLY",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "add_fancy_captions"
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "const addFancyCaptions"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "projectService.addOverlay"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async addOverlay("
+        },
+        "storedState": [
+          "generated HTML-scene caption overlays outside the canonical caption-track representation"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+            "symbol": "case OverlayType.HTML_SCENE"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "MULTIWRITE_NON_ATOMIC",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "Fancy captions create generated scene overlays through repeated project writes and do not use the canonical caption-family CAS."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P0",
+          "code": "caption.fancy.shadow-authority",
+          "statement": "Animated/fancy captions remain a separate generated HTML-scene authority rather than a parameterization of the canonical caption track.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/tools.ts",
+              "symbol": "add_fancy_captions"
+            },
+            {
+              "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+              "symbol": "case OverlayType.HTML_SCENE"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Reconcile generated caption presentation with the canonical caption owner and GeneratedCompositionProgram policy in CAP-2A.3.4."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "add_fancy_captions"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async addOverlay("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+          "symbol": "case OverlayType.HTML_SCENE"
+        }
+      ]
+    },
+    {
+      "candidateId": "caption.manual-create",
+      "family": "captions",
+      "kind": "UI_CONTROL",
+      "implementationStatus": "LIVE",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": [
+        "manual.editor-context-functions",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "MANUAL_UI",
+        "RENDERER"
+      ],
+      "parityStatus": "MANUAL_ONLY",
+      "chain": {
+        "callers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/captions/captions-panel.tsx",
+            "symbol": "CaptionsPanel"
+          }
+        ],
+        "decisionOwner": {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/captions-panel.tsx",
+          "symbol": "handleCreateCaptions"
+        },
+        "mutationOwners": [],
+        "storedState": [
+          "browser-local caption overlay until project save"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+            "symbol": "CaptionLayerContent"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "LOCAL_ONLY",
+        "writerReceipt": "NONE",
+        "detail": "The panel calls editor-context addOverlay and only later participates in whole-project save/autosave."
+      },
+      "recovery": {
+        "undo": "SUPPORTED",
+        "redo": "SUPPORTED",
+        "replay": "UNAVAILABLE",
+        "detail": "The browser local history can undo/redo local overlay state, but it is not a canonical project transaction or durable replay authority."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "caption.manual.local-authority",
+          "statement": "Manual text/JSON caption creation uses local defaults and grouping rather than the canonical caption form/track owner.",
+          "evidenceRefs": [
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/captions/captions-panel.tsx",
+              "symbol": "addOverlay(newCaptionOverlay)"
+            },
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/captions/captions-panel.tsx",
+              "symbol": "defaultCaptionStyles"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Decide whether manual authoring stays an explicit authored lane or delegates creation to the canonical caption owner."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/captions-panel.tsx",
+          "symbol": "CaptionsPanel"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/captions-panel.tsx",
+          "symbol": "addOverlay(newCaptionOverlay)"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+          "symbol": "CaptionLayerContent"
+        }
+      ]
+    },
+    {
+      "candidateId": "caption.manual-style",
+      "family": "captions",
+      "kind": "UI_CONTROL",
+      "implementationStatus": "LIVE",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": [
+        "manual.editor-context-functions",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "MANUAL_UI",
+        "RENDERER"
+      ],
+      "parityStatus": "MANUAL_ONLY",
+      "chain": {
+        "callers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-style-panel.tsx",
+            "symbol": "CaptionStylePanel"
+          }
+        ],
+        "decisionOwner": {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-style-panel.tsx",
+          "symbol": "const applyTemplate ="
+        },
+        "mutationOwners": [],
+        "storedState": [
+          "browser-local caption styles, template and displayConfig"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+            "symbol": "CaptionLayerContent"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "LOCAL_ONLY",
+        "writerReceipt": "NONE",
+        "detail": "Per-track style controls update local overlay state and rely on later project persistence."
+      },
+      "recovery": {
+        "undo": "SUPPORTED",
+        "redo": "SUPPORTED",
+        "replay": "UNAVAILABLE",
+        "detail": "The browser local history can undo/redo local overlay state, but it is not a canonical project transaction or durable replay authority."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "caption.style.multiple-defaults",
+          "statement": "Manual caption templates, canonical presets and atomic presentation aliases coexist; a rendered form can therefore depend on which caller authored the overlay.",
+          "evidenceRefs": [
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-style-panel.tsx",
+              "symbol": "captionTemplates"
+            },
+            {
+              "path": "lib/editron/services/caption-preset-registry.ts",
+              "symbol": "CAPTION_PRESETS"
+            },
+            {
+              "path": "lib/editron/services/caption-form.ts",
+              "symbol": "STYLE_ALIASES"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Unify legal font/style inputs while retaining explicit user-authored overrides and provenance."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-style-panel.tsx",
+          "symbol": "CaptionStylePanel"
+        },
+        {
+          "path": "lib/editron/services/caption-preset-registry.ts",
+          "symbol": "CAPTION_PRESETS"
+        },
+        {
+          "path": "lib/editron/services/caption-form.ts",
+          "symbol": "STYLE_ALIASES"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+          "symbol": "CaptionLayerContent"
+        }
+      ]
+    },
+    {
+      "candidateId": "caption.render",
+      "family": "captions",
+      "kind": "METADATA_PROJECTION",
+      "implementationStatus": "LIVE",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": [
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "RENDERER"
+      ],
+      "parityStatus": "NOT_APPLICABLE",
+      "chain": {
+        "callers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+            "symbol": "case OverlayType.CAPTION"
+          }
+        ],
+        "formOwner": {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+          "symbol": "CaptionLayerContent"
+        },
+        "mutationOwners": [],
+        "storedState": [
+          "reads CaptionOverlay timing, words, styles, template and displayConfig"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+            "symbol": "CaptionLayerContent"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "NOT_APPLICABLE",
+        "writerReceipt": "NONE",
+        "detail": "Renderer projection performs no project mutation."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "NOT_APPLICABLE",
+        "replay": "NOT_APPLICABLE",
+        "detail": "Read/form/projection records do not mutate canonical project state."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "caption.render.no-acceptance-proof",
+          "statement": "The renderer consumes caption data, but this path alone does not prove font availability, legibility, collision avoidance, brand fit or accessibility in the output.",
+          "evidenceRefs": [
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+              "symbol": "resolveCaptionRenderedFontSize"
+            },
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+              "symbol": "resolveCaptionWordTextShadow"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Bind deterministic font resolution and rendered caption proof to canonical caption mutations."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+          "symbol": "case OverlayType.CAPTION"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+          "symbol": "CaptionLayerContent"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+          "symbol": "resolveCaptionRenderedFontSize"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+          "symbol": "resolveCaptionWordTextShadow"
+        }
+      ]
+    },
+    {
+      "candidateId": "keyframe.manual-edit",
+      "family": "keyframes",
+      "kind": "UI_CONTROL",
+      "implementationStatus": "LIVE",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": [
+        "manual.editor-context-functions",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "MANUAL_UI",
+        "RENDERER"
+      ],
+      "parityStatus": "MANUAL_ONLY",
+      "chain": {
+        "callers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/shared/keyframe-inspector-panel.tsx",
+            "symbol": "KeyframeInspectorPanel"
+          }
+        ],
+        "decisionOwner": {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/shared/keyframe-inspector-panel.tsx",
+          "symbol": "const updateTracks ="
+        },
+        "mutationOwners": [],
+        "storedState": [
+          "browser-local overlay.keyframeTracks"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+            "symbol": "evaluateAllTracks"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "LOCAL_ONLY",
+        "writerReceipt": "NONE",
+        "detail": "Inspector changes local overlay state and is persisted only by a later whole-project save."
+      },
+      "recovery": {
+        "undo": "SUPPORTED",
+        "redo": "SUPPORTED",
+        "replay": "UNAVAILABLE",
+        "detail": "The browser local history can undo/redo local overlay state, but it is not a canonical project transaction or durable replay authority."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "keyframe.manual.chat-form-divergence",
+          "statement": "Manual keyframes write raw x/y/scale/opacity/rotation tracks; chat set_keyframes also maintains speedCurve and scale focal metadata through buildKeyframeMutationPatch.",
+          "evidenceRefs": [
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/shared/keyframe-inspector-panel.tsx",
+              "symbol": "keyframeTracks: newTracks"
+            },
+            {
+              "path": "lib/editron/services/keyframe-mutation.ts",
+              "symbol": "buildKeyframeMutationPatch"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Expose one canonical keyframe mutation contract while keeping local interactive editing responsive."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/shared/keyframe-inspector-panel.tsx",
+          "symbol": "KeyframeInspectorPanel"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/shared/keyframe-inspector-panel.tsx",
+          "symbol": "keyframeTracks: newTracks"
+        },
+        {
+          "path": "lib/editron/services/keyframe-mutation.ts",
+          "symbol": "buildKeyframeMutationPatch"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+          "symbol": "evaluateAllTracks"
+        }
+      ]
+    },
+    {
+      "candidateId": "keyframe.set-one",
+      "family": "keyframes",
+      "kind": "MUTATE",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "persistence.project-service-public-methods",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "name: 'set_keyframes'"
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "resolveKeyframeEditParams"
+        },
+        "formOwner": {
+          "path": "lib/editron/services/keyframe-mutation.ts",
+          "symbol": "buildKeyframeMutationPatch"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "projectService.updateOverlay"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        "storedState": [
+          "one overlay keyframeTracks plus speedCurve or transformOrigin when applicable"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+            "symbol": "evaluateAllTracks"
+          },
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/video/video-layer-content.tsx",
+            "symbol": "computeSpeedSegments"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "INTERNAL_READ_THEN_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "One overlay writer CAS is atomic, but target/form decisions are derived before the writer independently reads its expected revision."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "keyframe.set.stale-form-window",
+          "statement": "A concurrent edit can make the previously resolved overlay/form stale even though the eventual single-overlay write is internally CAS-protected.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "resolveKeyframeEditParams"
+            },
+            {
+              "path": "lib/editron/services/project-service.ts",
+              "symbol": "async updateOverlay("
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Accept an explicit expected project revision and return the exact writer receipt.",
+        "Add bounded rendered motion/focal proof."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "name: 'set_keyframes'"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "resolveKeyframeEditParams"
+        },
+        {
+          "path": "lib/editron/services/keyframe-mutation.ts",
+          "symbol": "buildKeyframeMutationPatch"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+          "symbol": "evaluateAllTracks"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/video/video-layer-content.tsx",
+          "symbol": "computeSpeedSegments"
+        }
+      ]
+    },
+    {
+      "candidateId": "overlay.render-dispatch",
+      "family": "overlay-rendering",
+      "kind": "METADATA_PROJECTION",
+      "implementationStatus": "LIVE",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": [
+        "render.layer-content-overlay-cases",
+        "state.overlay-type-declarations"
+      ],
+      "surfaces": [
+        "RENDERER"
+      ],
+      "parityStatus": "NOT_APPLICABLE",
+      "chain": {
+        "callers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+            "symbol": "Layer"
+          }
+        ],
+        "formOwner": {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+          "symbol": "LayerContent"
+        },
+        "mutationOwners": [],
+        "storedState": [
+          "reads the persisted Overlay union"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+            "symbol": "switch (overlay.type)"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "NOT_APPLICABLE",
+        "writerReceipt": "NONE",
+        "detail": "Render dispatch performs no mutation."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "NOT_APPLICABLE",
+        "replay": "NOT_APPLICABLE",
+        "detail": "Read/form/projection records do not mutate canonical project state."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "overlay.type.case-divergence",
+          "statement": "OverlayType declares 22 values while the actual timeline Overlay union and main renderer cover 13 renderable cases; panel/state discriminators are not editing capabilities.",
+          "evidenceRefs": [
+            {
+              "path": "components/editron/editor/version-7.0.0/types.ts",
+              "symbol": "export enum OverlayType"
+            },
+            {
+              "path": "components/editron/editor/version-7.0.0/types.ts",
+              "symbol": "export type Overlay ="
+            },
+            {
+              "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+              "symbol": "switch (overlay.type)"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Keep the source inventory count gate and do not expose panel-only types as executable operations."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "components/editron/editor/version-7.0.0/types.ts",
+          "symbol": "export enum OverlayType"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/types.ts",
+          "symbol": "export type Overlay ="
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+          "symbol": "Layer"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+          "symbol": "LayerContent"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+          "symbol": "switch (overlay.type)"
+        }
+      ]
+    },
+    {
+      "candidateId": "overlay.thumbnail-cache",
+      "family": "timeline-thumbnails",
+      "kind": "UI_CONTROL",
+      "implementationStatus": "LIVE",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": [
+        "manual.editor-context-functions"
+      ],
+      "surfaces": [
+        "MANUAL_UI"
+      ],
+      "parityStatus": "MANUAL_ONLY",
+      "chain": {
+        "callers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/hooks/use-keyframes.tsx",
+            "symbol": "useKeyframes"
+          }
+        ],
+        "decisionOwner": {
+          "path": "components/editron/editor/version-7.0.0/hooks/use-keyframes.tsx",
+          "symbol": "calculateFrameCount"
+        },
+        "mutationOwners": [],
+        "storedState": [
+          "ephemeral browser data-URL thumbnail cache"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/contexts/keyframe-context.tsx",
+            "symbol": "KeyframeProvider"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "LOCAL_ONLY",
+        "writerReceipt": "NONE",
+        "detail": "This misleadingly named keyframe context caches thumbnails only and never mutates animation state."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "NOT_APPLICABLE",
+        "replay": "NOT_APPLICABLE",
+        "detail": "Read/form/projection records do not mutate canonical project state."
+      },
+      "findings": [
+        {
+          "severity": "INFO",
+          "code": "keyframe.cache.not-animation-owner",
+          "statement": "use-keyframes and KeyframeContext are thumbnail extraction/cache code, not a duplicate animation form or persistence authority.",
+          "evidenceRefs": [
+            {
+              "path": "components/editron/editor/version-7.0.0/hooks/use-keyframes.tsx",
+              "symbol": "extracts and manages keyframes from video overlays for timeline preview"
+            },
+            {
+              "path": "components/editron/editor/version-7.0.0/contexts/keyframe-context.tsx",
+              "symbol": "interface KeyframeData"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Rename the thumbnail cache in a later cleanup to prevent future ownership confusion."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "components/editron/editor/version-7.0.0/hooks/use-keyframes.tsx",
+          "symbol": "useKeyframes"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/hooks/use-keyframes.tsx",
+          "symbol": "extracts and manages keyframes from video overlays for timeline preview"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/contexts/keyframe-context.tsx",
+          "symbol": "KeyframeProvider"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/contexts/keyframe-context.tsx",
+          "symbol": "interface KeyframeData"
+        }
+      ]
+    },
+    {
+      "candidateId": "project.reframe-subject",
+      "family": "reframing",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "COMPOUND_MULTIWRITE",
+      "catalogDisposition": "EXCLUDED_UNSAFE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "persistence.project-service-public-methods"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "const reframeProject = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "buildSubjectAwareReframePlan"
+        },
+        "formOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applySubjectReframeMutation"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "dependencies.saveProject"
+          },
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "dependencies.updateProject"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async saveProject("
+        },
+        "storedState": [
+          "whole overlay array, aspect ratio, player dimensions and intelligence.lastSubjectReframe"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/video/video-layer-content.tsx",
+            "symbol": "objectPositionX"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "MULTIWRITE_NON_ATOMIC",
+        "writerReceipt": "MIXED",
+        "detail": "Reframe saves a whole project snapshot and then writes an audit field through updateProject; the pair is not one CAS transaction."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P0",
+          "code": "reframe.multiwrite-unsafe",
+          "statement": "Subject reframe can persist the visual change and then fail before/while writing audit metadata, and its whole-state save does not carry the originating expected revision here.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "await dependencies.saveProject"
+            },
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "await dependencies.updateProject"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Create one ProjectService-owned reframe command with explicit source/project revisions and one receipt.",
+        "Certify masks/tracks, subject identity, crop safety and rendered outputs."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "const reframeProject = tool("
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "buildSubjectAwareReframePlan"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applySubjectReframeMutation"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "await dependencies.saveProject"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "await dependencies.updateProject"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async saveProject("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/video/video-layer-content.tsx",
+          "symbol": "objectPositionX"
+        }
+      ]
+    },
+    {
+      "candidateId": "transition.atomic-form",
+      "family": "transitions",
+      "kind": "METADATA_PROJECTION",
+      "implementationStatus": "LIVE",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": [
+        "director.execute-plan-callers",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "RENDERER"
+      ],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/services/edl-executor.ts",
+            "symbol": "resolveAtomicTransitionForm"
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/services/transition-form.ts",
+          "symbol": "resolveAtomicTransitionForm"
+        },
+        "formOwner": {
+          "path": "lib/editron/services/transition-form.ts",
+          "symbol": "resolveAtomicTransitionForm"
+        },
+        "mutationOwners": [],
+        "storedState": [
+          "metadata.atomicTransitionForm"
+        ],
+        "finalConsumers": [
+          {
+            "path": "lib/editron/services/transition-render-form.ts",
+            "symbol": "resolveTransitionRenderParams"
+          },
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+            "symbol": "resolveOverlayTransitionForm"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "NOT_APPLICABLE",
+        "writerReceipt": "OVERLAY_METADATA_RECEIPT_ONLY",
+        "detail": "The pure form resolver does not mutate canonical project state; persisted metadata is consumed only when a writer includes it."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "NOT_APPLICABLE",
+        "replay": "NOT_APPLICABLE",
+        "detail": "Read/form/projection records do not mutate canonical project state."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "transition.form.not-shared-by-chat",
+          "statement": "EDL can persist atomicTransitionForm, but the manual/chat add_transition writer constructs a legacy transition tile without that form.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/services/edl-executor.ts",
+              "symbol": "resolveAtomicTransitionForm"
+            },
+            {
+              "path": "lib/editron/agent/tools.ts",
+              "symbol": "metadata: { isTransition: true, source: 'tool', transitionType: transId }"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Make the transition form owner the sole source of concrete duration/style/direction for every safe transition command."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/services/edl-executor.ts",
+          "symbol": "resolveAtomicTransitionForm"
+        },
+        {
+          "path": "lib/editron/services/transition-form.ts",
+          "symbol": "resolveAtomicTransitionForm"
+        },
+        {
+          "path": "lib/editron/services/transition-render-form.ts",
+          "symbol": "resolveTransitionRenderParams"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+          "symbol": "resolveOverlayTransitionForm"
+        },
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "metadata: { isTransition: true, source: 'tool', transitionType: transId }"
+        }
+      ]
+    },
+    {
+      "candidateId": "transition.manual-chat-add",
+      "family": "transitions",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "COMPOUND_MULTIWRITE",
+      "catalogDisposition": "EXCLUDED_UNSAFE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "manual.editor-context-functions",
+        "persistence.project-service-public-methods",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "MANUAL_UI",
+        "CHAT",
+        "API",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "SHARED_PERSISTENCE_DIVERGENT_EXECUTION",
+      "chain": {
+        "callers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/transitions/transition-browser-panel.tsx",
+            "symbol": "toolName: 'add_transition'"
+          },
+          {
+            "path": "components/editron/editor/version-7.0.0/components/timeline/timeline-grid.tsx",
+            "symbol": "toolName: 'add_transition'"
+          },
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "const addTransitionTool = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "TRANSITION_ALIASES"
+        },
+        "formOwner": {
+          "path": "lib/editron/data/transition-system.ts",
+          "symbol": "TRANSITIONS"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "projectService.deleteOverlay"
+          },
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "projectService.updateOverlay"
+          },
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "projectService.addOverlay"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        "storedState": [
+          "adjacent clip durations/from/keyframeTracks plus one transition overlay"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+            "symbol": "TransitionLayerContent"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "MULTIWRITE_NON_ATOMIC",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "One logical transition can delete an old tile, update two clips and add a new tile in separate CAS writes; apply-to-all repeats the sequence."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P0",
+          "code": "transition.partial-commit",
+          "statement": "A failure after any prefix leaves a partially changed boundary; the operation also calculates a reduced maxOverlap but continues using the original overlapFrames.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/tools.ts",
+              "symbol": "await projectService.deleteOverlay"
+            },
+            {
+              "path": "lib/editron/agent/tools.ts",
+              "symbol": "await projectService.updateOverlay"
+            },
+            {
+              "path": "lib/editron/agent/tools.ts",
+              "symbol": "await projectService.addOverlay"
+            },
+            {
+              "path": "lib/editron/agent/tools.ts",
+              "symbol": "const maxOverlap ="
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Add one ProjectService-owned boundary transition command with handle validation and one receipt.",
+        "Delegate concrete form to resolveAtomicTransitionForm and prove browser/server rendering parity."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "components/editron/editor/version-7.0.0/components/transitions/transition-browser-panel.tsx",
+          "symbol": "toolName: 'add_transition'"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/timeline/timeline-grid.tsx",
+          "symbol": "toolName: 'add_transition'"
+        },
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "const addTransitionTool = tool("
+        },
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "TRANSITION_ALIASES"
+        },
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "const maxOverlap ="
+        },
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "await projectService.deleteOverlay"
+        },
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "await projectService.updateOverlay"
+        },
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "await projectService.addOverlay"
+        },
+        {
+          "path": "lib/editron/data/transition-system.ts",
+          "symbol": "TRANSITIONS"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        {
+          "path": "lib/editron/services/transition-boundary.ts",
+          "symbol": "findNearestVisualClipBoundary"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+          "symbol": "TransitionLayerContent"
+        }
+      ]
+    },
+    {
+      "candidateId": "transition.render",
+      "family": "transitions",
+      "kind": "METADATA_PROJECTION",
+      "implementationStatus": "LIVE",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": [
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "RENDERER"
+      ],
+      "parityStatus": "NOT_APPLICABLE",
+      "chain": {
+        "callers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+            "symbol": "case OverlayType.TRANSITION"
+          }
+        ],
+        "formOwner": {
+          "path": "lib/editron/services/transition-render-form.ts",
+          "symbol": "resolveTransitionRenderParams"
+        },
+        "mutationOwners": [],
+        "storedState": [
+          "transition overlay, adjacent clip identities and optional atomicTransitionForm"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+            "symbol": "renderTransition"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "NOT_APPLICABLE",
+        "writerReceipt": "NONE",
+        "detail": "Renderer projection performs no project mutation."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "NOT_APPLICABLE",
+        "replay": "NOT_APPLICABLE",
+        "detail": "Read/form/projection records do not mutate canonical project state."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "transition.render-fallbacks",
+          "statement": "Missing both clip sources renders black and unknown styles silently dissolve; editorial cut labels render no effect and therefore do not prove semantic match/smash/action quality.",
+          "evidenceRefs": [
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+              "symbol": "if (!clipASrc && !clipBSrc)"
+            },
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+              "symbol": "default:"
+            },
+            {
+              "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+              "symbol": "case 'match-cut'"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Fail or return UNVERIFIABLE for missing sources/unsupported forms and add motion/continuity/audio proof."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+          "symbol": "case OverlayType.TRANSITION"
+        },
+        {
+          "path": "lib/editron/services/transition-render-form.ts",
+          "symbol": "resolveTransitionRenderParams"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+          "symbol": "renderTransition"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+          "symbol": "if (!clipASrc && !clipBSrc)"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+          "symbol": "case 'match-cut'"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+          "symbol": "default:"
+        }
+      ]
+    },
+    {
+      "candidateId": "visual.apply-camera-shake",
+      "family": "camera shake",
+      "kind": "MUTATE",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "persistence.project-service-public-methods",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "const applyCameraShake = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyCameraShakeToProject"
+        },
+        "formOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyCameraShakeToProject"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "projectService.updateOverlay"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        "storedState": [
+          "keyframeTracks"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+            "symbol": "evaluateAllTracks"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "INTERNAL_READ_THEN_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The pure planner produces exactly one overlay update and the writer is one CAS, but the operation has no caller-supplied expected revision binding the planning read."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "visual-apply-camera-shake.unpinned-plan",
+          "statement": "The logical form is bounded to one overlay, but planning and persistence are not one revision-bound command and rendered acceptance proof is not returned.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "applyCameraShakeToProject"
+            },
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "projectService.updateOverlay"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Add explicit expected revision, exact writer receipt and claim-specific rendered proof.",
+        "Reconcile the equivalent manual control with the same form contract."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "const applyCameraShake = tool("
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyCameraShakeToProject"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "projectService.updateOverlay"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+          "symbol": "evaluateAllTracks"
+        }
+      ]
+    },
+    {
+      "candidateId": "visual.apply-fade",
+      "family": "fade",
+      "kind": "MUTATE",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "persistence.project-service-public-methods",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "const applyFade = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyFadeToProject"
+        },
+        "formOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyFadeToProject"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "projectService.updateOverlay"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        "storedState": [
+          "keyframeTracks"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+            "symbol": "evaluateAllTracks"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "INTERNAL_READ_THEN_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The pure planner produces exactly one overlay update and the writer is one CAS, but the operation has no caller-supplied expected revision binding the planning read."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "visual-apply-fade.unpinned-plan",
+          "statement": "The logical form is bounded to one overlay, but planning and persistence are not one revision-bound command and rendered acceptance proof is not returned.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "applyFadeToProject"
+            },
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "projectService.updateOverlay"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Add explicit expected revision, exact writer receipt and claim-specific rendered proof.",
+        "Reconcile the equivalent manual control with the same form contract."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "const applyFade = tool("
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyFadeToProject"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "projectService.updateOverlay"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+          "symbol": "evaluateAllTracks"
+        }
+      ]
+    },
+    {
+      "candidateId": "visual.apply-filter",
+      "family": "filter",
+      "kind": "MUTATE",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "persistence.project-service-public-methods",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "const applyFilter = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyFilterToProject"
+        },
+        "formOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyFilterToProject"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "projectService.updateOverlay"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        "storedState": [
+          "styles.filter"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+            "symbol": "styles?.opacity"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "INTERNAL_READ_THEN_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The pure planner produces exactly one overlay update and the writer is one CAS, but the operation has no caller-supplied expected revision binding the planning read."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "visual-apply-filter.unpinned-plan",
+          "statement": "The logical form is bounded to one overlay, but planning and persistence are not one revision-bound command and rendered acceptance proof is not returned.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "applyFilterToProject"
+            },
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "projectService.updateOverlay"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Add explicit expected revision, exact writer receipt and claim-specific rendered proof.",
+        "Reconcile the equivalent manual control with the same form contract."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "const applyFilter = tool("
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyFilterToProject"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "projectService.updateOverlay"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+          "symbol": "styles?.opacity"
+        }
+      ]
+    },
+    {
+      "candidateId": "visual.apply-speed-ramp",
+      "family": "speed ramp",
+      "kind": "MUTATE",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "persistence.project-service-public-methods",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "const applySpeedRamp = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applySpeedRampToProject"
+        },
+        "formOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applySpeedRampToProject"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "projectService.updateOverlay"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        "storedState": [
+          "speedCurve and speed keyframeTracks"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/overlays/video/video-layer-content.tsx",
+            "symbol": "computeSpeedSegments"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "INTERNAL_READ_THEN_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The pure planner produces exactly one overlay update and the writer is one CAS, but the operation has no caller-supplied expected revision binding the planning read."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "visual-apply-speed-ramp.unpinned-plan",
+          "statement": "The logical form is bounded to one overlay, but planning and persistence are not one revision-bound command and rendered acceptance proof is not returned.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "applySpeedRampToProject"
+            },
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "projectService.updateOverlay"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Add explicit expected revision, exact writer receipt and claim-specific rendered proof.",
+        "Reconcile the equivalent manual control with the same form contract."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "const applySpeedRamp = tool("
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applySpeedRampToProject"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "projectService.updateOverlay"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/video/video-layer-content.tsx",
+          "symbol": "computeSpeedSegments"
+        }
+      ]
+    },
+    {
+      "candidateId": "visual.find-moment",
+      "family": "visual evidence retrieval",
+      "kind": "READ",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE"
+      ],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "const findVisualMoment = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "findVisualMomentCandidates"
+        },
+        "mutationOwners": [],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async loadProject("
+        },
+        "storedState": [],
+        "finalConsumers": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "resolveVisualEditPlacement"
+          }
+        ],
+        "proofOwners": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "verifyChatFrameVisualMatch"
+          }
+        ]
+      },
+      "revisionSafety": {
+        "status": "READ_CURRENT_UNPINNED",
+        "writerReceipt": "NONE",
+        "detail": "The retrieval reads the current project but emits no opaque project/evidence revision binding for downstream mutation."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "NOT_APPLICABLE",
+        "replay": "NOT_APPLICABLE",
+        "detail": "Read/form/projection records do not mutate canonical project state."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "visual.find.unbound-evidence",
+          "statement": "Candidates carry evidence, but downstream edits can outlive the project/source state from which they were retrieved.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "canonicalEvidence: retrieval.audit"
+            },
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "resolve_visual_edit before any mutation"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Bind project/source/evidence revisions and expiry into the resolver handoff."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "const findVisualMoment = tool("
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "findVisualMomentCandidates"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "canonicalEvidence: retrieval.audit"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "verifyChatFrameVisualMatch"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async loadProject("
+        }
+      ]
+    },
+    {
+      "candidateId": "visual.move-retime",
+      "family": "move/retime",
+      "kind": "MUTATE",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "persistence.project-service-public-methods",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "const moveRetimeOverlay = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyMoveRetimeToProject"
+        },
+        "formOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyMoveRetimeToProject"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "projectService.updateOverlay"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        "storedState": [
+          "from and durationInFrames"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+            "symbol": "Sequence"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "INTERNAL_READ_THEN_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The pure planner produces exactly one overlay update and the writer is one CAS, but the operation has no caller-supplied expected revision binding the planning read."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "visual-move-retime.unpinned-plan",
+          "statement": "The logical form is bounded to one overlay, but planning and persistence are not one revision-bound command and rendered acceptance proof is not returned.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "applyMoveRetimeToProject"
+            },
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "projectService.updateOverlay"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Add explicit expected revision, exact writer receipt and claim-specific rendered proof.",
+        "Reconcile the equivalent manual control with the same form contract."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "const moveRetimeOverlay = tool("
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyMoveRetimeToProject"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "projectService.updateOverlay"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+          "symbol": "Sequence"
+        }
+      ]
+    },
+    {
+      "candidateId": "visual.reorder-layer",
+      "family": "layer reorder",
+      "kind": "MUTATE",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle",
+        "persistence.project-service-public-methods",
+        "render.layer-content-overlay-cases"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE",
+        "RENDERER"
+      ],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "const reorderLayer = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyLayerReorderToProject"
+        },
+        "formOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyLayerReorderToProject"
+        },
+        "mutationOwners": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "projectService.updateOverlay"
+          }
+        ],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        "storedState": [
+          "row and optional styles"
+        ],
+        "finalConsumers": [
+          {
+            "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+            "symbol": "zIndex"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "INTERNAL_READ_THEN_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The pure planner produces exactly one overlay update and the writer is one CAS, but the operation has no caller-supplied expected revision binding the planning read."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "PARTIAL",
+        "detail": "A ProjectService write can participate in checkpoint rollback when invoked through the transaction runtime, but direct callers expose no complete IF1 undo/replay binding and chat redo remains unavailable."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "visual-reorder-layer.unpinned-plan",
+          "statement": "The logical form is bounded to one overlay, but planning and persistence are not one revision-bound command and rendered acceptance proof is not returned.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "applyLayerReorderToProject"
+            },
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "projectService.updateOverlay"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Add explicit expected revision, exact writer receipt and claim-specific rendered proof.",
+        "Reconcile the equivalent manual control with the same form contract."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "const reorderLayer = tool("
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "applyLayerReorderToProject"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "projectService.updateOverlay"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async updateOverlay("
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+          "symbol": "zIndex"
+        }
+      ]
+    },
+    {
+      "candidateId": "visual.resolve-edit",
+      "family": "visual evidence resolution",
+      "kind": "READ",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE"
+      ],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "const resolveVisualEdit = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "resolveVisualEditPlacement"
+        },
+        "mutationOwners": [],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async loadProject("
+        },
+        "storedState": [],
+        "finalConsumers": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "name: 'set_keyframes'"
+          }
+        ],
+        "proofOwners": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "frameVerifier"
+          }
+        ]
+      },
+      "revisionSafety": {
+        "status": "READ_CURRENT_UNPINNED",
+        "writerReceipt": "NONE",
+        "detail": "Resolution can verify a supplied rendered frame and return placement, but it does not pin the project revision consumed by a later writer."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "NOT_APPLICABLE",
+        "replay": "NOT_APPLICABLE",
+        "detail": "Read/form/projection records do not mutate canonical project state."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "visual.resolve.handoff-incomplete",
+          "statement": "The resolver correctly fails loud on ambiguity, yet its output is not a versioned, expiring resolver handoff accepted atomically by a mutation owner.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "VISUAL_RESOLUTION_REQUIRED"
+            },
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "frameVerification.status !== \"confirmed\""
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Create a closed resolver handoff with project/source/evidence revisions and eligible downstream operator IDs."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "const resolveVisualEdit = tool("
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "resolveVisualEditPlacement"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "VISUAL_RESOLUTION_REQUIRED"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "frameVerification.status !== \"confirmed\""
+        },
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "name: 'set_keyframes'"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async loadProject("
+        }
+      ]
+    },
+    {
+      "candidateId": "visual.resolve-keyframe",
+      "family": "keyframes",
+      "kind": "READ",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": [
+        "chat.compatibility-tool-bundle"
+      ],
+      "surfaces": [
+        "CHAT",
+        "PROJECT_SERVICE"
+      ],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [
+          {
+            "path": "lib/editron/agent/chat-visual-tools.ts",
+            "symbol": "const resolveKeyframeEdit = tool("
+          }
+        ],
+        "decisionOwner": {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "resolveKeyframeEditParams"
+        },
+        "formOwner": {
+          "path": "lib/editron/services/zoom-form.ts",
+          "symbol": "resolveAtomicZoomForm"
+        },
+        "mutationOwners": [],
+        "persistenceOwner": {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async loadProject("
+        },
+        "storedState": [],
+        "finalConsumers": [
+          {
+            "path": "lib/editron/agent/tools.ts",
+            "symbol": "name: 'set_keyframes'"
+          }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "READ_CURRENT_UNPINNED",
+        "writerReceipt": "NONE",
+        "detail": "The resolved local-frame keyframe form is not bound to the project revision later consumed by set_keyframes."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "NOT_APPLICABLE",
+        "replay": "NOT_APPLICABLE",
+        "detail": "Read/form/projection records do not mutate canonical project state."
+      },
+      "findings": [
+        {
+          "severity": "P1",
+          "code": "zoom.resolver-handoff-unpinned",
+          "statement": "Zoom form resolution is reusable and bounded, but the handoff can become stale before mutation.",
+          "evidenceRefs": [
+            {
+              "path": "lib/editron/agent/chat-visual-tools.ts",
+              "symbol": "resolveKeyframeEditParams"
+            },
+            {
+              "path": "lib/editron/services/zoom-form.ts",
+              "symbol": "resolveAtomicZoomForm"
+            }
+          ]
+        }
+      ],
+      "unresolvedDependencies": [
+        "Return a versioned resolver handoff and preserve focal-anchor requirements through mutation and proof."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "const resolveKeyframeEdit = tool("
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "resolveKeyframeEditParams"
+        },
+        {
+          "path": "lib/editron/services/zoom-form.ts",
+          "symbol": "resolveAtomicZoomForm"
+        },
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "name: 'set_keyframes'"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "async loadProject("
+        }
+      ]
+    }
+  ],
+  "domainConclusions": [
+    {
+      "severity": "P0",
+      "code": "visual.domain.no-production-parity",
+      "statement": "Manual, chat and EDL paths share persisted overlay shapes and renderers but do not share one command/revision/receipt/proof contract; this is partial convergence, not UI/chat parity.",
+      "evidenceRefs": [
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/shared/keyframe-inspector-panel.tsx",
+          "symbol": "KeyframeInspectorPanel"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "createChatVisualTools"
+        },
+        {
+          "path": "lib/editron/services/edl-executor.ts",
+          "symbol": "resolveAtomicTransitionForm"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "export class ProjectService"
+        }
+      ]
+    },
+    {
+      "severity": "P0",
+      "code": "transition.domain.unsafe-multiwrite",
+      "statement": "The live manual/chat transition command remains a partial-commit multiwrite and bypasses the atomic transition form used by EDL.",
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "const addTransitionTool = tool("
+        },
+        {
+          "path": "lib/editron/services/transition-form.ts",
+          "symbol": "resolveAtomicTransitionForm"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/transitions/transition-browser-panel.tsx",
+          "symbol": "toolName: 'add_transition'"
+        }
+      ]
+    },
+    {
+      "severity": "P1",
+      "code": "caption.domain.partial-convergence",
+      "statement": "Canonical chat caption create/restyle has one form/track owner and one CAS persistence call, but manual authored captions and fancy HTML captions remain separate execution authorities.",
+      "evidenceRefs": [
+        {
+          "path": "lib/editron/services/chat-canonical-caption-adapter.ts",
+          "symbol": "planChatCanonicalCaptionTrack"
+        },
+        {
+          "path": "lib/editron/services/canonical-caption-track.ts",
+          "symbol": "installCanonicalCaptionTrack"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/captions-panel.tsx",
+          "symbol": "addOverlay(newCaptionOverlay)"
+        },
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "add_fancy_captions"
+        }
+      ]
+    },
+    {
+      "severity": "P1",
+      "code": "renderer.domain.compatibility-unproven",
+      "statement": "The main renderer handles 13 timeline overlay cases, uses separate browser/render video components, hardcodes 30-fps behavior in video paths and can render placeholders/fallbacks rather than failing with UNVERIFIABLE.",
+      "evidenceRefs": [
+        {
+          "path": "components/editron/editor/version-7.0.0/types.ts",
+          "symbol": "export type Overlay ="
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+          "symbol": "switch (overlay.type)"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/video/video-layer-content.tsx",
+          "symbol": "const fps = 30"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+          "symbol": "if (!clipASrc && !clipBSrc)"
+        }
+      ]
+    },
+    {
+      "severity": "INFO",
+      "code": "visual.domain.source-coverage",
+      "statement": "This conclusion exists to bind the complete 27-file visual-domain evidence set; every path remains source evidence rather than a certification claim.",
+      "evidenceRefs": [
+        {
+          "path": "components/editron/editor/version-7.0.0/types.ts",
+          "symbol": "export enum OverlayType"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer.tsx",
+          "symbol": "export const Layer"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/core/layer-content.tsx",
+          "symbol": "export const LayerContent"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/video/video-layer-content.tsx",
+          "symbol": "export const VideoLayerContent"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/shared/keyframe-inspector-panel.tsx",
+          "symbol": "KeyframeInspectorPanel"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/hooks/use-keyframes.tsx",
+          "symbol": "useKeyframes"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/contexts/keyframe-context.tsx",
+          "symbol": "KeyframeProvider"
+        },
+        {
+          "path": "lib/editron/services/keyframe-mutation.ts",
+          "symbol": "buildKeyframeMutationPatch"
+        },
+        {
+          "path": "lib/editron/services/zoom-form.ts",
+          "symbol": "resolveAtomicZoomForm"
+        },
+        {
+          "path": "lib/editron/agent/chat-visual-tools.ts",
+          "symbol": "createChatVisualTools"
+        },
+        {
+          "path": "lib/editron/agent/tools.ts",
+          "symbol": "export const createTools"
+        },
+        {
+          "path": "lib/editron/data/transition-system.ts",
+          "symbol": "TRANSITIONS"
+        },
+        {
+          "path": "lib/editron/services/transition-form.ts",
+          "symbol": "resolveAtomicTransitionForm"
+        },
+        {
+          "path": "lib/editron/services/transition-boundary.ts",
+          "symbol": "findNearestVisualClipBoundary"
+        },
+        {
+          "path": "lib/editron/services/transition-render-form.ts",
+          "symbol": "resolveTransitionRenderParams"
+        },
+        {
+          "path": "lib/editron/services/edl-executor.ts",
+          "symbol": "resolveAtomicTransitionForm"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/transitions/transition-layer-content.tsx",
+          "symbol": "TransitionLayerContent"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/transitions/transition-browser-panel.tsx",
+          "symbol": "TransitionBrowserPanel"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/timeline/timeline-grid.tsx",
+          "symbol": "handleTransitionDrop"
+        },
+        {
+          "path": "lib/editron/services/caption-form.ts",
+          "symbol": "resolveAtomicCaptionPresentation"
+        },
+        {
+          "path": "lib/editron/services/caption-preset-registry.ts",
+          "symbol": "CAPTION_PRESETS"
+        },
+        {
+          "path": "lib/editron/services/canonical-caption-track.ts",
+          "symbol": "installCanonicalCaptionTrack"
+        },
+        {
+          "path": "lib/editron/services/chat-canonical-caption-adapter.ts",
+          "symbol": "planChatCanonicalCaptionTrack"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-layer-content.tsx",
+          "symbol": "CaptionLayerContent"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/captions-panel.tsx",
+          "symbol": "CaptionsPanel"
+        },
+        {
+          "path": "components/editron/editor/version-7.0.0/components/overlays/captions/caption-style-panel.tsx",
+          "symbol": "CaptionStylePanel"
+        },
+        {
+          "path": "lib/editron/services/project-service.ts",
+          "symbol": "export class ProjectService"
+        }
+      ]
+    }
+  ],
+  "unresolvedSourceObservationIds": [
+    "api.editron-linked-route-exports",
+    "chat.compatibility-tool-bundle",
+    "chat.registry-descriptors",
+    "director.execute-plan-callers",
+    "manual.editor-context-functions",
+    "manual.timeline-shortcuts",
+    "persistence.project-service-public-methods",
+    "proof.render-delivery-module-candidates",
+    "render.layer-content-overlay-cases",
+    "state.overlay-type-declarations",
+    "worker.job-module-candidates"
+  ]
+}

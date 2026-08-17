@@ -4,6 +4,10 @@ import { promises as fs } from 'node:fs';
 import sharp from 'sharp';
 
 import { hashCanonicalJsonV1 } from './contracts-v1';
+import {
+  resolveDev02RenderedProofClaimBindingsV1,
+  type Dev02RenderedProofClaimBindingsV1,
+} from './dev02-rendered-proof-claim-policy-v1';
 import type { GeneratedCompositionProgramV1 } from './generated-composition-program-v1';
 import type { GeneratedCompositionProxyReceiptV1 } from './generated-composition-proxy-renderer-v1';
 
@@ -69,9 +73,12 @@ export async function evaluateDev02GeneratedCompositionRenderedProofV1(input: {
   proxyReceipt: GeneratedCompositionProxyReceiptV1;
   authoritativeProxyReceiptHash: string;
   boundaryReferencePath?: string;
+  referenceBlueprint?: unknown;
 }): Promise<Readonly<Dev02GeneratedCompositionRenderedProofV1>> {
   if (!/^[a-f0-9]{64}$/.test(input.authoritativeProxyReceiptHash)) throw new Error('DEV-02 rendered proof authoritative proxy identity is invalid');
-  assertPolicyBindings(input.program, input.proxyReceipt);
+  const claimBindings = assertPolicyBindings(
+    input.program, input.proxyReceipt, input.authoritativeProxyReceiptHash, input.referenceBlueprint,
+  );
   const frames = new Map<number, LoadedFrame>();
   for (const still of input.proxyReceipt.stills) {
     const bytes = await fs.readFile(still.path);
@@ -83,12 +90,12 @@ export async function evaluateDev02GeneratedCompositionRenderedProofV1(input: {
   const [frame0, frame24, frame108, frame144, frame145, frame179] = required;
   const checks: GeneratedCompositionRenderedCheckV1[] = [
     frameIntegrityCheck(required),
-    settledGeometryCheck(frame108),
-    titleFormCheck(frame108),
-    opposedMotionCheck(frame24, frame108),
-    phaseStructureCheck(frame0, frame24, frame108, frame144, frame145, frame179),
-    fullCanvasReleaseCheck(frame179),
-    await boundaryContinuityCheck(frame179, input.boundaryReferencePath),
+    settledGeometryCheck(frame108, claimBindings.settledGeometry),
+    titleFormCheck(frame108, claimBindings.titleForm),
+    opposedMotionCheck(frame24, frame108, claimBindings.opposedMotion),
+    phaseStructureCheck(frame0, frame24, frame108, frame144, frame145, frame179, claimBindings.phaseStructure),
+    fullCanvasReleaseCheck(frame179, claimBindings.fullCanvasRelease),
+    await boundaryContinuityCheck(frame179, input.boundaryReferencePath, claimBindings.boundaryContinuity),
     unverifiable('FLASH_SAFETY', [], 'Six stills cannot establish flash frequency, red-flash, or spatial-pattern safety; frame-complete screening and approved PSE QC are required.'),
   ];
   const hardCheckIds = new Set(['FRAME_INTEGRITY', 'SETTLED_PANEL_GEOMETRY', 'TITLE_FORM', 'OPPOSED_PANEL_MOTION', 'PHASE_STRUCTURE', 'FULL_CANVAS_RELEASE']);
@@ -111,12 +118,33 @@ export async function evaluateDev02GeneratedCompositionRenderedProofV1(input: {
   return Object.freeze({ ...unsigned, proofHash: hashCanonicalJsonV1(unsigned) });
 }
 
-function assertPolicyBindings(program: GeneratedCompositionProgramV1, receipt: GeneratedCompositionProxyReceiptV1): void {
+function assertPolicyBindings(
+  program: GeneratedCompositionProgramV1,
+  receipt: GeneratedCompositionProxyReceiptV1,
+  _authoritativeProxyReceiptHash: string,
+  referenceBlueprint?: unknown,
+): Readonly<Dev02RenderedProofClaimBindingsV1> {
   if (program.taskId !== DEV02_RENDERED_PROOF_POLICY_V1.taskId) throw new Error('DEV-02 rendered proof policy cannot evaluate another task');
+  const { receiptHash, ...unsignedReceipt } = receipt;
+  if (receiptHash !== hashCanonicalJsonV1(unsignedReceipt)) {
+    throw new Error('DEV-02 rendered proof localized proxy receipt identity drift');
+  }
   if (hashCanonicalJsonV1(program) !== receipt.programHash) throw new Error('DEV-02 rendered proof program identity drift');
-  if (DEV02_RENDERED_PROOF_POLICY_V1.requiredClaims.some((claim) => !program.expectedMeasurementRefs.includes(claim))) throw new Error('DEV-02 rendered proof claim binding drift');
+  if (referenceBlueprint === undefined) {
+    if (DEV02_RENDERED_PROOF_POLICY_V1.requiredClaims.some((claim) => !program.expectedMeasurementRefs.includes(claim))) {
+      throw new Error('DEV-02 rendered proof reference blueprint is required for non-legacy claim identities');
+    }
+  } else if (hashCanonicalJsonV1(referenceBlueprint) !== program.referenceBinding.blueprintHash) {
+    throw new Error('DEV-02 rendered proof reference blueprint identity drift');
+  }
   const frames = receipt.stills.map(({ frame }) => frame);
   if (JSON.stringify(frames) !== JSON.stringify(DEV02_RENDERED_PROOF_POLICY_V1.requiredFrames)) throw new Error('DEV-02 rendered proof frame schedule drift');
+  return referenceBlueprint === undefined
+    ? legacyClaimBindings()
+    : resolveDev02RenderedProofClaimBindingsV1({
+      expectedMeasurementRefs: program.expectedMeasurementRefs,
+      referenceBlueprint,
+    });
 }
 
 async function loadImage(filePath: string, width: number, height: number, frame: number): Promise<LoadedFrame> {
@@ -143,7 +171,7 @@ function frameIntegrityCheck(frames: readonly LoadedFrame[]): GeneratedCompositi
   return check('FRAME_INTEGRITY', pass, [], metrics, 'Required frames must be materially rendered rather than blank or effectively solid.');
 }
 
-function settledGeometryCheck(frame: LoadedFrame): GeneratedCompositionRenderedCheckV1 {
+function settledGeometryCheck(frame: LoadedFrame, claimIds: readonly string[]): GeneratedCompositionRenderedCheckV1 {
   const interiors = {
     leftTop: [0.02, 0.01, 0.30, 0.31], leftBottom: [0.02, 0.68, 0.30, 0.31], centre: [0.35, 0.36, 0.30, 0.28],
     rightTop: [0.69, 0.01, 0.29, 0.31], rightBottom: [0.69, 0.68, 0.29, 0.31],
@@ -157,10 +185,10 @@ function settledGeometryCheck(frame: LoadedFrame): GeneratedCompositionRenderedC
   for (const [id, region] of Object.entries(gutters)) metrics[`${id}Occupancy`] = regionNonBlackRatio(frame, region);
   const pass = Object.keys(interiors).every((id) => metrics[`${id}Occupancy`] >= DEV02_RENDERED_PROOF_POLICY_V1.thresholds.minimumPanelInteriorRatio)
     && Object.keys(gutters).every((id) => metrics[`${id}Occupancy`] <= DEV02_RENDERED_PROOF_POLICY_V1.thresholds.maximumGutterNonBlackRatio);
-  return check('SETTLED_PANEL_GEOMETRY', pass, ['claim-ref-five-panels', 'claim-ref-black-gutters'], metrics, 'Five settled occupied regions must remain separated by black gutters.');
+  return check('SETTLED_PANEL_GEOMETRY', pass, claimIds, metrics, 'Five settled occupied regions must remain separated by black gutters.');
 }
 
-function titleFormCheck(frame: LoadedFrame): GeneratedCompositionRenderedCheckV1 {
+function titleFormCheck(frame: LoadedFrame, claimIds: readonly string[]): GeneratedCompositionRenderedCheckV1 {
   const rows: number[] = [];
   let minX = frame.width; let maxX = -1; let minY = frame.height; let maxY = -1;
   for (let y = Math.floor(frame.height * 0.3); y < Math.ceil(frame.height * 0.7); y += 1) {
@@ -175,37 +203,48 @@ function titleFormCheck(frame: LoadedFrame): GeneratedCompositionRenderedCheckV1
   const lineBands = contiguousBands(rows).filter(([start, end]) => end - start + 1 >= frame.height * 0.01);
   const titleSafe = minX >= frame.width * 0.05 && maxX <= frame.width * 0.95 && minY >= frame.height * 0.05 && maxY <= frame.height * 0.95;
   const pass = lineBands.length === 2 && titleSafe;
-  return check('TITLE_FORM', pass, ['claim-ref-yellow-two-line-title'], { lineBands: lineBands.length, minX, maxX, minY, maxY, titleSafe: titleSafe ? 1 : 0 }, 'A visible yellow two-line title must remain inside the title-safe centre 90%.');
+  return check('TITLE_FORM', pass, claimIds, { lineBands: lineBands.length, minX, maxX, minY, maxY, titleSafe: titleSafe ? 1 : 0 }, 'A visible yellow two-line title must remain inside the title-safe centre 90%.');
 }
 
-function opposedMotionCheck(early: LoadedFrame, settled: LoadedFrame): GeneratedCompositionRenderedCheckV1 {
+function opposedMotionCheck(early: LoadedFrame, settled: LoadedFrame, claimIds: readonly string[]): GeneratedCompositionRenderedCheckV1 {
   const earlyCentre = regionCentroidY(early, [[0.35, 0.65]]); const settledCentre = regionCentroidY(settled, [[0.35, 0.65]]);
   const earlySides = regionCentroidY(early, [[0.02, 0.32], [0.69, 0.98]]); const settledSides = regionCentroidY(settled, [[0.02, 0.32], [0.69, 0.98]]);
   const scale = settled.height / 1920;
   const minimum = DEV02_RENDERED_PROOF_POLICY_V1.thresholds.minimumOpposedTravelPixelsAt1080x1920 * scale;
   const centreRise = earlyCentre - settledCentre; const sideDescent = settledSides - earlySides;
-  return check('OPPOSED_PANEL_MOTION', centreRise >= minimum && sideDescent >= minimum, ['claim-ref-opposed-motion'], { earlyCentre, settledCentre, earlySides, settledSides, centreRise, sideDescent }, 'Centre occupancy must rise while side occupancy descends across ordered proof frames.');
+  return check('OPPOSED_PANEL_MOTION', centreRise >= minimum && sideDescent >= minimum, claimIds, { earlyCentre, settledCentre, earlySides, settledSides, centreRise, sideDescent }, 'Centre occupancy must rise while side occupancy descends across ordered proof frames.');
 }
 
-function phaseStructureCheck(frame0: LoadedFrame, frame24: LoadedFrame, frame108: LoadedFrame, frame144: LoadedFrame, frame145: LoadedFrame, frame179: LoadedFrame): GeneratedCompositionRenderedCheckV1 {
+function phaseStructureCheck(frame0: LoadedFrame, frame24: LoadedFrame, frame108: LoadedFrame, frame144: LoadedFrame, frame145: LoadedFrame, frame179: LoadedFrame, claimIds: readonly string[]): GeneratedCompositionRenderedCheckV1 {
   const buildA = meanAbsoluteDifference(frame0, frame24); const buildB = meanAbsoluteDifference(frame24, frame108);
   const hold = meanAbsoluteDifference(frame108, frame144); const releaseStart = meanAbsoluteDifference(frame144, frame145); const release = meanAbsoluteDifference(frame145, frame179);
   const t = DEV02_RENDERED_PROOF_POLICY_V1.thresholds;
   const pass = buildA >= t.minimumBuildDifference && buildB >= t.minimumBuildDifference && hold <= t.maximumHoldDifference && release >= t.minimumReleaseDifference;
-  return check('PHASE_STRUCTURE', pass, ['claim-ref-temporal-progression'], { buildA, buildB, hold, releaseStart, release }, 'The render must show an ordered build, stable hold, and release—not six unrelated states.');
+  return check('PHASE_STRUCTURE', pass, claimIds, { buildA, buildB, hold, releaseStart, release }, 'The render must show an ordered build, stable hold, and release—not six unrelated states.');
 }
 
-function fullCanvasReleaseCheck(frame: LoadedFrame): GeneratedCompositionRenderedCheckV1 {
+function fullCanvasReleaseCheck(frame: LoadedFrame, claimIds: readonly string[]): GeneratedCompositionRenderedCheckV1 {
   const ratio = pixelSummary(frame).nonBlackRatio;
-  return check('FULL_CANVAS_RELEASE', ratio >= DEV02_RENDERED_PROOF_POLICY_V1.thresholds.minimumFullCanvasNonBlackRatio, ['claim-ref-green-centre-takeover'], { nonBlackRatio: ratio }, 'The final centre-panel takeover must materially occupy the complete canvas.');
+  return check('FULL_CANVAS_RELEASE', ratio >= DEV02_RENDERED_PROOF_POLICY_V1.thresholds.minimumFullCanvasNonBlackRatio, claimIds, { nonBlackRatio: ratio }, 'The final centre-panel takeover must materially occupy the complete canvas.');
 }
 
-async function boundaryContinuityCheck(finalFrame: LoadedFrame, referencePath?: string): Promise<GeneratedCompositionRenderedCheckV1> {
-  if (!referencePath) return unverifiable('BOUNDARY_CONTINUITY', ['claim-ref-green-centre-takeover'], 'No trusted following-shot source frame was supplied.');
+async function boundaryContinuityCheck(finalFrame: LoadedFrame, referencePath: string | undefined, claimIds: readonly string[]): Promise<GeneratedCompositionRenderedCheckV1> {
+  if (!referencePath) return unverifiable('BOUNDARY_CONTINUITY', claimIds, 'No trusted following-shot source frame was supplied.');
   const decoded = await sharp(referencePath).resize(finalFrame.width, finalFrame.height, { fit: 'cover' }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const reference: LoadedFrame = { frame: finalFrame.frame + 1, data: decoded.data, width: decoded.info.width, height: decoded.info.height };
   const difference = meanAbsoluteDifference(finalFrame, reference);
-  return check('BOUNDARY_CONTINUITY', difference <= DEV02_RENDERED_PROOF_POLICY_V1.thresholds.maximumBoundaryDifference, ['claim-ref-green-centre-takeover'], { normalizedDifference: difference }, 'The generated exit must match the trusted source frame used by the following native shot.');
+  return check('BOUNDARY_CONTINUITY', difference <= DEV02_RENDERED_PROOF_POLICY_V1.thresholds.maximumBoundaryDifference, claimIds, { normalizedDifference: difference }, 'The generated exit must match the trusted source frame used by the following native shot.');
+}
+
+function legacyClaimBindings(): Readonly<Dev02RenderedProofClaimBindingsV1> {
+  return Object.freeze({
+    settledGeometry: ['claim-ref-five-panels', 'claim-ref-black-gutters'],
+    titleForm: ['claim-ref-yellow-two-line-title'],
+    opposedMotion: ['claim-ref-opposed-motion'],
+    phaseStructure: ['claim-ref-temporal-progression'],
+    fullCanvasRelease: ['claim-ref-green-centre-takeover'],
+    boundaryContinuity: ['claim-ref-green-centre-takeover'],
+  });
 }
 
 function pixelSummary(frame: LoadedFrame): { nonBlackRatio: number; variance: number } {

@@ -6,6 +6,17 @@ import { evaluateAllTracks } from "../../utils/keyframe-evaluator";
 import { constrainFinalOverlayGeometry } from "./final-overlay-geometry";
 
 /**
+ * Current compositor stacking rule.  This is intentionally a small pure seam
+ * so the known MG-sequence ordering defect is reproducible until the canonical
+ * visual stacking contract replaces row-derived ordering.
+ */
+export function resolveLayerZIndex(type: OverlayType, row: number | undefined): number {
+  if (type === OverlayType.CAPTION) return 95;
+  if (type === OverlayType.TRANSITION) return 85;
+  return 100 - (row || 0) * 10;
+}
+
+/**
  * Props for the Layer component
  * @interface LayerProps
  * @property {Overlay} overlay - The overlay object containing position, dimensions, and content information
@@ -40,11 +51,7 @@ export const Layer: React.FC<{
     // - Captions (95): always on top for readability
     // - Transitions (85): above video clips (80) they bridge, below captions
     // - All others: 100 - (row * 10), e.g., SFX row 0 = 100, video row 2 = 80
-    const zIndex = overlay.type === 'caption'
-      ? 95
-      : overlay.type === 'transition'
-        ? 85
-        : 100 - (overlay.row || 0) * 10;
+    const zIndex = resolveLayerZIndex(overlay.type, overlay.row);
     const isSelected = overlay.id === selectedOverlayId;
 
     // Evaluate keyframe tracks if present

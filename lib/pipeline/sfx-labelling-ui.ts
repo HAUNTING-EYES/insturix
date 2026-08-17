@@ -18,8 +18,7 @@
  *   deps.opportunities: [{opportunityId, role?, surface?, note?}]
  *   deps.fetchImpl(url, init?) -> { json(): Promise<unknown> }
  *   deps.storage: { getItem, setItem }
- *   deps.promptImpl(msg) -> string | null
- *   deps.reviewerId (optional; else prompted once and stored)
+ *   deps.reviewerId (optional test/operator injection; otherwise entered inline)
  *
  * The script is plain JS (no TS) so it can be embedded verbatim.
  */
@@ -31,13 +30,65 @@ export const REVIEWER_PAGE_SCRIPT = `
     var opportunities = deps.opportunities || [];
     var fetchImpl = deps.fetchImpl || window.fetch.bind(window);
     var storage = deps.storage || window.localStorage;
-    var promptImpl = deps.promptImpl || window.prompt;
 
-    var reviewerId = deps.reviewerId || storage.getItem('sfx-reviewer') || '';
-    while (!/^[A-Za-z0-9_.@-]{1,80}$/.test(reviewerId)) {
-      reviewerId = promptImpl('Reviewer ID') || '';
+    if (isValidReviewerId(deps.reviewerId)) {
+      storage.setItem('sfx-reviewer', deps.reviewerId);
+      renderOpportunities(container, opportunities, deps.reviewerId, fetchImpl);
+      return;
     }
-    storage.setItem('sfx-reviewer', reviewerId);
+
+    var storedReviewerId = storage.getItem('sfx-reviewer') || '';
+    renderReviewerIdentityGate(container, storedReviewerId, function (reviewerId) {
+      storage.setItem('sfx-reviewer', reviewerId);
+      renderOpportunities(container, opportunities, reviewerId, fetchImpl);
+    });
+  }
+
+  function isValidReviewerId(value) {
+    return typeof value === 'string' && /^[A-Za-z0-9_.@-]{1,80}$/.test(value);
+  }
+
+  function renderReviewerIdentityGate(container, storedReviewerId, onAccepted) {
+    var setup = document.createElement('div');
+    setup.className = 'reviewer-setup';
+
+    var label = document.createElement('label');
+    label.appendChild(document.createTextNode('Reviewer ID '));
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'human-listener-a';
+    input.value = isValidReviewerId(storedReviewerId) ? storedReviewerId : '';
+    label.appendChild(input);
+    setup.appendChild(label);
+
+    var startBtn = document.createElement('button');
+    startBtn.textContent = 'Start reviewing';
+    setup.appendChild(startBtn);
+
+    var status = document.createElement('div');
+    status.className = 'status';
+    status.textContent = 'Confirm one reviewer identity before loading opportunities.';
+    setup.appendChild(status);
+    container.appendChild(setup);
+
+    var started = false;
+    startBtn.addEventListener('click', function () {
+      if (started) return;
+      var reviewerId = String(input.value || '').trim();
+      if (!isValidReviewerId(reviewerId)) {
+        status.textContent = 'Reviewer ID must be 1-80 letters, numbers, dots, @, underscores, or hyphens.';
+        return;
+      }
+      started = true;
+      input.disabled = true;
+      startBtn.disabled = true;
+      status.textContent = 'Reviewing as ' + reviewerId + '. Reload to change reviewer identity.';
+      onAccepted(reviewerId);
+    });
+  }
+
+  function renderOpportunities(container, opportunities, reviewerId, fetchImpl) {
 
     opportunities.forEach(function (op) {
       var box = document.createElement('div');

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveNativeAudioEvidence,
   getNativeAudioDuckRegions,
+  getSoundAudioDuckRegions,
 } from '@/lib/editron/services/native-audio-evidence';
 import { runQualityReview } from '@/lib/editron/services/quality-review-service';
 import { createTailFadeVolume } from '@/components/editron/editor/version-7.0.0/utils/audio-ducking';
@@ -103,6 +104,82 @@ describe('native audio evidence', () => {
       durationInFrames: 90,
       hasNativeAudio: true,
     })).toEqual([{ from: 30, durationInFrames: 90 }]);
+  });
+
+  it('projects source-bound dialogue evidence across split sound overlays', () => {
+    const nativeAudioEvidence = {
+      evidenceId: 'EV-DIALOGUE-1',
+      sourceAssetId: 'dialogue-asset',
+      sourceVersion: 'dialogue-sha256-v1',
+      hasNativeAudio: true,
+      hasSpeech: true,
+      source: 'transcription',
+      wordCount: 2,
+      speechCoverage: 225 / 480,
+      speechRegions: [
+        { sourceStartFrame: 60, sourceEndFrame: 151, startMs: 2000, endMs: 5033.333 },
+        { sourceStartFrame: 196, sourceEndFrame: 330, startMs: 6533.333, endMs: 11000 },
+      ],
+      regionCount: 2,
+    } as const;
+
+    expect(getSoundAudioDuckRegions({
+      id: 1,
+      type: 'sound',
+      assetId: 'dialogue-asset',
+      from: 0,
+      durationInFrames: 151,
+      startFromSound: 0,
+      metadata: { nativeAudioEvidence },
+    })).toEqual([{ from: 60, durationInFrames: 91 }]);
+
+    expect(getSoundAudioDuckRegions({
+      id: 2,
+      type: 'sound',
+      assetId: 'dialogue-asset',
+      from: 151,
+      durationInFrames: 284,
+      startFromSound: 196,
+      metadata: { nativeAudioEvidence },
+    })).toEqual([{ from: 151, durationInFrames: 134 }]);
+  });
+
+  it('distinguishes absent, explicitly silent, unbound, and malformed sound evidence', () => {
+    const base = {
+      id: 1,
+      type: 'sound',
+      assetId: 'dialogue-asset',
+      from: 0,
+      durationInFrames: 90,
+      startFromSound: 0,
+    };
+    expect(getSoundAudioDuckRegions(base)).toBeNull();
+    expect(getSoundAudioDuckRegions({
+      ...base,
+      metadata: { nativeAudioEvidence: { hasSpeech: false } },
+    })).toEqual([]);
+    expect(() => getSoundAudioDuckRegions({
+      ...base,
+      metadata: {
+        nativeAudioEvidence: {
+          hasSpeech: true,
+          sourceAssetId: 'different-asset',
+          sourceVersion: 'v1',
+          speechRegions: [{ sourceStartFrame: 0, sourceEndFrame: 30 }],
+        },
+      },
+    })).toThrow(/UNBOUND_SOUND_SPEECH_EVIDENCE/);
+    expect(() => getSoundAudioDuckRegions({
+      ...base,
+      metadata: {
+        nativeAudioEvidence: {
+          hasSpeech: true,
+          sourceAssetId: 'dialogue-asset',
+          sourceVersion: 'v1',
+          speechRegions: [{ sourceStartFrame: 30, sourceEndFrame: 30 }],
+        },
+      },
+    })).toThrow(/INVALID_BOUND_SOUND_SPEECH_EVIDENCE/);
   });
 
   it('flags BGM that is not ducking under native source speech', () => {

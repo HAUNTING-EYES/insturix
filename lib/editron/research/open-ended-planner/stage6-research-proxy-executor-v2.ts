@@ -79,7 +79,11 @@ export async function executeStage6ResearchProxyPreviewV2(
       maxOutputBytes: Math.min(program.resourceBudget.maxOutputBytes, 64 * 1_024 * 1_024),
     },
   });
-  const previewNode = records(graph.nodes).find((node) => node.intentNodeId === 'node-generated-island') ?? {};
+  const previewNodes = records(graph.nodes).filter((node) => node.operatorId === capability.operatorId);
+  if (previewNodes.length !== 1) {
+    throw new Error(`STAGE6_RESEARCH_PROXY_PREVIEW_NODE_AMBIGUOUS:${previewNodes.length}`);
+  }
+  const previewNode = previewNodes[0];
   const previewInputs = record(previewNode.inputs);
   if (request.programHash !== previewInputs.programHash || request.sourceBundleHash !== previewInputs.sourceBundleHash
     || hashCanonicalJsonV1(request.evidencePack) !== previewInputs.evidencePackHash

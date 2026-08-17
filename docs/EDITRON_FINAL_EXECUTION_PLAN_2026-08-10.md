@@ -51,6 +51,38 @@ The AI should feel fast and creative.  The execution substrate is strict so a
 good-looking demo cannot silently save the wrong project or claim a missing
 graphic was delivered.
 
+### Mandatory resolved intake - not presets
+
+Before a first cut, Editron must resolve one versioned `EditorialProjectBrief`
+for the project.  These facts are mandatory to resolve, but a user is not
+forced to supply an artificial preset or an asset that does not exist.  Each
+field records whether it was user-supplied, selected from project data,
+explicitly absent or still needs clarification:
+
+- **deliverable intent:** what is being made and for whom - for example a reel,
+  advertisement, podcast episode, explainer, documentary, film, trailer or an
+  open-text description.  This is an open semantic field plus concrete output
+  requirements, not a finite style/profile dropdown;
+- **source manifest:** every footage, image, audio, document and licensed-stock
+  request, including its intended role, rights and immutable source identity;
+- **script authority:** the exact supplied script/outline, permission to derive
+  structure from transcripts, or an explicit `NONE` when the work is
+  unscripted.  A derived transcript must never be presented as the user's
+  script;
+- **brand authority:** the selected Brand Vault snapshot, project-only brand
+  direction, an explicitly unbranded project, or a clarification requirement;
+- **reference set:** uploaded videos, stills, audio, lawful external links and
+  written examples, each with usage scope - inspiration, structural match,
+  visual match, audible match, or a user-marked exact requirement;
+- **delivery constraints:** audience, duration/range, aspect and resolution,
+  language, accessibility/caption needs, platform and required outputs.
+
+The current hidden `reel | auto-edit` derivation is not sufficient authority
+for this contract.  Editron may suggest a deliverable interpretation, but the
+user can see and correct it before a first cut whose story grammar or length
+depends on that interpretation.  Script, brand and reference are therefore
+mandatory *decisions*, not mandatory uploaded files.
+
 ## How a model makes a specific editing decision
 
 ### 2026-08-12 graph-synthesis correction
@@ -109,9 +141,14 @@ not the planner, owns the exact implementation.  A validator checks duration,
 range, alpha/video/audio compatibility and rendered continuity before the
 receipt says it passed.
 
-The same separation applies to captions, crop/reframe, SFX, music and MG.
-The LLM can select, rank, explain and ask for a missing capability.  It cannot
-write an unbounded style object, arbitrary raw database mutation or a fake proof.
+The same separation applies across the entire audited Editron/Adobe-class
+capability surface, not only overlays: source/record editing, trims, tracks,
+multicam, keyframes, masks/mattes, tracking, retiming, captions, titles,
+transitions, compositing, generated compositions, colour, dialogue, music,
+SFX, interchange, conform, render and delivery.  A model can select, sequence,
+rank, explain and ask for a missing capability.  It cannot use an Adobe feature
+name as an executable tool, pretend a missing Editron primitive exists, write
+an unbounded style object, mutate a database directly or manufacture proof.
 
 ## Reference-to-execution contract: from a visible result to real operations
 
@@ -365,6 +402,80 @@ until its issued ProjectService boundary is wired; no one is permitted to
 create a competing command, revision, checkpoint, journal, timeline, media or
 proof owner in the meantime.
 
+## Capability census correction: the manual editor is part of the tool surface
+
+The current chat registry is not the inventory of what Editron can do. The
+inventory begins with every user-visible manual operation, then traces the
+chat, Director, worker and API callers that can request the same result. A
+button, component, enum member, prompt tool or `OperatorSpec` counts only as a
+surface declaration until its actual state write, persistence, renderer and
+visible/audible proof are verified.
+
+The 2026-08-12 code reconnaissance found several overlapping, non-additive
+inventories: 66 central chat-registry entries, 59 compatibility `createTools()`
+entries, at most 58 raw live-chat tools before request licensing, 36 chat
+request capability classes, 39 research-only `OperatorSpec`s, two operations
+on the direct chat tool-call route, 22 `OverlayType` values and only 13 actual
+renderer branches. Request-specific filtering exposes fewer tools to a model.
+None of those counts is the product capability count.
+
+Manual editing is also not one coherent command surface today:
+
+- the V2 tool panel explicitly mirrors the V1 panel registry instead of using
+  one owner;
+- split, duplicate, delete, transforms, opacity, keyframes, speed curves and
+  many styles write browser-local overlay state through `use-overlays.tsx`,
+  after which save/autosave persists the complete overlay array;
+- chat atomic operations write through separate service paths, while the
+  manual transition browser calls the direct `add_transition` route that live
+  chat deliberately filters as a shadow authority;
+- V1 and V2 SFX browsers duplicate search/preview/add logic and, after
+  controlled ingest, both add a local `SOUND` overlay rather than invoking one
+  canonical edit command;
+- the contextual action bar's unknown-command fallback stores an `aiPrompt`
+  that no consumer reads, so it does not actually hand the request to AI;
+- manual shorthand speed writes `styles.playbackRate`, while renderers consume
+  other root speed/playback fields; shorthand fade writes style fields not
+  consumed by the verified layer renderers; shorthand trim and drag trim use
+  different source-in semantics; and
+- autosave is deliberately paused while AI is processing because AI and the
+  manual editor do not yet share one revision-safe mutation path. A 409 reload
+  is not the planned fine-grained disjoint-edit conflict model.
+
+These are code-grounded parity defects, not reasons to discard the manual
+editor. They establish the rule for the target architecture:
+
+> Every supported manual operation must be requestable by chat through the
+> same versioned canonical command, owner, resolver, mutation path and proof.
+> Chat parity does not mean screen-click automation or a second AI
+> implementation. Broken or non-rendering manual paths are repaired or retired
+> before they become planner-eligible.
+
+The census must cover, at minimum, project/timeline operations; media ingest,
+search and placement; video, image, text and audio properties; cuts, trims,
+tracks, markers and keyframes; caption content and the full manual caption-style
+surface; transitions; SFX and music; Lottie/HTML/generated compositions;
+render, export and delivery; plus every Director, background-worker and API
+mutation that has no button. Each candidate row records the complete contract
+above plus these observed facts:
+
+| Census evidence | Required record |
+|---|---|
+| Entry surfaces | exact V1/V2 UI controls, keyboard/shorthand paths, chat tools, Director/workers and API routes |
+| Handler and owner | UI handler, service/decision owner, final-form resolver and duplicate/shadow owners |
+| Actual state | exact fields read/written, source-range semantics, revision basis and persistence route |
+| Consumer | renderer/exporter that consumes those fields, or explicit `DECLARED_NO_RENDER` evidence |
+| Parity | `SHARED_CANONICAL`, `UI_ONLY`, `CHAT_ONLY`, `SEMANTICALLY_DIVERGENT`, `SHADOW_LEGACY` or `MISSING` |
+| Truth | certified, live-uncertified, partial, research-only, missing or retired, with test/render evidence |
+
+The resulting machine-readable capability packet is the only operation sheet
+the open-ended planner benchmark may consume. It contains all real manual and
+non-manual operations that survive the audit, not merely the operations that
+happen to be registered in chat. An official Adobe comparison happens only
+after this current-product census is frozen, and must distinguish Adobe tools,
+features and workflows from Editron product duties such as B-roll selection,
+dialogue treatment or delivery orchestration.
+
 ## Command, proof and human-authority semantics
 
 One command has one writer-issued receipt and may have a later proof outcome.
@@ -417,6 +528,182 @@ Immutable masters + checksums/timecode
   -> local commands, render shards, proof and resumable delivery
 ```
 
+### Current implementation truth - 2026-08-13 long-form/reference audit
+
+The target flow above does not describe today's production runtime.  The code
+audit found useful pieces, but no complete long-form evidence fabric:
+
+- the ordinary registration route enforces a 3 GB object limit while the R2
+  multipart transport permits objects up to 5 TB.  Storage transport capacity
+  is therefore not usable long-form product support;
+- the browser proxy path handles only a bounded device/file range, performs a
+  client-side transcode, and later swaps the asset record from proxy to
+  original.  It does not preserve separately addressable immutable master and
+  versioned derivative identities for relink;
+- transcription and several semantic/audio providers receive the whole source
+  in one worker/provider call.  One transcription path downloads the whole
+  asset into function memory.  There is no durable shard/checkpoint/merge
+  ledger for a 1.5-3-hour source;
+- the deep-analysis worker has a 300-second function ceiling.  Its holistic
+  visual call emits at most 12 semantic visual windows, V-JEPA coverage is
+  bounded to 360 windows, Wav2Vec receives all speech windows in one request,
+  and the result is written as one per-asset analysis document.  At three
+  hours, those limits trade away temporal precision rather than create a
+  resumable long-form index;
+- batch auto-edit currently turns analysis documents into scenes, embeds the
+  scenes, retrieves candidates for exact script beats, asks a vision model to
+  confirm selected source windows, materialises a native rough timeline, and
+  then invokes Director.  The older single-video script editor instead uses
+  transcript segmentation and token-overlap/Jaccard scoring.  These are
+  separate paths, not one certified first-cut owner;
+- current reference-style execution reduces one uploaded video to coarse
+  `EditDNA` buckets such as pacing, transition family, colour temperature,
+  text weight and graphics density, then supplies them as soft Director
+  preferences.  It does not create the required time-bounded
+  `ReferenceBlueprint`, does not support one common video/still/audio/link
+  reference contract across intake and Director, and does not explain the
+  exact placement of a transition, grade, title, mask or generated composition.
+
+The production replacement is a server-side, durable media/evidence pipeline:
+
+```text
+multipart ingest
+  -> immutable master + checksum + reel/timecode/codec/rights manifest
+  -> separately identified proxy, thumbnails, waveform and seekable chunks
+  -> idempotent shot/adaptive-time shards with retry/checkpoint/merge receipts
+  -> range-addressed transcript, speaker, OCR, subject/action, motion, colour,
+     quality, music/dialogue and rights observations
+  -> chapter/section summaries whose statements cite child source ranges
+  -> project-scoped scalar/time index + vector index
+  -> retrieval returns cited `EvidenceBundle`s and only the small proxy/source
+     windows an approved observer or planner needs
+```
+
+The LLM never browses an object bucket or repeatedly consumes the whole movie.
+It normally receives the brief, reference blueprint, capability packet and a
+compact cited evidence bundle.  When a decision needs pixels or sound, an
+evidence service resolves the cited `assetId + source range + version` into a
+short-lived, project-authorised proxy window.  Render workers later resolve
+the same stable range against the approved master.  This is how the same
+architecture serves a 20-second clip, several two-hour camera files or a
+ten-hour programme without turning long form into a user-facing profile.
+
+### Canonical layered media/evidence architecture - recovered source contract
+
+The source documents use the word **graph** for three different structures.
+They must remain distinct in implementation and documentation:
+
+| Structure | What it represents | Canonical authority |
+|---|---|---|
+| Media/evidence hierarchy and optional relationship graph | What immutable media contains and how exact ranges, observations, sections, takes, actions and timeline occurrences relate | R2 objects plus canonical Mongo evidence records; Qdrant is derived search only |
+| Processing job DAG | Upload, derive, scan, index, retrieve, analyse, plan, preview, render and proof work split into resumable idempotent units | Durable workflow/job records and leases |
+| Candidate edit/transaction graph | The ordered native, family-resolver and generated-composition operations proposed for one edit or bounded sequence | Planner proposal -> verifier/scheduler -> ProjectService apply; never storage or model memory |
+
+The target media/evidence system is deliberately layered:
+
+```text
+Layer 0 - R2 professional media foundation
+  immutable originals; versioned proxies; seekable video/audio chunks;
+  waveforms; thumbnails/sprites; generated artifacts; previews; renders
+
+Layer 1 - Mongo canonical semantic memory
+  asset/semantic manifests; range coverage; timed evidence; provenance;
+  track chunks; briefs/decisions; source-to-timeline maps; index outbox
+
+Layer 2 - Qdrant derived retrieval plane
+  project-filtered section and moment points with named text/visual/audio
+  vectors plus sparse lexical fields; always rebuildable from Layer 1
+
+Layer 3 - optional relationship edges
+  SAME_TAKE_GROUP, CONTINUES_ACTION, VISUALLY_PROVES, SYNCHRONIZED_WITH,
+  DUPLICATE_OF, CONTRADICTS and PRECEDES/FOLLOWS relationships
+
+Layer 4 - authorised retrieval and evidence hydration
+  server resolves tenant/project/rights/version filters; searches sections;
+  searches moments inside selected sections; rehydrates canonical Mongo
+  evidence; refines exact boundaries; returns cited EvidenceBundles
+
+Layer 5 - bounded model view
+  brief + ReferenceBlueprint + eligible capability packet + relevant cited
+  evidence + short authorised proxy windows when pixels/sound are required
+
+Layer 6 - canonical editing and proof
+  candidate edit graph -> verify/schedule/preview -> ProjectService CAS ->
+  render from approved masters -> independent state/visual/audio proof
+```
+
+Qdrant is the librarian, not the library.  Editron does **not** store a whole
+video "in vector form."  The original and derivatives remain ordinary media
+objects in R2.  Mongo stores exact, versioned, time-ranged evidence and
+provenance.  Qdrant stores compact vectors for searchable section summaries,
+shots, utterances, selected frames/crops and audio events.  Every search hit is
+re-read from Mongo and resolved to an exact source range before planning or
+preview.  A vector similarity is a candidate, never permission to cut.
+
+Long assets use hierarchical retrieval.  A query first searches roughly
+30-60-second section nodes across the authorised project, expands for coverage
+and adjacency, then searches detailed moment nodes only inside the selected
+sections.  Exact lexical/OCR/numeric search, visual vectors, audio vectors and
+structured events remain separate channels; their ranked lists are fused and
+nearby hits are clustered into source intervals.  The final few candidate
+windows receive dense pixel/audio inspection and boundary refinement.  This
+preserves exact footage access without asking a model to remember or re-watch
+hours of media per decision.
+
+### Agentic tool-calling and durable long-form editing
+
+The vibe-coding analogy is useful, with one safety correction.  A model may
+work iteratively instead of serialising a perfect graph in one response.  Its
+research/production planning loop may call only bounded read/planning tools:
+
+```text
+read current brief/revision
+  -> search authorised evidence
+  -> inspect exact proxy windows
+  -> query eligible capabilities and contracts
+  -> propose or revise a local operation/subgraph
+  -> compile and preview in isolation
+  -> inspect failed predicates/render evidence
+  -> repair the failed local node once or return needs-review/capability-gap
+```
+
+Tool-calling is therefore the **construction process**.  The versioned,
+typed edit graph is the **resulting program and audit artifact**.  Editron must
+not commit each speculative model tool call directly to the user's project.
+The agent accumulates an immutable working plan against a pinned base revision;
+only verifier-approved commands are offered to ProjectService.  This preserves
+the useful explore/inspect/revise loop used by coding agents without replacing
+the single project/revision/receipt authority.
+
+A final programme up to four or five hours is not represented as one enormous
+prompt or one in-memory graph.  It is a persistent hierarchy:
+
+```text
+Project/show plan
+  -> reel/chapter plans
+     -> sequence/scene plans
+        -> bounded local edit graphs referencing stable source ranges
+           -> preview/proof artifacts and apply receipts
+```
+
+The root plan stores story order, global constraints, motifs, rights, delivery
+targets and dependencies.  Child plans store exact local operations.  Workers
+construct independent/disjoint children concurrently under tenant budgets;
+cross-sequence dependencies such as music structure, continuity, repeated
+footage, loudness, colour and captions are checked at parent boundaries.  Each
+unit is resumable and idempotent.  If the user edits while background planning
+continues, unchanged/disjoint units can be revalidated against the current
+revision; overlapping units become `NEEDS_REBASE_OR_REVIEW` and cannot write.
+
+The stable capability sheet, tool schemas, approved knowledge and fixed policy
+may use provider context caching.  Cache identity must bind capability-packet
+hash, schema version, policy version, prompt version, provider and returned
+model identity.  Dynamic facts are never placed in a reusable global cache:
+project revision, asset/range eligibility, rights, current evidence, cost
+reservation and proof state are rebuilt for each plan step.  A cache hit saves
+tokens and latency; it is not an authority, evidence source or correctness
+proof.
+
 Source masters, their immutable identities, and approved ProjectService
 revisions are authoritative.  The evidence fabric is a versioned *derived
 observation* layer: each transcript/OCR/shot/audio/motion fact carries source
@@ -445,21 +732,31 @@ standard API list prices verified on **2026-08-12** are:
 
 | Candidate | Intended test role | Published standard price per 1M input/output tokens | Important boundary |
 |---|---|---:|---|
-| GPT-5.6 Luna | low-cost graph planner | $1 / $6 | Test structured planning/tool use; do not assume it is the best visual judge. |
-| GPT-5.6 Terra | stronger affordable planner | $2.50 / $15 | Compare quality gained per accepted edit, not headline benchmark score. |
+| GPT-5.6 Luna | low-cost graph planner | $0.20 / $1.20 | Test structured planning/tool use; do not assume it is the best visual judge. Cache writes are $0.25/M and reads $0.02/M at this price snapshot. |
+| GPT-5.6 Terra | stronger affordable planner | $2 / $12 | Compare quality gained per accepted edit, not headline benchmark score. Cache writes are $2.50/M and reads $0.20/M at this price snapshot. |
 | DeepSeek-V4-Flash-0731 | very-low-cost text/tool planner | $0.14 cache-miss input, $0.0028 cache-hit input / $0.28 output | Test the July 31 post-trained release specifically. DeepSeek's hosted API identifier remains `deepseek-v4-flash` and now routes to 0731; self-hosted/open-weight trials must pin `deepseek-ai/DeepSeek-V4-Flash-0731`. Official API confirms JSON/tool calls; keep it on structured evidence unless the tested route proves approved multimodal handling. Privacy/egress approval is mandatory. |
 | Gemini 3.5 Flash-Lite | low-cost multimodal observer and planner candidate | $0.30 / $2.50 | Officially accepts text, image, video, audio and PDF; useful for cheap evidence tasks, but must still prove graph quality. |
 | Gemini 3.6 Flash | higher-capability multimodal candidate | $1.50 / $7.50 | Compare only where the cheaper candidates fail; do not send ten hours per request. |
+| Qwen3.8-Max-Preview | preview reasoning/vision planner candidate | Token Plan credits; no comparable public pay-as-you-go token rate verified | Exact official ID is `qwen3.8-max-preview`. It is preview and Token-Plan-only, so first run a route/identity, structured-output, function-call, usage, image-input and privacy probe. Treat it as image-plus-structured-evidence, not video/audio capable, until the tested API proves otherwise. Report effective subscription credits and marginal cost per accepted edit separately from token-priced routes. |
 
-Sources: [OpenAI GPT-5.6 launch and
-pricing](https://openai.com/index/gpt-5-6/), [DeepSeek model and pricing
+Sources: [OpenAI GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna),
+[OpenAI GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra), [DeepSeek model and pricing
 documentation](https://api-docs.deepseek.com/quick_start/pricing/), [Gemini
 model guide](https://ai.google.dev/gemini-api/docs/latest-model) and [Gemini
-pricing](https://ai.google.dev/gemini-api/docs/pricing). Prices and model
+pricing](https://ai.google.dev/gemini-api/docs/pricing), and the official
+[Qwen Token Plan model list](https://www.alibabacloud.com/help/en/model-studio/token-plan-team-overview).
+OpenAI prices in this table were refreshed on **2026-08-13**. Prices and model
 aliases are volatile; every run records the exact provider model/snapshot,
 region, service tier and retrieved price sheet. GPT-5.6 Sol and other expensive
 frontier models may run on a small blinded subset as a quality ceiling, not as
 the assumed production route.
+
+`qwen3.8-max-preview` is likewise not the normal-user chat default.  Its first
+valid placements are: a blinded quality-ceiling arm; difficult reference/graph
+construction after cheaper routes fail; and bounded offline repair where its
+incremental accepted-edit value exceeds its effective Token Plan cost.  It may
+enter normal routing only after the provider probe, Editron benchmark,
+privacy/egress approval and measured cost per accepted verified edit pass.
 
 The DeepSeek snapshot identity is separately bound to the [official July 31
 change log](https://api-docs.deepseek.com/updates/) and the
@@ -632,6 +929,17 @@ then expand.  Do not import a repository wholesale.
 ### Stage 0 - establish current truth and protect users (now)
 
 - Keep IF1 frozen; finish its integration only through ProjectService.
+- Complete `CAP-0`, the code-grounded capability census. Enumerate every V1/V2
+  manual control, shortcut, chat/Director/worker/API caller and renderer, then
+  trace each candidate from request to owner, state, persistence and proof.
+  Publish a machine-readable operation packet, a human-readable ledger and a
+  UI/chat parity matrix. Counts are overlapping until duplicate and shadow
+  paths are reconciled; UI presence alone is never support evidence.
+- Only after `CAP-0` freezes, complete `CAP-1`: compare the verified Editron
+  rows against current official Adobe Premiere Pro, After Effects, Audition,
+  Media Encoder and Frame.io documentation. Separate atomic editing features,
+  composite workflows and product duties; classify every gap as certified,
+  live-uncertified, partial, research-only or missing.
 - Create the source/import/consumer ledger for every overlay path in the
   overlay census; reproduce the MG z-order and degraded-delivery failures in
   fixtures.
@@ -653,9 +961,11 @@ then expand.  Do not import a repository wholesale.
 - Maintain the S2 SFX human-listening pilot as a calibration experiment, not a
   production selector and not a cap on catalog size.
 
-**Exit:** every active producer, mutation route, renderer and proof path is
-known; no pruning decision depends on a filename guess; the two feasibility
-spikes have measured input, failure, latency and cost results.
+**Exit:** every manual and non-manual capability candidate, active producer,
+mutation route, renderer and proof path is known; UI/chat parity and the Adobe
+gap are evidence-backed; no pruning or benchmark decision depends on a filename
+or registry guess; the two feasibility spikes have measured input, failure,
+latency and cost results.
 
 ### Stage 1 - make the editing core genuinely safe
 
@@ -737,9 +1047,10 @@ become a second planner/runtime authority.
   difficult-reference hero case, one native multi-operation edit, one
   audio/visual dependency and honest clarify/decline cases. Every task has an
   observable `BehaviourBrief`, target predicates and preservation constraints.
-- Adapt a focused 30–50-operation slice of existing capabilities into research
-  `OperatorSpec` packets; adapters describe existing owners and do not create
-  new resolvers or writers.
+- Adapt a focused 30–50-operation slice from the frozen `CAP-0` packet into
+  research `OperatorSpec` packets. The slice may include verified manual-only
+  candidates through research adapters, but adapters describe existing owners
+  and do not create new resolvers, renderers or writers.
 - Build a research-only `PlannerEnvelope` before each call. Remove forbidden
   and technically ineligible operations, but retain eligible distractors so
   tool choice is still measured.
@@ -898,7 +1209,314 @@ Add and certify the additional post requirements:
 **Exit:** only after end-to-end productions pass these workflows should Editron
 claim production-house or film-post replacement.
 
-## Current position and next three bounded slices
+## Authoritative code-grounded execution ledger - 2026-08-17
+
+This ledger is the current status authority for this plan. It reconciles the
+August planning documents, the task transcript, Git history, registered
+worktrees, active imports and consumers, frozen artifacts, benchmark receipts
+and current code. Where an older status paragraph or checkbox below disagrees
+with this ledger, this ledger wins. Design intent still comes from the plan;
+implementation status comes from code and executable evidence.
+
+The governing design for durable Sequence/Range planning, bounded exact-edit
+operation graphs, agent/tool history, render economics and the corrected
+whole-episode model benchmark is the
+[agentic editorial planning and benchmark reconciliation](./editron/open-ended-editing/oe-agentic-editorial-planning-and-benchmark-reconciliation-2026-08-17.md).
+Its complete benchmark error ledger supersedes earlier aggregate provider
+rankings and ambiguous `executable pass` interpretations. This execution ledger
+remains the authority for implementation status.
+
+The audited active lane is `editron-worktree` on
+`infrastructure-improvs-+Editron`. The Editron audit began at
+`81c906f976c49beca9e5cd398595b369599b6d6d` and verification completed at
+`8e8357df5f35acee1c8aec5f8ded2e8dbac755ef`; the intervening commit changed
+only ThinkForge Playwright configuration/tests, not an Editron production
+path. The worktree is intentionally dirty with work from this programme. This
+reconciliation does not reset, clean, stash, merge, commit or push that work.
+
+Status vocabulary used below:
+
+- `DONE_ARTIFACT`: an accepted, immutable contract, census or report exists;
+  this does not imply active runtime wiring.
+- `DONE_ACTIVE`: verified active control flow reaches the intended owner and
+  consumer on the active branch.
+- `PARTIAL_ACTIVE`: useful active implementation exists, but one or more
+  required authorities, callers, proofs or safety properties remain split.
+- `RESEARCH_PROVEN`: an isolated research path executed and produced evidence;
+  it is not a production capability.
+- `NOT_WIRED`: code or a contract exists, but the product does not consume it
+  end to end.
+- `MISSING`: no implementation satisfying the stated contract was found.
+- `INVALID_EVIDENCE`: an earlier score or verdict was produced by a benchmark
+  condition that did not test what it claimed.
+
+### Repository, IF1 and Phase 2C truth
+
+| Item | Current status | Code-grounded meaning |
+| --- | --- | --- |
+| IF1 canonical contract | `DONE_ARTIFACT` | Annotated tag `editron-interface-freeze-1` (`71b67a4d...`) targets accepted commit `5a47e00896e0e915cd4c03e71a0b104ac0c05999` in worktree `editron-if1-freeze-v1`. It descends Phase 2C `7e9b4dd7...`. Session A's semantic review passed. |
+| IF1 on the active infrastructure branch | `NOT_WIRED` | The active branch previously cherry-picked the IF1 artifact and then explicitly reverted both commits. `lib/editron/if1` is absent from the active tree. Therefore **IF1 freeze is done; IF1 runtime migration is not**. These are separate claims. |
+| Writer-issued after-revision and rollback work | `PARTIAL_ACTIVE` | The active branch independently added stale-save CAS, checkpoint CAS, writer-receipt capture and receipt-bound rollback on migrated paths. The exact migrated `R_after` race is closed on those paths. |
+| Whole-system rollback/concurrency safety | `PARTIAL_ACTIVE` | `CheckpointService` can still pair a caller-supplied project snapshot with a separately sampled revision; live `saveProject` callers omit `expectedRevision`; generic `ProjectService.updateProject` has no CAS/receipt; redo is unavailable. Broad "rollback race closed" is therefore false. |
+| P0 internal-worker fail-closed hardening | `DONE_ARTIFACT`, `NOT_WIRED` here | Commit `5299a42...` exists only in `editron-p0-hardening` and covers Director, Tribe and Video Analysis. It is not an ancestor of the active branch. The active routes still fall back to raw handlers when a QStash key is absent, and other internal workers have the same class of fallback. |
+
+The active native `ProjectMutationReceiptV1` remains much smaller than IF1: it
+contains project ID, revision and commit time, not canonical command hash,
+timeline revision, changed paths, proof result, undo/replay binding or the full
+retry disposition. Existing safety work is valuable, but it is not IF1 runtime
+convergence.
+
+### Master-stage completion ledger
+
+| Master stage | What is verified done | What remains before the stage exit is honest |
+| --- | --- | --- |
+| Stage 0 - governance and capability truth | `CAP-0` family-level census and `CAP-1` Adobe gap matrix are `DONE_ARTIFACT`. The census records 30 broad Editron families, 66 chat-registry rows and manual/chat/renderer divergence. The Adobe matrix records 118 atomic functions, workflows and product duties. | The census is not the final per-operation tool sheet. `CAP-2` must enumerate every real manual, shortcut, chat, Director, worker and API operation at atomic owner/schema/proof level. No capability is currently certified by the census. |
+| Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
+| Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
+| Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
+| Stage 2.5 - open-ended planner experiment | Seven-stage schemas, provider codecs, frozen fixtures, research proxies, synthetic rendered artifacts and paid-provider call plumbing are `RESEARCH_PROVEN` in parts. | No model has yet passed a clean, connected, fair native/generated/hybrid benchmark. Current cohort verdicts are invalidated below. Generic lowering, an atomic tool packet, fair time budgets, actual model handoff and connected proxy proof must precede a ranking. |
+| Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
+| Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
+| Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
+| Stage 6 - global scalable professional NLE | Some editor, proxy, chapter render and isolated 60 fps SaaS-explainer mechanisms exist. | Professional source/record editing, mixed rates, rational timebase, VFR, SMPTE/drop-frame display, multicam, relink, project/reel subdivision, shared storage coordination, interchange/conform and genuinely scalable long-form playback/render remain partial or missing. |
+| Stage 7 - agency certification | No accepted certification run. | Real consented projects with zero hidden rescue, fatal false-success rate zero and published quality/cost/latency/rights scorecards. |
+| Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
+
+### Global timebase and format truth
+
+The current main editor is effectively a 30 fps constant-frame-rate system,
+despite `Project.fps` making it look configurable. The editor and many writers,
+analyzers and render consumers hard-code 30; Remotion metadata rounds rates;
+source assets do not preserve exact rational rate, PTS/VFR mapping, source
+timecode, field order, pixel aspect or full colour metadata. Therefore the plan
+must not claim system-wide 24/25/29.97/50/59.94/60, mixed-rate, VFR,
+drop-frame, DCI, HDR or high-bit-depth compatibility.
+
+The remaining production contract must add exact rational identities for
+source media, project timeline, generated-composition local time, analysis
+sampling, preview and delivery; preserve source-PTS to editorial-proxy mapping;
+use sample-accurate audio coordinates; and bind final proof to probed rate,
+frame count, raster, pixel format, colour and audio properties. This is a
+global infrastructure requirement, not a long-form-only preset. Short-form
+uses the same contract with smaller ranges.
+
+### Capability truth: what the model must actually receive
+
+`CAP-0` is useful reconnaissance, not the final tool context. Its 30 rows are
+broad families and its current statuses are 28 partial, one live-uncertified
+and one missing; none is certified. The research benchmark's
+`operator-specs-v2.json` exposes exactly 40 bounded operators: 10 reads, five
+resolvers and 25 mutation/generated/legacy rows. That catalog is a research
+slice, not "all tools in Editron", and it omits parts of the production
+contract.
+
+`CAP-2` must produce one row for every atomic operation that genuinely exists,
+whether its current caller is manual UI, shortcut, chat, Director, worker or
+API. Each row must include:
+
+- stable operator ID/version, aliases only for retrieval, and authoritative
+  owner;
+- exact input/output schema and coordinate domain;
+- current support/certification status and planner eligibility;
+- resolver handoff and declared reads/writes/requires/produces/invalidates;
+- persistence/mutation path, revision and concurrency semantics;
+- deterministic validator, rendered proof obligation and failure disposition;
+- undo, redo/replay and reproducibility bindings;
+- rights, privacy, egress and prompt-injection policy;
+- latency/compute limits, scorecard thresholds and project-class certification;
+- manual/chat parity and final editor/renderer/delivery consumer.
+
+A similarly named UI button or chat tool is not a separate capability when both
+delegate to one owner. Conversely, a manual operation absent from chat still
+belongs in `CAP-2`; the new planner must be able to select it only after the
+same owner is exposed through a safe command path.
+
+### What the models actually did, and why the old verdict is invalid
+
+The claim that the models "did not give plans in tools" is disproved by the
+stored receipts:
+
+- Qwen's DEV-01 Stage-2 response selected real IDs including
+  `read_project_file`, `get_timeline_view`, asset search/inspection,
+  `get_video_transcription`, `find_transcript_moment`,
+  `resolve_transcript_edit`, `cut_section`, `find_visual_moment`,
+  `resolve_visual_edit`, `resolve_keyframe_edit`, `set_keyframes`,
+  `find_audio_moment`, `resolve_audio_edit` and `apply_audio_ducking`, with
+  dependencies.
+- Terra selected the sensible executable families
+  `resolve_transcript_edit -> cut_section`,
+  `resolve_keyframe_edit -> set_keyframes` and
+  `resolve_audio_edit -> apply_audio_ducking`, with the cut ordered before
+  downstream edits.
+
+The benchmark failed to interpret those plans consistently for four reasons:
+
+1. Stage 2 used `candidateCapabilityIds: string[]`. One node could therefore
+   mix several operations intended to execute with mere alternatives. Later
+   code could not know which meaning the model intended.
+2. Stage-2 instructions asked for editorial operations and dependencies, not
+   exact runtime arguments. Stage 4 then judged exact low-level serialization
+   and, in DEV-specific code, expected topology the model had not been asked to
+   emit.
+3. The documented planning/compiler boundary allowed models to omit some
+   compiler-owned read/search adapters, but the evaluator failed Terra for
+   omitting `find_transcript_moment`. That score contradicts the frozen packet
+   and is invalid.
+4. Stage-4 compilation is hard-coded separately for DEV-01, DEV-02 and DEV-03.
+   A model can therefore be judged against a task recipe instead of generic
+   operator schemas.
+
+The corrected Stage-2 node schema is:
+
+```text
+nodeId
+selectedOperatorId       exactly one operation that will execute
+alternativeOperatorIds   zero or more considered but non-executed options
+dependsOnNodeIds          explicit semantic/order dependencies
+intent/evidence refs      why this operation was chosen
+```
+
+If an edit needs five actual tools, the model emits five executable nodes. It
+does not put five IDs in one "candidate" array. A clarification or capability
+gap is represented by its own typed disposition, not an empty pseudo-tool.
+
+### Generic Stage-4 lowering: what it is and what it is not
+
+"Lowering" means translating the model's selected high-level tool nodes into
+the exact typed calls the runtime can execute. It is analogous to binding a
+function call, not inventing an editing plan.
+
+For every Stage-2 node, one generic lowerer must:
+
+1. read `selectedOperatorId` and look up that exact `OperatorSpec`;
+2. bind Stage-3 evidence and current project facts to the operator's declared
+   input fields;
+3. verify coordinate domains, source/timeline remapping, revisions and
+   predecessor output types;
+4. create exact input/output references and receipt/proof bindings;
+5. reject missing or ambiguous facts before any project mutation.
+
+The invariant is **zero catalog-operator insertion and zero selected-operator
+deletion**. If the model selected `cut_section`, the lowerer may fill the exact
+range, expected revision and typed output reference. It may not silently add
+`find_transcript_moment`, a transition, a grade or any other catalog operation.
+If a fresh read/search/analyzer call is required and is part of the catalog,
+the model must select it. Immutable facts already supplied in the planner
+envelope do not need a fake read node. System-owned post-render probes may run
+outside the creative graph, but must be declared as proof infrastructure and
+must never alter the edit.
+
+"Exact runtime ports" are merely the operator's legal field names and typed
+connections. For example, an output reference must use an output the upstream
+operator really declares, and the downstream input must accept that type.
+Historical Luna/Terra failures such as an unsupported
+`expectedProjectRevision` field, missing dependency edges, or proof IDs in the
+wrong reference array measure API serialization, not editorial intelligence.
+The generic lowerer should own that mechanical binding while the model remains
+responsible for selecting every creative and evidence-producing operation.
+
+### Exact Luna and Terra correction
+
+Luna did not fail DEV-01 editing. Its first Stage-2 provider call completed in
+25.588 seconds with 9,182 input tokens, 3,522 visible output tokens and 1,091
+reasoning tokens. It was not truncated; it omitted only the required
+`artifactType` field. The single repair attempt inherited the same 40-second
+stage wall clock, leaving about 14.4 seconds, and was aborted after 14.420
+seconds. Final status is `UNVERIFIABLE / PROVIDER_TIMEOUT`, not an editing
+failure. The output caps were 8,000 visible and 5,000 reasoning tokens, and the
+first response did not hit them. The harness must give each allowed attempt its
+own declared budget or reserve repair time explicitly.
+
+Terra did provide the intended DEV-01 operation chain. The evaluator rejected
+it because it omitted `find_transcript_moment`, even though the issued packet
+said compiler-owned read/search adapters could be omitted. That failure is
+`INVALID_EVIDENCE`. The replacement benchmark removes the contradiction rather
+than giving Terra a hidden answer.
+
+No existing Luna, Terra, Qwen, Gemini or DeepSeek aggregate score from the
+contaminated chain may be used to rank models or decide production routing.
+
+### Can the system perform model-planned native editing?
+
+The honest answer today is **not yet proven end to end**, but the native
+mechanisms are not imaginary. Active code contains deterministic silence-range
+resolution and timeline cutting, keyframe form/mutation/render evaluation, and
+dialogue-aware music ducking. Other manual and chat operations also exist. The
+missing proof is a clean connected chain in which an actual model selects the
+real operations from `CAP-2`, binds only available evidence, generic lowering
+produces executable calls, an isolated clone executes the real owners, and the
+rendered video/audio is checked.
+
+DEV-01 is therefore still useful after repair. It must prove, with actual model
+output, that a native plan can remove only the silent range, resolve the product
+target after the cut's identity/time remap, apply a bounded focal push-in, duck
+only background music under remapped speech, render the result and preserve all
+other content. A canonical hand-authored graph or evaluator-approved handoff is
+mechanics evidence, not model-planning evidence.
+
+### GeneratedCompositionProgram current truth
+
+The active branch has a substantial project-state foundation:
+`ProjectGeneratedCompositionStateV1`, verification, pending/active entry
+semantics, ProjectService prepare/finalize CAS, checkpoint preservation and a
+legacy timeline projection helper. Research code has generated and rendered a
+synthetic filmstrip/hybrid proxy.
+
+It is still `NOT_WIRED` as a product capability. No active editor or app
+consumer of `generatedCompositions` was found, and the legacy projection helper
+is test-only. The remaining path is to make the editor/timeline/renderer consume
+the ProjectService-owned nested composition, expose bounded parameters and
+handles, preserve undo/replay and revisions, and prove the actual project
+render. The research sandbox must not become a second timeline authority.
+
+### Immediate risk interrupts outside the model experiment
+
+These do not change the benchmark order, but they block production claims and
+deployment:
+
+1. integrate and broaden fail-closed internal-worker authentication across the
+   complete worker surface;
+2. finish IF1 runtime migration and remove stale whole-state write/checkpoint
+   races;
+3. implement the global rational timebase/source-media identity contract;
+4. recover and certify representative native overlay/audio/colour/editing
+   verticals;
+5. build the project-scoped guest review/comment/approval flow;
+6. implement professional NLE, interchange, conform, mastering and long-form
+   scalability stages before agency or film-post replacement claims.
+
+### Next three model-programme slices
+
+The old `CAP-0 -> CAP-1 -> V2-0` next-three list is complete as historical
+foundation and is no longer the active queue. The next three slices are:
+
+1. **CAP-2A - atomic executable tool truth:** derive the complete detailed
+   per-operation packet from real manual, chat, Director, worker and API owners;
+   freeze stable IDs, schemas, parity, state effects, proof, policy and support
+   status; generate count and consumer tests. No runtime repair in this slice.
+2. **V2-1R - benchmark contract reset:** replace
+   `candidateCapabilityIds` with selected-versus-alternative semantics; replace
+   DEV-specific compilers with one schema-driven lowerer; enforce zero operator
+   add/drop; separate planner-envelope facts from selected tools; fix
+   per-attempt timeout/token budgets; freeze condition-aware evaluators before
+   provider calls.
+3. **V2-1F - fair connected model run:** run Luna, Terra and Qwen first, with
+   Gemini as a comparison arm when its route is valid, across DEV-01 native,
+   DEV-02 generated-island/full-reel-hybrid, DEV-03 audio/video-dependent and
+   DEV-04 truthful capability-gap conditions. Preserve raw model output, run at
+   least repeated trials, compile without hidden creative repair, execute only
+   isolated proxies, render actual video/audio and obtain blind review before
+   any `GO`, `MODIFY` or `NO-GO` verdict.
+
+Only after V2-1F can this programme answer whether the tested models can plan
+native edits reliably. A pass authorises V2-2 holdouts and production
+integration design; it does not authorise direct ProjectService mutation.
+
+## Historical current position and next three bounded slices
+
+**Superseded-status notice (2026-08-17):** the following section is retained to
+show the programme state when `CAP-0`, `CAP-1` and `V2-0` were still next. Use
+the authoritative ledger above for current status and execution order.
 
 The code-grounded record later in this document shows that the identified
 receipt-hardening sequence progressed through 1-B7. That does **not** complete
@@ -906,28 +1524,74 @@ the broader plan: IF1 remains deliberately un-wired, the complete editorial
 spine and scalable media/evidence exits are not met, the open-ended model bet is
 untested, and the caption/transition/MG/audio/B-roll verticals are not certified.
 
-The next three research slices test the load-bearing AI assumption before we
-build a production router around it:
+A subsequent manual-editor audit changes the immediate order. The existing
+chat registry is not a sufficient capability packet: manual editing uses local
+hooks, whole-array autosave, duplicated V1/V2 panels and direct routes that are
+not semantically converged with chat. Confirmed examples include divergent
+speed, fade and trim fields, a transition operation available to the manual
+panel but filtered from live chat, and an unconsumed shorthand-to-AI prompt.
+The model experiment must not be repaired against that incomplete inventory.
 
-1. **K/OE-0 — knowledge map and frozen benchmark specification
-   (documentation/fixtures only):** create the official-source coverage and
-   rights ledger, `KnowledgeEntryV1` schema, four development tasks, eight
-   holdouts, gold target/preservation predicates, a 30–50-operator research
-   envelope, provider/privacy matrix, exact price snapshot and locked
-   go/modify/no-go thresholds. No provider call and no project mutation.
-2. **OE-1 — external planner-only harness:** implement the provider-neutral
-   trial record and the first provider adapter in one five-file phase; add each
-   additional provider adapter in its own five-file-or-fewer phase. Run Luna,
-   Terra, DeepSeek-V4-Flash-0731, Gemini 3.5 Flash-Lite and Gemini 3.6 Flash under the
-   same envelopes. Store raw trials, verifier results, cost and latency. Do not
-   render, write a project or reuse the production planner as an authority.
-3. **OE-2 — isolated verify/render/repair trial:** add the pure
-   `GraphVerifier`, mechanical scheduler and proxy executor for the frozen task
-   surface. Render only legal candidates, permit one predicate-specific repair,
-   run blind editor scoring and publish the `GO`, `MODIFY` or `NO-GO` report.
-   It still cannot write ProjectService or become a production runtime.
+The first benchmark implementation produced valuable diagnostic artifacts but
+did not honestly test the complete load-bearing assumption. Its model inputs
+omitted original media/request inspection, its difficult reference task omitted
+the intended generated-composition route, some operator handoffs were not
+type-connectable, some evidence-removal conditions retained impossible hidden
+predicates, and task token budgets were not enforced. Its executable pass rates
+therefore neither validate nor falsify open-ended model planning and authorize
+no production router or proxy execution.
 
-After OE-2, stop at a mandatory product checkpoint and return to the user to
+The governing correction is the
+[open-ended editing benchmark v2 production correction](editron/open-ended-editing/oe-benchmark-v2-production-correction-2026-08-12.md).
+It separately scores seven stages: target reconstruction; operation and
+native/generated/hybrid form selection; evidence and safety binding; exact
+typed graph compilation; truthful clarification/capability-gap behavior;
+isolated execution and deterministic proof; and blind editor quality/usefulness.
+
+The next three bounded programme slices are now:
+
+1. **CAP-0 — freeze current Editron capability truth (read-only code audit,
+   documentation and probes):** enumerate every manual UI/shortcut operation
+   plus chat, Director, worker and API-only operations. Trace request, owner,
+   typed state, persistence, renderer, proof and undo; mark UI/chat parity and
+   no-render/divergent/shadow paths explicitly. Produce the machine-readable
+   capability packet that later model trials receive. Do not fix runtime paths
+   or count registry entries as capabilities.
+2. **CAP-1 — official Adobe function and gap map (research/documentation
+   only):** compare the frozen `CAP-0` rows with current official Premiere Pro,
+   After Effects, Audition, Media Encoder and Frame.io feature/workflow
+   documentation. Preserve the difference between atomic controls, composite
+   workflows and product duties. Do not claim support because Editron has a
+   similarly named button or an LLM knows the concept.
+3. **V2-0 — repair and freeze the experiment (documentation/fixtures/tests
+   only):** build the seven-stage contracts, original request/media bindings,
+   `ReferenceBlueprintV2`, `EditorialIntentGraphV2`, machine-readable operator
+   schemas derived from `CAP-0`, a research-only
+   `GeneratedCompositionProgram` operator, condition-aware predicates, exact
+   budget telemetry and frozen scorecards. Multimodal and text/evidence-only
+   provider arms must be declared separately rather than pretending every
+   model received the same visual input.
+
+After those three slices, **V2-1** runs the tiny owned/synthetic mechanics smoke
+and **V2-2** runs the repeated development matrix and untouched holdouts. Only
+V2-2 may publish `GO`, `MODIFY` or `NO-GO`; a `GO` authorizes production
+integration design, not model-driven ProjectService mutation.
+
+The operation-count proposal is a benchmark hypothesis, not an architectural
+shortcut. A many-cut montage can remain native, while one unusual moving-panel
+layout may require generated code. The experiment must show whether any
+threshold generalizes better than free model choice and forced baselines.
+
+The same correction records a separate production debt: the chat path decodes
+audio and can use measured beats, while `five-track-analysis.ts` passes an audio
+URL to a buffer-only analyzer and then accepts about 120 BPM when analysis is
+empty. This is partial convergence, not unified beat analysis. Music/dialogue
+evidence remains early in editing; final SFX resolution generally follows
+stable picture timing. Beat-sync remains `LIVE_MULTIWRITE_UNCERTIFIED` until one
+canonical evidence owner, explicit unavailable/low-confidence results,
+revision-safe mutation, undo/replay and rendered proof are verified.
+
+After V2-2, stop at a mandatory product checkpoint and return to the user to
 design the requested **simpler auto-edit experience**. This plan deliberately
 does not pre-empt that discussion. No existing or proposed auto-edit path may
 be expanded into Stage 3 before that checkpoint decides its user interaction,
@@ -955,6 +1619,13 @@ when its contract, implementation, evaluation, proof, operational support and
 real-project scorecard all meet the declared threshold.
 
 ## CEO and engineering review record - 2026-08-10
+
+**Historical-stage notice (2026-08-12):** this review record is retained to
+show what the reviewers approved at the time. Every later reference in this
+dated record to `K/OE-0`, `OE-1`, `OE-2` or an `OE-2 GO` maps to the superseded
+experiment and grants no current execution authority. The current governing
+sequence is `CAP-0` -> `CAP-1` -> `V2-0` -> `V2-1` -> `V2-2` in the section
+above and in the linked benchmark v2 correction.
 
 ### Review decision
 
@@ -1802,39 +2473,106 @@ built around it.
 
 ### Implementation tasks
 
-- [ ] **T1 (P1, human ~3d / Codex ~1d)** — K/OE-0 — freeze the knowledge rights/source map, task set, operator envelope and scorecard.
-  - Surfaced by: CEO architecture/security and engineering architecture.
-  - Files: final/reconciliation docs plus new research fixtures; exact paths are chosen only after the pre-creation owner search.
-  - Verify: schema/fixture tests, licence/source review, zero runtime imports.
-- [ ] **T2 (P1, human ~1d / Codex ~3h)** — knowledge audit — classify every selected creative-graph record as supported, aspirational, stale or rejected.
+- [x] **T1 (historical diagnostic)** — K/OE-0/OE-1/OE-2A produced the frozen
+  knowledge ledger, fixtures, provider artifacts and exact verifier results.
+  - Disposition: preserved for audit, but its production interpretation is
+    superseded by the v2 correction because the experiment mixed target
+    reconstruction, form choice, exact serialization and execution readiness.
+  - Verify: historical hashes and raw records remain unchanged.
+- [x] **T2 (completed at `ac34f5b2a`)** — CAP-0 — freeze current Editron
+  capability truth across manual UI, shortcuts, chat, Director, workers, APIs,
+  persistence and render/export consumers.
+  - Surfaced by: manual/chat parity audit and benchmark input invalidity.
+  - Files: new capability census packet, human ledger and parity matrix selected
+    only after the pre-creation owner search; no runtime imports or mutations.
+  - Verify: every row has code citations, actual read/write fields, final
+    consumer/proof, duplicate-owner status and a reproducible count report.
+  - Scope correction (2026-08-17): this completed family-level reconnaissance;
+    it did not create the final atomic executable tool sheet. `CAP-2A` now owns
+    that remaining per-operation schema/owner/proof/parity work.
+- [x] **T3 (completed at `ac34f5b2a`)** — CAP-1 — compare the frozen CAP-0
+  packet with current official Adobe Premiere Pro, After Effects, Audition,
+  Media Encoder and Frame.io functions and workflows.
+  - Surfaced by: the need for a real Adobe-class destination rather than an
+    invented list of generic product responsibilities.
+  - Verify: official source/version per row, feature/workflow/product-duty
+    classification, and an evidence-backed current/gap status.
+- [ ] **T4 (P1, human ~1d / Codex ~3h)** — knowledge audit — classify every
+  selected creative-graph record as supported, aspirational, stale or rejected.
   - Surfaced by: engineering finding 4.
-  - Files: knowledge audit artifact and selected fixtures; do not rewrite the runtime graph in K/OE-0.
+  - Files: knowledge audit artifact and selected fixtures; do not rewrite the
+    runtime graph in V2-0.
   - Verify: source/support evidence for every selected benchmark entry.
-- [ ] **T3 (P1, human ~5d / Codex ~2d)** — OE-1 — implement the provider-neutral trial record/envelope harness and provider adapters in five-file phases.
-  - Surfaced by: model bet and provider-coupling findings.
-  - Files: research-only modules/tests selected after owner search.
-  - Verify: adapter parity, failure tests, trial immutability, zero ProjectService import.
-- [ ] **T4 (P1, human ~5d / Codex ~2d)** — OE-2 — implement pure verification, scheduling and isolated proxy execution.
-  - Surfaced by: compiler-boundary and false-success findings.
-  - Verify: rejection matrix, sandbox/chaos tests, blind eval and GO/MODIFY/NO-GO report.
-- [ ] **T5 (P1, human workshop ~2h)** — product — run the promised auto-edit simplification checkpoint after OE-2.
+- [x] **T5 (completed at `e52ea9bf7`)** — V2-0 — freeze the corrected seven-stage
+  contract, typed plan/compiler boundary, execution-form ablations,
+  condition-aware predicates, CAP-0-derived operator packet, modality arms and
+  budget telemetry.
+  - Surfaced by: benchmark validity audit and model/provider diagnostics.
+  - Files: research-only schema/fixtures/tests selected after an owner search;
+    no production planner or ProjectService import.
+  - Verify: schema and invariant tests, exact media/packet hashes, token/finish
+    telemetry tests and zero runtime imports.
+  - Scope correction (2026-08-17): the operator packet is a bounded 40-row
+    research slice, not the complete Editron manual/chat/worker capability
+    contract. Its `candidateCapabilityIds` node shape and compiler boundary are
+    superseded by `CAP-2A` and `V2-1R` in the authoritative ledger.
+- [ ] **T6 (P1, bounded smoke)** — V2-1 — run one mechanics-only trial per
+  model/arm across four owned/synthetic tasks.
+  - Surfaced by: need to validate the benchmark before another paid matrix.
+  - Reconciled state (2026-08-17): provider transports, token/cost telemetry,
+    staged packets, synthetic mechanics, research proxy renderers and raw
+    receipts exist. Those are useful harness/mechanics results. Previously
+    recorded cohort hashes remain immutable historical records, but their model-ranking
+    interpretation is `INVALID_EVIDENCE`.
+  - Root causes: Stage 2 conflated executed tools and alternatives in
+    `candidateCapabilityIds`; Stage 4 was DEV-specific rather than generic;
+    evaluator-approved canonical handoffs substituted for actual model output;
+    compiler-owned adapter policy contradicted Terra's evaluator; and Luna's
+    repair inherited too little of the shared 40-second stage budget.
+  - Provider dispositions: Luna DEV-01 is `UNVERIFIABLE / PROVIDER_TIMEOUT`,
+    not an editing failure. Terra's DEV-01 omission failure is invalid because
+    the issued packet allowed that omission. Qwen did select a detailed real
+    tool chain, but the ambiguous node schema prevents an honest executable
+    verdict. No model advances or fails on these records.
+  - Remaining gate (`RESET_AND_RERUN`): complete `CAP-2A`, freeze the
+    selected-versus-alternative schema, implement one generic zero-add/drop
+    lowerer, allocate fair per-attempt budgets, and carry untouched actual
+    model output through isolated execution and rendered proof. V2-2 remains
+    blocked until that connected rerun passes.
+  - Verify: raw provider output survives unchanged through all seven stages;
+    every executed catalog operator is model-selected; lowering adds or drops
+    zero catalog operators; exact token/time/cost telemetry is reconciled;
+    isolated video/audio proof and blind review bind to the model artifact; no
+    ranking is published from a contaminated or single canonical graph.
+- [ ] **T7 (P1, bounded matrix)** — V2-2 — run repeated development and locked
+  holdout trials, then publish `GO`, `MODIFY` or `NO-GO`.
+  - Surfaced by: the open-ended model and routing hypotheses.
+  - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,
+    blind review, cost/latency and no hidden manual rescue.
+- [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
+  simplification checkpoint after V2-2.
   - Surfaced by: explicit user deferral.
   - Verify: user-approved interaction/authority/conflict scope before Stage 3.
-- [ ] **T6 (P1, staged)** — production verticals — resume representative overlay recovery, one family at a time.
+- [ ] **T9 (P1, staged)** — production verticals — resume representative
+  overlay recovery, one family at a time.
   - Surfaced by: current overlay capability gap.
   - Verify: save/reload/render/truthful-proof/undo before catalog growth.
 
 ### Execution parallelisation
 
-Conceptually, knowledge/source review and legal media/task preparation can run
-in parallel because they touch different evidence. Provider adapters can also
-be developed independently after the shared trial contract freezes. However,
-the approved operational lane is the existing `editron-worktree` on
+Conceptually, CAP-0 family reconnaissance can be divided for review, but its
+counts and duplicate-owner conclusions freeze as one packet. CAP-1 waits for
+that packet so the Adobe comparison is not made against chat-tool names.
+Knowledge/source review and legal media/task preparation can then run in
+parallel because they touch different evidence. Provider adapters can also be
+developed independently after the shared trial contract freezes. However, the
+approved operational lane is the existing `editron-worktree` on
 `infrastructure-improvs-+Editron`; this review authorises no new worktree.
-Within that lane: K/OE-0 must finish first; OE-1 core precedes provider adapter
-phases; OE-2 waits for OE-1; the auto-edit checkpoint waits for OE-2. Overlay
-runtime recovery remains sequential with research implementation to avoid
-shared owner/config/test conflicts.
+Within that lane: `CAP-0` -> `CAP-1` -> `V2-0` is mandatory; V2-1 validates
+mechanics before any repeated paid matrix; V2-2 waits for V2-1; the auto-edit
+checkpoint waits for V2-2. Runtime parity repairs and overlay recovery require
+their own bounded implementation phases after the census identifies the sole
+owners; they must not be smuggled into the read-only census.
 
 ### Stale-diagram audit
 

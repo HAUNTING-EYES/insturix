@@ -8,6 +8,9 @@ export interface NativeSpeechRegion {
 }
 
 export interface NativeAudioEvidence {
+  evidenceId?: string;
+  sourceAssetId?: string;
+  sourceVersion?: string;
   hasNativeAudio: boolean;
   hasSpeech: boolean;
   source: 'transcription' | 'none';
@@ -96,22 +99,73 @@ export function getNativeAudioDuckRegions(overlay: any): Array<{ from: number; d
 
   const evidence = overlay.metadata?.nativeAudioEvidence as NativeAudioEvidence | undefined;
   if (evidence && evidence.hasSpeech === false) return [];
-
-  const clipStart = finiteNumber(overlay.from) ?? 0;
-  const clipDuration = Math.max(0, finiteNumber(overlay.durationInFrames) ?? 0);
-  if (clipDuration <= 0) return [];
-
-  const sourceStart = finiteNumber(overlay.sourceStartFrame)
-    ?? finiteNumber(overlay.videoStartTime)
-    ?? 0;
-  const sourceEnd = sourceStart + clipDuration;
-
   const regions = Array.isArray(evidence?.speechRegions) ? evidence.speechRegions : [];
   if (regions.length === 0) {
+    const clipStart = finiteNumber(overlay.from) ?? 0;
+    const clipDuration = Math.max(0, finiteNumber(overlay.durationInFrames) ?? 0);
     return overlay.hasNativeAudio === true
       ? [{ from: clipStart, durationInFrames: clipDuration }]
       : [];
   }
+
+  return projectSpeechRegionsToTimeline(
+    overlay,
+    regions,
+    finiteNumber(overlay.sourceStartFrame) ?? finiteNumber(overlay.videoStartTime) ?? 0,
+  );
+}
+
+/**
+ * Project source-bound speech evidence for a separate dialogue/voice sound.
+ * `null` means the overlay has no bound evidence and the caller may retain its
+ * legacy full-overlay fallback. An empty array means evidence explicitly says
+ * there is no speech, so callers must not invent a voice range.
+ */
+export function getSoundAudioDuckRegions(
+  overlay: any,
+): Array<{ from: number; durationInFrames: number }> | null {
+  if (!overlay || overlay.type !== 'sound') return null;
+
+  const evidence = overlay.metadata?.nativeAudioEvidence as NativeAudioEvidence | undefined;
+  if (!evidence) return null;
+  if (evidence.hasSpeech === false) return [];
+
+  if (
+    typeof overlay.assetId !== 'string'
+    || evidence.sourceAssetId !== overlay.assetId
+    || typeof evidence.sourceVersion !== 'string'
+    || evidence.sourceVersion.length === 0
+  ) {
+    throw new Error('UNBOUND_SOUND_SPEECH_EVIDENCE');
+  }
+
+  const regions = Array.isArray(evidence.speechRegions) ? evidence.speechRegions : [];
+  if (regions.length === 0 || regions.some((region) => !isValidSpeechRegion(region))) {
+    throw new Error('INVALID_BOUND_SOUND_SPEECH_EVIDENCE');
+  }
+
+  return projectSpeechRegionsToTimeline(
+    overlay,
+    regions,
+    finiteNumber(overlay.startFromSound) ?? 0,
+  );
+}
+
+function isValidSpeechRegion(region: NativeSpeechRegion): boolean {
+  const start = finiteNumber(region?.sourceStartFrame);
+  const end = finiteNumber(region?.sourceEndFrame);
+  return start != null && end != null && start >= 0 && end > start;
+}
+
+function projectSpeechRegionsToTimeline(
+  overlay: any,
+  regions: readonly NativeSpeechRegion[],
+  sourceStart: number,
+): Array<{ from: number; durationInFrames: number }> {
+  const clipStart = finiteNumber(overlay.from) ?? 0;
+  const clipDuration = Math.max(0, finiteNumber(overlay.durationInFrames) ?? 0);
+  if (clipDuration <= 0) return [];
+  const sourceEnd = sourceStart + clipDuration;
 
   return regions
     .map((region) => {

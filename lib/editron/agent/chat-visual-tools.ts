@@ -252,6 +252,7 @@ export interface KeyframeEditOptions {
   scaleDelta?: number;
   evidenceModality?: "transcript" | "visual" | "audio";
   evidenceStrength?: number;
+  focalPoint?: { x: number; y: number };
   replaceExistingScaleKeyframes?: boolean;
   allowCaptionKeyframes?: boolean;
 }
@@ -270,6 +271,7 @@ export interface KeyframeEditPlan {
       overlayId: number;
       property: "scale";
       keyframes: Array<{ frame: number; value: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" }>;
+      focalPoint?: { x: number; y: number };
     };
   };
   warnings: string[];
@@ -458,6 +460,10 @@ const keyframeEditSchema = z.object({
   scaleDelta: z.coerce.number().min(0.01).max(0.5).default(0.12).describe("Requested scale delta before safety clamping. 0.12 is a restrained manual zoom."),
   evidenceModality: z.enum(["transcript", "visual", "audio"]).optional().describe("Server-owned evidence modality for a motivated zoom anchor."),
   evidenceStrength: z.coerce.number().min(0).max(1).optional().describe("Revision-bound resolver confidence for a motivated zoom. This is evidence, not a hand-authored scale value."),
+  focalPoint: z.object({
+    x: z.coerce.number().min(0).max(1),
+    y: z.coerce.number().min(0).max(1),
+  }).strict().optional().describe("Revision-bound normalized focal point returned by visual evidence. It is resolved into a render-safe transform origin."),
   replaceExistingScaleKeyframes: z.boolean().default(false).describe("Allow replacing existing scale keyframes. Keep false unless the user explicitly wants to overwrite zoom/scale motion."),
   allowCaptionKeyframes: z.boolean().default(false).describe("Allow scale keyframes on captions/subtitles. Keep false unless captions were explicitly targeted."),
 });
@@ -1541,6 +1547,9 @@ export function resolveKeyframeEditParams(
         overlayId: numericOverlayId,
         property: "scale",
         keyframes,
+        ...(motivatedForm ? {
+          focalPoint: { x: motivatedForm.focal.x, y: motivatedForm.focal.y },
+        } : {}),
       },
     },
     warnings,
@@ -1621,12 +1630,28 @@ function resolveMotivatedZoomForm(
       : options.evidenceModality === "audio"
         ? { speech_energy: evidenceStrength }
         : { visual_significance: evidenceStrength }),
+    ...(options.focalPoint ? {
+      zoom_focal_x: options.focalPoint.x,
+      zoom_focal_y: options.focalPoint.y,
+    } : {}),
     topic_shift: direction === "out" ? 1 : 0,
   };
 
+  const requestedScaleDelta = options.scaleDelta == null
+    ? undefined
+    : clamp(options.scaleDelta, 0.02, 0.35);
+  const scaleParams = requestedScaleDelta == null
+    ? {}
+    : direction === "out"
+      ? { scaleFrom: 1 + requestedScaleDelta, scaleTo: 1 }
+      : { scaleFrom: 1, scaleTo: 1 + requestedScaleDelta };
+
   return resolveAtomicZoomForm({
     signals,
-    params: direction === "out" ? { zoomType: "pull-back" } : {},
+    params: {
+      ...(direction === "out" ? { zoomType: "pull-back" } : {}),
+      ...scaleParams,
+    },
     localFrame,
     sceneEnd,
   });

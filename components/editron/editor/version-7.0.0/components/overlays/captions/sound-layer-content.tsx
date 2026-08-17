@@ -10,7 +10,10 @@ import {
   toOverlayLocalRanges,
   type DuckingConfig,
 } from "../../../utils/audio-ducking";
-import { getNativeAudioDuckRegions } from "@/lib/editron/services/native-audio-evidence";
+import {
+  getNativeAudioDuckRegions,
+  getSoundAudioDuckRegions,
+} from "@/lib/editron/services/native-audio-evidence";
 
 const CANONICAL_VOICEOVER_ROW = 3;
 const LEGACY_VOICEOVER_ROW = 4;
@@ -97,6 +100,9 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
 
       // Source 1: separate voiceover sound overlays
       if (o.type === 'sound') {
+        const evidencedRanges = getSoundAudioDuckRegions(o);
+        if (evidencedRanges !== null) return evidencedRanges;
+
         const aid = (o as any).assetId || '';
         if (aid.startsWith('voiceover_') || aid.startsWith('vo_')) return [{ from: o.from, durationInFrames: o.durationInFrames }];
         if (o.row === CANONICAL_VOICEOVER_ROW || o.row === LEGACY_VOICEOVER_ROW) return [{ from: o.from, durationInFrames: o.durationInFrames }];

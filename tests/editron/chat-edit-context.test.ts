@@ -1157,6 +1157,8 @@ describe('chat edit context bundle', () => {
       direction: 'in',
       evidenceModality: 'transcript',
       evidenceStrength: 0.86,
+      scaleDelta: 0.12,
+      focalPoint: { x: 0.745, y: 0.5 },
     });
     const keyframes = plan.useWith?.set_keyframes.keyframes ?? [];
 
@@ -1168,13 +1170,14 @@ describe('chat edit context bundle', () => {
         set_keyframes: {
           overlayId: 1,
           property: 'scale',
+          focalPoint: { x: 0.745, y: 0.5 },
         },
       },
     });
     expect(plan.message).toContain('atomic zoom-form owner');
     expect(keyframes.length).toBeGreaterThanOrEqual(2);
     expect(keyframes[0].frame).toBeLessThanOrEqual(96);
-    expect(keyframes[keyframes.length - 1].value).toBeGreaterThan(1);
+    expect(Math.max(...keyframes.map(({ value }) => value))).toBeCloseTo(1.12, 6);
   });
 
   it('fails closed when a grounded zoom frame has no unique active visual source', () => {

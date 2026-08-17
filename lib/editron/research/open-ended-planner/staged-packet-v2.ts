@@ -7,6 +7,12 @@ import tasksV2Json from '@/tests/fixtures/editron/open-ended-planner-v2/tasks-v2
 import developmentV1Json from '@/tests/fixtures/editron/open-ended-planner-v1/development-tasks-v1.json';
 
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
+import { getCanonicalDev01Stage123V2 } from './dev01-stage123-canonical-v2';
+import {
+  getCanonicalDev01NativeProxyFixtureV2,
+  hashCanonicalDev01NativeProxyFixtureV2,
+} from './dev01-native-proxy-fixture-v2';
+import { getCanonicalDev04ConnectedChainV2 } from './dev04-capability-gap-chain-v2';
 import {
   hashTemporalReferenceEvidenceV2,
   type TemporalReferenceEvidenceV2,
@@ -86,12 +92,16 @@ export interface ProviderTransportAttachmentV2 {
   technical?: JsonRecord;
 }
 
+export interface StageThreeEvidenceSourceV2 {
+  evidencePack: JsonRecord;
+}
+
 interface StageBudgetV2 { maxInputTokens: number; maxVisibleOutputTokens: number; maxReasoningTokens: number; maxWallClockMs: number; maxProviderCostUsd: number }
 
 const STAGE_BUDGETS: Record<StageV2, StageBudgetV2> = {
   1: { maxInputTokens: 30000, maxVisibleOutputTokens: 10000, maxReasoningTokens: 3000, maxWallClockMs: 90000, maxProviderCostUsd: 0.35 },
-  2: { maxInputTokens: 50000, maxVisibleOutputTokens: 4000, maxReasoningTokens: 5000, maxWallClockMs: 40000, maxProviderCostUsd: 0.30 },
-  3: { maxInputTokens: 32000, maxVisibleOutputTokens: 2400, maxReasoningTokens: 3000, maxWallClockMs: 45000, maxProviderCostUsd: 0.20 },
+  2: { maxInputTokens: 50000, maxVisibleOutputTokens: 8000, maxReasoningTokens: 5000, maxWallClockMs: 40000, maxProviderCostUsd: 0.30 },
+  3: { maxInputTokens: 32000, maxVisibleOutputTokens: 4000, maxReasoningTokens: 3000, maxWallClockMs: 45000, maxProviderCostUsd: 0.20 },
   4: { maxInputTokens: 80000, maxVisibleOutputTokens: 8000, maxReasoningTokens: 7000, maxWallClockMs: 90000, maxProviderCostUsd: 0.48 },
   5: { maxInputTokens: 3000, maxVisibleOutputTokens: 800, maxReasoningTokens: 1800, maxWallClockMs: 30000, maxProviderCostUsd: 0.08 },
 };
@@ -122,6 +132,28 @@ export function buildDevelopmentStageOnePacketsV2(): HashedStagePacketV2[] {
     }
   }
   return results;
+}
+
+export function buildDev01TruthfulStageOneTextPacketV2(
+  conditionId: 'BASELINE' | 'VISUAL_EVIDENCE_WITHHELD',
+): HashedStagePacketV2 {
+  const task = developmentTasksV2().find(({ taskId }) => taskId === 'DEV-01')
+    ?? fail('TASK_MISSING', 'DEV-01');
+  const condition = task.conditionCases.find((candidate) => candidate.conditionId === conditionId)
+    ?? fail('CONDITION_MISSING', `DEV-01/${conditionId}`);
+  return buildDev01TruthfulTextStageOnePacket(task, condition);
+}
+
+export function buildCanonicalTextStageOnePacketV2(input: {
+  taskId: string;
+  conditionId: string;
+  canonicalInput: JsonRecord;
+}): HashedStagePacketV2 {
+  const task = developmentTasksV2().find(({ taskId }) => taskId === input.taskId)
+    ?? fail('TASK_MISSING', input.taskId);
+  const condition = task.conditionCases.find(({ conditionId }) => conditionId === input.conditionId)
+    ?? fail('CONDITION_MISSING', `${input.taskId}/${input.conditionId}`);
+  return buildCanonicalTextStageOnePacket(task, condition, input.canonicalInput);
 }
 
 export function buildDevelopmentReferenceImageStageOnePacketV2(
@@ -162,12 +194,17 @@ export function buildNextProviderStagePacketV2(input: {
   stage: 2 | 3 | 4 | 5;
   executionFormArm: ExecutionFormArmV2;
   priorArtifact: PriorArtifactV2;
+  stageThreeSource?: StageThreeEvidenceSourceV2;
 }): HashedStagePacketV2 {
   if (input.previousPacket.packet.stage !== input.stage - 1) fail('NON_SEQUENTIAL_STAGE', 'Stages must be built sequentially');
   const expectedType = ['ReferenceBlueprintV2', 'EditorialIntentGraphV2', 'EvidenceBoundIntentGraphV2', 'CompiledOperationGraphV2'][input.stage - 2];
   if (input.priorArtifact.artifactType !== expectedType || input.priorArtifact.taskId !== input.previousPacket.packet.taskId) fail('PRIOR_ARTIFACT_MISMATCH', `Stage ${input.stage} requires ${expectedType} for the same task`);
   const diagnostics = validateArtifactV2(input.priorArtifact, input.previousPacket.packet.outputContract, '$');
   if (diagnostics.length) fail('PRIOR_ARTIFACT_SCHEMA_INVALID', diagnostics.join('; '));
+  if (input.stage === 4
+    && !['READY_FOR_COMPILATION', 'CAPABILITY_GAP'].includes(String(input.priorArtifact.stageDisposition))) {
+    fail('STAGE4_PRIOR_STAGE_NOT_COMPILABLE', `Stage 4 cannot compile a ${String(input.priorArtifact.stageDisposition)} evidence-bound intent`);
+  }
   const sourceTask = developmentTasksV2().find(({ taskId }) => taskId === input.previousPacket.packet.taskId) ?? fail('TASK_MISSING', 'Development task disappeared');
   const condition = sourceTask.conditionCases.find(({ conditionId }) => conditionId === input.previousPacket.packet.conditionId) ?? fail('CONDITION_MISSING', 'Condition disappeared');
   const modelInput: JsonRecord = {
@@ -175,10 +212,12 @@ export function buildNextProviderStagePacketV2(input: {
     priorArtifactHash: hashCanonicalJsonV1(input.priorArtifact),
     condition: publicCondition(condition),
     ...(input.stage <= 4 ? { operatorCatalog: publicOperatorCatalog(input.stage, input.priorArtifact) } : {}),
-    ...(input.stage === 3 ? { evidencePack: stageThreeEvidencePack(sourceTask, condition) } : {}),
+    ...(input.stage === 3 ? {
+      evidencePack: stageThreeEvidencePack(sourceTask, condition, input.stageThreeSource),
+    } : {}),
     ...(input.stage === 4 ? {
       compilationSources: stageFourCompilationSources(sourceTask, condition, input.priorArtifact, input.previousPacket.packet),
-      compilationPolicy: stageFourCompilationPolicy(),
+      compilationPolicy: stageFourCompilationPolicy(sourceTask.taskId),
     } : {}),
     ...(input.stage === 2 ? { routingExperiment: routingExperiment(input.executionFormArm) } : {}),
   };
@@ -270,6 +309,56 @@ function buildStageOnePacket(task: SourceTaskV2, condition: ConditionCaseV2, inp
   };
   const packet = packetBase({ stage: 1, taskId: task.taskId, conditionId: condition.conditionId, inputArm, executionFormArm: 'NOT_APPLICABLE_PRE_ROUTING', modelInput });
   return hashPacket(packet, attachments);
+}
+
+function buildDev01TruthfulTextStageOnePacket(
+  task: SourceTaskV2,
+  condition: ConditionCaseV2,
+): HashedStagePacketV2 {
+  const source = getCanonicalDev01Stage123V2();
+  const canonicalInput = source.stageOneTextInputs[condition.conditionId as keyof typeof source.stageOneTextInputs]
+    ?? fail('DEV01_STAGE1_SOURCE_MISSING', condition.conditionId);
+  return buildCanonicalTextStageOnePacket(task, condition, canonicalInput);
+}
+
+function buildCanonicalTextStageOnePacket(
+  task: SourceTaskV2,
+  condition: ConditionCaseV2,
+  canonicalInput: JsonRecord,
+): HashedStagePacketV2 {
+  const evidenceSource = Array.isArray(canonicalInput.evidence)
+    ? canonicalInput.evidence
+    : canonicalInput.evidenceAvailability;
+  const evidenceIds = records(evidenceSource).map(({ evidenceId }) => String(evidenceId));
+  if (hashCanonicalJsonV1(evidenceIds) !== hashCanonicalJsonV1(condition.availableEvidenceIds)) {
+    fail('CONDITION_EVIDENCE_DRIFT', `${task.taskId}/${condition.conditionId}`);
+  }
+  const projectFacts = isRecord(canonicalInput.projectFacts) ? canonicalInput.projectFacts : {};
+  if (projectFacts.projectId !== task.projectBinding.projectId
+    || projectFacts.projectRevision !== task.projectBinding.projectRevision) {
+    fail('PROJECT_BINDING_DRIFT', task.taskId);
+  }
+  if (typeof canonicalInput.taskId === 'string' && canonicalInput.taskId !== task.taskId) {
+    fail('TASK_BINDING_DRIFT', task.taskId);
+  }
+  if (typeof canonicalInput.conditionId === 'string'
+    && canonicalInput.conditionId !== condition.conditionId) {
+    fail('CONDITION_BINDING_DRIFT', `${task.taskId}/${condition.conditionId}`);
+  }
+  const modelInput = {
+    originalRequest: task.originalRequest,
+    ...canonicalInput,
+    condition: publicCondition(condition),
+  };
+  const packet = packetBase({
+    stage: 1,
+    taskId: task.taskId,
+    conditionId: condition.conditionId,
+    inputArm: 'TEXT_EVIDENCE_ONLY',
+    executionFormArm: 'NOT_APPLICABLE_PRE_ROUTING',
+    modelInput,
+  });
+  return hashPacket(packet, []);
 }
 
 function verifiedTemporalReferenceEvidence(media: MediaArtifactV2[]): TemporalReferenceEvidenceV2 {
@@ -448,8 +537,14 @@ function publicOperatorCatalog(stage: number, priorArtifact: PriorArtifactV2): J
     : { version: operatorCatalogJson.version, operators };
 }
 
-function stageThreeEvidencePack(task: SourceTaskV2, condition: ConditionCaseV2): JsonRecord {
-  const pack = dev02Stage3EvidenceJson as unknown as JsonRecord;
+function stageThreeEvidencePack(
+  task: SourceTaskV2,
+  condition: ConditionCaseV2,
+  source?: StageThreeEvidenceSourceV2,
+): JsonRecord {
+  const pack = source?.evidencePack
+    ?? stageSources(task.taskId).evidencePacks[condition.conditionId]
+    ?? fail('STAGE3_EVIDENCE_PACK_MISSING', `${task.taskId}/${condition.conditionId}`);
   if (pack.taskId !== task.taskId || pack.conditionId !== condition.conditionId) {
     fail('STAGE3_EVIDENCE_PACK_MISSING', `${task.taskId}/${condition.conditionId}`);
   }
@@ -462,20 +557,39 @@ function stageThreeEvidencePack(task: SourceTaskV2, condition: ConditionCaseV2):
     || projectFact.expectedProjectRevision !== task.projectBinding.projectRevision) {
     fail('STAGE3_PROJECT_BINDING_DRIFT', task.taskId);
   }
-  const media = mediaForTask(task);
-  for (const artifact of media) {
-    const fact = facts.find(({ factId }) => factId === `fact-source-${artifact.assetId}`);
-    if (fact?.assetVersion !== artifact.artifactSha256) fail('STAGE3_MEDIA_BINDING_DRIFT', artifact.assetId);
+  if (task.taskId === 'DEV-01') {
+    const sourceFixtureHash = hashCanonicalDev01NativeProxyFixtureV2();
+    const sourceFact = facts.find(({ factId }) => factId === 'fact-source-fixture');
+    if (pack.sourceFixtureHash !== sourceFixtureHash
+      || sourceFact?.sourceFixtureHash !== sourceFixtureHash
+      || sourceFact.materializationStatus !== 'NOT_MATERIALIZED_STAGE123') {
+      fail('STAGE3_MEDIA_BINDING_DRIFT', 'DEV-01 truthful source fixture');
+    }
+  } else if (task.taskId === 'DEV-03') {
+    const media = new Map(mediaForTask(task).map((artifact) => [artifact.assetId, artifact]));
+    const sourceHandles = facts.find(({ factId }) => factId === 'fact-source-handles');
+    const measuredBeats = facts.find(({ factId }) => factId === 'fact-measured-beats');
+    if (sourceHandles?.sourceArtifactSha256 !== stripSha256Prefix(
+      String(media.get('dev03-cards')?.artifactSha256 ?? ''),
+    )) {
+      fail('STAGE3_MEDIA_BINDING_DRIFT', 'dev03-cards');
+    }
+    if (measuredBeats && measuredBeats.sourceArtifactSha256 !== stripSha256Prefix(
+      String(media.get('dev03-beats')?.artifactSha256 ?? ''),
+    )) {
+      fail('STAGE3_MEDIA_BINDING_DRIFT', 'dev03-beats');
+    }
+  } else {
+    const media = mediaForTask(task);
+    for (const artifact of media) {
+      const fact = facts.find(({ factId }) => factId === `fact-source-${artifact.assetId}`);
+      if (fact?.assetVersion !== artifact.artifactSha256) fail('STAGE3_MEDIA_BINDING_DRIFT', artifact.assetId);
+    }
   }
   if (hashCanonicalJsonV1(pack.visibleEvidenceIds) !== hashCanonicalJsonV1(condition.availableEvidenceIds)) {
     fail('STAGE3_CONDITION_BINDING_DRIFT', `${task.taskId}/${condition.conditionId}`);
   }
-  const generatedOwner = operatorCatalogJson.operators.find(({ operatorId }) => operatorId === 'generated_composition_program');
-  const supportFact = facts.find(({ factId }) => factId === 'fact-support-generated-composition');
-  if (!generatedOwner || supportFact?.supportStatus !== generatedOwner.supportStatus
-    || supportFact.compilerEligibility !== generatedOwner.compilerEligibility) {
-    fail('STAGE3_SUPPORT_BINDING_DRIFT', task.taskId);
-  }
+  validateStageThreeSupportBinding(task.taskId, facts);
   return pack;
 }
 
@@ -485,7 +599,7 @@ function stageFourCompilationSources(
   evidenceBoundIntent: PriorArtifactV2,
   stageThreePacket: ProviderStagePacketV2,
 ): JsonRecord {
-  const editorialIntent = dev02CanonicalIntentJson as unknown as JsonRecord;
+  const editorialIntent = stageSources(task.taskId).editorialIntent;
   if (editorialIntent.taskId !== task.taskId) {
     fail('STAGE4_EDITORIAL_INTENT_MISSING', task.taskId);
   }
@@ -516,10 +630,83 @@ function stageFourCompilationSources(
     sourceEvidenceBoundIntentHash: hashCanonicalJsonV1(evidenceBoundIntent),
     evidencePack,
     evidencePackHash,
+    ...(task.taskId === 'DEV-01' ? {
+      nativeProxyFixture: getCanonicalDev01NativeProxyFixtureV2(),
+      nativeProxyFixtureHash: hashCanonicalDev01NativeProxyFixtureV2(),
+    } : {}),
   };
 }
 
-function stageFourCompilationPolicy(): JsonRecord {
+function stageSources(taskId: string): { editorialIntent: JsonRecord; evidencePacks: Record<string, JsonRecord> } {
+  if (taskId === 'DEV-01') {
+    const source = getCanonicalDev01Stage123V2();
+    return { editorialIntent: source.editorialIntent, evidencePacks: source.evidencePacks };
+  }
+  if (taskId === 'DEV-02') return {
+    editorialIntent: dev02CanonicalIntentJson as unknown as JsonRecord,
+    evidencePacks: { BASELINE: dev02Stage3EvidenceJson as unknown as JsonRecord },
+  };
+  if (taskId === 'DEV-04') {
+    const source = getCanonicalDev04ConnectedChainV2();
+    return { editorialIntent: source.editorialIntent, evidencePacks: source.evidencePacks };
+  }
+  return fail('STAGED_TASK_SOURCE_MISSING', taskId);
+}
+
+function validateStageThreeSupportBinding(taskId: string, facts: JsonRecord[]): void {
+  if (taskId === 'DEV-01') {
+    for (const operatorId of [
+      'read_project_file', 'get_timeline_view',
+      'find_transcript_moment', 'resolve_transcript_edit', 'cut_section',
+      'find_visual_moment', 'resolve_keyframe_edit', 'set_keyframes',
+      'find_audio_moment', 'apply_audio_ducking',
+    ]) {
+      const operator = operatorCatalogJson.operators.find((candidate) => candidate.operatorId === operatorId);
+      const supportFact = facts.find(({ factId }) => factId === `fact-support-${operatorId}`);
+      if (!operator || supportFact?.operatorId !== operatorId
+        || supportFact.supportStatus !== operator.supportStatus
+        || supportFact.compilerEligibility !== operator.compilerEligibility) {
+        fail('STAGE3_SUPPORT_BINDING_DRIFT', `${taskId}/${operatorId}`);
+      }
+    }
+    return;
+  }
+  if (taskId === 'DEV-02') {
+    const generatedOwner = operatorCatalogJson.operators.find(({ operatorId }) => operatorId === 'generated_composition_program');
+    const supportFact = facts.find(({ factId }) => factId === 'fact-support-generated-composition');
+    if (!generatedOwner || supportFact?.supportStatus !== generatedOwner.supportStatus
+      || supportFact.compilerEligibility !== generatedOwner.compilerEligibility) {
+      fail('STAGE3_SUPPORT_BINDING_DRIFT', taskId);
+    }
+    return;
+  }
+  if (taskId === 'DEV-03') {
+    for (const operatorId of [
+      'read_project_file', 'get_timeline_view', 'find_audio_moment',
+      'sync_cuts_to_beats', 'apply_camera_shake',
+    ]) {
+      const operator = operatorCatalogJson.operators.find((candidate) => candidate.operatorId === operatorId);
+      const supportFact = facts.find(({ factId }) => factId === `fact-support-${operatorId}`);
+      if (!operator || supportFact?.operatorId !== operatorId
+        || supportFact.supportStatus !== operator.supportStatus
+        || supportFact.compilerEligibility !== operator.compilerEligibility) {
+        fail('STAGE3_SUPPORT_BINDING_DRIFT', `${taskId}/${operatorId}`);
+      }
+    }
+    return;
+  }
+  if (taskId === 'DEV-04') {
+    const supportFact = facts.find(({ factId }) => factId === 'fact-support-moving-matte');
+    if (supportFact?.capabilityId !== 'moving-matte-or-segmentation-track'
+      || supportFact.supportStatus !== 'MISSING'
+      || supportFact.compilerEligibility !== 'NOT_COMPILABLE') {
+      fail('STAGE3_SUPPORT_BINDING_DRIFT', taskId);
+    }
+  }
+}
+
+function stageFourCompilationPolicy(taskId: string): JsonRecord {
+  const dev01MutationProxy = taskId === 'DEV-01';
   return {
     policyVersion: 'EDITRON_OE_STAGE4_COMPILATION_POLICY_V2',
     authority: 'SYNTHETIC_RESEARCH_COMPILATION_ONLY_NO_PROJECT_MUTATION',
@@ -530,11 +717,13 @@ function stageFourCompilationPolicy(): JsonRecord {
       { match: { compilerEligibility: 'RESEARCH_READ_ONLY' }, disposition: 'RESEARCH_PROXY_ONLY' },
       { match: { supportStatus: 'RESEARCH_ONLY_NOT_IMPLEMENTED' }, disposition: 'FORBIDDEN_DIAGNOSTIC_REQUIRED' },
       { match: { compilerEligibility: 'NOT_COMPILABLE' }, disposition: 'FORBIDDEN_DIAGNOSTIC_REQUIRED' },
+      ...(dev01MutationProxy ? [{ match: { compilerEligibility: 'ISOLATED_PROXY_ONLY' }, disposition: 'RESEARCH_PROXY_ONLY' }] : []),
     ],
     resourcePolicies: [
       { resourcePolicyId: 'OE_STAGE4_READ_V1', applicableKinds: ['READ'], maxWallClockMs: 5000, maxMemoryMiB: 128, maxOutputBytes: 1000000, networkPolicy: 'DENY' },
       { resourcePolicyId: 'OE_STAGE4_RESOLVER_V1', applicableKinds: ['RESOLVER'], maxWallClockMs: 10000, maxMemoryMiB: 256, maxOutputBytes: 2000000, networkPolicy: 'DENY' },
       { resourcePolicyId: 'OE_STAGE4_GENERATED_SANDBOX_V1', applicableKinds: ['GENERATED_COMPOSITION'], maxWallClockMs: 30000, maxMemoryMiB: 512, maxOutputBytes: 10000000, networkPolicy: 'DENY', currentEligibility: 'FORBIDDEN_UNTIL_IMPLEMENTED' },
+      ...(dev01MutationProxy ? [{ resourcePolicyId: 'OE_STAGE4_MUTATION_PROXY_V1', applicableKinds: ['MUTATION'], maxWallClockMs: 10000, maxMemoryMiB: 256, maxOutputBytes: 2000000, networkPolicy: 'DENY', currentEligibility: 'ISOLATED_IN_MEMORY_CLONE_ONLY' }] : []),
     ],
     referenceRules: {
       reads: 'fact IDs or source artifact references actually consumed',
@@ -544,6 +733,10 @@ function stageFourCompilationPolicy(): JsonRecord {
       edges: 'Every edge endpoint must be a compiled nodeId emitted in nodes; never copy a source-intent edge when either endpoint is unresolved or diagnostic-only',
       invalidates: 'READ and RESOLVER nodes are observational or propositional and must use []; invalidations belonging to an unresolved mutating intent remain on the source intent and structured diagnostic',
       traceRefs: 'source intent node, evidence binding, proof, preservation, and policy IDs only',
+      ...(dev01MutationProxy ? {
+        mutationRule: 'ISOLATED_PROXY_ONLY mutation nodes must declare exact writes, invalidations, exclusive conflict domains, checkpoint-required reversibility, and a writer-receipt revision chain. They never authorize ProjectService or user-project mutation.',
+        bindingRule: 'Downstream identities and revisions produced by a mutation must be referenced from that mutation output, never copied from pre-mutation project state.',
+      } : {}),
     },
   };
 }
@@ -568,9 +761,9 @@ function routingExperiment(arm: ExecutionFormArmV2): JsonRecord {
 function outputContract(stage: StageV2, taskId: string, arm: ExecutionFormArmV2 | 'NOT_APPLICABLE_PRE_ROUTING'): JsonRecord {
   const artifactType = ['ReferenceBlueprintV2', 'EditorialIntentGraphV2', 'EvidenceBoundIntentGraphV2', 'CompiledOperationGraphV2', 'ProceedOrStopDecisionV2'][stage - 1];
   const source = stage === 3
-    ? stageThreeOutputContractV2()
+    ? stageThreeOutputContractV2(taskId)
     : stage === 4
-    ? stageFourOutputContractV2()
+    ? stageFourOutputContractV2(taskId)
     : benchmarkJson.artifactSchemas[artifactType as keyof typeof benchmarkJson.artifactSchemas] as { required: string[]; properties?: JsonRecord };
   const required = ['artifactType', ...source.required];
   const properties = source.properties
@@ -582,27 +775,38 @@ function outputContract(stage: StageV2, taskId: string, arm: ExecutionFormArmV2 
   return { type: 'object', required, properties, additionalProperties: false };
 }
 
-function stageThreeOutputContractV2(): { required: string[]; properties: JsonRecord } {
+function stageThreeOutputContractV2(taskId: string): { required: string[]; properties: JsonRecord } {
   const string = { type: 'string', minLength: 1 };
   const strings = { type: 'array', items: string, uniqueItems: true };
+  const proofKinds = [
+    'REVISION_FRESHNESS', 'ASSET_IDENTITY_RIGHTS', 'SOURCE_RANGE_HANDLES',
+    'RENDERED_GEOMETRY', 'RENDERED_LEGIBILITY', 'BOUNDARY_CONTINUITY',
+    'SANDBOX_COMPILE', 'STATE_RELOAD',
+    ...(taskId === 'DEV-01' ? ['SPEECH_PRESERVATION', 'RENDERED_AUDIO_MIX'] : []),
+    ...(taskId === 'DEV-03' ? [
+      'MEASURED_BEAT_PROVENANCE', 'SOURCE_HANDLE_LEGALITY',
+      'PROTECTED_AUDIO_BYTES_AND_TIMING', 'RENDERED_BOUNDARY_TIMING',
+      'RENDERED_SHAKE_AND_NEUTRAL_RETURN',
+    ] : []),
+  ];
   return {
     required: ['taskId', 'stageDisposition', 'nodes', 'evidenceBindings', 'rightsDecision', 'privacyDecision', 'revisionBinding', 'preservationBindings', 'proofPlan', 'unresolvedRequirements'],
     properties: {
       taskId: string,
       stageDisposition: { type: 'string', enum: ['READY_FOR_COMPILATION', 'CAPABILITY_GAP', 'POLICY_BLOCKED', 'CONFLICT', 'UNVERIFIABLE'] },
       nodes: { type: 'array', minItems: 1, items: { type: 'object', required: ['intentNodeId', 'candidateCapabilityIds', 'evidenceBindingIds', 'preservationIds', 'proofObligationIds', 'bindingStatus', 'unresolvedRequirementIds'], properties: { intentNodeId: string, candidateCapabilityIds: strings, evidenceBindingIds: strings, preservationIds: strings, proofObligationIds: strings, bindingStatus: { type: 'string', enum: ['BOUND', 'PARTIAL', 'UNVERIFIABLE'] }, unresolvedRequirementIds: strings }, additionalProperties: false } },
-      evidenceBindings: { type: 'array', minItems: 1, items: { type: 'object', required: ['bindingId', 'factIds', 'nodeIds', 'status'], properties: { bindingId: string, factIds: { ...strings, minItems: 1 }, nodeIds: { ...strings, minItems: 1 }, status: { type: 'string', enum: ['BOUND', 'PARTIAL', 'UNVERIFIABLE'] } }, additionalProperties: false } },
+      evidenceBindings: { type: 'array', minItems: 1, items: { type: 'object', required: ['bindingId', 'factIds', 'nodeIds', 'status'], properties: { bindingId: string, factIds: strings, nodeIds: { ...strings, minItems: 1 }, status: { type: 'string', enum: ['BOUND', 'PARTIAL', 'UNVERIFIABLE'] } }, additionalProperties: false } },
       rightsDecision: { type: 'object', required: ['decisionId', 'status', 'policyFactIds', 'allowedAssetIds', 'deniedActions', 'reasonCodes'], properties: { decisionId: string, status: { type: 'string', enum: ['COMPLIANT', 'POLICY_BLOCKED', 'UNVERIFIABLE'] }, policyFactIds: { ...strings, minItems: 1 }, allowedAssetIds: strings, deniedActions: strings, reasonCodes: { ...strings, minItems: 1 } }, additionalProperties: false },
       privacyDecision: { type: 'object', required: ['decisionId', 'status', 'policyFactIds', 'egressDisposition', 'reasonCodes'], properties: { decisionId: string, status: { type: 'string', enum: ['COMPLIANT', 'POLICY_BLOCKED', 'UNVERIFIABLE'] }, policyFactIds: { ...strings, minItems: 1 }, egressDisposition: { type: 'string', enum: ['DENIED', 'ALLOWED', 'UNVERIFIABLE'] }, reasonCodes: { ...strings, minItems: 1 } }, additionalProperties: false },
       revisionBinding: { type: 'object', required: ['projectId', 'expectedProjectRevision', 'timebaseFactId', 'status'], properties: { projectId: string, expectedProjectRevision: string, timebaseFactId: string, status: { type: 'string', enum: ['BOUND', 'CONFLICT', 'UNVERIFIABLE'] } }, additionalProperties: false },
       preservationBindings: { type: 'array', minItems: 1, items: { type: 'object', required: ['preservationId', 'factIds', 'status'], properties: { preservationId: string, factIds: { ...strings, minItems: 1 }, status: { type: 'string', enum: ['BOUND', 'PARTIAL', 'UNVERIFIABLE'] } }, additionalProperties: false } },
-      proofPlan: { type: 'array', minItems: 1, items: { type: 'object', required: ['proofObligationId', 'kind', 'nodeIds', 'targetClaimIds', 'requiredFactIds', 'status'], properties: { proofObligationId: string, kind: { type: 'string', enum: ['REVISION_FRESHNESS', 'ASSET_IDENTITY_RIGHTS', 'SOURCE_RANGE_HANDLES', 'RENDERED_GEOMETRY', 'RENDERED_LEGIBILITY', 'BOUNDARY_CONTINUITY', 'SANDBOX_COMPILE', 'STATE_RELOAD'] }, nodeIds: { ...strings, minItems: 1 }, targetClaimIds: strings, requiredFactIds: { ...strings, minItems: 1 }, status: { type: 'string', enum: ['PLANNED', 'UNVERIFIABLE'] } }, additionalProperties: false } },
-      unresolvedRequirements: { type: 'array', items: { type: 'object', required: ['requirementId', 'kind', 'factIds', 'disposition'], properties: { requirementId: string, kind: { type: 'string', enum: ['EVIDENCE', 'CAPABILITY', 'AMBIGUITY', 'POLICY', 'CONFLICT'] }, factIds: strings, disposition: { type: 'string', enum: ['CAPABILITY_GAP', 'UNVERIFIABLE', 'NEEDS_REVIEW', 'POLICY_BLOCKED', 'CONFLICT'] } }, additionalProperties: false } },
+      proofPlan: { type: 'array', minItems: 1, items: { type: 'object', required: ['proofObligationId', 'kind', 'nodeIds', 'targetClaimIds', 'requiredFactIds', 'status'], properties: { proofObligationId: string, kind: { type: 'string', enum: proofKinds }, nodeIds: { ...strings, minItems: 1 }, targetClaimIds: strings, requiredFactIds: strings, status: { type: 'string', enum: ['PLANNED', 'UNVERIFIABLE'] } }, additionalProperties: false } },
+      unresolvedRequirements: { type: 'array', items: { type: 'object', required: ['requirementId', 'kind', 'factIds', 'disposition'], properties: { requirementId: string, kind: { type: 'string', enum: ['EVIDENCE', 'CAPABILITY', 'AMBIGUITY', 'POLICY', 'CONFLICT'] }, factIds: strings, disposition: { type: 'string', enum: ['CAPABILITY_GAP', 'UNVERIFIABLE', 'NEEDS_REVIEW', 'POLICY_BLOCKED', 'CONFLICT'] }, failureDisposition: { type: 'string', enum: ['STOP_BEFORE_COMPILATION_OR_RENDER'] } }, additionalProperties: false } },
     },
   };
 }
 
-function stageFourOutputContractV2(): { required: string[]; properties: JsonRecord } {
+function stageFourOutputContractV2(taskId: string): { required: string[]; properties: JsonRecord } {
   const string = { type: 'string', minLength: 1 };
   const strings = { type: 'array', items: string, uniqueItems: true };
   const coordinateBinding = {
@@ -641,23 +845,28 @@ function stageFourOutputContractV2(): { required: string[]; properties: JsonReco
       retryDisposition: { type: 'string', enum: ['NEVER_RETRY', 'TRANSIENT_SAME_COMMAND', 'REBASE_REQUIRED'] },
       policyFactIds: { ...strings, minItems: 1 },
       concurrency: { type: 'object', required: ['class', 'conflictDomainRefs'], properties: { class: { type: 'string', enum: ['READ_SHARED', 'RESOLVER_ISOLATED', 'MUTATION_EXCLUSIVE', 'GENERATED_SANDBOX_ISOLATED'] }, conflictDomainRefs: strings }, additionalProperties: false },
-      resourcePolicyId: { type: 'string', enum: ['OE_STAGE4_READ_V1', 'OE_STAGE4_RESOLVER_V1', 'OE_STAGE4_GENERATED_SANDBOX_V1'] },
+      resourcePolicyId: { type: 'string', enum: [
+        'OE_STAGE4_READ_V1', 'OE_STAGE4_RESOLVER_V1', 'OE_STAGE4_GENERATED_SANDBOX_V1',
+        ...(taskId === 'DEV-01' ? ['OE_STAGE4_MUTATION_PROXY_V1'] : []),
+      ] },
       reversibility: { type: 'object', required: ['disposition', 'undoBindingRefs'], properties: { disposition: { type: 'string', enum: ['NOT_APPLICABLE_READ_ONLY', 'CHECKPOINT_REQUIRED', 'UNSAFE_UNDO_BLOCKED'] }, undoBindingRefs: strings }, additionalProperties: false },
       traceRefs: { ...strings, minItems: 1 },
     },
     additionalProperties: false,
   };
+  const diagnosticProperties: JsonRecord = {
+    diagnosticId: string,
+    code: { type: 'string', enum: ['CAPABILITY_NOT_IMPLEMENTED', 'OPERATOR_NOT_COMPILABLE', 'OPERATOR_SELECTION_AMBIGUOUS', 'INPUT_BINDING_MISSING', 'INPUT_BINDING_INVALID', 'POLICY_BLOCKED', 'REVISION_CONFLICT', 'DEPENDENCY_BLOCKED', 'SCHEMA_UNVERIFIABLE'] },
+    intentNodeIds: { ...strings, minItems: 1 },
+    operatorIds: strings,
+    factIds: strings,
+    disposition: { type: 'string', enum: ['CAPABILITY_GAP', 'POLICY_BLOCKED', 'CONFLICT', 'FAIL', 'UNVERIFIABLE'] },
+  };
+  if (taskId === 'DEV-04') diagnosticProperties.capabilityIds = strings;
   const diagnostic = {
     type: 'object',
     required: ['diagnosticId', 'code', 'intentNodeIds', 'operatorIds', 'factIds', 'disposition'],
-    properties: {
-      diagnosticId: string,
-      code: { type: 'string', enum: ['CAPABILITY_NOT_IMPLEMENTED', 'OPERATOR_NOT_COMPILABLE', 'OPERATOR_SELECTION_AMBIGUOUS', 'INPUT_BINDING_MISSING', 'INPUT_BINDING_INVALID', 'POLICY_BLOCKED', 'REVISION_CONFLICT', 'DEPENDENCY_BLOCKED', 'SCHEMA_UNVERIFIABLE'] },
-      intentNodeIds: { ...strings, minItems: 1 },
-      operatorIds: strings,
-      factIds: strings,
-      disposition: { type: 'string', enum: ['CAPABILITY_GAP', 'POLICY_BLOCKED', 'CONFLICT', 'FAIL', 'UNVERIFIABLE'] },
-    },
+    properties: diagnosticProperties,
     additionalProperties: false,
   };
   return {
@@ -700,6 +909,13 @@ export function assertNoEvaluatorLeakV2(value: unknown): void {
   if (Array.isArray(value)) { value.forEach(assertNoEvaluatorLeakV2); return; }
   if (!value || typeof value !== 'object') return;
   for (const [key, child] of Object.entries(value)) { if (FORBIDDEN_KEYS.has(key)) fail('EVALUATOR_LEAK', `Forbidden provider key: ${key}`); assertNoEvaluatorLeakV2(child); }
+}
+
+export function validateProviderStageArtifactV2(
+  packet: HashedStagePacketV2,
+  artifact: unknown,
+): readonly string[] {
+  return deepFreezeV1(validateArtifactV2(artifact, packet.packet.outputContract, '$'));
 }
 
 function developmentTasksV2(): SourceTaskV2[] { return (tasksV2Json.tasks as unknown as SourceTaskV2[]).filter(({ split, sealed }) => split === 'DEVELOPMENT' && !sealed); }
@@ -750,6 +966,7 @@ function validateArtifactV2(value: unknown, schema: unknown, path: string): stri
 }
 
 function isRecord(value: unknown): value is JsonRecord { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
+function stripSha256Prefix(value: string): string { return value.startsWith('sha256:') ? value.slice(7) : value; }
 function publicOperatorOwnerRef(operator: JsonRecord): string {
   if (typeof operator.ownerRef === 'string' && operator.ownerRef) return operator.ownerRef;
   const owner = isRecord(operator.owner) ? operator.owner : {};

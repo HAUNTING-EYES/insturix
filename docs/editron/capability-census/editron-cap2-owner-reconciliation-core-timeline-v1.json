@@ -1,0 +1,1021 @@
+{
+  "artifactType": "EditronCapabilityOwnerReconciliationV1",
+  "schemaVersion": 1,
+  "authority": "RESEARCH_CENSUS_NO_RUNTIME_MUTATION",
+  "domain": "CORE_PROJECT_TIMELINE_CHECKPOINT",
+  "status": "DOMAIN_RECONCILED_CATALOG_NOT_POPULATED",
+  "sourceBinding": {
+    "worktree": "D:/google downloads/Front-End-main/editron-worktree",
+    "branch": "infrastructure-improvs-+Editron",
+    "commit": "a5dffffa5aeaf9f34feadba9533f8d8aa03ddcc9",
+    "workingTreeDirty": true,
+    "generatedAt": "2026-08-18T00:30:25.9488940+05:30",
+    "sourceSurfaceSnapshotHash": "a453fec27ef72e9497fa15ba8b9419023619e0f45e50ad9b674825ac5c84d95a",
+    "snapshotAlgorithm": "sha256(sorted(path + NUL + sha256(rawFileBytes)).join(LF))",
+    "evidenceSnapshotHash": "40872b909f6c070ee054d4f553dfa03360c8958de33e127b759641b3bebf2aa1",
+    "evidencePaths": [
+      "app/api/services/editron/chat/stream/route.ts",
+      "app/api/services/editron/projects/[projectId]/autosave/route.ts",
+      "app/api/services/editron/projects/[projectId]/route.ts",
+      "app/api/services/editron/projects/[projectId]/save/route.ts",
+      "components/editron/editor/version-7.0.0/hooks/use-autosave.ts",
+      "components/editron/editor/version-7.0.0/hooks/use-history.ts",
+      "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx",
+      "components/editron/editor/version-7.0.0/react-video-editor.tsx",
+      "lib/editron/agent/chat-ai-edit-transaction-runtime.ts",
+      "lib/editron/agent/chat-ai-edit-transactions.ts",
+      "lib/editron/agent/tools.ts",
+      "lib/editron/engine/overlay-atomic-receipts.ts",
+      "lib/editron/services/checkpoint-service.ts",
+      "lib/editron/services/project-service.ts",
+      "lib/editron/services/timeline-range-cut.ts",
+      "lib/editron/shared/project-save-payload.ts"
+    ]
+  },
+  "candidateCount": 20,
+  "candidates": [
+    {
+      "candidateId": "chat.checkpoint.redo",
+      "family": "checkpoint recovery",
+      "kind": "MISSING",
+      "implementationStatus": "MISSING",
+      "atomicity": "MISSING",
+      "catalogDisposition": "MISSING",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "chat.registry-descriptors"],
+      "surfaces": ["CHAT", "CHECKPOINT_SERVICE"],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [{ "path": "lib/editron/agent/chat-ai-edit-transactions.ts", "symbol": "resolveChatAiEditRestoreTarget" }],
+        "mutationOwners": [],
+        "storedState": [],
+        "finalConsumers": [],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "MISSING",
+        "writerReceipt": "NONE",
+        "detail": "The resolver explicitly rejects redo because no receipt-bound replay chain exists."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "UNAVAILABLE",
+        "replay": "UNAVAILABLE",
+        "detail": "An after-checkpoint is not treated as an authorized redo target."
+      },
+      "findings": [{
+        "severity": "P1",
+        "code": "redo-unavailable",
+        "statement": "Chat redo is intentionally unavailable and must remain a missing capability row.",
+        "evidenceRefs": [{ "path": "lib/editron/agent/chat-ai-edit-transactions.ts", "symbol": "resolveChatAiEditRestoreTarget" }]
+      }],
+      "unresolvedDependencies": ["Receipt-bound replay authority and post-undo revision proof."],
+      "evidenceRefs": [{ "path": "lib/editron/agent/chat-ai-edit-transactions.ts", "symbol": "resolveChatAiEditRestoreTarget" }]
+    },
+    {
+      "candidateId": "chat.checkpoint.undo",
+      "family": "checkpoint recovery",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "EXCLUDED_UNSAFE",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "persistence.project-service-public-methods"],
+      "surfaces": ["CHAT", "CHECKPOINT_SERVICE", "PROJECT_SERVICE"],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [{ "path": "lib/editron/agent/tools.ts", "symbol": "restoreAiEditCheckpoint" }],
+        "decisionOwner": { "path": "lib/editron/agent/chat-ai-edit-transactions.ts", "symbol": "resolveChatAiEditRestoreTarget" },
+        "mutationOwners": [
+          { "path": "lib/editron/services/checkpoint-service.ts", "symbol": "restoreProjectCheckpoint" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "restoreCheckpointState" }
+        ],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "restoreCheckpointState" },
+        "storedState": ["Mongo projects document", "Mongo checkpoint projectState and rollbackReceipts"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "loadState" }],
+        "proofOwners": [{ "path": "lib/editron/services/checkpoint-service.ts", "symbol": "projectStateFingerprint" }]
+      },
+      "revisionSafety": {
+        "status": "PROJECT_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "Restore uses the original writer-issued post-edit revision as its CAS predicate and fingerprints the ProjectService postimage; pre-checkpoint snapshot binding remains incomplete."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "UNAVAILABLE",
+        "detail": "Exact restore is implemented, but the before snapshot can be bound to a separately sampled revision and no redo/replay chain exists."
+      },
+      "findings": [{
+        "severity": "P0",
+        "code": "before-snapshot-revision-gap",
+        "statement": "The restore CAS is sound for writer-issued R_after, but the saved before-state can be older than its independently sampled capturedProjectRevision.",
+        "evidenceRefs": [
+          { "path": "lib/editron/agent/chat-ai-edit-transaction-runtime.ts", "symbol": "prepareChatAiEditTransaction" },
+          { "path": "lib/editron/services/checkpoint-service.ts", "symbol": "createCheckpoint" }
+        ]
+      }],
+      "unresolvedDependencies": ["Capture the before project state and revision from one ProjectService-issued snapshot."],
+      "evidenceRefs": [
+        { "path": "lib/editron/agent/chat-ai-edit-transaction-runtime.ts", "symbol": "prepareChatAiEditTransaction" },
+        { "path": "lib/editron/agent/tools.ts", "symbol": "restoreAiEditCheckpoint" },
+        { "path": "lib/editron/services/checkpoint-service.ts", "symbol": "restoreProjectCheckpoint" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "restoreCheckpointState" }
+      ]
+    },
+    {
+      "candidateId": "chat.transaction.rollback",
+      "family": "chat mutation workflow",
+      "kind": "WORKFLOW",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "COMPOUND_MULTIWRITE",
+      "catalogDisposition": "WRAPPER_ONLY",
+      "sourceObservationIds": ["api.editron-linked-route-exports", "chat.compatibility-tool-bundle", "worker.job-module-candidates"],
+      "surfaces": ["CHAT", "API", "CHECKPOINT_SERVICE", "PROJECT_SERVICE"],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [{ "path": "app/api/services/editron/chat/stream/route.ts", "symbol": "captureMutationReceipts" }],
+        "decisionOwner": { "path": "lib/editron/agent/chat-ai-edit-transaction-runtime.ts", "symbol": "completeChatAiEditTransaction" },
+        "mutationOwners": [{ "path": "lib/editron/agent/chat-ai-edit-transaction-runtime.ts", "symbol": "rollbackChatAiEditTransaction" }],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "restoreCheckpointState" },
+        "storedState": ["Mongo checkpoint operation status", "Mongo project state"],
+        "finalConsumers": [{ "path": "app/api/services/editron/chat/stream/route.ts", "symbol": "editTransactionSummary" }],
+        "proofOwners": [{ "path": "lib/editron/services/checkpoint-service.ts", "symbol": "projectStateFingerprint" }]
+      },
+      "revisionSafety": {
+        "status": "MULTIWRITE_NON_ATOMIC",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The route captures ProjectService writer receipts and binds rollback to the latest receipt, but a turn can contain several already-committed writes and checkpoint bookkeeping is separate."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "UNAVAILABLE",
+        "detail": "Whole-turn rollback is available only when a writer-issued receipt exists and the project has not advanced again."
+      },
+      "findings": [{
+        "severity": "P0",
+        "code": "turn-multiwrite-not-transaction",
+        "statement": "The chat transaction wrapper observes multiple ProjectService writes; it is not one atomic project command.",
+        "evidenceRefs": [
+          { "path": "app/api/services/editron/chat/stream/route.ts", "symbol": "captureMutationReceipts" },
+          { "path": "lib/editron/agent/chat-ai-edit-transaction-runtime.ts", "symbol": "completeChatAiEditTransaction" }
+        ]
+      }],
+      "unresolvedDependencies": ["One-command mutation receipts and range/path change sets."],
+      "evidenceRefs": [
+        { "path": "app/api/services/editron/chat/stream/route.ts", "symbol": "captureMutationReceipts" },
+        { "path": "lib/editron/agent/chat-ai-edit-transaction-runtime.ts", "symbol": "completeChatAiEditTransaction" },
+        { "path": "lib/editron/services/checkpoint-service.ts", "symbol": "recordRollbackExpectedRevision" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "captureMutationReceipts" }
+      ]
+    },
+    {
+      "candidateId": "overlay.add",
+      "family": "overlay mutation",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "manual.editor-context-functions", "persistence.project-service-public-methods"],
+      "surfaces": ["MANUAL_UI", "CHAT", "PROJECT_SERVICE", "RENDERER"],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "addOverlay" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "addOverlay" }
+        ],
+        "decisionOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "addOverlay" },
+        "mutationOwners": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "addOverlay" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "addOverlay" }
+        ],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "addOverlay" },
+        "storedState": ["Browser overlays array before save", "Mongo projects.overlays after persistence"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "inputProps" }],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "INTERNAL_READ_THEN_CAS",
+        "writerReceipt": "MIXED",
+        "detail": "Chat performs one ProjectService CAS after internally reading the current revision; manual add is local until a whole-state browser save."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "PARTIAL",
+        "replay": "UNAVAILABLE",
+        "detail": "Manual local history and chat checkpoint rollback are different mechanisms; neither establishes UI/chat command parity."
+      },
+      "findings": [{
+        "severity": "P1",
+        "code": "manual-chat-add-divergence",
+        "statement": "Manual add allocates and mutates local state; chat constructs a different form and persists directly through ProjectService.",
+        "evidenceRefs": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "addOverlay" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "addOverlay" }
+        ]
+      }],
+      "unresolvedDependencies": ["Canonical add command schema, caller-pinned revision and rendered proof."],
+      "evidenceRefs": [
+        { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "addOverlay" },
+        { "path": "lib/editron/agent/tools.ts", "symbol": "addOverlay" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "addOverlay" }
+      ]
+    },
+    {
+      "candidateId": "overlay.atomic-receipt-metadata",
+      "family": "overlay metadata",
+      "kind": "METADATA_PROJECTION",
+      "implementationStatus": "LIVE",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": ["persistence.project-service-public-methods", "state.overlay-type-declarations"],
+      "surfaces": ["MANUAL_UI", "PROJECT_SERVICE", "RENDERER"],
+      "parityStatus": "NOT_APPLICABLE",
+      "chain": {
+        "callers": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "ensureLiveAtomicOverlayReceipt" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "stampPersistedOverlays" }
+        ],
+        "decisionOwner": { "path": "lib/editron/engine/overlay-atomic-receipts.ts", "symbol": "withAtomicOverlayReceipt" },
+        "mutationOwners": [],
+        "storedState": ["Overlay metadata.atomicOverlayReceipt and metadata.atomicOverlayForm"],
+        "finalConsumers": [],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "NOT_APPLICABLE",
+        "writerReceipt": "OVERLAY_METADATA_RECEIPT_ONLY",
+        "detail": "The receipt describes overlay form/state and has no project revision, command hash, changed paths, proof or undo binding."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "NOT_APPLICABLE",
+        "replay": "NOT_APPLICABLE",
+        "detail": "Overlay metadata is not a transaction or recovery authority."
+      },
+      "findings": [{
+        "severity": "P1",
+        "code": "metadata-not-transaction-receipt",
+        "statement": "AtomicOverlayReceipt is descriptive overlay metadata and must not be counted as a canonical mutation receipt or operation.",
+        "evidenceRefs": [{ "path": "lib/editron/engine/overlay-atomic-receipts.ts", "symbol": "withAtomicOverlayReceipt" }]
+      }],
+      "unresolvedDependencies": [],
+      "evidenceRefs": [
+        { "path": "lib/editron/engine/overlay-atomic-receipts.ts", "symbol": "withAtomicOverlayReceipt" },
+        { "path": "lib/editron/shared/project-save-payload.ts", "symbol": "compactMetadataForSave" }
+      ]
+    },
+    {
+      "candidateId": "overlay.batch-update",
+      "family": "overlay mutation",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "COMPOUND_MULTIWRITE",
+      "catalogDisposition": "EXCLUDED_UNSAFE",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "persistence.project-service-public-methods"],
+      "surfaces": ["CHAT", "PROJECT_SERVICE"],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [{ "path": "lib/editron/agent/tools.ts", "symbol": "batchUpdateOverlays" }],
+        "decisionOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "batchUpdateOverlays" },
+        "mutationOwners": [{ "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" }],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" },
+        "storedState": ["Mongo projects.overlays"],
+        "finalConsumers": [],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "MULTIWRITE_NON_ATOMIC",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "Each overlay update is a separate CAS and later failures can leave an applied prefix."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "UNAVAILABLE",
+        "detail": "Turn-level checkpoint rollback can restore the batch only if its before-state and latest writer receipt remain valid."
+      },
+      "findings": [{
+        "severity": "P0",
+        "code": "batch-update-partial-commit",
+        "statement": "The advertised batch operation loops single-overlay writers and is not atomic.",
+        "evidenceRefs": [{ "path": "lib/editron/agent/tools.ts", "symbol": "batchUpdateOverlays" }]
+      }],
+      "unresolvedDependencies": ["One ProjectService batch command with a single expected revision and receipt."],
+      "evidenceRefs": [
+        { "path": "lib/editron/agent/tools.ts", "symbol": "batchUpdateOverlays" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" }
+      ]
+    },
+    {
+      "candidateId": "overlay.delete-cascade",
+      "family": "overlay mutation",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "COMPOUND_MULTIWRITE",
+      "catalogDisposition": "EXCLUDED_UNSAFE",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "persistence.project-service-public-methods"],
+      "surfaces": ["CHAT", "PROJECT_SERVICE"],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [{ "path": "lib/editron/agent/tools.ts", "symbol": "deleteOverlay" }],
+        "decisionOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "deleteOverlay" },
+        "mutationOwners": [{ "path": "lib/editron/services/project-service.ts", "symbol": "deleteOverlay" }],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "deleteOverlay" },
+        "storedState": ["Mongo projects.overlays"],
+        "finalConsumers": [],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "MULTIWRITE_NON_ATOMIC",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "Linked captions and transitions are deleted in parallel as separate CAS writes, followed by the source overlay and an unversioned duration update."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "UNAVAILABLE",
+        "detail": "A partial cascade can be restored only through the separate turn checkpoint workflow."
+      },
+      "findings": [{
+        "severity": "P0",
+        "code": "delete-cascade-partial-commit",
+        "statement": "Video cascade delete has no single writer, revision or receipt and can leave partial deletion.",
+        "evidenceRefs": [{ "path": "lib/editron/agent/tools.ts", "symbol": "deleteOverlay" }]
+      }],
+      "unresolvedDependencies": ["Canonical cascade policy and one atomic ProjectService delete command."],
+      "evidenceRefs": [
+        { "path": "lib/editron/agent/tools.ts", "symbol": "deleteOverlay" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "deleteOverlay" }
+      ]
+    },
+    {
+      "candidateId": "overlay.delete-one",
+      "family": "overlay mutation",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": ["manual.editor-context-functions", "persistence.project-service-public-methods"],
+      "surfaces": ["MANUAL_UI", "PROJECT_SERVICE", "RENDERER"],
+      "parityStatus": "SHARED_PERSISTENCE_DIVERGENT_EXECUTION",
+      "chain": {
+        "callers": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "deleteOverlay" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "deleteOverlay" }
+        ],
+        "mutationOwners": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "deleteOverlay" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "deleteOverlay" }
+        ],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "deleteOverlay" },
+        "storedState": ["Browser overlays array before save", "Mongo projects.overlays after persistence"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "inputProps" }],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "INTERNAL_READ_THEN_CAS",
+        "writerReceipt": "MIXED",
+        "detail": "ProjectService can delete one exact overlay with CAS; the manual UI removes it locally and chat wraps this owner with extra cascade semantics."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "PARTIAL",
+        "replay": "UNAVAILABLE",
+        "detail": "Manual history and chat checkpoint rollback remain separate recovery paths."
+      },
+      "findings": [{
+        "severity": "P1",
+        "code": "single-delete-owner-bounded",
+        "statement": "ProjectService owns one-overlay persistence, but no shared UI/chat delete command contract delegates both callers to it.",
+        "evidenceRefs": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "deleteOverlay" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "deleteOverlay" }
+        ]
+      }],
+      "unresolvedDependencies": ["Shared command schema and deletion proof."],
+      "evidenceRefs": [
+        { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "deleteOverlay" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "deleteOverlay" }
+      ]
+    },
+    {
+      "candidateId": "overlay.split",
+      "family": "timeline mutation",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "COMPOUND_MULTIWRITE",
+      "catalogDisposition": "EXCLUDED_UNSAFE",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "manual.editor-context-functions", "persistence.project-service-public-methods"],
+      "surfaces": ["MANUAL_UI", "CHAT", "PROJECT_SERVICE", "RENDERER"],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "splitOverlay" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "splitOverlay" }
+        ],
+        "decisionOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "splitOverlay" },
+        "formOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "splitOverlay" },
+        "mutationOwners": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "splitOverlay" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "addOverlay" }
+        ],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" },
+        "storedState": ["Browser overlays array before save", "Mongo projects.overlays and durationInFrames"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "inputProps" }],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "MULTIWRITE_NON_ATOMIC",
+        "writerReceipt": "MIXED",
+        "detail": "Manual split is one local-state replacement; chat shortens one overlay, adds another, then recalculates duration through a non-CAS project update."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "PARTIAL",
+        "replay": "UNAVAILABLE",
+        "detail": "No canonical split receipt binds both child identities and the duration change."
+      },
+      "findings": [{
+        "severity": "P0",
+        "code": "split-no-atomic-owner",
+        "statement": "Split has divergent local and chat implementations and no one-write ProjectService owner.",
+        "evidenceRefs": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "splitOverlay" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "splitOverlay" }
+        ]
+      }],
+      "unresolvedDependencies": ["Source/timebase identity, child-ID mapping and a single split command."],
+      "evidenceRefs": [
+        { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "splitOverlay" },
+        { "path": "lib/editron/agent/tools.ts", "symbol": "splitOverlay" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" }
+      ]
+    },
+    {
+      "candidateId": "overlay.trim",
+      "family": "timeline mutation",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "COMPOUND_MULTIWRITE",
+      "catalogDisposition": "EXCLUDED_UNSAFE",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "manual.editor-context-functions", "persistence.project-service-public-methods"],
+      "surfaces": ["MANUAL_UI", "CHAT", "PROJECT_SERVICE", "RENDERER"],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "changeOverlay" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "trimOverlay" }
+        ],
+        "decisionOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "trimOverlay" },
+        "formOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "trimOverlay" },
+        "mutationOwners": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "changeOverlay" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" }
+        ],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" },
+        "storedState": ["Overlay from/duration/source offset", "Project durationInFrames"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "inputProps" }],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "MULTIWRITE_NON_ATOMIC",
+        "writerReceipt": "MIXED",
+        "detail": "Chat trim commits overlay timing and later uses updateProject without CAS for total duration; manual trimming is a local overlay change."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "PARTIAL",
+        "replay": "UNAVAILABLE",
+        "detail": "Recovery is surface-specific and has no source-range receipt."
+      },
+      "findings": [{
+        "severity": "P0",
+        "code": "trim-duration-second-write",
+        "statement": "Trim is not one canonical transaction because project duration is repaired by a separate non-CAS writer.",
+        "evidenceRefs": [{ "path": "lib/editron/agent/tools.ts", "symbol": "recalculateProjectDuration" }]
+      }],
+      "unresolvedDependencies": ["One trim command with source range, timeline range and project-duration effects."],
+      "evidenceRefs": [
+        { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "changeOverlay" },
+        { "path": "lib/editron/agent/tools.ts", "symbol": "trimOverlay" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" }
+      ]
+    },
+    {
+      "candidateId": "overlay.update-one",
+      "family": "overlay mutation",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "manual.editor-context-functions", "persistence.project-service-public-methods"],
+      "surfaces": ["MANUAL_UI", "CHAT", "PROJECT_SERVICE", "RENDERER"],
+      "parityStatus": "SEMANTICALLY_DIVERGENT",
+      "chain": {
+        "callers": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "changeOverlay" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "updateOverlay" }
+        ],
+        "decisionOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "updateOverlay" },
+        "mutationOwners": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "changeOverlay" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" }
+        ],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" },
+        "storedState": ["Browser overlays array before save", "Mongo projects.overlays after persistence"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "handleOverlayChange" }],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "INTERNAL_READ_THEN_CAS",
+        "writerReceipt": "MIXED",
+        "detail": "ProjectService updates one overlay with CAS, while the browser mutates a local projection and later saves the whole state."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "PARTIAL",
+        "replay": "UNAVAILABLE",
+        "detail": "Local history and chat checkpoint rollback are not one shared recovery contract."
+      },
+      "findings": [{
+        "severity": "P1",
+        "code": "update-form-parity-missing",
+        "statement": "Chat applies coordinate and text-legibility resolvers that manual property editing does not delegate to.",
+        "evidenceRefs": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "changeOverlay" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "updateOverlay" }
+        ]
+      }],
+      "unresolvedDependencies": ["Shared field-level command schema, form owner and rendered proof."],
+      "evidenceRefs": [
+        { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "changeOverlay" },
+        { "path": "lib/editron/agent/tools.ts", "symbol": "updateOverlay" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" }
+      ]
+    },
+    {
+      "candidateId": "project.autosave",
+      "family": "project persistence",
+      "kind": "PERSISTENCE_ENTRYPOINT",
+      "implementationStatus": "LIVE",
+      "atomicity": "WHOLE_STATE_REPLACEMENT",
+      "catalogDisposition": "WRAPPER_ONLY",
+      "sourceObservationIds": ["api.editron-linked-route-exports", "manual.editor-context-functions", "persistence.project-service-public-methods"],
+      "surfaces": ["MANUAL_UI", "API", "PROJECT_SERVICE"],
+      "parityStatus": "MANUAL_ONLY",
+      "chain": {
+        "callers": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "saveIfChanged" },
+          { "path": "app/api/services/editron/projects/[projectId]/autosave/route.ts", "symbol": "POST" }
+        ],
+        "mutationOwners": [{ "path": "lib/editron/services/project-service.ts", "symbol": "autosaveProject" }],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "persistEditorState" },
+        "storedState": ["Mongo projects editor state and lastAutosaveAt"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "revisionRef" }],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "PROJECT_CAS",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The browser sends its last loaded revision and reloads on HTTP 409; ProjectService binds owner and revision in one update."
+      },
+      "recovery": {
+        "undo": "UNAVAILABLE",
+        "redo": "UNAVAILABLE",
+        "replay": "UNAVAILABLE",
+        "detail": "Autosave is persistence plumbing, not an editing or recovery command."
+      },
+      "findings": [{
+        "severity": "INFO",
+        "code": "stale-browser-cas-closed",
+        "statement": "The current autosave path rejects a stale browser snapshot with a revision conflict instead of overwriting newer state.",
+        "evidenceRefs": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "mutationPayload" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "persistEditorState" }
+        ]
+      }],
+      "unresolvedDependencies": ["Canonical changed paths and reload/render proof in the receipt."],
+      "evidenceRefs": [
+        { "path": "app/api/services/editron/projects/[projectId]/autosave/route.ts", "symbol": "POST" },
+        { "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "saveIfChanged" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "autosaveProject" }
+      ]
+    },
+    {
+      "candidateId": "project.read",
+      "family": "project read",
+      "kind": "READ",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": ["api.editron-linked-route-exports", "chat.compatibility-tool-bundle", "manual.editor-context-functions", "persistence.project-service-public-methods"],
+      "surfaces": ["MANUAL_UI", "CHAT", "API", "PROJECT_SERVICE"],
+      "parityStatus": "SHARED_OWNER_DIFFERENT_PROJECTION",
+      "chain": {
+        "callers": [
+          { "path": "app/api/services/editron/projects/[projectId]/route.ts", "symbol": "GET" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "readProjectFile" }
+        ],
+        "decisionOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "loadProject" },
+        "mutationOwners": [],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "loadProject" },
+        "storedState": ["Mongo projects document"],
+        "finalConsumers": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "loadState" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "buildChatProjectReadModel" }
+        ],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "READ_CURRENT_UNPINNED",
+        "writerReceipt": "NONE",
+        "detail": "Both surfaces call ProjectService.loadProject, but the browser derives a revision and chat builds a separate projected JSON read model without a pinned read receipt."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "NOT_APPLICABLE",
+        "replay": "NOT_APPLICABLE",
+        "detail": "Read-only operation."
+      },
+      "findings": [{
+        "severity": "P1",
+        "code": "shared-read-owner-different-models",
+        "statement": "Manual and chat reads share ProjectService storage ownership but not the same output contract or revision binding.",
+        "evidenceRefs": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "loadState" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "readProjectFile" }
+        ]
+      }],
+      "unresolvedDependencies": ["Closed read schema and ProjectRevisionRef binding for planning snapshots."],
+      "evidenceRefs": [
+        { "path": "app/api/services/editron/projects/[projectId]/route.ts", "symbol": "GET" },
+        { "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "loadState" },
+        { "path": "lib/editron/agent/tools.ts", "symbol": "readProjectFile" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "loadProject" }
+      ]
+    },
+    {
+      "candidateId": "project.save",
+      "family": "project persistence",
+      "kind": "PERSISTENCE_ENTRYPOINT",
+      "implementationStatus": "LIVE",
+      "atomicity": "WHOLE_STATE_REPLACEMENT",
+      "catalogDisposition": "WRAPPER_ONLY",
+      "sourceObservationIds": ["api.editron-linked-route-exports", "manual.editor-context-functions", "persistence.project-service-public-methods"],
+      "surfaces": ["MANUAL_UI", "CHAT", "API", "PROJECT_SERVICE"],
+      "parityStatus": "SHARED_PERSISTENCE_DIVERGENT_EXECUTION",
+      "chain": {
+        "callers": [
+          { "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "saveState" },
+          { "path": "app/api/services/editron/projects/[projectId]/save/route.ts", "symbol": "POST" },
+          { "path": "lib/editron/agent/tools.ts", "symbol": "cutSection" }
+        ],
+        "mutationOwners": [{ "path": "lib/editron/services/project-service.ts", "symbol": "saveProjectWithReceipt" }],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "persistEditorState" },
+        "storedState": ["Mongo projects editor state"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "revisionRef" }],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "WHOLE_STATE_STALE_SNAPSHOT_RISK",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The browser supplies its snapshot revision and is CAS-safe; server callers may omit expectedRevision, causing ProjectService to sample a current revision for state computed from an older load."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "PARTIAL",
+        "replay": "UNAVAILABLE",
+        "detail": "Persistence itself has no command-level undo; recovery depends on the calling surface."
+      },
+      "findings": [{
+        "severity": "P0",
+        "code": "optional-expected-revision",
+        "statement": "saveProjectWithReceipt permits callers to omit expectedRevision, which is unsafe for whole-state edits derived from an earlier snapshot.",
+        "evidenceRefs": [
+          { "path": "lib/editron/agent/tools.ts", "symbol": "cutSection" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "saveProjectWithReceipt" }
+        ]
+      }],
+      "unresolvedDependencies": ["Require caller-pinned revision for every whole-state writer and bind changed paths/proof."],
+      "evidenceRefs": [
+        { "path": "app/api/services/editron/projects/[projectId]/save/route.ts", "symbol": "POST" },
+        { "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "saveState" },
+        { "path": "lib/editron/agent/tools.ts", "symbol": "cutSection" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "saveProjectWithReceipt" },
+        { "path": "lib/editron/shared/project-save-payload.ts", "symbol": "serializeEditorStateForSave" }
+      ]
+    },
+    {
+      "candidateId": "project.update-generic",
+      "family": "project persistence",
+      "kind": "PERSISTENCE_ENTRYPOINT",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "persistence.project-service-public-methods"],
+      "surfaces": ["CHAT", "PROJECT_SERVICE"],
+      "parityStatus": "NOT_APPLICABLE",
+      "chain": {
+        "callers": [{ "path": "lib/editron/agent/tools.ts", "symbol": "recalculateProjectDuration" }],
+        "mutationOwners": [{ "path": "lib/editron/services/project-service.ts", "symbol": "updateProject" }],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "updateProject" },
+        "storedState": ["Arbitrary allowed Mongo project fields"],
+        "finalConsumers": [],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "NO_CAS",
+        "writerReceipt": "NONE",
+        "detail": "updateProject performs a direct field update without projectRevision predicate, revision increment or ProjectMutationReceipt."
+      },
+      "recovery": {
+        "undo": "UNSAFE",
+        "redo": "UNAVAILABLE",
+        "replay": "UNAVAILABLE",
+        "detail": "The helper is not a canonical command and must not be exposed as a planner capability."
+      },
+      "findings": [{
+        "severity": "P0",
+        "code": "generic-update-no-cas",
+        "statement": "ProjectService.updateProject remains a live writer outside the revision and receipt protocol.",
+        "evidenceRefs": [{ "path": "lib/editron/services/project-service.ts", "symbol": "updateProject" }]
+      }],
+      "unresolvedDependencies": ["Replace each caller with a purpose-specific ProjectService command."],
+      "evidenceRefs": [
+        { "path": "lib/editron/agent/tools.ts", "symbol": "recalculateProjectDuration" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "updateProject" }
+      ]
+    },
+    {
+      "candidateId": "timeline.close-gaps",
+      "family": "timeline mutation",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "COMPOUND_MULTIWRITE",
+      "catalogDisposition": "EXCLUDED_UNSAFE",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "persistence.project-service-public-methods"],
+      "surfaces": ["CHAT", "PROJECT_SERVICE", "RENDERER"],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [{ "path": "lib/editron/agent/tools.ts", "symbol": "closeGaps" }],
+        "decisionOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "closeGaps" },
+        "formOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "closeGaps" },
+        "mutationOwners": [{ "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" }],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" },
+        "storedState": ["Mongo projects.overlays and durationInFrames"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "inputProps" }],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "MULTIWRITE_NON_ATOMIC",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "Every moved overlay is a separate ProjectService update followed by a non-CAS project duration update."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "UNAVAILABLE",
+        "detail": "No single move-set receipt or inverse mapping exists."
+      },
+      "findings": [{
+        "severity": "P0",
+        "code": "close-gaps-partial-commit",
+        "statement": "Gap closure can commit an arbitrary prefix of moves and cannot prove one coherent timeline result.",
+        "evidenceRefs": [{ "path": "lib/editron/agent/tools.ts", "symbol": "closeGaps" }]
+      }],
+      "unresolvedDependencies": ["Pure move-set resolver plus one ProjectService range mutation command."],
+      "evidenceRefs": [
+        { "path": "lib/editron/agent/tools.ts", "symbol": "closeGaps" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "updateOverlay" }
+      ]
+    },
+    {
+      "candidateId": "timeline.cut-range",
+      "family": "timeline mutation",
+      "kind": "MUTATE",
+      "implementationStatus": "PARTIAL",
+      "atomicity": "WHOLE_STATE_REPLACEMENT",
+      "catalogDisposition": "EXCLUDED_UNSAFE",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "persistence.project-service-public-methods"],
+      "surfaces": ["CHAT", "PROJECT_SERVICE", "RENDERER"],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [{ "path": "lib/editron/agent/tools.ts", "symbol": "cutSection" }],
+        "decisionOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "cutSection" },
+        "formOwner": { "path": "lib/editron/services/timeline-range-cut.ts", "symbol": "cutTimelineRange" },
+        "mutationOwners": [{ "path": "lib/editron/services/timeline-range-cut.ts", "symbol": "cutTimelineRange" }],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "saveProject" },
+        "storedState": ["Mongo projects.overlays and durationInFrames"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "inputProps" }],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "WHOLE_STATE_STALE_SNAPSHOT_RISK",
+        "writerReceipt": "PROJECT_MUTATION_RECEIPT",
+        "detail": "The pure cut is computed from a loaded project, then saveProject omits that snapshot's expected revision and samples a newer revision internally."
+      },
+      "recovery": {
+        "undo": "PARTIAL",
+        "redo": "UNAVAILABLE",
+        "replay": "UNAVAILABLE",
+        "detail": "The turn checkpoint can roll back, but the cut result does not expose its internal original-to-split-child mapping."
+      },
+      "findings": [{
+        "severity": "P0",
+        "code": "cut-stale-snapshot-overwrite",
+        "statement": "A concurrent write between load and whole-state save can be overwritten because the caller does not carry its read revision.",
+        "evidenceRefs": [
+          { "path": "lib/editron/agent/tools.ts", "symbol": "cutSection" },
+          { "path": "lib/editron/services/project-service.ts", "symbol": "saveProject" }
+        ]
+      }],
+      "unresolvedDependencies": ["Caller-pinned revision, split-child identity map, changed paths and render/reload proof."],
+      "evidenceRefs": [
+        { "path": "lib/editron/agent/tools.ts", "symbol": "cutSection" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "saveProject" },
+        { "path": "lib/editron/services/timeline-range-cut.ts", "symbol": "cutTimelineRange" }
+      ]
+    },
+    {
+      "candidateId": "timeline.read-view",
+      "family": "timeline read",
+      "kind": "READ",
+      "implementationStatus": "LIVE",
+      "atomicity": "ATOMIC",
+      "catalogDisposition": "ATOMIC_CANDIDATE",
+      "sourceObservationIds": ["chat.compatibility-tool-bundle", "manual.editor-context-functions"],
+      "surfaces": ["CHAT", "PROJECT_SERVICE"],
+      "parityStatus": "AGENT_ONLY",
+      "chain": {
+        "callers": [{ "path": "lib/editron/agent/tools.ts", "symbol": "getTimelineView" }],
+        "decisionOwner": { "path": "lib/editron/agent/tools.ts", "symbol": "generateTimelineView" },
+        "mutationOwners": [],
+        "persistenceOwner": { "path": "lib/editron/services/project-service.ts", "symbol": "loadProject" },
+        "storedState": ["Mongo projects.overlays projected into ASCII and gap data"],
+        "finalConsumers": [],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "READ_CURRENT_UNPINNED",
+        "writerReceipt": "NONE",
+        "detail": "The tool reads current ProjectService state but does not return a revision-bound timeline projection identity."
+      },
+      "recovery": {
+        "undo": "NOT_APPLICABLE",
+        "redo": "NOT_APPLICABLE",
+        "replay": "NOT_APPLICABLE",
+        "detail": "Read-only operation."
+      },
+      "findings": [{
+        "severity": "P1",
+        "code": "timeline-view-no-projection-ref",
+        "statement": "The timeline view is useful chat evidence but has no project-scoped projection receipt for later command binding.",
+        "evidenceRefs": [{ "path": "lib/editron/agent/tools.ts", "symbol": "getTimelineView" }]
+      }],
+      "unresolvedDependencies": ["Project-scoped timeline projection identity and closed output schema."],
+      "evidenceRefs": [
+        { "path": "lib/editron/agent/tools.ts", "symbol": "getTimelineView" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "loadProject" }
+      ]
+    },
+    {
+      "candidateId": "ui.history.redo",
+      "family": "manual history",
+      "kind": "UI_CONTROL",
+      "implementationStatus": "LIVE",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": ["manual.editor-context-functions", "manual.timeline-shortcuts"],
+      "surfaces": ["MANUAL_UI"],
+      "parityStatus": "MANUAL_ONLY",
+      "chain": {
+        "callers": [{ "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "redo" }],
+        "decisionOwner": { "path": "components/editron/editor/version-7.0.0/hooks/use-history.ts", "symbol": "redo" },
+        "mutationOwners": [],
+        "storedState": ["In-memory React history.future"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "setOverlays" }],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "LOCAL_ONLY",
+        "writerReceipt": "NONE",
+        "detail": "Redo replaces the local overlay array and has no project revision until a later autosave."
+      },
+      "recovery": {
+        "undo": "SUPPORTED",
+        "redo": "SUPPORTED",
+        "replay": "UNAVAILABLE",
+        "detail": "Support is local to the open editor session and capped history, not durable project replay."
+      },
+      "findings": [{
+        "severity": "P1",
+        "code": "manual-redo-local-only",
+        "statement": "Manual redo is a local UI control and cannot satisfy the missing chat replay contract.",
+        "evidenceRefs": [{ "path": "components/editron/editor/version-7.0.0/hooks/use-history.ts", "symbol": "redo" }]
+      }],
+      "unresolvedDependencies": [],
+      "evidenceRefs": [{ "path": "components/editron/editor/version-7.0.0/hooks/use-history.ts", "symbol": "redo" }]
+    },
+    {
+      "candidateId": "ui.history.undo",
+      "family": "manual history",
+      "kind": "UI_CONTROL",
+      "implementationStatus": "LIVE",
+      "atomicity": "NON_CAPABILITY",
+      "catalogDisposition": "EXCLUDED_NON_CAPABILITY",
+      "sourceObservationIds": ["manual.editor-context-functions", "manual.timeline-shortcuts"],
+      "surfaces": ["MANUAL_UI"],
+      "parityStatus": "MANUAL_ONLY",
+      "chain": {
+        "callers": [{ "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "undo" }],
+        "decisionOwner": { "path": "components/editron/editor/version-7.0.0/hooks/use-history.ts", "symbol": "undo" },
+        "mutationOwners": [],
+        "storedState": ["In-memory React history.past"],
+        "finalConsumers": [{ "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "setOverlays" }],
+        "proofOwners": []
+      },
+      "revisionSafety": {
+        "status": "LOCAL_ONLY",
+        "writerReceipt": "NONE",
+        "detail": "Undo replaces the local overlay array and has no durable receipt until a later autosave."
+      },
+      "recovery": {
+        "undo": "SUPPORTED",
+        "redo": "SUPPORTED",
+        "replay": "UNAVAILABLE",
+        "detail": "Support is local to the open editor session and does not restore the full ProjectService checkpoint field set."
+      },
+      "findings": [{
+        "severity": "P1",
+        "code": "manual-undo-local-only",
+        "statement": "Manual undo and chat checkpoint undo are separate systems with different state coverage and durability.",
+        "evidenceRefs": [{ "path": "components/editron/editor/version-7.0.0/hooks/use-history.ts", "symbol": "undo" }]
+      }],
+      "unresolvedDependencies": [],
+      "evidenceRefs": [{ "path": "components/editron/editor/version-7.0.0/hooks/use-history.ts", "symbol": "undo" }]
+    }
+  ],
+  "domainConclusions": [
+    {
+      "severity": "P0",
+      "code": "canonical-persistence-partial-convergence",
+      "statement": "ProjectService is the canonical project persistence owner for the traced editor state, but callers do not yet converge on one command/revision/receipt contract.",
+      "evidenceRefs": [
+        { "path": "app/api/services/editron/projects/[projectId]/save/route.ts", "symbol": "saveProjectWithReceipt" },
+        { "path": "components/editron/editor/version-7.0.0/hooks/use-overlays.tsx", "symbol": "setOverlays" },
+        { "path": "lib/editron/agent/tools.ts", "symbol": "createTools" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "ProjectService" }
+      ]
+    },
+    {
+      "severity": "P0",
+      "code": "rollback-r-after-only",
+      "statement": "Writer-issued R_after closes the post-write rollback race; exact before-state/revision capture remains open and prevents a broad rollback-race-closed claim.",
+      "evidenceRefs": [
+        { "path": "app/api/services/editron/chat/stream/route.ts", "symbol": "latestWriterReceiptForProject" },
+        { "path": "lib/editron/agent/chat-ai-edit-transaction-runtime.ts", "symbol": "prepareChatAiEditTransaction" },
+        { "path": "lib/editron/services/checkpoint-service.ts", "symbol": "createCheckpoint" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "loadProjectForMutation" }
+      ]
+    },
+    {
+      "severity": "P0",
+      "code": "live-writers-outside-cas",
+      "statement": "Whole-state writers may omit the originating revision and updateProject writes project fields without CAS, revision advancement or receipt.",
+      "evidenceRefs": [
+        { "path": "lib/editron/agent/tools.ts", "symbol": "cutSection" },
+        { "path": "lib/editron/services/project-service.ts", "symbol": "updateProject" }
+      ]
+    },
+    {
+      "severity": "P1",
+      "code": "manual-chat-parity-not-established",
+      "statement": "The browser edits local React state and later whole-state saves it; chat tools directly invoke multiple ProjectService methods, so UI/chat parity is not established by shared overlay shapes.",
+      "evidenceRefs": [
+        { "path": "components/editron/editor/version-7.0.0/hooks/use-autosave.ts", "symbol": "useAutosave" },
+        { "path": "components/editron/editor/version-7.0.0/react-video-editor.tsx", "symbol": "useOverlays" },
+        { "path": "lib/editron/agent/tools.ts", "symbol": "createTools" }
+      ]
+    },
+    {
+      "severity": "P1",
+      "code": "runtime-receipt-below-if1",
+      "statement": "The active ProjectMutationReceiptV1 contains projectId, revision and committedAt only; it does not expose canonical command hash, changed paths, proof, timeline revisions, undo or replay bindings.",
+      "evidenceRefs": [{ "path": "lib/editron/services/project-service.ts", "symbol": "ProjectMutationReceiptV1" }]
+    }
+  ],
+  "unresolvedSourceObservationIds": [
+    "api.editron-linked-route-exports",
+    "chat.compatibility-tool-bundle",
+    "chat.registry-descriptors",
+    "director.execute-plan-callers",
+    "manual.editor-context-functions",
+    "manual.timeline-shortcuts",
+    "persistence.project-service-public-methods",
+    "proof.render-delivery-module-candidates",
+    "render.layer-content-overlay-cases",
+    "state.overlay-type-declarations",
+    "worker.job-module-candidates"
+  ]
+}

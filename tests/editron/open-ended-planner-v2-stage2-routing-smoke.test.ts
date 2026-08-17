@@ -4,6 +4,7 @@ import {
   buildStage2RoutingSmokePreflightV2,
   runStage2RoutingSmokeV2,
 } from '@/lib/editron/research/open-ended-planner/stage2-routing-smoke-v2';
+import { buildDevelopmentSmokePreflightV2 } from '@/lib/editron/research/open-ended-planner/smoke-preflight-v2';
 
 const hardClaimIds = ['claim-user-stacked-layout', 'claim-user-centred-title', 'claim-user-varied-crops', 'claim-user-exit-continuity'];
 const generatedHardClaimIds = hardClaimIds.slice(0, 3);
@@ -12,7 +13,12 @@ const nativeHardClaimIds = hardClaimIds.slice(3);
 describe('open-ended planner V2 isolated Stage-2 routing smoke', () => {
   it('freezes four fair routes against one canonical blueprint and packet', async () => {
     const plan = await buildStage2RoutingSmokePreflightV2() as Plan;
+    const currentDevelopmentPlan = await buildDevelopmentSmokePreflightV2() as CurrentDevelopmentPlan;
     expect(plan.planHash).toBe('808b4d51e047fa76b07ddc9e904cba3742a0fce6178eff27d38f4185dbce579b');
+    expect(plan.routeSourcePlanHash).toBe('eff3c660dc98618a4eea6d8f63ebdd426fe3fee2b527d9bc23211aa1807d1c8e');
+    expect(plan.routes.find(({ routeId }) => routeId === 'GOOGLE_FLASH')?.requestModel).toBe('gemini-3.6-flash');
+    expect(currentDevelopmentPlan.routes.find(({ routeId }) => routeId === 'GOOGLE_FLASH')?.requestModel).toBe('gemini-3.7-flash');
+    expect(currentDevelopmentPlan.planHash).not.toBe(plan.routeSourcePlanHash);
     expect(plan.rows).toHaveLength(4);
     expect(plan.spend).toMatchObject({ plannedProviderCalls: 4, absoluteMaxSpendUsd: 1.2 });
     expect(new Set(plan.rows.map(({ packetHash }) => packetHash)).size).toBe(1);
@@ -138,5 +144,6 @@ function openAI(model: string, artifact: unknown) { return { id: `resp-${model}`
 function google(model: string, artifact: unknown) { return { responseId: `resp-${model}`, modelVersion: model, candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(artifact) }] } }], usageMetadata: { promptTokenCount: 8_000, candidatesTokenCount: 500, thoughtsTokenCount: 200, totalTokenCount: 8_700 } }; }
 function response(body: unknown): Response { return new Response(JSON.stringify(body), { status: 200 }); }
 
-type Plan = Awaited<ReturnType<typeof buildStage2RoutingSmokePreflightV2>> & { planHash: string; canonicalBlueprintHash: string; rows: Array<{ packetHash: string; priorArtifactHash: string; localInputTokenUpperBound: number | null; maxInputTokens: number }>; spend: { plannedProviderCalls: number; absoluteMaxSpendUsd: number }; exclusions: Array<{ routeId: string; reason: string }> };
+type Plan = Awaited<ReturnType<typeof buildStage2RoutingSmokePreflightV2>> & { planHash: string; routeSourcePlanHash: string; canonicalBlueprintHash: string; routes: Array<{ routeId: string; requestModel: string }>; rows: Array<{ packetHash: string; priorArtifactHash: string; localInputTokenUpperBound: number | null; maxInputTokens: number }>; spend: { plannedProviderCalls: number; absoluteMaxSpendUsd: number }; exclusions: Array<{ routeId: string; reason: string }> };
+type CurrentDevelopmentPlan = Awaited<ReturnType<typeof buildDevelopmentSmokePreflightV2>> & { planHash: string; routes: Array<{ routeId: string; requestModel: string }> };
 type Receipt = { rows: Array<{ run: { disposition: string }; routingEvaluation: { disposition: string; routeClassification: string; candidateCoverage: string; graphCoverage: string; capabilityHonesty: string; diagnostics: string[] } }>; actualProviderCostUsd: number };

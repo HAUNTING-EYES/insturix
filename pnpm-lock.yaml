@@ -380,6 +380,9 @@ importers:
       ipaddr.js:
         specifier: 1.9.1
         version: 1.9.1
+      js-tiktoken:
+        specifier: 1.0.21
+        version: 1.0.21
       langchain:
         specifier: ^1.0.6
         version: 1.0.6(@langchain/core@1.1.15(@opentelemetry/api@1.9.0)(openai@6.9.1(ws@8.21.0)(zod@4.1.12)))(@opentelemetry/api@1.9.0)(openai@6.9.1(ws@8.21.0)(zod@4.1.12))(react-dom@19.1.2(react@19.1.2))(react@19.1.2)

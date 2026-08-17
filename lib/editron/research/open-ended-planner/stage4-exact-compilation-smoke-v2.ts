@@ -11,7 +11,7 @@ import {
   type SerializedProviderRequestV2,
 } from './provider-codecs-v2';
 import { runProviderStageV2, type ProviderPricingV2 } from './provider-transport-v2';
-import { buildDevelopmentSmokePreflightV2 } from './smoke-preflight-v2';
+import { getIssuedStageRouteSourceV2 } from './issued-stage-route-source-v2';
 import { evaluateStage4CompiledGraphArtifactV2 } from './stage4-compilation-evaluator-v2';
 import {
   buildDevelopmentReferenceImageSequenceStageOnePacketV2,
@@ -67,7 +67,7 @@ export interface Stage4ExactCompilationRunOptionsV2 {
 const ROUTE_IDS = new Set(['OPENAI_LUNA', 'OPENAI_TERRA']);
 
 export async function buildStage4ExactCompilationSmokePreflightV2(): Promise<Readonly<JsonRecord>> {
-  const source = await buildDevelopmentSmokePreflightV2() as unknown as { planHash: string; routes: RouteV2[] };
+  const source = getIssuedStageRouteSourceV2() as unknown as { planHash: string; routes: RouteV2[] };
   const routes = source.routes.filter(({ routeId }) => ROUTE_IDS.has(routeId));
   if (routes.length !== ROUTE_IDS.size || routes.some(({ provider }) => provider !== 'openai')) {
     throw new Error('STAGE4_ROUTE_SET_INCOMPLETE');
