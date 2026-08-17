@@ -20,6 +20,7 @@ export interface ThinkForgeTrendContextInput {
   project?: ProjectMeta | null;
   brandId?: string;
   contentPath?: "post" | "script" | string | null;
+  abortSignal?: AbortSignal;
 }
 
 export interface ThinkForgeTrendContextResult {
@@ -38,10 +39,19 @@ export function shouldResolveThinkForgeTrendContext(prompt: string): boolean {
   return TREND_INTENT_PATTERN.test(prompt);
 }
 
+function isAbortFailure(error: unknown, abortSignal?: AbortSignal): boolean {
+  const candidate = error as { name?: string; code?: string } | null;
+  return abortSignal?.aborted === true
+    || candidate?.name === "AbortError"
+    || candidate?.code === "ABORT_ERR";
+}
+
 export async function resolveThinkForgeTrendContext(
   input: ThinkForgeTrendContextInput,
   options: { provider?: TrendsProvider; limit?: number } = {},
 ): Promise<ThinkForgeTrendContextResult | null> {
+  input.abortSignal?.throwIfAborted();
+
   if (!shouldResolveThinkForgeTrendContext(input.userPrompt)) {
     return null;
   }
@@ -69,13 +79,16 @@ export async function resolveThinkForgeTrendContext(
   const platforms = resolveTrendPlatforms(input);
 
   try {
+    input.abortSignal?.throwIfAborted();
     const trends = await provider.getTrends({
       niche,
       brandId: input.brandId,
       platforms,
       limit: options.limit ?? 5,
       location: readPublicLocation(input.project),
+      abortSignal: input.abortSignal,
     });
+    input.abortSignal?.throwIfAborted();
 
     const publicTrends = trends.slice(0, options.limit ?? 5).map((trend) => ({
       title: trend.title,
@@ -107,6 +120,10 @@ export async function resolveThinkForgeTrendContext(
       },
     };
   } catch (error) {
+    if (isAbortFailure(error, input.abortSignal)) {
+      throw error;
+    }
+
     return {
       metadata: {
         provider: provider.name,

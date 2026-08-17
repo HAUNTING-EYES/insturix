@@ -6,7 +6,18 @@ import {
   shouldProbeThinkForgeGeneration,
   shouldScheduleThinkForgeGenerationPolling,
 } from '@/lib/thinkforge/client-generation-lifecycle';
+import type { Trend, TrendQuery, TrendsProvider } from '@/lib/calos/trends';
+import { runThinkingAgent } from '@/lib/thinkforge/agents/thinking-agent';
 import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
+import { resolveThinkForgeTrendContext } from '@/lib/thinkforge/services/trend-context';
+
+const optionalWorkMocks = vi.hoisted(() => ({
+  createModelByTier: vi.fn(() => ({ modelId: 'fixture-thinking-model' })),
+  generateText: vi.fn(),
+  getThinkForgeE2EWriterFixture: vi.fn(() => null),
+  readAiSdkUsage: vi.fn(async () => undefined),
+  recordThinkForgeDirectCost: vi.fn(async () => undefined),
+}));
 
 const lifecycleMocks = vi.hoisted(() => {
   class GenerationStateConflictError extends Error {}
@@ -22,6 +33,18 @@ const lifecycleMocks = vi.hoisted(() => {
 });
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: lifecycleMocks.auth }));
+vi.mock('ai', () => ({ generateText: optionalWorkMocks.generateText }));
+vi.mock('@/lib/thinkforge/agents/model-factory', () => ({
+  createModelByTier: optionalWorkMocks.createModelByTier,
+  ModelTier: { Structural: 'structural' },
+}));
+vi.mock('@/lib/thinkforge/services/provider-cost-telemetry', () => ({
+  readAiSdkUsage: optionalWorkMocks.readAiSdkUsage,
+  recordThinkForgeDirectCost: optionalWorkMocks.recordThinkForgeDirectCost,
+}));
+vi.mock('@/lib/thinkforge/testing/structured-writer-fixtures', () => ({
+  getThinkForgeE2EWriterFixture: optionalWorkMocks.getThinkForgeE2EWriterFixture,
+}));
 vi.mock('@/lib/thinkforge/services/db', () => ({
   GenerationStateConflictError: lifecycleMocks.GenerationStateConflictError,
   getActiveGeneration: lifecycleMocks.getActiveGeneration,
@@ -59,6 +82,149 @@ function stopRequest(body: Record<string, unknown>) {
 function overloadError(): Error & { status: number } {
   return Object.assign(new Error('provider temporarily overloaded'), { status: 503 });
 }
+
+describe('ThinkForge optional pre-generation cancellation', () => {
+  beforeEach(() => {
+    optionalWorkMocks.createModelByTier.mockClear();
+    optionalWorkMocks.generateText.mockReset();
+    optionalWorkMocks.getThinkForgeE2EWriterFixture.mockReset().mockReturnValue(null);
+    optionalWorkMocks.readAiSdkUsage.mockReset().mockResolvedValue(undefined);
+    optionalWorkMocks.recordThinkForgeDirectCost.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('checks cancellation before dispatching the thinking provider', async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException('caller disconnected', 'AbortError'));
+
+    await expect(runThinkingAgent({ userPrompt: 'Draft a video script' }, controller.signal))
+      .rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(optionalWorkMocks.createModelByTier).not.toHaveBeenCalled();
+    expect(optionalWorkMocks.generateText).not.toHaveBeenCalled();
+  });
+
+  it('prevents writer and commit when an aborted thinking provider still resolves', async () => {
+    const controller = new AbortController();
+    const abortReason = new DOMException('caller disconnected', 'AbortError');
+    const writer = vi.fn(async () => undefined);
+    const commit = vi.fn(async () => undefined);
+    let markDispatched!: () => void;
+    let resolveThinking!: (result: { text: string }) => void;
+    const dispatched = new Promise<void>((resolve) => {
+      markDispatched = resolve;
+    });
+
+    optionalWorkMocks.generateText.mockImplementationOnce(
+      () => {
+        markDispatched();
+        return new Promise<{ text: string }>((resolve) => {
+          resolveThinking = resolve;
+        });
+      },
+    );
+
+    const generation = (async () => {
+      await runThinkingAgent({ userPrompt: 'Draft a video script' }, controller.signal);
+      await writer();
+      await commit();
+    })();
+
+    await dispatched;
+    controller.abort(abortReason);
+    resolveThinking({ text: '- Build a concise narrative' });
+
+    await expect(generation).rejects.toMatchObject({ name: 'AbortError' });
+    expect(optionalWorkMocks.generateText).toHaveBeenCalledWith(expect.objectContaining({
+      abortSignal: controller.signal,
+      maxRetries: 0,
+    }));
+    expect(optionalWorkMocks.recordThinkForgeDirectCost).not.toHaveBeenCalled();
+    expect(writer).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('prevents writer and commit when cancellation happens during trend resolution', async () => {
+    const controller = new AbortController();
+    const abortReason = new DOMException('caller disconnected', 'AbortError');
+    const writer = vi.fn(async () => undefined);
+    const commit = vi.fn(async () => undefined);
+    let resolveProvider!: (trends: Trend[]) => void;
+    let markProviderStarted!: (query: TrendQuery) => void;
+    const providerStarted = new Promise<TrendQuery>((resolve) => {
+      markProviderStarted = resolve;
+    });
+    const getTrends = vi.fn<[TrendQuery], Promise<Trend[]>>((query) => {
+      markProviderStarted(query);
+      return new Promise<Trend[]>((resolve) => {
+        resolveProvider = resolve;
+      });
+    });
+    const provider: TrendsProvider = {
+      name: 'delayed-fixture',
+      available: () => true,
+      getTrends,
+    };
+
+    const generation = (async () => {
+      await resolveThinkForgeTrendContext(
+        {
+          userPrompt: 'Use a current trend in this LinkedIn post',
+          project: { platform: 'linkedin', idea: 'Workflow proof' },
+          contentPath: 'post',
+          abortSignal: controller.signal,
+        },
+        { provider },
+      );
+      await writer();
+      await commit();
+    })();
+
+    const query = await providerStarted;
+    expect(query.abortSignal).toBe(controller.signal);
+    controller.abort(abortReason);
+    resolveProvider([
+      { title: 'Proof-led workflow posts', platform: 'linkedin' },
+    ]);
+
+    await expect(generation).rejects.toMatchObject({ name: 'AbortError' });
+    expect(writer).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('preserves graceful degradation for ordinary optional failures', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    optionalWorkMocks.generateText.mockRejectedValueOnce(new Error('thinking unavailable'));
+    const getTrends = vi.fn<[TrendQuery], Promise<Trend[]>>(
+      async () => Promise.reject(new Error('trends unavailable')),
+    );
+
+    try {
+      await expect(runThinkingAgent({ userPrompt: 'Draft a video script' }))
+        .resolves.toBe('');
+      await expect(resolveThinkForgeTrendContext(
+        {
+          userPrompt: 'Use a current trend in this LinkedIn post',
+          project: { platform: 'linkedin' },
+        },
+        {
+          provider: {
+            name: 'failed-fixture',
+            available: () => true,
+            getTrends,
+          },
+        },
+      )).resolves.toMatchObject({
+        metadata: { provider: 'failed-fixture', status: 'failed', error: 'trends unavailable' },
+      });
+    } finally {
+      warning.mockRestore();
+    }
+
+    expect(optionalWorkMocks.recordThinkForgeDirectCost).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed', action: 'thinking_agent' }),
+    );
+  });
+});
 
 describe('ThinkForge generation lifecycle', () => {
   it('retries the failing provider operation exactly once on a temporary overload', async () => {
@@ -132,7 +298,11 @@ describe('ThinkForge generation lifecycle', () => {
     expect(route).toContain('abortSignal: req.signal');
     expect(route).not.toContain('retryOnceOnOverload(() => processChat');
     expect(service).toContain('claimCommitOwnership');
-    expect(service).toContain('abortSignal?.aborted === true || isAbortError || isStreamClosed');
+    expect(service).toContain('isThinkForgeAbortFailure(error, abortSignal) || isStreamClosed');
+    expect(service).toMatch(/runThinkingAgent\([\s\S]{0,500}abortSignal,\s*\);/);
+    expect(service).toMatch(/resolveThinkForgeTrendContext\(\{[\s\S]{0,300}abortSignal,/);
+    expect(service).toContain('if (isThinkForgeAbortFailure(thinkErr, abortSignal))');
+    expect(service).toContain('if (isThinkForgeAbortFailure(trendErr, abortSignal))');
     expect(service).toContain('writer.runStructured(baseInput as PostWriterInput, undefined, abortSignal)');
     expect(service).toContain('writer.runStructured(baseInput as ScriptWriterInput, undefined, abortSignal)');
     expect(service).toContain('beforeCommit: claimCommitOwnership');

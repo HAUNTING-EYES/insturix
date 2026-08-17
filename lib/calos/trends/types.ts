@@ -19,6 +19,8 @@ export interface TrendQuery {
   limit?: number;
   brandId?: string;
   location?: string; // region/market filter (e.g. "United States", "India")
+  /** Request lifetime. Providers should pass this to their underlying fetch/SDK call. */
+  abortSignal?: AbortSignal;
 }
 
 export interface TrendsProvider {

@@ -104,6 +104,17 @@ export async function resolveScriptPromptUnderstanding(
 
 // Generator may be imperfect. Renderer must never fail.
 
+function isThinkForgeAbortFailure(error: unknown, abortSignal?: AbortSignal): boolean {
+  const candidate = error as { name?: string; code?: string; message?: string } | null;
+  return abortSignal?.aborted === true
+    || candidate?.name === 'AbortError'
+    || candidate?.code === 'ABORT_ERR'
+    || candidate?.name === 'InvalidStateError'
+    || candidate?.code === 'ERR_INVALID_STATE'
+    || candidate?.message?.includes('WritableStream is closed') === true
+    || candidate?.message?.includes('ResponseAborted') === true;
+}
+
 function normalizeText(value: string | undefined | null): string {
   return (value || '').toLowerCase();
 }
@@ -699,18 +710,24 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         // FEATURE FLAG: Only run Thinking Agent for scripts, skip for posts to reduce latency
         if (contentPath !== 'post') {
           try {
-            const thinking = await runThinkingAgent({
-              userPrompt: authoringPrompt,
-              projectSummary: sessionState.metadata.idea
-                || sessionState.metadata.title
-                || sessionState.metadata.projectName
-                || sessionState.metadata.sessionName
-                || '',
-            });
+            const thinking = await runThinkingAgent(
+              {
+                userPrompt: authoringPrompt,
+                projectSummary: sessionState.metadata.idea
+                  || sessionState.metadata.title
+                  || sessionState.metadata.projectName
+                  || sessionState.metadata.sessionName
+                  || '',
+              },
+              abortSignal,
+            );
             if (thinking) {
               await emitEvent('thinking', { content: thinking });
             }
           } catch (thinkErr) {
+            if (isThinkForgeAbortFailure(thinkErr, abortSignal)) {
+              throw thinkErr;
+            }
             console.warn('[chat-service] Thinking agent failed (continuing):', thinkErr);
           }
         }
@@ -766,6 +783,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               project: sessionState.metadata,
               brandId: sessionState.metadata.brandId,
               contentPath,
+              abortSignal,
             });
             if (trendContext?.promptBlock) {
               groundedSystemBrief = [groundedSystemBrief, trendContext.promptBlock]
@@ -776,6 +794,9 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               trendContextMetadata = trendContext.metadata;
             }
           } catch (trendErr) {
+            if (isThinkForgeAbortFailure(trendErr, abortSignal)) {
+              throw trendErr;
+            }
             console.warn('[chat-service] public trend context failed; generating without it:', trendErr);
           }
         }
@@ -1178,13 +1199,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         await emitEvent('done', { sessionId: canonicalSessionId });
       }
     } catch (error: any) {
-      const isAbortError = error?.name === 'AbortError' ||
-        error?.code === 'ABORT_ERR' ||
-        error?.name === 'InvalidStateError' ||
-        error?.code === 'ERR_INVALID_STATE' ||
-        error?.message?.includes('WritableStream is closed') ||
-        error?.message?.includes('ResponseAborted');
-      const wasAborted = abortSignal?.aborted === true || isAbortError || isStreamClosed;
+      const wasAborted = isThinkForgeAbortFailure(error, abortSignal) || isStreamClosed;
       const terminalStatus = commitPersisted
         ? 'completed'
         : wasAborted
