@@ -13,6 +13,7 @@ import { describeThinkForgePromptEnhancementPolicy } from '@/lib/thinkforge/serv
 
 const mocks = vi.hoisted(() => ({
   putGovernedDataBankEntry: vi.fn(),
+  putGovernedDataBankReviewCandidate: vi.fn(),
   assertDataBankSessionPrincipal: vi.fn(),
   auth: vi.fn(),
   checkDuplicateBeforeSave: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock('@/lib/thinkforge/agents/model-factory', () => ({
 vi.mock('@/lib/shared/brand-events', () => ({ getEventsByScope: mocks.getEventsByScope }));
 vi.mock('@/lib/thinkforge/services/db', () => ({
   putGovernedDataBankEntry: mocks.putGovernedDataBankEntry,
+  putGovernedDataBankReviewCandidate: mocks.putGovernedDataBankReviewCandidate,
   assertDataBankSessionPrincipal: mocks.assertDataBankSessionPrincipal,
   deleteInteractionEventsByIds: mocks.deleteInteractionEventsByIds,
   deleteProjectScopedEntries: mocks.deleteProjectScopedEntries,
@@ -406,17 +408,50 @@ describe('ThinkForge remaining direct prompt boundaries', () => {
   it('isolates editor text and source labels during observer extraction', async () => {
     mocks.getSession.mockResolvedValue({ _id: 'session_1', userId: 'user_1' });
     mocks.generateObject.mockResolvedValue({ object: { facts: [] }, usage: {} });
-    const { POST } = await import('@/app/api/services/thinkforge/events/observe/route');
-    const response = await POST(new Request('http://localhost/api/services/thinkforge/events/observe', {
-      method: 'POST',
-      body: JSON.stringify({
-        text: `This editor buffer is long enough to observe a writing preference. ${INJECTION}`,
-        source: `editor ${INJECTION}`,
-        sessionId: 'session_1',
+    const now = new Date().toISOString();
+    const store = {
+      claim: vi.fn().mockResolvedValue({
+        kind: 'claimed',
+        leaseToken: 'lease_1',
+        job: {
+          id: 'observer_1',
+          version: 1,
+          dedupeKey: 'dedupe_1',
+          input: {
+            userId: 'user_1',
+            orgId: null,
+            sessionId: 'session_1',
+            source: 'editor',
+            text: `This editor buffer is long enough to observe a writing preference. ${INJECTION}`,
+          },
+          userId: 'user_1',
+          orgId: null,
+          status: 'running',
+          attemptCount: 1,
+          maxAttempts: 3,
+          leaseExpiresAt: now,
+          queueMessageId: null,
+          checkpoint: null,
+          checkpointHash: null,
+          result: null,
+          resultHash: null,
+          error: null,
+          createdAt: now,
+          updatedAt: now,
+          expiresAt: now,
+        },
       }),
-    }));
+      saveCheckpoint: vi.fn().mockResolvedValue(undefined),
+      saveResult: vi.fn().mockResolvedValue(undefined),
+      complete: vi.fn().mockResolvedValue(undefined),
+      retryOrDeadLetter: vi.fn().mockResolvedValue('queued'),
+    };
+    const { processObserverJob } = await import('@/lib/thinkforge/events/observer-job');
 
-    expect(response.status).toBe(200);
+    const result = await processObserverJob('observer_1', store);
+
+    expect(result.status).toBe('completed');
+    expect(store.complete).toHaveBeenCalledWith('observer_1', 'lease_1');
     expect(mocks.generateObject).toHaveBeenCalled();
     expectIsolatedCall(mocks.generateObject.mock.calls.at(-1)?.[0] ?? {});
   });

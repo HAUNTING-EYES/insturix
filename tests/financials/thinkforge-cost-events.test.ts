@@ -89,7 +89,7 @@ describe('ThinkForge provider cost telemetry contract', () => {
 
   it('records direct ThinkForge route calls outside BaseAgent', () => {
     const enhance = readRepoFile('app/api/services/thinkforge/enhance/route.ts');
-    const observer = readRepoFile('app/api/services/thinkforge/events/observe/route.ts');
+    const observer = readRepoFile('lib/thinkforge/events/observer-job.ts');
 
     expect(enhance).toContain('recordThinkForgeDirectCost({');
     expect(enhance).toContain("action: 'prompt_enhance'");
@@ -100,11 +100,11 @@ describe('ThinkForge provider cost telemetry contract', () => {
 
     expect(observer).toContain('recordThinkForgeDirectCost({');
     expect(observer).toContain("action: 'observer_extraction'");
-    expect(observer).toContain("route: 'app/api/services/thinkforge/events/observe'");
+    expect(observer).toContain("route: 'app/api/internal/workers/thinkforge/observer'");
     expect(observer).toContain("operation: 'llm_structured_direct'");
-    expect(observer).toContain('usage = await readAiSdkUsage((result as { usage?: unknown }).usage)');
+    expect(observer).toContain('usage = await readAiSdkUsage((generated as { usage?: unknown }).usage)');
     expect(observer).toContain('outputChars: safeJsonLength(object)');
-    expect(observer).toContain('acceptedCount: highConfidence.length');
+    expect(observer).toContain('resultCount: object.facts.length');
   });
 
   it('records direct ThinkForge generateText helpers outside BaseAgent', () => {
