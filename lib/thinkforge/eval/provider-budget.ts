@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 export type ThinkForgeEvalProvider = 'gemini' | 'deepseek' | 'openrouter' | 'anthropic';
-export type ThinkForgeEvalProviderRole = 'writer' | 'judge';
+export type ThinkForgeEvalProviderRole = 'writer' | 'judge' | 'context_cache';
 
 interface PriceHint {
   inputUsdPerMillion?: number;
@@ -35,6 +35,7 @@ export interface ThinkForgeEvalBudgetLimits {
   maxProviderRequests: number;
   maxWriterRequests: number;
   maxJudgeRequests: number;
+  maxContextCacheRequests?: number;
   maxOutputTokens: number;
   maxEstimatedCostUsd: number;
   costSafetyMultiplier?: number;
@@ -45,6 +46,7 @@ export interface ThinkForgeEvalBudgetSnapshot {
   providerRequests: number;
   writerRequests: number;
   judgeRequests: number;
+  contextCacheRequests: number;
   reservedOutputTokens: number;
   estimatedCostUpperBoundUsd: number;
   dispatches: Array<ThinkForgeEvalDispatch & {
@@ -168,6 +170,13 @@ function positiveInteger(value: number, name: string): number {
   return value;
 }
 
+function nonNegativeInteger(value: number, name: string): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative whole number`);
+  }
+  return value;
+}
+
 function nonNegativeFinite(value: number, name: string): number {
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${name} must be a non-negative finite number`);
@@ -187,6 +196,7 @@ export class ThinkForgeEvalProviderBudget {
   private providerRequests = 0;
   private writerRequests = 0;
   private judgeRequests = 0;
+  private contextCacheRequests = 0;
   private reservedOutputTokens = 0;
   private estimatedCostUpperBoundUsd = 0;
   private readonly dispatches: ThinkForgeEvalBudgetSnapshot['dispatches'] = [];
@@ -196,6 +206,10 @@ export class ThinkForgeEvalProviderBudget {
       maxProviderRequests: positiveInteger(limits.maxProviderRequests, 'maxProviderRequests'),
       maxWriterRequests: positiveInteger(limits.maxWriterRequests, 'maxWriterRequests'),
       maxJudgeRequests: positiveInteger(limits.maxJudgeRequests, 'maxJudgeRequests'),
+      maxContextCacheRequests: positiveInteger(
+        limits.maxContextCacheRequests ?? limits.maxProviderRequests,
+        'maxContextCacheRequests',
+      ),
       maxOutputTokens: positiveInteger(limits.maxOutputTokens, 'maxOutputTokens'),
       maxEstimatedCostUsd: nonNegativeFinite(limits.maxEstimatedCostUsd, 'maxEstimatedCostUsd'),
       costSafetyMultiplier: limits.costSafetyMultiplier === undefined
@@ -204,15 +218,33 @@ export class ThinkForgeEvalProviderBudget {
     };
   }
 
+  assertCanCoverEnvelope(
+    dispatches: readonly ThinkForgeEvalDispatch[],
+  ): ThinkForgeEvalBudgetSnapshot {
+    if (this.providerRequests > 0) {
+      throw new ThinkForgeEvalBudgetExceededError('envelope_preflight_must_run_before_dispatch');
+    }
+
+    const preflight = new ThinkForgeEvalProviderBudget(this.limits);
+    for (const dispatch of dispatches) preflight.authorizeDispatch(dispatch);
+    return preflight.snapshot();
+  }
+
   authorizeDispatch(dispatch: ThinkForgeEvalDispatch): void {
-    const inputTokenUpperBound = positiveInteger(
+    const inputTokenUpperBound = nonNegativeInteger(
       dispatch.inputTokenUpperBound,
       `${dispatch.label}.inputTokenUpperBound`,
     );
-    const maxOutputTokens = positiveInteger(
+    const maxOutputTokens = nonNegativeInteger(
       dispatch.maxOutputTokens,
       `${dispatch.label}.maxOutputTokens`,
     );
+    if (dispatch.role === 'context_cache' && maxOutputTokens !== 0) {
+      throw new Error(`${dispatch.label}.maxOutputTokens must be 0 for context-cache requests`);
+    }
+    if (dispatch.role !== 'context_cache' && (inputTokenUpperBound < 1 || maxOutputTokens < 1)) {
+      throw new Error(`${dispatch.label} writer/judge bounds must both be positive whole numbers`);
+    }
     const cost = estimateThinkForgeEvalProviderCost({
       provider: dispatch.provider,
       model: dispatch.model,
@@ -231,6 +263,8 @@ export class ThinkForgeEvalProviderBudget {
     const nextProviderRequests = this.providerRequests + 1;
     const nextWriterRequests = this.writerRequests + (dispatch.role === 'writer' ? 1 : 0);
     const nextJudgeRequests = this.judgeRequests + (dispatch.role === 'judge' ? 1 : 0);
+    const nextContextCacheRequests = this.contextCacheRequests
+      + (dispatch.role === 'context_cache' ? 1 : 0);
     const nextOutputTokens = this.reservedOutputTokens + maxOutputTokens;
     const nextEstimatedCost = this.estimatedCostUpperBoundUsd + dispatchCostUpperBound;
 
@@ -243,6 +277,9 @@ export class ThinkForgeEvalProviderBudget {
         : null,
       nextJudgeRequests > this.limits.maxJudgeRequests
         ? `judge_requests:${nextJudgeRequests}/${this.limits.maxJudgeRequests}`
+        : null,
+      nextContextCacheRequests > this.limits.maxContextCacheRequests
+        ? `context_cache_requests:${nextContextCacheRequests}/${this.limits.maxContextCacheRequests}`
         : null,
       nextOutputTokens > this.limits.maxOutputTokens
         ? `output_tokens:${nextOutputTokens}/${this.limits.maxOutputTokens}`
@@ -259,6 +296,7 @@ export class ThinkForgeEvalProviderBudget {
     this.providerRequests = nextProviderRequests;
     this.writerRequests = nextWriterRequests;
     this.judgeRequests = nextJudgeRequests;
+    this.contextCacheRequests = nextContextCacheRequests;
     this.reservedOutputTokens = nextOutputTokens;
     this.estimatedCostUpperBoundUsd = nextEstimatedCost;
     this.dispatches.push({
@@ -277,6 +315,7 @@ export class ThinkForgeEvalProviderBudget {
       providerRequests: this.providerRequests,
       writerRequests: this.writerRequests,
       judgeRequests: this.judgeRequests,
+      contextCacheRequests: this.contextCacheRequests,
       reservedOutputTokens: this.reservedOutputTokens,
       estimatedCostUpperBoundUsd: this.estimatedCostUpperBoundUsd,
       dispatches: this.dispatches.map((dispatch) => ({ ...dispatch })),

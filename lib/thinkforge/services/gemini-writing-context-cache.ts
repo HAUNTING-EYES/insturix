@@ -17,7 +17,10 @@ import {
   prepareThinkForgeProviderPromptDispatch,
   type ThinkForgeProviderPromptRoute,
 } from '@/lib/thinkforge/privacy/provider-prompt-dispatch';
-import { authorizeThinkForgeEvalProviderDispatch } from '@/lib/thinkforge/eval/provider-budget';
+import {
+  authorizeThinkForgeEvalProviderDispatch,
+  ThinkForgeEvalBudgetExceededError,
+} from '@/lib/thinkforge/eval/provider-budget';
 
 const CACHE_TTL_SECONDS = 1800;
 const CACHE_STORE_TIMEOUT_MS = 1_500;
@@ -593,6 +596,14 @@ async function createCache(
 
     const { GoogleGenAI } = await import('@google/genai');
     const client = new GoogleGenAI({ apiKey: getApiKey(), httpOptions: { timeout: CACHE_PROVIDER_TIMEOUT_MS } });
+    authorizeThinkForgeEvalProviderDispatch({
+      role: 'context_cache',
+      provider: 'gemini',
+      model: toRuntimeModelName(modelName),
+      label: 'writing-context/context-cache-create',
+      inputTokenUpperBound: Buffer.byteLength(`${cacheContent}\n${systemInstruction}`, 'utf8'),
+      maxOutputTokens: 0,
+    });
     const cache = await client.caches.create({
       model: toRuntimeModelName(modelName),
       config: {
@@ -617,6 +628,7 @@ async function createCache(
     return cache.name;
   } catch (error) {
     if (abortSignal?.aborted) throw error;
+    if (error instanceof ThinkForgeEvalBudgetExceededError) throw error;
 
     recordThinkForgeWritingContextCost({
       status: 'failed',
@@ -653,6 +665,14 @@ async function resolveWritingContext(
     try {
       const { GoogleGenAI } = await import('@google/genai');
       const client = new GoogleGenAI({ apiKey: getApiKey(), httpOptions: { timeout: CACHE_PROVIDER_TIMEOUT_MS } });
+      authorizeThinkForgeEvalProviderDispatch({
+        role: 'context_cache',
+        provider: 'gemini',
+        model: toRuntimeModelName(modelName),
+        label: 'writing-context/context-cache-lookup',
+        inputTokenUpperBound: 0,
+        maxOutputTokens: 0,
+      });
       const cache = await client.caches.get({
         name: existing.cacheName,
         config: { abortSignal },
@@ -666,6 +686,7 @@ async function resolveWritingContext(
       };
     } catch (error) {
       if (abortSignal?.aborted) throw error;
+      if (error instanceof ThinkForgeEvalBudgetExceededError) throw error;
       console.warn('[ThinkForgeWritingCache] Cached context is unavailable; recreating it:', error);
     }
   }
@@ -878,6 +899,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
         ...(context.cacheName ? {} : { system: dispatch.systemInstruction }),
         temperature: input.temperature,
         maxTokens: input.maxTokens,
+        maxRetries: 0,
         abortSignal: deadline.abortSignal,
         ...(context.cacheName
           ? { providerOptions: { google: { cachedContent: context.cacheName } } }

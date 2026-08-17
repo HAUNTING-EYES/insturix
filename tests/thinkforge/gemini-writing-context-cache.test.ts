@@ -54,6 +54,10 @@ import {
 import { prepareThinkForgeProviderPromptDispatch } from '@/lib/thinkforge/privacy/provider-prompt-dispatch';
 import { hashThinkForgeTraceValue } from '@/lib/thinkforge/provenance/generation-trace';
 import { SCRIPT_SIDECAR_V2_VERSION } from '@/lib/thinkforge/schemas/script-sidecar-v2';
+import {
+  runWithThinkForgeEvalProviderBudget,
+  ThinkForgeEvalProviderBudget,
+} from '@/lib/thinkforge/eval/provider-budget';
 
 function nativeV2CacheOutput(): ScriptWriterModelOutput {
   return {
@@ -516,6 +520,42 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(hashThinkForgeTraceValue(inMemory)).toBe(hashThinkForgeTraceValue(persisted));
     expect(hashThinkForgeTraceValue({ resolvedProduction: {} }))
       .not.toBe(hashThinkForgeTraceValue({}));
+  });
+
+  it('accounts cache create/lookup and disables hidden AI SDK retries in eval scope', async () => {
+    const budget = new ThinkForgeEvalProviderBudget({
+      maxProviderRequests: 4,
+      maxWriterRequests: 2,
+      maxJudgeRequests: 1,
+      maxContextCacheRequests: 2,
+      maxOutputTokens: 128,
+      maxEstimatedCostUsd: 10,
+      costSafetyMultiplier: 2,
+    });
+
+    await runWithThinkForgeEvalProviderBudget(budget, async () => {
+      for (const prompt of ['Write the post.', 'Write the script.']) {
+        await generateStructuredWithWritingContextCache({
+          prompt,
+          schema: z.object({ output: z.string() }),
+          maxTokens: 64,
+        });
+      }
+    });
+
+    expect(sdkMocks.createCache).toHaveBeenCalledTimes(1);
+    expect(sdkMocks.getCache).toHaveBeenCalledTimes(1);
+    expect(sdkMocks.generateObject).toHaveBeenCalledTimes(2);
+    for (const [request] of sdkMocks.generateObject.mock.calls) {
+      expect(request).toMatchObject({ maxRetries: 0, maxTokens: 64 });
+    }
+    expect(budget.snapshot()).toMatchObject({
+      providerRequests: 4,
+      writerRequests: 2,
+      judgeRequests: 0,
+      contextCacheRequests: 2,
+      reservedOutputTokens: 128,
+    });
   });
 
   it('reuses one stable cache while sending each trusted instruction in its request contract', async () => {

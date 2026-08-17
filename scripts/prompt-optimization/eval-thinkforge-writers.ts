@@ -43,9 +43,14 @@ import {
 } from '../../lib/thinkforge/agents/post-writer-agent';
 import {
   ScriptWriterAgent,
+  resolveScriptGenerationFeasibility,
   type ScriptWriterResult,
   type ScriptWriterInput,
 } from '../../lib/thinkforge/agents/script-writer-agent';
+import {
+  buildWritingContextCacheContent,
+  buildWritingContextSystemInstruction,
+} from '../../lib/thinkforge/services/gemini-writing-context-cache';
 import { resolveContentSignalProfile } from '../../lib/thinkforge/signals';
 import { buildThinkForgeSourceLedger } from '../../lib/thinkforge/provenance/source-ledger';
 import { resolveThinkForgeProductionBrief } from '../../lib/thinkforge/brief/resolve-production-brief';
@@ -67,10 +72,12 @@ import {
   runWithThinkForgeEvalProviderBudget,
   ThinkForgeEvalBudgetExceededError,
   ThinkForgeEvalProviderBudget,
+  type ThinkForgeEvalDispatch,
 } from '../../lib/thinkforge/eval/provider-budget';
 import {
   evaluateWriterPromotionGate,
   THINKFORGE_WRITER_JUDGE_DIMENSIONS,
+  THINKFORGE_WRITER_PROMOTION_THRESHOLDS,
   type WriterPromotionRun,
 } from './thinkforge-writer-promotion-gate';
 import {
@@ -146,6 +153,13 @@ const maxJudgeCalls = Number.parseInt(
     ?? String(maxProviderCalls),
   10,
 );
+const maxContextCacheCallsArg = process.argv.find(a => a.startsWith('--max-context-cache-calls='));
+const maxContextCacheCalls = Number.parseInt(
+  maxContextCacheCallsArg?.split('=')[1]
+    ?? process.env.THINKFORGE_EVAL_MAX_CONTEXT_CACHE_CALLS
+    ?? String(maxProviderCalls),
+  10,
+);
 const maxOutputTokensArg = process.argv.find(a => a.startsWith('--max-output-tokens='));
 const maxOutputTokens = Number.parseInt(
   maxOutputTokensArg?.split('=')[1]
@@ -167,7 +181,7 @@ const testCaseFilter = testCaseArg ? parseInt(testCaseArg.split('=')[1]) : null;
 const writerArg = process.argv.find(a => a.startsWith('--writer='));
 const writerFilter = writerArg ? writerArg.split('=')[1] : null; // 'post' | 'script'
 const suiteArg = process.argv.find(a => a.startsWith('--suite='));
-const suiteFilter = suiteArg ? suiteArg.split('=')[1] : null; // 'core' | 'heldout'
+const suiteFilter = suiteArg ? suiteArg.split('=')[1] : null; // 'core' | 'regression' | 'heldout'
 const judgeArg = process.argv.find(a => a.startsWith('--judge='));
 const judgeRaw = judgeArg ? judgeArg.split('=')[1] : null;
 const judgeProvider = (judgeRaw === 'claude' ? 'anthropic' : judgeRaw) as EvalProvider | null; // claude(anthropic) | deepseek | openrouter
@@ -180,18 +194,15 @@ if (captureRejectedOutput) {
   process.env.THINKFORGE_EVAL_CAPTURE_REJECTED_OUTPUT = '1';
 }
 
-const API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-if (!API_KEY && !dryRun) {
-  console.error('No GEMINI_API_KEY. Set in .env.local or pass via: GEMINI_API_KEY=xxx npx tsx ...');
-  console.error('(For an offline prompt-assembly check with no network: GEMINI_API_KEY=dummy ... --dry-run)');
-  process.exit(1);
-}
-
 // ---- Test Cases ------------------------------------------------------
 // `grounding` = facts that MUST survive into the output (the writers' core promise is factual
 // completeness). Each is a case-insensitive substring; coverage is scored continuously.
 
-const TEST_CASES: TestCase[] = [
+type EvalPromotionCohort = 'known_regression' | 'blind_heldout';
+type EvalSuite = 'core' | 'regression' | 'heldout';
+type EvalTestCase = TestCase & { promotionCohort?: EvalPromotionCohort };
+
+const TEST_CASES: EvalTestCase[] = [
   {
     id: 1,
     name: 'LinkedIn thought-leadership post',
@@ -296,8 +307,8 @@ const TEST_CASES: TestCase[] = [
   },
   {
     id: 9,
-    suite: 'heldout',
-    name: 'Held-out B2B SaaS compliance post',
+    promotionCohort: 'known_regression',
+    name: 'Regression B2B SaaS compliance post',
     documentType: 'post',
     projectSummary: 'FlowLedger - workflow automation for finance teams preparing audit evidence.',
     userPrompt:
@@ -309,8 +320,8 @@ const TEST_CASES: TestCase[] = [
   },
   {
     id: 10,
-    suite: 'heldout',
-    name: 'Held-out nonprofit local action post',
+    promotionCohort: 'known_regression',
+    name: 'Regression nonprofit local action post',
     documentType: 'post',
     projectSummary: 'RiverAid - nonprofit organizing city river cleanup drives and youth education.',
     userPrompt:
@@ -322,8 +333,8 @@ const TEST_CASES: TestCase[] = [
   },
   {
     id: 11,
-    suite: 'heldout',
-    name: 'Held-out e-comm Instagram caption',
+    promotionCohort: 'known_regression',
+    name: 'Regression e-comm Instagram caption',
     documentType: 'post',
     projectSummary: 'TrailNest - compact outdoor gear for city people who camp on weekends.',
     userPrompt:
@@ -335,8 +346,8 @@ const TEST_CASES: TestCase[] = [
   },
   {
     id: 12,
-    suite: 'heldout',
-    name: 'Held-out recruiting post',
+    promotionCohort: 'known_regression',
+    name: 'Regression recruiting post',
     documentType: 'post',
     projectSummary: 'Nimbus Robotics - warehouse robotics company hiring perception engineers.',
     userPrompt:
@@ -348,8 +359,8 @@ const TEST_CASES: TestCase[] = [
   },
   {
     id: 13,
-    suite: 'heldout',
-    name: 'Held-out Spanish community post',
+    promotionCohort: 'known_regression',
+    name: 'Regression Spanish community post',
     documentType: 'post',
     projectSummary: 'Luna Verde - cafe and plant shop in Madrid running small neighborhood events.',
     userPrompt:
@@ -361,8 +372,8 @@ const TEST_CASES: TestCase[] = [
   },
   {
     id: 14,
-    suite: 'heldout',
-    name: 'Held-out very long brief post',
+    promotionCohort: 'known_regression',
+    name: 'Regression very long brief post',
     documentType: 'post',
     projectSummary: 'CivicDesk - case management SaaS for local government service desks.',
     userPrompt: [
@@ -381,8 +392,8 @@ const TEST_CASES: TestCase[] = [
   },
   {
     id: 15,
-    suite: 'heldout',
-    name: 'Held-out unusual deadpan tone post',
+    promotionCohort: 'known_regression',
+    name: 'Regression unusual deadpan tone post',
     documentType: 'post',
     projectSummary: 'Boring Metrics Club - newsletter for founders who prefer honest dashboards over vanity metrics.',
     userPrompt:
@@ -394,8 +405,8 @@ const TEST_CASES: TestCase[] = [
   },
   {
     id: 16,
-    suite: 'heldout',
-    name: 'Held-out software tutorial script',
+    promotionCohort: 'known_regression',
+    name: 'Regression software tutorial script',
     documentType: 'video_script',
     projectSummary: 'TaskFlow - a project management app for small remote teams.',
     userPrompt:
@@ -407,8 +418,8 @@ const TEST_CASES: TestCase[] = [
   },
   {
     id: 17,
-    suite: 'heldout',
-    name: 'Held-out data-rich metrics list post',
+    promotionCohort: 'known_regression',
+    name: 'Regression data-rich metrics list post',
     documentType: 'post',
     projectSummary: 'DataPulse - a weekly analytics digest for Shopify store owners.',
     userPrompt:
@@ -420,8 +431,8 @@ const TEST_CASES: TestCase[] = [
   },
   {
     id: 18,
-    suite: 'heldout',
-    name: 'Held-out short founder milestone post',
+    promotionCohort: 'known_regression',
+    name: 'Regression short founder milestone post',
     documentType: 'post',
     projectSummary: 'Streaky - a solo-founder habit-tracking app.',
     userPrompt:
@@ -434,6 +445,7 @@ const TEST_CASES: TestCase[] = [
   {
     id: 19,
     suite: 'heldout',
+    promotionCohort: 'blind_heldout',
     name: 'Held-out seven-minute evidence documentary',
     documentType: 'video_script',
     projectSummary: 'HarborGrid documents a synthetic six-month port-electrification pilot for an evidence-led YouTube film.',
@@ -451,6 +463,7 @@ const TEST_CASES: TestCase[] = [
   {
     id: 20,
     suite: 'heldout',
+    promotionCohort: 'blind_heldout',
     name: 'Held-out film-house brand film',
     documentType: 'video_script',
     projectSummary: 'Northline Films is producing a visual-first brand film for synthetic workwear label Rook and River.',
@@ -468,6 +481,7 @@ const TEST_CASES: TestCase[] = [
   {
     id: 21,
     suite: 'heldout',
+    promotionCohort: 'blind_heldout',
     name: 'Held-out Hindi public-service script',
     documentType: 'video_script',
     projectSummary: 'Sehat Saathi is a synthetic mobile clinic announcing a recurring village visit in Hindi.',
@@ -493,6 +507,7 @@ const TEST_CASES: TestCase[] = [
   {
     id: 22,
     suite: 'heldout',
+    promotionCohort: 'blind_heldout',
     name: 'Held-out visual-led low-dialogue montage',
     documentType: 'video_script',
     projectSummary: 'Foldline is a synthetic ceramics studio showing its seven-day cup-making process.',
@@ -510,6 +525,7 @@ const TEST_CASES: TestCase[] = [
   {
     id: 23,
     suite: 'heldout',
+    promotionCohort: 'blind_heldout',
     name: 'Held-out named multi-character dialogue',
     documentType: 'video_script',
     projectSummary: 'FrameShift is a synthetic film-house team planning a constrained agency interview shoot.',
@@ -524,6 +540,39 @@ const TEST_CASES: TestCase[] = [
     criteria: { groundingFloor: 0.8, requiredCharacterNames: ['Maya', 'Jon'] },
   },
 ];
+
+function evalSuiteForCase(testCase: EvalTestCase): EvalSuite {
+  if (testCase.promotionCohort === 'known_regression') return 'regression';
+  if (testCase.promotionCohort === 'blind_heldout') return 'heldout';
+  return 'core';
+}
+
+export function getThinkForgeWriterEvalCorpusManifest() {
+  const knownRegressionCaseIds = TEST_CASES
+    .filter((testCase) => testCase.promotionCohort === 'known_regression')
+    .map((testCase) => testCase.id);
+  const blindHeldoutCaseIds = TEST_CASES
+    .filter((testCase) => testCase.promotionCohort === 'blind_heldout')
+    .map((testCase) => testCase.id);
+  const requiredBlindHeldoutCases = THINKFORGE_WRITER_PROMOTION_THRESHOLDS.minimumCaseCount;
+  return {
+    knownRegressionCaseIds,
+    blindHeldoutCaseIds,
+    requiredBlindHeldoutCases,
+    promotionReady: blindHeldoutCaseIds.length >= requiredBlindHeldoutCases,
+    blindHeldoutShortfall: Math.max(0, requiredBlindHeldoutCases - blindHeldoutCaseIds.length),
+  };
+}
+
+export function assertThinkForgeBlindHeldoutCorpusReady(): void {
+  const manifest = getThinkForgeWriterEvalCorpusManifest();
+  if (manifest.promotionReady) return;
+  throw new Error(
+    'ThinkForge writer promotion is fail-closed: '
+    + `${manifest.blindHeldoutCaseIds.length}/${manifest.requiredBlindHeldoutCases} genuinely blind cases exist; `
+    + `cases ${manifest.knownRegressionCaseIds.join(',')} are regression cases and cannot count toward promotion.`,
+  );
+}
 
 // Historical evidence only. These predate explicit authoring requests and cannot gate the
 // current contract; retain them in scoreboards until a reviewed v2 baseline replaces them.
@@ -540,7 +589,7 @@ const LEGACY_PRE_CONTRACT_BASELINES: Record<number, number> = {
   // regression instead of firing on seed noise. (The graph-injection regression is already fixed.)
   7: 0.80,
   8: 0.87,
-  // Cases 9-15 (held-out): baselined from the 10-seed sweep, ~5pp below observed min for
+  // Cases 9-15 (known regression): baselined from the 10-seed sweep, ~5pp below observed min for
   // seed-noise tolerance. Observed mins -> 9:94 10:100 11:100 12:94 13:100 14:94 15:94.
   9: 0.88,
   10: 0.93,
@@ -549,9 +598,9 @@ const LEGACY_PRE_CONTRACT_BASELINES: Record<number, number> = {
   13: 0.93,
   14: 0.88,
   15: 0.88,
-  // Cases 16-18 (held-out, added 2026-06): first 10-seed sweep gave min 100% on all three. Set
+  // Cases 16-18 (known regression, added 2026-06): first 10-seed sweep gave min 100% on all three. Set
   // below that for real-regression detection: 16 is a script (scripts vary 83-92 elsewhere, so a
-  // single 100% sweep may be optimistic) -> script floor; 17/18 are posts -> held-out post floor.
+  // single 100% sweep may be optimistic) -> script floor; 17/18 are posts -> regression post floor.
   16: 0.83,
   17: 0.88,
   18: 0.88,
@@ -766,8 +815,174 @@ function buildInput(
   };
 }
 
-function outputFingerprint(result: PostWriterResult | ScriptWriterResult): string {
+export function fingerprintThinkForgeStructuredWriterOutput(
+  result: PostWriterResult | ScriptWriterResult,
+): string {
   return createHash('sha256').update(JSON.stringify(result)).digest('hex');
+}
+
+export function fingerprintThinkForgeVisiblePublishableOutput(
+  result: PostWriterResult | ScriptWriterResult,
+  path: WriterPath,
+): string {
+  const projection = path === 'post'
+    ? {
+        content: result.content.normalize('NFC'),
+        hashtags: (result as PostWriterResult).hashtags.map((hashtag) => hashtag.normalize('NFC')),
+        carouselSlides: (result as PostWriterResult).clickatron.carouselDeck?.slides.map((slide) => ({
+          headline: slide.headline.normalize('NFC'),
+          body: slide.body?.normalize('NFC') ?? null,
+        })) ?? [],
+      }
+    : { content: result.content.normalize('NFC') };
+  return createHash('sha256').update(JSON.stringify(projection)).digest('hex');
+}
+
+const WRITER_CONTRACT_ATTEMPTS = 2;
+const WRITER_REPAIR_DATA_MAX_BYTES = 80_000;
+const WRITER_DISPATCH_OVERHEAD_BYTES = 4_096;
+const JUDGE_PROMPT_OVERHEAD_BYTES = 32_768;
+// Bound serialized Unicode/JSON evidence conservatively; runtime authorization still prices the exact prompt.
+const JUDGE_INPUT_BYTES_PER_WRITER_OUTPUT_TOKEN = 64;
+
+interface WriterEnvelopeCasePlan {
+  testCase: EvalTestCase;
+  model: string;
+  maxOutputTokens: number;
+  initialInputUpperBound: number;
+  repairInputUpperBound: number;
+}
+
+function readWriterRuntimeConfig(agent: PostWriterAgent | ScriptWriterAgent): {
+  modelName: string;
+  maxTokens: number;
+} {
+  const config = (agent as unknown as {
+    config?: { modelName?: unknown; maxTokens?: unknown };
+  }).config;
+  const modelName = config?.modelName;
+  const maxTokens = config?.maxTokens;
+  if (typeof modelName !== 'string' || typeof maxTokens !== 'number'
+    || !Number.isInteger(maxTokens) || maxTokens < 1) {
+    throw new Error('Writer eval could not resolve the production agent model/token configuration.');
+  }
+  return { modelName, maxTokens };
+}
+
+function buildWriterEnvelopeCasePlan(testCase: EvalTestCase): WriterEnvelopeCasePlan {
+  const authoringRequest = buildAuthoringRequest(testCase);
+  const input = buildInput(testCase, authoringRequest);
+  const cacheContent = buildWritingContextCacheContent();
+  const path = writerPathForRequest(authoringRequest);
+  const writerPlan = path === 'post'
+    ? (() => {
+        const agent = new PostWriterAgent();
+        const runtimeConfig = readWriterRuntimeConfig(agent);
+        return {
+          runtimeConfig,
+          prompt: agent.buildPrompt(input as PostWriterInput),
+          maxOutputTokens: runtimeConfig.maxTokens,
+        };
+      })()
+    : (() => {
+        const agent = new ScriptWriterAgent();
+        return {
+          runtimeConfig: readWriterRuntimeConfig(agent),
+          prompt: agent.buildPrompt(input as ScriptWriterInput),
+          maxOutputTokens: resolveScriptGenerationFeasibility(input as ScriptWriterInput).requiredOutputTokens,
+        };
+      })();
+  const { runtimeConfig, prompt, maxOutputTokens } = writerPlan;
+  const initialInputUpperBound = Buffer.byteLength(`${cacheContent}\n${prompt}`, 'utf8')
+    + WRITER_DISPATCH_OVERHEAD_BYTES;
+  return {
+    testCase,
+    model: runtimeConfig.modelName,
+    maxOutputTokens,
+    initialInputUpperBound,
+    repairInputUpperBound: initialInputUpperBound
+      + WRITER_REPAIR_DATA_MAX_BYTES
+      + WRITER_DISPATCH_OVERHEAD_BYTES,
+  };
+}
+
+export function buildThinkForgeWriterEvalRequestEnvelope(input: {
+  caseIds: readonly number[];
+  runIds: readonly number[];
+  judge?: Pick<EvalProviderConfig, 'provider' | 'model' | 'maxOutputTokens'> & {
+    retryAttempts: number;
+  };
+}): ThinkForgeEvalDispatch[] {
+  const selectedIds = new Set(input.caseIds);
+  const cases = TEST_CASES.filter((testCase) => selectedIds.has(testCase.id));
+  if (cases.length !== selectedIds.size) throw new Error('Writer eval envelope references an unknown case ID.');
+  const cacheCreateInputUpperBound = Buffer.byteLength(
+    `${buildWritingContextCacheContent()}\n${buildWritingContextSystemInstruction()}`,
+    'utf8',
+  );
+  const casePlans = cases.map(buildWriterEnvelopeCasePlan);
+  const dispatches: ThinkForgeEvalDispatch[] = [];
+
+  for (const plan of casePlans) {
+    for (const currentRunId of input.runIds) {
+      for (let attempt = 1; attempt <= WRITER_CONTRACT_ATTEMPTS; attempt++) {
+        const label = `case-${plan.testCase.id}/run-${currentRunId}/writer-attempt-${attempt}`;
+        dispatches.push(
+          {
+            role: 'context_cache',
+            provider: 'gemini',
+            model: plan.model,
+            label: `${label}/cache-lookup`,
+            inputTokenUpperBound: 0,
+            maxOutputTokens: 0,
+          },
+          {
+            role: 'context_cache',
+            provider: 'gemini',
+            model: plan.model,
+            label: `${label}/cache-create`,
+            inputTokenUpperBound: cacheCreateInputUpperBound,
+            maxOutputTokens: 0,
+          },
+          {
+            role: 'writer',
+            provider: 'gemini',
+            model: plan.model,
+            label,
+            inputTokenUpperBound: attempt === 1
+              ? plan.initialInputUpperBound
+              : plan.repairInputUpperBound,
+            maxOutputTokens: plan.maxOutputTokens,
+          },
+        );
+      }
+
+      if (input.judge) {
+        const judgeInputUpperBound = Buffer.byteLength(JSON.stringify({
+          caseId: plan.testCase.id,
+          name: plan.testCase.name,
+          projectSummary: plan.testCase.projectSummary,
+          userPrompt: plan.testCase.userPrompt,
+          systemBrief: plan.testCase.systemBrief ?? null,
+          grounding: plan.testCase.grounding ?? [],
+        }), 'utf8')
+          + JUDGE_PROMPT_OVERHEAD_BYTES
+          + plan.maxOutputTokens * JUDGE_INPUT_BYTES_PER_WRITER_OUTPUT_TOKEN;
+        for (let attempt = 1; attempt <= input.judge.retryAttempts; attempt++) {
+          dispatches.push({
+            role: 'judge',
+            provider: input.judge.provider,
+            model: input.judge.model,
+            label: `case-${plan.testCase.id}/run-${currentRunId}/judge-attempt-${attempt}`,
+            inputTokenUpperBound: judgeInputUpperBound,
+            maxOutputTokens: input.judge.maxOutputTokens,
+          });
+        }
+      }
+    }
+  }
+
+  return dispatches;
 }
 
 // ---- Run one (production prompt, schema, and model defaults) ---------
@@ -775,6 +990,7 @@ function outputFingerprint(result: PostWriterResult | ScriptWriterResult): strin
 interface RunResult {
   runId: number;
   outputFingerprint: string;
+  structuredOutputFingerprint: string;
   path: WriterPath;
   routedCorrectly: boolean;
   content: string;
@@ -842,7 +1058,8 @@ async function runOnce(tc: TestCase, currentRunId: number): Promise<RunResult> {
 
   return {
     runId: currentRunId,
-    outputFingerprint: outputFingerprint(result),
+    outputFingerprint: fingerprintThinkForgeVisiblePublishableOutput(result, routedPath),
+    structuredOutputFingerprint: fingerprintThinkForgeStructuredWriterOutput(result),
     path: routedPath,
     routedCorrectly,
     content,
@@ -1001,15 +1218,15 @@ function dryRunCase(tc: TestCase): void {
 
 // ---- Main ------------------------------------------------------------
 
-async function main() {
-  let cases = TEST_CASES;
+export async function main() {
+  let cases: EvalTestCase[] = TEST_CASES;
   let promotionRepositoryBefore: WriterPromotionRepositoryState | undefined;
   if (testCaseFilter) cases = cases.filter(tc => tc.id === testCaseFilter);
   if (writerFilter) cases = cases.filter(tc => tc.expectedPath === writerFilter);
-  if (suiteFilter) cases = cases.filter(tc => (tc.suite ?? 'core') === suiteFilter);
+  if (suiteFilter) cases = cases.filter(tc => evalSuiteForCase(tc) === suiteFilter);
 
-  if (suiteFilter && suiteFilter !== 'core' && suiteFilter !== 'heldout') {
-    console.error(`Unsupported suite=${suiteFilter}. Use core or heldout.`);
+  if (suiteFilter && suiteFilter !== 'core' && suiteFilter !== 'regression' && suiteFilter !== 'heldout') {
+    console.error(`Unsupported suite=${suiteFilter}. Use core, regression, or heldout.`);
     process.exit(1);
   }
 
@@ -1037,6 +1254,24 @@ async function main() {
     return;
   }
 
+  if (promotionRequested) {
+    try {
+      assertThinkForgeBlindHeldoutCorpusReady();
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY
+    || process.env.GOOGLE_API_KEY
+    || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  if (!apiKey) {
+    console.error('No GEMINI_API_KEY. Set in .env.local or pass via: GEMINI_API_KEY=xxx npx tsx ...');
+    console.error('(For an offline prompt-assembly check with no network: npx tsx ... --dry-run)');
+    process.exit(1);
+  }
+
   const judgeConfig = judgeProvider
     ? buildEvalProviderConfig({
         provider: judgeProvider,
@@ -1053,10 +1288,6 @@ async function main() {
   const writerRunCount = cases.length * runIds.length;
   const judgeRunCount = judgeConfig ? writerRunCount : 0;
   const minimumProviderCalls = writerRunCount + judgeRunCount;
-  // Both production writers permit one initial generation and one bounded contract repair.
-  const maximumWriterCalls = writerRunCount * 2;
-  const maximumJudgeCalls = judgeRunCount * resolveEvalTransientRetryAttempts();
-  const maximumProviderCalls = maximumWriterCalls + maximumJudgeCalls;
   const promotionCommandComplete = suiteFilter === 'heldout'
     && multiRun
     && judgeConfig !== null
@@ -1072,6 +1303,10 @@ async function main() {
   }
   if (!Number.isInteger(maxJudgeCalls) || maxJudgeCalls < 1) {
     console.error('max-judge-calls must be a positive whole number.');
+    process.exit(1);
+  }
+  if (!Number.isInteger(maxContextCacheCalls) || maxContextCacheCalls < 1) {
+    console.error('max-context-cache-calls must be a positive whole number.');
     process.exit(1);
   }
   if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1) {
@@ -1090,8 +1325,44 @@ async function main() {
     console.error('Promotion requires --suite=heldout --multi-run --judge=<provider> with no case/writer filters.');
     process.exit(1);
   }
+  const providerBudget = new ThinkForgeEvalProviderBudget({
+    maxProviderRequests: maxProviderCalls,
+    maxWriterRequests: maxWriterCalls,
+    maxJudgeRequests: maxJudgeCalls,
+    maxContextCacheRequests: maxContextCacheCalls,
+    maxOutputTokens,
+    maxEstimatedCostUsd: maxEstimatedUsd,
+    costSafetyMultiplier,
+  });
+  const requestEnvelope = buildThinkForgeWriterEvalRequestEnvelope({
+    caseIds: cases.map((testCase) => testCase.id),
+    runIds,
+    ...(judgeConfig ? {
+      judge: {
+        provider: judgeConfig.provider,
+        model: judgeConfig.model,
+        maxOutputTokens: judgeConfig.maxOutputTokens,
+        retryAttempts: resolveEvalTransientRetryAttempts(),
+      },
+    } : {}),
+  });
+  const plannedBudget = providerBudget.assertCanCoverEnvelope(requestEnvelope);
+  const maximumProviderCalls = plannedBudget.providerRequests;
+  const maximumWriterCalls = plannedBudget.writerRequests;
+  const maximumJudgeCalls = plannedBudget.judgeRequests;
+  const maximumContextCacheCalls = plannedBudget.contextCacheRequests;
+
+  console.log(
+    `Provider budget: generation-only lower bound ${minimumProviderCalls}, bounded maximum ${maximumProviderCalls}; `
+    + `plan writer=${maximumWriterCalls}, judge=${maximumJudgeCalls}, cache=${maximumContextCacheCalls}, `
+    + `outputTokens=${plannedBudget.reservedOutputTokens}, `
+    + `estimatedUsd=${plannedBudget.estimatedCostUpperBoundUsd.toFixed(6)}; `
+    + `limits requests=${maxProviderCalls}, writer=${maxWriterCalls}, judge=${maxJudgeCalls}, `
+    + `cache=${maxContextCacheCalls}, outputTokens=${maxOutputTokens}, estimatedUsd=${maxEstimatedUsd.toFixed(2)}.`,
+  );
+
   if (promotionRequested && !confirmPaidRun) {
-    console.error('Promotion requires --confirm-paid-run after reviewing the provider-call estimate.');
+    console.error('Promotion requires --confirm-paid-run after reviewing the bounded request envelope above.');
     process.exit(1);
   }
   if (promotionRequested) {
@@ -1111,47 +1382,9 @@ async function main() {
       `Promotion source: ${promotionRepositoryBefore.commitSha} (${promotionRepositoryBefore.branch || 'detached HEAD'}).`,
     );
   }
-  if (minimumProviderCalls > maxProviderCalls) {
-    console.error(
-      `Refusing a run requiring at least ${minimumProviderCalls} provider calls; `
-      + `raise --max-provider-calls=${minimumProviderCalls} explicitly.`,
-    );
-    process.exit(1);
-  }
-  if (writerRunCount > maxWriterCalls || judgeRunCount > maxJudgeCalls) {
-    console.error(
-      `Role budget is below the minimum plan: writers ${writerRunCount}/${maxWriterCalls}, `
-      + `judges ${judgeRunCount}/${maxJudgeCalls}.`,
-    );
-    process.exit(1);
-  }
-  if (promotionRequested && (
-    maximumProviderCalls > maxProviderCalls
-    || maximumWriterCalls > maxWriterCalls
-    || maximumJudgeCalls > maxJudgeCalls
-  )) {
-    console.error(
-      'Promotion budgets must cover the full bounded retry/repair envelope: '
-      + `provider ${maximumProviderCalls}, writer ${maximumWriterCalls}, judge ${maximumJudgeCalls}.`,
-    );
-    process.exit(1);
-  }
-  const providerBudget = new ThinkForgeEvalProviderBudget({
-    maxProviderRequests: maxProviderCalls,
-    maxWriterRequests: maxWriterCalls,
-    maxJudgeRequests: maxJudgeCalls,
-    maxOutputTokens,
-    maxEstimatedCostUsd: maxEstimatedUsd,
-    costSafetyMultiplier,
-  });
-  console.log(
-    `Provider budget: minimum ${minimumProviderCalls}, bounded maximum ${maximumProviderCalls}; `
-    + `limits requests=${maxProviderCalls}, writer=${maxWriterCalls}, judge=${maxJudgeCalls}, `
-    + `outputTokens=${maxOutputTokens}, estimatedUsd=${maxEstimatedUsd.toFixed(2)}.`,
-  );
 
   await runWithThinkForgeEvalProviderBudget(providerBudget, async () => {
-  const completedRuns: Array<{ testCase: TestCase; result: RunResult }> = [];
+  const completedRuns: Array<{ testCase: EvalTestCase; result: RunResult }> = [];
 
   for (const tc of cases) {
     console.log(`\n${'='.repeat(72)}`);
@@ -1198,6 +1431,7 @@ async function main() {
         results.push({
           runId: currentRunId,
           outputFingerprint: '',
+          structuredOutputFingerprint: '',
           path: tc.expectedPath,
           routedCorrectly: false,
           content: '',
@@ -1302,7 +1536,9 @@ async function main() {
     } : undefined,
     judgeError: result.judgeError,
   }));
-  const heldoutCases = TEST_CASES.filter((testCase) => testCase.suite === 'heldout');
+  const heldoutCases = TEST_CASES.filter(
+    (testCase) => testCase.promotionCohort === 'blind_heldout',
+  );
   const promotionEvidence = promotionEligible && promotionRepositoryBefore && judgeConfig
     ? createWriterPromotionEvidence({
         repositoryBefore: promotionRepositoryBefore,
@@ -1357,7 +1593,7 @@ async function main() {
     const outputPath = resolve(process.cwd(), jsonOut);
     mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, JSON.stringify({
-      version: 3,
+      version: 4,
       generatedAt: new Date().toISOString(),
       suite: suiteFilter,
       runIds,
@@ -1367,7 +1603,11 @@ async function main() {
         maximumProviderCalls,
         maximumWriterCalls,
         maximumJudgeCalls,
+        maximumContextCacheCalls,
+        maximumOutputTokens: plannedBudget.reservedOutputTokens,
+        maximumEstimatedCostUsd: plannedBudget.estimatedCostUpperBoundUsd,
       },
+      corpusManifest: getThinkForgeWriterEvalCorpusManifest(),
       providerBudget: providerBudget.snapshot(),
       legacyPreContractBaselines: LEGACY_PRE_CONTRACT_BASELINES,
       promotion,
@@ -1376,7 +1616,7 @@ async function main() {
       runs: completedRuns.map(({ testCase, result }) => ({
         caseId: testCase.id,
         caseName: testCase.name,
-        suite: testCase.suite ?? 'core',
+        suite: evalSuiteForCase(testCase),
         ...result,
       })),
     }, null, 2) + '\n', 'utf8');
@@ -1394,10 +1634,15 @@ async function main() {
   });
 }
 
-main().then(
-  () => process.exit(0),
-  (error) => {
-    console.error(error);
-    process.exit(1);
-  },
+const isDirectExecution = Boolean(
+  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url),
 );
+if (isDirectExecution) {
+  main().then(
+    () => process.exit(0),
+    (error) => {
+      console.error(error);
+      process.exit(1);
+    },
+  );
+}

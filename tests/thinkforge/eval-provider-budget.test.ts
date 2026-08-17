@@ -9,6 +9,14 @@ import {
   runEvalPrompt,
   type EvalProviderConfig,
 } from '../../scripts/prompt-optimization/thinkforge-eval-provider-adapter';
+import {
+  assertThinkForgeBlindHeldoutCorpusReady,
+  buildThinkForgeWriterEvalRequestEnvelope,
+  fingerprintThinkForgeStructuredWriterOutput,
+  fingerprintThinkForgeVisiblePublishableOutput,
+  getThinkForgeWriterEvalCorpusManifest,
+} from '../../scripts/prompt-optimization/eval-thinkforge-writers';
+import type { PostWriterResult } from '../../lib/thinkforge/agents/post-writer-agent';
 
 const deepSeekConfig: EvalProviderConfig = {
   provider: 'deepseek',
@@ -24,6 +32,7 @@ function createBudget(overrides: Partial<ConstructorParameters<typeof ThinkForge
     maxProviderRequests: 4,
     maxWriterRequests: 2,
     maxJudgeRequests: 3,
+    maxContextCacheRequests: 4,
     maxOutputTokens: 512,
     maxEstimatedCostUsd: 1,
     costSafetyMultiplier: 2,
@@ -66,6 +75,7 @@ describe('ThinkForge eval provider budget', () => {
       providerRequests: 1,
       writerRequests: 1,
       judgeRequests: 0,
+      contextCacheRequests: 0,
       reservedOutputTokens: 100,
     });
   });
@@ -83,6 +93,77 @@ describe('ThinkForge eval provider budget', () => {
         maxOutputTokens: 100,
       });
     })).rejects.toThrow('price_unknown:openrouter/vendor/unpriced-model');
+    expect(budget.snapshot().providerRequests).toBe(0);
+  });
+
+  it('preflights cache and writer requests without consuming the runtime budget', () => {
+    const budget = createBudget({ maxProviderRequests: 3, maxContextCacheRequests: 2 });
+    const planned = budget.assertCanCoverEnvelope([
+      {
+        role: 'context_cache',
+        provider: 'gemini',
+        model: 'gemini-2.5-flash',
+        label: 'cache/lookup',
+        inputTokenUpperBound: 0,
+        maxOutputTokens: 0,
+      },
+      {
+        role: 'context_cache',
+        provider: 'gemini',
+        model: 'gemini-2.5-flash',
+        label: 'cache/create',
+        inputTokenUpperBound: 1_000,
+        maxOutputTokens: 0,
+      },
+      {
+        role: 'writer',
+        provider: 'gemini',
+        model: 'gemini-2.5-flash',
+        label: 'writer/initial',
+        inputTokenUpperBound: 2_000,
+        maxOutputTokens: 100,
+      },
+    ]);
+
+    expect(planned).toMatchObject({
+      providerRequests: 3,
+      writerRequests: 1,
+      judgeRequests: 0,
+      contextCacheRequests: 2,
+      reservedOutputTokens: 100,
+    });
+    expect(budget.snapshot()).toMatchObject({
+      providerRequests: 0,
+      writerRequests: 0,
+      contextCacheRequests: 0,
+      reservedOutputTokens: 0,
+    });
+  });
+
+  it.each([
+    [{ maxProviderRequests: 1 }, 'provider_requests:2/1'],
+    [{ maxOutputTokens: 99 }, 'output_tokens:100/99'],
+    [{ maxEstimatedCostUsd: 0 }, 'estimated_usd:'],
+  ] as const)('fails the whole envelope before dispatch when a cap is insufficient', (overrides, reason) => {
+    const budget = createBudget(overrides);
+    expect(() => budget.assertCanCoverEnvelope([
+      {
+        role: 'context_cache',
+        provider: 'gemini',
+        model: 'gemini-2.5-flash',
+        label: 'cache/create',
+        inputTokenUpperBound: 1_000,
+        maxOutputTokens: 0,
+      },
+      {
+        role: 'writer',
+        provider: 'gemini',
+        model: 'gemini-2.5-flash',
+        label: 'writer/initial',
+        inputTokenUpperBound: 2_000,
+        maxOutputTokens: 100,
+      },
+    ])).toThrow(reason);
     expect(budget.snapshot().providerRequests).toBe(0);
   });
 
@@ -155,5 +236,86 @@ describe('ThinkForge eval provider budget', () => {
     });
 
     expect(budget.snapshot().providerRequests).toBe(1);
+  });
+});
+
+describe('ThinkForge writer paid-run preflight', () => {
+  it('keeps tuned regressions separate and fails closed with only five blind cases', () => {
+    const manifest = getThinkForgeWriterEvalCorpusManifest();
+
+    expect(manifest.knownRegressionCaseIds).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+    expect(manifest.blindHeldoutCaseIds).toEqual([19, 20, 21, 22, 23]);
+    expect(manifest).toMatchObject({
+      requiredBlindHeldoutCases: 15,
+      blindHeldoutShortfall: 10,
+      promotionReady: false,
+    });
+    expect(assertThinkForgeBlindHeldoutCorpusReady).toThrow('5/15 genuinely blind cases');
+  });
+
+  it('enumerates writer repair, cache lookup/create, and judge retry requests', () => {
+    const manifest = getThinkForgeWriterEvalCorpusManifest();
+    const dispatches = buildThinkForgeWriterEvalRequestEnvelope({
+      caseIds: manifest.blindHeldoutCaseIds,
+      runIds: Array.from({ length: 10 }, (_, index) => index + 1),
+      judge: {
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        maxOutputTokens: 2_000,
+        retryAttempts: 3,
+      },
+    });
+    const budget = new ThinkForgeEvalProviderBudget({
+      maxProviderRequests: 450,
+      maxWriterRequests: 100,
+      maxJudgeRequests: 150,
+      maxContextCacheRequests: 200,
+      maxOutputTokens: 10_000_000,
+      maxEstimatedCostUsd: 1_000,
+      costSafetyMultiplier: 2,
+    });
+    const planned = budget.assertCanCoverEnvelope(dispatches);
+
+    expect(planned).toMatchObject({
+      providerRequests: 450,
+      writerRequests: 100,
+      judgeRequests: 150,
+      contextCacheRequests: 200,
+    });
+    expect(planned.reservedOutputTokens).toBeGreaterThan(1_000_000);
+    expect(planned.estimatedCostUpperBoundUsd).toBeGreaterThan(0);
+    expect(budget.snapshot().providerRequests).toBe(0);
+  });
+
+  it('uses visible publishable copy for diversity while retaining a forensic structure hash', () => {
+    const first = {
+      content: 'A visible operator post.',
+      hashtags: ['#Operations'],
+      contentAnalysis: {
+        tone: 'direct',
+        vibe: 'practical',
+        theme: 'ownership',
+        qualityScore: 91,
+        violations: [],
+      },
+      clickatron: { singleImagePrompt: 'Hidden visual prompt A.' },
+      metadata: { platform: 'linkedin', charCount: 24 },
+    } as PostWriterResult;
+    const hiddenMetadataChanged = {
+      ...first,
+      contentAnalysis: { ...first.contentAnalysis, qualityScore: 99 },
+      clickatron: { singleImagePrompt: 'Hidden visual prompt B.' },
+    } as PostWriterResult;
+    const visibleCopyChanged = {
+      ...hiddenMetadataChanged,
+      content: 'A meaningfully different operator post.',
+    } as PostWriterResult;
+
+    expect(fingerprintThinkForgeVisiblePublishableOutput(first, 'post'))
+      .toBe(fingerprintThinkForgeVisiblePublishableOutput(hiddenMetadataChanged, 'post'));
+    expect(fingerprintThinkForgeStructuredWriterOutput(first))
+      .not.toBe(fingerprintThinkForgeStructuredWriterOutput(hiddenMetadataChanged));
+    expect(fingerprintThinkForgeVisiblePublishableOutput(first, 'post'))
+      .not.toBe(fingerprintThinkForgeVisiblePublishableOutput(visibleCopyChanged, 'post'));
   });
 });
