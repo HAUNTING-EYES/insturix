@@ -16,6 +16,10 @@ import {
   type ThinkForgeDocumentContract,
 } from '@/lib/thinkforge/schemas/document-contract';
 import { reconcileWriterOutputMetadata } from '@/lib/thinkforge/persistence/writer-output-binding';
+import {
+  buildThinkForgeGenerationReceipt,
+  type ThinkForgeGenerationReceiptV1,
+} from '@/lib/thinkforge/provenance/generation-receipt';
 
 export type CommandType = 'UpdateBlock' | 'InsertBlock' | 'DeleteBlock' | 'ReplaceDocument';
 export type CommandSource = 'user' | 'ai';
@@ -263,20 +267,46 @@ export async function applyCommand(
     };
   }
 
-  const saveResult = await db.saveScriptWithVersion(
-    canonicalSessionId,
-    {
-      title: nextTitle,
-      content: nextContent,
-      blocks: nextBlocks,
-      richText: nextRichText || undefined,
-      metadata: nextMetadata,
-      documentType: canonicalDocumentType(nextContract),
-      contentContract: nextContract,
-    },
-    baseVersion,
-    scriptId
-  );
+  let generationReceipt: ThinkForgeGenerationReceiptV1 | null = null;
+  if (request.source === 'ai') {
+    try {
+      generationReceipt = buildThinkForgeGenerationReceipt({
+        userId,
+        orgId,
+        sessionId: canonicalSessionId,
+        scriptId,
+        documentVersion: baseVersion + 1,
+        outputContent: nextContent,
+        metadata: nextMetadata,
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error
+          ? `Invalid generation receipt: ${error.message}`
+          : 'Invalid generation receipt',
+      };
+    }
+  }
+
+  const scriptWrite: Partial<db.Script> = {
+    title: nextTitle,
+    content: nextContent,
+    blocks: nextBlocks,
+    richText: nextRichText || undefined,
+    metadata: nextMetadata,
+    documentType: canonicalDocumentType(nextContract),
+    contentContract: nextContract,
+  };
+  const saveResult = generationReceipt
+    ? await db.saveScriptWithVersion(
+        canonicalSessionId,
+        scriptWrite,
+        baseVersion,
+        scriptId,
+        generationReceipt,
+      )
+    : await db.saveScriptWithVersion(canonicalSessionId, scriptWrite, baseVersion, scriptId);
 
   if (!saveResult.ok) {
     return { ok: false, error: saveResult.error, currentVersion: saveResult.currentVersion };

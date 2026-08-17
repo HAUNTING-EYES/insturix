@@ -31,6 +31,11 @@ import {
   type BrandVaultRefineryStore,
 } from '../../shared/brand-vault-refinery-api';
 import type { BrandVaultStoreResult } from '../../shared/brand-vault-draft-orchestrator';
+import {
+  THINKFORGE_GENERATION_RECEIPT_COLLECTION,
+  verifyThinkForgeGenerationReceipt,
+  type ThinkForgeGenerationReceiptV1,
+} from '../provenance/generation-receipt';
 
 // ==================== Immutability Enforcement ====================
 
@@ -879,6 +884,29 @@ let VersionModel: Model<any>;
 let ContentBlockModel: Model<any>;
 let VersionEdgeModel: Model<any>;
 let EventModel: Model<any>;
+let generationReceiptIndexesEnsured: Promise<void> | null = null;
+
+type StoredThinkForgeGenerationReceipt = ThinkForgeGenerationReceiptV1 & { _id: string };
+
+async function ensureGenerationReceiptIndexes(database: mongoose.mongo.Db): Promise<void> {
+  generationReceiptIndexesEnsured ??= database
+    .collection<StoredThinkForgeGenerationReceipt>(THINKFORGE_GENERATION_RECEIPT_COLLECTION)
+    .createIndexes([
+      {
+        key: { 'document.sessionId': 1, 'document.scriptId': 1, 'document.version': 1 },
+        name: 'thinkforge_generation_receipt_document_version',
+        unique: true,
+      },
+      { key: { generationTraceHash: 1 }, name: 'thinkforge_generation_receipt_trace', unique: true },
+      { key: { persistedAt: -1 }, name: 'thinkforge_generation_receipt_recent' },
+    ])
+    .then(() => undefined)
+    .catch((error) => {
+      generationReceiptIndexesEnsured = null;
+      throw error;
+    });
+  return generationReceiptIndexesEnsured;
+}
 
 async function getModels() {
   // Connect to ThinkForge-specific database (thinkforge_db)
@@ -922,6 +950,7 @@ async function getModels() {
   }
 
   return {
+    connection: tfConn,
     // V1
     SessionModel, ScriptModel, ChatModel, UserModel, RateUsageModel,
     // V2
@@ -1782,9 +1811,10 @@ export async function saveScriptWithVersion(
   script: Partial<Script>,
   baseVersion: number,
   scriptId: string,
+  generationReceipt?: ThinkForgeGenerationReceiptV1,
 ): Promise<SaveScriptWithVersionResult> {
   try {
-    const { ScriptModel } = await getModels();
+    const { ScriptModel, connection } = await getModels();
     const now = new Date();
     const exactSessionId = sessionId.trim();
     const exactScriptId = scriptId.trim();
@@ -1804,85 +1834,123 @@ export async function saveScriptWithVersion(
       && (typeof script.title !== 'string' || !script.title.trim() || script.title !== script.title.trim())) {
       throw new Error('ThinkForge document title must be a non-empty trimmed string');
     }
+    const receipt = generationReceipt
+      ? verifyThinkForgeGenerationReceipt(generationReceipt)
+      : undefined;
+    if (receipt && (
+      receipt.document.sessionId !== exactSessionId
+      || receipt.document.scriptId !== exactScriptId
+      || receipt.document.version !== baseVersion + 1
+    )) {
+      throw new Error('ThinkForge generation receipt conflicts with the document write target');
+    }
 
-    const existing = await ScriptModel.findOne({
-      sessionId: exactSessionId,
-      scriptId: exactScriptId,
-      recordStatus: 'active',
-    }).sort({ updatedAt: -1 });
-    const classification = resolveThinkForgeDocumentWriteClassification(script, existing as any);
-    if (!existing) {
-      if (baseVersion > 0) {
-        return { ok: false, error: 'Version conflict', currentVersion: 0 };
-      }
-
-      if (script.title === undefined) {
-        throw new Error('ThinkForge document title must be a non-empty trimmed string');
-      }
-      const blocks = enforceThinkForgeBlocks(script.blocks || []);
-      const doc: Record<string, any> = {
+    const persist = async (mongoSession?: mongoose.mongo.ClientSession): Promise<SaveScriptWithVersionResult> => {
+      let existingQuery = ScriptModel.findOne({
         sessionId: exactSessionId,
         scriptId: exactScriptId,
-        title: script.title,
-        content: script.content ?? '',
-        blocks,
-        ...classification,
         recordStatus: 'active',
-        version: 1,
-        createdAt: now,
-        updatedAt: now,
-      };
-      if (script.richText !== undefined) {
-        doc.richText = script.richText;
+      }).sort({ updatedAt: -1 });
+      if (mongoSession) existingQuery = existingQuery.session(mongoSession);
+      const existing = await existingQuery;
+      const classification = resolveThinkForgeDocumentWriteClassification(script, existing as any);
+      let savedScript: Script;
+
+      if (!existing) {
+        if (baseVersion > 0) {
+          return { ok: false, error: 'Version conflict', currentVersion: 0 };
+        }
+        if (script.title === undefined) {
+          throw new Error('ThinkForge document title must be a non-empty trimmed string');
+        }
+        const blocks = enforceThinkForgeBlocks(script.blocks || []);
+        const doc: Record<string, any> = {
+          sessionId: exactSessionId,
+          scriptId: exactScriptId,
+          title: script.title,
+          content: script.content ?? '',
+          blocks,
+          ...classification,
+          recordStatus: 'active',
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+        };
+        if (script.richText !== undefined) doc.richText = script.richText;
+        if (script.metadata !== undefined) {
+          doc.metadata = clonePersistableScriptMetadata(script.metadata);
+        }
+        const created = mongoSession
+          ? (await ScriptModel.create([doc], { session: mongoSession }))[0]
+          : await ScriptModel.create(doc);
+        savedScript = mapStoredScript(created.toObject());
+      } else {
+        const blocks = script.blocks !== undefined
+          ? enforceThinkForgeBlocks(script.blocks)
+          : enforceThinkForgeBlocks(existing.blocks);
+        const updateDoc: Record<string, any> = {
+          scriptId: exactScriptId,
+          title: script.title ?? existing.title,
+          content: script.content ?? existing.content,
+          blocks,
+          ...classification,
+          version: baseVersion + 1,
+          updatedAt: now,
+        };
+        if (script.richText !== undefined) updateDoc.richText = script.richText;
+        if (script.metadata !== undefined) {
+          updateDoc.metadata = clonePersistableScriptMetadata(script.metadata);
+        }
+        let updateQuery = ScriptModel.findOneAndUpdate(
+          { _id: existing._id, version: baseVersion, recordStatus: 'active' },
+          { $set: updateDoc },
+          { new: true },
+        );
+        if (mongoSession) updateQuery = updateQuery.session(mongoSession);
+        const updated = await updateQuery.lean() as any;
+        if (!updated) {
+          let latestQuery = ScriptModel.findById(existing._id);
+          if (mongoSession) latestQuery = latestQuery.session(mongoSession);
+          const latest = await latestQuery.lean() as any;
+          const latestVersion = typeof latest?.version === 'number'
+            ? latest.version
+            : (typeof existing.version === 'number' ? existing.version : 1);
+          return { ok: false, error: 'Version conflict', currentVersion: latestVersion };
+        }
+        savedScript = mapStoredScript(updated);
       }
-      if (script.metadata !== undefined) {
-        doc.metadata = clonePersistableScriptMetadata(script.metadata);
+
+      if (receipt) {
+        const database = connection.db;
+        if (!database) throw new Error('ThinkForge receipt persistence requires an active database');
+        await database
+          .collection<StoredThinkForgeGenerationReceipt>(THINKFORGE_GENERATION_RECEIPT_COLLECTION)
+          .insertOne(
+            { _id: receipt.id, ...receipt },
+            { session: mongoSession },
+          );
       }
-
-      const created = await ScriptModel.create(doc);
-      return {
-        ok: true,
-        script: mapStoredScript(created.toObject()),
-      };
-    }
-
-    const blocks = script.blocks !== undefined
-      ? enforceThinkForgeBlocks(script.blocks)
-      : enforceThinkForgeBlocks(existing.blocks);
-    const updateDoc: Record<string, any> = {
-      scriptId: exactScriptId,
-      title: script.title ?? existing.title,
-      content: script.content ?? existing.content,
-      blocks,
-      ...classification,
-      version: baseVersion + 1,
-      updatedAt: now,
+      return { ok: true, script: savedScript };
     };
-    if (script.richText !== undefined) {
-      updateDoc.richText = script.richText;
-    }
-    if (script.metadata !== undefined) {
-      updateDoc.metadata = clonePersistableScriptMetadata(script.metadata);
-    }
 
-    const updated = await ScriptModel.findOneAndUpdate(
-      { _id: existing._id, version: baseVersion, recordStatus: 'active' },
-      { $set: updateDoc },
-      { new: true }
-    ).lean() as any;
-
-    if (!updated) {
-      const latest = await ScriptModel.findById(existing._id).lean() as any;
-      const latestVersion = typeof latest?.version === 'number'
-        ? latest.version
-        : (typeof existing.version === 'number' ? existing.version : 1);
-      return { ok: false, error: 'Version conflict', currentVersion: latestVersion };
+    if (!receipt) return persist();
+    const database = connection.db;
+    if (!database) throw new Error('ThinkForge receipt persistence requires an active database');
+    await ensureGenerationReceiptIndexes(database);
+    const mongoSession = await connection.startSession();
+    try {
+      let result: SaveScriptWithVersionResult | undefined;
+      await mongoSession.withTransaction(async () => {
+        result = await persist(mongoSession);
+      }, {
+        readConcern: { level: 'snapshot' },
+        writeConcern: { w: 'majority' },
+      });
+      if (!result) throw new Error('ThinkForge document transaction completed without a result');
+      return result;
+    } finally {
+      await mongoSession.endSession();
     }
-
-    return {
-      ok: true,
-      script: mapStoredScript(updated),
-    };
   } catch (error) {
     console.error('Error saving script with version check:', error);
     throw error;
