@@ -3423,6 +3423,20 @@ export async function addGovernedDataBankReviewCandidate(
   });
 }
 
+/** Idempotently persist one generated learning candidate for a durable job slot. */
+export async function putGovernedDataBankReviewCandidate(
+  principalInput: DataBankPrincipal,
+  sessionId: string,
+  operationKey: string,
+  entry: GovernedDataBankEntryWrite,
+): Promise<DataBankEntry> {
+  return writeGovernedDataBankEntry(principalInput, sessionId, entry, operationKey, {
+    provenanceStatus: 'quarantined',
+    provenanceReason: 'pending_owner_review',
+    reviewStatus: 'pending',
+  });
+}
+
 /**
  * Idempotently persist a governed record for a server-owned operation slot.
  * Reusing a slot with different immutable content is an integrity error.
