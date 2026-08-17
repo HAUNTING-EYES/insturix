@@ -41,6 +41,10 @@ export async function POST(request: Request) {
   if (!scriptId) {
     return NextResponse.json({ error: "scriptId is required" }, { status: 400 });
   }
+  const operation = body.operation === undefined ? "preview" : toNonEmptyString(body.operation);
+  if (operation !== "preview" && operation !== "commit") {
+    return NextResponse.json({ error: "operation must be preview or commit" }, { status: 400 });
+  }
 
   const rawVisualChoices =
     body.userVisualChoices && typeof body.userVisualChoices === "object" && !Array.isArray(body.userVisualChoices)
@@ -87,7 +91,7 @@ export async function POST(request: Request) {
     }
     let projectLink = await findLinkBySessionId(userId, canonicalSessionId);
 
-    if (!projectLink) {
+    if (!projectLink && operation === "commit") {
       projectLink = await createProjectLink(userId, {
         sessionId: canonicalSessionId,
         sourceScriptId: scriptId,
@@ -125,7 +129,7 @@ export async function POST(request: Request) {
       scenesCount: typeof body.scenesCount === "number" ? body.scenesCount : undefined,
     });
 
-    return NextResponse.json({ success: true, context });
+    return NextResponse.json({ success: true, operation, context });
   } catch (error: any) {
     console.error("[thinkforge/clickatron-context] Error:", error);
     return NextResponse.json(

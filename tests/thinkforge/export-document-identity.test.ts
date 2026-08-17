@@ -163,6 +163,62 @@ describe('ThinkForge Clickatron document identity', () => {
       sourceSessionId: 'session_canonical',
       sourceScriptId: 'script_1',
     });
+    expect(payload.operation).toBe('preview');
+  });
+
+  it('keeps preview read-only when no project link exists', async () => {
+    mocks.findLinkBySessionId.mockResolvedValue(null);
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_1' },
+    });
+    mocks.getScript.mockResolvedValue(storedDocument('session_canonical', 'script_1'));
+    const { POST } = await import('@/app/api/services/thinkforge/clickatron-context/route');
+
+    const response = await POST(postRequest(
+      'http://localhost/api/services/thinkforge/clickatron-context',
+      { sessionId: 'session_alias', scriptId: 'script_1', operation: 'preview' },
+    ));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.operation).toBe('preview');
+    expect(payload.context.universalId).toBeUndefined();
+    expect(mocks.createProjectLink).not.toHaveBeenCalled();
+  });
+
+  it('creates a missing project link only for an explicit commit', async () => {
+    mocks.findLinkBySessionId.mockResolvedValue(null);
+    mocks.createProjectLink.mockResolvedValue({
+      universalId: 'project_link_committed',
+      brandId: 'brand_1',
+      sourceScriptId: 'script_1',
+    });
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_1' },
+    });
+    mocks.getScript.mockResolvedValue(storedDocument('session_canonical', 'script_1'));
+    const { POST } = await import('@/app/api/services/thinkforge/clickatron-context/route');
+
+    const response = await POST(postRequest(
+      'http://localhost/api/services/thinkforge/clickatron-context',
+      { sessionId: 'session_alias', scriptId: 'script_1', operation: 'commit' },
+    ));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.operation).toBe('commit');
+    expect(payload.context.universalId).toBe('project_link_committed');
+    expect(mocks.createProjectLink).toHaveBeenCalledWith('user_member', expect.objectContaining({
+      sessionId: 'session_canonical',
+      sourceScriptId: 'script_1',
+      brandId: 'brand_1',
+    }));
   });
 
   it('does not create a project link when the exact document is missing', async () => {

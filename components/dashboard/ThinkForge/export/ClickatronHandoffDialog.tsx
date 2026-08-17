@@ -85,7 +85,7 @@ export function ClickatronHandoffDialog({
     }
   }, [blocks, scriptId, sessionId, title, visualChoices]);
 
-  const resolveContext = useCallback(async (): Promise<ThinkToClickContext | null> => {
+  const resolveContext = useCallback(async (operation: "preview" | "commit" = "preview"): Promise<ThinkToClickContext | null> => {
     if (!sessionId) {
       setResolvedContext(null);
       setError("Cannot start Clickatron: ThinkForge session context is missing.");
@@ -102,6 +102,7 @@ export function ClickatronHandoffDialog({
         body: JSON.stringify({
           sessionId,
           scriptId,
+          operation,
           title,
           kind: visualChoices.kind,
           platform: visualChoices.platform,
@@ -160,7 +161,7 @@ export function ClickatronHandoffDialog({
     setCreating(true);
     setError("");
     try {
-      const context = await resolveContext();
+      const context = await resolveContext("commit");
       if (!context) {
         return;
       }

@@ -262,13 +262,7 @@ export function useExportPipeline(
   const [videoProgress, setVideoProgress] = useState({ done: 0, total: 0 });
   const [videosGenerated, setVideosGenerated] = useState(false);
   const [clickatronCreating, setClickatronCreating] = useState(false);
-  const [clickatronVisualChoices, setClickatronVisualChoices] = useState<ThinkToClickUserVisualChoices>({
-    kind: "single_post_visual",
-    platform: "linkedin",
-    aspectRatio: "1:1",
-    visualMode: "text_forward_graphic",
-    textDensity: "medium",
-  });
+  const [clickatronVisualChoices, setClickatronVisualChoices] = useState<ThinkToClickUserVisualChoices>({});
   const [resolvedClickatronContext, setResolvedClickatronContext] = useState<{ key: string; context: ThinkToClickContext } | null>(null);
   const createClickatronSession = useClickatronStore((state) => state.createSession);
   const sourceSessionId = sessionId || undefined;
@@ -404,6 +398,7 @@ export function useExportPipeline(
   const clickatronContextRequestBody = useMemo(() => ({
     sessionId,
     scriptId,
+    operation: "preview" as const,
     projectId: projectId || undefined,
     title: title || undefined,
     kind: clickatronVisualChoices.kind,
@@ -414,6 +409,7 @@ export function useExportPipeline(
     vibe: clickatronVisualChoices.vibe,
     imageStyle: clickatronVisualChoices.imageStyle,
     notes: clickatronVisualChoices.notes,
+    slideCount: clickatronVisualChoices.slideCount,
     scenesCount: scenes.length,
   }), [
     aspectRatio,
@@ -422,6 +418,7 @@ export function useExportPipeline(
     clickatronVisualChoices.kind,
     clickatronVisualChoices.notes,
     clickatronVisualChoices.platform,
+    clickatronVisualChoices.slideCount,
     clickatronVisualChoices.textDensity,
     clickatronVisualChoices.vibe,
     clickatronVisualChoices.visualMode,
@@ -926,7 +923,7 @@ export function useExportPipeline(
       const contextRes = await fetch("/api/services/thinkforge/clickatron-context", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(clickatronContextRequestBody),
+        body: JSON.stringify({ ...clickatronContextRequestBody, operation: "commit" }),
       });
       const contextData = await contextRes.json().catch(() => ({}));
       if (!contextRes.ok || !contextData.context) {

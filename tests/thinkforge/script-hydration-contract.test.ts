@@ -399,16 +399,22 @@ describe('ThinkForge script hydration contract', () => {
 
     expect(exportHook).toContain('const [resolvedClickatronContext');
     expect(exportHook).toContain('const clickatronContextRequestBody = useMemo');
+    expect(exportHook).toContain('operation: "preview" as const');
+    expect(exportHook).toContain('slideCount: clickatronVisualChoices.slideCount');
     expect(exportHook).toContain('fetch("/api/services/thinkforge/clickatron-context"');
     expect(exportHook).toContain('body: JSON.stringify(clickatronContextRequestBody)');
+    expect(exportHook).toContain('body: JSON.stringify({ ...clickatronContextRequestBody, operation: "commit" })');
     expect(exportHook).toContain('resolvedClickatronContext?.key === clickatronContextRequestKey');
   });
   it('treats Clickatron controls as explicit overrides instead of fake initial selections', () => {
     const dialog = read('components/dashboard/ThinkForge/export/ClickatronHandoffDialog.tsx');
+    const exportHook = read('components/dashboard/ThinkForge/export/hooks/useExportPipeline.ts');
     const panel = read('components/dashboard/ThinkForge/export/ClickatronHandoffPanel.tsx');
 
     expect(dialog).toContain('useState<ThinkToClickUserVisualChoices>({})');
+    expect(exportHook).toContain('useState<ThinkToClickUserVisualChoices>({})');
     expect(dialog).not.toContain('DEFAULT_VISUAL_CHOICES');
+    expect(dialog).toContain('resolveContext("commit")');
     expect(panel).toContain('const resolvedVisualChoices = display?.visualChoices');
     expect(panel).toContain('visualChoices.kind || resolvedVisualChoices?.kind || display?.kind');
     expect(panel).toContain('visualChoices.platform || resolvedVisualChoices?.platform || display?.platform');
