@@ -844,11 +844,11 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
     throw new Error('ThinkForge writing generation aborted before start');
   }
 
+  const modelName = normalizeCacheModelName(input.modelName);
+  assertWritingPromptPreflight(input, modelName, 'llm_structured_privacy_blocked');
   const e2eFixture = resolveThinkForgeE2EStructuredFixture(input);
   if (e2eFixture) return e2eFixture;
 
-  const modelName = normalizeCacheModelName(input.modelName);
-  assertWritingPromptPreflight(input, modelName, 'llm_structured_privacy_blocked');
   const context = await resolveWritingContext(modelName, input.systemInstruction, input.prompt, input.abortSignal);
   const promptForGeneration = context.inlineKnowledgeContext
     ? `${context.inlineKnowledgeContext}\n\n${input.prompt}`

@@ -24,8 +24,8 @@ if (thinkForgeE2EMode) {
   if (!['127.0.0.1', 'localhost'].includes(parsed.hostname) || !parsed.port) {
     throw new Error('ThinkForge E2E must use an explicit localhost base URL with a port.');
   }
-  if (!['post', 'carousel', 'script'].includes(process.env.THINKFORGE_E2E_WRITER_FIXTURE?.trim() || '')) {
-    throw new Error('ThinkForge E2E requires THINKFORGE_E2E_WRITER_FIXTURE=post, carousel, or script.');
+  if (!['post', 'carousel', 'script', 'auto'].includes(process.env.THINKFORGE_E2E_WRITER_FIXTURE?.trim() || '')) {
+    throw new Error('ThinkForge E2E requires THINKFORGE_E2E_WRITER_FIXTURE=auto, post, carousel, or script.');
   }
   if (!/^[a-z0-9]{1,12}$/i.test(thinkForgeE2ERunId)) {
     throw new Error('ThinkForge E2E requires a 1-12 character alphanumeric THINKFORGE_E2E_RUN_ID.');
@@ -58,12 +58,30 @@ const thinkForgeE2EEnvironment = {
   UPSTASH_VECTOR_REST_TOKEN: '',
   UPSTASH_REDIS_REST_URL: '',
   UPSTASH_REDIS_REST_TOKEN: '',
+  QSTASH_TOKEN: '',
+  QSTASH_URL: '',
+  QSTASH_CURRENT_SIGNING_KEY: '',
+  QSTASH_NEXT_SIGNING_KEY: '',
   // The fixture returns before model generation. This invalid key makes any accidental
   // direct provider call fail rather than using a developer or production credential.
   GEMINI_API_KEY: '',
   GOOGLE_GENERATIVE_AI_API_KEY: '',
   GOOGLE_API_KEY: 'thinkforge-e2e-no-network',
   OPENROUTER_API_KEY: '',
+  DEEPSEEK_API_KEY: '',
+  OPENAI_API_KEY: '',
+  ANTHROPIC_API_KEY: '',
+  PERPLEXITY_API_KEY: '',
+  REPLICATE_API_TOKEN: '',
+  FAL_AI_API_KEY: '',
+  BLOB_READ_WRITE_TOKEN: '',
+  AWS_ACCESS_KEY_ID: '',
+  AWS_SECRET_ACCESS_KEY: '',
+  AWS_SESSION_TOKEN: '',
+  R2_ACCESS_KEY_ID: '',
+  R2_SECRET_ACCESS_KEY: '',
+  CLOUDFLARE_API_TOKEN: '',
+  CLICKATRON_E2E_MEDIA_FIXTURE: 'completed',
   // Clerk validates the token's authorized-party claim. Match it to the isolated
   // local origin instead of inheriting a deployment-only authorized-party list.
   NEXT_PUBLIC_AUTHORIZED_PARTIES: new URL(activeBaseUrl).origin,

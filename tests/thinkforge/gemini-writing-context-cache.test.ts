@@ -53,7 +53,13 @@ import {
 } from '@/lib/thinkforge/agents/script-writer-agent';
 import { prepareThinkForgeProviderPromptDispatch } from '@/lib/thinkforge/privacy/provider-prompt-dispatch';
 import { hashThinkForgeTraceValue } from '@/lib/thinkforge/provenance/generation-trace';
+import { THINKFORGE_E2E_BRAND_MARKERS } from '@/lib/thinkforge/testing/structured-writer-fixtures';
 import { SCRIPT_SIDECAR_V2_VERSION } from '@/lib/thinkforge/schemas/script-sidecar-v2';
+import {
+  createDefaultThinkForgePostControls,
+  createThinkForgeAuthoringRequest,
+} from '@/lib/thinkforge/schemas/authoring-request';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 import {
   runWithThinkForgeEvalProviderBudget,
   ThinkForgeEvalProviderBudget,
@@ -139,6 +145,42 @@ function nativeV2CacheOutput(): ScriptWriterModelOutput {
       sourceRefs: ['brief_user'],
     },
   };
+}
+
+const FORMAL_E2E_BRAND_CONTEXT = `<brand_context>
+Voice/tone: assertive and confident; formal and professional; comfortable with technical, expert-level language; serious and straightforward; direct and explicit with calls to action
+Recurring phrases/structures to favor: State the evidence before the recommendation
+NEVER use these words/phrases: playful, whimsical, maybe
+</brand_context>`;
+
+const WARM_E2E_BRAND_CONTEXT = `<brand_context>
+Voice/tone: warm and human; casual and conversational; plain and jargon-free; lightly playful and witty; soft and low-pressure with calls to action
+Recurring phrases/structures to favor: Invite participation with a soft question
+NEVER use these words/phrases: enterprise-grade, urgent, guaranteed
+</brand_context>`;
+
+function enableE2EWriterFixture(fixture: 'post' | 'carousel' | 'script' | 'auto'): void {
+  vi.stubEnv('THINKFORGE_E2E_MODE', '1');
+  vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'tfe2eunit');
+  vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', fixture);
+}
+
+function buildAutoFixturePrompt(
+  kind: 'post' | 'carousel' | 'script',
+  brandContext: string,
+): { prompt: string; systemInstruction: string } {
+  const isScript = kind === 'script';
+  return buildIsolatedPromptParts({
+    systemInstruction: isScript
+      ? '<script_writer_contract>Return a native Sidecar V2 script.</script_writer_contract>'
+      : `${kind === 'carousel' ? '<carousel_contract>Return the requested slide deck.</carousel_contract>\n' : ''}<post_control_contract>Return the requested post contract.</post_control_contract>`,
+    data: {
+      brandContext,
+      ...(isScript
+        ? { authoringDestination: { outputKind: 'video_script' } }
+        : { postEditorialPlan: { platform: 'LinkedIn' } }),
+    },
+  });
 }
 
 describe('ThinkForge Gemini writing context cache helpers', () => {
@@ -415,8 +457,7 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
   });
 
   it('uses a schema-validated post fixture only for an explicit non-production E2E run', async () => {
-    vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', 'post');
-    vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'tf-e2e-test-run');
+    enableE2EWriterFixture('post');
 
     const result = await generateStructuredWithWritingContextCache({
       prompt: 'Create a LinkedIn post.',
@@ -432,8 +473,7 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
   });
 
   it('rejects a browser fixture when production mode is set', async () => {
-    vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', 'post');
-    vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'tf-e2e-test-run');
+    enableE2EWriterFixture('auto');
     vi.stubEnv('NODE_ENV', 'production');
 
     await expect(generateStructuredWithWritingContextCache({
@@ -445,8 +485,7 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
   });
 
   it('supports the carousel fixture and dispatches a schema-validated native V2 script', async () => {
-    vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'tf-e2e-test-run');
-    vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', 'carousel');
+    enableE2EWriterFixture('carousel');
 
     const carousel = await generateStructuredWithWritingContextCache({
       prompt: 'Create a five-slide LinkedIn carousel.',
@@ -481,8 +520,7 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
   });
 
   it('keeps the script fixture on Sidecar v2 with a content-led seven-minute runtime', async () => {
-    vi.stubEnv('THINKFORGE_E2E_WRITER_FIXTURE', 'script');
-    vi.stubEnv('THINKFORGE_E2E_RUN_ID', 'tf-e2e-test-run');
+    enableE2EWriterFixture('script');
 
     const fixture = await generateStructuredWithWritingContextCache({
       prompt: 'Create a seven-minute montage-driven YouTube documentary.',
@@ -502,6 +540,102 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(durations.reduce((total, duration) => total + duration, 0)).toBe(420);
     expect(new Set(durations).size).toBeGreaterThan(1);
     expect(durations.every((duration) => duration > 0)).toBe(true);
+    expect(sdkMocks.createCache).not.toHaveBeenCalled();
+    expect(sdkMocks.generateObject).not.toHaveBeenCalled();
+  });
+
+  it('routes an auto post from the trusted contract and formal brand fingerprint', async () => {
+    enableE2EWriterFixture('auto');
+    const parts = buildAutoFixturePrompt('post', FORMAL_E2E_BRAND_CONTEXT);
+
+    const result = await generateStructuredWithWritingContextCache({
+      ...parts,
+      schema: PostWriterResultSchema,
+    });
+
+    expect(result.result.content.startsWith(
+      `${THINKFORGE_E2E_BRAND_MARKERS.formalPersonal}: Make approval ownership visible`,
+    )).toBe(true);
+    expect(result.result.contentAnalysis).toMatchObject({
+      tone: 'Formal, direct, and evidence-first',
+      vibe: 'Measured operational precision',
+    });
+    expect(result.result.clickatron.singleImagePrompt).toContain('no readable text or logos');
+    expect(sdkMocks.createCache).not.toHaveBeenCalled();
+    expect(sdkMocks.generateObject).not.toHaveBeenCalled();
+  });
+
+  it('passes an auto post fixture through the production publishable-quality gate', async () => {
+    enableE2EWriterFixture('auto');
+
+    const output = await new PostWriterAgent().runStructured({
+      context: {
+        projectSummary: 'Platform: LinkedIn. Topic: approval ownership before campaign launch.',
+        systemBrief: FORMAL_E2E_BRAND_CONTEXT,
+      },
+      userPrompt: 'Create a LinkedIn post about making approval ownership visible before a campaign launch.',
+      authoringRequest: createThinkForgeAuthoringRequest({
+        contentContract: createThinkForgeWriterContract('social_post'),
+        platformSurface: { id: 'linkedin' },
+        publishingSurface: 'linkedin_post',
+        postControls: createDefaultThinkForgePostControls(),
+      }),
+    });
+
+    expect(output.result.content).toContain(THINKFORGE_E2E_BRAND_MARKERS.formalPersonal);
+    expect(output.metadata?.notes ?? '').not.toContain('post_contract_repair:applied');
+    expect(sdkMocks.createCache).not.toHaveBeenCalled();
+    expect(sdkMocks.generateObject).not.toHaveBeenCalled();
+  });
+
+  it('routes an auto carousel from the trusted contract and warm brand fingerprint', async () => {
+    enableE2EWriterFixture('auto');
+    const parts = buildAutoFixturePrompt('carousel', WARM_E2E_BRAND_CONTEXT);
+
+    const result = await generateStructuredWithWritingContextCache({
+      ...parts,
+      schema: PostWriterResultSchema,
+    });
+
+    expect(result.result.content.startsWith(
+      `${THINKFORGE_E2E_BRAND_MARKERS.warmOrganization}: Make approval ownership visible`,
+    )).toBe(true);
+    expect(result.result.clickatron.carouselDeck?.slides).toHaveLength(5);
+    expect(result.result.clickatron.carouselDeck?.slides[0]?.headline)
+      .toContain(THINKFORGE_E2E_BRAND_MARKERS.warmOrganization);
+    expect(result.result.clickatron.singleImagePrompt).toBeUndefined();
+    expect(sdkMocks.createCache).not.toHaveBeenCalled();
+    expect(sdkMocks.generateObject).not.toHaveBeenCalled();
+  });
+
+  it('routes an auto native V2 script without deriving its runtime from a static mode', async () => {
+    enableE2EWriterFixture('auto');
+    const parts = buildAutoFixturePrompt('script', FORMAL_E2E_BRAND_CONTEXT);
+
+    const result = await generateStructuredWithWritingContextCache({
+      ...parts,
+      schema: ScriptWriterModelOutputSchema,
+    });
+    const scenes = result.result.sidecar.acts.flatMap((act) => act.narrativeScenes);
+
+    expect(scenes[0]?.title).toContain(THINKFORGE_E2E_BRAND_MARKERS.formalPersonal);
+    expect(scenes.reduce((total, scene) => total + (scene.durationIntentSeconds ?? 0), 0)).toBe(420);
+    expect(result.result.sidecar.sidecarVersion).toBe(2);
+    expect(sdkMocks.createCache).not.toHaveBeenCalled();
+    expect(sdkMocks.generateObject).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['neither', '<brand_context>Unseeded voice</brand_context>', 0],
+    ['both', `${FORMAL_E2E_BRAND_CONTEXT}\n${WARM_E2E_BRAND_CONTEXT}`, 2],
+  ])('fails closed when auto input contains %s seeded brand fingerprint', async (_label, brandContext, count) => {
+    enableE2EWriterFixture('auto');
+    const parts = buildAutoFixturePrompt('post', brandContext);
+
+    await expect(generateStructuredWithWritingContextCache({
+      ...parts,
+      schema: PostWriterResultSchema,
+    })).rejects.toThrow(`requires exactly one seeded brand voice fingerprint; found ${count}`);
     expect(sdkMocks.createCache).not.toHaveBeenCalled();
     expect(sdkMocks.generateObject).not.toHaveBeenCalled();
   });

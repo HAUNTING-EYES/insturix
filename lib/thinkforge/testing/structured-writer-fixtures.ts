@@ -1,7 +1,15 @@
 import type { z } from 'zod';
 
-export const THINKFORGE_E2E_WRITER_FIXTURES = ['post', 'carousel', 'script'] as const;
+export const THINKFORGE_E2E_WRITER_FIXTURES = ['post', 'carousel', 'script', 'auto'] as const;
 export type ThinkForgeE2EWriterFixture = typeof THINKFORGE_E2E_WRITER_FIXTURES[number];
+
+export const THINKFORGE_E2E_BRAND_MARKERS = {
+  formalPersonal: 'Formal evidence marker',
+  warmOrganization: 'Warm invitation marker',
+} as const;
+
+type ThinkForgeE2EResolvedWriterFixture = Exclude<ThinkForgeE2EWriterFixture, 'auto'>;
+type ThinkForgeE2EBrandFingerprint = 'formal-personal' | 'warm-organization';
 
 interface ThinkForgeE2EStructuredFixtureResult<TOutput> {
   result: TOutput;
@@ -232,6 +240,157 @@ const THINKFORGE_E2E_SCRIPT_FIXTURE = {
   },
 };
 
+const E2E_BRAND_FINGERPRINTS: Record<ThinkForgeE2EBrandFingerprint, {
+  fragments: readonly string[];
+  marker: string;
+  tone: string;
+  vibe: string;
+}> = {
+  'formal-personal': {
+    fragments: [
+      'Recurring phrases/structures to favor: State the evidence before the recommendation',
+      'NEVER use these words/phrases: playful, whimsical, maybe',
+    ],
+    marker: THINKFORGE_E2E_BRAND_MARKERS.formalPersonal,
+    tone: 'Formal, direct, and evidence-first',
+    vibe: 'Measured operational precision',
+  },
+  'warm-organization': {
+    fragments: [
+      'Recurring phrases/structures to favor: Invite participation with a soft question',
+      'NEVER use these words/phrases: enterprise-grade, urgent, guaranteed',
+    ],
+    marker: THINKFORGE_E2E_BRAND_MARKERS.warmOrganization,
+    tone: 'Warm, casual, and gently invitational',
+    vibe: 'Approachable community clarity',
+  },
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readUntrustedWriterData(prompt: string): Record<string, unknown> {
+  const match = prompt.match(/<tf_untrusted_data\b[^>]*>\s*([\s\S]*?)\s*<\/tf_untrusted_data>/i);
+  if (!match?.[1]) {
+    throw new Error('ThinkForge E2E auto fixture requires the isolated tf_untrusted_data writer envelope.');
+  }
+
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(match[1]);
+  } catch (error) {
+    throw new Error('ThinkForge E2E auto fixture received malformed tf_untrusted_data JSON.', {
+      cause: error,
+    });
+  }
+  const data = asRecord(asRecord(envelope)?.data);
+  if (!data) {
+    throw new Error('ThinkForge E2E auto fixture requires tf_untrusted_data.data.');
+  }
+  return data;
+}
+
+function resolveAutoBrandFingerprint(data: Record<string, unknown>): ThinkForgeE2EBrandFingerprint {
+  const brandContext = typeof data.brandContext === 'string' ? data.brandContext : '';
+  const matches = (Object.entries(E2E_BRAND_FINGERPRINTS) as Array<[
+    ThinkForgeE2EBrandFingerprint,
+    typeof E2E_BRAND_FINGERPRINTS[ThinkForgeE2EBrandFingerprint],
+  ]>).filter(([, fingerprint]) => (
+    fingerprint.fragments.every((fragment) => brandContext.includes(fragment))
+  ));
+
+  if (matches.length !== 1) {
+    throw new Error(
+      `ThinkForge E2E auto fixture requires exactly one seeded brand voice fingerprint; found ${matches.length}.`,
+    );
+  }
+  return matches[0][0];
+}
+
+function resolveAutoWriterFixture(
+  systemInstruction: string,
+  data: Record<string, unknown>,
+): ThinkForgeE2EResolvedWriterFixture {
+  const authoringDestination = asRecord(data.authoringDestination);
+  const isScript = authoringDestination?.outputKind === 'video_script';
+  const isCarousel = systemInstruction.includes('<carousel_contract>');
+  const isPost = !isCarousel
+    && systemInstruction.includes('<post_control_contract>')
+    && asRecord(data.postEditorialPlan) !== null;
+  const matches = [
+    ...(isScript ? ['script' as const] : []),
+    ...(isCarousel ? ['carousel' as const] : []),
+    ...(isPost ? ['post' as const] : []),
+  ];
+
+  if (matches.length !== 1) {
+    throw new Error(
+      `ThinkForge E2E auto fixture requires exactly one trusted writer contract; found ${matches.length}.`,
+    );
+  }
+  return matches[0];
+}
+
+function cloneFixture<T>(value: T): T {
+  return structuredClone(value);
+}
+
+function applyPostBrandFingerprint(
+  candidate: {
+    content: string;
+    contentAnalysis: {
+      tone: string;
+      vibe: string;
+      claimSupport: Array<{ sentence: string }>;
+    };
+  },
+  fingerprint: typeof E2E_BRAND_FINGERPRINTS[ThinkForgeE2EBrandFingerprint],
+): void {
+  const firstSentence = candidate.content.split('\n')[0]?.trim();
+  const firstClaim = candidate.contentAnalysis.claimSupport[0];
+  if (!firstSentence || firstClaim?.sentence !== firstSentence) {
+    throw new Error('ThinkForge E2E post fixture requires its first sentence in claimSupport.');
+  }
+
+  const brandedFirstSentence = `${fingerprint.marker}: ${firstSentence}`;
+  candidate.content = candidate.content.replace(firstSentence, brandedFirstSentence);
+  firstClaim.sentence = brandedFirstSentence;
+  candidate.contentAnalysis.tone = fingerprint.tone;
+  candidate.contentAnalysis.vibe = fingerprint.vibe;
+}
+
+function buildAutoFixtureCandidate(
+  fixture: ThinkForgeE2EResolvedWriterFixture,
+  brand: ThinkForgeE2EBrandFingerprint,
+): unknown {
+  const fingerprint = E2E_BRAND_FINGERPRINTS[brand];
+
+  if (fixture === 'script') {
+    const candidate = cloneFixture(THINKFORGE_E2E_SCRIPT_FIXTURE);
+    const firstScene = candidate.sidecar.acts[0]?.narrativeScenes[0] as { title: string } | undefined;
+    if (!firstScene) throw new Error('ThinkForge E2E script fixture has no first scene.');
+    firstScene.title = `${fingerprint.marker}: ${firstScene.title}`;
+    candidate.contentAnalysis.theme = `${fingerprint.marker}. ${candidate.contentAnalysis.theme}`;
+    return candidate;
+  }
+
+  if (fixture === 'carousel') {
+    const candidate = cloneFixture(THINKFORGE_E2E_CAROUSEL_FIXTURE);
+    applyPostBrandFingerprint(candidate, fingerprint);
+    const firstSlide = candidate.clickatron.carouselDeck.slides[0];
+    if (!firstSlide) throw new Error('ThinkForge E2E carousel fixture has no first slide.');
+    firstSlide.headline = `${fingerprint.marker}: ${firstSlide.headline}`;
+    return candidate;
+  }
+
+  const candidate = cloneFixture(THINKFORGE_E2E_POST_FIXTURE);
+  applyPostBrandFingerprint(candidate, fingerprint);
+  return candidate;
+}
+
 export function getThinkForgeE2EWriterFixture(): ThinkForgeE2EWriterFixture | null {
   const fixture = process.env.THINKFORGE_E2E_WRITER_FIXTURE?.trim();
   if (!fixture) return null;
@@ -241,26 +400,41 @@ export function getThinkForgeE2EWriterFixture(): ThinkForgeE2EWriterFixture | nu
   if (process.env.NODE_ENV === 'production') {
     throw new Error('THINKFORGE_E2E_WRITER_FIXTURE is forbidden when NODE_ENV is production.');
   }
-  if (!process.env.THINKFORGE_E2E_RUN_ID?.trim()) {
-    throw new Error('THINKFORGE_E2E_WRITER_FIXTURE requires THINKFORGE_E2E_RUN_ID.');
+  if (process.env.THINKFORGE_E2E_MODE !== '1') {
+    throw new Error('THINKFORGE_E2E_WRITER_FIXTURE requires THINKFORGE_E2E_MODE=1.');
+  }
+  if (!/^[a-z0-9]{1,12}$/i.test(process.env.THINKFORGE_E2E_RUN_ID?.trim() ?? '')) {
+    throw new Error('THINKFORGE_E2E_WRITER_FIXTURE requires a valid run-scoped THINKFORGE_E2E_RUN_ID.');
   }
   return fixture as ThinkForgeE2EWriterFixture;
 }
 
 export function resolveThinkForgeE2EStructuredFixture<TOutput>(input: {
   schema: z.ZodType<TOutput>;
+  prompt: string;
+  systemInstruction?: string;
 }): ThinkForgeE2EStructuredFixtureResult<TOutput> | null {
   const fixture = getThinkForgeE2EWriterFixture();
   if (!fixture) return null;
 
-  const candidate = fixture === 'post'
-    ? THINKFORGE_E2E_POST_FIXTURE
-    : fixture === 'carousel'
-      ? THINKFORGE_E2E_CAROUSEL_FIXTURE
-      : THINKFORGE_E2E_SCRIPT_FIXTURE;
+  let resolvedFixture: ThinkForgeE2EResolvedWriterFixture;
+  let candidate: unknown;
+  if (fixture === 'auto') {
+    const data = readUntrustedWriterData(input.prompt);
+    const brand = resolveAutoBrandFingerprint(data);
+    resolvedFixture = resolveAutoWriterFixture(input.systemInstruction ?? '', data);
+    candidate = buildAutoFixtureCandidate(resolvedFixture, brand);
+  } else {
+    resolvedFixture = fixture;
+    candidate = fixture === 'post'
+      ? THINKFORGE_E2E_POST_FIXTURE
+      : fixture === 'carousel'
+        ? THINKFORGE_E2E_CAROUSEL_FIXTURE
+        : THINKFORGE_E2E_SCRIPT_FIXTURE;
+  }
   const parsed = input.schema.safeParse(candidate);
   if (!parsed.success) {
-    throw new Error(`ThinkForge E2E ${fixture} fixture does not satisfy the requested writer schema: ${parsed.error.message}`);
+    throw new Error(`ThinkForge E2E ${resolvedFixture} fixture does not satisfy the requested writer schema: ${parsed.error.message}`);
   }
 
   return {
