@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { recoverStalledThinkForgeObserverJobs } from '@/lib/thinkforge/events/observer-job';
 import { recoverStalledThinkForgeRefineryJobs } from '@/lib/thinkforge/refinery/refinery-job';
 
 export const runtime = 'nodejs';
@@ -12,8 +13,19 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const recovery = await recoverStalledThinkForgeRefineryJobs();
-    return NextResponse.json({ ok: true, recovery, timestamp: new Date().toISOString() });
+    const [refinery, observer] = await Promise.allSettled([
+      recoverStalledThinkForgeRefineryJobs(),
+      recoverStalledThinkForgeObserverJobs(),
+    ]);
+    const failures = [refinery, observer].filter((result) => result.status === 'rejected');
+    return NextResponse.json({
+      ok: failures.length === 0,
+      recovery: {
+        refinery: settledValue(refinery),
+        observer: settledValue(observer),
+      },
+      timestamp: new Date().toISOString(),
+    }, { status: failures.length === 0 ? 200 : 500 });
   } catch (error) {
     console.error('[cron/process-thinkforge-refinery] recovery failed:', error);
     return NextResponse.json({
@@ -21,4 +33,10 @@ export async function GET(request: NextRequest) {
       error: error instanceof Error ? error.message : 'Unknown recovery failure.',
     }, { status: 500 });
   }
+}
+
+function settledValue<T>(result: PromiseSettledResult<T>): T | { error: string } {
+  return result.status === 'fulfilled'
+    ? result.value
+    : { error: result.reason instanceof Error ? result.reason.message : 'Unknown recovery failure.' };
 }
