@@ -1,11 +1,16 @@
 import { deriveBrandSignalProfile, sanitizeEvidenceExcerpt, type BrandSignal, type BrandSignalProfile } from '@/lib/shared/brand-signal-profile';
-import { collectBrandSignals, createBrandSignalProfileDraft } from '@/lib/shared/brand-signal-lifecycle';
+import {
+  bindBrandSignalDraftToAcceptedRevision,
+  collectBrandSignals,
+  createBrandSignalProfileDraft,
+} from '@/lib/shared/brand-signal-lifecycle';
 import {
   resolveBrandSignalEditLearningWeight,
   type BrandSignalEditEventType,
 } from '@/lib/shared/brand-signal-edit-weighting';
 import { createBrandVaultDraftReviewPayload } from '@/lib/shared/brand-vault-draft-orchestrator';
 import { getDefaultBrandVaultRefineryStore, type BrandVaultRefineryStore } from '@/lib/shared/brand-vault-refinery-api';
+import { authorizeBrandScope, BrandScopeAuthorizationError } from '@/lib/shared/brand-scope';
 import type { BrandEvidenceCandidate, BrandRefineryJob } from '@/lib/shared/brand-website-refinery-types';
 import type { UnifiedBrand } from '@/lib/shared/brand-registry';
 import type { BrandDNA, VoiceExemplar, VoiceFingerprint } from './db';
@@ -20,10 +25,16 @@ export type ThinkForgeBrandVaultVoiceSource =
 export type ThinkForgeBrandVaultVoiceWriteResult =
   | { ok: true; skipped?: false; jobId: string; recordId: string; candidateCount: number }
   | { ok: true; skipped: true; reason: 'no_supported_updates' }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      code: 'brand_not_found' | 'brand_scope_unavailable' | 'write_failed';
+      error: string;
+    };
 
 export interface ThinkForgeBrandVaultVoiceWriteInput {
   userId: string;
+  orgId?: string | null;
+  isOrgAdmin?: boolean;
   brandId?: string;
   sessionId?: string;
   updates: Partial<BrandDNA>;
@@ -38,19 +49,33 @@ export async function writeThinkForgeBrandDNAToBrandVault(
 ): Promise<ThinkForgeBrandVaultVoiceWriteResult> {
   try {
     const now = input.now ?? new Date().toISOString();
+    const store = input.store ?? getDefaultBrandVaultRefineryStore();
+    const authorizedBrand = input.brandId
+      ? await authorizeBrandScope({
+          userId: input.userId,
+          orgId: input.orgId ?? null,
+          isOrgAdmin: input.isOrgAdmin,
+          brandId: input.brandId,
+          store,
+        })
+      : null;
     const candidates = createThinkForgeBrandDNACandidates(input, now);
     if (candidates.length === 0) return { ok: true, skipped: true, reason: 'no_supported_updates' };
 
-    const profile = deriveProfileFromBrandDNA(input, candidates, now);
+    const profile = authorizedBrand
+      ? cloneAcceptedProfile(authorizedBrand.acceptedRecord.profile, now)
+      : deriveProfileFromBrandDNA(input, candidates, now);
     attachCandidatesToProfile(profile, candidates);
 
-    const record = createBrandSignalProfileDraft(profile, {
+    let record = createBrandSignalProfileDraft(profile, {
       id: `brand_signal_profile_${idPart(input.brandId ?? input.userId)}_thinkforge_${Date.parse(now) || Date.now()}`,
       now,
       actorId: input.actorId ?? input.userId,
     });
+    if (authorizedBrand) {
+      record = bindBrandSignalDraftToAcceptedRevision(record, authorizedBrand.acceptedRecord);
+    }
 
-    const store = input.store ?? getDefaultBrandVaultRefineryStore();
     const savedRecord = await store.saveRecord(record, { now, actorId: input.actorId ?? input.userId });
     const job = createThinkForgeBrandDNAJob(input, savedRecord.id, candidates, now);
     const reviewPayload = createBrandVaultDraftReviewPayload({
@@ -78,7 +103,10 @@ export async function writeThinkForgeBrandDNAToBrandVault(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn('[ThinkForge:BrandVault] BrandDNA dual-write failed:', message);
-    return { ok: false, error: message };
+    if (error instanceof BrandScopeAuthorizationError) {
+      return { ok: false, code: error.code, error: message };
+    }
+    return { ok: false, code: 'write_failed', error: message };
   }
 }
 
@@ -121,16 +149,17 @@ function createThinkForgeBrandDNACandidates(
     });
   };
 
-  if (input.updates.nicheMap?.trim()) {
+  if (input.updates.nicheMap !== undefined) {
+    const audience = cleanStrings([input.updates.nicheMap]);
     push({
       signalPath: 'identity.audience',
       sourceField: 'thinkforge.brandDNA.nicheMap',
       rawValue: input.updates.nicheMap,
-      normalizedValue: [input.updates.nicheMap.trim()],
-      excerpt: input.updates.nicheMap,
+      normalizedValue: audience,
+      excerpt: audience[0],
     });
   }
-  if (input.updates.killList?.length) {
+  if (input.updates.killList !== undefined) {
     push({
       signalPath: 'voice.killList',
       sourceField: 'thinkforge.brandDNA.killList',
@@ -139,7 +168,7 @@ function createThinkForgeBrandDNACandidates(
       excerpt: input.updates.killList.join(', '),
     });
   }
-  if (input.updates.hookArchetypes?.length) {
+  if (input.updates.hookArchetypes !== undefined) {
     push({
       signalPath: 'voice.hookArchetypes',
       sourceField: 'thinkforge.brandDNA.hookArchetypes',
@@ -173,6 +202,12 @@ function createThinkForgeBrandDNACandidates(
   }
 
   return candidates;
+}
+
+function cloneAcceptedProfile(profile: BrandSignalProfile, generatedAt: string): BrandSignalProfile {
+  const clone = structuredClone(profile);
+  clone.generatedAt = generatedAt;
+  return clone;
 }
 
 function deriveProfileFromBrandDNA(
@@ -237,7 +272,9 @@ function attachCandidatesToProfile(profile: BrandSignalProfile, candidates: Bran
       extractor: candidate.extractorId,
     });
 
-    applyCandidateValue(signal, candidate.normalizedValue);
+    const replacesWholeSignal = candidate.learningWeight?.polarity === 'replace'
+      && candidate.signalPath !== 'voice.recurringPhrases';
+    applyCandidateValue(signal, candidate.normalizedValue, replacesWholeSignal);
     signal.confidence = Math.max(signal.confidence, candidate.confidence);
     signal.trustLevel = candidate.trustLevel ?? 'manual_user_entry';
     signal.authorityClass = authorityClassForSignalPath(candidate.signalPath);
@@ -246,10 +283,10 @@ function attachCandidatesToProfile(profile: BrandSignalProfile, candidates: Bran
   }
 }
 
-function applyCandidateValue(signal: BrandSignal<unknown>, value: unknown): void {
+function applyCandidateValue(signal: BrandSignal<unknown>, value: unknown, replaceArray = false): void {
   if (Array.isArray(signal.value)) {
     const incoming = Array.isArray(value) ? value : [value];
-    signal.value = uniquePrimitiveValues([...signal.value, ...incoming]) as typeof signal.value;
+    signal.value = uniquePrimitiveValues(replaceArray ? incoming : [...signal.value, ...incoming]) as typeof signal.value;
     return;
   }
   if (value !== undefined && value !== null && !Array.isArray(value) && typeof value !== 'object') {

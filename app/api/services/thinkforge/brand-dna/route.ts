@@ -24,7 +24,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId, has } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   let raw: unknown;
@@ -53,26 +53,52 @@ export async function PATCH(req: Request) {
     ...(voiceExemplars !== undefined && { voiceExemplars: voiceExemplars as BrandDNA['voiceExemplars'] }),
   };
 
-  const updated = await updateUserBrandDNA(userId, updates);
-  const brandId = explicitBrandId ?? await resolveSessionBrandId(userId, sessionId);
+  const session = sessionId ? await getSession(sessionId, userId, orgId) : null;
+  if (sessionId && !session) {
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  }
+  const sessionBrandId = resolveProjectMetaBrandId(session?.projectMeta);
+  if (explicitBrandId && sessionBrandId && explicitBrandId !== sessionBrandId) {
+    return NextResponse.json(
+      { error: 'The selected brand does not match this session.' },
+      { status: 409 },
+    );
+  }
+  const brandId = explicitBrandId ?? sessionBrandId;
   const vaultSync = await writeThinkForgeBrandDNAToBrandVault({
     userId,
+    orgId: orgId ?? null,
+    isOrgAdmin: Boolean(orgId && has({ role: 'org:admin' })),
     brandId,
     sessionId,
     updates,
     source: 'manual_brand_dna_edit',
     actorId: userId,
   });
+  if (brandId && !vaultSync.ok) {
+    return NextResponse.json(
+      { error: vaultSync.error, code: vaultSync.code },
+      { status: vaultFailureStatus(vaultSync.code) },
+    );
+  }
 
-  return NextResponse.json({ brandDNA: updated, vaultSync });
-}
+  const updated = brandId
+    ? (await getUserBrandDNA(userId)) ?? {}
+    : await updateUserBrandDNA(userId, updates);
 
-async function resolveSessionBrandId(userId: string, sessionId?: string): Promise<string | undefined> {
-  if (!sessionId) return undefined;
-  const session = await getSession(sessionId, userId);
-  return resolveProjectMetaBrandId(session?.projectMeta);
+  return NextResponse.json({
+    brandDNA: updated,
+    ...(brandId ? { pendingBrandDNA: updates } : {}),
+    vaultSync,
+  });
 }
 
 function cleanOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function vaultFailureStatus(code: 'brand_not_found' | 'brand_scope_unavailable' | 'write_failed'): 404 | 500 | 503 {
+  if (code === 'brand_not_found') return 404;
+  if (code === 'brand_scope_unavailable') return 503;
+  return 500;
 }

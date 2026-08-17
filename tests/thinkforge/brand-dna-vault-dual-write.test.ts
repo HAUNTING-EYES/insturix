@@ -1,10 +1,56 @@
 import { describe, expect, it } from 'vitest';
-import { createInMemoryBrandVaultRefineryStore } from '@/lib/shared/brand-vault-refinery-api';
+import {
+  createInMemoryBrandVaultRefineryStore,
+  type BrandVaultRefineryStore,
+} from '@/lib/shared/brand-vault-refinery-api';
+import { createBrandSignalProfileDraft, type BrandSignalProfileRecord } from '@/lib/shared/brand-signal-lifecycle';
+import { deriveBrandSignalProfile } from '@/lib/shared/brand-signal-profile';
+import type { UnifiedBrand } from '@/lib/shared/brand-registry';
 import { writeThinkForgeBrandDNAToBrandVault } from '@/lib/thinkforge/services/brand-vault-voice-evidence';
+
+async function seedAcceptedBrand(
+  store: BrandVaultRefineryStore,
+  overrides: Partial<UnifiedBrand> = {},
+): Promise<BrandSignalProfileRecord> {
+  const brand: UnifiedBrand = {
+    brandId: 'brand_1',
+    userId: 'user_1',
+    name: 'Canonical Brand',
+    voice: {
+      voiceLock: 'precise and evidence-led',
+      nicheMap: 'operations leaders',
+      killList: ['cheap'],
+      hookArchetypes: ['proof first'],
+      structuralHabits: ['preserve this accepted cadence'],
+    },
+    visual: {
+      colors: ['#102030', '#20c080', '#f7f8fa'],
+      visualStyle: 'structured editorial photography',
+      typography: 'Humanist sans',
+    },
+    learning: { banditProjectCount: 0 },
+    ...overrides,
+  };
+  const draft = createBrandSignalProfileDraft(
+    deriveBrandSignalProfile(brand, {
+      generatedAt: '2026-06-22T09:00:00.000Z',
+      extractor: 'test-canonical-brand.v1',
+    }),
+    { id: `accepted_${brand.brandId}`, now: '2026-06-22T09:00:00.000Z' },
+  );
+  await store.saveRecord(draft, { now: draft.createdAt, actorId: brand.userId });
+  const accepted = await store.acceptDraft(draft.id, {
+    now: '2026-06-22T09:01:00.000Z',
+    actorId: brand.userId,
+  });
+  if (!accepted.ok) throw new Error('Expected canonical Brand Vault fixture to be accepted.');
+  return accepted.record;
+}
 
 describe('writeThinkForgeBrandDNAToBrandVault', () => {
   it('stages manual BrandDNA updates as reviewable Brand Vault evidence', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
+    const accepted = await seedAcceptedBrand(store);
 
     const result = await writeThinkForgeBrandDNAToBrandVault({
       userId: 'user_1',
@@ -51,11 +97,19 @@ describe('writeThinkForgeBrandDNAToBrandVault', () => {
     const record = await store.getRecord(result.recordId);
     expect(record?.review.required).toBe(true);
     expect(record?.status).toBe('draft');
-    expect(record?.profile.identity.audience.value).toContain('agency founders and in-house content teams');
-    expect(record?.profile.voice.killList.value).toContain('game-changing');
+    expect(record?.baseAcceptedRevision).toEqual({ recordId: accepted.id, updatedAt: accepted.updatedAt });
+    expect(record?.profile.identity.brandName.value).toBe('Canonical Brand');
+    expect(record?.profile.palette).toEqual(accepted.profile.palette);
+    expect(record?.profile.identity.audience.value).toEqual(['agency founders and in-house content teams']);
+    expect(record?.profile.voice.killList.value).toEqual(['game-changing']);
+    expect(record?.profile.voice.hookArchetypes.value).toEqual(['contrarian opener']);
     expect(record?.profile.voice.killList.trustLevel).toBe('manual_user_entry');
     expect(record?.profile.voice.recurringPhrases.value).toEqual(
-      expect.arrayContaining(['warm expert plainspoken', 'open with the broken process']),
+      expect.arrayContaining([
+        'preserve this accepted cadence',
+        'warm expert plainspoken',
+        'open with the broken process',
+      ]),
     );
     const killListEvidence = record?.profile.evidence.find(
       (item) => item.signalPath === 'voice.killList' && item.sourceField === 'thinkforge.brandDNA.killList',
@@ -66,6 +120,7 @@ describe('writeThinkForgeBrandDNAToBrandVault', () => {
 
   it('stores fingerprint and exemplar summaries without accepting them as truth', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
+    const accepted = await seedAcceptedBrand(store);
 
     const result = await writeThinkForgeBrandDNAToBrandVault({
       userId: 'user_1',
@@ -123,8 +178,10 @@ describe('writeThinkForgeBrandDNAToBrandVault', () => {
 
     const record = await store.getRecord(result.recordId);
     expect(record?.status).toBe('draft');
+    expect(record?.baseAcceptedRevision).toEqual({ recordId: accepted.id, updatedAt: accepted.updatedAt });
     expect(record?.profile.voice.recurringPhrases.value).toEqual(
       expect.arrayContaining([
+        'preserve this accepted cadence',
         'opening pattern: direct_claim',
         'transition style: implicit',
         'Content production is broken. One platform. Not ten.',
@@ -138,6 +195,7 @@ describe('writeThinkForgeBrandDNAToBrandVault', () => {
 
   it('marks passive exemplars as softer user-scope affirmations', async () => {
     const store = createInMemoryBrandVaultRefineryStore();
+    await seedAcceptedBrand(store);
 
     const result = await writeThinkForgeBrandDNAToBrandVault({
       userId: 'user_1',
@@ -190,7 +248,6 @@ describe('writeThinkForgeBrandDNAToBrandVault', () => {
 
     const result = await writeThinkForgeBrandDNAToBrandVault({
       userId: 'user_1',
-      brandId: 'brand_1',
       source: 'manual_brand_dna_edit',
       now: '2026-06-22T12:00:00.000Z',
       store,
@@ -198,5 +255,56 @@ describe('writeThinkForgeBrandDNAToBrandVault', () => {
     });
 
     expect(result).toEqual({ ok: true, skipped: true, reason: 'no_supported_updates' });
+  });
+
+  it('fails closed when an explicit brand has no accepted profile', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+
+    const result = await writeThinkForgeBrandDNAToBrandVault({
+      userId: 'user_1',
+      brandId: 'missing_brand',
+      source: 'manual_brand_dna_edit',
+      store,
+      updates: { killList: ['unsupported claim'] },
+    });
+
+    expect(result).toMatchObject({ ok: false, code: 'brand_not_found' });
+  });
+
+  it('treats an explicit empty constraint list as a reviewed clear operation', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    await seedAcceptedBrand(store);
+
+    const result = await writeThinkForgeBrandDNAToBrandVault({
+      userId: 'user_1',
+      brandId: 'brand_1',
+      source: 'manual_brand_dna_edit',
+      now: '2026-06-22T12:10:00.000Z',
+      store,
+      updates: { killList: [] },
+    });
+
+    expect(result).toMatchObject({ ok: true, candidateCount: 1 });
+    if (!result.ok || result.skipped) throw new Error('expected Brand Vault clear draft');
+    const record = await store.getRecord(result.recordId);
+    expect(record?.profile.voice.killList.value).toEqual([]);
+    expect(record?.profile.identity.brandName.value).toBe('Canonical Brand');
+  });
+
+  it('enforces organization brand grants before staging a draft', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    await seedAcceptedBrand(store, { orgId: 'org_1' });
+    await store.setBrandAccess?.({ orgId: 'org_1', brandId: 'brand_1', userIds: ['user_allowed'] });
+
+    const result = await writeThinkForgeBrandDNAToBrandVault({
+      userId: 'user_1',
+      orgId: 'org_1',
+      brandId: 'brand_1',
+      source: 'manual_brand_dna_edit',
+      store,
+      updates: { killList: [] },
+    });
+
+    expect(result).toMatchObject({ ok: false, code: 'brand_not_found' });
   });
 });

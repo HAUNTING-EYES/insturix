@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { z } from 'zod';
-import { getSession, updateUserBrandDNA } from '@/lib/thinkforge/services/db';
+import { getSession, getUserBrandDNA, updateUserBrandDNA } from '@/lib/thinkforge/services/db';
 import { extractVoiceFingerprint } from '@/lib/thinkforge/data/voice-signature';
 import { writeThinkForgeBrandDNAToBrandVault } from '@/lib/thinkforge/services/brand-vault-voice-evidence';
 import { resolveProjectMetaBrandId } from '@/lib/thinkforge/state/types';
@@ -22,7 +22,7 @@ const ExtractRequestSchema = z.object({
  * zero LLM), and saves it to the user's BrandDNA.
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId, has } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   let raw: unknown;
@@ -43,26 +43,51 @@ export async function POST(req: Request) {
   const fingerprint = extractVoiceFingerprint(parsed.data.referenceTexts);
 
   const updates = { voiceFingerprint: fingerprint };
-  const updated = await updateUserBrandDNA(userId, updates);
-  const brandId = parsed.data.brandId ?? await resolveSessionBrandId(userId, parsed.data.sessionId);
+  const session = parsed.data.sessionId
+    ? await getSession(parsed.data.sessionId, userId, orgId)
+    : null;
+  if (parsed.data.sessionId && !session) {
+    return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  }
+  const sessionBrandId = resolveProjectMetaBrandId(session?.projectMeta);
+  if (parsed.data.brandId && sessionBrandId && parsed.data.brandId !== sessionBrandId) {
+    return NextResponse.json(
+      { error: 'The selected brand does not match this session.' },
+      { status: 409 },
+    );
+  }
+  const brandId = parsed.data.brandId ?? sessionBrandId;
   const vaultSync = await writeThinkForgeBrandDNAToBrandVault({
     userId,
+    orgId: orgId ?? null,
+    isOrgAdmin: Boolean(orgId && has({ role: 'org:admin' })),
     brandId,
     sessionId: parsed.data.sessionId,
     updates,
     source: 'voice_fingerprint_extract',
     actorId: userId,
   });
+  if (brandId && !vaultSync.ok) {
+    return NextResponse.json(
+      { error: vaultSync.error, code: vaultSync.code },
+      { status: vaultFailureStatus(vaultSync.code) },
+    );
+  }
+
+  const updated = brandId
+    ? (await getUserBrandDNA(userId)) ?? {}
+    : await updateUserBrandDNA(userId, updates);
 
   return NextResponse.json({
     voiceFingerprint: fingerprint,
     brandDNA: updated,
+    ...(brandId ? { pendingBrandDNA: updates } : {}),
     vaultSync,
   });
 }
 
-async function resolveSessionBrandId(userId: string, sessionId?: string): Promise<string | undefined> {
-  if (!sessionId) return undefined;
-  const session = await getSession(sessionId, userId);
-  return resolveProjectMetaBrandId(session?.projectMeta);
+function vaultFailureStatus(code: 'brand_not_found' | 'brand_scope_unavailable' | 'write_failed'): 404 | 500 | 503 {
+  if (code === 'brand_not_found') return 404;
+  if (code === 'brand_scope_unavailable') return 503;
+  return 500;
 }
