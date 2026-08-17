@@ -3527,55 +3527,6 @@ function dataBankImmutableWriteFingerprint(entry: DataBankEntry): string {
   });
 }
 
-/** Get all DataBank entries for a session, optionally filtered by type */
-export async function getDataBankEntries(
-  sessionId: string,
-  userId: string,
-  type?: DataBankEntryType
-): Promise<DataBankEntry[]> {
-  await connectToThinkForgeDb();
-  const model = getDataBankModel();
-  const query: Record<string, any> = {
-    sessionId,
-    userId,
-    ...buildVerifiedDataBankOwnershipQuery(),
-  };
-  if (type) query.type = type;
-  const docs = await model.find(query).sort({ createdAt: -1 }).lean();
-  return docs as unknown as DataBankEntry[];
-}
-
-/**
- * Get DataBank entries across all sessions for a user (workspace-level retrieval).
- * Used by the Multi-Hop context pipeline to pull relevant facts regardless of session.
- */
-export async function getDataBankEntriesByUser(
-  userId: string,
-  options?: {
-    type?: DataBankEntryType;
-    tags?: string[];
-    embeddingStatus?: EmbeddingStatus;
-    scope?: DataBankScope;
-    limit?: number;
-  }
-): Promise<DataBankEntry[]> {
-  await connectToThinkForgeDb();
-  const model = getDataBankModel();
-  const query: Record<string, any> = {
-    userId,
-    ...buildVerifiedDataBankOwnershipQuery(options?.scope),
-  };
-  if (options?.type) query.type = options.type;
-  if (options?.tags?.length) query.tags = { $in: options.tags };
-  if (options?.embeddingStatus) query.embeddingStatus = options.embeddingStatus;
-  const docs = await model
-    .find(query)
-    .sort({ createdAt: -1 })
-    .limit(options?.limit ?? 100)
-    .lean();
-  return docs as unknown as DataBankEntry[];
-}
-
 /** Read current workspace memory through exact user/organization authority. */
 export async function getAuthorizedDataBankEntries(
   principalInput: DataBankPrincipal,
@@ -3632,37 +3583,6 @@ export async function getProjectScopedEntries(
   options?: { type?: DataBankEntryType; limit?: number; now?: Date },
 ): Promise<DataBankEntry[]> {
   return getAuthorizedProjectScopedEntries(principalInput, sessionId, options);
-}
-
-/** Get a single DataBank entry by ID */
-export async function getDataBankEntry(
-  entryId: string,
-  userId: string
-): Promise<DataBankEntry | null> {
-  await connectToThinkForgeDb();
-  const model = getDataBankModel();
-  const doc = await model.findOne({
-    _id: entryId,
-    userId,
-    ...buildVerifiedDataBankOwnershipQuery(),
-  }).lean();
-  return doc as unknown as DataBankEntry | null;
-}
-
-/** Fetch multiple DataBank entries by their IDs */
-export async function getDataBankEntriesByIds(
-  entryIds: string[],
-  userId: string
-): Promise<DataBankEntry[]> {
-  if (entryIds.length === 0) return [];
-  await connectToThinkForgeDb();
-  const model = getDataBankModel();
-  const docs = await model.find({
-    _id: { $in: entryIds },
-    userId,
-    ...buildVerifiedDataBankOwnershipQuery(),
-  }).lean();
-  return docs as unknown as DataBankEntry[];
 }
 
 export interface AuthorizedDataBankEntriesByIdsOptions {
