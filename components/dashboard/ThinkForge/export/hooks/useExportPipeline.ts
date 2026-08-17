@@ -1468,6 +1468,7 @@ export function useExportPipeline(
             sourceScriptId: scriptId,
             brandId: sourceBrandId,
             importMode: "draft-script-import",
+            productionManifest: productionManifest || undefined,
             dryRun: true,
           }),
         });
@@ -1503,6 +1504,7 @@ export function useExportPipeline(
             sourceScriptId: scriptId,
             brandId: sourceBrandId,
             importMode: "draft-script-import",
+            productionManifest: productionManifest || undefined,
           }),
         });
 

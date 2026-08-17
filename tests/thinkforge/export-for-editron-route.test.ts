@@ -628,6 +628,50 @@ describe('export-for-editron route', () => {
     expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
   });
 
+  it('fails closed when a schema-valid V2 sidecar cannot be compiled for Editron', async () => {
+    const savedBlocks = [
+      block('blk_v2_compile_title', 'header', 'Unresolved production duration'),
+      block('blk_v2_compile_body', 'paragraph', 'This saved contract must not fall through to prose parsing.'),
+    ];
+    const savedContent = serializeThinkForgeBlocksToMarkdown(savedBlocks);
+    const v2 = adaptScriptSidecarV1(scriptSidecar()).sidecar;
+    const narrativeScene = v2.acts[0]!.narrativeScenes[0]!;
+    narrativeScene.durationIntentSeconds = undefined;
+    narrativeScene.beats[0]!.durationIntentSeconds = undefined;
+    v2.renderPlan!.renderSegments = [];
+    mocks.getSession.mockResolvedValue({ _id: 'tf_session_uncompilable_v2', userId: 'user_1' });
+    mocks.getScript.mockResolvedValue({
+      _id: 'script_doc_uncompilable_v2',
+      sessionId: 'tf_session_uncompilable_v2',
+      scriptId: 'script_uncompilable_v2',
+      title: 'Unresolved production duration',
+      content: savedContent,
+      blocks: savedBlocks,
+      version: 1,
+      metadata: { writerOutput: boundWriterOutput(savedContent, v2, 1) },
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_uncompilable_v2',
+      scriptId: 'script_uncompilable_v2',
+      blocks: savedBlocks,
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(payload).toMatchObject({
+      success: false,
+      reason: 'invalid-script-sidecar',
+      retryable: false,
+      diagnostic: {
+        code: 'scene-duration-unresolved',
+        claimedSidecarVersion: 2,
+      },
+    });
+    expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
+  });
+
   it('uses a valid claimed V2 sidecar and transports its normalized narrative hierarchy', async () => {
     const savedBlocks = [
       block('blk_v2_valid_title', 'header', 'Same-pass Scene'),

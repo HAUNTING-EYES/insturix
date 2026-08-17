@@ -32,6 +32,7 @@ describe('ExportCompletePanel Editron completion contract', () => {
     expect(source).toContain('setStep(sbId ? "reviewing-storyboard" : "configure");');
     expect(source).toContain('importMode: "draft-script-import"');
     expect(source).toContain('dryRun: true');
+    expect(source.match(/productionManifest: productionManifest \|\| undefined/g)).toHaveLength(3);
     expect(source).toContain('Cannot preflight Editron import: ThinkForge session id is missing.');
     expect(source).toContain('preflightData.creditsDeducted !== 0');
     expect(source).toContain('preflightData.writeOperationsSkipped !== true');

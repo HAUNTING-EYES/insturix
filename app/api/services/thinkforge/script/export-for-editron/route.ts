@@ -56,7 +56,6 @@ interface ExportSource {
   title: string;
   scenePreview: SceneDescriptor[];
   sidecarExport?: ScriptSidecarEditronExport;
-  sidecarCompilationError?: ThinkForgeSidecarCompilationError;
   thinkforgeContext?: ThinkForgeEditronHandoffContext;
 }
 
@@ -256,11 +255,7 @@ function buildStoredScriptSource(
         code: error.code,
         claimedVersion: error.claimedVersion,
       });
-      return {
-        ...storedSource,
-        sidecarCompilationError: error,
-        ...(authoringProvenanceContext ? { thinkforgeContext: authoringProvenanceContext } : {}),
-      };
+      throw error;
     }
     console.warn('[export-for-editron] Ignoring an invalid persisted script sidecar');
     return authoringProvenanceContext
@@ -406,7 +401,6 @@ export async function POST(request: NextRequest) {
       );
     }
     const sidecarSource = storedSource?.sidecarExport ? storedSource : undefined;
-    if (sidecarSource?.sidecarCompilationError) throw sidecarSource.sidecarCompilationError;
     const sidecarExport = sidecarSource?.sidecarExport;
     const thinkforgeContext = sidecarSource?.thinkforgeContext;
 
