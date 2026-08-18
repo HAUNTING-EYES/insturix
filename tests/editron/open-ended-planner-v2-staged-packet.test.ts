@@ -344,7 +344,7 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     expect(sum('maxVisibleOutputTokens')).toBe(30800);
     expect(sum('maxReasoningTokens')).toBe(19800);
     expect(sum('maxWallClockMs')).toBe(900000);
-    expect(sum('maxProviderCostUsd')).toBeCloseTo(1.41, 10);
+    expect(sum('maxProviderCostUsd')).toBeCloseTo(2.56, 10);
   });
 
   it('freezes a reproducible plan with source and plan hashes', () => {
