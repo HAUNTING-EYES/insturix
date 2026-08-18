@@ -25,6 +25,7 @@ import {
   referencedOperatorIdsV2R,
   selectedOperatorDriftDiagnosticsV2R,
 } from './stage2-selected-operator-contract-v2r';
+import { buildCap2aEnrichedCatalogV2R } from './cap2a-planner-dossier-v2r';
 
 export const INPUT_ARMS_V2 = ['MULTIMODAL', 'TEXT_EVIDENCE_ONLY'] as const;
 export const REFERENCE_IMAGE_INPUT_ARM_V2 = 'REFERENCE_IMAGE_EVIDENCE' as const;
@@ -223,6 +224,11 @@ export function buildNextProviderStagePacketV2(input: {
     priorArtifactHash: hashCanonicalJsonV1(input.priorArtifact),
     condition: publicCondition(condition),
     ...(input.stage <= 4 ? { operatorCatalog: publicOperatorCatalog(input.stage, input.priorArtifact, nodeContractVersion) } : {}),
+    ...(nodeContractVersion === 'V2R' && input.stage <= 4 ? {
+      capabilityDossier: buildCap2aEnrichedCatalogV2R(
+        exposedSpecOperators(input.stage, input.priorArtifact, nodeContractVersion).operators as unknown as JsonRecord[],
+      ),
+    } : {}),
     ...(input.stage === 3 ? {
       evidencePack: stageThreeEvidencePack(sourceTask, condition, input.stageThreeSource),
     } : {}),
@@ -524,11 +530,11 @@ function withoutReferenceAnswerLeak(evidence: EvidenceV2[], referenceMedia: Medi
   });
 }
 
-function publicOperatorCatalog(
+function exposedSpecOperators(
   stage: number,
   priorArtifact: PriorArtifactV2,
-  nodeContractVersion: NodeContractVersionV2 = 'V2',
-): JsonRecord {
+  nodeContractVersion: NodeContractVersionV2,
+): { operators: typeof operatorCatalogJson.operators; referencedIds: Set<string> | null } {
   const referencedIds = stage >= 3
     ? new Set(nodeContractVersion === 'V2R'
       ? referencedOperatorIdsV2R(priorArtifact.nodes)
@@ -538,8 +544,17 @@ function publicOperatorCatalog(
           : []))
     : null;
   const operators = operatorCatalogJson.operators
-    .filter((operator) => !referencedIds || referencedIds.has(operator.operatorId))
-    .map((operator) => {
+    .filter((operator) => !referencedIds || referencedIds.has(operator.operatorId));
+  return { operators, referencedIds };
+}
+
+function publicOperatorCatalog(
+  stage: number,
+  priorArtifact: PriorArtifactV2,
+  nodeContractVersion: NodeContractVersionV2 = 'V2',
+): JsonRecord {
+  const { operators: exposed, referencedIds } = exposedSpecOperators(stage, priorArtifact, nodeContractVersion);
+  const operators = exposed.map((operator) => {
       const base = {
         operatorId: operator.operatorId,
         kind: operator.kind,

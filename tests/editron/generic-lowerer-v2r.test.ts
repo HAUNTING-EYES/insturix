@@ -119,4 +119,27 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
       onUnverifiable: 'BLOCK_EXECUTION',
     });
   });
+
+  it('hard-rejects dangling requiresNodeIds and excludes the dependent node', () => {
+    const editorialIntent = structuredClone(canonical.editorialIntentV2R) as { nodes: Array<{ intentNodeId: string; requiresNodeIds: string[] }> };
+    const target = editorialIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-cut');
+    expect(target).toBeTruthy();
+    target!.requiresNodeIds = [...target!.requiresNodeIds, 'node-that-does-not-exist'];
+    const result = lowerV2RBoundIntentGeneric({
+      taskId: 'DEV-01',
+      editorialIntent,
+      evidenceBoundIntent: canonical.evidenceBoundIntentsV2R.BASELINE,
+      evidencePack: canonical.evidencePacks.BASELINE,
+      policy: DEV01_LOWERING_POLICY_V2R,
+    });
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      'LOWERING_DANGLING_DEPENDENCY:node-cut:node-that-does-not-exist',
+    ]));
+    expect(result.compiled.unresolvedIntentNodeIds).toContain('node-cut');
+    const compiledIntentIds = (result.compiled.nodes as Array<{ intentNodeId: string }>).map(({ intentNodeId }) => intentNodeId);
+    expect(compiledIntentIds).not.toContain('node-cut');
+    // The dangling node stays accounted for, so zero-drop still holds.
+    expect(result.zeroDrop).toBe(true);
+    expect(result.zeroAdd).toBe(true);
+  });
 });

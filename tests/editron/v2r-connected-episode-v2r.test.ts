@@ -81,6 +81,16 @@ describe('V2-1F V2R connected episode harness', () => {
     const stageTwoNodeSchema = ((seenPackets[1].packet.outputContract.properties as JsonRecord).nodes as JsonRecord).items as JsonRecord;
     expect((stageTwoNodeSchema.required as string[])).toContain('selectedOperatorId');
     expect((stageTwoNodeSchema.required as string[])).not.toContain('candidateCapabilityIds');
+    // The V2R planner input carries the rich CAP-2A capability dossier alongside
+    // the executable operator catalog.
+    const stageTwoInput = seenPackets[1].packet.modelInput as JsonRecord;
+    expect(Array.isArray(stageTwoInput.operatorCatalog)).toBe(false);
+    expect((stageTwoInput.operatorCatalog as JsonRecord).operators).toBeTruthy();
+    const dossier = stageTwoInput.capabilityDossier as Array<{ operatorId: string; cap2a: unknown }>;
+    expect(Array.isArray(dossier)).toBe(true);
+    expect(dossier.length).toBeGreaterThan(0);
+    expect(dossier.some(({ cap2a }) => cap2a !== null)).toBe(true);
+    expect(dossier.find(({ operatorId }) => operatorId === 'resolve_transcript_edit')?.cap2a).toBeTruthy();
     expect(receipt.lowering).toMatchObject({
       performed: true,
       zeroAdd: true,

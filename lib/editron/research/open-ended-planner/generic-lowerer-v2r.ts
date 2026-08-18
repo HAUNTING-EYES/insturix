@@ -89,6 +89,22 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
   const expectedProjectRevision = text(revision.expectedProjectRevision);
   if (!projectId || !expectedProjectRevision) diagnostics.push('LOWERING_REVISION_BINDING_MISSING');
 
+  // Hard-validate dependencies: every requiresNodeIds entry must reference an
+  // existing intent node. A dangling dependency is a plan defect; the dependent
+  // node is marked unresolved and excluded from compilation rather than lowered
+  // against a missing producer.
+  const intentNodeIdSet = new Set(intentNodes.map((node) => text(node.intentNodeId)));
+  const danglingDependencyNodeIds = new Set<string>();
+  for (const node of intentNodes) {
+    const nodeId = text(node.intentNodeId);
+    for (const required of strings(node.requiresNodeIds)) {
+      if (!intentNodeIdSet.has(required)) {
+        diagnostics.push(`LOWERING_DANGLING_DEPENDENCY:${nodeId}:${required}`);
+        danglingDependencyNodeIds.add(nodeId);
+      }
+    }
+  }
+
   const selectedOperatorIds: string[] = [];
   const compiledNodes: JsonRecord[] = [];
   const unresolvedIntentNodeIds: string[] = [];
@@ -106,6 +122,10 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
       continue;
     }
     selectedOperatorIds.push(selectedOperatorId);
+    if (danglingDependencyNodeIds.has(intentNodeId)) {
+      unresolvedIntentNodeIds.push(intentNodeId);
+      continue;
+    }
     const operator = operators.get(selectedOperatorId);
     if (!operator) {
       diagnostics.push(`LOWERING_OPERATOR_UNKNOWN:${intentNodeId}:${selectedOperatorId}`);
