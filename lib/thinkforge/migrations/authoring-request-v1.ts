@@ -68,6 +68,27 @@ export function pairThinkForgeAuthoringRequestMigrationSources<TSource extends {
   });
 }
 
+export function buildThinkForgeAuthoringRequestMigrationApplyUpdate(
+  decision: ThinkForgeAuthoringRequestMigrationDecision,
+  migratedAt: Date,
+): { $set: Record<string, unknown>; $unset?: Record<string, ''> } {
+  if (!(migratedAt instanceof Date) || Number.isNaN(migratedAt.getTime())) {
+    throw new Error('Authoring request migration requires a valid migratedAt timestamp');
+  }
+  const {
+    ['projectMeta.authoringRequestMigration']: migrationStatus,
+    ...$set
+  } = decision.update.$set;
+  if (!migrationStatus || typeof migrationStatus !== 'object' || Array.isArray(migrationStatus)) {
+    throw new Error('Authoring request migration decision is missing migration status metadata');
+  }
+  $set['projectMeta.authoringRequestMigration'] = { ...migrationStatus, migratedAt };
+  return {
+    $set,
+    ...(Object.keys(decision.update.$unset).length > 0 ? { $unset: decision.update.$unset } : {}),
+  };
+}
+
 function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);

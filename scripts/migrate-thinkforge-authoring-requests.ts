@@ -2,6 +2,7 @@ import { config } from 'dotenv';
 import { MongoClient, type ObjectId } from 'mongodb';
 import {
   THINKFORGE_AUTHORING_REQUEST_MIGRATION_VERSION,
+  buildThinkForgeAuthoringRequestMigrationApplyUpdate,
   pairThinkForgeAuthoringRequestMigrationSources,
   planThinkForgeAuthoringRequestMigration,
 } from '@/lib/thinkforge/migrations/authoring-request-v1';
@@ -221,13 +222,7 @@ async function main(): Promise<void> {
                 { _id: session._id },
                 [...sourceFields, { path: THINKFORGE_AUTHORING_REQUEST_BACKUP_FIELD, exists: true, value: backup }],
               ),
-              update: {
-                $set: {
-                  ...decision.update.$set,
-                  'projectMeta.authoringRequestMigration.migratedAt': appliedAt,
-                },
-                ...(Object.keys(decision.update.$unset).length > 0 ? { $unset: decision.update.$unset } : {}),
-              },
+              update: buildThinkForgeAuthoringRequestMigrationApplyUpdate(decision, appliedAt),
             },
           })), { ordered: true, session: mongoSession });
           if (applyResult.matchedCount !== workItems.length) {

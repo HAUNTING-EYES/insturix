@@ -7,6 +7,7 @@ import {
 } from '@/lib/thinkforge/schemas/authoring-request';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 import {
+  buildThinkForgeAuthoringRequestMigrationApplyUpdate,
   pairThinkForgeAuthoringRequestMigrationSources,
   planThinkForgeAuthoringRequestMigration,
 } from '@/lib/thinkforge/migrations/authoring-request-v1';
@@ -151,5 +152,34 @@ describe('ThinkForge authoring request migration', () => {
       [{ _id: 'session_2', projectMeta: {} }],
       migrationPlan,
     )).toThrow('source order drift');
+  });
+
+  it('merges migration time into the status object without conflicting Mongo paths', () => {
+    const active = plan({
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platform: 'YouTube',
+      durationSec: 420,
+    }).decisions[0]!;
+    const quarantined = plan({}).decisions[0]!;
+    const migratedAt = new Date('2026-08-19T00:00:00.000Z');
+
+    for (const decision of [active, quarantined]) {
+      const update = buildThinkForgeAuthoringRequestMigrationApplyUpdate(decision, migratedAt);
+      expect(Object.prototype.hasOwnProperty.call(
+        update.$set,
+        'projectMeta.authoringRequestMigration.migratedAt',
+      )).toBe(false);
+      expect(update.$set['projectMeta.authoringRequestMigration']).toMatchObject({
+        version: 1,
+        status: decision.status,
+        migratedAt,
+      });
+    }
+  });
+
+  it('rejects an invalid migration timestamp before building a database update', () => {
+    const decision = plan({}).decisions[0]!;
+    expect(() => buildThinkForgeAuthoringRequestMigrationApplyUpdate(decision, new Date(Number.NaN)))
+      .toThrow('valid migratedAt timestamp');
   });
 });
