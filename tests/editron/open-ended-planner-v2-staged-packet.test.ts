@@ -341,7 +341,7 @@ describe('open-ended planner V2 staged no-provider packets', () => {
     for (let stage = 2; stage <= 5; stage += 1) packets.push(buildNextProviderStagePacketV2({ previousPacket: packets.at(-1) as HashedStagePacketV2, stage: stage as 2 | 3 | 4 | 5, executionFormArm: 'FREE_CHOICE', priorArtifact: artifacts[stage - 2] }));
     const sum = (field: 'maxInputTokens' | 'maxVisibleOutputTokens' | 'maxReasoningTokens' | 'maxWallClockMs' | 'maxProviderCostUsd') => packets.reduce((total, packet) => total + packet.packet.stageBudget[field], 0);
     expect(sum('maxInputTokens')).toBe(233000);
-    expect(sum('maxVisibleOutputTokens')).toBe(30800);
+    expect(sum('maxVisibleOutputTokens')).toBe(34800);
     expect(sum('maxReasoningTokens')).toBe(19800);
     expect(sum('maxWallClockMs')).toBe(1380000);
     expect(sum('maxProviderCostUsd')).toBeCloseTo(2.56, 10);
