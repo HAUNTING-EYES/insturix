@@ -1,10 +1,10 @@
 import { deepFreezeV1 } from './contracts-v1';
 import type { GenericLoweringPolicyV2R } from './generic-lowerer-v2r';
 
-// Frozen DEV-03 (audio/video beat-sync) field-binding policy. Binds the
-// beat-sync and camera-shake operators against the DEV-03 evidence pack
-// (timeline snapshot overlay ids, measured beat grid) and the model's own
-// dependency edges.
+// Frozen DEV-03 (audio/video beat-sync) field-binding policy. Semantic values
+// (the find query, the shake effect plan) are MODEL_INPUT; structural values
+// (revision, overlay ids from the timeline snapshot, the final-hit range) are
+// bound by the lowerer from revision/facts.
 export const DEV03_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1({
   policyVersion: 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R',
   taskId: 'DEV-03',
@@ -21,25 +21,6 @@ export const DEV03_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
   operatorFieldBindings: {
     find_audio_moment: {
       query: { source: 'MODEL_INPUT' },
-    },
-    find_transcript_moment: {
-      query: { source: 'MODEL_INPUT' },
-    },
-    resolve_transcript_edit: {
-      intent: { source: 'MODEL_INPUT' },
-    },
-    find_visual_moment: {
-      query: { source: 'MODEL_INPUT' },
-    },
-    resolve_visual_edit: {
-      intent: { source: 'MODEL_INPUT' },
-    },
-    resolve_audio_edit: {
-      intent: { source: 'MODEL_INPUT' },
-    },
-    resolve_keyframe_edit: {
-      overlayId: { source: 'STATIC', staticValue: 'dev03-card-4' },
-      intent: { source: 'MODEL_INPUT' },
     },
     apply_camera_shake: {
       overlayId: { source: 'STATIC', staticValue: 'dev03-card-4' },
