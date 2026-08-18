@@ -10,7 +10,7 @@
     },
     {
       "path": "tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json",
-      "sha256": "0d92de22851ba3def9318b7d04538d514718e92a52848bc026457425fe4160ee"
+      "sha256": "40f52a6d04aadc1d265d6520646725e5254362ce56c468d0ff6726bcbb8e89fa"
     },
     {
       "path": "lib/editron/research/open-ended-planner/media-materializer-v2.ts",

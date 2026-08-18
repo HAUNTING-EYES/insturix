@@ -19,6 +19,7 @@ import {
 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { getCanonicalDev01Stage123V2 } from '@/lib/editron/research/open-ended-planner/dev01-stage123-canonical-v2';
+import { getCanonicalDev02V2RV2 } from '@/lib/editron/research/open-ended-planner/dev02-canonical-v2r-v2';
 import { validateSelectedOperatorNodesV2R } from '@/lib/editron/research/open-ended-planner/stage2-selected-operator-contract-v2r';
 import canonicalEvidenceBoundIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-evidence-bound-intent-v2.json';
 import canonicalEditorialIntentJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-editorial-intent-v2.json';
@@ -130,7 +131,7 @@ describe('open-ended planner V2 staged no-provider packets', () => {
 
   it('passes only condition-visible evidence and replaces placeholder media hashes', () => {
     const visualWithheld = stageOne.find(({ packet }) => packet.taskId === 'DEV-01' && packet.conditionId === 'VISUAL_EVIDENCE_WITHHELD' && packet.inputArm === 'TEXT_EVIDENCE_ONLY');
-    const beatWithheld = stageOne.find(({ packet }) => packet.taskId === 'DEV-03' && packet.conditionId === 'BEAT-EVIDENCE_WITHHELD' && packet.inputArm === 'TEXT_EVIDENCE_ONLY');
+    const beatWithheld = stageOne.find(({ packet }) => packet.taskId === 'DEV-03' && packet.conditionId === 'BEAT_EVIDENCE_WITHHELD' && packet.inputArm === 'TEXT_EVIDENCE_ONLY');
     expect(JSON.stringify(modelInput(visualWithheld as HashedStagePacketV2).evidence)).not.toContain('EV-DEV01-V1');
     expect(JSON.stringify(modelInput(beatWithheld as HashedStagePacketV2).evidence)).not.toContain('EV-DEV03-B1');
     for (const packet of stageOne) {
@@ -481,5 +482,35 @@ describe('open-ended planner V2R DEV-01 canonical chain', () => {
     const third = buildNextProviderStagePacketV2({ previousPacket: second, stage: 3, executionFormArm: 'FORCED_NATIVE', priorArtifact: asPrior(canonical.editorialIntentV2R), nodeContractVersion: 'V2R' });
     expect(() => buildNextProviderStagePacketV2({ previousPacket: third, stage: 4, executionFormArm: 'FORCED_NATIVE', priorArtifact: asPrior(canonical.evidenceBoundIntentsV2R.VISUAL_EVIDENCE_WITHHELD), nodeContractVersion: 'V2R' }))
       .toThrow(/STAGE4_PRIOR_STAGE_NOT_COMPILABLE|cannot compile/);
+  });
+});
+
+describe('open-ended planner V2R DEV-02 hybrid canonical chain', () => {
+  const canonical = getCanonicalDev02V2RV2();
+  const asPrior = (artifact: unknown): { artifactType: string; taskId: string; [key: string]: unknown } => artifact as { artifactType: string; taskId: string; [key: string]: unknown };
+  const dev02Operators = new Set([
+    'inspect_user_asset', 'resolve_user_asset_overlay', 'generated_composition_program',
+    'get_timeline_view', 'read_project_file',
+  ]);
+
+  it('decomposes the hybrid DEV-02 intent into one selected operator per node with a generated island', () => {
+    const intentNodes = canonical.editorialIntent.nodes as unknown as Array<{ selectedOperatorId: string; executionForm: string }>;
+    expect(intentNodes).toHaveLength(7);
+    expect(validateSelectedOperatorNodesV2R(intentNodes, dev02Operators)).toEqual([]);
+    expect(intentNodes.filter(({ selectedOperatorId }) => selectedOperatorId === 'resolve_user_asset_overlay')).toHaveLength(2);
+    const island = intentNodes.find(({ selectedOperatorId }) => selectedOperatorId === 'generated_composition_program');
+    expect(island?.executionForm).toBe('GENERATED_COMPOSITION');
+    expect(canonical.evidenceBoundIntent.stageDisposition).toBe('CAPABILITY_GAP');
+  });
+
+  it('builds the connected DEV-02 stage 2-4 V2R chain and keeps the capability-gap disposition', () => {
+    const stageOne = buildDevelopmentStageOnePacketsV2().find(({ packet }) => packet.taskId === 'DEV-02' && packet.conditionId === 'BASELINE' && packet.inputArm === 'MULTIMODAL') as HashedStagePacketV2;
+    const second = buildNextProviderStagePacketV2({ previousPacket: stageOne, stage: 2, executionFormArm: 'FREE_CHOICE', priorArtifact: canonicalReferenceBlueprintJson, nodeContractVersion: 'V2R' });
+    const third = buildNextProviderStagePacketV2({ previousPacket: second, stage: 3, executionFormArm: 'FREE_CHOICE', priorArtifact: asPrior(canonical.editorialIntent), nodeContractVersion: 'V2R' });
+    expect((third.packet.modelInput.operatorCatalog as { operators: unknown[] }).operators).toHaveLength(5);
+    const fourth = buildNextProviderStagePacketV2({ previousPacket: third, stage: 4, executionFormArm: 'FREE_CHOICE', priorArtifact: asPrior(canonical.evidenceBoundIntent), nodeContractVersion: 'V2R' });
+    expect(fourth.packet.modelInput).toHaveProperty('compilationSources.sourceEditorialIntentHash', hashCanonicalJsonV1(canonical.editorialIntent));
+    const diagnostics = (fourth.packet.outputContract.properties as Record<string, { properties: Record<string, unknown> }>).diagnostics;
+    expect(diagnostics).toBeDefined();
   });
 });

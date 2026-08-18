@@ -119,3 +119,56 @@ describe('open-ended planner V2 DEV-03 provider packet convergence', () => {
     }));
   });
 });
+
+describe('open-ended planner V2R DEV-03 canonical chain', () => {
+  function v2rPackets(conditionId: 'BASELINE' | 'BEAT_EVIDENCE_WITHHELD') {
+    const canonical = source();
+    const stageOne = buildCanonicalTextStageOnePacketV2({
+      taskId: 'DEV-03', conditionId,
+      canonicalInput: canonical.stageOneTextInputs[conditionId],
+    });
+    const stageTwo = buildNextProviderStagePacketV2({
+      previousPacket: stageOne, stage: 2, executionFormArm: 'FORCED_NATIVE',
+      priorArtifact: canonical.referenceBlueprints[conditionId] as JsonRecord & { artifactType: string; taskId: string },
+      nodeContractVersion: 'V2R',
+    });
+    const stageThree = buildNextProviderStagePacketV2({
+      previousPacket: stageTwo, stage: 3, executionFormArm: 'FORCED_NATIVE',
+      priorArtifact: canonical.editorialIntentV2R as JsonRecord & { artifactType: string; taskId: string },
+      stageThreeSource: { evidencePack: canonical.evidencePacks[conditionId] },
+      nodeContractVersion: 'V2R',
+    });
+    return { canonical, stageThree };
+  }
+
+  it('decomposes the canonical DEV-03 intent into seven single-operator nodes', () => {
+    const canonical = source();
+    const nodes = canonical.editorialIntentV2R.nodes as Array<{ selectedOperatorId: string }>;
+    expect(nodes).toHaveLength(7);
+    expect(nodes.map(({ selectedOperatorId }) => selectedOperatorId)).toEqual([
+      'read_project_file', 'get_timeline_view', 'find_audio_moment',
+      'sync_cuts_to_beats', 'apply_camera_shake', 'read_project_file', 'get_timeline_view',
+    ]);
+    expect(canonical.evidenceBoundIntentsV2R.BASELINE.stageDisposition).toBe('READY_FOR_COMPILATION');
+    expect(canonical.evidenceBoundIntentsV2R.BEAT_EVIDENCE_WITHHELD.stageDisposition).toBe('UNVERIFIABLE');
+  });
+
+  it('builds V2R stage 1-3 packets and accepts the canonical V2R bound artifacts', () => {
+    const { canonical, stageThree } = v2rPackets('BASELINE');
+    expect(stageThree.packet.instructions).toEqual(expect.arrayContaining([
+      expect.stringContaining('must not add, drop, or substitute operators'),
+    ]));
+    expect(validateProviderStageArtifactV2(stageThree, canonical.evidenceBoundIntentsV2R.BASELINE)).toEqual([]);
+    const withheld = v2rPackets('BEAT_EVIDENCE_WITHHELD');
+    expect(validateProviderStageArtifactV2(withheld.stageThree, canonical.evidenceBoundIntentsV2R.BEAT_EVIDENCE_WITHHELD)).toEqual([]);
+  });
+
+  it('rejects legacy candidate-list artifacts against the V2R stage-3 contract', () => {
+    const { canonical, stageThree } = v2rPackets('BASELINE');
+    const diagnostics = validateProviderStageArtifactV2(stageThree, canonical.evidenceBoundIntents.BASELINE);
+    expect(diagnostics).toEqual(expect.arrayContaining([
+      expect.stringContaining('selectedOperatorId:REQUIRED'),
+      expect.stringContaining('candidateCapabilityIds:ADDITIONAL'),
+    ]));
+  });
+});

@@ -8,6 +8,7 @@ import developmentV1Json from '@/tests/fixtures/editron/open-ended-planner-v1/de
 
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import { getCanonicalDev01Stage123V2 } from './dev01-stage123-canonical-v2';
+import { getCanonicalDev02V2RV2 } from './dev02-canonical-v2r-v2';
 import {
   getCanonicalDev01NativeProxyFixtureV2,
   hashCanonicalDev01NativeProxyFixtureV2,
@@ -680,7 +681,9 @@ function stageSources(taskId: string, nodeContractVersion: NodeContractVersionV2
     };
   }
   if (taskId === 'DEV-02') return {
-    editorialIntent: dev02CanonicalIntentJson as unknown as JsonRecord,
+    editorialIntent: nodeContractVersion === 'V2R'
+      ? getCanonicalDev02V2RV2().editorialIntent
+      : dev02CanonicalIntentJson as unknown as JsonRecord,
     evidencePacks: { BASELINE: dev02Stage3EvidenceJson as unknown as JsonRecord },
   };
   if (taskId === 'DEV-04') {

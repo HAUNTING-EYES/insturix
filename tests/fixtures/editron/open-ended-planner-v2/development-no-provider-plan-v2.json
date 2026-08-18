@@ -74,16 +74,16 @@
     },
     {
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "MULTIMODAL",
-      "packetHash": "5193c4474aa43ef237c8192be2cafc24671855b2ef7b9a0d42b6f564420f8d67",
+      "packetHash": "a451a506b9e7bb022ba6aecb438d305620f9e19afc8edf173e9cbd0065ceaa15",
       "transportHash": "b8061a94abdc6b74e581846340ce2a905a84be4a4baaddcb8a0b0ae230f81ac0"
     },
     {
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "TEXT_EVIDENCE_ONLY",
-      "packetHash": "199a3af597708e342ebfc5f0401d309fded60ecd9dfbaf74879dd4e6da80dec4",
+      "packetHash": "d6ad45ec43d5bcc8573981a3b391f8fb53ea5af71cf9bb2843d1e0727f573629",
       "transportHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     {
@@ -1197,13 +1197,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-free_choice",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-multimodal-free_choice",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FREE_CHOICE",
-      "stageOnePacketHash": "5193c4474aa43ef237c8192be2cafc24671855b2ef7b9a0d42b6f564420f8d67",
-      "branchHash": "b02481b70a941f5cefebd1498e8c2757737140bacf7d71e2922aa6f801e29825",
+      "stageOnePacketHash": "a451a506b9e7bb022ba6aecb438d305620f9e19afc8edf173e9cbd0065ceaa15",
+      "branchHash": "f48592fbac0f158bdf50e1e513c12c2facb59a1536d821ba46a484018ac0e9f1",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1215,13 +1215,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-forced_native",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-multimodal-forced_native",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FORCED_NATIVE",
-      "stageOnePacketHash": "5193c4474aa43ef237c8192be2cafc24671855b2ef7b9a0d42b6f564420f8d67",
-      "branchHash": "808cfe38132fad78c10b79c777af97bf3f8758f7a77875f82c313f102d33c538",
+      "stageOnePacketHash": "a451a506b9e7bb022ba6aecb438d305620f9e19afc8edf173e9cbd0065ceaa15",
+      "branchHash": "055c1428bb3854e8dd090cd6a56635a5f56c75a0e0c0895063db38196446b8c0",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1233,13 +1233,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-forced_generated_composition",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-multimodal-forced_generated_composition",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FORCED_GENERATED_COMPOSITION",
-      "stageOnePacketHash": "5193c4474aa43ef237c8192be2cafc24671855b2ef7b9a0d42b6f564420f8d67",
-      "branchHash": "7aa0267344e46212ae6200f2d599ad1db773d8559d5c1d06a423ebe134982231",
+      "stageOnePacketHash": "a451a506b9e7bb022ba6aecb438d305620f9e19afc8edf173e9cbd0065ceaa15",
+      "branchHash": "21f4815f95b162420c89cb15f2ab7bbdd2d0940c2e57249b52b8450c099bc968",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1251,13 +1251,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-forced_hybrid",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-multimodal-forced_hybrid",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "FORCED_HYBRID",
-      "stageOnePacketHash": "5193c4474aa43ef237c8192be2cafc24671855b2ef7b9a0d42b6f564420f8d67",
-      "branchHash": "6dca1cab052ff6d654c1fcd646c79a6558ab9912f516aacaf062d58f19ba075f",
+      "stageOnePacketHash": "a451a506b9e7bb022ba6aecb438d305620f9e19afc8edf173e9cbd0065ceaa15",
+      "branchHash": "ce84e8eb38dde4d8c014ce517721cc0e6f0dad7a39da73d50f80b41f69c7cc10",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1269,13 +1269,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-threshold_ablation",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-multimodal-threshold_ablation",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "THRESHOLD_ABLATION",
-      "stageOnePacketHash": "5193c4474aa43ef237c8192be2cafc24671855b2ef7b9a0d42b6f564420f8d67",
-      "branchHash": "61886665bd3c16c92d3b7c2994f4721d0e71fbfb244b0ba85945dd579f57a616",
+      "stageOnePacketHash": "a451a506b9e7bb022ba6aecb438d305620f9e19afc8edf173e9cbd0065ceaa15",
+      "branchHash": "b159a4d5960a913b34cd8cb7fd6218557d81b736b81949324d50d9c5269b0379",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1287,13 +1287,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-multimodal-signal_ablation",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-multimodal-signal_ablation",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "MULTIMODAL",
       "executionFormArm": "SIGNAL_ABLATION",
-      "stageOnePacketHash": "5193c4474aa43ef237c8192be2cafc24671855b2ef7b9a0d42b6f564420f8d67",
-      "branchHash": "f6a680d82fe97819ccc59e46d57169725c0b481b673ceec8da2193361b2942f0",
+      "stageOnePacketHash": "a451a506b9e7bb022ba6aecb438d305620f9e19afc8edf173e9cbd0065ceaa15",
+      "branchHash": "8fa38421ca4b86a9ba9c3ef6928fd7508bb4ce7b5d8b46ddb154228924fdb55b",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1305,13 +1305,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-free_choice",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-text_evidence_only-free_choice",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FREE_CHOICE",
-      "stageOnePacketHash": "199a3af597708e342ebfc5f0401d309fded60ecd9dfbaf74879dd4e6da80dec4",
-      "branchHash": "1086ae550a65aa9d1f6e3c25b797869bb2a4f604c970c1cfeefdd8bec14bed85",
+      "stageOnePacketHash": "d6ad45ec43d5bcc8573981a3b391f8fb53ea5af71cf9bb2843d1e0727f573629",
+      "branchHash": "e2e241ee3169e2d13e7ee519a3b511d2feb206a239da8160362a3932f2df6687",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1323,13 +1323,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-forced_native",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-text_evidence_only-forced_native",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FORCED_NATIVE",
-      "stageOnePacketHash": "199a3af597708e342ebfc5f0401d309fded60ecd9dfbaf74879dd4e6da80dec4",
-      "branchHash": "f875a03533f6c6e2daa1de76dd0e756e5058d6abbf1940b0e26e17cde4e72967",
+      "stageOnePacketHash": "d6ad45ec43d5bcc8573981a3b391f8fb53ea5af71cf9bb2843d1e0727f573629",
+      "branchHash": "4c260b1070a44df9093127336da448bdda7d22754e724c4f10487a709bdda3be",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1341,13 +1341,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-forced_generated_composition",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-text_evidence_only-forced_generated_composition",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FORCED_GENERATED_COMPOSITION",
-      "stageOnePacketHash": "199a3af597708e342ebfc5f0401d309fded60ecd9dfbaf74879dd4e6da80dec4",
-      "branchHash": "fbf8f7f719f0fa24c2c9274877c02992d42167bcc6400ca16ba7ec69556538a7",
+      "stageOnePacketHash": "d6ad45ec43d5bcc8573981a3b391f8fb53ea5af71cf9bb2843d1e0727f573629",
+      "branchHash": "a2bb6ea56c1218473def2e419a8f131c354066bbdf5cf743bcd75621841e801e",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1359,13 +1359,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-forced_hybrid",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-text_evidence_only-forced_hybrid",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "FORCED_HYBRID",
-      "stageOnePacketHash": "199a3af597708e342ebfc5f0401d309fded60ecd9dfbaf74879dd4e6da80dec4",
-      "branchHash": "de3b04ef9e6784799d7652790ede6d85a9bc1ad7bef9f3e8762c3ffdfebfe077",
+      "stageOnePacketHash": "d6ad45ec43d5bcc8573981a3b391f8fb53ea5af71cf9bb2843d1e0727f573629",
+      "branchHash": "045f26b6d83369a73b8a7fd0c5e14b30828b88d7a0a19d9ff368a7872eacb384",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1377,13 +1377,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-threshold_ablation",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-text_evidence_only-threshold_ablation",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "THRESHOLD_ABLATION",
-      "stageOnePacketHash": "199a3af597708e342ebfc5f0401d309fded60ecd9dfbaf74879dd4e6da80dec4",
-      "branchHash": "07f9aa46fdb9ed2e122e3af220482255ed90ba6f99c38ef95c0fe9c46232d778",
+      "stageOnePacketHash": "d6ad45ec43d5bcc8573981a3b391f8fb53ea5af71cf9bb2843d1e0727f573629",
+      "branchHash": "1dbd5126021b1e7d452e22b90117ad525f953d18d6e764d250d5f228cab9e8da",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1395,13 +1395,13 @@
       ]
     },
     {
-      "branchId": "oe-v2-dev-03-beat-evidence_withheld-text_evidence_only-signal_ablation",
+      "branchId": "oe-v2-dev-03-beat_evidence_withheld-text_evidence_only-signal_ablation",
       "taskId": "DEV-03",
-      "conditionId": "BEAT-EVIDENCE_WITHHELD",
+      "conditionId": "BEAT_EVIDENCE_WITHHELD",
       "inputArm": "TEXT_EVIDENCE_ONLY",
       "executionFormArm": "SIGNAL_ABLATION",
-      "stageOnePacketHash": "199a3af597708e342ebfc5f0401d309fded60ecd9dfbaf74879dd4e6da80dec4",
-      "branchHash": "9c3d84390879934c705b09cb83f09b367c91118362cbaff045a6e682dc75df78",
+      "stageOnePacketHash": "d6ad45ec43d5bcc8573981a3b391f8fb53ea5af71cf9bb2843d1e0727f573629",
+      "branchHash": "50583e0b8720a2dda6fbe179e726cdb28c30bac08135daf1676c54ea74c4a78f",
       "stageStatuses": [
         "STAGE_1_PACKET_READY",
         "STAGE_2_BLOCKED_ON_REFERENCE_BLUEPRINT",
@@ -1872,7 +1872,7 @@
     },
     {
       "path": "tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json",
-      "sha256": "0d92de22851ba3def9318b7d04538d514718e92a52848bc026457425fe4160ee"
+      "sha256": "40f52a6d04aadc1d265d6520646725e5254362ce56c468d0ff6726bcbb8e89fa"
     },
     {
       "path": "tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json",
@@ -1892,8 +1892,8 @@
     },
     {
       "path": "lib/editron/research/open-ended-planner/staged-packet-v2.ts",
-      "sha256": "3d90f125d745d63b3a2e6306dbd98432fb58a768345257d3483d23a356eb9824"
+      "sha256": "5f303059d117c8ad1ca22dd603dfc8898dda160f39fbb368d07cd587b0e4ee3b"
     }
   ],
-  "planHash": "aba0ad0369087bb848e0a819ba9d9ce11437b74d683219f9c35966ddec5261ac"
+  "planHash": "d4fed61291ccbfcc8ed882e19a0f3f343f4a877cc4755ad619ff50cafb08dfd8"
 }
