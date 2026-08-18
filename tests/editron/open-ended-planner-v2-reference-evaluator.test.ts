@@ -32,7 +32,7 @@ function sha256File(path: string): string {
 
 describe('DEV-02 evaluator-only reference truth', () => {
   it('freezes evaluator and canonical blueprint hashes', () => {
-    expect(hashCanonicalJsonV1(evaluator)).toBe('f05cf1c9e71dcadce2ac0574d50d568671a18f5fbf636615faa3a12d8c119a64');
+    expect(hashCanonicalJsonV1(evaluator)).toBe('2de840f076c7237cae5e0b2bb5a1bae19c1a2f2fc994c18f0ce63fafff06fa27');
     expect(hashCanonicalJsonV1(blueprint)).toBe('3a3f6c84164ef78fad89e67d443e7bcef728d1da4963ef3b6d3f57dc54d01c6f');
   });
 

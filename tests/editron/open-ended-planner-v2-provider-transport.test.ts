@@ -59,7 +59,7 @@ describe('open-ended planner V2 provider transport', () => {
     expect(result.attempts[0]).toMatchObject({ finishReason: 'max_output_tokens', truncated: true });
   });
 
-  it('performs exactly one budget-consuming repair for malformed JSON', async () => {
+  it('performs exactly one repair for malformed JSON with its own declared budget', async () => {
     const requests: Record<string, unknown>[] = [];
     const result = await run({
       fetchImpl: async (_url, init) => {
@@ -72,7 +72,11 @@ describe('open-ended planner V2 provider transport', () => {
     const repairPrompt = inputText(requests[1]);
     expect(repairPrompt).toContain('INVALID_JSON');
     expect(repairPrompt).toContain('not-json');
-    expect(record(requests[1]).max_output_tokens).toBeLessThan(record(requests[0]).max_output_tokens as number);
+    // V2-1R per-attempt budget law: the repair attempt receives its own declared
+    // budget freshly allocated from the stage budget, not the residue of attempt 1.
+    const budget = textPacket().packet.stageBudget;
+    expect(record(requests[1]).max_output_tokens).toBe(budget.maxVisibleOutputTokens + budget.maxReasoningTokens);
+    expect(record(requests[1]).max_output_tokens).toBe(record(requests[0]).max_output_tokens);
   });
 
   it('repairs a schema-invalid artifact once and preserves its diagnostics', async () => {
@@ -120,6 +124,31 @@ describe('open-ended planner V2 provider transport', () => {
     });
     expect(wallDrift.disposition).toBe('BUDGET_EXCEEDED');
     expect(wallDrift.attempts[0].schemaDiagnostics).toContain('WALL_CLOCK_LIMIT');
+  });
+
+  it('gives a slow first attempt no power to starve the repair wall clock (V2-1R)', async () => {
+    const wall = textPacket().packet.stageBudget.maxWallClockMs;
+    let calls = 0;
+    let clock = 0;
+    const result = await run({
+      nowMs: () => clock,
+      fetchImpl: async () => {
+        calls += 1;
+        if (calls === 1) {
+          clock += Math.floor(wall * 0.9); // slow, but inside attempt 1's own declared budget
+          return jsonResponse(openAI('not-json'));
+        }
+        clock += Math.floor(wall * 0.5); // the repair needs half of a full declared budget
+        return jsonResponse(openAI(JSON.stringify(validArtifact())));
+      },
+    });
+    expect(calls).toBe(2);
+    // Under the pre-V2R shared pool, attempt 2 would inherit only ~10% of the wall
+    // clock and this 50% repair would be recorded BUDGET_EXCEEDED / WALL_CLOCK_LIMIT
+    // (the DEV-01 Luna false-timeout). With per-attempt budgets the repair receives
+    // its own full declaration and is accepted.
+    expect(result.attempts[1]).toMatchObject({ disposition: 'ARTIFACT_ACCEPTED' });
+    expect(result.disposition).toBe('ARTIFACT_ACCEPTED');
   });
 
   it('rejects missing native usage as unverifiable without manufacturing zeroes', async () => {

@@ -7,7 +7,7 @@
   "sourceBindings": [
     {
       "path": "tests/fixtures/editron/open-ended-planner-v2/development-media-manifest-v2.json",
-      "sha256": "027fc3800a27627b3dc5653d1323485f05068e6182e59c0528c2cb89612b02cc"
+      "sha256": "4d46bb56543bb66bbef92800de0ce841d6cd6cbcfcd262ff1634607031881ee4"
     },
     {
       "path": "lib/editron/research/open-ended-planner/media-materializer-v2.ts",
@@ -24,31 +24,148 @@
       "endExclusiveTick": "181"
     },
     "orderedSamples": [
-      { "sampleId": "dev02-reference-t0000ms", "referenceTick": "0", "artifactSha256": "sha256:152582dbac6b334e0ee19a6867c854ee3685760d5d3950887d719e44ca0b348d" },
-      { "sampleId": "dev02-reference-t1200ms", "referenceTick": "36", "artifactSha256": "sha256:4042ca9e845eec0c267bb9ae665138b538600a2c25f6c2b37703ee5fe88fa745" },
-      { "sampleId": "dev02-reference-t2400ms", "referenceTick": "72", "artifactSha256": "sha256:6a90455d4f720f2cc401523c62025ecb79610d3e972b21d1cb30a81d74511836" },
-      { "sampleId": "dev02-reference-t3600ms", "referenceTick": "108", "artifactSha256": "sha256:10a51109739646cf28380b84b96725006718459a233ae3a102aae987bc3d7987" },
-      { "sampleId": "dev02-reference-t4800ms", "referenceTick": "144", "artifactSha256": "sha256:10a51109739646cf28380b84b96725006718459a233ae3a102aae987bc3d7987" },
-      { "sampleId": "dev02-reference-t6000ms", "referenceTick": "180", "artifactSha256": "sha256:4b9293e824ba316aa2cece8ceee8f51ee29d58760c0e989c92f5c67b2d703b48" }
+      {
+        "sampleId": "dev02-reference-t0000ms",
+        "referenceTick": "0",
+        "artifactSha256": "sha256:152582dbac6b334e0ee19a6867c854ee3685760d5d3950887d719e44ca0b348d"
+      },
+      {
+        "sampleId": "dev02-reference-t1200ms",
+        "referenceTick": "36",
+        "artifactSha256": "sha256:4042ca9e845eec0c267bb9ae665138b538600a2c25f6c2b37703ee5fe88fa745"
+      },
+      {
+        "sampleId": "dev02-reference-t2400ms",
+        "referenceTick": "72",
+        "artifactSha256": "sha256:6a90455d4f720f2cc401523c62025ecb79610d3e972b21d1cb30a81d74511836"
+      },
+      {
+        "sampleId": "dev02-reference-t3600ms",
+        "referenceTick": "108",
+        "artifactSha256": "sha256:10a51109739646cf28380b84b96725006718459a233ae3a102aae987bc3d7987"
+      },
+      {
+        "sampleId": "dev02-reference-t4800ms",
+        "referenceTick": "144",
+        "artifactSha256": "sha256:10a51109739646cf28380b84b96725006718459a233ae3a102aae987bc3d7987"
+      },
+      {
+        "sampleId": "dev02-reference-t6000ms",
+        "referenceTick": "180",
+        "artifactSha256": "sha256:4b9293e824ba316aa2cece8ceee8f51ee29d58760c0e989c92f5c67b2d703b48"
+      }
     ]
   },
   "promptDisclosed": [
-    { "disclosureId": "PD-STACKED-PANELS", "statement": "The requested result needs an energetic stacked-panel feeling.", "canonicalRefs": ["claim-user-stacked-layout"] },
-    { "disclosureId": "PD-CENTRED-TITLE", "statement": "The title must remain centered and readable.", "canonicalRefs": ["claim-user-centred-title"] },
-    { "disclosureId": "PD-VARIED-CROPS", "statement": "The supplied clips must use varied crops.", "canonicalRefs": ["claim-user-varied-crops"] },
-    { "disclosureId": "PD-EXIT-CONTINUITY", "statement": "The last center image must continue into the following full-screen shot.", "canonicalRefs": ["claim-user-exit-continuity"] }
+    {
+      "disclosureId": "PD-STACKED-PANELS",
+      "statement": "The requested result needs an energetic stacked-panel feeling.",
+      "canonicalRefs": [
+        "claim-user-stacked-layout"
+      ]
+    },
+    {
+      "disclosureId": "PD-CENTRED-TITLE",
+      "statement": "The title must remain centered and readable.",
+      "canonicalRefs": [
+        "claim-user-centred-title"
+      ]
+    },
+    {
+      "disclosureId": "PD-VARIED-CROPS",
+      "statement": "The supplied clips must use varied crops.",
+      "canonicalRefs": [
+        "claim-user-varied-crops"
+      ]
+    },
+    {
+      "disclosureId": "PD-EXIT-CONTINUITY",
+      "statement": "The last center image must continue into the following full-screen shot.",
+      "canonicalRefs": [
+        "claim-user-exit-continuity"
+      ]
+    }
   ],
   "evaluatorOnly": {
-    "scoringScale": ["DETECTED", "PARTIAL", "OMITTED", "CONTRADICTED", "UNRESOLVED"],
+    "scoringScale": [
+      "DETECTED",
+      "PARTIAL",
+      "OMITTED",
+      "CONTRADICTED",
+      "UNRESOLVED"
+    ],
     "heldOutObservations": [
-      { "observationId": "HO-EXACT-FIVE-PANELS", "statement": "The established composition contains exactly five panels.", "basis": "DETERMINISTIC_GENERATOR_AND_SETTLED_SAMPLE", "canonicalRefs": ["claim-ref-five-panels"] },
-      { "observationId": "HO-BLACK-GUTTERS", "statement": "Black gutters separate the settled panels.", "basis": "DETERMINISTIC_GENERATOR_AND_SETTLED_SAMPLE", "canonicalRefs": ["claim-ref-black-gutters"] },
-      { "observationId": "HO-YELLOW-TWO-LINE-TITLE", "statement": "The centered title has a yellow two-line visual form.", "basis": "DETERMINISTIC_GENERATOR_AND_ORDERED_SAMPLES", "canonicalRefs": ["claim-ref-yellow-two-line-title"] },
-      { "observationId": "HO-OPPOSED-MOTION", "statement": "The center panels rise while the side panels descend.", "basis": "DETERMINISTIC_GENERATOR_AND_ORDERED_SAMPLES", "canonicalRefs": ["claim-ref-opposed-motion"] },
-      { "observationId": "HO-STABLE-HOLD", "statement": "The established layout holds stable from tick 108 through tick 144.", "basis": "IDENTICAL_TICK_108_AND_TICK_144_ARTIFACT_HASHES", "canonicalRefs": ["claim-ref-stable-hold", "phase-hold"] },
-      { "observationId": "HO-GREEN-CENTRE-TAKEOVER", "statement": "The green center panel expands into the final full-frame image.", "basis": "DETERMINISTIC_GENERATOR_AND_FINAL_SAMPLE", "canonicalRefs": ["claim-ref-green-centre-takeover", "phase-release"] },
-      { "observationId": "HO-TEMPORAL-PROGRESSION", "statement": "The construction progresses through sparse build, dense hold, and release.", "basis": "DETERMINISTIC_GENERATOR_AND_ORDERED_SAMPLES", "canonicalRefs": ["claim-ref-temporal-progression", "phase-build", "phase-hold", "phase-release"] },
-      { "observationId": "HO-UNCERTAINTY-CALIBRATION", "statement": "Audio, exact easing, and unsampled timing must not be claimed from the sparse image arm.", "basis": "INPUT_ARM_EVIDENCE_LIMIT", "canonicalRefs": ["uncertainty-audio", "uncertainty-easing", "uncertainty-unsampled-timing"] }
+      {
+        "observationId": "HO-EXACT-FIVE-PANELS",
+        "statement": "The established composition contains exactly five panels.",
+        "basis": "DETERMINISTIC_GENERATOR_AND_SETTLED_SAMPLE",
+        "canonicalRefs": [
+          "claim-ref-five-panels"
+        ]
+      },
+      {
+        "observationId": "HO-BLACK-GUTTERS",
+        "statement": "Black gutters separate the settled panels.",
+        "basis": "DETERMINISTIC_GENERATOR_AND_SETTLED_SAMPLE",
+        "canonicalRefs": [
+          "claim-ref-black-gutters"
+        ]
+      },
+      {
+        "observationId": "HO-YELLOW-TWO-LINE-TITLE",
+        "statement": "The centered title has a yellow two-line visual form.",
+        "basis": "DETERMINISTIC_GENERATOR_AND_ORDERED_SAMPLES",
+        "canonicalRefs": [
+          "claim-ref-yellow-two-line-title"
+        ]
+      },
+      {
+        "observationId": "HO-OPPOSED-MOTION",
+        "statement": "The center panels rise while the side panels descend.",
+        "basis": "DETERMINISTIC_GENERATOR_AND_ORDERED_SAMPLES",
+        "canonicalRefs": [
+          "claim-ref-opposed-motion"
+        ]
+      },
+      {
+        "observationId": "HO-STABLE-HOLD",
+        "statement": "The established layout holds stable from tick 108 through tick 144.",
+        "basis": "IDENTICAL_TICK_108_AND_TICK_144_ARTIFACT_HASHES",
+        "canonicalRefs": [
+          "claim-ref-stable-hold",
+          "phase-hold"
+        ]
+      },
+      {
+        "observationId": "HO-GREEN-CENTRE-TAKEOVER",
+        "statement": "The green center panel expands into the final full-frame image.",
+        "basis": "DETERMINISTIC_GENERATOR_AND_FINAL_SAMPLE",
+        "canonicalRefs": [
+          "claim-ref-green-centre-takeover",
+          "phase-release"
+        ]
+      },
+      {
+        "observationId": "HO-TEMPORAL-PROGRESSION",
+        "statement": "The construction progresses through sparse build, dense hold, and release.",
+        "basis": "DETERMINISTIC_GENERATOR_AND_ORDERED_SAMPLES",
+        "canonicalRefs": [
+          "claim-ref-temporal-progression",
+          "phase-build",
+          "phase-hold",
+          "phase-release"
+        ]
+      },
+      {
+        "observationId": "HO-UNCERTAINTY-CALIBRATION",
+        "statement": "Audio, exact easing, and unsampled timing must not be claimed from the sparse image arm.",
+        "basis": "INPUT_ARM_EVIDENCE_LIMIT",
+        "canonicalRefs": [
+          "uncertainty-audio",
+          "uncertainty-easing",
+          "uncertainty-unsampled-timing"
+        ]
+      }
     ]
   }
 }
