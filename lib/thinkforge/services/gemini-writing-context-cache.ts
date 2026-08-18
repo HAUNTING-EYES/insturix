@@ -31,6 +31,7 @@ const DEFAULT_CACHE_MODEL = 'models/gemini-2.5-flash';
 const INLINE_KNOWLEDGE_MAX_CHARS = 24_000;
 const INLINE_KNOWLEDGE_SECTION_MAX_CHARS = 4_000;
 const CACHE_UNAVAILABLE_TTL_MS = 30 * 60 * 1000;
+const STRUCTURED_FAILURE_EVIDENCE_MAX_CHARS = 200_000;
 
 interface CacheEntry {
   cacheName: string;
@@ -236,6 +237,38 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function attachEvalStructuredFailureEvidence(error: unknown): void {
+  if (process.env.THINKFORGE_EVAL_CAPTURE_REJECTED_OUTPUT !== '1') return;
+  const failure = asRecord(error);
+  if (!failure || typeof failure.text !== 'string') return;
+
+  const generatedText = failure.text;
+  const cause = failure.cause;
+  const causeName = cause instanceof Error
+    ? cause.name
+    : typeof asRecord(cause)?.name === 'string'
+      ? String(asRecord(cause)?.name)
+      : undefined;
+  const evidence = {
+    kind: 'ai_sdk_structured_output_failure',
+    text: generatedText.slice(0, STRUCTURED_FAILURE_EVIDENCE_MAX_CHARS),
+    textChars: generatedText.length,
+    truncated: generatedText.length > STRUCTURED_FAILURE_EVIDENCE_MAX_CHARS,
+    finishReason: typeof failure.finishReason === 'string' ? failure.finishReason : undefined,
+    causeName,
+  } as const;
+
+  try {
+    Object.defineProperty(error, 'rejectedOutput', {
+      value: evidence,
+      configurable: true,
+      enumerable: false,
+    });
+  } catch {
+    // Diagnostic evidence must never replace or mask the original provider failure.
+  }
 }
 
 function readNumber(value: unknown): number | undefined {
@@ -929,6 +962,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
     const failure = deadline.timedOut() && !deadline.abortedByCaller()
       ? structuredGenerationTimeoutError()
       : error;
+    attachEvalStructuredFailureEvidence(failure);
     const failedAudit = failure instanceof ProviderPrivacyGateError ? failure.audit : privacyAudit;
     recordThinkForgeWritingContextCost({
       status: 'failed',

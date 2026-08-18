@@ -456,6 +456,53 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     }));
   });
 
+  it('captures bounded structured-output evidence only for an explicit eval run', async () => {
+    const productionFailure = Object.assign(new Error('response did not match schema'), {
+      text: '{"output":"production"}',
+      finishReason: 'stop',
+    });
+    sdkMocks.generateObject.mockRejectedValueOnce(productionFailure);
+
+    await expect(generateStructuredWithWritingContextCache({
+      prompt: 'write a script',
+      schema: z.object({ output: z.string() }),
+    })).rejects.toBe(productionFailure);
+    expect((productionFailure as Error & { rejectedOutput?: unknown }).rejectedOutput).toBeUndefined();
+
+    vi.stubEnv('THINKFORGE_EVAL_CAPTURE_REJECTED_OUTPUT', '1');
+    const rawText = 'x'.repeat(200_005);
+    const evalFailure = Object.assign(new Error('response did not match schema'), {
+      text: rawText,
+      finishReason: 'length',
+      cause: Object.assign(new Error('schema mismatch'), { name: 'AI_TypeValidationError' }),
+    });
+    sdkMocks.generateObject.mockRejectedValueOnce(evalFailure);
+
+    await expect(generateStructuredWithWritingContextCache({
+      prompt: 'write a script',
+      schema: z.object({ output: z.string() }),
+    })).rejects.toBe(evalFailure);
+    const evidence = (evalFailure as Error & {
+      rejectedOutput?: {
+        kind: string;
+        text: string;
+        textChars: number;
+        truncated: boolean;
+        finishReason?: string;
+        causeName?: string;
+      };
+    }).rejectedOutput;
+    expect(evidence).toMatchObject({
+      kind: 'ai_sdk_structured_output_failure',
+      textChars: rawText.length,
+      truncated: true,
+      finishReason: 'length',
+      causeName: 'AI_TypeValidationError',
+    });
+    expect(evidence?.text).toHaveLength(200_000);
+    expect(Object.keys(evalFailure)).not.toContain('rejectedOutput');
+  });
+
   it('uses a schema-validated post fixture only for an explicit non-production E2E run', async () => {
     enableE2EWriterFixture('post');
 
