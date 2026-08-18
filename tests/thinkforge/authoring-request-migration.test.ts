@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { ObjectId } from 'mongodb';
 import {
   createDefaultThinkForgePostControls,
   createThinkForgeAuthoringRequest,
   resolveThinkForgePlatformSurfaceFromLabel,
 } from '@/lib/thinkforge/schemas/authoring-request';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
-import { planThinkForgeAuthoringRequestMigration } from '@/lib/thinkforge/migrations/authoring-request-v1';
+import {
+  pairThinkForgeAuthoringRequestMigrationSources,
+  planThinkForgeAuthoringRequestMigration,
+} from '@/lib/thinkforge/migrations/authoring-request-v1';
 import {
   buildThinkForgeAuthoringRequestV1RollbackUpdate,
   createThinkForgeAuthoringRequestV1Backup,
@@ -109,5 +113,43 @@ describe('ThinkForge authoring request migration', () => {
       'projectMeta.contentContract': '',
       'projectMeta.authoringRequestMigration': '',
     });
+  });
+
+  it('preserves native identities when a string ID and ObjectId have the same display value', () => {
+    const displayId = '695dfb1196fc478cb16f9a3b';
+    const objectId = new ObjectId(displayId);
+    const projectMeta = {
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platform: 'YouTube',
+      durationSec: 420,
+    };
+    const sources = [
+      { _id: displayId, projectMeta },
+      { _id: objectId, projectMeta },
+    ];
+    const migrationPlan = planThinkForgeAuthoringRequestMigration(sources.map((source) => ({
+      _id: String(source._id),
+      projectMeta: source.projectMeta,
+    })));
+
+    const pairs = pairThinkForgeAuthoringRequestMigrationSources(sources, migrationPlan);
+
+    expect(pairs).toHaveLength(2);
+    expect(pairs[0]?.source._id).toBe(displayId);
+    expect(pairs[1]?.source._id).toBe(objectId);
+    expect(pairs.map(({ decision }) => decision.sessionId)).toEqual([displayId, displayId]);
+  });
+
+  it('fails closed when the planner no longer has a one-to-one source order', () => {
+    const migrationPlan = planThinkForgeAuthoringRequestMigration([
+      { _id: 'session_1', projectMeta: {} },
+    ]);
+
+    expect(() => pairThinkForgeAuthoringRequestMigrationSources([], migrationPlan))
+      .toThrow('source count drift');
+    expect(() => pairThinkForgeAuthoringRequestMigrationSources(
+      [{ _id: 'session_2', projectMeta: {} }],
+      migrationPlan,
+    )).toThrow('source order drift');
   });
 });

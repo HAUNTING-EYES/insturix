@@ -47,6 +47,27 @@ export interface ThinkForgeAuthoringRequestMigrationPlan {
   summary: { scanned: number; active: number; quarantined: number };
 }
 
+export interface ThinkForgeAuthoringRequestMigrationSourcePair<TSource> {
+  source: TSource;
+  decision: ThinkForgeAuthoringRequestMigrationDecision;
+}
+
+export function pairThinkForgeAuthoringRequestMigrationSources<TSource extends { _id: unknown }>(
+  sources: readonly TSource[],
+  plan: ThinkForgeAuthoringRequestMigrationPlan,
+): ThinkForgeAuthoringRequestMigrationSourcePair<TSource>[] {
+  if (sources.length !== plan.decisions.length) {
+    throw new Error(`Authoring request migration source count drift: ${sources.length}/${plan.decisions.length}`);
+  }
+  return sources.map((source, index) => {
+    const decision = plan.decisions[index];
+    if (!decision || String(source._id) !== decision.sessionId) {
+      throw new Error(`Authoring request migration source order drift at index ${index}`);
+    }
+    return { source, decision };
+  });
+}
+
 function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);

@@ -1,9 +1,9 @@
 import { config } from 'dotenv';
-import { MongoClient } from 'mongodb';
+import { MongoClient, type ObjectId } from 'mongodb';
 import {
   THINKFORGE_AUTHORING_REQUEST_MIGRATION_VERSION,
+  pairThinkForgeAuthoringRequestMigrationSources,
   planThinkForgeAuthoringRequestMigration,
-  type LegacyThinkForgeAuthoringSessionRecord,
 } from '@/lib/thinkforge/migrations/authoring-request-v1';
 import {
   THINKFORGE_AUTHORING_REQUEST_BACKUP_FIELD,
@@ -39,7 +39,9 @@ const confirmedDatabase = process.argv
   .find((value) => value.startsWith('--confirm-db='))
   ?.slice('--confirm-db='.length);
 
-type MigrationSession = LegacyThinkForgeAuthoringSessionRecord & {
+type MigrationSession = {
+  _id: string | ObjectId;
+  projectMeta?: unknown;
   [THINKFORGE_AUTHORING_REQUEST_BACKUP_FIELD]?: ThinkForgeAuthoringRequestV1Backup;
 };
 
@@ -175,10 +177,10 @@ async function main(): Promise<void> {
     }
 
     const capturedAt = new Date();
-    const sessionsById = new Map(candidates.map((session) => [String(session._id), session]));
-    const workItems: AuthoringRequestWorkItem[] = plan.decisions.map((decision) => {
-      const session = sessionsById.get(decision.sessionId);
-      if (!session) throw new Error(`Migration source disappeared: ${decision.sessionId}`);
+    const workItems: AuthoringRequestWorkItem[] = pairThinkForgeAuthoringRequestMigrationSources(
+      candidates,
+      plan,
+    ).map(({ decision, source: session }) => {
       return {
         decision,
         session,
