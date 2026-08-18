@@ -7,11 +7,12 @@ export const STAGE2_SELECTED_OPERATOR_INSTRUCTIONS_V2R = deepFreezeV1({
   stage2: [
     'Every executable intent node selects exactly one selectedOperatorId that will execute; record considered but non-executed options separately in alternativeOperatorIds and never mix executed and non-executed operators in one field.',
     'Select operators only from the provided operator catalog; an operatorId that is not in the catalog cannot execute and will be rejected.',
+    'For each node, supply the semantic input values the selected operator needs in nodeInputs: the search query for find_* operators and the edit intent for resolve_* operators. These are your editorial decisions and must be produced by you, not left for the system to invent.',
     'Express clarification or capability gap only through unresolvedRequirements dispositions, never through an empty, placeholder, or pseudo operator node.',
     'The deterministic lowerer adds zero operations and drops zero selected operations. Select every read, resolver, mutation, and proof operation the edit requires as its own node; no operator is inserted or completed for you.',
   ],
   stage3: [
-    'Preserve every Stage-2 selectedOperatorId and alternativeOperatorIds unchanged; Stage 3 binds evidence, rights, revision, preservation, and proof requirements and must not add, drop, or substitute operators.',
+    'Preserve every Stage-2 selectedOperatorId, alternativeOperatorIds, and nodeInputs unchanged; Stage 3 binds evidence, rights, revision, preservation, and proof requirements and must not add, drop, or substitute operators or alter the semantic nodeInputs.',
   ],
 });
 
@@ -36,6 +37,14 @@ export const STAGE2_SELECTED_OPERATOR_NODE_SCHEMA_V2R = deepFreezeV1({
     invalidates: stringArraySchema,
     evidenceIds: stringArraySchema,
     failureDisposition: { type: 'string', enum: ['NEEDS_REVIEW', 'FAIL'] },
+    // Semantic input values the model itself must produce for the selected
+    // operator (e.g. the search `query` for find_* operators, the edit `intent`
+    // for resolve_* operators). These are the creative/editorial decisions and
+    // must NOT be supplied by the lowering policy. Structural values (project
+    // revision, overlay ids, ranges) remain bound by the lowerer from
+    // revision/facts. Optional at the schema level because it is
+    // operator-dependent; the lowerer enforces presence per operator.
+    nodeInputs: { type: 'object', additionalProperties: true },
   },
   additionalProperties: false,
 });
@@ -56,6 +65,9 @@ export const STAGE3_SELECTED_OPERATOR_NODE_SCHEMA_V2R = deepFreezeV1({
     proofObligationIds: stringArraySchema,
     bindingStatus: { type: 'string', enum: ['BOUND', 'PARTIAL', 'UNVERIFIABLE'] },
     unresolvedRequirementIds: stringArraySchema,
+    // Carries the Stage-2 model-produced semantic inputs forward unchanged so
+    // the lowerer binds them instead of a policy constant.
+    nodeInputs: { type: 'object', additionalProperties: true },
   },
   additionalProperties: false,
 });

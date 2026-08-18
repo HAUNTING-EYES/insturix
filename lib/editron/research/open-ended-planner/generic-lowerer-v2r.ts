@@ -12,6 +12,7 @@ export type FieldBindingSourceV2R =
   | 'FACT_FIELD'
   | 'NODE_OUTPUT'
   | 'EVIDENCE_IDS'
+  | 'MODEL_INPUT'
   | 'STATIC';
 
 export interface NodeOutputProducerV2R {
@@ -27,6 +28,8 @@ export interface FieldBindingRuleV2R {
   outputName?: string;
   outputNames?: readonly string[];
   producers?: readonly NodeOutputProducerV2R[];
+  // For MODEL_INPUT: which nodeInputs key to read (defaults to the bound field name).
+  modelInputField?: string;
   staticValue?: unknown;
 }
 
@@ -297,6 +300,13 @@ function bindField(
       const value = rule.factField ? fact[rule.factField] : fact;
       if (value === undefined) return { present: false };
       return { present: true, value, readFactId: text(fact.factId) };
+    }
+    case 'MODEL_INPUT': {
+      const nodeInputs = record(context.boundNode.nodeInputs);
+      const modelInputField = rule.modelInputField ?? field;
+      const value = nodeInputs[modelInputField];
+      if (value === undefined || value === null || value === '') return { present: false };
+      return { present: true, value };
     }
     case 'NODE_OUTPUT': {
       if (rule.producers?.length) {

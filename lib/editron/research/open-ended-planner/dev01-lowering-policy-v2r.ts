@@ -31,25 +31,25 @@ export const DEV01_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
   },
   operatorFieldBindings: {
     find_transcript_moment: {
-      query: { source: 'STATIC', staticValue: 'dead air after the phrase here it is' },
+      query: { source: 'MODEL_INPUT' },
     },
     find_visual_moment: {
-      query: { source: 'STATIC', staticValue: 'product box reveal' },
+      query: { source: 'MODEL_INPUT' },
     },
     find_audio_moment: {
-      query: { source: 'STATIC', staticValue: 'speech ranges for ducking' },
+      query: { source: 'MODEL_INPUT' },
     },
     resolve_transcript_edit: {
-      intent: { source: 'STATIC', staticValue: { goal: 'remove dead air preserving all spoken words' } },
+      intent: { source: 'MODEL_INPUT' },
     },
     resolve_keyframe_edit: {
-      intent: { source: 'STATIC', staticValue: { goal: 'restrained product-centred push-in' } },
+      intent: { source: 'MODEL_INPUT' },
     },
     resolve_visual_edit: {
-      intent: { source: 'STATIC', staticValue: { goal: 'restrained product-centred push-in' } },
+      intent: { source: 'MODEL_INPUT' },
     },
     resolve_audio_edit: {
-      intent: { source: 'STATIC', staticValue: { goal: 'duck background music under measured speech' } },
+      intent: { source: 'MODEL_INPUT' },
     },
     get_video_transcription: {
       assetId: { source: 'STATIC', staticValue: 'dev01-dialogue-truth-v2' },

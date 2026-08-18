@@ -261,19 +261,19 @@ function editorialIntentV2R(): JsonRecord {
 function evidenceBoundIntentV2R(withholdVisual: boolean): JsonRecord {
   const visualStatus = withholdVisual ? 'UNVERIFIABLE' : 'BOUND';
   const visualUnresolved = withholdVisual ? ['req-product-visual-evidence'] : [];
-  const node = (intentNodeId: string, selectedOperatorId: string, bindingIds: string[], proofIds: string[], status = 'BOUND', unresolved: string[] = []) => ({ intentNodeId, selectedOperatorId, alternativeOperatorIds: [], evidenceBindingIds: bindingIds, preservationIds: ['preserve-spoken-words', 'preserve-source-identities', 'preserve-non-target-state'], proofObligationIds: proofIds, bindingStatus: status, unresolvedRequirementIds: unresolved });
+  const node = (intentNodeId: string, selectedOperatorId: string, bindingIds: string[], proofIds: string[], status = 'BOUND', unresolved: string[] = [], nodeInputs?: JsonRecord) => ({ intentNodeId, selectedOperatorId, alternativeOperatorIds: [], evidenceBindingIds: bindingIds, preservationIds: ['preserve-spoken-words', 'preserve-source-identities', 'preserve-non-target-state'], proofObligationIds: proofIds, bindingStatus: status, unresolvedRequirementIds: unresolved, ...(nodeInputs ? { nodeInputs } : {}) });
   return {
     artifactType: 'EvidenceBoundIntentGraphV2', taskId: 'DEV-01', stageDisposition: withholdVisual ? 'UNVERIFIABLE' : 'READY_FOR_COMPILATION',
     nodes: [
       node('node-observe-project', 'read_project_file', ['bind-project'], ['proof-revision', 'proof-state']),
       node('node-observe-timeline', 'get_timeline_view', ['bind-project'], ['proof-revision', 'proof-state']),
-      node('node-find-transcript', 'find_transcript_moment', ['bind-transcript'], ['proof-speech']),
-      node('node-resolve-cut', 'resolve_transcript_edit', ['bind-transcript'], ['proof-speech']),
+      node('node-find-transcript', 'find_transcript_moment', ['bind-transcript'], ['proof-speech'], 'BOUND', [], { query: 'dead air after the phrase here it is' }),
+      node('node-resolve-cut', 'resolve_transcript_edit', ['bind-transcript'], ['proof-speech'], 'BOUND', [], { intent: { goal: 'remove dead air preserving all spoken words' } }),
       node('node-cut', 'cut_section', ['bind-transcript'], ['proof-speech', 'proof-state']),
-      node('node-find-product', 'find_visual_moment', ['bind-product'], ['proof-product'], visualStatus, visualUnresolved),
-      node('node-resolve-product', 'resolve_keyframe_edit', ['bind-product'], ['proof-product'], visualStatus, visualUnresolved),
+      node('node-find-product', 'find_visual_moment', ['bind-product'], ['proof-product'], visualStatus, visualUnresolved, { query: 'product box reveal' }),
+      node('node-resolve-product', 'resolve_keyframe_edit', ['bind-product'], ['proof-product'], visualStatus, visualUnresolved, { intent: { goal: 'restrained product-centred push-in' } }),
       node('node-push-in', 'set_keyframes', ['bind-product'], ['proof-product', 'proof-state'], visualStatus, visualUnresolved),
-      node('node-find-audio', 'find_audio_moment', ['bind-audio'], ['proof-audio-mix', 'proof-speech']),
+      node('node-find-audio', 'find_audio_moment', ['bind-audio'], ['proof-audio-mix', 'proof-speech'], 'BOUND', [], { query: 'speech ranges for ducking' }),
       node('node-duck', 'apply_audio_ducking', ['bind-audio'], ['proof-audio-mix', 'proof-speech']),
       node('node-proof-project', 'read_project_file', ['bind-project', 'bind-transcript', 'bind-audio', ...(withholdVisual ? [] : ['bind-product'])], ['proof-revision', 'proof-speech', 'proof-product', 'proof-audio-mix', 'proof-state'], visualStatus, visualUnresolved),
       node('node-proof-timeline', 'get_timeline_view', ['bind-project', 'bind-transcript', 'bind-audio', ...(withholdVisual ? [] : ['bind-product'])], ['proof-revision', 'proof-speech', 'proof-product', 'proof-audio-mix', 'proof-state'], visualStatus, visualUnresolved),

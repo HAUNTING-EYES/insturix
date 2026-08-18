@@ -20,31 +20,31 @@ export const DEV03_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
   },
   operatorFieldBindings: {
     find_audio_moment: {
-      query: { source: 'STATIC', staticValue: 'strongest measured musical impacts' },
+      query: { source: 'MODEL_INPUT' },
     },
     find_transcript_moment: {
-      query: { source: 'STATIC', staticValue: 'spoken sentence to protect' },
+      query: { source: 'MODEL_INPUT' },
     },
     resolve_transcript_edit: {
-      intent: { source: 'STATIC', staticValue: { goal: 'protect the spoken sentence untouched' } },
+      intent: { source: 'MODEL_INPUT' },
     },
     find_visual_moment: {
-      query: { source: 'STATIC', staticValue: 'final strongest impact moment' },
+      query: { source: 'MODEL_INPUT' },
     },
     resolve_visual_edit: {
-      intent: { source: 'STATIC', staticValue: { goal: 'restrained bounded shake at the final strongest impact' } },
+      intent: { source: 'MODEL_INPUT' },
     },
     resolve_audio_edit: {
-      intent: { source: 'STATIC', staticValue: { goal: 'align montage cuts to measured beats' } },
+      intent: { source: 'MODEL_INPUT' },
     },
     resolve_keyframe_edit: {
       overlayId: { source: 'STATIC', staticValue: 'dev03-card-4' },
-      intent: { source: 'STATIC', staticValue: { goal: 'restrained bounded shake at the final strongest impact' } },
+      intent: { source: 'MODEL_INPUT' },
     },
     apply_camera_shake: {
       overlayId: { source: 'STATIC', staticValue: 'dev03-card-4' },
       targetRange: { source: 'STATIC', staticValue: { coordinateDomain: 'PROJECT_TICK', start: '472', endExclusive: '600' } },
-      effectPlan: { source: 'STATIC', staticValue: { goal: 'restrained bounded shake at the final strongest impact, returning to neutral' } },
+      effectPlan: { source: 'MODEL_INPUT' },
     },
   },
 });
