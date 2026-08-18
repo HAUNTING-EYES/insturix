@@ -4,7 +4,7 @@ import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 
 type JsonRecord = Record<string, unknown>;
 
-export const GENERIC_LOWERING_POLICY_VERSION_V2R = 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_2' as const;
+export const GENERIC_LOWERING_POLICY_VERSION_V2R = 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_3' as const;
 
 export type FieldBindingSourceV2R =
   | 'REVISION_PROJECT_ID'
@@ -210,16 +210,24 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
   if (!zeroAdd) diagnostics.push('LOWERING_ZERO_ADD_VIOLATED');
   if (!zeroDrop) diagnostics.push('LOWERING_ZERO_DROP_VIOLATED');
 
+  // Whether any compiled operator is a mutation. A graph-level gap/unverifiable
+  // disposition is honored only when no mutation compiled (a genuinely non-executable
+  // plan, e.g. DEV-04: only reads compile and the model declared the moving-matte
+  // gap). If a mutation compiled, the plan is executable and the graph-level gap is a
+  // conservatism note, not a blocker (e.g. Terra DEV-03 flags native-mutation
+  // production-readiness while still selecting compilable mutations).
+  const compiledAMutation = compiledOperatorIds.some((operatorId) => {
+    const operator = operators.get(operatorId);
+    return operator ? text(operator.kind) === 'MUTATION' : false;
+  });
+
   const compileDisposition = diagnostics.some((diagnostic) => diagnostic.startsWith('LOWERING_ZERO_'))
     ? 'FAIL'
     : unresolvedIntentNodeIds.length
     ? (boundIntent.stageDisposition === 'UNVERIFIABLE' ? 'UNVERIFIABLE' : 'CAPABILITY_GAP')
-    // Honor an honestly-declared top-level graph gap/unverifiable disposition even
-    // when every individually selected node compiled (e.g. DEV-04: the read nodes
-    // compile, but the model declared the moving-matte capability gap at graph level).
-    : boundIntent.stageDisposition === 'CAPABILITY_GAP'
+    : boundIntent.stageDisposition === 'CAPABILITY_GAP' && !compiledAMutation
     ? 'CAPABILITY_GAP'
-    : boundIntent.stageDisposition === 'UNVERIFIABLE'
+    : boundIntent.stageDisposition === 'UNVERIFIABLE' && !compiledAMutation
     ? 'UNVERIFIABLE'
     : 'COMPILED_RESEARCH_PROXY';
 

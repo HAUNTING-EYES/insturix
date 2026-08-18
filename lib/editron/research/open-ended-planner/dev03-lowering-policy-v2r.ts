@@ -6,7 +6,7 @@ import type { GenericLoweringPolicyV2R } from './generic-lowerer-v2r';
 // (revision, overlay ids from the timeline snapshot, the final-hit range) are
 // bound by the lowerer from revision/facts.
 export const DEV03_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1({
-  policyVersion: 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_2',
+  policyVersion: 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_3',
   taskId: 'DEV-03',
   fieldBindings: {
     projectId: { source: 'REVISION_PROJECT_ID' },

@@ -12,7 +12,7 @@ import type { GenericLoweringPolicyV2R } from './generic-lowerer-v2r';
 // turned into an executable edit. The top-level graph-level CAPABILITY_GAP disposition
 // (declared by the model) is honored by the lowerer as the compile disposition.
 export const DEV04_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1({
-  policyVersion: 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_2',
+  policyVersion: 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_3',
   taskId: 'DEV-04',
   fieldBindings: {
     projectId: { source: 'REVISION_PROJECT_ID' },

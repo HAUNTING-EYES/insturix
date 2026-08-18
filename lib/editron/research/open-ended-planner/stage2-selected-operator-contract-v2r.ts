@@ -1,12 +1,13 @@
 import { deepFreezeV1 } from './contracts-v1';
 
 export const STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R =
-  'EDITRON_OE_STAGE2_SELECTED_OPERATOR_V2R_2' as const;
+  'EDITRON_OE_STAGE2_SELECTED_OPERATOR_V2R_3' as const;
 
 export const STAGE2_SELECTED_OPERATOR_INSTRUCTIONS_V2R = deepFreezeV1({
   stage2: [
     'Every executable intent node selects exactly one selectedOperatorId that will execute; record considered but non-executed options separately in alternativeOperatorIds and never mix executed and non-executed operators in one field.',
     'Select operators only from the provided operator catalog; an operatorId that is not in the catalog cannot execute and will be rejected.',
+    'The operators present in the provided catalog are the eligible planning targets for this research benchmark. Plan with them even if the capability dossier marks them as not yet production-certified: that certification describes future production readiness, not benchmark planning eligibility. Declare a capability gap only when the operation you need is absent from the catalog entirely, not merely because a catalog operator is uncertified.',
     'For each node, supply the semantic input values the selected operator needs in nodeInputs. Each nodeInputs key must exactly match one of the selected operator declared input field names from its input schema (for example `query` for find_* operators, `intent` for resolve_* operators, and the declared plan or effect field for mutation operators); do not invent alternative key names. These are your editorial decisions and must be produced by you, not left for the system to invent.',
     'Express clarification or capability gap only through unresolvedRequirements dispositions, never through an empty, placeholder, or pseudo operator node.',
     'The deterministic lowerer adds zero operations and drops zero selected operations. Select every read, resolver, mutation, and proof operation the edit requires as its own node; no operator is inserted or completed for you.',
