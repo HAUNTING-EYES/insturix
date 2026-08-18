@@ -70,7 +70,8 @@ async function main(): Promise<void> {
     policy: DEV01_LOWERING_POLICY_V2R,
   });
 
-  const outputDir = resolve('.calibration-temp/open-ended-planner-v2/v2r-full-pipeline');
+  const baseDir = resolve('.calibration-temp/open-ended-planner-v2/v2r-full-pipeline');
+  const outputDir = resolve(baseDir, `render-${routeId.toLowerCase()}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   mkdirSync(outputDir, { recursive: true });
 
   // 3. Execute the lowered model plan on an isolated clone + render.
