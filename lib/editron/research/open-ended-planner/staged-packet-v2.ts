@@ -110,8 +110,8 @@ interface StageBudgetV2 { maxInputTokens: number; maxVisibleOutputTokens: number
 
 const STAGE_BUDGETS: Record<StageV2, StageBudgetV2> = {
   1: { maxInputTokens: 30000, maxVisibleOutputTokens: 10000, maxReasoningTokens: 3000, maxWallClockMs: 420000, maxProviderCostUsd: 0.70 },
-  2: { maxInputTokens: 50000, maxVisibleOutputTokens: 8000, maxReasoningTokens: 5000, maxWallClockMs: 420000, maxProviderCostUsd: 0.70 },
-  3: { maxInputTokens: 32000, maxVisibleOutputTokens: 4000, maxReasoningTokens: 3000, maxWallClockMs: 420000, maxProviderCostUsd: 0.60 },
+  2: { maxInputTokens: 60000, maxVisibleOutputTokens: 8000, maxReasoningTokens: 5000, maxWallClockMs: 420000, maxProviderCostUsd: 0.70 },
+  3: { maxInputTokens: 60000, maxVisibleOutputTokens: 4000, maxReasoningTokens: 3000, maxWallClockMs: 420000, maxProviderCostUsd: 0.60 },
   4: { maxInputTokens: 80000, maxVisibleOutputTokens: 8000, maxReasoningTokens: 7000, maxWallClockMs: 90000, maxProviderCostUsd: 0.48 },
   5: { maxInputTokens: 3000, maxVisibleOutputTokens: 800, maxReasoningTokens: 1800, maxWallClockMs: 30000, maxProviderCostUsd: 0.08 },
 };
