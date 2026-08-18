@@ -681,7 +681,8 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(sdkMocks.getCache).toHaveBeenCalledTimes(1);
     expect(sdkMocks.generateObject).toHaveBeenCalledTimes(2);
     for (const [request] of sdkMocks.generateObject.mock.calls) {
-      expect(request).toMatchObject({ maxRetries: 0, maxTokens: 64 });
+      expect(request).toMatchObject({ maxRetries: 0, maxOutputTokens: 64 });
+      expect(request).not.toHaveProperty('maxTokens');
     }
     expect(budget.snapshot()).toMatchObject({
       providerRequests: 4,

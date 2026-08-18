@@ -170,10 +170,17 @@ describe('BaseAgent provider privacy dispatch', () => {
     ));
     await consume(output.stream);
 
-    const call = mocks.streamText.mock.calls.at(-1)?.[0] as { system?: string; prompt: string };
+    const call = mocks.streamText.mock.calls.at(-1)?.[0] as {
+      system?: string;
+      prompt: string;
+      maxOutputTokens?: number;
+      maxTokens?: number;
+    };
     expect(call.system).toContain('[REDACTED_PERSON]');
     expect(call.system).toContain('[REDACTED_EMAIL]');
     expect(call.prompt).toContain('[REDACTED_PHONE]');
+    expect(call.maxOutputTokens).toBe(4096);
+    expect(call).not.toHaveProperty('maxTokens');
     expect(`${call.system}\n${call.prompt}`).not.toContain('alex@example.com');
     expect(`${call.system}\n${call.prompt}`).not.toContain('415-555-0101');
 
@@ -220,13 +227,25 @@ describe('BaseAgent provider privacy dispatch', () => {
     ));
 
     expect(result.result).toEqual({ value: 'fallback output' });
-    const structuredCall = mocks.generateObject.mock.calls.at(-1)?.[0] as { system?: string; prompt: string };
-    const fallbackCall = mocks.generateText.mock.calls.at(-1)?.[0] as { system?: string; prompt: string };
+    const structuredCall = mocks.generateObject.mock.calls.at(-1)?.[0] as {
+      system?: string;
+      prompt: string;
+      maxOutputTokens?: number;
+      maxTokens?: number;
+    };
+    const fallbackCall = mocks.generateText.mock.calls.at(-1)?.[0] as {
+      system?: string;
+      prompt: string;
+      maxOutputTokens?: number;
+      maxTokens?: number;
+    };
     for (const call of [structuredCall, fallbackCall]) {
       expect(call.system).toContain('[REDACTED_EMAIL]');
       expect(call.prompt).toContain('[REDACTED_PHONE]');
       expect(`${call.system}\n${call.prompt}`).not.toContain('alex@example.com');
       expect(`${call.system}\n${call.prompt}`).not.toContain('415-555-0101');
+      expect(call.maxOutputTokens).toBe(4096);
+      expect(call).not.toHaveProperty('maxTokens');
     }
     expect(fallbackCall.prompt).toContain('Return ONLY valid JSON');
 

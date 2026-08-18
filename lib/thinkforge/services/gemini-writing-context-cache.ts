@@ -898,7 +898,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
         prompt: dispatch.prompt,
         ...(context.cacheName ? {} : { system: dispatch.systemInstruction }),
         temperature: input.temperature,
-        maxTokens: input.maxTokens,
+        maxOutputTokens: input.maxTokens,
         maxRetries: 0,
         abortSignal: deadline.abortSignal,
         ...(context.cacheName

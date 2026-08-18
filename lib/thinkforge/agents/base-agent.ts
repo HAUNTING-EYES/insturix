@@ -365,8 +365,7 @@ export abstract class BaseAgent {
         system: dispatch.systemInstruction || undefined,
         prompt: dispatch.prompt,
         temperature: gen.temperature,
-        // @ts-ignore - Vercel AI SDK version mismatch on maxTokens
-        maxTokens: gen.maxTokens,
+        maxOutputTokens: gen.maxTokens,
         seed: gen.seed,
         abortSignal: signal,
       });
@@ -534,8 +533,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         system: dispatch.systemInstruction || undefined,
         prompt: dispatch.prompt,
         temperature: gen.temperature,
-        // @ts-ignore
-        maxTokens: gen.maxTokens,
+        maxOutputTokens: gen.maxTokens,
         seed: gen.seed,
         abortSignal: signal,
       });
@@ -610,8 +608,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
             system: fallbackDispatch.systemInstruction || undefined,
             prompt: fallbackDispatch.prompt,
             temperature: gen.temperature,
-            // @ts-ignore
-            maxTokens: gen.maxTokens,
+            maxOutputTokens: gen.maxTokens,
             seed: gen.seed,
             abortSignal: signal,
           });
