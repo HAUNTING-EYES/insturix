@@ -107,7 +107,7 @@ async function main(): Promise<void> {
   });
   process.stdout.write(`LOWERING zeroAdd=${lowering.zeroAdd} zeroDrop=${lowering.zeroDrop} disposition=${lowering.compiled.compileDisposition} compiled=${lowering.compiledOperatorIds.length}/${lowering.selectedOperatorIds.length} diag=${JSON.stringify(lowering.diagnostics)}\n`);
 
-  const outputDir = resolve('.calibration-temp/open-ended-planner-v2/v2r-full-pipeline-dev03');
+  const outputDir = resolve(lineageDir, `render-${routeId.toLowerCase()}-${lineageStamp}`);
   mkdirSync(outputDir, { recursive: true });
 
   // 3. Execute the lowered model plan on an isolated clone + render.
