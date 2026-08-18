@@ -4,7 +4,7 @@ import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 
 type JsonRecord = Record<string, unknown>;
 
-export const GENERIC_LOWERING_POLICY_VERSION_V2R = 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R' as const;
+export const GENERIC_LOWERING_POLICY_VERSION_V2R = 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_2' as const;
 
 export type FieldBindingSourceV2R =
   | 'REVISION_PROJECT_ID'
@@ -214,6 +214,13 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
     ? 'FAIL'
     : unresolvedIntentNodeIds.length
     ? (boundIntent.stageDisposition === 'UNVERIFIABLE' ? 'UNVERIFIABLE' : 'CAPABILITY_GAP')
+    // Honor an honestly-declared top-level graph gap/unverifiable disposition even
+    // when every individually selected node compiled (e.g. DEV-04: the read nodes
+    // compile, but the model declared the moving-matte capability gap at graph level).
+    : boundIntent.stageDisposition === 'CAPABILITY_GAP'
+    ? 'CAPABILITY_GAP'
+    : boundIntent.stageDisposition === 'UNVERIFIABLE'
+    ? 'UNVERIFIABLE'
     : 'COMPILED_RESEARCH_PROXY';
 
   const compiled = deepFreezeV1({

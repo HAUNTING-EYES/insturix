@@ -7,7 +7,7 @@ import type { GenericLoweringPolicyV2R } from './generic-lowerer-v2r';
 // evidence pack carries no overlay-discovery fact; a production policy would bind
 // it from a timeline read instead.
 export const DEV01_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1({
-  policyVersion: 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R',
+  policyVersion: 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_2',
   taskId: 'DEV-01',
   fieldBindings: {
     projectId: { source: 'REVISION_PROJECT_ID' },
