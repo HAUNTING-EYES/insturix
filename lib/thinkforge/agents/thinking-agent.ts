@@ -68,8 +68,7 @@ export async function runThinkingAgent(
       temperature: 0.3,
       abortSignal,
       maxRetries: 0,
-      // @ts-ignore - supported by the installed AI SDK runtime.
-      maxTokens: 200,
+      maxOutputTokens: 200,
     });
     abortSignal?.throwIfAborted();
     await recordThinkForgeDirectCost({

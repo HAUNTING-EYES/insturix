@@ -137,7 +137,9 @@ describe('ThinkForge optional pre-generation cancellation', () => {
     expect(optionalWorkMocks.generateText).toHaveBeenCalledWith(expect.objectContaining({
       abortSignal: controller.signal,
       maxRetries: 0,
+      maxOutputTokens: 200,
     }));
+    expect(optionalWorkMocks.generateText.mock.calls.at(-1)?.[0]).not.toHaveProperty('maxTokens');
     expect(optionalWorkMocks.recordThinkForgeDirectCost).not.toHaveBeenCalled();
     expect(writer).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();

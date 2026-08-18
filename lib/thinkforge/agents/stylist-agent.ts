@@ -167,8 +167,7 @@ Output the complete rewritten draft, not a diff or summary.
         system: promptParts.systemInstruction,
         prompt: promptParts.prompt,
         temperature: 0.3,
-        // @ts-ignore
-        maxTokens: 2600,
+        maxOutputTokens: 2600,
         seed: 42,
       });
 
