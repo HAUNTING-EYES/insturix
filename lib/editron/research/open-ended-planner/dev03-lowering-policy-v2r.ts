@@ -19,8 +19,32 @@ export const DEV03_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
     },
   },
   operatorFieldBindings: {
+    // The model may plan with any of the read/resolver family operators (the
+    // same set DEV-01 binds). Their semantic inputs are MODEL_INPUT; binding them
+    // here keeps the lowerer from mistaking a legitimate planning choice for a
+    // capability gap. The stage-6 executor still gates on the required DEV-03
+    // mutation operators (sync_cuts_to_beats + apply_camera_shake).
+    find_transcript_moment: {
+      query: { source: 'MODEL_INPUT' },
+    },
+    find_visual_moment: {
+      query: { source: 'MODEL_INPUT' },
+    },
     find_audio_moment: {
       query: { source: 'MODEL_INPUT' },
+    },
+    resolve_transcript_edit: {
+      intent: { source: 'MODEL_INPUT' },
+    },
+    resolve_keyframe_edit: {
+      intent: { source: 'MODEL_INPUT' },
+      overlayId: { source: 'STATIC', staticValue: 'dev03-card-4' },
+    },
+    resolve_visual_edit: {
+      intent: { source: 'MODEL_INPUT' },
+    },
+    resolve_audio_edit: {
+      intent: { source: 'MODEL_INPUT' },
     },
     apply_camera_shake: {
       overlayId: { source: 'STATIC', staticValue: 'dev03-card-4' },
