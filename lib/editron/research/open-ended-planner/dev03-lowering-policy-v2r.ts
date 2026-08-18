@@ -22,6 +22,12 @@ export const DEV03_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
     find_audio_moment: {
       query: { source: 'STATIC', staticValue: 'strongest measured musical impacts' },
     },
+    find_transcript_moment: {
+      query: { source: 'STATIC', staticValue: 'spoken sentence to protect' },
+    },
+    resolve_transcript_edit: {
+      intent: { source: 'STATIC', staticValue: { goal: 'protect the spoken sentence untouched' } },
+    },
     find_visual_moment: {
       query: { source: 'STATIC', staticValue: 'final strongest impact moment' },
     },
