@@ -9,7 +9,7 @@ import {
 import {
   THINKFORGE_DOCUMENT_BACKUP_FIELD,
   buildThinkForgeDocumentV1RollbackUpdate,
-  createThinkForgeDocumentV1Backup,
+  resolveThinkForgeDocumentV1Backup,
   type ThinkForgeDocumentV1Backup,
 } from '@/lib/thinkforge/migrations/document-contract-backup-v1';
 import {
@@ -52,7 +52,7 @@ const DOCUMENT_SOURCE_PATHS = [
 const DOCUMENT_ROLLBACK_PATHS = DOCUMENT_SOURCE_PATHS.filter((path) => path !== 'sessionId');
 
 type ThinkForgeMigrationDocument = LegacyThinkForgeDocumentRecord & {
-  documentContractV1Backup?: ThinkForgeDocumentV1Backup;
+  documentContractV1Backup?: unknown;
   documentContractMigration?: unknown;
   recordStatus?: unknown;
 };
@@ -60,6 +60,7 @@ type ThinkForgeMigrationDocument = LegacyThinkForgeDocumentRecord & {
 interface DocumentWorkItem {
   decision: ReturnType<typeof planThinkForgeDocumentContractMigration>['decisions'][number];
   backup: ThinkForgeDocumentV1Backup;
+  reusedBackup: boolean;
   sourceFields: ThinkForgeMigrationCasField[];
 }
 
@@ -221,6 +222,7 @@ async function main(): Promise<void> {
         contentContract: 1,
         recordStatus: 1,
         documentContractMigration: 1,
+        [THINKFORGE_DOCUMENT_BACKUP_FIELD]: 1,
       },
     }).toArray();
     const sessionIds = Array.from(new Set(
@@ -242,12 +244,20 @@ async function main(): Promise<void> {
     );
     const sourceHash = hashMigrationValue({ documents, sessions, missingSessionIds });
     const planHash = hashMigrationValue(plan.decisions);
+    const backupResolutions = new Map(documents.map((document) => [
+      String(document._id),
+      resolveThinkForgeDocumentV1Backup(document as Record<string, unknown>, new Date()),
+    ]));
+    const reusedBackups = [...backupResolutions.values()].filter((resolution) => resolution.reused).length;
+    const newBackups = documents.length - reusedBackups;
 
     console.log(JSON.stringify({
       database: dbName,
       mode,
       runId: reporter.runId,
       backupField: THINKFORGE_DOCUMENT_BACKUP_FIELD,
+      reusedBackups,
+      newBackups,
       ...plan.summary,
       bySource: countBy(activeDecisions.map((decision) => decision.source)),
       byDocumentType: countBy(activeDecisions.map((decision) => decision.update.documentType)),
@@ -258,7 +268,7 @@ async function main(): Promise<void> {
       ),
     }, null, 2));
     await reporter.append('planned', {
-      counts: plan.summary,
+      counts: { ...plan.summary, reusedBackups, newBackups },
       hashes: {
         source: sourceHash,
         plan: planHash,
@@ -288,9 +298,14 @@ async function main(): Promise<void> {
     const workItems: DocumentWorkItem[] = plan.decisions.map((decision) => {
       const document = documentsById.get(String(decision.recordId));
       if (!document) throw new Error(`Migration source disappeared: ${String(decision.recordId)}`);
+      const backupResolution = backupResolutions.get(String(decision.recordId));
+      if (!backupResolution) throw new Error(`Migration backup plan disappeared: ${String(decision.recordId)}`);
       return {
         decision,
-        backup: createThinkForgeDocumentV1Backup(document as Record<string, unknown>, migratedAt),
+        backup: backupResolution.reused
+          ? backupResolution.backup
+          : resolveThinkForgeDocumentV1Backup(document as Record<string, unknown>, migratedAt).backup,
+        reusedBackup: backupResolution.reused,
         sourceFields: captureMigrationCasFields(document as unknown as Record<string, unknown>, DOCUMENT_SOURCE_PATHS),
       };
     });
@@ -301,20 +316,29 @@ async function main(): Promise<void> {
         reporter,
         execute: async (session) => {
           await assertSessionSourcesUnchanged({ client, session, sessions, missingSessionIds });
-          const backupResult = await scripts.bulkWrite(workItems.map(({ decision, backup, sourceFields }) => ({
-            updateOne: {
-              filter: buildMigrationCasFilter<ThinkForgeMigrationDocument>(
-                { _id: decision.recordId },
-                [...sourceFields, { path: THINKFORGE_DOCUMENT_BACKUP_FIELD, exists: false }],
-              ),
-              update: { $set: { [THINKFORGE_DOCUMENT_BACKUP_FIELD]: backup } },
-            },
-          })), { ordered: true, session });
-          if (backupResult.matchedCount !== workItems.length) {
-            throw new Error(`Backup source drift: ${backupResult.matchedCount}/${workItems.length} records`);
+          const backupItems = workItems.filter((item) => !item.reusedBackup);
+          let newlyBackedUp = 0;
+          if (backupItems.length > 0) {
+            const backupResult = await scripts.bulkWrite(backupItems.map(({ decision, backup, sourceFields }) => ({
+              updateOne: {
+                filter: buildMigrationCasFilter<ThinkForgeMigrationDocument>(
+                  { _id: decision.recordId },
+                  [...sourceFields, { path: THINKFORGE_DOCUMENT_BACKUP_FIELD, exists: false }],
+                ),
+                update: { $set: { [THINKFORGE_DOCUMENT_BACKUP_FIELD]: backup } },
+              },
+            })), { ordered: true, session });
+            newlyBackedUp = backupResult.matchedCount;
+            if (newlyBackedUp !== backupItems.length) {
+              throw new Error(`Backup source drift: ${newlyBackedUp}/${backupItems.length} records`);
+            }
           }
           await reporter!.append('backed_up', {
-            counts: { backedUp: backupResult.matchedCount },
+            counts: {
+              backedUp: newlyBackedUp,
+              reusedBackups: workItems.length - backupItems.length,
+              totalBackups: workItems.length,
+            },
             hashes: { source: sourceHash },
           }, session);
 
