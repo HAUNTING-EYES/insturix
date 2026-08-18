@@ -45,6 +45,9 @@ export const DEV01_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
     resolve_keyframe_edit: {
       intent: { source: 'STATIC', staticValue: { goal: 'restrained product-centred push-in' } },
     },
+    resolve_visual_edit: {
+      intent: { source: 'STATIC', staticValue: { goal: 'restrained product-centred push-in' } },
+    },
     resolve_audio_edit: {
       intent: { source: 'STATIC', staticValue: { goal: 'duck background music under measured speech' } },
     },

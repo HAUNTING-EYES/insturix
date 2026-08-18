@@ -6,6 +6,7 @@ export const STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R =
 export const STAGE2_SELECTED_OPERATOR_INSTRUCTIONS_V2R = deepFreezeV1({
   stage2: [
     'Every executable intent node selects exactly one selectedOperatorId that will execute; record considered but non-executed options separately in alternativeOperatorIds and never mix executed and non-executed operators in one field.',
+    'Select operators only from the provided operator catalog; an operatorId that is not in the catalog cannot execute and will be rejected.',
     'Express clarification or capability gap only through unresolvedRequirements dispositions, never through an empty, placeholder, or pseudo operator node.',
     'The deterministic lowerer adds zero operations and drops zero selected operations. Select every read, resolver, mutation, and proof operation the edit requires as its own node; no operator is inserted or completed for you.',
   ],
