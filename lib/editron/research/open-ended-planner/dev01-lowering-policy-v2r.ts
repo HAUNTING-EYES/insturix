@@ -17,8 +17,17 @@ export const DEV01_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
     constraints: { source: 'STATIC', staticValue: { preserveSpeech: true, preserveSourceIdentities: true } },
     targetRange: { source: 'FACT_FIELD', factKind: 'TRANSCRIPT_RANGE', factField: 'deadAirRange' },
     overlayId: { source: 'STATIC', staticValue: 'ov-host-video' },
-    keyframes: { source: 'NODE_OUTPUT', nodeIntentNodeId: 'node-resolve-product', outputName: 'proposedOperation' },
-    audioPlan: { source: 'NODE_OUTPUT', nodeIntentNodeId: 'node-find-audio', outputName: 'result' },
+    keyframes: {
+      source: 'NODE_OUTPUT',
+      producers: [{ operatorId: 'resolve_keyframe_edit', outputName: 'proposedOperation' }],
+    },
+    audioPlan: {
+      source: 'NODE_OUTPUT',
+      producers: [
+        { operatorId: 'resolve_audio_edit', outputName: 'proposedOperation' },
+        { operatorId: 'find_audio_moment', outputName: 'result' },
+      ],
+    },
   },
   operatorFieldBindings: {
     find_transcript_moment: {
@@ -35,6 +44,12 @@ export const DEV01_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
     },
     resolve_keyframe_edit: {
       intent: { source: 'STATIC', staticValue: { goal: 'restrained product-centred push-in' } },
+    },
+    resolve_audio_edit: {
+      intent: { source: 'STATIC', staticValue: { goal: 'duck background music under measured speech' } },
+    },
+    get_video_transcription: {
+      assetId: { source: 'STATIC', staticValue: 'dev01-dialogue-truth-v2' },
     },
   },
 });

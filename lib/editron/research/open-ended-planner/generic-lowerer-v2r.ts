@@ -1,7 +1,6 @@
 import operatorCatalogJson from '@/tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json';
 
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
-import { nodeCapabilityIdsV2R } from './stage2-selected-operator-contract-v2r';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -15,12 +14,19 @@ export type FieldBindingSourceV2R =
   | 'EVIDENCE_IDS'
   | 'STATIC';
 
+export interface NodeOutputProducerV2R {
+  operatorId: string;
+  outputName: string;
+}
+
 export interface FieldBindingRuleV2R {
   source: FieldBindingSourceV2R;
   factKind?: string;
   factField?: string;
   nodeIntentNodeId?: string;
   outputName?: string;
+  outputNames?: readonly string[];
+  producers?: readonly NodeOutputProducerV2R[];
   staticValue?: unknown;
 }
 
@@ -74,7 +80,8 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
   const pack = record(input.evidencePack);
   const facts = records(pack.facts);
   const boundNodes = records(boundIntent.nodes);
-  const intentNodesById = new Map(records(editorialIntent.nodes).map((node) => [text(node.intentNodeId), node]));
+  const intentNodes = records(editorialIntent.nodes);
+  const intentNodesById = new Map(intentNodes.map((node) => [text(node.intentNodeId), node]));
   const bindingsByNodeId = indexBindings(records(boundIntent.evidenceBindings));
 
   const revision = record(boundIntent.revisionBinding);
@@ -87,9 +94,11 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
   const unresolvedIntentNodeIds: string[] = [];
   const compiledOperatorIds: string[] = [];
 
-  for (const boundNode of boundNodes) {
+  // Process nodes in dependency (topological) order so a node-output producer is
+  // always compiled before its consumer, regardless of the model's array order.
+  const orderedBoundNodes = topoOrderBoundNodesV2R(boundNodes, intentNodesById);
+  for (const boundNode of orderedBoundNodes) {
     const intentNodeId = text(boundNode.intentNodeId);
-    const operatorIds = nodeCapabilityIdsV2R(boundNode);
     const selectedOperatorId = typeof boundNode.selectedOperatorId === 'string' ? boundNode.selectedOperatorId : '';
     if (!selectedOperatorId) {
       diagnostics.push(`LOWERING_SELECTED_OPERATOR_MISSING:${intentNodeId}`);
@@ -110,9 +119,6 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
       unresolvedIntentNodeIds.push(intentNodeId);
       continue;
     }
-    if (operatorIds.length > 1) {
-      diagnostics.push(`LOWERING_ALTERNATIVE_SELECTED_AMBIGUITY:${intentNodeId}`);
-    }
 
     const kind = text(operator.kind);
     const inputSpec = record(operator.input);
@@ -123,6 +129,7 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
     for (const field of declaredFields) {
       const bound = bindField(field, {
         boundNode, intentNode: intentNodesById.get(intentNodeId),
+        intentNodes,
         facts, bindingsByNodeId, projectId, expectedProjectRevision,
         policy: input.policy, compiledNodes,
       }, diagnostics, intentNodeId, requiredFields.includes(field), selectedOperatorId);
@@ -230,6 +237,7 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
 interface FieldBindContextV2R {
   boundNode: JsonRecord;
   intentNode: JsonRecord | undefined;
+  intentNodes: JsonRecord[];
   facts: JsonRecord[];
   bindingsByNodeId: Map<string, string[]>;
   projectId: string;
@@ -271,16 +279,135 @@ function bindField(
       return { present: true, value, readFactId: text(fact.factId) };
     }
     case 'NODE_OUTPUT': {
-      const producerNodeId = `compile-${rule.nodeIntentNodeId ?? ''}`;
-      const producer = context.compiledNodes.find((node) => node.nodeId === producerNodeId);
-      if (!producer) return { present: false };
-      const outputRef = `${producerNodeId}.${rule.outputName ?? 'result'}`;
-      if (!strings(producer.produces).includes(outputRef)) return { present: false };
-      return { present: true, value: outputRef };
+      if (rule.producers?.length) {
+        for (const producer of rule.producers) {
+          const producerNodeId = resolveProducerByOperatorV2R(
+            intentNodeId, producer.operatorId, producer.outputName,
+            context.intentNodes, context.compiledNodes,
+          );
+          if (producerNodeId) return { present: true, value: `${producerNodeId}.${producer.outputName}` };
+        }
+        return { present: false };
+      }
+      const candidateOutputs = rule.outputNames?.length
+        ? [...rule.outputNames]
+        : [rule.outputName ?? 'result'];
+      for (const outputName of candidateOutputs) {
+        const producerNodeId = resolveProducerByDependencyV2R(
+          intentNodeId, outputName, context.intentNodes, context.compiledNodes,
+        );
+        if (producerNodeId) return { present: true, value: `${producerNodeId}.${outputName}` };
+      }
+      return { present: false };
     }
     default:
       return { present: false };
   }
+}
+
+// Resolve a node-output reference to a specific producer operator: walk the
+// current node's transitive dependencies and return the first compiled dependency
+// whose operatorId matches and which produces the named output. Disambiguates the
+// case where several resolvers all produce a same-named output (proposedOperation).
+function resolveProducerByOperatorV2R(
+  currentIntentNodeId: string,
+  producerOperatorId: string,
+  outputName: string,
+  intentNodes: JsonRecord[],
+  compiledNodes: JsonRecord[],
+): string | null {
+  const requiresMap = new Map<string, string[]>();
+  for (const node of intentNodes) {
+    requiresMap.set(text(node.intentNodeId), strings(node.requiresNodeIds));
+  }
+  const compiledByIntentId = new Map<string, JsonRecord>();
+  for (const node of compiledNodes) {
+    compiledByIntentId.set(text(node.intentNodeId), node);
+  }
+  const visited = new Set<string>();
+  const queue = [...(requiresMap.get(currentIntentNodeId) ?? [])];
+  while (queue.length) {
+    const dependencyId = queue.shift() as string;
+    if (visited.has(dependencyId)) continue;
+    visited.add(dependencyId);
+    const compiled = compiledByIntentId.get(dependencyId);
+    if (compiled
+      && compiled.operatorId === producerOperatorId
+      && strings(compiled.produces).includes(`compile-${dependencyId}.${outputName}`)) {
+      return `compile-${dependencyId}`;
+    }
+    queue.push(...(requiresMap.get(dependencyId) ?? []));
+  }
+  return null;
+}
+
+// Resolve a node-output reference by dependency dataflow: walk the current node's
+// transitive requiresNodeIds and return the first compiled dependency that
+// produces the named output. This works for any model plan shape because it keys
+// on the model's own dependency edges, not on canonical node identifiers.
+function resolveProducerByDependencyV2R(
+  currentIntentNodeId: string,
+  outputName: string,
+  intentNodes: JsonRecord[],
+  compiledNodes: JsonRecord[],
+): string | null {
+  const requiresMap = new Map<string, string[]>();
+  for (const node of intentNodes) {
+    requiresMap.set(text(node.intentNodeId), strings(node.requiresNodeIds));
+  }
+  const compiledByIntentId = new Map<string, JsonRecord>();
+  for (const node of compiledNodes) {
+    compiledByIntentId.set(text(node.intentNodeId), node);
+  }
+  const visited = new Set<string>();
+  const queue = [...(requiresMap.get(currentIntentNodeId) ?? [])];
+  while (queue.length) {
+    const dependencyId = queue.shift() as string;
+    if (visited.has(dependencyId)) continue;
+    visited.add(dependencyId);
+    const compiled = compiledByIntentId.get(dependencyId);
+    if (compiled && strings(compiled.produces).includes(`compile-${dependencyId}.${outputName}`)) {
+      return `compile-${dependencyId}`;
+    }
+    queue.push(...(requiresMap.get(dependencyId) ?? []));
+  }
+  return null;
+}
+
+// Topologically order bound nodes by the intent graph's requiresNodeIds so that
+// a node-output producer is compiled before its consumer. Falls back to the
+// model's original array order if the graph has a cycle.
+function topoOrderBoundNodesV2R(
+  boundNodes: JsonRecord[],
+  intentNodesById: Map<string, JsonRecord>,
+): JsonRecord[] {
+  const nodeIds = boundNodes.map((node) => text(node.intentNodeId));
+  const nodeIdSet = new Set(nodeIds);
+  const inDegree = new Map<string, number>();
+  const dependents = new Map<string, string[]>();
+  for (const id of nodeIds) {
+    inDegree.set(id, 0);
+    dependents.set(id, []);
+  }
+  for (const id of nodeIds) {
+    const requires = strings(intentNodesById.get(id)?.requiresNodeIds).filter((required) => nodeIdSet.has(required));
+    inDegree.set(id, requires.length);
+    for (const required of requires) (dependents.get(required) ?? []).push(id);
+  }
+  const queue = nodeIds.filter((id) => (inDegree.get(id) ?? 0) === 0);
+  const order: string[] = [];
+  while (queue.length) {
+    const id = queue.shift() as string;
+    order.push(id);
+    for (const dependent of dependents.get(id) ?? []) {
+      const next = (inDegree.get(dependent) ?? 0) - 1;
+      inDegree.set(dependent, next);
+      if (next === 0) queue.push(dependent);
+    }
+  }
+  if (order.length !== nodeIds.length) return boundNodes;
+  const byId = new Map(boundNodes.map((node) => [text(node.intentNodeId), node]));
+  return order.map((id) => byId.get(id) as JsonRecord);
 }
 
 function findBoundFact(context: FieldBindContextV2R, factKind: string | undefined): JsonRecord | undefined {
