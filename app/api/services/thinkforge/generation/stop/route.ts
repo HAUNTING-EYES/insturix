@@ -51,8 +51,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Generation mismatch' }, { status: 409 });
     }
 
+    let shouldRevokeLongFormJob = false;
     if (active.intent === LONG_FORM_SCRIPT_GENERATION_INTENT) {
-      const job = await longFormScriptGenerationJobStore.cancelByGenerationAuthorized(
+      const job = await longFormScriptGenerationJobStore.getByGenerationAuthorized(
         canonicalSessionId,
         generationId,
         userId,
@@ -76,12 +77,25 @@ export async function POST(req: Request) {
         });
         return NextResponse.json({ error: 'Generation already failed' }, { status: 409 });
       }
+      shouldRevokeLongFormJob = job.status === 'queued' || job.status === 'running';
     }
 
     await db.updateGenerationState(canonicalSessionId, generationId, {
       status: 'cancelled',
       message: 'Cancelled by user',
     });
+    if (shouldRevokeLongFormJob) {
+      try {
+        await longFormScriptGenerationJobStore.cancelByGenerationAuthorized(
+          canonicalSessionId,
+          generationId,
+          userId,
+          orgId ?? null,
+        );
+      } catch (error) {
+        console.error('[ThinkForge] Canonical generation cancelled; durable job revocation is pending:', error);
+      }
+    }
 
     return NextResponse.json({ ok: true, generationId });
   } catch (error) {

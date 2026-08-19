@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import type { Collection } from 'mongodb';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 const persistence = vi.hoisted(() => ({
   applyCommand: vi.fn(),
+  claimGenerationCommit: vi.fn(),
+  getActiveGeneration: vi.fn(),
   getSession: vi.fn(),
   getScript: vi.fn(),
 }));
@@ -9,13 +13,18 @@ vi.mock('@/lib/thinkforge/services/command-service', () => ({
   applyCommand: persistence.applyCommand,
 }));
 vi.mock('@/lib/thinkforge/services/db', () => ({
+  claimGenerationCommit: persistence.claimGenerationCommit,
+  getActiveGeneration: persistence.getActiveGeneration,
   getSession: persistence.getSession,
   getScript: persistence.getScript,
 }));
 
 import {
+  LongFormScriptGenerationJobStore,
   LongFormScriptJobLeaseLostError,
   type ClaimLongFormScriptJobResult,
+  type LongFormScriptGenerationJobInput,
+  type LongFormScriptGenerationJobRecord,
   type LongFormScriptGenerationJobSnapshot,
 } from '@/lib/thinkforge/long-form/script-generation-job-store';
 import {
@@ -172,6 +181,32 @@ describe('processLongFormScriptJob', () => {
   });
 });
 
+describe('long-form generation identity', () => {
+  it('accepts base version zero when generation targets a new canonical document', async () => {
+    const collection = {
+      findOne: vi.fn().mockResolvedValue(null),
+      insertOne: vi.fn().mockResolvedValue({ acknowledged: true, insertedId: 'longscript_new' }),
+    } as unknown as Collection<LongFormScriptGenerationJobRecord>;
+    const store = new LongFormScriptGenerationJobStore(async () => collection);
+    const input = {
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionId: 'session_1',
+      generationId: 'generation_new',
+      scriptId: 'script_new',
+      baseVersion: 0,
+      authoringContext: {},
+      authoringInput: {},
+      signalTrace: {},
+    } as unknown as LongFormScriptGenerationJobInput;
+
+    await expect(store.createOrGet(input)).resolves.toMatchObject({ created: true });
+    expect(collection.insertOne).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ baseVersion: 0 }),
+    }));
+  });
+});
+
 describe('long-form canonical commit recovery', () => {
   function commitJob(baseVersion = 3): LongFormScriptGenerationJobSnapshot {
     return job({
@@ -194,6 +229,19 @@ describe('long-form canonical commit recovery', () => {
       } as LongFormScriptGenerationJobSnapshot['input'],
     });
   }
+
+  beforeEach(() => {
+    persistence.applyCommand.mockReset();
+    persistence.claimGenerationCommit.mockReset().mockResolvedValue(true);
+    persistence.getActiveGeneration.mockReset().mockResolvedValue({
+      id: 'generation_1',
+      type: 'script_generate',
+      scriptId: 'default',
+      status: 'running',
+    });
+    persistence.getSession.mockReset();
+    persistence.getScript.mockReset();
+  });
 
   it('recovers the receipt only for the exact already-committed generation and content', async () => {
     const current = commitJob();
@@ -218,6 +266,7 @@ describe('long-form canonical commit recovery', () => {
       }),
     });
     expect(persistence.applyCommand).not.toHaveBeenCalled();
+    expect(persistence.claimGenerationCommit).not.toHaveBeenCalled();
   });
 
   it('rejects a competing document version instead of overwriting it', async () => {
@@ -235,5 +284,39 @@ describe('long-form canonical commit recovery', () => {
       action: { kind: 'commit' },
     })).rejects.toThrow('Document changed during long-form generation (5/3).');
     expect(persistence.applyCommand).not.toHaveBeenCalled();
+    expect(persistence.claimGenerationCommit).not.toHaveBeenCalled();
+  });
+
+  it('blocks every durable action after the canonical generation is cancelled', async () => {
+    const current = commitJob();
+    persistence.getActiveGeneration.mockResolvedValue({
+      id: 'generation_1',
+      type: 'script_generate',
+      scriptId: 'default',
+      status: 'cancelled',
+    });
+
+    await expect(executeLongFormScriptAction({
+      job: current,
+      action: { kind: 'commit' },
+    })).rejects.toThrow('canonical generation is no longer active');
+    expect(persistence.getSession).not.toHaveBeenCalled();
+    expect(persistence.getScript).not.toHaveBeenCalled();
+    expect(persistence.claimGenerationCommit).not.toHaveBeenCalled();
+    expect(persistence.applyCommand).not.toHaveBeenCalled();
+  });
+
+  it('claims canonical commit ownership after version validation and before persistence', () => {
+    const source = readFileSync(
+      new URL('../../lib/thinkforge/long-form/script-generation-execution.ts', import.meta.url),
+      'utf8',
+    );
+    const versionGuard = source.indexOf("Document changed during long-form generation");
+    const commitClaim = source.indexOf('await claimGenerationCommit(job)', versionGuard);
+    const persistenceCommit = source.indexOf('const result = await applyCommand({', commitClaim);
+
+    expect(versionGuard).toBeGreaterThan(-1);
+    expect(commitClaim).toBeGreaterThan(versionGuard);
+    expect(persistenceCommit).toBeGreaterThan(commitClaim);
   });
 });

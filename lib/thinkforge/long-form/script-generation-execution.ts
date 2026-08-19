@@ -53,6 +53,7 @@ export async function executeLongFormScriptAction(input: {
   signal?: AbortSignal;
 }): Promise<LongFormScriptActionResult> {
   const { job, action, signal } = input;
+  await assertGenerationActive(job);
   switch (action.kind) {
     case 'plan': {
       const output = await new ScriptChapterPlanAgent().generatePlan(
@@ -193,6 +194,7 @@ async function commitAssembledScript(
       `Document changed during long-form generation (${existing?.version ?? 0}/${job.input.baseVersion}).`,
     );
   }
+  await claimGenerationCommit(job);
 
   const chapterWriterTraces = orderedChapterTraces(job);
   const writerTrace = aggregateChapterWriterTraces(chapterWriterTraces);
@@ -255,6 +257,26 @@ async function getAuthorizedScript(job: LongFormScriptGenerationJobSnapshot) {
   const session = await db.getSession(job.sessionId, job.input.userId, job.input.orgId);
   if (!session) throw new LongFormScriptNonRetryableError('Session not found.');
   return db.getScript(session._id, job.input.scriptId);
+}
+
+async function assertGenerationActive(job: LongFormScriptGenerationJobSnapshot): Promise<db.GenerationState> {
+  const generation = await db.getActiveGeneration(job.sessionId);
+  if (
+    !generation
+    || generation.id !== job.generationId
+    || generation.status !== 'running'
+    || generation.scriptId !== job.input.scriptId
+  ) {
+    throw new LongFormScriptNonRetryableError('The canonical generation is no longer active.');
+  }
+  return generation;
+}
+
+async function claimGenerationCommit(job: LongFormScriptGenerationJobSnapshot): Promise<void> {
+  if (await db.claimGenerationCommit(job.sessionId, job.generationId)) return;
+  const generation = await assertGenerationActive(job);
+  if (generation.commitClaimedAt) return;
+  throw new LongFormScriptNonRetryableError('Long-form generation lost canonical commit ownership.');
 }
 
 function persistedGenerationId(metadata: unknown): string | null {

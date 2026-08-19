@@ -672,7 +672,7 @@ describe('ThinkForge generation route ownership', () => {
     );
   });
 
-  it('revokes a durable job before cancelling its generation and billing state', async () => {
+  it('cancels canonical generation ownership before revoking its durable job', async () => {
     lifecycleMocks.getActiveGeneration.mockResolvedValue({
       id: 'generation_1',
       type: 'script_generate',
@@ -682,6 +682,7 @@ describe('ThinkForge generation route ownership', () => {
       startedAt: new Date(),
       updatedAt: new Date(),
     });
+    longFormLifecycleMocks.getByGenerationAuthorized.mockResolvedValue({ status: 'running' });
     longFormLifecycleMocks.cancelByGenerationAuthorized.mockResolvedValue({ status: 'cancelled' });
     const { stopGeneration } = await loadGenerationRoutes();
 
@@ -691,19 +692,19 @@ describe('ThinkForge generation route ownership', () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(longFormLifecycleMocks.cancelByGenerationAuthorized).toHaveBeenCalledWith(
+    expect(longFormLifecycleMocks.getByGenerationAuthorized).toHaveBeenCalledWith(
       'session_canonical',
       'generation_1',
       'user_1',
       'org_1',
     );
-    expect(longFormLifecycleMocks.cancelByGenerationAuthorized.mock.invocationCallOrder[0])
-      .toBeLessThan(lifecycleMocks.updateGenerationState.mock.invocationCallOrder[0]);
     expect(lifecycleMocks.updateGenerationState).toHaveBeenCalledWith(
       'session_canonical',
       'generation_1',
       expect.objectContaining({ status: 'cancelled' }),
     );
+    expect(lifecycleMocks.updateGenerationState.mock.invocationCallOrder[0])
+      .toBeLessThan(longFormLifecycleMocks.cancelByGenerationAuthorized.mock.invocationCallOrder[0]);
   });
 
   it('does not relabel a durable completion as cancelled when completion wins the race', async () => {
@@ -716,7 +717,7 @@ describe('ThinkForge generation route ownership', () => {
       startedAt: new Date(),
       updatedAt: new Date(),
     });
-    longFormLifecycleMocks.cancelByGenerationAuthorized.mockResolvedValue({ status: 'completed' });
+    longFormLifecycleMocks.getByGenerationAuthorized.mockResolvedValue({ status: 'completed' });
     lifecycleMocks.updateGenerationState.mockResolvedValue({
       id: 'generation_1',
       type: 'script_generate',
@@ -742,6 +743,7 @@ describe('ThinkForge generation route ownership', () => {
       'generation_1',
       expect.objectContaining({ status: 'cancelled' }),
     );
+    expect(longFormLifecycleMocks.cancelByGenerationAuthorized).not.toHaveBeenCalled();
   });
 
   it('does not cancel a different active generation', async () => {

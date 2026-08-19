@@ -502,8 +502,8 @@ function validateInputIdentity(input: LongFormScriptGenerationJobInput): void {
   [input.userId, input.sessionId, input.generationId, input.scriptId].forEach((value) => {
     if (!value.trim()) throw new Error('Long-form script job identity fields must be non-empty.');
   });
-  if (!Number.isInteger(input.baseVersion) || input.baseVersion < 1) {
-    throw new Error('Long-form script jobs require a positive integer baseVersion.');
+  if (!Number.isInteger(input.baseVersion) || input.baseVersion < 0) {
+    throw new Error('Long-form script jobs require a non-negative integer baseVersion.');
   }
 }
 
