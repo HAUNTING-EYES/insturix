@@ -17,8 +17,8 @@ import {
   hasValidDev01Stage6ReceiptHashV2,
   type Dev01Stage6ExecutionEvidenceV2,
   type Dev01Stage6ProjectSnapshotV2,
-  type Dev01Stage6RenderProofV2,
 } from './dev01-stage6-native-proxy-contract-v2';
+import { validateDev01Stage6RenderProofV2 } from './dev01-stage6-render-proof-validator-v2';
 import {
   evaluateDev01Stage4CompiledGraphV2,
   type Dev01Stage4SourceV2,
@@ -56,7 +56,7 @@ export async function evaluateDev01Stage6NativeProxyV2(input: {
   validateAuthorization(input.graph, input.source, receipt, diagnostics);
   validateState(input.evidence, diagnostics);
   await validateArtifacts(input.evidence, diagnostics);
-  validateRenderProof(receipt.renderProof, diagnostics);
+  diagnostics.push(...validateDev01Stage6RenderProofV2(receipt.renderProof).diagnostics);
   const authorization = dimension(diagnostics, /^AUTH_/);
   const isolatedState = dimension(diagnostics, /^STATE_/);
   const artifactIntegrity = dimension(diagnostics, /^ARTIFACT_/);
@@ -151,35 +151,6 @@ async function validateArtifacts(evidence: Dev01Stage6ExecutionEvidenceV2, diagn
         || sha256Dev01FixtureBytesV2(bytes) !== binding.sha256) diagnostics.push(`ARTIFACT_BYTES_DRIFT:${binding.artifactId}`);
     } catch (error) { diagnostics.push(`ARTIFACT_UNREADABLE:${binding.artifactId}:${message(error)}`); }
   }
-}
-
-function validateRenderProof(proof: Dev01Stage6RenderProofV2, diagnostics: string[]): void {
-  if (proof.schemaVersion !== DEV01_STAGE6_NATIVE_PROXY_V2
-    || !same(proof.composition, { width: 320, height: 180, fpsNumerator: 30, fpsDenominator: 1, durationInFrames: 435 })
-    || !same(proof.sourceBindings, {
-      hostVideoAssetId: 'dev01-host-truth-v2', dialogueAssetId: 'dev01-dialogue-truth-v2', bgmAssetId: 'dev01-bgm-truth-v2',
-    })) diagnostics.push('VISUAL_RENDER_BINDING_INVALID');
-  const video = proof.video;
-  if (video.codec !== 'h264' || video.width !== 320 || video.height !== 180
-    || video.averageFrameRate !== '30/1' || video.decodedFrameCount !== 435
-    || Math.abs(video.durationSeconds - 14.5) > 0.06 || video.audioStreamCount !== 1) diagnostics.push('VISUAL_VIDEO_PROBE_INVALID');
-  const visual = proof.visual;
-  if (visual.preRevealFrame !== 159 || visual.revealFrame !== 160 || visual.zoomedFrame !== 171
-    || visual.preRevealYellowPixels > 32 || visual.revealYellowPixels < 1_000) diagnostics.push('VISUAL_REVEAL_TIMING_INVALID');
-  if (visual.widthScale < 1.07 || visual.widthScale > 1.17
-    || visual.heightScale < 1.07 || visual.heightScale > 1.17
-    || visual.centerDriftPixels > 3) diagnostics.push('VISUAL_PUSH_GEOMETRY_INVALID');
-  const audio = proof.audio;
-  if (audio.sampleRateHz !== 48_000 || audio.bgmProofSampleFrames !== 696_000
-    || audio.fullMixSampleFrames < 696_000 || audio.fullMixSampleFrames > 700_000) diagnostics.push('AUDIO_DURATION_OR_RATE_INVALID');
-  if (audio.bgmSoloBeforeRms <= 0 || audio.bgmDuckedRms <= 0 || audio.bgmSoloAfterRms <= 0
-    || audio.duckReductionDb < 10 || audio.duckReductionDb > 14
-    || audio.soloRecoveryRatio < 0.97 || audio.soloRecoveryRatio > 1.03) diagnostics.push('AUDIO_DUCK_ENVELOPE_INVALID');
-  if (audio.fullSpeechRms <= 0 || audio.dialogueLiftOverDuckedBgmDb < 6
-    || audio.fullMixPeak <= 0 || audio.fullMixPeak >= 0.99) diagnostics.push('AUDIO_DIALOGUE_OR_PEAK_INVALID');
-  if (proof.browserErrors.length || !same(proof.externalCalls, {
-    providerApiCalls: 0, cloudRenderCalls: 0, projectServiceCalls: 0, databaseCalls: 0,
-  })) diagnostics.push('AUDIO_RENDER_SIDE_EFFECT_OR_BROWSER_ERROR');
 }
 
 function deriveExpectedSnapshots(): Dev01Stage6ExecutionEvidenceV2['snapshots'] {

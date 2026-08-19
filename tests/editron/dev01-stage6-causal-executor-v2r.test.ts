@@ -94,6 +94,23 @@ describe('DEV-01 Stage-6 causal compiled-graph executor V2R', () => {
     await expect(execute(ungrounded, fakeRenderer())).rejects.toThrow('DEV01_STAGE6_VISUAL_UNRESOLVED:NO_MATCH');
   });
 
+  it('rejects independently invalid visual or audio render evidence before writing a receipt', async () => {
+    const invalidProof = passingProof();
+    invalidProof.visual.widthScale = 1;
+    invalidProof.audio.duckReductionDb = 0;
+    const renderer = vi.fn(fakeRenderer(invalidProof));
+    await expect(execute(lowering(), renderer)).rejects.toThrow(
+      /DEV01_STAGE6_RENDER_PROOF_INVALID:.*AUDIO_DUCK_ENVELOPE_INVALID.*VISUAL_PUSH_GEOMETRY_INVALID/,
+    );
+    expect(renderer).toHaveBeenCalledOnce();
+
+    const malformedRenderer = vi.fn(fakeRenderer({} as Dev01Stage6RenderProofV2));
+    await expect(execute(lowering(), malformedRenderer)).rejects.toThrow(
+      /^DEV01_STAGE6_RENDER_PROOF_INVALID:/,
+    );
+    expect(malformedRenderer).toHaveBeenCalledOnce();
+  });
+
   it('contains no canned answer or live mutation authority', async () => {
     const executorSource = await readFile(path.join(process.cwd(), 'lib/editron/research/open-ended-planner/dev01-stage6-generic-lowered-executor-v2r.ts'), 'utf8');
     const adapterSource = await readFile(path.join(process.cwd(), 'lib/editron/research/open-ended-planner/dev01-stage6-operator-adapters-v2r.ts'), 'utf8');
@@ -151,14 +168,14 @@ function overlay(project: JsonRecord, id: number): Record<string, any> {
   return found;
 }
 
-function fakeRenderer(): Dev01Stage6RendererV2 {
+function fakeRenderer(proof: Dev01Stage6RenderProofV2 = passingProof()): Dev01Stage6RendererV2 {
   return async ({ outputDir }) => {
     const artifactPaths = Object.fromEntries(await Promise.all(DEV01_STAGE6_ARTIFACT_IDS_V2.map(async (artifactId) => {
       const artifactPath = path.join(outputDir, `${artifactId.toLowerCase()}.fixture`);
       await writeFile(artifactPath, `fixture-${artifactId}`);
       return [artifactId, artifactPath];
     }))) as Record<typeof DEV01_STAGE6_ARTIFACT_IDS_V2[number], string>;
-    return { artifactPaths, proof: passingProof() };
+    return { artifactPaths, proof };
   };
 }
 

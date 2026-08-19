@@ -17,6 +17,7 @@ import {
 } from './dev01-stage6-native-proxy-contract-v2';
 import { executeDev01Stage6OperatorV2R } from './dev01-stage6-operator-adapters-v2r';
 import { renderDev01Stage6NativeProxyV2 } from './dev01-stage6-native-proxy-renderer-v2';
+import { assertValidDev01Stage6RenderProofV2 } from './dev01-stage6-render-proof-validator-v2';
 import type { GenericLoweringResultV2R } from './generic-lowerer-v2r';
 import { V2R_OPERATOR_CATALOG, v2rOperatorSpecRef } from './operator-catalog-v2r';
 import { validateJsonSchemaV2 } from './stage4-compilation-evaluator-v2';
@@ -64,6 +65,7 @@ export async function executeDev01Stage6GenericLoweredV2(input: {
   const rendered = await (input.renderer ?? renderDev01Stage6NativeProxyV2)({
     projectSnapshot: executed.afterDuck, outputDir: input.outputDir,
   });
+  const renderProofValidation = assertValidDev01Stage6RenderProofV2(rendered.proof);
   const artifacts = await bindArtifacts(rendered.artifactPaths);
   const stateHashes = {
     before: hashCanonicalJsonV1(executed.before), afterCut: hashCanonicalJsonV1(executed.afterCut),
@@ -89,7 +91,7 @@ export async function executeDev01Stage6GenericLoweredV2(input: {
       afterPushStateHash: stateHashes.afterPush, afterDuckStateHash: stateHashes.afterDuck,
       changedPaths: executed.changedPaths,
     },
-    operations: executed.trace, artifacts, renderProof: rendered.proof,
+    operations: executed.trace, artifacts, renderProof: rendered.proof, renderProofValidation,
     proof: {
       state: 'PASS', reloadEquivalent: 'PASS', renderedVisual: 'PASS',
       renderedAudio: 'PASS', projectMutation: 'NONE',
