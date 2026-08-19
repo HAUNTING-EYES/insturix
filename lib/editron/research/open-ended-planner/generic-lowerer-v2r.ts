@@ -37,8 +37,6 @@ export interface FieldBindingRuleV2R {
   outputName?: string;
   outputNames?: readonly string[];
   producers?: readonly NodeOutputProducerV2R[];
-  // For MODEL_INPUT: which nodeInputs key to read (defaults to the bound field name).
-  modelInputField?: string;
   staticValue?: unknown;
   valueAdapter?: FieldValueAdapterV2R;
 }
@@ -405,8 +403,7 @@ function bindField(
     }
     case 'MODEL_INPUT': {
       const nodeInputs = record(context.boundNode.nodeInputs);
-      const modelInputField = rule.modelInputField ?? field;
-      const value = nodeInputs[modelInputField];
+      const value = nodeInputs[field];
       if (value === undefined || value === null || value === '') return { present: false };
       return adaptFieldValueV2R(value, rule, diagnostics, intentNodeId, field);
     }
