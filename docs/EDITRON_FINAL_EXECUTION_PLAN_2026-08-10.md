@@ -1274,7 +1274,7 @@ convergence.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Seven-stage schemas, provider codecs, frozen fixtures, research proxies, synthetic rendered artifacts and paid-provider call plumbing are `RESEARCH_PROVEN` in parts. | No model has yet passed a clean, connected, fair native/generated/hybrid benchmark. Current cohort verdicts are invalidated below. Generic lowering, an atomic tool packet, fair time budgets, actual model handoff and connected proxy proof must precede a ranking. |
+| Stage 2.5 - open-ended planner experiment | The V19 cohort has immutable manifest/receipt identities, 40/40 enriched research operators, actual model handoff, generic lowering, causal terminal scoring and isolated proof-capable DEV-01/DEV-03 adapters. Hash verification passed for all 18 rows. | V19 is `MODIFY`, not `GO`: OpenAI was rate-limited in all Luna/Terra rows; Qwen passed only DEV-04's honest gap, reached but failed DEV-03 rendered proof, and failed schema/semantic controls elsewhere. No model is production-approved and no V19 proxy reached Stage 7. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -1492,6 +1492,35 @@ receipt also do not yet expose/bind the coordinate mapping. DEV-03 still needs
 the same causal conversion, and the refreshed evaluator/manifest must be frozen
 before Luna, Terra or Qwen is called. Therefore no provider rerun, model ranking
 or production mutation is authorised by these commits.
+
+#### V2R V19 connected cohort - 2026-08-19
+
+The subsequently issued V19 cohort is now the current model-experiment truth.
+Its manifest hash is `88fb74c4...`, its cohort receipt hash is `f271c956...`,
+and all 18 full-episode receipts were hash-verified. The run was research-only,
+sequential and produced no project mutation.
+
+- Luna and Terra are `UNVERIFIABLE_PROVIDER_RATE_LIMIT`, not editing failures:
+  all twelve OpenAI rows returned HTTP 429 before Stage 1 acceptance.
+- Qwen DEV-04 is an expected honest capability-gap pass.
+- Qwen DEV-03 baseline reached semantic PASS and Stage-5 authorization, then
+  failed Stage-6 rendered visual proof; its `0.15` shake was not measurably
+  visible at the active proof sample.
+- Qwen's remaining cases exposed Stage-1/2 schema failures or semantic-policy
+  failures. They are not executable passes.
+- Stage 7 is `NOT_READY_NO_EXECUTED_PROXY`; no human review is due.
+
+V19 also changes cohort scoring so a coincidental terminal label cannot hide
+the cause. An expected evidence stop requires `EVIDENCE_INSUFFICIENT` plus
+semantic PASS; `CONNECTED_EPISODE_INCOMPLETE` is unexpected even when the final
+label is `UNVERIFIABLE`.
+
+The immediate benchmark work is therefore: repair and certify the shared
+resolution-aware form/proof contract exposed by DEV-03; restore a usable
+OpenAI test lane without changing the frozen semantics; improve schema-bound
+Qwen transport/repair without leaking expected answers; then issue a new
+version and run repeated trials. The detailed ledger is
+[oe-v2-1f-connected-model-episode-results-2026-08-19.md](editron/open-ended-editing/oe-v2-1f-connected-model-episode-results-2026-08-19.md).
 
 ### GeneratedCompositionProgram current truth
 

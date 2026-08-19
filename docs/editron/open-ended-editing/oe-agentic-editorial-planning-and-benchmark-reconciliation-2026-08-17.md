@@ -1177,6 +1177,30 @@ being pretended equivalent to a native-video route.
 
 ## Current plan position and next work
 
+### V19 connected-cohort truth — 2026-08-19
+
+The first causally scored V3-receipt cohort is
+`v2r-v19-20260819162944`, manifest
+`88fb74c4bc4d145ed2217c6c4b5a148d290dff8026d5785a2fe4e68b8680eb25`,
+receipt
+`f271c9567242414c39a99e4618b34c018e9a89c1029f6854fc6bc7a80fd15b86`.
+All 18 full-episode hashes and the cohort hash recomputed successfully. Its
+verdict is `COMPLETE_WITH_FAILURES / NOT_READY_NO_EXECUTED_PROXY`.
+
+Luna and Terra were not editorially evaluated: every OpenAI episode stopped at
+Stage 1 with HTTP 429. Qwen passed the DEV-04 honest capability-gap condition.
+Its DEV-03 baseline produced schema-valid Stage 1–3 artifacts, passed semantic
+policy and received Stage-5 research-proxy authorization, but Stage 6 failed
+rendered visual proof because a requested `0.15` shake was not measurably
+visible at the proof samples. Other Qwen rows stopped on schema or semantic
+requirements. This is `MODIFY`, not a provider ranking and not a production
+pass. The full result ledger is
+[oe-v2-1f-connected-model-episode-results-2026-08-19.md](./oe-v2-1f-connected-model-episode-results-2026-08-19.md).
+
+Receipt V3 closes another scoring hole: `UNVERIFIABLE` caused by missing Stage
+2/3 artifacts no longer earns credit for an expected withheld-evidence stop.
+The expected causal reason and semantic PASS must also match.
+
 This does not replace the current three-slice queue; it makes the acceptance
 criteria precise:
 
