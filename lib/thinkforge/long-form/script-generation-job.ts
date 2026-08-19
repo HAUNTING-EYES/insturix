@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from '@upstash/qstash';
+import { requireThinkForgeEditorialPlanForWriter } from '../agents/editorial-plan';
+import {
+  resolveScriptGenerationFeasibility,
+  type ScriptGenerationFeasibility,
+  type ScriptWriterInput,
+} from '../agents/script-writer-agent';
+import type { ThinkForgeResolvedAuthoringContext } from '../context';
+import type { ThinkForgeSignalTrace } from '../signals/signal-trace';
 import {
   LongFormScriptJobLeaseLostError,
   LONG_FORM_SCRIPT_JOB_MAX_STAGE_FAILURES,
@@ -55,6 +63,89 @@ export async function enqueueLongFormScriptJob(
   if (!queued.created) return { ...queued, queueMessageId: queued.job.queueMessageId };
   const queueMessageId = await dispatchLongFormScriptJob(queued.job.id);
   return { ...queued, queueMessageId };
+}
+
+export interface LongFormScriptGenerationHandoffInput {
+  userId: string;
+  orgId: string | null;
+  sessionId: string;
+  generationId: string;
+  scriptId: string;
+  baseVersion: number;
+  authoringContext: ThinkForgeResolvedAuthoringContext | null;
+  writerInput: ScriptWriterInput;
+  signalTrace: ThinkForgeSignalTrace;
+  contextMetadata?: LongFormScriptGenerationJobInput['contextMetadata'];
+}
+
+export type LongFormScriptGenerationHandoffResult =
+  | {
+      mode: 'single_pass';
+      feasibility: Extract<ScriptGenerationFeasibility, { mode: 'single_pass' }>;
+    }
+  | {
+      mode: 'chaptered';
+      feasibility: Extract<ScriptGenerationFeasibility, { mode: 'chaptered_required' }>;
+      job: LongFormScriptGenerationJobSnapshot;
+      created: boolean;
+      queueMessageId: string | null;
+    };
+
+export interface LongFormScriptGenerationHandoffDependencies {
+  resolveFeasibility?: typeof resolveScriptGenerationFeasibility;
+  enqueue?: typeof enqueueLongFormScriptJob;
+  beforeEnqueue?: (
+    feasibility: Extract<ScriptGenerationFeasibility, { mode: 'chaptered_required' }>,
+  ) => Promise<void>;
+}
+
+/** Route provider-infeasible scripts into the durable chaptered writer before any paid writer call. */
+export async function handoffChapteredScriptGenerationIfRequired(
+  input: LongFormScriptGenerationHandoffInput,
+  dependencies: LongFormScriptGenerationHandoffDependencies = {},
+): Promise<LongFormScriptGenerationHandoffResult> {
+  const feasibility = (dependencies.resolveFeasibility ?? resolveScriptGenerationFeasibility)(input.writerInput);
+  if (feasibility.mode === 'single_pass') return { mode: 'single_pass', feasibility };
+
+  const authoringRequest = input.writerInput.authoringRequest;
+  const productionBrief = input.writerInput.productionBrief;
+  const sourceLedger = input.writerInput.sourceLedger;
+  if (!input.authoringContext) {
+    throw new Error('Chaptered script generation requires a resolved authoring context.');
+  }
+  const editorialPlan = requireThinkForgeEditorialPlanForWriter(
+    input.writerInput.editorialPlan,
+    'script',
+    authoringRequest,
+  );
+  if (!productionBrief) throw new Error('Chaptered script generation requires a production brief.');
+  if (!sourceLedger) throw new Error('Chaptered script generation requires a source ledger.');
+
+  const { systemBrief: _systemBrief, ...context } = input.writerInput.context;
+  await dependencies.beforeEnqueue?.(feasibility);
+  const queued = await (dependencies.enqueue ?? enqueueLongFormScriptJob)({
+    userId: input.userId,
+    orgId: input.orgId,
+    sessionId: input.sessionId,
+    generationId: input.generationId,
+    scriptId: input.scriptId,
+    baseVersion: input.baseVersion,
+    authoringContext: input.authoringContext,
+    authoringInput: {
+      context,
+      userPrompt: input.writerInput.userPrompt,
+      authoringRequest: editorialPlan.authoringRequest,
+      editorialPlan,
+      productionBrief,
+      sourceLedger,
+      contentSignalProfile: input.writerInput.contentSignalProfile,
+      generationMode: input.writerInput.generationMode,
+      generationIdentity: input.writerInput.generationIdentity,
+    },
+    signalTrace: input.signalTrace,
+    contextMetadata: input.contextMetadata,
+  });
+  return { mode: 'chaptered', feasibility, ...queued };
 }
 
 export async function dispatchLongFormScriptJob(jobId: string): Promise<string> {

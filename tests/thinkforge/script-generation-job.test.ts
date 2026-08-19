@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import type { Collection } from 'mongodb';
+import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildThinkForgeEditorialPlan } from '@/lib/thinkforge/agents/editorial-plan';
+import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
+import { createThinkForgeAuthoringRequest } from '@/lib/thinkforge/schemas/authoring-request';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 const persistence = vi.hoisted(() => ({
   applyCommand: vi.fn(),
   claimGenerationCommit: vi.fn(),
@@ -28,7 +33,9 @@ import {
   type LongFormScriptGenerationJobSnapshot,
 } from '@/lib/thinkforge/long-form/script-generation-job-store';
 import {
+  handoffChapteredScriptGenerationIfRequired,
   processLongFormScriptJob,
+  type LongFormScriptGenerationHandoffInput,
   type LongFormScriptJobDependencies,
 } from '@/lib/thinkforge/long-form/script-generation-job';
 import {
@@ -86,6 +93,67 @@ function dependencies(claim: ClaimLongFormScriptJobResult): Required<LongFormScr
     },
     execute: vi.fn(),
     dispatch: vi.fn().mockResolvedValue('message_1'),
+  };
+}
+
+function handoffInput(authoringContext: LongFormScriptGenerationHandoffInput['authoringContext'] = {
+  projectMeta: { brandId: 'brand_1' },
+  retrievedContext: { projectFacts: [], globalFacts: [], semanticFacts: [], interactionPatterns: [] } as never,
+  systemBrief: 'Grounded Brand Vault and trend context.',
+  snapshot: { profile: { recordId: 'profile_1', revision: 4, checksum: 'c'.repeat(64) } } as never,
+}): LongFormScriptGenerationHandoffInput {
+  const targetDurationSec = 36_000;
+  const userPrompt = 'Write a ten-hour sourced documentary.';
+  const authoringRequest = createThinkForgeAuthoringRequest({
+    contentContract: createThinkForgeWriterContract('video_script'),
+    platformSurface: { id: 'youtube' },
+    publishingSurface: 'youtube_video',
+    targetDurationSec,
+  });
+  const productionBrief: ProductionBrief = {
+    entryPoint: 'thinkforge',
+    output: {
+      format: 'reel',
+      platform: 'youtube',
+      aspectRatio: '16:9',
+      targetDurationSec,
+      count: 1,
+      voiceLanguages: ['en'],
+    },
+    resolution: { fieldConfidence: {}, inferred: [], confirmed: [] },
+  };
+  const sourceLedger = buildThinkForgeSourceLedger({ userPrompt });
+  const editorialPlan = buildThinkForgeEditorialPlan({
+    userPrompt,
+    authoringRequest,
+    productionBrief,
+    sourceLedgerEntryIds: sourceLedger.entries.map((entry) => entry.referenceId),
+  });
+  if (editorialPlan.writerKind !== 'script') throw new Error('Expected a script editorial plan fixture.');
+  return {
+    userId: 'user_1',
+    orgId: 'org_1',
+    sessionId: 'session_1',
+    generationId: 'generation_1',
+    scriptId: 'script_1',
+    baseVersion: 0,
+    authoringContext,
+    writerInput: {
+      context: {
+        projectSummary: 'A complete feature documentary.',
+        systemBrief: 'Grounded Brand Vault and trend context.',
+      },
+      userPrompt,
+      authoringRequest,
+      editorialPlan,
+      productionBrief,
+      sourceLedger,
+    },
+    signalTrace: { outputFormat: 'video_script', goal: 'documentary', angle: 'evidence-led' } as never,
+    contextMetadata: {
+      trendContext: { trendId: 'trend_1' },
+      castingContext: { status: 'resolved' },
+    },
   };
 }
 
@@ -178,6 +246,101 @@ describe('processLongFormScriptJob', () => {
       status: 'deferred', reason: 'lease_held',
     });
     expect(leased.execute).not.toHaveBeenCalled();
+  });
+});
+
+describe('long-form chat handoff', () => {
+  const singlePassFeasibility = {
+    mode: 'single_pass' as const,
+    requiredOutputTokens: 10_000,
+    requiredVisibleOutputTokens: 8_192,
+    thinkingBudgetTokens: 8_192,
+    maximumOutputTokens: 65_536,
+    maximumSinglePassDurationSeconds: 900,
+  };
+  const chapteredFeasibility = {
+    mode: 'chaptered_required' as const,
+    requiredOutputTokens: 200_000,
+    requiredVisibleOutputTokens: 191_808,
+    thinkingBudgetTokens: 8_192,
+    maximumOutputTokens: 65_536,
+    maximumSinglePassDurationSeconds: 900,
+    requestedDurationSeconds: 36_000,
+  };
+
+  it('leaves ordinary single-pass scripts on the existing writer path without requiring resolved context', async () => {
+    const enqueue = vi.fn();
+    const beforeEnqueue = vi.fn();
+
+    await expect(handoffChapteredScriptGenerationIfRequired(
+      handoffInput(null),
+      { resolveFeasibility: () => singlePassFeasibility, enqueue, beforeEnqueue },
+    )).resolves.toEqual({ mode: 'single_pass', feasibility: singlePassFeasibility });
+    expect(beforeEnqueue).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('freezes the complete grounded contract and establishes ownership before durable enqueue', async () => {
+    const order: string[] = [];
+    const enqueue = vi.fn(async (input: LongFormScriptGenerationJobInput) => {
+      order.push('enqueue');
+      return { job: job({ input, status: 'queued' }), created: true, queueMessageId: 'message_1' };
+    });
+    const beforeEnqueue = vi.fn(async () => { order.push('ownership'); });
+
+    const result = await handoffChapteredScriptGenerationIfRequired(handoffInput(), {
+      resolveFeasibility: () => chapteredFeasibility,
+      enqueue,
+      beforeEnqueue,
+    });
+
+    expect(result).toMatchObject({ mode: 'chaptered', created: true, queueMessageId: 'message_1' });
+    expect(order).toEqual(['ownership', 'enqueue']);
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      generationId: 'generation_1',
+      scriptId: 'script_1',
+      baseVersion: 0,
+      authoringContext: expect.objectContaining({
+        systemBrief: 'Grounded Brand Vault and trend context.',
+      }),
+      authoringInput: expect.objectContaining({
+        context: expect.not.objectContaining({ systemBrief: expect.anything() }),
+        productionBrief: expect.objectContaining({ output: expect.objectContaining({ targetDurationSec: 36_000 }) }),
+        editorialPlan: expect.objectContaining({ writerKind: 'script' }),
+        sourceLedger: expect.objectContaining({ entries: expect.any(Array) }),
+      }),
+      contextMetadata: {
+        trendContext: { trendId: 'trend_1' },
+        castingContext: { status: 'resolved' },
+      },
+    }));
+  });
+
+  it('wires chat preflight before the paid writer and preserves durable lifecycle ownership', () => {
+    const chat = readFileSync(
+      new URL('../../lib/thinkforge/services/chat-service.ts', import.meta.url),
+      'utf8',
+    );
+    const handoff = chat.indexOf('await handoffChapteredScriptGenerationIfRequired({');
+    const paidWriter = chat.indexOf(
+      'writer.runStructured(baseInput as ScriptWriterInput, undefined, abortSignal)',
+      handoff,
+    );
+
+    expect(handoff).toBeGreaterThan(-1);
+    expect(paidWriter).toBeGreaterThan(handoff);
+    expect(chat).toContain('intent: LONG_FORM_SCRIPT_GENERATION_INTENT');
+    expect(chat).toContain('systemBrief: groundedSystemBrief');
+    expect(chat).toContain('generationHandedOff = true');
+    expect(chat).toContain('!generationTerminalized && !generationHandedOff');
+    expect(chat).toContain('if (generationHandedOff) {');
+
+    const execution = readFileSync(
+      new URL('../../lib/thinkforge/long-form/script-generation-execution.ts', import.meta.url),
+      'utf8',
+    );
+    expect(execution).toContain('job.input.contextMetadata?.trendContext');
+    expect(execution).toContain('job.input.contextMetadata?.castingContext');
   });
 });
 

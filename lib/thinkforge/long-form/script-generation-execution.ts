@@ -242,6 +242,12 @@ async function commitAssembledScript(
           sidecarVersion: job.assembledResult.sidecar.sidecarVersion,
           sourceLedger: job.input.authoringInput.sourceLedger,
           writerMetadata: job.assembledResult.metadata,
+          ...(job.input.contextMetadata?.trendContext
+            ? { trendContext: job.input.contextMetadata.trendContext }
+            : {}),
+          ...(job.input.contextMetadata?.castingContext
+            ? { castingContext: job.input.contextMetadata.castingContext }
+            : {}),
           generationTrace,
           longForm: { version: 1, jobId: job.id, plan: job.plan, chapterWriterTraces },
         },

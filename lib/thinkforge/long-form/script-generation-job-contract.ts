@@ -58,6 +58,10 @@ export interface LongFormScriptGenerationJobInput {
   authoringContext: ThinkForgeResolvedAuthoringContext;
   authoringInput: LongFormScriptAuthoringInput;
   signalTrace: ThinkForgeSignalTrace;
+  contextMetadata?: {
+    trendContext?: Record<string, unknown>;
+    castingContext?: Record<string, unknown>;
+  };
 }
 
 export interface ScriptChapterArtifact {

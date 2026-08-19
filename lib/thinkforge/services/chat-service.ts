@@ -72,6 +72,10 @@ import { reviseDocumentViaFlatWriter } from './flat-writer-edit';
 import { retryOnceOnOverload } from './retry-on-overload';
 import { resolveCanonicalEditSelection } from './canonical-edit-selection';
 import { normalizeCanonicalThinkForgeDocumentState } from '../canonical-document-state';
+import {
+  handoffChapteredScriptGenerationIfRequired,
+} from '../long-form/script-generation-job';
+import { LONG_FORM_SCRIPT_GENERATION_INTENT } from '../long-form/script-generation-job-contract';
 import crypto from 'crypto';
 
 const PROMPT_UNDERSTANDING_SEED = 7;
@@ -371,6 +375,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   (async () => {
     const activeGenerationId = providedGenerationId || `gen_${crypto.randomUUID()}`;
     let generationTerminalized = false;
+    let generationHandedOff = false;
     let commitOwnershipClaimed = false;
     let commitPersisted = false;
     let terminalFailureMessage: string | null = null;
@@ -913,6 +918,57 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             finalRichText = thinkForgeBlocksToTiptapJSON(finalBlocks);
             
           } else {
+            if (!signalTrace) {
+              throw new Error('Chaptered script generation requires a resolved signal trace.');
+            }
+            const scriptInput = baseInput as ScriptWriterInput;
+            const longFormHandoff = await handoffChapteredScriptGenerationIfRequired({
+              userId,
+              orgId: session.orgId ?? null,
+              sessionId: canonicalSessionId,
+              generationId: activeGenerationId,
+              scriptId: effectiveScriptId!,
+              baseVersion: resolveThinkForgeCommitBaseVersion(commitBaseline, effectiveScriptId!),
+              authoringContext: authoringContext ? {
+                ...authoringContext,
+                projectMeta: sessionState.metadata,
+                retrievedContext: retrievedCtx ?? authoringContext.retrievedContext,
+                systemBrief: groundedSystemBrief,
+                snapshot: authoringContextSnapshot,
+              } : null,
+              writerInput: scriptInput,
+              signalTrace,
+              contextMetadata: {
+                ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),
+                ...(castingContextMetadata ? { castingContext: { ...castingContextMetadata } } : {}),
+              },
+            }, {
+              beforeEnqueue: async (feasibility) => {
+                const updated = await db.updateGenerationState(canonicalSessionId, activeGenerationId, {
+                  type: 'script_generate',
+                  scriptId: effectiveScriptId!,
+                  intent: LONG_FORM_SCRIPT_GENERATION_INTENT,
+                  progress: 0.02,
+                  message: `Planning a ${feasibility.requestedDurationSeconds}-second chaptered script`,
+                });
+                if (!updated) throw new Error('Generation ownership was lost before long-form dispatch.');
+              },
+            });
+            if (longFormHandoff.mode === 'chaptered') {
+              generationHandedOff = true;
+              const progressMessage = 'Planning the complete narrative before writing each chapter';
+              if (!(await emitEvent('progress', { progress: 0.02, message: progressMessage }))) return;
+              finalResponse = 'Your long-form script is being built chapter by chapter. It will appear here when complete.';
+              if (!(await emitEvent('token', { content: finalResponse }))) return;
+              try {
+                await db.appendChatMessage(canonicalSessionId, 'assistant', finalResponse, threadId);
+              } catch (messageError) {
+                console.error('[ThinkForge] Long-form job queued, but its chat acknowledgement was not saved:', messageError);
+              }
+              await emitEvent('done', { sessionId: canonicalSessionId });
+              return;
+            }
+
             const writer = new ScriptWriterAgent();
             const { result, metadata } = await retryOnceOnOverload(
               () => writer.runStructured(baseInput as ScriptWriterInput, undefined, abortSignal),
@@ -1200,6 +1256,10 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       }
     } catch (error: any) {
       const wasAborted = isThinkForgeAbortFailure(error, abortSignal) || isStreamClosed;
+      if (generationHandedOff) {
+        if (!wasAborted) console.error('[ThinkForge] Long-form generation handoff response failed:', error);
+        return;
+      }
       const terminalStatus = commitPersisted
         ? 'completed'
         : wasAborted
@@ -1228,7 +1288,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       console.error('Error in chat stream:', error);
       await emitEvent('error', { error: error.message || 'Chat failed' });
     } finally {
-      if (session && !generationTerminalized) {
+      if (session && !generationTerminalized && !generationHandedOff) {
         const terminalStatus = terminalFailureMessage
           ? 'failed'
           : commitPersisted
