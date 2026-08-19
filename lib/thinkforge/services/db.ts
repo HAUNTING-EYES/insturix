@@ -846,6 +846,74 @@ const VersionEdgeSchema = new Schema({
   createdAt: { type: Date, default: Date.now }
 }, { collection: 'thinkforge_version_edges', timestamps: false });
 
+export const THINKFORGE_INTERACTION_EVENT_RETENTION_MS = 30 * 24 * 60 * 60_000;
+export const THINKFORGE_INTERACTION_EVENT_TTL_INDEX = {
+  key: { expiresAt: 1 } as const,
+  name: 'thinkforge_interaction_event_ttl',
+  expireAfterSeconds: 0,
+} as const;
+const RETAINED_INTERACTION_EVENT_TYPES = [
+  'content_deleted',
+  'hook_rejected',
+  'style_corrected',
+  'regeneration_requested',
+  'feedback_given',
+] as const satisfies readonly EventType[];
+
+export interface ThinkForgeInteractionEventRetentionCollection {
+  updateMany(
+    filter: Record<string, unknown>,
+    update: Record<string, unknown>[],
+  ): Promise<unknown>;
+  createIndex(
+    key: Readonly<Record<string, 1 | -1>>,
+    options: { name: string; expireAfterSeconds: number },
+  ): Promise<unknown>;
+}
+
+export function buildInteractionEventRetentionDates(createdAt = new Date()): {
+  createdAt: Date;
+  expiresAt: Date;
+} {
+  if (!(createdAt instanceof Date) || !Number.isFinite(createdAt.getTime())) {
+    throw new Error('Interaction event retention requires a valid creation date.');
+  }
+  const persistedCreatedAt = new Date(createdAt.getTime());
+  return {
+    createdAt: persistedCreatedAt,
+    expiresAt: new Date(persistedCreatedAt.getTime() + THINKFORGE_INTERACTION_EVENT_RETENTION_MS),
+  };
+}
+
+export async function ensureThinkForgeInteractionEventRetention(
+  collection: ThinkForgeInteractionEventRetentionCollection,
+): Promise<void> {
+  await collection.updateMany(
+    {
+      type: { $in: [...RETAINED_INTERACTION_EVENT_TYPES] },
+      $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }],
+    },
+    [{
+      $set: {
+        expiresAt: {
+          $dateAdd: {
+            startDate: { $convert: { input: '$createdAt', to: 'date' } },
+            unit: 'millisecond',
+            amount: THINKFORGE_INTERACTION_EVENT_RETENTION_MS,
+          },
+        },
+      },
+    }],
+  );
+  await collection.createIndex(
+    THINKFORGE_INTERACTION_EVENT_TTL_INDEX.key,
+    {
+      name: THINKFORGE_INTERACTION_EVENT_TTL_INDEX.name,
+      expireAfterSeconds: THINKFORGE_INTERACTION_EVENT_TTL_INDEX.expireAfterSeconds,
+    },
+  );
+}
+
 const EventSchema = new Schema({
   projectId: { type: String, required: true, index: true },
   sessionId: { type: String, index: true },
@@ -867,12 +935,20 @@ const EventSchema = new Schema({
   ownerType: { type: String, enum: ['user', 'organization'], index: true },
   userId: { type: String, index: true },
   orgId: { type: String, index: true },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  expiresAt: { type: Date },
 }, { collection: COLL_EVENTS, timestamps: false });
 EventSchema.index({ ownerType: 1, userId: 1, projectId: 1, createdAt: -1 });
 EventSchema.index({ ownerType: 1, orgId: 1, projectId: 1, createdAt: -1 });
 EventSchema.index({ ownerType: 1, userId: 1, brandId: 1, createdAt: -1 });
 EventSchema.index({ ownerType: 1, orgId: 1, brandId: 1, createdAt: -1 });
+EventSchema.index(
+  THINKFORGE_INTERACTION_EVENT_TTL_INDEX.key,
+  {
+    name: THINKFORGE_INTERACTION_EVENT_TTL_INDEX.name,
+    expireAfterSeconds: THINKFORGE_INTERACTION_EVENT_TTL_INDEX.expireAfterSeconds,
+  },
+);
 
 // ==================== Model Getters ====================
 // V1 Models (Legacy)
@@ -890,6 +966,7 @@ let ContentBlockModel: Model<any>;
 let VersionEdgeModel: Model<any>;
 let EventModel: Model<any>;
 let generationReceiptIndexesEnsured: Promise<void> | null = null;
+let interactionEventRetentionEnsured: Promise<void> | null = null;
 
 type StoredThinkForgeGenerationReceipt = ThinkForgeGenerationReceiptV1 & { _id: string };
 
@@ -953,6 +1030,13 @@ async function getModels() {
   if (!EventModel) {
     EventModel = tfConn.models[COLL_EVENTS] || tfConn.model(COLL_EVENTS, EventSchema);
   }
+  interactionEventRetentionEnsured ??= ensureThinkForgeInteractionEventRetention(
+    EventModel.collection as unknown as ThinkForgeInteractionEventRetentionCollection,
+  ).catch((error) => {
+    interactionEventRetentionEnsured = null;
+    throw error;
+  });
+  await interactionEventRetentionEnsured;
 
   return {
     connection: tfConn,
@@ -4600,6 +4684,7 @@ export async function logInteractionEvent(
   }
   const brandId = resolveProjectMetaBrandId(session.projectMeta);
   const { EventModel } = await getModels();
+  const retentionDates = buildInteractionEventRetentionDates();
   await EventModel.create({
     projectId: exactProjectId,
     sessionId: exactSessionId,
@@ -4609,7 +4694,7 @@ export async function logInteractionEvent(
     type,
     payload,
     ...principal,
-    createdAt: new Date(),
+    ...retentionDates,
   });
 }
 
