@@ -47,6 +47,7 @@ interface CompiledExecutionV2R {
   shaken: Dev03Stage6ProjectSnapshotV2;
   changedPaths: readonly string[];
   trace: readonly JsonRecord[];
+  observedProjectRevision: string | 'NOT_READ';
 }
 
 const REQUIRED_OPERATORS = [
@@ -108,7 +109,7 @@ export async function executeDev03Stage6GenericLoweredV2(input: {
     },
     projectBinding: {
       projectId: 'oe-dev-03', expectedProjectRevision: 'R11',
-      observedProjectRevision: 'NOT_READ', changedProjectPaths: [],
+      observedProjectRevision: executed.observedProjectRevision, changedProjectPaths: [],
     },
     isolatedClone: {
       beforeStateHash: stateHashes.before, alignedStateHash: stateHashes.aligned,
@@ -150,6 +151,7 @@ function executeCompiledGraph(
   const executedNodeIds = new Set<string>();
   const changedPaths = new Set<string>();
   const trace: JsonRecord[] = [];
+  let observedProjectRevision: string | 'NOT_READ' = 'NOT_READ';
   const graph = record(lowering.compiled);
   const nodes = records(graph.nodes);
   const nodesById = new Map(nodes.map((node) => [requiredString(node.nodeId, 'NODE_ID'), node]));
@@ -181,6 +183,12 @@ function executeCompiledGraph(
       operatorId, inputs: resolvedInputs, currentProject, fixture, evidencePack,
     });
     validateOperatorOutputs(operatorId, result.outputs);
+    if (operatorId === 'read_project_file') {
+      observedProjectRevision = requiredString(
+        record(result.outputs.evidence).projectRevision,
+        'OBSERVED_PROJECT_REVISION',
+      );
+    }
     outputsByNodeId.set(nodeId, clone(result.outputs));
     if (result.nextProject) currentProject = clone(result.nextProject);
     for (const changedPath of result.changedPaths) changedPaths.add(changedPath);
@@ -197,7 +205,7 @@ function executeCompiledGraph(
   if (!shaken) throw new Error('DEV03_STAGE6_SHAKE_SNAPSHOT_MISSING');
   return {
     before: originalProject, aligned, shaken,
-    changedPaths: [...changedPaths].sort(compareUtf16), trace,
+    changedPaths: [...changedPaths].sort(compareUtf16), trace, observedProjectRevision,
   };
 }
 

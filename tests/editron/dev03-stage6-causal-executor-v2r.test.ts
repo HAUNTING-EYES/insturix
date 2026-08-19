@@ -58,7 +58,7 @@ describe('DEV-03 Stage-6 causal compiled-graph executor V2R', () => {
     expect(execution.receipt).toMatchObject({
       executor: 'CAUSAL_COMPILED_GRAPH_INTERPRETER_V2R',
       authority: 'RESEARCH_PROXY_ONLY_NO_PROJECT_MUTATION',
-      projectBinding: { expectedProjectRevision: 'R11', observedProjectRevision: 'NOT_READ' },
+      projectBinding: { expectedProjectRevision: 'R11', observedProjectRevision: 'R11' },
       proof: { state: 'PASS', renderedVisual: 'PASS', renderedAudio: 'PASS', projectMutation: 'NONE' },
       renderProofValidation: { assessment: 'PASS', renderedVisual: 'PASS', renderedAudio: 'PASS' },
       fullProjectExecutionEligibility: 'NOT_EXECUTABLE',
