@@ -9,6 +9,7 @@ import { buildV2RBenchmarkRouteRosterV2 } from '@/lib/editron/research/open-ende
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { v2rOperatorCatalogIdentity } from '@/lib/editron/research/open-ended-planner/operator-catalog-v2r';
 import { cap2aPlannerDossierIdentityV2R } from '@/lib/editron/research/open-ended-planner/cap2a-planner-dossier-v2r';
+import { buildV2RSemanticOperatorPolicyV2R } from '@/lib/editron/research/open-ended-planner/v2r-semantic-operator-policy';
 import {
   assertV2RPreregistrationComplete,
   buildV2RPreregistrationManifest,
@@ -42,6 +43,11 @@ describe('V2-1R capstone pre-registration manifest', () => {
       .toEqual(['OPENAI_LUNA', 'OPENAI_TERRA', 'QWEN_3_8_MAX']);
     expect(manifest.causalExecution.taskContracts.map(({ taskId }) => taskId)).toEqual(['DEV-01', 'DEV-03']);
     expect(manifest.evaluatorFreeze.policySha256).toBe(buildEvaluatorPolicyFreezeV2R().policySha256);
+    expect(manifest.semanticOperatorFreeze).toEqual({
+      policyVersion: buildV2RSemanticOperatorPolicyV2R().version,
+      policySha256: buildV2RSemanticOperatorPolicyV2R().policySha256,
+      exposure: 'EVALUATOR_ONLY_NOT_MODEL_INPUT',
+    });
   });
 
   it('is reproducible across builds', () => {
@@ -86,5 +92,17 @@ describe('V2-1R capstone pre-registration manifest', () => {
     Object.freeze(dossierForgery);
     expect(() => assertV2RPreregistrationComplete(dossierForgery))
       .toThrow('V2R_PREREGISTRATION_PLANNER_DOSSIER_DRIFT');
+
+    const semanticForgery = structuredClone(manifest) as unknown as {
+      semanticOperatorFreeze: { exposure: string };
+      manifestSha256: string;
+      [key: string]: unknown;
+    };
+    semanticForgery.semanticOperatorFreeze.exposure = 'MODEL_INPUT';
+    const { manifestSha256: _semanticHash, ...semanticMaterial } = semanticForgery;
+    semanticForgery.manifestSha256 = hashCanonicalJsonV1(semanticMaterial);
+    Object.freeze(semanticForgery);
+    expect(() => assertV2RPreregistrationComplete(semanticForgery))
+      .toThrow('V2R_PREREGISTRATION_SEMANTIC_POLICY_HASH_DRIFT');
   });
 });

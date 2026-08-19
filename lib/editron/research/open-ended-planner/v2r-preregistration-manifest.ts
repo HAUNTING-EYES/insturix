@@ -19,8 +19,12 @@ import { GENERIC_LOWERING_POLICY_VERSION_V2R } from './generic-lowerer-v2r';
 import { v2rOperatorCatalogIdentity, type V2ROperatorCatalogIdentity } from './operator-catalog-v2r';
 import { PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R } from './per-attempt-budget-v2r';
 import { STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R } from './stage2-selected-operator-contract-v2r';
+import {
+  buildV2RSemanticOperatorPolicyV2R,
+  V2R_SEMANTIC_OPERATOR_POLICY_VERSION,
+} from './v2r-semantic-operator-policy';
 
-export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V3' as const;
+export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V4' as const;
 
 // V2-1R capstone: the single pre-registration manifest.
 //
@@ -74,11 +78,17 @@ export interface V2RPreregistrationManifest {
     policyVersion: typeof EVALUATOR_FREEZE_POLICY_VERSION_V2R;
     policySha256: string;
   };
+  semanticOperatorFreeze: {
+    policyVersion: typeof V2R_SEMANTIC_OPERATOR_POLICY_VERSION;
+    policySha256: string;
+    exposure: 'EVALUATOR_ONLY_NOT_MODEL_INPUT';
+  };
   manifestSha256: string;
 }
 
 export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationManifest> {
   const evaluatorFreeze = buildEvaluatorPolicyFreezeV2R();
+  const semanticOperatorFreeze = buildV2RSemanticOperatorPolicyV2R();
   const material = {
     experimentVersion: V2R_EXPERIMENT_VERSION,
     authority: 'RESEARCH_ONLY_V2R_PREREGISTRATION_NO_PROJECT_MUTATION',
@@ -128,6 +138,11 @@ export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationMa
       policyVersion: EVALUATOR_FREEZE_POLICY_VERSION_V2R,
       policySha256: evaluatorFreeze.policySha256,
     },
+    semanticOperatorFreeze: {
+      policyVersion: V2R_SEMANTIC_OPERATOR_POLICY_VERSION,
+      policySha256: semanticOperatorFreeze.policySha256,
+      exposure: 'EVALUATOR_ONLY_NOT_MODEL_INPUT' as const,
+    },
   };
   const manifestSha256 = hashCanonicalJsonV1(material);
   return deepFreezeV1({ ...material, manifestSha256 });
@@ -153,6 +168,9 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   if (candidate.evaluatorFreeze?.policyVersion !== EVALUATOR_FREEZE_POLICY_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_EVALUATOR_DRIFT');
   }
+  if (candidate.semanticOperatorFreeze?.policyVersion !== V2R_SEMANTIC_OPERATOR_POLICY_VERSION) {
+    throw new Error('V2R_PREREGISTRATION_SEMANTIC_POLICY_DRIFT');
+  }
   const expected = buildV2RPreregistrationManifest();
   if (!same(candidate.lowerer, expected.lowerer)) {
     throw new Error('V2R_PREREGISTRATION_TASK_POLICY_DRIFT');
@@ -171,6 +189,9 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   }
   if (!same(candidate.evaluatorFreeze, expected.evaluatorFreeze)) {
     throw new Error('V2R_PREREGISTRATION_EVALUATOR_HASH_DRIFT');
+  }
+  if (!same(candidate.semanticOperatorFreeze, expected.semanticOperatorFreeze)) {
+    throw new Error('V2R_PREREGISTRATION_SEMANTIC_POLICY_HASH_DRIFT');
   }
   const { manifestSha256, ...material } = candidate as V2RPreregistrationManifest;
   if (typeof manifestSha256 !== 'string' || hashCanonicalJsonV1(material) !== manifestSha256) {
