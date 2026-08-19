@@ -104,11 +104,16 @@ describe('V2-1F V2R connected episode harness', () => {
           const stageTwoIds = (stageTwoCatalog.operators as Array<{ operatorId: string }>).map(({ operatorId }) => operatorId);
           return stageTwoIds.indexOf(left) - stageTwoIds.indexOf(right);
         }));
-    const dossier = stageTwoInput.capabilityDossier as Array<{ operatorId: string; cap2a: unknown }>;
+    const dossier = stageTwoInput.capabilityDossier as Array<{
+      selectableOperatorId: string;
+      cap2a: unknown;
+    }>;
     expect(Array.isArray(dossier)).toBe(true);
     expect(dossier.length).toBeGreaterThan(0);
     expect(dossier.some(({ cap2a }) => cap2a !== null)).toBe(true);
-    expect(dossier.find(({ operatorId }) => operatorId === 'resolve_transcript_edit')?.cap2a).toBeTruthy();
+    expect(dossier.find(({ selectableOperatorId }) => (
+      selectableOperatorId === 'resolve_transcript_edit'
+    ))?.cap2a).toBeTruthy();
     const ownership = stageTwoInput.plannerInputOwnership as JsonRecord;
     const ownershipRows = ownership.operators as Array<{
       operatorId: string;

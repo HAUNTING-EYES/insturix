@@ -8,6 +8,7 @@ import { DEV04_LOWERING_POLICY_V2R } from '@/lib/editron/research/open-ended-pla
 import { buildV2RBenchmarkRouteRosterV2 } from '@/lib/editron/research/open-ended-planner/development-cohort-routes-v2';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { v2rOperatorCatalogIdentity } from '@/lib/editron/research/open-ended-planner/operator-catalog-v2r';
+import { cap2aPlannerDossierIdentityV2R } from '@/lib/editron/research/open-ended-planner/cap2a-planner-dossier-v2r';
 import {
   assertV2RPreregistrationComplete,
   buildV2RPreregistrationManifest,
@@ -35,6 +36,7 @@ describe('V2-1R capstone pre-registration manifest', () => {
       'DEV-04': hashCanonicalJsonV1(DEV04_LOWERING_POLICY_V2R),
     });
     expect(manifest.operatorCatalog).toEqual(v2rOperatorCatalogIdentity());
+    expect(manifest.plannerDossier).toEqual(cap2aPlannerDossierIdentityV2R());
     expect(manifest.routeRoster.routes).toEqual(buildV2RBenchmarkRouteRosterV2());
     expect(manifest.routeRoster.routes.map(({ routeId }) => routeId))
       .toEqual(['OPENAI_LUNA', 'OPENAI_TERRA', 'QWEN_3_8_MAX']);
@@ -72,5 +74,17 @@ describe('V2-1R capstone pre-registration manifest', () => {
     Object.freeze(forged);
     expect(() => assertV2RPreregistrationComplete(forged))
       .toThrow('V2R_PREREGISTRATION_OPERATOR_CATALOG_DRIFT');
+
+    const dossierForgery = structuredClone(manifest) as unknown as {
+      plannerDossier: { censusIdRole: string };
+      manifestSha256: string;
+      [key: string]: unknown;
+    };
+    dossierForgery.plannerDossier.censusIdRole = 'SELECTABLE';
+    const { manifestSha256: _dossierHash, ...dossierMaterial } = dossierForgery;
+    dossierForgery.manifestSha256 = hashCanonicalJsonV1(dossierMaterial);
+    Object.freeze(dossierForgery);
+    expect(() => assertV2RPreregistrationComplete(dossierForgery))
+      .toThrow('V2R_PREREGISTRATION_PLANNER_DOSSIER_DRIFT');
   });
 });

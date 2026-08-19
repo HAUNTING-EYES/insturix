@@ -7,6 +7,7 @@ import {
 } from '@/lib/editron/research/open-ended-planner/cap2a-planner-bridge-v2r';
 import {
   buildCap2aEnrichedCatalogV2R,
+  cap2aPlannerDossierIdentityV2R,
   cap2aEnrichmentCoverageV2R,
 } from '@/lib/editron/research/open-ended-planner/cap2a-planner-dossier-v2r';
 import specJson from '@/tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json';
@@ -46,9 +47,15 @@ describe('CAP-2A enriched planner dossier', () => {
   it('attaches a rich CAP-2A record to bridged operators and null to unmapped ones', () => {
     const enriched = buildCap2aEnrichedCatalogV2R(specOperators);
     expect(enriched.length).toBe(specOperators.length);
-    const bridged = enriched.find(({ operatorId }) => operatorId === 'resolve_transcript_edit');
+    const bridged = enriched.find(({ selectableOperatorId }) => (
+      selectableOperatorId === 'resolve_transcript_edit'
+    ));
     expect(bridged?.cap2a).not.toBeNull();
-    expect(bridged?.cap2a?.cap2aOperatorId).toBe('transcript.resolve-edit');
+    expect(bridged?.selectableOperatorId).toBe('resolve_transcript_edit');
+    expect(bridged?.selectionRule).toBe('COPY_SELECTABLE_OPERATOR_ID_TO_NODE_SELECTED_OPERATOR_ID');
+    expect(bridged?.cap2a?.censusRecordId).toBe('transcript.resolve-edit');
+    expect(bridged?.cap2a?.identifierRole).toBe('REFERENCE_ONLY_NOT_SELECTABLE');
+    expect(JSON.stringify(bridged)).not.toContain('cap2aOperatorId');
     expect(bridged?.cap2a?.family).toBeTruthy();
     expect(bridged?.cap2a?.policy).toBeTruthy();
     expect(bridged?.cap2a?.verification).toBeTruthy();
@@ -70,5 +77,10 @@ describe('CAP-2A enriched planner dossier', () => {
   it('is immutable', () => {
     const enriched = buildCap2aEnrichedCatalogV2R(specOperators);
     expect(Object.isFrozen(enriched)).toBe(true);
+    const identity = cap2aPlannerDossierIdentityV2R();
+    expect(Object.isFrozen(identity)).toBe(true);
+    expect(identity.selectableIdField).toBe('selectableOperatorId');
+    expect(identity.censusIdRole).toBe('REFERENCE_ONLY_NOT_SELECTABLE');
+    expect(identity.identitySha256).toHaveLength(64);
   });
 });

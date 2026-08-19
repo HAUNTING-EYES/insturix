@@ -1,4 +1,8 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
+import {
+  cap2aPlannerDossierIdentityV2R,
+  type Cap2aPlannerDossierIdentityV2R,
+} from './cap2a-planner-dossier-v2r';
 import { DEV01_LOWERING_POLICY_V2R } from './dev01-lowering-policy-v2r';
 import { DEV01_STAGE6_RENDER_PROOF_POLICY_V2 } from './dev01-stage6-render-proof-validator-v2';
 import { DEV02_LOWERING_POLICY_V2R } from './dev02-lowering-policy-v2r';
@@ -16,7 +20,7 @@ import { v2rOperatorCatalogIdentity, type V2ROperatorCatalogIdentity } from './o
 import { PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R } from './per-attempt-budget-v2r';
 import { STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R } from './stage2-selected-operator-contract-v2r';
 
-export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V2' as const;
+export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V3' as const;
 
 // V2-1R capstone: the single pre-registration manifest.
 //
@@ -48,6 +52,7 @@ export interface V2RPreregistrationManifest {
     };
   };
   operatorCatalog: Readonly<V2ROperatorCatalogIdentity>;
+  plannerDossier: Readonly<Cap2aPlannerDossierIdentityV2R>;
   causalExecution: {
     receiptExecutorIdentity: 'CAUSAL_COMPILED_GRAPH_INTERPRETER_V2R';
     taskContracts: readonly Readonly<{
@@ -93,6 +98,7 @@ export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationMa
       },
     },
     operatorCatalog: v2rOperatorCatalogIdentity(),
+    plannerDossier: cap2aPlannerDossierIdentityV2R(),
     causalExecution: {
       receiptExecutorIdentity: 'CAUSAL_COMPILED_GRAPH_INTERPRETER_V2R' as const,
       taskContracts: [
@@ -153,6 +159,9 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   }
   if (!same(candidate.operatorCatalog, expected.operatorCatalog)) {
     throw new Error('V2R_PREREGISTRATION_OPERATOR_CATALOG_DRIFT');
+  }
+  if (!same(candidate.plannerDossier, expected.plannerDossier)) {
+    throw new Error('V2R_PREREGISTRATION_PLANNER_DOSSIER_DRIFT');
   }
   if (!same(candidate.causalExecution, expected.causalExecution)) {
     throw new Error('V2R_PREREGISTRATION_EXECUTION_CONTRACT_DRIFT');

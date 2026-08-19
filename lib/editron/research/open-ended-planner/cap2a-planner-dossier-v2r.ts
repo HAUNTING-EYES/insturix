@@ -1,5 +1,5 @@
 import { CAP2_ATOMIC_OPERATION_CATALOG_V1 } from '../capability-census/cap2-atomic-operation-catalog-v1';
-import { deepFreezeV1 } from './contracts-v1';
+import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import {
   CAP2A_PLANNER_BRIDGE_V2R,
   cap2aBridgeConfidenceV2R,
@@ -8,6 +8,20 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 
+export const CAP2A_PLANNER_DOSSIER_VERSION_V2R =
+  'EDITRON_CAP2A_PLANNER_DOSSIER_V2R_2' as const;
+
+export interface Cap2aPlannerDossierIdentityV2R {
+  version: typeof CAP2A_PLANNER_DOSSIER_VERSION_V2R;
+  selectableIdField: 'selectableOperatorId';
+  selectedNodeField: 'selectedOperatorId';
+  censusIdField: 'cap2a.censusRecordId';
+  censusIdRole: 'REFERENCE_ONLY_NOT_SELECTABLE';
+  bridgeSha256: string;
+  censusSha256: string;
+  identitySha256: string;
+}
+
 // Builds the rich planner tool sheet: the executable spec catalog (the IDs the
 // lowerer compiles) enriched, per operator, with the CAP-2A atomic-operation
 // dossier (the code-grounded 16-dimension census record) via the declared bridge.
@@ -15,7 +29,8 @@ type JsonRecord = Record<string, unknown>;
 // cap2a: null so the model can see the coverage gap honestly.
 
 export interface Cap2aEnrichedOperatorV2R {
-  operatorId: string;
+  selectableOperatorId: string;
+  selectionRule: 'COPY_SELECTABLE_OPERATOR_ID_TO_NODE_SELECTED_OPERATOR_ID';
   kind: string;
   supportStatus: string;
   compilerEligibility: string;
@@ -24,7 +39,8 @@ export interface Cap2aEnrichedOperatorV2R {
   stateEffects: readonly string[];
   proof: readonly string[];
   cap2a: {
-    cap2aOperatorId: string;
+    censusRecordId: string;
+    identifierRole: 'REFERENCE_ONLY_NOT_SELECTABLE';
     bridgeConfidence: string;
     family: string;
     plannerEligibility: string;
@@ -55,7 +71,8 @@ export function buildCap2aEnrichedCatalogV2R(
     const cap2aRecord = cap2aOperatorId ? cap2aOperationsById.get(cap2aOperatorId) : undefined;
     const cap2a = cap2aRecord && cap2aOperatorId
       ? {
-          cap2aOperatorId,
+          censusRecordId: cap2aOperatorId,
+          identifierRole: 'REFERENCE_ONLY_NOT_SELECTABLE' as const,
           bridgeConfidence: String(cap2aBridgeConfidenceV2R(specOperatorId)),
           family: String(cap2aRecord.family ?? ''),
           plannerEligibility: String((cap2aRecord.support as JsonRecord)?.plannerEligibility ?? ''),
@@ -72,7 +89,8 @@ export function buildCap2aEnrichedCatalogV2R(
         }
       : null;
     return deepFreezeV1({
-      operatorId: specOperatorId,
+      selectableOperatorId: specOperatorId,
+      selectionRule: 'COPY_SELECTABLE_OPERATOR_ID_TO_NODE_SELECTED_OPERATOR_ID' as const,
       kind: String(operator.kind ?? ''),
       supportStatus: String(operator.supportStatus ?? ''),
       compilerEligibility: String(operator.compilerEligibility ?? ''),
@@ -84,6 +102,19 @@ export function buildCap2aEnrichedCatalogV2R(
     });
   });
   return deepFreezeV1(enriched);
+}
+
+export function cap2aPlannerDossierIdentityV2R(): Readonly<Cap2aPlannerDossierIdentityV2R> {
+  const material = {
+    version: CAP2A_PLANNER_DOSSIER_VERSION_V2R,
+    selectableIdField: 'selectableOperatorId' as const,
+    selectedNodeField: 'selectedOperatorId' as const,
+    censusIdField: 'cap2a.censusRecordId' as const,
+    censusIdRole: 'REFERENCE_ONLY_NOT_SELECTABLE' as const,
+    bridgeSha256: hashCanonicalJsonV1(CAP2A_PLANNER_BRIDGE_V2R),
+    censusSha256: hashCanonicalJsonV1(CAP2_ATOMIC_OPERATION_CATALOG_V1),
+  };
+  return deepFreezeV1({ ...material, identitySha256: hashCanonicalJsonV1(material) });
 }
 
 export function cap2aEnrichmentCoverageV2R(
