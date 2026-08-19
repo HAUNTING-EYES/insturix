@@ -9,8 +9,15 @@ export const THINKFORGE_REFINERY_JOB_VERSION = 1;
 export const THINKFORGE_REFINERY_JOB_COLLECTION = 'thinkforge_refinery_jobs';
 const MAX_ATTEMPTS = 3;
 const LEASE_MS = 4 * 60_000;
-const JOB_TTL_MS = 14 * 24 * 60 * 60_000;
+export const THINKFORGE_REFINERY_JOB_TTL_MS = 14 * 24 * 60 * 60_000;
 const RECOVERY_STALE_MS = 2 * 60_000;
+export const THINKFORGE_REFINERY_JOB_INDEXES: IndexDescription[] = [
+  { key: { idempotencyKey: 1 }, name: 'thinkforge_refinery_job_idempotency', unique: true },
+  { key: { activeDedupeKey: 1 }, name: 'thinkforge_refinery_job_active_dedupe', unique: true, sparse: true },
+  { key: { userId: 1, status: 1, updatedAt: -1 }, name: 'thinkforge_refinery_job_user_status' },
+  { key: { status: 1, 'charge.status': 1, updatedAt: 1 }, name: 'thinkforge_refinery_job_reconciliation' },
+  { key: { expiresAt: 1 }, name: 'thinkforge_refinery_job_ttl', expireAfterSeconds: 0 },
+];
 
 export type ThinkForgeRefineryJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'dead_letter';
 
@@ -45,7 +52,10 @@ export interface ThinkForgeRefineryJobSnapshot {
   expiresAt: string;
 }
 
-interface ThinkForgeRefineryJobDocument extends Omit<ThinkForgeRefineryJobSnapshot, 'leaseToken' | 'deadLetteredAt'> {
+interface ThinkForgeRefineryJobDocument extends Omit<
+  ThinkForgeRefineryJobSnapshot,
+  'leaseToken' | 'deadLetteredAt' | 'expiresAt'
+> {
   _id: string;
   /** Sparse unique index: unset only after a terminal outcome. */
   activeDedupeKey?: string;
@@ -53,6 +63,8 @@ interface ThinkForgeRefineryJobDocument extends Omit<ThinkForgeRefineryJobSnapsh
   leaseToken?: string | null;
   /** Optional for rows created before the explicit dead-letter lifecycle. */
   deadLetteredAt?: string | null;
+  /** Mongo TTL indexes require a BSON Date, never an ISO string. */
+  expiresAt: Date;
 }
 
 export interface CreateThinkForgeRefineryJobInput {
@@ -82,16 +94,71 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+export function buildThinkForgeRefineryJobExpiry(now = new Date()): Date {
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+    throw new Error('ThinkForge refinery expiry requires a valid date.');
+  }
+  return new Date(now.getTime() + THINKFORGE_REFINERY_JOB_TTL_MS);
+}
+
+export function serializeThinkForgeRefineryJobExpiry(expiresAt: Date): string {
+  if (!(expiresAt instanceof Date) || !Number.isFinite(expiresAt.getTime())) {
+    throw new Error('ThinkForge refinery job has an invalid BSON expiry date.');
+  }
+  return expiresAt.toISOString();
+}
+
 function toSnapshot(document: ThinkForgeRefineryJobDocument): ThinkForgeRefineryJobSnapshot {
-  const { _id: _ignored, activeDedupeKey: _activeDedupeKey, ...snapshot } = document;
+  const { _id: _ignored, activeDedupeKey: _activeDedupeKey, expiresAt, ...snapshot } = document;
   return clone({
     ...snapshot,
+    expiresAt: serializeThinkForgeRefineryJobExpiry(expiresAt),
     leaseToken: snapshot.leaseToken ?? null,
     deadLetteredAt: snapshot.deadLetteredAt ?? null,
     error: snapshot.error
       ? { ...snapshot.error, retryable: snapshot.error.retryable ?? false }
       : null,
   });
+}
+
+export interface ThinkForgeRefineryJobRetentionCollection {
+  updateMany(
+    filter: Record<string, unknown>,
+    update: Record<string, unknown>[],
+  ): Promise<unknown>;
+  createIndexes(indexes: IndexDescription[]): Promise<unknown>;
+}
+
+export async function ensureThinkForgeRefineryJobRetention(
+  collection: ThinkForgeRefineryJobRetentionCollection,
+): Promise<void> {
+  await collection.updateMany(
+    {
+      $or: [
+        { expiresAt: { $type: 'string' } },
+        { expiresAt: { $exists: false } },
+        { expiresAt: null },
+      ],
+    },
+    [{
+      $set: {
+        expiresAt: {
+          $cond: [
+            { $eq: [{ $type: '$expiresAt' }, 'string'] },
+            { $convert: { input: '$expiresAt', to: 'date' } },
+            {
+              $dateAdd: {
+                startDate: { $convert: { input: '$createdAt', to: 'date' } },
+                unit: 'millisecond',
+                amount: THINKFORGE_REFINERY_JOB_TTL_MS,
+              },
+            },
+          ],
+        },
+      },
+    }],
+  );
+  await collection.createIndexes(THINKFORGE_REFINERY_JOB_INDEXES);
 }
 
 async function jobCollection(): Promise<Collection<ThinkForgeRefineryJobDocument>> {
@@ -109,14 +176,9 @@ async function jobCollection(): Promise<Collection<ThinkForgeRefineryJobDocument
 
   const collection = (await cachedMongoClient).db(dbName).collection<ThinkForgeRefineryJobDocument>(THINKFORGE_REFINERY_JOB_COLLECTION);
   if (!indexesEnsured) {
-    const indexes: IndexDescription[] = [
-      { key: { idempotencyKey: 1 }, name: 'thinkforge_refinery_job_idempotency', unique: true },
-      { key: { activeDedupeKey: 1 }, name: 'thinkforge_refinery_job_active_dedupe', unique: true, sparse: true },
-      { key: { userId: 1, status: 1, updatedAt: -1 }, name: 'thinkforge_refinery_job_user_status' },
-      { key: { status: 1, 'charge.status': 1, updatedAt: 1 }, name: 'thinkforge_refinery_job_reconciliation' },
-      { key: { expiresAt: 1 }, name: 'thinkforge_refinery_job_ttl', expireAfterSeconds: 0 },
-    ];
-    await collection.createIndexes(indexes);
+    await ensureThinkForgeRefineryJobRetention(
+      collection as unknown as ThinkForgeRefineryJobRetentionCollection,
+    );
     indexesEnsured = true;
   }
   return collection;
@@ -204,7 +266,8 @@ export async function createOrGetQueuedThinkForgeRefineryJob(input: CreateThinkF
   const existing = await collection.findOne({ activeDedupeKey: dedupeKey });
   if (existing) return { job: toSnapshot(existing), created: false };
 
-  const createdAt = nowIso();
+  const createdAtDate = new Date();
+  const createdAt = createdAtDate.toISOString();
   const jobId = `refinery_${randomUUID().replace(/-/g, '')}`;
   const job: ThinkForgeRefineryJobDocument = {
     _id: jobId,
@@ -234,7 +297,7 @@ export async function createOrGetQueuedThinkForgeRefineryJob(input: CreateThinkF
     deadLetteredAt: null,
     createdAt,
     updatedAt: createdAt,
-    expiresAt: new Date(Date.now() + JOB_TTL_MS).toISOString(),
+    expiresAt: buildThinkForgeRefineryJobExpiry(createdAtDate),
   };
   try {
     await collection.insertOne(job);
