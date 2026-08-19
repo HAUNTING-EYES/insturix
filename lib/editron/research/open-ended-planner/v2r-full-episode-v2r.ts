@@ -27,7 +27,7 @@ type FinalDispositionV2R =
   | 'STAGE6_FAILED';
 
 export interface V2RFullEpisodeReceiptV2R {
-  receiptVersion: 'EDITRON_OE_V2R_FULL_EPISODE_RECEIPT_V1';
+  receiptVersion: 'EDITRON_OE_V2R_FULL_EPISODE_RECEIPT_V2';
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
   executionId: string;
   createdAt: string;
@@ -37,6 +37,7 @@ export interface V2RFullEpisodeReceiptV2R {
   claimedModelIdentity: string;
   preregistrationManifestSha256: string;
   connectedEpisodeReceiptHash: string;
+  connectedEpisodeReceiptPath: string;
   stage5DecisionReceiptSha256: string;
   stage5Disposition: V2RStage5ExecutionDecisionV2R['disposition'];
   stage6: {
@@ -83,6 +84,16 @@ export async function runV2RFullEpisodeV2R(input: {
   const connectedEpisode = await runV2RConnectedEpisodeV2({
     manifest: input.manifest, task: input.task, route: input.route,
   });
+  await mkdir(input.outputDir, { recursive: true });
+  const connectedEpisodeReceiptPath = path.join(
+    input.outputDir,
+    `v2r-connected-episode-${input.executionId}.json`,
+  );
+  await writeFile(
+    connectedEpisodeReceiptPath,
+    `${JSON.stringify(connectedEpisode, null, 2)}\n`,
+    { flag: 'wx' },
+  );
   const gate = decideV2RStage5ExecutionV2R({
     manifest: input.manifest, task: input.task, connectedEpisode,
   });
@@ -128,13 +139,14 @@ export async function runV2RFullEpisodeV2R(input: {
   }
 
   const material = {
-    receiptVersion: 'EDITRON_OE_V2R_FULL_EPISODE_RECEIPT_V1' as const,
+    receiptVersion: 'EDITRON_OE_V2R_FULL_EPISODE_RECEIPT_V2' as const,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     executionId: input.executionId, createdAt: input.createdAt,
     taskId: input.task.taskId, conditionId: input.task.conditionId,
     routeId: input.route.routeId, claimedModelIdentity: input.route.claimedModelIdentity,
     preregistrationManifestSha256: connectedEpisode.preregistrationManifestSha256,
     connectedEpisodeReceiptHash: connectedEpisode.receiptHash,
+    connectedEpisodeReceiptPath,
     stage5DecisionReceiptSha256: gate.decision.receiptSha256,
     stage5Disposition: gate.decision.disposition,
     stage6, finalDisposition,
@@ -142,7 +154,6 @@ export async function runV2RFullEpisodeV2R(input: {
     stateEffects: [] as const,
   };
   const receipt = deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
-  await mkdir(input.outputDir, { recursive: true });
   const receiptPath = path.join(input.outputDir, `v2r-full-episode-${input.executionId}.json`);
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' });
   return { receipt, receiptPath };

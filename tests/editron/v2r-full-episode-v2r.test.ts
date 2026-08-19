@@ -109,6 +109,11 @@ describe('V2R full connected episode runner', () => {
     const { receiptSha256, ...material } = execution.receipt;
     expect(receiptSha256).toBe(hashCanonicalJsonV1(material));
     expect(JSON.parse(await readFile(execution.receiptPath, 'utf8'))).toEqual(execution.receipt);
+    const connectedEpisode = JSON.parse(
+      await readFile(execution.receipt.connectedEpisodeReceiptPath, 'utf8'),
+    ) as { receiptHash: string; rows: unknown[] };
+    expect(connectedEpisode.receiptHash).toBe(execution.receipt.connectedEpisodeReceiptHash);
+    expect(connectedEpisode.rows).toHaveLength(3);
     expect(Object.isFrozen(execution.receipt)).toBe(true);
   });
 
