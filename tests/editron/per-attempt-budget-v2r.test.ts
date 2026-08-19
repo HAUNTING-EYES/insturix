@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   PER_ATTEMPT_BUDGET_POLICY_V2R,
   PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R,
+  V2R_PROVIDER_STAGE_BUDGETS,
   perAttemptStageBudgetV2R,
+  v2rProviderStageBudgetScheduleIdentity,
 } from '@/lib/editron/research/open-ended-planner/per-attempt-budget-v2r';
 
 const stageBudget = {
@@ -33,5 +35,17 @@ describe('V2-1R per-attempt budget policy', () => {
     });
     const again = perAttemptStageBudgetV2R(stageBudget);
     expect(again).toEqual(budget);
+  });
+
+  it('freezes and hashes the exact fair provider schedule', () => {
+    const identity = v2rProviderStageBudgetScheduleIdentity();
+    expect(identity.stageBudgets).toEqual(V2R_PROVIDER_STAGE_BUDGETS);
+    expect(identity.stageBudgets[1].maxInputTokens).toBe(30000);
+    expect(identity.stageBudgets[2].maxInputTokens).toBe(70000);
+    expect(identity.stageBudgets[3].maxInputTokens).toBe(60000);
+    expect(identity.scheduleSha256).toHaveLength(64);
+    expect(v2rProviderStageBudgetScheduleIdentity()).toEqual(identity);
+    expect(Object.isFrozen(identity)).toBe(true);
+    expect(Object.isFrozen(identity.stageBudgets[2])).toBe(true);
   });
 });

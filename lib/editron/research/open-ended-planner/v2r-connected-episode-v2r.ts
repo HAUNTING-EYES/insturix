@@ -15,6 +15,7 @@ import {
 } from './v2r-preregistration-manifest';
 import { buildEvaluatorPolicyFreezeV2R } from './evaluator-freeze-v2r';
 import type { ProviderStageRunV2 } from './provider-transport-v2';
+import { bindV2RProviderStageBudgetV2 } from './per-attempt-budget-v2r';
 import { validateSelectedOperatorNodesV2R } from './stage2-selected-operator-contract-v2r';
 import {
   buildNextProviderStagePacketV2,
@@ -101,17 +102,18 @@ export async function runV2RConnectedEpisodeV2(input: {
   validateTask(input.task, manifest);
   validateRoute(input.route, manifest);
   const rows: V2RConnectedStageRowV2[] = [];
+  const stageOnePacket = bindV2RProviderStageBudgetV2(input.task.stageOnePacket);
 
   const stageOne = await runStage({
     route: input.route,
-    packet: input.task.stageOnePacket,
+    packet: stageOnePacket,
     priorArtifactHash: null,
   });
   rows.push(stageOne);
   if (!accepted(stageOne)) return receipt(input, manifest, rows, 'BLOCKED_BEFORE_STAGE2', notLowered());
 
   const stageTwoPacket = buildPlannerOwnershipStageTwoPacketV2R({
-    previousPacket: input.task.stageOnePacket,
+    previousPacket: stageOnePacket,
     executionFormArm: input.task.executionFormArm,
     priorArtifact: requireArtifact(stageOne),
     loweringPolicy: input.task.loweringPolicy,
@@ -139,14 +141,14 @@ export async function runV2RConnectedEpisodeV2(input: {
     );
   }
 
-  const stageThreePacket = bindV2ROperatorCatalogToPacketV2R(buildNextProviderStagePacketV2({
+  const stageThreePacket = bindV2RProviderStageBudgetV2(bindV2ROperatorCatalogToPacketV2R(buildNextProviderStagePacketV2({
     previousPacket: stageTwoPacket,
     stage: 3,
     executionFormArm: input.task.executionFormArm,
     priorArtifact: stageTwoArtifact,
     stageThreeSource: { evidencePack: input.task.evidencePack },
     nodeContractVersion: 'V2R',
-  }));
+  })));
   const stageThree = await runStage({
     route: input.route,
     packet: stageThreePacket,

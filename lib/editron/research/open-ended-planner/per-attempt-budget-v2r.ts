@@ -1,4 +1,5 @@
-import { deepFreezeV1 } from './contracts-v1';
+import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
+import type { HashedStagePacketV2 } from './staged-packet-v2';
 
 export interface StageBudgetV2Shape {
   maxInputTokens: number;
@@ -10,6 +11,35 @@ export interface StageBudgetV2Shape {
 
 export const PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R =
   'EDITRON_OE_PER_ATTEMPT_BUDGET_POLICY_V2R' as const;
+
+export const V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_VERSION =
+  'EDITRON_OE_V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_V1' as const;
+
+export type V2RProviderStage = 1 | 2 | 3;
+export type V2RProviderStageBudgetSchedule = Readonly<Record<
+  V2RProviderStage,
+  Readonly<StageBudgetV2Shape>
+>>;
+
+export const V2R_PROVIDER_STAGE_BUDGETS: V2RProviderStageBudgetSchedule = deepFreezeV1({
+  1: { maxInputTokens: 30000, maxVisibleOutputTokens: 10000, maxReasoningTokens: 3000, maxWallClockMs: 420000, maxProviderCostUsd: 0.70 },
+  2: { maxInputTokens: 70000, maxVisibleOutputTokens: 16000, maxReasoningTokens: 5000, maxWallClockMs: 420000, maxProviderCostUsd: 0.70 },
+  3: { maxInputTokens: 60000, maxVisibleOutputTokens: 12000, maxReasoningTokens: 3000, maxWallClockMs: 420000, maxProviderCostUsd: 0.60 },
+});
+
+export interface V2RProviderStageBudgetScheduleIdentity {
+  version: typeof V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_VERSION;
+  stageBudgets: V2RProviderStageBudgetSchedule;
+  scheduleSha256: string;
+}
+
+export function v2rProviderStageBudgetScheduleIdentity(): Readonly<V2RProviderStageBudgetScheduleIdentity> {
+  const material = {
+    version: V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_VERSION,
+    stageBudgets: V2R_PROVIDER_STAGE_BUDGETS,
+  };
+  return deepFreezeV1({ ...material, scheduleSha256: hashCanonicalJsonV1(material) });
+}
 
 // V2-1R per-attempt budget law.
 //
@@ -41,4 +71,24 @@ export function perAttemptStageBudgetV2R(limit: StageBudgetV2Shape): {
     wall: limit.maxWallClockMs,
     cost: limit.maxProviderCostUsd,
   };
+}
+
+export function bindV2RProviderStageBudgetV2(
+  source: HashedStagePacketV2,
+): Readonly<HashedStagePacketV2> {
+  const stage = source.packet.stage;
+  if (stage !== 1 && stage !== 2 && stage !== 3) {
+    throw new Error(`V2R_PROVIDER_STAGE_BUDGET_UNSUPPORTED:STAGE_${stage}`);
+  }
+  const packet = deepFreezeV1({
+    ...source.packet,
+    stageBudget: V2R_PROVIDER_STAGE_BUDGETS[stage],
+  });
+  const transportAttachments = deepFreezeV1([...source.transportAttachments]);
+  return deepFreezeV1({
+    packet,
+    packetHash: hashCanonicalJsonV1(packet),
+    transportAttachments,
+    transportHash: hashCanonicalJsonV1(transportAttachments),
+  });
 }

@@ -13,6 +13,7 @@ import type { HashedStagePacketV2 } from '@/lib/editron/research/open-ended-plan
 import type { ProviderStageRunV2 } from '@/lib/editron/research/open-ended-planner/provider-transport-v2';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { V2R_OPERATOR_CATALOG_REVISION } from '@/lib/editron/research/open-ended-planner/operator-catalog-v2r';
+import { V2R_PROVIDER_STAGE_BUDGETS } from '@/lib/editron/research/open-ended-planner/per-attempt-budget-v2r';
 
 type JsonRecord = Record<string, unknown>;
 const canonical = getCanonicalDev01Stage123V2();
@@ -80,6 +81,12 @@ describe('V2-1F V2R connected episode harness', () => {
     expect(receipt.finalDisposition).toBe('STAGE3_LOWERED');
     expect(receipt.preregistrationManifestSha256).toBe(manifest.manifestSha256);
     expect(receipt.rows.map(({ stage }) => stage)).toEqual([1, 2, 3]);
+    expect(seenPackets.map(({ packet }) => packet.stageBudget)).toEqual([
+      V2R_PROVIDER_STAGE_BUDGETS[1],
+      V2R_PROVIDER_STAGE_BUDGETS[2],
+      V2R_PROVIDER_STAGE_BUDGETS[3],
+    ]);
+    expect(seenPackets.every(({ packet }) => Object.isFrozen(packet.stageBudget))).toBe(true);
     // Stage 2 and 3 packets must be V2R (selectedOperatorId node contract).
     const stageTwoNodeSchema = ((seenPackets[1].packet.outputContract.properties as JsonRecord).nodes as JsonRecord).items as JsonRecord;
     expect((stageTwoNodeSchema.required as string[])).toContain('selectedOperatorId');

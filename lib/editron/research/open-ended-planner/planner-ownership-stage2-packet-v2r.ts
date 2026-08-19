@@ -7,6 +7,7 @@ import {
   type PlannerInputOwnershipV2R,
 } from './generic-lowerer-v2r';
 import { bindV2ROperatorCatalogToPacketV2R } from './operator-catalog-v2r';
+import { bindV2RProviderStageBudgetV2 } from './per-attempt-budget-v2r';
 import {
   buildNextProviderStagePacketV2,
   type HashedStagePacketV2,
@@ -15,7 +16,7 @@ import {
 type JsonRecord = Record<string, unknown>;
 
 export const PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R =
-  'EDITRON_OE_PLANNER_OWNERSHIP_STAGE2_PACKET_V2R_1' as const;
+  'EDITRON_OE_PLANNER_OWNERSHIP_STAGE2_PACKET_V2R_2' as const;
 
 type ExecutionFormArmV2R =
   | 'FREE_CHOICE'
@@ -57,12 +58,12 @@ export function buildPlannerOwnershipStageTwoPacketV2R(input: {
     },
   });
   const transportAttachments = deepFreezeV1([...base.transportAttachments]);
-  return deepFreezeV1({
+  return bindV2RProviderStageBudgetV2(deepFreezeV1({
     packet,
     packetHash: hashCanonicalJsonV1(packet),
     transportAttachments,
     transportHash: hashCanonicalJsonV1(transportAttachments),
-  });
+  }));
 }
 
 function assertOwnershipBindingV2R(
