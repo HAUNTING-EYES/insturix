@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import clsx from "clsx";
-import { Clapperboard, FileText, X } from "lucide-react";
+import { Clapperboard, FileText, ImageIcon, Video, X } from "lucide-react";
 import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
 import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { KnowledgePanel } from "@/components/dashboard/ThinkForge/KnowledgePanel";
@@ -10,6 +10,7 @@ import { ExportToEditronDialog } from "@/components/dashboard/ThinkForge/export/
 import { ClickatronHandoffDialog } from "@/components/dashboard/ThinkForge/export/ClickatronHandoffDialog";
 import { ShootKitDialog } from "@/components/dashboard/ThinkForge/production/ShootKitDialog";
 import type { IdeaCardData, ProjectMeta } from "@/lib/thinkforge/state/types";
+import { resolveThinkForgeExportDestination } from "@/lib/thinkforge/export/export-destination-policy";
 import { Script } from "@/app/dashboard/thinkforge/types";
 import SessionMetadataSettings from "./SessionMetadataSettings";
 import { AnimatePresence, motion } from "framer-motion";
@@ -62,6 +63,23 @@ export default function StoryboardingMode({
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showClickatronDialog, setShowClickatronDialog] = useState(false);
   const [showShootKit, setShowShootKit] = useState(false);
+  const exportScriptId = scriptId || script?.scriptId || null;
+  const hasExportDocumentIdentity = Boolean(script && sessionId && exportScriptId);
+  const clickatronExportDecision = resolveThinkForgeExportDestination(script?.contentContract, "clickatron");
+  const editronExportDecision = resolveThinkForgeExportDestination(script?.contentContract, "editron");
+  const canExportToClickatron = hasExportDocumentIdentity && clickatronExportDecision.allowed;
+  const canExportToEditron = hasExportDocumentIdentity && editronExportDecision.allowed;
+  const missingExportIdentityMessage = "Load and save the document before exporting.";
+  const clickatronExportTitle = !hasExportDocumentIdentity
+    ? missingExportIdentityMessage
+    : clickatronExportDecision.allowed
+      ? "Export this post or carousel to Clickatron"
+      : clickatronExportDecision.message;
+  const editronExportTitle = !hasExportDocumentIdentity
+    ? missingExportIdentityMessage
+    : editronExportDecision.allowed
+      ? "Export this video script to Editron"
+      : editronExportDecision.message;
 
   // Selection editing state
   const [editingSelection, setEditingSelection] = useState<{ text: string, range: { from: number, to: number }, blocks: any[] } | null>(null);
@@ -103,7 +121,12 @@ export default function StoryboardingMode({
     setScriptPanelMode('script');
     tokenStreamCallbackRef.current = null;
     selectionGetterRef.current = null;
-  }, [sessionId, scriptId]);
+  }, [sessionId, exportScriptId]);
+
+  useEffect(() => {
+    if (!canExportToClickatron) setShowClickatronDialog(false);
+    if (!canExportToEditron) setShowExportDialog(false);
+  }, [canExportToClickatron, canExportToEditron]);
 
   const handleOpenSettings = () => setShowSettings(true);
   const handleCloseSettings = () => setShowSettings(false);
@@ -178,8 +201,26 @@ export default function StoryboardingMode({
           <div className="sidebar-section">
             <div className="mono sidebar-label" style={{ color: 'var(--text-muted)' }}>export</div>
             <div className="sidebar-items">
-              <button className="sidebar-item" onClick={() => setShowClickatronDialog(true)} disabled={!script || !sessionId}>-&gt; Clickatron</button>
-              <button className="sidebar-item" onClick={() => setShowExportDialog(true)} disabled={!script}>-&gt; Editron</button>
+              <button
+                className="sidebar-item"
+                onClick={() => canExportToClickatron && setShowClickatronDialog(true)}
+                disabled={!canExportToClickatron}
+                title={clickatronExportTitle}
+                aria-label="Export to Clickatron"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <ImageIcon size={13} className="shrink-0" /> Clickatron
+              </button>
+              <button
+                className="sidebar-item"
+                onClick={() => canExportToEditron && setShowExportDialog(true)}
+                disabled={!canExportToEditron}
+                title={editronExportTitle}
+                aria-label="Export to Editron"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Video size={13} className="shrink-0" /> Editron
+              </button>
             </div>
           </div>
         </div>
@@ -264,7 +305,7 @@ export default function StoryboardingMode({
         blocks={scriptBlocks}
         plainText={scriptText}
         sessionId={sessionId || undefined}
-        scriptId={scriptId || undefined}
+        scriptId={exportScriptId || undefined}
         projectMeta={exportProjectMeta}
       />
 
@@ -273,7 +314,7 @@ export default function StoryboardingMode({
         onOpenChange={setShowClickatronDialog}
         blocks={scriptBlocks}
         sessionId={sessionId || undefined}
-        scriptId={scriptId || undefined}
+        scriptId={exportScriptId || undefined}
         title={script?.title || selectedIdea.idea}
       />
 

@@ -78,7 +78,7 @@ describe('ThinkForge editor document ownership', () => {
     const panel = read('components/dashboard/ThinkForge/ScriptPanel.tsx');
     const editor = read('components/dashboard/ThinkForge/ScriptEditor.tsx');
 
-    expect(storyboarding).toContain('}, [sessionId, scriptId]);');
+    expect(storyboarding).toContain('}, [sessionId, exportScriptId]);');
     expect(storyboarding).toContain('setShowExportDialog(false)');
     expect(storyboarding).toContain('setShowClickatronDialog(false)');
     expect(storyboarding).toContain('setShowShootKit(false)');
