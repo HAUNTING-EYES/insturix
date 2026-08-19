@@ -248,16 +248,16 @@ function editorialIntentV2R(): JsonRecord {
 function evidenceBoundIntentV2R(withholdVisual: boolean): JsonRecord {
   const visualStatus = withholdVisual ? 'UNVERIFIABLE' : 'BOUND';
   const visualUnresolved = withholdVisual ? ['req-product-visual-evidence'] : [];
-  const node = (intentNodeId: string, selectedOperatorId: string, bindingIds: string[], proofIds: string[], status = 'BOUND', unresolved: string[] = [], nodeInputs?: JsonRecord) => ({ intentNodeId, selectedOperatorId, alternativeOperatorIds: [], evidenceBindingIds: bindingIds, preservationIds: ['preserve-spoken-words', 'preserve-source-identities', 'preserve-non-target-state'], proofObligationIds: proofIds, bindingStatus: status, unresolvedRequirementIds: unresolved, ...(nodeInputs ? { nodeInputs } : {}) });
+  const node = (intentNodeId: string, selectedOperatorId: string, bindingIds: string[], proofIds: string[], status = 'BOUND', unresolved: string[] = []) => ({ intentNodeId, selectedOperatorId, alternativeOperatorIds: [], evidenceBindingIds: bindingIds, preservationIds: ['preserve-spoken-words', 'preserve-source-identities', 'preserve-non-target-state'], proofObligationIds: proofIds, bindingStatus: status, unresolvedRequirementIds: unresolved });
   return {
     artifactType: 'EvidenceBoundIntentGraphV2', taskId: 'DEV-01', stageDisposition: withholdVisual ? 'UNVERIFIABLE' : 'READY_FOR_COMPILATION',
     nodes: [
-      node('node-resolve-cut', 'resolve_transcript_edit', ['bind-project', 'bind-transcript'], ['proof-speech'], 'BOUND', [], { query: 'here it is', intent: { action: 'cut_after_phrase', minGapFrames: 6, maxCutFrames: 90 } }),
+      node('node-resolve-cut', 'resolve_transcript_edit', ['bind-project', 'bind-transcript'], ['proof-speech']),
       node('node-cut', 'cut_section', ['bind-project', 'bind-transcript'], ['proof-speech', 'proof-state']),
-      node('node-find-product', 'find_visual_moment', ['bind-project', 'bind-product'], ['proof-product'], visualStatus, visualUnresolved, { query: 'product box reveal' }),
-      node('node-resolve-product', 'resolve_keyframe_edit', ['bind-project', 'bind-product'], ['proof-product'], visualStatus, visualUnresolved, { intent: { direction: 'in', scaleDelta: 0.12, replaceExistingScaleKeyframes: false } }),
+      node('node-find-product', 'find_visual_moment', ['bind-project', 'bind-product'], ['proof-product'], visualStatus, visualUnresolved),
+      node('node-resolve-product', 'resolve_keyframe_edit', ['bind-project', 'bind-product'], ['proof-product'], visualStatus, visualUnresolved),
       node('node-push-in', 'set_keyframes', ['bind-project', 'bind-product'], ['proof-product', 'proof-state'], visualStatus, visualUnresolved),
-      node('node-duck', 'apply_audio_ducking', ['bind-project', 'bind-audio'], ['proof-audio-mix', 'proof-speech'], 'BOUND', [], { audioPlan: { enabled: true } }),
+      node('node-duck', 'apply_audio_ducking', ['bind-project', 'bind-audio'], ['proof-audio-mix', 'proof-speech']),
     ],
     evidenceBindings: [
       { bindingId: 'bind-project', factIds: ['fact-project-revision', 'fact-project-timebase', 'fact-source-fixture'], nodeIds: ['node-resolve-cut', 'node-cut', 'node-find-product', 'node-resolve-product', 'node-push-in', 'node-duck'], status: 'BOUND' },

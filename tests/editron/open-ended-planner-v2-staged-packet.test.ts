@@ -439,6 +439,7 @@ describe('open-ended planner V2R DEV-01 canonical chain', () => {
     const boundNodes = (canonical.evidenceBoundIntentsV2R.BASELINE.nodes as unknown[]);
     expect(boundNodes.map((node) => (node as { intentNodeId: string }).intentNodeId))
       .toEqual(intentNodes.map((node) => (node as { intentNodeId: string }).intentNodeId));
+    expect(boundNodes.every((node) => !Object.hasOwn(node as object, 'nodeInputs'))).toBe(true);
     const selectedIds = intentNodes.map((node) => (node as { selectedOperatorId: string }).selectedOperatorId).sort();
     expect(new Set(selectedIds).size).toBeGreaterThan(0);
   });

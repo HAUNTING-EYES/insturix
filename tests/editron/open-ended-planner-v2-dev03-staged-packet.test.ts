@@ -151,6 +151,8 @@ describe('open-ended planner V2R DEV-03 canonical chain', () => {
     ]);
     expect(canonical.evidenceBoundIntentsV2R.BASELINE.stageDisposition).toBe('READY_FOR_COMPILATION');
     expect(canonical.evidenceBoundIntentsV2R.BEAT_EVIDENCE_WITHHELD.stageDisposition).toBe('UNVERIFIABLE');
+    expect((canonical.evidenceBoundIntentsV2R.BASELINE.nodes as object[])
+      .every((node) => !Object.hasOwn(node, 'nodeInputs'))).toBe(true);
   });
 
   it('builds V2R stage 1-3 packets and accepts the canonical V2R bound artifacts', () => {

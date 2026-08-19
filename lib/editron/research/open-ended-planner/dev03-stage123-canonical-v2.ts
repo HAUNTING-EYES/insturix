@@ -179,15 +179,15 @@ function evidenceBoundIntentV2R(conditionId: Dev03ConditionV2): JsonRecord {
     ? ['bind-project', 'bind-timeline', 'bind-beats', 'bind-beat-sync-constraints', 'bind-protected-audio']
     : ['bind-project', 'bind-timeline', 'bind-beat-sync-constraints', 'bind-protected-audio'];
   const allProofs = ['proof-revision', 'proof-boundary-timing', 'proof-source-handles', 'proof-protected-audio', 'proof-shake', 'proof-state'];
-  const node = (intentNodeId: string, selectedOperatorId: string, bindingIds: string[], proofIds: string[], status = 'BOUND', unresolvedIds: string[] = [], nodeInputs?: JsonRecord) => ({ intentNodeId, selectedOperatorId, alternativeOperatorIds: [], evidenceBindingIds: bindingIds, preservationIds, proofObligationIds: proofIds, bindingStatus: status, unresolvedRequirementIds: unresolvedIds, ...(nodeInputs ? { nodeInputs } : {}) });
+  const node = (intentNodeId: string, selectedOperatorId: string, bindingIds: string[], proofIds: string[], status = 'BOUND', unresolvedIds: string[] = []) => ({ intentNodeId, selectedOperatorId, alternativeOperatorIds: [], evidenceBindingIds: bindingIds, preservationIds, proofObligationIds: proofIds, bindingStatus: status, unresolvedRequirementIds: unresolvedIds });
   return {
     artifactType: 'EvidenceBoundIntentGraphV2', taskId: 'DEV-03', stageDisposition: baseline ? 'READY_FOR_COMPILATION' : 'UNVERIFIABLE',
     nodes: [
       node('node-observe-project', 'read_project_file', ['bind-project', 'bind-timeline'], ['proof-revision', 'proof-state']),
       node('node-observe-timeline', 'get_timeline_view', ['bind-project', 'bind-timeline'], ['proof-revision', 'proof-state']),
-      node('node-resolve-impacts', 'find_audio_moment', ['bind-beats'], ['proof-measured-beats'], beatStatus, unresolved, { query: 'strongest measured musical impacts' }),
+      node('node-resolve-impacts', 'find_audio_moment', ['bind-beats'], ['proof-measured-beats'], beatStatus, unresolved),
       node('node-align-boundaries', 'sync_cuts_to_beats', ['bind-beats', 'bind-timeline', 'bind-beat-sync-constraints', 'bind-protected-audio'], ['proof-boundary-timing', 'proof-source-handles', 'proof-protected-audio'], beatStatus, unresolved),
-      node('node-final-shake', 'apply_camera_shake', ['bind-beats', 'bind-timeline'], ['proof-shake'], beatStatus, unresolved, { effectPlan: { goal: 'restrained bounded shake at the final strongest impact, returning to neutral' } }),
+      node('node-final-shake', 'apply_camera_shake', ['bind-beats', 'bind-timeline'], ['proof-shake'], beatStatus, unresolved),
       node('node-proof-project', 'read_project_file', allBindings, allProofs, beatStatus, unresolved),
       node('node-proof-timeline', 'get_timeline_view', allBindings, allProofs, beatStatus, unresolved),
     ],
