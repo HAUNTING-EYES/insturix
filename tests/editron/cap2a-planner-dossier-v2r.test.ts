@@ -44,34 +44,49 @@ describe('CAP-2A planner bridge', () => {
 });
 
 describe('CAP-2A enriched planner dossier', () => {
-  it('attaches a rich CAP-2A record to bridged operators and null to unmapped ones', () => {
+  it('grounds all forty selectable operators without conflating record IDs with selectable IDs', () => {
     const enriched = buildCap2aEnrichedCatalogV2R(specOperators);
     expect(enriched.length).toBe(specOperators.length);
+    expect(enriched).toHaveLength(40);
+    expect(enriched.every(({ cap2a }) => cap2a !== null)).toBe(true);
     const bridged = enriched.find(({ selectableOperatorId }) => (
       selectableOperatorId === 'resolve_transcript_edit'
     ));
     expect(bridged?.cap2a).not.toBeNull();
     expect(bridged?.selectableOperatorId).toBe('resolve_transcript_edit');
     expect(bridged?.selectionRule).toBe('COPY_SELECTABLE_OPERATOR_ID_TO_NODE_SELECTED_OPERATOR_ID');
-    expect(bridged?.cap2a?.censusRecordId).toBe('transcript.resolve-edit');
+    expect(bridged?.cap2a?.recordId).toBe('transcript.resolve-edit');
+    expect(bridged?.cap2a?.recordAuthority).toBe('FROZEN_CAP2A_CENSUS');
     expect(bridged?.cap2a?.identifierRole).toBe('REFERENCE_ONLY_NOT_SELECTABLE');
     expect(JSON.stringify(bridged)).not.toContain('cap2aOperatorId');
     expect(bridged?.cap2a?.family).toBeTruthy();
     expect(bridged?.cap2a?.policy).toBeTruthy();
     expect(bridged?.cap2a?.verification).toBeTruthy();
     expect(bridged?.cap2a?.owners).toBeTruthy();
+    expect(bridged?.cap2a?.support).toBeTruthy();
+    expect(bridged?.cap2a?.evidenceRefs.length).toBeGreaterThan(0);
     // Executable spec fields remain present alongside the dossier.
     expect(bridged?.kind).toBeTruthy();
     expect(bridged?.input).toBeTruthy();
+    expect(bridged?.selectableContractAuthority)
+      .toBe('V2R_RESEARCH_NORMALIZED_COMPILER_CONTRACT_NOT_LIVE_CALLABLE');
+
+    const supplemented = enriched.find(({ selectableOperatorId }) => selectableOperatorId === 'cut_section');
+    expect(supplemented?.cap2a?.recordAuthority).toBe('V2R_CODE_GROUNDED_SUPPLEMENT');
+    expect(supplemented?.cap2a?.recordId).toBe('v2r-supplement.cut_section');
+    expect((supplemented?.cap2a?.execution as { revisionSemantics?: string }).revisionSemantics)
+      .toBe('UNSAFE_NONE');
   });
 
   it('reports honest coverage including unmapped operators', () => {
     const coverage = cap2aEnrichmentCoverageV2R(specOperators);
     expect(coverage.total).toBe(specOperators.length);
-    expect(coverage.enriched).toBeGreaterThan(0);
-    expect(coverage.enriched).toBeLessThanOrEqual(coverage.total);
-    expect(coverage.unmapped.length).toBe(coverage.total - coverage.enriched);
+    expect(coverage.enriched).toBe(40);
+    expect(coverage.unmapped).toEqual([]);
     expect(coverage.bridgeRows).toBe(CAP2A_PLANNER_BRIDGE_V2R.rows.length);
+    expect(coverage.supplementRows).toBe(14);
+    expect(coverage.frozenCensusRecords).toBe(26);
+    expect(coverage.supplementalRecords).toBe(14);
   });
 
   it('is immutable', () => {
@@ -80,7 +95,8 @@ describe('CAP-2A enriched planner dossier', () => {
     const identity = cap2aPlannerDossierIdentityV2R();
     expect(Object.isFrozen(identity)).toBe(true);
     expect(identity.selectableIdField).toBe('selectableOperatorId');
-    expect(identity.censusIdRole).toBe('REFERENCE_ONLY_NOT_SELECTABLE');
+    expect(identity.recordIdRole).toBe('REFERENCE_ONLY_NOT_SELECTABLE');
+    expect(identity.supplementSha256).toHaveLength(64);
     expect(identity.identitySha256).toHaveLength(64);
   });
 });

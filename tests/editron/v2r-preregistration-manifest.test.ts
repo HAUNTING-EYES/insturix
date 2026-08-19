@@ -136,11 +136,11 @@ describe('V2-1R capstone pre-registration manifest', () => {
       .toThrow('V2R_PREREGISTRATION_OPERATOR_CATALOG_DRIFT');
 
     const dossierForgery = structuredClone(manifest) as unknown as {
-      plannerDossier: { censusIdRole: string };
+      plannerDossier: { recordIdRole: string };
       manifestSha256: string;
       [key: string]: unknown;
     };
-    dossierForgery.plannerDossier.censusIdRole = 'SELECTABLE';
+    dossierForgery.plannerDossier.recordIdRole = 'SELECTABLE';
     const { manifestSha256: _dossierHash, ...dossierMaterial } = dossierForgery;
     dossierForgery.manifestSha256 = hashCanonicalJsonV1(dossierMaterial);
     Object.freeze(dossierForgery);
