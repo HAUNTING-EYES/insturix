@@ -1,18 +1,51 @@
-/**
- * Refinery Agent
- *
- * Processes raw content (URLs, text dumps) into "Atomic Facts" stored in
- * the DataBank. Each fact gets its own entry with tags and metadata,
- * held for owner review before embedding and semantic retrieval.
- *
- * This agent is designed to run asynchronously (via QStash worker or
- * direct background call) so it never blocks the chat stream.
- */
+/** Prepare URL-derived learning once, then replay its governed persistence. */
 
-import { createUrlBriefAgent, extractUrlContent } from './url-brief-agent';
+import { z } from 'zod';
+import {
+  createUrlBriefAgent,
+  extractUrlContent,
+  UrlBriefSchema,
+} from './url-brief-agent';
 import { putGovernedDataBankReviewCandidate } from '../services/db';
 import { checkDuplicateBeforeSave } from '../services/embedding-service';
 import { inspectDataForStorage } from '../privacy/provider-privacy-gateway';
+
+export const REFINERY_PREPARED_PLAN_VERSION = 1;
+
+const RefineryPreparedFactSchema = z.object({
+  title: z.string().trim().min(1).max(500),
+  content: z.record(z.string(), z.unknown()),
+  tags: z.array(z.string().trim().min(1).max(200)).max(50),
+}).strict();
+
+const RefineryPreparedSourceSchema = z.object({
+  urlIndex: z.number().int().nonnegative(),
+  url: z.string().url().max(2_048),
+  classification: z.enum(['public', 'business_confidential']),
+  brief: UrlBriefSchema,
+  facts: z.array(RefineryPreparedFactSchema).max(32),
+}).strict();
+
+export const RefineryPreparedPlanSchema = z.object({
+  version: z.number().int().default(REFINERY_PREPARED_PLAN_VERSION).refine(
+    (value) => value === REFINERY_PREPARED_PLAN_VERSION,
+    'Unsupported refinery prepared-plan version.',
+  ),
+  operationKey: z.string().trim().min(1).max(400),
+  userId: z.string().trim().min(1).max(200),
+  orgId: z.string().trim().min(1).max(200).nullable(),
+  sessionId: z.string().trim().min(1).max(200),
+  urls: z.array(z.string().url().max(2_048)).min(1).max(10),
+  sources: z.array(RefineryPreparedSourceSchema).max(10),
+  errors: z.array(z.object({
+    url: z.string().url().max(2_048),
+    error: z.string().trim().min(1).max(2_000),
+  }).strict()).max(10),
+}).strict();
+
+export type RefineryPreparedPlan = z.infer<typeof RefineryPreparedPlanSchema>;
+type RefineryPreparedFact = z.infer<typeof RefineryPreparedFactSchema>;
+type UrlBrief = z.infer<typeof UrlBriefSchema>;
 
 export interface RefineryInput {
   userId: string;
@@ -35,89 +68,47 @@ export interface RefineryResult {
   errors: Array<{ url: string; error: string }>;
 }
 
-/**
- * Extract atomic facts from a brief object.
- * Splits the brief's data into small, self-contained claims.
- */
-function extractAtomicFacts(brief: Record<string, any>, sourceUrl: string): Array<{
-  title: string;
-  content: Record<string, any>;
-  tags: string[];
-}> {
-  const facts: Array<{ title: string; content: Record<string, any>; tags: string[] }> = [];
-  const baseTags = (brief.keyTopics as string[] || []).slice(0, 5);
-
-  if (brief.summary) {
-    facts.push({
+function extractAtomicFacts(brief: UrlBrief, sourceUrl: string): RefineryPreparedFact[] {
+  const baseTags = brief.keyTopics.slice(0, 5);
+  return [
+    {
       title: `Summary: ${(brief.title || sourceUrl).slice(0, 80)}`,
       content: { claim: brief.summary, source: sourceUrl },
       tags: [...baseTags, 'summary'],
-    });
-  }
-
-  if (Array.isArray(brief.keyTopics)) {
-    for (const topic of brief.keyTopics) {
-      facts.push({
-        title: `Topic: ${topic}`,
-        content: { claim: `Key topic from ${brief.title || sourceUrl}: ${topic}`, source: sourceUrl },
-        tags: [topic.toLowerCase(), 'topic'],
-      });
-    }
-  }
-
-  if (Array.isArray(brief.suggestedAngles)) {
-    for (const angle of brief.suggestedAngles) {
-      facts.push({
-        title: `Angle: ${angle.slice(0, 80)}`,
-        content: { claim: angle, source: sourceUrl },
-        tags: [...baseTags, 'angle'],
-      });
-    }
-  }
-
-  if (brief.targetAudience) {
-    facts.push({
+    },
+    ...brief.keyTopics.map((topic) => ({
+      title: `Topic: ${topic}`,
+      content: { claim: `Key topic from ${brief.title || sourceUrl}: ${topic}`, source: sourceUrl },
+      tags: [topic.toLowerCase(), 'topic'],
+    })),
+    ...brief.suggestedAngles.map((angle) => ({
+      title: `Angle: ${angle.slice(0, 80)}`,
+      content: { claim: angle, source: sourceUrl },
+      tags: [...baseTags, 'angle'],
+    })),
+    {
       title: `Audience: ${brief.targetAudience}`,
       content: { claim: `Target audience: ${brief.targetAudience}`, source: sourceUrl },
       tags: [...baseTags, 'audience'],
-    });
-  }
-
-  if (Array.isArray(brief.specs)) {
-    for (const spec of brief.specs) {
-      const specStr = typeof spec === 'string' ? spec : JSON.stringify(spec);
-      facts.push({
-        title: `Spec: ${specStr.slice(0, 80)}`,
-        content: { claim: specStr, source: sourceUrl },
-        tags: [...baseTags, 'spec', 'technical'],
-      });
-    }
-  }
-
-  return facts;
+    },
+  ];
 }
 
-/**
- * Process a single URL through the refinery pipeline:
- * 1. Extract content
- * 2. Generate structured brief
- * 3. Split into atomic facts
- * 4. Save each fact to DataBank
- */
-async function processUrl(
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message.trim().slice(0, 2_000)
+    : 'Unknown refinery error';
+}
+
+async function prepareSource(
   url: string,
   urlIndex: number,
-  principal: Pick<RefineryInput, 'userId' | 'orgId'>,
-  sessionId: string,
-  operationKey: string,
-): Promise<{ entryId: string; title: string; factCount: number }> {
+  input: Pick<RefineryInput, 'userId' | 'orgId' | 'sessionId'>,
+): Promise<z.infer<typeof RefineryPreparedSourceSchema>> {
   const extracted = await extractUrlContent(url);
-  if (!extracted.bodyText && !extracted.description) {
-    throw new Error('No content extracted from URL');
-  }
+  if (!extracted.bodyText && !extracted.description) throw new Error('No content extracted from URL');
 
-  const agent = createUrlBriefAgent();
-  const brief = await agent.generateBrief(extracted);
+  const brief = await createUrlBriefAgent().generateBrief(extracted);
   const storageInspection = inspectDataForStorage({ text: JSON.stringify(brief) });
   if (storageInspection.privacyClass === 'child_data') {
     throw new Error('Source contains child data and cannot be stored without an approved consent workflow.');
@@ -126,104 +117,124 @@ async function processUrl(
     throw new Error('Source contains personal data and cannot be stored without explicit consent.');
   }
 
-  const parentEntry = await putGovernedDataBankReviewCandidate(
-    principal,
-    sessionId,
-    `${operationKey}:source:${urlIndex}:brief`,
-    {
-      type: 'url_brief',
-      title: brief.title || url,
-      content: brief,
-      sourceUrl: url,
-      tags: brief.keyTopics || [],
-      projectId: sessionId,
-      scope: 'project',
-      governance: {
-        classification: storageInspection.privacyClass,
-        consentStatus: 'not_required',
-      },
-    },
-  );
-
-  const atomicFacts = extractAtomicFacts(brief, url);
-  let savedCount = 0;
-
-  for (let factIndex = 0; factIndex < atomicFacts.length; factIndex++) {
-    const fact = atomicFacts[factIndex];
+  const facts: RefineryPreparedFact[] = [];
+  for (const fact of extractAtomicFacts(brief, url)) {
     const claimText = typeof fact.content.claim === 'string' ? fact.content.claim : fact.title;
     const isDuplicate = await checkDuplicateBeforeSave({
-      principal,
+      principal: { userId: input.userId, orgId: input.orgId },
       scope: 'project',
-      sessionId,
+      sessionId: input.sessionId,
     }, claimText);
-    if (isDuplicate) continue;
-
-    await putGovernedDataBankReviewCandidate(
-      principal,
-      sessionId,
-      `${operationKey}:source:${urlIndex}:fact:${factIndex}`,
-      {
-        type: 'atomic_fact',
-        title: fact.title,
-        content: fact.content,
-        sourceUrl: url,
-        sourceEntryId: parentEntry._id,
-        tags: fact.tags,
-        projectId: sessionId,
-        scope: 'project',
-        governance: {
-          classification: storageInspection.privacyClass,
-          consentStatus: 'not_required',
-        },
-      },
-    );
-    savedCount++;
+    if (!isDuplicate) facts.push(fact);
   }
 
-  return {
-    entryId: parentEntry._id,
-    title: brief.title || url,
-    factCount: savedCount,
-  };
+  return RefineryPreparedSourceSchema.parse({
+    urlIndex,
+    url,
+    classification: storageInspection.privacyClass,
+    brief,
+    facts,
+  });
 }
 
-/**
- * Run the full refinery pipeline for multiple URLs.
- * Each URL is processed independently; failures don't block others.
- */
-export async function runRefineryAgent(input: RefineryInput): Promise<RefineryResult> {
+/** Run provider-backed extraction without mutating DataBank. */
+export async function prepareRefineryPlan(input: RefineryInput): Promise<RefineryPreparedPlan> {
   const operationKey = input.operationKey.trim();
   if (!operationKey) throw new Error('Refinery processing requires a stable operation key.');
 
   const results = await Promise.allSettled(
-    input.urls.map((url, urlIndex) =>
-      processUrl(
-        url,
-        urlIndex,
-        { userId: input.userId, orgId: input.orgId },
-        input.sessionId,
-        operationKey,
-      ),
-    ),
+    input.urls.map((url, urlIndex) => prepareSource(url, urlIndex, input)),
+  );
+  const sources: RefineryPreparedPlan['sources'] = [];
+  const errors: RefineryPreparedPlan['errors'] = [];
+  for (let index = 0; index < results.length; index++) {
+    const result = results[index];
+    if (result.status === 'fulfilled') sources.push(result.value);
+    else errors.push({ url: input.urls[index], error: errorMessage(result.reason) });
+  }
+
+  return RefineryPreparedPlanSchema.parse({
+    version: REFINERY_PREPARED_PLAN_VERSION,
+    operationKey,
+    userId: input.userId,
+    orgId: input.orgId,
+    sessionId: input.sessionId,
+    urls: input.urls,
+    sources,
+    errors,
+  });
+}
+
+async function commitPreparedSource(
+  plan: RefineryPreparedPlan,
+  source: RefineryPreparedPlan['sources'][number],
+): Promise<RefineryResult['entries'][number]> {
+  const principal = { userId: plan.userId, orgId: plan.orgId };
+  const parentEntry = await putGovernedDataBankReviewCandidate(
+    principal,
+    plan.sessionId,
+    `${plan.operationKey}:source:${source.urlIndex}:brief`,
+    {
+      type: 'url_brief',
+      title: source.brief.title || source.url,
+      content: source.brief,
+      sourceUrl: source.url,
+      tags: source.brief.keyTopics,
+      projectId: plan.sessionId,
+      scope: 'project',
+      governance: { classification: source.classification, consentStatus: 'not_required' },
+    },
   );
 
-  const entries: RefineryResult['entries'] = [];
-  const errors: RefineryResult['errors'] = [];
-
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    const url = input.urls[i];
-    if (result.status === 'fulfilled') {
-      entries.push({ url, ...result.value });
-    } else {
-      errors.push({ url, error: result.reason?.message || 'Unknown error' });
-    }
+  for (let factIndex = 0; factIndex < source.facts.length; factIndex++) {
+    const fact = source.facts[factIndex];
+    await putGovernedDataBankReviewCandidate(
+      principal,
+      plan.sessionId,
+      `${plan.operationKey}:source:${source.urlIndex}:fact:${factIndex}`,
+      {
+        type: 'atomic_fact',
+        title: fact.title,
+        content: fact.content,
+        sourceUrl: source.url,
+        sourceEntryId: parentEntry._id,
+        tags: fact.tags,
+        projectId: plan.sessionId,
+        scope: 'project',
+        governance: { classification: source.classification, consentStatus: 'not_required' },
+      },
+    );
   }
 
   return {
-    processed: entries.length,
-    failed: errors.length,
-    entries,
-    errors,
+    entryId: parentEntry._id,
+    url: source.url,
+    title: source.brief.title || source.url,
+    factCount: source.facts.length,
   };
+}
+
+/** Persist one checkpointed plan. Replays never call the model or alter slots. */
+export async function commitRefineryPlan(rawPlan: unknown): Promise<RefineryResult> {
+  const plan = RefineryPreparedPlanSchema.parse(rawPlan);
+  const results = await Promise.allSettled(
+    plan.sources.map((source) => commitPreparedSource(plan, source)),
+  );
+  const failures = results.flatMap((result, index) => result.status === 'rejected'
+    ? [`${plan.sources[index].url}: ${errorMessage(result.reason)}`]
+    : []);
+  if (failures.length > 0) throw new Error(`Refinery candidate commit failed: ${failures.join('; ')}`);
+
+  const entries = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+  return {
+    processed: entries.length,
+    failed: plan.errors.length,
+    entries,
+    errors: plan.errors,
+  };
+}
+
+/** Convenience path for non-durable callers and deterministic tests. */
+export async function runRefineryAgent(input: RefineryInput): Promise<RefineryResult> {
+  return commitRefineryPlan(await prepareRefineryPlan(input));
 }

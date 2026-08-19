@@ -4,8 +4,36 @@ import {
   THINKFORGE_REFINERY_JOB_TTL_MS,
   buildThinkForgeRefineryJobExpiry,
   ensureThinkForgeRefineryJobRetention,
+  hashThinkForgeRefineryCheckpoint,
   serializeThinkForgeRefineryJobExpiry,
+  verifyThinkForgeRefineryCheckpoint,
 } from '@/lib/thinkforge/refinery/refinery-job';
+import type { RefineryPreparedPlan } from '@/lib/thinkforge/agents/refinery-agent';
+
+function checkpointFixture() {
+  const checkpoint: RefineryPreparedPlan = {
+    version: 1,
+    operationKey: 'thinkforge:refinery:job_1',
+    userId: 'user_1',
+    orgId: 'org_1',
+    sessionId: 'session_1',
+    urls: ['https://example.com/research'],
+    sources: [],
+    errors: [],
+  };
+  return {
+    checkpoint,
+    job: {
+      idempotencyKey: checkpoint.operationKey,
+      userId: checkpoint.userId,
+      orgId: checkpoint.orgId,
+      sessionId: checkpoint.sessionId,
+      urls: checkpoint.urls,
+      checkpoint,
+      checkpointHash: hashThinkForgeRefineryCheckpoint(checkpoint),
+    },
+  };
+}
 
 describe('ThinkForge refinery job retention', () => {
   it('stores a BSON expiry and serializes it only at the API boundary', () => {
@@ -77,5 +105,32 @@ describe('ThinkForge refinery job retention', () => {
     await expect(ensureThinkForgeRefineryJobRetention(collection))
       .rejects.toThrow('invalid legacy expiry');
     expect(collection.createIndexes).not.toHaveBeenCalled();
+  });
+
+  it('accepts only an untampered checkpoint bound to the durable job authority', () => {
+    const { checkpoint, job } = checkpointFixture();
+
+    expect(hashThinkForgeRefineryCheckpoint(checkpoint))
+      .toBe(hashThinkForgeRefineryCheckpoint(structuredClone(checkpoint)));
+    expect(verifyThinkForgeRefineryCheckpoint(job)).toEqual(checkpoint);
+    expect(() => verifyThinkForgeRefineryCheckpoint({
+      ...job,
+      checkpointHash: '0'.repeat(64),
+    })).toThrow('hash mismatch');
+    expect(() => verifyThinkForgeRefineryCheckpoint({
+      ...job,
+      checkpoint: { ...checkpoint, operationKey: 'thinkforge:refinery:other' },
+    })).toThrow('durable job authority');
+  });
+
+  it('rejects incomplete or unsupported checkpoint evidence', () => {
+    const { checkpoint, job } = checkpointFixture();
+
+    expect(() => verifyThinkForgeRefineryCheckpoint({ ...job, checkpointHash: null }))
+      .toThrow('incomplete checkpoint evidence');
+    expect(() => verifyThinkForgeRefineryCheckpoint({ ...job, checkpoint: null }))
+      .toThrow('incomplete checkpoint evidence');
+    expect(() => hashThinkForgeRefineryCheckpoint({ ...checkpoint, version: 2 }))
+      .toThrow('Unsupported refinery prepared-plan version');
   });
 });

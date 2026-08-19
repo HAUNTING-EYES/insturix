@@ -3,7 +3,13 @@ import { Client } from '@upstash/qstash';
 import { MongoClient, type Collection, type Filter, type IndexDescription, type UpdateFilter } from 'mongodb';
 import { getCreditCost } from '@/lib/config/creditCosts';
 import type { WalletRef } from '@/lib/editron/services/project-ownership';
-import { runRefineryAgent, type RefineryResult } from '@/lib/thinkforge/agents/refinery-agent';
+import {
+  commitRefineryPlan,
+  prepareRefineryPlan,
+  RefineryPreparedPlanSchema,
+  type RefineryPreparedPlan,
+  type RefineryResult,
+} from '@/lib/thinkforge/agents/refinery-agent';
 
 export const THINKFORGE_REFINERY_JOB_VERSION = 1;
 export const THINKFORGE_REFINERY_JOB_COLLECTION = 'thinkforge_refinery_jobs';
@@ -38,6 +44,8 @@ export interface ThinkForgeRefineryJobSnapshot {
   leaseToken: string | null;
   leaseExpiresAt: string | null;
   queueMessageId: string | null;
+  checkpoint: RefineryPreparedPlan | null;
+  checkpointHash: string | null;
   charge: {
     amount: number;
     wallet: WalletRef;
@@ -115,6 +123,8 @@ function toSnapshot(document: ThinkForgeRefineryJobDocument): ThinkForgeRefinery
     expiresAt: serializeThinkForgeRefineryJobExpiry(expiresAt),
     leaseToken: snapshot.leaseToken ?? null,
     deadLetteredAt: snapshot.deadLetteredAt ?? null,
+    checkpoint: snapshot.checkpoint ?? null,
+    checkpointHash: snapshot.checkpointHash ?? null,
     error: snapshot.error
       ? { ...snapshot.error, retryable: snapshot.error.retryable ?? false }
       : null,
@@ -216,6 +226,76 @@ function claimedLeaseFilter(job: ThinkForgeRefineryJobSnapshot): Filter<ThinkFor
   };
 }
 
+export function hashThinkForgeRefineryCheckpoint(rawCheckpoint: unknown): string {
+  const checkpoint = RefineryPreparedPlanSchema.parse(rawCheckpoint);
+  return createHash('sha256').update(JSON.stringify(checkpoint)).digest('hex');
+}
+
+function assertRefineryCheckpointAuthority(
+  job: Pick<ThinkForgeRefineryJobSnapshot, 'idempotencyKey' | 'userId' | 'orgId' | 'sessionId' | 'urls'>,
+  checkpoint: RefineryPreparedPlan,
+): void {
+  const sameUrls = JSON.stringify(checkpoint.urls) === JSON.stringify(job.urls);
+  if (
+    checkpoint.operationKey !== job.idempotencyKey
+    || checkpoint.userId !== job.userId
+    || checkpoint.orgId !== job.orgId
+    || checkpoint.sessionId !== job.sessionId
+    || !sameUrls
+  ) {
+    throw new Error('Refinery checkpoint no longer matches durable job authority.');
+  }
+}
+
+export function verifyThinkForgeRefineryCheckpoint(
+  job: Pick<
+    ThinkForgeRefineryJobSnapshot,
+    'idempotencyKey' | 'userId' | 'orgId' | 'sessionId' | 'urls' | 'checkpoint' | 'checkpointHash'
+  >,
+): RefineryPreparedPlan | null {
+  if (!job.checkpoint && !job.checkpointHash) return null;
+  if (!job.checkpoint || !job.checkpointHash) {
+    throw new Error('Refinery job has incomplete checkpoint evidence.');
+  }
+  const checkpoint = RefineryPreparedPlanSchema.parse(job.checkpoint);
+  assertRefineryCheckpointAuthority(job, checkpoint);
+  if (hashThinkForgeRefineryCheckpoint(checkpoint) !== job.checkpointHash) {
+    throw new Error('Refinery checkpoint hash mismatch.');
+  }
+  return checkpoint;
+}
+
+async function saveThinkForgeRefineryCheckpoint(
+  job: ThinkForgeRefineryJobSnapshot,
+  rawCheckpoint: unknown,
+): Promise<ThinkForgeRefineryJobSnapshot> {
+  const checkpoint = RefineryPreparedPlanSchema.parse(rawCheckpoint);
+  assertRefineryCheckpointAuthority(job, checkpoint);
+  const checkpointHash = hashThinkForgeRefineryCheckpoint(checkpoint);
+  const collection = await jobCollection();
+  const updated = await collection.findOneAndUpdate(
+    { ...claimedLeaseFilter(job), checkpointHash: null },
+    {
+      $set: {
+        checkpoint: clone(checkpoint),
+        checkpointHash,
+        updatedAt: nowIso(),
+      },
+    },
+    { returnDocument: 'after' },
+  );
+  if (updated) return toSnapshot(updated);
+
+  const current = await collection.findOne(claimedLeaseFilter(job));
+  if (!current) throw new Error('Refinery job lease was lost before checkpoint persistence.');
+  const currentSnapshot = toSnapshot(current);
+  verifyThinkForgeRefineryCheckpoint(currentSnapshot);
+  if (currentSnapshot.checkpointHash !== checkpointHash) {
+    throw new Error('Refinery checkpoint conflict: this job already owns a different prepared plan.');
+  }
+  return currentSnapshot;
+}
+
 async function deadLetterExhaustedRefineryJob(
   collection: Collection<ThinkForgeRefineryJobDocument>,
   job: ThinkForgeRefineryJobDocument,
@@ -286,6 +366,8 @@ export async function createOrGetQueuedThinkForgeRefineryJob(input: CreateThinkF
     leaseToken: null,
     leaseExpiresAt: null,
     queueMessageId: null,
+    checkpoint: null,
+    checkpointHash: null,
     charge: {
       amount: getCreditCost('thinkforge', 'chat_message'),
       wallet: clone(input.wallet),
@@ -540,17 +622,31 @@ export async function refundThinkForgeRefineryJob(jobId: string, reason: string)
 }
 
 export async function runClaimedThinkForgeRefineryJob(job: ThinkForgeRefineryJobSnapshot): Promise<void> {
-  const result = await runRefineryAgent({
-    userId: job.userId,
-    orgId: job.orgId,
-    sessionId: job.sessionId,
-    operationKey: job.idempotencyKey,
-    urls: job.urls,
-  });
+  let executionJob = job;
+  let checkpoint = verifyThinkForgeRefineryCheckpoint(job);
+  if (!checkpoint) {
+    checkpoint = await prepareRefineryPlan({
+      userId: job.userId,
+      orgId: job.orgId,
+      sessionId: job.sessionId,
+      operationKey: job.idempotencyKey,
+      urls: job.urls,
+    });
+    if (checkpoint.sources.length === 0) {
+      throw new Error('None of the supplied research sources could be analyzed.');
+    }
+    executionJob = await saveThinkForgeRefineryCheckpoint(job, checkpoint);
+    checkpoint = verifyThinkForgeRefineryCheckpoint(executionJob);
+    if (!checkpoint) {
+      throw new Error('Refinery checkpoint disappeared after durable persistence.');
+    }
+  }
+
+  const result = await commitRefineryPlan(checkpoint);
   if (result.processed === 0) {
     throw new Error('None of the supplied research sources could be analyzed.');
   }
-  await completeThinkForgeRefineryJob(job, result);
+  await completeThinkForgeRefineryJob(executionJob, result);
 }
 
 export async function dispatchThinkForgeRefineryJob(job: ThinkForgeRefineryJobSnapshot): Promise<string> {
