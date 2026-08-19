@@ -360,28 +360,28 @@ export class ObserverJobStore {
   }
 }
 
-export class ObserverJobLeaseLostError extends Error {
+class ObserverJobLeaseLostError extends Error {
   constructor() {
     super('Observer job lease was lost.');
     this.name = 'ObserverJobLeaseLostError';
   }
 }
 
-export class ObserverJobCheckpointConflictError extends Error {
+class ObserverJobCheckpointConflictError extends Error {
   constructor() {
     super('Observer extraction differs from the durable checkpoint.');
     this.name = 'ObserverJobCheckpointConflictError';
   }
 }
 
-export class ObserverJobResultConflictError extends Error {
+class ObserverJobResultConflictError extends Error {
   constructor() {
     super('Observer result differs from the durable result checkpoint.');
     this.name = 'ObserverJobResultConflictError';
   }
 }
 
-export class ObserverJobResultMissingError extends Error {
+class ObserverJobResultMissingError extends Error {
   constructor() {
     super('Observer job cannot complete before its result is durable.');
     this.name = 'ObserverJobResultMissingError';
