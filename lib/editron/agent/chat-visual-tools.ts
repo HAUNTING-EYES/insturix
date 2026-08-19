@@ -18,6 +18,7 @@ import {
   type SubjectReframePlan,
 } from "../services/subject-reframe-plan";
 import { resolveAtomicZoomForm } from "../services/zoom-form";
+import { evaluateAllTracks } from "../utils/keyframe-math";
 
 type OverlayId = string | number;
 
@@ -1797,6 +1798,9 @@ export function applyCameraShakeToProject(
   const intensity = round3(clamp(options.intensity ?? 0.3, config.shakeIntensityRange[0], config.shakeIntensityRange[1]));
   const durationFrames = clampInt(options.durationFrames ?? 10, 2, config.shakeMaxDurationFrames);
   const maxOffset = round3(intensity * canvasWidth * config.shakeCanvasOffsetFraction);
+  const replacedPosition = options.replacePositionKeyframes && nonShakePositionTracks.length
+    ? evaluateAllTracks(nonShakePositionTracks, localFrame)
+    : {};
   const shakeTracks = buildCameraShakeTracks({
     localFrame,
     targetFrame,
@@ -1804,6 +1808,8 @@ export function applyCameraShakeToProject(
     videoDurationFrames,
     durationFrames,
     maxOffset,
+    baseX: finiteNumber(replacedPosition.x) ?? finiteNumber(video.left) ?? 0,
+    baseY: finiteNumber(replacedPosition.y) ?? finiteNumber(video.top) ?? 0,
   });
   const keptTracks = existingTracks.filter((track: any) => {
     if (options.replacePositionKeyframes && (track?.property === "x" || track?.property === "y")) return false;
@@ -3711,20 +3717,22 @@ function buildCameraShakeTracks(input: {
   videoDurationFrames: number;
   durationFrames: number;
   maxOffset: number;
+  baseX: number;
+  baseY: number;
 }): any[] {
   const shakeFrames = Math.min(input.durationFrames, Math.max(1, input.videoDurationFrames - input.localFrame - 2));
-  const xKeyframes: any[] = [{ frame: input.localFrame, value: 0, easing: "linear" }];
-  const yKeyframes: any[] = [{ frame: input.localFrame, value: 0, easing: "linear" }];
+  const xKeyframes: any[] = [{ frame: input.localFrame, value: input.baseX, easing: "linear" }];
+  const yKeyframes: any[] = [{ frame: input.localFrame, value: input.baseY, easing: "linear" }];
   const rand = mulberry32((input.targetFrame * 31) + (input.videoFrom * 17) + (input.videoDurationFrames * 7));
 
   for (let index = 1; index <= shakeFrames; index += 1) {
     const decay = 1 - (index / shakeFrames);
-    xKeyframes.push({ frame: input.localFrame + index, value: round3((rand() - 0.5) * 2 * input.maxOffset * decay), easing: "linear" });
-    yKeyframes.push({ frame: input.localFrame + index, value: round3((rand() - 0.5) * 2 * input.maxOffset * decay), easing: "linear" });
+    xKeyframes.push({ frame: input.localFrame + index, value: round3(input.baseX + (rand() - 0.5) * 2 * input.maxOffset * decay), easing: "linear" });
+    yKeyframes.push({ frame: input.localFrame + index, value: round3(input.baseY + (rand() - 0.5) * 2 * input.maxOffset * decay), easing: "linear" });
   }
 
-  xKeyframes.push({ frame: input.localFrame + shakeFrames + 1, value: 0, easing: "ease-out" });
-  yKeyframes.push({ frame: input.localFrame + shakeFrames + 1, value: 0, easing: "ease-out" });
+  xKeyframes.push({ frame: input.localFrame + shakeFrames + 1, value: input.baseX, easing: "ease-out" });
+  yKeyframes.push({ frame: input.localFrame + shakeFrames + 1, value: input.baseY, easing: "ease-out" });
 
   return [
     cameraShakeTrack("x", xKeyframes),

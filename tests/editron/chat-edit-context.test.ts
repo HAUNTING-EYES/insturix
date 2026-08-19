@@ -1327,6 +1327,52 @@ describe('chat edit context bundle', () => {
     expect(plan.message).toContain('overlap captions/dialogue');
   });
 
+  it('keeps camera shake centered on static and explicitly replaced animated positions', () => {
+    const staticPlan = applyCameraShakeToProject({
+      durationInFrames: 90,
+      playerDimensions: { width: 1000, height: 600 },
+      overlays: [{
+        id: 10, type: 'video', from: 0, durationInFrames: 90,
+        left: 125.5, top: -24.25, keyframeTracks: [],
+      }],
+    }, { targetFrame: 20, videoOverlayId: 10, intensity: 0.5, durationFrames: 6 });
+    const staticTracks = staticPlan.updates[0].nextKeyframeTracks;
+    const staticX = staticTracks.find((track: any) => track.property === 'x').keyframes;
+    const staticY = staticTracks.find((track: any) => track.property === 'y').keyframes;
+    expect(staticX[0].value).toBe(125.5);
+    expect(staticY[0].value).toBe(-24.25);
+    expect(staticX.at(-1).value).toBe(125.5);
+    expect(staticY.at(-1).value).toBe(-24.25);
+    expect(Math.max(...staticX.map((keyframe: any) => Math.abs(keyframe.value - 125.5))))
+      .toBeLessThanOrEqual(staticPlan.updates[0].maxOffset);
+
+    const replacedPlan = applyCameraShakeToProject({
+      durationInFrames: 90,
+      playerDimensions: { width: 1000, height: 600 },
+      overlays: [{
+        id: 11, type: 'video', from: 0, durationInFrames: 90, left: 10, top: 20,
+        keyframeTracks: [{
+          property: 'x',
+          keyframes: [
+            { frame: 0, value: 10, easing: 'linear' },
+            { frame: 40, value: 50, easing: 'linear' },
+          ],
+        }],
+      }],
+    }, {
+      targetFrame: 20, videoOverlayId: 11, intensity: 0.5,
+      durationFrames: 6, replacePositionKeyframes: true,
+    });
+    const replacedX = replacedPlan.updates[0].nextKeyframeTracks
+      .find((track: any) => track.property === 'x').keyframes;
+    const replacedY = replacedPlan.updates[0].nextKeyframeTracks
+      .find((track: any) => track.property === 'y').keyframes;
+    expect(replacedX[0].value).toBe(30);
+    expect(replacedY[0].value).toBe(20);
+    expect(replacedX.at(-1).value).toBe(30);
+    expect(replacedY.at(-1).value).toBe(20);
+  });
+
   it('allows speed ramp inside a silent interval of a longer caption track', () => {
     const plan = applySpeedRampToProject({
       ...project,
