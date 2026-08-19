@@ -3,6 +3,7 @@ import {
   type ProviderRouteV2,
   type SerializedProviderRequestV2,
 } from './provider-codecs-v2';
+import { deepFreezeV1 } from './contracts-v1';
 import { estimateOpenAiGpt56InputTokensV2 } from './openai-input-token-counter-v2';
 import type { DevelopmentModelRouteV2 } from './development-cohort-runner-v2';
 import { runProviderStageV2, type ProviderPricingV2 } from './provider-transport-v2';
@@ -48,6 +49,38 @@ const DIRECT_ROUTES: readonly DirectRouteFactV2[] = [
     },
   },
 ] as const;
+
+export const V2R_BENCHMARK_ROUTE_ROSTER_VERSION =
+  'EDITRON_OE_V2R_BENCHMARK_ROUTE_ROSTER_V2' as const;
+
+export interface V2RBenchmarkRouteIdentityV2 {
+  routeId: 'OPENAI_LUNA' | 'OPENAI_TERRA' | 'QWEN_3_8_MAX';
+  claimedModelIdentity: string;
+  costBasis: 'USD_METERED' | 'TOKEN_PLAN_CREDITS_UNPRICED';
+  providerTransport: 'OPENAI_RESPONSES' | 'ALIBABA_DIRECT_CHAT_COMPLETIONS';
+  planningMode: 'medium' | 'FAIR_STAGE_BUDGET';
+}
+
+const QWEN_ROUTE_FACT = {
+  routeId: 'QWEN_3_8_MAX',
+  claimedModelIdentity: 'qwen3.8-max',
+  costBasis: 'TOKEN_PLAN_CREDITS_UNPRICED',
+  providerTransport: 'ALIBABA_DIRECT_CHAT_COMPLETIONS',
+  planningMode: 'FAIR_STAGE_BUDGET',
+} as const;
+
+export function buildV2RBenchmarkRouteRosterV2(): readonly Readonly<V2RBenchmarkRouteIdentityV2>[] {
+  const openAiRoutes = DIRECT_ROUTES
+    .filter((fact) => fact.routeId === 'OPENAI_LUNA' || fact.routeId === 'OPENAI_TERRA')
+    .map((fact): V2RBenchmarkRouteIdentityV2 => ({
+      routeId: fact.routeId as 'OPENAI_LUNA' | 'OPENAI_TERRA',
+      claimedModelIdentity: fact.claimedModelIdentity,
+      costBasis: 'USD_METERED',
+      providerTransport: 'OPENAI_RESPONSES',
+      planningMode: 'medium',
+    }));
+  return deepFreezeV1([...openAiRoutes, QWEN_ROUTE_FACT]);
+}
 
 export function buildDevelopmentModelRoutesV2(input: {
   environment: Readonly<Record<string, string | undefined>>;
@@ -106,9 +139,9 @@ export function buildQwenDevelopmentModelRouteV2(input: {
     'EDITRON_QWEN_TOKEN_PLAN_KEY_OR_QWEN_API_KEY',
   );
   return {
-    routeId: 'QWEN_3_8_MAX',
-    claimedModelIdentity: 'qwen3.8-max',
-    costBasis: 'TOKEN_PLAN_CREDITS_UNPRICED',
+    routeId: QWEN_ROUTE_FACT.routeId,
+    claimedModelIdentity: QWEN_ROUTE_FACT.claimedModelIdentity,
+    costBasis: QWEN_ROUTE_FACT.costBasis,
     runStage: (artifact) => runQwenProviderStageV2({
       artifact,
       apiKey: qwenKey,

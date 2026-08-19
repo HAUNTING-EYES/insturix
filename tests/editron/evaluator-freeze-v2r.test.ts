@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { getCanonicalDev01Stage123V2 } from '@/lib/editron/research/open-ended-planner/dev01-stage123-canonical-v2';
 import { getCanonicalDev03Stage123V2 } from '@/lib/editron/research/open-ended-planner/dev03-stage123-canonical-v2';
 import { getCanonicalDev02V2RV2 } from '@/lib/editron/research/open-ended-planner/dev02-canonical-v2r-v2';
+import { getCanonicalDev04ConnectedChainV2 } from '@/lib/editron/research/open-ended-planner/dev04-capability-gap-chain-v2';
 import {
   assertEvaluatorPolicyFrozenV2R,
   buildEvaluatorPolicyFreezeV2R,
   EVALUATOR_FREEZE_POLICY_VERSION_V2R,
 } from '@/lib/editron/research/open-ended-planner/evaluator-freeze-v2r';
+import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import {
   buildCanonicalDev03BeatWithheldEvidenceV2,
   buildCanonicalDev03MeasuredEvidenceV2,
@@ -20,7 +22,11 @@ describe('V2-1R condition-aware evaluator freeze', () => {
     expect(Object.isFrozen(freeze)).toBe(true);
     expect(freeze.policyVersion).toBe(EVALUATOR_FREEZE_POLICY_VERSION_V2R);
     expect(freeze.frozenBeforeProviderDispatch).toBe(true);
-    expect(freeze.tasks.map(({ taskId }) => taskId)).toEqual(['DEV-01', 'DEV-02', 'DEV-03']);
+    expect(freeze.tasks.map(({ taskId }) => taskId)).toEqual(['DEV-01', 'DEV-02', 'DEV-03', 'DEV-04']);
+    expect(freeze.tasks.find(({ taskId }) => taskId === 'DEV-03')?.conditions[0]).toMatchObject({
+      expectedLoweringDisposition: 'COMPILED_RESEARCH_PROXY',
+      expectedStage6Disposition: 'PASS',
+    });
     expect(typeof freeze.policySha256).toBe('string');
     expect(freeze.policySha256).toHaveLength(64);
   });
@@ -42,12 +48,24 @@ describe('V2-1R condition-aware evaluator freeze', () => {
     expect(() => assertEvaluatorPolicyFrozenV2R(tamperedTask)).toThrow('EVALUATOR_FREEZE_HASH_DRIFT');
     const unfrozen = structuredClone(freeze);
     expect(() => assertEvaluatorPolicyFrozenV2R(unfrozen)).toThrow('EVALUATOR_FREEZE_NOT_IMMUTABLE');
+
+    const forged = structuredClone(freeze) as unknown as {
+      tasks: Array<{ evaluatorOwners: string[] }>;
+      policySha256: string;
+      [key: string]: unknown;
+    };
+    forged.tasks[0].evaluatorOwners[0] = 'post-output-replacement-evaluator';
+    const { policySha256: _discarded, ...forgedMaterial } = forged;
+    forged.policySha256 = hashCanonicalJsonV1(forgedMaterial);
+    Object.freeze(forged);
+    expect(() => assertEvaluatorPolicyFrozenV2R(forged)).toThrow('EVALUATOR_FREEZE_COMPONENT_DRIFT');
   });
 
   it('frozen dispositions match the actual canonical V2R chains, not invented targets', async () => {
     const freeze = buildEvaluatorPolicyFreezeV2R();
     const dev01 = getCanonicalDev01Stage123V2();
     const dev02 = getCanonicalDev02V2RV2();
+    const dev04 = getCanonicalDev04ConnectedChainV2();
     const [audioBytes, analyzerSourceBytes] = await Promise.all([
       readFile('.calibration-temp/open-ended-planner-v2/development-media/dev03-beats.wav'),
       readFile('lib/editron/services/media/beat-detection-service.ts'),
@@ -65,6 +83,7 @@ describe('V2-1R condition-aware evaluator freeze', () => {
         BASELINE: String(dev03.evidenceBoundIntentsV2R.BASELINE.stageDisposition),
         BEAT_EVIDENCE_WITHHELD: String(dev03.evidenceBoundIntentsV2R.BEAT_EVIDENCE_WITHHELD.stageDisposition),
       },
+      'DEV-04': { BASELINE: String(dev04.evidenceBoundIntent.stageDisposition) },
     };
     for (const task of freeze.tasks) {
       for (const condition of task.conditions) {

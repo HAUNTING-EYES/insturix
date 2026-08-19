@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { buildEvaluatorPolicyFreezeV2R } from '@/lib/editron/research/open-ended-planner/evaluator-freeze-v2r';
 import { DEV01_LOWERING_POLICY_V2R } from '@/lib/editron/research/open-ended-planner/dev01-lowering-policy-v2r';
+import { DEV02_LOWERING_POLICY_V2R } from '@/lib/editron/research/open-ended-planner/dev02-lowering-policy-v2r';
+import { DEV03_LOWERING_POLICY_V2R } from '@/lib/editron/research/open-ended-planner/dev03-lowering-policy-v2r';
+import { DEV04_LOWERING_POLICY_V2R } from '@/lib/editron/research/open-ended-planner/dev04-lowering-policy-v2r';
+import { buildV2RBenchmarkRouteRosterV2 } from '@/lib/editron/research/open-ended-planner/development-cohort-routes-v2';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import { v2rOperatorCatalogIdentity } from '@/lib/editron/research/open-ended-planner/operator-catalog-v2r';
 import {
   assertV2RPreregistrationComplete,
   buildV2RPreregistrationManifest,
@@ -23,7 +28,17 @@ describe('V2-1R capstone pre-registration manifest', () => {
 
   it('binds the real component hashes, not placeholders', () => {
     const manifest = buildV2RPreregistrationManifest();
-    expect(manifest.lowerer.dev01PolicySha256).toBe(hashCanonicalJsonV1(DEV01_LOWERING_POLICY_V2R));
+    expect(manifest.lowerer.taskPolicySha256).toEqual({
+      'DEV-01': hashCanonicalJsonV1(DEV01_LOWERING_POLICY_V2R),
+      'DEV-02': hashCanonicalJsonV1(DEV02_LOWERING_POLICY_V2R),
+      'DEV-03': hashCanonicalJsonV1(DEV03_LOWERING_POLICY_V2R),
+      'DEV-04': hashCanonicalJsonV1(DEV04_LOWERING_POLICY_V2R),
+    });
+    expect(manifest.operatorCatalog).toEqual(v2rOperatorCatalogIdentity());
+    expect(manifest.routeRoster.routes).toEqual(buildV2RBenchmarkRouteRosterV2());
+    expect(manifest.routeRoster.routes.map(({ routeId }) => routeId))
+      .toEqual(['OPENAI_LUNA', 'OPENAI_TERRA', 'QWEN_3_8_MAX']);
+    expect(manifest.causalExecution.taskContracts.map(({ taskId }) => taskId)).toEqual(['DEV-01', 'DEV-03']);
     expect(manifest.evaluatorFreeze.policySha256).toBe(buildEvaluatorPolicyFreezeV2R().policySha256);
   });
 
@@ -41,9 +56,21 @@ describe('V2-1R capstone pre-registration manifest', () => {
 
     const drifted = structuredClone(manifest) as { lowerer: { invariant: string }; [key: string]: unknown };
     drifted.lowerer.invariant = 'SOMETHING_ELSE';
-    expect(() => assertV2RPreregistrationComplete(drifted)).toThrow('V2R_PREREGISTRATION_HASH_DRIFT');
+    expect(() => assertV2RPreregistrationComplete(drifted)).toThrow('V2R_PREREGISTRATION_TASK_POLICY_DRIFT');
 
     const mutable = structuredClone(manifest);
     expect(() => assertV2RPreregistrationComplete(mutable)).toThrow('V2R_PREREGISTRATION_NOT_IMMUTABLE');
+
+    const forged = structuredClone(manifest) as unknown as {
+      operatorCatalog: { catalogSha256: string };
+      manifestSha256: string;
+      [key: string]: unknown;
+    };
+    forged.operatorCatalog.catalogSha256 = 'f'.repeat(64);
+    const { manifestSha256: _discarded, ...forgedMaterial } = forged;
+    forged.manifestSha256 = hashCanonicalJsonV1(forgedMaterial);
+    Object.freeze(forged);
+    expect(() => assertV2RPreregistrationComplete(forged))
+      .toThrow('V2R_PREREGISTRATION_OPERATOR_CATALOG_DRIFT');
   });
 });
