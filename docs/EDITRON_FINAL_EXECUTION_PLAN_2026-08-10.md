@@ -1522,6 +1522,36 @@ Qwen transport/repair without leaking expected answers; then issue a new
 version and run repeated trials. The detailed ledger is
 [oe-v2-1f-connected-model-episode-results-2026-08-19.md](editron/open-ended-editing/oe-v2-1f-connected-model-episode-results-2026-08-19.md).
 
+#### Provider capability and benchmark-interface correction - 2026-08-19
+
+The V17-V19 provider prompts explicitly forbade tool calls and asked each model
+for staged JSON artifacts. Those receipts remain valid evidence for structured
+plan/schema obedience, evidence policy, generic lowering and isolated proof;
+they are **not** native tool-calling results. Coding-agent success, structured
+artifact success, native tool orchestration and rendered editorial quality are
+now separate evidence classes.
+
+Current official documentation and live probes confirm that GPT-5.6 Luna,
+GPT-5.6 Terra, Gemini 3.7 Flash and Qwen3.8-Max all support native function
+calling. All four selected `resolve_transcript_edit` in an equivalent live
+first-step resolver-versus-distractor smoke. This proves transport and initial
+tool selection only, not a complete editing episode. Gemini 3.7 is live on the
+configured account as returned version `3.7-flash-08-2026`; its omission from
+V17-V19 came from the connected cohort roster, not model unavailability.
+
+Qwen's fair receipt record is mixed rather than a universal failure: V17
+DEV-03 completed real isolated video/audio execution and proof, V19 DEV-03
+reached execution but failed visible-shake proof, and DEV-04 returned the
+expected capability gap in all three cohorts. Other losses include strict
+artifact-schema and missing-evidence policy failures. Qwen remains in the
+cohort but is not production-approved.
+
+The governing provider matrix, official-source record, exact Qwen
+classification, live smoke and replacement multi-arm protocol are in
+[the model-provider capability and benchmark protocol](editron/open-ended-editing/oe-model-provider-capabilities-and-benchmark-protocol-2026-08-19.md).
+Before another paid cohort, preserve the structured-artifact test as its own
+arm and add a provider-native, sequential tool-result loop for all four models.
+
 ### GeneratedCompositionProgram current truth
 
 The active branch has a substantial project-state foundation:
@@ -1568,8 +1598,9 @@ foundation and is no longer the active queue. The next three slices are:
    add/drop; separate planner-envelope facts from selected tools; fix
    per-attempt timeout/token budgets; freeze condition-aware evaluators before
    provider calls.
-3. **V2-1F - fair connected model run:** run Luna, Terra and Qwen first, with
-   Gemini as a comparison arm when its route is valid, across DEV-01 native,
+3. **V2-1F - fair connected model run:** run Luna, Terra, Gemini 3.7 Flash and
+   Qwen3.8-Max across separate structured-artifact and provider-native
+   tool-calling arms for DEV-01 native,
    DEV-02 generated-island/full-reel-hybrid, DEV-03 audio/video-dependent and
    DEV-04 truthful capability-gap conditions. Preserve raw model output, run at
    least repeated trials, compile without hidden creative repair, execute only

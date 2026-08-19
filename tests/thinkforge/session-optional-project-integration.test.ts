@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
+  editronProjectModuleLoaded: vi.fn(),
   getChatHistory: vi.fn(),
   getOrCreateSession: vi.fn(),
   getScript: vi.fn(),
@@ -23,16 +24,11 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
 }));
 
 vi.mock('@/lib/editron/services/project-service', () => {
-  throw new Error('Please define the GOOGLE_CLOUD_CREDENTIALS environment variable');
+  mocks.editronProjectModuleLoaded();
+  throw new Error('ThinkForge session creation must not load the Editron project service');
 });
 
-vi.mock('@/lib/shared/project-links', () => ({
-  addProjectToLinkBySessionId: vi.fn(),
-  createProjectLink: vi.fn(),
-  findLinkBySessionId: vi.fn(),
-}));
-
-describe('ThinkForge optional project integration', () => {
+describe('ThinkForge session integration isolation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.auth.mockResolvedValue({
@@ -56,8 +52,7 @@ describe('ThinkForge optional project integration', () => {
     vi.restoreAllMocks();
   });
 
-  it('creates and hydrates a session when the optional Editron module cannot initialize', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  it('creates and hydrates a session without loading the Editron project service', async () => {
     const { POST } = await import('@/app/api/services/thinkforge/session/route');
 
     const response = await POST(new Request('http://localhost/api/services/thinkforge/session', {
@@ -73,9 +68,6 @@ describe('ThinkForge optional project integration', () => {
       chat: [],
     });
     expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'default');
-    expect(errorSpy).toHaveBeenCalledOnce();
-    expect(errorSpy.mock.calls[0]?.[0]).toMatch(
-      /^\[ThinkForge\] Script-stage project creation failed \(non-blocking\): /,
-    );
+    expect(mocks.editronProjectModuleLoaded).not.toHaveBeenCalled();
   });
 });

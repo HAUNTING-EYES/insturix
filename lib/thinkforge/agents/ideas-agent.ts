@@ -22,8 +22,8 @@ import type { ThinkForgeEditorialPlan } from './editorial-plan';
 const IdeaSchema = z.object({
   id: z.string(),
   idea: z.string().max(120),
-  purpose: z.string(),
-  style: z.string(),
+  purpose: z.string().max(500),
+  style: z.string().max(240),
   tone: z.enum(['white', 'red', 'black', 'yellow', 'green', 'blue']),
 });
 
@@ -32,6 +32,17 @@ const IdeasResponseSchema = z.object({
 });
 
 type IdeasOutput = z.infer<typeof IdeasResponseSchema>;
+
+const DEFAULT_IDEAS_MAX_OUTPUT_TOKENS = 8_192;
+const IDEAS_LENGTH_RECOVERY_MAX_OUTPUT_TOKENS = 16_384;
+
+function isLengthLimitedStructuredOutput(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { finishReason?: unknown; message?: unknown; name?: unknown };
+  if (candidate.finishReason !== 'length') return false;
+  return candidate.name === 'AI_NoObjectGeneratedError'
+    || (typeof candidate.message === 'string' && candidate.message.startsWith('No object generated:'));
+}
 
 export interface IdeasGroundingContext {
   systemBrief?: string;
@@ -165,18 +176,36 @@ function requireMatchingEditorialPlan(
 export class IdeasAgent extends StructuredAgent<IdeasOutput> {
   protected schema = IdeasResponseSchema;
   private readonly embeddingProvider?: IdeaEmbeddingProvider;
+  private readonly allowLengthRecovery: boolean;
 
   constructor(
     config?: Partial<Omit<AgentConfig, 'agentType'>>,
     options?: { embeddingProvider?: IdeaEmbeddingProvider },
   ) {
+    const usesDefaultOutputBudget = config?.maxTokens === undefined;
     super({
       ...config,
       agentType: 'ideas',
       temperature: config?.temperature ?? 0.9,
-      maxTokens: config?.maxTokens ?? 2000,
+      maxTokens: config?.maxTokens ?? DEFAULT_IDEAS_MAX_OUTPUT_TOKENS,
     });
     this.embeddingProvider = options?.embeddingProvider;
+    this.allowLengthRecovery = usesDefaultOutputBudget;
+  }
+
+  private async runIdeaGeneration(
+    input: AgentInput,
+    overrides: { seed: number; temperature?: number },
+  ) {
+    try {
+      return await this.runStructured(input, overrides);
+    } catch (error) {
+      if (!this.allowLengthRecovery || !isLengthLimitedStructuredOutput(error)) throw error;
+      return this.runStructured(input, {
+        ...overrides,
+        maxTokens: IDEAS_LENGTH_RECOVERY_MAX_OUTPUT_TOKENS,
+      });
+    }
   }
 
   private buildTrustedInstruction(
@@ -322,7 +351,7 @@ Generate 4 ideas now.`;
       purpose: idea.purpose,
       style: idea.style,
     }));
-    const { result } = await this.runStructured(input, {
+    const { result } = await this.runIdeaGeneration(input, {
       seed: deriveIdeaGenerationSeed(variationIndex, 0),
     });
     const initialDiversity = await assessIdeaDiversity({
@@ -345,7 +374,7 @@ Generate 4 ideas now.`;
           qualityRepairIssues: initialIssues,
         },
       };
-      const repaired = await this.runStructured(repairInput, {
+      const repaired = await this.runIdeaGeneration(repairInput, {
         temperature: Math.min(this.config.temperature, 0.35),
         seed: deriveIdeaGenerationSeed(variationIndex, 1),
       });

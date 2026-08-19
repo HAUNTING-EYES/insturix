@@ -181,6 +181,16 @@ EDITRON.md + user brief/script/brand/references
 
 ### Model-planning and benchmark law
 
+- Before changing, issuing or interpreting an Editron model benchmark, read
+  `docs/editron/open-ended-editing/oe-model-provider-capabilities-and-benchmark-protocol-2026-08-19.md`
+  completely and re-verify the exact provider model IDs, returned identities,
+  official tool/structured-output settings, modalities, limits and pricing.
+  Never score an unsupported transport option as an editing failure.
+- Keep coding-agent performance, structured-plan/schema performance,
+  provider-native tool-calling performance and rendered editorial quality as
+  separate evidence. A failure in one is not automatically a failure in the
+  others. The governing cohort is Luna, Terra, Gemini 3.7 Flash and
+  Qwen3.8-Max until a repeated fair run supports removing or adding a route.
 - The model receives the actual request/reference evidence and the relevant
   `CAP-2` atomic tool sheet. Each tool row must declare owner, exact inputs and
   outputs, support/certification, planner eligibility, state effects,
@@ -276,8 +286,9 @@ Migrated from the prior Claude-Code sessions. Layout:
 4. Execute `V2-1R`: correct Stage-2 selected-versus-alternative semantics,
    implement generic zero-add/drop lowering, freeze fair evaluator rules and
    fix per-attempt budgets.
-5. Execute `V2-1F`: carry untouched Luna/Terra/Qwen (plus valid comparison-arm)
-   outputs through isolated native/generated/hybrid execution, actual render
+5. Execute `V2-1F`: carry untouched Luna, Terra, Gemini 3.7 Flash and
+   Qwen3.8-Max outputs through separate structured-artifact and provider-native
+   tool-calling arms, isolated native/generated/hybrid execution, actual render
    proof and blind review. Publish no model ranking before this passes.
 
 Fail-closed internal-worker authentication, IF1 runtime migration, timebase and

@@ -15,12 +15,6 @@ import {
   ThinkForgeEditorialAnglePersistenceError,
   type ProjectMeta,
 } from '@/lib/thinkforge/state/types';
-import {
-  addProjectToLinkBySessionId,
-  createProjectLink,
-  findLinkBySessionId,
-} from '@/lib/shared/project-links';
-
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -158,45 +152,6 @@ export async function POST(req: Request) {
 
     // Create/get session with org context
     const session = await db.getOrCreateSession(userId, sessionId, projectMeta, orgId, createdByName);
-
-    // If this is a NEW session (no sessionId provided in request), create a lightweight
-    // Editron project at "script" stage so it appears on the Production Floor dashboard.
-    // Fail-open: project creation failure must never block session functionality.
-    if (!sessionId) {
-      try {
-        // Load the optional Editron integration only inside its fail-open
-        // boundary. ProjectService also owns asset-backed project reads, so a
-        // storage-provider configuration error must not prevent ThinkForge
-        // from creating and hydrating its canonical session.
-        const { projectService } = await import('@/lib/editron/services/project-service');
-        const projectMetaRecord = projectMeta as Record<string, unknown> | undefined;
-        const title = typeof projectMetaRecord?.title === 'string' ? projectMetaRecord.title.trim() : '';
-        const topic = typeof projectMetaRecord?.topic === 'string' ? projectMetaRecord.topic.trim() : '';
-        const scriptTitle = title || topic || 'Untitled Script';
-        const project = await projectService.createScriptStageProject(
-          userId,
-          session._id,
-          scriptTitle,
-          { brandId: (projectMeta as any)?.brandId, orgId: orgId || undefined },
-        );
-        if (project) {
-          // Create early project link tying session → project
-          const existingLink = await findLinkBySessionId(userId, session._id);
-          if (!existingLink) {
-            await createProjectLink(userId, {
-              sessionId: session._id,
-              projectId: project.projectId,
-              brandId: (projectMeta as any)?.brandId,
-            });
-          } else if (!existingLink.projectIds?.includes(project.projectId)) {
-            await addProjectToLinkBySessionId(userId, session._id, project.projectId);
-          }
-          console.log(`[ThinkForge] Script-stage project ${project.projectId} created for session ${session._id}`);
-        }
-      } catch (linkErr: any) {
-        console.error(`[ThinkForge] Script-stage project creation failed (non-blocking): ${linkErr.message}`);
-      }
-    }
 
     // These reads share only the authorized canonical identity, so running them
     // together keeps hydration atomic without paying their latency serially.
