@@ -2,22 +2,18 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { z } from 'zod';
 import {
+  INTERACTION_EVENT_TYPES,
+  admitInteractionEventPayload,
+} from '@/lib/thinkforge/events/interaction-event-policy';
+import {
   assertDataBankSessionPrincipal,
   getSession,
   logInteractionEvent,
-  type EventType,
 } from '@/lib/thinkforge/services/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const INTERACTION_EVENT_TYPES = [
-  'content_deleted',
-  'hook_rejected',
-  'style_corrected',
-  'regeneration_requested',
-  'feedback_given',
-] as const satisfies readonly EventType[];
 const MAX_REQUEST_BYTES = 32_000;
 const ShadowLogRequestSchema = z.object({
   projectId: z.string().trim().min(1).max(200),
@@ -65,7 +61,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Session not found or unavailable to this actor' }, { status: 404 });
     }
 
-    await logInteractionEvent(principal, sessionId, type, payload, {
+    const payloadAdmission = admitInteractionEventPayload(type, payload);
+    if (!payloadAdmission.ok) {
+      if (payloadAdmission.reason === 'invalid_interaction_payload') {
+        return NextResponse.json({ error: payloadAdmission.reason }, { status: 400 });
+      }
+      return NextResponse.json({ accepted: false, reason: payloadAdmission.reason }, { status: 202 });
+    }
+
+    await logInteractionEvent(principal, sessionId, type, payloadAdmission.payload, {
       sessionId,
       artifactId,
       versionId,

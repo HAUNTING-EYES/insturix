@@ -491,22 +491,17 @@ async function fetchHotContext(
 }
 
 function summarizeEvents(type: EventType, events: ThinkForgeEvent[]): string {
-  const payloads = events
-    .slice(0, 5)
-    .map((e) => e.payload?.reason || e.payload?.feedback || e.payload?.deletedText || '')
-    .filter(Boolean);
-
   switch (type) {
     case 'hook_rejected':
-      return `User rejected ${events.length} hook(s). Recent reasons: ${payloads.join('; ') || 'none given'}`;
+      return `User rejected ${events.length} hook(s).`;
     case 'content_deleted':
-      return `User deleted content ${events.length} time(s). Patterns: ${payloads.join('; ') || 'various'}`;
+      return `User made ${events.length} significant content deletion(s).`;
     case 'style_corrected':
-      return `User gave ${events.length} style correction(s): ${payloads.join('; ') || 'various'}`;
+      return `User made ${events.length} explicit style correction(s).`;
     case 'regeneration_requested':
-      return `User requested regeneration ${events.length} time(s)`;
+      return `User requested regeneration ${events.length} time(s).`;
     case 'feedback_given':
-      return `User feedback (${events.length}): ${payloads.join('; ') || 'various'}`;
+      return `User submitted explicit feedback ${events.length} time(s).`;
     default:
       return `${events.length} event(s) of type ${type}`;
   }
@@ -643,7 +638,11 @@ export function formatSystemBrief(ctx: RetrievedContext): string {
   // Interaction patterns
   if (ctx.interactionPatterns.length > 0) {
     const patternLines = ctx.interactionPatterns.map((p) => `- ${p.summary}`);
-    parts.push(`## User Preferences (learned)\n${patternLines.join('\n')}`);
+    parts.push([
+      '## Recent Interaction Signals',
+      'These are aggregate behavior counts, not approved writing preferences. Do not infer a desired style or factual claim from them.',
+      patternLines.join('\n'),
+    ].join('\n'));
   }
 
   return parts.join('\n\n');
