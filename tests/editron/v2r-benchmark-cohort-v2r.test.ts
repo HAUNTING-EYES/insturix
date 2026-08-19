@@ -39,6 +39,15 @@ describe('V2R full benchmark cohort owner', () => {
       'DEV-01:BASELINE', 'DEV-01:VISUAL_EVIDENCE_WITHHELD', 'DEV-02:BASELINE',
       'DEV-03:BASELINE', 'DEV-03:BEAT_EVIDENCE_WITHHELD', 'DEV-04:BASELINE',
     ]);
+    expect(prepared.preflight.capabilityDossierCoverage).toMatchObject({
+      total: 40, enriched: 40, unmapped: [],
+      frozenCensusRecords: 26, supplementalRecords: 14,
+    });
+    expect(prepared.preflight.maximumAttemptsPerStage).toBe(2);
+    expect(prepared.preflight.maximumProviderStageDispatches).toBe(54);
+    expect(prepared.preflight.maximumProviderAttempts).toBe(108);
+    expect(prepared.preflight.absoluteMaxMeteredSpendUsd).toBe(48);
+    expect(prepared.preflight.unpricedRouteIds).toEqual(['QWEN_3_8_MAX']);
     expect(JSON.stringify(prepared.preflight)).not.toContain('secret-');
   });
 
