@@ -564,12 +564,13 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
     .map((t: string) => `Do not use visible text "${t}".`);
 
   const contractKind = resolveClickatronKindFromDocumentContract(input);
-  let kind: ClickatronCreativeKind = contractKind || "single_post_visual";
-  if (choices.kind) {
-    kind = enumValue(choices.kind, ["single_post_visual", "carousel"] as const, "single_post_visual");
-  } else if (!contractKind && (hasCarousel || (hasScene && writerType !== "script"))) {
-    kind = "carousel";
-  }
+  const authoredKind: ClickatronCreativeKind | undefined = hasCarousel || (hasScene && writerType !== "script")
+    ? "carousel"
+    : singleImagePrompt
+      ? "single_post_visual"
+      : undefined;
+  const kind = choices.kind || contractKind || authoredKind;
+  if (!kind) return undefined;
 
   const wantsCarousel = kind === "carousel";
   const platform = choices.platform
@@ -719,9 +720,8 @@ export function buildVisibleContentClickatronCreativeSpec(input: ThinkToClickCon
 
   const choices = input.userVisualChoices || {};
   const contractKind = resolveClickatronKindFromDocumentContract(input);
-  const kind = choices.kind
-    ? enumValue(choices.kind, ["single_post_visual", "carousel"] as const, "single_post_visual")
-    : contractKind || "single_post_visual";
+  const kind = choices.kind || contractKind;
+  if (!kind) return undefined;
   const platform = choices.platform
     ? enumValue(choices.platform, CLICKATRON_PLATFORMS, "generic")
     : normalizeClickatronPlatform(input.projectMeta?.platform) || "generic";

@@ -377,6 +377,34 @@ describe("ThinkForge to Clickatron context", () => {
       /between 2 and 10 complete renderPlan\.slides/i,
     );
   });
+
+  it("keeps the output kind unresolved unless a contract, choice, or authored prompt proves it", () => {
+    const blocks: ThinkForgeBlock[] = [{
+      id: "blk_unclassified",
+      kind: "paragraph",
+      content: [{ type: "text", text: "One exact claim with no requested visual format.", styles: {} }],
+    }];
+
+    const unresolved = buildThinkToClickContext({
+      sessionId: "tf_unclassified",
+      blocks,
+    });
+    expect(unresolved.metadata.clickatron).toBeUndefined();
+    expect(unresolved.sessionDraft).toBeUndefined();
+
+    const authoredSingle = buildThinkToClickContext({
+      sessionId: "tf_authored_single",
+      blocks,
+      writerOutput: {
+        writerType: "post",
+        visualPrompts: { singleImagePrompt: "A restrained editorial proof card with clear copy-safe space." },
+      },
+    });
+    const authoredSpec = (authoredSingle.metadata.clickatron as { creativeSpec: ClickatronCreativeSpec }).creativeSpec;
+    expect(authoredSpec.kind).toBe("single_post_visual");
+    expect(authoredSingle.sessionDraft?.kind).toBe("single_post_visual");
+  });
+
   it("derives a non-sendable carousel draft from visible blocks without putting exact copy in the raster prompt", () => {
     const blocks: ThinkForgeBlock[] = [
       {

@@ -98,6 +98,7 @@ export function ClickatronHandoffPanel({
   const StatusIcon = statusMeta.icon;
   const display = handoffState?.display;
   const resolvedVisualChoices = display?.visualChoices;
+  const selectedKind = visualChoices.kind || resolvedVisualChoices?.kind || display?.kind || "";
   const sourceSnippets = display?.sourceSnippets || [];
   const slides = display?.slides || [];
   const visibleIssues = [
@@ -155,7 +156,7 @@ export function ClickatronHandoffPanel({
 
       {display && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(88px, 1fr))", gap: 8, padding: "9px 0", borderTop: "1px solid #1C1B19", borderBottom: "1px solid #1C1B19", marginBottom: 12 }}>
-          <Metric label="Kind" value={display.kind === "carousel" ? "Carousel" : "Single"} />
+          <Metric label="Kind" value={selectedKind === "carousel" ? "Carousel" : selectedKind === "single_post_visual" ? "Single" : "Pending"} />
           <Metric label="Platform" value={display.platform || visualChoices.platform || "linkedin"} />
           <Metric label="Ratio" value={display.aspectRatio || visualChoices.aspectRatio || DEFAULT_CLICKATRON_HANDOFF_ASPECT_RATIO} />
           <Metric label="Text" value={display.textPolicy || "pending"} />
@@ -166,7 +167,8 @@ export function ClickatronHandoffPanel({
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))", gap: 7, marginBottom: 8 }}>
         <FieldLabel label="Output">
-          <select value={visualChoices.kind || resolvedVisualChoices?.kind || display?.kind || "single_post_visual"} onChange={(e) => setVisualChoice("kind", e.target.value)} style={fieldStyle}>
+          <select value={selectedKind} onChange={(e) => setVisualChoice("kind", e.target.value)} style={fieldStyle}>
+            <option value="" disabled>Choose output</option>
             <option value="single_post_visual">Single post</option>
             <option value="carousel">Carousel</option>
           </select>

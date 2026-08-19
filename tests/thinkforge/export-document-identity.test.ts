@@ -222,6 +222,29 @@ describe('ThinkForge Clickatron document identity', () => {
     expect(mocks.findLinkBySessionId).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['kind', 'single'],
+    ['platform', 'threads'],
+    ['visualMode', 'cinematic_magic'],
+    ['textDensity', 'maximum'],
+  ])('rejects invalid %s before session or project-link work', async (field, value) => {
+    const { POST } = await import('@/app/api/services/thinkforge/clickatron-context/route');
+
+    const response = await POST(postRequest(
+      'http://localhost/api/services/thinkforge/clickatron-context',
+      { sessionId: 'session_alias', scriptId: 'script_1', [field]: value },
+    ));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: expect.stringContaining(`${field} must be one of:`),
+    });
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.getScript).not.toHaveBeenCalled();
+    expect(mocks.findLinkBySessionId).not.toHaveBeenCalled();
+    expect(mocks.createProjectLink).not.toHaveBeenCalled();
+  });
+
   it('uses org authorization and canonical session identity throughout the handoff', async () => {
     mocks.getSession.mockResolvedValue({
       _id: 'session_canonical',
@@ -237,7 +260,7 @@ describe('ThinkForge Clickatron document identity', () => {
       {
         sessionId: 'session_alias',
         scriptId: 'script_1',
-        kind: 'single',
+        kind: 'single_post_visual',
         platform: 'linkedin',
       },
     ));
@@ -275,7 +298,7 @@ describe('ThinkForge Clickatron document identity', () => {
     expect(payload.operation).toBe('preview');
     expect(payload.context.universalId).toBeUndefined();
     expect(payload.handoffState).toMatchObject({
-      status: 'needs_user_input',
+      status: 'missing_sidecar',
       canSendToClickatron: false,
       isBlocked: true,
     });
@@ -333,7 +356,7 @@ describe('ThinkForge Clickatron document identity', () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.handoffState).toMatchObject({ status: 'needs_user_input', canSendToClickatron: false });
+    expect(payload.handoffState).toMatchObject({ status: 'missing_sidecar', canSendToClickatron: false });
     expect(payload.context.universalId).toBeUndefined();
     expect(mocks.createProjectLink).not.toHaveBeenCalled();
   });
@@ -371,7 +394,7 @@ describe('ThinkForge Clickatron document identity', () => {
 
     const response = await POST(postRequest(
       'http://localhost/api/services/thinkforge/clickatron-context',
-      { sessionId: 'session_alias', scriptId: 'post_1', kind: 'single', platform: 'linkedin' },
+      { sessionId: 'session_alias', scriptId: 'post_1', kind: 'single_post_visual', platform: 'linkedin' },
     ));
 
     expect(response.status).toBe(409);
@@ -392,7 +415,7 @@ describe('ThinkForge Clickatron document identity', () => {
 
     const response = await POST(postRequest(
       'http://localhost/api/services/thinkforge/clickatron-context',
-      { sessionId: 'session_alias', scriptId: 'post_1', kind: 'single', platform: 'linkedin' },
+      { sessionId: 'session_alias', scriptId: 'post_1', kind: 'single_post_visual', platform: 'linkedin' },
     ));
     const payload = await response.json();
 

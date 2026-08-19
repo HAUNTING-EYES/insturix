@@ -17,9 +17,28 @@ import {
   buildThinkToClickHandoffState,
   type ThinkToClickUserVisualChoices,
 } from "@/lib/thinkforge/clickatron-handoff-state";
+import {
+  CLICKATRON_CREATIVE_KINDS,
+  CLICKATRON_PLATFORMS,
+  CLICKATRON_TEXT_DENSITIES,
+  CLICKATRON_VISUAL_MODES,
+} from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function readOptionalEnum<T extends string>(
+  value: unknown,
+  field: string,
+  allowed: readonly T[],
+): T | undefined {
+  const parsed = toNonEmptyString(value);
+  if (!parsed) return undefined;
+  if (!allowed.includes(parsed as T)) {
+    throw new Error(`${field} must be one of: ${allowed.join(", ")}`);
+  }
+  return parsed as T;
+}
 
 export async function POST(request: Request) {
   const { userId, orgId } = await auth();
@@ -54,12 +73,22 @@ export async function POST(request: Request) {
     body.userVisualChoices && typeof body.userVisualChoices === "object" && !Array.isArray(body.userVisualChoices)
       ? body.userVisualChoices as Record<string, unknown>
       : body;
-  let slideCount: number | undefined;
+  let userVisualChoices: ThinkToClickVisibleContentChoices;
   try {
-    slideCount = normalizeRequestedCarouselSlideCount(rawVisualChoices.slideCount);
+    userVisualChoices = {
+      kind: readOptionalEnum(rawVisualChoices.kind, "kind", CLICKATRON_CREATIVE_KINDS),
+      platform: readOptionalEnum(rawVisualChoices.platform, "platform", CLICKATRON_PLATFORMS),
+      aspectRatio: toNonEmptyString(rawVisualChoices.aspectRatio) || toNonEmptyString(body.aspectRatio),
+      visualMode: readOptionalEnum(rawVisualChoices.visualMode, "visualMode", CLICKATRON_VISUAL_MODES),
+      textDensity: readOptionalEnum(rawVisualChoices.textDensity, "textDensity", CLICKATRON_TEXT_DENSITIES),
+      vibe: toNonEmptyString(rawVisualChoices.vibe),
+      imageStyle: toNonEmptyString(rawVisualChoices.imageStyle),
+      notes: toNonEmptyString(rawVisualChoices.notes),
+      slideCount: normalizeRequestedCarouselSlideCount(rawVisualChoices.slideCount),
+    };
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Invalid slideCount" },
+      { error: error instanceof Error ? error.message : "Invalid visual choices" },
       { status: 400 },
     );
   }
@@ -95,17 +124,6 @@ export async function POST(request: Request) {
     }
     let projectLink = await findLinkBySessionId(userId, canonicalSessionId);
 
-    const userVisualChoices: ThinkToClickVisibleContentChoices = {
-      kind: toNonEmptyString(rawVisualChoices.kind) as ThinkToClickVisibleContentChoices["kind"],
-      platform: toNonEmptyString(rawVisualChoices.platform) as ThinkToClickVisibleContentChoices["platform"],
-      aspectRatio: toNonEmptyString(rawVisualChoices.aspectRatio) || toNonEmptyString(body.aspectRatio),
-      visualMode: toNonEmptyString(rawVisualChoices.visualMode) as ThinkToClickVisibleContentChoices["visualMode"],
-      textDensity: toNonEmptyString(rawVisualChoices.textDensity) as ThinkToClickVisibleContentChoices["textDensity"],
-      vibe: toNonEmptyString(rawVisualChoices.vibe),
-      imageStyle: toNonEmptyString(rawVisualChoices.imageStyle),
-      notes: toNonEmptyString(rawVisualChoices.notes),
-      slideCount,
-    };
     const handoffVisualChoices: ThinkToClickUserVisualChoices = {
       ...userVisualChoices,
       approvedVisualPlan:
