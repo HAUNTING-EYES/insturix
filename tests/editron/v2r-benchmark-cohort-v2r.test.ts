@@ -120,7 +120,7 @@ describe('V2R full benchmark cohort owner', () => {
       outputDir: await tempRoot(), testOnlyRunEpisode: runEpisode,
     });
     expect(execution.receipt).toMatchObject({
-      receiptVersion: 'EDITRON_OE_V2R_BENCHMARK_COHORT_RECEIPT_V2',
+      receiptVersion: 'EDITRON_OE_V2R_BENCHMARK_COHORT_RECEIPT_V3',
       runDisposition: 'COMPLETE_WITH_FAILURES',
       actualProviderCostUsd: 0.12,
       providerCostCoverage: 'PARTIAL_UNPRICED_ROUTE',
@@ -181,6 +181,26 @@ describe('V2R full benchmark cohort owner', () => {
     })).rejects.toThrow('V2R_COHORT_ROUTE_SET_INVALID');
     expect(runEpisode).not.toHaveBeenCalled();
   });
+
+  it('does not credit an incomplete episode as an evidence-aware UNVERIFIABLE stop', async () => {
+    const prepared = await prepareV2RLiveCohortV2R({ environment });
+    const execution = await runV2RBenchmarkCohortV2R({
+      manifest: prepared.manifest, registry: prepared.registry, routes: prepared.routes,
+      cohortId: 'cohort-causal-stop', createdAt: '2026-08-19T08:00:00.000Z',
+      outputDir: await tempRoot(),
+      testOnlyRunEpisode: async (input) => fakeEpisode(
+        input,
+        expectedDisposition(input.task.taskId, input.task.conditionId),
+        input.task.conditionId.includes('WITHHELD') ? 'CONNECTED_EPISODE_INCOMPLETE' : undefined,
+      ),
+    });
+    const withheld = execution.receipt.rows.filter(({ conditionId }) => conditionId.includes('WITHHELD'));
+    expect(withheld).toHaveLength(6);
+    expect(withheld.every(({ assessment }) => assessment === 'UNEXPECTED_OUTCOME')).toBe(true);
+    expect(withheld[0].diagnostics).toContain(
+      'EXPECTED_STAGE5_REASON_EVIDENCE_INSUFFICIENT_GOT_CONNECTED_EPISODE_INCOMPLETE',
+    );
+  });
 });
 
 function expectedDisposition(taskId: string, conditionId: string):
@@ -193,10 +213,11 @@ function expectedDisposition(taskId: string, conditionId: string):
 async function fakeEpisode(
   input: Parameters<NonNullable<Parameters<typeof runV2RBenchmarkCohortV2R>[0]['testOnlyRunEpisode']>>[0],
   finalDisposition: V2RFullEpisodeReceiptV2R['finalDisposition'],
+  reasonOverride?: string,
 ): Promise<V2RFullEpisodeExecutionV2R> {
   await mkdir(input.outputDir, { recursive: true });
   const material = {
-    receiptVersion: 'EDITRON_OE_V2R_FULL_EPISODE_RECEIPT_V2' as const,
+    receiptVersion: 'EDITRON_OE_V2R_FULL_EPISODE_RECEIPT_V3' as const,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     executionId: input.executionId, createdAt: input.createdAt,
     taskId: input.task.taskId, conditionId: input.task.conditionId,
@@ -207,6 +228,10 @@ async function fakeEpisode(
     stage5DecisionReceiptSha256: 'stage5-hash',
     stage5Disposition: finalDisposition === 'PROXY_EXECUTED' ? 'PROCEED' as const
       : finalDisposition === 'CAPABILITY_GAP' ? 'CAPABILITY_GAP' as const : 'UNVERIFIABLE' as const,
+    stage5ReasonCode: reasonOverride ?? (finalDisposition === 'PROXY_EXECUTED'
+      ? 'GENERIC_V2R_RESEARCH_PROXY_AUTHORIZED'
+      : finalDisposition === 'CAPABILITY_GAP' ? 'PREREGISTERED_CAPABILITY_GAP' : 'EVIDENCE_INSUFFICIENT'),
+    stage5SemanticDisposition: reasonOverride ? null : 'PASS' as const,
     stage6: finalDisposition === 'PROXY_EXECUTED'
       ? { attempted: true, executionMode: 'CANONICAL_TASK_ADAPTER' as const, disposition: 'PASS' as const, receiptHash: 'stage6-hash', receiptPath: path.join(input.outputDir, 'stage6.json'), diagnostics: [] }
       : { attempted: false, executionMode: 'NOT_AUTHORIZED' as const, disposition: 'NOT_AUTHORIZED' as const, receiptHash: null, receiptPath: null, diagnostics: [] },

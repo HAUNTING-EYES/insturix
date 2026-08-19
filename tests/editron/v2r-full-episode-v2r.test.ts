@@ -105,6 +105,8 @@ describe('V2R full connected episode runner', () => {
 
     expect(execution.receipt).toMatchObject({
       stage5Disposition: 'PROCEED', finalDisposition: 'PROXY_EXECUTED_TEST_DOUBLE',
+      stage5ReasonCode: 'GENERIC_V2R_RESEARCH_PROXY_AUTHORIZED',
+      stage5SemanticDisposition: 'PASS',
       stage6: { attempted: true, executionMode: 'TEST_DOUBLE', disposition: 'PASS' },
       stateEffects: [],
     });
@@ -132,6 +134,7 @@ describe('V2R full connected episode runner', () => {
     expect(executor).not.toHaveBeenCalled();
     expect(execution.receipt).toMatchObject({
       stage5Disposition: 'UNVERIFIABLE', finalDisposition: 'UNVERIFIABLE',
+      stage5ReasonCode: 'EVIDENCE_INSUFFICIENT', stage5SemanticDisposition: 'PASS',
       stage6: { attempted: false, disposition: 'NOT_AUTHORIZED' },
     });
   });

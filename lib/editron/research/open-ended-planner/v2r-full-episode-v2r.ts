@@ -19,6 +19,7 @@ import {
   executeV2RStage6TaskAdapter,
   type V2RStage6TaskExecutionResult,
 } from './v2r-stage6-task-adapter-registry';
+import { V2R_FULL_EPISODE_RECEIPT_VERSION } from './v2r-preregistration-manifest';
 
 type JsonRecord = Record<string, unknown>;
 type FinalDispositionV2R =
@@ -30,7 +31,7 @@ type FinalDispositionV2R =
   | 'STAGE6_FAILED';
 
 export interface V2RFullEpisodeReceiptV2R {
-  receiptVersion: 'EDITRON_OE_V2R_FULL_EPISODE_RECEIPT_V2';
+  receiptVersion: typeof V2R_FULL_EPISODE_RECEIPT_VERSION;
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
   executionId: string;
   createdAt: string;
@@ -43,6 +44,8 @@ export interface V2RFullEpisodeReceiptV2R {
   connectedEpisodeReceiptPath: string;
   stage5DecisionReceiptSha256: string;
   stage5Disposition: V2RStage5ExecutionDecisionV2R['disposition'];
+  stage5ReasonCode: string;
+  stage5SemanticDisposition: 'PASS' | 'FAIL' | null;
   stage6: {
     attempted: boolean;
     executionMode: 'CANONICAL_TASK_ADAPTER' | 'TEST_DOUBLE' | 'NOT_AUTHORIZED';
@@ -172,7 +175,7 @@ export async function runV2RFullEpisodeV2R(input: {
   }
 
   const material = {
-    receiptVersion: 'EDITRON_OE_V2R_FULL_EPISODE_RECEIPT_V2' as const,
+    receiptVersion: V2R_FULL_EPISODE_RECEIPT_VERSION,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     executionId: input.executionId, createdAt: input.createdAt,
     taskId: input.task.taskId, conditionId: input.task.conditionId,
@@ -182,6 +185,8 @@ export async function runV2RFullEpisodeV2R(input: {
     connectedEpisodeReceiptPath,
     stage5DecisionReceiptSha256: gate.decision.receiptSha256,
     stage5Disposition: gate.decision.disposition,
+    stage5ReasonCode: gate.decision.reasonCode,
+    stage5SemanticDisposition: gate.semanticEvaluation?.disposition ?? null,
     stage6, finalDisposition,
     actualProviderCostUsd: connectedEpisode.actualProviderCostUsd,
     stateEffects: [] as const,

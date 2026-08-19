@@ -52,7 +52,11 @@ export const V2R_CONNECTED_EPISODE_RECEIPT_VERSION =
   'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V5' as const;
 export const V2R_STAGE5_EXECUTION_DECISION_VERSION =
   'EDITRON_OE_V2R_STAGE5_EXECUTION_DECISION_V4' as const;
-export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V18' as const;
+export const V2R_FULL_EPISODE_RECEIPT_VERSION =
+  'EDITRON_OE_V2R_FULL_EPISODE_RECEIPT_V3' as const;
+export const V2R_BENCHMARK_COHORT_RECEIPT_VERSION =
+  'EDITRON_OE_V2R_BENCHMARK_COHORT_RECEIPT_V3' as const;
+export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V19' as const;
 
 // V2-1R capstone: the single pre-registration manifest.
 //
@@ -99,6 +103,8 @@ export interface V2RPreregistrationManifest {
   executionOrchestration: {
     connectedEpisodeReceiptVersion: typeof V2R_CONNECTED_EPISODE_RECEIPT_VERSION;
     stage5ExecutionDecisionVersion: typeof V2R_STAGE5_EXECUTION_DECISION_VERSION;
+    fullEpisodeReceiptVersion: typeof V2R_FULL_EPISODE_RECEIPT_VERSION;
+    benchmarkCohortReceiptVersion: typeof V2R_BENCHMARK_COHORT_RECEIPT_VERSION;
     capabilityGapRule: 'STOP_BEFORE_LOWERING_NO_EXECUTION_AUTHORIZATION';
   };
   causalExecution: {
@@ -179,6 +185,8 @@ export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationMa
     executionOrchestration: {
       connectedEpisodeReceiptVersion: V2R_CONNECTED_EPISODE_RECEIPT_VERSION,
       stage5ExecutionDecisionVersion: V2R_STAGE5_EXECUTION_DECISION_VERSION,
+      fullEpisodeReceiptVersion: V2R_FULL_EPISODE_RECEIPT_VERSION,
+      benchmarkCohortReceiptVersion: V2R_BENCHMARK_COHORT_RECEIPT_VERSION,
       capabilityGapRule: 'STOP_BEFORE_LOWERING_NO_EXECUTION_AUTHORIZATION' as const,
     },
     causalExecution: {

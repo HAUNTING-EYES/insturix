@@ -16,6 +16,8 @@ import {
 } from './v2r-benchmark-task-registry';
 import {
   assertV2RPreregistrationComplete,
+  V2R_BENCHMARK_COHORT_RECEIPT_VERSION,
+  V2R_FULL_EPISODE_RECEIPT_VERSION,
   type V2RPreregistrationManifest,
 } from './v2r-preregistration-manifest';
 
@@ -44,7 +46,7 @@ export interface V2RBenchmarkCohortRowV2R {
 }
 
 export interface V2RBenchmarkCohortReceiptV2R {
-  receiptVersion: 'EDITRON_OE_V2R_BENCHMARK_COHORT_RECEIPT_V2';
+  receiptVersion: typeof V2R_BENCHMARK_COHORT_RECEIPT_VERSION;
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
   executionMode: 'SEQUENTIAL_FAIL_CLOSED_FULL_EPISODES';
   cohortId: string;
@@ -100,12 +102,13 @@ export async function runV2RBenchmarkCohortV2R(input: {
           conditionId: taskCase.task.conditionId, episodeDir,
         });
         const actual = execution.receipt.finalDisposition;
+        const outcomeDiagnostics = outcomeMismatchDiagnostics(execution.receipt, expected);
         rows.push({
           routeId: route.routeId, claimedModelIdentity: route.claimedModelIdentity,
           costBasis: route.costBasis, caseId: taskCase.caseId,
           taskId: taskCase.task.taskId, conditionId: taskCase.task.conditionId,
           expectedFinalDisposition: expected, actualFinalDisposition: actual,
-          assessment: actual === expected ? 'EXPECTED_OUTCOME' : 'UNEXPECTED_OUTCOME',
+          assessment: outcomeDiagnostics.length ? 'UNEXPECTED_OUTCOME' : 'EXPECTED_OUTCOME',
           fullEpisodeReceiptHash: execution.receipt.receiptSha256,
           fullEpisodeReceiptPath: execution.receiptPath,
           partialConnectedReceiptHash: null,
@@ -113,7 +116,7 @@ export async function runV2RBenchmarkCohortV2R(input: {
           actualProviderCostUsd: execution.receipt.actualProviderCostUsd,
           costDisposition: route.costBasis === 'USD_METERED' ? 'METERED' : 'UNPRICED_TOKEN_PLAN',
           elapsedMs: Math.max(0, now() - startedAt),
-          diagnostics: actual === expected ? [] : [`EXPECTED_${expected}_GOT_${actual}`],
+          diagnostics: outcomeDiagnostics,
         });
       } catch (caught) {
         let error: unknown = caught;
@@ -164,7 +167,7 @@ export async function runV2RBenchmarkCohortV2R(input: {
   ).toFixed(12));
   const failures = rows.filter(({ assessment }) => assessment !== 'EXPECTED_OUTCOME');
   const material = {
-    receiptVersion: 'EDITRON_OE_V2R_BENCHMARK_COHORT_RECEIPT_V2' as const,
+    receiptVersion: V2R_BENCHMARK_COHORT_RECEIPT_VERSION,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     executionMode: 'SEQUENTIAL_FAIL_CLOSED_FULL_EPISODES' as const,
     cohortId: input.cohortId, createdAt: input.createdAt,
@@ -234,7 +237,7 @@ async function validateEpisode(
 ): Promise<void> {
   const receipt = execution.receipt;
   const { receiptSha256, ...material } = receipt;
-  if (receipt.receiptVersion !== 'EDITRON_OE_V2R_FULL_EPISODE_RECEIPT_V2'
+  if (receipt.receiptVersion !== V2R_FULL_EPISODE_RECEIPT_VERSION
     || hashCanonicalJsonV1(material) !== receiptSha256) throw new Error('EPISODE_RECEIPT_HASH_DRIFT');
   if (receipt.authority !== 'RESEARCH_ONLY_NO_PROJECT_MUTATION' || receipt.stateEffects.length) {
     throw new Error('EPISODE_AUTHORITY_DRIFT');
@@ -255,6 +258,32 @@ async function validateEpisode(
   if (hashCanonicalJsonV1(persisted) !== hashCanonicalJsonV1(receipt)) {
     throw new Error('EPISODE_PERSISTED_RECEIPT_DRIFT');
   }
+}
+
+function outcomeMismatchDiagnostics(
+  receipt: Readonly<V2RFullEpisodeReceiptV2R>,
+  expected: 'PROXY_EXECUTED' | 'CAPABILITY_GAP' | 'UNVERIFIABLE',
+): string[] {
+  const diagnostics: string[] = [];
+  if (receipt.finalDisposition !== expected) {
+    diagnostics.push(`EXPECTED_${expected}_GOT_${receipt.finalDisposition}`);
+  }
+  const expectedGate = expected === 'PROXY_EXECUTED' ? 'PROCEED' : expected;
+  const expectedReason = expected === 'PROXY_EXECUTED'
+    ? 'GENERIC_V2R_RESEARCH_PROXY_AUTHORIZED'
+    : expected === 'CAPABILITY_GAP'
+      ? 'PREREGISTERED_CAPABILITY_GAP'
+      : 'EVIDENCE_INSUFFICIENT';
+  if (receipt.stage5Disposition !== expectedGate) {
+    diagnostics.push(`EXPECTED_STAGE5_${expectedGate}_GOT_${receipt.stage5Disposition}`);
+  }
+  if (receipt.stage5ReasonCode !== expectedReason) {
+    diagnostics.push(`EXPECTED_STAGE5_REASON_${expectedReason}_GOT_${receipt.stage5ReasonCode}`);
+  }
+  if (receipt.stage5SemanticDisposition !== 'PASS') {
+    diagnostics.push(`EXPECTED_SEMANTIC_PASS_GOT_${receipt.stage5SemanticDisposition ?? 'NULL'}`);
+  }
+  return diagnostics;
 }
 
 function validateRoutes(
