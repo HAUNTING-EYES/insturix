@@ -127,6 +127,10 @@ type EditronExportPayload = {
 };
 
 type ClickatronContextPayload = {
+  handoffState?: {
+    status?: string;
+    canSendToClickatron?: boolean;
+  };
   context?: {
     brandId?: string;
     metadata?: {
@@ -316,7 +320,7 @@ function buildBrowserScenario(
       fixture,
       format: '7-minute YouTube video script',
       platform: 'YouTube',
-      prompt: 'Create a seven-minute montage-driven YouTube documentary with sparse voiceover about making approval ownership visible before a campaign launch.',
+      prompt: 'Create a seven-minute montage-driven YouTube documentary with sparse voiceover. Use this supplied editorial framework as the only factual basis: hidden decision ownership can delay a campaign launch; name one decision owner; use one shared review lane; keep status and unresolved choices visible; preserve accepted decisions beside the work; test whether contributors can see the current artifact, owner, and next unresolved choice. Present the framework as practical guidance, not measured research.',
       authoringRequest: createThinkForgeAuthoringRequest({
         contentContract: createThinkForgeWriterContract('video_script'),
         platformSurface: { id: 'youtube' },
@@ -782,7 +786,9 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
     const runId = requireEnv('THINKFORGE_E2E_RUN_ID');
     const fixture = scenario.fixture;
     const sessionName = `TF E2E ${runId} ${fixture} ${Date.now()}`;
-    const browserFailures = observeBrowserFailures(page);
+    const browserFailures = observeBrowserFailures(page, fixture === 'post'
+      ? [{ status: 503, method: 'GET', pathname: '/api/services/thinkforge/script/blocks' }]
+      : []);
 
     const created = await fetchBrowserJson<SessionPayload>(
       page,
@@ -963,8 +969,11 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
       expect(creativeSpec?.renderPlan?.slides?.every((slide: { imagePrompt?: string }) => Boolean(slide.imagePrompt))).toBe(true);
       expect(creativeSpec?.validation?.status).toBe('ready');
     } else if (fixture === 'script') {
-      expect(creativeSpec?.kind).toBe('single_post_visual');
-      expect(creativeSpec?.validation?.status).toBe('needs_user_input');
+      expect(creativeSpec).toBeUndefined();
+      expect(clickatronContext.handoffState).toMatchObject({
+        status: 'missing_sidecar',
+        canSendToClickatron: false,
+      });
     } else {
       expect(creativeSpec?.kind).toBe('single_post_visual');
       expect(creativeSpec?.validation?.status).toBe('ready');
@@ -1088,6 +1097,58 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
         expect(secondPersisted.script?.content).toContain(scenario.expectedStoredContent);
         await expect(page.getByText(scenario.expectedVisibleContent, { exact: false }).first()).toBeVisible();
 
+        const blocksRoute = '**/api/services/thinkforge/script/blocks?**';
+        let forcedHydrationFailure = false;
+        await page.route(blocksRoute, async (route) => {
+          const requestUrl = new URL(route.request().url());
+          const isTargetDocument = requestUrl.searchParams.get('sessionId') === sessionId
+            && requestUrl.searchParams.get('scriptId') === scriptId;
+          if (!forcedHydrationFailure && isTargetDocument) {
+            forcedHydrationFailure = true;
+            await route.fulfill({
+              status: 503,
+              contentType: 'application/json',
+              body: JSON.stringify({ error: 'E2E forced document hydration failure' }),
+            });
+            return;
+          }
+          await route.continue();
+        });
+
+        try {
+          const originalDocumentTab = page
+            .locator(`[data-document-id=${JSON.stringify(scriptId)}]`)
+            .locator('button')
+            .first();
+          await expect(originalDocumentTab).toBeVisible();
+          const failedLoadResponse = page.waitForResponse((response) => {
+            const url = new URL(response.url());
+            return url.pathname === '/api/services/thinkforge/script/blocks'
+              && url.searchParams.get('sessionId') === sessionId
+              && url.searchParams.get('scriptId') === scriptId;
+          });
+          await originalDocumentTab.click();
+          expect((await failedLoadResponse).status()).toBe(503);
+
+          const hydrationAlert = page.getByRole('alert').filter({
+            hasText: 'E2E forced document hydration failure',
+          });
+          await expect(hydrationAlert).toBeVisible();
+
+          const recoveredLoadResponse = page.waitForResponse((response) => {
+            const url = new URL(response.url());
+            return url.pathname === '/api/services/thinkforge/script/blocks'
+              && url.searchParams.get('sessionId') === sessionId
+              && url.searchParams.get('scriptId') === scriptId;
+          });
+          await page.getByRole('button', { name: 'Retry loading document' }).click();
+          expect((await recoveredLoadResponse).status()).toBe(200);
+          await expect(hydrationAlert).not.toBeVisible();
+          await expect(page.getByText(scenario.expectedVisibleContent, { exact: false }).first()).toBeVisible();
+        } finally {
+          await page.unroute(blocksRoute);
+        }
+
         await page.goto('/dashboard/thinkforge', { waitUntil: 'domcontentloaded' });
         await expect(page.getByText(scenario.expectedVisibleContent, { exact: false }).first()).toBeVisible();
         await expect(page.getByText(
@@ -1145,7 +1206,7 @@ test.describe.serial('ThinkForge organization brand authority isolation', () => 
       sessionName: `TF E2E ${tenant.runId} organization authority`,
     });
     expect(JSON.stringify(organizationArtifact.persisted.script?.metadata))
-      .not.toContain(tenant.personalBrand.brandId);
+      .not.toContain(JSON.stringify(tenant.personalBrand.brandId));
     expect(browserFailures, `ThinkForge org-browser failures:\n${browserFailures.join('\n')}`).toEqual([]);
   });
 

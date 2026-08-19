@@ -105,6 +105,7 @@ function SortableTab({
   return (
     <div
       ref={setNodeRef}
+      data-document-id={tab.scriptId}
       style={style}
       className={cn(
         "group relative flex items-center gap-1 pl-1 pr-2 min-w-[120px] max-w-[200px] shrink-0 text-[11px] font-medium transition-colors select-none",

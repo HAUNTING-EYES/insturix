@@ -123,9 +123,26 @@ const META_PATTERNS_HEURISTIC = [
 
 const QUESTION_PATTERNS = [/^\s*(what|how|why|explain|tell me|describe)\b/i];
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function includesStandalonePhrase(text: string, phrase: string): boolean {
+  const escapedPhrase = phrase
+    .trim()
+    .split(/\s+/u)
+    .map(escapeRegExp)
+    .join("\\s+");
+  if (!escapedPhrase) return false;
+  return new RegExp(
+    `(?:^|[^\\p{L}\\p{N}_])${escapedPhrase}(?=$|[^\\p{L}\\p{N}_])`,
+    "iu",
+  ).test(text);
+}
+
 function textIncludesAny(text: string, patterns: Array<string | RegExp>): boolean {
   return patterns.some((pattern) =>
-    typeof pattern === "string" ? text.includes(pattern) : pattern.test(text)
+    typeof pattern === "string" ? includesStandalonePhrase(text, pattern) : pattern.test(text)
   );
 }
 
