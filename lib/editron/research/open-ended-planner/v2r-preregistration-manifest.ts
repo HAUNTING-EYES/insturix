@@ -17,14 +17,20 @@ import {
 import { buildEvaluatorPolicyFreezeV2R, EVALUATOR_FREEZE_POLICY_VERSION_V2R } from './evaluator-freeze-v2r';
 import { GENERIC_LOWERING_POLICY_VERSION_V2R } from './generic-lowerer-v2r';
 import { v2rOperatorCatalogIdentity, type V2ROperatorCatalogIdentity } from './operator-catalog-v2r';
-import { PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R } from './per-attempt-budget-v2r';
+import {
+  PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R,
+  V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_VERSION,
+  v2rProviderStageBudgetScheduleIdentity,
+  type V2RProviderStageBudgetScheduleIdentity,
+} from './per-attempt-budget-v2r';
+import { PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R } from './planner-ownership-stage2-packet-v2r';
 import { STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R } from './stage2-selected-operator-contract-v2r';
 import {
   buildV2RSemanticOperatorPolicyV2R,
   V2R_SEMANTIC_OPERATOR_POLICY_VERSION,
 } from './v2r-semantic-operator-policy';
 
-export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V7' as const;
+export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V8' as const;
 
 // V2-1R capstone: the single pre-registration manifest.
 //
@@ -42,6 +48,7 @@ export interface V2RPreregistrationManifest {
   authority: string;
   nodeContract: {
     version: typeof STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R;
+    stage2PacketVersion: typeof PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R;
     semantics: 'SELECTED_OPERATOR_VS_ALTERNATIVES';
     retiredSemantics: 'CANDIDATE_CAPABILITY_IDS_AMBIGUOUS';
   };
@@ -73,6 +80,7 @@ export interface V2RPreregistrationManifest {
   perAttemptBudget: {
     policyVersion: typeof PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R;
     rule: 'EVERY_PERMITTED_ATTEMPT_RECEIVES ITS_OWN_DECLARED_BUDGET';
+    providerStageSchedule: Readonly<V2RProviderStageBudgetScheduleIdentity>;
   };
   evaluatorFreeze: {
     policyVersion: typeof EVALUATOR_FREEZE_POLICY_VERSION_V2R;
@@ -94,6 +102,7 @@ export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationMa
     authority: 'RESEARCH_ONLY_V2R_PREREGISTRATION_NO_PROJECT_MUTATION',
     nodeContract: {
       version: STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R,
+      stage2PacketVersion: PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R,
       semantics: 'SELECTED_OPERATOR_VS_ALTERNATIVES' as const,
       retiredSemantics: 'CANDIDATE_CAPABILITY_IDS_AMBIGUOUS' as const,
     },
@@ -133,6 +142,7 @@ export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationMa
     perAttemptBudget: {
       policyVersion: PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R,
       rule: 'EVERY_PERMITTED_ATTEMPT_RECEIVES ITS_OWN_DECLARED_BUDGET' as const,
+      providerStageSchedule: v2rProviderStageBudgetScheduleIdentity(),
     },
     evaluatorFreeze: {
       policyVersion: EVALUATOR_FREEZE_POLICY_VERSION_V2R,
@@ -159,11 +169,18 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   if (candidate.nodeContract?.version !== STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_NODE_CONTRACT_DRIFT');
   }
+  if (candidate.nodeContract?.stage2PacketVersion !== PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R) {
+    throw new Error('V2R_PREREGISTRATION_STAGE2_PACKET_DRIFT');
+  }
   if (candidate.lowerer?.policyVersion !== GENERIC_LOWERING_POLICY_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_LOWERER_DRIFT');
   }
   if (candidate.perAttemptBudget?.policyVersion !== PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_BUDGET_DRIFT');
+  }
+  if (candidate.perAttemptBudget?.providerStageSchedule?.version
+    !== V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_VERSION) {
+    throw new Error('V2R_PREREGISTRATION_BUDGET_SCHEDULE_VERSION_DRIFT');
   }
   if (candidate.evaluatorFreeze?.policyVersion !== EVALUATOR_FREEZE_POLICY_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_EVALUATOR_DRIFT');
@@ -186,6 +203,9 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   }
   if (!same(candidate.routeRoster, expected.routeRoster)) {
     throw new Error('V2R_PREREGISTRATION_ROUTE_ROSTER_DRIFT');
+  }
+  if (!same(candidate.perAttemptBudget, expected.perAttemptBudget)) {
+    throw new Error('V2R_PREREGISTRATION_BUDGET_SCHEDULE_DRIFT');
   }
   if (!same(candidate.evaluatorFreeze, expected.evaluatorFreeze)) {
     throw new Error('V2R_PREREGISTRATION_EVALUATOR_HASH_DRIFT');

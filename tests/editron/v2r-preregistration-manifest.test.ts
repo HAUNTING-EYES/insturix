@@ -10,6 +10,8 @@ import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/c
 import { v2rOperatorCatalogIdentity } from '@/lib/editron/research/open-ended-planner/operator-catalog-v2r';
 import { cap2aPlannerDossierIdentityV2R } from '@/lib/editron/research/open-ended-planner/cap2a-planner-dossier-v2r';
 import { buildV2RSemanticOperatorPolicyV2R } from '@/lib/editron/research/open-ended-planner/v2r-semantic-operator-policy';
+import { v2rProviderStageBudgetScheduleIdentity } from '@/lib/editron/research/open-ended-planner/per-attempt-budget-v2r';
+import { PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R } from '@/lib/editron/research/open-ended-planner/planner-ownership-stage2-packet-v2r';
 import {
   assertV2RPreregistrationComplete,
   buildV2RPreregistrationManifest,
@@ -22,9 +24,11 @@ describe('V2-1R capstone pre-registration manifest', () => {
     expect(Object.isFrozen(manifest)).toBe(true);
     expect(manifest.experimentVersion).toBe(V2R_EXPERIMENT_VERSION);
     expect(manifest.nodeContract.semantics).toBe('SELECTED_OPERATOR_VS_ALTERNATIVES');
+    expect(manifest.nodeContract.stage2PacketVersion).toBe(PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R);
     expect(manifest.nodeContract.retiredSemantics).toBe('CANDIDATE_CAPABILITY_IDS_AMBIGUOUS');
     expect(manifest.lowerer.invariant).toBe('ZERO_CATALOG_OPERATOR_ADD_ZERO_SELECTED_OPERATOR_DROP');
     expect(manifest.perAttemptBudget.rule).toBe('EVERY_PERMITTED_ATTEMPT_RECEIVES ITS_OWN_DECLARED_BUDGET');
+    expect(manifest.perAttemptBudget.providerStageSchedule).toEqual(v2rProviderStageBudgetScheduleIdentity());
     expect(manifest.manifestSha256).toHaveLength(64);
   });
 
@@ -104,5 +108,29 @@ describe('V2-1R capstone pre-registration manifest', () => {
     Object.freeze(semanticForgery);
     expect(() => assertV2RPreregistrationComplete(semanticForgery))
       .toThrow('V2R_PREREGISTRATION_SEMANTIC_POLICY_HASH_DRIFT');
+
+    const budgetForgery = structuredClone(manifest) as unknown as {
+      perAttemptBudget: { providerStageSchedule: { stageBudgets: Record<number, { maxInputTokens: number }> } };
+      manifestSha256: string;
+      [key: string]: unknown;
+    };
+    budgetForgery.perAttemptBudget.providerStageSchedule.stageBudgets[2].maxInputTokens = 60000;
+    const { manifestSha256: _budgetHash, ...budgetMaterial } = budgetForgery;
+    budgetForgery.manifestSha256 = hashCanonicalJsonV1(budgetMaterial);
+    Object.freeze(budgetForgery);
+    expect(() => assertV2RPreregistrationComplete(budgetForgery))
+      .toThrow('V2R_PREREGISTRATION_BUDGET_SCHEDULE_DRIFT');
+
+    const packetForgery = structuredClone(manifest) as unknown as {
+      nodeContract: { stage2PacketVersion: string };
+      manifestSha256: string;
+      [key: string]: unknown;
+    };
+    packetForgery.nodeContract.stage2PacketVersion = 'WRONG';
+    const { manifestSha256: _packetHash, ...packetMaterial } = packetForgery;
+    packetForgery.manifestSha256 = hashCanonicalJsonV1(packetMaterial);
+    Object.freeze(packetForgery);
+    expect(() => assertV2RPreregistrationComplete(packetForgery))
+      .toThrow('V2R_PREREGISTRATION_STAGE2_PACKET_DRIFT');
   });
 });
