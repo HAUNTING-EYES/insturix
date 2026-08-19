@@ -153,6 +153,11 @@ async function connectToThinkForgeDb(): Promise<mongoose.Connection> {
   return thinkforgeDbCached.conn;
 }
 
+/** Share the canonical cached connection with transactional ThinkForge coordinators. */
+export async function getThinkForgeDatabaseConnection(): Promise<mongoose.Connection> {
+  return connectToThinkForgeDb();
+}
+
 // ==================== Collection Names ====================
 // V1 (Legacy) - kept for backward compatibility
 const COLL_SESSIONS = 'thinkforge_sessions';

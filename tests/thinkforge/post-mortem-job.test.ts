@@ -2,9 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   commitPostMortemPlan: vi.fn(),
-  deleteSession: vi.fn(),
-  getSession: vi.fn(),
   preparePostMortemPlan: vi.fn(),
+  purgeThinkForgeSession: vi.fn(),
   publishJSON: vi.fn(),
   store: {
     claim: vi.fn(),
@@ -23,8 +22,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@upstash/qstash', () => ({ Client: class { publishJSON = mocks.publishJSON; } }));
 vi.mock('@/lib/thinkforge/agents/post-mortem-agent', () => ({ commitPostMortemPlan: mocks.commitPostMortemPlan }));
-vi.mock('@/lib/thinkforge/services/db', () => ({ deleteSession: mocks.deleteSession, getSession: mocks.getSession }));
 vi.mock('@/lib/thinkforge/post-mortem/post-mortem-planner', () => ({ preparePostMortemPlan: mocks.preparePostMortemPlan }));
+vi.mock('@/lib/thinkforge/session-deletion/session-deletion', () => ({
+  purgeThinkForgeSession: mocks.purgeThinkForgeSession,
+}));
 vi.mock('@/lib/thinkforge/post-mortem/post-mortem-job-store', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/thinkforge/post-mortem/post-mortem-job-store')>();
   return { ...original, postMortemJobStore: mocks.store };
@@ -88,8 +89,8 @@ describe('durable post-mortem job orchestration', () => {
     mocks.store.retryOrDeadLetter.mockResolvedValue('queued');
     mocks.preparePostMortemPlan.mockResolvedValue(plan);
     mocks.commitPostMortemPlan.mockResolvedValue(result);
+    mocks.purgeThinkForgeSession.mockResolvedValue({ sessionDeleted: true });
     mocks.store.getAuthorized.mockResolvedValue(job());
-    mocks.getSession.mockResolvedValue(null);
   });
 
   it('checkpoints model output and committed result before completion', async () => {
@@ -119,24 +120,37 @@ describe('durable post-mortem job orchestration', () => {
 
     expect(mocks.preparePostMortemPlan).not.toHaveBeenCalled();
     expect(mocks.commitPostMortemPlan).not.toHaveBeenCalled();
-    expect(mocks.deleteSession).not.toHaveBeenCalled();
+    expect(mocks.purgeThinkForgeSession).toHaveBeenCalledWith({
+      sessionId: 'session_1',
+      userId: 'user_1',
+      orgId: 'org_1',
+      deletionJobId: 'postmortem_123',
+      deletionJobLeaseToken: 'lease_2',
+    });
     expect(mocks.store.complete).toHaveBeenCalledWith('postmortem_123', 'lease_2');
   });
 
-  it('deletes an owned session only after the committed result is durable', async () => {
-    const pending = job();
+  it('purges a session without an LLM call only after the deterministic result is durable', async () => {
+    const pendingBase = job();
+    const pending = job({
+      input: { ...pendingBase.input, deleteSessionOnCompletion: true },
+    });
     mocks.store.claim.mockResolvedValue({ kind: 'claimed', job: pending, leaseToken: 'lease_3' });
-    mocks.store.getAuthorized.mockResolvedValue(job({
-      input: { ...pending.input, deleteSessionOnCompletion: true },
-    }));
-    mocks.getSession.mockResolvedValue({ _id: 'session_1', userId: 'user_1', orgId: 'org_1' });
-    mocks.deleteSession.mockResolvedValue(true);
+    mocks.store.getAuthorized.mockResolvedValue(pending);
     const { processPostMortemJob } = await import('@/lib/thinkforge/post-mortem/post-mortem-job');
 
     await processPostMortemJob('postmortem_123');
 
-    expect(mocks.store.saveResult.mock.invocationCallOrder[0]).toBeLessThan(mocks.deleteSession.mock.invocationCallOrder[0]);
-    expect(mocks.deleteSession.mock.invocationCallOrder[0]).toBeLessThan(mocks.store.complete.mock.invocationCallOrder[0]);
+    expect(mocks.preparePostMortemPlan).not.toHaveBeenCalled();
+    expect(mocks.commitPostMortemPlan).not.toHaveBeenCalled();
+    expect(mocks.store.saveCheckpoint).not.toHaveBeenCalled();
+    expect(mocks.store.saveResult).toHaveBeenCalledWith('postmortem_123', 'lease_3', result);
+    expect(mocks.store.saveResult.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.purgeThinkForgeSession.mock.invocationCallOrder[0],
+    );
+    expect(mocks.purgeThinkForgeSession.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.store.complete.mock.invocationCallOrder[0],
+    );
   });
 
   it('requeues a failed attempt without swallowing the durable error state', async () => {

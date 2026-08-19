@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from '@upstash/qstash';
 import { commitPostMortemPlan } from '../agents/post-mortem-agent';
-import { deleteSession, getSession } from '../services/db';
+import { purgeThinkForgeSession } from '../session-deletion/session-deletion';
 import {
   PostMortemInputSchema,
   PostMortemPreparedPlanSchema,
@@ -21,6 +21,12 @@ import { preparePostMortemPlan } from './post-mortem-planner';
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 const RECOVERY_STALE_MS = 2 * 60_000;
+const DELETION_RESULT: PostMortemResult = {
+  summaryEntryId: null,
+  lessonsExtracted: 0,
+  eventsDeleted: 0,
+  entriesDeleted: 0,
+};
 
 export function isPostMortemWorkerConfigured(): boolean {
   const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
@@ -129,6 +135,10 @@ async function runClaimedPostMortemJob(
     let result: PostMortemResult;
     if (job.result) {
       result = PostMortemResultSchema.parse(job.result);
+    } else if (job.input.deleteSessionOnCompletion) {
+      result = PostMortemResultSchema.parse(DELETION_RESULT);
+      await heartbeat.assert();
+      await postMortemJobStore.saveResult(job.id, leaseToken, result);
     } else {
       const plan = job.checkpoint
         ? PostMortemPreparedPlanSchema.parse(job.checkpoint)
@@ -146,11 +156,13 @@ async function runClaimedPostMortemJob(
     if (!current) throw new PostMortemJobLeaseLostError();
     if (current.input.deleteSessionOnCompletion) {
       await heartbeat.assert();
-      const session = await getSession(job.input.sessionId, job.userId, job.orgId);
-      if (session) {
-        if (session.userId !== job.userId) throw new Error('Only the session owner may finalize deletion.');
-        await deleteSession(job.input.sessionId, job.userId);
-      }
+      await purgeThinkForgeSession({
+        sessionId: current.input.sessionId,
+        userId: current.userId,
+        orgId: current.orgId,
+        deletionJobId: current.id,
+        deletionJobLeaseToken: leaseToken,
+      });
     }
     await heartbeat.assert();
     await postMortemJobStore.complete(job.id, leaseToken);
