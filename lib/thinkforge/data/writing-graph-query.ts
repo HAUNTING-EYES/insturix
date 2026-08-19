@@ -63,6 +63,14 @@ export interface TechniqueCard {
   why?: string;
   example?: string;
   whenToUse?: string;
+  applicability?: {
+    wholePieceDurationSeconds?: {
+      min?: number;
+      max?: number;
+      minInclusive?: boolean;
+      maxInclusive?: boolean;
+    };
+  };
   sourceLines: [number, number];
 }
 
@@ -93,6 +101,11 @@ export interface AntiAiConstraintBundle {
 export interface WritingKnowledgeBlockOptions {
   /** Server-owned feasibility constraints may rule out otherwise well-scored techniques. */
   excludeTechniqueIds?: readonly string[];
+}
+
+export interface TechniqueSelectionOptions {
+  /** Accepted whole-piece runtime. This only enforces applicability declared by the technique. */
+  wholePieceDurationSeconds?: number;
 }
 
 export type WritingTechniqueInputs = Partial<CreativeSignals & DerivedSignals> & {
@@ -162,6 +175,25 @@ interface WritingIndex {
 
 // ─── Loading ────────────────────────────────────────────────────────────────
 
+const DurationApplicabilitySchema = z.object({
+  min: z.number().finite().nonnegative().optional(),
+  max: z.number().finite().positive().optional(),
+  minInclusive: z.boolean().optional(),
+  maxInclusive: z.boolean().optional(),
+}).strict().superRefine((range, ctx) => {
+  if (range.min === undefined && range.max === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration applicability requires min or max' });
+    return;
+  }
+  if (range.min !== undefined && range.max !== undefined) {
+    const minInclusive = range.minInclusive ?? true;
+    const maxInclusive = range.maxInclusive ?? true;
+    if (range.min > range.max || (range.min === range.max && (!minInclusive || !maxInclusive))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration applicability range is empty' });
+    }
+  }
+});
+
 const WritingKnowledgeEnvelopeSchema = z.object({
   version: z.string().min(1),
   stats: z.object({
@@ -184,6 +216,9 @@ const WritingKnowledgeEnvelopeSchema = z.object({
     category: z.string().min(1),
     activation: z.array(z.object({ signal: z.string().min(1) }).passthrough()),
     inhibitors: z.array(z.object({ signal: z.string().min(1) }).passthrough()),
+    applicability: z.object({
+      wholePieceDurationSeconds: DurationApplicabilitySchema.optional(),
+    }).strict().optional(),
   }).passthrough()).min(1),
   constraints: z.array(z.object({
     id: z.string().min(1),
@@ -347,6 +382,17 @@ function inhibitorFires(
 
 // ─── Core Selection Algorithm (Part 4.0) ────────────────────────────────────
 
+function appliesToWholePieceDuration(technique: TechniqueCard, durationSeconds: number): boolean {
+  const range = technique.applicability?.wholePieceDurationSeconds;
+  if (!range) return true;
+
+  const belowMinimum = range.min !== undefined
+    && (range.minInclusive === false ? durationSeconds <= range.min : durationSeconds < range.min);
+  const aboveMaximum = range.max !== undefined
+    && (range.maxInclusive === false ? durationSeconds >= range.max : durationSeconds > range.max);
+  return !belowMinimum && !aboveMaximum;
+}
+
 /**
  * Select and rank writing techniques for a given category based on signal profile.
  *
@@ -363,9 +409,14 @@ export function selectTechniques(
   signals: WritingTechniqueInputs,
   category: string,
   maxResults: number = 3,
+  options?: TechniqueSelectionOptions,
 ): TechniqueResult[] {
   const index = loadWritingGraph();
   const resolvedInputs = resolveWritingTechniqueInputs(signals);
+  const durationSeconds = options?.wholePieceDurationSeconds;
+  if (durationSeconds !== undefined && (!Number.isFinite(durationSeconds) || durationSeconds <= 0)) {
+    throw new Error(`Invalid whole-piece duration for technique selection: ${durationSeconds}`);
+  }
 
   const candidates = index.techniquesByCategory.get(category);
   if (!candidates) return [];
@@ -373,6 +424,9 @@ export function selectTechniques(
   const scored: TechniqueResult[] = [];
 
   for (const technique of candidates) {
+    if (durationSeconds !== undefined && !appliesToWholePieceDuration(technique, durationSeconds)) {
+      continue;
+    }
     let score = 0;
     let inhibited = false;
 

@@ -1605,6 +1605,12 @@
           "threshold": 0.8
         }
       ],
+      "applicability": {
+        "wholePieceDurationSeconds": {
+          "max": 60,
+          "maxInclusive": false
+        }
+      },
       "primary": "Problem (name the pain) → Agitate (make it vivid) → Solve (present the answer). Works best under 60 seconds / 300 words. The agitation must be SPECIFIC — not \"this is bad\" but \"here's exactly how this ruins your Tuesday.\"",
       "antiPatterns": [
         "Agitation without empathy — making the audience feel stupid for having the problem",
@@ -1651,6 +1657,12 @@
         }
       ],
       "inhibitors": [],
+      "applicability": {
+        "wholePieceDurationSeconds": {
+          "min": 60,
+          "max": 180
+        }
+      },
       "primary": "Attention (hook) → Interest (relevance) → Desire (benefits) → Action (CTA). Classic funnel. Works best for 60s-3min content / 300-1000 words. Each stage must EARN the next — attention doesn't guarantee interest.",
       "antiPatterns": [
         "Rushing through Interest to get to Desire — audience hasn't bought in yet",

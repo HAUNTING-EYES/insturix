@@ -129,9 +129,15 @@ function directive(technique: TechniqueResult | undefined): ScriptTechniqueDirec
 
 function selectStructureTechniques(
   signals: ThinkForgeContentSignalProfile['profile']['signals'] | undefined,
+  targetDurationSeconds: number,
 ): ScriptTechniqueDirective[] {
   if (!signals) return [];
-  return selectTechniques(signals, 'structure', 3)
+  return selectTechniques(
+    signals,
+    'structure',
+    3,
+    targetDurationSeconds > 0 ? { wholePieceDurationSeconds: targetDurationSeconds } : undefined,
+  )
     .map(directive)
     .filter((technique): technique is ScriptTechniqueDirective => technique !== undefined);
 }
@@ -164,7 +170,7 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
     : 'standard_voiceover';
   const rateGuidance = NARRATION_RATE_GUIDANCE[narrationMode];
   const narrationDirective = directive(selectedNarration);
-  const recommendedStructures = selectStructureTechniques(signals);
+  const recommendedStructures = selectStructureTechniques(signals, targetDurationSeconds);
 
   return {
     runtime: hasExactRuntime

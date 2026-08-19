@@ -19,6 +19,36 @@ describe('ThinkForge writing graph technique selection', () => {
     ]));
   });
 
+  it('enforces source-declared whole-piece duration boundaries', () => {
+    const pasSignals = {
+      behavioral_utility: 0.8,
+      kairos_pressure: 0.7,
+      pathos_load: 0.6,
+      audience_awareness: 'problem_aware',
+      education_intent: 0.2,
+    } as const;
+    const aidaSignals = {
+      logos_load: 0.9,
+      pathos_load: 0.2,
+      ethos_load: 0.6,
+      audience_awareness: 'solution_aware',
+      pacing_velocity: 0.5,
+    } as const;
+    const selectIds = (
+      signals: typeof pasSignals | typeof aidaSignals,
+      durationSeconds: number,
+    ) => selectTechniques(signals, 'structure', 10, {
+      wholePieceDurationSeconds: durationSeconds,
+    }).map((technique) => technique.id);
+
+    expect(selectIds(pasSignals, 59)).toContain('problem_agitate_solve');
+    expect(selectIds(pasSignals, 60)).not.toContain('problem_agitate_solve');
+    expect(selectIds(aidaSignals, 59)).not.toContain('attention_interest_desire_action');
+    expect(selectIds(aidaSignals, 60)).toContain('attention_interest_desire_action');
+    expect(selectIds(aidaSignals, 180)).toContain('attention_interest_desire_action');
+    expect(selectIds(aidaSignals, 181)).not.toContain('attention_interest_desire_action');
+  });
+
   it('treats a matching negative bipolar range as positive activation evidence', () => {
     const techniques = selectTechniques({
       humor: 0.7,

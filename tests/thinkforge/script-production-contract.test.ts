@@ -318,7 +318,7 @@ describe('ThinkForge script production contract', () => {
     expect(JSON.stringify(plan)).not.toContain('WordsPerScene');
   });
 
-  it('does not let runtime silently select or reject the creative structure', () => {
+  it('uses runtime only to enforce knowledge-declared whole-piece applicability', () => {
     const profile = sevenMinuteProfile({
       behavioral_utility: 0.8,
       kairos_pressure: 0.7,
@@ -336,8 +336,8 @@ describe('ThinkForge script production contract', () => {
     const shortRecommendations = shortPlan.structure.recommendedTechniques.map((technique) => technique.id);
     const longRecommendations = longPlan.structure.recommendedTechniques.map((technique) => technique.id);
 
-    expect(shortRecommendations).toEqual(longRecommendations);
-    expect(longRecommendations).toContain('problem_agitate_solve');
+    expect(shortRecommendations).toContain('problem_agitate_solve');
+    expect(longRecommendations).not.toContain('problem_agitate_solve');
     expect(longPlan.structure).not.toHaveProperty('selectedTechnique');
   });
 
