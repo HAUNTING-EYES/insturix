@@ -35,7 +35,7 @@ describe('ThinkForge durable session deletion client', () => {
     expect(wait).toHaveBeenCalledOnce();
   });
 
-  it('keeps the session visible when learning enters dead letter', async () => {
+  it('keeps the session visible and exposes the server error when deletion enters dead letter', async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(response(202, {
         status: 'queued',
@@ -48,6 +48,18 @@ describe('ThinkForge durable session deletion client', () => {
 
     await expect(deleteThinkForgeSessionWhenDurable('session_1', { fetcher }))
       .rejects.toThrow('Vector storage unavailable.');
+  });
+
+  it('describes deletion failure accurately when a dead letter has no server message', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response(202, {
+        status: 'queued',
+        statusUrl: '/api/services/thinkforge/events/post-mortem/postmortem_abc',
+      }))
+      .mockResolvedValueOnce(response(200, { status: 'dead_letter' }));
+
+    await expect(deleteThinkForgeSessionWhenDurable('session_1', { fetcher }))
+      .rejects.toThrow('Session deletion could not be completed. Retry from the Library.');
   });
 
   it('stops a never-ending spinner at the bounded poll limit', async () => {

@@ -35,7 +35,7 @@ export async function deleteThinkForgeSessionWhenDurable(
     }
     if (statusBody.status === 'completed') return;
     if (statusBody.status === 'dead_letter') {
-      throw new Error(readError(statusBody, 'Session learning could not be preserved. Retry deletion.'));
+      throw new Error(readError(statusBody, 'Session deletion could not be completed. Retry from the Library.'));
     }
     if (attempt < maxPolls - 1) {
       await wait(Math.min(1_000 + attempt * 250, 3_000), options.signal);
