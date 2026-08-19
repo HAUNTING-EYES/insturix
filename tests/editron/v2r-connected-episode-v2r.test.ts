@@ -98,6 +98,8 @@ describe('V2-1F V2R connected episode harness', () => {
     expect((stageTwoInput.operatorCatalog as JsonRecord).operators).toBeTruthy();
     const stageTwoCatalog = stageTwoInput.operatorCatalog as JsonRecord;
     const stageThreeCatalog = seenPackets[2].packet.modelInput.operatorCatalog as JsonRecord;
+    const stageTwoExecution = stageTwoInput.researchExecutionContract as JsonRecord;
+    const stageThreeExecution = seenPackets[2].packet.modelInput.researchExecutionContract as JsonRecord;
     expect(stageTwoCatalog).toMatchObject({
       version: '2.0.0',
       catalogRevision: V2R_OPERATOR_CATALOG_REVISION,
@@ -105,6 +107,29 @@ describe('V2-1F V2R connected episode harness', () => {
     expect(typeof stageTwoCatalog.catalogSha256).toBe('string');
     expect(stageThreeCatalog.catalogRevision).toBe(stageTwoCatalog.catalogRevision);
     expect(stageThreeCatalog.catalogSha256).toBe(stageTwoCatalog.catalogSha256);
+    expect(stageTwoExecution).toMatchObject({
+      taskId: 'DEV-01',
+      authority: 'RESEARCH_BENCHMARK_EXECUTION_TRUTH_NOT_PRODUCTION_CERTIFICATION',
+      taskAdapter: { adapterId: 'DEV01_CAUSAL_NATIVE_PROXY_V2R' },
+    });
+    expect(stageThreeExecution).toMatchObject({
+      taskId: stageTwoExecution.taskId,
+      adapterRegistryVersion: stageTwoExecution.adapterRegistryVersion,
+      adapterRegistrySha256: stageTwoExecution.adapterRegistrySha256,
+      taskAdapter: stageTwoExecution.taskAdapter,
+      semantics: stageTwoExecution.semantics,
+    });
+    expect((stageThreeExecution.operators as Array<{
+      executionDisposition: string;
+    }>).every(({ executionDisposition }) => (
+      executionDisposition === 'EXECUTABLE_VIA_REGISTERED_RESEARCH_PROXY'
+    ))).toBe(true);
+    expect((stageTwoExecution.operators as Array<{
+      operatorId: string;
+      executionDisposition: string;
+    }>).find(({ operatorId }) => operatorId === 'cut_section')?.executionDisposition)
+      .toBe('EXECUTABLE_VIA_REGISTERED_RESEARCH_PROXY');
+    expect(seenPackets[1].packet.instructions.join('\n')).toContain('researchExecutionContract is the normative task-scoped execution truth');
     expect((stageThreeCatalog.operators as Array<{ operatorId: string }>).map(({ operatorId }) => operatorId))
       .toEqual((canonical.editorialIntentV2R.nodes as Array<{ selectedOperatorId: string }>)
         .map(({ selectedOperatorId }) => selectedOperatorId)

@@ -3,6 +3,7 @@ import {
   buildV2RStage6TaskAdapterRegistry,
   findV2RStage6TaskAdapter,
 } from './v2r-stage6-task-adapter-registry';
+import type { HashedStagePacketV2 } from './staged-packet-v2';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -116,6 +117,32 @@ export function buildV2RResearchExecutionContract(input: {
     operators: rows,
   };
   return deepFreezeV1({ ...material, contractSha256: hashCanonicalJsonV1(material) });
+}
+
+export function bindV2RResearchExecutionContractToPacket(input: {
+  source: HashedStagePacketV2;
+}): HashedStagePacketV2 {
+  if (input.source.packet.stage !== 2 && input.source.packet.stage !== 3) {
+    throw new Error(`V2R_RESEARCH_EXECUTION_PACKET_STAGE_UNSUPPORTED:${input.source.packet.stage}`);
+  }
+  const contract = buildV2RResearchExecutionContract({
+    taskId: input.source.packet.taskId,
+    operatorCatalog: input.source.packet.modelInput.operatorCatalog,
+  });
+  const packet = deepFreezeV1({
+    ...input.source.packet,
+    modelInput: {
+      ...input.source.packet.modelInput,
+      researchExecutionContract: contract,
+    },
+  });
+  const transportAttachments = deepFreezeV1([...input.source.transportAttachments]);
+  return deepFreezeV1({
+    packet,
+    packetHash: hashCanonicalJsonV1(packet),
+    transportAttachments,
+    transportHash: hashCanonicalJsonV1(transportAttachments),
+  });
 }
 
 function record(value: unknown): JsonRecord {
