@@ -91,6 +91,40 @@ describe('V2-1F V2R connected episode harness', () => {
     expect(dossier.length).toBeGreaterThan(0);
     expect(dossier.some(({ cap2a }) => cap2a !== null)).toBe(true);
     expect(dossier.find(({ operatorId }) => operatorId === 'resolve_transcript_edit')?.cap2a).toBeTruthy();
+    const ownership = stageTwoInput.plannerInputOwnership as JsonRecord;
+    const ownershipRows = ownership.operators as Array<{
+      operatorId: string;
+      modelOwnedInputFields: Array<{ field: string; required: boolean; jsonSchema: JsonRecord | null }>;
+      compilerBoundInputFields: Array<{ field: string; bindingSource: string }>;
+      unboundInputFields: Array<{ field: string; required: boolean }>;
+    }>;
+    const ownershipFor = (operatorId: string) => ownershipRows.find((row) => row.operatorId === operatorId);
+    expect(ownership).toMatchObject({
+      ownershipVersion: 'EDITRON_OE_PLANNER_INPUT_OWNERSHIP_V2R_1',
+      policyVersion: 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_3',
+      taskId: 'DEV-01',
+      operatorCatalogVersion: '2.0.0',
+      nodeInputsRule: 'NODE_INPUTS_CONTAIN_ONLY_MODEL_OWNED_FIELDS',
+      unboundRequiredFieldsBlockSelection: true,
+    });
+    expect(Object.isFrozen(ownership)).toBe(true);
+    expect(ownershipFor('find_transcript_moment')?.modelOwnedInputFields).toEqual([{
+      field: 'query',
+      required: true,
+      jsonSchema: { type: 'string', minLength: 1 },
+    }]);
+    expect(ownershipFor('read_project_file')?.modelOwnedInputFields).toEqual([]);
+    expect(ownershipFor('read_project_file')?.compilerBoundInputFields.map(({ field }) => field))
+      .toEqual(['projectId', 'expectedProjectRevision', 'selector']);
+    expect(ownershipFor('set_keyframes')?.modelOwnedInputFields).toEqual([]);
+    expect(ownershipFor('set_keyframes')?.compilerBoundInputFields.map(({ field }) => field))
+      .toEqual(['projectId', 'expectedProjectRevision', 'overlayId', 'keyframes', 'evidenceIds']);
+    expect(ownershipFor('add_overlay')?.unboundInputFields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: 'assetId', required: true }),
+    ]));
+    expect(JSON.stringify(ownership)).not.toContain('ov-host-video');
+    expect(JSON.stringify(ownership)).not.toContain('dev01-dialogue-truth-v2');
+    expect(seenPackets[1].packet.instructions.join('\n')).toContain('plannerInputOwnership is the normative field-ownership contract');
     expect(receipt.lowering).toMatchObject({
       performed: true,
       zeroAdd: true,

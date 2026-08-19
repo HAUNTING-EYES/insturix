@@ -11,6 +11,7 @@ import { validateJsonSchemaV2 } from './stage4-compilation-evaluator-v2';
 type JsonRecord = Record<string, unknown>;
 
 export const GENERIC_LOWERING_POLICY_VERSION_V2R = 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_3' as const;
+export const PLANNER_INPUT_OWNERSHIP_VERSION_V2R = 'EDITRON_OE_PLANNER_INPUT_OWNERSHIP_V2R_1' as const;
 
 export type FieldBindingSourceV2R =
   | 'REVISION_PROJECT_ID'
@@ -46,6 +47,38 @@ export interface GenericLoweringPolicyV2R {
   taskId: string;
   fieldBindings: Record<string, FieldBindingRuleV2R>;
   operatorFieldBindings?: Record<string, Record<string, FieldBindingRuleV2R>>;
+}
+
+export interface PlannerInputFieldOwnershipV2R {
+  field: string;
+  required: boolean;
+  jsonSchema: Readonly<JsonRecord> | null;
+}
+
+export interface PlannerCompilerBoundFieldV2R extends PlannerInputFieldOwnershipV2R {
+  bindingSource: Exclude<FieldBindingSourceV2R, 'MODEL_INPUT'>;
+}
+
+export interface PlannerUnboundFieldV2R extends PlannerInputFieldOwnershipV2R {
+  reason: 'NO_DECLARED_BINDING_RULE';
+}
+
+export interface PlannerOperatorInputOwnershipV2R {
+  operatorId: string;
+  modelOwnedInputFields: readonly Readonly<PlannerInputFieldOwnershipV2R>[];
+  compilerBoundInputFields: readonly Readonly<PlannerCompilerBoundFieldV2R>[];
+  unboundInputFields: readonly Readonly<PlannerUnboundFieldV2R>[];
+}
+
+export interface PlannerInputOwnershipV2R {
+  ownershipVersion: typeof PLANNER_INPUT_OWNERSHIP_VERSION_V2R;
+  policyVersion: typeof GENERIC_LOWERING_POLICY_VERSION_V2R;
+  policySha256: string;
+  taskId: string;
+  operatorCatalogVersion: string;
+  nodeInputsRule: 'NODE_INPUTS_CONTAIN_ONLY_MODEL_OWNED_FIELDS';
+  unboundRequiredFieldsBlockSelection: true;
+  operators: readonly Readonly<PlannerOperatorInputOwnershipV2R>[];
 }
 
 export interface GenericLowererInputV2R {
@@ -84,6 +117,62 @@ const RETRY_BY_KIND: Record<string, string> = {
   MUTATION: 'NEVER_RETRY',
   GENERATED_COMPOSITION: 'NEVER_RETRY',
 };
+
+export function buildPlannerInputOwnershipV2R(
+  policy: GenericLoweringPolicyV2R,
+): Readonly<PlannerInputOwnershipV2R> {
+  if (policy.policyVersion !== GENERIC_LOWERING_POLICY_VERSION_V2R) {
+    throw new Error('PLANNER_INPUT_OWNERSHIP_POLICY_VERSION_DRIFT');
+  }
+  if (!policy.taskId) throw new Error('PLANNER_INPUT_OWNERSHIP_TASK_MISSING');
+
+  const ownershipRows = records(catalog.operators).map((operator) => {
+    const operatorId = text(operator.operatorId);
+    const inputSpec = record(operator.input);
+    const requiredFields = new Set(strings(inputSpec.required));
+    const modelOwnedInputFields: PlannerInputFieldOwnershipV2R[] = [];
+    const compilerBoundInputFields: PlannerCompilerBoundFieldV2R[] = [];
+    const unboundInputFields: PlannerUnboundFieldV2R[] = [];
+
+    for (const field of strings(inputSpec.fields)) {
+      const schema = fieldSchemas[field];
+      const fieldOwnership: PlannerInputFieldOwnershipV2R = {
+        field,
+        required: requiredFields.has(field),
+        jsonSchema: schema && typeof schema === 'object' && !Array.isArray(schema)
+          ? schema as JsonRecord
+          : null,
+      };
+      const rule = policy.operatorFieldBindings?.[operatorId]?.[field]
+        ?? policy.fieldBindings[field];
+      if (!rule) {
+        unboundInputFields.push({ ...fieldOwnership, reason: 'NO_DECLARED_BINDING_RULE' });
+      } else if (rule.source === 'MODEL_INPUT') {
+        modelOwnedInputFields.push(fieldOwnership);
+      } else {
+        compilerBoundInputFields.push({ ...fieldOwnership, bindingSource: rule.source });
+      }
+    }
+
+    return {
+      operatorId,
+      modelOwnedInputFields,
+      compilerBoundInputFields,
+      unboundInputFields,
+    };
+  });
+
+  return deepFreezeV1({
+    ownershipVersion: PLANNER_INPUT_OWNERSHIP_VERSION_V2R,
+    policyVersion: GENERIC_LOWERING_POLICY_VERSION_V2R,
+    policySha256: hashCanonicalJsonV1(policy),
+    taskId: policy.taskId,
+    operatorCatalogVersion: text(catalog.version),
+    nodeInputsRule: 'NODE_INPUTS_CONTAIN_ONLY_MODEL_OWNED_FIELDS',
+    unboundRequiredFieldsBlockSelection: true,
+    operators: ownershipRows,
+  });
+}
 
 export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Readonly<GenericLoweringResultV2R> {
   const diagnostics: string[] = [];

@@ -4,6 +4,7 @@ import {
   type GenericLoweringPolicyV2R,
   type GenericLoweringResultV2R,
 } from './generic-lowerer-v2r';
+import { buildPlannerOwnershipStageTwoPacketV2R } from './planner-ownership-stage2-packet-v2r';
 import {
   assertV2RPreregistrationComplete,
   type V2RPreregistrationManifest,
@@ -95,12 +96,11 @@ export async function runV2RConnectedEpisodeV2(input: {
   rows.push(stageOne);
   if (!accepted(stageOne)) return receipt(input, manifest, rows, 'BLOCKED_BEFORE_STAGE2', notLowered());
 
-  const stageTwoPacket = buildNextProviderStagePacketV2({
+  const stageTwoPacket = buildPlannerOwnershipStageTwoPacketV2R({
     previousPacket: input.task.stageOnePacket,
-    stage: 2,
     executionFormArm: input.task.executionFormArm,
     priorArtifact: requireArtifact(stageOne),
-    nodeContractVersion: 'V2R',
+    loweringPolicy: input.task.loweringPolicy,
   });
   const stageTwo = await runStage({
     route: input.route,
