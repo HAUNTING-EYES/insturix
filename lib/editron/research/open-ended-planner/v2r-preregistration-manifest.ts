@@ -29,6 +29,10 @@ import {
 import { PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R } from './planner-ownership-stage2-packet-v2r';
 import { STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R } from './stage2-selected-operator-contract-v2r';
 import {
+  providerStageInstructionIdentityV2,
+  PROVIDER_STAGE_INSTRUCTION_CONTRACT_VERSION_V2,
+} from './staged-packet-v2';
+import {
   buildV2RSemanticOperatorPolicyV2R,
   V2R_SEMANTIC_OPERATOR_POLICY_VERSION,
 } from './v2r-semantic-operator-policy';
@@ -38,7 +42,7 @@ import {
   V2R_STAGE6_TASK_ADAPTER_REGISTRY_VERSION,
 } from './v2r-stage6-task-adapter-registry';
 
-export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V10' as const;
+export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V11' as const;
 
 // V2-1R capstone: the single pre-registration manifest.
 //
@@ -59,6 +63,10 @@ export interface V2RPreregistrationManifest {
     stage2PacketVersion: typeof PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R;
     semantics: 'SELECTED_OPERATOR_VS_ALTERNATIVES';
     retiredSemantics: 'CANDIDATE_CAPABILITY_IDS_AMBIGUOUS';
+  };
+  stageInstructions: {
+    version: typeof PROVIDER_STAGE_INSTRUCTION_CONTRACT_VERSION_V2;
+    instructionsSha256: string;
   };
   lowerer: {
     implementationVersion: typeof GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R;
@@ -123,6 +131,7 @@ export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationMa
       semantics: 'SELECTED_OPERATOR_VS_ALTERNATIVES' as const,
       retiredSemantics: 'CANDIDATE_CAPABILITY_IDS_AMBIGUOUS' as const,
     },
+    stageInstructions: providerStageInstructionIdentityV2(),
     lowerer: {
       implementationVersion: GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R,
       policyVersion: GENERIC_LOWERING_POLICY_VERSION_V2R,
@@ -191,6 +200,9 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   if (candidate.nodeContract?.stage2PacketVersion !== PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_STAGE2_PACKET_DRIFT');
   }
+  if (candidate.stageInstructions?.version !== PROVIDER_STAGE_INSTRUCTION_CONTRACT_VERSION_V2) {
+    throw new Error('V2R_PREREGISTRATION_STAGE_INSTRUCTION_VERSION_DRIFT');
+  }
   if (candidate.lowerer?.policyVersion !== GENERIC_LOWERING_POLICY_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_LOWERER_DRIFT');
   }
@@ -227,6 +239,9 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   }
   if (!same(candidate.plannerDossier, expected.plannerDossier)) {
     throw new Error('V2R_PREREGISTRATION_PLANNER_DOSSIER_DRIFT');
+  }
+  if (!same(candidate.stageInstructions, expected.stageInstructions)) {
+    throw new Error('V2R_PREREGISTRATION_STAGE_INSTRUCTION_HASH_DRIFT');
   }
   if (!same(candidate.causalExecution, expected.causalExecution)) {
     throw new Error('V2R_PREREGISTRATION_EXECUTION_CONTRACT_DRIFT');

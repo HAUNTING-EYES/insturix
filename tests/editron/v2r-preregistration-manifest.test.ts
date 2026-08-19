@@ -13,6 +13,7 @@ import { cap2aPlannerDossierIdentityV2R } from '@/lib/editron/research/open-ende
 import { buildV2RSemanticOperatorPolicyV2R } from '@/lib/editron/research/open-ended-planner/v2r-semantic-operator-policy';
 import { v2rProviderStageBudgetScheduleIdentity } from '@/lib/editron/research/open-ended-planner/per-attempt-budget-v2r';
 import { PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R } from '@/lib/editron/research/open-ended-planner/planner-ownership-stage2-packet-v2r';
+import { providerStageInstructionIdentityV2 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
 import { V2R_RESEARCH_EXECUTION_CONTRACT_VERSION } from '@/lib/editron/research/open-ended-planner/v2r-research-execution-contract';
 import { buildV2RStage6TaskAdapterRegistry } from '@/lib/editron/research/open-ended-planner/v2r-stage6-task-adapter-registry';
 import {
@@ -29,6 +30,7 @@ describe('V2-1R capstone pre-registration manifest', () => {
     expect(manifest.nodeContract.semantics).toBe('SELECTED_OPERATOR_VS_ALTERNATIVES');
     expect(manifest.nodeContract.stage2PacketVersion).toBe(PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R);
     expect(manifest.nodeContract.retiredSemantics).toBe('CANDIDATE_CAPABILITY_IDS_AMBIGUOUS');
+    expect(manifest.stageInstructions).toEqual(providerStageInstructionIdentityV2());
     expect(manifest.lowerer.implementationVersion).toBe(GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R);
     expect(manifest.lowerer.invariant).toBe('ZERO_CATALOG_OPERATOR_ADD_ZERO_SELECTED_OPERATOR_DROP');
     expect(manifest.perAttemptBudget.rule).toBe('EVERY_PERMITTED_ATTEMPT_RECEIVES ITS_OWN_DECLARED_BUDGET');
@@ -180,5 +182,17 @@ describe('V2-1R capstone pre-registration manifest', () => {
     Object.freeze(packetForgery);
     expect(() => assertV2RPreregistrationComplete(packetForgery))
       .toThrow('V2R_PREREGISTRATION_STAGE2_PACKET_DRIFT');
+
+    const instructionForgery = structuredClone(manifest) as unknown as {
+      stageInstructions: { instructionsSha256: string };
+      manifestSha256: string;
+      [key: string]: unknown;
+    };
+    instructionForgery.stageInstructions.instructionsSha256 = 'a'.repeat(64);
+    const { manifestSha256: _instructionHash, ...instructionMaterial } = instructionForgery;
+    instructionForgery.manifestSha256 = hashCanonicalJsonV1(instructionMaterial);
+    Object.freeze(instructionForgery);
+    expect(() => assertV2RPreregistrationComplete(instructionForgery))
+      .toThrow('V2R_PREREGISTRATION_STAGE_INSTRUCTION_HASH_DRIFT');
   });
 });

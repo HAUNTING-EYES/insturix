@@ -12,8 +12,8 @@ function node(intentNodeId: string, selectedOperatorId: string, requiresNodeIds:
 const validDev01Nodes = [
   node('transcript-resolve', 'resolve_transcript_edit'),
   node('cut', 'cut_section', ['transcript-resolve']),
-  node('visual-find', 'find_visual_moment', ['cut']),
-  node('keyframe-resolve', 'resolve_keyframe_edit', ['visual-find']),
+  node('visual-find', 'find_visual_moment'),
+  node('keyframe-resolve', 'resolve_keyframe_edit', ['visual-find', 'cut']),
   node('push', 'set_keyframes', ['keyframe-resolve']),
   node('duck', 'apply_audio_ducking', ['cut']),
 ];
@@ -101,5 +101,44 @@ describe('V2R semantic operator policy', () => {
     });
     expect(fail.disposition).toBe('FAIL');
     expect(fail.diagnostics).toContain('DEPENDENCY_MISSING:BEAT_ALIGN:FINAL_SHAKE');
+  });
+
+  it('rejects cyclic, dangling, and internally contradictory executable plans', () => {
+    const receipt = evaluateV2RSemanticOperatorsV2R({
+      taskId: 'DEV-03', conditionId: 'BASELINE',
+      editorialIntent: { nodes: [
+        node('find', 'find_audio_moment', ['shake']),
+        node('align', 'sync_cuts_to_beats', ['find', 'missing']),
+        node('shake', 'apply_camera_shake', ['align']),
+      ] },
+      evidenceBoundIntent: {
+        stageDisposition: 'READY_FOR_COMPILATION',
+        unresolvedRequirements: [{
+          requirementId: 'still-blocked', kind: 'EVIDENCE', disposition: 'NEEDS_REVIEW',
+          failureDisposition: 'STOP_BEFORE_COMPILATION_OR_RENDER',
+        }],
+      },
+    });
+    expect(receipt.disposition).toBe('FAIL');
+    expect(receipt.diagnostics).toContain('DEPENDENCY_UNKNOWN:align:missing');
+    expect(receipt.diagnostics).toContain('DEPENDENCY_GRAPH_CYCLE');
+    expect(receipt.diagnostics).toContain('READY_WITH_BLOCKING_REQUIREMENTS:still-blocked');
+  });
+
+  it('keeps evidence uncertainty distinct from missing capability', () => {
+    const receipt = evaluateV2RSemanticOperatorsV2R({
+      taskId: 'DEV-03', conditionId: 'BEAT_EVIDENCE_WITHHELD',
+      editorialIntent: { nodes: [node('find', 'find_audio_moment')] },
+      evidenceBoundIntent: {
+        stageDisposition: 'UNVERIFIABLE',
+        unresolvedRequirements: [{
+          requirementId: 'missing-beats', kind: 'EVIDENCE', disposition: 'CAPABILITY_GAP',
+          failureDisposition: 'STOP_BEFORE_COMPILATION_OR_RENDER',
+        }],
+      },
+    });
+    expect(receipt.disposition).toBe('FAIL');
+    expect(receipt.diagnostics)
+      .toContain('REQUIREMENT_DISPOSITION_KIND_MISMATCH:EVIDENCE:CAPABILITY_GAP');
   });
 });

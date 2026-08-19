@@ -3,7 +3,7 @@ import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 type JsonRecord = Record<string, unknown>;
 
 export const V2R_SEMANTIC_OPERATOR_POLICY_VERSION =
-  'EDITRON_OE_V2R_SEMANTIC_OPERATOR_POLICY_V2' as const;
+  'EDITRON_OE_V2R_SEMANTIC_OPERATOR_POLICY_V3' as const;
 
 type StageDispositionV2R = 'READY_FOR_COMPILATION' | 'CAPABILITY_GAP' | 'UNVERIFIABLE';
 
@@ -65,7 +65,7 @@ const DEV01_GROUPS: readonly EffectGroupV2R[] = [
 const POLICIES: readonly SemanticOperatorCasePolicyV2R[] = [
   casePolicy('DEV-01:BASELINE', 'READY_FOR_COMPILATION', DEV01_OPERATORS, DEV01_GROUPS, [
     dependency('TRANSCRIPT_RESOLVE', 'SILENCE_REMOVE'),
-    dependency('SILENCE_REMOVE', 'VISUAL_FIND'),
+    dependency('SILENCE_REMOVE', 'KEYFRAME_RESOLVE'),
     dependency('VISUAL_FIND', 'KEYFRAME_RESOLVE'),
     dependency('KEYFRAME_RESOLVE', 'PUSH_IN'),
     dependency('SILENCE_REMOVE', 'DIALOGUE_DUCK'),
@@ -136,10 +136,12 @@ export function evaluateV2RSemanticOperatorsV2R(input: {
     diagnostics.push(`STAGE_DISPOSITION:${stageDisposition || 'MISSING'}:${casePolicy.expectedStageDisposition}`);
   }
   validateNodeIdentity(nodes, diagnostics);
+  validateDependencyGraph(nodes, diagnostics);
   validateAllowedOperators(selectedOperatorIds, casePolicy, diagnostics);
   validateRequiredEffects(nodes, casePolicy, diagnostics);
   validateDependencies(nodes, casePolicy, diagnostics);
   validateExpectedGap(evidenceBound, casePolicy, diagnostics);
+  validateStageReadiness(evidenceBound, diagnostics);
 
   const receiptMaterial = {
     receiptVersion: 'EDITRON_OE_V2R_SEMANTIC_OPERATOR_EVALUATION_V1' as const,
@@ -161,6 +163,37 @@ function validateNodeIdentity(nodes: JsonRecord[], diagnostics: string[]): void 
   if (!ids.length) diagnostics.push('INTENT_NODES_EMPTY');
   if (ids.some((id) => !id)) diagnostics.push('INTENT_NODE_ID_MISSING');
   if (new Set(ids).size !== ids.length) diagnostics.push('INTENT_NODE_ID_DUPLICATE');
+}
+
+function validateDependencyGraph(nodes: JsonRecord[], diagnostics: string[]): void {
+  const ids = nodes.map((node) => text(node.intentNodeId)).filter(Boolean);
+  const known = new Set(ids);
+  const inDegree = new Map(ids.map((id) => [id, 0]));
+  const dependents = new Map(ids.map((id) => [id, [] as string[]]));
+  for (const node of nodes) {
+    const nodeId = text(node.intentNodeId);
+    for (const requiredId of strings(node.requiresNodeIds)) {
+      if (!known.has(requiredId)) {
+        diagnostics.push(`DEPENDENCY_UNKNOWN:${nodeId || 'MISSING'}:${requiredId}`);
+        continue;
+      }
+      if (!known.has(nodeId)) continue;
+      inDegree.set(nodeId, (inDegree.get(nodeId) ?? 0) + 1);
+      dependents.get(requiredId)?.push(nodeId);
+    }
+  }
+  const queue = ids.filter((id) => (inDegree.get(id) ?? 0) === 0);
+  let visited = 0;
+  while (queue.length) {
+    const id = queue.shift() as string;
+    visited += 1;
+    for (const dependent of dependents.get(id) ?? []) {
+      const next = (inDegree.get(dependent) ?? 0) - 1;
+      inDegree.set(dependent, next);
+      if (next === 0) queue.push(dependent);
+    }
+  }
+  if (ids.length && visited !== ids.length) diagnostics.push('DEPENDENCY_GRAPH_CYCLE');
 }
 
 function validateAllowedOperators(
@@ -242,6 +275,28 @@ function validateExpectedGap(
     && requirement.disposition === expectedDisposition
   ));
   if (!found) diagnostics.push(`EXPECTED_GAP_MISSING:${policy.requiredGapKind}:${expectedDisposition}`);
+}
+
+function validateStageReadiness(evidenceBound: JsonRecord, diagnostics: string[]): void {
+  const disposition = text(evidenceBound.stageDisposition);
+  const unresolved = records(evidenceBound.unresolvedRequirements);
+  const blockingIds = unresolved
+    .filter((requirement) => requirement.failureDisposition === 'STOP_BEFORE_COMPILATION_OR_RENDER')
+    .map((requirement, index) => text(requirement.requirementId) || `requirement[${index}]`);
+  if (disposition === 'READY_FOR_COMPILATION' && blockingIds.length) {
+    diagnostics.push(`READY_WITH_BLOCKING_REQUIREMENTS:${blockingIds.join(',')}`);
+  }
+  for (const requirement of unresolved) {
+    const kind = text(requirement.kind);
+    const requirementDisposition = text(requirement.disposition);
+    if (requirementDisposition === 'CAPABILITY_GAP' && kind !== 'CAPABILITY') {
+      diagnostics.push(`REQUIREMENT_DISPOSITION_KIND_MISMATCH:${kind || 'MISSING'}:CAPABILITY_GAP`);
+    }
+    if (requirementDisposition === 'UNVERIFIABLE'
+      && kind !== 'EVIDENCE' && kind !== 'AMBIGUITY') {
+      diagnostics.push(`REQUIREMENT_DISPOSITION_KIND_MISMATCH:${kind || 'MISSING'}:UNVERIFIABLE`);
+    }
+  }
 }
 
 function casePolicy(
