@@ -32,8 +32,13 @@ import {
   buildV2RSemanticOperatorPolicyV2R,
   V2R_SEMANTIC_OPERATOR_POLICY_VERSION,
 } from './v2r-semantic-operator-policy';
+import { V2R_RESEARCH_EXECUTION_CONTRACT_VERSION } from './v2r-research-execution-contract';
+import {
+  buildV2RStage6TaskAdapterRegistry,
+  V2R_STAGE6_TASK_ADAPTER_REGISTRY_VERSION,
+} from './v2r-stage6-task-adapter-registry';
 
-export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V9' as const;
+export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V10' as const;
 
 // V2-1R capstone: the single pre-registration manifest.
 //
@@ -70,9 +75,16 @@ export interface V2RPreregistrationManifest {
   plannerDossier: Readonly<Cap2aPlannerDossierIdentityV2R>;
   causalExecution: {
     receiptExecutorIdentity: 'CAUSAL_COMPILED_GRAPH_INTERPRETER_V2R';
+    researchExecutionContractVersion: typeof V2R_RESEARCH_EXECUTION_CONTRACT_VERSION;
+    taskAdapterRegistry: {
+      version: typeof V2R_STAGE6_TASK_ADAPTER_REGISTRY_VERSION;
+      registrySha256: string;
+    };
     taskContracts: readonly Readonly<{
       taskId: 'DEV-01' | 'DEV-03';
+      adapterId: string;
       executorOwner: string;
+      supportedOperatorIds: readonly string[];
       proofPolicyVersion: string;
       authority: 'RESEARCH_PROXY_ONLY_NO_PROJECT_MUTATION';
     }>[];
@@ -101,6 +113,7 @@ export interface V2RPreregistrationManifest {
 export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationManifest> {
   const evaluatorFreeze = buildEvaluatorPolicyFreezeV2R();
   const semanticOperatorFreeze = buildV2RSemanticOperatorPolicyV2R();
+  const taskAdapterRegistry = buildV2RStage6TaskAdapterRegistry();
   const material = {
     experimentVersion: V2R_EXPERIMENT_VERSION,
     authority: 'RESEARCH_ONLY_V2R_PREREGISTRATION_NO_PROJECT_MUTATION',
@@ -125,20 +138,21 @@ export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationMa
     plannerDossier: cap2aPlannerDossierIdentityV2R(),
     causalExecution: {
       receiptExecutorIdentity: 'CAUSAL_COMPILED_GRAPH_INTERPRETER_V2R' as const,
-      taskContracts: [
-        {
-          taskId: 'DEV-01' as const,
-          executorOwner: 'dev01-stage6-generic-lowered-executor-v2r',
-          proofPolicyVersion: DEV01_STAGE6_RENDER_PROOF_POLICY_V2,
-          authority: 'RESEARCH_PROXY_ONLY_NO_PROJECT_MUTATION' as const,
-        },
-        {
-          taskId: 'DEV-03' as const,
-          executorOwner: 'dev03-stage6-generic-lowered-executor-v2r',
-          proofPolicyVersion: DEV03_STAGE6_RENDER_PROOF_POLICY_V2,
-          authority: 'RESEARCH_PROXY_ONLY_NO_PROJECT_MUTATION' as const,
-        },
-      ],
+      researchExecutionContractVersion: V2R_RESEARCH_EXECUTION_CONTRACT_VERSION,
+      taskAdapterRegistry: {
+        version: taskAdapterRegistry.version,
+        registrySha256: taskAdapterRegistry.registrySha256,
+      },
+      taskContracts: taskAdapterRegistry.adapters.map((adapter) => ({
+        taskId: adapter.taskId,
+        adapterId: adapter.adapterId,
+        executorOwner: adapter.ownerRef,
+        supportedOperatorIds: [...adapter.supportedOperatorIds],
+        proofPolicyVersion: adapter.taskId === 'DEV-01'
+          ? DEV01_STAGE6_RENDER_PROOF_POLICY_V2
+          : DEV03_STAGE6_RENDER_PROOF_POLICY_V2,
+        authority: adapter.executionAuthority,
+      })),
     },
     routeRoster: {
       version: V2R_BENCHMARK_ROUTE_ROSTER_VERSION,
@@ -182,6 +196,14 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   }
   if (candidate.lowerer?.implementationVersion !== GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_LOWERER_IMPLEMENTATION_DRIFT');
+  }
+  if (candidate.causalExecution?.researchExecutionContractVersion
+    !== V2R_RESEARCH_EXECUTION_CONTRACT_VERSION) {
+    throw new Error('V2R_PREREGISTRATION_RESEARCH_EXECUTION_CONTRACT_DRIFT');
+  }
+  if (candidate.causalExecution?.taskAdapterRegistry?.version
+    !== V2R_STAGE6_TASK_ADAPTER_REGISTRY_VERSION) {
+    throw new Error('V2R_PREREGISTRATION_TASK_ADAPTER_REGISTRY_VERSION_DRIFT');
   }
   if (candidate.perAttemptBudget?.policyVersion !== PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_BUDGET_DRIFT');

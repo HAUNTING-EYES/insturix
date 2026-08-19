@@ -13,6 +13,8 @@ import { cap2aPlannerDossierIdentityV2R } from '@/lib/editron/research/open-ende
 import { buildV2RSemanticOperatorPolicyV2R } from '@/lib/editron/research/open-ended-planner/v2r-semantic-operator-policy';
 import { v2rProviderStageBudgetScheduleIdentity } from '@/lib/editron/research/open-ended-planner/per-attempt-budget-v2r';
 import { PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R } from '@/lib/editron/research/open-ended-planner/planner-ownership-stage2-packet-v2r';
+import { V2R_RESEARCH_EXECUTION_CONTRACT_VERSION } from '@/lib/editron/research/open-ended-planner/v2r-research-execution-contract';
+import { buildV2RStage6TaskAdapterRegistry } from '@/lib/editron/research/open-ended-planner/v2r-stage6-task-adapter-registry';
 import {
   assertV2RPreregistrationComplete,
   buildV2RPreregistrationManifest,
@@ -31,6 +33,12 @@ describe('V2-1R capstone pre-registration manifest', () => {
     expect(manifest.lowerer.invariant).toBe('ZERO_CATALOG_OPERATOR_ADD_ZERO_SELECTED_OPERATOR_DROP');
     expect(manifest.perAttemptBudget.rule).toBe('EVERY_PERMITTED_ATTEMPT_RECEIVES ITS_OWN_DECLARED_BUDGET');
     expect(manifest.perAttemptBudget.providerStageSchedule).toEqual(v2rProviderStageBudgetScheduleIdentity());
+    expect(manifest.causalExecution.researchExecutionContractVersion)
+      .toBe(V2R_RESEARCH_EXECUTION_CONTRACT_VERSION);
+    expect(manifest.causalExecution.taskAdapterRegistry).toEqual({
+      version: buildV2RStage6TaskAdapterRegistry().version,
+      registrySha256: buildV2RStage6TaskAdapterRegistry().registrySha256,
+    });
     expect(manifest.manifestSha256).toHaveLength(64);
   });
 
@@ -48,6 +56,8 @@ describe('V2-1R capstone pre-registration manifest', () => {
     expect(manifest.routeRoster.routes.map(({ routeId }) => routeId))
       .toEqual(['OPENAI_LUNA', 'OPENAI_TERRA', 'QWEN_3_8_MAX']);
     expect(manifest.causalExecution.taskContracts.map(({ taskId }) => taskId)).toEqual(['DEV-01', 'DEV-03']);
+    expect(manifest.causalExecution.taskContracts.map(({ supportedOperatorIds }) => supportedOperatorIds))
+      .toEqual(buildV2RStage6TaskAdapterRegistry().adapters.map(({ supportedOperatorIds }) => supportedOperatorIds));
     expect(manifest.evaluatorFreeze.policySha256).toBe(buildEvaluatorPolicyFreezeV2R().policySha256);
     expect(manifest.semanticOperatorFreeze).toEqual({
       policyVersion: buildV2RSemanticOperatorPolicyV2R().version,
@@ -83,6 +93,30 @@ describe('V2-1R capstone pre-registration manifest', () => {
     Object.freeze(lowererImplementationForgery);
     expect(() => assertV2RPreregistrationComplete(lowererImplementationForgery))
       .toThrow('V2R_PREREGISTRATION_LOWERER_IMPLEMENTATION_DRIFT');
+
+    const executionContractForgery = structuredClone(manifest) as unknown as {
+      causalExecution: { researchExecutionContractVersion: string };
+      manifestSha256: string;
+      [key: string]: unknown;
+    };
+    executionContractForgery.causalExecution.researchExecutionContractVersion = 'WRONG';
+    const { manifestSha256: _executionHash, ...executionMaterial } = executionContractForgery;
+    executionContractForgery.manifestSha256 = hashCanonicalJsonV1(executionMaterial);
+    Object.freeze(executionContractForgery);
+    expect(() => assertV2RPreregistrationComplete(executionContractForgery))
+      .toThrow('V2R_PREREGISTRATION_RESEARCH_EXECUTION_CONTRACT_DRIFT');
+
+    const adapterRegistryForgery = structuredClone(manifest) as unknown as {
+      causalExecution: { taskAdapterRegistry: { version: string } };
+      manifestSha256: string;
+      [key: string]: unknown;
+    };
+    adapterRegistryForgery.causalExecution.taskAdapterRegistry.version = 'WRONG';
+    const { manifestSha256: _adapterHash, ...adapterMaterial } = adapterRegistryForgery;
+    adapterRegistryForgery.manifestSha256 = hashCanonicalJsonV1(adapterMaterial);
+    Object.freeze(adapterRegistryForgery);
+    expect(() => assertV2RPreregistrationComplete(adapterRegistryForgery))
+      .toThrow('V2R_PREREGISTRATION_TASK_ADAPTER_REGISTRY_VERSION_DRIFT');
 
     const mutable = structuredClone(manifest);
     expect(() => assertV2RPreregistrationComplete(mutable)).toThrow('V2R_PREREGISTRATION_NOT_IMMUTABLE');
