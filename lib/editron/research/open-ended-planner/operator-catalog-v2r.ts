@@ -9,7 +9,7 @@ type JsonRecord = Record<string, unknown>;
 // The historical V2 JSON is immutable benchmark evidence. V2R derives its own
 // explicitly identified contract from those bytes so later causal amendments do
 // not rewrite, or silently masquerade as, the issued V2 catalog.
-export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_3' as const;
+export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_4' as const;
 
 const historicalCatalog = cloneJsonV2R(historicalOperatorCatalogJson) as JsonRecord;
 const amendedCatalog = amendCausalOwnerContractsV2R(historicalCatalog);
@@ -122,7 +122,14 @@ function amendCausalOwnerContractsV2R(source: JsonRecord): JsonRecord {
       },
     },
     operatorFieldSchemas: {
-      apply_camera_shake: { overlayId: overlayIdSchemaV2R() },
+      resolve_transcript_edit: { intent: transcriptEditIntentSchemaV2R() },
+      resolve_visual_edit: { intent: visualEditIntentSchemaV2R() },
+      resolve_keyframe_edit: { intent: keyframeEditIntentSchemaV2R() },
+      resolve_audio_edit: { intent: audioEditIntentSchemaV2R() },
+      apply_camera_shake: {
+        overlayId: overlayIdSchemaV2R(),
+        effectPlan: cameraShakeEffectPlanSchemaV2R(),
+      },
       sync_cuts_to_beats: {
         overlayIds: {
           type: 'array', items: overlayIdSchemaV2R(), minItems: 1, uniqueItems: true,
@@ -135,6 +142,52 @@ function amendCausalOwnerContractsV2R(source: JsonRecord): JsonRecord {
 
 function operatorIoV2R(fields: readonly string[], required: readonly string[]): JsonRecord {
   return { fields: [...fields], required: [...required] };
+}
+
+function transcriptEditIntentSchemaV2R(): JsonRecord {
+  return closedObject(['action'], {
+    action: { enum: ['cut_phrase', 'cut_after_phrase', 'keyframe_anchor'] },
+    minGapFrames: { type: 'integer', minimum: 1, maximum: 120 },
+    maxCutFrames: { type: 'integer', minimum: 1, maximum: 300 },
+  });
+}
+
+function visualEditIntentSchemaV2R(): JsonRecord {
+  return closedObject(['query', 'action'], {
+    query: { type: 'string', minLength: 1, maxLength: 1000 },
+    action: { enum: ['highlight', 'inspect', 'cut_range', 'keyframe_anchor', 'speed_ramp'] },
+    durationFrames: { type: 'integer', minimum: 1, maximum: 300 },
+  });
+}
+
+function keyframeEditIntentSchemaV2R(): JsonRecord {
+  return closedObject(['direction'], {
+    direction: { enum: ['in', 'out'] },
+    durationFrames: { type: 'integer', minimum: 2, maximum: 7200 },
+    scaleDelta: { type: 'number', minimum: 0.01, maximum: 0.5 },
+    replaceExistingScaleKeyframes: { enum: [true, false] },
+  });
+}
+
+function audioEditIntentSchemaV2R(): JsonRecord {
+  return closedObject(['query', 'action'], {
+    query: { type: 'string', minLength: 1, maxLength: 1000 },
+    action: { enum: ['add_sfx', 'camera_shake', 'cut_section', 'keyframe_anchor', 'sync_cuts_to_beats'] },
+    sfxQuery: { type: 'string', minLength: 1, maxLength: 1000 },
+  });
+}
+
+function cameraShakeEffectPlanSchemaV2R(): JsonRecord {
+  return closedObject(['goal'], {
+    goal: { type: 'string', minLength: 1, maxLength: 1000 },
+    intensity: { type: 'number', minimum: 0, maximum: 1 },
+    durationFrames: { type: 'integer', minimum: 2, maximum: 30 },
+    replacePositionKeyframes: { enum: [true, false] },
+  });
+}
+
+function closedObject(required: readonly string[], properties: JsonRecord): JsonRecord {
+  return { type: 'object', required: [...required], properties, additionalProperties: false };
 }
 
 function frameRangeSchemaV2R(): JsonRecord {

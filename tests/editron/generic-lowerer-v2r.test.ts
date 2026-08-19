@@ -57,7 +57,8 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     expect(resolveTranscript?.inputs.query).toBe('here it is');
     expect(resolveTranscript?.inputs.intent).toEqual({
       action: 'cut_after_phrase',
-      goal: 'remove dead air preserving all spoken words',
+      minGapFrames: 6,
+      maxCutFrames: 90,
     });
     const setKeyframes = nodes.find(({ operatorId }) => operatorId === 'set_keyframes');
     expect(setKeyframes?.inputs).not.toHaveProperty('keyframes');

@@ -221,10 +221,10 @@ function editorialIntentV2R(): JsonRecord {
     artifactType: 'EditorialIntentGraphV2', taskId: 'DEV-01', executionForm: 'NATIVE',
     routeDecision: { scopeClassification: 'NATIVE_ONLY_PLAN', coverageStatus: 'COMPLETE', candidateForms: [{ form: 'NATIVE', hardGateStatus: 'ELIGIBLE', claimCoverage: coverage, representabilitySignals: ['NONE'], blockers: [], ownerRefs: ['resolve_transcript_edit', 'cut_section', 'find_visual_moment', 'resolve_keyframe_edit', 'set_keyframes', 'apply_audio_ducking'], evidenceIds: allEvidenceIds }], selectedReasonCodes: ['ALL_HARD_TARGETS_HAVE_NATIVE_FAMILY_OWNERS'], generatedIslandClaimIds: [], nativeSurroundClaimIds: hardClaimIds },
     nodes: [
-      intentNodeV2R('node-resolve-cut', 'transcript_range_resolution', ['claim-remove-dead-air', 'claim-preserve-speech'], 'resolve_transcript_edit', [], ['EV-DEV01-T1'], { query: 'here it is', intent: { action: 'cut_after_phrase', goal: 'remove dead air preserving all spoken words' } }),
+      intentNodeV2R('node-resolve-cut', 'transcript_range_resolution', ['claim-remove-dead-air', 'claim-preserve-speech'], 'resolve_transcript_edit', [], ['EV-DEV01-T1'], { query: 'here it is', intent: { action: 'cut_after_phrase', minGapFrames: 6, maxCutFrames: 90 } }),
       intentNodeV2R('node-cut', 'transcript_safe_timeline_cut', ['claim-remove-dead-air', 'claim-preserve-speech'], 'cut_section', ['node-resolve-cut'], ['EV-DEV01-T1']),
       intentNodeV2R('node-find-product', 'post_cut_visual_moment_location', ['claim-product-push-in'], 'find_visual_moment', ['node-cut'], ['EV-DEV01-V1'], { query: 'product box reveal' }),
-      intentNodeV2R('node-resolve-product', 'post_cut_keyframe_target_resolution', ['claim-product-push-in'], 'resolve_keyframe_edit', ['node-find-product'], ['EV-DEV01-V1'], { intent: { goal: 'restrained product-centred push-in', direction: 'in', scaleDelta: 0.12 } }),
+      intentNodeV2R('node-resolve-product', 'post_cut_keyframe_target_resolution', ['claim-product-push-in'], 'resolve_keyframe_edit', ['node-find-product'], ['EV-DEV01-V1'], { intent: { direction: 'in', scaleDelta: 0.12, replaceExistingScaleKeyframes: false } }),
       intentNodeV2R('node-push-in', 'product_keyframed_transform', ['claim-product-push-in'], 'set_keyframes', ['node-resolve-product'], ['EV-DEV01-V1']),
       intentNodeV2R('node-duck', 'dialogue_conditioned_bgm_ducking', ['claim-dialogue-ducking', 'claim-preserve-speech'], 'apply_audio_ducking', ['node-cut'], ['EV-DEV01-A1'], { audioPlan: { enabled: true } }),
     ],
@@ -252,10 +252,10 @@ function evidenceBoundIntentV2R(withholdVisual: boolean): JsonRecord {
   return {
     artifactType: 'EvidenceBoundIntentGraphV2', taskId: 'DEV-01', stageDisposition: withholdVisual ? 'UNVERIFIABLE' : 'READY_FOR_COMPILATION',
     nodes: [
-      node('node-resolve-cut', 'resolve_transcript_edit', ['bind-project', 'bind-transcript'], ['proof-speech'], 'BOUND', [], { query: 'here it is', intent: { action: 'cut_after_phrase', goal: 'remove dead air preserving all spoken words' } }),
+      node('node-resolve-cut', 'resolve_transcript_edit', ['bind-project', 'bind-transcript'], ['proof-speech'], 'BOUND', [], { query: 'here it is', intent: { action: 'cut_after_phrase', minGapFrames: 6, maxCutFrames: 90 } }),
       node('node-cut', 'cut_section', ['bind-project', 'bind-transcript'], ['proof-speech', 'proof-state']),
       node('node-find-product', 'find_visual_moment', ['bind-project', 'bind-product'], ['proof-product'], visualStatus, visualUnresolved, { query: 'product box reveal' }),
-      node('node-resolve-product', 'resolve_keyframe_edit', ['bind-project', 'bind-product'], ['proof-product'], visualStatus, visualUnresolved, { intent: { goal: 'restrained product-centred push-in', direction: 'in', scaleDelta: 0.12 } }),
+      node('node-resolve-product', 'resolve_keyframe_edit', ['bind-project', 'bind-product'], ['proof-product'], visualStatus, visualUnresolved, { intent: { direction: 'in', scaleDelta: 0.12, replaceExistingScaleKeyframes: false } }),
       node('node-push-in', 'set_keyframes', ['bind-project', 'bind-product'], ['proof-product', 'proof-state'], visualStatus, visualUnresolved),
       node('node-duck', 'apply_audio_ducking', ['bind-project', 'bind-audio'], ['proof-audio-mix', 'proof-speech'], 'BOUND', [], { audioPlan: { enabled: true } }),
     ],

@@ -11,7 +11,7 @@ type JsonRecord = Record<string, unknown>;
 
 describe('V2R operator-specific input contracts', () => {
   it('versions causal contract changes without rewriting the historical catalog', () => {
-    expect(V2R_OPERATOR_CATALOG_REVISION).toBe('EDITRON_OPERATOR_SPECS_V2R_3');
+    expect(V2R_OPERATOR_CATALOG_REVISION).toBe('EDITRON_OPERATOR_SPECS_V2R_4');
     expect(V2R_OPERATOR_CATALOG.derivedFrom).toMatchObject({
       artifact: 'tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json',
       version: '2.0.0',
@@ -76,6 +76,28 @@ describe('V2R operator-specific input contracts', () => {
       ...valid,
       sourceDurationFramesByAssetId: { 'dev03-cards': 0 },
     }, constraints, '$.constraints')).toEqual(['$.constraints.sourceDurationFramesByAssetId.dev03-cards:INTEGER']);
+  });
+
+  it('publishes the real closed resolver action domains instead of opaque objects', () => {
+    const transcript = requiredSchema('resolve_transcript_edit', 'intent');
+    expect(validateJsonSchemaV2({ action: 'cut_after_phrase', minGapFrames: 6 }, transcript, '$.intent'))
+      .toEqual([]);
+    expect(validateJsonSchemaV2({ action: 'duck_music' }, transcript, '$.intent'))
+      .toContain('$.intent.action:ENUM');
+
+    const audio = requiredSchema('resolve_audio_edit', 'intent');
+    expect(validateJsonSchemaV2({ query: 'final impact', action: 'sync_cuts_to_beats' }, audio, '$.intent'))
+      .toEqual([]);
+    expect(validateJsonSchemaV2({ query: 'dialogue', action: 'ducking' }, audio, '$.intent'))
+      .toContain('$.intent.action:ENUM');
+
+    const keyframe = requiredSchema('resolve_keyframe_edit', 'intent');
+    expect(validateJsonSchemaV2({ direction: 'in', scaleDelta: 0.12 }, keyframe, '$.intent'))
+      .toEqual([]);
+    expect(validateJsonSchemaV2({ direction: 'in', scaleDelta: 0.8 }, keyframe, '$.intent'))
+      .toContain('$.intent.scaleDelta:NUMBER');
+    expect(validateJsonSchemaV2({ direction: 'in', madeUp: true }, keyframe, '$.intent'))
+      .toContain('$.intent.madeUp:ADDITIONAL');
   });
 });
 
