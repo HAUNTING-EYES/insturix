@@ -215,6 +215,7 @@ const THINKFORGE_E2E_SCRIPT_FIXTURE = {
             desiredFraming: 'medium-close-up',
             desiredAngle: 'eye-level',
             desiredMovement: 'static',
+            movementMotivation: '',
             simultaneousPerformers: 0,
             spokenAudio: false,
             performance: [],

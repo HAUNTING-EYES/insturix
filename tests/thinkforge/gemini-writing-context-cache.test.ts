@@ -128,6 +128,7 @@ function nativeV2CacheOutput(): ScriptWriterModelOutput {
               desiredFraming: 'medium-close-up',
               desiredAngle: 'eye-level',
               desiredMovement: 'static',
+              movementMotivation: '',
               simultaneousPerformers: 0,
               spokenAudio: false,
               performance: [],

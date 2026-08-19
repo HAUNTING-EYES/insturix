@@ -44,6 +44,7 @@ function makeShotIntent(overrides: Partial<ShotIntent> = {}): ShotIntent {
     desiredFraming: 'medium',
     desiredAngle: 'eye-level',
     desiredMovement: 'static',
+    movementMotivation: '',
     simultaneousPerformers: 0,
     spokenAudio: false,
     performance: [],
@@ -418,13 +419,19 @@ describe('ScriptWriterAgent structured generation', () => {
   });
 
   it('repairs structurally valid cross-field sidecar violations before persistence', async () => {
+    const omitted = makeModelOutput();
+    const omittedShot = omitted.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent! as {
+      movementMotivation?: string;
+    };
+    delete omittedShot.movementMotivation;
     const invalid = makeModelOutput();
     const invalidShot = invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!;
     invalidShot.energy = 4;
-    delete invalidShot.movementMotivation;
+    invalidShot.movementMotivation = '';
     invalidShot.spokenAudio = true;
     const repaired = makeModelOutput();
 
+    expect(ScriptWriterModelOutputSchema.safeParse(omitted).success).toBe(false);
     expect(ScriptWriterModelOutputSchema.safeParse(invalid).success).toBe(true);
     expect(ScriptSidecarV2Schema.safeParse(invalid.sidecar).success).toBe(false);
 
@@ -468,7 +475,7 @@ describe('ScriptWriterAgent structured generation', () => {
 
   it('fails closed after one repair when the replacement still violates the sidecar contract', async () => {
     const invalid = makeModelOutput();
-    delete invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.movementMotivation;
+    invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.movementMotivation = '';
     generateStructuredWithWritingContextCacheMock.mockResolvedValue({
       result: invalid,
       cacheStatus: 'hit',
@@ -484,7 +491,7 @@ describe('ScriptWriterAgent structured generation', () => {
 
   it('exposes final rejected script output only during explicit eval diagnostics', async () => {
     const invalid = makeModelOutput();
-    delete invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.movementMotivation;
+    invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.movementMotivation = '';
     generateStructuredWithWritingContextCacheMock.mockResolvedValue({
       result: invalid,
       cacheStatus: 'hit',

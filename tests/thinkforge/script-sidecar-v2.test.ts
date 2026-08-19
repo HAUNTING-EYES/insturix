@@ -127,6 +127,7 @@ function v2Sidecar() {
             desiredFraming: 'medium-close-up',
             desiredAngle: 'eye-level',
             desiredMovement: 'static',
+            movementMotivation: '',
             simultaneousPerformers: 1,
             spokenAudio: true,
             performance: [{
@@ -275,11 +276,17 @@ describe('Script Sidecar V2 narrative contract', () => {
     const { renderPlan: _renderPlan, ...narrativeOnly } = v2Sidecar();
     const draft = ScriptWriterSidecarV2ModelSchema.parse(narrativeOnly);
     const shotIntent = draft.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!;
+    const omitted = structuredClone(draft);
+    const omittedShot = omitted.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent! as {
+      movementMotivation?: string;
+    };
+    delete omittedShot.movementMotivation;
     shotIntent.energy = 4;
     shotIntent.desiredMovement = 'push-in';
-    delete shotIntent.movementMotivation;
+    shotIntent.movementMotivation = '';
     shotIntent.spokenAudio = false;
 
+    expect(ScriptWriterSidecarV2ModelSchema.safeParse(omitted).success).toBe(false);
     expect(ScriptWriterSidecarV2ModelSchema.safeParse(draft).success).toBe(true);
     expect(ScriptWriterSidecarV2Schema.safeParse(draft).success).toBe(false);
     expect(() => parseScriptSidecarV2(draft)).toThrow(/energy|movementMotivation|spokenAudio/);

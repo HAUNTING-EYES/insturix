@@ -87,7 +87,9 @@ export const SceneShotIntentModelObjectSchema = z.object({
   desiredFraming: z.enum(SHOT_FRAMINGS),
   desiredAngle: z.enum(SHOT_ANGLES),
   desiredMovement: z.enum(SHOT_MOVEMENTS),
-  movementMotivation: z.string().optional(),
+  movementMotivation: z.string().describe(
+    'Why camera movement serves the narrative; use an empty string only when desiredMovement is static.',
+  ),
   simultaneousPerformers: z.number().int(),
   spokenAudio: z.boolean(),
   performance: z.array(PerformanceIntentModelSchema),
@@ -99,6 +101,7 @@ export const SceneShotIntentObjectSchema = SceneShotIntentModelObjectSchema.exte
   emotionalBeat: z.string().min(1),
   energy: z.number().min(0).max(1),
   visualPriority: z.string().min(1),
+  movementMotivation: z.string().optional(),
   // A static shot has no camera movement to motivate. The canonical contract
   // requires a meaningful value only when the authored camera moves.
   simultaneousPerformers: z.number().int().min(0).max(20),
