@@ -1,5 +1,9 @@
 import operatorCatalogJson from '@/tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json';
 
+import {
+  createCompiledPortBindingEdgeV2R,
+  type CompiledPortBindingEdgeV2R,
+} from './compiled-port-binding-v2r';
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import { selectedOperatorDriftDiagnosticsV2R } from './stage2-selected-operator-contract-v2r';
 import { validateJsonSchemaV2 } from './stage4-compilation-evaluator-v2';
@@ -20,7 +24,10 @@ export type FieldBindingSourceV2R =
 export interface NodeOutputProducerV2R {
   operatorId: string;
   outputName: string;
+  projectionPath?: readonly string[];
 }
+
+export type FieldValueAdapterV2R = 'FRAME_RANGE_V2R';
 
 export interface FieldBindingRuleV2R {
   source: FieldBindingSourceV2R;
@@ -33,6 +40,7 @@ export interface FieldBindingRuleV2R {
   // For MODEL_INPUT: which nodeInputs key to read (defaults to the bound field name).
   modelInputField?: string;
   staticValue?: unknown;
+  valueAdapter?: FieldValueAdapterV2R;
 }
 
 export interface GenericLoweringPolicyV2R {
@@ -122,6 +130,7 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
 
   const selectedOperatorIds = intentNodes.map((node) => text(node.selectedOperatorId));
   const compiledNodes: JsonRecord[] = [];
+  const compiledPortBindings: CompiledPortBindingEdgeV2R[] = [];
   const unresolvedIntentNodeIds: string[] = [];
   const compiledOperatorIds: string[] = [];
   const blockingDisposition = executionBlockingDisposition(boundIntent);
@@ -193,6 +202,9 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
     }
     const inputs: JsonRecord = {};
     const reads: string[] = [];
+    const nodePortBindings: CompiledPortBindingEdgeV2R[] = [];
+    const portBoundFields = new Set<string>();
+    const nodeId = `compile-${intentNodeId}`;
     for (const field of declaredFields) {
       const bound = bindField(field, {
         boundNode, intentNode: intentNodesById.get(intentNodeId),
@@ -201,17 +213,50 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
         policy: input.policy, compiledNodes,
       }, diagnostics, intentNodeId, requiredFields.includes(field), selectedOperatorId);
       if (bound.present) {
-        inputs[field] = bound.value;
+        if (bound.outputBinding) {
+          const fieldSchema = fieldSchemas[field];
+          if (!fieldSchema) {
+            diagnostics.push(`INPUT_FIELD_SCHEMA_MISSING:${intentNodeId}:${field}`);
+          } else {
+            nodePortBindings.push(createCompiledPortBindingEdgeV2R({
+              edgeId: `port-${nodeId}-${field}`,
+              fromNodeId: bound.outputBinding.fromNodeId,
+              fromPort: bound.outputBinding.fromPort,
+              toNodeId: nodeId,
+              toPort: field,
+              projectionPath: bound.outputBinding.projectionPath,
+              expectedInputSchemaHash: hashCanonicalJsonV1(fieldSchema),
+            }));
+            portBoundFields.add(field);
+          }
+        } else {
+          inputs[field] = bound.value;
+        }
         if (bound.readFactId) reads.push(bound.readFactId);
       }
     }
-    const missingRequired = requiredFields.filter((field) => !(field in inputs));
+    for (const [field, value] of Object.entries(inputs)) {
+      const fieldSchema = fieldSchemas[field];
+      if (!fieldSchema) {
+        diagnostics.push(`INPUT_FIELD_SCHEMA_MISSING:${intentNodeId}:${field}`);
+        continue;
+      }
+      for (const schemaDiagnostic of validateJsonSchemaV2(value, fieldSchema, `$.inputs.${field}`)) {
+        diagnostics.push(`COMPILED_INPUT_SCHEMA_INVALID:${intentNodeId}:${field}:${schemaDiagnostic}`);
+      }
+    }
+    if (diagnostics.some((diagnostic) => diagnostic.startsWith(`INPUT_FIELD_SCHEMA_MISSING:${intentNodeId}:`)
+      || diagnostic.startsWith(`COMPILED_INPUT_SCHEMA_INVALID:${intentNodeId}:`)
+      || diagnostic.startsWith(`FIELD_ADAPTER_INVALID:${intentNodeId}:`))) {
+      unresolvedIntentNodeIds.push(intentNodeId);
+      continue;
+    }
+    const missingRequired = requiredFields.filter((field) => !(field in inputs) && !portBoundFields.has(field));
     if (missingRequired.length) {
       for (const field of missingRequired) diagnostics.push(`INPUT_BINDING_MISSING:${intentNodeId}:${field}`);
       unresolvedIntentNodeIds.push(intentNodeId);
       continue;
     }
-    const nodeId = `compile-${intentNodeId}`;
     const outputNames = strings(record(operator.output).required);
     const produces = outputNames.map((outputName) => `${nodeId}.${outputName}`);
     const intentNode = intentNodesById.get(intentNodeId);
@@ -238,10 +283,11 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
       reversibility: kind === 'MUTATION' ? 'CHECKPOINT_REQUIRED' : 'NOT_APPLICABLE_READ_ONLY',
       traceRefs: [intentNodeId, ...strings(boundNode.evidenceBindingIds), ...strings(boundNode.proofObligationIds), ...strings(boundNode.preservationIds)],
     }));
+    compiledPortBindings.push(...nodePortBindings);
     compiledOperatorIds.push(selectedOperatorId);
   }
 
-  const edges = buildEdges(compiledNodes);
+  const edges = buildEdges(compiledNodes, compiledPortBindings);
   const zeroAdd = compiledNodes.every((node) => {
     const source = intentNodesById.get(text(node.intentNodeId));
     return text(source?.selectedOperatorId) === text(node.operatorId);
@@ -324,7 +370,12 @@ function bindField(
   intentNodeId: string,
   required: boolean,
   operatorId: string,
-): { present: boolean; value?: unknown; readFactId?: string } {
+): {
+  present: boolean;
+  value?: unknown;
+  readFactId?: string;
+  outputBinding?: { fromNodeId: string; fromPort: string; projectionPath: readonly string[] };
+} {
   const operatorOverride = context.policy.operatorFieldBindings?.[operatorId]?.[field];
   const rule = operatorOverride ?? context.policy.fieldBindings[field];
   if (!rule) {
@@ -341,20 +392,23 @@ function bindField(
       return evidenceIds.length ? { present: true, value: evidenceIds } : { present: false };
     }
     case 'STATIC':
-      return rule.staticValue === undefined ? { present: false } : { present: true, value: rule.staticValue };
+      return rule.staticValue === undefined
+        ? { present: false }
+        : adaptFieldValueV2R(rule.staticValue, rule, diagnostics, intentNodeId, field);
     case 'FACT_FIELD': {
       const fact = findBoundFact(context, rule.factKind);
       if (!fact) return { present: false };
       const value = rule.factField ? fact[rule.factField] : fact;
       if (value === undefined) return { present: false };
-      return { present: true, value, readFactId: text(fact.factId) };
+      const adapted = adaptFieldValueV2R(value, rule, diagnostics, intentNodeId, field);
+      return adapted.present ? { ...adapted, readFactId: text(fact.factId) } : adapted;
     }
     case 'MODEL_INPUT': {
       const nodeInputs = record(context.boundNode.nodeInputs);
       const modelInputField = rule.modelInputField ?? field;
       const value = nodeInputs[modelInputField];
       if (value === undefined || value === null || value === '') return { present: false };
-      return { present: true, value };
+      return adaptFieldValueV2R(value, rule, diagnostics, intentNodeId, field);
     }
     case 'NODE_OUTPUT': {
       if (rule.producers?.length) {
@@ -363,7 +417,14 @@ function bindField(
             intentNodeId, producer.operatorId, producer.outputName,
             context.intentNodes, context.compiledNodes,
           );
-          if (producerNodeId) return { present: true, value: `${producerNodeId}.${producer.outputName}` };
+          if (producerNodeId) return {
+            present: true,
+            outputBinding: {
+              fromNodeId: producerNodeId,
+              fromPort: producer.outputName,
+              projectionPath: producer.projectionPath ?? [],
+            },
+          };
         }
         return { present: false };
       }
@@ -374,13 +435,46 @@ function bindField(
         const producerNodeId = resolveProducerByDependencyV2R(
           intentNodeId, outputName, context.intentNodes, context.compiledNodes,
         );
-        if (producerNodeId) return { present: true, value: `${producerNodeId}.${outputName}` };
+        if (producerNodeId) return {
+          present: true,
+          outputBinding: { fromNodeId: producerNodeId, fromPort: outputName, projectionPath: [] },
+        };
       }
       return { present: false };
     }
     default:
       return { present: false };
   }
+}
+
+function adaptFieldValueV2R(
+  value: unknown,
+  rule: FieldBindingRuleV2R,
+  diagnostics: string[],
+  intentNodeId: string,
+  field: string,
+): { present: boolean; value?: unknown } {
+  if (!rule.valueAdapter) return { present: true, value };
+  if (rule.valueAdapter === 'FRAME_RANGE_V2R') {
+    const object = record(value);
+    const pair = Array.isArray(value) ? value : null;
+    const start = exactSafeInteger(pair?.[0] ?? object.startFrame ?? object.start);
+    const end = exactSafeInteger(pair?.[1] ?? object.endFrame ?? object.endExclusive);
+    if (start === null || end === null || start < 0 || end <= start) {
+      diagnostics.push(`FIELD_ADAPTER_INVALID:${intentNodeId}:${field}:FRAME_RANGE_V2R`);
+      return { present: false };
+    }
+    return { present: true, value: { startFrame: start, endFrame: end } };
+  }
+  diagnostics.push(`FIELD_ADAPTER_INVALID:${intentNodeId}:${field}:UNKNOWN`);
+  return { present: false };
+}
+
+function exactSafeInteger(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isSafeInteger(value) ? value : null;
+  if (typeof value !== 'string' || !/^-?(0|[1-9]\d*)$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 // Resolve a node-output reference to a specific producer operator: walk the
@@ -521,19 +615,28 @@ function indexBindings(bindings: JsonRecord[]): Map<string, string[]> {
   return factIdsByBindingId;
 }
 
-function buildEdges(compiledNodes: JsonRecord[]): JsonRecord[] {
+function buildEdges(
+  compiledNodes: JsonRecord[],
+  portBindings: readonly CompiledPortBindingEdgeV2R[],
+): JsonRecord[] {
   const nodeIds = new Set(compiledNodes.map((node) => text(node.nodeId)));
-  const edges: JsonRecord[] = [];
+  const edges: JsonRecord[] = portBindings.map((binding) => ({ ...binding }));
+  const orderedPairs = new Set(portBindings.map(({ fromNodeId, toNodeId }) => `${fromNodeId}\0${toNodeId}`));
   let index = 0;
   for (const node of compiledNodes) {
     for (const required of strings(node.requires)) {
       if (!nodeIds.has(required)) continue;
+      const pair = `${required}\0${text(node.nodeId)}`;
+      if (orderedPairs.has(pair)) continue;
       edges.push({
-        edgeId: `lowered-edge-${index}`,
+        edgeId: `control-edge-${index}`,
         fromNodeId: required,
+        fromPort: '$control',
         toNodeId: text(node.nodeId),
-        edgeType: 'DATA',
+        toPort: '$control',
+        edgeType: 'CONTROL',
       });
+      orderedPairs.add(pair);
       index += 1;
     }
   }

@@ -48,7 +48,11 @@ export const DEV03_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
     },
     apply_camera_shake: {
       overlayId: { source: 'STATIC', staticValue: 'dev03-card-4' },
-      targetRange: { source: 'STATIC', staticValue: { coordinateDomain: 'PROJECT_TICK', start: '472', endExclusive: '600' } },
+      targetRange: {
+        source: 'STATIC',
+        staticValue: { coordinateDomain: 'PROJECT_TICK', start: '472', endExclusive: '600' },
+        valueAdapter: 'FRAME_RANGE_V2R',
+      },
       effectPlan: { source: 'MODEL_INPUT' },
     },
   },

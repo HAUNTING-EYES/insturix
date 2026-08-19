@@ -13,18 +13,27 @@ export const DEV01_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
     projectId: { source: 'REVISION_PROJECT_ID' },
     expectedProjectRevision: { source: 'REVISION_EXPECTED_REVISION' },
     evidenceIds: { source: 'EVIDENCE_IDS' },
-    selector: { source: 'STATIC', staticValue: 'whole-project' },
+    selector: { source: 'STATIC', staticValue: { scope: 'WHOLE_PROJECT' } },
     constraints: { source: 'STATIC', staticValue: { preserveSpeech: true, preserveSourceIdentities: true } },
-    targetRange: { source: 'FACT_FIELD', factKind: 'TRANSCRIPT_RANGE', factField: 'deadAirRange' },
+    targetRange: {
+      source: 'FACT_FIELD', factKind: 'TRANSCRIPT_RANGE', factField: 'deadAirRange',
+      valueAdapter: 'FRAME_RANGE_V2R',
+    },
     overlayId: { source: 'STATIC', staticValue: 'ov-host-video' },
     keyframes: {
       source: 'NODE_OUTPUT',
-      producers: [{ operatorId: 'resolve_keyframe_edit', outputName: 'proposedOperation' }],
+      producers: [{
+        operatorId: 'resolve_keyframe_edit', outputName: 'proposedOperation',
+        projectionPath: ['arguments', 'keyframes'],
+      }],
     },
     audioPlan: {
       source: 'NODE_OUTPUT',
       producers: [
-        { operatorId: 'resolve_audio_edit', outputName: 'proposedOperation' },
+        {
+          operatorId: 'resolve_audio_edit', outputName: 'proposedOperation',
+          projectionPath: ['arguments', 'audioPlan'],
+        },
         { operatorId: 'find_audio_moment', outputName: 'result' },
       ],
     },

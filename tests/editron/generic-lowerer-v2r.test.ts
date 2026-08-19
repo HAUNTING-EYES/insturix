@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import {
+  COMPILED_PORT_BINDING_VERSION_V2R,
+  projectCompiledPortValueV2R,
+  type CompiledPortBindingEdgeV2R,
+} from '@/lib/editron/research/open-ended-planner/compiled-port-binding-v2r';
 import { getCanonicalDev01Stage123V2 } from '@/lib/editron/research/open-ended-planner/dev01-stage123-canonical-v2';
 import { DEV01_LOWERING_POLICY_V2R } from '@/lib/editron/research/open-ended-planner/dev01-lowering-policy-v2r';
 import {
@@ -41,28 +46,64 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     });
   });
 
-  it('binds revision, fact, evidence, static and node-output fields mechanically', () => {
+  it('binds literals and typed node-output ports mechanically', () => {
     const { compiled } = lowerBaseline();
     const nodes = compiled.nodes as Array<{ operatorId: string; inputs: Record<string, unknown>; nodeId: string }>;
     const cut = nodes.find(({ operatorId }) => operatorId === 'cut_section');
     expect(cut?.inputs.projectId).toBe('oe-dev-01');
     expect(cut?.inputs.expectedProjectRevision).toBe('R7');
-    expect(cut?.inputs.targetRange).toEqual(['151', '196']);
+    expect(cut?.inputs.targetRange).toEqual({ startFrame: 151, endFrame: 196 });
     const findTranscript = nodes.find(({ operatorId }) => operatorId === 'find_transcript_moment');
     expect(findTranscript?.inputs.query).toBe('dead air after the phrase here it is');
     const setKeyframes = nodes.find(({ operatorId }) => operatorId === 'set_keyframes');
-    expect(setKeyframes?.inputs.keyframes).toBe('compile-node-resolve-product.proposedOperation');
+    expect(setKeyframes?.inputs).not.toHaveProperty('keyframes');
     const duck = nodes.find(({ operatorId }) => operatorId === 'apply_audio_ducking');
-    expect(duck?.inputs.audioPlan).toBe('compile-node-find-audio.result');
+    expect(duck?.inputs).not.toHaveProperty('audioPlan');
+
+    const bindings = (compiled.edges as CompiledPortBindingEdgeV2R[])
+      .filter(({ edgeType }) => edgeType === 'DATA');
+    expect(bindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        bindingVersion: COMPILED_PORT_BINDING_VERSION_V2R,
+        fromNodeId: 'compile-node-resolve-product', fromPort: 'proposedOperation',
+        toNodeId: 'compile-node-push-in', toPort: 'keyframes',
+        projectionPath: ['arguments', 'keyframes'],
+      }),
+      expect.objectContaining({
+        bindingVersion: COMPILED_PORT_BINDING_VERSION_V2R,
+        fromNodeId: 'compile-node-find-audio', fromPort: 'result',
+        toNodeId: 'compile-node-duck', toPort: 'audioPlan', projectionPath: [],
+      }),
+    ]));
+    expect(bindings.every(({ expectedInputSchemaHash }) => /^[a-f0-9]{64}$/.test(expectedInputSchemaHash))).toBe(true);
   });
 
-  it('emits DATA edges only from declared intent dependencies', () => {
+  it('emits explicit typed data ports and control-only ordering edges', () => {
     const { compiled } = lowerBaseline();
-    const edges = compiled.edges as Array<{ fromNodeId: string; toNodeId: string; edgeType: string }>;
+    const edges = compiled.edges as Array<{
+      fromNodeId: string; fromPort: string; toNodeId: string; toPort: string; edgeType: string;
+    }>;
     expect(edges.length).toBeGreaterThan(0);
-    expect(edges.every(({ edgeType }) => edgeType === 'DATA')).toBe(true);
+    expect(new Set(edges.map(({ edgeType }) => edgeType))).toEqual(new Set(['DATA', 'CONTROL']));
+    expect(edges.every(({ fromPort, toPort, edgeType }) => (
+      edgeType === 'DATA' ? fromPort !== '$control' && toPort !== '$control'
+        : fromPort === '$control' && toPort === '$control'
+    ))).toBe(true);
     const nodeIds = new Set((compiled.nodes as Array<{ nodeId: string }>).map(({ nodeId }) => nodeId));
     expect(edges.every(({ fromNodeId, toNodeId }) => nodeIds.has(fromNodeId) && nodeIds.has(toNodeId))).toBe(true);
+  });
+
+  it('projects a resolver output only through the declared safe property path', () => {
+    const { compiled } = lowerBaseline();
+    const binding = (compiled.edges as CompiledPortBindingEdgeV2R[]).find(({ toPort }) => toPort === 'keyframes');
+    expect(binding).toBeTruthy();
+    const keyframes = [{ frame: 9, value: 1 }, { frame: 20, value: 1.12 }];
+    expect(projectCompiledPortValueV2R(binding!, {
+      proposedOperation: { targetOperatorId: 'set_keyframes', arguments: { keyframes } },
+    })).toEqual(keyframes);
+    expect(() => projectCompiledPortValueV2R(binding!, {
+      proposedOperation: { targetOperatorId: 'set_keyframes', arguments: {} },
+    })).toThrow('COMPILED_PORT_PROJECTION_MISSING:keyframes');
   });
 
   it('refuses to invent operators: zero-add holds even when the policy is starved', () => {
