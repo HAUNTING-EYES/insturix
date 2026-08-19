@@ -303,8 +303,14 @@ export function validateJsonSchemaV2(value: unknown, schemaValue: unknown, path:
   if ('const' in schema && value !== schema.const) return [`${path}:CONST`];
   if (Array.isArray(schema.enum) && !schema.enum.includes(value)) return [`${path}:ENUM`];
   if (schema.type === 'string') return typeof value === 'string' && (!schema.minLength || value.length >= Number(schema.minLength)) ? [] : [`${path}:STRING`];
-  if (schema.type === 'integer') return Number.isSafeInteger(value) && (schema.minimum === undefined || Number(value) >= Number(schema.minimum)) ? [] : [`${path}:INTEGER`];
-  if (schema.type === 'number') return typeof value === 'number' && Number.isFinite(value) ? [] : [`${path}:NUMBER`];
+  if (schema.type === 'integer') {
+    return Number.isSafeInteger(value) && !Object.is(value, -0) && withinNumericSchemaBounds(value as number, schema)
+      ? [] : [`${path}:INTEGER`];
+  }
+  if (schema.type === 'number') {
+    return typeof value === 'number' && Number.isFinite(value) && !Object.is(value, -0)
+      && withinNumericSchemaBounds(value, schema) ? [] : [`${path}:NUMBER`];
+  }
   if (schema.type === 'array') {
     if (!Array.isArray(value)) return [`${path}:ARRAY`];
     const result = value.flatMap((entry, index) => validateJsonSchemaV2(entry, schema.items, `${path}[${index}]`));
@@ -322,6 +328,14 @@ export function validateJsonSchemaV2(value: unknown, schemaValue: unknown, path:
     return result;
   }
   return [];
+}
+
+function withinNumericSchemaBounds(value: number, schema: JsonRecord): boolean {
+  const minimum = schema.minimum;
+  const maximum = schema.maximum;
+  if (minimum !== undefined && (typeof minimum !== 'number' || !Number.isFinite(minimum) || value < minimum)) return false;
+  if (maximum !== undefined && (typeof maximum !== 'number' || !Number.isFinite(maximum) || value > maximum)) return false;
+  return true;
 }
 
 function ownerRef(operator: JsonRecord): string {
