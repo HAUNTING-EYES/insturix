@@ -551,15 +551,10 @@ function buildWriterOutputClickatronCreativeSpec(input: ThinkToClickContextInput
   const hasScene = scenePrompts.length > 0;
   const hasStaticClickatronPrompt = Boolean(singleImagePrompt) || hasCarousel;
   const hasScriptSceneOnlyPrompt = writerType === "script" && !hasStaticClickatronPrompt && hasScene;
-  // ponytail: real writer visual prompt present, vs the placeholder fallbacks below. Drives an honest
-  // validation.status instead of a hardcoded "ready". Fact-level grounding (does the prompt carry the
-  // brand/offer/price) needs the resolved signal profile wired into this path (Phase 4), then reuse
-  // applyContentSignalProfileToClickatronExportMeta.
+  // Script scene prompts describe video shots, not a static Clickatron deliverable.
   const hasRealPrompt = hasStaticClickatronPrompt || (hasScene && !hasScriptSceneOnlyPrompt);
 
-  // ponytail: pull grounded facts + forbidden visible-text off the signal trace (now persisted by
-  // chat-service Phase 4) so the image carries them. Mirrors the sidecar; flows to the model via
-  // brand-prompt-context's source-context block.
+  // Preserve grounded claims and visible-text prohibitions in the exported creative contract.
   const traceIntent = toPlainRecord(toPlainRecord(input.signalTrace)?.selectedIntent) ?? {};
   const keyClaims = (Array.isArray(traceIntent.proofPoints) ? traceIntent.proofPoints : [])
     .filter((c: unknown): c is string => typeof c === "string" && c.trim().length > 0)
