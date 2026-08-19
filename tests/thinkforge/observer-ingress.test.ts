@@ -62,6 +62,7 @@ import { GET as recoverLearningJobs } from '@/app/api/cron/process-thinkforge-re
 import type { ObserverJobSnapshot, ObserverJobStoreLike } from '@/lib/thinkforge/events/observer-job';
 
 const LONG_TEXT = 'This is a long enough editor buffer where I explain that I prefer warm direct response openings and crisp captions.';
+const PERSONAL_TEXT = 'Please remember that Alex can be reached at alex@example.com for every future campaign review.';
 
 function request(body: unknown): Request {
   return new Request('http://localhost/api/services/thinkforge/events/observe', {
@@ -194,7 +195,7 @@ describe('ThinkForge observer durable ingress', () => {
     errorSpy.mockRestore();
   });
 
-  it('rejects child data before durable storage and fails loudly without a worker', async () => {
+  it('rejects personal and child data before durable storage and fails loudly without a worker', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const child = await POST(request({
       text: 'My daughter is 12 years old and her school record should be remembered for future scripts.',
@@ -202,6 +203,17 @@ describe('ThinkForge observer durable ingress', () => {
       source: 'chat',
     }));
     expect(child.status).toBe(202);
+    await expect(json(child)).resolves.toMatchObject({ accepted: false, reason: 'child_data_not_observed' });
+    const personal = await POST(request({
+      text: PERSONAL_TEXT,
+      sessionId: 'tf_session_1',
+      source: 'chat',
+    }));
+    expect(personal.status).toBe(202);
+    await expect(json(personal)).resolves.toMatchObject({
+      accepted: false,
+      reason: 'personal_data_requires_consent',
+    });
     expect(mocks.createOrGetQueuedThinkForgeObserverJob).not.toHaveBeenCalled();
 
     mocks.isThinkForgeObserverWorkerConfigured.mockReturnValue(false);
@@ -318,6 +330,84 @@ describe('ThinkForge observer durable processing', () => {
     expect(mocks.generateObject).not.toHaveBeenCalled();
     expect(store.saveCheckpoint).not.toHaveBeenCalled();
     expect(store.retryOrDeadLetter).toHaveBeenCalledWith('observer_123', 'lease_3', expect.any(Error));
+  });
+
+  it('rejects direct and legacy personal-data jobs before storage or model egress', async () => {
+    const actual = await vi.importActual<typeof import('@/lib/thinkforge/events/observer-job')>(
+      '@/lib/thinkforge/events/observer-job',
+    );
+    const personalInput = {
+      userId: 'user_1',
+      orgId: null,
+      sessionId: 'tf_session_1',
+      source: 'editor' as const,
+      text: PERSONAL_TEXT,
+    };
+    expect(() => actual.createObserverJobDedupeKey(personalInput))
+      .toThrow('requires explicit consent');
+
+    const store: ObserverJobStoreLike = {
+      claim: vi.fn().mockResolvedValue({
+        kind: 'claimed',
+        job: job({ status: 'running', input: personalInput }),
+        leaseToken: 'lease_privacy',
+      }),
+      saveCheckpoint: vi.fn(),
+      saveResult: vi.fn(),
+      complete: vi.fn(),
+      retryOrDeadLetter: vi.fn().mockResolvedValue('dead_letter'),
+    };
+
+    const result = await actual.processObserverJob('observer_123', store);
+
+    expect(result).toMatchObject({ status: 'dead_letter', error: expect.stringContaining('explicit consent') });
+    expect(store.retryOrDeadLetter).toHaveBeenCalledWith(
+      'observer_123',
+      'lease_privacy',
+      expect.objectContaining({ name: 'ObserverTextPrivacyError' }),
+    );
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.resolveThinkForgeProviderRoute).not.toHaveBeenCalled();
+    expect(mocks.generateObject).not.toHaveBeenCalled();
+    expect(mocks.putGovernedDataBankReviewCandidate).not.toHaveBeenCalled();
+  });
+
+  it('dead-letters privacy violations on the first durable attempt', async () => {
+    const actual = await vi.importActual<typeof import('@/lib/thinkforge/events/observer-job')>(
+      '@/lib/thinkforge/events/observer-job',
+    );
+    const { ObserverTextPrivacyError } = await import('@/lib/thinkforge/events/observer-memory-policy');
+    const now = new Date('2026-08-19T00:00:00.000Z');
+    const collection = {
+      findOne: vi.fn().mockResolvedValue({
+        _id: 'observer_123',
+        status: 'running',
+        leaseToken: 'lease_privacy',
+        attemptCount: 1,
+        maxAttempts: 3,
+      }),
+      updateOne: vi.fn().mockResolvedValue({ matchedCount: 1 }),
+    };
+    const store = new actual.ObserverJobStore(async () => collection as never);
+
+    const status = await store.retryOrDeadLetter(
+      'observer_123',
+      'lease_privacy',
+      new ObserverTextPrivacyError('personal', 'personal_data_requires_consent'),
+      now,
+    );
+
+    expect(status).toBe('dead_letter');
+    expect(collection.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptCount: 1 }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'dead_letter',
+          error: expect.objectContaining({ retryable: false }),
+        }),
+        $unset: { activeDedupeKey: '', leaseToken: '' },
+      }),
+    );
   });
 
   it('maps retry and dead-letter states to finite worker responses', async () => {

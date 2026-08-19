@@ -8,8 +8,10 @@ import { buildIsolatedPromptParts } from '../agents/prompt-boundary';
 import {
   OBSERVER_FACT_SENSITIVITIES,
   OBSERVER_FACT_TYPES,
+  ObserverTextPrivacyError,
   admitObserverFacts,
   normalizeObserverFactContent,
+  requireObserverTextPrivacyAdmission,
   type ObserverFactCandidate,
 } from './observer-memory-policy';
 import {
@@ -298,7 +300,8 @@ export class ObserverJobStore {
     const collection = await this.collectionProvider();
     const current = await collection.findOne({ _id: jobId, status: 'running', leaseToken });
     if (!current) throw new ObserverJobLeaseLostError();
-    const terminal = current.attemptCount >= current.maxAttempts;
+    const terminal = error instanceof ObserverTextPrivacyError
+      || current.attemptCount >= current.maxAttempts;
     const jobError = normalizeObserverJobError(error, !terminal);
     const update = await collection.updateOne(
       { _id: jobId, status: 'running', leaseToken, attemptCount: current.attemptCount },
@@ -471,6 +474,7 @@ export async function recoverStalledThinkForgeObserverJobs(limit = 25): Promise<
 }
 
 async function assertObserverJobAuthority(input: ObserverJobInput): Promise<void> {
+  requireObserverTextPrivacyAdmission(input.text);
   const principal: DataBankPrincipal = { userId: input.userId, ...(input.orgId ? { orgId: input.orgId } : {}) };
   const session = await getSession(input.sessionId, input.userId, input.orgId ?? undefined);
   if (!session) throw new Error('Observer session is unavailable to this principal.');
@@ -479,7 +483,7 @@ async function assertObserverJobAuthority(input: ObserverJobInput): Promise<void
 
 async function extractObserverFacts(job: ObserverJobSnapshot): Promise<ObserverExtraction> {
   const routePurpose = 'structural';
-  const privacyClass = 'business_confidential';
+  const privacyClass = requireObserverTextPrivacyAdmission(job.input.text);
   const modelRoute = resolveThinkForgeProviderRoute({
     routePurpose,
     privacyClass,
@@ -639,6 +643,7 @@ function normalizeObserverJobInput(input: ObserverJobInput): ObserverJobInput {
   const sessionId = input.sessionId.trim();
   const text = input.text.trim().slice(0, 1_500);
   if (!userId || !sessionId || text.length < 50) throw new Error('Observer job input is incomplete.');
+  requireObserverTextPrivacyAdmission(text);
   return {
     userId,
     orgId: input.orgId?.trim() || null,

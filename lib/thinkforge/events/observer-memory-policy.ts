@@ -41,6 +41,30 @@ export interface ObserverFactAdmission {
   rejectedCounts: Record<ObserverFactRejectionReason, number>;
 }
 
+export type ObserverTextPrivacyRejectionReason =
+  | 'personal_data_requires_consent'
+  | 'child_data_not_observed';
+
+export type ObserverTextPrivacyAdmission =
+  | { allowed: true; privacyClass: 'public' | 'business_confidential' }
+  | {
+      allowed: false;
+      privacyClass: 'personal' | 'child_data';
+      reason: ObserverTextPrivacyRejectionReason;
+    };
+
+export class ObserverTextPrivacyError extends Error {
+  constructor(
+    readonly privacyClass: 'personal' | 'child_data',
+    readonly reason: ObserverTextPrivacyRejectionReason,
+  ) {
+    super(privacyClass === 'child_data'
+      ? 'Observer input contains child data and cannot be observed.'
+      : 'Observer input contains personal data and requires explicit consent.');
+    this.name = 'ObserverTextPrivacyError';
+  }
+}
+
 const EMPTY_REJECTION_COUNTS: Record<ObserverFactRejectionReason, number> = {
   personal_info_type: 0,
   model_classified_personal: 0,
@@ -76,6 +100,31 @@ export function classifyObserverTextPrivacy(
   return EXPLICIT_CHILD_CONTEXT_PATTERNS.some((pattern) => pattern.test(text))
     ? 'child_data'
     : centralClassification;
+}
+
+export function assessObserverTextPrivacy(
+  text: string,
+  now?: Date | string,
+): ObserverTextPrivacyAdmission {
+  const privacyClass = classifyObserverTextPrivacy(text, now);
+  if (privacyClass === 'child_data') {
+    return { allowed: false, privacyClass, reason: 'child_data_not_observed' };
+  }
+  if (privacyClass === 'personal') {
+    return { allowed: false, privacyClass, reason: 'personal_data_requires_consent' };
+  }
+  return { allowed: true, privacyClass };
+}
+
+export function requireObserverTextPrivacyAdmission(
+  text: string,
+  now?: Date | string,
+): 'public' | 'business_confidential' {
+  const admission = assessObserverTextPrivacy(text, now);
+  if (!admission.allowed) {
+    throw new ObserverTextPrivacyError(admission.privacyClass, admission.reason);
+  }
+  return admission.privacyClass;
 }
 
 export function admitObserverFacts(facts: readonly ObserverFactCandidate[]): ObserverFactAdmission {

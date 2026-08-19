@@ -1,7 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { classifyObserverTextPrivacy } from '@/lib/thinkforge/events/observer-memory-policy';
+import { assessObserverTextPrivacy } from '@/lib/thinkforge/events/observer-memory-policy';
 import {
   createOrGetQueuedThinkForgeObserverJob,
   dispatchThinkForgeObserverJob,
@@ -85,12 +85,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Session is unavailable to this principal' }, { status: 403 });
   }
 
-  if (classifyObserverTextPrivacy(text) === 'child_data') {
-    console.warn('[Observer] Child-data input excluded from memory ingestion', {
+  const privacyAdmission = assessObserverTextPrivacy(text);
+  if (!privacyAdmission.allowed) {
+    console.warn('[Observer] Privacy-restricted input excluded from memory ingestion', {
       sessionId: parsed.value.sessionId,
       source: parsed.value.source,
+      privacyClass: privacyAdmission.privacyClass,
     });
-    return NextResponse.json({ accepted: false, reason: 'child_data_not_observed' }, { status: 202 });
+    return NextResponse.json({ accepted: false, reason: privacyAdmission.reason }, { status: 202 });
   }
   if (!isThinkForgeObserverWorkerConfigured()) {
     return NextResponse.json({ accepted: false, error: 'observer_worker_not_configured' }, { status: 503 });
