@@ -5,13 +5,17 @@ import {
   type GenericLoweringResultV2R,
 } from './generic-lowerer-v2r';
 import { buildPlannerOwnershipStageTwoPacketV2R } from './planner-ownership-stage2-packet-v2r';
-import { bindV2ROperatorCatalogToPacketV2R } from './operator-catalog-v2r';
+import {
+  bindV2ROperatorCatalogToPacketV2R,
+  V2R_OPERATOR_CATALOG,
+} from './operator-catalog-v2r';
 import {
   assertV2RPreregistrationComplete,
   type V2RPreregistrationManifest,
 } from './v2r-preregistration-manifest';
 import { buildEvaluatorPolicyFreezeV2R } from './evaluator-freeze-v2r';
 import type { ProviderStageRunV2 } from './provider-transport-v2';
+import { validateSelectedOperatorNodesV2R } from './stage2-selected-operator-contract-v2r';
 import {
   buildNextProviderStagePacketV2,
   type HashedStagePacketV2,
@@ -53,7 +57,7 @@ export interface V2RConnectedStageRowV2 {
 }
 
 export interface V2RConnectedEpisodeReceiptV2 {
-  receiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V2';
+  receiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V3';
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
   preregistrationManifestSha256: string;
   taskId: string;
@@ -66,7 +70,8 @@ export interface V2RConnectedEpisodeReceiptV2 {
     | 'STAGE3_LOWERED'
     | 'BLOCKED_BEFORE_STAGE2'
     | 'BLOCKED_BEFORE_STAGE3'
-    | 'BLOCKED_BEFORE_LOWERING';
+    | 'BLOCKED_BEFORE_LOWERING'
+    | 'UNVERIFIABLE_BEFORE_LOWERING';
   lowering: Readonly<{
     performed: boolean;
     zeroAdd: boolean | null;
@@ -119,11 +124,26 @@ export async function runV2RConnectedEpisodeV2(input: {
   rows.push(stageTwo);
   if (!accepted(stageTwo)) return receipt(input, manifest, rows, 'BLOCKED_BEFORE_STAGE3', notLowered());
 
+  const stageTwoArtifact = requireArtifact(stageTwo);
+  const stageTwoDiagnostics = validateSelectedOperatorNodesV2R(
+    stageTwoArtifact.nodes,
+    catalogOperatorIds(),
+  );
+  if (stageTwoDiagnostics.length) {
+    return receipt(
+      input,
+      manifest,
+      rows,
+      'BLOCKED_BEFORE_STAGE3',
+      notLowered(stageTwoDiagnostics.map((diagnostic) => `STAGE2_CONTRACT_REJECTED:${diagnostic}`)),
+    );
+  }
+
   const stageThreePacket = bindV2ROperatorCatalogToPacketV2R(buildNextProviderStagePacketV2({
     previousPacket: stageTwoPacket,
     stage: 3,
     executionFormArm: input.task.executionFormArm,
-    priorArtifact: requireArtifact(stageTwo),
+    priorArtifact: stageTwoArtifact,
     stageThreeSource: { evidencePack: input.task.evidencePack },
     nodeContractVersion: 'V2R',
   }));
@@ -135,7 +155,17 @@ export async function runV2RConnectedEpisodeV2(input: {
   rows.push(stageThree);
   if (!accepted(stageThree)) return receipt(input, manifest, rows, 'BLOCKED_BEFORE_LOWERING', notLowered());
 
-  const lowering = lowerModelOutput(input.task, requireArtifact(stageTwo), requireArtifact(stageThree));
+  const stageThreeArtifact = requireArtifact(stageThree);
+  if (stageThreeArtifact.stageDisposition === 'UNVERIFIABLE') {
+    return receipt(
+      input,
+      manifest,
+      rows,
+      'UNVERIFIABLE_BEFORE_LOWERING',
+      notLowered(['STAGE3_UNVERIFIABLE_EXECUTION_BLOCK']),
+    );
+  }
+  const lowering = lowerModelOutput(input.task, stageTwoArtifact, stageThreeArtifact);
   return receipt(input, manifest, rows, 'STAGE3_LOWERED', lowering);
 }
 
@@ -223,7 +253,7 @@ function receipt(
       .reduce((sum, attempt) => sum + (attempt.providerCostUsd ?? 0), 0), 0)
     .toFixed(12));
   const material = {
-    receiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V2' as const,
+    receiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V3' as const,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     preregistrationManifestSha256: manifest.manifestSha256,
     taskId: input.task.taskId,
@@ -240,7 +270,7 @@ function receipt(
   return deepFreezeV1({ ...material, receiptHash: hashCanonicalJsonV1(material) });
 }
 
-function notLowered(): V2RConnectedEpisodeReceiptV2['lowering'] {
+function notLowered(diagnostics: readonly string[] = []): V2RConnectedEpisodeReceiptV2['lowering'] {
   return deepFreezeV1({
     performed: false,
     zeroAdd: null,
@@ -254,7 +284,7 @@ function notLowered(): V2RConnectedEpisodeReceiptV2['lowering'] {
     compiledGraphHash: null,
     compiledOperatorIds: [],
     selectedOperatorIds: [],
-    diagnostics: [],
+    diagnostics: [...diagnostics],
   });
 }
 
@@ -315,4 +345,16 @@ function validateRoute(
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+function catalogOperatorIds(): ReadonlySet<string> {
+  const operators = Array.isArray(V2R_OPERATOR_CATALOG.operators)
+    ? V2R_OPERATOR_CATALOG.operators
+    : [];
+  return new Set(operators.flatMap((operator) => (
+    operator && typeof operator === 'object' && !Array.isArray(operator)
+      && typeof (operator as JsonRecord).operatorId === 'string'
+      ? [(operator as JsonRecord).operatorId as string]
+      : []
+  )));
 }

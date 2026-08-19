@@ -17,13 +17,15 @@ import { V2R_OPERATOR_CATALOG_REVISION } from '@/lib/editron/research/open-ended
 type JsonRecord = Record<string, unknown>;
 const canonical = getCanonicalDev01Stage123V2();
 
-function dev01Task(): V2RConnectedTaskV2 {
+function dev01Task(
+  conditionId: 'BASELINE' | 'VISUAL_EVIDENCE_WITHHELD' = 'BASELINE',
+): V2RConnectedTaskV2 {
   return {
     taskId: 'DEV-01',
-    conditionId: 'BASELINE',
+    conditionId,
     executionFormArm: 'FORCED_NATIVE',
-    stageOnePacket: buildDev01TruthfulStageOneTextPacketV2('BASELINE'),
-    evidencePack: canonical.evidencePacks.BASELINE,
+    stageOnePacket: buildDev01TruthfulStageOneTextPacketV2(conditionId),
+    evidencePack: canonical.evidencePacks[conditionId],
     loweringPolicy: DEV01_LOWERING_POLICY_V2R,
   };
 }
@@ -213,6 +215,47 @@ describe('V2-1F V2R connected episode harness', () => {
     expect(receipt.finalDisposition).toBe('BLOCKED_BEFORE_STAGE3');
     expect(receipt.lowering.performed).toBe(false);
     expect(receipt.rows.map(({ stage }) => stage)).toEqual([1, 2]);
+  });
+
+  it('records an unknown executable operator as a Stage-2 contract rejection, not a crash', async () => {
+    const manifest = buildV2RPreregistrationManifest();
+    const invalidStageTwo = structuredClone(canonical.editorialIntentV2R) as {
+      nodes: Array<Record<string, unknown>>;
+    };
+    invalidStageTwo.nodes[0].selectedOperatorId = 'generated-composition.prepare';
+    const { route, seenPackets } = fakeRoute([
+      canonical.referenceBlueprints.BASELINE as JsonRecord,
+      invalidStageTwo as JsonRecord,
+    ]);
+    const receipt = await runV2RConnectedEpisodeV2({ manifest, task: dev01Task(), route });
+    expect(receipt.finalDisposition).toBe('BLOCKED_BEFORE_STAGE3');
+    expect(receipt.lowering.performed).toBe(false);
+    expect(receipt.lowering.diagnostics).toEqual(expect.arrayContaining([
+      expect.stringContaining('STAGE2_CONTRACT_REJECTED:SELECTED_OPERATOR_UNKNOWN'),
+    ]));
+    expect(seenPackets).toHaveLength(2);
+  });
+
+  it('stops an evidence-withheld UNVERIFIABLE result before lowering or execution', async () => {
+    const manifest = buildV2RPreregistrationManifest();
+    const conditionId = 'VISUAL_EVIDENCE_WITHHELD' as const;
+    const { route } = fakeRoute([
+      canonical.referenceBlueprints[conditionId] as JsonRecord,
+      canonical.editorialIntentV2R as JsonRecord,
+      canonical.evidenceBoundIntentsV2R[conditionId] as JsonRecord,
+    ]);
+    const receipt = await runV2RConnectedEpisodeV2({
+      manifest,
+      task: dev01Task(conditionId),
+      route,
+    });
+    expect(receipt.finalDisposition).toBe('UNVERIFIABLE_BEFORE_LOWERING');
+    expect(receipt.lowering).toMatchObject({
+      performed: false,
+      compiledGraphHash: null,
+      diagnostics: ['STAGE3_UNVERIFIABLE_EXECUTION_BLOCK'],
+    });
+    expect(receipt.rows).toHaveLength(3);
   });
 
   it('reports lowering diagnostics honestly when the model output is not lowerable', async () => {
