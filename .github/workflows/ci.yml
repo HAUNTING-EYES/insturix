@@ -88,7 +88,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run ESLint
-        run: pnpm lint
+        run: pnpm exec eslint . --quiet
 
   typecheck:
     name: TypeScript Check
@@ -109,10 +109,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: TypeScript check
-        # Using || true for now because there are existing type errors in the codebase.
-        # TODO: Remove "|| true" once all type errors are resolved and
-        #       ignoreBuildErrors is set to false in next.config.ts
-        run: pnpm tsc --noEmit || true
+        run: pnpm exec tsc --noEmit
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
 
   test:
     name: Unit Tests
@@ -138,11 +137,99 @@ jobs:
           # Add any test-specific env vars here if needed
           NODE_ENV: test
 
+  thinkforge-browser:
+    name: ThinkForge Browser Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      THINKFORGE_E2E_MODE: '1'
+      THINKFORGE_E2E_BASE_URL: http://127.0.0.1:3101
+      THINKFORGE_E2E_DATABASE_URI: ${{ secrets.THINKFORGE_E2E_DATABASE_URI }}
+      THINKFORGE_E2E_REDIS_REST_URL: ${{ secrets.THINKFORGE_E2E_REDIS_REST_URL }}
+      THINKFORGE_E2E_REDIS_REST_TOKEN: ${{ secrets.THINKFORGE_E2E_REDIS_REST_TOKEN }}
+      THINKFORGE_E2E_BASE_EMAIL: ${{ secrets.THINKFORGE_E2E_BASE_EMAIL }}
+      THINKFORGE_E2E_WRITER_FIXTURE: auto
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.THINKFORGE_E2E_CLERK_PUBLISHABLE_KEY }}
+      CLERK_SECRET_KEY: ${{ secrets.THINKFORGE_E2E_CLERK_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Validate and scope the disposable tenant
+        shell: bash
+        run: |
+          required=(
+            THINKFORGE_E2E_DATABASE_URI
+            THINKFORGE_E2E_REDIS_REST_URL
+            THINKFORGE_E2E_REDIS_REST_TOKEN
+            THINKFORGE_E2E_BASE_EMAIL
+            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+            CLERK_SECRET_KEY
+          )
+          missing=()
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required ThinkForge E2E secret(s): %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+          if [[ "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" != pk_test_* ]]; then
+            echo 'ThinkForge E2E requires a Clerk test publishable key.' >&2
+            exit 1
+          fi
+          if [[ "$CLERK_SECRET_KEY" != sk_test_* ]]; then
+            echo 'ThinkForge E2E requires a Clerk test secret key.' >&2
+            exit 1
+          fi
+          if [[ "$THINKFORGE_E2E_BASE_EMAIL" != *@* ]]; then
+            echo 'THINKFORGE_E2E_BASE_EMAIL must be a valid disposable test address.' >&2
+            exit 1
+          fi
+
+          run_id="ci$(printf '%s' "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" | sha256sum | cut -c1-10)"
+          local_part="${THINKFORGE_E2E_BASE_EMAIL%@*}"
+          local_part="${local_part%%+*}"
+          domain="${THINKFORGE_E2E_BASE_EMAIL##*@}"
+          {
+            echo "THINKFORGE_E2E_RUN_ID=$run_id"
+            echo "THINKFORGE_E2E_USER_EMAIL=${local_part}+${run_id}@${domain}"
+            echo "THINKFORGE_E2E_BRAND_ID=brand_${run_id}"
+          } >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run authenticated ThinkForge journeys
+        run: pnpm exec playwright test tests/e2e/thinkforge-browser.spec.ts --project=thinkforge-chromium
+
+      - name: Upload ThinkForge browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: thinkforge-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .artifacts/playwright/report
+            .artifacts/playwright/results
+          if-no-files-found: warn
+          retention-days: 7
+
   build:
     name: Build Check
     runs-on: ubuntu-latest
     # Build is the most expensive step — run last
-    needs: [secret-scan, lint, test]
+    needs: [secret-scan, lint, typecheck, test, thinkforge-browser]
     steps:
       - uses: actions/checkout@v4
 

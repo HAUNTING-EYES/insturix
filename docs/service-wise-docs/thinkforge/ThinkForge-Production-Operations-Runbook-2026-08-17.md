@@ -156,12 +156,30 @@ THINKFORGE_E2E_MODE=1
 THINKFORGE_E2E_BASE_URL=http://127.0.0.1:<port>
 THINKFORGE_E2E_RUN_ID=<1-12 alphanumeric chars>
 THINKFORGE_E2E_DATABASE_URI=<disposable-test-database-uri>
+THINKFORGE_E2E_REDIS_REST_URL=<test-redis-rest-url>
+THINKFORGE_E2E_REDIS_REST_TOKEN=<test-redis-rest-token>
 THINKFORGE_E2E_USER_EMAIL=<disposable-admin-email>
 THINKFORGE_E2E_BRAND_ID=<disposable-personal-brand-id>
 THINKFORGE_E2E_WRITER_FIXTURE=auto
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=<test-instance-key>
 CLERK_SECRET_KEY=<test-instance-key>
 ```
+
+The GitHub `ThinkForge Browser Gate` derives a unique run ID, plus-tagged admin identity, and brand ID.
+Configure these repository secrets before making the check required:
+
+```text
+THINKFORGE_E2E_DATABASE_URI
+THINKFORGE_E2E_REDIS_REST_URL
+THINKFORGE_E2E_REDIS_REST_TOKEN
+THINKFORGE_E2E_BASE_EMAIL
+THINKFORGE_E2E_CLERK_PUBLISHABLE_KEY
+THINKFORGE_E2E_CLERK_SECRET_KEY
+```
+
+The Clerk secrets must belong to a test instance, and the Mongo credential must be restricted to a
+disposable QA cluster. Missing or non-test credentials fail the job; they never turn it into a skipped
+green check.
 
 Run:
 
@@ -178,6 +196,8 @@ The gate must prove:
 - a single post creates one completed Clickatron variation
 - a five-slide carousel creates five completed Clickatron variations
 - a Sidecar V2 script compiles through Editron with no legacy parser fallback
+- a cancelled request sends the exact generation identity, aborts, leaves the saved version unchanged,
+  and permits a clean retry
 - session reopen, retry, and visible hydration-error behavior remain correct
 
 The fixture marker is test evidence only. Any fixture configuration in a production environment is a
