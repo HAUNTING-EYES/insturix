@@ -67,8 +67,17 @@ export class LongFormScriptGenerationJobStore {
     validateInputIdentity(input);
     const collection = await this.collectionProvider();
     const dedupeKey = createLongFormScriptJobDedupeKey(input);
-    const existing = await collection.findOne({ activeDedupeKey: dedupeKey });
-    if (existing) return { job: toSnapshot(existing), created: false };
+    const generationIdentity = {
+      userId: input.userId,
+      orgId: input.orgId,
+      sessionId: input.sessionId,
+      generationId: input.generationId,
+    };
+    const existing = await collection.findOne(generationIdentity);
+    if (existing) {
+      assertSameGenerationContract(existing, dedupeKey);
+      return { job: toSnapshot(existing), created: false };
+    }
 
     const id = `longscript_${randomUUID().replace(/-/g, '')}`;
     const record: LongFormScriptGenerationJobRecord = {
@@ -106,8 +115,9 @@ export class LongFormScriptGenerationJobStore {
       return { job: toSnapshot(record), created: true };
     } catch (error) {
       if (!isDuplicateKeyError(error)) throw error;
-      const concurrent = await collection.findOne({ activeDedupeKey: dedupeKey });
+      const concurrent = await collection.findOne(generationIdentity);
       if (!concurrent) throw error;
+      assertSameGenerationContract(concurrent, dedupeKey);
       return { job: toSnapshot(concurrent), created: false };
     }
   }
@@ -118,6 +128,21 @@ export class LongFormScriptGenerationJobStore {
     orgId: string | null,
   ): Promise<LongFormScriptGenerationJobSnapshot | null> {
     const record = await (await this.collectionProvider()).findOne({ _id: jobId, userId, orgId });
+    return record ? toSnapshot(record) : null;
+  }
+
+  async getByGenerationAuthorized(
+    sessionId: string,
+    generationId: string,
+    userId: string,
+    orgId: string | null,
+  ): Promise<LongFormScriptGenerationJobSnapshot | null> {
+    const record = await (await this.collectionProvider()).findOne({
+      sessionId,
+      generationId,
+      userId,
+      orgId,
+    });
     return record ? toSnapshot(record) : null;
   }
 
@@ -410,6 +435,28 @@ export class LongFormScriptGenerationJobStore {
     return update.matchedCount === 1;
   }
 
+  async cancelByGenerationAuthorized(
+    sessionId: string,
+    generationId: string,
+    userId: string,
+    orgId: string | null,
+    now = new Date(),
+  ): Promise<LongFormScriptGenerationJobSnapshot | null> {
+    const collection = await this.collectionProvider();
+    const identity = { sessionId, generationId, userId, orgId };
+    const cancelled = await collection.findOneAndUpdate(
+      { ...identity, status: { $in: ['queued', 'running'] } },
+      {
+        $set: { status: 'cancelled', leaseExpiresAt: null, updatedAt: now },
+        $unset: { activeDedupeKey: '', leaseToken: '' },
+      },
+      { returnDocument: 'after' },
+    );
+    if (cancelled) return toSnapshot(cancelled);
+    const terminal = await collection.findOne(identity);
+    return terminal ? toSnapshot(terminal) : null;
+  }
+
   async setQueueMessage(jobId: string, messageId: string, now = new Date()): Promise<void> {
     await (await this.collectionProvider()).updateOne(
       { _id: jobId, status: 'queued' },
@@ -457,6 +504,17 @@ function validateInputIdentity(input: LongFormScriptGenerationJobInput): void {
   });
   if (!Number.isInteger(input.baseVersion) || input.baseVersion < 1) {
     throw new Error('Long-form script jobs require a positive integer baseVersion.');
+  }
+}
+
+function assertSameGenerationContract(
+  record: LongFormScriptGenerationJobRecord,
+  dedupeKey: string,
+): void {
+  if (record.dedupeKey !== dedupeKey) {
+    throw new LongFormScriptJobTransitionError(
+      'A generation identity cannot be reused with a different script or base version.',
+    );
   }
 }
 

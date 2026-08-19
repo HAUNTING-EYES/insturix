@@ -31,6 +31,10 @@ const lifecycleMocks = vi.hoisted(() => {
     GenerationStateConflictError,
   };
 });
+const longFormLifecycleMocks = vi.hoisted(() => ({
+  cancelByGenerationAuthorized: vi.fn(),
+  getByGenerationAuthorized: vi.fn(),
+}));
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: lifecycleMocks.auth }));
 vi.mock('ai', () => ({ generateText: optionalWorkMocks.generateText }));
@@ -51,6 +55,9 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
   getScript: lifecycleMocks.getScript,
   getSession: lifecycleMocks.getSession,
   updateGenerationState: lifecycleMocks.updateGenerationState,
+}));
+vi.mock('@/lib/thinkforge/long-form/script-generation-job-store', () => ({
+  longFormScriptGenerationJobStore: longFormLifecycleMocks,
 }));
 
 function read(path: string): string {
@@ -468,6 +475,8 @@ describe('ThinkForge generation route ownership', () => {
       type: 'chat',
       status: 'cancelled',
     });
+    longFormLifecycleMocks.getByGenerationAuthorized.mockResolvedValue(null);
+    longFormLifecycleMocks.cancelByGenerationAuthorized.mockResolvedValue(null);
   });
 
   it('denies foreign-organization callers before reading generation state', async () => {
@@ -548,6 +557,92 @@ describe('ThinkForge generation route ownership', () => {
     });
   });
 
+  it('reports durable chapter progress without applying the one-shot watchdog', async () => {
+    const stale = new Date(Date.now() - 600_000);
+    lifecycleMocks.getActiveGeneration.mockResolvedValue({
+      id: 'generation_1',
+      type: 'script_generate',
+      scriptId: 'script_generated',
+      intent: 'long_form_chaptered',
+      status: 'running',
+      startedAt: stale,
+      updatedAt: stale,
+    });
+    longFormLifecycleMocks.getByGenerationAuthorized.mockResolvedValue({
+      status: 'running',
+      stage: 'writing',
+      updatedAt: new Date().toISOString(),
+      plan: {
+        acts: [{ chapters: [{ id: 'chapter_1' }, { id: 'chapter_2' }] }],
+      },
+      chapterArtifacts: { chapter_1: {} },
+    });
+    const { getStatus } = await loadGenerationRoutes();
+
+    const response = await getStatus(statusRequest());
+
+    expect(response.status).toBe(200);
+    expect(longFormLifecycleMocks.getByGenerationAuthorized).toHaveBeenCalledWith(
+      'session_canonical',
+      'generation_1',
+      'user_1',
+      'org_1',
+    );
+    expect(lifecycleMocks.updateGenerationState).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      generation: {
+        status: 'running',
+        progress: 0.475,
+        message: 'Writing chapter 2 of 2',
+      },
+    });
+  });
+
+  it('settles a completed durable job and hydrates its canonical script', async () => {
+    lifecycleMocks.getActiveGeneration.mockResolvedValue({
+      id: 'generation_1',
+      type: 'script_generate',
+      scriptId: 'script_generated',
+      intent: 'long_form_chaptered',
+      status: 'running',
+      startedAt: new Date(),
+      updatedAt: new Date(),
+    });
+    longFormLifecycleMocks.getByGenerationAuthorized.mockResolvedValue({
+      status: 'completed',
+      stage: 'committing',
+      updatedAt: new Date().toISOString(),
+      plan: null,
+      chapterArtifacts: {},
+      error: null,
+    });
+    lifecycleMocks.updateGenerationState.mockResolvedValue({
+      id: 'generation_1',
+      type: 'script_generate',
+      scriptId: 'script_generated',
+      status: 'completed',
+    });
+    lifecycleMocks.getScript.mockResolvedValue({
+      sessionId: 'session_canonical',
+      scriptId: 'script_generated',
+      content: 'Complete long-form script',
+    });
+    const { getStatus } = await loadGenerationRoutes();
+
+    const response = await getStatus(statusRequest());
+
+    expect(lifecycleMocks.updateGenerationState).toHaveBeenCalledWith(
+      'session_canonical',
+      'generation_1',
+      expect.objectContaining({ status: 'completed', progress: 1 }),
+    );
+    expect(lifecycleMocks.getScript).toHaveBeenCalledWith('session_canonical', 'script_generated');
+    await expect(response.json()).resolves.toMatchObject({
+      generation: { status: 'completed' },
+      script: { content: 'Complete long-form script' },
+    });
+  });
+
   it('requires the exact generation identity before cancellation', async () => {
     const { stopGeneration } = await loadGenerationRoutes();
 
@@ -571,6 +666,78 @@ describe('ThinkForge generation route ownership', () => {
     expect(response.status).toBe(200);
     expect(lifecycleMocks.getActiveGeneration).toHaveBeenCalledWith('session_canonical');
     expect(lifecycleMocks.updateGenerationState).toHaveBeenCalledWith(
+      'session_canonical',
+      'generation_1',
+      expect.objectContaining({ status: 'cancelled' }),
+    );
+  });
+
+  it('revokes a durable job before cancelling its generation and billing state', async () => {
+    lifecycleMocks.getActiveGeneration.mockResolvedValue({
+      id: 'generation_1',
+      type: 'script_generate',
+      scriptId: 'script_generated',
+      intent: 'long_form_chaptered',
+      status: 'running',
+      startedAt: new Date(),
+      updatedAt: new Date(),
+    });
+    longFormLifecycleMocks.cancelByGenerationAuthorized.mockResolvedValue({ status: 'cancelled' });
+    const { stopGeneration } = await loadGenerationRoutes();
+
+    const response = await stopGeneration(stopRequest({
+      sessionId: 'session_requested',
+      generationId: 'generation_1',
+    }));
+
+    expect(response.status).toBe(200);
+    expect(longFormLifecycleMocks.cancelByGenerationAuthorized).toHaveBeenCalledWith(
+      'session_canonical',
+      'generation_1',
+      'user_1',
+      'org_1',
+    );
+    expect(longFormLifecycleMocks.cancelByGenerationAuthorized.mock.invocationCallOrder[0])
+      .toBeLessThan(lifecycleMocks.updateGenerationState.mock.invocationCallOrder[0]);
+    expect(lifecycleMocks.updateGenerationState).toHaveBeenCalledWith(
+      'session_canonical',
+      'generation_1',
+      expect.objectContaining({ status: 'cancelled' }),
+    );
+  });
+
+  it('does not relabel a durable completion as cancelled when completion wins the race', async () => {
+    lifecycleMocks.getActiveGeneration.mockResolvedValue({
+      id: 'generation_1',
+      type: 'script_generate',
+      scriptId: 'script_generated',
+      intent: 'long_form_chaptered',
+      status: 'running',
+      startedAt: new Date(),
+      updatedAt: new Date(),
+    });
+    longFormLifecycleMocks.cancelByGenerationAuthorized.mockResolvedValue({ status: 'completed' });
+    lifecycleMocks.updateGenerationState.mockResolvedValue({
+      id: 'generation_1',
+      type: 'script_generate',
+      scriptId: 'script_generated',
+      status: 'completed',
+    });
+    const { stopGeneration } = await loadGenerationRoutes();
+
+    const response = await stopGeneration(stopRequest({
+      sessionId: 'session_requested',
+      generationId: 'generation_1',
+    }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Generation already completed' });
+    expect(lifecycleMocks.updateGenerationState).toHaveBeenCalledWith(
+      'session_canonical',
+      'generation_1',
+      expect.objectContaining({ status: 'completed' }),
+    );
+    expect(lifecycleMocks.updateGenerationState).not.toHaveBeenCalledWith(
       'session_canonical',
       'generation_1',
       expect.objectContaining({ status: 'cancelled' }),

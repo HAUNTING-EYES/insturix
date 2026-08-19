@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { LONG_FORM_SCRIPT_GENERATION_INTENT } from '@/lib/thinkforge/long-form/script-generation-job-contract';
+import { longFormScriptGenerationJobStore } from '@/lib/thinkforge/long-form/script-generation-job-store';
 import * as db from '@/lib/thinkforge/services/db';
 
 export const runtime = 'nodejs';
@@ -47,6 +49,33 @@ export async function POST(req: Request) {
 
     if (active.id !== generationId) {
       return NextResponse.json({ error: 'Generation mismatch' }, { status: 409 });
+    }
+
+    if (active.intent === LONG_FORM_SCRIPT_GENERATION_INTENT) {
+      const job = await longFormScriptGenerationJobStore.cancelByGenerationAuthorized(
+        canonicalSessionId,
+        generationId,
+        userId,
+        orgId ?? null,
+      );
+      if (!job) {
+        return NextResponse.json({ error: 'Long-form generation job not found' }, { status: 409 });
+      }
+      if (job.status === 'completed') {
+        await db.updateGenerationState(canonicalSessionId, generationId, {
+          status: 'completed',
+          progress: 1,
+          message: 'Long-form script ready',
+        });
+        return NextResponse.json({ error: 'Generation already completed' }, { status: 409 });
+      }
+      if (job.status === 'dead_letter') {
+        await db.updateGenerationState(canonicalSessionId, generationId, {
+          status: 'failed',
+          message: job.error?.message || 'Long-form script generation failed.',
+        });
+        return NextResponse.json({ error: 'Generation already failed' }, { status: 409 });
+      }
     }
 
     await db.updateGenerationState(canonicalSessionId, generationId, {

@@ -12,9 +12,15 @@ export const LONG_FORM_SCRIPT_JOB_COLLECTION = 'thinkforge_long_form_script_jobs
 export const LONG_FORM_SCRIPT_JOB_LEASE_MS = 8 * 60_000;
 export const LONG_FORM_SCRIPT_JOB_MAX_STAGE_FAILURES = 3;
 export const LONG_FORM_SCRIPT_JOB_TTL_MS = 48 * 60 * 60_000;
+export const LONG_FORM_SCRIPT_GENERATION_INTENT = 'long_form_chaptered';
 
 export const LONG_FORM_SCRIPT_JOB_INDEXES: IndexDescription[] = [
   { key: { activeDedupeKey: 1 }, name: 'thinkforge_long_form_active_dedupe', unique: true, sparse: true },
+  {
+    key: { userId: 1, orgId: 1, sessionId: 1, generationId: 1 },
+    name: 'thinkforge_long_form_generation_identity',
+    unique: true,
+  },
   { key: { userId: 1, orgId: 1, status: 1, updatedAt: -1 }, name: 'thinkforge_long_form_actor_status' },
   { key: { status: 1, updatedAt: 1 }, name: 'thinkforge_long_form_recovery' },
   { key: { expiresAt: 1 }, name: 'thinkforge_long_form_ttl', expireAfterSeconds: 0 },
