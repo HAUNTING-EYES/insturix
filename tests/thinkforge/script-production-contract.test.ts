@@ -378,8 +378,19 @@ describe('ThinkForge script production contract', () => {
         contentSignalProfile: sevenMinuteProfile(),
       })).rejects.toThrow('stop after inspection');
 
+      expect(resolveScriptGenerationFeasibility({
+        productionBrief: sevenMinuteBrief(),
+        contentSignalProfile: sevenMinuteProfile(),
+      })).toMatchObject({
+        mode: 'single_pass',
+        requiredVisibleOutputTokens: 21_700,
+        thinkingBudgetTokens: 8_192,
+        requiredOutputTokens: 29_892,
+        maximumOutputTokens: 65_536,
+      });
       expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledWith(expect.objectContaining({
-        maxTokens: 21_700,
+        maxTokens: 29_892,
+        thinkingBudgetTokens: 8_192,
         prompt: expect.stringContaining('"editorialPlan": {'),
       }));
       const prompt = generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt;
@@ -443,6 +454,7 @@ describe('ThinkForge script production contract', () => {
     expect(feasibility).toMatchObject({
       mode: 'chaptered_required',
       requestedDurationSeconds: 36_000,
+      thinkingBudgetTokens: 8_192,
       maximumOutputTokens: 65_536,
     });
     expect(feasibility.requiredOutputTokens).toBeGreaterThan(feasibility.maximumOutputTokens);

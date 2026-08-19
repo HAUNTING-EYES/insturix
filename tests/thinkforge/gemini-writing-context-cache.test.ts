@@ -740,6 +740,58 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     });
   });
 
+  it('combines a bounded thinking budget with cached structured generation', async () => {
+    await generateStructuredWithWritingContextCache({
+      prompt: 'Write the script.',
+      schema: z.object({ output: z.string() }),
+      maxTokens: 29_892,
+      thinkingBudgetTokens: 8_192,
+    });
+
+    expect(sdkMocks.generateObject).toHaveBeenCalledWith(expect.objectContaining({
+      maxOutputTokens: 29_892,
+      providerOptions: {
+        google: {
+          cachedContent: 'cachedContents/thinkforge-test',
+          thinkingConfig: { thinkingBudget: 8_192 },
+        },
+      },
+    }));
+    expect(sdkMocks.recordProviderCostEvent.mock.calls.at(-1)?.[0]?.metadata)
+      .toMatchObject({ thinkingBudgetTokens: 8_192 });
+  });
+
+  it('preserves a bounded thinking budget when cached context is unavailable', async () => {
+    sdkMocks.createCache.mockRejectedValueOnce(
+      new Error('TotalCachedContentStorageTokensPerModelFreeTier limit exceeded for cached content: limit=0'),
+    );
+
+    await generateStructuredWithWritingContextCache({
+      prompt: 'Write the script.',
+      schema: z.object({ output: z.string() }),
+      maxTokens: 29_892,
+      thinkingBudgetTokens: 8_192,
+    });
+
+    expect(sdkMocks.generateObject).toHaveBeenCalledWith(expect.objectContaining({
+      system: expect.any(String),
+      providerOptions: {
+        google: { thinkingConfig: { thinkingBudget: 8_192 } },
+      },
+    }));
+  });
+
+  it('rejects an invalid thinking budget before cache or provider dispatch', async () => {
+    await expect(generateStructuredWithWritingContextCache({
+      prompt: 'Write the script.',
+      schema: z.object({ output: z.string() }),
+      thinkingBudgetTokens: 1.5,
+    })).rejects.toThrow('thinkingBudgetTokens must be a non-negative whole number');
+
+    expect(sdkMocks.createCache).not.toHaveBeenCalled();
+    expect(sdkMocks.generateObject).not.toHaveBeenCalled();
+  });
+
   it('reuses one stable cache while sending each trusted instruction in its request contract', async () => {
     await generateStructuredWithWritingContextCache({
       prompt: '<tf_untrusted_data>{"userBrief":"Write the post"}</tf_untrusted_data>',

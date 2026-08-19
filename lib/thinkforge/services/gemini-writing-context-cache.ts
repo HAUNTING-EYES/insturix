@@ -57,6 +57,7 @@ export interface WritingContextGenerationResult {
 
 export interface WritingContextStructuredGenerationInput<TOutput> extends WritingContextGenerationInput {
   schema: z.ZodType<TOutput>;
+  thinkingBudgetTokens?: number;
 }
 
 export interface WritingContextStructuredGenerationResult<TOutput> {
@@ -109,6 +110,7 @@ async function recordThinkForgeWritingContextCost(input: {
   functionMs?: number;
   usage?: GeminiWritingContextUsage;
   privacyAudit?: ProviderPrivacyAuditRecord;
+  thinkingBudgetTokens?: number;
   providerRequestCount?: 0 | 1;
   error?: unknown;
 }) {
@@ -146,6 +148,7 @@ async function recordThinkForgeWritingContextCost(input: {
       userInputChars: input.userInputChars,
       systemInstructionChars: input.systemInstructionChars,
       outputChars: input.outputChars,
+      thinkingBudgetTokens: input.thinkingBudgetTokens,
       privacyRoutePurpose: input.privacyAudit?.routePurpose,
       privacyClass: input.privacyAudit?.privacyClass,
       privacyFieldsSent: input.privacyAudit?.fieldsSent,
@@ -876,6 +879,10 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
   if (input.abortSignal?.aborted) {
     throw new Error('ThinkForge writing generation aborted before start');
   }
+  if (input.thinkingBudgetTokens !== undefined
+    && (!Number.isInteger(input.thinkingBudgetTokens) || input.thinkingBudgetTokens < 0)) {
+    throw new TypeError('thinkingBudgetTokens must be a non-negative whole number');
+  }
 
   const modelName = normalizeCacheModelName(input.modelName);
   assertWritingPromptPreflight(input, modelName, 'llm_structured_privacy_blocked');
@@ -924,6 +931,12 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       maxOutputTokens: input.maxTokens ?? 0,
     });
     providerCallStarted = true;
+    const googleProviderOptions = {
+      ...(context.cacheName ? { cachedContent: context.cacheName } : {}),
+      ...(input.thinkingBudgetTokens !== undefined
+        ? { thinkingConfig: { thinkingBudget: input.thinkingBudgetTokens } }
+        : {}),
+    };
     const generation = await awaitStructuredGeneration(
       generateObject({
         model: createThinkForgeModel(toRuntimeModelName(modelName)),
@@ -934,8 +947,8 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
         maxOutputTokens: input.maxTokens,
         maxRetries: 0,
         abortSignal: deadline.abortSignal,
-        ...(context.cacheName
-          ? { providerOptions: { google: { cachedContent: context.cacheName } } }
+        ...(Object.keys(googleProviderOptions).length > 0
+          ? { providerOptions: { google: googleProviderOptions } }
           : {}),
       }),
       deadline,
@@ -952,6 +965,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       functionMs: Date.now() - startedAt,
       usage: await readAiSdkUsage(generation.usage),
       privacyAudit,
+      thinkingBudgetTokens: input.thinkingBudgetTokens,
     });
     return {
       result: generation.object,
@@ -973,6 +987,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       systemInstructionChars: sentSystemInstructionChars,
       functionMs: Date.now() - startedAt,
       privacyAudit: failedAudit,
+      thinkingBudgetTokens: input.thinkingBudgetTokens,
       providerRequestCount: providerCallStarted ? 1 : 0,
       error: failure,
     });

@@ -400,10 +400,11 @@ function validateCastingBriefCompliance(
 
 /** Provider output capacity; editorial structure and pacing come from buildScriptEditorialPlan. */
 const SCRIPT_WRITER_MAX_OUTPUT_TOKENS = 65_536;
+const SCRIPT_WRITER_THINKING_BUDGET_TOKENS = 8_192;
 const TOKENS_PER_MAXIMUM_SPOKEN_WORD = 14;
 const TOKENS_PER_RUNTIME_SECOND_FOR_SIDECAR = 12;
-/** Minimum provider output budget when the brief has no runtime target. */
-const SCRIPT_WRITER_DEFAULT_MAX_TOKENS = 8192;
+/** Minimum visible response budget when the brief has no runtime target. */
+const SCRIPT_WRITER_DEFAULT_VISIBLE_OUTPUT_TOKENS = 8_192;
 
 interface ScriptRuntimeContract {
   targetDurationSeconds: number;
@@ -445,12 +446,16 @@ export type ScriptGenerationFeasibility =
   | {
       mode: 'single_pass';
       requiredOutputTokens: number;
+      requiredVisibleOutputTokens: number;
+      thinkingBudgetTokens: number;
       maximumOutputTokens: number;
       maximumSinglePassDurationSeconds: number | null;
     }
   | {
       mode: 'chaptered_required';
       requiredOutputTokens: number;
+      requiredVisibleOutputTokens: number;
+      thinkingBudgetTokens: number;
       maximumOutputTokens: number;
       maximumSinglePassDurationSeconds: number;
       requestedDurationSeconds: number;
@@ -463,7 +468,8 @@ export class ScriptWriterCapacityError extends Error {
   constructor(feasibility: Extract<ScriptGenerationFeasibility, { mode: 'chaptered_required' }>) {
     super(
       `Script writer requires chaptered generation: requested ${feasibility.requestedDurationSeconds}s `
-      + `needs approximately ${feasibility.requiredOutputTokens} output tokens; the current single-pass `
+      + `needs approximately ${feasibility.requiredVisibleOutputTokens} response tokens plus `
+      + `${feasibility.thinkingBudgetTokens} reasoning tokens; the current single-pass `
       + `writer supports up to ${feasibility.maximumSinglePassDurationSeconds}s without truncation.`,
     );
     this.name = 'ScriptWriterCapacityError';
@@ -481,29 +487,40 @@ function resolveScriptGenerationFeasibilityForPlan(
   plan: ScriptEditorialPlan,
 ): ScriptGenerationFeasibility {
   if (plan.runtime.policy !== 'exact' || plan.narration.wordBudgetPolicy !== 'guided') {
+    const requiredVisibleOutputTokens = SCRIPT_WRITER_DEFAULT_VISIBLE_OUTPUT_TOKENS;
     return {
       mode: 'single_pass',
-      requiredOutputTokens: SCRIPT_WRITER_DEFAULT_MAX_TOKENS,
+      requiredOutputTokens: requiredVisibleOutputTokens + SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
+      requiredVisibleOutputTokens,
+      thinkingBudgetTokens: SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
       maximumOutputTokens: SCRIPT_WRITER_MAX_OUTPUT_TOKENS,
       maximumSinglePassDurationSeconds: null,
     };
   }
 
-  const estimated = Math.ceil(
+  const estimatedVisibleOutputTokens = Math.ceil(
     plan.narration.fullRuntimeComfortableMaximumSpokenWords * TOKENS_PER_MAXIMUM_SPOKEN_WORD
     + plan.runtime.targetDurationSeconds * TOKENS_PER_RUNTIME_SECOND_FOR_SIDECAR,
   );
+  const requiredVisibleOutputTokens = Math.max(
+    SCRIPT_WRITER_DEFAULT_VISIBLE_OUTPUT_TOKENS,
+    estimatedVisibleOutputTokens,
+  );
+  const maximumVisibleOutputTokens =
+    SCRIPT_WRITER_MAX_OUTPUT_TOKENS - SCRIPT_WRITER_THINKING_BUDGET_TOKENS;
   const tokensPerRuntimeSecond =
     (plan.narration.comfortableMaximumWordsPerMinute / 60) * TOKENS_PER_MAXIMUM_SPOKEN_WORD
     + TOKENS_PER_RUNTIME_SECOND_FOR_SIDECAR;
   const maximumSinglePassDurationSeconds = Math.floor(
-    SCRIPT_WRITER_MAX_OUTPUT_TOKENS / tokensPerRuntimeSecond,
+    maximumVisibleOutputTokens / tokensPerRuntimeSecond,
   );
 
-  if (estimated > SCRIPT_WRITER_MAX_OUTPUT_TOKENS) {
+  if (requiredVisibleOutputTokens > maximumVisibleOutputTokens) {
     return {
       mode: 'chaptered_required',
-      requiredOutputTokens: estimated,
+      requiredOutputTokens: requiredVisibleOutputTokens + SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
+      requiredVisibleOutputTokens,
+      thinkingBudgetTokens: SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
       maximumOutputTokens: SCRIPT_WRITER_MAX_OUTPUT_TOKENS,
       maximumSinglePassDurationSeconds,
       requestedDurationSeconds: plan.runtime.targetDurationSeconds,
@@ -512,7 +529,9 @@ function resolveScriptGenerationFeasibilityForPlan(
 
   return {
     mode: 'single_pass',
-    requiredOutputTokens: Math.max(SCRIPT_WRITER_DEFAULT_MAX_TOKENS, estimated),
+    requiredOutputTokens: requiredVisibleOutputTokens + SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
+    requiredVisibleOutputTokens,
+    thinkingBudgetTokens: SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
     maximumOutputTokens: SCRIPT_WRITER_MAX_OUTPUT_TOKENS,
     maximumSinglePassDurationSeconds,
   };
@@ -908,6 +927,7 @@ Return your response strictly adhering to the JSON schema.`;
       modelName: this.config.modelName,
       temperature: gen.temperature,
       maxTokens: gen.maxTokens,
+      thinkingBudgetTokens: SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
       abortSignal,
     });
 
@@ -942,6 +962,7 @@ Return your response strictly adhering to the JSON schema.`;
         modelName: this.config.modelName,
         temperature: Math.min(gen.temperature, 0.25),
         maxTokens: gen.maxTokens,
+        thinkingBudgetTokens: SCRIPT_WRITER_THINKING_BUDGET_TOKENS,
         abortSignal,
       });
       repairCacheStatus = repairedGeneration.cacheStatus;
