@@ -72,7 +72,6 @@ export async function runQwenProviderStageV2(input: {
           parsed: { text: '', eventDiagnostics: diagnostics },
           disposition: 'PROVIDER_ERROR',
           diagnostics,
-          rawText: '',
           budgetMode: input.budgetMode,
           reasoningBudgetTokens,
           visibleOutputBudgetTokens,
@@ -257,7 +256,7 @@ function attemptRecord(input: {
   result: Readonly<QwenProviderExecutionV2>;
   parsed: ReturnType<typeof parseQwenTransportEvents>;
   disposition: ProviderAttemptRecordV2['disposition']; diagnostics: string[];
-  rawText: string; budgetMode: 'FAIR_STAGE_BUDGET' | 'ASYNC_QUALITY_DIAGNOSTIC';
+  rawText?: string; budgetMode: 'FAIR_STAGE_BUDGET' | 'ASYNC_QUALITY_DIAGNOSTIC';
   reasoningBudgetTokens: number; visibleOutputBudgetTokens: number;
 }): ProviderAttemptRecordV2 {
   const tokens = input.parsed.tokens;
@@ -276,7 +275,7 @@ function attemptRecord(input: {
     parseStatus: input.disposition === 'ARTIFACT_ACCEPTED' ? 'SCHEMA_VALID' : input.disposition,
     schemaDiagnostics: [...input.diagnostics],
     artifactSha256: input.disposition === 'ARTIFACT_ACCEPTED'
-      ? hashCanonicalJsonV1(JSON.parse(input.rawText) as unknown) : null,
+      ? hashCanonicalJsonV1(JSON.parse(input.rawText ?? '') as unknown) : null,
     disposition: input.disposition, schemaMode: null,
     promptHash: sha256TextV1(input.prompt),
     requestHash: input.result.providerRequestHash ?? hashCanonicalJsonV1({
@@ -285,7 +284,9 @@ function attemptRecord(input: {
       reasoningBudgetTokens: input.reasoningBudgetTokens,
       visibleOutputBudgetTokens: input.visibleOutputBudgetTokens,
     }),
-    rawResponseHash: input.result.providerResponseHash ?? (input.rawText ? sha256TextV1(input.rawText) : null),
+    providerResponseEnvelopeHash: input.result.providerResponseHash ?? null,
+    rawResponse: input.rawText ?? null,
+    rawResponseHash: input.rawText === undefined ? null : sha256TextV1(input.rawText),
     detail: `${input.result.transportKind ?? 'INJECTED_QWEN_EXECUTOR'}:${input.budgetMode}`,
   };
 }

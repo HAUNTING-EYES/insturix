@@ -51,6 +51,8 @@ export interface ProviderAttemptRecordV2 {
   schemaMode: SchemaModeV2 | null;
   promptHash: string | null;
   requestHash: string | null;
+  providerResponseEnvelopeHash: string | null;
+  rawResponse: string | null;
   rawResponseHash: string | null;
   detail?: string;
 }
@@ -181,19 +183,28 @@ export async function runProviderStageV2(input: {
     }
     const normalized = normalizeProviderResponseV2(input.route.kind, responseBody);
     if (normalized.disposition !== 'SUCCESS') {
-      attempts.push(requestRecord(input, attempt, request, normalized.disposition, 'NOT_ATTEMPTED', latency, normalized.usage, [], normalized, normalized.detail));
+      attempts.push(requestRecord(
+        input, attempt, request, normalized.disposition, 'NOT_ATTEMPTED', latency,
+        normalized.usage, [], normalized, normalized.detail, undefined, normalized.text,
+      ));
       break;
     }
     const telemetryDiagnostics = inspectTelemetry(normalized, input.pricing);
     const providerCost = estimateCost(normalized.usage, input.pricing);
     if (telemetryDiagnostics.length || providerCost === undefined) {
-      attempts.push(requestRecord(input, attempt, request, 'TELEMETRY_UNVERIFIABLE', 'NOT_ATTEMPTED', latency, normalized.usage, telemetryDiagnostics, normalized));
+      attempts.push(requestRecord(
+        input, attempt, request, 'TELEMETRY_UNVERIFIABLE', 'NOT_ATTEMPTED', latency,
+        normalized.usage, telemetryDiagnostics, normalized, undefined, undefined, normalized.text,
+      ));
       break;
     }
     const usage = requiredUsage(normalized.usage);
     const budgetDiagnostics = inspectBudget(usage, providerCost, remaining);
     if (budgetDiagnostics.length) {
-      attempts.push(requestRecord(input, attempt, request, 'BUDGET_EXCEEDED', 'NOT_ATTEMPTED', latency, usage, budgetDiagnostics, normalized, undefined, providerCost));
+      attempts.push(requestRecord(
+        input, attempt, request, 'BUDGET_EXCEEDED', 'NOT_ATTEMPTED', latency,
+        usage, budgetDiagnostics, normalized, undefined, providerCost, normalized.text,
+      ));
       break;
     }
     remaining.input -= usage.inputTokens;
@@ -201,7 +212,10 @@ export async function runProviderStageV2(input: {
     remaining.reasoning -= usage.reasoningTokens;
     remaining.cost -= providerCost;
     if (normalized.truncated) {
-      attempts.push(requestRecord(input, attempt, request, 'TRUNCATED', 'NOT_ATTEMPTED', latency, usage, [], normalized, undefined, providerCost));
+      attempts.push(requestRecord(
+        input, attempt, request, 'TRUNCATED', 'NOT_ATTEMPTED', latency,
+        usage, [], normalized, undefined, providerCost, normalized.text,
+      ));
       break;
     }
     const raw = normalized.text ?? '';
@@ -267,6 +281,8 @@ function requestRecord(
     truncated: response?.truncated ?? null, latencyMs, providerCostUsd: cost ?? null,
     artifactSha256: artifactSha256 ?? null, schemaMode: request.schemaMode,
     promptHash: request.promptHash, requestHash: request.requestHash,
+    providerResponseEnvelopeHash: null,
+    rawResponse: raw ?? null,
     rawResponseHash: raw === undefined ? null : sha256TextV1(raw),
   };
 }
@@ -283,7 +299,9 @@ function emptyRecord(
     cacheMissInputTokens: null, visibleOutputTokens: null, reasoningTokens: null, totalTokens: null,
     finishReason: null, truncated: null, latencyMs: 0, providerCostUsd: null, parseStatus,
     schemaDiagnostics, artifactSha256: null, disposition, schemaMode: null, promptHash: null,
-    requestHash: null, rawResponseHash: null, ...(detail ? { detail: detail.slice(0, 500) } : {}),
+    requestHash: null, providerResponseEnvelopeHash: null,
+    rawResponse: null, rawResponseHash: null,
+    ...(detail ? { detail: detail.slice(0, 500) } : {}),
   };
 }
 function inspectTelemetry(
@@ -322,8 +340,15 @@ function inspectBudget(
 }
 function validateSchema(value: unknown, schema: unknown, path: string): string[] {
   if (!isRecord(schema)) return [`${path}:INVALID_SCHEMA`];
+  if (Array.isArray(schema.anyOf)) {
+    const alternatives = schema.anyOf.map((candidate) => validateSchema(value, candidate, path));
+    return alternatives.some((diagnostics) => diagnostics.length === 0)
+      ? []
+      : (alternatives[0] ?? [`${path}:ANY_OF`]);
+  }
   if ('const' in schema && value !== schema.const) return [`${path}:CONST`];
   if (Array.isArray(schema.enum) && !schema.enum.includes(value)) return [`${path}:ENUM`];
+  if (schema.type === 'null') return value === null ? [] : [`${path}:NULL`];
   if (schema.type === 'string') return typeof value === 'string' && (!schema.minLength || value.length >= Number(schema.minLength)) ? [] : [`${path}:STRING`];
   if (schema.type === 'array') {
     if (!Array.isArray(value)) return [`${path}:ARRAY`];

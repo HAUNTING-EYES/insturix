@@ -13,6 +13,7 @@ import {
   buildDev01TruthfulStageOneTextPacketV2,
   type HashedStagePacketV2,
 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
+import { sha256TextV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 
 const canonical = getCanonicalDev01Stage123V2().referenceBlueprints.BASELINE;
 const textPacket = buildDev01TruthfulStageOneTextPacketV2('BASELINE');
@@ -26,7 +27,10 @@ describe('open-ended planner V2 Qwen provider adapter', () => {
       expect(input.attachmentPaths).toEqual([]);
       expect(input.reasoningBudgetTokens).toBe(textPacket.packet.stageBudget.maxReasoningTokens);
       expect(input.visibleOutputBudgetTokens).toBe(textPacket.packet.stageBudget.maxVisibleOutputTokens);
-      return execution(events(canonical), 824);
+      return {
+        ...execution(events(canonical), 824),
+        providerResponseHash: 'native-envelope-sha256',
+      };
     });
     const execute = executeMock as QwenProviderExecutorV2;
 
@@ -49,7 +53,15 @@ describe('open-ended planner V2 Qwen provider adapter', () => {
       providerModel: null,
       providerCostUsd: null,
       parseStatus: 'SCHEMA_VALID',
+      rawResponse: JSON.stringify(canonical),
     });
+    expect(run.attempts[0].rawResponseHash).toBe(
+      sha256TextV1(run.attempts[0].rawResponse as string),
+    );
+    expect(run.attempts[0].providerResponseEnvelopeHash).toBe('native-envelope-sha256');
+    expect(run.attempts[0].providerResponseEnvelopeHash).not.toBe(
+      run.attempts[0].rawResponseHash,
+    );
   });
 
   it('sends signed stage budgets as native Qwen request limits', async () => {
@@ -141,6 +153,12 @@ describe('open-ended planner V2 Qwen provider adapter', () => {
       'MALFORMED_JSON',
       'ARTIFACT_ACCEPTED',
     ]);
+    expect(run.attempts.map(({ rawResponse }) => rawResponse)).toEqual([
+      '{broken', JSON.stringify(canonical),
+    ]);
+    for (const attempt of run.attempts) {
+      expect(attempt.rawResponseHash).toBe(sha256TextV1(attempt.rawResponse as string));
+    }
     expect(sessions).toEqual([undefined, 'session-repair']);
     expect(prompts[1]).toContain('INVALID_JSON');
     expect(executeMock).toHaveBeenCalledTimes(2);
@@ -174,6 +192,7 @@ describe('open-ended planner V2 Qwen provider adapter', () => {
     expect(run.attempts[0].schemaDiagnostics).toEqual([
       'QWEN_EXECUTION_FAILED:spawn EINVAL',
     ]);
+    expect(run.attempts[0]).toMatchObject({ rawResponse: null, rawResponseHash: null });
   });
 
   it('keeps slow but valid output separate in asynchronous quality diagnostics', async () => {

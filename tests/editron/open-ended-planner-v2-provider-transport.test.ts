@@ -8,6 +8,7 @@ import {
   buildDevelopmentStageOnePacketsV2,
   type HashedStagePacketV2,
 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
+import { hashCanonicalJsonV1, sha256TextV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import benchmarkJson from '@/tests/fixtures/editron/open-ended-planner-v2/benchmark-contract-v2.json';
 
 describe('open-ended planner V2 provider transport', () => {
@@ -26,6 +27,8 @@ describe('open-ended planner V2 provider transport', () => {
       finishReason: 'completed', truncated: false, parseStatus: 'SCHEMA_VALID',
     });
     expect(record.artifactSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(record.rawResponse).toBe(JSON.stringify(validArtifact()));
+    expect(record.rawResponseHash).toBe(sha256TextV1(record.rawResponse as string));
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(record)).toBe(true);
   });
@@ -69,6 +72,12 @@ describe('open-ended planner V2 provider transport', () => {
     });
     expect(requests).toHaveLength(2);
     expect(result.attempts.map(({ disposition }) => disposition)).toEqual(['MALFORMED_JSON', 'ARTIFACT_ACCEPTED']);
+    expect(result.attempts.map(({ rawResponse }) => rawResponse)).toEqual([
+      'not-json', JSON.stringify(validArtifact()),
+    ]);
+    for (const attempt of result.attempts) {
+      expect(attempt.rawResponseHash).toBe(sha256TextV1(attempt.rawResponse as string));
+    }
     const repairPrompt = inputText(requests[1]);
     expect(repairPrompt).toContain('INVALID_JSON');
     expect(repairPrompt).toContain('not-json');
@@ -240,6 +249,18 @@ describe('open-ended planner V2 provider transport', () => {
     expect(result.disposition).toBe('NOT_APPLICABLE');
     expect(result.attempts[0].schemaDiagnostics).toContain('UNSUPPORTED_MODALITY');
   });
+
+  it('accepts the nullable selected-operator shape used by honest capability gaps', async () => {
+    const artifact = { selectedOperatorId: null };
+    const result = await runProviderStageV2({
+      artifact: nullableOperatorPacket(), route: route(), pricing: pricing(),
+      preflightInputTokens: [100, 100],
+      fetchImpl: async () => jsonResponse(openAI(JSON.stringify(artifact))),
+    });
+    expect(result.disposition).toBe('ARTIFACT_ACCEPTED');
+    expect(result.artifact).toEqual(artifact);
+    expect(result.attempts[0].schemaDiagnostics).toEqual([]);
+  });
 });
 
 function run(overrides: Partial<Parameters<typeof runProviderStageV2>[0]> = {}) {
@@ -261,6 +282,24 @@ function multimodalPacket(): HashedStagePacketV2 {
     packet.taskId === 'DEV-01' && packet.conditionId === 'BASELINE' && packet.inputArm === 'MULTIMODAL');
   if (!value) throw new Error('Missing DEV-01 multimodal packet');
   return value;
+}
+function nullableOperatorPacket(): HashedStagePacketV2 {
+  const original = textPacket();
+  const packet = {
+    ...original.packet,
+    outputContract: {
+      type: 'object', additionalProperties: false, required: ['selectedOperatorId'],
+      properties: {
+        selectedOperatorId: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] },
+      },
+    },
+  } as HashedStagePacketV2['packet'];
+  return {
+    packet,
+    packetHash: hashCanonicalJsonV1(packet),
+    transportAttachments: original.transportAttachments,
+    transportHash: hashCanonicalJsonV1(original.transportAttachments),
+  };
 }
 function route() {
   return { kind: 'openai' as const, apiKey: 'test-key', model: 'gpt-5.6-luna', modelSnapshot: 'gpt-5.6-luna-test', reasoningMode: 'medium' };
