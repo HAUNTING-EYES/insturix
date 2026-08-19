@@ -26,7 +26,7 @@ describe('ThinkForge quality scorer', () => {
   });
 
   it('loads bundled policy assets with their declared production inventory', () => {
-    expect(getVersion()).toBe('1.0.0');
+    expect(getVersion()).toBe('1.1.0');
     expect(getAllSignals()).toHaveLength(48);
     expect(getTechniqueCategories().length).toBeGreaterThan(0);
     expect(getConstraints()).toHaveLength(26);
