@@ -43,6 +43,13 @@ import {
   type ThinkForgeScriptEditorialPlanArtifact,
 } from './editorial-plan';
 import { countUnicodeWords } from '../text/unicode-text';
+import {
+  findScriptChapterExecutionOutputIssues,
+  projectProductionBriefForScriptChapter,
+  resolveScriptChapterExecution,
+  type ResolvedScriptChapterExecution,
+  type ScriptChapterExecutionRequest,
+} from '../long-form/script-chapter-execution';
 
 const ContentAnalysisSchema = z.object({
   hooks: z.array(z.string()).describe('List of key hooks utilized in the script'),
@@ -101,6 +108,8 @@ interface ResolvedScriptEditorialContext {
   creativeIntent: ThinkForgeEditorialCreativeIntent;
   evidencePolicy: ThinkForgeEditorialEvidencePolicy;
   tracePlan: ThinkForgeScriptEditorialPlanArtifact | ScriptEditorialPlan;
+  productionBrief: ProductionBrief | null | undefined;
+  chapterExecution: ResolvedScriptChapterExecution | null;
 }
 
 /**
@@ -124,6 +133,8 @@ export interface ScriptWriterInput extends AgentInput {
   productionBrief?: ProductionBrief | null;
   contentSignalProfile?: ThinkForgeContentSignalProfile | null;
   sourceLedger?: SourceLedger | null;
+  /** Server-owned semantic chapter assignment for durable long-form generation. */
+  chapterExecution?: ScriptChapterExecutionRequest;
   /** When set, switches the writer into edit/revise mode (see ScriptWriterEditContext). */
   editContext?: ScriptWriterEditContext;
 }
@@ -134,6 +145,7 @@ interface ScriptWriterValidationOptions {
   contentSignalProfile?: ThinkForgeContentSignalProfile | null;
   editorialPlan?: ScriptEditorialPlan;
   brandLanguagePolicy?: ThinkForgeBrandLanguagePolicy;
+  chapterExecution?: ResolvedScriptChapterExecution | null;
 }
 
 function directScriptEvidencePolicy(input: ScriptWriterInput): ThinkForgeEditorialEvidencePolicy {
@@ -154,6 +166,13 @@ function directScriptEvidencePolicy(input: ScriptWriterInput): ThinkForgeEditori
 }
 
 function resolveScriptEditorialContext(input: ScriptWriterInput): ResolvedScriptEditorialContext {
+  const chapterExecution = input.chapterExecution
+    ? resolveScriptChapterExecution(input.chapterExecution)
+    : null;
+  const productionBrief = chapterExecution
+    ? projectProductionBriefForScriptChapter(input.productionBrief, chapterExecution)
+    : input.productionBrief;
+
   if (input.editorialPlan) {
     const artifact = requireThinkForgeEditorialPlanForWriter(
       input.editorialPlan,
@@ -161,15 +180,26 @@ function resolveScriptEditorialContext(input: ScriptWriterInput): ResolvedScript
       input.authoringRequest,
     );
     return {
-      executionPlan: artifact.execution.plan,
+      executionPlan: chapterExecution
+        ? buildScriptEditorialPlan({
+            productionBrief,
+            contentSignalProfile: input.contentSignalProfile,
+          })
+        : artifact.execution.plan,
       creativeIntent: artifact.creativeIntent,
       evidencePolicy: artifact.evidence,
       tracePlan: artifact,
+      productionBrief,
+      chapterExecution,
     };
   }
 
+  if (chapterExecution) {
+    throw new Error('Script chapter execution requires the approved full-script editorial plan.');
+  }
+
   const executionPlan = buildScriptEditorialPlan({
-    productionBrief: input.productionBrief,
+    productionBrief,
     contentSignalProfile: input.contentSignalProfile,
   });
   return {
@@ -180,6 +210,8 @@ function resolveScriptEditorialContext(input: ScriptWriterInput): ResolvedScript
     },
     evidencePolicy: directScriptEvidencePolicy(input),
     tracePlan: executionPlan,
+    productionBrief,
+    chapterExecution: null,
   };
 }
 
@@ -364,6 +396,13 @@ const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
   'banned_phrase',
   'on_screen_text_duplicates_speech',
   'on_screen_text_not_selective',
+  'chapter_act_count_mismatch',
+  'chapter_act_id_mismatch',
+  'chapter_scene_count_mismatch',
+  'chapter_scene_id_mismatch',
+  'chapter_scene_duration_mismatch',
+  'chapter_required_character_missing',
+  'chapter_required_source_missing',
 ]);
 
 function contractFailureCode(failure: string): string {
@@ -394,6 +433,7 @@ Critical rules:
 - Every beat requires visualIntent, shotIntent, and narrative duration intent. Every spoken line requires its actual languageCode.
 - shotIntent.energy and every performance intensity use normalized decimal values from 0 to 1. A moving shot requires a non-empty movementMotivation. shotIntent.spokenAudio is true exactly when the beat contains on-camera sync-dialogue; simultaneousPerformers equals the unique performance character count, and every sync speaker has a performance entry.
 - Omit renderPlan. Technical segmentation is authored later from this narrative sidecar.
+- For chapter_act_count_mismatch, chapter_act_id_mismatch, chapter_scene_count_mismatch, chapter_scene_id_mismatch, chapter_scene_duration_mismatch, chapter_required_character_missing, or chapter_required_source_missing, execute tf_untrusted_data.chapterExecution exactly. Repair the assigned chapter only; do not add other chapters or change the master plan.
 - When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or narration_density_below_mode, use tf_untrusted_data.editorialPlan and writer_contract_repair_input.validatorDiagnostics.narrationBudget as binding. Preserve the exact total runtime and selected narration mode. The fullRuntimeMinimumSpokenWords value is a hard lower bound for canonical spoken lines in a guided non-minimal plan; currentSpokenWords and requiredAdditionalSubstantiveWords localize the deficit, while fullRuntimeReferenceSpokenWords remains guidance. Develop the supported argument or story with non-redundant substantive beats. Never satisfy the count by repeating claims, adding filler, inventing evidence, inflating durations, or appending an unrelated monologue.
 - For profile_missing_required_brief_claim or profile_missing_required_audience_anchor, copy the corresponding exact value from tf_untrusted_data.contentSignalProfile.intent.proofPoints into natural script copy without broadening it.
 - For missing_source_ref, invalid_source_ref, source_ref_low_support, or source_ref_marker_mismatch, use writer_contract_repair_input.validatorDiagnostics, tf_untrusted_data.evidencePolicy, and the authorised Source Ledger. A valid reference ID is not proof that its source supports the sentence. Do not keep a claim and merely swap or remove its reference. Rewrite the claim to what the cited source directly establishes; when the evidence policy allows bounded implication, state the narrow scope explicitly; otherwise delete the unsupported claim or turn it into a clearly framed question. Every statistic, date, price, URL, contact detail, and other factual anchor must exactly match the cited evidence.
@@ -892,6 +932,9 @@ export function assertUsableScriptWriterResult(
   }
 
   failures.push(...findSourceLedgerIssuesForNarrativeSidecar(sidecar, options.sourceLedger));
+  if (options.chapterExecution) {
+    failures.push(...findScriptChapterExecutionOutputIssues(options.chapterExecution, result));
+  }
 
   const filler = findDisallowedThinkForgeAiFiller(
     contentWithoutRequiredProfileValues(result.content, options.contentSignalProfile),
@@ -1011,6 +1054,7 @@ Your task is to write a high-retention, engaging video script.
 10. **Shot intent:** Every beat needs one complete shotIntent expressing creative purpose, emotional beat, energy, visual priority, action, framing, angle, movement, performance, and continuity. Express shotIntent.energy and every performance intensity as normalized decimals from 0 to 1, never a 1-5 or 1-10 scale. A moving shot requires a non-empty movementMotivation. spokenAudio is true exactly when the beat contains on-camera sync-dialogue. simultaneousPerformers equals the number of unique performance character IDs, and every sync speaker has a matching performance entry. Never invent equipment, room dimensions, coordinates, budgets, or setup claims.
 11. **Technical separation:** Do not mention lip-sync job length, provider language support, model limits, scene caps, or render chunks. Preserve narrative intent. Production planning will later emit compatibility warnings, alternatives, and provider-safe segments without rewriting the story.
 12. **Metadata:** Set only the publication platform requested in tf_untrusted_data.productionOutput. Duration and spoken languages are derived by the server from the sidecar.
+13. **Long-form chapter execution:** When tf_untrusted_data.chapterExecution is present, it is a server-validated semantic assignment inside one approved master narrative. Return exactly its assigned act and chapter: one sidecar act with the exact act ID, the exact scene IDs in blueprint order, and each exact scene duration. Do not add, merge, split, rename, reorder, summarize, or omit planned scenes. Execute every opening state, development requirement, closing state, required character, source reference, and continuity thread. The preceding/following chapter descriptors and previousChapterContinuity preserve narrative handoff; do not restart the premise, repeat a completed reveal, resolve a later payoff early, or write beyond the assigned chapter. The chapter runtime is only this call's envelope; the master-plan runtime remains the complete work. Never turn chapter boundaries into editorial scene boundaries or shorten a long coherent scene for provider convenience.
 
 ## Writing Knowledge: Anti-AI Constraints
 ${antiAiConstraints}
@@ -1031,8 +1075,11 @@ Return your response strictly adhering to the JSON schema.`;
     resolvedEditorial: ResolvedScriptEditorialContext = resolveScriptEditorialContext(input),
   ): IsolatedPromptParts {
     const editorialPlan = resolvedEditorial.executionPlan;
+    const executionInput = resolvedEditorial.productionBrief === input.productionBrief
+      ? input
+      : { ...input, productionBrief: resolvedEditorial.productionBrief };
     const placeholderInput: ScriptWriterInput = {
-      ...input,
+      ...executionInput,
       userPrompt: '[tf_untrusted_data.userBrief]',
       context: {
         ...input.context,
@@ -1059,6 +1106,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read binding creative direction only from tf_untrusted_data.creativeIntent. A selected angle survives ordinary generation and revision; only an explicit current edit instruction may replace it.
 - Read exact creative destination and deliverable shape from tf_untrusted_data.authoringDestination when present. Read technical output platform and geometry only from tf_untrusted_data.productionOutput.
 - Read runtime policy, full-runtime narration mode boundaries, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Exact total runtime, mode-compatible minimum density, and beat-channel semantics are binding; target density is guidance, pacing excess is a warning, and structure recommendations are advisory. An open runtime carries no numeric target.
+- When chapterExecution is present, read the immutable master narrative, exact semantic chapter assignment, neighboring chapter states, and actual previous-chapter handoff only from tf_untrusted_data.chapterExecution. It binds IDs, order, duration, continuity, characters, and evidence for this call without becoming a technical chunking rule.
 - Read requested spoken and caption languages from tf_untrusted_data.languageRequest. Never substitute a different language because of a downstream provider.`;
 
     return buildIsolatedPromptParts({
@@ -1066,10 +1114,11 @@ Return your response strictly adhering to the JSON schema.`;
         `${this.buildTrustedTemplate(placeholderInput)}\n\n${runtimeDataRules}`,
       ),
       data: this.buildUntrustedPromptData(
-        input,
+        executionInput,
         editorialPlan,
         resolvedEditorial.creativeIntent,
         resolvedEditorial.evidencePolicy,
+        resolvedEditorial.chapterExecution,
       ),
       fieldLimits: {
         projectSummary: 12_000,
@@ -1093,11 +1142,13 @@ Return your response strictly adhering to the JSON schema.`;
     editorialPlan: ScriptEditorialPlan,
     creativeIntent: ThinkForgeEditorialCreativeIntent,
     evidencePolicy: ThinkForgeEditorialEvidencePolicy,
+    chapterExecution: ResolvedScriptChapterExecution | null,
   ): Record<string, unknown> {
     const { context, userPrompt, retrievedContext, editContext, productionBrief, sourceLedger } = input;
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
 
     return {
+      chapterExecution,
       mode: editContext ? 'revise_existing_script' : 'create_script',
       projectSummary: context.projectSummary || null,
       userBrief: userPrompt,
@@ -1150,8 +1201,17 @@ Return your response strictly adhering to the JSON schema.`;
   ): Promise<AgentStructuredOutput<ScriptWriterResult>> {
     const resolvedEditorial = resolveScriptEditorialContext(input);
     const editorialPlan = resolvedEditorial.executionPlan;
+    const executionInput = resolvedEditorial.productionBrief === input.productionBrief
+      ? input
+      : { ...input, productionBrief: resolvedEditorial.productionBrief };
     const recommendedMaxTokens = durationAwareMaxTokens(editorialPlan);
-    const promptParts = this.buildPromptParts(input, resolvedEditorial);
+    const promptParts = this.buildPromptParts(executionInput, resolvedEditorial);
+    if (
+      resolvedEditorial.chapterExecution
+      && promptParts.truncatedFields.some((path) => path.startsWith('data.chapterExecution'))
+    ) {
+      throw new Error('Script chapter execution contract exceeded the protected prompt boundary.');
+    }
     const gen = this.resolveGenConfig({
       ...overrides,
       maxTokens: overrides?.maxTokens ?? recommendedMaxTokens,
@@ -1174,18 +1234,19 @@ Return your response strictly adhering to the JSON schema.`;
     let repairCacheStatus: 'hit' | 'created' | 'inline' | undefined;
     let validationReport: ScriptWriterValidationReport;
     const brandLanguagePolicy = resolveThinkForgeBrandLanguagePolicy(
-      input.retrievedContext?.brandAuthority?.profile
-        ?? input.retrievedContext?.brandSignalProfile,
+      executionInput.retrievedContext?.brandAuthority?.profile
+        ?? executionInput.retrievedContext?.brandSignalProfile,
     );
 
     try {
       result = materializeScriptWriterResult(modelOutput);
       validationReport = assertUsableScriptWriterResult(result, {
-        sourceLedger: input.sourceLedger,
-        productionBrief: input.productionBrief,
-        contentSignalProfile: input.contentSignalProfile,
+        sourceLedger: executionInput.sourceLedger,
+        productionBrief: executionInput.productionBrief,
+        contentSignalProfile: executionInput.contentSignalProfile,
         editorialPlan,
         brandLanguagePolicy,
+        chapterExecution: resolvedEditorial.chapterExecution,
       });
     } catch (error) {
       if (!isRepairableScriptContractError(error)) throw error;
@@ -1198,7 +1259,7 @@ Return your response strictly adhering to the JSON schema.`;
           validatorDiagnostics: buildScriptContractRepairDiagnostics(
             modelOutput,
             error,
-            input,
+            executionInput,
             editorialPlan,
           ),
         },
@@ -1221,11 +1282,12 @@ Return your response strictly adhering to the JSON schema.`;
       try {
         result = materializeScriptWriterResult(modelOutput);
         validationReport = assertUsableScriptWriterResult(result, {
-          sourceLedger: input.sourceLedger,
-          productionBrief: input.productionBrief,
-          contentSignalProfile: input.contentSignalProfile,
+          sourceLedger: executionInput.sourceLedger,
+          productionBrief: executionInput.productionBrief,
+          contentSignalProfile: executionInput.contentSignalProfile,
           editorialPlan,
           brandLanguagePolicy,
+          chapterExecution: resolvedEditorial.chapterExecution,
         });
       } catch (finalError) {
         attachEvalRejectedScriptOutput(finalError, modelOutput);
@@ -1250,7 +1312,7 @@ Return your response strictly adhering to the JSON schema.`;
             ...editorialPlan.structure.recommendedTechniques,
           ].filter((technique): technique is NonNullable<typeof technique> => Boolean(technique)),
           promptTemplate: promptParts.systemInstruction,
-          sourceLedger: input.sourceLedger,
+          sourceLedger: executionInput.sourceLedger,
           provider: 'gemini',
           model: initialGeneration.modelName,
           cacheStatus: initialGeneration.cacheStatus,
