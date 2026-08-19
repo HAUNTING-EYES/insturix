@@ -10,6 +10,7 @@ import {
   assertV2RPreregistrationComplete,
   type V2RPreregistrationManifest,
 } from './v2r-preregistration-manifest';
+import { buildEvaluatorPolicyFreezeV2R } from './evaluator-freeze-v2r';
 import type { ProviderStageRunV2 } from './provider-transport-v2';
 import {
   buildNextProviderStagePacketV2,
@@ -73,6 +74,12 @@ export interface V2RConnectedEpisodeReceiptV2 {
     compileDisposition: string | null;
     compiledOperatorCount: number | null;
     selectedOperatorCount: number | null;
+    sourceEditorialIntentHash: string | null;
+    sourceEvidenceBoundIntentHash: string | null;
+    evidencePackHash: string | null;
+    compiledGraphHash: string | null;
+    compiledOperatorIds: readonly string[];
+    selectedOperatorIds: readonly string[];
     diagnostics: readonly string[];
   }>;
   actualProviderCostUsd: number;
@@ -86,7 +93,8 @@ export async function runV2RConnectedEpisodeV2(input: {
   route: V2RConnectedRouteV2;
 }): Promise<Readonly<V2RConnectedEpisodeReceiptV2>> {
   const manifest = assertV2RPreregistrationComplete(input.manifest);
-  validateTask(input.task);
+  validateTask(input.task, manifest);
+  validateRoute(input.route, manifest);
   const rows: V2RConnectedStageRowV2[] = [];
 
   const stageOne = await runStage({
@@ -153,6 +161,12 @@ function lowerModelOutput(
       compileDisposition: 'LOWERING_REJECTED',
       compiledOperatorCount: null,
       selectedOperatorCount: null,
+      sourceEditorialIntentHash: hashCanonicalJsonV1(editorialIntent),
+      sourceEvidenceBoundIntentHash: hashCanonicalJsonV1(evidenceBoundIntent),
+      evidencePackHash: hashCanonicalJsonV1(task.evidencePack),
+      compiledGraphHash: null,
+      compiledOperatorIds: [],
+      selectedOperatorIds: [],
       diagnostics: [`LOWERING_ERROR:${error instanceof Error ? error.message : 'UNKNOWN'}`],
     });
   }
@@ -165,6 +179,12 @@ function lowerModelOutput(
     compileDisposition: String(compiled.compileDisposition),
     compiledOperatorCount: Number(compiledLowering.compiledOperatorCount ?? 0),
     selectedOperatorCount: Number(compiledLowering.selectedOperatorCount ?? 0),
+    sourceEditorialIntentHash: hashCanonicalJsonV1(editorialIntent),
+    sourceEvidenceBoundIntentHash: hashCanonicalJsonV1(evidenceBoundIntent),
+    evidencePackHash: hashCanonicalJsonV1(task.evidencePack),
+    compiledGraphHash: hashCanonicalJsonV1(compiled),
+    compiledOperatorIds: [...result.compiledOperatorIds],
+    selectedOperatorIds: [...result.selectedOperatorIds],
     diagnostics: result.diagnostics,
   });
 }
@@ -228,6 +248,12 @@ function notLowered(): V2RConnectedEpisodeReceiptV2['lowering'] {
     compileDisposition: null,
     compiledOperatorCount: null,
     selectedOperatorCount: null,
+    sourceEditorialIntentHash: null,
+    sourceEvidenceBoundIntentHash: null,
+    evidencePackHash: null,
+    compiledGraphHash: null,
+    compiledOperatorIds: [],
+    selectedOperatorIds: [],
     diagnostics: [],
   });
 }
@@ -245,7 +271,10 @@ function requireArtifact(row: Readonly<V2RConnectedStageRowV2>): JsonRecord & { 
   return row.providerRun.artifact as JsonRecord & { artifactType: string; taskId: string };
 }
 
-function validateTask(task: V2RConnectedTaskV2): void {
+function validateTask(
+  task: V2RConnectedTaskV2,
+  manifest: Readonly<V2RPreregistrationManifest>,
+): void {
   if (task.stageOnePacket.packet.stage !== 1
     || task.stageOnePacket.packet.taskId !== task.taskId
     || task.stageOnePacket.packet.conditionId !== task.conditionId) {
@@ -253,6 +282,34 @@ function validateTask(task: V2RConnectedTaskV2): void {
   }
   if (task.loweringPolicy.taskId !== task.taskId) {
     throw new Error('V2R_CONNECTED_LOWERING_POLICY_TASK_DRIFT');
+  }
+  const manifestPolicyHash = manifest.lowerer.taskPolicySha256[
+    task.taskId as keyof typeof manifest.lowerer.taskPolicySha256
+  ];
+  if (!manifestPolicyHash || hashCanonicalJsonV1(task.loweringPolicy) !== manifestPolicyHash) {
+    throw new Error('V2R_CONNECTED_LOWERING_POLICY_NOT_PREREGISTERED');
+  }
+  const evaluatorTask = buildEvaluatorPolicyFreezeV2R().tasks
+    .find((candidate) => candidate.taskId === task.taskId);
+  const condition = evaluatorTask?.conditions
+    .find((candidate) => candidate.conditionId === task.conditionId);
+  if (!evaluatorTask || !condition) {
+    throw new Error('V2R_CONNECTED_TASK_CONDITION_NOT_PREREGISTERED');
+  }
+  if (task.executionFormArm !== 'FREE_CHOICE'
+    && task.executionFormArm.replace('FORCED_', '') !== evaluatorTask.executionForm) {
+    throw new Error('V2R_CONNECTED_EXECUTION_FORM_NOT_PREREGISTERED');
+  }
+}
+
+function validateRoute(
+  route: V2RConnectedRouteV2,
+  manifest: Readonly<V2RPreregistrationManifest>,
+): void {
+  const registered = manifest.routeRoster.routes.find(({ routeId }) => routeId === route.routeId);
+  if (!registered || registered.claimedModelIdentity !== route.claimedModelIdentity
+    || registered.costBasis !== route.costBasis) {
+    throw new Error('V2R_CONNECTED_ROUTE_NOT_PREREGISTERED');
   }
 }
 

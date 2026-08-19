@@ -35,8 +35,8 @@ function fakeRoute(scriptedArtifacts: Array<JsonRecord | null>): {
   const seenPackets: HashedStagePacketV2[] = [];
   let call = 0;
   const route: V2RConnectedRouteV2 = {
-    routeId: 'FAKE_ROUTE',
-    claimedModelIdentity: 'fake-model',
+    routeId: 'OPENAI_LUNA',
+    claimedModelIdentity: 'gpt-5.6-luna',
     costBasis: 'USD_METERED',
     runStage: async (packet) => {
       seenPackets.push(packet);
@@ -160,8 +160,30 @@ describe('V2-1F V2R connected episode harness', () => {
       compileDisposition: 'COMPILED_RESEARCH_PROXY',
       compiledOperatorCount: 6,
       selectedOperatorCount: 6,
+      evidencePackHash: hashCanonicalJsonV1(canonical.evidencePacks.BASELINE),
     });
+    expect(receipt.lowering.compiledGraphHash).toHaveLength(64);
+    expect(receipt.lowering.sourceEditorialIntentHash).toBe(hashCanonicalJsonV1(scripted[1]));
+    expect(receipt.lowering.sourceEvidenceBoundIntentHash).toBe(hashCanonicalJsonV1(scripted[2]));
+    expect([...receipt.lowering.compiledOperatorIds].sort())
+      .toEqual([...receipt.lowering.selectedOperatorIds].sort());
     expect(receipt.stateEffects).toEqual([]);
+  });
+
+  it('rejects an unregistered route or lowering policy before provider dispatch', async () => {
+    const manifest = buildV2RPreregistrationManifest();
+    const rogueRoute = fakeRoute([]);
+    rogueRoute.route.routeId = 'ROGUE_ROUTE';
+    await expect(runV2RConnectedEpisodeV2({ manifest, task: dev01Task(), route: rogueRoute.route }))
+      .rejects.toThrow('V2R_CONNECTED_ROUTE_NOT_PREREGISTERED');
+    expect(rogueRoute.seenPackets).toHaveLength(0);
+
+    const policyDrift = structuredClone(dev01Task()) as V2RConnectedTaskV2;
+    (policyDrift.loweringPolicy.fieldBindings.projectId as { source: string }).source = 'STATIC';
+    const registeredRoute = fakeRoute([]);
+    await expect(runV2RConnectedEpisodeV2({ manifest, task: policyDrift, route: registeredRoute.route }))
+      .rejects.toThrow('V2R_CONNECTED_LOWERING_POLICY_NOT_PREREGISTERED');
+    expect(registeredRoute.seenPackets).toHaveLength(0);
   });
 
   it('preserves raw lineage: each stage packet binds the prior accepted artifact hash', async () => {
