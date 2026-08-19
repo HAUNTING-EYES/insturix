@@ -72,7 +72,10 @@ describe('ThinkForge editor document ownership', () => {
   });
 
   it('resets document-bound controls and retains visible hydration failures', () => {
+    const page = read('app/dashboard/thinkforge/page.tsx');
+    const scriptHook = read('app/dashboard/thinkforge/hooks/useThinkForgeScript.ts');
     const storyboarding = read('components/dashboard/ThinkForge/StoryboardingMode.tsx');
+    const panel = read('components/dashboard/ThinkForge/ScriptPanel.tsx');
     const editor = read('components/dashboard/ThinkForge/ScriptEditor.tsx');
 
     expect(storyboarding).toContain('}, [sessionId, scriptId]);');
@@ -83,6 +86,15 @@ describe('ThinkForge editor document ownership', () => {
     expect(storyboarding).toContain("setScriptPanelMode('script')");
     expect(storyboarding).toContain('tokenStreamCallbackRef.current = null');
     expect(storyboarding).toContain('selectionGetterRef.current = null');
+    expect(scriptHook).toContain('const retryLoad = useCallback(() => {');
+    expect(scriptHook).toContain('setLoadAttempt((attempt) => attempt + 1)');
+    expect(scriptHook).toContain('hydratedScriptSnapshot, loadAttempt, resetPendingSaves');
+    expect(page).toContain('scriptLoadError={scriptHook.loadError}');
+    expect(page).toContain('onRetryScriptLoad={scriptHook.retryLoad}');
+    expect(storyboarding).toContain('scriptLoadError={scriptLoadError}');
+    expect(storyboarding).toContain('onRetryScriptLoad={onRetryScriptLoad}');
+    expect(panel).toContain('{scriptLoadError}');
+    expect(panel).toContain('aria-label="Retry loading document"');
     expect(editor).toContain('documentHydrationError');
     expect(editor).toContain('role="alert"');
   });

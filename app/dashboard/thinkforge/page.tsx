@@ -998,6 +998,8 @@ export default function ThinkForgeLanding() {
 				tabsRefreshTrigger={tabsRefreshCounter}
 				script={scriptFromHook}
 				isScriptLoading={scriptHook.isLoading}
+				scriptLoadError={scriptHook.loadError}
+				onRetryScriptLoad={scriptHook.retryLoad}
 				initialChatMessages={
 					session.hydratedChatSnapshot?.sessionId === activeSessionId
 						? session.hydratedChatSnapshot.messages

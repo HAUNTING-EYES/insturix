@@ -22,6 +22,8 @@ interface StoryboardingModeProps {
   tabsRefreshTrigger?: number;
   script: Script | null;
   isScriptLoading?: boolean;
+  scriptLoadError?: string | null;
+  onRetryScriptLoad?: () => void;
   initialChatMessages?: any[];
   isSaving: boolean;
   onApplyEdit: (updated: Script) => void;
@@ -42,6 +44,8 @@ export default function StoryboardingMode({
   tabsRefreshTrigger,
   script,
   isScriptLoading,
+  scriptLoadError,
+  onRetryScriptLoad,
   initialChatMessages,
   isSaving,
   onApplyEdit,
@@ -201,6 +205,8 @@ export default function StoryboardingMode({
             tabsRefreshTrigger={tabsRefreshTrigger}
             isSaving={isSaving}
             isScriptLoading={isScriptLoading}
+            scriptLoadError={scriptLoadError}
+            onRetryScriptLoad={onRetryScriptLoad}
             onTokenStream={(callback) => {
               tokenStreamCallbackRef.current = callback;
             }}

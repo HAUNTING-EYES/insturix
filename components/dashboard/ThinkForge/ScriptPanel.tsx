@@ -16,6 +16,8 @@ interface ScriptPanelProps {
   tabsRefreshTrigger?: number;
   isSaving?: boolean;
   isScriptLoading?: boolean;
+  scriptLoadError?: string | null;
+  onRetryScriptLoad?: () => void;
   onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string } | { ok: boolean; applied?: any; error?: string }> | { ok: boolean; applied?: any; error?: string };
   onSwitchScript?: (scriptId: string) => void;
   onTabClose?: (scriptId: string) => void;
@@ -44,7 +46,7 @@ function persistClosedTabIds(sessionId: string, ids: Set<string>) {
   } catch { /* silent */ }
 }
 
-export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, sessionId, scriptId, tabsRefreshTrigger, isSaving, isScriptLoading, onImportScript, onSwitchScript, onTabClose, onTokenStream, onGetSelection, onEditSelection, generatingScript, onModeChange, documentTabs }) => {
+export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, sessionId, scriptId, tabsRefreshTrigger, isSaving, isScriptLoading, scriptLoadError, onRetryScriptLoad, onImportScript, onSwitchScript, onTabClose, onTokenStream, onGetSelection, onEditSelection, generatingScript, onModeChange, documentTabs }) => {
   const [mode, setMode] = useState<PanelMode>('scripting');
   const [tabs, setTabs] = useState<DocumentTab[]>(documentTabs || []);
   const [tabOrder, setTabOrder] = useState<string[]>([]);
@@ -200,6 +202,23 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
            >
              <RefreshCw className="h-3.5 w-3.5" />
            </button>
+         </div>
+       )}
+
+       {scriptLoadError && (
+         <div className="flex min-h-9 items-center gap-2 border-b border-red-900/40 bg-red-950/20 px-4 text-xs text-red-300" role="alert">
+           <span className="min-w-0 flex-1">{scriptLoadError}</span>
+           {onRetryScriptLoad && (
+             <button
+               type="button"
+               onClick={onRetryScriptLoad}
+               className="flex h-7 w-7 shrink-0 items-center justify-center text-red-300 hover:text-red-100"
+               aria-label="Retry loading document"
+               title="Retry loading document"
+             >
+               <RefreshCw className="h-3.5 w-3.5" />
+             </button>
+           )}
          </div>
        )}
 

@@ -162,6 +162,7 @@ export function useThinkForgeScript(
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSnapshotRef = useRef<string>("");
@@ -278,7 +279,13 @@ export function useThinkForgeScript(
       }
     })();
     return () => { cancelled = true; };
-  }, [sessionId, scriptId, hydratedScriptSnapshot, resetPendingSaves]);
+  }, [sessionId, scriptId, hydratedScriptSnapshot, loadAttempt, resetPendingSaves]);
+
+  const retryLoad = useCallback(() => {
+    if (!sessionId) return;
+    setLoadError(null);
+    setLoadAttempt((attempt) => attempt + 1);
+  }, [sessionId]);
 
   const performSave = useCallback(async (
     scriptToSave: ScriptModel | null,
@@ -640,6 +647,7 @@ export function useThinkForgeScript(
     loadError,
     saveError,
     retryCount,
+    retryLoad,
     setScriptAndQueueSave,
     setScriptWithoutSave,
     autosave,
