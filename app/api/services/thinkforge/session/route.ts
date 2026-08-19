@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
-import { projectService } from '@/lib/editron/services/project-service';
 import {
   authorizeBrandScope,
   BrandScopeAuthorizationError,
@@ -165,6 +164,11 @@ export async function POST(req: Request) {
     // Fail-open: project creation failure must never block session functionality.
     if (!sessionId) {
       try {
+        // Load the optional Editron integration only inside its fail-open
+        // boundary. ProjectService also owns asset-backed project reads, so a
+        // storage-provider configuration error must not prevent ThinkForge
+        // from creating and hydrating its canonical session.
+        const { projectService } = await import('@/lib/editron/services/project-service');
         const projectMetaRecord = projectMeta as Record<string, unknown> | undefined;
         const title = typeof projectMetaRecord?.title === 'string' ? projectMetaRecord.title.trim() : '';
         const topic = typeof projectMetaRecord?.topic === 'string' ? projectMetaRecord.topic.trim() : '';
