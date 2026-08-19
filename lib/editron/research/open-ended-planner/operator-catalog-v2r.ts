@@ -9,11 +9,12 @@ type JsonRecord = Record<string, unknown>;
 // The historical V2 JSON is immutable benchmark evidence. V2R derives its own
 // explicitly identified contract from those bytes so later causal amendments do
 // not rewrite, or silently masquerade as, the issued V2 catalog.
-export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_1' as const;
+export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_2' as const;
 
 const historicalCatalog = cloneJsonV2R(historicalOperatorCatalogJson) as JsonRecord;
+const amendedCatalog = amendCausalOwnerContractsV2R(historicalCatalog);
 const catalogMaterial: JsonRecord = {
-  ...historicalCatalog,
+  ...amendedCatalog,
   catalogRevision: V2R_OPERATOR_CATALOG_REVISION,
   derivedFrom: {
     artifact: 'tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json',
@@ -21,6 +22,159 @@ const catalogMaterial: JsonRecord = {
     sha256: hashCanonicalJsonV1(historicalOperatorCatalogJson),
   },
 };
+
+function amendCausalOwnerContractsV2R(source: JsonRecord): JsonRecord {
+  const amendments = new Map<string, JsonRecord>([
+    ['resolve_transcript_edit', {
+      ownerRef: 'lib/editron/agent/chat-transcript-tools.ts#resolveTranscriptEditRange',
+      input: operatorIoV2R(
+        ['projectId', 'expectedProjectRevision', 'query', 'intent', 'evidenceIds', 'constraints'],
+        ['projectId', 'expectedProjectRevision', 'query', 'intent', 'evidenceIds'],
+      ),
+    }],
+    ['cut_section', {
+      ownerRef: 'lib/editron/services/timeline-range-cut.ts#cutTimelineRange',
+      output: operatorIoV2R(
+        ['receipt', 'timelineCoordinateTransform', 'splitChildren'],
+        ['receipt', 'timelineCoordinateTransform', 'splitChildren'],
+      ),
+    }],
+    ['find_visual_moment', {
+      ownerRef: 'lib/editron/agent/chat-visual-tools.ts#findVisualMomentCandidates',
+      input: operatorIoV2R(
+        ['projectId', 'query', 'evidenceIds', 'timelineCoordinateTransform', 'splitChildren'],
+        ['projectId', 'query'],
+      ),
+      output: operatorIoV2R(
+        ['result', 'evidence', 'overlayId', 'targetFrame', 'focalPoint', 'evidenceStrength'],
+        ['result', 'evidence', 'overlayId', 'targetFrame', 'focalPoint', 'evidenceStrength'],
+      ),
+    }],
+    ['resolve_keyframe_edit', {
+      ownerRef: 'lib/editron/agent/chat-visual-tools.ts#resolveKeyframeEditParams',
+      input: operatorIoV2R(
+        ['projectId', 'expectedProjectRevision', 'overlayId', 'targetFrame', 'focalPoint',
+          'evidenceStrength', 'intent', 'evidenceIds', 'constraints'],
+        ['projectId', 'expectedProjectRevision', 'intent'],
+      ),
+    }],
+    ['set_keyframes', {
+      ownerRef: 'lib/editron/services/keyframe-mutation.ts#buildKeyframeMutationPatch',
+      input: operatorIoV2R(
+        ['projectId', 'expectedProjectRevision', 'overlayId', 'keyframes', 'focalPoint', 'evidenceIds'],
+        ['projectId', 'expectedProjectRevision', 'overlayId', 'keyframes'],
+      ),
+    }],
+    ['apply_audio_ducking', {
+      ownerRef: 'lib/editron/agent/chat-audio-tools.ts#applyAudioDuckingToProject',
+      input: operatorIoV2R(
+        ['projectId', 'expectedProjectRevision', 'audioPlan', 'evidenceIds'],
+        ['projectId', 'expectedProjectRevision', 'audioPlan', 'evidenceIds'],
+      ),
+      stateEffects: ['BGM overlay styles.duckingConfig and optional default BGM volume'],
+    }],
+  ]);
+  const operators = records(source.operators).map((operator) => ({
+    ...operator,
+    ...record(amendments.get(text(operator.operatorId))),
+  }));
+  return {
+    ...source,
+    fieldSchemas: {
+      ...record(source.fieldSchemas),
+      overlayId: { type: 'integer', minimum: 0 },
+      targetFrame: { type: 'integer', minimum: 0 },
+      focalPoint: focalPointSchemaV2R(),
+      evidenceStrength: { type: 'number', minimum: 0, maximum: 1 },
+      timelineCoordinateTransform: timelineCoordinateTransformSchemaV2R(),
+      splitChildren: splitChildrenSchemaV2R(),
+      audioPlan: {
+        type: 'object',
+        required: ['enabled'],
+        properties: {
+          enabled: { enum: [true, false] },
+          duckLevel: { type: 'number', minimum: 0.02, maximum: 0.8 },
+          rampDownMs: { type: 'integer', minimum: 50, maximum: 2000 },
+          rampUpMs: { type: 'integer', minimum: 50, maximum: 3000 },
+          lookAheadMs: { type: 'integer', minimum: 0, maximum: 1000 },
+        },
+        additionalProperties: false,
+      },
+    },
+    operators,
+  };
+}
+
+function operatorIoV2R(fields: readonly string[], required: readonly string[]): JsonRecord {
+  return { fields: [...fields], required: [...required] };
+}
+
+function frameRangeSchemaV2R(): JsonRecord {
+  return {
+    type: 'object', required: ['startFrame', 'endFrame'],
+    properties: {
+      startFrame: { type: 'integer', minimum: 0 },
+      endFrame: { type: 'integer', minimum: 1 },
+    },
+    additionalProperties: false,
+  };
+}
+
+function focalPointSchemaV2R(): JsonRecord {
+  return {
+    type: 'object', required: ['x', 'y'],
+    properties: {
+      x: { type: 'number', minimum: 0, maximum: 1 },
+      y: { type: 'number', minimum: 0, maximum: 1 },
+    },
+    additionalProperties: false,
+  };
+}
+
+function timelineCoordinateTransformSchemaV2R(): JsonRecord {
+  return {
+    type: 'object',
+    required: ['schemaVersion', 'beforeDurationInFrames', 'afterDurationInFrames',
+      'removedRange', 'shiftAfterRemovedRangeFrames', 'mapRule'],
+    properties: {
+      schemaVersion: { const: 'EDITRON_TIMELINE_RANGE_CUT_COORDINATE_TRANSFORM_V1' },
+      beforeDurationInFrames: { type: 'integer', minimum: 1 },
+      afterDurationInFrames: { type: 'integer', minimum: 0 },
+      removedRange: frameRangeSchemaV2R(),
+      shiftAfterRemovedRangeFrames: { type: 'integer' },
+      mapRule: { const: 'HALF_OPEN_REMOVE_AND_SHIFT_LEFT_V1' },
+    },
+    additionalProperties: false,
+  };
+}
+
+function splitChildrenSchemaV2R(): JsonRecord {
+  return {
+    type: 'array',
+    items: {
+      type: 'object',
+      required: ['beforeOverlayId', 'leftOverlayId', 'rightOverlayId', 'overlayType',
+        'leftBeforeTimelineRange', 'leftAfterTimelineRange', 'rightBeforeTimelineRange',
+        'rightAfterTimelineRange', 'rightTimelineStartFrame', 'rightSourceCoordinateField',
+        'rightSourceStartFrame'],
+      properties: {
+        beforeOverlayId: { type: 'integer', minimum: 0 },
+        leftOverlayId: { type: 'integer', minimum: 0 },
+        rightOverlayId: { type: 'integer', minimum: 0 },
+        overlayType: { enum: ['video', 'sound'] },
+        assetId: { type: 'string', minLength: 1 },
+        leftBeforeTimelineRange: frameRangeSchemaV2R(),
+        leftAfterTimelineRange: frameRangeSchemaV2R(),
+        rightBeforeTimelineRange: frameRangeSchemaV2R(),
+        rightAfterTimelineRange: frameRangeSchemaV2R(),
+        rightTimelineStartFrame: { type: 'integer', minimum: 0 },
+        rightSourceCoordinateField: { enum: ['sourceStartFrame', 'startFromSound'] },
+        rightSourceStartFrame: { type: 'integer', minimum: 0 },
+      },
+      additionalProperties: false,
+    },
+  };
+}
 
 export const V2R_OPERATOR_CATALOG: Readonly<JsonRecord> = deepFreezeV1<JsonRecord>({
   ...catalogMaterial,

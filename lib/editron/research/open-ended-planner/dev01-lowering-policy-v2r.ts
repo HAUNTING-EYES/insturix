@@ -1,11 +1,9 @@
 import { deepFreezeV1 } from './contracts-v1';
 import type { GenericLoweringPolicyV2R } from './generic-lowerer-v2r';
 
-// Frozen DEV-01 field-binding policy. Every value here is a declared constant or
-// a mechanical fact/node-output reference; the lowerer invents nothing at runtime.
-// The overlay identity is a frozen fixture constant because DEV-01's synthetic
-// evidence pack carries no overlay-discovery fact; a production policy would bind
-// it from a timeline read instead.
+// Frozen DEV-01 field-binding policy. Creative and mutation parameters must come
+// from the model-owned intent or a declared production-owner output. Fixture
+// ranges and overlay ids are deliberately forbidden as lowering shortcuts.
 export const DEV01_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1({
   policyVersion: 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_3',
   taskId: 'DEV-01',
@@ -16,26 +14,54 @@ export const DEV01_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
     selector: { source: 'STATIC', staticValue: { scope: 'WHOLE_PROJECT' } },
     constraints: { source: 'STATIC', staticValue: { preserveSpeech: true, preserveSourceIdentities: true } },
     targetRange: {
-      source: 'FACT_FIELD', factKind: 'TRANSCRIPT_RANGE', factField: 'deadAirRange',
-      valueAdapter: 'FRAME_RANGE_V2R',
+      source: 'NODE_OUTPUT',
+      producers: [{
+        operatorId: 'resolve_transcript_edit', outputName: 'proposedOperation',
+        projectionPath: ['arguments', 'targetRange'],
+      }],
     },
-    overlayId: { source: 'STATIC', staticValue: 'ov-host-video' },
+    timelineCoordinateTransform: {
+      source: 'NODE_OUTPUT',
+      producers: [{ operatorId: 'cut_section', outputName: 'timelineCoordinateTransform' }],
+    },
+    splitChildren: {
+      source: 'NODE_OUTPUT',
+      producers: [{ operatorId: 'cut_section', outputName: 'splitChildren' }],
+    },
+    overlayId: {
+      source: 'NODE_OUTPUT',
+      producers: [
+        {
+          operatorId: 'resolve_keyframe_edit', outputName: 'proposedOperation',
+          projectionPath: ['arguments', 'overlayId'],
+        },
+        { operatorId: 'find_visual_moment', outputName: 'overlayId' },
+      ],
+    },
+    targetFrame: {
+      source: 'NODE_OUTPUT',
+      producers: [{ operatorId: 'find_visual_moment', outputName: 'targetFrame' }],
+    },
+    evidenceStrength: {
+      source: 'NODE_OUTPUT',
+      producers: [{ operatorId: 'find_visual_moment', outputName: 'evidenceStrength' }],
+    },
+    focalPoint: {
+      source: 'NODE_OUTPUT',
+      producers: [
+        {
+          operatorId: 'resolve_keyframe_edit', outputName: 'proposedOperation',
+          projectionPath: ['arguments', 'focalPoint'],
+        },
+        { operatorId: 'find_visual_moment', outputName: 'focalPoint' },
+      ],
+    },
     keyframes: {
       source: 'NODE_OUTPUT',
       producers: [{
         operatorId: 'resolve_keyframe_edit', outputName: 'proposedOperation',
         projectionPath: ['arguments', 'keyframes'],
       }],
-    },
-    audioPlan: {
-      source: 'NODE_OUTPUT',
-      producers: [
-        {
-          operatorId: 'resolve_audio_edit', outputName: 'proposedOperation',
-          projectionPath: ['arguments', 'audioPlan'],
-        },
-        { operatorId: 'find_audio_moment', outputName: 'result' },
-      ],
     },
   },
   operatorFieldBindings: {
@@ -49,6 +75,7 @@ export const DEV01_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
       query: { source: 'MODEL_INPUT' },
     },
     resolve_transcript_edit: {
+      query: { source: 'MODEL_INPUT' },
       intent: { source: 'MODEL_INPUT' },
     },
     resolve_keyframe_edit: {
@@ -59,6 +86,9 @@ export const DEV01_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
     },
     resolve_audio_edit: {
       intent: { source: 'MODEL_INPUT' },
+    },
+    apply_audio_ducking: {
+      audioPlan: { source: 'MODEL_INPUT' },
     },
     get_video_transcription: {
       assetId: { source: 'STATIC', staticValue: 'dev01-dialogue-truth-v2' },

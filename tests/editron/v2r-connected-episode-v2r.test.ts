@@ -138,7 +138,15 @@ describe('V2-1F V2R connected episode harness', () => {
       .toEqual(['projectId', 'expectedProjectRevision', 'selector']);
     expect(ownershipFor('set_keyframes')?.modelOwnedInputFields).toEqual([]);
     expect(ownershipFor('set_keyframes')?.compilerBoundInputFields.map(({ field }) => field))
-      .toEqual(['projectId', 'expectedProjectRevision', 'overlayId', 'keyframes', 'evidenceIds']);
+      .toEqual(['projectId', 'expectedProjectRevision', 'overlayId', 'keyframes', 'focalPoint', 'evidenceIds']);
+    expect(ownershipFor('resolve_transcript_edit')?.modelOwnedInputFields.map(({ field }) => field))
+      .toEqual(['query', 'intent']);
+    expect(ownershipFor('cut_section')?.compilerBoundInputFields)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ field: 'targetRange', bindingSource: 'NODE_OUTPUT' }),
+      ]));
+    expect(ownershipFor('apply_audio_ducking')?.modelOwnedInputFields.map(({ field }) => field))
+      .toEqual(['audioPlan']);
     expect(ownershipFor('add_overlay')?.unboundInputFields).toEqual(expect.arrayContaining([
       expect.objectContaining({ field: 'assetId', required: true }),
     ]));
@@ -150,8 +158,8 @@ describe('V2-1F V2R connected episode harness', () => {
       zeroAdd: true,
       zeroDrop: true,
       compileDisposition: 'COMPILED_RESEARCH_PROXY',
-      compiledOperatorCount: 12,
-      selectedOperatorCount: 12,
+      compiledOperatorCount: 6,
+      selectedOperatorCount: 6,
     });
     expect(receipt.stateEffects).toEqual([]);
   });
@@ -184,7 +192,7 @@ describe('V2-1F V2R connected episode harness', () => {
     const manifest = buildV2RPreregistrationManifest();
     const brokenBound = {
       ...(canonical.evidenceBoundIntentsV2R.BASELINE as JsonRecord),
-      nodes: [{ intentNodeId: 'node-observe-project', selectedOperatorId: 'invented_operator', alternativeOperatorIds: [], evidenceBindingIds: [], preservationIds: [], proofObligationIds: [], bindingStatus: 'BOUND', unresolvedRequirementIds: [] }],
+      nodes: [{ intentNodeId: 'node-resolve-cut', selectedOperatorId: 'invented_operator', alternativeOperatorIds: [], evidenceBindingIds: [], preservationIds: [], proofObligationIds: [], bindingStatus: 'BOUND', unresolvedRequirementIds: [] }],
     };
     const scripted = [
       canonical.referenceBlueprints.BASELINE as JsonRecord,

@@ -30,8 +30,8 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     const result = lowerBaseline();
     expect(result.zeroAdd).toBe(true);
     expect(result.zeroDrop).toBe(true);
-    expect(result.selectedOperatorIds).toHaveLength(12);
-    expect(result.compiledOperatorIds).toHaveLength(12);
+    expect(result.selectedOperatorIds).toHaveLength(6);
+    expect(result.compiledOperatorIds).toHaveLength(6);
     expect(result.diagnostics.filter((diagnostic) => diagnostic.startsWith('LOWERING_ZERO_'))).toEqual([]);
     const compiled = result.compiled;
     expect(compiled.compileDisposition).toBe('COMPILED_RESEARCH_PROXY');
@@ -41,38 +41,60 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
       policyVersion: GENERIC_LOWERING_POLICY_VERSION_V2R,
       zeroAdd: true,
       zeroDrop: true,
-      compiledOperatorCount: 12,
-      selectedOperatorCount: 12,
+      compiledOperatorCount: 6,
+      selectedOperatorCount: 6,
     });
   });
 
-  it('binds literals and typed node-output ports mechanically', () => {
+  it('binds model intent and causal owner outputs without fixture mutation parameters', () => {
     const { compiled } = lowerBaseline();
     const nodes = compiled.nodes as Array<{ operatorId: string; inputs: Record<string, unknown>; nodeId: string }>;
     const cut = nodes.find(({ operatorId }) => operatorId === 'cut_section');
     expect(cut?.inputs.projectId).toBe('oe-dev-01');
     expect(cut?.inputs.expectedProjectRevision).toBe('R7');
-    expect(cut?.inputs.targetRange).toEqual({ startFrame: 151, endFrame: 196 });
-    const findTranscript = nodes.find(({ operatorId }) => operatorId === 'find_transcript_moment');
-    expect(findTranscript?.inputs.query).toBe('dead air after the phrase here it is');
+    expect(cut?.inputs).not.toHaveProperty('targetRange');
+    const resolveTranscript = nodes.find(({ operatorId }) => operatorId === 'resolve_transcript_edit');
+    expect(resolveTranscript?.inputs.query).toBe('here it is');
+    expect(resolveTranscript?.inputs.intent).toEqual({
+      action: 'cut_after_phrase',
+      goal: 'remove dead air preserving all spoken words',
+    });
     const setKeyframes = nodes.find(({ operatorId }) => operatorId === 'set_keyframes');
     expect(setKeyframes?.inputs).not.toHaveProperty('keyframes');
+    expect(setKeyframes?.inputs).not.toHaveProperty('overlayId');
     const duck = nodes.find(({ operatorId }) => operatorId === 'apply_audio_ducking');
-    expect(duck?.inputs).not.toHaveProperty('audioPlan');
+    expect(duck?.inputs.audioPlan).toEqual({ enabled: true });
 
     const bindings = (compiled.edges as CompiledPortBindingEdgeV2R[])
       .filter(({ edgeType }) => edgeType === 'DATA');
     expect(bindings).toEqual(expect.arrayContaining([
       expect.objectContaining({
         bindingVersion: COMPILED_PORT_BINDING_VERSION_V2R,
+        fromNodeId: 'compile-node-resolve-cut', fromPort: 'proposedOperation',
+        toNodeId: 'compile-node-cut', toPort: 'targetRange',
+        projectionPath: ['arguments', 'targetRange'],
+      }),
+      expect.objectContaining({
+        fromNodeId: 'compile-node-cut', fromPort: 'timelineCoordinateTransform',
+        toNodeId: 'compile-node-find-product', toPort: 'timelineCoordinateTransform',
+      }),
+      expect.objectContaining({
+        fromNodeId: 'compile-node-cut', fromPort: 'splitChildren',
+        toNodeId: 'compile-node-find-product', toPort: 'splitChildren',
+      }),
+      expect.objectContaining({
+        fromNodeId: 'compile-node-find-product', fromPort: 'overlayId',
+        toNodeId: 'compile-node-resolve-product', toPort: 'overlayId',
+      }),
+      expect.objectContaining({
         fromNodeId: 'compile-node-resolve-product', fromPort: 'proposedOperation',
         toNodeId: 'compile-node-push-in', toPort: 'keyframes',
         projectionPath: ['arguments', 'keyframes'],
       }),
       expect.objectContaining({
-        bindingVersion: COMPILED_PORT_BINDING_VERSION_V2R,
-        fromNodeId: 'compile-node-find-audio', fromPort: 'result',
-        toNodeId: 'compile-node-duck', toPort: 'audioPlan', projectionPath: [],
+        fromNodeId: 'compile-node-resolve-product', fromPort: 'proposedOperation',
+        toNodeId: 'compile-node-push-in', toPort: 'focalPoint',
+        projectionPath: ['arguments', 'focalPoint'],
       }),
     ]));
     expect(bindings.every(({ expectedInputSchemaHash }) => /^[a-f0-9]{64}$/.test(expectedInputSchemaHash))).toBe(true);
@@ -193,12 +215,12 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
   it('fails closed when Stage 3 changes a selected role or semantic input', () => {
     const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as { nodes: Array<Record<string, unknown>> };
     const editorialIntent = structuredClone(canonical.editorialIntentV2R) as { nodes: Array<Record<string, unknown>> };
-    const boundTarget = evidenceBoundIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-find-transcript');
-    const sourceTarget = editorialIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-find-transcript');
+    const boundTarget = evidenceBoundIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-resolve-cut');
+    const sourceTarget = editorialIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-resolve-cut');
     expect(boundTarget).toBeTruthy();
     expect(sourceTarget).toBeTruthy();
     sourceTarget!.alternativeOperatorIds = ['get_timeline_view'];
-    boundTarget!.alternativeOperatorIds = ['find_transcript_moment'];
+    boundTarget!.alternativeOperatorIds = ['resolve_transcript_edit'];
     boundTarget!.selectedOperatorId = 'get_timeline_view';
     boundTarget!.nodeInputs = { query: 'different target' };
     const result = lowerV2RBoundIntentGeneric({
@@ -210,17 +232,17 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     expect(result.zeroDrop).toBe(false);
     expect(result.compiled.compileDisposition).toBe('FAIL');
     expect(result.diagnostics).toEqual(expect.arrayContaining([
-      'LOWERING_STAGE2_STAGE3_DRIFT:SELECTED_OPERATOR_ROLE_DRIFT:node-find-transcript',
-      'LOWERING_STAGE2_STAGE3_DRIFT:ALTERNATIVE_OPERATOR_DRIFT:node-find-transcript',
-      'LOWERING_STAGE2_STAGE3_DRIFT:NODE_INPUT_DRIFT:node-find-transcript',
+      'LOWERING_STAGE2_STAGE3_DRIFT:SELECTED_OPERATOR_ROLE_DRIFT:node-resolve-cut',
+      'LOWERING_STAGE2_STAGE3_DRIFT:ALTERNATIVE_OPERATOR_DRIFT:node-resolve-cut',
+      'LOWERING_STAGE2_STAGE3_DRIFT:NODE_INPUT_DRIFT:node-resolve-cut',
     ]));
   });
 
   it('rejects ill-typed and non-model-owned node inputs before compilation', () => {
     const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as { nodes: Array<Record<string, unknown>> };
     const stageTwo = structuredClone(canonical.editorialIntentV2R) as { nodes: Array<Record<string, unknown>> };
-    const boundTarget = evidenceBoundIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-find-transcript');
-    const sourceTarget = stageTwo.nodes.find(({ intentNodeId }) => intentNodeId === 'node-find-transcript');
+    const boundTarget = evidenceBoundIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-resolve-cut');
+    const sourceTarget = stageTwo.nodes.find(({ intentNodeId }) => intentNodeId === 'node-resolve-cut');
     expect(boundTarget).toBeTruthy();
     expect(sourceTarget).toBeTruthy();
     const invalidInputs = { query: { invalid: true }, projectId: 'attacker-project' };
@@ -233,8 +255,8 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     });
     expect(result.compiled.compileDisposition).not.toBe('COMPILED_RESEARCH_PROXY');
     expect(result.diagnostics).toEqual(expect.arrayContaining([
-      expect.stringContaining('MODEL_INPUT_SCHEMA_INVALID:node-find-transcript:query'),
-      'MODEL_INPUT_FIELD_NOT_MODEL_OWNED:node-find-transcript:projectId',
+      expect.stringContaining('MODEL_INPUT_SCHEMA_INVALID:node-resolve-cut:query'),
+      'MODEL_INPUT_FIELD_NOT_MODEL_OWNED:node-resolve-cut:projectId',
     ]));
   });
 
@@ -256,18 +278,21 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     expect(result.zeroDrop).toBe(false);
   });
 
-  it('does not fall back to an unrelated fact of the same kind', () => {
-    const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as {
-      evidenceBindings: Array<{ bindingId: string; factIds: string[] }>;
+  it('does not fall back to a fixture fact when the declared causal producer is absent', () => {
+    const policy: GenericLoweringPolicyV2R = {
+      ...DEV01_LOWERING_POLICY_V2R,
+      fieldBindings: {
+        ...DEV01_LOWERING_POLICY_V2R.fieldBindings,
+        targetRange: {
+          source: 'NODE_OUTPUT',
+          producers: [{
+            operatorId: 'resolve_audio_edit', outputName: 'proposedOperation',
+            projectionPath: ['arguments', 'targetRange'],
+          }],
+        },
+      },
     };
-    const transcriptBinding = evidenceBoundIntent.evidenceBindings.find(({ bindingId }) => bindingId === 'bind-transcript');
-    expect(transcriptBinding).toBeTruthy();
-    transcriptBinding!.factIds = [];
-    const result = lowerV2RBoundIntentGeneric({
-      taskId: 'DEV-01', editorialIntent: canonical.editorialIntentV2R,
-      evidenceBoundIntent, evidencePack: canonical.evidencePacks.BASELINE,
-      policy: DEV01_LOWERING_POLICY_V2R,
-    });
+    const result = lowerBaseline(policy);
     expect(result.compiled.compileDisposition).not.toBe('COMPILED_RESEARCH_PROXY');
     expect(result.diagnostics).toEqual(expect.arrayContaining([
       'INPUT_BINDING_MISSING:node-cut:targetRange',
