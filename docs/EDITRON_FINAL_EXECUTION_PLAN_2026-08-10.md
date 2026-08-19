@@ -1466,13 +1466,32 @@ consumes those returned values; it no longer reconstructs child IDs or the
 removed, intersecting and invalid coordinates and both video and dialogue
 splits.
 
-This is **partial causal plumbing**, not a connected model or production pass.
-The live `cut_section` chat response and canonical ProjectService/IF1 receipt
-do not yet expose/bind the mapping; the V2 operator sheet and downstream
-resolver ports still require wiring; the current generic DEV-01 Stage-6 proxy
-still substitutes canonical fixture operations instead of interpreting every
-compiled model-selected node. No provider rerun or model ranking is authorised
-by this slice.
+This remains **research-only causal plumbing**, not a connected model or
+production pass, but the earlier canned Stage-6 limitation is now closed in the
+active V2R lane:
+
+- `71111d6ea` binds causal producer ports and makes the lowerer prove zero
+  operator additions and zero selected-operator drops;
+- `f8d0304fb` interprets all six compiled DEV-01 operators in dependency order,
+  projects declared data edges, validates owner/spec/schema bindings and calls
+  the existing pure cut, visual-resolution, keyframe and ducking owners on an
+  isolated clone;
+- `8a228c03c` applies one versioned independent video/audio proof policy before
+  the causal executor is allowed to write a PASS receipt; malformed proof,
+  wrong geometry, wrong media probes, wrong ducking, browser errors or forbidden
+  external calls stop the run;
+- `9f33b974a` closes the shared numeric-schema hole so declared minimum and
+  maximum values for focal coordinates, evidence strength, frames and audio
+  parameters are enforced before an owner runs.
+
+The real DEV-01 proxy has rendered through Remotion and decoded audio under
+this chain, but that proves mechanics only. The current causal test still starts
+from the canonical Stage-1/2/3 artifact rather than an untouched provider
+episode. The live `cut_section` chat response and canonical ProjectService/IF1
+receipt also do not yet expose/bind the coordinate mapping. DEV-03 still needs
+the same causal conversion, and the refreshed evaluator/manifest must be frozen
+before Luna, Terra or Qwen is called. Therefore no provider rerun, model ranking
+or production mutation is authorised by these commits.
 
 ### GeneratedCompositionProgram current truth
 
