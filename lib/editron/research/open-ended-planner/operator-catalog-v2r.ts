@@ -9,7 +9,7 @@ type JsonRecord = Record<string, unknown>;
 // The historical V2 JSON is immutable benchmark evidence. V2R derives its own
 // explicitly identified contract from those bytes so later causal amendments do
 // not rewrite, or silently masquerade as, the issued V2 catalog.
-export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_4' as const;
+export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_5' as const;
 
 const historicalCatalog = cloneJsonV2R(historicalOperatorCatalogJson) as JsonRecord;
 const amendedCatalog = amendCausalOwnerContractsV2R(historicalCatalog);
@@ -25,6 +25,18 @@ const catalogMaterial: JsonRecord = {
 
 function amendCausalOwnerContractsV2R(source: JsonRecord): JsonRecord {
   const amendments = new Map<string, JsonRecord>([
+    ['read_project_file', {
+      ownerRef: 'lib/editron/agent/tools.ts#createEditronTools/read_project_file',
+    }],
+    ['get_timeline_view', {
+      ownerRef: 'lib/editron/agent/tools.ts#createEditronTools/get_timeline_view',
+    }],
+    ['get_video_transcription', {
+      ownerRef: 'lib/editron/agent/tools.ts#createEditronTools/get_video_transcription',
+    }],
+    ['find_transcript_moment', {
+      ownerRef: 'lib/editron/agent/chat-transcript-tools.ts#findTranscriptMomentCandidates',
+    }],
     ['resolve_transcript_edit', {
       ownerRef: 'lib/editron/agent/chat-transcript-tools.ts#resolveTranscriptEditRange',
       input: operatorIoV2R(

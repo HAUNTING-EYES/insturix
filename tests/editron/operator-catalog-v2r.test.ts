@@ -11,11 +11,21 @@ type JsonRecord = Record<string, unknown>;
 
 describe('V2R operator-specific input contracts', () => {
   it('versions causal contract changes without rewriting the historical catalog', () => {
-    expect(V2R_OPERATOR_CATALOG_REVISION).toBe('EDITRON_OPERATOR_SPECS_V2R_4');
+    expect(V2R_OPERATOR_CATALOG_REVISION).toBe('EDITRON_OPERATOR_SPECS_V2R_5');
     expect(V2R_OPERATOR_CATALOG.derivedFrom).toMatchObject({
       artifact: 'tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json',
       version: '2.0.0',
     });
+    expect(operator('read_project_file').ownerRef)
+      .toBe('lib/editron/agent/tools.ts#createEditronTools/read_project_file');
+    expect(operator('get_timeline_view').ownerRef)
+      .toBe('lib/editron/agent/tools.ts#createEditronTools/get_timeline_view');
+    expect(operator('get_video_transcription').ownerRef)
+      .toBe('lib/editron/agent/tools.ts#createEditronTools/get_video_transcription');
+    expect(operator('find_transcript_moment').ownerRef)
+      .toBe('lib/editron/agent/chat-transcript-tools.ts#findTranscriptMomentCandidates');
+    expect(operator('find_audio_moment').ownerRef)
+      .toBe('lib/editron/agent/chat-audio-tools.ts#findAudioMomentCandidates');
   });
 
   it('keeps beat alignment distinct from dialogue ducking and exposes causal shake inputs', () => {
