@@ -5,6 +5,7 @@ import {
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import {
   V2R_OPERATOR_CATALOG,
+  v2rOperatorFieldSchema,
   v2rOperatorCatalogIdentity,
   v2rOperatorSpecRef,
 } from './operator-catalog-v2r';
@@ -107,8 +108,6 @@ const catalog = V2R_OPERATOR_CATALOG as unknown as JsonRecord;
 const operators = new Map<string, JsonRecord>(
   records(catalog.operators).map((operator) => [text(operator.operatorId), operator]),
 );
-const fieldSchemas = record(catalog.fieldSchemas);
-
 const RESOURCE_POLICY_BY_KIND: Record<string, string> = {
   READ: 'OE_STAGE4_READ_V1',
   RESOLVER: 'OE_STAGE4_RESOLVER_V1',
@@ -140,13 +139,11 @@ export function buildPlannerInputOwnershipV2R(
     const unboundInputFields: PlannerUnboundFieldV2R[] = [];
 
     for (const field of strings(inputSpec.fields)) {
-      const schema = fieldSchemas[field];
+      const schema = v2rOperatorFieldSchema(operatorId, field);
       const fieldOwnership: PlannerInputFieldOwnershipV2R = {
         field,
         required: requiredFields.has(field),
-        jsonSchema: schema && typeof schema === 'object' && !Array.isArray(schema)
-          ? schema as JsonRecord
-          : null,
+        jsonSchema: schema,
       };
       const rule = policy.operatorFieldBindings?.[operatorId]?.[field]
         ?? policy.fieldBindings[field];
@@ -279,7 +276,7 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
       if (rule?.source !== 'MODEL_INPUT') {
         diagnostics.push(`MODEL_INPUT_FIELD_NOT_MODEL_OWNED:${intentNodeId}:${field}`);
       }
-      const fieldSchema = fieldSchemas[field];
+      const fieldSchema = v2rOperatorFieldSchema(selectedOperatorId, field);
       if (!fieldSchema) {
         diagnostics.push(`INPUT_FIELD_SCHEMA_MISSING:${intentNodeId}:${field}`);
         continue;
@@ -309,7 +306,7 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
       }, diagnostics, intentNodeId, requiredFields.includes(field), selectedOperatorId);
       if (bound.present) {
         if (bound.outputBinding) {
-          const fieldSchema = fieldSchemas[field];
+          const fieldSchema = v2rOperatorFieldSchema(selectedOperatorId, field);
           if (!fieldSchema) {
             diagnostics.push(`INPUT_FIELD_SCHEMA_MISSING:${intentNodeId}:${field}`);
           } else {
@@ -331,7 +328,7 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
       }
     }
     for (const [field, value] of Object.entries(inputs)) {
-      const fieldSchema = fieldSchemas[field];
+      const fieldSchema = v2rOperatorFieldSchema(selectedOperatorId, field);
       if (!fieldSchema) {
         diagnostics.push(`INPUT_FIELD_SCHEMA_MISSING:${intentNodeId}:${field}`);
         continue;

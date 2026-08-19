@@ -53,4 +53,37 @@ describe('Stage-4 JSON-schema numeric bounds', () => {
     expect(validateJsonSchemaV2({ x: 0.5, y: 1.1 }, focalPointSchema, '$.focalPoint'))
       .toEqual(['$.focalPoint.y:NUMBER']);
   });
+
+  it('supports closed unions without accepting malformed alternatives', () => {
+    const overlayIdSchema = {
+      anyOf: [
+        { type: 'string', minLength: 1, maxLength: 128 },
+        { type: 'integer', minimum: 0 },
+      ],
+    };
+    expect(validateJsonSchemaV2('clip-7', overlayIdSchema, '$.overlayId')).toEqual([]);
+    expect(validateJsonSchemaV2(7, overlayIdSchema, '$.overlayId')).toEqual([]);
+    expect(validateJsonSchemaV2('', overlayIdSchema, '$.overlayId')).toEqual(['$.overlayId:ANY_OF']);
+    expect(validateJsonSchemaV2(false, overlayIdSchema, '$.overlayId')).toEqual(['$.overlayId:ANY_OF']);
+    expect(validateJsonSchemaV2('clip', { anyOf: [] }, '$.overlayId')).toEqual(['$.overlayId:ANY_OF']);
+    expect(validateJsonSchemaV2('clip', { anyOf: [{ type: 'string' }, null] }, '$.overlayId'))
+      .toEqual(['$.overlayId:ANY_OF']);
+  });
+
+  it('validates bounded collections and typed dynamic object values', () => {
+    const durationsSchema = {
+      type: 'object', minProperties: 1, maxProperties: 2,
+      properties: {},
+      additionalProperties: { type: 'integer', minimum: 1 },
+    };
+    expect(validateJsonSchemaV2({ 'asset-a': 600 }, durationsSchema, '$.durations')).toEqual([]);
+    expect(validateJsonSchemaV2({ 'asset-a': 0 }, durationsSchema, '$.durations'))
+      .toEqual(['$.durations.asset-a:INTEGER']);
+    expect(validateJsonSchemaV2({}, durationsSchema, '$.durations')).toEqual(['$.durations:PROPERTY_COUNT']);
+
+    const framesSchema = { type: 'array', items: { type: 'integer', minimum: 0 }, minItems: 2, maxItems: 3 };
+    expect(validateJsonSchemaV2([1, 2], framesSchema, '$.frames')).toEqual([]);
+    expect(validateJsonSchemaV2([1], framesSchema, '$.frames')).toEqual(['$.frames:ITEM_COUNT']);
+    expect(validateJsonSchemaV2([1, 2, 3, 4], framesSchema, '$.frames')).toEqual(['$.frames:ITEM_COUNT']);
+  });
 });

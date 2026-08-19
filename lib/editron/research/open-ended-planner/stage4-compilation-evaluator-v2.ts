@@ -302,7 +302,21 @@ export function validateJsonSchemaV2(value: unknown, schemaValue: unknown, path:
   const schema = record(schemaValue);
   if ('const' in schema && value !== schema.const) return [`${path}:CONST`];
   if (Array.isArray(schema.enum) && !schema.enum.includes(value)) return [`${path}:ENUM`];
-  if (schema.type === 'string') return typeof value === 'string' && (!schema.minLength || value.length >= Number(schema.minLength)) ? [] : [`${path}:STRING`];
+  if ('anyOf' in schema) {
+    const alternatives = Array.isArray(schema.anyOf) ? schema.anyOf.filter(isRecord) : [];
+    if (!alternatives.length || alternatives.length !== (Array.isArray(schema.anyOf) ? schema.anyOf.length : 0)) {
+      return [`${path}:ANY_OF`];
+    }
+    if (!alternatives.some((alternative) => validateJsonSchemaV2(value, alternative, path).length === 0)) {
+      return [`${path}:ANY_OF`];
+    }
+    const { anyOf: _anyOf, ...remainingSchema } = schema;
+    return Object.keys(remainingSchema).length ? validateJsonSchemaV2(value, remainingSchema, path) : [];
+  }
+  if (schema.type === 'string') {
+    return typeof value === 'string' && withinCountSchemaBounds(value.length, schema, 'minLength', 'maxLength')
+      ? [] : [`${path}:STRING`];
+  }
   if (schema.type === 'integer') {
     return Number.isSafeInteger(value) && !Object.is(value, -0) && withinNumericSchemaBounds(value as number, schema)
       ? [] : [`${path}:INTEGER`];
@@ -314,7 +328,7 @@ export function validateJsonSchemaV2(value: unknown, schemaValue: unknown, path:
   if (schema.type === 'array') {
     if (!Array.isArray(value)) return [`${path}:ARRAY`];
     const result = value.flatMap((entry, index) => validateJsonSchemaV2(entry, schema.items, `${path}[${index}]`));
-    if (schema.minItems && value.length < Number(schema.minItems)) result.push(`${path}:MIN_ITEMS`);
+    if (!withinCountSchemaBounds(value.length, schema, 'minItems', 'maxItems')) result.push(`${path}:ITEM_COUNT`);
     if (schema.uniqueItems === true && new Set(value.map((entry) => hashCanonicalJsonV1(entry))).size !== value.length) result.push(`${path}:UNIQUE`);
     return result;
   }
@@ -322,9 +336,18 @@ export function validateJsonSchemaV2(value: unknown, schemaValue: unknown, path:
     if (!isRecord(value)) return [`${path}:OBJECT`];
     const properties = record(schema.properties);
     const result = strings(schema.required).filter((field) => !(field in value)).map((field) => `${path}.${field}:REQUIRED`);
-    if (schema.additionalProperties === false) for (const field of Object.keys(value)) if (!(field in properties)) result.push(`${path}.${field}:ADDITIONAL`);
-    for (const [field, child] of Object.entries(value)) if (field in properties) result.push(...validateJsonSchemaV2(child, properties[field], `${path}.${field}`));
-    if (schema.minProperties && Object.keys(value).length < Number(schema.minProperties)) result.push(`${path}:MIN_PROPERTIES`);
+    for (const [field, child] of Object.entries(value)) {
+      if (field in properties) {
+        result.push(...validateJsonSchemaV2(child, properties[field], `${path}.${field}`));
+      } else if (schema.additionalProperties === false) {
+        result.push(`${path}.${field}:ADDITIONAL`);
+      } else if (isRecord(schema.additionalProperties)) {
+        result.push(...validateJsonSchemaV2(child, schema.additionalProperties, `${path}.${field}`));
+      }
+    }
+    if (!withinCountSchemaBounds(Object.keys(value).length, schema, 'minProperties', 'maxProperties')) {
+      result.push(`${path}:PROPERTY_COUNT`);
+    }
     return result;
   }
   return [];
@@ -336,6 +359,19 @@ function withinNumericSchemaBounds(value: number, schema: JsonRecord): boolean {
   if (minimum !== undefined && (typeof minimum !== 'number' || !Number.isFinite(minimum) || value < minimum)) return false;
   if (maximum !== undefined && (typeof maximum !== 'number' || !Number.isFinite(maximum) || value > maximum)) return false;
   return true;
+}
+
+function withinCountSchemaBounds(
+  value: number,
+  schema: JsonRecord,
+  minimumKey: string,
+  maximumKey: string,
+): boolean {
+  const minimum = schema[minimumKey];
+  const maximum = schema[maximumKey];
+  if (minimum !== undefined && (!Number.isSafeInteger(minimum) || Number(minimum) < 0 || value < Number(minimum))) return false;
+  if (maximum !== undefined && (!Number.isSafeInteger(maximum) || Number(maximum) < 0 || value > Number(maximum))) return false;
+  return minimum === undefined || maximum === undefined || Number(minimum) <= Number(maximum);
 }
 
 function ownerRef(operator: JsonRecord): string {

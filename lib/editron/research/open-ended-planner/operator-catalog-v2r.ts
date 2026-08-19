@@ -9,7 +9,7 @@ type JsonRecord = Record<string, unknown>;
 // The historical V2 JSON is immutable benchmark evidence. V2R derives its own
 // explicitly identified contract from those bytes so later causal amendments do
 // not rewrite, or silently masquerade as, the issued V2 catalog.
-export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_2' as const;
+export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_3' as const;
 
 const historicalCatalog = cloneJsonV2R(historicalOperatorCatalogJson) as JsonRecord;
 const amendedCatalog = amendCausalOwnerContractsV2R(historicalCatalog);
@@ -73,6 +73,24 @@ function amendCausalOwnerContractsV2R(source: JsonRecord): JsonRecord {
       ),
       stateEffects: ['BGM overlay styles.duckingConfig and optional default BGM volume'],
     }],
+    ['find_audio_moment', {
+      ownerRef: 'lib/editron/agent/chat-audio-tools.ts#findAudioMomentCandidates',
+    }],
+    ['sync_cuts_to_beats', {
+      ownerRef: 'lib/pipeline/scene-to-editron.ts#alignCutsToBeatsWithEvidence',
+      input: operatorIoV2R(
+        ['projectId', 'expectedProjectRevision', 'overlayIds', 'beatPlan', 'beatSyncConstraints', 'evidenceIds'],
+        ['projectId', 'expectedProjectRevision', 'overlayIds', 'beatPlan', 'beatSyncConstraints', 'evidenceIds'],
+      ),
+      output: operatorIoV2R(['receipt', 'result'], ['receipt', 'result']),
+    }],
+    ['apply_camera_shake', {
+      ownerRef: 'lib/editron/agent/chat-visual-tools.ts#applyCameraShakeToProject',
+      input: operatorIoV2R(
+        ['projectId', 'expectedProjectRevision', 'overlayId', 'targetFrame', 'effectPlan'],
+        ['projectId', 'expectedProjectRevision', 'overlayId', 'targetFrame', 'effectPlan'],
+      ),
+    }],
   ]);
   const operators = records(source.operators).map((operator) => ({
     ...operator,
@@ -88,6 +106,8 @@ function amendCausalOwnerContractsV2R(source: JsonRecord): JsonRecord {
       evidenceStrength: { type: 'number', minimum: 0, maximum: 1 },
       timelineCoordinateTransform: timelineCoordinateTransformSchemaV2R(),
       splitChildren: splitChildrenSchemaV2R(),
+      beatPlan: beatPlanSchemaV2R(),
+      beatSyncConstraints: beatSyncConstraintsSchemaV2R(),
       audioPlan: {
         type: 'object',
         required: ['enabled'],
@@ -99,6 +119,14 @@ function amendCausalOwnerContractsV2R(source: JsonRecord): JsonRecord {
           lookAheadMs: { type: 'integer', minimum: 0, maximum: 1000 },
         },
         additionalProperties: false,
+      },
+    },
+    operatorFieldSchemas: {
+      apply_camera_shake: { overlayId: overlayIdSchemaV2R() },
+      sync_cuts_to_beats: {
+        overlayIds: {
+          type: 'array', items: overlayIdSchemaV2R(), minItems: 1, uniqueItems: true,
+        },
       },
     },
     operators,
@@ -126,6 +154,52 @@ function focalPointSchemaV2R(): JsonRecord {
     properties: {
       x: { type: 'number', minimum: 0, maximum: 1 },
       y: { type: 'number', minimum: 0, maximum: 1 },
+    },
+    additionalProperties: false,
+  };
+}
+
+function overlayIdSchemaV2R(): JsonRecord {
+  return {
+    anyOf: [
+      { type: 'string', minLength: 1, maxLength: 128 },
+      { type: 'integer', minimum: 0 },
+    ],
+  };
+}
+
+function beatPlanSchemaV2R(): JsonRecord {
+  return {
+    type: 'object',
+    required: ['schemaVersion', 'assetId', 'measuredEvidenceReceiptHash', 'strongPeakFrames', 'finalStrongPeakFrame'],
+    properties: {
+      schemaVersion: { const: 'EDITRON_MEASURED_BEAT_PLAN_V2R_1' },
+      assetId: { type: 'string', minLength: 1, maxLength: 256 },
+      measuredEvidenceReceiptHash: { type: 'string', minLength: 64, maxLength: 64 },
+      strongPeakFrames: {
+        type: 'array', items: { type: 'integer', minimum: 0 }, minItems: 1, uniqueItems: true,
+      },
+      finalStrongPeakFrame: { type: 'integer', minimum: 0 },
+    },
+    additionalProperties: false,
+  };
+}
+
+function beatSyncConstraintsSchemaV2R(): JsonRecord {
+  return {
+    type: 'object',
+    required: ['maxSnapFrames', 'minClipFrames', 'maxConsecutiveBeatCuts', 'protectedAudioRange',
+      'protectedBoundaryToleranceFrames', 'sourceDurationFramesByAssetId', 'requireSourceHandles'],
+    properties: {
+      maxSnapFrames: { type: 'integer', minimum: 1 },
+      minClipFrames: { type: 'integer', minimum: 1 },
+      maxConsecutiveBeatCuts: { type: 'integer', minimum: 1 },
+      protectedAudioRange: frameRangeSchemaV2R(),
+      protectedBoundaryToleranceFrames: { type: 'integer', minimum: 0 },
+      sourceDurationFramesByAssetId: {
+        type: 'object', minProperties: 1, additionalProperties: { type: 'integer', minimum: 1 },
+      },
+      requireSourceHandles: { enum: [true] },
     },
     additionalProperties: false,
   };
@@ -202,6 +276,16 @@ export function v2rOperatorSpecRef(operatorId: string): string {
   return `${V2R_OPERATOR_CATALOG_REVISION}#${operatorId}`;
 }
 
+export function v2rOperatorFieldSchema(operatorId: string, field: string): Readonly<JsonRecord> | null {
+  const operator = operatorByIdV2R().get(operatorId);
+  if (!operator || !strings(record(operator.input).fields).includes(field)) return null;
+  const operatorSchemas = record(record(V2R_OPERATOR_CATALOG.operatorFieldSchemas)[operatorId]);
+  const schema = operatorSchemas[field] ?? record(V2R_OPERATOR_CATALOG.fieldSchemas)[field];
+  return schema && typeof schema === 'object' && !Array.isArray(schema)
+    ? schema as Readonly<JsonRecord>
+    : null;
+}
+
 // Rebind a Stage 2-4 packet to the V2R catalog while preserving the exact
 // operator subset selected by the existing stage builder. The packet and
 // transport hashes are recomputed; there is no fallback to the historical view.
@@ -260,6 +344,11 @@ function publicCatalogV2R(operatorRecords: readonly JsonRecord[], includeCompila
         productionEligibility: V2R_OPERATOR_CATALOG.productionEligibility,
         schemaAssembly: V2R_OPERATOR_CATALOG.schemaAssembly,
         fieldSchemas: V2R_OPERATOR_CATALOG.fieldSchemas,
+        operatorFieldSchemas: Object.fromEntries(operatorRecords.flatMap((operator) => {
+          const operatorId = text(operator.operatorId);
+          const schemas = record(record(V2R_OPERATOR_CATALOG.operatorFieldSchemas)[operatorId]);
+          return Object.keys(schemas).length ? [[operatorId, schemas]] : [];
+        })),
         operators,
       })
     : deepFreezeV1({ ...identity, operators });
