@@ -24,7 +24,7 @@ import {
   V2R_SEMANTIC_OPERATOR_POLICY_VERSION,
 } from './v2r-semantic-operator-policy';
 
-export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V6' as const;
+export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V7' as const;
 
 // V2-1R capstone: the single pre-registration manifest.
 //

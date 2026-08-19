@@ -10,15 +10,12 @@ function node(intentNodeId: string, selectedOperatorId: string, requiresNodeIds:
 }
 
 const validDev01Nodes = [
-  node('transcript-find', 'find_transcript_moment'),
-  node('transcript-resolve', 'resolve_transcript_edit', ['transcript-find']),
+  node('transcript-resolve', 'resolve_transcript_edit'),
   node('cut', 'cut_section', ['transcript-resolve']),
   node('visual-find', 'find_visual_moment', ['cut']),
   node('keyframe-resolve', 'resolve_keyframe_edit', ['visual-find']),
   node('push', 'set_keyframes', ['keyframe-resolve']),
-  node('audio-find', 'find_audio_moment'),
-  node('audio-resolve', 'resolve_audio_edit', ['audio-find']),
-  node('duck', 'apply_audio_ducking', ['audio-resolve', 'cut']),
+  node('duck', 'apply_audio_ducking', ['cut']),
 ];
 
 describe('V2R semantic operator policy', () => {
@@ -46,17 +43,19 @@ describe('V2R semantic operator policy', () => {
       taskId: 'DEV-01', conditionId: 'BASELINE',
       editorialIntent: {
         nodes: [
-          ...validDev01Nodes.filter(({ selectedOperatorId }) => selectedOperatorId !== 'resolve_audio_edit'),
-          node('visual-find-early', 'find_visual_moment'),
+          ...validDev01Nodes.filter(({ selectedOperatorId }) => selectedOperatorId !== 'apply_audio_ducking'),
+          node('project-read', 'read_project_file'),
+          node('obsolete-audio-resolver', 'resolve_audio_edit'),
           node('random-grade', 'apply_color_grade'),
         ],
       },
       evidenceBoundIntent: { stageDisposition: 'READY_FOR_COMPILATION', unresolvedRequirements: [] },
     });
     expect(receipt.disposition).toBe('FAIL');
-    expect(receipt.diagnostics).toContain('EFFECT_GROUP_CARDINALITY:AUDIO_RESOLVE:0:1:1');
+    expect(receipt.diagnostics).toContain('EFFECT_GROUP_CARDINALITY:DIALOGUE_DUCK:0:1:1');
+    expect(receipt.diagnostics).toContain('OPERATOR_NOT_ALLOWED:resolve_audio_edit');
     expect(receipt.diagnostics).toContain('OPERATOR_NOT_ALLOWED:apply_color_grade');
-    expect(receipt.diagnostics).not.toContainEqual(expect.stringContaining('find_visual_moment'));
+    expect(receipt.diagnostics).not.toContainEqual(expect.stringContaining('read_project_file'));
   });
 
   it('requires honest evidence and capability gaps in the correct conditions', () => {

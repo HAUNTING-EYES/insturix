@@ -3,7 +3,7 @@ import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 type JsonRecord = Record<string, unknown>;
 
 export const V2R_SEMANTIC_OPERATOR_POLICY_VERSION =
-  'EDITRON_OE_V2R_SEMANTIC_OPERATOR_POLICY_V1' as const;
+  'EDITRON_OE_V2R_SEMANTIC_OPERATOR_POLICY_V2' as const;
 
 type StageDispositionV2R = 'READY_FOR_COMPILATION' | 'CAPABILITY_GAP' | 'UNVERIFIABLE';
 
@@ -49,31 +49,25 @@ export interface SemanticOperatorEvaluationV2R {
 const DEV01_OPERATORS = [
   'read_project_file', 'get_timeline_view', 'get_video_transcription',
   'find_transcript_moment', 'resolve_transcript_edit', 'cut_section',
-  'find_visual_moment', 'resolve_visual_edit', 'resolve_keyframe_edit', 'set_keyframes',
-  'find_audio_moment', 'resolve_audio_edit', 'apply_audio_ducking',
+  'find_visual_moment', 'resolve_keyframe_edit', 'set_keyframes',
+  'find_audio_moment', 'apply_audio_ducking',
 ] as const;
 
 const DEV01_GROUPS: readonly EffectGroupV2R[] = [
-  effect('TRANSCRIPT_FIND', ['find_transcript_moment']),
   effect('TRANSCRIPT_RESOLVE', ['resolve_transcript_edit']),
   effect('SILENCE_REMOVE', ['cut_section']),
   effect('VISUAL_FIND', ['find_visual_moment']),
   effect('KEYFRAME_RESOLVE', ['resolve_keyframe_edit']),
   effect('PUSH_IN', ['set_keyframes']),
-  effect('AUDIO_FIND', ['find_audio_moment']),
-  effect('AUDIO_RESOLVE', ['resolve_audio_edit']),
   effect('DIALOGUE_DUCK', ['apply_audio_ducking']),
 ];
 
 const POLICIES: readonly SemanticOperatorCasePolicyV2R[] = [
   casePolicy('DEV-01:BASELINE', 'READY_FOR_COMPILATION', DEV01_OPERATORS, DEV01_GROUPS, [
-    dependency('TRANSCRIPT_FIND', 'TRANSCRIPT_RESOLVE'),
     dependency('TRANSCRIPT_RESOLVE', 'SILENCE_REMOVE'),
     dependency('SILENCE_REMOVE', 'VISUAL_FIND'),
     dependency('VISUAL_FIND', 'KEYFRAME_RESOLVE'),
     dependency('KEYFRAME_RESOLVE', 'PUSH_IN'),
-    dependency('AUDIO_FIND', 'AUDIO_RESOLVE'),
-    dependency('AUDIO_RESOLVE', 'DIALOGUE_DUCK'),
     dependency('SILENCE_REMOVE', 'DIALOGUE_DUCK'),
   ]),
   casePolicy(
@@ -87,7 +81,7 @@ const POLICIES: readonly SemanticOperatorCasePolicyV2R[] = [
   ),
   casePolicy(
     'DEV-03:BASELINE', 'READY_FOR_COMPILATION',
-    ['read_project_file', 'get_timeline_view', 'find_audio_moment', 'resolve_audio_edit',
+    ['read_project_file', 'get_timeline_view', 'find_audio_moment',
       'sync_cuts_to_beats', 'apply_camera_shake'],
     [
       effect('BEAT_FIND', ['find_audio_moment']),
@@ -98,7 +92,7 @@ const POLICIES: readonly SemanticOperatorCasePolicyV2R[] = [
   ),
   casePolicy(
     'DEV-03:BEAT_EVIDENCE_WITHHELD', 'UNVERIFIABLE',
-    ['read_project_file', 'get_timeline_view', 'find_audio_moment', 'resolve_audio_edit',
+    ['read_project_file', 'get_timeline_view', 'find_audio_moment',
       'sync_cuts_to_beats', 'apply_camera_shake'],
     [], [], 'EVIDENCE',
   ),
