@@ -196,6 +196,7 @@ describe('Brand Vault signal profile routes', () => {
       {
         userId: 'user_route',
         orgId: 'org_route',
+        isOrgAdmin: false,
         recordId: 'record_route',
         actorId: 'user_route',
         body: { action: 'accept' },

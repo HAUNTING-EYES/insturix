@@ -14,12 +14,17 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, has } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   const { id } = await params;
   const result = await getBrandVaultSignalProfile(
-    { userId, orgId: orgId ?? undefined, recordId: id },
+    {
+      userId,
+      orgId: orgId ?? undefined,
+      isOrgAdmin: Boolean(orgId && has({ role: 'org:admin' })),
+      recordId: id,
+    },
     { store: getDefaultBrandVaultRefineryStore() },
   );
   return NextResponse.json(result.body, { status: result.status });
@@ -29,7 +34,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, has } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   let body: unknown;
@@ -44,7 +49,14 @@ export async function PATCH(
 
   const { id } = await params;
   const result = await reviewBrandVaultSignalProfileDraft(
-    { userId, orgId: orgId ?? undefined, recordId: id, actorId: userId, body },
+    {
+      userId,
+      orgId: orgId ?? undefined,
+      isOrgAdmin: Boolean(orgId && has({ role: 'org:admin' })),
+      recordId: id,
+      actorId: userId,
+      body,
+    },
     { store: getDefaultBrandVaultRefineryStore() },
   );
 

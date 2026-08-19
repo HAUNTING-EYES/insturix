@@ -2,6 +2,7 @@ import type { BrandSignalProfile } from './brand-signal-profile';
 import {
   brandAccessKey,
   filterAccessibleBrands,
+  isBrandAccessible,
   mintBrandId,
   normalizeBrandAccessUserIds,
   type BrandAccessGrants,
@@ -1023,14 +1024,16 @@ function isoBefore(now: string, deltaMs: number): string {
 }
 
 export async function getBrandVaultSignalProfile(
-  args: { userId: string; orgId?: string; recordId: string },
+  args: { userId: string; orgId?: string; isOrgAdmin?: boolean; recordId: string },
   dependencies: { store: BrandVaultRefineryStore },
 ): Promise<BrandVaultApiResult<GetBrandVaultRefineryJobSuccessBody | BrandVaultApiErrorBody>> {
   const recordId = args.recordId.trim();
   if (!recordId) return invalidRequest('Missing record id.');
 
   const record = await dependencies.store.getRecord(recordId);
-  if (!record || !matchesAuthenticatedBrandVaultScope(record.profile, args)) return notFound('Brand signal profile was not found.');
+  if (!record || !await canAccessBrandSignalProfile(record.profile, args, dependencies.store)) {
+    return notFound('Brand signal profile was not found.');
+  }
 
   const snapshot = await dependencies.store.getJobSnapshotByRecordId(recordId);
   const job = snapshot?.job ?? profileOnlyJob(record);
@@ -1057,6 +1060,7 @@ export async function reviewBrandVaultSignalProfileDraft(
   args: {
     userId: string;
     orgId?: string;
+    isOrgAdmin?: boolean;
     recordId: string;
     body: unknown;
     actorId?: string;
@@ -1065,7 +1069,9 @@ export async function reviewBrandVaultSignalProfileDraft(
   dependencies: { store: BrandVaultRefineryStore },
 ): Promise<BrandVaultApiResult<ReviewBrandVaultSignalProfileSuccessBody | BrandVaultApiErrorBody>> {
   const record = await dependencies.store.getRecord(args.recordId);
-  if (!record || !matchesAuthenticatedBrandVaultScope(record.profile, args)) return notFound('Brand signal profile was not found.');
+  if (!record || !await canAccessBrandSignalProfile(record.profile, args, dependencies.store)) {
+    return notFound('Brand signal profile was not found.');
+  }
 
   const body = isObjectRecord(args.body) ? args.body : {};
   const action = typeof body.action === 'string' ? body.action.trim() : '';
@@ -1641,6 +1647,24 @@ function matchesAuthenticatedBrandVaultScope(
   if (owner.userId !== scope.userId) return false;
   if (scope.orgId !== undefined && owner.orgId !== scope.orgId) return false;
   return true;
+}
+
+async function canAccessBrandSignalProfile(
+  owner: { userId?: string; orgId?: string; brandId?: string },
+  scope: { userId: string; orgId?: string; isOrgAdmin?: boolean },
+  store: BrandVaultRefineryStore,
+): Promise<boolean> {
+  const ownerOrgId = cleanString(owner.orgId);
+  const scopeOrgId = cleanString(scope.orgId);
+  if (!ownerOrgId) return !scopeOrgId && owner.userId === scope.userId;
+  if (!scopeOrgId || ownerOrgId !== scopeOrgId) return false;
+  if (scope.isOrgAdmin) return true;
+
+  const brandId = cleanString(owner.brandId);
+  if (!brandId) return owner.userId === scope.userId;
+  if (!store.getBrandAccessGrants) return true;
+  const grants = await store.getBrandAccessGrants(scopeOrgId);
+  return isBrandAccessible(brandId, grants, { userId: scope.userId });
 }
 
 function notFound(message: string): BrandVaultApiResult<BrandVaultApiErrorBody> {
