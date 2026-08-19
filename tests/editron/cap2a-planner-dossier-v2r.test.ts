@@ -7,6 +7,7 @@ import {
 } from '@/lib/editron/research/open-ended-planner/cap2a-planner-bridge-v2r';
 import {
   buildCap2aEnrichedCatalogV2R,
+  buildCap2aPlannerToolSheetV2R,
   cap2aPlannerDossierIdentityV2R,
   cap2aEnrichmentCoverageV2R,
 } from '@/lib/editron/research/open-ended-planner/cap2a-planner-dossier-v2r';
@@ -98,5 +99,31 @@ describe('CAP-2A enriched planner dossier', () => {
     expect(identity.recordIdRole).toBe('REFERENCE_ONLY_NOT_SELECTABLE');
     expect(identity.supplementSha256).toHaveLength(64);
     expect(identity.identitySha256).toHaveLength(64);
+  });
+
+  it('projects all detailed records into a bounded hash-bound planner tool sheet', () => {
+    const sheet = buildCap2aPlannerToolSheetV2R(specOperators);
+    expect(sheet.operators).toHaveLength(40);
+    expect(Object.isFrozen(sheet)).toBe(true);
+    expect(sheet.sheetSha256).toHaveLength(64);
+    expect(Object.keys(sheet.policyProfiles).length).toBeGreaterThan(0);
+    expect(Buffer.byteLength(JSON.stringify(sheet), 'utf8')).toBeLessThan(130_000);
+    const cut = sheet.operators.find(({ operatorId }) => operatorId === 'cut_section');
+    expect(cut).toMatchObject({
+      operatorId: 'cut_section',
+      availability: {
+        implementationStatus: 'PARTIAL',
+        certificationStatus: 'UNCERTIFIED',
+        plannerEligibility: 'ISOLATED_PROPOSAL_ONLY',
+        compilerEligibility: 'ISOLATED_PROXY_ONLY',
+      },
+      execution: { revisionSemantics: 'UNSAFE_NONE', failClosed: false },
+      recovery: { undo: 'UNAVAILABLE', replay: 'UNSAFE' },
+    });
+    expect((cut?.owners as { form?: string }).form).toContain('timeline-range-cut.ts#cutTimelineRange');
+    expect((cut?.effects as { invalidates?: string[] }).invalidates).toContain(
+      'PROOF|timeline-coordinate and affected-range proofs|PROJECT_TIMEBASE',
+    );
+    expect((cut?.sourceDossierSha256 as string)).toHaveLength(64);
   });
 });

@@ -177,19 +177,27 @@ describe('V2-1F V2R connected episode harness', () => {
           const stageTwoIds = (stageTwoCatalog.operators as Array<{ operatorId: string }>).map(({ operatorId }) => operatorId);
           return stageTwoIds.indexOf(left) - stageTwoIds.indexOf(right);
         }));
-    const dossier = stageTwoInput.capabilityDossier as Array<{
-      selectableOperatorId: string;
-      cap2a: { recordAuthority: string } | null;
-    }>;
-    expect(Array.isArray(dossier)).toBe(true);
-    expect(dossier.length).toBeGreaterThan(0);
-    expect(dossier.every(({ cap2a }) => cap2a !== null)).toBe(true);
-    expect(dossier.find(({ selectableOperatorId }) => (
-      selectableOperatorId === 'resolve_transcript_edit'
-    ))?.cap2a).toBeTruthy();
-    expect(dossier.find(({ selectableOperatorId }) => (
-      selectableOperatorId === 'cut_section'
-    ))?.cap2a?.recordAuthority).toBe('V2R_CODE_GROUNDED_SUPPLEMENT');
+    const dossier = stageTwoInput.capabilityDossier as {
+      authority: string;
+      policyProfiles: Record<string, JsonRecord>;
+      operators: Array<{
+        operatorId: string;
+        availability: { compilerEligibility: string };
+        sourceDossierSha256: string;
+      }>;
+      sheetSha256: string;
+    };
+    expect(dossier.authority)
+      .toBe('LOSSLESS_PLANNING_PROJECTION_OF_HASH_BOUND_CODE_AUDIT_DOSSIERS');
+    expect(dossier.operators).toHaveLength(40);
+    expect(Object.keys(dossier.policyProfiles).length).toBeGreaterThan(0);
+    expect(dossier.sheetSha256).toHaveLength(64);
+    expect(dossier.operators.find(({ operatorId }) => (
+      operatorId === 'resolve_transcript_edit'
+    ))?.sourceDossierSha256).toHaveLength(64);
+    expect(dossier.operators.find(({ operatorId }) => (
+      operatorId === 'cut_section'
+    ))?.availability.compilerEligibility).toBe('ISOLATED_PROXY_ONLY');
     const ownership = stageTwoInput.plannerInputOwnership as JsonRecord;
     const ownershipRows = ownership.operators as Array<{
       operatorId: string;

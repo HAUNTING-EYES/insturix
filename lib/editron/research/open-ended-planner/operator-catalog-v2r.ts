@@ -1,6 +1,6 @@
 import historicalOperatorCatalogJson from '@/tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json';
 
-import { buildCap2aEnrichedCatalogV2R } from './cap2a-planner-dossier-v2r';
+import { buildCap2aPlannerToolSheetV2R } from './cap2a-planner-dossier-v2r';
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import type { HashedStagePacketV2 } from './staged-packet-v2';
 
@@ -370,7 +370,7 @@ export function bindV2ROperatorCatalogToPacketV2R(
     modelInput: {
       ...source.packet.modelInput,
       operatorCatalog,
-      capabilityDossier: buildCap2aEnrichedCatalogV2R(operatorRecords),
+      capabilityDossier: buildCap2aPlannerToolSheetV2R(operatorRecords),
     },
   });
   const transportAttachments = deepFreezeV1([...source.transportAttachments]);
