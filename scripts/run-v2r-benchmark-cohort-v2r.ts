@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   }
 
   const createdAt = new Date().toISOString();
-  const cohortId = `v2r-v14-${safeTimestamp(createdAt)}`;
+  const cohortId = `v2r-v15-${safeTimestamp(createdAt)}`;
   const outputDir = path.resolve(
     '.calibration-temp/open-ended-planner-v2/v2r-cohorts', cohortId,
   );

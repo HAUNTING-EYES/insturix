@@ -1,5 +1,7 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import {
+  buildCap2aPlannerToolSheetV2R,
+  CAP2A_PLANNER_TOOL_SHEET_VERSION_V2R,
   cap2aPlannerDossierIdentityV2R,
   type Cap2aPlannerDossierIdentityV2R,
 } from './cap2a-planner-dossier-v2r';
@@ -19,7 +21,11 @@ import {
   GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R,
   GENERIC_LOWERING_POLICY_VERSION_V2R,
 } from './generic-lowerer-v2r';
-import { v2rOperatorCatalogIdentity, type V2ROperatorCatalogIdentity } from './operator-catalog-v2r';
+import {
+  V2R_OPERATOR_CATALOG,
+  v2rOperatorCatalogIdentity,
+  type V2ROperatorCatalogIdentity,
+} from './operator-catalog-v2r';
 import {
   PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R,
   V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_VERSION,
@@ -43,10 +49,10 @@ import {
 } from './v2r-stage6-task-adapter-registry';
 
 export const V2R_CONNECTED_EPISODE_RECEIPT_VERSION =
-  'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V4' as const;
+  'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V5' as const;
 export const V2R_STAGE5_EXECUTION_DECISION_VERSION =
   'EDITRON_OE_V2R_STAGE5_EXECUTION_DECISION_V2' as const;
-export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V14' as const;
+export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V15' as const;
 
 // V2-1R capstone: the single pre-registration manifest.
 //
@@ -85,6 +91,11 @@ export interface V2RPreregistrationManifest {
   };
   operatorCatalog: Readonly<V2ROperatorCatalogIdentity>;
   plannerDossier: Readonly<Cap2aPlannerDossierIdentityV2R>;
+  plannerToolSheet: {
+    version: typeof CAP2A_PLANNER_TOOL_SHEET_VERSION_V2R;
+    operatorCount: number;
+    sheetSha256: string;
+  };
   executionOrchestration: {
     connectedEpisodeReceiptVersion: typeof V2R_CONNECTED_EPISODE_RECEIPT_VERSION;
     stage5ExecutionDecisionVersion: typeof V2R_STAGE5_EXECUTION_DECISION_VERSION;
@@ -131,6 +142,12 @@ export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationMa
   const evaluatorFreeze = buildEvaluatorPolicyFreezeV2R();
   const semanticOperatorFreeze = buildV2RSemanticOperatorPolicyV2R();
   const taskAdapterRegistry = buildV2RStage6TaskAdapterRegistry();
+  const operatorRecords = Array.isArray(V2R_OPERATOR_CATALOG.operators)
+    ? V2R_OPERATOR_CATALOG.operators.filter((operator): operator is Record<string, unknown> => (
+        Boolean(operator) && typeof operator === 'object' && !Array.isArray(operator)
+      ))
+    : [];
+  const plannerToolSheet = buildCap2aPlannerToolSheetV2R(operatorRecords);
   const material = {
     experimentVersion: V2R_EXPERIMENT_VERSION,
     authority: 'RESEARCH_ONLY_V2R_PREREGISTRATION_NO_PROJECT_MUTATION',
@@ -154,6 +171,11 @@ export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationMa
     },
     operatorCatalog: v2rOperatorCatalogIdentity(),
     plannerDossier: cap2aPlannerDossierIdentityV2R(),
+    plannerToolSheet: {
+      version: plannerToolSheet.version,
+      operatorCount: plannerToolSheet.operators.length,
+      sheetSha256: plannerToolSheet.sheetSha256,
+    },
     executionOrchestration: {
       connectedEpisodeReceiptVersion: V2R_CONNECTED_EPISODE_RECEIPT_VERSION,
       stage5ExecutionDecisionVersion: V2R_STAGE5_EXECUTION_DECISION_VERSION,
@@ -259,6 +281,9 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   }
   if (!same(candidate.plannerDossier, expected.plannerDossier)) {
     throw new Error('V2R_PREREGISTRATION_PLANNER_DOSSIER_DRIFT');
+  }
+  if (!same(candidate.plannerToolSheet, expected.plannerToolSheet)) {
+    throw new Error('V2R_PREREGISTRATION_PLANNER_TOOL_SHEET_DRIFT');
   }
   if (!same(candidate.executionOrchestration, expected.executionOrchestration)) {
     throw new Error('V2R_PREREGISTRATION_EXECUTION_ORCHESTRATION_DRIFT');

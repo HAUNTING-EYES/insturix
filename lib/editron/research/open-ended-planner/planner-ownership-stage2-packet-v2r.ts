@@ -16,7 +16,7 @@ import {
 type JsonRecord = Record<string, unknown>;
 
 export const PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R =
-  'EDITRON_OE_PLANNER_OWNERSHIP_STAGE2_PACKET_V2R_2' as const;
+  'EDITRON_OE_PLANNER_OWNERSHIP_STAGE2_PACKET_V2R_3' as const;
 
 type ExecutionFormArmV2R =
   | 'FREE_CHOICE'

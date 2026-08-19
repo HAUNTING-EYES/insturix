@@ -115,7 +115,7 @@ describe('V2-1F V2R connected episode harness', () => {
     expect(receipt.finalDisposition).toBe('STAGE3_LOWERED');
     expect(receipt.preregistrationManifestSha256).toBe(manifest.manifestSha256);
     expect(manifest.executionOrchestration).toEqual({
-      connectedEpisodeReceiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V4',
+      connectedEpisodeReceiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V5',
       stage5ExecutionDecisionVersion: 'EDITRON_OE_V2R_STAGE5_EXECUTION_DECISION_V2',
       capabilityGapRule: 'STOP_BEFORE_LOWERING_NO_EXECUTION_AUTHORIZATION',
     });

@@ -8,8 +8,14 @@ import { DEV04_LOWERING_POLICY_V2R } from '@/lib/editron/research/open-ended-pla
 import { buildV2RBenchmarkRouteRosterV2 } from '@/lib/editron/research/open-ended-planner/development-cohort-routes-v2';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R } from '@/lib/editron/research/open-ended-planner/generic-lowerer-v2r';
-import { v2rOperatorCatalogIdentity } from '@/lib/editron/research/open-ended-planner/operator-catalog-v2r';
-import { cap2aPlannerDossierIdentityV2R } from '@/lib/editron/research/open-ended-planner/cap2a-planner-dossier-v2r';
+import {
+  V2R_OPERATOR_CATALOG,
+  v2rOperatorCatalogIdentity,
+} from '@/lib/editron/research/open-ended-planner/operator-catalog-v2r';
+import {
+  buildCap2aPlannerToolSheetV2R,
+  cap2aPlannerDossierIdentityV2R,
+} from '@/lib/editron/research/open-ended-planner/cap2a-planner-dossier-v2r';
 import { buildV2RSemanticOperatorPolicyV2R } from '@/lib/editron/research/open-ended-planner/v2r-semantic-operator-policy';
 import { v2rProviderStageBudgetScheduleIdentity } from '@/lib/editron/research/open-ended-planner/per-attempt-budget-v2r';
 import { PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R } from '@/lib/editron/research/open-ended-planner/planner-ownership-stage2-packet-v2r';
@@ -54,6 +60,14 @@ describe('V2-1R capstone pre-registration manifest', () => {
     });
     expect(manifest.operatorCatalog).toEqual(v2rOperatorCatalogIdentity());
     expect(manifest.plannerDossier).toEqual(cap2aPlannerDossierIdentityV2R());
+    const sheet = buildCap2aPlannerToolSheetV2R(
+      V2R_OPERATOR_CATALOG.operators as Array<Record<string, unknown>>,
+    );
+    expect(manifest.plannerToolSheet).toEqual({
+      version: sheet.version,
+      operatorCount: 40,
+      sheetSha256: sheet.sheetSha256,
+    });
     expect(manifest.routeRoster.routes).toEqual(buildV2RBenchmarkRouteRosterV2());
     expect(manifest.routeRoster.routes.map(({ routeId }) => routeId))
       .toEqual(['OPENAI_LUNA', 'OPENAI_TERRA', 'QWEN_3_8_MAX']);
@@ -146,6 +160,18 @@ describe('V2-1R capstone pre-registration manifest', () => {
     Object.freeze(dossierForgery);
     expect(() => assertV2RPreregistrationComplete(dossierForgery))
       .toThrow('V2R_PREREGISTRATION_PLANNER_DOSSIER_DRIFT');
+
+    const toolSheetForgery = structuredClone(manifest) as unknown as {
+      plannerToolSheet: { operatorCount: number };
+      manifestSha256: string;
+      [key: string]: unknown;
+    };
+    toolSheetForgery.plannerToolSheet.operatorCount = 39;
+    const { manifestSha256: _toolSheetHash, ...toolSheetMaterial } = toolSheetForgery;
+    toolSheetForgery.manifestSha256 = hashCanonicalJsonV1(toolSheetMaterial);
+    Object.freeze(toolSheetForgery);
+    expect(() => assertV2RPreregistrationComplete(toolSheetForgery))
+      .toThrow('V2R_PREREGISTRATION_PLANNER_TOOL_SHEET_DRIFT');
 
     const semanticForgery = structuredClone(manifest) as unknown as {
       semanticOperatorFreeze: { exposure: string };
