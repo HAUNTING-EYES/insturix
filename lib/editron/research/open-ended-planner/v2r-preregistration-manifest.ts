@@ -15,7 +15,10 @@ import {
   type V2RBenchmarkRouteIdentityV2,
 } from './development-cohort-routes-v2';
 import { buildEvaluatorPolicyFreezeV2R, EVALUATOR_FREEZE_POLICY_VERSION_V2R } from './evaluator-freeze-v2r';
-import { GENERIC_LOWERING_POLICY_VERSION_V2R } from './generic-lowerer-v2r';
+import {
+  GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R,
+  GENERIC_LOWERING_POLICY_VERSION_V2R,
+} from './generic-lowerer-v2r';
 import { v2rOperatorCatalogIdentity, type V2ROperatorCatalogIdentity } from './operator-catalog-v2r';
 import {
   PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R,
@@ -30,7 +33,7 @@ import {
   V2R_SEMANTIC_OPERATOR_POLICY_VERSION,
 } from './v2r-semantic-operator-policy';
 
-export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V8' as const;
+export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V9' as const;
 
 // V2-1R capstone: the single pre-registration manifest.
 //
@@ -53,6 +56,7 @@ export interface V2RPreregistrationManifest {
     retiredSemantics: 'CANDIDATE_CAPABILITY_IDS_AMBIGUOUS';
   };
   lowerer: {
+    implementationVersion: typeof GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R;
     policyVersion: typeof GENERIC_LOWERING_POLICY_VERSION_V2R;
     invariant: 'ZERO_CATALOG_OPERATOR_ADD_ZERO_SELECTED_OPERATOR_DROP';
     taskPolicySha256: {
@@ -107,6 +111,7 @@ export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationMa
       retiredSemantics: 'CANDIDATE_CAPABILITY_IDS_AMBIGUOUS' as const,
     },
     lowerer: {
+      implementationVersion: GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R,
       policyVersion: GENERIC_LOWERING_POLICY_VERSION_V2R,
       invariant: 'ZERO_CATALOG_OPERATOR_ADD_ZERO_SELECTED_OPERATOR_DROP' as const,
       taskPolicySha256: {
@@ -174,6 +179,9 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   }
   if (candidate.lowerer?.policyVersion !== GENERIC_LOWERING_POLICY_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_LOWERER_DRIFT');
+  }
+  if (candidate.lowerer?.implementationVersion !== GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R) {
+    throw new Error('V2R_PREREGISTRATION_LOWERER_IMPLEMENTATION_DRIFT');
   }
   if (candidate.perAttemptBudget?.policyVersion !== PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_BUDGET_DRIFT');

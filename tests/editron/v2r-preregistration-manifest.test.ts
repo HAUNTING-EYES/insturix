@@ -7,6 +7,7 @@ import { DEV03_LOWERING_POLICY_V2R } from '@/lib/editron/research/open-ended-pla
 import { DEV04_LOWERING_POLICY_V2R } from '@/lib/editron/research/open-ended-planner/dev04-lowering-policy-v2r';
 import { buildV2RBenchmarkRouteRosterV2 } from '@/lib/editron/research/open-ended-planner/development-cohort-routes-v2';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import { GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R } from '@/lib/editron/research/open-ended-planner/generic-lowerer-v2r';
 import { v2rOperatorCatalogIdentity } from '@/lib/editron/research/open-ended-planner/operator-catalog-v2r';
 import { cap2aPlannerDossierIdentityV2R } from '@/lib/editron/research/open-ended-planner/cap2a-planner-dossier-v2r';
 import { buildV2RSemanticOperatorPolicyV2R } from '@/lib/editron/research/open-ended-planner/v2r-semantic-operator-policy';
@@ -26,6 +27,7 @@ describe('V2-1R capstone pre-registration manifest', () => {
     expect(manifest.nodeContract.semantics).toBe('SELECTED_OPERATOR_VS_ALTERNATIVES');
     expect(manifest.nodeContract.stage2PacketVersion).toBe(PLANNER_OWNERSHIP_STAGE2_PACKET_VERSION_V2R);
     expect(manifest.nodeContract.retiredSemantics).toBe('CANDIDATE_CAPABILITY_IDS_AMBIGUOUS');
+    expect(manifest.lowerer.implementationVersion).toBe(GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R);
     expect(manifest.lowerer.invariant).toBe('ZERO_CATALOG_OPERATOR_ADD_ZERO_SELECTED_OPERATOR_DROP');
     expect(manifest.perAttemptBudget.rule).toBe('EVERY_PERMITTED_ATTEMPT_RECEIVES ITS_OWN_DECLARED_BUDGET');
     expect(manifest.perAttemptBudget.providerStageSchedule).toEqual(v2rProviderStageBudgetScheduleIdentity());
@@ -69,6 +71,18 @@ describe('V2-1R capstone pre-registration manifest', () => {
     const drifted = structuredClone(manifest) as { lowerer: { invariant: string }; [key: string]: unknown };
     drifted.lowerer.invariant = 'SOMETHING_ELSE';
     expect(() => assertV2RPreregistrationComplete(drifted)).toThrow('V2R_PREREGISTRATION_TASK_POLICY_DRIFT');
+
+    const lowererImplementationForgery = structuredClone(manifest) as unknown as {
+      lowerer: { implementationVersion: string };
+      manifestSha256: string;
+      [key: string]: unknown;
+    };
+    lowererImplementationForgery.lowerer.implementationVersion = 'WRONG';
+    const { manifestSha256: _lowererHash, ...lowererMaterial } = lowererImplementationForgery;
+    lowererImplementationForgery.manifestSha256 = hashCanonicalJsonV1(lowererMaterial);
+    Object.freeze(lowererImplementationForgery);
+    expect(() => assertV2RPreregistrationComplete(lowererImplementationForgery))
+      .toThrow('V2R_PREREGISTRATION_LOWERER_IMPLEMENTATION_DRIFT');
 
     const mutable = structuredClone(manifest);
     expect(() => assertV2RPreregistrationComplete(mutable)).toThrow('V2R_PREREGISTRATION_NOT_IMMUTABLE');
