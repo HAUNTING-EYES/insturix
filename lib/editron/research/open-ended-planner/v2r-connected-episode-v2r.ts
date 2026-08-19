@@ -11,6 +11,7 @@ import {
 } from './operator-catalog-v2r';
 import {
   assertV2RPreregistrationComplete,
+  V2R_CONNECTED_EPISODE_RECEIPT_VERSION,
   type V2RPreregistrationManifest,
 } from './v2r-preregistration-manifest';
 import { buildEvaluatorPolicyFreezeV2R } from './evaluator-freeze-v2r';
@@ -59,7 +60,7 @@ export interface V2RConnectedStageRowV2 {
 }
 
 export interface V2RConnectedEpisodeReceiptV2 {
-  receiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V3';
+  receiptVersion: typeof V2R_CONNECTED_EPISODE_RECEIPT_VERSION;
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
   preregistrationManifestSha256: string;
   taskId: string;
@@ -73,7 +74,8 @@ export interface V2RConnectedEpisodeReceiptV2 {
     | 'BLOCKED_BEFORE_STAGE2'
     | 'BLOCKED_BEFORE_STAGE3'
     | 'BLOCKED_BEFORE_LOWERING'
-    | 'UNVERIFIABLE_BEFORE_LOWERING';
+    | 'UNVERIFIABLE_BEFORE_LOWERING'
+    | 'CAPABILITY_GAP_BEFORE_LOWERING';
   lowering: Readonly<{
     performed: boolean;
     zeroAdd: boolean | null;
@@ -168,6 +170,15 @@ export async function runV2RConnectedEpisodeV2(input: {
       notLowered(['STAGE3_UNVERIFIABLE_EXECUTION_BLOCK']),
     );
   }
+  if (stageThreeArtifact.stageDisposition === 'CAPABILITY_GAP') {
+    return receipt(
+      input,
+      manifest,
+      rows,
+      'CAPABILITY_GAP_BEFORE_LOWERING',
+      notLowered(['STAGE3_CAPABILITY_GAP_EXECUTION_BLOCK']),
+    );
+  }
   const lowering = lowerModelOutput(input.task, stageTwoArtifact, stageThreeArtifact);
   return receipt(input, manifest, rows, 'STAGE3_LOWERED', lowering);
 }
@@ -256,7 +267,7 @@ function receipt(
       .reduce((sum, attempt) => sum + (attempt.providerCostUsd ?? 0), 0), 0)
     .toFixed(12));
   const material = {
-    receiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V3' as const,
+    receiptVersion: V2R_CONNECTED_EPISODE_RECEIPT_VERSION,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     preregistrationManifestSha256: manifest.manifestSha256,
     taskId: input.task.taskId,

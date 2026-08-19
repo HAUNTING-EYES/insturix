@@ -42,7 +42,11 @@ import {
   V2R_STAGE6_TASK_ADAPTER_REGISTRY_VERSION,
 } from './v2r-stage6-task-adapter-registry';
 
-export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V12' as const;
+export const V2R_CONNECTED_EPISODE_RECEIPT_VERSION =
+  'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V4' as const;
+export const V2R_STAGE5_EXECUTION_DECISION_VERSION =
+  'EDITRON_OE_V2R_STAGE5_EXECUTION_DECISION_V2' as const;
+export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V13' as const;
 
 // V2-1R capstone: the single pre-registration manifest.
 //
@@ -81,6 +85,11 @@ export interface V2RPreregistrationManifest {
   };
   operatorCatalog: Readonly<V2ROperatorCatalogIdentity>;
   plannerDossier: Readonly<Cap2aPlannerDossierIdentityV2R>;
+  executionOrchestration: {
+    connectedEpisodeReceiptVersion: typeof V2R_CONNECTED_EPISODE_RECEIPT_VERSION;
+    stage5ExecutionDecisionVersion: typeof V2R_STAGE5_EXECUTION_DECISION_VERSION;
+    capabilityGapRule: 'STOP_BEFORE_LOWERING_NO_EXECUTION_AUTHORIZATION';
+  };
   causalExecution: {
     receiptExecutorIdentity: 'CAUSAL_COMPILED_GRAPH_INTERPRETER_V2R';
     researchExecutionContractVersion: typeof V2R_RESEARCH_EXECUTION_CONTRACT_VERSION;
@@ -145,6 +154,11 @@ export function buildV2RPreregistrationManifest(): Readonly<V2RPreregistrationMa
     },
     operatorCatalog: v2rOperatorCatalogIdentity(),
     plannerDossier: cap2aPlannerDossierIdentityV2R(),
+    executionOrchestration: {
+      connectedEpisodeReceiptVersion: V2R_CONNECTED_EPISODE_RECEIPT_VERSION,
+      stage5ExecutionDecisionVersion: V2R_STAGE5_EXECUTION_DECISION_VERSION,
+      capabilityGapRule: 'STOP_BEFORE_LOWERING_NO_EXECUTION_AUTHORIZATION' as const,
+    },
     causalExecution: {
       receiptExecutorIdentity: 'CAUSAL_COMPILED_GRAPH_INTERPRETER_V2R' as const,
       researchExecutionContractVersion: V2R_RESEARCH_EXECUTION_CONTRACT_VERSION,
@@ -209,6 +223,12 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   if (candidate.lowerer?.implementationVersion !== GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R) {
     throw new Error('V2R_PREREGISTRATION_LOWERER_IMPLEMENTATION_DRIFT');
   }
+  if (candidate.executionOrchestration?.connectedEpisodeReceiptVersion
+    !== V2R_CONNECTED_EPISODE_RECEIPT_VERSION
+    || candidate.executionOrchestration?.stage5ExecutionDecisionVersion
+    !== V2R_STAGE5_EXECUTION_DECISION_VERSION) {
+    throw new Error('V2R_PREREGISTRATION_EXECUTION_ORCHESTRATION_DRIFT');
+  }
   if (candidate.causalExecution?.researchExecutionContractVersion
     !== V2R_RESEARCH_EXECUTION_CONTRACT_VERSION) {
     throw new Error('V2R_PREREGISTRATION_RESEARCH_EXECUTION_CONTRACT_DRIFT');
@@ -239,6 +259,9 @@ export function assertV2RPreregistrationComplete(manifest: unknown): Readonly<V2
   }
   if (!same(candidate.plannerDossier, expected.plannerDossier)) {
     throw new Error('V2R_PREREGISTRATION_PLANNER_DOSSIER_DRIFT');
+  }
+  if (!same(candidate.executionOrchestration, expected.executionOrchestration)) {
+    throw new Error('V2R_PREREGISTRATION_EXECUTION_ORCHESTRATION_DRIFT');
   }
   if (!same(candidate.stageInstructions, expected.stageInstructions)) {
     throw new Error('V2R_PREREGISTRATION_STAGE_INSTRUCTION_HASH_DRIFT');

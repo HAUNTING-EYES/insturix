@@ -55,6 +55,7 @@ function fakeRoute(artifacts: readonly JsonRecord[]): V2RConnectedRouteV2 {
 async function connected(input: {
   conditionId?: 'BASELINE' | 'VISUAL_EVIDENCE_WITHHELD';
   editorialIntent?: JsonRecord;
+  evidenceBoundIntent?: JsonRecord;
 } = {}): Promise<{
   manifest: ReturnType<typeof buildV2RPreregistrationManifest>;
   task: V2RConnectedTaskV2;
@@ -66,10 +67,36 @@ async function connected(input: {
   const route = fakeRoute([
     canonical.referenceBlueprints[conditionId] as JsonRecord,
     input.editorialIntent ?? canonical.editorialIntentV2R as JsonRecord,
-    canonical.evidenceBoundIntentsV2R[conditionId] as JsonRecord,
+    input.evidenceBoundIntent ?? canonical.evidenceBoundIntentsV2R[conditionId] as JsonRecord,
   ]);
   const receipt = await runV2RConnectedEpisodeV2({ manifest, task: taskValue, route });
   return { manifest, task: taskValue, receipt };
+}
+
+function capabilityGapArtifacts(): { editorialIntent: JsonRecord; evidenceBoundIntent: JsonRecord } {
+  const editorialIntent = structuredClone(canonical.editorialIntentV2R) as JsonRecord & {
+    nodes: Array<JsonRecord>;
+  };
+  editorialIntent.executionForm = 'CAPABILITY_GAP';
+  editorialIntent.nodes = [{
+    ...editorialIntent.nodes[0], selectedOperatorId: null,
+    alternativeOperatorIds: ['generated_composition_program'],
+    failureDisposition: 'CAPABILITY_GAP',
+  }];
+  delete editorialIntent.nodes[0].nodeInputs;
+  const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as JsonRecord & {
+    nodes: Array<JsonRecord>;
+  };
+  evidenceBoundIntent.stageDisposition = 'CAPABILITY_GAP';
+  evidenceBoundIntent.nodes = [{
+    ...evidenceBoundIntent.nodes[0], intentNodeId: editorialIntent.nodes[0].intentNodeId,
+    selectedOperatorId: null, alternativeOperatorIds: ['generated_composition_program'],
+  }];
+  evidenceBoundIntent.unresolvedRequirements = [{
+    requirementId: 'REQ-CAPABILITY-GAP', kind: 'CAPABILITY', factIds: [],
+    disposition: 'CAPABILITY_GAP', failureDisposition: 'STOP_BEFORE_COMPILATION_OR_RENDER',
+  }];
+  return { editorialIntent, evidenceBoundIntent };
 }
 
 describe('V2R generic Stage-5 execution gate', () => {
@@ -106,6 +133,26 @@ describe('V2R generic Stage-5 execution gate', () => {
     });
     expect(result.decision.executionAuthorization).toBeUndefined();
     expect(result.semanticEvaluation?.disposition).toBe('PASS');
+    expect(result.lowering).toBeNull();
+  });
+
+  it('preserves a capability gap as a terminal non-executable result', async () => {
+    const gap = capabilityGapArtifacts();
+    const run = await connected(gap);
+    const result = decideV2RStage5ExecutionV2R({
+      manifest: run.manifest, task: run.task, connectedEpisode: run.receipt,
+    });
+
+    expect(run.receipt.finalDisposition).toBe('CAPABILITY_GAP_BEFORE_LOWERING');
+    expect(result.decision).toMatchObject({
+      disposition: 'CAPABILITY_GAP',
+      reasonCode: 'PREREGISTERED_CAPABILITY_GAP',
+      compiledGraphHash: null,
+      stage6AdapterId: null,
+      diagnostics: ['STAGE3_CAPABILITY_GAP_EXECUTION_BLOCK'],
+    });
+    expect(result.decision.executionAuthorization).toBeUndefined();
+    expect(result.semanticEvaluation).toBeNull();
     expect(result.lowering).toBeNull();
   });
 

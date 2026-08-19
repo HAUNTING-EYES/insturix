@@ -59,6 +59,39 @@ function fakeRoute(scriptedArtifacts: Array<JsonRecord | null>): {
   return { route, seenPackets };
 }
 
+function capabilityGapArtifacts(): { editorialIntent: JsonRecord; evidenceBoundIntent: JsonRecord } {
+  const editorialIntent = structuredClone(canonical.editorialIntentV2R) as JsonRecord & {
+    nodes: Array<JsonRecord>;
+  };
+  editorialIntent.executionForm = 'CAPABILITY_GAP';
+  editorialIntent.nodes = [{
+    ...editorialIntent.nodes[0],
+    selectedOperatorId: null,
+    alternativeOperatorIds: ['generated_composition_program'],
+    failureDisposition: 'CAPABILITY_GAP',
+  }];
+  delete editorialIntent.nodes[0].nodeInputs;
+
+  const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as JsonRecord & {
+    nodes: Array<JsonRecord>;
+  };
+  evidenceBoundIntent.stageDisposition = 'CAPABILITY_GAP';
+  evidenceBoundIntent.nodes = [{
+    ...evidenceBoundIntent.nodes[0],
+    intentNodeId: editorialIntent.nodes[0].intentNodeId,
+    selectedOperatorId: null,
+    alternativeOperatorIds: ['generated_composition_program'],
+  }];
+  evidenceBoundIntent.unresolvedRequirements = [{
+    requirementId: 'REQ-CAPABILITY-GAP',
+    kind: 'CAPABILITY',
+    factIds: [],
+    disposition: 'CAPABILITY_GAP',
+    failureDisposition: 'STOP_BEFORE_COMPILATION_OR_RENDER',
+  }];
+  return { editorialIntent, evidenceBoundIntent };
+}
+
 describe('V2-1F V2R connected episode harness', () => {
   it('refuses to run without a complete pre-registration manifest', async () => {
     const { route } = fakeRoute([]);
@@ -80,6 +113,11 @@ describe('V2-1F V2R connected episode harness', () => {
 
     expect(receipt.finalDisposition).toBe('STAGE3_LOWERED');
     expect(receipt.preregistrationManifestSha256).toBe(manifest.manifestSha256);
+    expect(manifest.executionOrchestration).toEqual({
+      connectedEpisodeReceiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V4',
+      stage5ExecutionDecisionVersion: 'EDITRON_OE_V2R_STAGE5_EXECUTION_DECISION_V2',
+      capabilityGapRule: 'STOP_BEFORE_LOWERING_NO_EXECUTION_AUTHORIZATION',
+    });
     expect(receipt.rows.map(({ stage }) => stage)).toEqual([1, 2, 3]);
     expect(seenPackets.map(({ packet }) => packet.stageBudget)).toEqual([
       V2R_PROVIDER_STAGE_BUDGETS[1],
@@ -288,6 +326,26 @@ describe('V2-1F V2R connected episode harness', () => {
       diagnostics: ['STAGE3_UNVERIFIABLE_EXECUTION_BLOCK'],
     });
     expect(receipt.rows).toHaveLength(3);
+  });
+
+  it('stops an explicit capability gap before lowering without inventing an operator', async () => {
+    const manifest = buildV2RPreregistrationManifest();
+    const gap = capabilityGapArtifacts();
+    const { route } = fakeRoute([
+      canonical.referenceBlueprints.BASELINE as JsonRecord,
+      gap.editorialIntent,
+      gap.evidenceBoundIntent,
+    ]);
+    const receipt = await runV2RConnectedEpisodeV2({ manifest, task: dev01Task(), route });
+    expect(receipt.finalDisposition).toBe('CAPABILITY_GAP_BEFORE_LOWERING');
+    expect(receipt.lowering).toMatchObject({
+      performed: false,
+      compiledGraphHash: null,
+      compiledOperatorIds: [],
+      selectedOperatorIds: [],
+      diagnostics: ['STAGE3_CAPABILITY_GAP_EXECUTION_BLOCK'],
+    });
+    expect(receipt.stateEffects).toEqual([]);
   });
 
   it('reports lowering diagnostics honestly when the model output is not lowerable', async () => {

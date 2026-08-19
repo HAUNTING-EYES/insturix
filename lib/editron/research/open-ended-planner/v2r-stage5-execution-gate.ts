@@ -5,6 +5,7 @@ import {
 } from './generic-lowerer-v2r';
 import {
   assertV2RPreregistrationComplete,
+  V2R_STAGE5_EXECUTION_DECISION_VERSION,
   type V2RPreregistrationManifest,
 } from './v2r-preregistration-manifest';
 import type {
@@ -24,7 +25,7 @@ type JsonRecord = Record<string, unknown>;
 type GateDispositionV2R = 'PROCEED' | 'CAPABILITY_GAP' | 'UNVERIFIABLE' | 'FAIL';
 
 export interface V2RStage5ExecutionDecisionV2R {
-  receiptVersion: 'EDITRON_OE_V2R_STAGE5_EXECUTION_DECISION_V1';
+  receiptVersion: typeof V2R_STAGE5_EXECUTION_DECISION_VERSION;
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
   taskId: string;
   conditionId: string;
@@ -75,6 +76,14 @@ export function decideV2RStage5ExecutionV2R(input: {
     }), null, null);
   }
 
+  const stageDisposition = text(evidenceBoundIntent.stageDisposition);
+  if (stageDisposition === 'CAPABILITY_GAP') {
+    return result(decision(input, manifest, registry.registrySha256, {
+      disposition: 'CAPABILITY_GAP', reasonCode: 'PREREGISTERED_CAPABILITY_GAP',
+      diagnostics: ['STAGE3_CAPABILITY_GAP_EXECUTION_BLOCK'],
+    }), null, null);
+  }
+
   const semantic = evaluateV2RSemanticOperatorsV2R({
     taskId: input.task.taskId,
     conditionId: input.task.conditionId,
@@ -88,7 +97,6 @@ export function decideV2RStage5ExecutionV2R(input: {
     }), semantic, null);
   }
 
-  const stageDisposition = text(evidenceBoundIntent.stageDisposition);
   if (stageDisposition === 'UNVERIFIABLE') {
     return result(decision(input, manifest, registry.registrySha256, {
       disposition: 'UNVERIFIABLE', reasonCode: 'EVIDENCE_INSUFFICIENT', semantic,
@@ -108,13 +116,6 @@ export function decideV2RStage5ExecutionV2R(input: {
     return result(decision(input, manifest, registry.registrySha256, {
       disposition: 'FAIL', reasonCode: 'CONNECTED_LOWERING_DRIFT', semantic,
       lowering, diagnostics: loweringDiagnostics,
-    }), semantic, lowering);
-  }
-
-  if (stageDisposition === 'CAPABILITY_GAP') {
-    return result(decision(input, manifest, registry.registrySha256, {
-      disposition: 'CAPABILITY_GAP', reasonCode: 'PREREGISTERED_CAPABILITY_GAP',
-      semantic, lowering, diagnostics: lowering.diagnostics,
     }), semantic, lowering);
   }
 
@@ -158,6 +159,15 @@ function connectedIntegrityDiagnostics(
   if (receipt.preregistrationManifestSha256 !== manifest.manifestSha256) diagnostics.push('CONNECTED_MANIFEST_HASH_DRIFT');
   if (receipt.taskId !== input.task.taskId || receipt.conditionId !== input.task.conditionId) diagnostics.push('CONNECTED_TASK_BINDING_DRIFT');
   if (receipt.stateEffects.length !== 0) diagnostics.push('CONNECTED_PROJECT_STATE_EFFECT_PRESENT');
+  const evidenceBoundIntent = acceptedArtifact(receipt, 3);
+  if (text(evidenceBoundIntent?.stageDisposition) === 'CAPABILITY_GAP') {
+    if (receipt.finalDisposition !== 'CAPABILITY_GAP_BEFORE_LOWERING') {
+      diagnostics.push('CONNECTED_CAPABILITY_GAP_DISPOSITION_DRIFT');
+    }
+    if (receipt.lowering.performed || receipt.lowering.compiledGraphHash !== null) {
+      diagnostics.push('CONNECTED_CAPABILITY_GAP_WAS_LOWERED');
+    }
+  }
   return diagnostics;
 }
 
@@ -196,7 +206,7 @@ function decision(
   },
 ): Readonly<V2RStage5ExecutionDecisionV2R> {
   const material = {
-    receiptVersion: 'EDITRON_OE_V2R_STAGE5_EXECUTION_DECISION_V1' as const,
+    receiptVersion: V2R_STAGE5_EXECUTION_DECISION_VERSION,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     taskId: input.task.taskId, conditionId: input.task.conditionId,
     disposition: state.disposition, reasonCode: state.reasonCode,
