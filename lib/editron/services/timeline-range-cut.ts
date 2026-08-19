@@ -15,6 +15,35 @@ import {
 
 type OverlayRecord = Record<string, any>;
 
+export interface TimelineFrameRangeV1 {
+  startFrame: number;
+  endFrame: number;
+}
+
+export interface TimelineRangeCutCoordinateTransformV1 {
+  schemaVersion: 'EDITRON_TIMELINE_RANGE_CUT_COORDINATE_TRANSFORM_V1';
+  beforeDurationInFrames: number;
+  afterDurationInFrames: number;
+  removedRange: TimelineFrameRangeV1;
+  shiftAfterRemovedRangeFrames: number;
+  mapRule: 'HALF_OPEN_REMOVE_AND_SHIFT_LEFT_V1';
+}
+
+export interface TimelineRangeCutSplitChildV1 {
+  beforeOverlayId: number;
+  leftOverlayId: number;
+  rightOverlayId: number;
+  overlayType: 'video' | 'sound';
+  assetId?: string;
+  leftBeforeTimelineRange: TimelineFrameRangeV1;
+  leftAfterTimelineRange: TimelineFrameRangeV1;
+  rightBeforeTimelineRange: TimelineFrameRangeV1;
+  rightAfterTimelineRange: TimelineFrameRangeV1;
+  rightTimelineStartFrame: number;
+  rightSourceCoordinateField: 'sourceStartFrame' | 'startFromSound';
+  rightSourceStartFrame: number;
+}
+
 export interface TimelineRangeCutResult {
   overlays: OverlayRecord[];
   deleted: number;
@@ -24,6 +53,44 @@ export interface TimelineRangeCutResult {
   created: number;
   framesCut: number;
   newDurationInFrames: number;
+  timelineCoordinateTransform: TimelineRangeCutCoordinateTransformV1;
+  splitChildren: TimelineRangeCutSplitChildV1[];
+}
+
+export function mapTimelineFrameAfterRangeCutV1(
+  transform: TimelineRangeCutCoordinateTransformV1,
+  beforeTimelineFrame: number,
+): number | null {
+  const sourceFrame = exactIntegerFrame(beforeTimelineFrame, 'beforeTimelineFrame');
+  if (sourceFrame < 0 || sourceFrame >= transform.beforeDurationInFrames) {
+    throw new RangeError(
+      `beforeTimelineFrame ${sourceFrame} is outside 0-${transform.beforeDurationInFrames - 1}`,
+    );
+  }
+  if (sourceFrame < transform.removedRange.startFrame) return sourceFrame;
+  if (sourceFrame >= transform.removedRange.endFrame) {
+    return sourceFrame + transform.shiftAfterRemovedRangeFrames;
+  }
+  return null;
+}
+
+export function mapTimelineRangeAfterRangeCutV1(
+  transform: TimelineRangeCutCoordinateTransformV1,
+  beforeTimelineRange: TimelineFrameRangeV1,
+): TimelineFrameRangeV1 | null {
+  const startFrame = exactIntegerFrame(beforeTimelineRange.startFrame, 'beforeTimelineRange.startFrame');
+  const endFrame = exactIntegerFrame(beforeTimelineRange.endFrame, 'beforeTimelineRange.endFrame');
+  if (startFrame < 0 || endFrame <= startFrame || endFrame > transform.beforeDurationInFrames) {
+    throw new RangeError(`Invalid before-timeline range ${startFrame}-${endFrame}`);
+  }
+  if (endFrame <= transform.removedRange.startFrame) return { startFrame, endFrame };
+  if (startFrame >= transform.removedRange.endFrame) {
+    return {
+      startFrame: startFrame + transform.shiftAfterRemovedRangeFrames,
+      endFrame: endFrame + transform.shiftAfterRemovedRangeFrames,
+    };
+  }
+  return null;
 }
 
 export function cutTimelineRange(input: {
@@ -48,6 +115,7 @@ export function cutTimelineRange(input: {
   const nextId = createOverlayIdAllocator(input.overlays);
   const output: OverlayRecord[] = [];
   const splitRightIds = new Map<string, number>();
+  const splitChildren: TimelineRangeCutSplitChildV1[] = [];
   let deleted = 0;
   let trimmed = 0;
   let shifted = 0;
@@ -118,6 +186,13 @@ export function cutTimelineRange(input: {
       );
       output.push(left, right);
       splitRightIds.set(String(overlay.id), rightId);
+      splitChildren.push(buildSplitChildMapping({
+        before: overlay,
+        left,
+        right,
+        cutStartFrame: startFrame,
+        cutEndFrame: endFrame,
+      }));
       trimmed += 1;
       split += 1;
       created += 1;
@@ -169,6 +244,65 @@ export function cutTimelineRange(input: {
     created,
     framesCut,
     newDurationInFrames: Math.max(0, durationInFrames - framesCut),
+    timelineCoordinateTransform: {
+      schemaVersion: 'EDITRON_TIMELINE_RANGE_CUT_COORDINATE_TRANSFORM_V1',
+      beforeDurationInFrames: durationInFrames,
+      afterDurationInFrames: Math.max(0, durationInFrames - framesCut),
+      removedRange: { startFrame, endFrame },
+      shiftAfterRemovedRangeFrames: -framesCut,
+      mapRule: 'HALF_OPEN_REMOVE_AND_SHIFT_LEFT_V1',
+    },
+    splitChildren,
+  };
+}
+
+function buildSplitChildMapping(input: {
+  before: OverlayRecord;
+  left: OverlayRecord;
+  right: OverlayRecord;
+  cutStartFrame: number;
+  cutEndFrame: number;
+}): TimelineRangeCutSplitChildV1 {
+  const beforeOverlayId = requireOverlayId(input.before.id, 'before overlay');
+  const leftOverlayId = requireOverlayId(input.left.id, 'left split child');
+  const rightOverlayId = requireOverlayId(input.right.id, 'right split child');
+  const beforeStartFrame = frame(input.before.from);
+  const beforeEndFrame = beforeStartFrame + Math.max(0, frame(input.before.durationInFrames));
+  const rightAfterStartFrame = frame(input.right.from);
+  const rightAfterEndFrame = rightAfterStartFrame + Math.max(0, frame(input.right.durationInFrames));
+  const overlayType = input.before.type === 'video' ? 'video' : 'sound';
+  const rightSourceCoordinateField = overlayType === 'video'
+    ? 'sourceStartFrame'
+    : 'startFromSound';
+  const assetId = typeof input.before.assetId === 'string' && input.before.assetId.length > 0
+    ? input.before.assetId
+    : undefined;
+
+  return {
+    beforeOverlayId,
+    leftOverlayId,
+    rightOverlayId,
+    overlayType,
+    ...(assetId ? { assetId } : {}),
+    leftBeforeTimelineRange: {
+      startFrame: beforeStartFrame,
+      endFrame: input.cutStartFrame,
+    },
+    leftAfterTimelineRange: {
+      startFrame: frame(input.left.from),
+      endFrame: frame(input.left.from) + Math.max(0, frame(input.left.durationInFrames)),
+    },
+    rightBeforeTimelineRange: {
+      startFrame: input.cutEndFrame,
+      endFrame: beforeEndFrame,
+    },
+    rightAfterTimelineRange: {
+      startFrame: rightAfterStartFrame,
+      endFrame: rightAfterEndFrame,
+    },
+    rightTimelineStartFrame: rightAfterStartFrame,
+    rightSourceCoordinateField,
+    rightSourceStartFrame: frame(input.right[rightSourceCoordinateField]),
   };
 }
 
@@ -518,6 +652,22 @@ function positiveFinite(value: unknown): number | null {
 
 function frame(value: unknown): number {
   return Math.round(finiteNumber(value) ?? 0);
+}
+
+function exactIntegerFrame(value: unknown, name: string): number {
+  const number = finiteNumber(value);
+  if (number == null || !Number.isInteger(number)) {
+    throw new TypeError(`${name} must be an integer frame`);
+  }
+  return number;
+}
+
+function requireOverlayId(value: unknown, name: string): number {
+  const id = finiteNumber(value);
+  if (id == null || !Number.isSafeInteger(id) || id < 0) {
+    throw new TypeError(`${name} must have a non-negative safe-integer id`);
+  }
+  return id;
 }
 
 function integerFrame(value: unknown, name: string): number {

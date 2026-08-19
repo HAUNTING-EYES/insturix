@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto';
 
 import type { NativeAudioEvidence } from '@/lib/editron/services/native-audio-evidence';
-import { cutTimelineRange } from '@/lib/editron/services/timeline-range-cut';
+import {
+  cutTimelineRange,
+  mapTimelineFrameAfterRangeCutV1,
+  mapTimelineRangeAfterRangeCutV1,
+  type TimelineRangeCutCoordinateTransformV1,
+  type TimelineRangeCutSplitChildV1,
+} from '@/lib/editron/services/timeline-range-cut';
 
 import { hashCanonicalJsonV1 } from './contracts-v1';
 
@@ -76,18 +82,10 @@ export interface Dev01TruthCutResultV2 {
   framesCut: number;
   newDurationInFrames: number;
   overlays: OverlayRecord[];
-  timelineCoordinateTransform: {
+  timelineCoordinateTransform: TimelineRangeCutCoordinateTransformV1 & {
     beforeRevision: 'R7';
-    removedRange: typeof CUT_RANGE;
-    mapRule: 'BEFORE_UNCHANGED_AFTER_SHIFT_LEFT_45_REMOVED_UNMAPPABLE';
   };
-  splitChildren: Array<{
-    beforeOverlayId: number;
-    leftOverlayId: number;
-    rightOverlayId: number;
-    rightSourceStartFrame: number;
-    rightTimelineStartFrame: number;
-  }>;
+  splitChildren: TimelineRangeCutSplitChildV1[];
 }
 
 export function getCanonicalDev01NativeProxyFixtureV2(): Dev01NativeProxyFixtureV2 {
@@ -178,47 +176,37 @@ export function executeDev01TruthCutV2(): Dev01TruthCutResultV2 {
     fps: fixture.project.fps,
     durationInFrames: fixture.project.durationInFrames,
   });
-  const hostRight = requireOverlay(cut.overlays, 'dev01-host-truth-v2', 'sourceStartFrame', 196);
-  const dialogueRight = requireOverlay(cut.overlays, 'dev01-dialogue-truth-v2', 'startFromSound', 196);
   return {
     framesCut: cut.framesCut,
     newDurationInFrames: cut.newDurationInFrames,
     overlays: cut.overlays,
     timelineCoordinateTransform: {
       beforeRevision: 'R7',
-      removedRange: CUT_RANGE,
-      mapRule: 'BEFORE_UNCHANGED_AFTER_SHIFT_LEFT_45_REMOVED_UNMAPPABLE',
+      ...cut.timelineCoordinateTransform,
     },
-    splitChildren: [
-      splitChild(101, hostRight),
-      splitChild(102, dialogueRight),
-    ],
+    splitChildren: cut.splitChildren,
   };
 }
 
 export function mapDev01SourceTimelineFrameV2(frame: number): number | null {
-  if (!Number.isInteger(frame) || frame < 0 || frame >= DURATION_IN_FRAMES) {
-    throw new RangeError(`Invalid DEV-01 source timeline frame: ${frame}`);
-  }
-  if (frame < CUT_RANGE.startFrame) return frame;
-  if (frame >= CUT_RANGE.endFrame) return frame - (CUT_RANGE.endFrame - CUT_RANGE.startFrame);
-  return null;
+  return mapTimelineFrameAfterRangeCutV1(
+    executeDev01TruthCutV2().timelineCoordinateTransform,
+    frame,
+  );
 }
 
 export function mapDev01SourceTimelineRangeV2(
   range: readonly [number, number],
 ): readonly [number, number] {
   const [startFrame, endFrame] = range;
-  if (!Number.isInteger(startFrame) || !Number.isInteger(endFrame)
-    || startFrame < 0 || endFrame <= startFrame || endFrame > DURATION_IN_FRAMES) {
-    throw new RangeError(`Invalid DEV-01 source timeline range: ${startFrame}-${endFrame}`);
+  const mapped = mapTimelineRangeAfterRangeCutV1(
+    executeDev01TruthCutV2().timelineCoordinateTransform,
+    { startFrame, endFrame },
+  );
+  if (!mapped) {
+    throw new RangeError(`DEV01_SOURCE_RANGE_INTERSECTS_REMOVED_TIME:${startFrame}-${endFrame}`);
   }
-  if (endFrame <= CUT_RANGE.startFrame) return [startFrame, endFrame];
-  if (startFrame >= CUT_RANGE.endFrame) {
-    const shift = CUT_RANGE.endFrame - CUT_RANGE.startFrame;
-    return [startFrame - shift, endFrame - shift];
-  }
-  throw new RangeError(`DEV01_SOURCE_RANGE_INTERSECTS_REMOVED_TIME:${startFrame}-${endFrame}`);
+  return [mapped.startFrame, mapped.endFrame];
 }
 
 export function renderDev01TruthfulFrameV2(frame: number, width: number, height: number): Buffer {
@@ -270,22 +258,6 @@ function buildDev01DialogueSpeechEvidence(): NativeAudioEvidence {
     })),
     regionCount: SPEECH_SOURCE_RANGES.length,
   };
-}
-
-function requireOverlay(overlays: OverlayRecord[], assetId: string, coordinate: string, expected: number): OverlayRecord {
-  const overlay = overlays.find((candidate) => candidate.assetId === assetId && candidate[coordinate] === expected);
-  if (!overlay) throw new Error(`DEV01_TRUTH_FIXTURE_MAPPING_MISSING:${assetId}:${coordinate}:${expected}`);
-  return overlay;
-}
-
-function splitChild(beforeOverlayId: number, right: OverlayRecord): Dev01TruthCutResultV2['splitChildren'][number] {
-  const rightOverlayId = Number(right.id);
-  const rightSourceStartFrame = Number(right.sourceStartFrame ?? right.startFromSound);
-  const rightTimelineStartFrame = Number(right.from);
-  if (![rightOverlayId, rightSourceStartFrame, rightTimelineStartFrame].every(Number.isInteger)) {
-    throw new Error(`DEV01_TRUTH_FIXTURE_INVALID_SPLIT:${beforeOverlayId}`);
-  }
-  return { beforeOverlayId, leftOverlayId: beforeOverlayId, rightOverlayId, rightSourceStartFrame, rightTimelineStartFrame };
 }
 
 function fillRgb(buffer: Buffer, red: number, green: number, blue: number): void {

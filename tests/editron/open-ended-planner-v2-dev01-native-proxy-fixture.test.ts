@@ -65,6 +65,15 @@ describe('open-ended planner V2 truthful DEV-01 native proxy fixture', () => {
     const result = executeDev01TruthCutV2();
     expect(result.framesCut).toBe(45);
     expect(result.newDurationInFrames).toBe(435);
+    expect(result.timelineCoordinateTransform).toEqual({
+      schemaVersion: 'EDITRON_TIMELINE_RANGE_CUT_COORDINATE_TRANSFORM_V1',
+      beforeRevision: 'R7',
+      beforeDurationInFrames: 480,
+      afterDurationInFrames: 435,
+      removedRange: { startFrame: 151, endFrame: 196 },
+      shiftAfterRemovedRangeFrames: -45,
+      mapRule: 'HALF_OPEN_REMOVE_AND_SHIFT_LEFT_V1',
+    });
     expect(mapDev01SourceTimelineFrameV2(150)).toBe(150);
     expect(mapDev01SourceTimelineFrameV2(151)).toBeNull();
     expect(mapDev01SourceTimelineFrameV2(195)).toBeNull();
@@ -76,8 +85,15 @@ describe('open-ended planner V2 truthful DEV-01 native proxy fixture', () => {
       beforeOverlayId: 101,
       leftOverlayId: 101,
       rightOverlayId: 104,
-      rightSourceStartFrame: 196,
+      overlayType: 'video',
+      assetId: 'dev01-host-truth-v2',
+      leftBeforeTimelineRange: { startFrame: 0, endFrame: 151 },
+      leftAfterTimelineRange: { startFrame: 0, endFrame: 151 },
+      rightBeforeTimelineRange: { startFrame: 196, endFrame: 480 },
+      rightAfterTimelineRange: { startFrame: 151, endFrame: 435 },
       rightTimelineStartFrame: 151,
+      rightSourceCoordinateField: 'sourceStartFrame',
+      rightSourceStartFrame: 196,
     });
     expect(160 - Number(host?.rightTimelineStartFrame)).toBe(9);
   });

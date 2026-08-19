@@ -1454,6 +1454,26 @@ only background music under remapped speech, render the result and preserve all
 other content. A canonical hand-authored graph or evaluator-approved handoff is
 mechanics evidence, not model-planning evidence.
 
+#### V2-1R causal execution progress - 2026-08-19
+
+The active tree now closes one prerequisite at the pure timeline-mutation
+boundary. `cutTimelineRange` emits a versioned half-open
+`timelineCoordinateTransform` plus exact `splitChildren` records containing
+the original/left/right overlay identities, before/after timeline ranges and
+the right child's source-coordinate start. The truthful DEV-01 fixture now
+consumes those returned values; it no longer reconstructs child IDs or the
+45-frame shift from expected fixture constants. Focused tests cover surviving,
+removed, intersecting and invalid coordinates and both video and dialogue
+splits.
+
+This is **partial causal plumbing**, not a connected model or production pass.
+The live `cut_section` chat response and canonical ProjectService/IF1 receipt
+do not yet expose/bind the mapping; the V2 operator sheet and downstream
+resolver ports still require wiring; the current generic DEV-01 Stage-6 proxy
+still substitutes canonical fixture operations instead of interpreting every
+compiled model-selected node. No provider rerun or model ranking is authorised
+by this slice.
+
 ### GeneratedCompositionProgram current truth
 
 The active branch has a substantial project-state foundation:
