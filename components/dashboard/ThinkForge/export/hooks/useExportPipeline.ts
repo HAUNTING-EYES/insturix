@@ -747,7 +747,6 @@ export function useExportPipeline(
 
             // Async polling for reference image generation
             if (genData.async && genData.batchId && sbRefSetId) {
-              console.log(`[ExportToEditron] Polling reference-image batch ${genData.batchId}`);
               const MAX_POLL_ATTEMPTS = 60;
               const POLL_INTERVAL_MS = 5000;
               let refsCompleted = false;
@@ -761,9 +760,6 @@ export function useExportPipeline(
                   );
                   const statusData = await statusRes.json().catch(() => ({}));
                   if (statusData.success) {
-                    console.log(
-                      `[ExportToEditron] Ref poll #${poll + 1}: ${statusData.completed}/${statusData.totalSubjects} done, failed=${statusData.failed}, status=${statusData.status}`,
-                    );
                     latestSubjects = mergeReferenceSubjects(latestSubjects, statusData.subjects || []);
                     setSubjects(latestSubjects);
                     if (statusData.isComplete) {
@@ -814,7 +810,6 @@ export function useExportPipeline(
             console.warn("[ExportToEditron] Reference image generation failed, skipping");
           }
         } else {
-          console.log("[ExportToEditron] No subjects extracted — showing review step for manual addition");
           setStep("reviewing-references");
           return;
         }
@@ -859,16 +854,6 @@ export function useExportPipeline(
       setSuggestedProfileCategory(exportData.suggestedProfileCategory || "");
       const projectTitle = title || exportData.title || "Untitled Script";
       setTitle(projectTitle);
-
-      // Phase A3.3 — Detect zero-narration scripts
-      const _hasNarrationAtParseTime = (exportData.scenes || []).some(
-        (s: any) => typeof s.narration === "string" && s.narration.trim().length > 0,
-      );
-      if (!_hasNarrationAtParseTime && exportData.scenes?.length > 0) {
-        console.log(
-          "[ExportToEditron] Script has zero narration across all scenes — voiceover will be skipped, captions will be generated from on-screen text instead (Phase A3.3)",
-        );
-      }
 
       // D-016: Profile detection removed — signal system + Utility AI drive editing decisions.
       // Pre-fill G-01 (universal default). User can still override in profile selection step.
@@ -1046,7 +1031,6 @@ export function useExportPipeline(
 
           // Async polling for storyboard generation
           if (sbData.async && sbData.batchId && sbId) {
-            console.log(`[ExportToEditron] Polling storyboard image batch ${sbData.batchId}`);
             const MAX_POLL_ATTEMPTS = 90;
             const POLL_INTERVAL_MS = 6000;
             let sbCompleted = false;
@@ -1059,9 +1043,6 @@ export function useExportPipeline(
                 );
                 const statusData = await statusRes.json().catch(() => ({}));
                 if (statusData.success) {
-                  console.log(
-                    `[ExportToEditron] SB poll #${poll + 1}: ${statusData.completed}/${statusData.totalScenes} done, failed=${statusData.failed}, status=${statusData.status}`,
-                  );
                   sbScenes = (statusData.scenes || []).map((s: any) => ({
                     ...s,
                     title: sbScenes.find((existing: any) => existing.sceneIndex === s.sceneIndex)?.title || "",
@@ -1142,11 +1123,6 @@ export function useExportPipeline(
     const scriptHasNarration = (currentScenes || []).some(
       (s: any) => typeof s.narration === "string" && s.narration.trim().length > 0,
     );
-    if (!scriptHasNarration && (currentScenes || []).length > 0) {
-      console.log(
-        `[ExportToEditron] handlePhase3: zero narration detected across ${currentScenes.length} scenes — voiceover step will be skipped, caption fallback will run in finalize`,
-      );
-    }
 
     try {
       if (requiresProductionCoverage && generateVideos && sbId) {
@@ -1232,8 +1208,6 @@ export function useExportPipeline(
         setVideoProgress({ done: avatarSucceededCount, total: expectedTotalVideoClips });
 
         try {
-          console.log(`[ExportToEditron] Enqueuing ${genericVideoSceneIndices.length} scenes for video generation (${avatarSucceededCount} handled by Avatar Pipeline)`);
-
           const enqueueRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/generate-videos`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1271,18 +1245,12 @@ export function useExportPipeline(
 
           // Handle all-skip mode (all scenes use animated storyboard / graphics)
           if (enqueueData.videoScenes === 0 && enqueueData.skippedScenes > 0) {
-            console.log(
-              `[ExportToEditron] All ${enqueueData.skippedScenes} scenes use animated storyboard/graphics — no video gen needed`,
-            );
             setVideoProgress({ done: avatarSucceededCount + enqueueData.skippedScenes, total: expectedTotalVideoClips });
             setVideosGenerated(true);
           } else if (enqueueData.async === false && enqueueData.isComplete) {
             // Direct fallback mode (Redis unavailable)
             const completed = enqueueData.completed || 0;
             const failed = enqueueData.failed || 0;
-            console.log(
-              `[ExportToEditron] Videos generated directly (fallback): ${completed} done, ${failed} failed`,
-            );
             const combinedCompleted = completed + avatarSucceededCount;
             setVideoProgress({ done: combinedCompleted + failed, total: expectedTotalVideoClips });
             setVideosGenerated(combinedCompleted >= expectedTotalVideoClips);
@@ -1302,7 +1270,6 @@ export function useExportPipeline(
           } else if (enqueueData.batchId) {
             // Async queue mode — poll for completion
             const batchId = enqueueData.batchId;
-            console.log(`[ExportToEditron] Video batch enqueued: ${batchId} (${enqueueData.totalScenes} scenes)`);
 
             const MAX_POLL_ATTEMPTS = 90;
             const POLL_INTERVAL_MS = 10_000;
@@ -1321,10 +1288,6 @@ export function useExportPipeline(
                   const completed = statusData.completed || 0;
                   const failed = statusData.failed || 0;
                   setVideoProgress({ done: avatarSucceededCount + completed + failed, total: expectedTotalVideoClips });
-
-                  console.log(
-                    `[ExportToEditron] Video poll #${poll + 1}: ${completed} done, ${failed} failed, status=${statusData.status}`,
-                  );
 
                   if (statusData.isComplete) {
                     const combinedCompleted = completed + avatarSucceededCount;
@@ -1395,9 +1358,7 @@ export function useExportPipeline(
             }),
           });
           const voData = await voRes.json().catch(() => ({}));
-          if (voRes.ok && voData.scenesProcessed > 0) {
-            console.log(`[ExportToEditron] Voiceover: ${voData.scenesProcessed}/${voData.totalScenes} scenes`);
-          } else {
+          if (!voRes.ok || voData.scenesProcessed <= 0) {
             const voErr = voData.error || `Voiceover failed (${voRes.status})`;
             console.error("[ExportToEditron] Voiceover failed:", voErr);
             setError((prev) => (prev ? `${prev} | Voiceover: ${voErr}` : `Voiceover: ${voErr}`));
@@ -1406,12 +1367,6 @@ export function useExportPipeline(
           console.error("[ExportToEditron] Voiceover error:", voErr.message);
           setError((prev) => (prev ? `${prev} | Voiceover error: ${voErr.message}` : `Voiceover error: ${voErr.message}`));
         }
-      } else if (sbId && scriptHasNarration && avatarSceneIndices.size > 0) {
-        console.log("[ExportToEditron] Skipping standard voiceover for Avatar Pipeline scenes — avatar audio is already materialized.");
-      } else if (sbId && !scriptHasNarration) {
-        console.log(
-          "[ExportToEditron] Skipping voiceover step — script has no narration. Captions will come from script on-screen text via finalize fallback.",
-        );
       }
 
       // Step 7: Create Editron project
@@ -1543,9 +1498,6 @@ export function useExportPipeline(
 
           const directorData = await directorRes.json().catch(() => ({}));
           if (directorData.success) {
-            console.log(
-              `[ExportToEditron] Director Agent complete: ${directorData.actionsExecuted} actions, ${directorData.executionMs}ms`,
-            );
             if (directorData.warnings?.length > 0) {
               setError(`Edit profile applied with ${directorData.warnings.length} warning(s): ${directorData.warnings[0]}`);
             }
