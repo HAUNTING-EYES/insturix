@@ -1,4 +1,4 @@
-import { deepFreezeV1 } from './contracts-v1';
+import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 
 export const STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R =
   'EDITRON_OE_STAGE2_SELECTED_OPERATOR_V2R_3' as const;
@@ -143,11 +143,17 @@ export function selectedOperatorDriftDiagnosticsV2R(
   const diagnostics: string[] = [];
   const sourceById = new Map<string, JsonRecord>();
   for (const node of Array.isArray(sourceNodes) ? sourceNodes : []) {
-    if (isRecordV2R(node) && typeof node.intentNodeId === 'string') sourceById.set(node.intentNodeId, node);
+    if (isRecordV2R(node) && typeof node.intentNodeId === 'string') {
+      if (sourceById.has(node.intentNodeId)) diagnostics.push(`SOURCE_NODE_DUPLICATE:${node.intentNodeId}`);
+      sourceById.set(node.intentNodeId, node);
+    }
   }
   const boundById = new Map<string, JsonRecord>();
   for (const node of Array.isArray(boundNodes) ? boundNodes : []) {
-    if (isRecordV2R(node) && typeof node.intentNodeId === 'string') boundById.set(node.intentNodeId, node);
+    if (isRecordV2R(node) && typeof node.intentNodeId === 'string') {
+      if (boundById.has(node.intentNodeId)) diagnostics.push(`BOUND_NODE_DUPLICATE:${node.intentNodeId}`);
+      boundById.set(node.intentNodeId, node);
+    }
   }
   for (const [intentNodeId, sourceNode] of sourceById) {
     const boundNode = boundById.get(intentNodeId);
@@ -156,10 +162,28 @@ export function selectedOperatorDriftDiagnosticsV2R(
     const boundOperators = new Set(referencedOperatorIdsV2R([boundNode]));
     const same = sourceOperators.size === boundOperators.size
       && [...sourceOperators].every((operatorId) => boundOperators.has(operatorId));
-    if (!same) diagnostics.push(`OPERATOR_SET_DRIFT:${intentNodeId}`);
+    if (!same) {
+      diagnostics.push(`OPERATOR_SET_DRIFT:${intentNodeId}`);
+      continue;
+    }
+    if (sourceNode.selectedOperatorId !== boundNode.selectedOperatorId) {
+      diagnostics.push(`SELECTED_OPERATOR_ROLE_DRIFT:${intentNodeId}`);
+    }
+    if (hashCanonicalJsonV1(sourceNode.alternativeOperatorIds) !== hashCanonicalJsonV1(boundNode.alternativeOperatorIds)) {
+      diagnostics.push(`ALTERNATIVE_OPERATOR_DRIFT:${intentNodeId}`);
+    }
+    if (hasOwnV2R(sourceNode, 'nodeInputs') !== hasOwnV2R(boundNode, 'nodeInputs')
+      || (hasOwnV2R(sourceNode, 'nodeInputs')
+        && hashCanonicalJsonV1(sourceNode.nodeInputs) !== hashCanonicalJsonV1(boundNode.nodeInputs))) {
+      diagnostics.push(`NODE_INPUT_DRIFT:${intentNodeId}`);
+    }
   }
   for (const intentNodeId of boundById.keys()) {
     if (!sourceById.has(intentNodeId)) diagnostics.push(`NODE_ADDED:${intentNodeId}`);
   }
   return deepFreezeV1(diagnostics);
+}
+
+function hasOwnV2R(record: JsonRecord, field: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, field);
 }

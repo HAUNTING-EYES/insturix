@@ -157,7 +157,7 @@ function validateOperatorInputs(node: JsonRecord, operator: JsonRecord, diagnost
     else properties[field] = fieldSchemas[field];
   }
   const schema = { type: 'object', required: strings(inputContract.required), properties, additionalProperties: false };
-  for (const diagnostic of validateJsonSchema(node.inputs, schema, '$.inputs')) {
+  for (const diagnostic of validateJsonSchemaV2(node.inputs, schema, '$.inputs')) {
     diagnostics.push(`INPUT_BINDING_SCHEMA:${node.nodeId}:${diagnostic}`);
   }
   const inputs = record(node.inputs);
@@ -298,7 +298,7 @@ function validateSourceRange(value: unknown, assetIdValue: unknown, node: JsonRe
   if (!legal || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end <= start) diagnostics.push(`INPUT_BINDING_SOURCE_RANGE_INVALID:${node.nodeId}`);
 }
 
-function validateJsonSchema(value: unknown, schemaValue: unknown, path: string): string[] {
+export function validateJsonSchemaV2(value: unknown, schemaValue: unknown, path: string): string[] {
   const schema = record(schemaValue);
   if ('const' in schema && value !== schema.const) return [`${path}:CONST`];
   if (Array.isArray(schema.enum) && !schema.enum.includes(value)) return [`${path}:ENUM`];
@@ -307,7 +307,7 @@ function validateJsonSchema(value: unknown, schemaValue: unknown, path: string):
   if (schema.type === 'number') return typeof value === 'number' && Number.isFinite(value) ? [] : [`${path}:NUMBER`];
   if (schema.type === 'array') {
     if (!Array.isArray(value)) return [`${path}:ARRAY`];
-    const result = value.flatMap((entry, index) => validateJsonSchema(entry, schema.items, `${path}[${index}]`));
+    const result = value.flatMap((entry, index) => validateJsonSchemaV2(entry, schema.items, `${path}[${index}]`));
     if (schema.minItems && value.length < Number(schema.minItems)) result.push(`${path}:MIN_ITEMS`);
     if (schema.uniqueItems === true && new Set(value.map((entry) => hashCanonicalJsonV1(entry))).size !== value.length) result.push(`${path}:UNIQUE`);
     return result;
@@ -317,7 +317,7 @@ function validateJsonSchema(value: unknown, schemaValue: unknown, path: string):
     const properties = record(schema.properties);
     const result = strings(schema.required).filter((field) => !(field in value)).map((field) => `${path}.${field}:REQUIRED`);
     if (schema.additionalProperties === false) for (const field of Object.keys(value)) if (!(field in properties)) result.push(`${path}.${field}:ADDITIONAL`);
-    for (const [field, child] of Object.entries(value)) if (field in properties) result.push(...validateJsonSchema(child, properties[field], `${path}.${field}`));
+    for (const [field, child] of Object.entries(value)) if (field in properties) result.push(...validateJsonSchemaV2(child, properties[field], `${path}.${field}`));
     if (schema.minProperties && Object.keys(value).length < Number(schema.minProperties)) result.push(`${path}:MIN_PROPERTIES`);
     return result;
   }

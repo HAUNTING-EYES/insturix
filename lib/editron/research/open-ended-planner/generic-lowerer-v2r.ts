@@ -1,6 +1,8 @@
 import operatorCatalogJson from '@/tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json';
 
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
+import { selectedOperatorDriftDiagnosticsV2R } from './stage2-selected-operator-contract-v2r';
+import { validateJsonSchemaV2 } from './stage4-compilation-evaluator-v2';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -61,6 +63,7 @@ const catalog = operatorCatalogJson as unknown as JsonRecord;
 const operators = new Map<string, JsonRecord>(
   records(catalog.operators).map((operator) => [text(operator.operatorId), operator]),
 );
+const fieldSchemas = record(catalog.fieldSchemas);
 
 const RESOURCE_POLICY_BY_KIND: Record<string, string> = {
   READ: 'OE_STAGE4_READ_V1',
@@ -86,6 +89,15 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
   const intentNodes = records(editorialIntent.nodes);
   const intentNodesById = new Map(intentNodes.map((node) => [text(node.intentNodeId), node]));
   const bindingsByNodeId = indexBindings(records(boundIntent.evidenceBindings));
+  diagnostics.push(...selectedOperatorDriftDiagnosticsV2R(intentNodes, boundNodes)
+    .map((diagnostic) => `LOWERING_STAGE2_STAGE3_DRIFT:${diagnostic}`));
+  for (const boundNode of boundNodes) {
+    const intentNodeId = text(boundNode.intentNodeId);
+    const selectedOperatorId = text(boundNode.selectedOperatorId);
+    if (selectedOperatorId && !operators.has(selectedOperatorId)) {
+      diagnostics.push(`LOWERING_OPERATOR_UNKNOWN:${intentNodeId}:${selectedOperatorId}`);
+    }
+  }
 
   const revision = record(boundIntent.revisionBinding);
   const projectId = text(revision.projectId);
@@ -108,23 +120,28 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
     }
   }
 
-  const selectedOperatorIds: string[] = [];
+  const selectedOperatorIds = intentNodes.map((node) => text(node.selectedOperatorId));
   const compiledNodes: JsonRecord[] = [];
   const unresolvedIntentNodeIds: string[] = [];
   const compiledOperatorIds: string[] = [];
+  const blockingDisposition = executionBlockingDisposition(boundIntent);
+  const stageContractDrift = diagnostics.some((diagnostic) => diagnostic.startsWith('LOWERING_STAGE2_STAGE3_DRIFT:'));
 
   // Process nodes in dependency (topological) order so a node-output producer is
   // always compiled before its consumer, regardless of the model's array order.
   const orderedBoundNodes = topoOrderBoundNodesV2R(boundNodes, intentNodesById);
   for (const boundNode of orderedBoundNodes) {
     const intentNodeId = text(boundNode.intentNodeId);
+    if (blockingDisposition || stageContractDrift) {
+      unresolvedIntentNodeIds.push(intentNodeId);
+      continue;
+    }
     const selectedOperatorId = typeof boundNode.selectedOperatorId === 'string' ? boundNode.selectedOperatorId : '';
     if (!selectedOperatorId) {
       diagnostics.push(`LOWERING_SELECTED_OPERATOR_MISSING:${intentNodeId}`);
       unresolvedIntentNodeIds.push(intentNodeId);
       continue;
     }
-    selectedOperatorIds.push(selectedOperatorId);
     if (danglingDependencyNodeIds.has(intentNodeId)) {
       unresolvedIntentNodeIds.push(intentNodeId);
       continue;
@@ -147,6 +164,33 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
     const inputSpec = record(operator.input);
     const requiredFields = strings(inputSpec.required);
     const declaredFields = strings(inputSpec.fields);
+    const rawNodeInputs = record(boundNode.nodeInputs);
+    for (const field of Object.keys(rawNodeInputs)) {
+      if (!declaredFields.includes(field)) {
+        diagnostics.push(`MODEL_INPUT_FIELD_UNDECLARED:${intentNodeId}:${field}`);
+        continue;
+      }
+      const rule = input.policy.operatorFieldBindings?.[selectedOperatorId]?.[field]
+        ?? input.policy.fieldBindings[field];
+      if (rule?.source !== 'MODEL_INPUT') {
+        diagnostics.push(`MODEL_INPUT_FIELD_NOT_MODEL_OWNED:${intentNodeId}:${field}`);
+      }
+      const fieldSchema = fieldSchemas[field];
+      if (!fieldSchema) {
+        diagnostics.push(`INPUT_FIELD_SCHEMA_MISSING:${intentNodeId}:${field}`);
+        continue;
+      }
+      for (const schemaDiagnostic of validateJsonSchemaV2(rawNodeInputs[field], fieldSchema, `$.nodeInputs.${field}`)) {
+        diagnostics.push(`MODEL_INPUT_SCHEMA_INVALID:${intentNodeId}:${field}:${schemaDiagnostic}`);
+      }
+    }
+    if (diagnostics.some((diagnostic) => diagnostic.startsWith(`MODEL_INPUT_FIELD_UNDECLARED:${intentNodeId}:`)
+      || diagnostic.startsWith(`MODEL_INPUT_FIELD_NOT_MODEL_OWNED:${intentNodeId}:`)
+      || diagnostic.startsWith(`INPUT_FIELD_SCHEMA_MISSING:${intentNodeId}:`)
+      || diagnostic.startsWith(`MODEL_INPUT_SCHEMA_INVALID:${intentNodeId}:`))) {
+      unresolvedIntentNodeIds.push(intentNodeId);
+      continue;
+    }
     const inputs: JsonRecord = {};
     const reads: string[] = [];
     for (const field of declaredFields) {
@@ -167,7 +211,6 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
       unresolvedIntentNodeIds.push(intentNodeId);
       continue;
     }
-
     const nodeId = `compile-${intentNodeId}`;
     const outputNames = strings(record(operator.output).required);
     const produces = outputNames.map((outputName) => `${nodeId}.${outputName}`);
@@ -199,37 +242,27 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
   }
 
   const edges = buildEdges(compiledNodes);
-  const selectedSet = new Set(selectedOperatorIds);
-  const zeroAdd = compiledOperatorIds.every((operatorId) => selectedSet.has(operatorId));
+  const zeroAdd = compiledNodes.every((node) => {
+    const source = intentNodesById.get(text(node.intentNodeId));
+    return text(source?.selectedOperatorId) === text(node.operatorId);
+  });
   const compiledIntentNodeIds = compiledNodes.map((node) => text(node.intentNodeId));
   const noDuplicateCompilation = new Set(compiledIntentNodeIds).size === compiledIntentNodeIds.length;
-  const accountedIntentNodeIds = new Set([...compiledIntentNodeIds, ...unresolvedIntentNodeIds]);
   const noOverlap = compiledIntentNodeIds.every((intentNodeId) => !unresolvedIntentNodeIds.includes(intentNodeId));
+  const selectedIntentNodeIds = intentNodes.map((node) => text(node.intentNodeId));
   const zeroDrop = noDuplicateCompilation && noOverlap
-    && accountedIntentNodeIds.size === selectedOperatorIds.length;
+    && compiledIntentNodeIds.length === selectedIntentNodeIds.length
+    && selectedIntentNodeIds.every((intentNodeId) => compiledIntentNodeIds.includes(intentNodeId));
   if (!zeroAdd) diagnostics.push('LOWERING_ZERO_ADD_VIOLATED');
   if (!zeroDrop) diagnostics.push('LOWERING_ZERO_DROP_VIOLATED');
 
-  // Whether any compiled operator is a mutation. A graph-level gap/unverifiable
-  // disposition is honored only when no mutation compiled (a genuinely non-executable
-  // plan, e.g. DEV-04: only reads compile and the model declared the moving-matte
-  // gap). If a mutation compiled, the plan is executable and the graph-level gap is a
-  // conservatism note, not a blocker (e.g. Terra DEV-03 flags native-mutation
-  // production-readiness while still selecting compilable mutations).
-  const compiledAMutation = compiledOperatorIds.some((operatorId) => {
-    const operator = operators.get(operatorId);
-    return operator ? text(operator.kind) === 'MUTATION' : false;
-  });
-
-  const compileDisposition = diagnostics.some((diagnostic) => diagnostic.startsWith('LOWERING_ZERO_'))
+  const compileDisposition = blockingDisposition
+    ?? (stageContractDrift ? 'FAIL'
+    : diagnostics.some((diagnostic) => diagnostic.startsWith('LOWERING_ZERO_'))
     ? 'FAIL'
     : unresolvedIntentNodeIds.length
     ? (boundIntent.stageDisposition === 'UNVERIFIABLE' ? 'UNVERIFIABLE' : 'CAPABILITY_GAP')
-    : boundIntent.stageDisposition === 'CAPABILITY_GAP' && !compiledAMutation
-    ? 'CAPABILITY_GAP'
-    : boundIntent.stageDisposition === 'UNVERIFIABLE' && !compiledAMutation
-    ? 'UNVERIFIABLE'
-    : 'COMPILED_RESEARCH_PROXY';
+    : 'COMPILED_RESEARCH_PROXY');
 
   const compiled = deepFreezeV1({
     artifactType: 'CompiledOperationGraphV2',
@@ -462,8 +495,22 @@ function findBoundFact(context: FieldBindContextV2R, factKind: string | undefine
       .flatMap((bindingId) => context.bindingsByNodeId.get(bindingId) ?? []),
   );
   const directlyBound = context.facts.find((fact) => text(fact.kind) === factKind && boundFactIds.has(text(fact.factId)));
-  if (directlyBound) return directlyBound;
-  return context.facts.find((fact) => text(fact.kind) === factKind);
+  return directlyBound;
+}
+
+function executionBlockingDisposition(boundIntent: JsonRecord): string | null {
+  const disposition = text(boundIntent.stageDisposition);
+  if (['CAPABILITY_GAP', 'UNVERIFIABLE', 'POLICY_BLOCKED', 'CONFLICT'].includes(disposition)) {
+    return disposition;
+  }
+  const stopRequirements = records(boundIntent.unresolvedRequirements)
+    .filter((requirement) => requirement.failureDisposition === 'STOP_BEFORE_COMPILATION_OR_RENDER');
+  if (!stopRequirements.length) return null;
+  const requirementDispositions = stopRequirements.map((requirement) => text(requirement.disposition));
+  if (requirementDispositions.includes('POLICY_BLOCKED')) return 'POLICY_BLOCKED';
+  if (requirementDispositions.includes('CONFLICT')) return 'CONFLICT';
+  if (requirementDispositions.includes('CAPABILITY_GAP')) return 'CAPABILITY_GAP';
+  return 'UNVERIFIABLE';
 }
 
 function indexBindings(bindings: JsonRecord[]): Map<string, string[]> {

@@ -83,6 +83,12 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
   });
 
   it('marks research-only-not-implemented operators as capability gaps, never executable nodes', () => {
+    const editorialIntent = structuredClone(canonical.editorialIntentV2R) as { nodes: Array<Record<string, unknown>> };
+    editorialIntent.nodes.push({
+      intentNodeId: 'node-generated', operationFamily: 'generated-composition', targetClaimIds: ['claim-product-push-in'],
+      selectedOperatorId: 'generated_composition_program', alternativeOperatorIds: [], executionForm: 'GENERATED_COMPOSITION',
+      requiresNodeIds: [], invalidates: [], evidenceIds: [], failureDisposition: 'FAIL',
+    });
     const withGenerated = {
       ...canonical.evidenceBoundIntentsV2R.BASELINE,
       nodes: [
@@ -92,7 +98,7 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     };
     const result = lowerV2RBoundIntentGeneric({
       taskId: 'DEV-01',
-      editorialIntent: canonical.editorialIntentV2R,
+      editorialIntent,
       evidenceBoundIntent: withGenerated,
       evidencePack: canonical.evidencePacks.BASELINE,
       policy: DEV01_LOWERING_POLICY_V2R,
@@ -138,8 +144,92 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     expect(result.compiled.unresolvedIntentNodeIds).toContain('node-cut');
     const compiledIntentIds = (result.compiled.nodes as Array<{ intentNodeId: string }>).map(({ intentNodeId }) => intentNodeId);
     expect(compiledIntentIds).not.toContain('node-cut');
-    // The dangling node stays accounted for, so zero-drop still holds.
-    expect(result.zeroDrop).toBe(true);
+    // An unresolved selected node is a real drop and cannot satisfy zero-drop.
+    expect(result.zeroDrop).toBe(false);
     expect(result.zeroAdd).toBe(true);
+  });
+
+  it('fails closed when Stage 3 changes a selected role or semantic input', () => {
+    const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as { nodes: Array<Record<string, unknown>> };
+    const editorialIntent = structuredClone(canonical.editorialIntentV2R) as { nodes: Array<Record<string, unknown>> };
+    const boundTarget = evidenceBoundIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-find-transcript');
+    const sourceTarget = editorialIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-find-transcript');
+    expect(boundTarget).toBeTruthy();
+    expect(sourceTarget).toBeTruthy();
+    sourceTarget!.alternativeOperatorIds = ['get_timeline_view'];
+    boundTarget!.alternativeOperatorIds = ['find_transcript_moment'];
+    boundTarget!.selectedOperatorId = 'get_timeline_view';
+    boundTarget!.nodeInputs = { query: 'different target' };
+    const result = lowerV2RBoundIntentGeneric({
+      taskId: 'DEV-01', editorialIntent,
+      evidenceBoundIntent, evidencePack: canonical.evidencePacks.BASELINE,
+      policy: DEV01_LOWERING_POLICY_V2R,
+    });
+    expect(result.compiled.nodes).toEqual([]);
+    expect(result.zeroDrop).toBe(false);
+    expect(result.compiled.compileDisposition).toBe('FAIL');
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      'LOWERING_STAGE2_STAGE3_DRIFT:SELECTED_OPERATOR_ROLE_DRIFT:node-find-transcript',
+      'LOWERING_STAGE2_STAGE3_DRIFT:ALTERNATIVE_OPERATOR_DRIFT:node-find-transcript',
+      'LOWERING_STAGE2_STAGE3_DRIFT:NODE_INPUT_DRIFT:node-find-transcript',
+    ]));
+  });
+
+  it('rejects ill-typed and non-model-owned node inputs before compilation', () => {
+    const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as { nodes: Array<Record<string, unknown>> };
+    const stageTwo = structuredClone(canonical.editorialIntentV2R) as { nodes: Array<Record<string, unknown>> };
+    const boundTarget = evidenceBoundIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-find-transcript');
+    const sourceTarget = stageTwo.nodes.find(({ intentNodeId }) => intentNodeId === 'node-find-transcript');
+    expect(boundTarget).toBeTruthy();
+    expect(sourceTarget).toBeTruthy();
+    const invalidInputs = { query: { invalid: true }, projectId: 'attacker-project' };
+    boundTarget!.nodeInputs = invalidInputs;
+    sourceTarget!.nodeInputs = invalidInputs;
+    const result = lowerV2RBoundIntentGeneric({
+      taskId: 'DEV-01', editorialIntent: stageTwo,
+      evidenceBoundIntent, evidencePack: canonical.evidencePacks.BASELINE,
+      policy: DEV01_LOWERING_POLICY_V2R,
+    });
+    expect(result.compiled.compileDisposition).not.toBe('COMPILED_RESEARCH_PROXY');
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.stringContaining('MODEL_INPUT_SCHEMA_INVALID:node-find-transcript:query'),
+      'MODEL_INPUT_FIELD_NOT_MODEL_OWNED:node-find-transcript:projectId',
+    ]));
+  });
+
+  it('honors explicit stop-before-render dispositions even when mutations were selected', () => {
+    const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as Record<string, unknown>;
+    evidenceBoundIntent.stageDisposition = 'CAPABILITY_GAP';
+    evidenceBoundIntent.unresolvedRequirements = [{
+      requirementId: 'req-stop', kind: 'CAPABILITY', factIds: [],
+      disposition: 'CAPABILITY_GAP', failureDisposition: 'STOP_BEFORE_COMPILATION_OR_RENDER',
+    }];
+    const result = lowerV2RBoundIntentGeneric({
+      taskId: 'DEV-01', editorialIntent: canonical.editorialIntentV2R,
+      evidenceBoundIntent, evidencePack: canonical.evidencePacks.BASELINE,
+      policy: DEV01_LOWERING_POLICY_V2R,
+    });
+    expect(result.compiled.nodes).toEqual([]);
+    expect(result.compiled.compileDisposition).toBe('CAPABILITY_GAP');
+    expect(result.compiled.executionEligibility).toBe('NOT_EXECUTABLE');
+    expect(result.zeroDrop).toBe(false);
+  });
+
+  it('does not fall back to an unrelated fact of the same kind', () => {
+    const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as {
+      evidenceBindings: Array<{ bindingId: string; factIds: string[] }>;
+    };
+    const transcriptBinding = evidenceBoundIntent.evidenceBindings.find(({ bindingId }) => bindingId === 'bind-transcript');
+    expect(transcriptBinding).toBeTruthy();
+    transcriptBinding!.factIds = [];
+    const result = lowerV2RBoundIntentGeneric({
+      taskId: 'DEV-01', editorialIntent: canonical.editorialIntentV2R,
+      evidenceBoundIntent, evidencePack: canonical.evidencePacks.BASELINE,
+      policy: DEV01_LOWERING_POLICY_V2R,
+    });
+    expect(result.compiled.compileDisposition).not.toBe('COMPILED_RESEARCH_PROXY');
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      'INPUT_BINDING_MISSING:node-cut:targetRange',
+    ]));
   });
 });
