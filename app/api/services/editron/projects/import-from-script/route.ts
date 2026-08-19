@@ -8,11 +8,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { projectService } from '@/lib/editron/services/project-service';
-import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { addProjectToLinkBySessionId, createProjectLink, findLinkBySessionId } from '@/lib/shared/project-links';
 import { scenesToOverlays, scenesToTotalFrames, type StoryboardImage } from '@/lib/pipeline/scene-to-editron';
 import { CreditsService } from '@/lib/services/creditsService';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
+import {
+  verifyThinkForgeEditronProductionManifest,
+  type VerifiedThinkForgeEditronProductionManifest,
+} from '@/lib/thinkforge/export/editron-production-manifest-contract';
 
 export const runtime = 'nodejs';
 
@@ -23,11 +26,6 @@ function nonEmptyString(value: unknown): string | undefined {
 }
 
 type ImportMode = 'draft-script-import';
-
-function isProductionCoverageManifest(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false;
-  return (value as { coveragePolicy?: unknown }).coveragePolicy === 'production-require-all-scenes';
-}
 
 function isDraftScriptImportMode(value: unknown): value is ImportMode {
   return value === 'draft-script-import';
@@ -71,6 +69,7 @@ export async function POST(request: NextRequest) {
     const normalizedSourceScriptId = nonEmptyString(sourceScriptId);
     const shouldDryRun = dryRun === true;
     const warnings: string[] = [];
+    let verifiedManifest: VerifiedThinkForgeEditronProductionManifest | null = null;
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
       return NextResponse.json(
@@ -79,7 +78,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (isProductionCoverageManifest(productionManifest) && normalizedImportMode !== 'draft-script-import') {
+    if (productionManifest !== undefined) {
+      try {
+        verifiedManifest = verifyThinkForgeEditronProductionManifest(productionManifest);
+      } catch {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'The ThinkForge production manifest is invalid or unsupported.',
+            reason: 'invalid-production-manifest',
+          },
+          { status: 400 },
+        );
+      }
+      if (
+        verifiedManifest.manifest.sourceSessionId !== normalizedSourceSessionId
+        || verifiedManifest.manifest.sourceScriptId !== normalizedSourceScriptId
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'The ThinkForge production manifest does not belong to this script import.',
+            reason: 'production-manifest-source-mismatch',
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    if (
+      verifiedManifest?.manifest.coveragePolicy === 'production-require-all-scenes'
+      && normalizedImportMode !== 'draft-script-import'
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -123,6 +153,7 @@ export async function POST(request: NextRequest) {
         importMode: normalizedImportMode || 'legacy-direct-import',
         draftOnly: normalizedImportMode === 'draft-script-import',
         writeOperationsSkipped: true,
+        productionManifestHash: verifiedManifest?.sha256 ?? null,
       });
     }
 
@@ -147,28 +178,42 @@ export async function POST(request: NextRequest) {
       sourceSessionId: normalizedSourceSessionId,
     });
 
-    if (existingProject) {
-      const db = await getDatabase();
-      const update: Record<string, unknown> = {
-        name: projectName,
-        pipelineStage: 'edit',
-        updatedAt: new Date(),
+    const importedAt = new Date().toISOString();
+    const projectUpdates: Record<string, unknown> = {
+      name: projectName,
+      pipelineStage: 'edit',
+      ...(normalizedBrandId ? { brandId: normalizedBrandId } : {}),
+      ...(normalizedSourceSessionId ? { sourceSessionId: normalizedSourceSessionId } : {}),
+      ...(normalizedSourceScriptId ? { sourceScriptId: normalizedSourceScriptId } : {}),
+    };
+    if (verifiedManifest) {
+      projectUpdates[`thinkforgeImportContracts.${verifiedManifest.sha256}`] = {
+        schemaVersion: 1,
+        manifestSha256: verifiedManifest.sha256,
+        productionManifest: verifiedManifest.manifest,
       };
-      if (normalizedBrandId) update.brandId = normalizedBrandId;
-      await db.collection(COLLECTIONS.PROJECTS).updateOne(
-        { userId, projectId: project.projectId },
-        { $set: update },
-      );
+      projectUpdates.latestThinkforgeImport = {
+        schemaVersion: 1,
+        manifestSha256: verifiedManifest.sha256,
+        sourceSessionId: normalizedSourceSessionId,
+        sourceScriptId: normalizedSourceScriptId,
+        importMode: normalizedImportMode || 'legacy-direct-import',
+        importedAt,
+      };
     }
 
-    // Save overlays to the project
-    await projectService.saveProject(userId, project.projectId, {
-      overlays,
-      aspectRatio: ar as any,
-      playerDimensions: { width, height },
-      fps,
-      durationInFrames: totalFrames,
-    });
+    const mutationReceipt = await projectService.saveProjectWithReceipt(
+      userId,
+      project.projectId,
+      {
+        overlays,
+        aspectRatio: ar as any,
+        playerDimensions: { width, height },
+        fps,
+        durationInFrames: totalFrames,
+      },
+      { projectUpdates },
+    );
 
     if (normalizedSourceSessionId) {
       try {
@@ -199,6 +244,8 @@ export async function POST(request: NextRequest) {
       reusedProject: Boolean(existingProject),
       importMode: normalizedImportMode || 'legacy-direct-import',
       draftOnly: normalizedImportMode === 'draft-script-import',
+      projectRevision: mutationReceipt.revision,
+      productionManifestHash: verifiedManifest?.sha256 ?? null,
       ...(warnings.length > 0 ? { warnings } : {}),
     });
   } catch (error: any) {
