@@ -550,8 +550,17 @@ describe('ScriptWriterAgent structured generation', () => {
     });
 
     expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
+    expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.systemInstruction)
+      .toContain('fullRuntimeMinimumSpokenWords is a hard lower bound');
     expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
       .toContain('narration_density_below_mode');
+    expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
+      .toContain('requiredAdditionalSubstantiveWords');
+    const repairPrompt = generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.prompt;
+    expect(repairPrompt).toContain('"narrationBudget"');
+    expect(repairPrompt).toContain('"fullRuntimeMinimumSpokenWords": 840');
+    expect(repairPrompt).toContain('"fullRuntimeReferenceSpokenWords": 1050');
+    expect(repairPrompt).toContain('"requiredAdditionalSubstantiveWords"');
     expect(output.result.metadata.estimatedTimeSeconds).toBe(420);
     expect(output.result.metadata.editorialWarnings).toBeUndefined();
     expect(output.result.sidecar.renderPlan).toBeUndefined();

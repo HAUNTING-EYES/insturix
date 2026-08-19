@@ -360,7 +360,7 @@ Critical rules:
 - Every beat requires visualIntent, shotIntent, and narrative duration intent. Every spoken line requires its actual languageCode.
 - shotIntent.energy and every performance intensity use normalized decimal values from 0 to 1. A moving shot requires a non-empty movementMotivation. shotIntent.spokenAudio is true exactly when the beat contains on-camera sync-dialogue; simultaneousPerformers equals the unique performance character count, and every sync speaker has a performance entry.
 - Omit renderPlan. Technical segmentation is authored later from this narrative sidecar.
-- When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or narration_density_below_mode, use tf_untrusted_data.editorialPlan as binding. Preserve the exact total runtime and selected narration mode. Develop the supported argument or story with substantive beats; represent deliberate non-verbal intervals as visual or transition beats. Never pad prose, durations, metadata, or empty lines to game the contract.
+- When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or narration_density_below_mode, use tf_untrusted_data.editorialPlan and writer_contract_repair_input.validatorDiagnostics.narrationBudget as binding. Preserve the exact total runtime and selected narration mode. The fullRuntimeMinimumSpokenWords value is a hard lower bound for canonical spoken lines in a guided non-minimal plan; currentSpokenWords and requiredAdditionalSubstantiveWords localize the deficit, while fullRuntimeReferenceSpokenWords remains guidance. Develop the supported argument or story with non-redundant substantive beats. Never satisfy the count by repeating claims, adding filler, inventing evidence, inflating durations, or appending an unrelated monologue.
 - For profile_missing_required_brief_claim or profile_missing_required_audience_anchor, copy the corresponding exact value from tf_untrusted_data.contentSignalProfile.intent.proofPoints into natural script copy without broadening it.
 - For missing_source_ref or invalid_source_ref, use writer_contract_repair_input.validatorDiagnostics and the authorised Source Ledger. Attach a reference only when its source directly supports that scene, beat, or line; otherwise delete or rewrite the unsupported claim. Never cite by keyword resemblance alone.
 - Preserve source references on every factual scene, beat, and line. Do not create a reference ID that is absent from the Source Ledger.
@@ -371,24 +371,67 @@ function buildScriptContractRepairDiagnostics(
   modelOutput: ScriptWriterModelOutput,
   failure: ScriptWriterContractError,
   input: Pick<ScriptWriterInput, 'sourceLedger' | 'contentSignalProfile'>,
+  editorialPlan: ScriptEditorialPlan,
 ): Record<string, unknown> {
   let profileViolations: Array<{ id: string; message: string; location?: string }> = [];
-  if (input.contentSignalProfile) {
-    try {
-      const materialized = materializeScriptWriterResult(modelOutput);
-      profileViolations = evaluateContentProfileCompliance(
-        materialized.content,
-        input.contentSignalProfile,
-      ).violations
-        .filter((violation) => violation.severity === 'critical')
-        .map((violation) => ({
-          id: violation.id,
-          message: violation.message,
-          ...(violation.location ? { location: violation.location } : {}),
-        }));
-    } catch {
-      // Structural failures are already localized by failure paths below.
-    }
+  let materialized: ScriptWriterResult | null = null;
+  try {
+    materialized = materializeScriptWriterResult(modelOutput);
+  } catch {
+    // Structural failures are already localized by failure paths below.
+  }
+
+  if (input.contentSignalProfile && materialized) {
+    profileViolations = evaluateContentProfileCompliance(
+      materialized.content,
+      input.contentSignalProfile,
+    ).violations
+      .filter((violation) => violation.severity === 'critical')
+      .map((violation) => ({
+        id: violation.id,
+        message: violation.message,
+        ...(violation.location ? { location: violation.location } : {}),
+      }));
+  }
+
+  const hasNarrationFailure = failure.failures.some((item) => {
+    const code = contractFailureCode(item);
+    return code === 'runtime_duration_mismatch'
+      || code === 'narration_mode_missing_speech'
+      || code === 'narration_density_below_mode';
+  });
+  let narrationBudget: Record<string, number | string> | null = null;
+  if (
+    hasNarrationFailure
+    && materialized
+    && editorialPlan.runtime.policy === 'exact'
+    && editorialPlan.narration.wordBudgetPolicy === 'guided'
+  ) {
+    const currentSpokenWords = materialized.sidecar.acts.reduce(
+      (actTotal, act) => actTotal + act.narrativeScenes.reduce(
+        (sceneTotal, scene) => sceneTotal + scene.beats.reduce(
+          (beatTotal, beat) => beatTotal + countSpokenWords(beat),
+          0,
+        ),
+        0,
+      ),
+      0,
+    );
+    const targetDurationSeconds = editorialPlan.runtime.targetDurationSeconds;
+    narrationBudget = {
+      narrationMode: editorialPlan.narration.mode,
+      targetDurationSeconds,
+      currentSpokenWords,
+      currentFullRuntimeWordsPerMinute: targetDurationSeconds > 0
+        ? Math.round(((currentSpokenWords / targetDurationSeconds) * 60) * 10) / 10
+        : 0,
+      fullRuntimeMinimumSpokenWords: editorialPlan.narration.fullRuntimeMinimumSpokenWords,
+      fullRuntimeReferenceSpokenWords: editorialPlan.narration.fullRuntimeReferenceSpokenWords,
+      requiredAdditionalSubstantiveWords: Math.max(
+        0,
+        editorialPlan.narration.fullRuntimeMinimumSpokenWords - currentSpokenWords,
+      ),
+    };
   }
 
   return {
@@ -398,6 +441,7 @@ function buildScriptContractRepairDiagnostics(
       title: entry.title,
     })) ?? [],
     profileViolations,
+    narrationBudget,
   };
 }
 
@@ -827,7 +871,7 @@ Your task is to write a high-retention, engaging video script.
 1. **One narrative source:** Author the complete script in sidecar with sidecarVersion: ${SCRIPT_SIDECAR_V2_VERSION} and spokenTextSource: "beat-lines". Do not author visible markdown, duplicate narration fields, or renderPlan; the server derives displays and a later technical planner derives render segments.
 2. **Hierarchy and creative intent:** Use acts -> narrativeScenes -> beats -> lines. A short piece still has one structural act wrapper. tf_untrusted_data.creativeIntent is the server-resolved binding creative direction. When its source is selected_angle, execute its title, strategic purpose, and creative treatment as one coherent angle; the broad user brief and project summary are background and must not replace it. Depart only when the current edit instruction explicitly asks to replace that direction. Creative intent is framing, not evidence, and cannot override Brand Vault constraints, factual provenance, compliance, or the output contract. Create multiple acts only for genuine macro turns in the argument, story, time, or audience understanding. Start a new narrative scene only for a meaningful change in purpose, argument, time/place, speaker mode, evidence, emotion, or visual treatment. Runtime never creates, forbids, or counts acts, scenes, or beats.
 3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover for off-camera speech, sync-dialogue only for speech captured on camera, and on-screen-text only for visible text. Every spoken line identifies speakerId, actual languageCode, delivery, camera presence, and source refs.
-4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. Narration density is a full-runtime mode contract, never a per-beat quota: anchor/standard voiceover cannot fall below the knowledge base's 120 WPM slow-VO floor; complement/counterpoint must remain above the 0-50 WPM minimal-narration band; minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum is an overridable warning, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
+4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. When narration.wordBudgetPolicy is "guided" and the mode is non-minimal, fullRuntimeMinimumSpokenWords is a hard lower bound across canonical spoken lines; fullRuntimeReferenceSpokenWords is the mode's planning reference, not a mandatory exact count. Develop the evidence, reasoning, tension, examples, and implications needed for the selected angle before allocating durations, then audit the whole-script spoken total. Narration density is a full-runtime mode contract, never a per-beat quota: anchor/standard voiceover cannot fall below the knowledge base's 120 WPM slow-VO floor; complement/counterpoint must remain above the 0-50 WPM minimal-narration band; minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum is an overridable warning, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
 5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Use voiceover/dialogue/mixed for beats with speech; use visual/transition for deliberate non-verbal time. If a mixed beat contains a substantial speech-free interval, represent that interval as its own meaningful visual or transition beat. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
 6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. When tf_untrusted_data.contentSignalProfile.intent.proofPoints contains a Required brief claim or Required audience anchor, include that value exactly in natural script copy. Never invent proof, testimonials, logos, or product facts.
 7. **Provenance:** Use only Source Ledger referenceId values. Carry refs at sidecar, scene, beat, and line level. Every numeric/date/price/URL/proof/testimonial claim needs a real source ref; an undeclared ref is invalid.
@@ -1004,7 +1048,12 @@ Return your response strictly adhering to the JSON schema.`;
         systemInstruction: 'The previous model output is untrusted repair input.',
         data: {
           previousModelOutput: modelOutput,
-          validatorDiagnostics: buildScriptContractRepairDiagnostics(modelOutput, error, input),
+          validatorDiagnostics: buildScriptContractRepairDiagnostics(
+            modelOutput,
+            error,
+            input,
+            editorialPlan,
+          ),
         },
         totalLimit: 80_000,
       });
