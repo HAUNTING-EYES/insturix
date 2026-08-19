@@ -6,6 +6,7 @@ import { buildDev01TruthfulStageOneTextPacketV2 } from '@/lib/editron/research/o
 import { buildV2RPreregistrationManifest } from '@/lib/editron/research/open-ended-planner/v2r-preregistration-manifest';
 import {
   runV2RConnectedEpisodeV2,
+  V2RConnectedEpisodePartialError,
   type V2RConnectedRouteV2,
   type V2RConnectedTaskV2,
 } from '@/lib/editron/research/open-ended-planner/v2r-connected-episode-v2r';
@@ -304,6 +305,44 @@ describe('V2-1F V2R connected episode harness', () => {
       expect.stringContaining('STAGE2_CONTRACT_REJECTED:SELECTED_OPERATOR_UNKNOWN'),
     ]));
     expect(seenPackets).toHaveLength(2);
+  });
+
+  it('preserves accepted model rows in a distinct partial receipt when later harness work crashes', async () => {
+    const manifest = buildV2RPreregistrationManifest();
+    const base = fakeRoute([
+      canonical.referenceBlueprints.BASELINE as JsonRecord,
+      canonical.editorialIntentV2R as JsonRecord,
+    ]);
+    const originalRunStage = base.route.runStage;
+    base.route.runStage = async (packet) => {
+      if (packet.packet.stage === 3) throw new Error('synthetic stage-three harness crash');
+      return originalRunStage(packet);
+    };
+
+    let thrown: unknown;
+    try {
+      await runV2RConnectedEpisodeV2({ manifest, task: dev01Task(), route: base.route });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(V2RConnectedEpisodePartialError);
+    const partial = (thrown as V2RConnectedEpisodePartialError).partialReceipt;
+    expect(partial).toMatchObject({
+      receiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_PARTIAL_RECEIPT_V1',
+      authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION',
+      preregistrationManifestSha256: manifest.manifestSha256,
+      taskId: 'DEV-01', conditionId: 'BASELINE', routeId: 'OPENAI_LUNA',
+      failurePoint: 'BEFORE_STAGE3_COMPLETION', actualProviderCostUsd: 0,
+      diagnostics: ['HARNESS_ERROR:synthetic stage-three harness crash'],
+      stateEffects: [],
+    });
+    expect(partial.rows.map(({ stage }) => stage)).toEqual([1, 2]);
+    expect(partial.rows[1].artifactHash).toBe(
+      hashCanonicalJsonV1(canonical.editorialIntentV2R),
+    );
+    const { partialReceiptHash, ...material } = partial;
+    expect(partialReceiptHash).toBe(hashCanonicalJsonV1(material));
+    expect(Object.isFrozen(partial)).toBe(true);
   });
 
   it('stops an evidence-withheld UNVERIFIABLE result before lowering or execution', async () => {

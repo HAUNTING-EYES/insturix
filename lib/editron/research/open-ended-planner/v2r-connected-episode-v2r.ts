@@ -26,6 +26,9 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 
+export const V2R_CONNECTED_EPISODE_PARTIAL_RECEIPT_VERSION =
+  'EDITRON_OE_V2R_CONNECTED_EPISODE_PARTIAL_RECEIPT_V1' as const;
+
 // V2-1F connected episode runner.
 //
 // Runs one model route through the connected Stage 1 -> 2 -> 3 chain under the
@@ -96,6 +99,33 @@ export interface V2RConnectedEpisodeReceiptV2 {
   receiptHash: string;
 }
 
+export interface V2RConnectedEpisodePartialReceiptV2R {
+  receiptVersion: typeof V2R_CONNECTED_EPISODE_PARTIAL_RECEIPT_VERSION;
+  authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
+  preregistrationManifestSha256: string;
+  taskId: string;
+  conditionId: string;
+  routeId: string;
+  claimedModelIdentity: string;
+  costBasis: 'USD_METERED' | 'TOKEN_PLAN_CREDITS_UNPRICED';
+  rows: readonly Readonly<V2RConnectedStageRowV2>[];
+  failurePoint: 'BEFORE_STAGE2_COMPLETION' | 'BEFORE_STAGE3_COMPLETION';
+  diagnostics: readonly string[];
+  actualProviderCostUsd: number;
+  stateEffects: readonly [];
+  partialReceiptHash: string;
+}
+
+export class V2RConnectedEpisodePartialError extends Error {
+  readonly partialReceipt: Readonly<V2RConnectedEpisodePartialReceiptV2R>;
+
+  constructor(partialReceipt: Readonly<V2RConnectedEpisodePartialReceiptV2R>) {
+    super(`V2R_CONNECTED_PARTIAL_RECEIPT_AVAILABLE:${partialReceipt.failurePoint}`);
+    this.name = 'V2RConnectedEpisodePartialError';
+    this.partialReceipt = partialReceipt;
+  }
+}
+
 export async function runV2RConnectedEpisodeV2(input: {
   manifest: unknown;
   task: V2RConnectedTaskV2;
@@ -115,17 +145,23 @@ export async function runV2RConnectedEpisodeV2(input: {
   rows.push(stageOne);
   if (!accepted(stageOne)) return receipt(input, manifest, rows, 'BLOCKED_BEFORE_STAGE2', notLowered());
 
-  const stageTwoPacket = bindV2RResearchExecutionContractToPacket({ source: buildPlannerOwnershipStageTwoPacketV2R({
-    previousPacket: stageOnePacket,
-    executionFormArm: input.task.executionFormArm,
-    priorArtifact: requireArtifact(stageOne),
-    loweringPolicy: input.task.loweringPolicy,
-  }) });
-  const stageTwo = await runStage({
-    route: input.route,
-    packet: stageTwoPacket,
-    priorArtifactHash: stageOne.artifactHash,
-  });
+  let stageTwoPacket: HashedStagePacketV2;
+  let stageTwo: V2RConnectedStageRowV2;
+  try {
+    stageTwoPacket = bindV2RResearchExecutionContractToPacket({ source: buildPlannerOwnershipStageTwoPacketV2R({
+      previousPacket: stageOnePacket,
+      executionFormArm: input.task.executionFormArm,
+      priorArtifact: requireArtifact(stageOne),
+      loweringPolicy: input.task.loweringPolicy,
+    }) });
+    stageTwo = await runStage({
+      route: input.route,
+      packet: stageTwoPacket,
+      priorArtifactHash: stageOne.artifactHash,
+    });
+  } catch (error) {
+    throw partialError(input, manifest, rows, 'BEFORE_STAGE2_COMPLETION', error);
+  }
   rows.push(stageTwo);
   if (!accepted(stageTwo)) return receipt(input, manifest, rows, 'BLOCKED_BEFORE_STAGE3', notLowered());
 
@@ -144,19 +180,24 @@ export async function runV2RConnectedEpisodeV2(input: {
     );
   }
 
-  const stageThreePacket = bindV2RResearchExecutionContractToPacket({ source: bindV2RProviderStageBudgetV2(bindV2ROperatorCatalogToPacketV2R(buildNextProviderStagePacketV2({
-    previousPacket: stageTwoPacket,
-    stage: 3,
-    executionFormArm: input.task.executionFormArm,
-    priorArtifact: stageTwoArtifact,
-    stageThreeSource: { evidencePack: input.task.evidencePack },
-    nodeContractVersion: 'V2R',
-  }))) });
-  const stageThree = await runStage({
-    route: input.route,
-    packet: stageThreePacket,
-    priorArtifactHash: stageTwo.artifactHash,
-  });
+  let stageThree: V2RConnectedStageRowV2;
+  try {
+    const stageThreePacket = bindV2RResearchExecutionContractToPacket({ source: bindV2RProviderStageBudgetV2(bindV2ROperatorCatalogToPacketV2R(buildNextProviderStagePacketV2({
+      previousPacket: stageTwoPacket,
+      stage: 3,
+      executionFormArm: input.task.executionFormArm,
+      priorArtifact: stageTwoArtifact,
+      stageThreeSource: { evidencePack: input.task.evidencePack },
+      nodeContractVersion: 'V2R',
+    }))) });
+    stageThree = await runStage({
+      route: input.route,
+      packet: stageThreePacket,
+      priorArtifactHash: stageTwo.artifactHash,
+    });
+  } catch (error) {
+    throw partialError(input, manifest, rows, 'BEFORE_STAGE3_COMPLETION', error);
+  }
   rows.push(stageThree);
   if (!accepted(stageThree)) return receipt(input, manifest, rows, 'BLOCKED_BEFORE_LOWERING', notLowered());
 
@@ -262,10 +303,7 @@ function receipt(
   finalDisposition: V2RConnectedEpisodeReceiptV2['finalDisposition'],
   lowering: V2RConnectedEpisodeReceiptV2['lowering'],
 ): Readonly<V2RConnectedEpisodeReceiptV2> {
-  const actualProviderCostUsd = Number(rows
-    .reduce((total, row) => total + row.providerRun.attempts
-      .reduce((sum, attempt) => sum + (attempt.providerCostUsd ?? 0), 0), 0)
-    .toFixed(12));
+  const actualProviderCostUsd = providerCost(rows);
   const material = {
     receiptVersion: V2R_CONNECTED_EPISODE_RECEIPT_VERSION,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
@@ -282,6 +320,41 @@ function receipt(
     stateEffects: [] as const,
   };
   return deepFreezeV1({ ...material, receiptHash: hashCanonicalJsonV1(material) });
+}
+
+function partialError(
+  input: { task: V2RConnectedTaskV2; route: V2RConnectedRouteV2 },
+  manifest: Readonly<V2RPreregistrationManifest>,
+  rows: readonly V2RConnectedStageRowV2[],
+  failurePoint: V2RConnectedEpisodePartialReceiptV2R['failurePoint'],
+  error: unknown,
+): V2RConnectedEpisodePartialError {
+  if (!rows.length) throw error;
+  const material = {
+    receiptVersion: V2R_CONNECTED_EPISODE_PARTIAL_RECEIPT_VERSION,
+    authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
+    preregistrationManifestSha256: manifest.manifestSha256,
+    taskId: input.task.taskId,
+    conditionId: input.task.conditionId,
+    routeId: input.route.routeId,
+    claimedModelIdentity: input.route.claimedModelIdentity,
+    costBasis: input.route.costBasis,
+    rows,
+    failurePoint,
+    diagnostics: [`HARNESS_ERROR:${safeError(error)}`],
+    actualProviderCostUsd: providerCost(rows),
+    stateEffects: [] as const,
+  };
+  return new V2RConnectedEpisodePartialError(deepFreezeV1({
+    ...material,
+    partialReceiptHash: hashCanonicalJsonV1(material),
+  }));
+}
+
+function providerCost(rows: readonly V2RConnectedStageRowV2[]): number {
+  return Number(rows.reduce((total, row) => total + row.providerRun.attempts
+    .reduce((sum, attempt) => sum + (attempt.providerCostUsd ?? 0), 0), 0)
+    .toFixed(12));
 }
 
 function notLowered(diagnostics: readonly string[] = []): V2RConnectedEpisodeReceiptV2['lowering'] {
@@ -359,6 +432,12 @@ function validateRoute(
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
+}
+
+function safeError(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error))
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 500);
 }
 
 function catalogOperatorIds(): ReadonlySet<string> {
