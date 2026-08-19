@@ -7,7 +7,7 @@ import {
 } from "@/lib/thinkforge/services/trend-context";
 
 describe("ThinkForge public trend context", () => {
-  it("does not call a trend provider for ordinary draft prompts", async () => {
+  it("does not call a trend provider for ordinary document-freshness language", async () => {
     const getTrends = vi.fn<[TrendQuery], Promise<Trend[]>>();
     const provider: TrendsProvider = {
       name: "fake-trends",
@@ -17,7 +17,7 @@ describe("ThinkForge public trend context", () => {
 
     const result = await resolveThinkForgeTrendContext(
       {
-        userPrompt: "Write a founder-led LinkedIn post about our onboarding workflow.",
+        userPrompt: "Keep the current artifact and latest approved revision visible in today's launch script.",
         project: { platform: "linkedin", idea: "Onboarding workflow" },
       },
       { provider },
@@ -81,7 +81,12 @@ describe("ThinkForge public trend context", () => {
 
   it("formats trends as optional source-bounded context", () => {
     expect(shouldResolveThinkForgeTrendContext("Any trending memes for this niche?")).toBe(true);
+    expect(shouldResolveThinkForgeTrendContext("React to the latest AI policy news.")).toBe(true);
+    expect(shouldResolveThinkForgeTrendContext("Use current events in our category.")).toBe(true);
+    expect(shouldResolveThinkForgeTrendContext("What is happening in B2B SaaS this week?")).toBe(true);
     expect(shouldResolveThinkForgeTrendContext("Create a product launch caption")).toBe(false);
+    expect(shouldResolveThinkForgeTrendContext("Keep the current artifact and latest revision.")).toBe(false);
+    expect(shouldResolveThinkForgeTrendContext("Write a timely announcement for today's launch.")).toBe(false);
 
     const block = formatThinkForgeTrendContextBlock(
       [

@@ -1,8 +1,14 @@
 import { getTrendsProvider, type Trend, type TrendsProvider } from "@/lib/calos/trends";
 import type { ProjectMeta } from "../state/types";
 
-const TREND_INTENT_PATTERN =
-  /\b(trends?|trending|viral|meme|news|latest|recent|current|timely|breaking|happening|this\s+week|today)\b/i;
+const TREND_INTENT_PATTERNS = [
+  /\b(?:trends?|trending|viral|memes?)\b/i,
+  /\b(?:latest|recent|current|timely|breaking)\s+(?:news|events?|developments?|stories?|topics?|conversations?)\b/i,
+  /\b(?:today(?:'s)?|this\s+week(?:'s)?)\s+(?:news|events?|developments?|stories?|topics?|conversations?)\b/i,
+  /\b(?:news|events?|developments?|stories?|topics?|conversations?)\s+(?:today|this\s+week|right\s+now|currently)\b/i,
+  /\b(?:what(?:'s|\s+is)|anything|something)\b.{0,80}\b(?:happening|breaking|in\s+the\s+news)\b/i,
+  /\b(?:react|respond|adapt|tie|connect|repurpose|cover|use)\b.{0,100}\b(?:news|events?|developments?|stories?|topics?)\b/i,
+] as const;
 
 const KNOWN_PLATFORMS = [
   "linkedin",
@@ -36,7 +42,7 @@ export interface ThinkForgeTrendContextResult {
 }
 
 export function shouldResolveThinkForgeTrendContext(prompt: string): boolean {
-  return TREND_INTENT_PATTERN.test(prompt);
+  return TREND_INTENT_PATTERNS.some((pattern) => pattern.test(prompt));
 }
 
 function isAbortFailure(error: unknown, abortSignal?: AbortSignal): boolean {
