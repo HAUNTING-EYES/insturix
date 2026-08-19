@@ -896,6 +896,84 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
     await page.getByText(sessionName, { exact: true }).click();
     await expect(page.getByText(scenario.expectedVisibleContent, { exact: false }).first()).toBeVisible();
 
+    if (fixture === 'post') {
+      const cancelledPrompt = 'Edit this post, but stop this draft now.';
+      const chatRoute = '**/api/services/thinkforge/chat';
+      const stopRoute = '**/api/services/thinkforge/generation/stop';
+      let releaseHeldChat!: () => void;
+      const heldChatGate = new Promise<void>((resolve) => {
+        releaseHeldChat = resolve;
+      });
+      let resolveHeldChatPayload!: (payload: Record<string, unknown>) => void;
+      const heldChatPayload = new Promise<Record<string, unknown>>((resolve) => {
+        resolveHeldChatPayload = resolve;
+      });
+      let resolveStopPayload!: (payload: Record<string, unknown>) => void;
+      const receivedStopPayload = new Promise<Record<string, unknown>>((resolve) => {
+        resolveStopPayload = resolve;
+      });
+
+      await page.route(chatRoute, async (route) => {
+        if (route.request().method() !== 'POST') {
+          await route.continue();
+          return;
+        }
+        const payload = route.request().postDataJSON() as Record<string, unknown>;
+        if (payload.prompt !== cancelledPrompt) {
+          await route.continue();
+          return;
+        }
+        resolveHeldChatPayload(payload);
+        await heldChatGate;
+        await route.continue().catch(() => undefined);
+      });
+      await page.route(stopRoute, async (route) => {
+        resolveStopPayload(route.request().postDataJSON() as Record<string, unknown>);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true }),
+        });
+      });
+
+      try {
+        const failedChatRequest = page.waitForEvent('requestfailed', (request) => (
+          request.method() === 'POST'
+          && new URL(request.url()).pathname === '/api/services/thinkforge/chat'
+        ));
+        const cancellationInput = page.getByPlaceholder('Ask the AI to write, edit, or improve your script...');
+        await cancellationInput.fill(cancelledPrompt);
+        await cancellationInput.press('Enter');
+
+        const generationPayload = await heldChatPayload;
+        const stopButton = page.getByRole('button', { name: 'Stop generation' });
+        await expect(stopButton).toBeVisible();
+        await stopButton.click();
+
+        const [stopPayload, failedRequest] = await Promise.all([
+          receivedStopPayload,
+          failedChatRequest,
+        ]);
+        expect(stopPayload).toEqual({
+          sessionId,
+          generationId: generationPayload.generationId,
+        });
+        expect(generationPayload.generationId).toEqual(expect.any(String));
+        expect(failedRequest.failure()?.errorText).toMatch(/abort/i);
+        await expect(stopButton).not.toBeVisible();
+      } finally {
+        releaseHeldChat();
+        await Promise.all([
+          page.unroute(chatRoute),
+          page.unroute(stopRoute),
+        ]);
+      }
+
+      const afterCancellation = await readCurrentScript(page, sessionId!, scriptId);
+      expect(afterCancellation.script?.version).toBe(initialVersion);
+      expect(afterCancellation.script?.content).toBe(persisted.script?.content);
+    }
+
     const editInput = page.getByPlaceholder('Ask the AI to write, edit, or improve your script...');
     const editResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());

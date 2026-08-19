@@ -1,7 +1,6 @@
 "use client";
 import React, { useRef, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Send, Loader2, Square, Sparkles, TrendingUp, X } from "lucide-react";
+import { Send, Square, Sparkles, TrendingUp, X } from "lucide-react";
 import { ChatSuggestions } from "./ChatSuggestions";
 import { motion, AnimatePresence } from "framer-motion";
 import clsx from "clsx";
@@ -141,6 +140,8 @@ export function ChatInput({
                   type="button"
                   onClick={onStop}
                   disabled={disabled}
+                  aria-label="Stop generation"
+                  title="Stop generation"
                   className="h-10 w-10 shrink-0 flex items-center justify-center rounded-full bg-[#D4A652]/10 text-[#D4A652] hover:bg-[#D4A652]/20 transition-colors mb-0.5"
                 >
                   <Square className="h-4 w-4 fill-current" />
