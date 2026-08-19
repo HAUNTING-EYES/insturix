@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createCurrentWriterOutputBinding } from '@/lib/thinkforge/persistence/writer-output-binding';
 import { createCurrentScriptSidecarBinding } from '@/lib/thinkforge/persistence/script-sidecar-binding';
 import { resolveSceneShotPlan } from '@/lib/thinkforge/production/resolve-scene-shot-plan';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 import {
   createApprovedShootKitSnapshot,
   verifyApprovedShootKitSnapshot,
@@ -80,6 +81,7 @@ function storedDocument(sessionId: string, scriptId: string) {
       kind: 'paragraph',
       content: [{ type: 'text', text: 'One useful, exact document.', styles: {} }],
     }],
+    contentContract: createThinkForgeWriterContract('social_post'),
     metadata: {},
     version: 1,
   };
@@ -245,6 +247,56 @@ describe('ThinkForge Clickatron document identity', () => {
     expect(mocks.createProjectLink).not.toHaveBeenCalled();
   });
 
+  it('rejects a video script before writer-output or project-link work', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_1' },
+    });
+    mocks.getScript.mockResolvedValue({
+      ...storedDocument('session_canonical', 'script_1'),
+      contentContract: createThinkForgeWriterContract('video_script'),
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/clickatron-context/route');
+
+    const response = await POST(postRequest(
+      'http://localhost/api/services/thinkforge/clickatron-context',
+      { sessionId: 'session_alias', scriptId: 'script_1', kind: 'single_post_visual' },
+    ));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'Video scripts can be exported to Editron, not Clickatron.',
+      code: 'export-destination-incompatible',
+    });
+    expect(mocks.findLinkBySessionId).not.toHaveBeenCalled();
+    expect(mocks.createProjectLink).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the saved document contract is missing', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_1' },
+    });
+    const document = storedDocument('session_canonical', 'legacy_1');
+    delete (document as { contentContract?: unknown }).contentContract;
+    mocks.getScript.mockResolvedValue(document);
+    const { POST } = await import('@/app/api/services/thinkforge/clickatron-context/route');
+
+    const response = await POST(postRequest(
+      'http://localhost/api/services/thinkforge/clickatron-context',
+      { sessionId: 'session_alias', scriptId: 'legacy_1' },
+    ));
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: 'export-document-contract-invalid' });
+    expect(mocks.findLinkBySessionId).not.toHaveBeenCalled();
+    expect(mocks.createProjectLink).not.toHaveBeenCalled();
+  });
+
   it('uses org authorization and canonical session identity throughout the handoff', async () => {
     mocks.getSession.mockResolvedValue({
       _id: 'session_canonical',
@@ -298,7 +350,7 @@ describe('ThinkForge Clickatron document identity', () => {
     expect(payload.operation).toBe('preview');
     expect(payload.context.universalId).toBeUndefined();
     expect(payload.handoffState).toMatchObject({
-      status: 'missing_sidecar',
+      status: 'needs_user_input',
       canSendToClickatron: false,
       isBlocked: true,
     });
@@ -356,7 +408,7 @@ describe('ThinkForge Clickatron document identity', () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.handoffState).toMatchObject({ status: 'missing_sidecar', canSendToClickatron: false });
+    expect(payload.handoffState).toMatchObject({ status: 'needs_user_input', canSendToClickatron: false });
     expect(payload.context.universalId).toBeUndefined();
     expect(mocks.createProjectLink).not.toHaveBeenCalled();
   });

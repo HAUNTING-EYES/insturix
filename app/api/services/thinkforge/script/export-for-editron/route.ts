@@ -30,6 +30,7 @@ import {
   type ThinkForgeEditronHandoffContext,
   type ScriptSidecarEditronExport,
 } from '@/lib/thinkforge/export/script-sidecar-to-editron';
+import { resolveThinkForgeExportDestination } from '@/lib/thinkforge/export/export-destination-policy';
 import { ThinkForgeAuthoringProvenanceError } from '@/lib/thinkforge/context/brand-authoring-context';
 import {
   requireCurrentPersistedScriptSidecar,
@@ -297,6 +298,13 @@ export async function POST(request: NextRequest) {
     const storedScript = await db.getScript(canonicalSessionId, scriptId);
     if (!storedScript) {
       return NextResponse.json({ success: false, error: 'ThinkForge document not found' }, { status: 404 });
+    }
+    const exportDecision = resolveThinkForgeExportDestination(storedScript.contentContract, 'editron');
+    if (!exportDecision.allowed) {
+      return NextResponse.json(
+        { success: false, error: exportDecision.message, reason: exportDecision.code, retryable: false },
+        { status: exportDecision.status },
+      );
     }
 
     const {

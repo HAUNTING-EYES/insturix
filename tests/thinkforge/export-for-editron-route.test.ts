@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { serializeThinkForgeBlocksToMarkdown } from '@/lib/thinkforge/canonical-document-state';
 import { createCurrentScriptSidecarBinding } from '@/lib/thinkforge/persistence/script-sidecar-binding';
 import { adaptScriptSidecarV1 } from '@/lib/thinkforge/schemas/script-sidecar-v1-adapter';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 import type { ThinkForgeBlock } from '@/lib/thinkforge/schemas/thinkforge-block';
 
 const mocks = vi.hoisted(() => ({
@@ -77,6 +78,8 @@ function scriptSidecar() {
   };
 }
 
+const VIDEO_SCRIPT_CONTRACT = createThinkForgeWriterContract('video_script');
+
 function boundWriterOutput(
   documentContent: string,
   value: Record<string, unknown>,
@@ -116,6 +119,7 @@ describe('export-for-editron route', () => {
       title: 'Stored script',
       content: '',
       blocks: [],
+      contentContract: VIDEO_SCRIPT_CONTRACT,
       metadata: {},
     }));
     mocks.isLLMParserAvailable.mockReturnValue(true);
@@ -169,6 +173,7 @@ describe('export-for-editron route', () => {
       title: 'Stored script',
       content: '',
       blocks: [],
+      contentContract: VIDEO_SCRIPT_CONTRACT,
       metadata: {},
     });
     const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
@@ -202,6 +207,65 @@ describe('export-for-editron route', () => {
 
     expect(response.status).toBe(404);
     expect(payload.error).toBe('ThinkForge document not found');
+    expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
+  });
+
+  it('rejects posts before request parsing or scene generation', async () => {
+    mocks.getScript.mockResolvedValueOnce({
+      _id: 'stored_post_1',
+      sessionId: 'tf_session_1',
+      scriptId: 'post_1',
+      title: 'Stored post',
+      content: 'A social post.',
+      blocks: [],
+      contentContract: createThinkForgeWriterContract('social_post'),
+      metadata: {},
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_1',
+      scriptId: 'post_1',
+      plainText: 'Scene 1: client text must not change the saved document kind.',
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload).toMatchObject({
+      success: false,
+      reason: 'export-destination-incompatible',
+      retryable: false,
+    });
+    expect(mocks.isLLMParserAvailable).not.toHaveBeenCalled();
+    expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the saved document contract is missing', async () => {
+    mocks.getScript.mockResolvedValueOnce({
+      _id: 'stored_legacy_1',
+      sessionId: 'tf_session_1',
+      scriptId: 'legacy_1',
+      title: 'Legacy document',
+      content: 'Unclassified content.',
+      blocks: [],
+      metadata: {},
+    });
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+
+    const response = await POST(request({
+      sessionId: 'tf_session_1',
+      scriptId: 'legacy_1',
+      plainText: 'Client text cannot supply the missing contract.',
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(payload).toMatchObject({
+      success: false,
+      reason: 'export-document-contract-invalid',
+      retryable: false,
+    });
+    expect(mocks.isLLMParserAvailable).not.toHaveBeenCalled();
     expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
   });
 
@@ -283,6 +347,7 @@ describe('export-for-editron route', () => {
       title: 'Same-pass Scene',
       content: savedContent,
       blocks: savedBlocks,
+      contentContract: VIDEO_SCRIPT_CONTRACT,
       version: 1,
       metadata: {
         briefSnapshot: {
@@ -422,6 +487,7 @@ describe('export-for-editron route', () => {
       title: 'Bound brand script',
       content: '',
       blocks: savedBlocks,
+      contentContract: VIDEO_SCRIPT_CONTRACT,
       metadata: {
         authoringContextSnapshot: {
           version: 1,
@@ -456,6 +522,7 @@ describe('export-for-editron route', () => {
       title: 'Saved script',
       content: savedContent,
       blocks: [],
+      contentContract: VIDEO_SCRIPT_CONTRACT,
       version: 1,
       metadata: { writerOutput: boundWriterOutput(savedContent, persistedSidecar, 1) },
     });
@@ -490,6 +557,7 @@ describe('export-for-editron route', () => {
         block('blk_scene_2_narration', 'paragraph', 'Insturix turns scattered approvals into one connected production pipeline.'),
         block('blk_scene_2_visual', 'action', 'The product dashboard brings briefs, assets, reviews, and delivery status into a single workspace.'),
       ],
+      contentContract: VIDEO_SCRIPT_CONTRACT,
       metadata: {},
       version: 2,
       createdAt: new Date('2026-07-04T00:00:00.000Z'),
@@ -602,6 +670,7 @@ describe('export-for-editron route', () => {
       title: 'Invalid V2 contract',
       content: savedContent,
       blocks: savedBlocks,
+      contentContract: VIDEO_SCRIPT_CONTRACT,
       version: 1,
       metadata: {
         writerOutput: boundWriterOutput(savedContent, invalidSidecar, 1),
@@ -647,6 +716,7 @@ describe('export-for-editron route', () => {
       title: 'Unresolved production duration',
       content: savedContent,
       blocks: savedBlocks,
+      contentContract: VIDEO_SCRIPT_CONTRACT,
       version: 1,
       metadata: { writerOutput: boundWriterOutput(savedContent, v2, 1) },
     });
@@ -687,6 +757,7 @@ describe('export-for-editron route', () => {
       title: 'Same-pass Scene',
       content: savedContent,
       blocks: savedBlocks,
+      contentContract: VIDEO_SCRIPT_CONTRACT,
       version: 1,
       metadata: { writerOutput: boundWriterOutput(savedContent, v2, 1) },
     });

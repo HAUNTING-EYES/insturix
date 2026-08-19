@@ -23,6 +23,7 @@ import {
   CLICKATRON_TEXT_DENSITIES,
   CLICKATRON_VISUAL_MODES,
 } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
+import { resolveThinkForgeExportDestination } from "@/lib/thinkforge/export/export-destination-policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -106,6 +107,13 @@ export async function POST(request: Request) {
     if (!script) {
       return NextResponse.json({ error: "ThinkForge document not found" }, { status: 404 });
     }
+    const exportDecision = resolveThinkForgeExportDestination(script.contentContract, "clickatron");
+    if (!exportDecision.allowed) {
+      return NextResponse.json(
+        { error: exportDecision.message, code: exportDecision.code },
+        { status: exportDecision.status },
+      );
+    }
     let writerOutput: Record<string, unknown> | undefined;
     try {
       writerOutput = requireCurrentPersistedWriterOutput({
@@ -137,7 +145,7 @@ export async function POST(request: Request) {
         scriptId,
         projectId: requestedProjectId,
         projectMeta,
-        contentContract: script.contentContract,
+        contentContract: exportDecision.contentContract,
         projectLink: resolvedProjectLink,
         creativeSpec: findClickatronCreativeSpecInBlocks(script?.blocks),
         blocks: script?.blocks,
