@@ -1,8 +1,4 @@
-import {
-  resolveTranscriptEditRange,
-  type TranscriptEditAction,
-  type TranscriptSearchWord,
-} from '@/lib/editron/agent/chat-transcript-tools';
+import { resolveTranscriptEditRange, type TranscriptEditAction } from '@/lib/editron/agent/chat-transcript-tools';
 import { applyAudioDuckingToProject } from '@/lib/editron/agent/chat-audio-tools';
 import {
   findVisualMomentCandidates,
@@ -19,23 +15,14 @@ import {
 
 import type { Dev01NativeProxyFixtureV2 } from './dev01-native-proxy-fixture-v2';
 import type { Dev01Stage6ProjectSnapshotV2 } from './dev01-stage6-native-proxy-contract-v2';
-import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
+import {
+  assertDev01Stage6CausalEvidenceBindingV2R,
+  dev01Stage6CausalEvidenceV2R,
+  withDev01Stage6CausalVisualEvidenceV2R,
+} from './dev01-stage6-causal-evidence-v2r';
 
 type JsonRecord = Record<string, unknown>;
 type MutationStageV2R = 'CUT' | 'PUSH' | 'DUCK';
-
-const CAUSAL_EVIDENCE_V2R = deepFreezeV1({
-  version: 'EDITRON_OE_DEV01_CAUSAL_EXECUTION_EVIDENCE_V2R_1',
-  sourceFixtureSha256: '90635497775dcd0fa8dba3dd603934c42202c46cc1da82ba8563d27161d8dd92',
-  transcriptWords: [
-    transcriptWord('here', 120, 130), transcriptWord('it', 130, 140),
-    transcriptWord('is', 140, 151), transcriptWord('next', 196, 210),
-  ],
-  visual: {
-    label: 'product box reveal', startFrame: 205, endFrame: 221,
-    boundingBox: { x: 0.62, y: 0.24, width: 0.25, height: 0.52 },
-  },
-});
 
 export interface Dev01Stage6OperatorResultV2R {
   outputs: JsonRecord;
@@ -70,8 +57,8 @@ function resolveTranscript(
   const query = requiredString(inputs.query, 'TRANSCRIPT_QUERY');
   const intent = requiredRecord(inputs.intent, 'TRANSCRIPT_INTENT');
   const action = requiredString(intent.action, 'TRANSCRIPT_ACTION') as TranscriptEditAction;
-  assertCausalEvidenceBinding(fixture);
-  const resolution = resolveTranscriptEditRange([...CAUSAL_EVIDENCE_V2R.transcriptWords], query, { action });
+  const evidence = dev01Stage6CausalEvidenceV2R(fixture);
+  const resolution = resolveTranscriptEditRange([...evidence.transcriptWords], query, { action });
   if (resolution.status !== 'ready' || !resolution.cutSection) {
     throw new Error(`DEV01_STAGE6_TRANSCRIPT_UNRESOLVED:${resolution.status}`);
   }
@@ -127,6 +114,7 @@ function findVisual(input: {
   inputs: Readonly<JsonRecord>;
   originalProject: Dev01Stage6ProjectSnapshotV2;
   currentProject: Dev01Stage6ProjectSnapshotV2;
+  fixture: Readonly<Dev01NativeProxyFixtureV2>;
 }): Dev01Stage6OperatorResultV2R {
   const query = requiredString(input.inputs.query, 'VISUAL_QUERY');
   const transform = requiredRecord(
@@ -134,7 +122,10 @@ function findVisual(input: {
     'VISUAL_TIMELINE_TRANSFORM',
   ) as unknown as TimelineRangeCutCoordinateTransformV1;
   const splitChildren = records(input.inputs.splitChildren) as unknown as TimelineRangeCutSplitChildV1[];
-  const candidates = findVisualMomentCandidates(withCausalVisualEvidence(input.originalProject), query);
+  const candidates = findVisualMomentCandidates(
+    withDev01Stage6CausalVisualEvidenceV2R(input.originalProject, input.fixture),
+    query,
+  );
   const candidate = candidates[0];
   if (!candidate?.safeForAutoEdit) {
     throw new Error(`DEV01_STAGE6_VISUAL_UNRESOLVED:${candidate ? 'AMBIGUOUS' : 'NO_MATCH'}`);
@@ -246,7 +237,7 @@ function applyDucking(
 }
 
 function assertProjectBinding(inputs: Readonly<JsonRecord>, fixture: Readonly<Dev01NativeProxyFixtureV2>): void {
-  assertCausalEvidenceBinding(fixture);
+  assertDev01Stage6CausalEvidenceBindingV2R(fixture);
   if (inputs.projectId !== undefined && inputs.projectId !== fixture.project.projectId) {
     throw new Error('DEV01_STAGE6_PROJECT_ID_DRIFT');
   }
@@ -254,26 +245,6 @@ function assertProjectBinding(inputs: Readonly<JsonRecord>, fixture: Readonly<De
     && inputs.expectedProjectRevision !== fixture.project.projectRevision) {
     throw new Error('DEV01_STAGE6_PROJECT_REVISION_DRIFT');
   }
-}
-
-function assertCausalEvidenceBinding(fixture: Readonly<Dev01NativeProxyFixtureV2>): void {
-  if (hashCanonicalJsonV1(fixture) !== CAUSAL_EVIDENCE_V2R.sourceFixtureSha256) {
-    throw new Error('DEV01_STAGE6_CAUSAL_EVIDENCE_FIXTURE_DRIFT');
-  }
-}
-
-function withCausalVisualEvidence(project: Dev01Stage6ProjectSnapshotV2): Dev01Stage6ProjectSnapshotV2 {
-  const overlays = records(project.overlays).map((overlay) => overlay.id === 101 ? {
-    ...overlay,
-    metadata: { ...requiredRecord(overlay.metadata ?? {}, 'VISUAL_METADATA'), visualAnalysis: { objects: [CAUSAL_EVIDENCE_V2R.visual] } },
-  } : overlay);
-  return clone({ ...project, overlays });
-}
-
-function transcriptWord(word: string, startFrame: number, endFrame: number): TranscriptSearchWord {
-  return { word, startFrame, endFrame, startMs: startFrame / 30 * 1000, endMs: endFrame / 30 * 1000,
-    confidence: 1, source: { type: 'video-transcription', overlayId: 101,
-      assetId: 'dev01-host-truth-v2', overlayType: 'video' } };
 }
 
 function mapOverlayIdAfterCut(
