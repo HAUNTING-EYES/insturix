@@ -64,7 +64,7 @@ const CREATIVE_OPERATION_CONSTRAINTS = [
 ].join('\n- ');
 
 // Agent types that should use the strict manual constraints
-const SCRIPT_AGENT_TYPES = new Set(['script_draft', 'script_author', 'script_refinement', 'script_outline', 'script_section', 'script_contract', 'script_coherence', 'architect', 'null_agent']);
+const SCRIPT_AGENT_TYPES = new Set(['script_draft', 'script_author', 'script_refinement', 'script_outline', 'script_section', 'script_contract', 'script_chapter_plan', 'script_coherence', 'architect', 'null_agent']);
 
 // Forward declaration - actual implementation in logging.ts
 // We inline basic logging here to avoid circular dependency

@@ -119,6 +119,7 @@ export type AgentType =
   | 'script_outline'
   | 'script_section'
   | 'script_contract'
+  | 'script_chapter_plan'
   | 'script_coherence'
   | 'research'
   | 'scope_detector'
