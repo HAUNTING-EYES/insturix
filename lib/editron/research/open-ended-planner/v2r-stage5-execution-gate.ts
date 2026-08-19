@@ -77,13 +77,6 @@ export function decideV2RStage5ExecutionV2R(input: {
   }
 
   const stageDisposition = text(evidenceBoundIntent.stageDisposition);
-  if (stageDisposition === 'CAPABILITY_GAP') {
-    return result(decision(input, manifest, registry.registrySha256, {
-      disposition: 'CAPABILITY_GAP', reasonCode: 'PREREGISTERED_CAPABILITY_GAP',
-      diagnostics: ['STAGE3_CAPABILITY_GAP_EXECUTION_BLOCK'],
-    }), null, null);
-  }
-
   const semantic = evaluateV2RSemanticOperatorsV2R({
     taskId: input.task.taskId,
     conditionId: input.task.conditionId,
@@ -94,6 +87,13 @@ export function decideV2RStage5ExecutionV2R(input: {
     return result(decision(input, manifest, registry.registrySha256, {
       disposition: 'FAIL', reasonCode: 'SEMANTIC_OPERATOR_POLICY_FAILED',
       semantic, diagnostics: semantic.diagnostics,
+    }), semantic, null);
+  }
+
+  if (stageDisposition === 'CAPABILITY_GAP') {
+    return result(decision(input, manifest, registry.registrySha256, {
+      disposition: 'CAPABILITY_GAP', reasonCode: 'PREREGISTERED_CAPABILITY_GAP',
+      semantic, diagnostics: ['STAGE3_CAPABILITY_GAP_EXECUTION_BLOCK'],
     }), semantic, null);
   }
 

@@ -6,7 +6,7 @@ import {
 } from '@/lib/editron/research/open-ended-planner/v2r-semantic-operator-policy';
 
 function node(intentNodeId: string, selectedOperatorId: string, requiresNodeIds: string[] = []) {
-  return { intentNodeId, selectedOperatorId, requiresNodeIds };
+  return { intentNodeId, selectedOperatorId, requiresNodeIds, failureDisposition: 'NEEDS_REVIEW' };
 }
 
 const validDev01Nodes = [
@@ -30,7 +30,7 @@ describe('V2R semantic operator policy', () => {
   it('passes a complete causally ordered DEV-01 plan', () => {
     const receipt = evaluateV2RSemanticOperatorsV2R({
       taskId: 'DEV-01', conditionId: 'BASELINE',
-      editorialIntent: { nodes: validDev01Nodes },
+      editorialIntent: { executionForm: 'NATIVE', nodes: validDev01Nodes },
       evidenceBoundIntent: { stageDisposition: 'READY_FOR_COMPILATION', unresolvedRequirements: [] },
     });
     expect(receipt.disposition).toBe('PASS');
@@ -42,6 +42,7 @@ describe('V2R semantic operator policy', () => {
     const receipt = evaluateV2RSemanticOperatorsV2R({
       taskId: 'DEV-01', conditionId: 'BASELINE',
       editorialIntent: {
+        executionForm: 'NATIVE',
         nodes: [
           ...validDev01Nodes.filter(({ selectedOperatorId }) => selectedOperatorId !== 'apply_audio_ducking'),
           node('project-read', 'read_project_file'),
@@ -61,7 +62,7 @@ describe('V2R semantic operator policy', () => {
   it('requires honest evidence and capability gaps in the correct conditions', () => {
     const withheld = evaluateV2RSemanticOperatorsV2R({
       taskId: 'DEV-03', conditionId: 'BEAT_EVIDENCE_WITHHELD',
-      editorialIntent: { nodes: [node('find', 'find_audio_moment')] },
+      editorialIntent: { executionForm: 'NATIVE', nodes: [node('find', 'find_audio_moment')] },
       evidenceBoundIntent: {
         stageDisposition: 'UNVERIFIABLE',
         unresolvedRequirements: [{ kind: 'EVIDENCE', disposition: 'UNVERIFIABLE' }],
@@ -71,7 +72,7 @@ describe('V2R semantic operator policy', () => {
 
     const dishonestGap = evaluateV2RSemanticOperatorsV2R({
       taskId: 'DEV-04', conditionId: 'BASELINE',
-      editorialIntent: { nodes: [node('generated', 'generated_composition_program')] },
+      editorialIntent: { executionForm: 'CAPABILITY_GAP', nodes: [node('generated', 'generated_composition_program')] },
       evidenceBoundIntent: { stageDisposition: 'CAPABILITY_GAP', unresolvedRequirements: [] },
     });
     expect(dishonestGap.disposition).toBe('FAIL');
@@ -81,7 +82,7 @@ describe('V2R semantic operator policy', () => {
   it('requires DEV-03 beat discovery, alignment, and final shake in causal order', () => {
     const pass = evaluateV2RSemanticOperatorsV2R({
       taskId: 'DEV-03', conditionId: 'BASELINE',
-      editorialIntent: { nodes: [
+      editorialIntent: { executionForm: 'NATIVE', nodes: [
         node('find', 'find_audio_moment'),
         node('align', 'sync_cuts_to_beats', ['find']),
         node('shake', 'apply_camera_shake', ['align']),
@@ -92,7 +93,7 @@ describe('V2R semantic operator policy', () => {
 
     const fail = evaluateV2RSemanticOperatorsV2R({
       taskId: 'DEV-03', conditionId: 'BASELINE',
-      editorialIntent: { nodes: [
+      editorialIntent: { executionForm: 'NATIVE', nodes: [
         node('find', 'find_audio_moment'),
         node('shake', 'apply_camera_shake', ['find']),
         node('align', 'sync_cuts_to_beats', ['shake']),
@@ -106,7 +107,7 @@ describe('V2R semantic operator policy', () => {
   it('rejects cyclic, dangling, and internally contradictory executable plans', () => {
     const receipt = evaluateV2RSemanticOperatorsV2R({
       taskId: 'DEV-03', conditionId: 'BASELINE',
-      editorialIntent: { nodes: [
+      editorialIntent: { executionForm: 'NATIVE', nodes: [
         node('find', 'find_audio_moment', ['shake']),
         node('align', 'sync_cuts_to_beats', ['find', 'missing']),
         node('shake', 'apply_camera_shake', ['align']),
@@ -128,7 +129,7 @@ describe('V2R semantic operator policy', () => {
   it('keeps evidence uncertainty distinct from missing capability', () => {
     const receipt = evaluateV2RSemanticOperatorsV2R({
       taskId: 'DEV-03', conditionId: 'BEAT_EVIDENCE_WITHHELD',
-      editorialIntent: { nodes: [node('find', 'find_audio_moment')] },
+      editorialIntent: { executionForm: 'NATIVE', nodes: [node('find', 'find_audio_moment')] },
       evidenceBoundIntent: {
         stageDisposition: 'UNVERIFIABLE',
         unresolvedRequirements: [{
@@ -140,5 +141,26 @@ describe('V2R semantic operator policy', () => {
     expect(receipt.disposition).toBe('FAIL');
     expect(receipt.diagnostics)
       .toContain('REQUIREMENT_DISPOSITION_KIND_MISMATCH:EVIDENCE:CAPABILITY_GAP');
+  });
+
+  it('accepts a schema-honest DEV-02 gap while scoring its intended generated island', () => {
+    const receipt = evaluateV2RSemanticOperatorsV2R({
+      taskId: 'DEV-02', conditionId: 'BASELINE',
+      editorialIntent: {
+        executionForm: 'HYBRID',
+        nodes: [{
+          intentNodeId: 'generated-island', selectedOperatorId: null,
+          alternativeOperatorIds: ['generated_composition_program'],
+          requiresNodeIds: [], failureDisposition: 'CAPABILITY_GAP',
+        }],
+      },
+      evidenceBoundIntent: {
+        stageDisposition: 'CAPABILITY_GAP',
+        unresolvedRequirements: [{ kind: 'CAPABILITY', disposition: 'CAPABILITY_GAP' }],
+      },
+    });
+    expect(receipt.disposition).toBe('PASS');
+    expect(receipt.selectedOperatorIds).toEqual([]);
+    expect(receipt.diagnostics).toEqual([]);
   });
 });

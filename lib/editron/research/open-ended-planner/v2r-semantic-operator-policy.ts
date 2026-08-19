@@ -3,7 +3,7 @@ import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 type JsonRecord = Record<string, unknown>;
 
 export const V2R_SEMANTIC_OPERATOR_POLICY_VERSION =
-  'EDITRON_OE_V2R_SEMANTIC_OPERATOR_POLICY_V3' as const;
+  'EDITRON_OE_V2R_SEMANTIC_OPERATOR_POLICY_V4' as const;
 
 type StageDispositionV2R = 'READY_FOR_COMPILATION' | 'CAPABILITY_GAP' | 'UNVERIFIABLE';
 
@@ -21,6 +21,7 @@ interface DependencyV2R {
 
 export interface SemanticOperatorCasePolicyV2R {
   caseId: string;
+  expectedExecutionForm: 'NATIVE' | 'HYBRID' | 'CAPABILITY_GAP';
   expectedStageDisposition: StageDispositionV2R;
   allowedOperatorIds: readonly string[];
   requiredEffectGroups: readonly EffectGroupV2R[];
@@ -36,7 +37,7 @@ export interface SemanticOperatorPolicyV2R {
 }
 
 export interface SemanticOperatorEvaluationV2R {
-  receiptVersion: 'EDITRON_OE_V2R_SEMANTIC_OPERATOR_EVALUATION_V1';
+  receiptVersion: 'EDITRON_OE_V2R_SEMANTIC_OPERATOR_EVALUATION_V2';
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
   policySha256: string;
   caseId: string;
@@ -63,7 +64,7 @@ const DEV01_GROUPS: readonly EffectGroupV2R[] = [
 ];
 
 const POLICIES: readonly SemanticOperatorCasePolicyV2R[] = [
-  casePolicy('DEV-01:BASELINE', 'READY_FOR_COMPILATION', DEV01_OPERATORS, DEV01_GROUPS, [
+  casePolicy('DEV-01:BASELINE', 'NATIVE', 'READY_FOR_COMPILATION', DEV01_OPERATORS, DEV01_GROUPS, [
     dependency('TRANSCRIPT_RESOLVE', 'SILENCE_REMOVE'),
     dependency('SILENCE_REMOVE', 'KEYFRAME_RESOLVE'),
     dependency('VISUAL_FIND', 'KEYFRAME_RESOLVE'),
@@ -71,16 +72,17 @@ const POLICIES: readonly SemanticOperatorCasePolicyV2R[] = [
     dependency('SILENCE_REMOVE', 'DIALOGUE_DUCK'),
   ]),
   casePolicy(
-    'DEV-01:VISUAL_EVIDENCE_WITHHELD', 'UNVERIFIABLE', DEV01_OPERATORS, [], [], 'EVIDENCE',
+    'DEV-01:VISUAL_EVIDENCE_WITHHELD', 'NATIVE', 'UNVERIFIABLE', DEV01_OPERATORS, [], [], 'EVIDENCE',
   ),
   casePolicy(
-    'DEV-02:BASELINE', 'CAPABILITY_GAP',
-    ['read_project_file', 'get_timeline_view', 'list_user_assets', 'inspect_user_asset',
-      'generated_composition_program', 'move_retime_overlay'],
+    'DEV-02:BASELINE', 'HYBRID', 'CAPABILITY_GAP',
+    ['read_project_file', 'get_timeline_view', 'list_user_assets', 'search_user_assets',
+      'inspect_user_asset', 'resolve_user_asset_overlay', 'generated_composition_program',
+      'move_retime_overlay'],
     [effect('GENERATED_ISLAND', ['generated_composition_program'])], [], 'CAPABILITY',
   ),
   casePolicy(
-    'DEV-03:BASELINE', 'READY_FOR_COMPILATION',
+    'DEV-03:BASELINE', 'NATIVE', 'READY_FOR_COMPILATION',
     ['read_project_file', 'get_timeline_view', 'find_audio_moment',
       'sync_cuts_to_beats', 'apply_camera_shake'],
     [
@@ -91,13 +93,13 @@ const POLICIES: readonly SemanticOperatorCasePolicyV2R[] = [
     [dependency('BEAT_FIND', 'BEAT_ALIGN'), dependency('BEAT_ALIGN', 'FINAL_SHAKE')],
   ),
   casePolicy(
-    'DEV-03:BEAT_EVIDENCE_WITHHELD', 'UNVERIFIABLE',
+    'DEV-03:BEAT_EVIDENCE_WITHHELD', 'NATIVE', 'UNVERIFIABLE',
     ['read_project_file', 'get_timeline_view', 'find_audio_moment',
       'sync_cuts_to_beats', 'apply_camera_shake'],
     [], [], 'EVIDENCE',
   ),
   casePolicy(
-    'DEV-04:BASELINE', 'CAPABILITY_GAP',
+    'DEV-04:BASELINE', 'CAPABILITY_GAP', 'CAPABILITY_GAP',
     ['read_project_file', 'get_timeline_view', 'find_visual_moment', 'resolve_visual_edit',
       'reorder_layer', 'generated_composition_program'],
     [], [], 'CAPABILITY',
@@ -129,22 +131,25 @@ export function evaluateV2RSemanticOperatorsV2R(input: {
   const evidenceBound = record(input.evidenceBoundIntent);
   const nodes = records(editorial.nodes);
   const diagnostics: string[] = [];
-  const selectedOperatorIds = nodes.map((node) => text(node.selectedOperatorId));
+  const selectedOperatorIds = nodes.map((node) => text(node.selectedOperatorId)).filter(Boolean);
   const stageDisposition = text(evidenceBound.stageDisposition);
 
+  if (editorial.executionForm !== casePolicy.expectedExecutionForm) {
+    diagnostics.push(`EXECUTION_FORM:${text(editorial.executionForm) || 'MISSING'}:${casePolicy.expectedExecutionForm}`);
+  }
   if (stageDisposition !== casePolicy.expectedStageDisposition) {
     diagnostics.push(`STAGE_DISPOSITION:${stageDisposition || 'MISSING'}:${casePolicy.expectedStageDisposition}`);
   }
   validateNodeIdentity(nodes, diagnostics);
   validateDependencyGraph(nodes, diagnostics);
-  validateAllowedOperators(selectedOperatorIds, casePolicy, diagnostics);
+  validateAllowedOperators(nodes, casePolicy, diagnostics);
   validateRequiredEffects(nodes, casePolicy, diagnostics);
   validateDependencies(nodes, casePolicy, diagnostics);
   validateExpectedGap(evidenceBound, casePolicy, diagnostics);
   validateStageReadiness(evidenceBound, diagnostics);
 
   const receiptMaterial = {
-    receiptVersion: 'EDITRON_OE_V2R_SEMANTIC_OPERATOR_EVALUATION_V1' as const,
+    receiptVersion: 'EDITRON_OE_V2R_SEMANTIC_OPERATOR_EVALUATION_V2' as const,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     policySha256: policy.policySha256,
     caseId,
@@ -197,14 +202,31 @@ function validateDependencyGraph(nodes: JsonRecord[], diagnostics: string[]): vo
 }
 
 function validateAllowedOperators(
-  selected: string[],
+  nodes: JsonRecord[],
   policy: Readonly<SemanticOperatorCasePolicyV2R>,
   diagnostics: string[],
 ): void {
   const allowed = new Set(policy.allowedOperatorIds);
-  for (const operatorId of selected) {
-    if (!operatorId || !allowed.has(operatorId)) {
-      diagnostics.push(`OPERATOR_NOT_ALLOWED:${operatorId || 'MISSING'}`);
+  for (const node of nodes) {
+    const nodeId = text(node.intentNodeId) || 'MISSING';
+    const selected = text(node.selectedOperatorId);
+    if (selected) {
+      if (!allowed.has(selected)) diagnostics.push(`OPERATOR_NOT_ALLOWED:${selected}`);
+      if (policy.expectedStageDisposition === 'CAPABILITY_GAP') {
+        diagnostics.push(`CAPABILITY_GAP_SELECTED_OPERATOR:${nodeId}:${selected}`);
+      }
+      continue;
+    }
+    if (policy.expectedStageDisposition !== 'CAPABILITY_GAP') {
+      diagnostics.push(`OPERATOR_NOT_ALLOWED:MISSING:${nodeId}`);
+      continue;
+    }
+    if (node.failureDisposition !== 'CAPABILITY_GAP') {
+      diagnostics.push(`CAPABILITY_GAP_NODE_DISPOSITION:${nodeId}`);
+    }
+    if ('nodeInputs' in node) diagnostics.push(`CAPABILITY_GAP_NODE_HAS_INPUTS:${nodeId}`);
+    for (const alternative of strings(node.alternativeOperatorIds)) {
+      if (!allowed.has(alternative)) diagnostics.push(`OPERATOR_NOT_ALLOWED:${alternative}`);
     }
   }
 }
@@ -215,7 +237,8 @@ function validateRequiredEffects(
   diagnostics: string[],
 ): void {
   for (const group of policy.requiredEffectGroups) {
-    const count = nodes.filter((node) => group.operatorIds.includes(text(node.selectedOperatorId))).length;
+    const count = nodes.filter((node) => operatorIdsForEvaluation(node, policy)
+      .some((operatorId) => group.operatorIds.includes(operatorId))).length;
     if (count < group.minimum || count > group.maximum) {
       diagnostics.push(`EFFECT_GROUP_CARDINALITY:${group.groupId}:${count}:${group.minimum}:${group.maximum}`);
     }
@@ -237,9 +260,11 @@ function validateDependencies(
       continue;
     }
     const beforeIds = new Set(nodes
-      .filter((node) => before.operatorIds.includes(text(node.selectedOperatorId)))
+      .filter((node) => operatorIdsForEvaluation(node, policy)
+        .some((operatorId) => before.operatorIds.includes(operatorId)))
       .map((node) => text(node.intentNodeId)));
-    const afterNodes = nodes.filter((node) => after.operatorIds.includes(text(node.selectedOperatorId)));
+    const afterNodes = nodes.filter((node) => operatorIdsForEvaluation(node, policy)
+      .some((operatorId) => after.operatorIds.includes(operatorId)));
     if (!afterNodes.some((node) => dependsOnAny(text(node.intentNodeId), beforeIds, byId))) {
       diagnostics.push(`DEPENDENCY_MISSING:${edge.beforeGroupId}:${edge.afterGroupId}`);
     }
@@ -301,6 +326,7 @@ function validateStageReadiness(evidenceBound: JsonRecord, diagnostics: string[]
 
 function casePolicy(
   caseId: string,
+  expectedExecutionForm: SemanticOperatorCasePolicyV2R['expectedExecutionForm'],
   expectedStageDisposition: StageDispositionV2R,
   allowedOperatorIds: readonly string[],
   requiredEffectGroups: readonly EffectGroupV2R[],
@@ -308,13 +334,24 @@ function casePolicy(
   requiredGapKind: SemanticOperatorCasePolicyV2R['requiredGapKind'] = null,
 ): SemanticOperatorCasePolicyV2R {
   return {
-    caseId,
+    caseId, expectedExecutionForm,
     expectedStageDisposition,
     allowedOperatorIds,
     requiredEffectGroups,
     requiredDependencies,
     requiredGapKind,
   };
+}
+
+function operatorIdsForEvaluation(
+  node: JsonRecord,
+  policy: Readonly<SemanticOperatorCasePolicyV2R>,
+): string[] {
+  const selected = text(node.selectedOperatorId);
+  if (selected) return [selected];
+  return policy.expectedStageDisposition === 'CAPABILITY_GAP'
+    ? strings(node.alternativeOperatorIds)
+    : [];
 }
 
 function effect(groupId: string, operatorIds: readonly string[]): EffectGroupV2R {

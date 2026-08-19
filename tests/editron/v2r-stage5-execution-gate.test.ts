@@ -136,7 +136,7 @@ describe('V2R generic Stage-5 execution gate', () => {
     expect(result.lowering).toBeNull();
   });
 
-  it('preserves a capability gap as a terminal non-executable result', async () => {
+  it('rejects a false capability-gap claim before terminal handling', async () => {
     const gap = capabilityGapArtifacts();
     const run = await connected(gap);
     const result = decideV2RStage5ExecutionV2R({
@@ -145,14 +145,17 @@ describe('V2R generic Stage-5 execution gate', () => {
 
     expect(run.receipt.finalDisposition).toBe('CAPABILITY_GAP_BEFORE_LOWERING');
     expect(result.decision).toMatchObject({
-      disposition: 'CAPABILITY_GAP',
-      reasonCode: 'PREREGISTERED_CAPABILITY_GAP',
+      disposition: 'FAIL',
+      reasonCode: 'SEMANTIC_OPERATOR_POLICY_FAILED',
       compiledGraphHash: null,
       stage6AdapterId: null,
-      diagnostics: ['STAGE3_CAPABILITY_GAP_EXECUTION_BLOCK'],
     });
+    expect(result.decision.diagnostics).toEqual(expect.arrayContaining([
+      'EXECUTION_FORM:CAPABILITY_GAP:NATIVE',
+      'STAGE_DISPOSITION:CAPABILITY_GAP:READY_FOR_COMPILATION',
+    ]));
     expect(result.decision.executionAuthorization).toBeUndefined();
-    expect(result.semanticEvaluation).toBeNull();
+    expect(result.semanticEvaluation?.disposition).toBe('FAIL');
     expect(result.lowering).toBeNull();
   });
 
