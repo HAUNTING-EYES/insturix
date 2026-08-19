@@ -151,9 +151,11 @@ function DNAArrayField({
 function VoiceFingerprintSection({
   fingerprint,
   onExtracted,
+  sessionId,
 }: {
   fingerprint?: VoiceFingerprint;
   onExtracted: (fp: VoiceFingerprint) => void;
+  sessionId?: string | null;
 }) {
   const [refTexts, setRefTexts] = useState("");
   const [extracting, setExtracting] = useState(false);
@@ -169,7 +171,10 @@ function VoiceFingerprintSection({
       const res = await fetch("/api/services/thinkforge/brand-dna/extract-fingerprint", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ referenceTexts: pieces }),
+        body: JSON.stringify({
+          referenceTexts: pieces,
+          ...(sessionId ? { sessionId } : {}),
+        }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -337,26 +342,34 @@ function VoiceExemplarSection({
   );
 }
 
-function BrandDNAEditor() {
+function BrandDNAEditor({ sessionId }: { sessionId?: string | null }) {
   const [dna, setDna] = useState<BrandDNA>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    let active = true;
+    setDna({});
+    setLoading(true);
     (async () => {
       try {
-        const res = await fetch("/api/services/thinkforge/brand-dna");
-        if (res.ok) {
-          const data = await res.json();
-          setDna(data.brandDNA ?? {});
-        }
+        const endpoint = sessionId
+          ? `/api/services/thinkforge/brand-dna?sessionId=${encodeURIComponent(sessionId)}`
+          : "/api/services/thinkforge/brand-dna";
+        const res = await fetch(endpoint);
+        if (!res.ok) throw new Error("Voice memory could not be loaded.");
+        const data = await res.json();
+        if (active) setDna(data.brandDNA ?? {});
       } catch {
-        /* silent */
+        if (active) toast({ title: "Failed to load voice memory", variant: "destructive" });
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     })();
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [sessionId]);
 
   const save = async () => {
     setSaving(true);
@@ -364,10 +377,14 @@ function BrandDNAEditor() {
       const res = await fetch("/api/services/thinkforge/brand-dna", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(dna),
+        body: JSON.stringify({
+          ...dna,
+          ...(sessionId ? { sessionId } : {}),
+        }),
       });
       if (!res.ok) throw new Error();
-      toast({ title: "Voice memory saved" });
+      const data = await res.json();
+      toast({ title: data.pendingBrandDNA ? "Voice update sent for Brand Vault review" : "Voice memory saved" });
     } catch {
       toast({ title: "Failed to save", variant: "destructive" });
     } finally {
@@ -434,6 +451,7 @@ function BrandDNAEditor() {
       <VoiceFingerprintSection
         fingerprint={dna.voiceFingerprint}
         onExtracted={(fp) => setDna({ ...dna, voiceFingerprint: fp })}
+        sessionId={sessionId}
       />
 
       {/* ─── Voice Exemplars (Layer 3) ─── */}
@@ -463,6 +481,7 @@ function BrandDNAEditor() {
 export function KnowledgePanel({
   open,
   onClose,
+  sessionId,
 }: KnowledgePanelProps) {
   return (
     <AnimatePresence>
@@ -505,7 +524,7 @@ export function KnowledgePanel({
             {/* Content */}
             <ScrollArea className="flex-1">
               <div className="p-5">
-                <BrandDNAEditor />
+                <BrandDNAEditor sessionId={sessionId} />
               </div>
             </ScrollArea>
           </motion.div>

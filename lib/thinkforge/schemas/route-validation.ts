@@ -39,7 +39,9 @@ export const BrandDNAPatchSchema = z.object({
   recurringAssets: z.array(z.string()).optional(),
   voiceFingerprint: VoiceFingerprintSchema.optional(),
   voiceExemplars: z.array(VoiceExemplarSchema).max(10).optional(),
-}).passthrough();
+  brandId: z.string().trim().min(1).optional(),
+  sessionId: z.string().trim().min(1).optional(),
+}).strict();
 
 // ── ThinkForge Blocks ───────────────────────────────────────────────
 // Matches ThinkForgeBlock interface in thinkforge-block.ts

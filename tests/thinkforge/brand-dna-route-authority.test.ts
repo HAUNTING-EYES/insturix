@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
+  brandSignalProfileToBrandDNA: vi.fn(),
   extractVoiceFingerprint: vi.fn(),
   getSession: vi.fn(),
   getUserBrandDNA: vi.fn(),
   has: vi.fn(),
+  resolveThinkForgeBrandAuthority: vi.fn(),
   updateUserBrandDNA: vi.fn(),
   writeThinkForgeBrandDNAToBrandVault: vi.fn(),
 }));
@@ -22,6 +24,16 @@ vi.mock('@/lib/thinkforge/data/voice-signature', () => ({
 vi.mock('@/lib/thinkforge/services/brand-vault-voice-evidence', () => ({
   writeThinkForgeBrandDNAToBrandVault: mocks.writeThinkForgeBrandDNAToBrandVault,
 }));
+vi.mock('@/lib/shared/brand-signal-profile-adapter', () => ({
+  brandSignalProfileToBrandDNA: mocks.brandSignalProfileToBrandDNA,
+}));
+vi.mock('@/lib/thinkforge/context/brand-authoring-context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/thinkforge/context/brand-authoring-context')>();
+  return {
+    ...actual,
+    resolveThinkForgeBrandAuthority: mocks.resolveThinkForgeBrandAuthority,
+  };
+});
 
 function patchRequest(body: Record<string, unknown>): Request {
   return new Request('http://localhost/api/services/thinkforge/brand-dna', {
@@ -46,6 +58,17 @@ describe('ThinkForge BrandDNA route authority', () => {
     mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1', has: mocks.has });
     mocks.getSession.mockResolvedValue(null);
     mocks.getUserBrandDNA.mockResolvedValue({ voiceLock: 'global personal voice' });
+    mocks.brandSignalProfileToBrandDNA.mockReturnValue({
+      nicheMap: 'Brand audience',
+      killList: ['synergy'],
+    });
+    mocks.resolveThinkForgeBrandAuthority.mockResolvedValue({
+      brandId: 'brand_1',
+      brandName: 'Brand One',
+      recordId: 'accepted_7',
+      profileUpdatedAt: '2026-08-19T00:00:00.000Z',
+      profile: { brandId: 'brand_1' },
+    });
     mocks.updateUserBrandDNA.mockResolvedValue({ voiceLock: 'updated global voice' });
     mocks.writeThinkForgeBrandDNAToBrandVault.mockResolvedValue({
       ok: true,
@@ -67,6 +90,44 @@ describe('ThinkForge BrandDNA route authority', () => {
       listStyle: 'none',
       extractedFromCount: 5,
     });
+  });
+
+  it('loads the accepted profile for the brand bound to the authorized session', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_1',
+      userId: 'user_1',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_1' },
+    });
+    const { GET } = await import('@/app/api/services/thinkforge/brand-dna/route');
+    const response = await GET(new Request(
+      'http://localhost/api/services/thinkforge/brand-dna?sessionId=session_1',
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.getSession).toHaveBeenCalledWith('session_1', 'user_1', 'org_1');
+    expect(mocks.resolveThinkForgeBrandAuthority).toHaveBeenCalledWith({
+      userId: 'user_1',
+      orgId: 'org_1',
+      isOrgAdmin: false,
+      brandId: 'brand_1',
+    });
+    expect(mocks.getUserBrandDNA).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
+      brandDNA: { nicheMap: 'Brand audience', killList: ['synergy'] },
+      scope: { kind: 'brand', brandId: 'brand_1', recordId: 'accepted_7' },
+    });
+  });
+
+  it('does not fall back to personal memory when a requested session is unavailable', async () => {
+    const { GET } = await import('@/app/api/services/thinkforge/brand-dna/route');
+    const response = await GET(new Request(
+      'http://localhost/api/services/thinkforge/brand-dna?sessionId=foreign_session',
+    ));
+
+    expect(response.status).toBe(404);
+    expect(mocks.getUserBrandDNA).not.toHaveBeenCalled();
+    expect(mocks.resolveThinkForgeBrandAuthority).not.toHaveBeenCalled();
   });
 
   it('stages an explicit-brand patch without mutating user-global BrandDNA', async () => {
@@ -135,9 +196,15 @@ describe('ThinkForge BrandDNA route authority', () => {
   });
 
   it('stages a brand-scoped fingerprint without overwriting personal voice memory', async () => {
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_1',
+      userId: 'user_1',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_1' },
+    });
     const { POST } = await import('@/app/api/services/thinkforge/brand-dna/extract-fingerprint/route');
     const response = await POST(fingerprintRequest({
-      brandId: 'brand_1',
+      sessionId: 'session_1',
       referenceTexts: ['one', 'two', 'three', 'four', 'five'],
     }));
 
@@ -149,6 +216,7 @@ describe('ThinkForge BrandDNA route authority', () => {
       brandId: 'brand_1',
       source: 'voice_fingerprint_extract',
     }));
+    expect(mocks.getSession).toHaveBeenCalledWith('session_1', 'user_1', 'org_1');
     await expect(response.json()).resolves.toMatchObject({
       brandDNA: { voiceLock: 'global personal voice' },
       pendingBrandDNA: { voiceFingerprint: { openingPattern: 'direct_claim' } },
