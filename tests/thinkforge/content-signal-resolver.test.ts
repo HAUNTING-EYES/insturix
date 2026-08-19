@@ -173,6 +173,30 @@ describe('resolveContentSignalProfile', () => {
     expect(resolved.intent.proofPoints).toContain('Required audience anchor: CFOs and RevOps leaders');
   });
 
+  it('does not mistake an incidental for-clause or strategic purpose for the audience', () => {
+    const resolved = resolveContentSignalProfile({
+      userPrompt: [
+        'Write a seven-minute YouTube documentary script about HarborGrid.',
+        'Make clear that this bounded pilot is not a forecast for total port emissions.',
+      ].join(' '),
+      authoringRequest: {
+        version: 1,
+        contentContract: createThinkForgeWriterContract('video_script'),
+        platformSurface: { id: 'youtube' },
+        targetDurationSec: 420,
+      },
+      project: {
+        platform: 'YouTube',
+        format: 'video_script',
+        purpose: 'Use an investigative structure with a skeptical middle.',
+      },
+    });
+
+    expect(resolved.intent.audience).toBe('YouTube audience');
+    expect(resolved.intent.audience).not.toBe('total port emissions');
+    expect(resolved.intent.audience).not.toContain('investigative structure');
+  });
+
   it('keeps short Instagram captions as static social posts', () => {
     const resolved = resolveContentSignalProfile({
       userPrompt:

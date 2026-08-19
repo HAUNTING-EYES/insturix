@@ -559,11 +559,8 @@ function inferAudience(
 ): string | undefined {
   const explicitAudience = extractExplicitAudience(input.userPrompt);
   if (explicitAudience) return explicitAudience;
-  const promptAudience = input.userPrompt.match(
-    /\bfor\s+(.+?)(?=\s+(?:about|to|that|who|with|using|on)\b|[,.!?]|$)/i,
-  )?.[1]?.trim();
-  if (promptAudience) return promptAudience;
-  if (input.project?.purpose) return input.project.purpose;
+  const deliverableAudience = extractDeliverableAudience(input.userPrompt);
+  if (deliverableAudience) return deliverableAudience;
   if (brandDNA?.nicheMap) return brandDNA.nicheMap;
   if (platform) return `${platform} audience`;
   return undefined;
@@ -646,6 +643,12 @@ function extractQuantifiedBriefClaims(userPrompt: string): string[] {
 function extractExplicitAudience(userPrompt: string): string | undefined {
   return userPrompt.match(
     /\b(?:target(?:\s+audience)?|audience)\s*(?::|is\b)?\s*([^.!?\n]{2,160})/i,
+  )?.[1]?.trim();
+}
+
+function extractDeliverableAudience(userPrompt: string): string | undefined {
+  return userPrompt.match(
+    /\b(?:post|caption|carousel|thread|script|video|documentary|film|article|blog|newsletter|email|advertisement|ad|copy)\s+(?:intended\s+)?for\s+(.+?)(?=\s+(?:about|to|that|who|with|using|on)\b|[,.!?]|$)/i,
   )?.[1]?.trim();
 }
 
