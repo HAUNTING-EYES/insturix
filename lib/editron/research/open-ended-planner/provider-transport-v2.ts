@@ -37,6 +37,7 @@ export interface ProviderAttemptRecordV2 {
   inputArm: string;
   executionFormArm: string;
   attempt: 1 | 2;
+  preflightInputTokens: NullableNumber;
   inputTokens: NullableNumber;
   cachedInputTokens: NullableNumber;
   cacheWriteInputTokens: NullableNumber;
@@ -147,9 +148,12 @@ export async function runProviderStageV2(input: {
       estimatedInput, remaining.visible, remaining.reasoning, input.pricing,
     );
     if (estimatedInput > remaining.input || worstCost === undefined || worstCost > remaining.cost) {
-      attempts.push(requestRecord(input, attempt, request, 'BUDGET_EXCEEDED', 'PREFLIGHT_BLOCKED', preflightLatency, {}, [
-        estimatedInput > remaining.input ? 'PREFLIGHT_INPUT_LIMIT' : 'PREFLIGHT_COST_LIMIT',
-      ]));
+      attempts.push({
+        ...requestRecord(input, attempt, request, 'BUDGET_EXCEEDED', 'PREFLIGHT_BLOCKED', preflightLatency, {}, [
+          estimatedInput > remaining.input ? 'PREFLIGHT_INPUT_LIMIT' : 'PREFLIGHT_COST_LIMIT',
+        ]),
+        preflightInputTokens: estimatedInput,
+      });
       break;
     }
     const started = now();
@@ -299,7 +303,7 @@ function emptyRecord(
     requestedModel: input.route.model, providerModel: null, providerSystemFingerprint: null,
     providerRequestId: null,
     inputArm: input.artifact.packet.inputArm, executionFormArm: input.artifact.packet.executionFormArm,
-    attempt, inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null,
+    attempt, preflightInputTokens: null, inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null,
     cacheMissInputTokens: null, visibleOutputTokens: null, reasoningTokens: null, totalTokens: null,
     finishReason: null, truncated: null, latencyMs: 0, providerCostUsd: null, parseStatus,
     schemaDiagnostics, artifactSha256: null, disposition, schemaMode: null, promptHash: null,

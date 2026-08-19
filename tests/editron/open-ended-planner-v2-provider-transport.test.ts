@@ -118,7 +118,12 @@ describe('open-ended planner V2 provider transport', () => {
       fetchImpl: async () => { preflightCalls += 1; return jsonResponse(openAI(JSON.stringify(validArtifact()))); },
     });
     expect(preflightCalls).toBe(0);
-    expect(preflight.attempts[0]).toMatchObject({ disposition: 'BUDGET_EXCEEDED', parseStatus: 'PREFLIGHT_BLOCKED' });
+    expect(preflight.attempts[0]).toMatchObject({
+      disposition: 'BUDGET_EXCEEDED',
+      parseStatus: 'PREFLIGHT_BLOCKED',
+      preflightInputTokens: budget.maxInputTokens + 1,
+      inputTokens: null,
+    });
 
     const usageDrift = await run({
       fetchImpl: async () => jsonResponse(openAI(JSON.stringify(validArtifact()), { inputTokens: budget.maxInputTokens + 1 })),

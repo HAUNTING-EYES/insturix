@@ -183,6 +183,10 @@ describe('open-ended planner V2 Qwen provider adapter', () => {
     )));
     expect(overBudget.disposition).toBe('BUDGET_EXCEEDED');
     expect(overBudget.attempts[0].schemaDiagnostics).toContain('INPUT_TOKEN_LIMIT');
+    expect(overBudget.attempts[0]).toMatchObject({
+      preflightInputTokens: null,
+      inputTokens: 30_001,
+    });
   });
 
   it('records a shell launch failure instead of aborting the cohort', async () => {
