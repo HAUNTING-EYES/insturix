@@ -42,7 +42,7 @@ import {
   V2R_STAGE6_TASK_ADAPTER_REGISTRY_VERSION,
 } from './v2r-stage6-task-adapter-registry';
 
-export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V11' as const;
+export const V2R_EXPERIMENT_VERSION = 'EDITRON_OE_V2R_SELECTED_OPERATOR_EXPERIMENT_V12' as const;
 
 // V2-1R capstone: the single pre-registration manifest.
 //

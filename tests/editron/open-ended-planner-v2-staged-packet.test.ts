@@ -388,13 +388,28 @@ describe('open-ended planner V2R selected-operator node contract', () => {
     const nodeSchema = (second.packet.outputContract.properties as Record<string, { items: { required: string[]; properties: Record<string, unknown> } }>).nodes.items;
     expect(nodeSchema.required).toEqual(expect.arrayContaining(['selectedOperatorId', 'alternativeOperatorIds']));
     expect(nodeSchema.required).not.toContain('candidateCapabilityIds');
-    expect(nodeSchema.properties.selectedOperatorId).toEqual({ type: 'string', minLength: 1 });
-    expect(nodeSchema.properties.failureDisposition).toEqual({ type: 'string', enum: ['NEEDS_REVIEW', 'FAIL'] });
+    expect(nodeSchema.properties.selectedOperatorId).toEqual({
+      anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }],
+    });
+    expect(nodeSchema.properties.failureDisposition).toEqual({
+      type: 'string', enum: ['NEEDS_REVIEW', 'FAIL', 'CAPABILITY_GAP'],
+    });
     expect(second.packet.instructions).toEqual(expect.arrayContaining([
       expect.stringContaining('exactly one selectedOperatorId'),
-      expect.stringContaining('never through an empty, placeholder, or pseudo operator node'),
+      expect.stringContaining('sets selectedOperatorId to null'),
     ]));
     expect(validateProviderStageArtifactV2(second, v2rStageTwoArtifact())).toEqual([]);
+    const capabilityGap = v2rStageTwoArtifact();
+    capabilityGap.nodes = [v2rNode({
+      selectedOperatorId: null,
+      alternativeOperatorIds: ['generated_composition_program'],
+      failureDisposition: 'CAPABILITY_GAP',
+    })];
+    expect(validateProviderStageArtifactV2(second, capabilityGap)).toEqual([]);
+    expect(validateSelectedOperatorNodesV2R(
+      capabilityGap.nodes,
+      new Set(['generated_composition_program']),
+    )).toEqual([]);
   });
 
   it('rejects stage-2 nodes that keep the ambiguous candidate list or omit the selected operator', () => {

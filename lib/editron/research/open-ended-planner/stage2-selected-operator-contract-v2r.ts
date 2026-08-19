@@ -1,26 +1,27 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 
 export const STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R =
-  'EDITRON_OE_STAGE2_SELECTED_OPERATOR_V2R_5' as const;
+  'EDITRON_OE_STAGE2_SELECTED_OPERATOR_V2R_6' as const;
 
 export const STAGE2_SELECTED_OPERATOR_INSTRUCTIONS_V2R = deepFreezeV1({
   stage2: [
     'Every executable intent node selects exactly one selectedOperatorId that will execute; record considered but non-executed options separately in alternativeOperatorIds and never mix executed and non-executed operators in one field.',
     'Select operators only from the provided operator catalog; an operatorId that is not in the catalog cannot execute and will be rejected.',
-    'Catalog presence means an operator may describe the intended plan; it does not by itself prove end-to-end execution. modelInput.researchExecutionContract is the normative task-scoped execution truth. A selected operator marked EXECUTABLE_VIA_REGISTERED_RESEARCH_PROXY must not be rejected merely because production certification is incomplete. A selected operator marked NOT_EXECUTABLE_* requires an explicit capability-gap disposition and must never be presented as ready to execute.',
+    'Catalog presence means an operator may describe the intended plan; it does not by itself prove end-to-end execution. modelInput.researchExecutionContract is the normative task-scoped execution truth. An operator marked EXECUTABLE_VIA_REGISTERED_RESEARCH_PROXY may be selected even when production certification is incomplete. An operator marked NOT_EXECUTABLE_* must not be selected for execution: represent the intent as a capability-gap node, set selectedOperatorId to null, omit nodeInputs, record catalog-known considered operators only in alternativeOperatorIds, and set failureDisposition to CAPABILITY_GAP.',
     'For each node, supply the semantic input values the selected operator needs in nodeInputs. Each nodeInputs key must exactly match one of the selected operator declared input field names from its input schema (for example `query` for find_* operators, `intent` for resolve_* operators, and the declared plan or effect field for mutation operators); do not invent alternative key names. These are your editorial decisions and must be produced by you, not left for the system to invent.',
-    'Express clarification or capability gap only through unresolvedRequirements dispositions, never through an empty, placeholder, or pseudo operator node.',
-    'The deterministic lowerer adds zero operations and drops zero selected operations. Select every read, resolver, mutation, and proof operation the edit requires as its own node; no operator is inserted or completed for you.',
+    'A capability-gap node is an explicit non-executable intent: it keeps operationFamily, target claims, dependencies and alternatives, sets selectedOperatorId to null, and has no nodeInputs. Never invent an empty string, placeholder or pseudo operator. Clarification remains an unresolved requirement, not a capability-gap node.',
+    'The deterministic lowerer adds zero operations and drops zero selected executable operations. Select every read, resolver, mutation, and proof operation the executable edit requires as its own node; no operator is inserted or completed for you. Capability-gap nodes are terminal non-executable evidence and are never lowered.',
   ],
   stage3: [
-    'Preserve every Stage-2 selectedOperatorId and alternativeOperatorIds unchanged; Stage 3 binds evidence, rights, revision, preservation, and proof requirements and must not add, drop, or substitute operators.',
+    'Preserve every Stage-2 selectedOperatorId (including null on a capability-gap node) and alternativeOperatorIds unchanged; Stage 3 binds evidence, rights, revision, preservation, and proof requirements and must not add, drop, or substitute operators.',
     'Do not return or retranscribe nodeInputs in Stage 3. The immutable Stage-2 artifact is the sole semantic-input source for deterministic lowering.',
-    'Preserve the task-scoped research execution truth: production certification does not block a registered bounded proxy, but any selected NOT_EXECUTABLE_* operator requires CAPABILITY_GAP rather than READY_FOR_COMPILATION.',
+    'Preserve the task-scoped research execution truth: production certification does not block a registered bounded proxy, but a capability-gap node remains unselected and requires the overall CAPABILITY_GAP disposition rather than READY_FOR_COMPILATION.',
   ],
 });
 
 const stringSchema = { type: 'string', minLength: 1 };
 const stringArraySchema = { type: 'array', items: stringSchema, uniqueItems: true };
+const nullableOperatorIdSchema = { anyOf: [stringSchema, { type: 'null' }] };
 
 export const STAGE2_SELECTED_OPERATOR_NODE_SCHEMA_V2R = deepFreezeV1({
   type: 'object',
@@ -33,13 +34,13 @@ export const STAGE2_SELECTED_OPERATOR_NODE_SCHEMA_V2R = deepFreezeV1({
     intentNodeId: stringSchema,
     operationFamily: stringSchema,
     targetClaimIds: { ...stringArraySchema, minItems: 1 },
-    selectedOperatorId: stringSchema,
+    selectedOperatorId: nullableOperatorIdSchema,
     alternativeOperatorIds: stringArraySchema,
     executionForm: { type: 'string', enum: ['NATIVE', 'GENERATED_COMPOSITION'] },
     requiresNodeIds: stringArraySchema,
     invalidates: stringArraySchema,
     evidenceIds: stringArraySchema,
-    failureDisposition: { type: 'string', enum: ['NEEDS_REVIEW', 'FAIL'] },
+    failureDisposition: { type: 'string', enum: ['NEEDS_REVIEW', 'FAIL', 'CAPABILITY_GAP'] },
     // Semantic input values the model itself must produce for the selected
     // operator (e.g. the search `query` for find_* operators, the edit `intent`
     // for resolve_* operators). These are the creative/editorial decisions and
@@ -61,7 +62,7 @@ export const STAGE3_SELECTED_OPERATOR_NODE_SCHEMA_V2R = deepFreezeV1({
   ],
   properties: {
     intentNodeId: stringSchema,
-    selectedOperatorId: stringSchema,
+    selectedOperatorId: nullableOperatorIdSchema,
     alternativeOperatorIds: stringArraySchema,
     evidenceBindingIds: stringArraySchema,
     preservationIds: stringArraySchema,
@@ -110,14 +111,22 @@ export function validateSelectedOperatorNodesV2R(
 ): readonly string[] {
   const diagnostics: string[] = [];
   const list = Array.isArray(nodes) ? nodes : [];
+  if (!list.length) diagnostics.push('NODE_SET_EMPTY');
   list.forEach((entry, index) => {
     if (!isRecordV2R(entry)) { diagnostics.push(`NODE_NOT_RECORD:node[${index}]`); return; }
     const nodeId = nodeIdOfV2R(entry, index);
     const selected = typeof entry.selectedOperatorId === 'string' ? entry.selectedOperatorId : '';
-    if (!selected) {
+    const isCapabilityGap = entry.failureDisposition === 'CAPABILITY_GAP';
+    if (!selected && !isCapabilityGap) {
       diagnostics.push(`NODE_SELECTED_OPERATOR_MISSING:${nodeId}`);
     } else if (!catalogOperatorIds.has(selected)) {
-      diagnostics.push(`SELECTED_OPERATOR_UNKNOWN:${nodeId}:${selected}`);
+      if (selected) diagnostics.push(`SELECTED_OPERATOR_UNKNOWN:${nodeId}:${selected}`);
+    }
+    if (selected && isCapabilityGap) {
+      diagnostics.push(`GAP_DISPOSITION_ON_EXECUTABLE_NODE:${nodeId}`);
+    }
+    if (isCapabilityGap && 'nodeInputs' in entry) {
+      diagnostics.push(`GAP_NODE_HAS_INPUTS:${nodeId}`);
     }
     const alternatives = stringsV2R(entry.alternativeOperatorIds);
     if (selected && alternatives.includes(selected)) {
@@ -128,7 +137,7 @@ export function validateSelectedOperatorNodesV2R(
         diagnostics.push(`ALTERNATIVE_OPERATOR_UNKNOWN:${nodeId}:${alternative}`);
       }
     }
-    if (entry.failureDisposition === 'CAPABILITY_GAP' || entry.failureDisposition === 'ASK_USER') {
+    if (entry.failureDisposition === 'ASK_USER') {
       diagnostics.push(`GAP_DISPOSITION_ON_EXECUTABLE_NODE:${nodeId}`);
     }
   });

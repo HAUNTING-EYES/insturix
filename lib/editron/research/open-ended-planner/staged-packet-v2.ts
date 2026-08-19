@@ -125,7 +125,7 @@ const STAGE_INSTRUCTIONS: Record<StageV2, string[]> = {
 };
 
 export const PROVIDER_STAGE_INSTRUCTION_CONTRACT_VERSION_V2 =
-  'EDITRON_OE_PROVIDER_STAGE_INSTRUCTIONS_V3' as const;
+  'EDITRON_OE_PROVIDER_STAGE_INSTRUCTIONS_V4' as const;
 
 export function providerStageInstructionIdentityV2(): Readonly<{
   version: typeof PROVIDER_STAGE_INSTRUCTION_CONTRACT_VERSION_V2;
@@ -133,7 +133,10 @@ export function providerStageInstructionIdentityV2(): Readonly<{
 }> {
   return deepFreezeV1({
     version: PROVIDER_STAGE_INSTRUCTION_CONTRACT_VERSION_V2,
-    instructionsSha256: hashCanonicalJsonV1(STAGE_INSTRUCTIONS),
+    instructionsSha256: hashCanonicalJsonV1({
+      base: STAGE_INSTRUCTIONS,
+      selectedOperatorV2R: STAGE2_SELECTED_OPERATOR_INSTRUCTIONS_V2R,
+    }),
   });
 }
 
@@ -548,9 +551,16 @@ function exposedSpecOperators(
   priorArtifact: PriorArtifactV2,
   nodeContractVersion: NodeContractVersionV2,
 ): { operators: typeof operatorCatalogJson.operators; referencedIds: Set<string> | null } {
-  const referencedIds = stage >= 3
+  const v2rReferencedOperatorIds = nodeContractVersion === 'V2R'
+    ? referencedOperatorIdsV2R(priorArtifact.nodes)
+    : [];
+  const explicitCapabilityGapWithoutCatalogReference = nodeContractVersion === 'V2R'
+    && v2rReferencedOperatorIds.length === 0
+    && (priorArtifact.executionForm === 'CAPABILITY_GAP'
+      || priorArtifact.stageDisposition === 'CAPABILITY_GAP');
+  const referencedIds = stage >= 3 && !explicitCapabilityGapWithoutCatalogReference
     ? new Set(nodeContractVersion === 'V2R'
-      ? referencedOperatorIdsV2R(priorArtifact.nodes)
+      ? v2rReferencedOperatorIds
       : (Array.isArray(priorArtifact.nodes) ? priorArtifact.nodes : [])
         .flatMap((node) => isRecord(node) && Array.isArray(node.candidateCapabilityIds)
           ? node.candidateCapabilityIds.filter((id): id is string => typeof id === 'string')
@@ -1017,8 +1027,13 @@ function sourceCoordinateFact(artifact: MediaArtifactV2): JsonRecord {
 
 function validateArtifactV2(value: unknown, schema: unknown, path: string): string[] {
   if (!isRecord(schema)) return [`${path}:INVALID_SCHEMA`];
+  if (Array.isArray(schema.anyOf)) {
+    const alternatives = schema.anyOf.map((candidate) => validateArtifactV2(value, candidate, path));
+    return alternatives.some((diagnostics) => diagnostics.length === 0) ? [] : (alternatives[0] ?? [`${path}:ANY_OF`]);
+  }
   if ('const' in schema && value !== schema.const) return [`${path}:CONST`];
   if (Array.isArray(schema.enum) && !schema.enum.includes(value)) return [`${path}:ENUM`];
+  if (schema.type === 'null') return value === null ? [] : [`${path}:NULL`];
   if (schema.type === 'string') return typeof value === 'string' && (!schema.minLength || value.length >= Number(schema.minLength)) ? [] : [`${path}:STRING`];
   if (schema.type === 'array') {
     if (!Array.isArray(value)) return [`${path}:ARRAY`];
