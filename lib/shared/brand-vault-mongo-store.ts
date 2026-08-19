@@ -92,7 +92,7 @@ export interface BrandVaultMongoCollections {
   profiles: BrandVaultMongoCollection<BrandVaultMongoProfileDocument>;
   events: BrandVaultMongoCollection<BrandVaultMongoEventDocument>;
   jobs: BrandVaultMongoCollection<BrandVaultMongoJobDocument>;
-  /** Optional: agency ACL grants. Absent => no restrictions enforced (every brand open), the legacy default. */
+  /** Agency ACL grants. Optional only for legacy/test adapters; organization access fails closed when absent. */
   brandAccess?: BrandVaultMongoCollection<BrandVaultMongoBrandAccessDocument>;
 }
 
@@ -297,7 +297,9 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
 
   async setBrandAccess(input: BrandAccessAssignmentInput): Promise<void> {
     const collections = await this.getCollections();
-    if (!collections.brandAccess) return; // persistence not wired -> no-op (brand stays open to the org)
+    if (!collections.brandAccess) {
+      throw new Error('Brand Vault organization access storage is unavailable.');
+    }
     const userIds = normalizeBrandAccessUserIds(input.userIds);
     const _id = brandAccessKey(input.orgId, input.brandId);
     const now = new Date().toISOString();
@@ -316,7 +318,9 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
     collections: BrandVaultMongoCollections,
     orgId: string,
   ): Promise<BrandAccessGrants> {
-    if (!collections.brandAccess) return new Map();
+    if (!collections.brandAccess) {
+      throw new Error('Brand Vault organization access storage is unavailable.');
+    }
     const docs = await collections.brandAccess
       .find({ orgId } as Filter<BrandVaultMongoBrandAccessDocument>)
       .toArray();

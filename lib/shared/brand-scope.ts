@@ -99,7 +99,13 @@ export async function authorizeBrandScope(input: BrandScopeAuthorizationInput): 
       );
     }
 
-    if (input.orgId && store.getBrandAccessGrants) {
+    if (input.orgId) {
+      if (!store.getBrandAccessGrants) {
+        throw new BrandScopeAuthorizationError(
+          'brand_scope_unavailable',
+          'Brand Vault cannot verify organization brand access.',
+        );
+      }
       const grants = await store.getBrandAccessGrants(input.orgId);
       if (!isBrandAccessible(brandId, grants, {
         userId: input.userId,

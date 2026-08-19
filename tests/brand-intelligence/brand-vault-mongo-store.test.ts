@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createBrandVaultMongoRefineryStore,
+  type BrandVaultMongoBrandAccessDocument,
   type BrandVaultMongoCollection,
   type BrandVaultMongoCollections,
   type BrandVaultMongoEventDocument,
@@ -150,6 +151,37 @@ describe('Brand Vault Mongo refinery store', () => {
     expect(collections.events.indexes.flat()).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'org_user_createdAt' })]),
     );
+  });
+
+  it('distinguishes an unrestricted organization from missing access storage', async () => {
+    const configuredCollections = createMemoryCollections();
+    const configuredStore = createBrandVaultMongoRefineryStore({ collections: configuredCollections });
+    await configuredStore.saveRecord(draftRecord({
+      id: 'org_open_v1',
+      orgId: 'org_open',
+      name: 'Open Org Brand',
+      now: '2026-06-10T07:30:00.000Z',
+    }));
+    const accepted = await configuredStore.acceptDraft('org_open_v1', { now: '2026-06-10T07:31:00.000Z' });
+    if (!accepted.ok) throw new Error('Expected the unrestricted organization brand to be accepted.');
+
+    await expect(configuredStore.listAcceptedBrands({ orgId: 'org_open', userId: 'member_1' }))
+      .resolves.toEqual([expect.objectContaining({ brandId: 'shared_brand' })]);
+
+    const missingAccessStore = createBrandVaultMongoRefineryStore({
+      collections: {
+        profiles: configuredCollections.profiles,
+        events: configuredCollections.events,
+        jobs: configuredCollections.jobs,
+      },
+    });
+    await expect(missingAccessStore.listAcceptedBrands({ orgId: 'org_open', userId: 'member_1' }))
+      .rejects.toThrow('organization access storage is unavailable');
+    await expect(missingAccessStore.setBrandAccess({
+      orgId: 'org_open',
+      brandId: 'shared_brand',
+      userIds: ['member_1'],
+    })).rejects.toThrow('organization access storage is unavailable');
   });
 
   it('keeps one accepted organization profile across collaborating members', async () => {
@@ -475,11 +507,13 @@ function createMemoryCollections(): {
   profiles: MemoryMongoCollection<BrandVaultMongoProfileDocument>;
   events: MemoryMongoCollection<BrandVaultMongoEventDocument>;
   jobs: MemoryMongoCollection<BrandVaultMongoJobDocument>;
+  brandAccess: MemoryMongoCollection<BrandVaultMongoBrandAccessDocument>;
 } & BrandVaultMongoCollections {
   return {
     profiles: new MemoryMongoCollection<BrandVaultMongoProfileDocument>(),
     events: new MemoryMongoCollection<BrandVaultMongoEventDocument>(),
     jobs: new MemoryMongoCollection<BrandVaultMongoJobDocument>(),
+    brandAccess: new MemoryMongoCollection<BrandVaultMongoBrandAccessDocument>(),
   };
 }
 
@@ -495,6 +529,9 @@ async function cloneMemoryCollections(
   }
   for (const document of source.jobs.values()) {
     await cloned.jobs.updateOne({ _id: document._id }, { $set: document }, { upsert: true });
+  }
+  for (const document of source.brandAccess.values()) {
+    await cloned.brandAccess.updateOne({ _id: document._id }, { $set: document }, { upsert: true });
   }
   return cloned;
 }

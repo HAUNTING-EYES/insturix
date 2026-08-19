@@ -74,6 +74,15 @@ describe('direct Brand Vault scope authorization', () => {
     })).resolves.toMatchObject({ brandId: 'brand_1', recordId: 'record_12' });
   });
 
+  it('fails closed when organization access storage is not available', async () => {
+    await expect(authorizeBrandScope({
+      userId: 'user_1',
+      orgId: 'org_1',
+      brandId: 'brand_1',
+      store: { getLatestAcceptedRecord: vi.fn().mockResolvedValue(acceptedRecord()) },
+    })).rejects.toMatchObject({ code: 'brand_scope_unavailable' });
+  });
+
   it('rejects a record whose embedded brand identity disagrees with the request', async () => {
     await expect(authorizeBrandScope({
       userId: 'user_1',
