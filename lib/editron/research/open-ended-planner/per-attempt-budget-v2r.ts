@@ -13,7 +13,7 @@ export const PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R =
   'EDITRON_OE_PER_ATTEMPT_BUDGET_POLICY_V2R' as const;
 
 export const V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_VERSION =
-  'EDITRON_OE_V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_V2' as const;
+  'EDITRON_OE_V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_V3' as const;
 export const V2R_MAX_PROVIDER_ATTEMPTS_PER_STAGE = 2 as const;
 export const V2R_PROVIDER_ATTEMPT_NUMBERS = deepFreezeV1([1, 2] as const);
 
@@ -25,7 +25,10 @@ export type V2RProviderStageBudgetSchedule = Readonly<Record<
 
 export const V2R_PROVIDER_STAGE_BUDGETS: V2RProviderStageBudgetSchedule = deepFreezeV1({
   1: { maxInputTokens: 30000, maxVisibleOutputTokens: 10000, maxReasoningTokens: 3000, maxWallClockMs: 420000, maxProviderCostUsd: 0.70 },
-  2: { maxInputTokens: 70000, maxVisibleOutputTokens: 16000, maxReasoningTokens: 5000, maxWallClockMs: 420000, maxProviderCostUsd: 0.70 },
+  // V14 measured a maximum 68,005-token normalized Stage-2 attempt. The 90k
+  // envelope also admits one maximum 16k visible response plus bounded repair
+  // diagnostics; it is not a general permission to grow the tool sheet.
+  2: { maxInputTokens: 90000, maxVisibleOutputTokens: 16000, maxReasoningTokens: 5000, maxWallClockMs: 420000, maxProviderCostUsd: 0.70 },
   3: { maxInputTokens: 60000, maxVisibleOutputTokens: 12000, maxReasoningTokens: 3000, maxWallClockMs: 420000, maxProviderCostUsd: 0.60 },
 });
 

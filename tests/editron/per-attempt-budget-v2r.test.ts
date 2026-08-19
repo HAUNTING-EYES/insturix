@@ -46,7 +46,7 @@ describe('V2-1R per-attempt budget policy', () => {
     expect(Object.isFrozen(V2R_PROVIDER_ATTEMPT_NUMBERS)).toBe(true);
     expect(identity.stageBudgets).toEqual(V2R_PROVIDER_STAGE_BUDGETS);
     expect(identity.stageBudgets[1].maxInputTokens).toBe(30000);
-    expect(identity.stageBudgets[2].maxInputTokens).toBe(70000);
+    expect(identity.stageBudgets[2].maxInputTokens).toBe(90000);
     expect(identity.stageBudgets[3].maxInputTokens).toBe(60000);
     expect(identity.scheduleSha256).toHaveLength(64);
     expect(v2rProviderStageBudgetScheduleIdentity()).toEqual(identity);
