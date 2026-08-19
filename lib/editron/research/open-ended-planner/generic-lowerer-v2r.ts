@@ -1,10 +1,13 @@
-import operatorCatalogJson from '@/tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json';
-
 import {
   createCompiledPortBindingEdgeV2R,
   type CompiledPortBindingEdgeV2R,
 } from './compiled-port-binding-v2r';
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
+import {
+  V2R_OPERATOR_CATALOG,
+  v2rOperatorCatalogIdentity,
+  v2rOperatorSpecRef,
+} from './operator-catalog-v2r';
 import { selectedOperatorDriftDiagnosticsV2R } from './stage2-selected-operator-contract-v2r';
 import { validateJsonSchemaV2 } from './stage4-compilation-evaluator-v2';
 
@@ -76,6 +79,8 @@ export interface PlannerInputOwnershipV2R {
   policySha256: string;
   taskId: string;
   operatorCatalogVersion: string;
+  operatorCatalogRevision: string;
+  operatorCatalogSha256: string;
   nodeInputsRule: 'NODE_INPUTS_CONTAIN_ONLY_MODEL_OWNED_FIELDS';
   unboundRequiredFieldsBlockSelection: true;
   operators: readonly Readonly<PlannerOperatorInputOwnershipV2R>[];
@@ -98,7 +103,7 @@ export interface GenericLoweringResultV2R {
   diagnostics: readonly string[];
 }
 
-const catalog = operatorCatalogJson as unknown as JsonRecord;
+const catalog = V2R_OPERATOR_CATALOG as unknown as JsonRecord;
 const operators = new Map<string, JsonRecord>(
   records(catalog.operators).map((operator) => [text(operator.operatorId), operator]),
 );
@@ -162,12 +167,15 @@ export function buildPlannerInputOwnershipV2R(
     };
   });
 
+  const catalogIdentity = v2rOperatorCatalogIdentity();
   return deepFreezeV1({
     ownershipVersion: PLANNER_INPUT_OWNERSHIP_VERSION_V2R,
     policyVersion: GENERIC_LOWERING_POLICY_VERSION_V2R,
     policySha256: hashCanonicalJsonV1(policy),
     taskId: policy.taskId,
-    operatorCatalogVersion: text(catalog.version),
+    operatorCatalogVersion: catalogIdentity.version,
+    operatorCatalogRevision: catalogIdentity.catalogRevision,
+    operatorCatalogSha256: catalogIdentity.catalogSha256,
     nodeInputsRule: 'NODE_INPUTS_CONTAIN_ONLY_MODEL_OWNED_FIELDS',
     unboundRequiredFieldsBlockSelection: true,
     operators: ownershipRows,
@@ -352,7 +360,7 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
       nodeId,
       intentNodeId,
       operatorId: selectedOperatorId,
-      operatorSpecRef: `EDITRON_OPERATOR_SPECS_V2@${text(catalog.version)}#${selectedOperatorId}`,
+      operatorSpecRef: v2rOperatorSpecRef(selectedOperatorId),
       ownerRef: ownerRef(operator),
       inputs,
       reads,

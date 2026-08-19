@@ -5,6 +5,7 @@ import {
   type GenericLoweringResultV2R,
 } from './generic-lowerer-v2r';
 import { buildPlannerOwnershipStageTwoPacketV2R } from './planner-ownership-stage2-packet-v2r';
+import { bindV2ROperatorCatalogToPacketV2R } from './operator-catalog-v2r';
 import {
   assertV2RPreregistrationComplete,
   type V2RPreregistrationManifest,
@@ -110,14 +111,14 @@ export async function runV2RConnectedEpisodeV2(input: {
   rows.push(stageTwo);
   if (!accepted(stageTwo)) return receipt(input, manifest, rows, 'BLOCKED_BEFORE_STAGE3', notLowered());
 
-  const stageThreePacket = buildNextProviderStagePacketV2({
+  const stageThreePacket = bindV2ROperatorCatalogToPacketV2R(buildNextProviderStagePacketV2({
     previousPacket: stageTwoPacket,
     stage: 3,
     executionFormArm: input.task.executionFormArm,
     priorArtifact: requireArtifact(stageTwo),
     stageThreeSource: { evidencePack: input.task.evidencePack },
     nodeContractVersion: 'V2R',
-  });
+  }));
   const stageThree = await runStage({
     route: input.route,
     packet: stageThreePacket,

@@ -6,6 +6,7 @@ import {
   type GenericLoweringPolicyV2R,
   type PlannerInputOwnershipV2R,
 } from './generic-lowerer-v2r';
+import { bindV2ROperatorCatalogToPacketV2R } from './operator-catalog-v2r';
 import {
   buildNextProviderStagePacketV2,
   type HashedStagePacketV2,
@@ -37,13 +38,13 @@ export function buildPlannerOwnershipStageTwoPacketV2R(input: {
   loweringPolicy: GenericLoweringPolicyV2R;
 }): HashedStagePacketV2 {
   const ownership = buildPlannerInputOwnershipV2R(input.loweringPolicy);
-  const base = buildNextProviderStagePacketV2({
+  const base = bindV2ROperatorCatalogToPacketV2R(buildNextProviderStagePacketV2({
     previousPacket: input.previousPacket,
     stage: 2,
     executionFormArm: input.executionFormArm,
     priorArtifact: input.priorArtifact,
     nodeContractVersion: 'V2R',
-  });
+  }));
   assertOwnershipBindingV2R(base, ownership);
 
   const packet = deepFreezeV1({
@@ -77,7 +78,9 @@ function assertOwnershipBindingV2R(
     throw new Error('PLANNER_INPUT_OWNERSHIP_TASK_DRIFT');
   }
   const catalog = record(packet.packet.modelInput.operatorCatalog);
-  if (catalog.version !== ownership.operatorCatalogVersion) {
+  if (catalog.version !== ownership.operatorCatalogVersion
+    || catalog.catalogRevision !== ownership.operatorCatalogRevision
+    || catalog.catalogSha256 !== ownership.operatorCatalogSha256) {
     throw new Error('PLANNER_INPUT_OWNERSHIP_CATALOG_DRIFT');
   }
   const catalogOperatorIds = records(catalog.operators).map((operator) => text(operator.operatorId));

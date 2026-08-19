@@ -12,6 +12,7 @@ import {
 import type { HashedStagePacketV2 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
 import type { ProviderStageRunV2 } from '@/lib/editron/research/open-ended-planner/provider-transport-v2';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import { V2R_OPERATOR_CATALOG_REVISION } from '@/lib/editron/research/open-ended-planner/operator-catalog-v2r';
 
 type JsonRecord = Record<string, unknown>;
 const canonical = getCanonicalDev01Stage123V2();
@@ -86,6 +87,23 @@ describe('V2-1F V2R connected episode harness', () => {
     const stageTwoInput = seenPackets[1].packet.modelInput as JsonRecord;
     expect(Array.isArray(stageTwoInput.operatorCatalog)).toBe(false);
     expect((stageTwoInput.operatorCatalog as JsonRecord).operators).toBeTruthy();
+    const stageTwoCatalog = stageTwoInput.operatorCatalog as JsonRecord;
+    const stageThreeCatalog = seenPackets[2].packet.modelInput.operatorCatalog as JsonRecord;
+    expect(stageTwoCatalog).toMatchObject({
+      version: '2.0.0',
+      catalogRevision: V2R_OPERATOR_CATALOG_REVISION,
+    });
+    expect(typeof stageTwoCatalog.catalogSha256).toBe('string');
+    expect(stageThreeCatalog.catalogRevision).toBe(stageTwoCatalog.catalogRevision);
+    expect(stageThreeCatalog.catalogSha256).toBe(stageTwoCatalog.catalogSha256);
+    expect((stageThreeCatalog.operators as Array<{ operatorId: string }>).map(({ operatorId }) => operatorId))
+      .toEqual((canonical.editorialIntentV2R.nodes as Array<{ selectedOperatorId: string }>)
+        .map(({ selectedOperatorId }) => selectedOperatorId)
+        .filter((operatorId, index, all) => all.indexOf(operatorId) === index)
+        .sort((left, right) => {
+          const stageTwoIds = (stageTwoCatalog.operators as Array<{ operatorId: string }>).map(({ operatorId }) => operatorId);
+          return stageTwoIds.indexOf(left) - stageTwoIds.indexOf(right);
+        }));
     const dossier = stageTwoInput.capabilityDossier as Array<{ operatorId: string; cap2a: unknown }>;
     expect(Array.isArray(dossier)).toBe(true);
     expect(dossier.length).toBeGreaterThan(0);
@@ -104,6 +122,8 @@ describe('V2-1F V2R connected episode harness', () => {
       policyVersion: 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_3',
       taskId: 'DEV-01',
       operatorCatalogVersion: '2.0.0',
+      operatorCatalogRevision: V2R_OPERATOR_CATALOG_REVISION,
+      operatorCatalogSha256: stageTwoCatalog.catalogSha256,
       nodeInputsRule: 'NODE_INPUTS_CONTAIN_ONLY_MODEL_OWNED_FIELDS',
       unboundRequiredFieldsBlockSelection: true,
     });
