@@ -275,6 +275,25 @@ describe('ScriptWriterAgent prompt contract', () => {
     expect(prompt).not.toContain('unsupported spoken language');
   });
 
+  it('sends the exact resolved proof contract that script validation enforces', () => {
+    const userPrompt = 'Include that idling fuel use fell 31% during the measured period.';
+    const contentSignalProfile = resolveContentSignalProfile({
+      userPrompt,
+      project: { platform: 'YouTube', format: 'script' },
+    });
+    const prompt = new ScriptWriterAgent().buildPrompt({
+      context: { projectSummary: 'Evidence-led port pilot.' },
+      userPrompt,
+      contentSignalProfile,
+    });
+
+    expect(contentSignalProfile.intent.proofPoints)
+      .toContain('Required brief claim: idling fuel use fell 31% during the measured period');
+    expect(prompt).toContain('"contentSignalProfile"');
+    expect(prompt).toContain('Required brief claim: idling fuel use fell 31% during the measured period');
+    expect(prompt).toContain('include that value exactly in natural script copy');
+  });
+
   it('maps reordered retrieved facts to their immutable ledger references', () => {
     const factA = { id: 'fact_a', title: 'Fact A', summary: 'Earlier approved evidence.', tags: [] };
     const factB = { id: 'fact_b', title: 'Fact B', summary: 'Current approved evidence.', tags: [] };
@@ -463,6 +482,48 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
   });
 
+  it('exposes final rejected script output only during explicit eval diagnostics', async () => {
+    const invalid = makeModelOutput();
+    delete invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.movementMotivation;
+    generateStructuredWithWritingContextCacheMock.mockResolvedValue({
+      result: invalid,
+      cacheStatus: 'hit',
+      modelName: 'models/gemini-2.5-flash',
+    });
+    const previousCapture = process.env.THINKFORGE_EVAL_CAPTURE_REJECTED_OUTPUT;
+
+    try {
+      delete process.env.THINKFORGE_EVAL_CAPTURE_REJECTED_OUTPUT;
+      let productionError: unknown;
+      try {
+        await new ScriptWriterAgent().runStructured({
+          context: { projectSummary: 'Approval workflow launch.' },
+          userPrompt: 'Write the complete video script.',
+        });
+      } catch (error) {
+        productionError = error;
+      }
+      expect((productionError as Error & { rejectedOutput?: unknown }).rejectedOutput).toBeUndefined();
+
+      process.env.THINKFORGE_EVAL_CAPTURE_REJECTED_OUTPUT = '1';
+      let evalError: unknown;
+      try {
+        await new ScriptWriterAgent().runStructured({
+          context: { projectSummary: 'Approval workflow launch.' },
+          userPrompt: 'Write the complete video script.',
+        });
+      } catch (error) {
+        evalError = error;
+      }
+      expect((evalError as Error & { rejectedOutput?: ScriptWriterModelOutput }).rejectedOutput)
+        .toEqual(invalid);
+      expect(Object.keys(evalError as Error)).not.toContain('rejectedOutput');
+    } finally {
+      if (previousCapture === undefined) delete process.env.THINKFORGE_EVAL_CAPTURE_REJECTED_OUTPUT;
+      else process.env.THINKFORGE_EVAL_CAPTURE_REJECTED_OUTPUT = previousCapture;
+    }
+  });
+
   it('repairs a script whose spoken substance cannot occupy its claimed runtime', async () => {
     const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
     const invalid = makeModelOutput({
@@ -557,6 +618,34 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
       .toContain('profile_forbidden_term');
     expect(output.result.content).not.toContain('game-changing');
+  });
+
+  it('repairs an omitted required proof claim using exact validator diagnostics', async () => {
+    const userPrompt = 'Include that idling fuel use fell 31% during the measured period.';
+    const contentSignalProfile = resolveContentSignalProfile({
+      userPrompt,
+      project: { platform: 'YouTube', format: 'script' },
+    });
+    const invalid = makeModelOutput();
+    const repaired = makeModelOutput();
+    repaired.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0]!.text =
+      'Idling fuel use fell 31% during the measured period.';
+    generateStructuredWithWritingContextCacheMock
+      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
+      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Evidence-led port pilot.' },
+      userPrompt,
+      contentSignalProfile,
+    });
+
+    const repairCall = generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0];
+    expect(repairCall?.systemInstruction).toContain('profile_missing_required_brief_claim');
+    expect(repairCall?.prompt).toContain('validatorDiagnostics');
+    expect(repairCall?.prompt).toContain('Explicit brief claim is missing or altered');
+    expect(repairCall?.prompt).toContain('idling fuel use fell 31% during the measured period');
+    expect(output.result.content).toContain('Idling fuel use fell 31% during the measured period.');
   });
 
   it('keeps a second critical Brand Vault violation out of persistence', () => {

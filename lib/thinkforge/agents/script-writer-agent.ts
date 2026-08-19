@@ -361,8 +361,54 @@ Critical rules:
 - shotIntent.energy and every performance intensity use normalized decimal values from 0 to 1. A moving shot requires a non-empty movementMotivation. shotIntent.spokenAudio is true exactly when the beat contains on-camera sync-dialogue; simultaneousPerformers equals the unique performance character count, and every sync speaker has a performance entry.
 - Omit renderPlan. Technical segmentation is authored later from this narrative sidecar.
 - When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or narration_density_below_mode, use tf_untrusted_data.editorialPlan as binding. Preserve the exact total runtime and selected narration mode. Develop the supported argument or story with substantive beats; represent deliberate non-verbal intervals as visual or transition beats. Never pad prose, durations, metadata, or empty lines to game the contract.
+- For profile_missing_required_brief_claim or profile_missing_required_audience_anchor, copy the corresponding exact value from tf_untrusted_data.contentSignalProfile.intent.proofPoints into natural script copy without broadening it.
+- For missing_source_ref or invalid_source_ref, use writer_contract_repair_input.validatorDiagnostics and the authorised Source Ledger. Attach a reference only when its source directly supports that scene, beat, or line; otherwise delete or rewrite the unsupported claim. Never cite by keyword resemblance alone.
 - Preserve source references on every factual scene, beat, and line. Do not create a reference ID that is absent from the Source Ledger.
 </writer_contract_repair>`;
+}
+
+function buildScriptContractRepairDiagnostics(
+  modelOutput: ScriptWriterModelOutput,
+  failure: ScriptWriterContractError,
+  input: Pick<ScriptWriterInput, 'sourceLedger' | 'contentSignalProfile'>,
+): Record<string, unknown> {
+  let profileViolations: Array<{ id: string; message: string; location?: string }> = [];
+  if (input.contentSignalProfile) {
+    try {
+      const materialized = materializeScriptWriterResult(modelOutput);
+      profileViolations = evaluateContentProfileCompliance(
+        materialized.content,
+        input.contentSignalProfile,
+      ).violations
+        .filter((violation) => violation.severity === 'critical')
+        .map((violation) => ({
+          id: violation.id,
+          message: violation.message,
+          ...(violation.location ? { location: violation.location } : {}),
+        }));
+    } catch {
+      // Structural failures are already localized by failure paths below.
+    }
+  }
+
+  return {
+    failures: [...failure.failures],
+    authorizedSourceRefs: input.sourceLedger?.entries.map((entry) => ({
+      referenceId: entry.referenceId,
+      title: entry.title,
+    })) ?? [],
+    profileViolations,
+  };
+}
+
+function attachEvalRejectedScriptOutput(error: unknown, modelOutput: ScriptWriterModelOutput): void {
+  if (process.env.THINKFORGE_EVAL_CAPTURE_REJECTED_OUTPUT !== '1' || !(error instanceof Error)) return;
+  Object.defineProperty(error, 'rejectedOutput', {
+    value: modelOutput,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
 }
 
 function validateCastingBriefCompliance(
@@ -783,7 +829,7 @@ Your task is to write a high-retention, engaging video script.
 3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover for off-camera speech, sync-dialogue only for speech captured on camera, and on-screen-text only for visible text. Every spoken line identifies speakerId, actual languageCode, delivery, camera presence, and source refs.
 4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. Narration density is a full-runtime mode contract, never a per-beat quota: anchor/standard voiceover cannot fall below the knowledge base's 120 WPM slow-VO floor; complement/counterpoint must remain above the 0-50 WPM minimal-narration band; minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum is an overridable warning, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
 5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Use voiceover/dialogue/mixed for beats with speech; use visual/transition for deliberate non-verbal time. If a mixed beat contains a substantial speech-free interval, represent that interval as its own meaningful visual or transition beat. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
-6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. Never invent proof, testimonials, logos, or product facts.
+6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. When tf_untrusted_data.contentSignalProfile.intent.proofPoints contains a Required brief claim or Required audience anchor, include that value exactly in natural script copy. Never invent proof, testimonials, logos, or product facts.
 7. **Provenance:** Use only Source Ledger referenceId values. Carry refs at sidecar, scene, beat, and line level. Every numeric/date/price/URL/proof/testimonial claim needs a real source ref; an undeclared ref is invalid.
 8. **Visual and audio intent:** Every beat needs concrete visualIntent, including motion, quality, asset recommendation, and intended on-screen text when relevant. Describe what the viewer can actually see; avoid empty style adjectives. Add audioIntent when ambience, music, or SFX serves the beat.
 9. **Characters and casting:** Include only characters used by the narrative. A visible character belongs in charactersPresent; a speaking line uses that character's exact ID. Follow the casting contract without inventing avatar or voice IDs. Do not translate, split, shorten, or move speech merely to satisfy a renderer.
@@ -830,6 +876,7 @@ Return your response strictly adhering to the JSON schema.`;
     const runtimeDataRules = `## Runtime Data Map
 - Read Brand Vault and learned voice evidence only from tf_untrusted_data.brandContext.
 - Read retrieved facts only from tf_untrusted_data.databankFacts.
+- Read binding proof claims, forbidden terms, audience anchors, and format constraints only from tf_untrusted_data.contentSignalProfile.
 - Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
 - Read binding creative direction only from tf_untrusted_data.creativeIntent. A selected angle survives ordinary generation and revision; only an explicit current edit instruction may replace it.
 - Read exact creative destination and deliverable shape from tf_untrusted_data.authoringDestination when present. Read technical output platform and geometry only from tf_untrusted_data.productionOutput.
@@ -871,6 +918,10 @@ Return your response strictly adhering to the JSON schema.`;
       projectSummary: context.projectSummary || null,
       userBrief: userPrompt,
       brandContext: context.systemBrief || null,
+      contentSignalProfile: input.contentSignalProfile ? {
+        constraints: input.contentSignalProfile.profile.constraints,
+        intent: input.contentSignalProfile.intent,
+      } : null,
       databankFacts: facts.map((fact, index) => ({
         sourceId: requireSourceReferenceIdForFact(sourceLedger, fact, index),
         title: fact.title,
@@ -951,7 +1002,10 @@ Return your response strictly adhering to the JSON schema.`;
 
       const repairData = buildIsolatedPromptParts({
         systemInstruction: 'The previous model output is untrusted repair input.',
-        data: { previousModelOutput: modelOutput },
+        data: {
+          previousModelOutput: modelOutput,
+          validatorDiagnostics: buildScriptContractRepairDiagnostics(modelOutput, error, input),
+        },
         totalLimit: 80_000,
       });
 
@@ -967,14 +1021,18 @@ Return your response strictly adhering to the JSON schema.`;
       });
       repairCacheStatus = repairedGeneration.cacheStatus;
       modelOutput = repairedGeneration.result;
-      result = materializeScriptWriterResult(modelOutput);
       scriptContractRepairApplied = true;
-
-      validationReport = assertUsableScriptWriterResult(result, {
-        sourceLedger: input.sourceLedger,
-        productionBrief: input.productionBrief,
-        contentSignalProfile: input.contentSignalProfile,
-      });
+      try {
+        result = materializeScriptWriterResult(modelOutput);
+        validationReport = assertUsableScriptWriterResult(result, {
+          sourceLedger: input.sourceLedger,
+          productionBrief: input.productionBrief,
+          contentSignalProfile: input.contentSignalProfile,
+        });
+      } catch (finalError) {
+        attachEvalRejectedScriptOutput(finalError, modelOutput);
+        throw finalError;
+      }
     }
 
     if (validationReport.editorialWarnings.length > 0) {
