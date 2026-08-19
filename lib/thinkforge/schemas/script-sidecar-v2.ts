@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { SceneShotIntentSchema } from '../production/scene-shot-intent';
+import {
+  SceneShotIntentObjectSchema,
+  SceneShotIntentSchema,
+} from '../production/scene-shot-intent';
 import { CHARACTER_ROLES, LINE_DELIVERIES } from './script-sidecar';
 
 export const SCRIPT_SIDECAR_V2_VERSION = 2 as const;
@@ -27,7 +30,7 @@ export const NarrativeCharacterV2Schema = z.object({
   role: z.enum(CHARACTER_ROLES),
 }).strict();
 
-export const NarrativeLineV2Schema = z.object({
+const NarrativeLineV2ObjectSchema = z.object({
   id: IdentifierSchema,
   // Structural reads preserve historic empty V1 lines; editorial quality is a later gate.
   text: z.string(),
@@ -36,7 +39,9 @@ export const NarrativeLineV2Schema = z.object({
   onCamera: z.boolean().default(false),
   delivery: z.enum(LINE_DELIVERIES),
   sourceRefs: SourceRefsSchema,
-}).strict().superRefine((line, ctx) => {
+}).strict();
+
+export const NarrativeLineV2Schema = NarrativeLineV2ObjectSchema.superRefine((line, ctx) => {
   if (line.delivery !== 'on-screen-text' && !line.speakerId) {
     addContractIssue(ctx, ['speakerId'], 'Spoken narrative lines must identify their speaker.');
   }
@@ -60,23 +65,30 @@ const NarrativeAudioIntentV2Schema = z.object({
   sfx: z.array(NonEmptyTextSchema).default([]),
 }).strict();
 
-export const NarrativeBeatV2Schema = z.object({
+const NarrativeBeatV2ModelObjectSchema = z.object({
   id: IdentifierSchema,
   kind: z.enum(['dialogue', 'voiceover', 'visual', 'transition', 'mixed']),
   narrativePurpose: NonEmptyTextSchema,
   durationIntentSeconds: z.number().finite().positive().optional(),
-  lines: z.array(NarrativeLineV2Schema).default([]),
+  lines: z.array(NarrativeLineV2ObjectSchema).default([]),
   visualIntent: NarrativeVisualIntentV2Schema.optional(),
   audioIntent: NarrativeAudioIntentV2Schema.optional(),
-  shotIntent: SceneShotIntentSchema.optional(),
+  shotIntent: SceneShotIntentObjectSchema.optional(),
   sourceRefs: SourceRefsSchema,
-}).strict().superRefine((beat, ctx) => {
+}).strict();
+
+const NarrativeBeatV2ObjectSchema = NarrativeBeatV2ModelObjectSchema.extend({
+  lines: z.array(NarrativeLineV2Schema).default([]),
+  shotIntent: SceneShotIntentSchema.optional(),
+}).strict();
+
+export const NarrativeBeatV2Schema = NarrativeBeatV2ObjectSchema.superRefine((beat, ctx) => {
   if (beat.lines.length === 0 && !beat.visualIntent) {
     addContractIssue(ctx, ['lines'], 'A narrative beat must contain lines or visual intent.');
   }
 });
 
-export const NarrativeSceneV2Schema = z.object({
+const NarrativeSceneV2ModelSchema = z.object({
   id: IdentifierSchema,
   title: NonEmptyTextSchema,
   narrativePurpose: NonEmptyTextSchema,
@@ -84,13 +96,21 @@ export const NarrativeSceneV2Schema = z.object({
   mood: NonEmptyTextSchema.optional(),
   charactersPresent: z.array(IdentifierSchema).default([]),
   sourceRefs: SourceRefsSchema,
+  beats: z.array(NarrativeBeatV2ModelObjectSchema).min(1),
+}).strict();
+
+export const NarrativeSceneV2Schema = NarrativeSceneV2ModelSchema.extend({
   beats: z.array(NarrativeBeatV2Schema).min(1),
 }).strict();
 
-export const NarrativeActV2Schema = z.object({
+const NarrativeActV2ModelSchema = z.object({
   id: IdentifierSchema,
   title: NonEmptyTextSchema,
   narrativePurpose: NonEmptyTextSchema,
+  narrativeScenes: z.array(NarrativeSceneV2ModelSchema).min(1),
+}).strict();
+
+export const NarrativeActV2Schema = NarrativeActV2ModelSchema.extend({
   narrativeScenes: z.array(NarrativeSceneV2Schema).min(1),
 }).strict();
 
@@ -162,15 +182,19 @@ function validateSourceRefs(
   });
 }
 
-const ScriptNarrativeSidecarV2ObjectSchema = z.object({
+const ScriptNarrativeSidecarV2ModelObjectSchema = z.object({
   // The version is defaulted for structured authoring, then enforced below.
   sidecarVersion: z.number().int().default(SCRIPT_SIDECAR_V2_VERSION),
   spokenTextSource: z.literal('beat-lines').default('beat-lines'),
   characters: z.array(NarrativeCharacterV2Schema).default([]),
-  acts: z.array(NarrativeActV2Schema).min(1),
+  acts: z.array(NarrativeActV2ModelSchema).min(1),
   creativeDirection: CreativeDirectionV2Schema.optional(),
   briefId: IdentifierSchema.optional(),
   sourceRefs: SourceRefsSchema,
+}).strict();
+
+const ScriptNarrativeSidecarV2ObjectSchema = ScriptNarrativeSidecarV2ModelObjectSchema.extend({
+  acts: z.array(NarrativeActV2Schema).min(1),
 }).strict();
 
 const ScriptSidecarV2ObjectSchema = ScriptNarrativeSidecarV2ObjectSchema.extend({
@@ -361,6 +385,9 @@ export const ScriptWriterSidecarV2Schema = ScriptNarrativeSidecarV2ObjectSchema.
   (sidecar, ctx) => validateScriptSidecarV2({ ...sidecar, renderPlan: undefined }, ctx),
 );
 
+/** Provider decoding contract: structural only so one bounded repair can handle semantic violations. */
+export const ScriptWriterSidecarV2ModelSchema = ScriptNarrativeSidecarV2ModelObjectSchema;
+
 export type NarrativeCharacterV2 = z.infer<typeof NarrativeCharacterV2Schema>;
 export type NarrativeLineV2 = z.infer<typeof NarrativeLineV2Schema>;
 export type NarrativeBeatV2 = z.infer<typeof NarrativeBeatV2Schema>;
@@ -369,6 +396,7 @@ export type NarrativeActV2 = z.infer<typeof NarrativeActV2Schema>;
 export type ProviderRenderSegmentV2 = z.infer<typeof ProviderRenderSegmentV2Schema>;
 export type ScriptSidecarV2 = z.infer<typeof ScriptSidecarV2Schema>;
 export type ScriptWriterSidecarV2 = z.infer<typeof ScriptWriterSidecarV2Schema>;
+export type ScriptWriterSidecarV2Model = z.infer<typeof ScriptWriterSidecarV2ModelSchema>;
 
 /** Audible text has exactly one owner: ordered beat lines, never render segments. */
 export function getCanonicalBeatSpokenText(

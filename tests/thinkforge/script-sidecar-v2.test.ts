@@ -7,6 +7,7 @@ import {
   getCanonicalBeatSpokenText,
   parseScriptSidecarV2,
   SCRIPT_SIDECAR_V2_VERSION,
+  ScriptWriterSidecarV2ModelSchema,
   ScriptWriterSidecarV2Schema,
 } from '@/lib/thinkforge/schemas/script-sidecar-v2';
 import {
@@ -268,6 +269,19 @@ describe('Script Sidecar V2 narrative contract', () => {
     const wrongSpokenAudio = v2Sidecar();
     wrongSpokenAudio.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.spokenAudio = false;
     expect(() => parseScriptSidecarV2(wrongSpokenAudio)).toThrow(/must match/);
+  });
+
+  it('keeps provider decoding structural while the narrative contract remains strict', () => {
+    const { renderPlan: _renderPlan, ...narrativeOnly } = v2Sidecar();
+    const draft = ScriptWriterSidecarV2ModelSchema.parse(narrativeOnly);
+    const shotIntent = draft.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!;
+    shotIntent.desiredMovement = 'push-in';
+    delete shotIntent.movementMotivation;
+    shotIntent.spokenAudio = false;
+
+    expect(ScriptWriterSidecarV2ModelSchema.safeParse(draft).success).toBe(true);
+    expect(ScriptWriterSidecarV2Schema.safeParse(draft).success).toBe(false);
+    expect(() => parseScriptSidecarV2(draft)).toThrow(/movementMotivation|spokenAudio/);
   });
 
   it('keeps beat lines as the only canonical spoken-text source', () => {

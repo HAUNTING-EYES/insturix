@@ -398,6 +398,48 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(() => assertUsableScriptWriterResult(output.result)).not.toThrow();
   });
 
+  it('repairs structurally valid cross-field sidecar violations before persistence', async () => {
+    const invalid = makeModelOutput();
+    const invalidShot = invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!;
+    delete invalidShot.movementMotivation;
+    invalidShot.spokenAudio = true;
+    const repaired = makeModelOutput();
+
+    expect(ScriptWriterModelOutputSchema.safeParse(invalid).success).toBe(true);
+    expect(ScriptSidecarV2Schema.safeParse(invalid.sidecar).success).toBe(false);
+
+    generateStructuredWithWritingContextCacheMock
+      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
+      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Approval workflow launch.' },
+      userPrompt: 'Write the complete video script.',
+    });
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
+    expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
+      .toMatch(/movementMotivation[\s\S]*spokenAudio/);
+    expect(ScriptSidecarV2Schema.safeParse(output.result.sidecar).success).toBe(true);
+    expect(output.metadata?.notes).toContain('script_contract_repair:applied');
+  });
+
+  it('fails closed after one repair when the replacement still violates the sidecar contract', async () => {
+    const invalid = makeModelOutput();
+    delete invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!.movementMotivation;
+    generateStructuredWithWritingContextCacheMock.mockResolvedValue({
+      result: invalid,
+      cacheStatus: 'hit',
+      modelName: 'models/gemini-2.5-flash',
+    });
+
+    await expect(new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Approval workflow launch.' },
+      userPrompt: 'Write the complete video script.',
+    })).rejects.toThrow(/invalid_sidecar[\s\S]*movementMotivation/);
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
+  });
+
   it('repairs a script whose spoken substance cannot occupy its claimed runtime', async () => {
     const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
     const invalid = makeModelOutput({
