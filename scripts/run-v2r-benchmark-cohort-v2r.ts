@@ -5,6 +5,7 @@ import {
   prepareV2RLiveCohortV2R,
   runV2RLiveCohortV2R,
 } from '../lib/editron/research/open-ended-planner/v2r-live-cohort-v2r';
+import { V2R_EXPERIMENT_VERSION } from '../lib/editron/research/open-ended-planner/v2r-preregistration-manifest';
 
 loadEnv({ path: path.resolve('.env.local'), override: false, quiet: true });
 
@@ -16,6 +17,12 @@ function option(name: string): string | null {
 
 function safeTimestamp(value: string): string {
   return value.replace(/[-:.TZ]/g, '').slice(0, 14);
+}
+
+function experimentCohortPrefix(): string {
+  const match = /_V(\d+)$/.exec(V2R_EXPERIMENT_VERSION);
+  if (!match) throw new Error('V2R_EXPERIMENT_VERSION_COHORT_PREFIX_INVALID');
+  return `v2r-v${match[1]}`;
 }
 
 async function main(): Promise<void> {
@@ -43,7 +50,7 @@ async function main(): Promise<void> {
   }
 
   const createdAt = new Date().toISOString();
-  const cohortId = `v2r-v15-${safeTimestamp(createdAt)}`;
+  const cohortId = `${experimentCohortPrefix()}-${safeTimestamp(createdAt)}`;
   const outputDir = path.resolve(
     '.calibration-temp/open-ended-planner-v2/v2r-cohorts', cohortId,
   );
