@@ -12,19 +12,35 @@ import {
 } from "../types";
 import useClickatronStore from "@/stores/useCanvasStore";
 import {
-  buildThinkToClickContext,
-  findClickatronCreativeSpecInBlocks,
-  type ThinkToClickContext,
-} from "@/lib/thinkforge/clickatron-context";
-import {
-  buildThinkToClickHandoffState,
   type ThinkToClickHandoffState,
   type ThinkToClickUserVisualChoices,
 } from "@/lib/thinkforge/clickatron-handoff-state";
 import { buildClickatronSessionFormData } from "@/lib/thinkforge/clickatron-session-payload";
-import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 import type { ProjectMeta } from "@/lib/thinkforge/state/types";
 import type { ThinkForgeEditronHandoffContext } from "@/lib/thinkforge/export/script-sidecar-to-editron";
+
+const CLICKATRON_PREVIEW_ERROR_PREFIX = "Clickatron preview unavailable:";
+const CLICKATRON_HANDOFF_STATUSES = new Set<ThinkToClickHandoffState["status"]>([
+  "ready",
+  "needs_user_input",
+  "stale",
+  "invalid",
+  "missing_sidecar",
+]);
+
+function isThinkToClickHandoffState(value: unknown): value is ThinkToClickHandoffState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Partial<ThinkToClickHandoffState>;
+  return typeof candidate.status === "string"
+    && CLICKATRON_HANDOFF_STATUSES.has(candidate.status as ThinkToClickHandoffState["status"])
+    && typeof candidate.canSendToClickatron === "boolean"
+    && typeof candidate.isBlocked === "boolean"
+    && Array.isArray(candidate.issues)
+    && Array.isArray(candidate.requiredUserInput)
+    && Boolean(candidate.display && typeof candidate.display === "object")
+    && Boolean(candidate.debug && typeof candidate.debug === "object")
+    && (!candidate.canSendToClickatron || Boolean(candidate.payloadPreview));
+}
 // ─── Hook input ──────────────────────────────────────────────────
 export interface UseExportPipelineInput {
   blocks: any[];
@@ -263,7 +279,10 @@ export function useExportPipeline(
   const [videosGenerated, setVideosGenerated] = useState(false);
   const [clickatronCreating, setClickatronCreating] = useState(false);
   const [clickatronVisualChoices, setClickatronVisualChoices] = useState<ThinkToClickUserVisualChoices>({});
-  const [resolvedClickatronContext, setResolvedClickatronContext] = useState<{ key: string; context: ThinkToClickContext } | null>(null);
+  const [resolvedClickatronHandoff, setResolvedClickatronHandoff] = useState<{
+    key: string;
+    handoffState: ThinkToClickHandoffState;
+  } | null>(null);
   const createClickatronSession = useClickatronStore((state) => state.createSession);
   const sourceSessionId = sessionId || undefined;
   const sourceBrandId = useMemo(() => {
@@ -410,10 +429,12 @@ export function useExportPipeline(
     imageStyle: clickatronVisualChoices.imageStyle,
     notes: clickatronVisualChoices.notes,
     slideCount: clickatronVisualChoices.slideCount,
+    approvedVisualPlan: clickatronVisualChoices.approvedVisualPlan,
     scenesCount: scenes.length,
   }), [
     aspectRatio,
     clickatronVisualChoices.aspectRatio,
+    clickatronVisualChoices.approvedVisualPlan,
     clickatronVisualChoices.imageStyle,
     clickatronVisualChoices.kind,
     clickatronVisualChoices.notes,
@@ -437,13 +458,23 @@ export function useExportPipeline(
     && (blocks.length > 0 || Boolean(plainText?.trim()));
 
   useEffect(() => {
-    if (!open || !sessionId || !hasHydratedDocument) {
-      setResolvedClickatronContext(null);
+    const clearPreviewError = () => setError((current) =>
+      current.startsWith(CLICKATRON_PREVIEW_ERROR_PREFIX) ? "" : current);
+    if (!open || !sessionId) {
+      setResolvedClickatronHandoff(null);
+      clearPreviewError();
+      return;
+    }
+    if (!hasHydratedDocument) {
+      setResolvedClickatronHandoff(null);
+      setError(`${CLICKATRON_PREVIEW_ERROR_PREFIX} the saved ThinkForge document is not loaded.`);
       return;
     }
 
     const controller = new AbortController();
     const requestKey = clickatronContextRequestKey;
+    setResolvedClickatronHandoff(null);
+    clearPreviewError();
 
     fetch("/api/services/thinkforge/clickatron-context", {
       method: "POST",
@@ -453,66 +484,30 @@ export function useExportPipeline(
     })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.context) {
+        if (!res.ok || !isThinkToClickHandoffState(data.handoffState)) {
           throw new Error(data.error || `Failed to resolve ThinkForge context (${res.status})`);
         }
         if (!controller.signal.aborted) {
-          setResolvedClickatronContext({ key: requestKey, context: data.context as ThinkToClickContext });
+          setResolvedClickatronHandoff({ key: requestKey, handoffState: data.handoffState });
+          clearPreviewError();
         }
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setResolvedClickatronContext(null);
+        const message = err instanceof Error && err.message.trim()
+          ? err.message.trim()
+          : "The server did not return a valid handoff contract.";
+        setResolvedClickatronHandoff(null);
+        setError(`${CLICKATRON_PREVIEW_ERROR_PREFIX} ${message}`);
       });
 
     return () => controller.abort();
   }, [clickatronContextRequestBody, clickatronContextRequestKey, hasHydratedDocument, open, sessionId]);
 
-  const localClickatronHandoffState = useMemo<ThinkToClickHandoffState | null>(() => {
-    if (!sessionId) return null;
-
-    try {
-      const creativeSpec = findClickatronCreativeSpecInBlocks(blocks as ThinkForgeBlock[]);
-      const context = buildThinkToClickContext({
-        sessionId,
-        scriptId,
-        projectId: projectId || undefined,
-        projectMeta,
-        creativeSpec,
-        blocks: blocks as ThinkForgeBlock[],
-        userVisualChoices: clickatronVisualChoices,
-        title: title || undefined,
-        aspectRatio: clickatronVisualChoices.aspectRatio || aspectRatio,
-        scenesCount: scenes.length,
-      });
-
-      return buildThinkToClickHandoffState({
-        context,
-        blocks: blocks as ThinkForgeBlock[],
-        userVisualChoices: clickatronVisualChoices,
-      });
-    } catch {
-      return null;
-    }
-  }, [aspectRatio, blocks, clickatronVisualChoices, projectId, projectMeta, scenes.length, scriptId, sessionId, title]);
-
-  const clickatronHandoffState = useMemo<ThinkToClickHandoffState | null>(() => {
-    const resolvedContext = resolvedClickatronContext?.key === clickatronContextRequestKey
-      ? resolvedClickatronContext.context
-      : null;
-    if (!resolvedContext) return localClickatronHandoffState;
-
-    try {
-      return buildThinkToClickHandoffState({
-        context: resolvedContext,
-        blocks: blocks as ThinkForgeBlock[],
-        userVisualChoices: clickatronVisualChoices,
-      });
-    } catch {
-      return localClickatronHandoffState;
-    }
-  }, [blocks, clickatronContextRequestKey, clickatronVisualChoices, localClickatronHandoffState, resolvedClickatronContext]);
+  const clickatronHandoffState = resolvedClickatronHandoff?.key === clickatronContextRequestKey
+    ? resolvedClickatronHandoff.handoffState
+    : null;
   // ─── Request notification permission on mount ──────────────────
   useEffect(() => {
     if (open && typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
@@ -911,16 +906,11 @@ export function useExportPipeline(
         body: JSON.stringify({ ...clickatronContextRequestBody, operation: "commit" }),
       });
       const contextData = await contextRes.json().catch(() => ({}));
-      if (!contextRes.ok || !contextData.context) {
+      if (!contextRes.ok || !isThinkToClickHandoffState(contextData.handoffState)) {
         throw new Error(contextData.error || `Failed to resolve ThinkForge context (${contextRes.status})`);
       }
 
-      const context = contextData.context as ThinkToClickContext;
-      const handoffState = buildThinkToClickHandoffState({
-        context,
-        blocks: blocks as ThinkForgeBlock[],
-        userVisualChoices: clickatronVisualChoices,
-      });
+      const handoffState = contextData.handoffState;
       if (!handoffState.canSendToClickatron || !handoffState.payloadPreview) {
         const needsInput = handoffState.requiredUserInput.length > 0
           ? ` Needs: ${handoffState.requiredUserInput.join(", ")}.`

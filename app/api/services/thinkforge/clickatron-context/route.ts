@@ -13,6 +13,10 @@ import {
   PersistedWriterOutputError,
   requireCurrentPersistedWriterOutput,
 } from "@/lib/thinkforge/persistence/writer-output-reader";
+import {
+  buildThinkToClickHandoffState,
+  type ThinkToClickUserVisualChoices,
+} from "@/lib/thinkforge/clickatron-handoff-state";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,15 +95,6 @@ export async function POST(request: Request) {
     }
     let projectLink = await findLinkBySessionId(userId, canonicalSessionId);
 
-    if (!projectLink && operation === "commit") {
-      projectLink = await createProjectLink(userId, {
-        sessionId: canonicalSessionId,
-        sourceScriptId: scriptId,
-        brandId: toNonEmptyString(projectMeta.brandId),
-        metadata: { createdBy: "think-to-click-context" },
-      });
-    }
-
     const userVisualChoices: ThinkToClickVisibleContentChoices = {
       kind: toNonEmptyString(rawVisualChoices.kind) as ThinkToClickVisibleContentChoices["kind"],
       platform: toNonEmptyString(rawVisualChoices.platform) as ThinkToClickVisibleContentChoices["platform"],
@@ -111,26 +106,53 @@ export async function POST(request: Request) {
       notes: toNonEmptyString(rawVisualChoices.notes),
       slideCount,
     };
+    const handoffVisualChoices: ThinkToClickUserVisualChoices = {
+      ...userVisualChoices,
+      approvedVisualPlan:
+        rawVisualChoices.approvedVisualPlan === true
+        || rawVisualChoices.approvedVisualPlan === "true",
+    };
 
-    const context = buildThinkToClickContext({
-      sessionId: canonicalSessionId,
-      scriptId,
-      projectId: requestedProjectId,
-      projectMeta,
-      contentContract: script.contentContract,
-      projectLink,
-      creativeSpec: findClickatronCreativeSpecInBlocks(script?.blocks),
-      blocks: script?.blocks,
-      userVisualChoices,
-      signalTrace: script?.metadata?.signalTrace,
-      writerOutput,
-      authoringContextSnapshot: script?.metadata?.authoringContextSnapshot,
-      title: toNonEmptyString(body.title),
-      aspectRatio: toNonEmptyString(body.aspectRatio),
-      scenesCount: typeof body.scenesCount === "number" ? body.scenesCount : undefined,
-    });
+    const resolveHandoff = (resolvedProjectLink: typeof projectLink) => {
+      const context = buildThinkToClickContext({
+        sessionId: canonicalSessionId,
+        scriptId,
+        projectId: requestedProjectId,
+        projectMeta,
+        contentContract: script.contentContract,
+        projectLink: resolvedProjectLink,
+        creativeSpec: findClickatronCreativeSpecInBlocks(script?.blocks),
+        blocks: script?.blocks,
+        userVisualChoices,
+        signalTrace: script?.metadata?.signalTrace,
+        writerOutput,
+        authoringContextSnapshot: script?.metadata?.authoringContextSnapshot,
+        title: toNonEmptyString(body.title),
+        aspectRatio: toNonEmptyString(body.aspectRatio),
+        scenesCount: typeof body.scenesCount === "number" ? body.scenesCount : undefined,
+      });
+      return {
+        context,
+        handoffState: buildThinkToClickHandoffState({
+          context,
+          blocks: script.blocks,
+          userVisualChoices: handoffVisualChoices,
+        }),
+      };
+    };
 
-    return NextResponse.json({ success: true, operation, context });
+    let resolvedHandoff = resolveHandoff(projectLink);
+    if (!projectLink && operation === "commit" && resolvedHandoff.handoffState.canSendToClickatron) {
+      projectLink = await createProjectLink(userId, {
+        sessionId: canonicalSessionId,
+        sourceScriptId: scriptId,
+        brandId: toNonEmptyString(projectMeta.brandId),
+        metadata: { createdBy: "think-to-click-context" },
+      });
+      resolvedHandoff = resolveHandoff(projectLink);
+    }
+
+    return NextResponse.json({ success: true, operation, ...resolvedHandoff });
   } catch (error: any) {
     console.error("[thinkforge/clickatron-context] Error:", error);
     return NextResponse.json(

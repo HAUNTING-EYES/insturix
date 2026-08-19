@@ -274,16 +274,49 @@ describe('ThinkForge Clickatron document identity', () => {
     expect(response.status).toBe(200);
     expect(payload.operation).toBe('preview');
     expect(payload.context.universalId).toBeUndefined();
+    expect(payload.handoffState).toMatchObject({
+      status: 'needs_user_input',
+      canSendToClickatron: false,
+      isBlocked: true,
+    });
     expect(mocks.createProjectLink).not.toHaveBeenCalled();
   });
 
-  it('creates a missing project link only for an explicit commit', async () => {
+  it('creates a missing project link only for a ready explicit commit', async () => {
     mocks.findLinkBySessionId.mockResolvedValue(null);
     mocks.createProjectLink.mockResolvedValue({
       universalId: 'project_link_committed',
       brandId: 'brand_1',
-      sourceScriptId: 'script_1',
+      sourceScriptId: 'post_1',
     });
+    mocks.getSession.mockResolvedValue({
+      _id: 'session_canonical',
+      userId: 'session_owner',
+      orgId: 'org_1',
+      projectMeta: { brandId: 'brand_1' },
+    });
+    mocks.getScript.mockResolvedValue(boundPostDocument());
+    const { POST } = await import('@/app/api/services/thinkforge/clickatron-context/route');
+
+    const response = await POST(postRequest(
+      'http://localhost/api/services/thinkforge/clickatron-context',
+      { sessionId: 'session_alias', scriptId: 'post_1', operation: 'commit' },
+    ));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.operation).toBe('commit');
+    expect(payload.context.universalId).toBe('project_link_committed');
+    expect(payload.handoffState).toMatchObject({ status: 'ready', canSendToClickatron: true });
+    expect(mocks.createProjectLink).toHaveBeenCalledWith('user_member', expect.objectContaining({
+      sessionId: 'session_canonical',
+      sourceScriptId: 'post_1',
+      brandId: 'brand_1',
+    }));
+  });
+
+  it('does not create a project link for a blocked explicit commit', async () => {
+    mocks.findLinkBySessionId.mockResolvedValue(null);
     mocks.getSession.mockResolvedValue({
       _id: 'session_canonical',
       userId: 'session_owner',
@@ -300,13 +333,9 @@ describe('ThinkForge Clickatron document identity', () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.operation).toBe('commit');
-    expect(payload.context.universalId).toBe('project_link_committed');
-    expect(mocks.createProjectLink).toHaveBeenCalledWith('user_member', expect.objectContaining({
-      sessionId: 'session_canonical',
-      sourceScriptId: 'script_1',
-      brandId: 'brand_1',
-    }));
+    expect(payload.handoffState).toMatchObject({ status: 'needs_user_input', canSendToClickatron: false });
+    expect(payload.context.universalId).toBeUndefined();
+    expect(mocks.createProjectLink).not.toHaveBeenCalled();
   });
 
   it('does not create a project link when the exact document is missing', async () => {
@@ -369,6 +398,8 @@ describe('ThinkForge Clickatron document identity', () => {
 
     expect(response.status).toBe(200);
     expect(payload.context.sessionDraft.prompt).toContain('precise evidence-led editorial visual');
+    expect(payload.handoffState).toMatchObject({ status: 'ready', canSendToClickatron: true });
+    expect(payload.handoffState.payloadPreview.prompt).toContain('precise evidence-led editorial visual');
   });
 });
 

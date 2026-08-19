@@ -397,14 +397,20 @@ describe('ThinkForge script hydration contract', () => {
   it('resolves Clickatron export preview through the server context route', () => {
     const exportHook = read('components/dashboard/ThinkForge/export/hooks/useExportPipeline.ts');
 
-    expect(exportHook).toContain('const [resolvedClickatronContext');
+    expect(exportHook).toContain('const [resolvedClickatronHandoff');
     expect(exportHook).toContain('const clickatronContextRequestBody = useMemo');
     expect(exportHook).toContain('operation: "preview" as const');
     expect(exportHook).toContain('slideCount: clickatronVisualChoices.slideCount');
+    expect(exportHook).toContain('approvedVisualPlan: clickatronVisualChoices.approvedVisualPlan');
     expect(exportHook).toContain('fetch("/api/services/thinkforge/clickatron-context"');
     expect(exportHook).toContain('body: JSON.stringify(clickatronContextRequestBody)');
     expect(exportHook).toContain('body: JSON.stringify({ ...clickatronContextRequestBody, operation: "commit" })');
-    expect(exportHook).toContain('resolvedClickatronContext?.key === clickatronContextRequestKey');
+    expect(exportHook).toContain('resolvedClickatronHandoff?.key === clickatronContextRequestKey');
+    expect(exportHook).toContain('isThinkToClickHandoffState(data.handoffState)');
+    expect(exportHook).toContain('const handoffState = contextData.handoffState');
+    expect(exportHook).toContain('Clickatron preview unavailable:');
+    expect(exportHook).not.toContain('localClickatronHandoffState');
+    expect(exportHook).not.toContain('buildThinkToClickContext');
   });
   it('treats Clickatron controls as explicit overrides instead of fake initial selections', () => {
     const dialog = read('components/dashboard/ThinkForge/export/ClickatronHandoffDialog.tsx');
