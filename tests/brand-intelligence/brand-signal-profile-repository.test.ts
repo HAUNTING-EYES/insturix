@@ -118,6 +118,7 @@ describe('BrandSignalProfile repository', () => {
     expect(secondOrgA.superseded.map((record) => record.id)).toEqual(['org_a_v1']);
     expect(repo.getRecord('org_b_v1')?.status).toBe('accepted');
     expect(repo.listRecords({ orgId: 'org_a', brandId: 'brand_repo', userId: 'user_repo', status: 'accepted' }).map((record) => record.id)).toEqual(['org_a_v2']);
+    expect(repo.listRecords({ orgId: 'org_a', brandId: 'brand_repo', userId: 'collaborator_user', status: 'accepted' }).map((record) => record.id)).toEqual(['org_a_v2']);
     expect(repo.listRecords({ orgId: 'org_b', brandId: 'brand_repo', userId: 'user_repo', status: 'accepted' }).map((record) => record.id)).toEqual(['org_b_v1']);
     expect(repo.getLatestAcceptedProfile({ orgId: 'org_b', brandId: 'brand_repo', userId: 'user_repo' })?.identity.brandName.value).toBe('Org B V1');
   });
