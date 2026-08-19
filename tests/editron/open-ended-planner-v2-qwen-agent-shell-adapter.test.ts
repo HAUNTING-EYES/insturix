@@ -96,6 +96,7 @@ describe('open-ended planner V2 Qwen provider adapter', () => {
       model: 'qwen3.8-max',
       max_tokens: 9_000,
       thinking_budget: 3_000,
+      response_format: { type: 'json_object' },
       stream: true,
       stream_options: { include_usage: true },
     });
@@ -104,6 +105,7 @@ describe('open-ended planner V2 Qwen provider adapter', () => {
       exitCode: 0,
       timedOut: false,
       transportKind: 'ALIBABA_DIRECT_CHAT_COMPLETIONS',
+      schemaMode: 'NATIVE_JSON_OBJECT',
       providerModel: 'qwen3.8-max',
       providerRequestId: 'qwen-request-1',
     });

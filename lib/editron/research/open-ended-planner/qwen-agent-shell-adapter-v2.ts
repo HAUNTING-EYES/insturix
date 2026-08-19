@@ -281,7 +281,7 @@ function attemptRecord(input: {
     schemaDiagnostics: [...input.diagnostics],
     artifactSha256: input.disposition === 'ARTIFACT_ACCEPTED'
       ? hashCanonicalJsonV1(JSON.parse(input.rawText ?? '') as unknown) : null,
-    disposition: input.disposition, schemaMode: null,
+    disposition: input.disposition, schemaMode: input.result.schemaMode ?? null,
     promptHash: sha256TextV1(input.prompt),
     requestHash: input.result.providerRequestHash ?? hashCanonicalJsonV1({
       packetHash: input.artifact.packetHash, transportHash: input.artifact.transportHash,

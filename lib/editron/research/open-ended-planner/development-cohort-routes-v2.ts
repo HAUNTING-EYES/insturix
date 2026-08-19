@@ -51,13 +51,14 @@ const DIRECT_ROUTES: readonly DirectRouteFactV2[] = [
 ] as const;
 
 export const V2R_BENCHMARK_ROUTE_ROSTER_VERSION =
-  'EDITRON_OE_V2R_BENCHMARK_ROUTE_ROSTER_V2' as const;
+  'EDITRON_OE_V2R_BENCHMARK_ROUTE_ROSTER_V3' as const;
 
 export interface V2RBenchmarkRouteIdentityV2 {
   routeId: 'OPENAI_LUNA' | 'OPENAI_TERRA' | 'QWEN_3_8_MAX';
   claimedModelIdentity: string;
   costBasis: 'USD_METERED' | 'TOKEN_PLAN_CREDITS_UNPRICED';
   providerTransport: 'OPENAI_RESPONSES' | 'ALIBABA_DIRECT_CHAT_COMPLETIONS';
+  structuredOutputMode: 'NATIVE_JSON_SCHEMA' | 'NATIVE_JSON_OBJECT';
   planningMode: 'medium' | 'FAIR_STAGE_BUDGET';
 }
 
@@ -66,6 +67,7 @@ const QWEN_ROUTE_FACT = {
   claimedModelIdentity: 'qwen3.8-max',
   costBasis: 'TOKEN_PLAN_CREDITS_UNPRICED',
   providerTransport: 'ALIBABA_DIRECT_CHAT_COMPLETIONS',
+  structuredOutputMode: 'NATIVE_JSON_OBJECT',
   planningMode: 'FAIR_STAGE_BUDGET',
 } as const;
 
@@ -77,6 +79,7 @@ export function buildV2RBenchmarkRouteRosterV2(): readonly Readonly<V2RBenchmark
       claimedModelIdentity: fact.claimedModelIdentity,
       costBasis: 'USD_METERED',
       providerTransport: 'OPENAI_RESPONSES',
+      structuredOutputMode: 'NATIVE_JSON_SCHEMA',
       planningMode: 'medium',
     }));
   return deepFreezeV1([...openAiRoutes, QWEN_ROUTE_FACT]);

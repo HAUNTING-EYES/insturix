@@ -14,6 +14,7 @@ export interface QwenProviderExecutionV2 {
   providerRequestId?: string;
   providerRequestHash?: string;
   providerResponseHash?: string;
+  schemaMode?: 'NATIVE_JSON_OBJECT';
   failureDisposition?: 'PROVIDER_TIMEOUT' | 'PROVIDER_RATE_LIMIT' | 'PROVIDER_REFUSAL' | 'PROVIDER_ERROR';
 }
 
@@ -49,6 +50,7 @@ export async function executeQwenDirectProviderV2(
     stream_options: { include_usage: true },
     max_tokens: input.reasoningBudgetTokens + input.visibleOutputBudgetTokens,
     thinking_budget: input.reasoningBudgetTokens,
+    response_format: { type: 'json_object' },
   };
   const providerRequestHash = hashCanonicalJsonV1({ endpoint: QWEN_ENDPOINT, body });
   const controller = new AbortController();
@@ -73,6 +75,7 @@ export async function executeQwenDirectProviderV2(
         timedOut: false,
         latencyMs,
         transportKind: 'ALIBABA_DIRECT_CHAT_COMPLETIONS',
+        schemaMode: 'NATIVE_JSON_OBJECT',
         providerRequestHash,
         failureDisposition,
       };
@@ -86,6 +89,7 @@ export async function executeQwenDirectProviderV2(
       timedOut: false,
       latencyMs,
       transportKind: 'ALIBABA_DIRECT_CHAT_COMPLETIONS',
+      schemaMode: 'NATIVE_JSON_OBJECT',
       providerModel: streamed.providerModel,
       providerRequestId: streamed.providerRequestId,
       providerRequestHash,
@@ -100,6 +104,7 @@ export async function executeQwenDirectProviderV2(
       timedOut,
       latencyMs: Date.now() - started,
       transportKind: 'ALIBABA_DIRECT_CHAT_COMPLETIONS',
+      schemaMode: 'NATIVE_JSON_OBJECT',
       providerRequestHash,
       failureDisposition: timedOut ? 'PROVIDER_TIMEOUT' : 'PROVIDER_ERROR',
     };

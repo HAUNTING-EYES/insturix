@@ -4,6 +4,7 @@ import { getCanonicalDev01Stage123V2 } from '@/lib/editron/research/open-ended-p
 import {
   buildDevelopmentModelRoutesV2,
   buildQwenDevelopmentModelRouteV2,
+  buildV2RBenchmarkRouteRosterV2,
   buildV2RBenchmarkModelRoutesV2,
 } from '@/lib/editron/research/open-ended-planner/development-cohort-routes-v2';
 import type { QwenProviderExecutorV2 } from '@/lib/editron/research/open-ended-planner/qwen-direct-provider-v2';
@@ -85,6 +86,13 @@ describe('open-ended planner V2 development cohort provider routes', () => {
   });
 
   it('builds the exact V2R roster without requiring an unregistered Gemini credential', () => {
+    expect(buildV2RBenchmarkRouteRosterV2().map(({ routeId, structuredOutputMode }) => ({
+      routeId, structuredOutputMode,
+    }))).toEqual([
+      { routeId: 'OPENAI_LUNA', structuredOutputMode: 'NATIVE_JSON_SCHEMA' },
+      { routeId: 'OPENAI_TERRA', structuredOutputMode: 'NATIVE_JSON_SCHEMA' },
+      { routeId: 'QWEN_3_8_MAX', structuredOutputMode: 'NATIVE_JSON_OBJECT' },
+    ]);
     const routes = buildV2RBenchmarkModelRoutesV2({
       environment: { OPENAI_API_KEY: 'openai-test', QWEN_API_KEY: 'qwen-test' },
       qwenBudgetMode: 'FAIR_STAGE_BUDGET', fetchImpl: fakeFetch,
