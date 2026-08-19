@@ -1,4 +1,6 @@
 import type { ScriptWriterResult } from "@/lib/thinkforge/agents/script-writer-agent";
+import type { ThinkForgeWriterInvocationTraceV1 } from "@/lib/thinkforge/provenance/generation-trace";
+import { requireCalosWriterInvocationTrace } from "../contract";
 import {
   resolveCalosWriterExecutionContext,
   type CalosWriterExecutionContext,
@@ -8,6 +10,7 @@ import {
 export interface ScriptWriterExecution extends CalosWriterExecutionContext {
   content: string;
   result: ScriptWriterResult;
+  writerTrace: ThinkForgeWriterInvocationTraceV1;
 }
 
 /** Canonical ScriptWriter call for a CalOS video deliverable. */
@@ -25,7 +28,7 @@ export async function runScriptWriterExecution(
   } = execution;
   const { ScriptWriterAgent } = await import("@/lib/thinkforge/agents/script-writer-agent");
   const writer = new ScriptWriterAgent();
-  const { result } = await writer.runStructured({
+  const { result, metadata } = await writer.runStructured({
     context: {
       projectSummary: authoringContext.projectMeta.title || params.title,
       systemBrief: authoringContext.systemBrief,
@@ -40,10 +43,17 @@ export async function runScriptWriterExecution(
     sourceLedger,
     editorialPlan,
   });
+  const writerTrace = requireCalosWriterInvocationTrace({
+    value: metadata?.writerTrace,
+    writerType: "script",
+    editorialPlan,
+    sourceLedger,
+  });
 
   return {
     ...execution,
     result,
+    writerTrace,
     content: result.content.trim(),
   };
 }

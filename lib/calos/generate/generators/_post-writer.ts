@@ -1,4 +1,6 @@
 import type { PostWriterResult } from "@/lib/thinkforge/agents/post-writer-agent";
+import type { ThinkForgeWriterInvocationTraceV1 } from "@/lib/thinkforge/provenance/generation-trace";
+import { requireCalosWriterInvocationTrace } from "../contract";
 import {
   resolveCalosWriterExecutionContext,
   type CalosWriterExecutionContext,
@@ -9,6 +11,7 @@ export interface PostWriterOutput extends CalosWriterExecutionContext {
   /** On-brand post copy / caption, ready for the platform (markdown emphasis stripped). */
   content: string;
   result: PostWriterResult;
+  writerTrace: ThinkForgeWriterInvocationTraceV1;
   /** Tailored single-image prompt emitted by PostWriter for Clickatron. */
   imagePrompt?: string;
 }
@@ -26,7 +29,7 @@ export async function runPostWriter(params: CalosWriterParams): Promise<PostWrit
   } = execution;
   const { PostWriterAgent } = await import("@/lib/thinkforge/agents/post-writer-agent");
   const writer = new PostWriterAgent();
-  const { result } = await writer.runStructured({
+  const { result, metadata } = await writer.runStructured({
     context: {
       projectSummary: authoringContext.projectMeta.title || params.title,
       systemBrief: authoringContext.systemBrief,
@@ -41,11 +44,18 @@ export async function runPostWriter(params: CalosWriterParams): Promise<PostWrit
     sourceLedger,
     editorialPlan,
   });
+  const writerTrace = requireCalosWriterInvocationTrace({
+    value: metadata?.writerTrace,
+    writerType: "post",
+    editorialPlan,
+    sourceLedger,
+  });
 
   const imagePrompt = result.clickatron.singleImagePrompt?.trim();
   return {
     ...execution,
     result,
+    writerTrace,
     content: stripMarkdownEmphasis(result.content.trim()),
     ...(imagePrompt ? { imagePrompt } : {}),
   };

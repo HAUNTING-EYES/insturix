@@ -3,6 +3,11 @@ import type { PostWriterResult } from "@/lib/thinkforge/agents/post-writer-agent
 import type { ScriptWriterResult } from "@/lib/thinkforge/agents/script-writer-agent";
 import type { ProductionBrief } from "@/lib/editron/production-brief/production-brief";
 import type { ThinkForgeAuthoringContextSnapshot } from "@/lib/thinkforge/context/brand-authoring-context";
+import {
+  hashThinkForgeTraceValue,
+  requireThinkForgeWriterInvocationTrace,
+  type ThinkForgeWriterInvocationTraceV1,
+} from "@/lib/thinkforge/provenance/generation-trace";
 import type { SourceLedger } from "@/lib/thinkforge/provenance/source-ledger";
 import type {
   ThinkForgeDocumentContract,
@@ -29,6 +34,8 @@ export interface GenerateParams {
 
 export interface ThinkForgePostWriterOutput {
   writerType: "post";
+  /** Present on all newly generated artifacts; optional only while historical artifacts are readable. */
+  writerTrace?: ThinkForgeWriterInvocationTraceV1;
   contentAnalysis: PostWriterResult["contentAnalysis"];
   hashtags: PostWriterResult["hashtags"];
   visualPrompts: PostWriterResult["clickatron"];
@@ -38,6 +45,8 @@ export interface ThinkForgePostWriterOutput {
 
 export interface ThinkForgeScriptWriterOutput {
   writerType: "script";
+  /** Present on all newly generated artifacts; optional only while historical artifacts are readable. */
+  writerTrace?: ThinkForgeWriterInvocationTraceV1;
   contentAnalysis: ScriptWriterResult["contentAnalysis"];
   visualPrompts: ScriptWriterResult["visualMetadata"];
   scriptSidecar: ScriptWriterResult["sidecar"];
@@ -63,6 +72,29 @@ export type ThinkForgeGeneratedArtifact =
       documentType: Extract<ThinkForgeWriterKind, "video_script">;
       writerOutput: ThinkForgeScriptWriterOutput;
     });
+
+export function requireCalosWriterInvocationTrace(input: {
+  value: unknown;
+  writerType: "post" | "script";
+  editorialPlan: unknown;
+  sourceLedger: SourceLedger;
+}): ThinkForgeWriterInvocationTraceV1 {
+  const trace = requireThinkForgeWriterInvocationTrace(input.value);
+  if (trace.writerType !== input.writerType) {
+    throw new Error(`CalOS ${input.writerType} writer returned a ${trace.writerType} invocation trace.`);
+  }
+
+  const editorialPlanHash = hashThinkForgeTraceValue(input.editorialPlan);
+  if (trace.editorialPlanHash !== editorialPlanHash
+    || hashThinkForgeTraceValue(trace.editorialPlan) !== editorialPlanHash) {
+    throw new Error("CalOS writer invocation trace does not match the executed editorial plan.");
+  }
+
+  if (trace.sourceLedgerHash !== hashThinkForgeTraceValue(input.sourceLedger)) {
+    throw new Error("CalOS writer invocation trace does not match the executed source ledger.");
+  }
+  return trace;
+}
 
 export interface GenerateResult {
   ok: boolean;

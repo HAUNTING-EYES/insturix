@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildThinkForgeWriterInvocationTrace } from '@/lib/thinkforge/provenance/generation-trace';
+import type { SourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
 
 const mocks = vi.hoisted(() => ({
   resolveCalosWriterExecutionContext: vi.fn(),
@@ -32,7 +34,7 @@ const params = {
   angle: 'Show the actual customer workflow.',
 };
 
-const sourceLedger = {
+const sourceLedger: SourceLedger = {
   ledgerVersion: 1,
   entries: [{
     referenceId: 'source_1',
@@ -87,6 +89,28 @@ const scriptEditorialPlan = {
   writerKind: 'script',
   execution: { kind: 'script' },
 };
+const postWriterTrace = buildThinkForgeWriterInvocationTrace({
+  writerType: 'post',
+  editorialPlan: postEditorialPlan,
+  selectedTechniques: [],
+  promptTemplate: 'post prompt',
+  sourceLedger,
+  provider: 'gemini',
+  model: 'gemini-test',
+  cacheStatus: 'inline',
+  generatedAt: '2026-08-19T00:00:00.000Z',
+});
+const scriptWriterTrace = buildThinkForgeWriterInvocationTrace({
+  writerType: 'script',
+  editorialPlan: scriptEditorialPlan,
+  selectedTechniques: [],
+  promptTemplate: 'script prompt',
+  sourceLedger,
+  provider: 'gemini',
+  model: 'gemini-test',
+  cacheStatus: 'inline',
+  generatedAt: '2026-08-19T00:00:00.000Z',
+});
 const writerContext = {
   projectMeta: {
     brandId: 'brand_b',
@@ -147,8 +171,8 @@ describe('CalOS canonical ThinkForge writer inputs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.resolveCalosWriterExecutionContext.mockResolvedValue(execution);
-    mocks.postRunStructured.mockResolvedValue({ result: postResult });
-    mocks.scriptRunStructured.mockResolvedValue({ result: scriptResult });
+    mocks.postRunStructured.mockResolvedValue({ result: postResult, metadata: { writerTrace: postWriterTrace } });
+    mocks.scriptRunStructured.mockResolvedValue({ result: scriptResult, metadata: { writerTrace: scriptWriterTrace } });
   });
 
   it('passes one resolved ledger, brief, signal profile, and contract to PostWriter', async () => {
@@ -160,6 +184,7 @@ describe('CalOS canonical ThinkForge writer inputs', () => {
       content: 'A complete platform post.',
       imagePrompt: 'A real product workflow in natural light.',
       result: postResult,
+      writerTrace: postWriterTrace,
       sourceLedger,
       productionBrief: postProductionBrief,
     });
@@ -212,6 +237,7 @@ describe('CalOS canonical ThinkForge writer inputs', () => {
     await expect(runScriptWriterExecution(scriptParams)).resolves.toMatchObject({
       content: 'A complete seven-minute video script.',
       result: scriptResult,
+      writerTrace: scriptWriterTrace,
       sourceLedger,
       productionBrief: scriptProductionBrief,
     });
@@ -233,5 +259,20 @@ describe('CalOS canonical ThinkForge writer inputs', () => {
 
     await expect(runPostWriter(params)).rejects.toThrow('Brand Vault profile is unavailable.');
     expect(mocks.postRunStructured).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when writer evidence does not match the executed plan', async () => {
+    mocks.postRunStructured.mockResolvedValueOnce({
+      result: postResult,
+      metadata: {
+        writerTrace: {
+          ...postWriterTrace,
+          editorialPlanHash: '0'.repeat(64),
+        },
+      },
+    });
+    const { runPostWriter } = await import('@/lib/calos/generate/generators/_post-writer');
+
+    await expect(runPostWriter(params)).rejects.toThrow('does not match the executed editorial plan');
   });
 });

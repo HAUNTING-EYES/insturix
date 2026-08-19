@@ -11,7 +11,7 @@ function requireContent(content: string): string {
 export function buildPostWriterArtifact(
   output: PostWriterOutput,
 ): Extract<ThinkForgeGeneratedArtifact, { documentType: "social_post" | "carousel" }> {
-  const { route, result, sourceLedger, productionBrief, authoringContext } = output;
+  const { route, result, sourceLedger, productionBrief, authoringContext, writerTrace } = output;
   if (route.documentType !== "social_post" && route.documentType !== "carousel") {
     throw new Error(`PostWriter cannot materialize ${route.documentType}.`);
   }
@@ -28,6 +28,7 @@ export function buildPostWriterArtifact(
     signalTrace: authoringContext.signalTrace,
     writerOutput: {
       writerType: "post",
+      writerTrace,
       contentAnalysis: result.contentAnalysis,
       hashtags: result.hashtags,
       visualPrompts: result.clickatron,
@@ -40,7 +41,7 @@ export function buildPostWriterArtifact(
 export function buildScriptWriterArtifact(
   output: ScriptWriterExecution,
 ): Extract<ThinkForgeGeneratedArtifact, { documentType: "video_script" }> {
-  const { route, result, sourceLedger, productionBrief, authoringContext } = output;
+  const { route, result, sourceLedger, productionBrief, authoringContext, writerTrace } = output;
   if (route.documentType !== "video_script") {
     throw new Error(`ScriptWriter cannot materialize ${route.documentType}.`);
   }
@@ -57,6 +58,7 @@ export function buildScriptWriterArtifact(
     signalTrace: authoringContext.signalTrace,
     writerOutput: {
       writerType: "script",
+      writerTrace,
       contentAnalysis: result.contentAnalysis,
       visualPrompts: result.visualMetadata,
       scriptSidecar: result.sidecar,
