@@ -275,13 +275,14 @@ describe('Script Sidecar V2 narrative contract', () => {
     const { renderPlan: _renderPlan, ...narrativeOnly } = v2Sidecar();
     const draft = ScriptWriterSidecarV2ModelSchema.parse(narrativeOnly);
     const shotIntent = draft.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!;
+    shotIntent.energy = 4;
     shotIntent.desiredMovement = 'push-in';
     delete shotIntent.movementMotivation;
     shotIntent.spokenAudio = false;
 
     expect(ScriptWriterSidecarV2ModelSchema.safeParse(draft).success).toBe(true);
     expect(ScriptWriterSidecarV2Schema.safeParse(draft).success).toBe(false);
-    expect(() => parseScriptSidecarV2(draft)).toThrow(/movementMotivation|spokenAudio/);
+    expect(() => parseScriptSidecarV2(draft)).toThrow(/energy|movementMotivation|spokenAudio/);
   });
 
   it('keeps beat lines as the only canonical spoken-text source', () => {

@@ -44,8 +44,12 @@ const ContentAnalysisSchema = z.object({
   qualityScore: z.number().min(0).max(100).describe('Self-evaluated quality score (0-100) based on specificity and engagement'),
 });
 
+const ContentAnalysisModelSchema = ContentAnalysisSchema.extend({
+  qualityScore: z.number().describe('Self-evaluated quality score; the server enforces the 0-100 range'),
+});
+
 const WriterModelMetadataSchema = z.object({
-  platform: z.string().min(1).describe('The targeted publication platform'),
+  platform: z.string().describe('The targeted publication platform'),
 });
 
 const WriterMetadataSchema = z.object({
@@ -63,7 +67,7 @@ const ScriptVisualMetadataSchema = z.object({
 // The model authors narrative hierarchy only. Visible markdown and visual prompts are projections;
 // a later technical planner owns provider-specific render segmentation.
 export const ScriptWriterModelOutputSchema = z.object({
-  contentAnalysis: ContentAnalysisSchema,
+  contentAnalysis: ContentAnalysisModelSchema,
   visualMetadata: z.object({
     motionInfo: z.string().describe('General motion graphic styling instructions'),
   }),
@@ -249,7 +253,7 @@ export function materializeScriptWriterResult(modelOutput: ScriptWriterModelOutp
   const sidecar = parseModelSidecarForMaterialization(modelOutput.sidecar);
   const scenes = narrativeScenes(sidecar);
 
-  return {
+  return parseMaterializedScriptWriterResult({
     content: materializeScriptContent(sidecar),
     contentAnalysis: modelOutput.contentAnalysis,
     visualMetadata: {
@@ -262,7 +266,7 @@ export function materializeScriptWriterResult(modelOutput: ScriptWriterModelOutp
       voiceLanguages: spokenLanguages(sidecar),
     },
     sidecar,
-  };
+  });
 }
 
 export class ScriptWriterContractError extends Error {
@@ -287,8 +291,21 @@ function parseModelSidecarForMaterialization(input: unknown): ScriptSidecarV2 {
   }
 }
 
+function parseMaterializedScriptWriterResult(input: unknown): ScriptWriterResult {
+  try {
+    return ScriptWriterResultSchema.parse(input);
+  } catch (error) {
+    if (!(error instanceof z.ZodError)) throw error;
+    throw new ScriptWriterContractError(error.issues.map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join('.') : 'result';
+      return `invalid_writer_result:${path}:${issue.message}`;
+    }));
+  }
+}
+
 const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
   'invalid_sidecar',
+  'invalid_writer_result',
   'writer_render_plan_forbidden',
   'missing_visual_intent',
   'missing_shot_intent',
@@ -341,7 +358,7 @@ Return a complete replacement object using the same JSON schema. Preserve the br
 Critical rules:
 - Preserve the authored act, narrative-scene, and beat hierarchy unless an editorial contract failure requires changing it. Never split story units to satisfy a renderer.
 - Every beat requires visualIntent, shotIntent, and narrative duration intent. Every spoken line requires its actual languageCode.
-- A moving shot requires a non-empty movementMotivation. shotIntent.spokenAudio is true exactly when the beat contains on-camera sync-dialogue; simultaneousPerformers equals the unique performance character count, and every sync speaker has a performance entry.
+- shotIntent.energy and every performance intensity use normalized decimal values from 0 to 1. A moving shot requires a non-empty movementMotivation. shotIntent.spokenAudio is true exactly when the beat contains on-camera sync-dialogue; simultaneousPerformers equals the unique performance character count, and every sync speaker has a performance entry.
 - Omit renderPlan. Technical segmentation is authored later from this narrative sidecar.
 - When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or narration_density_below_mode, use tf_untrusted_data.editorialPlan as binding. Preserve the exact total runtime and selected narration mode. Develop the supported argument or story with substantive beats; represent deliberate non-verbal intervals as visual or transition beats. Never pad prose, durations, metadata, or empty lines to game the contract.
 - Preserve source references on every factual scene, beat, and line. Do not create a reference ID that is absent from the Source Ledger.
@@ -751,7 +768,7 @@ Your task is to write a high-retention, engaging video script.
 7. **Provenance:** Use only Source Ledger referenceId values. Carry refs at sidecar, scene, beat, and line level. Every numeric/date/price/URL/proof/testimonial claim needs a real source ref; an undeclared ref is invalid.
 8. **Visual and audio intent:** Every beat needs concrete visualIntent, including motion, quality, asset recommendation, and intended on-screen text when relevant. Describe what the viewer can actually see; avoid empty style adjectives. Add audioIntent when ambience, music, or SFX serves the beat.
 9. **Characters and casting:** Include only characters used by the narrative. A visible character belongs in charactersPresent; a speaking line uses that character's exact ID. Follow the casting contract without inventing avatar or voice IDs. Do not translate, split, shorten, or move speech merely to satisfy a renderer.
-10. **Shot intent:** Every beat needs one complete shotIntent expressing creative purpose, emotional beat, energy, visual priority, action, framing, angle, movement, performance, and continuity. A moving shot requires a non-empty movementMotivation. spokenAudio is true exactly when the beat contains on-camera sync-dialogue. simultaneousPerformers equals the number of unique performance character IDs, and every sync speaker has a matching performance entry. Never invent equipment, room dimensions, coordinates, budgets, or setup claims.
+10. **Shot intent:** Every beat needs one complete shotIntent expressing creative purpose, emotional beat, energy, visual priority, action, framing, angle, movement, performance, and continuity. Express shotIntent.energy and every performance intensity as normalized decimals from 0 to 1, never a 1-5 or 1-10 scale. A moving shot requires a non-empty movementMotivation. spokenAudio is true exactly when the beat contains on-camera sync-dialogue. simultaneousPerformers equals the number of unique performance character IDs, and every sync speaker has a matching performance entry. Never invent equipment, room dimensions, coordinates, budgets, or setup claims.
 11. **Technical separation:** Do not mention lip-sync job length, provider language support, model limits, scene caps, or render chunks. Preserve narrative intent. Production planning will later emit compatibility warnings, alternatives, and provider-safe segments without rewriting the story.
 12. **Metadata:** Set only the publication platform requested in tf_untrusted_data.productionOutput. Duration and spoken languages are derived by the server from the sidecar.
 

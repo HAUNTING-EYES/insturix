@@ -401,6 +401,7 @@ describe('ScriptWriterAgent structured generation', () => {
   it('repairs structurally valid cross-field sidecar violations before persistence', async () => {
     const invalid = makeModelOutput();
     const invalidShot = invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.shotIntent!;
+    invalidShot.energy = 4;
     delete invalidShot.movementMotivation;
     invalidShot.spokenAudio = true;
     const repaired = makeModelOutput();
@@ -421,6 +422,28 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
       .toMatch(/movementMotivation[\s\S]*spokenAudio/);
     expect(ScriptSidecarV2Schema.safeParse(output.result.sidecar).success).toBe(true);
+    expect(output.metadata?.notes).toContain('script_contract_repair:applied');
+  });
+
+  it('repairs model scalars that violate the strict public result contract', async () => {
+    const invalid = makeModelOutput();
+    invalid.contentAnalysis.qualityScore = 140;
+    const repaired = makeModelOutput();
+
+    expect(ScriptWriterModelOutputSchema.safeParse(invalid).success).toBe(true);
+    expect(() => materializeScriptWriterResult(invalid))
+      .toThrow(/invalid_writer_result[\s\S]*qualityScore/);
+    generateStructuredWithWritingContextCacheMock
+      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
+      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Approval workflow launch.' },
+      userPrompt: 'Write the complete video script.',
+    });
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
+    expect(output.result.contentAnalysis.qualityScore).toBe(92);
     expect(output.metadata?.notes).toContain('script_contract_repair:applied');
   });
 

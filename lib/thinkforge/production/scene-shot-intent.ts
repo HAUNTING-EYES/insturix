@@ -44,9 +44,19 @@ export const SHOT_MOVEMENTS = [
   'tracking',
 ] as const;
 
-export const PerformanceIntentSchema = z.object({
-  characterId: z.string().min(1),
+const PerformanceIntentModelSchema = z.object({
+  characterId: z.string(),
   stance: z.enum(PERFORMANCE_STANCES),
+  emotion: z.string(),
+  intensity: z.number(),
+  gaze: z.string(),
+  posture: z.string(),
+  gesture: z.string(),
+  movement: z.string(),
+}).strict();
+
+export const PerformanceIntentSchema = PerformanceIntentModelSchema.extend({
+  characterId: z.string().min(1),
   emotion: z.string().min(1),
   intensity: z.number().min(0).max(1),
   gaze: z.string().min(1),
@@ -55,27 +65,45 @@ export const PerformanceIntentSchema = z.object({
   movement: z.string().min(1),
 }).strict();
 
-export const SceneShotIntentObjectSchema = z.object({
-  narrativePurpose: z.string().min(1),
-  emotionalBeat: z.string().min(1),
-  energy: z.number().min(0).max(1),
-  visualPriority: z.string().min(1),
+const SceneShotContinuityModelSchema = z.object({
+  wardrobe: z.array(z.string()).default([]),
+  props: z.array(z.string()).default([]),
+  screenDirection: z.string().optional(),
+  previousSceneIds: z.array(z.string()).default([]),
+}).strict();
+
+const SceneShotContinuitySchema = SceneShotContinuityModelSchema.extend({
+  wardrobe: z.array(z.string().min(1)).default([]),
+  props: z.array(z.string().min(1)).default([]),
+  previousSceneIds: z.array(z.string().min(1)).default([]),
+}).strict();
+
+export const SceneShotIntentModelObjectSchema = z.object({
+  narrativePurpose: z.string(),
+  emotionalBeat: z.string(),
+  energy: z.number(),
+  visualPriority: z.string(),
   action: z.enum(SHOT_ACTIONS),
   desiredFraming: z.enum(SHOT_FRAMINGS),
   desiredAngle: z.enum(SHOT_ANGLES),
   desiredMovement: z.enum(SHOT_MOVEMENTS),
-  // A static shot has no camera movement to motivate. Keep the field permissive at
-  // the response boundary, then enforce a meaningful value only for moving shots.
   movementMotivation: z.string().optional(),
-  simultaneousPerformers: z.number().int().min(0).max(20),
+  simultaneousPerformers: z.number().int(),
   spokenAudio: z.boolean(),
+  performance: z.array(PerformanceIntentModelSchema),
+  continuity: SceneShotContinuityModelSchema.default({ wardrobe: [], props: [], previousSceneIds: [] }),
+}).strict();
+
+export const SceneShotIntentObjectSchema = SceneShotIntentModelObjectSchema.extend({
+  narrativePurpose: z.string().min(1),
+  emotionalBeat: z.string().min(1),
+  energy: z.number().min(0).max(1),
+  visualPriority: z.string().min(1),
+  // A static shot has no camera movement to motivate. The canonical contract
+  // requires a meaningful value only when the authored camera moves.
+  simultaneousPerformers: z.number().int().min(0).max(20),
   performance: z.array(PerformanceIntentSchema).max(20),
-  continuity: z.object({
-    wardrobe: z.array(z.string().min(1)).default([]),
-    props: z.array(z.string().min(1)).default([]),
-    screenDirection: z.string().optional(),
-    previousSceneIds: z.array(z.string().min(1)).default([]),
-  }).strict().default({ wardrobe: [], props: [], previousSceneIds: [] }),
+  continuity: SceneShotContinuitySchema.default({ wardrobe: [], props: [], previousSceneIds: [] }),
 }).strict();
 
 export type SceneShotIntent = z.infer<typeof SceneShotIntentObjectSchema>;
