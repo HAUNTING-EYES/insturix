@@ -4471,7 +4471,8 @@ function clampInt(value: number, min: number, max: number): number {
 }
 
 function round3(value: number): number {
-  return Math.round(value * 1000) / 1000;
+  const rounded = Math.round(value * 1000) / 1000;
+  return Object.is(rounded, -0) ? 0 : rounded;
 }
 
 function truncate(value: string, max: number): string {
