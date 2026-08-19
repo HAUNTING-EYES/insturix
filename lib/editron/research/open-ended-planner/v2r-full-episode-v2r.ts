@@ -5,6 +5,9 @@ import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import type { GenericLoweringResultV2R } from './generic-lowerer-v2r';
 import {
   runV2RConnectedEpisodeV2,
+  V2RConnectedEpisodePartialError,
+  V2R_CONNECTED_EPISODE_PARTIAL_RECEIPT_VERSION,
+  type V2RConnectedEpisodePartialReceiptV2R,
   type V2RConnectedRouteV2,
   type V2RConnectedTaskV2,
 } from './v2r-connected-episode-v2r';
@@ -59,6 +62,21 @@ export interface V2RFullEpisodeExecutionV2R {
   receiptPath: string;
 }
 
+export interface V2RFullEpisodePartialExecutionV2R {
+  receipt: Readonly<V2RConnectedEpisodePartialReceiptV2R>;
+  receiptPath: string;
+}
+
+export class V2RFullEpisodePartialError extends Error {
+  readonly partialExecution: Readonly<V2RFullEpisodePartialExecutionV2R>;
+
+  constructor(partialExecution: Readonly<V2RFullEpisodePartialExecutionV2R>) {
+    super(`V2R_FULL_EPISODE_PARTIAL_EVIDENCE_PERSISTED:${partialExecution.receipt.failurePoint}`);
+    this.name = 'V2RFullEpisodePartialError';
+    this.partialExecution = deepFreezeV1(partialExecution);
+  }
+}
+
 type Stage6ExecutorV2R = (input: {
   taskId: string;
   lowering: Readonly<GenericLoweringResultV2R>;
@@ -81,9 +99,24 @@ export async function runV2RFullEpisodeV2R(input: {
   if (input.testOnlyStage6Executor && process.env.NODE_ENV !== 'test') {
     throw new Error('V2R_FULL_EPISODE_TEST_EXECUTOR_FORBIDDEN');
   }
-  const connectedEpisode = await runV2RConnectedEpisodeV2({
-    manifest: input.manifest, task: input.task, route: input.route,
-  });
+  let connectedEpisode: Awaited<ReturnType<typeof runV2RConnectedEpisodeV2>>;
+  try {
+    connectedEpisode = await runV2RConnectedEpisodeV2({
+      manifest: input.manifest, task: input.task, route: input.route,
+    });
+  } catch (error) {
+    if (!(error instanceof V2RConnectedEpisodePartialError)) throw error;
+    await mkdir(input.outputDir, { recursive: true });
+    const receiptPath = path.join(
+      input.outputDir,
+      `v2r-connected-partial-${input.executionId}.json`,
+    );
+    await persistAndVerifyPartialReceipt(error.partialReceipt, receiptPath);
+    throw new V2RFullEpisodePartialError({
+      receipt: error.partialReceipt,
+      receiptPath,
+    });
+  }
   await mkdir(input.outputDir, { recursive: true });
   const connectedEpisodeReceiptPath = path.join(
     input.outputDir,
@@ -157,6 +190,23 @@ export async function runV2RFullEpisodeV2R(input: {
   const receiptPath = path.join(input.outputDir, `v2r-full-episode-${input.executionId}.json`);
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' });
   return { receipt, receiptPath };
+}
+
+async function persistAndVerifyPartialReceipt(
+  receipt: Readonly<V2RConnectedEpisodePartialReceiptV2R>,
+  receiptPath: string,
+): Promise<void> {
+  const { partialReceiptHash, ...material } = receipt;
+  if (receipt.receiptVersion !== V2R_CONNECTED_EPISODE_PARTIAL_RECEIPT_VERSION
+    || receipt.authority !== 'RESEARCH_ONLY_NO_PROJECT_MUTATION'
+    || receipt.stateEffects.length
+    || !receipt.rows.length
+    || hashCanonicalJsonV1(material) !== partialReceiptHash) {
+    throw new Error('V2R_FULL_EPISODE_PARTIAL_RECEIPT_INVALID');
+  }
+  await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' });
+  const persisted = JSON.parse(await readFile(receiptPath, 'utf8')) as unknown;
+  if (!same(persisted, receipt)) throw new Error('V2R_FULL_EPISODE_PARTIAL_RECEIPT_WRITE_DRIFT');
 }
 
 async function validateStage6Execution(input: {

@@ -11,7 +11,10 @@ import type { GenericLoweringResultV2R } from '@/lib/editron/research/open-ended
 import type { ProviderStageRunV2 } from '@/lib/editron/research/open-ended-planner/provider-transport-v2';
 import { buildDev01TruthfulStageOneTextPacketV2 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
 import type { V2RConnectedRouteV2, V2RConnectedTaskV2 } from '@/lib/editron/research/open-ended-planner/v2r-connected-episode-v2r';
-import { runV2RFullEpisodeV2R } from '@/lib/editron/research/open-ended-planner/v2r-full-episode-v2r';
+import {
+  runV2RFullEpisodeV2R,
+  V2RFullEpisodePartialError,
+} from '@/lib/editron/research/open-ended-planner/v2r-full-episode-v2r';
 import { buildV2RPreregistrationManifest } from '@/lib/editron/research/open-ended-planner/v2r-preregistration-manifest';
 
 type JsonRecord = Record<string, unknown>;
@@ -148,6 +151,34 @@ describe('V2R full connected episode runner', () => {
     expect(execution.receipt.stage6.diagnostics).toEqual(expect.arrayContaining([
       'STAGE6_PROOF_NOT_PASS', 'STAGE6_RENDER_VALIDATION_NOT_PASS',
     ]));
+  });
+
+  it('persists accepted Stage-1/2 evidence before surfacing a later harness crash', async () => {
+    const provider = route('BASELINE');
+    const originalRunStage = provider.runStage;
+    provider.runStage = async (packet) => {
+      if (packet.packet.stage === 3) throw new Error('synthetic stage-three failure');
+      return originalRunStage(packet);
+    };
+    let thrown: unknown;
+    try {
+      await runV2RFullEpisodeV2R({
+        manifest: buildV2RPreregistrationManifest(), task: task(), route: provider,
+        executionId: 'dev01-partial-001', createdAt: '2026-08-19T00:00:00.000Z',
+        outputDir: await outputDir(),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(V2RFullEpisodePartialError);
+    const partial = (thrown as V2RFullEpisodePartialError).partialExecution;
+    expect(partial.receipt).toMatchObject({
+      failurePoint: 'BEFORE_STAGE3_COMPLETION',
+      diagnostics: ['HARNESS_ERROR:synthetic stage-three failure'],
+      stateEffects: [],
+    });
+    expect(partial.receipt.rows.map(({ stage }) => stage)).toEqual([1, 2]);
+    expect(JSON.parse(await readFile(partial.receiptPath, 'utf8'))).toEqual(partial.receipt);
   });
 
   it('rejects unsafe execution identities before provider dispatch', async () => {

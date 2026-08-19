@@ -8,9 +8,10 @@ import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/c
 import {
   runV2RBenchmarkCohortV2R,
 } from '@/lib/editron/research/open-ended-planner/v2r-benchmark-cohort-v2r';
-import type {
-  V2RFullEpisodeExecutionV2R,
-  V2RFullEpisodeReceiptV2R,
+import {
+  V2RFullEpisodePartialError,
+  type V2RFullEpisodeExecutionV2R,
+  type V2RFullEpisodeReceiptV2R,
 } from '@/lib/editron/research/open-ended-planner/v2r-full-episode-v2r';
 import { prepareV2RLiveCohortV2R } from '@/lib/editron/research/open-ended-planner/v2r-live-cohort-v2r';
 
@@ -92,7 +93,72 @@ describe('V2R full benchmark cohort owner', () => {
     expect(execution.receipt.rows[0]).toMatchObject({
       actualFinalDisposition: 'HARNESS_ERROR', assessment: 'HARNESS_ERROR',
       actualProviderCostUsd: null, costDisposition: 'UNVERIFIABLE',
+      partialConnectedReceiptHash: null, partialConnectedReceiptPath: null,
     });
+  });
+
+  it('retains and accounts for validated partial evidence without calling it success', async () => {
+    const prepared = await prepareV2RLiveCohortV2R({ environment });
+    let calls = 0;
+    const runEpisode = vi.fn(async (input) => {
+      calls += 1;
+      if (calls === 1) throw await fakePartialError(input);
+      return fakeEpisode(input, expectedDisposition(input.task.taskId, input.task.conditionId));
+    });
+    const execution = await runV2RBenchmarkCohortV2R({
+      manifest: prepared.manifest, registry: prepared.registry, routes: prepared.routes,
+      cohortId: 'cohort-partial', createdAt: '2026-08-19T08:00:00.000Z',
+      outputDir: await tempRoot(), testOnlyRunEpisode: runEpisode,
+    });
+    expect(execution.receipt).toMatchObject({
+      receiptVersion: 'EDITRON_OE_V2R_BENCHMARK_COHORT_RECEIPT_V2',
+      runDisposition: 'COMPLETE_WITH_FAILURES',
+      actualProviderCostUsd: 0.12,
+      providerCostCoverage: 'PARTIAL_UNPRICED_ROUTE',
+    });
+    expect(execution.receipt.rows[0]).toMatchObject({
+      actualFinalDisposition: 'HARNESS_ERROR', assessment: 'HARNESS_ERROR',
+      actualProviderCostUsd: 0.01, costDisposition: 'METERED',
+      diagnostics: ['HARNESS_ERROR:synthetic post-stage-two failure'],
+    });
+    expect(execution.receipt.rows[0].partialConnectedReceiptHash).toHaveLength(64);
+    expect(execution.receipt.rows[0].partialConnectedReceiptPath).toContain('partial.json');
+  });
+
+  it('rejects partial evidence whose persisted path escapes the case directory', async () => {
+    const prepared = await prepareV2RLiveCohortV2R({ environment });
+    let calls = 0;
+    const runEpisode = vi.fn(async (input) => {
+      calls += 1;
+      if (calls === 1) {
+        const valid = await fakePartialError(input);
+        const outsideRoot = await tempRoot();
+        const escapedPath = path.join(outsideRoot, 'partial.json');
+        await writeFile(
+          escapedPath,
+          `${JSON.stringify(valid.partialExecution.receipt, null, 2)}\n`,
+          { flag: 'wx' },
+        );
+        throw new V2RFullEpisodePartialError({
+          receipt: valid.partialExecution.receipt,
+          receiptPath: escapedPath,
+        });
+      }
+      return fakeEpisode(input, expectedDisposition(input.task.taskId, input.task.conditionId));
+    });
+    const execution = await runV2RBenchmarkCohortV2R({
+      manifest: prepared.manifest, registry: prepared.registry, routes: prepared.routes,
+      cohortId: 'cohort-escaped-partial', createdAt: '2026-08-19T08:00:00.000Z',
+      outputDir: await tempRoot(), testOnlyRunEpisode: runEpisode,
+    });
+    expect(execution.receipt.rows[0]).toMatchObject({
+      actualFinalDisposition: 'HARNESS_ERROR', costDisposition: 'UNVERIFIABLE',
+      actualProviderCostUsd: null, partialConnectedReceiptHash: null,
+      partialConnectedReceiptPath: null,
+    });
+    expect(execution.receipt.rows[0].diagnostics.join('\n')).toContain(
+      'PARTIAL_RECEIPT_PATH_OUTSIDE_CASE',
+    );
   });
 
   it('rejects an incomplete provider roster before dispatch', async () => {
@@ -145,4 +211,35 @@ async function fakeEpisode(
   const receiptPath = path.join(input.outputDir, `full-${input.executionId}.json`);
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' });
   return { receipt, receiptPath };
+}
+
+async function fakePartialError(
+  input: Parameters<NonNullable<Parameters<typeof runV2RBenchmarkCohortV2R>[0]['testOnlyRunEpisode']>>[0],
+): Promise<V2RFullEpisodePartialError> {
+  await mkdir(input.outputDir, { recursive: true });
+  const providerRun = {
+    runVersion: 'EDITRON_OE_PROVIDER_STAGE_RUN_V2' as const,
+    authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
+    packetHash: 'packet-stage-one', disposition: 'ARTIFACT_ACCEPTED' as const,
+    attempts: [], artifact: { artifactType: 'ReferenceBlueprintV2', taskId: input.task.taskId },
+  };
+  const material = {
+    receiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_PARTIAL_RECEIPT_V1' as const,
+    authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
+    preregistrationManifestSha256: (input.manifest as { manifestSha256: string }).manifestSha256,
+    taskId: input.task.taskId, conditionId: input.task.conditionId,
+    routeId: input.route.routeId, claimedModelIdentity: input.route.claimedModelIdentity,
+    costBasis: input.route.costBasis,
+    rows: [{
+      stage: 1 as const, packetHash: 'packet-stage-one', priorArtifactHash: null,
+      artifactHash: hashCanonicalJsonV1(providerRun.artifact), providerRun,
+    }],
+    failurePoint: 'BEFORE_STAGE2_COMPLETION' as const,
+    diagnostics: ['HARNESS_ERROR:synthetic post-stage-two failure'],
+    actualProviderCostUsd: 0.01, stateEffects: [] as const,
+  };
+  const receipt = { ...material, partialReceiptHash: hashCanonicalJsonV1(material) };
+  const receiptPath = path.join(input.outputDir, 'partial.json');
+  await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' });
+  return new V2RFullEpisodePartialError({ receipt, receiptPath });
 }

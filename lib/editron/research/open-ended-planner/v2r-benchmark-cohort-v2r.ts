@@ -6,6 +6,7 @@ import type { DevelopmentModelRouteV2 } from './development-cohort-runner-v2';
 import type { EvaluatorConditionPolicyV2R } from './evaluator-freeze-v2r';
 import {
   runV2RFullEpisodeV2R,
+  V2RFullEpisodePartialError,
   type V2RFullEpisodeExecutionV2R,
   type V2RFullEpisodeReceiptV2R,
 } from './v2r-full-episode-v2r';
@@ -34,6 +35,8 @@ export interface V2RBenchmarkCohortRowV2R {
   assessment: 'EXPECTED_OUTCOME' | 'UNEXPECTED_OUTCOME' | 'HARNESS_ERROR';
   fullEpisodeReceiptHash: string | null;
   fullEpisodeReceiptPath: string | null;
+  partialConnectedReceiptHash: string | null;
+  partialConnectedReceiptPath: string | null;
   actualProviderCostUsd: number | null;
   costDisposition: 'METERED' | 'UNPRICED_TOKEN_PLAN' | 'UNVERIFIABLE';
   elapsedMs: number;
@@ -41,7 +44,7 @@ export interface V2RBenchmarkCohortRowV2R {
 }
 
 export interface V2RBenchmarkCohortReceiptV2R {
-  receiptVersion: 'EDITRON_OE_V2R_BENCHMARK_COHORT_RECEIPT_V1';
+  receiptVersion: 'EDITRON_OE_V2R_BENCHMARK_COHORT_RECEIPT_V2';
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
   executionMode: 'SEQUENTIAL_FAIL_CLOSED_FULL_EPISODES';
   cohortId: string;
@@ -105,19 +108,50 @@ export async function runV2RBenchmarkCohortV2R(input: {
           assessment: actual === expected ? 'EXPECTED_OUTCOME' : 'UNEXPECTED_OUTCOME',
           fullEpisodeReceiptHash: execution.receipt.receiptSha256,
           fullEpisodeReceiptPath: execution.receiptPath,
+          partialConnectedReceiptHash: null,
+          partialConnectedReceiptPath: null,
           actualProviderCostUsd: execution.receipt.actualProviderCostUsd,
           costDisposition: route.costBasis === 'USD_METERED' ? 'METERED' : 'UNPRICED_TOKEN_PLAN',
           elapsedMs: Math.max(0, now() - startedAt),
           diagnostics: actual === expected ? [] : [`EXPECTED_${expected}_GOT_${actual}`],
         });
-      } catch (error) {
+      } catch (caught) {
+        let error: unknown = caught;
+        if (error instanceof V2RFullEpisodePartialError) {
+          try {
+            await validatePartialEpisode(error, {
+              manifest, route, taskId: taskCase.task.taskId,
+              conditionId: taskCase.task.conditionId, episodeDir,
+            });
+            const partial = error.partialExecution;
+            rows.push({
+              routeId: route.routeId, claimedModelIdentity: route.claimedModelIdentity,
+              costBasis: route.costBasis, caseId: taskCase.caseId,
+              taskId: taskCase.task.taskId, conditionId: taskCase.task.conditionId,
+              expectedFinalDisposition: expected, actualFinalDisposition: 'HARNESS_ERROR',
+              assessment: 'HARNESS_ERROR', fullEpisodeReceiptHash: null,
+              fullEpisodeReceiptPath: null,
+              partialConnectedReceiptHash: partial.receipt.partialReceiptHash,
+              partialConnectedReceiptPath: partial.receiptPath,
+              actualProviderCostUsd: partial.receipt.actualProviderCostUsd,
+              costDisposition: route.costBasis === 'USD_METERED'
+                ? 'METERED' : 'UNPRICED_TOKEN_PLAN',
+              elapsedMs: Math.max(0, now() - startedAt),
+              diagnostics: [...partial.receipt.diagnostics],
+            });
+            continue;
+          } catch (partialError) {
+            error = new Error(`PARTIAL_EVIDENCE_INVALID:${safeError(partialError)}`);
+          }
+        }
         rows.push({
           routeId: route.routeId, claimedModelIdentity: route.claimedModelIdentity,
           costBasis: route.costBasis, caseId: taskCase.caseId,
           taskId: taskCase.task.taskId, conditionId: taskCase.task.conditionId,
           expectedFinalDisposition: expected, actualFinalDisposition: 'HARNESS_ERROR',
           assessment: 'HARNESS_ERROR', fullEpisodeReceiptHash: null,
-          fullEpisodeReceiptPath: null, actualProviderCostUsd: null,
+          fullEpisodeReceiptPath: null, partialConnectedReceiptHash: null,
+          partialConnectedReceiptPath: null, actualProviderCostUsd: null,
           costDisposition: 'UNVERIFIABLE', elapsedMs: Math.max(0, now() - startedAt),
           diagnostics: [`HARNESS_ERROR:${safeError(error)}`],
         });
@@ -130,7 +164,7 @@ export async function runV2RBenchmarkCohortV2R(input: {
   ).toFixed(12));
   const failures = rows.filter(({ assessment }) => assessment !== 'EXPECTED_OUTCOME');
   const material = {
-    receiptVersion: 'EDITRON_OE_V2R_BENCHMARK_COHORT_RECEIPT_V1' as const,
+    receiptVersion: 'EDITRON_OE_V2R_BENCHMARK_COHORT_RECEIPT_V2' as const,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     executionMode: 'SEQUENTIAL_FAIL_CLOSED_FULL_EPISODES' as const,
     cohortId: input.cohortId, createdAt: input.createdAt,
@@ -148,6 +182,44 @@ export async function runV2RBenchmarkCohortV2R(input: {
   const receiptPath = path.join(root, `v2r-cohort-${input.cohortId}.json`);
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' });
   return { receipt, receiptPath };
+}
+
+async function validatePartialEpisode(
+  error: V2RFullEpisodePartialError,
+  expected: {
+    manifest: Readonly<V2RPreregistrationManifest>;
+    route: DevelopmentModelRouteV2;
+    taskId: string;
+    conditionId: string;
+    episodeDir: string;
+  },
+): Promise<void> {
+  const { receipt, receiptPath } = error.partialExecution;
+  const { partialReceiptHash, ...material } = receipt;
+  if (receipt.receiptVersion !== 'EDITRON_OE_V2R_CONNECTED_EPISODE_PARTIAL_RECEIPT_V1'
+    || hashCanonicalJsonV1(material) !== partialReceiptHash
+    || receipt.authority !== 'RESEARCH_ONLY_NO_PROJECT_MUTATION'
+    || receipt.stateEffects.length) throw new Error('PARTIAL_RECEIPT_HASH_OR_AUTHORITY_DRIFT');
+  if (receipt.preregistrationManifestSha256 !== expected.manifest.manifestSha256
+    || receipt.routeId !== expected.route.routeId
+    || receipt.claimedModelIdentity !== expected.route.claimedModelIdentity
+    || receipt.taskId !== expected.taskId || receipt.conditionId !== expected.conditionId) {
+    throw new Error('PARTIAL_RECEIPT_BINDING_DRIFT');
+  }
+  if (!receipt.rows.length
+    || receipt.rows.some(({ stage }, index) => stage !== index + 1)) {
+    throw new Error('PARTIAL_RECEIPT_STAGE_SEQUENCE_INVALID');
+  }
+  const resolved = path.resolve(receiptPath);
+  const root = path.resolve(expected.episodeDir);
+  const relative = path.relative(root, resolved);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('PARTIAL_RECEIPT_PATH_OUTSIDE_CASE');
+  }
+  const persisted = JSON.parse(await readFile(resolved, 'utf8')) as unknown;
+  if (hashCanonicalJsonV1(persisted) !== hashCanonicalJsonV1(receipt)) {
+    throw new Error('PARTIAL_PERSISTED_RECEIPT_DRIFT');
+  }
 }
 
 async function validateEpisode(
