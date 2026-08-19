@@ -87,6 +87,7 @@ export interface BrandVaultApiErrorBody {
     code:
       | 'invalid_json'
       | 'invalid_request'
+      | 'forbidden'
       | 'not_found'
       | 'invalid_url'
       | 'validation_failed'
@@ -1034,7 +1035,6 @@ export async function getBrandVaultSignalProfile(
   if (!record || !await canAccessBrandSignalProfile(record.profile, args, dependencies.store)) {
     return notFound('Brand signal profile was not found.');
   }
-
   const snapshot = await dependencies.store.getJobSnapshotByRecordId(recordId);
   const job = snapshot?.job ?? profileOnlyJob(record);
   return {
@@ -1071,6 +1071,9 @@ export async function reviewBrandVaultSignalProfileDraft(
   const record = await dependencies.store.getRecord(args.recordId);
   if (!record || !await canAccessBrandSignalProfile(record.profile, args, dependencies.store)) {
     return notFound('Brand signal profile was not found.');
+  }
+  if (!canManageBrandSignalProfile(record.profile, args)) {
+    return forbidden('Only an organization administrator can accept or reject a shared brand profile.');
   }
 
   const body = isObjectRecord(args.body) ? args.body : {};
@@ -1662,13 +1665,27 @@ async function canAccessBrandSignalProfile(
 
   const brandId = cleanString(owner.brandId);
   if (!brandId) return owner.userId === scope.userId;
-  if (!store.getBrandAccessGrants) return true;
+  if (!store.getBrandAccessGrants) return false;
   const grants = await store.getBrandAccessGrants(scopeOrgId);
   return isBrandAccessible(brandId, grants, { userId: scope.userId });
 }
 
+function canManageBrandSignalProfile(
+  owner: { userId?: string; orgId?: string },
+  scope: { userId: string; orgId?: string; isOrgAdmin?: boolean },
+): boolean {
+  const ownerOrgId = cleanString(owner.orgId);
+  const scopeOrgId = cleanString(scope.orgId);
+  if (!ownerOrgId) return !scopeOrgId && owner.userId === scope.userId;
+  return ownerOrgId === scopeOrgId && scope.isOrgAdmin === true;
+}
+
 function notFound(message: string): BrandVaultApiResult<BrandVaultApiErrorBody> {
   return { status: 404, body: { ok: false, error: { code: 'not_found', message } } };
+}
+
+function forbidden(message: string): BrandVaultApiResult<BrandVaultApiErrorBody> {
+  return { status: 403, body: { ok: false, error: { code: 'forbidden', message } } };
 }
 
 function profileOnlyJob(record: BrandSignalProfileRecord): BrandRefineryJob {

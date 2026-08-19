@@ -33,7 +33,7 @@ async function createOrgDraft() {
 }
 
 describe('Brand Vault organization review authority', () => {
-  it('lets an organization collaborator read and review an open brand draft', async () => {
+  it('lets an organization collaborator use an open brand without managing its canonical profile', async () => {
     const { store, recordId } = await createOrgDraft();
 
     const loaded = await getBrandVaultSignalProfile(
@@ -51,8 +51,17 @@ describe('Brand Vault organization review authority', () => {
     );
 
     expect(loaded.status).toBe(200);
-    expect(reviewed.status).toBe(200);
-    expect((await store.getRecord(recordId))?.status).toBe('accepted');
+    expect(reviewed).toEqual({
+      status: 403,
+      body: {
+        ok: false,
+        error: {
+          code: 'forbidden',
+          message: 'Only an organization administrator can accept or reject a shared brand profile.',
+        },
+      },
+    });
+    expect((await store.getRecord(recordId))?.status).toBe('draft');
   });
 
   it('denies a revoked original owner while preserving organization admin access', async () => {
