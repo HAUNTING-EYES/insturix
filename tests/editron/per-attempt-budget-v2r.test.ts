@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   PER_ATTEMPT_BUDGET_POLICY_V2R,
   PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R,
+  V2R_MAX_PROVIDER_ATTEMPTS_PER_STAGE,
+  V2R_PROVIDER_ATTEMPT_NUMBERS,
   V2R_PROVIDER_STAGE_BUDGETS,
   perAttemptStageBudgetV2R,
   v2rProviderStageBudgetScheduleIdentity,
@@ -39,6 +41,9 @@ describe('V2-1R per-attempt budget policy', () => {
 
   it('freezes and hashes the exact fair provider schedule', () => {
     const identity = v2rProviderStageBudgetScheduleIdentity();
+    expect(identity.maximumAttemptsPerStage).toBe(V2R_MAX_PROVIDER_ATTEMPTS_PER_STAGE);
+    expect(V2R_PROVIDER_ATTEMPT_NUMBERS).toEqual([1, 2]);
+    expect(Object.isFrozen(V2R_PROVIDER_ATTEMPT_NUMBERS)).toBe(true);
     expect(identity.stageBudgets).toEqual(V2R_PROVIDER_STAGE_BUDGETS);
     expect(identity.stageBudgets[1].maxInputTokens).toBe(30000);
     expect(identity.stageBudgets[2].maxInputTokens).toBe(70000);

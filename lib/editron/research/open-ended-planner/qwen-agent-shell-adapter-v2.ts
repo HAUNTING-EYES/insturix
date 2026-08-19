@@ -12,6 +12,10 @@ import {
 } from './contracts-v1';
 import type { ProviderAttemptRecordV2, ProviderStageRunV2 } from './provider-transport-v2';
 import {
+  V2R_MAX_PROVIDER_ATTEMPTS_PER_STAGE,
+  V2R_PROVIDER_ATTEMPT_NUMBERS,
+} from './per-attempt-budget-v2r';
+import {
   validateProviderStageArtifactV2,
   type HashedStagePacketV2,
 } from './staged-packet-v2';
@@ -41,8 +45,8 @@ export async function runQwenProviderStageV2(input: {
   const execute = input.execute ?? executeQwenDirectProviderV2;
   let priorResponse = '';
   try {
-    for (const attempt of [1, 2] as const) {
-      if (attempt === 2 && !priorDiagnostics.length) break;
+    for (const attempt of V2R_PROVIDER_ATTEMPT_NUMBERS) {
+      if (attempt === V2R_MAX_PROVIDER_ATTEMPTS_PER_STAGE && !priorDiagnostics.length) break;
       const prompt = attempt === 1
         ? buildInitialPrompt(input.artifact)
         : buildRepairPrompt(input.artifact, priorDiagnostics, priorResponse);

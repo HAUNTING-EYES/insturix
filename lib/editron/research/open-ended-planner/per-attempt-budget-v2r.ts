@@ -13,7 +13,9 @@ export const PER_ATTEMPT_BUDGET_POLICY_VERSION_V2R =
   'EDITRON_OE_PER_ATTEMPT_BUDGET_POLICY_V2R' as const;
 
 export const V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_VERSION =
-  'EDITRON_OE_V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_V1' as const;
+  'EDITRON_OE_V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_V2' as const;
+export const V2R_MAX_PROVIDER_ATTEMPTS_PER_STAGE = 2 as const;
+export const V2R_PROVIDER_ATTEMPT_NUMBERS = deepFreezeV1([1, 2] as const);
 
 export type V2RProviderStage = 1 | 2 | 3;
 export type V2RProviderStageBudgetSchedule = Readonly<Record<
@@ -29,6 +31,7 @@ export const V2R_PROVIDER_STAGE_BUDGETS: V2RProviderStageBudgetSchedule = deepFr
 
 export interface V2RProviderStageBudgetScheduleIdentity {
   version: typeof V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_VERSION;
+  maximumAttemptsPerStage: typeof V2R_MAX_PROVIDER_ATTEMPTS_PER_STAGE;
   stageBudgets: V2RProviderStageBudgetSchedule;
   scheduleSha256: string;
 }
@@ -36,6 +39,7 @@ export interface V2RProviderStageBudgetScheduleIdentity {
 export function v2rProviderStageBudgetScheduleIdentity(): Readonly<V2RProviderStageBudgetScheduleIdentity> {
   const material = {
     version: V2R_PROVIDER_STAGE_BUDGET_SCHEDULE_VERSION,
+    maximumAttemptsPerStage: V2R_MAX_PROVIDER_ATTEMPTS_PER_STAGE,
     stageBudgets: V2R_PROVIDER_STAGE_BUDGETS,
   };
   return deepFreezeV1({ ...material, scheduleSha256: hashCanonicalJsonV1(material) });

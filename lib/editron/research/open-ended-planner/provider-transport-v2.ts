@@ -1,5 +1,9 @@
 import { deepFreezeV1, hashCanonicalJsonV1, sha256TextV1 } from './contracts-v1';
-import { perAttemptStageBudgetV2R } from './per-attempt-budget-v2r';
+import {
+  V2R_MAX_PROVIDER_ATTEMPTS_PER_STAGE,
+  V2R_PROVIDER_ATTEMPT_NUMBERS,
+  perAttemptStageBudgetV2R,
+} from './per-attempt-budget-v2r';
 import {
   mapProviderHttpFailureV2,
   normalizeProviderResponseV2,
@@ -89,8 +93,8 @@ export async function runProviderStageV2(input: {
   let priorRequest: SerializedProviderRequestV2 | undefined;
   let priorInputTokens: number | undefined;
   let acceptedArtifact: Record<string, unknown> | undefined;
-  for (const attempt of [1, 2] as const) {
-    if (attempt === 2 && !repair) break;
+  for (const attempt of V2R_PROVIDER_ATTEMPT_NUMBERS) {
+    if (attempt === V2R_MAX_PROVIDER_ATTEMPTS_PER_STAGE && !repair) break;
     // V2-1R per-attempt budget law: every permitted attempt receives its own
     // declared budget freshly allocated from the stage budget, never the residue
     // of a prior attempt. A slow first attempt can no longer starve the repair
