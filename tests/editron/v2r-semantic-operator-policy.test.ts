@@ -15,7 +15,7 @@ const validDev01Nodes = [
   node('visual-find', 'find_visual_moment'),
   node('keyframe-resolve', 'resolve_keyframe_edit', ['visual-find', 'cut']),
   node('push', 'set_keyframes', ['keyframe-resolve']),
-  node('duck', 'apply_audio_ducking', ['cut']),
+  node('duck', 'apply_audio_ducking'),
 ];
 
 describe('V2R semantic operator policy', () => {
@@ -36,6 +36,20 @@ describe('V2R semantic operator policy', () => {
     expect(receipt.disposition).toBe('PASS');
     expect(receipt.diagnostics).toEqual([]);
     expect(receipt.receiptSha256).toHaveLength(64);
+  });
+
+  it('does not impose cut-before-duck when both legal paths preserve the ducking form', () => {
+    const duckBeforeCut = validDev01Nodes.map((candidate) => ({ ...candidate }));
+    const cut = duckBeforeCut.find(({ intentNodeId }) => intentNodeId === 'cut');
+    if (!cut) throw new Error('test cut node missing');
+    cut.requiresNodeIds = ['transcript-resolve', 'duck'];
+    const receipt = evaluateV2RSemanticOperatorsV2R({
+      taskId: 'DEV-01', conditionId: 'BASELINE',
+      editorialIntent: { executionForm: 'NATIVE', nodes: duckBeforeCut },
+      evidenceBoundIntent: { stageDisposition: 'READY_FOR_COMPILATION', unresolvedRequirements: [] },
+    });
+    expect(receipt.disposition).toBe('PASS');
+    expect(receipt.diagnostics).toEqual([]);
   });
 
   it('fails missing effects and illegal mutation choices without penalizing harmless repeated reads', () => {
@@ -150,7 +164,11 @@ describe('V2R semantic operator policy', () => {
         executionForm: 'HYBRID',
         nodes: [{
           intentNodeId: 'generated-island', selectedOperatorId: null,
-          alternativeOperatorIds: ['generated_composition_program'],
+          alternativeOperatorIds: [
+            'generated_composition_program',
+            'generate_html_scene',
+            'add_motion_graphic',
+          ],
           requiresNodeIds: [], failureDisposition: 'CAPABILITY_GAP',
         }],
       },
@@ -162,5 +180,26 @@ describe('V2R semantic operator policy', () => {
     expect(receipt.disposition).toBe('PASS');
     expect(receipt.selectedOperatorIds).toEqual([]);
     expect(receipt.diagnostics).toEqual([]);
+  });
+
+  it('rejects a hallucinated alternative even on a non-executing capability-gap node', () => {
+    const receipt = evaluateV2RSemanticOperatorsV2R({
+      taskId: 'DEV-04', conditionId: 'BASELINE',
+      editorialIntent: {
+        executionForm: 'CAPABILITY_GAP',
+        nodes: [{
+          intentNodeId: 'missing-matte', selectedOperatorId: null,
+          alternativeOperatorIds: ['invent_rotoscope_magic'], requiresNodeIds: [],
+          failureDisposition: 'CAPABILITY_GAP',
+        }],
+      },
+      evidenceBoundIntent: {
+        stageDisposition: 'CAPABILITY_GAP',
+        unresolvedRequirements: [{ kind: 'CAPABILITY', disposition: 'CAPABILITY_GAP' }],
+      },
+    });
+    expect(receipt.disposition).toBe('FAIL');
+    expect(receipt.diagnostics)
+      .toContain('ALTERNATIVE_OPERATOR_UNKNOWN:invent_rotoscope_magic');
   });
 });

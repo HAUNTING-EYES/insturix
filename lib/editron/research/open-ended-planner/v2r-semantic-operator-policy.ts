@@ -1,9 +1,10 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
+import { V2R_OPERATOR_CATALOG } from './operator-catalog-v2r';
 
 type JsonRecord = Record<string, unknown>;
 
 export const V2R_SEMANTIC_OPERATOR_POLICY_VERSION =
-  'EDITRON_OE_V2R_SEMANTIC_OPERATOR_POLICY_V4' as const;
+  'EDITRON_OE_V2R_SEMANTIC_OPERATOR_POLICY_V5' as const;
 
 type StageDispositionV2R = 'READY_FOR_COMPILATION' | 'CAPABILITY_GAP' | 'UNVERIFIABLE';
 
@@ -37,7 +38,7 @@ export interface SemanticOperatorPolicyV2R {
 }
 
 export interface SemanticOperatorEvaluationV2R {
-  receiptVersion: 'EDITRON_OE_V2R_SEMANTIC_OPERATOR_EVALUATION_V2';
+  receiptVersion: 'EDITRON_OE_V2R_SEMANTIC_OPERATOR_EVALUATION_V3';
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
   policySha256: string;
   caseId: string;
@@ -69,7 +70,6 @@ const POLICIES: readonly SemanticOperatorCasePolicyV2R[] = [
     dependency('SILENCE_REMOVE', 'KEYFRAME_RESOLVE'),
     dependency('VISUAL_FIND', 'KEYFRAME_RESOLVE'),
     dependency('KEYFRAME_RESOLVE', 'PUSH_IN'),
-    dependency('SILENCE_REMOVE', 'DIALOGUE_DUCK'),
   ]),
   casePolicy(
     'DEV-01:VISUAL_EVIDENCE_WITHHELD', 'NATIVE', 'UNVERIFIABLE', DEV01_OPERATORS, [], [], 'EVIDENCE',
@@ -149,7 +149,7 @@ export function evaluateV2RSemanticOperatorsV2R(input: {
   validateStageReadiness(evidenceBound, diagnostics);
 
   const receiptMaterial = {
-    receiptVersion: 'EDITRON_OE_V2R_SEMANTIC_OPERATOR_EVALUATION_V2' as const,
+    receiptVersion: 'EDITRON_OE_V2R_SEMANTIC_OPERATOR_EVALUATION_V3' as const,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     policySha256: policy.policySha256,
     caseId,
@@ -207,6 +207,8 @@ function validateAllowedOperators(
   diagnostics: string[],
 ): void {
   const allowed = new Set(policy.allowedOperatorIds);
+  const catalog = new Set(records(V2R_OPERATOR_CATALOG.operators)
+    .map((operator) => text(operator.operatorId)).filter(Boolean));
   for (const node of nodes) {
     const nodeId = text(node.intentNodeId) || 'MISSING';
     const selected = text(node.selectedOperatorId);
@@ -226,7 +228,11 @@ function validateAllowedOperators(
     }
     if ('nodeInputs' in node) diagnostics.push(`CAPABILITY_GAP_NODE_HAS_INPUTS:${nodeId}`);
     for (const alternative of strings(node.alternativeOperatorIds)) {
-      if (!allowed.has(alternative)) diagnostics.push(`OPERATOR_NOT_ALLOWED:${alternative}`);
+      // Alternatives describe catalog-known paths that the model considered but
+      // explicitly refused to execute. Task-specific policy still scores the
+      // required missing effect below; it must not turn a rejected, known option
+      // into an executed operation by narrowing the alternative set.
+      if (!catalog.has(alternative)) diagnostics.push(`ALTERNATIVE_OPERATOR_UNKNOWN:${alternative}`);
     }
   }
 }
