@@ -3,24 +3,23 @@
  *
  * Processes raw content (URLs, text dumps) into "Atomic Facts" stored in
  * the DataBank. Each fact gets its own entry with tags and metadata,
- * ready for embedding and semantic retrieval.
+ * held for owner review before embedding and semantic retrieval.
  *
  * This agent is designed to run asynchronously (via QStash worker or
  * direct background call) so it never blocks the chat stream.
  */
 
 import { createUrlBriefAgent, extractUrlContent } from './url-brief-agent';
-import {
-  addGovernedDataBankEntry,
-  type DataBankEntry,
-} from '../services/db';
-import { embedDataBankEntry, checkDuplicateBeforeSave } from '../services/embedding-service';
+import { putGovernedDataBankReviewCandidate } from '../services/db';
+import { checkDuplicateBeforeSave } from '../services/embedding-service';
 import { inspectDataForStorage } from '../privacy/provider-privacy-gateway';
 
 export interface RefineryInput {
   userId: string;
   orgId: string | null;
   sessionId: string;
+  /** Stable durable-job identity used to make every persistence slot idempotent. */
+  operationKey: string;
   urls: string[];
 }
 
@@ -107,8 +106,10 @@ function extractAtomicFacts(brief: Record<string, any>, sourceUrl: string): Arra
  */
 async function processUrl(
   url: string,
+  urlIndex: number,
   principal: Pick<RefineryInput, 'userId' | 'orgId'>,
   sessionId: string,
+  operationKey: string,
 ): Promise<{ entryId: string; title: string; factCount: number }> {
   const extracted = await extractUrlContent(url);
   if (!extracted.bodyText && !extracted.description) {
@@ -125,35 +126,43 @@ async function processUrl(
     throw new Error('Source contains personal data and cannot be stored without explicit consent.');
   }
 
-  const parentEntry = await addGovernedDataBankEntry(principal, sessionId, {
-    type: 'url_brief',
-    title: brief.title || url,
-    content: brief,
-    sourceUrl: url,
-    tags: brief.keyTopics || [],
-    projectId: sessionId,
-    scope: 'project',
-    governance: {
-      classification: storageInspection.privacyClass,
-      consentStatus: 'not_required',
+  const parentEntry = await putGovernedDataBankReviewCandidate(
+    principal,
+    sessionId,
+    `${operationKey}:source:${urlIndex}:brief`,
+    {
+      type: 'url_brief',
+      title: brief.title || url,
+      content: brief,
+      sourceUrl: url,
+      tags: brief.keyTopics || [],
+      projectId: sessionId,
+      scope: 'project',
+      governance: {
+        classification: storageInspection.privacyClass,
+        consentStatus: 'not_required',
+      },
     },
-  });
+  );
 
   const atomicFacts = extractAtomicFacts(brief, url);
   let savedCount = 0;
-  const savedEntries: DataBankEntry[] = [parentEntry];
 
-  for (const fact of atomicFacts) {
-    try {
-      const claimText = typeof fact.content.claim === 'string' ? fact.content.claim : fact.title;
-      const isDuplicate = await checkDuplicateBeforeSave({
-        principal,
-        scope: 'project',
-        sessionId,
-      }, claimText);
-      if (isDuplicate) continue;
+  for (let factIndex = 0; factIndex < atomicFacts.length; factIndex++) {
+    const fact = atomicFacts[factIndex];
+    const claimText = typeof fact.content.claim === 'string' ? fact.content.claim : fact.title;
+    const isDuplicate = await checkDuplicateBeforeSave({
+      principal,
+      scope: 'project',
+      sessionId,
+    }, claimText);
+    if (isDuplicate) continue;
 
-      const factEntry = await addGovernedDataBankEntry(principal, sessionId, {
+    await putGovernedDataBankReviewCandidate(
+      principal,
+      sessionId,
+      `${operationKey}:source:${urlIndex}:fact:${factIndex}`,
+      {
         type: 'atomic_fact',
         title: fact.title,
         content: fact.content,
@@ -166,17 +175,10 @@ async function processUrl(
           classification: storageInspection.privacyClass,
           consentStatus: 'not_required',
         },
-      });
-      savedEntries.push(factEntry);
-      savedCount++;
-    } catch (err) {
-      console.warn(`[Refinery] Failed to save atomic fact "${fact.title}":`, err);
-    }
+      },
+    );
+    savedCount++;
   }
-
-  // The durable refinery worker stays alive until every embedding attempt has
-  // either succeeded or recorded its retry state in DataBank.
-  await Promise.allSettled(savedEntries.map((entry) => embedDataBankEntry(entry)));
 
   return {
     entryId: parentEntry._id,
@@ -190,9 +192,18 @@ async function processUrl(
  * Each URL is processed independently; failures don't block others.
  */
 export async function runRefineryAgent(input: RefineryInput): Promise<RefineryResult> {
+  const operationKey = input.operationKey.trim();
+  if (!operationKey) throw new Error('Refinery processing requires a stable operation key.');
+
   const results = await Promise.allSettled(
-    input.urls.map((url) =>
-      processUrl(url, { userId: input.userId, orgId: input.orgId }, input.sessionId),
+    input.urls.map((url, urlIndex) =>
+      processUrl(
+        url,
+        urlIndex,
+        { userId: input.userId, orgId: input.orgId },
+        input.sessionId,
+        operationKey,
+      ),
     ),
   );
 

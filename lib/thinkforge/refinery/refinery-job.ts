@@ -544,6 +544,7 @@ export async function runClaimedThinkForgeRefineryJob(job: ThinkForgeRefineryJob
     userId: job.userId,
     orgId: job.orgId,
     sessionId: job.sessionId,
+    operationKey: job.idempotencyKey,
     urls: job.urls,
   });
   if (result.processed === 0) {
