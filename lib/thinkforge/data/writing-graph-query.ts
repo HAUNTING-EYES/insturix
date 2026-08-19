@@ -478,16 +478,6 @@ export function computeQualityScore(
 
 // ─── Lookup Functions ───────────────────────────────────────────────────────
 
-export function getPrimarySignals(): SignalDefinition[] {
-  const index = loadWritingGraph();
-  return index.primarySignals;
-}
-
-export function getSignalDefinition(signalId: string): SignalDefinition | null {
-  const index = loadWritingGraph();
-  return index.signals.get(signalId) ?? null;
-}
-
 export function getAllSignals(): SignalDefinition[] {
   const index = loadWritingGraph();
   const result: SignalDefinition[] = [];
@@ -581,11 +571,6 @@ export function buildWritingKnowledgeBlock(
   lines.push('QUALITY: Be SPECIFIC with supplied facts only. If no metric is supplied, use concrete scene, pain, consequence, or image instead of inventing numbers. Vary sentence rhythm. No AI filler.');
   lines.push('</writing_knowledge>');
   return lines.join('\n');
-}
-
-export function getPlatform(name: string): PlatformSpec | null {
-  const index = loadWritingGraph();
-  return index.platforms.get(name.toLowerCase()) ?? null;
 }
 
 export function getVersion(): string {
