@@ -59,6 +59,31 @@ describe('DEV-01 Stage-6 causal compiled-graph executor V2R', () => {
     expect(JSON.parse(await readFile(execution.receiptPath, 'utf8'))).toEqual(execution.receipt);
   });
 
+  it('executes every selected project, timeline, transcript, and audio observation without dropping nodes', async () => {
+    const lowered = loweringWithObservations();
+    const execution = await execute(lowered, fakeRenderer());
+    const operations = execution.receipt.operations as JsonRecord[];
+    expect(operations.map(({ operatorId }) => operatorId)).toEqual(lowered.compiledOperatorIds);
+    expect(operations).toHaveLength(11);
+    expect(execution.receipt).toMatchObject({
+      projectBinding: { expectedProjectRevision: 'R7', observedProjectRevision: 'R7' },
+      proof: { projectMutation: 'NONE' },
+    });
+    expect(execution.snapshots.afterDuck).toEqual((await execute(lowering(), fakeRenderer())).snapshots.afterDuck);
+  });
+
+  it('fails before render when a selected audio observation cannot resolve', async () => {
+    const changed = structuredClone(loweringWithObservations()) as GenericLoweringResultV2R;
+    const audioNode = nodes(changed).find((candidate) => candidate.operatorId === 'find_audio_moment');
+    if (!audioNode) throw new Error('test audio observation node missing');
+    (audioNode.inputs as JsonRecord).query = 'zzzzqxvplm';
+    const renderer = vi.fn(fakeRenderer());
+    await expect(execute(changed, renderer)).rejects.toThrow(
+      'DEV01_STAGE6_AUDIO_SEARCH_UNRESOLVED:NO_MATCH',
+    );
+    expect(renderer).not.toHaveBeenCalled();
+  });
+
   it('rejects a changed port schema hash before render', async () => {
     const changed = mutableLowering();
     const edge = edges(changed).find((candidate) => candidate.toPort === 'targetRange');
@@ -114,9 +139,10 @@ describe('DEV-01 Stage-6 causal compiled-graph executor V2R', () => {
   it('contains no canned answer or live mutation authority', async () => {
     const executorSource = await readFile(path.join(process.cwd(), 'lib/editron/research/open-ended-planner/dev01-stage6-generic-lowered-executor-v2r.ts'), 'utf8');
     const adapterSource = await readFile(path.join(process.cwd(), 'lib/editron/research/open-ended-planner/dev01-stage6-operator-adapters-v2r.ts'), 'utf8');
+    const observationSource = await readFile(path.join(process.cwd(), 'lib/editron/research/open-ended-planner/dev01-stage6-observation-adapters-v2r.ts'), 'utf8');
     expect(executorSource).not.toContain('executeDev01TruthCutV2');
     expect(executorSource).not.toMatch(/targetFrame:\s*160|overlayId:\s*104|scaleDelta:\s*0\.12/);
-    expect(`${executorSource}\n${adapterSource}`).not.toMatch(/ProjectService|saveProject|updateProject|MutationGate|MongoClient|connectToDatabase/);
+    expect(`${executorSource}\n${adapterSource}\n${observationSource}`).not.toMatch(/ProjectService|saveProject|updateProject|MutationGate|MongoClient|connectToDatabase/);
   });
 
   realIt('renders the causally executed state through the real Remotion and audio path', async () => {
@@ -139,6 +165,50 @@ function lowering(): Readonly<GenericLoweringResultV2R> {
     evidenceBoundIntent: canonical.evidenceBoundIntentsV2R.BASELINE,
     evidencePack: canonical.evidencePacks.BASELINE,
     policy: DEV01_LOWERING_POLICY_V2R,
+  });
+}
+
+function loweringWithObservations(): Readonly<GenericLoweringResultV2R> {
+  const canonical = getCanonicalDev01Stage123V2();
+  const editorialIntent = structuredClone(canonical.editorialIntentV2R) as JsonRecord;
+  const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as JsonRecord;
+  const intentNodes = editorialIntent.nodes as JsonRecord[];
+  const boundNodes = evidenceBoundIntent.nodes as JsonRecord[];
+  const preserve = ['preserve-spoken-words', 'preserve-source-identities', 'preserve-non-target-state'];
+  const intent = (id: string, operatorId: string, requiresNodeIds: string[], nodeInputs?: JsonRecord): JsonRecord => ({
+    intentNodeId: id, operationFamily: 'bound_observation', targetClaimIds: ['claim-preserve-speech'],
+    selectedOperatorId: operatorId, alternativeOperatorIds: [], executionForm: 'NATIVE',
+    requiresNodeIds, invalidates: [], evidenceIds: ['EV-DEV01-T1'], failureDisposition: 'FAIL',
+    ...(nodeInputs ? { nodeInputs } : {}),
+  });
+  const bound = (id: string, operatorId: string, evidenceBindingIds: string[], nodeInputs?: JsonRecord): JsonRecord => ({
+    intentNodeId: id, selectedOperatorId: operatorId, alternativeOperatorIds: [], evidenceBindingIds,
+    preservationIds: preserve, proofObligationIds: ['proof-revision'], bindingStatus: 'BOUND',
+    unresolvedRequirementIds: [], ...(nodeInputs ? { nodeInputs } : {}),
+  });
+  const additions = [
+    ['node-read-project', 'read_project_file', [], ['bind-project']],
+    ['node-read-timeline', 'get_timeline_view', ['node-read-project'], ['bind-project']],
+    ['node-read-transcript', 'get_video_transcription', ['node-read-timeline'], ['bind-transcript']],
+    ['node-find-transcript', 'find_transcript_moment', ['node-read-transcript'], ['bind-transcript'], { query: 'here it is' }],
+    ['node-find-audio', 'find_audio_moment', ['node-read-timeline'], ['bind-audio'], { query: 'background music' }],
+  ] as const;
+  editorialIntent.nodes = [
+    ...additions.map(([id, operatorId, requires, , nodeInputs]) => intent(id, operatorId, [...requires], nodeInputs)),
+    ...intentNodes,
+  ];
+  evidenceBoundIntent.nodes = [
+    ...additions.map(([id, operatorId, , bindings, nodeInputs]) => bound(id, operatorId, [...bindings], nodeInputs)),
+    ...boundNodes,
+  ];
+  const resolveCut = intentNodes.find(({ intentNodeId }) => intentNodeId === 'node-resolve-cut');
+  const duck = intentNodes.find(({ intentNodeId }) => intentNodeId === 'node-duck');
+  if (!resolveCut || !duck) throw new Error('DEV01 observation test dependency fixture drift');
+  resolveCut.requiresNodeIds = ['node-find-transcript'];
+  duck.requiresNodeIds = ['node-cut', 'node-find-audio'];
+  return lowerV2RBoundIntentGeneric({
+    taskId: 'DEV-01', editorialIntent, evidenceBoundIntent,
+    evidencePack: canonical.evidencePacks.BASELINE, policy: DEV01_LOWERING_POLICY_V2R,
   });
 }
 

@@ -15,6 +15,10 @@ import {
   type Dev01Stage6ProjectSnapshotV2,
   type Dev01Stage6RendererV2,
 } from './dev01-stage6-native-proxy-contract-v2';
+import {
+  executeDev01Stage6ObservationOperatorV2R,
+  isDev01Stage6ObservationOperatorV2R,
+} from './dev01-stage6-observation-adapters-v2r';
 import { executeDev01Stage6OperatorV2R } from './dev01-stage6-operator-adapters-v2r';
 import { renderDev01Stage6NativeProxyV2 } from './dev01-stage6-native-proxy-renderer-v2';
 import { assertValidDev01Stage6RenderProofV2 } from './dev01-stage6-render-proof-validator-v2';
@@ -42,6 +46,7 @@ interface CompiledExecutionV2R {
   afterDuck: Dev01Stage6ProjectSnapshotV2;
   changedPaths: readonly string[];
   trace: readonly JsonRecord[];
+  observedProjectRevision: string | 'NOT_READ';
 }
 
 const REQUIRED_OPERATORS = [
@@ -84,7 +89,7 @@ export async function executeDev01Stage6GenericLoweredV2(input: {
     },
     projectBinding: {
       projectId: 'oe-dev-01', expectedProjectRevision: 'R7',
-      observedProjectRevision: 'NOT_READ', changedProjectPaths: [],
+      observedProjectRevision: executed.observedProjectRevision, changedProjectPaths: [],
     },
     isolatedClone: {
       beforeStateHash: stateHashes.before, afterCutStateHash: stateHashes.afterCut,
@@ -121,6 +126,7 @@ function executeCompiledGraph(lowering: Readonly<GenericLoweringResultV2R>): Com
   const executedNodeIds = new Set<string>();
   const changedPaths = new Set<string>();
   const trace: JsonRecord[] = [];
+  let observedProjectRevision: string | 'NOT_READ' = 'NOT_READ';
   const graph = record(lowering.compiled);
   const nodes = records(graph.nodes);
   const edges = records(graph.edges);
@@ -141,10 +147,20 @@ function executeCompiledGraph(lowering: Readonly<GenericLoweringResultV2R>): Com
       bindDataEdge(edge, resolvedInputs, outputsByNodeId);
     }
     validateOperatorInputs(operatorId, resolvedInputs);
-    const result = executeDev01Stage6OperatorV2R({
-      operatorId, inputs: resolvedInputs, originalProject, currentProject, fixture,
-    });
+    const result = isDev01Stage6ObservationOperatorV2R(operatorId)
+      ? executeDev01Stage6ObservationOperatorV2R({
+        operatorId, inputs: resolvedInputs, currentProject, fixture,
+      })
+      : executeDev01Stage6OperatorV2R({
+        operatorId, inputs: resolvedInputs, originalProject, currentProject, fixture,
+      });
     validateOperatorOutputs(operatorId, result.outputs);
+    if (operatorId === 'read_project_file') {
+      observedProjectRevision = requiredString(
+        record(result.outputs.evidence).projectRevision,
+        'OBSERVED_PROJECT_REVISION',
+      );
+    }
     outputsByNodeId.set(nodeId, clone(result.outputs));
     if (result.nextProject) currentProject = clone(result.nextProject);
     for (const changedPath of result.changedPaths) changedPaths.add(changedPath);
@@ -163,7 +179,7 @@ function executeCompiledGraph(lowering: Readonly<GenericLoweringResultV2R>): Com
   if (!duckExecuted) throw new Error('DEV01_STAGE6_DUCK_SNAPSHOT_MISSING');
   return {
     before: originalProject, afterCut, afterPush, afterDuck: clone(currentProject),
-    changedPaths: [...changedPaths].sort(compareUtf16), trace,
+    changedPaths: [...changedPaths].sort(compareUtf16), trace, observedProjectRevision,
   };
 }
 
