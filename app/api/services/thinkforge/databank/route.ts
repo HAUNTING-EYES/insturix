@@ -229,11 +229,18 @@ export async function PATCH(req: Request) {
         }
 
         const { id, target } = patch;
+        const isOrgAdmin = Boolean(orgId && has({ role: 'org:admin' }));
+        if (target.memoryScope === 'universal' && orgId && !isOrgAdmin) {
+            return NextResponse.json(
+                { error: 'Organization universal memory promotion requires an administrator' },
+                { status: 403 },
+            );
+        }
         if (target.memoryScope === 'brand') {
             await authorizeBrandScope({
                 userId,
                 orgId: orgId ?? null,
-                isOrgAdmin: Boolean(orgId && has({ role: 'org:admin' })),
+                isOrgAdmin,
                 brandId: target.brandId,
             });
         }

@@ -299,6 +299,42 @@ describe('ThinkForge DataBank ingress', () => {
     );
   });
 
+  it('requires an organization administrator to promote universal memory', async () => {
+    const has = vi.fn(() => false);
+    mocks.auth.mockResolvedValue({ userId: 'member_1', orgId: 'org_1', has });
+
+    const response = await PATCH(request({
+      id: 'entry_1',
+      action: 'promote',
+      target: { memoryScope: 'universal' },
+    }));
+
+    expect(response.status).toBe(403);
+    await expect(json(response)).resolves.toMatchObject({
+      error: 'Organization universal memory promotion requires an administrator',
+    });
+    expect(has).toHaveBeenCalledWith({ role: 'org:admin' });
+    expect(mocks.promoteAuthorizedDataBankEntryToGlobal).not.toHaveBeenCalled();
+  });
+
+  it('allows an organization administrator to promote universal memory', async () => {
+    const has = vi.fn(() => true);
+    mocks.auth.mockResolvedValue({ userId: 'admin_1', orgId: 'org_1', has });
+
+    const response = await PATCH(request({
+      id: 'entry_1',
+      action: 'promote',
+      target: { memoryScope: 'universal' },
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.promoteAuthorizedDataBankEntryToGlobal).toHaveBeenCalledWith(
+      'entry_1',
+      { userId: 'admin_1', orgId: 'org_1' },
+      { memoryScope: 'universal' },
+    );
+  });
+
   it('authorizes an explicit brand target before CAS promotion', async () => {
     const has = vi.fn(() => true);
     mocks.auth.mockResolvedValue({ userId: 'user_1', orgId: 'org_1', has });
