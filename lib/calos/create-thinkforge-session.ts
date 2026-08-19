@@ -1,4 +1,7 @@
-import type { ThinkForgeGeneratedArtifact } from "@/lib/calos/generate/contract";
+import {
+  requireCalosWriterInvocationTrace,
+  type ThinkForgeGeneratedArtifact,
+} from "@/lib/calos/generate/contract";
 import { createThinkForgeSessionBrandBinding } from "@/lib/thinkforge/context/brand-authoring-context";
 import { hashJsonArtifact } from "@/lib/thinkforge/persistence/script-sidecar-binding";
 import { verifyWriterOutputBinding } from "@/lib/thinkforge/persistence/writer-output-binding";
@@ -80,6 +83,16 @@ function validateArtifact(params: CreateLinkedSessionParams): ThinkForgeDocument
   if (artifact.writerOutput.writerType !== expectedWriterType) {
     throw new Error("CalOS writer artifact carries the wrong writer output family.");
   }
+  const writerTraceValue = artifact.writerOutput.writerTrace;
+  const editorialPlan = writerTraceValue && typeof writerTraceValue === "object" && !Array.isArray(writerTraceValue)
+    ? (writerTraceValue as Record<string, unknown>).editorialPlan
+    : null;
+  requireCalosWriterInvocationTrace({
+    value: writerTraceValue,
+    writerType: expectedWriterType,
+    editorialPlan,
+    sourceLedger: artifact.writerOutput.sourceLedger,
+  });
   const brandRevision = artifact.authoringContextSnapshot.brand;
   if (brandRevision?.brandId?.trim() !== params.brandId.trim()
     || !brandRevision.recordId?.trim()

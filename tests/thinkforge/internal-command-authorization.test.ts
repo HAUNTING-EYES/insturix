@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildThinkForgeWriterInvocationTrace } from '@/lib/thinkforge/provenance/generation-trace';
 
 const mocks = vi.hoisted(() => ({
   applyCommand: vi.fn(),
@@ -224,6 +225,18 @@ describe('ThinkForge internal command authorization', () => {
 
   it('keeps org identity in CalOS persistence and never links an unsaved session', async () => {
     const { createLinkedThinkForgeSession } = await import('@/lib/calos/create-thinkforge-session');
+    const sourceLedger = { ledgerVersion: 1 as const, entries: [] };
+    const writerTrace = buildThinkForgeWriterInvocationTrace({
+      writerType: 'post',
+      editorialPlan: { version: 2, writerKind: 'post', execution: { kind: 'post' } },
+      selectedTechniques: [],
+      promptTemplate: 'CalOS post writer prompt',
+      sourceLedger,
+      provider: 'gemini',
+      model: 'gemini-test',
+      cacheStatus: 'inline',
+      generatedAt: '2026-08-19T00:00:00.000Z',
+    });
     const params = {
       userId: 'user_1',
       orgId: 'org_1',
@@ -293,6 +306,7 @@ describe('ThinkForge internal command authorization', () => {
         },
         writerOutput: {
           writerType: 'post' as const,
+          writerTrace,
           contentAnalysis: {
             tone: 'precise',
             vibe: 'grounded',
@@ -302,7 +316,7 @@ describe('ThinkForge internal command authorization', () => {
           },
           hashtags: ['#Launch'],
           visualPrompts: { singleImagePrompt: 'A brand-safe launch scene.' },
-          sourceLedger: { ledgerVersion: 1 as const, entries: [] },
+          sourceLedger,
           writerMetadata: { platform: 'linkedin', charCount: 58 },
         },
       },
@@ -322,7 +336,7 @@ describe('ThinkForge internal command authorization', () => {
           authoringContextSnapshot: { brand: { brandId: 'brand_1' } },
           signalTrace: { outputFormat: 'social_post' },
           briefSnapshot: { output: { platform: 'linkedin' } },
-          writerOutput: { writerType: 'post' },
+          writerOutput: { writerType: 'post', writerTrace: { writerType: 'post' } },
         },
       },
     });
@@ -340,6 +354,25 @@ describe('ThinkForge internal command authorization', () => {
         }),
       }),
     );
+
+    await expect(createLinkedThinkForgeSession({
+      ...params,
+      artifact: {
+        ...params.artifact,
+        writerOutput: { ...params.artifact.writerOutput, writerTrace: undefined },
+      },
+    })).rejects.toThrow('writer invocation trace is required');
+    await expect(createLinkedThinkForgeSession({
+      ...params,
+      artifact: {
+        ...params.artifact,
+        writerOutput: {
+          ...params.artifact.writerOutput,
+          writerTrace: { ...writerTrace, sourceLedgerHash: 'b'.repeat(64) },
+        },
+      },
+    })).rejects.toThrow('does not match the executed source ledger');
+    expect(mocks.getOrCreateSessionForContentCard).toHaveBeenCalledTimes(1);
 
     mocks.applyCommand.mockResolvedValueOnce({ ok: false, error: 'Version conflict' });
     await expect(createLinkedThinkForgeSession(params)).rejects.toThrow('Version conflict');
