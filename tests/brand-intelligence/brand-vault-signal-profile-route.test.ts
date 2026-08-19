@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   listAcceptedBrands: vi.fn(),
   listJobSnapshots: vi.fn(),
   reviewBrandVaultSignalProfileDraft: vi.fn(),
+  saveRecord: vi.fn(),
 }));
 
 vi.mock('@clerk/nextjs/server', () => ({
@@ -58,6 +59,7 @@ describe('Brand Vault signal profile routes', () => {
     mocks.listAcceptedBrands.mockReset();
     mocks.listJobSnapshots.mockReset();
     mocks.reviewBrandVaultSignalProfileDraft.mockReset();
+    mocks.saveRecord.mockReset();
 
     mocks.auth.mockResolvedValue({ userId: 'user_route', orgId: 'org_route', has: vi.fn(() => false) });
     mocks.emitBrandEvent.mockResolvedValue('event_route');
@@ -67,6 +69,7 @@ describe('Brand Vault signal profile routes', () => {
       getBrandAccessGrants: mocks.getBrandAccessGrants,
       listAcceptedBrands: mocks.listAcceptedBrands,
       listJobSnapshots: mocks.listJobSnapshots,
+      saveRecord: mocks.saveRecord,
     });
   });
 
@@ -118,6 +121,21 @@ describe('Brand Vault signal profile routes', () => {
     expect(response.status).toBe(200);
     expect(payload).toEqual({ ok: true, brands: [] });
     expect(mocks.listAcceptedBrands).toHaveBeenCalledWith({ orgId: null, userId: 'user_route' });
+  });
+
+  it('never mutates accepted history while listing brands', async () => {
+    mocks.getLatestAcceptedRecord.mockResolvedValue({
+      id: 'legacy_accepted',
+      status: 'accepted',
+      profile: { brandId: '' },
+    });
+    mocks.listAcceptedBrands.mockResolvedValue([]);
+
+    const response = await GET_BRANDS();
+
+    expect(response.status).toBe(200);
+    expect(mocks.getLatestAcceptedRecord).not.toHaveBeenCalled();
+    expect(mocks.saveRecord).not.toHaveBeenCalled();
   });
 
   it('falls back to the user\'s latest accepted profile when no brandId is given', async () => {
