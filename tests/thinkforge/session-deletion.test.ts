@@ -106,6 +106,7 @@ describe('ThinkForge transactional session deletion', () => {
       artifactsDeleted: 1,
       versionsDeleted: 1,
       orphanBlocksDeleted: 1,
+      projectLinkReferencesDetached: 0,
     });
 
     expect(collections.thinkforge_post_mortem_jobs.findOne).toHaveBeenCalledWith(

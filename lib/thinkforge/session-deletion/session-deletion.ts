@@ -48,6 +48,7 @@ export interface ThinkForgeSessionDeletionResult {
   artifactsDeleted: number;
   versionsDeleted: number;
   orphanBlocksDeleted: number;
+  projectLinkReferencesDetached: number;
 }
 
 export async function purgeThinkForgeSession(
@@ -71,7 +72,15 @@ export async function purgeThinkForgeSession(
     await session.endSession();
   }
   if (!result) throw new Error('ThinkForge session deletion transaction did not commit.');
-  return result;
+  const { detachThinkForgeSessionFromLinks } = await import('@/lib/shared/project-links');
+  const detachedLinks = await detachThinkForgeSessionFromLinks(input.userId, input.sessionId);
+  return {
+    ...result,
+    projectLinkReferencesDetached:
+      detachedLinks.topLevelLinksModified
+      + detachedLinks.thumbnailCollectionsModified
+      + detachedLinks.lastThumbnailLinksModified,
+  };
 }
 
 export async function purgeThinkForgeSessionRecords(
@@ -258,6 +267,7 @@ export async function purgeThinkForgeSessionRecords(
     artifactsDeleted: artifacts.deletedCount,
     versionsDeleted: versionIds.length,
     orphanBlocksDeleted,
+    projectLinkReferencesDetached: 0,
   };
 }
 

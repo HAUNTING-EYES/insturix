@@ -255,6 +255,71 @@ export async function findLinkBySessionId(
   return col.findOne({ userId, sessionId }) as Promise<ProjectLink | null>;
 }
 
+export interface ProjectLinkSessionDetachmentResult {
+  topLevelLinksModified: number;
+  thumbnailCollectionsModified: number;
+  lastThumbnailLinksModified: number;
+}
+
+/**
+ * Remove ThinkForge source lineage without deleting downstream Clickatron/Editron assets.
+ * Each write is independently idempotent so a durable deletion job can retry after a
+ * cross-database failure without losing progress.
+ */
+export async function detachThinkForgeSessionFromLinks(
+  userId: string,
+  sessionId: string,
+): Promise<ProjectLinkSessionDetachmentResult> {
+  const normalizedUserId = userId.trim();
+  const normalizedSessionId = sessionId.trim();
+  if (!normalizedUserId || !normalizedSessionId) {
+    throw new Error('Project-link detachment requires exact user and session identifiers.');
+  }
+
+  const col = await getCollection();
+  const now = new Date();
+  const topLevel = await col.updateMany(
+    { userId: normalizedUserId, sessionId: normalizedSessionId },
+    {
+      $unset: { sessionId: '', sourceScriptId: '' },
+      $set: { updatedAt: now },
+    },
+  );
+  const committedThumbnails = await col.updateMany(
+    {
+      userId: normalizedUserId,
+      'metadata.clickatron.committedThumbnails.sourceSessionId': normalizedSessionId,
+    },
+    {
+      $unset: {
+        'metadata.clickatron.committedThumbnails.$[thumbnail].sourceSessionId': '',
+        'metadata.clickatron.committedThumbnails.$[thumbnail].sourceScriptId': '',
+      },
+      $set: { updatedAt: now },
+    } as any,
+    { arrayFilters: [{ 'thumbnail.sourceSessionId': normalizedSessionId }] },
+  );
+  const lastCommittedThumbnail = await col.updateMany(
+    {
+      userId: normalizedUserId,
+      'metadata.clickatron.lastCommittedThumbnail.sourceSessionId': normalizedSessionId,
+    },
+    {
+      $unset: {
+        'metadata.clickatron.lastCommittedThumbnail.sourceSessionId': '',
+        'metadata.clickatron.lastCommittedThumbnail.sourceScriptId': '',
+      },
+      $set: { updatedAt: now },
+    } as any,
+  );
+
+  return {
+    topLevelLinksModified: topLevel.modifiedCount,
+    thumbnailCollectionsModified: committedThumbnails.modifiedCount,
+    lastThumbnailLinksModified: lastCommittedThumbnail.modifiedCount,
+  };
+}
+
 export async function removeVideoFromLinks(
   userId: string,
   videoId: string,
