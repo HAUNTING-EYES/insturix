@@ -8,6 +8,7 @@ import {
 import { getCanonicalDev01Stage123V2 } from '@/lib/editron/research/open-ended-planner/dev01-stage123-canonical-v2';
 import { DEV01_LOWERING_POLICY_V2R } from '@/lib/editron/research/open-ended-planner/dev01-lowering-policy-v2r';
 import {
+  GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R,
   GENERIC_LOWERING_POLICY_VERSION_V2R,
   lowerV2RBoundIntentGeneric,
   type GenericLoweringPolicyV2R,
@@ -38,6 +39,7 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     expect(compiled.executionEligibility).toBe('RESEARCH_PROXY_ONLY');
     expect(compiled.unresolvedIntentNodeIds).toEqual([]);
     expect(compiled.lowering).toMatchObject({
+      implementationVersion: GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R,
       policyVersion: GENERIC_LOWERING_POLICY_VERSION_V2R,
       zeroAdd: true,
       zeroDrop: true,
@@ -213,7 +215,7 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     expect(result.zeroAdd).toBe(true);
   });
 
-  it('fails closed when Stage 3 changes a selected role or semantic input', () => {
+  it('fails closed when Stage 3 changes a selected operator role', () => {
     const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as { nodes: Array<Record<string, unknown>> };
     const editorialIntent = structuredClone(canonical.editorialIntentV2R) as { nodes: Array<Record<string, unknown>> };
     const boundTarget = evidenceBoundIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-resolve-cut');
@@ -223,7 +225,6 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     sourceTarget!.alternativeOperatorIds = ['get_timeline_view'];
     boundTarget!.alternativeOperatorIds = ['resolve_transcript_edit'];
     boundTarget!.selectedOperatorId = 'get_timeline_view';
-    boundTarget!.nodeInputs = { query: 'different target' };
     const result = lowerV2RBoundIntentGeneric({
       taskId: 'DEV-01', editorialIntent,
       evidenceBoundIntent, evidencePack: canonical.evidencePacks.BASELINE,
@@ -235,8 +236,24 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     expect(result.diagnostics).toEqual(expect.arrayContaining([
       'LOWERING_STAGE2_STAGE3_DRIFT:SELECTED_OPERATOR_ROLE_DRIFT:node-resolve-cut',
       'LOWERING_STAGE2_STAGE3_DRIFT:ALTERNATIVE_OPERATOR_DRIFT:node-resolve-cut',
-      'LOWERING_STAGE2_STAGE3_DRIFT:NODE_INPUT_DRIFT:node-resolve-cut',
     ]));
+  });
+
+  it('uses Stage-2 semantic inputs and ignores a forged Stage-3 copy', () => {
+    const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE) as { nodes: Array<Record<string, unknown>> };
+    const boundTarget = evidenceBoundIntent.nodes.find(({ intentNodeId }) => intentNodeId === 'node-resolve-cut');
+    expect(boundTarget).toBeTruthy();
+    boundTarget!.nodeInputs = { query: 'attacker target', projectId: 'attacker-project' };
+    const result = lowerV2RBoundIntentGeneric({
+      taskId: 'DEV-01', editorialIntent: canonical.editorialIntentV2R,
+      evidenceBoundIntent, evidencePack: canonical.evidencePacks.BASELINE,
+      policy: DEV01_LOWERING_POLICY_V2R,
+    });
+    const resolveTranscript = (result.compiled.nodes as Array<{ operatorId: string; inputs: Record<string, unknown> }>)
+      .find(({ operatorId }) => operatorId === 'resolve_transcript_edit');
+    expect(resolveTranscript?.inputs.query).toBe('here it is');
+    expect(result.diagnostics.join('\n')).not.toContain('attacker');
+    expect(result.compiled.compileDisposition).toBe('COMPILED_RESEARCH_PROXY');
   });
 
   it('rejects ill-typed and non-model-owned node inputs before compilation', () => {
@@ -247,7 +264,6 @@ describe('generic V2R lowerer (zero-add/zero-drop)', () => {
     expect(boundTarget).toBeTruthy();
     expect(sourceTarget).toBeTruthy();
     const invalidInputs = { query: { invalid: true }, projectId: 'attacker-project' };
-    boundTarget!.nodeInputs = invalidInputs;
     sourceTarget!.nodeInputs = invalidInputs;
     const result = lowerV2RBoundIntentGeneric({
       taskId: 'DEV-01', editorialIntent: stageTwo,

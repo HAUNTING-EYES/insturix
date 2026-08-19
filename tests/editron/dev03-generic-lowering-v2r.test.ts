@@ -24,20 +24,28 @@ beforeAll(async () => {
 });
 
 describe('DEV-03 generic causal lowering V2R', () => {
-  it('preserves model-owned inputs exactly from Stage 2 through Stage 3', () => {
+  it('keeps model-owned inputs in Stage 2 and does not require Stage-3 copies', () => {
     const canonical = source();
     const intentNodes = nodesById(canonical.editorialIntentV2R);
-    const boundNodes = nodesById(canonical.evidenceBoundIntentsV2R.BASELINE);
     expect(intentNodes.get('node-resolve-impacts')?.nodeInputs).toEqual({
       query: 'strongest measured musical impacts',
     });
     expect(intentNodes.get('node-final-shake')?.nodeInputs).toEqual({
       effectPlan: { goal: 'restrained bounded shake at the final strongest impact, returning to neutral' },
     });
-    expect(boundNodes.get('node-resolve-impacts')?.nodeInputs)
-      .toEqual(intentNodes.get('node-resolve-impacts')?.nodeInputs);
-    expect(boundNodes.get('node-final-shake')?.nodeInputs)
-      .toEqual(intentNodes.get('node-final-shake')?.nodeInputs);
+    const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE);
+    for (const node of records(evidenceBoundIntent.nodes)) delete node.nodeInputs;
+    const result = lowerV2RBoundIntentGeneric({
+      taskId: 'DEV-03', editorialIntent: canonical.editorialIntentV2R,
+      evidenceBoundIntent, evidencePack: canonical.evidencePacks.BASELINE,
+      policy: DEV03_LOWERING_POLICY_V2R,
+    });
+    expect(result.compiled.compileDisposition).toBe('COMPILED_RESEARCH_PROXY');
+    const compiledNodes = records(result.compiled.nodes);
+    expect(compiledNodes.find(({ operatorId }) => operatorId === 'find_audio_moment')?.inputs)
+      .toMatchObject({ query: 'strongest measured musical impacts' });
+    expect(compiledNodes.find(({ operatorId }) => operatorId === 'apply_camera_shake')?.inputs)
+      .toMatchObject({ effectPlan: { goal: 'restrained bounded shake at the final strongest impact, returning to neutral' } });
   });
 
   it('compiles all seven selected operators without adding or dropping one', () => {

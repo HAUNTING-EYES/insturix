@@ -77,7 +77,7 @@ describe('stage-2 selected-operator contract V2R', () => {
   });
 
   it('reports zero drift for preserved operator sets', () => {
-    const source = [node({ alternativeOperatorIds: ['set_keyframes'] })];
+    const source = [node({ alternativeOperatorIds: ['set_keyframes'], nodeInputs: { query: 'owned by Stage 2' } })];
     const bound = [node({ alternativeOperatorIds: ['set_keyframes'] })];
     expect(selectedOperatorDriftDiagnosticsV2R(source, bound)).toEqual([]);
   });
@@ -102,5 +102,7 @@ describe('stage-2 selected-operator contract V2R', () => {
     expect(STAGE2_SELECTED_OPERATOR_NODE_SCHEMA_V2R.required).not.toContain('candidateCapabilityIds');
     expect(STAGE3_SELECTED_OPERATOR_NODE_SCHEMA_V2R.required).toEqual(expect.arrayContaining(['selectedOperatorId', 'alternativeOperatorIds']));
     expect(STAGE3_SELECTED_OPERATOR_NODE_SCHEMA_V2R.required).not.toContain('candidateCapabilityIds');
+    expect(STAGE3_SELECTED_OPERATOR_NODE_SCHEMA_V2R.properties).not.toHaveProperty('nodeInputs');
+    expect(STAGE2_SELECTED_OPERATOR_INSTRUCTIONS_V2R.stage3.join('\n')).toContain('Do not return or retranscribe nodeInputs');
   });
 });

@@ -15,6 +15,7 @@ import { validateJsonSchemaV2 } from './stage4-compilation-evaluator-v2';
 type JsonRecord = Record<string, unknown>;
 
 export const GENERIC_LOWERING_POLICY_VERSION_V2R = 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_3' as const;
+export const GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R = 'EDITRON_OE_GENERIC_LOWERER_IMPLEMENTATION_V2R_4' as const;
 export const PLANNER_INPUT_OWNERSHIP_VERSION_V2R = 'EDITRON_OE_PLANNER_INPUT_OWNERSHIP_V2R_1' as const;
 
 export type FieldBindingSourceV2R =
@@ -265,7 +266,7 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
     const inputSpec = record(operator.input);
     const requiredFields = strings(inputSpec.required);
     const declaredFields = strings(inputSpec.fields);
-    const rawNodeInputs = record(boundNode.nodeInputs);
+    const rawNodeInputs = record(intentNodesById.get(intentNodeId)?.nodeInputs);
     for (const field of Object.keys(rawNodeInputs)) {
       if (!declaredFields.includes(field)) {
         diagnostics.push(`MODEL_INPUT_FIELD_UNDECLARED:${intentNodeId}:${field}`);
@@ -281,7 +282,7 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
         diagnostics.push(`INPUT_FIELD_SCHEMA_MISSING:${intentNodeId}:${field}`);
         continue;
       }
-      for (const schemaDiagnostic of validateJsonSchemaV2(rawNodeInputs[field], fieldSchema, `$.nodeInputs.${field}`)) {
+      for (const schemaDiagnostic of validateJsonSchemaV2(rawNodeInputs[field], fieldSchema, `$.stage2.nodeInputs.${field}`)) {
         diagnostics.push(`MODEL_INPUT_SCHEMA_INVALID:${intentNodeId}:${field}:${schemaDiagnostic}`);
       }
     }
@@ -425,6 +426,7 @@ export function lowerV2RBoundIntentGeneric(input: GenericLowererInputV2R): Reado
     diagnostics: uniqueStrings(diagnostics).map((message) => loweringDiagnostic(input.taskId, message)),
     unresolvedIntentNodeIds: uniqueStrings(unresolvedIntentNodeIds),
     lowering: {
+      implementationVersion: GENERIC_LOWERER_IMPLEMENTATION_VERSION_V2R,
       policyVersion: GENERIC_LOWERING_POLICY_VERSION_V2R,
       zeroAdd,
       zeroDrop,
@@ -496,7 +498,7 @@ function bindField(
       return adapted.present ? { ...adapted, readFactId: text(fact.factId) } : adapted;
     }
     case 'MODEL_INPUT': {
-      const nodeInputs = record(context.boundNode.nodeInputs);
+      const nodeInputs = record(context.intentNode?.nodeInputs);
       const value = nodeInputs[field];
       if (value === undefined || value === null || value === '') return { present: false };
       return adaptFieldValueV2R(value, rule, diagnostics, intentNodeId, field);

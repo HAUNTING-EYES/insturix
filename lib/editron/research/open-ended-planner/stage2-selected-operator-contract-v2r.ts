@@ -1,7 +1,7 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 
 export const STAGE2_SELECTED_OPERATOR_CONTRACT_VERSION_V2R =
-  'EDITRON_OE_STAGE2_SELECTED_OPERATOR_V2R_3' as const;
+  'EDITRON_OE_STAGE2_SELECTED_OPERATOR_V2R_4' as const;
 
 export const STAGE2_SELECTED_OPERATOR_INSTRUCTIONS_V2R = deepFreezeV1({
   stage2: [
@@ -13,7 +13,8 @@ export const STAGE2_SELECTED_OPERATOR_INSTRUCTIONS_V2R = deepFreezeV1({
     'The deterministic lowerer adds zero operations and drops zero selected operations. Select every read, resolver, mutation, and proof operation the edit requires as its own node; no operator is inserted or completed for you.',
   ],
   stage3: [
-    'Preserve every Stage-2 selectedOperatorId, alternativeOperatorIds, and nodeInputs unchanged; Stage 3 binds evidence, rights, revision, preservation, and proof requirements and must not add, drop, or substitute operators or alter the semantic nodeInputs.',
+    'Preserve every Stage-2 selectedOperatorId and alternativeOperatorIds unchanged; Stage 3 binds evidence, rights, revision, preservation, and proof requirements and must not add, drop, or substitute operators.',
+    'Do not return or retranscribe nodeInputs in Stage 3. The immutable Stage-2 artifact is the sole semantic-input source for deterministic lowering.',
   ],
 });
 
@@ -66,9 +67,6 @@ export const STAGE3_SELECTED_OPERATOR_NODE_SCHEMA_V2R = deepFreezeV1({
     proofObligationIds: stringArraySchema,
     bindingStatus: { type: 'string', enum: ['BOUND', 'PARTIAL', 'UNVERIFIABLE'] },
     unresolvedRequirementIds: stringArraySchema,
-    // Carries the Stage-2 model-produced semantic inputs forward unchanged so
-    // the lowerer binds them instead of a policy constant.
-    nodeInputs: { type: 'object', additionalProperties: true },
   },
   additionalProperties: false,
 });
@@ -172,18 +170,9 @@ export function selectedOperatorDriftDiagnosticsV2R(
     if (hashCanonicalJsonV1(sourceNode.alternativeOperatorIds) !== hashCanonicalJsonV1(boundNode.alternativeOperatorIds)) {
       diagnostics.push(`ALTERNATIVE_OPERATOR_DRIFT:${intentNodeId}`);
     }
-    if (hasOwnV2R(sourceNode, 'nodeInputs') !== hasOwnV2R(boundNode, 'nodeInputs')
-      || (hasOwnV2R(sourceNode, 'nodeInputs')
-        && hashCanonicalJsonV1(sourceNode.nodeInputs) !== hashCanonicalJsonV1(boundNode.nodeInputs))) {
-      diagnostics.push(`NODE_INPUT_DRIFT:${intentNodeId}`);
-    }
   }
   for (const intentNodeId of boundById.keys()) {
     if (!sourceById.has(intentNodeId)) diagnostics.push(`NODE_ADDED:${intentNodeId}`);
   }
   return deepFreezeV1(diagnostics);
-}
-
-function hasOwnV2R(record: JsonRecord, field: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, field);
 }
