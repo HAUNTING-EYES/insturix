@@ -1,5 +1,6 @@
 import {
   applyCameraShakeToProject,
+  type CameraShakeOptions,
   type CameraShakePlan,
 } from '@/lib/editron/agent/chat-visual-tools';
 import { findAudioMomentCandidates } from '@/lib/editron/agent/chat-audio-tools';
@@ -205,18 +206,21 @@ function applyFinalShake(input: {
   currentProject: Dev03Stage6ProjectSnapshotV2;
 }): Dev03Stage6OperatorResultV2R {
   const effectPlan = requiredRecord(input.inputs.effectPlan, 'SHAKE_EFFECT_PLAN');
-  const goal = requiredString(effectPlan.goal, 'SHAKE_GOAL').toLowerCase();
-  if (!goal.includes('restrained') || !goal.includes('neutral')) {
-    throw new Error('DEV03_STAGE6_SHAKE_GOAL_UNSUPPORTED');
-  }
+  requiredString(effectPlan.goal, 'SHAKE_GOAL');
   const targetOverlayId = overlayId(input.inputs.overlayId, 'SHAKE_OVERLAY_ID');
   const targetFrame = requiredInteger(input.inputs.targetFrame, 'SHAKE_TARGET_FRAME');
   const nextProject = clone(input.currentProject);
-  const plan = applyCameraShakeToProject(nextProject, {
+  const shakeOptions: CameraShakeOptions = {
     targetFrame,
     videoOverlayId: targetOverlayId,
-    replacePositionKeyframes: false,
-  });
+    ...(effectPlan.intensity === undefined
+      ? {} : { intensity: requiredNumber(effectPlan.intensity, 'SHAKE_INTENSITY') }),
+    ...(effectPlan.durationFrames === undefined
+      ? {} : { durationFrames: requiredInteger(effectPlan.durationFrames, 'SHAKE_DURATION') }),
+    ...(effectPlan.replacePositionKeyframes === undefined
+      ? {} : { replacePositionKeyframes: requiredBoolean(effectPlan.replacePositionKeyframes, 'SHAKE_REPLACE_POSITION') }),
+  };
+  const plan = applyCameraShakeToProject(nextProject, shakeOptions);
   const update = exactShakeUpdate(plan, targetOverlayId, targetFrame);
   nextProject.overlays = records(nextProject.overlays).map((overlay) => (
     String(overlay.id) === String(update.overlayId)
@@ -229,6 +233,7 @@ function applyFinalShake(input: {
         result: 'PASS',
         beforeStateHash: hashCanonicalJsonV1(input.currentProject),
         afterStateHash: hashCanonicalJsonV1(nextProject),
+        requestedEffectPlan: clone(effectPlan),
         ownerPlan: plan,
       },
     },
@@ -384,6 +389,11 @@ function requiredInteger(value: unknown, code: string): number {
   const number = requiredNumber(value, code);
   if (!Number.isSafeInteger(number)) throw new Error(`DEV03_STAGE6_${code}_INVALID`);
   return number;
+}
+
+function requiredBoolean(value: unknown, code: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`DEV03_STAGE6_${code}_INVALID`);
+  return value;
 }
 function requiredRecord(value: unknown, code: string): JsonRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {

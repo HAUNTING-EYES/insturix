@@ -6,7 +6,7 @@ import type { GenericLoweringResultV2R } from './generic-lowerer-v2r';
 type JsonRecord = Record<string, unknown>;
 
 export const V2R_STAGE6_TASK_ADAPTER_REGISTRY_VERSION =
-  'EDITRON_OE_V2R_STAGE6_TASK_ADAPTER_REGISTRY_V1' as const;
+  'EDITRON_OE_V2R_STAGE6_TASK_ADAPTER_REGISTRY_V2' as const;
 
 export interface V2RStage6TaskAdapterDescriptor {
   taskId: 'DEV-01' | 'DEV-03';

@@ -120,6 +120,30 @@ describe('DEV-03 Stage-6 causal compiled-graph executor V2R', () => {
     expect(renderer).not.toHaveBeenCalled();
   });
 
+  it('honors a schema-valid semantic shake plan without prose-keyword gating', async () => {
+    const changed = mutableLowering();
+    const shakeNode = nodes(changed).find(({ operatorId }) => operatorId === 'apply_camera_shake');
+    if (!shakeNode) throw new Error('test shake node missing');
+    (shakeNode.inputs as JsonRecord).effectPlan = {
+      goal: 'Apply one modest short-lived accent on the final selected impact.',
+      intensity: 0.2,
+      durationFrames: 8,
+      replacePositionKeyframes: false,
+    };
+
+    const execution = await execute(changed, evidencePack(), fakeRenderer());
+    const finalCard = overlay(execution.snapshots.shaken, 'dev03-card-4');
+    const shakeTracks = (finalCard.keyframeTracks as JsonRecord[])
+      .filter(({ property }) => property === 'x' || property === 'y');
+    expect(shakeTracks).toHaveLength(2);
+    for (const track of shakeTracks) {
+      const keyframes = track.keyframes as Array<{ value: number }>;
+      expect(keyframes).toHaveLength(10);
+      expect(Math.max(...keyframes.map(({ value }) => Math.abs(value)))).toBeLessThanOrEqual(0.64);
+      expect(keyframes.at(-1)?.value).toBe(0);
+    }
+  });
+
   it('rejects independently invalid visual and audio proof before writing a receipt', async () => {
     const invalid = passingProof();
     invalid.renderer.root = '' as typeof invalid.renderer.root;
@@ -140,6 +164,7 @@ describe('DEV-03 Stage-6 causal compiled-graph executor V2R', () => {
     expect(`${executorSource}\n${adapterSource}`).not.toMatch(
       /fixture\.expected|executeDev03BeatAlignmentV2|executeDev03FinalShakeV2/,
     );
+    expect(adapterSource).not.toMatch(/goal\.includes\(|SHAKE_GOAL_UNSUPPORTED/);
     expect(`${executorSource}\n${adapterSource}`).not.toMatch(
       /from ['"][^'"]*(?:project-service|mutation-gate|mongodb)|\b(?:saveProject|updateProject|connectToDatabase)\s*\(/i,
     );
