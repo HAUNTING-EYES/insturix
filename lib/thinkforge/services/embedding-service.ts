@@ -238,6 +238,7 @@ export interface VectorDeletionProcessingResult {
   purged: number;
   stale: number;
   failed: number;
+  deadLettered: number;
 }
 
 /** Delete all legacy and lease-specific vectors before advancing the tombstone. */
@@ -251,6 +252,7 @@ export async function processPendingVectorDeletions(
     purged: 0,
     stale: 0,
     failed: 0,
+    deadLettered: 0,
   };
 
   for (const entry of entries) {
@@ -275,11 +277,13 @@ export async function processPendingVectorDeletions(
       result[completion] += 1;
     } catch (error) {
       try {
-        await failDataBankVectorDeletion(
+        const failure = await failDataBankVectorDeletion(
           entryId,
           vectorDeletionLeaseId,
-          entry.vectorDeletionAttempts ?? 1,
+          (entry.vectorDeletionFailureCount ?? 0) + 1,
+          error instanceof Error ? error.message : 'Unknown vector provider failure.',
         );
+        if (failure === 'dead_letter') result.deadLettered += 1;
       } catch (statusError) {
         console.error(`[EmbeddingService] Failed to record vector deletion failure for ${entryId}:`, statusError);
       }

@@ -24,7 +24,9 @@ vi.mock('@/lib/thinkforge/services/db', async (importOriginal) => {
 });
 
 import {
+  DATA_BANK_VECTOR_DELETION_MAX_CONSECUTIVE_FAILURES,
   buildClaimableDataBankVectorDeletionQuery,
+  buildDataBankVectorDeletionFailureUpdate,
   buildDataBankVectorDeletionLeaseFilter,
   buildDataBankVectorDeletionTombstoneUpdate,
   shouldPurgeDataBankVectorTombstone,
@@ -52,6 +54,7 @@ function tombstone(overrides: Partial<DataBankEntry> = {}): DataBankEntry {
     vectorId: 'legacy_vector_1',
     vectorDeletionStatus: 'processing',
     vectorDeletionAttempts: 2,
+    vectorDeletionFailureCount: 1,
     vectorDeletionRequestedAt: new Date('2026-08-16T00:00:00.000Z'),
     vectorDeletionLeaseId: 'delete_lease_1',
     vectorDeletionLeaseExpiresAt: new Date('2026-08-16T00:15:00.000Z'),
@@ -68,7 +71,7 @@ describe('DataBank vector deletion outbox', () => {
     process.env.UPSTASH_VECTOR_REST_TOKEN = 'test-token';
     mocks.vectorDelete.mockResolvedValue({ deleted: 1 });
     mocks.completeDataBankVectorDeletion.mockResolvedValue('deleted');
-    mocks.failDataBankVectorDeletion.mockResolvedValue(true);
+    mocks.failDataBankVectorDeletion.mockResolvedValue('retry');
     mocks.claimDataBankEntriesForVectorDeletion.mockResolvedValue([tombstone()]);
   });
 
@@ -83,6 +86,7 @@ describe('DataBank vector deletion outbox', () => {
       tags: [],
       vectorDeletionStatus: 'pending',
       vectorDeletionAttempts: 0,
+      vectorDeletionFailureCount: 0,
       vectorDeletionRequestedAt: now,
       vectorDeletionNextRetryAt: new Date('2026-08-16T12:10:00.000Z'),
     });
@@ -134,6 +138,7 @@ describe('DataBank vector deletion outbox', () => {
       purged: 0,
       stale: 0,
       failed: 0,
+      deadLettered: 0,
     });
 
     expect(mocks.claimDataBankEntriesForVectorDeletion).toHaveBeenCalledWith(25);
@@ -170,6 +175,57 @@ describe('DataBank vector deletion outbox', () => {
       'entry_1',
       'delete_lease_1',
       2,
+      'upstash unavailable',
+    );
+    errorSpy.mockRestore();
+  });
+
+  it('dead-letters after bounded consecutive failures without capping successful rechecks', () => {
+    const now = new Date('2026-08-16T12:00:00.000Z');
+    const retry = buildDataBankVectorDeletionFailureUpdate(2, 'upstash unavailable', now);
+    expect(retry.$set).toMatchObject({
+      vectorDeletionStatus: 'failed',
+      vectorDeletionFailureCount: 2,
+      vectorDeletionLastError: 'upstash unavailable',
+      vectorDeletionNextRetryAt: new Date('2026-08-16T12:02:00.000Z'),
+    });
+    expect(retry.$unset).toMatchObject({ vectorDeletionDeadLetteredAt: '' });
+
+    const terminal = buildDataBankVectorDeletionFailureUpdate(
+      DATA_BANK_VECTOR_DELETION_MAX_CONSECUTIVE_FAILURES,
+      'provider remained unavailable',
+      now,
+    );
+    expect(terminal.$set).toMatchObject({
+      vectorDeletionStatus: 'dead_letter',
+      vectorDeletionFailureCount: DATA_BANK_VECTOR_DELETION_MAX_CONSECUTIVE_FAILURES,
+      vectorDeletionLastError: 'provider remained unavailable',
+      vectorDeletionDeadLetteredAt: now,
+    });
+    expect(terminal.$unset).toMatchObject({ vectorDeletionNextRetryAt: '' });
+    expect(() => buildDataBankVectorDeletionFailureUpdate(0, 'invalid', now)).toThrow(
+      'positive integer',
+    );
+  });
+
+  it('reports when the provider failure crosses the dead-letter boundary', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.claimDataBankEntriesForVectorDeletion.mockResolvedValue([tombstone({
+      vectorDeletionFailureCount: DATA_BANK_VECTOR_DELETION_MAX_CONSECUTIVE_FAILURES - 1,
+    })]);
+    mocks.vectorDelete.mockRejectedValueOnce(new Error('persistent outage'));
+    mocks.failDataBankVectorDeletion.mockResolvedValueOnce('dead_letter');
+
+    await expect(processPendingVectorDeletions(10)).resolves.toMatchObject({
+      processed: 1,
+      failed: 1,
+      deadLettered: 1,
+    });
+    expect(mocks.failDataBankVectorDeletion).toHaveBeenCalledWith(
+      'entry_1',
+      'delete_lease_1',
+      DATA_BANK_VECTOR_DELETION_MAX_CONSECUTIVE_FAILURES,
+      'persistent outage',
     );
     errorSpy.mockRestore();
   });

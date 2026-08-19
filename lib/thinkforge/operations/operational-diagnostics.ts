@@ -102,6 +102,10 @@ export interface ThinkForgeOperationalDiagnostics {
     documentContracts: StatusCounts;
     dataBankAuthority: StatusCounts;
   };
+  learning: {
+    reviewStatus: StatusCounts;
+    vectorDeletionStatus: StatusCounts;
+  };
   alerts: Array<{
     code: string;
     severity: 'warning' | 'critical';
@@ -360,13 +364,24 @@ export async function getThinkForgeOperationalDiagnostics(input: {
   database?: Db;
 } = {}): Promise<ThinkForgeOperationalDiagnostics> {
   const database = input.database ?? await getOperationalDatabase();
-  const [observer, refinery, postMortem, authoringRequests, documentContracts, dataBankAuthority] = await Promise.all([
+  const [
+    observer,
+    refinery,
+    postMortem,
+    authoringRequests,
+    documentContracts,
+    dataBankAuthority,
+    reviewStatus,
+    vectorDeletionStatus,
+  ] = await Promise.all([
     readJobDiagnostics(database, THINKFORGE_OBSERVER_JOB_COLLECTION),
     readJobDiagnostics(database, THINKFORGE_REFINERY_JOB_COLLECTION),
     readJobDiagnostics(database, THINKFORGE_POST_MORTEM_JOB_COLLECTION),
     readStatusCounts(database, THINKFORGE_SESSION_COLLECTION, 'projectMeta.authoringRequestMigration.status'),
     readStatusCounts(database, THINKFORGE_SCRIPT_COLLECTION, 'documentContractMigration.status'),
     readStatusCounts(database, THINKFORGE_DATABANK_COLLECTION, 'dataBankAuthorityMigration.status'),
+    readStatusCounts(database, THINKFORGE_DATABANK_COLLECTION, 'reviewStatus'),
+    readStatusCounts(database, THINKFORGE_DATABANK_COLLECTION, 'vectorDeletionStatus'),
   ]);
   const alerts: ThinkForgeOperationalDiagnostics['alerts'] = [];
 
@@ -379,6 +394,14 @@ export async function getThinkForgeOperationalDiagnostics(input: {
     + (dataBankAuthority.quarantined ?? 0);
   if (quarantineCount > 0) {
     alerts.push({ code: 'migration_quarantine_pending', severity: 'warning', count: quarantineCount });
+  }
+  const vectorDeletionDeadLetters = vectorDeletionStatus.dead_letter ?? 0;
+  if (vectorDeletionDeadLetters > 0) {
+    alerts.push({
+      code: 'databank_vector_deletion_dead_letters',
+      severity: 'critical',
+      count: vectorDeletionDeadLetters,
+    });
   }
 
   let document: ThinkForgeDocumentDiagnostics | undefined;
@@ -445,6 +468,7 @@ export async function getThinkForgeOperationalDiagnostics(input: {
     },
     jobs: { observer, refinery, postMortem },
     migrations: { authoringRequests, documentContracts, dataBankAuthority },
+    learning: { reviewStatus, vectorDeletionStatus },
     alerts,
     ...(document ? { document } : {}),
   };

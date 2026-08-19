@@ -1,10 +1,48 @@
 import { describe, expect, it } from 'vitest';
+import type { Db } from 'mongodb';
 import {
   buildThinkForgeDocumentGenerationTrace,
   buildThinkForgeWriterInvocationTrace,
 } from '@/lib/thinkforge/provenance/generation-trace';
 import { buildThinkForgeGenerationReceipt } from '@/lib/thinkforge/provenance/generation-receipt';
-import { diagnoseThinkForgeDocumentEvidence } from '@/lib/thinkforge/operations/operational-diagnostics';
+import {
+  diagnoseThinkForgeDocumentEvidence,
+  getThinkForgeOperationalDiagnostics,
+} from '@/lib/thinkforge/operations/operational-diagnostics';
+
+function createLifecycleDiagnosticsDatabase(): Db {
+  const countsByCollectionAndPath: Record<string, Record<string, number>> = {
+    'thinkforge_databank:reviewStatus': { pending: 4, approved: 9 },
+    'thinkforge_databank:vectorDeletionStatus': { deleted: 6, dead_letter: 2 },
+  };
+
+  return {
+    collection: (collectionName: string) => ({
+      aggregate: (pipeline: Array<Record<string, any>>) => {
+        const statusReference = pipeline[0]?.$group?._id?.$ifNull?.[0];
+        const statusPath = typeof statusReference === 'string'
+          ? statusReference.replace(/^\$/, '')
+          : '';
+        const counts = countsByCollectionAndPath[`${collectionName}:${statusPath}`] ?? {};
+        return {
+          toArray: async () => Object.entries(counts).map(([status, count]) => ({
+            _id: status,
+            count,
+          })),
+        };
+      },
+      find: () => {
+        const cursor = {
+          sort: () => cursor,
+          limit: () => cursor,
+          next: async () => null,
+          toArray: async () => [],
+        };
+        return cursor;
+      },
+    }),
+  } as unknown as Db;
+}
 
 function createEvidence() {
   const snapshot = {
@@ -100,6 +138,22 @@ function createEvidence() {
 }
 
 describe('ThinkForge operational document diagnostics', () => {
+  it('surfaces review queues and vector-deletion dead letters to operators', async () => {
+    const diagnostics = await getThinkForgeOperationalDiagnostics({
+      database: createLifecycleDiagnosticsDatabase(),
+    });
+
+    expect(diagnostics.learning).toEqual({
+      reviewStatus: { approved: 9, pending: 4 },
+      vectorDeletionStatus: { dead_letter: 2, deleted: 6 },
+    });
+    expect(diagnostics.alerts).toContainEqual({
+      code: 'databank_vector_deletion_dead_letters',
+      severity: 'critical',
+      count: 2,
+    });
+  });
+
   it('proves the bound brand, fact IDs, provider, and immutable trace hashes without returning content', () => {
     const evidence = createEvidence();
     const diagnostics = diagnoseThinkForgeDocumentEvidence({

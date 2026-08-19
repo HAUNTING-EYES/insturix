@@ -3041,7 +3041,7 @@ export type DataBankOwnerType = 'user' | 'organization';
 export type DataBankClassification = 'public' | 'business_confidential' | 'personal' | 'child_data';
 export type DataBankConsentStatus = 'not_required' | 'granted' | 'withdrawn';
 export type DataBankLifecycleStatus = 'active' | 'superseded' | 'expired';
-export type DataBankVectorDeletionStatus = 'pending' | 'processing' | 'failed' | 'deleted';
+export type DataBankVectorDeletionStatus = 'pending' | 'processing' | 'failed' | 'deleted' | 'dead_letter';
 export interface DataBankPrincipal {
   userId: string;
   orgId?: string | null;
@@ -3117,8 +3117,11 @@ export interface DataBankEntry {
   embedding?: number[];
   vectorDeletionStatus?: DataBankVectorDeletionStatus;
   vectorDeletionAttempts?: number;
+  vectorDeletionFailureCount?: number;
+  vectorDeletionLastError?: string;
   vectorDeletionRequestedAt?: Date;
   vectorDeletedAt?: Date;
+  vectorDeletionDeadLetteredAt?: Date;
   vectorDeletionNextRetryAt?: Date;
   vectorDeletionLeaseExpiresAt?: Date;
   vectorDeletionLeaseId?: string;
@@ -3184,11 +3187,14 @@ const DataBankSchema = new Schema({
   embedding: { type: [Number], default: undefined },
   vectorDeletionStatus: {
     type: String,
-    enum: ['pending', 'processing', 'failed', 'deleted'],
+    enum: ['pending', 'processing', 'failed', 'deleted', 'dead_letter'],
   },
   vectorDeletionAttempts: { type: Number, default: 0 },
+  vectorDeletionFailureCount: { type: Number, default: 0 },
+  vectorDeletionLastError: { type: String },
   vectorDeletionRequestedAt: { type: Date },
   vectorDeletedAt: { type: Date },
+  vectorDeletionDeadLetteredAt: { type: Date },
   vectorDeletionNextRetryAt: { type: Date },
   vectorDeletionLeaseExpiresAt: { type: Date },
   vectorDeletionLeaseId: { type: String },
@@ -4165,6 +4171,7 @@ const VECTOR_DELETION_LEASE_MS = 5 * 60 * 1000;
 const VECTOR_DELETION_INITIAL_DELAY_MS = 10 * 60 * 1000;
 const VECTOR_DELETION_RECHECK_MS = 60 * 60 * 1000;
 const VECTOR_DELETION_TOMBSTONE_RETENTION_MS = 24 * 60 * 60 * 1000;
+export const DATA_BANK_VECTOR_DELETION_MAX_CONSECUTIVE_FAILURES = 8;
 
 /** Immediately hide and scrub a record while retaining only deletion authority. */
 export function buildDataBankVectorDeletionTombstoneUpdate(now = new Date()): DataBankOwnershipQuery {
@@ -4177,6 +4184,7 @@ export function buildDataBankVectorDeletionTombstoneUpdate(now = new Date()): Da
       tags: [],
       vectorDeletionStatus: 'pending',
       vectorDeletionAttempts: 0,
+      vectorDeletionFailureCount: 0,
       vectorDeletionRequestedAt: now,
       vectorDeletionNextRetryAt: new Date(now.getTime() + VECTOR_DELETION_INITIAL_DELAY_MS),
       updatedAt: now,
@@ -4191,6 +4199,8 @@ export function buildDataBankVectorDeletionTombstoneUpdate(now = new Date()): Da
       expiresAt: '',
       embedding: '',
       vectorDeletedAt: '',
+      vectorDeletionDeadLetteredAt: '',
+      vectorDeletionLastError: '',
       vectorDeletionLeaseExpiresAt: '',
       vectorDeletionLeaseId: '',
     },
@@ -4307,35 +4317,70 @@ export async function completeDataBankVectorDeletion(
   const result = await model.updateOne(filter, {
     $set: {
       vectorDeletionStatus: 'deleted',
+      vectorDeletionFailureCount: 0,
       vectorDeletedAt: now,
       vectorDeletionNextRetryAt: new Date(now.getTime() + VECTOR_DELETION_RECHECK_MS),
       updatedAt: now,
     },
-    $unset: { vectorDeletionLeaseExpiresAt: '', vectorDeletionLeaseId: '' },
+    $unset: {
+      vectorDeletionDeadLetteredAt: '',
+      vectorDeletionLastError: '',
+      vectorDeletionLeaseExpiresAt: '',
+      vectorDeletionLeaseId: '',
+    },
   });
   return result.matchedCount > 0 ? 'deleted' : 'stale';
+}
+
+export type DataBankVectorDeletionFailureResult = 'retry' | 'dead_letter' | 'stale';
+
+export function buildDataBankVectorDeletionFailureUpdate(
+  nextFailureCount: number,
+  errorMessage: string,
+  now = new Date(),
+): DataBankOwnershipQuery {
+  if (!Number.isSafeInteger(nextFailureCount) || nextFailureCount < 1) {
+    throw new Error('DataBank vector deletion failure count must be a positive integer.');
+  }
+  if (!Number.isFinite(now.getTime())) throw new Error('DataBank deletion time must be valid.');
+  const lastError = dataBankString(errorMessage)?.slice(0, 500) ?? 'unknown_vector_deletion_error';
+  const deadLettered = nextFailureCount >= DATA_BANK_VECTOR_DELETION_MAX_CONSECUTIVE_FAILURES;
+  const retryDelayMs = Math.min(60 * 60 * 1000, 60 * 1000 * 2 ** (nextFailureCount - 1));
+
+  return {
+    $set: {
+      vectorDeletionStatus: deadLettered ? 'dead_letter' : 'failed',
+      vectorDeletionFailureCount: nextFailureCount,
+      vectorDeletionLastError: lastError,
+      ...(deadLettered
+        ? { vectorDeletionDeadLetteredAt: now }
+        : { vectorDeletionNextRetryAt: new Date(now.getTime() + retryDelayMs) }),
+      updatedAt: now,
+    },
+    $unset: {
+      ...(deadLettered ? { vectorDeletionNextRetryAt: '' } : { vectorDeletionDeadLetteredAt: '' }),
+      vectorDeletionLeaseExpiresAt: '',
+      vectorDeletionLeaseId: '',
+    },
+  };
 }
 
 export async function failDataBankVectorDeletion(
   entryId: string,
   vectorDeletionLeaseId: string,
-  attempt: number,
-): Promise<boolean> {
+  nextFailureCount: number,
+  errorMessage: string,
+  now = new Date(),
+): Promise<DataBankVectorDeletionFailureResult> {
   await connectToThinkForgeDb();
-  const cappedAttempt = Math.max(1, attempt);
-  const retryDelayMs = Math.min(60 * 60 * 1000, 60 * 1000 * 2 ** (cappedAttempt - 1));
+  const transition = nextFailureCount >= DATA_BANK_VECTOR_DELETION_MAX_CONSECUTIVE_FAILURES
+    ? 'dead_letter'
+    : 'retry';
   const result = await getDataBankModel().updateOne(
     buildDataBankVectorDeletionLeaseFilter(entryId, vectorDeletionLeaseId),
-    {
-      $set: {
-        vectorDeletionStatus: 'failed',
-        vectorDeletionNextRetryAt: new Date(Date.now() + retryDelayMs),
-        updatedAt: new Date(),
-      },
-      $unset: { vectorDeletionLeaseExpiresAt: '', vectorDeletionLeaseId: '' },
-    },
+    buildDataBankVectorDeletionFailureUpdate(nextFailureCount, errorMessage, now),
   );
-  return result.matchedCount > 0;
+  return result.matchedCount > 0 ? transition : 'stale';
 }
 
 export interface DataBankProvenanceBackfillResult {
