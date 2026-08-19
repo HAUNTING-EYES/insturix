@@ -1,6 +1,8 @@
 import {
+  OPENAI_STRUCTURED_OUTPUT_MODE_V2,
   serializeGoogleCountTokensRequestV2,
   type ProviderRouteV2,
+  type SchemaModeV2,
   type SerializedProviderRequestV2,
 } from './provider-codecs-v2';
 import { deepFreezeV1 } from './contracts-v1';
@@ -51,14 +53,14 @@ const DIRECT_ROUTES: readonly DirectRouteFactV2[] = [
 ] as const;
 
 export const V2R_BENCHMARK_ROUTE_ROSTER_VERSION =
-  'EDITRON_OE_V2R_BENCHMARK_ROUTE_ROSTER_V3' as const;
+  'EDITRON_OE_V2R_BENCHMARK_ROUTE_ROSTER_V4' as const;
 
 export interface V2RBenchmarkRouteIdentityV2 {
   routeId: 'OPENAI_LUNA' | 'OPENAI_TERRA' | 'QWEN_3_8_MAX';
   claimedModelIdentity: string;
   costBasis: 'USD_METERED' | 'TOKEN_PLAN_CREDITS_UNPRICED';
   providerTransport: 'OPENAI_RESPONSES' | 'ALIBABA_DIRECT_CHAT_COMPLETIONS';
-  structuredOutputMode: 'NATIVE_JSON_SCHEMA' | 'NATIVE_JSON_OBJECT';
+  structuredOutputMode: SchemaModeV2;
   planningMode: 'medium' | 'FAIR_STAGE_BUDGET';
 }
 
@@ -79,7 +81,7 @@ export function buildV2RBenchmarkRouteRosterV2(): readonly Readonly<V2RBenchmark
       claimedModelIdentity: fact.claimedModelIdentity,
       costBasis: 'USD_METERED',
       providerTransport: 'OPENAI_RESPONSES',
-      structuredOutputMode: 'NATIVE_JSON_SCHEMA',
+      structuredOutputMode: OPENAI_STRUCTURED_OUTPUT_MODE_V2,
       planningMode: 'medium',
     }));
   return deepFreezeV1([...openAiRoutes, QWEN_ROUTE_FACT]);

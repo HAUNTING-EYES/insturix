@@ -7,6 +7,7 @@ import type { HashedStagePacketV2, ProviderTransportAttachmentV2 } from './stage
 export type ProviderKindV2 = 'openai' | 'google' | 'deepseek';
 export type ProviderTransportKindV2 = ProviderKindV2 | 'openrouter';
 export type SchemaModeV2 = 'NATIVE_JSON_SCHEMA' | 'NATIVE_JSON_SCHEMA_NON_STRICT' | 'NATIVE_JSON_OBJECT';
+export const OPENAI_STRUCTURED_OUTPUT_MODE_V2 = 'NATIVE_JSON_SCHEMA_NON_STRICT' as const;
 
 export interface ProviderRouteV2 {
   kind: ProviderTransportKindV2;
@@ -130,7 +131,7 @@ export async function serializeProviderRequestV2(input: {
   if (input.route.kind === 'openai') {
     endpoint = 'https://api.openai.com/v1/responses';
     headers = { Authorization: `Bearer ${input.route.apiKey}`, 'Content-Type': 'application/json' };
-    schemaMode = 'NATIVE_JSON_SCHEMA_NON_STRICT';
+    schemaMode = OPENAI_STRUCTURED_OUTPUT_MODE_V2;
     body = {
       ...common,
       store: false,

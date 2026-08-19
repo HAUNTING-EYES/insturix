@@ -89,8 +89,8 @@ describe('open-ended planner V2 development cohort provider routes', () => {
     expect(buildV2RBenchmarkRouteRosterV2().map(({ routeId, structuredOutputMode }) => ({
       routeId, structuredOutputMode,
     }))).toEqual([
-      { routeId: 'OPENAI_LUNA', structuredOutputMode: 'NATIVE_JSON_SCHEMA' },
-      { routeId: 'OPENAI_TERRA', structuredOutputMode: 'NATIVE_JSON_SCHEMA' },
+      { routeId: 'OPENAI_LUNA', structuredOutputMode: 'NATIVE_JSON_SCHEMA_NON_STRICT' },
+      { routeId: 'OPENAI_TERRA', structuredOutputMode: 'NATIVE_JSON_SCHEMA_NON_STRICT' },
       { routeId: 'QWEN_3_8_MAX', structuredOutputMode: 'NATIVE_JSON_OBJECT' },
     ]);
     const routes = buildV2RBenchmarkModelRoutesV2({
