@@ -16,6 +16,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
+import { MemoryReviewQueue } from "./MemoryReviewQueue";
 
 /* ─── Types ─── */
 
@@ -523,7 +524,8 @@ export function KnowledgePanel({
 
             {/* Content */}
             <ScrollArea className="flex-1">
-              <div className="p-5">
+              <div className="space-y-5 p-5">
+                <MemoryReviewQueue sessionId={sessionId} />
                 <BrandDNAEditor sessionId={sessionId} />
               </div>
             </ScrollArea>
