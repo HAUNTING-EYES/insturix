@@ -97,27 +97,33 @@ export function buildDevelopmentModelRoutesV2(input: {
   const fetchImpl = input.fetchImpl ?? fetch;
 
   return [
-    ...DIRECT_ROUTES.map((fact): DevelopmentModelRouteV2 => ({
-      routeId: fact.routeId,
-      claimedModelIdentity: fact.claimedModelIdentity,
-      costBasis: 'USD_METERED',
-      runStage: (artifact) => {
-        const route: ProviderRouteV2 = {
-          kind: fact.provider,
-          apiKey: fact.provider === 'openai' ? openAIKey : googleKey,
-          model: fact.requestModel,
-          modelSnapshot: fact.claimedModelIdentity,
-          reasoningMode: fact.reasoningMode,
-        };
-        return runProviderStageV2({
-          artifact,
-          route,
-          pricing: fact.pricing,
-          fetchImpl,
-          preflightInputTokens: ({ request }) => countInputTokens({ request, route, fetchImpl }),
-        });
-      },
+    ...DIRECT_ROUTES.map((fact) => buildDirectDevelopmentRouteV2({
+      fact, apiKey: fact.provider === 'openai' ? openAIKey : googleKey, fetchImpl,
     })),
+    buildQwenDevelopmentModelRouteV2({
+      environment: input.environment,
+      qwenBudgetMode: input.qwenBudgetMode,
+      ...(input.qwenDiagnosticTimeoutOverrideMs === undefined
+        ? {} : { diagnosticTimeoutOverrideMs: input.qwenDiagnosticTimeoutOverrideMs }),
+      ...(input.qwenExecute ? { qwenExecute: input.qwenExecute } : {}),
+    }),
+  ];
+}
+
+export function buildV2RBenchmarkModelRoutesV2(input: {
+  environment: Readonly<Record<string, string | undefined>>;
+  qwenBudgetMode: 'FAIR_STAGE_BUDGET' | 'ASYNC_QUALITY_DIAGNOSTIC';
+  qwenDiagnosticTimeoutOverrideMs?: number;
+  fetchImpl?: FetchV2;
+  qwenExecute?: QwenProviderExecutorV2;
+}): readonly DevelopmentModelRouteV2[] {
+  const openAIKey = requiredKey(input.environment.OPENAI_API_KEY, 'OPENAI_API_KEY');
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const openAiRoutes = DIRECT_ROUTES
+    .filter((fact) => fact.provider === 'openai')
+    .map((fact) => buildDirectDevelopmentRouteV2({ fact, apiKey: openAIKey, fetchImpl }));
+  return [
+    ...openAiRoutes,
     buildQwenDevelopmentModelRouteV2({
       environment: input.environment,
       qwenBudgetMode: input.qwenBudgetMode,
@@ -150,6 +156,36 @@ export function buildQwenDevelopmentModelRouteV2(input: {
         ? {} : { diagnosticTimeoutOverrideMs: input.diagnosticTimeoutOverrideMs }),
       ...(input.qwenExecute ? { execute: input.qwenExecute } : {}),
     }),
+  };
+}
+
+function buildDirectDevelopmentRouteV2(input: {
+  fact: DirectRouteFactV2;
+  apiKey: string;
+  fetchImpl: FetchV2;
+}): DevelopmentModelRouteV2 {
+  return {
+    routeId: input.fact.routeId,
+    claimedModelIdentity: input.fact.claimedModelIdentity,
+    costBasis: 'USD_METERED',
+    runStage: (artifact) => {
+      const route: ProviderRouteV2 = {
+        kind: input.fact.provider,
+        apiKey: input.apiKey,
+        model: input.fact.requestModel,
+        modelSnapshot: input.fact.claimedModelIdentity,
+        reasoningMode: input.fact.reasoningMode,
+      };
+      return runProviderStageV2({
+        artifact,
+        route,
+        pricing: input.fact.pricing,
+        fetchImpl: input.fetchImpl,
+        preflightInputTokens: ({ request }) => countInputTokens({
+          request, route, fetchImpl: input.fetchImpl,
+        }),
+      });
+    },
   };
 }
 

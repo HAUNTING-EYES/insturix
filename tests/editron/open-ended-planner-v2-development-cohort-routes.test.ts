@@ -4,6 +4,7 @@ import { getCanonicalDev01Stage123V2 } from '@/lib/editron/research/open-ended-p
 import {
   buildDevelopmentModelRoutesV2,
   buildQwenDevelopmentModelRouteV2,
+  buildV2RBenchmarkModelRoutesV2,
 } from '@/lib/editron/research/open-ended-planner/development-cohort-routes-v2';
 import type { QwenProviderExecutorV2 } from '@/lib/editron/research/open-ended-planner/qwen-direct-provider-v2';
 import { buildDev01TruthfulStageOneTextPacketV2 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
@@ -81,6 +82,22 @@ describe('open-ended planner V2 development cohort provider routes', () => {
     });
     expect((await route.runStage(packet)).disposition).toBe('ARTIFACT_ACCEPTED');
     expect(qwenExecuteMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds the exact V2R roster without requiring an unregistered Gemini credential', () => {
+    const routes = buildV2RBenchmarkModelRoutesV2({
+      environment: { OPENAI_API_KEY: 'openai-test', QWEN_API_KEY: 'qwen-test' },
+      qwenBudgetMode: 'FAIR_STAGE_BUDGET', fetchImpl: fakeFetch,
+      qwenExecute: () => Promise.resolve({
+        stdout: qwenEvents(canonical), stderr: '', exitCode: 0, timedOut: false, latencyMs: 900,
+      }),
+    });
+    expect(routes.map(({ routeId, claimedModelIdentity }) => ({ routeId, claimedModelIdentity })))
+      .toEqual([
+        { routeId: 'OPENAI_LUNA', claimedModelIdentity: 'gpt-5.6-luna' },
+        { routeId: 'OPENAI_TERRA', claimedModelIdentity: 'gpt-5.6-terra' },
+        { routeId: 'QWEN_3_8_MAX', claimedModelIdentity: 'qwen3.8-max' },
+      ]);
   });
 
   it('fails before dispatch when any required credential is absent', () => {
