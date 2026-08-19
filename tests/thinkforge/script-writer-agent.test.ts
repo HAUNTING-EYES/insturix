@@ -272,6 +272,10 @@ describe('ScriptWriterAgent prompt contract', () => {
     expect(prompt).toContain('Never target an arbitrary on-camera ratio');
     expect(prompt).toContain('Do not mention lip-sync job length');
     expect(prompt).toContain('Never invent equipment');
+    expect(prompt).toContain('## Writing Knowledge: Anti-AI Constraints');
+    expect(prompt).toContain('banned_phrase_list');
+    expect(prompt).toContain('leave onScreenText empty by default');
+    expect(prompt).toContain('never populate every narrated beat automatically');
     expect(prompt).not.toContain('on-camera speaking beat >10s');
     expect(prompt).not.toContain('unsupported spoken language');
   });
@@ -416,6 +420,28 @@ describe('ScriptWriterAgent structured generation', () => {
     });
     expect(output.metadata?.notes).toContain('script_contract_repair:applied');
     expect(() => assertUsableScriptWriterResult(output.result)).not.toThrow();
+  });
+
+  it('repairs graph-defined AI filler inside the canonical sidecar', async () => {
+    const invalid = makeModelOutput();
+    invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0]!.text =
+      'This nuanced approach transforms the approval workflow.';
+    const repaired = makeModelOutput();
+    generateStructuredWithWritingContextCacheMock
+      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
+      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Approval workflow launch.' },
+      userPrompt: 'Write the complete video script.',
+    });
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
+    const repairCall = generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0];
+    expect(repairCall?.systemInstruction).toContain('banned_phrase:nuanced [approach]');
+    expect(repairCall?.prompt).toContain('"aiFillerHits"');
+    expect(repairCall?.prompt).toContain('"matchedText": "nuanced approach"');
+    expect(output.result.content).not.toContain('nuanced approach');
   });
 
   it('repairs structurally valid cross-field sidecar violations before persistence', async () => {
@@ -834,6 +860,68 @@ describe('native Script Sidecar V2 production semantics', () => {
       ...makeResult(),
       sidecar: undefined as unknown as ScriptWriterResult['sidecar'],
     })).toThrow(/invalid_sidecar/);
+  });
+
+  it('rejects on-screen text that repeats the narration', () => {
+    const firstBeat = makeBeat(1);
+    const sidecar = sidecarWithScenes([
+      makeScene(1, {
+        beats: [{
+          ...firstBeat,
+          visualIntent: {
+            ...firstBeat.visualIntent!,
+            onScreenText: [firstBeat.lines[0]!.text],
+          },
+        }],
+      }),
+      makeScene(2),
+    ]);
+
+    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar)))
+      .toThrow(/on_screen_text_duplicates_speech:act_1\.scene_1\.beat_1:visual_1/);
+  });
+
+  it('rejects blanket on-screen text in a narration-led plan', () => {
+    const firstBeat = makeBeat(1);
+    const secondBeat = makeBeat(2);
+    const sidecar = sidecarWithScenes([
+      makeScene(1, {
+        beats: [{
+          ...firstBeat,
+          visualIntent: { ...firstBeat.visualIntent!, onScreenText: ['Approval bottleneck'] },
+        }],
+      }),
+      makeScene(2, {
+        beats: [{
+          ...secondBeat,
+          visualIntent: { ...secondBeat.visualIntent!, onScreenText: ['Decision ownership'] },
+        }],
+      }),
+    ]);
+
+    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar)))
+      .toThrow(/on_screen_text_not_selective:2\/2/);
+  });
+
+  it('preserves an exact required claim and an approved brand phrase from the filler gate', () => {
+    const contentSignalProfile = resolveContentSignalProfile({
+      userPrompt: 'Include this exact claim: Our nuanced approach reduced handoff time by 31%.',
+      project: { platform: 'YouTube', format: 'script' },
+    });
+    const firstBeat = makeBeat(1, {
+      lines: [{
+        ...makeBeat(1).lines[0]!,
+        text: 'Our nuanced approach reduced handoff time by 31%.',
+      }],
+    });
+    const sidecar = sidecarWithScenes([
+      makeScene(1, { beats: [firstBeat] }),
+    ]);
+
+    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar), {
+      contentSignalProfile,
+      brandLanguagePolicy: { approvedRecurringPhrases: ['nuanced approach'] },
+    })).not.toThrow(/banned_phrase/);
   });
 
   it('accepts factual claims when scene, beat, and line provenance resolve', () => {

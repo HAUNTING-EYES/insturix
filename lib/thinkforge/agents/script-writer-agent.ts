@@ -29,6 +29,12 @@ import {
   shouldAutoRepairContentProfileViolations,
   type ThinkForgeContentSignalProfile,
 } from '../signals';
+import {
+  findDisallowedThinkForgeAiFiller,
+  resolveThinkForgeBrandLanguagePolicy,
+  type ThinkForgeBrandLanguagePolicy,
+} from '../data/brand-language-policy';
+import { getAntiAiConstraintBundle } from '../data/writing-graph-query';
 import { buildScriptEditorialPlan, type ScriptEditorialPlan } from './script-editorial-plan';
 import {
   requireThinkForgeEditorialPlanForWriter,
@@ -124,6 +130,8 @@ interface ScriptWriterValidationOptions {
   sourceLedger?: SourceLedger | null;
   productionBrief?: ProductionBrief | null;
   contentSignalProfile?: ThinkForgeContentSignalProfile | null;
+  editorialPlan?: ScriptEditorialPlan;
+  brandLanguagePolicy?: ThinkForgeBrandLanguagePolicy;
 }
 
 function resolveScriptEditorialContext(input: ScriptWriterInput): ResolvedScriptEditorialContext {
@@ -330,6 +338,9 @@ const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
   'profile_missing_required_brief_claim',
   'profile_missing_required_audience_anchor',
   'profile_internal_metadata_leaked',
+  'banned_phrase',
+  'on_screen_text_duplicates_speech',
+  'on_screen_text_not_selective',
 ]);
 
 function contractFailureCode(failure: string): string {
@@ -363,6 +374,9 @@ Critical rules:
 - When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or narration_density_below_mode, use tf_untrusted_data.editorialPlan and writer_contract_repair_input.validatorDiagnostics.narrationBudget as binding. Preserve the exact total runtime and selected narration mode. The fullRuntimeMinimumSpokenWords value is a hard lower bound for canonical spoken lines in a guided non-minimal plan; currentSpokenWords and requiredAdditionalSubstantiveWords localize the deficit, while fullRuntimeReferenceSpokenWords remains guidance. Develop the supported argument or story with non-redundant substantive beats. Never satisfy the count by repeating claims, adding filler, inventing evidence, inflating durations, or appending an unrelated monologue.
 - For profile_missing_required_brief_claim or profile_missing_required_audience_anchor, copy the corresponding exact value from tf_untrusted_data.contentSignalProfile.intent.proofPoints into natural script copy without broadening it.
 - For missing_source_ref or invalid_source_ref, use writer_contract_repair_input.validatorDiagnostics and the authorised Source Ledger. Attach a reference only when its source directly supports that scene, beat, or line; otherwise delete or rewrite the unsupported claim. Never cite by keyword resemblance alone.
+- For banned_phrase, replace each exact match listed in writer_contract_repair_input.validatorDiagnostics.aiFillerHits with concrete, source-supported language. Preserve an exact required brief claim or an accepted Brand Vault recurring phrase.
+- For on_screen_text_duplicates_speech, keep the information in narration and remove the repeated visible phrase, or replace it with distinct source-backed information that genuinely complements the spoken line.
+- For on_screen_text_not_selective, leave visualIntent.onScreenText empty on beats that do not need a sourced title, label, statistic, quote, or distinct counterpoint. Do not populate every narrated beat by default.
 - Preserve source references on every factual scene, beat, and line. Do not create a reference ID that is absent from the Source Ledger.
 </writer_contract_repair>`;
 }
@@ -370,7 +384,7 @@ Critical rules:
 function buildScriptContractRepairDiagnostics(
   modelOutput: ScriptWriterModelOutput,
   failure: ScriptWriterContractError,
-  input: Pick<ScriptWriterInput, 'sourceLedger' | 'contentSignalProfile'>,
+  input: Pick<ScriptWriterInput, 'sourceLedger' | 'contentSignalProfile' | 'retrievedContext'>,
   editorialPlan: ScriptEditorialPlan,
 ): Record<string, unknown> {
   let profileViolations: Array<{ id: string; message: string; location?: string }> = [];
@@ -393,6 +407,17 @@ function buildScriptContractRepairDiagnostics(
         ...(violation.location ? { location: violation.location } : {}),
       }));
   }
+
+  const brandLanguagePolicy = resolveThinkForgeBrandLanguagePolicy(
+    input.retrievedContext?.brandAuthority?.profile
+      ?? input.retrievedContext?.brandSignalProfile,
+  );
+  const aiFillerHits = materialized
+    ? findDisallowedThinkForgeAiFiller(
+        contentWithoutRequiredProfileValues(materialized.content, input.contentSignalProfile),
+        brandLanguagePolicy,
+      )
+    : [];
 
   const hasNarrationFailure = failure.failures.some((item) => {
     const code = contractFailureCode(item);
@@ -441,6 +466,7 @@ function buildScriptContractRepairDiagnostics(
       title: entry.title,
     })) ?? [],
     profileViolations,
+    aiFillerHits,
     narrationBudget,
   };
 }
@@ -641,6 +667,58 @@ function countSpokenWords(beat: NarrativeBeatV2): number {
   }, 0);
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function requiredProfileValues(profile: ThinkForgeContentSignalProfile | null | undefined): string[] {
+  return profile?.intent.proofPoints.flatMap((point) => {
+    const match = point.match(/^Required (?:brief claim|audience anchor):\s*(.+)$/i);
+    return match?.[1]?.trim() ? [match[1].trim()] : [];
+  }) ?? [];
+}
+
+function contentWithoutRequiredProfileValues(
+  content: string,
+  profile: ThinkForgeContentSignalProfile | null | undefined,
+): string {
+  return requiredProfileValues(profile).reduce(
+    (remaining, value) => remaining.replace(new RegExp(escapeRegExp(value), 'gi'), ''),
+    content,
+  );
+}
+
+function normalizeComparableText(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+function onScreenTextEntries(beat: NarrativeBeatV2): Array<{ label: string; text: string }> {
+  const visualEntries = beat.visualIntent?.onScreenText.map((text, index) => ({
+    label: `visual_${index + 1}`,
+    text,
+  })) ?? [];
+  const lineEntries = beat.lines.flatMap((line, index) => (
+    line.delivery === 'on-screen-text'
+      ? [{ label: `line_${index + 1}`, text: line.text }]
+      : []
+  ));
+  return [...visualEntries, ...lineEntries].filter((entry) => entry.text.trim().length > 0);
+}
+
+function duplicatesSpokenText(visibleText: string, spokenLines: readonly string[]): boolean {
+  const visible = normalizeComparableText(visibleText);
+  if (!visible) return false;
+  const visibleWordCount = visible.split(/\s+/u).length;
+  return spokenLines.some((line) => {
+    const spoken = normalizeComparableText(line);
+    return spoken === visible || (visibleWordCount >= 3 && spoken.includes(visible));
+  });
+}
+
 export interface ScriptWriterValidationReport {
   editorialWarnings: string[];
 }
@@ -651,6 +729,11 @@ export function assertUsableScriptWriterResult(
 ): ScriptWriterValidationReport {
   const failures: string[] = [];
   const editorialWarnings: string[] = [];
+  const editorialPlan = options.editorialPlan ?? buildScriptEditorialPlan({
+    productionBrief: options.productionBrief,
+    contentSignalProfile: options.contentSignalProfile,
+  });
+  const narratedBeatTextUsage: boolean[] = [];
   let sidecar: ScriptSidecarV2;
   try {
     sidecar = parseScriptSidecarV2(result.sidecar);
@@ -710,6 +793,16 @@ export function assertUsableScriptWriterResult(
 
       const spokenWordCount = countSpokenWords(beat);
       const hasSpokenContent = spokenWordCount > 0;
+      const visibleTextEntries = onScreenTextEntries(beat);
+      if (hasSpokenContent) narratedBeatTextUsage.push(visibleTextEntries.length > 0);
+      const spokenLines = beat.lines
+        .filter((line) => line.delivery !== 'on-screen-text')
+        .map((line) => line.text);
+      visibleTextEntries.forEach((entry) => {
+        if (duplicatesSpokenText(entry.text, spokenLines)) {
+          failures.push(`on_screen_text_duplicates_speech:${beatLabel}:${entry.label}`);
+        }
+      });
       if (hasSpokenContent && (beat.kind === 'visual' || beat.kind === 'transition')) {
         failures.push(`beat_kind_speech_mismatch:${beatLabel}:${beat.kind}`);
       }
@@ -731,6 +824,14 @@ export function assertUsableScriptWriterResult(
       );
     }
   }));
+
+  if (
+    editorialPlan.visualVerbal.onScreenTextRole === 'selective_complement'
+    && narratedBeatTextUsage.length > 1
+    && narratedBeatTextUsage.every(Boolean)
+  ) {
+    failures.push(`on_screen_text_not_selective:${narratedBeatTextUsage.length}/${narratedBeatTextUsage.length}`);
+  }
 
   validateCastingBriefCompliance(sidecar, options.productionBrief, failures);
 
@@ -768,6 +869,12 @@ export function assertUsableScriptWriterResult(
   }
 
   failures.push(...findSourceLedgerIssuesForNarrativeSidecar(sidecar, options.sourceLedger));
+
+  const filler = findDisallowedThinkForgeAiFiller(
+    contentWithoutRequiredProfileValues(result.content, options.contentSignalProfile),
+    options.brandLanguagePolicy ?? resolveThinkForgeBrandLanguagePolicy(),
+  )[0];
+  if (filler) failures.push(`banned_phrase:${filler.label}`);
 
   if (options.contentSignalProfile) {
     const profileCompliance = evaluateContentProfileCompliance(
@@ -807,6 +914,7 @@ export class ScriptWriterAgent extends StructuredAgent<ScriptWriterResult> {
     const sourceLedgerBlock = sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : '';
     const trendBriefBlock = formatTrendBriefForPrompt(productionBrief);
     const castingBriefBlock = formatCastingBriefForPrompt(productionBrief);
+    const antiAiConstraints = getAntiAiConstraintBundle().promptGuidance;
 
 
     // The full graph block is intentionally omitted. The server resolves one compatible structure
@@ -871,15 +979,18 @@ Your task is to write a high-retention, engaging video script.
 1. **One narrative source:** Author the complete script in sidecar with sidecarVersion: ${SCRIPT_SIDECAR_V2_VERSION} and spokenTextSource: "beat-lines". Do not author visible markdown, duplicate narration fields, or renderPlan; the server derives displays and a later technical planner derives render segments.
 2. **Hierarchy and creative intent:** Use acts -> narrativeScenes -> beats -> lines. A short piece still has one structural act wrapper. tf_untrusted_data.creativeIntent is the server-resolved binding creative direction. When its source is selected_angle, execute its title, strategic purpose, and creative treatment as one coherent angle; the broad user brief and project summary are background and must not replace it. Depart only when the current edit instruction explicitly asks to replace that direction. Creative intent is framing, not evidence, and cannot override Brand Vault constraints, factual provenance, compliance, or the output contract. Create multiple acts only for genuine macro turns in the argument, story, time, or audience understanding. Start a new narrative scene only for a meaningful change in purpose, argument, time/place, speaker mode, evidence, emotion, or visual treatment. Runtime never creates, forbids, or counts acts, scenes, or beats.
 3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover for off-camera speech, sync-dialogue only for speech captured on camera, and on-screen-text only for visible text. Every spoken line identifies speakerId, actual languageCode, delivery, camera presence, and source refs.
-4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. When narration.wordBudgetPolicy is "guided" and the mode is non-minimal, fullRuntimeMinimumSpokenWords is a hard lower bound across canonical spoken lines; fullRuntimeReferenceSpokenWords is the mode's planning reference, not a mandatory exact count. Develop the evidence, reasoning, tension, examples, and implications needed for the selected angle before allocating durations, then audit the whole-script spoken total. Narration density is a full-runtime mode contract, never a per-beat quota: anchor/standard voiceover cannot fall below the knowledge base's 120 WPM slow-VO floor; complement/counterpoint must remain above the 0-50 WPM minimal-narration band; minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum is an overridable warning, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
+4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, visual-verbal policy, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. When narration.wordBudgetPolicy is "guided" and the mode is non-minimal, fullRuntimeMinimumSpokenWords is a hard lower bound across canonical spoken lines; fullRuntimeReferenceSpokenWords is the mode's planning reference, not a mandatory exact count. Develop the evidence, reasoning, tension, examples, and implications needed for the selected angle before allocating durations, then audit the whole-script spoken total. Narration density is a full-runtime mode contract, never a per-beat quota: anchor/standard voiceover cannot fall below the knowledge base's 120 WPM slow-VO floor; complement/counterpoint must remain above the 0-50 WPM minimal-narration band; minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum is an overridable warning, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
 5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Use voiceover/dialogue/mixed for beats with speech; use visual/transition for deliberate non-verbal time. If a mixed beat contains a substantial speech-free interval, represent that interval as its own meaningful visual or transition beat. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
 6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. When tf_untrusted_data.contentSignalProfile.intent.proofPoints contains a Required brief claim or Required audience anchor, include that value exactly in natural script copy. Never invent proof, testimonials, logos, or product facts.
 7. **Provenance:** Use only Source Ledger referenceId values. Carry refs at sidecar, scene, beat, and line level. Every numeric/date/price/URL/proof/testimonial claim needs a real source ref; an undeclared ref is invalid.
-8. **Visual and audio intent:** Every beat needs concrete visualIntent, including motion, quality, asset recommendation, and intended on-screen text when relevant. Describe what the viewer can actually see; avoid empty style adjectives. Add audioIntent when ambience, music, or SFX serves the beat.
+8. **Visual and audio intent:** Every beat needs concrete visualIntent, including motion, quality, and asset recommendation. Follow tf_untrusted_data.editorialPlan.visualVerbal exactly. In non-minimal modes, leave onScreenText empty by default and use it selectively only for a sourced title, label, statistic, quote, or a distinct counterpoint that adds information the narration does not say. Never repeat a spoken line or phrase on screen, and never populate every narrated beat automatically. Minimal mode may let sourced on-screen text replace speech. Describe what the viewer can actually see; avoid empty style adjectives. Add audioIntent when ambience, music, or SFX serves the beat.
 9. **Characters and casting:** Include only characters used by the narrative. A visible character belongs in charactersPresent; a speaking line uses that character's exact ID. Follow the casting contract without inventing avatar or voice IDs. Do not translate, split, shorten, or move speech merely to satisfy a renderer.
 10. **Shot intent:** Every beat needs one complete shotIntent expressing creative purpose, emotional beat, energy, visual priority, action, framing, angle, movement, performance, and continuity. Express shotIntent.energy and every performance intensity as normalized decimals from 0 to 1, never a 1-5 or 1-10 scale. A moving shot requires a non-empty movementMotivation. spokenAudio is true exactly when the beat contains on-camera sync-dialogue. simultaneousPerformers equals the number of unique performance character IDs, and every sync speaker has a matching performance entry. Never invent equipment, room dimensions, coordinates, budgets, or setup claims.
 11. **Technical separation:** Do not mention lip-sync job length, provider language support, model limits, scene caps, or render chunks. Preserve narrative intent. Production planning will later emit compatibility warnings, alternatives, and provider-safe segments without rewriting the story.
 12. **Metadata:** Set only the publication platform requested in tf_untrusted_data.productionOutput. Duration and spoken languages are derived by the server from the sidecar.
+
+## Writing Knowledge: Anti-AI Constraints
+${antiAiConstraints}
 
 Return your response strictly adhering to the JSON schema.`;
 
@@ -1032,6 +1143,10 @@ Return your response strictly adhering to the JSON schema.`;
     let repairFailureCodes: string[] = [];
     let repairCacheStatus: 'hit' | 'created' | 'inline' | undefined;
     let validationReport: ScriptWriterValidationReport;
+    const brandLanguagePolicy = resolveThinkForgeBrandLanguagePolicy(
+      input.retrievedContext?.brandAuthority?.profile
+        ?? input.retrievedContext?.brandSignalProfile,
+    );
 
     try {
       result = materializeScriptWriterResult(modelOutput);
@@ -1039,6 +1154,8 @@ Return your response strictly adhering to the JSON schema.`;
         sourceLedger: input.sourceLedger,
         productionBrief: input.productionBrief,
         contentSignalProfile: input.contentSignalProfile,
+        editorialPlan,
+        brandLanguagePolicy,
       });
     } catch (error) {
       if (!isRepairableScriptContractError(error)) throw error;
@@ -1077,6 +1194,8 @@ Return your response strictly adhering to the JSON schema.`;
           sourceLedger: input.sourceLedger,
           productionBrief: input.productionBrief,
           contentSignalProfile: input.contentSignalProfile,
+          editorialPlan,
+          brandLanguagePolicy,
         });
       } catch (finalError) {
         attachEvalRejectedScriptOutput(finalError, modelOutput);

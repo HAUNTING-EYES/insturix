@@ -312,6 +312,13 @@ describe('ThinkForge script production contract', () => {
       fullRuntimeComfortableMaximumSpokenWords: 1190,
       selectedTechnique: { id: 'narration_complement' },
     });
+    expect(plan.visualVerbal).toEqual({
+      onScreenTextRole: 'selective_complement',
+      defaultUsage: 'omit',
+      duplicationPolicy: 'forbidden',
+      factualTextPolicy: 'source_only',
+      doctrineSourceLines: [[729, 741], [4051, 4060]],
+    });
     expect(plan.structure.hierarchyPolicy).toBe('content_led');
     expect(plan.structure.actPolicy).toContain('runtime never creates or forbids acts');
     expect(plan).not.toHaveProperty('targetSceneCount');
@@ -362,6 +369,12 @@ describe('ThinkForge script production contract', () => {
       fullRuntimeReferenceSpokenWords: 175,
       fullRuntimeComfortableMaximumSpokenWords: 350,
       selectedTechnique: { id: 'narration_minimal' },
+    });
+    expect(plan.visualVerbal).toMatchObject({
+      onScreenTextRole: 'may_replace_narration',
+      defaultUsage: 'selective',
+      duplicationPolicy: 'forbidden',
+      factualTextPolicy: 'source_only',
     });
   });
 

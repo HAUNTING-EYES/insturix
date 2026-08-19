@@ -51,6 +51,13 @@ export type ScriptNarrationPlan = {
 export interface ScriptEditorialPlan {
   runtime: ScriptRuntimePlan;
   narration: ScriptNarrationPlan;
+  visualVerbal: {
+    onScreenTextRole: 'may_replace_narration' | 'selective_complement';
+    defaultUsage: 'selective' | 'omit';
+    duplicationPolicy: 'forbidden';
+    factualTextPolicy: 'source_only';
+    doctrineSourceLines: Array<[number, number]>;
+  };
   structure: {
     hierarchyPolicy: 'content_led';
     actPolicy: string;
@@ -205,6 +212,15 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
           }
         : { wordBudgetPolicy: 'open' as const }),
       ...(narrationDirective ? { selectedTechnique: narrationDirective } : {}),
+    },
+    visualVerbal: {
+      onScreenTextRole: narrationMode === 'minimal'
+        ? 'may_replace_narration'
+        : 'selective_complement',
+      defaultUsage: narrationMode === 'minimal' ? 'selective' : 'omit',
+      duplicationPolicy: 'forbidden',
+      factualTextPolicy: 'source_only',
+      doctrineSourceLines: [[729, 741], [4051, 4060]],
     },
     structure: {
       hierarchyPolicy: 'content_led',
