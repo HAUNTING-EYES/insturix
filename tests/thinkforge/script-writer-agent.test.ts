@@ -297,6 +297,9 @@ describe('ScriptWriterAgent prompt contract', () => {
     expect(prompt).toContain('"contentSignalProfile"');
     expect(prompt).toContain('Required brief claim: idling fuel use fell 31% during the measured period');
     expect(prompt).toContain('include that value exactly in natural script copy');
+    expect(prompt).toContain('"evidencePolicy"');
+    expect(prompt).toContain('"boundary": "source_only"');
+    expect(prompt).toContain('A declared reference is not permission to broaden the source');
   });
 
   it('maps reordered retrieved facts to their immutable ledger references', () => {
@@ -442,6 +445,45 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(repairCall?.prompt).toContain('"aiFillerHits"');
     expect(repairCall?.prompt).toContain('"matchedText": "nuanced approach"');
     expect(output.result.content).not.toContain('nuanced approach');
+  });
+
+  it('repairs a plausible claim that is not supported by its valid source reference', async () => {
+    const userPrompt = 'HarborGrid replaced 18 yard tractors and idling fuel use fell 31%.';
+    const sourceLedger = buildThinkForgeSourceLedger({ userPrompt });
+    const invalid = makeModelOutput();
+    invalid.sidecar.sourceRefs = ['brief_user'];
+    invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0] = {
+      ...invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0]!,
+      text: 'The pilot improved air quality and reduced queue congestion.',
+      sourceRefs: ['brief_user'],
+    };
+    const repaired = makeModelOutput();
+    repaired.sidecar.sourceRefs = ['brief_user'];
+    repaired.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0] = {
+      ...repaired.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0]!,
+      text: 'HarborGrid replaced 18 yard tractors and idling fuel use fell 31%.',
+      sourceRefs: ['brief_user'],
+    };
+    generateStructuredWithWritingContextCacheMock
+      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
+      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Evidence-led port pilot.' },
+      userPrompt,
+      sourceLedger,
+    });
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
+    const initialCall = generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0];
+    const repairCall = generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0];
+    expect(initialCall?.prompt).toContain('"boundary": "bounded_implication"');
+    expect(repairCall?.systemInstruction).toContain('source_ref_low_support');
+    expect(repairCall?.systemInstruction).toContain('A valid reference ID is not proof');
+    expect(repairCall?.prompt).toContain('"evidencePolicy"');
+    expect(repairCall?.prompt).toContain('"source_ref_low_support:act_1.scene_1.beat_1.line_1"');
+    expect(output.result.content).toContain('idling fuel use fell 31%');
+    expect(output.metadata?.notes).toContain('script_contract_repair:applied');
   });
 
   it('repairs structurally valid cross-field sidecar violations before persistence', async () => {

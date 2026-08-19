@@ -8,6 +8,7 @@ import {
 import { buildPostEditorialPlan } from '@/lib/thinkforge/agents/post-editorial-plan';
 import {
   buildThinkForgeSourceLedger,
+  findSourceLedgerIssuesForNarrativeSidecar,
   findSourceLedgerIssuesForSidecar,
 } from '@/lib/thinkforge/provenance/source-ledger';
 import { createThinkForgeAuthoringRequest } from '@/lib/thinkforge/schemas/authoring-request';
@@ -137,6 +138,67 @@ describe('source-ledger truth contract', () => {
       .toContain('NEEDLE_AT_END');
     expect(ledger.entries.some((entry) => entry.summary.includes('verified review queue')))
       .toBe(true);
+  });
+
+  it('rejects an unrelated claim even when it cites a valid source ID', () => {
+    const ledger = buildThinkForgeSourceLedger({
+      userPrompt: 'HarborGrid replaced 18 yard tractors and idling fuel use fell 31%.',
+    });
+    const issues = findSourceLedgerIssuesForNarrativeSidecar({
+      acts: [{
+        narrativeScenes: [{
+          beats: [{
+            lines: [{
+              text: 'The pilot improved air quality and reduced queue congestion.',
+              sourceRefs: ['brief_user'],
+            }],
+          }],
+        }],
+      }],
+    }, ledger);
+
+    expect(issues).toContain('source_ref_low_support:act_1.scene_1.beat_1.line_1');
+  });
+
+  it('rejects a changed numeric anchor under an otherwise relevant citation', () => {
+    const ledger = buildThinkForgeSourceLedger({
+      userPrompt: 'HarborGrid replaced 18 yard tractors and idling fuel use fell 31%.',
+    });
+    const issues = findSourceLedgerIssuesForNarrativeSidecar({
+      acts: [{
+        narrativeScenes: [{
+          beats: [{
+            lines: [{
+              text: 'HarborGrid replaced 18 yard tractors and idling fuel use fell 41%.',
+              sourceRefs: ['brief_user'],
+            }],
+          }],
+        }],
+      }],
+    }, ledger);
+
+    expect(issues).toContain('source_ref_marker_mismatch:act_1.scene_1.beat_1.line_1');
+  });
+
+  it('accepts a supported paraphrase with exact factual anchors', () => {
+    const ledger = buildThinkForgeSourceLedger({
+      userPrompt: 'HarborGrid replaced 18 yard tractors and idling fuel use fell 31%.',
+    });
+    const issues = findSourceLedgerIssuesForNarrativeSidecar({
+      acts: [{
+        narrativeScenes: [{
+          beats: [{
+            lines: [{
+              text: 'After HarborGrid replaced 18 yard tractors, idling fuel use was 31% lower.',
+              sourceRefs: ['brief_user'],
+            }],
+          }],
+        }],
+      }],
+    }, ledger);
+
+    expect(issues).not.toContain('source_ref_marker_mismatch:act_1.scene_1.beat_1.line_1');
+    expect(issues).not.toContain('source_ref_low_support:act_1.scene_1.beat_1.line_1');
   });
 });
 

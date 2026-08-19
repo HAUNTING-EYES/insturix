@@ -39,6 +39,7 @@ import { buildScriptEditorialPlan, type ScriptEditorialPlan } from './script-edi
 import {
   requireThinkForgeEditorialPlanForWriter,
   type ThinkForgeEditorialCreativeIntent,
+  type ThinkForgeEditorialEvidencePolicy,
   type ThinkForgeScriptEditorialPlanArtifact,
 } from './editorial-plan';
 import { countUnicodeWords } from '../text/unicode-text';
@@ -98,6 +99,7 @@ export type ScriptWriterModelOutput = z.infer<typeof ScriptWriterModelOutputSche
 interface ResolvedScriptEditorialContext {
   executionPlan: ScriptEditorialPlan;
   creativeIntent: ThinkForgeEditorialCreativeIntent;
+  evidencePolicy: ThinkForgeEditorialEvidencePolicy;
   tracePlan: ThinkForgeScriptEditorialPlanArtifact | ScriptEditorialPlan;
 }
 
@@ -134,6 +136,23 @@ interface ScriptWriterValidationOptions {
   brandLanguagePolicy?: ThinkForgeBrandLanguagePolicy;
 }
 
+function directScriptEvidencePolicy(input: ScriptWriterInput): ThinkForgeEditorialEvidencePolicy {
+  const authorizedFactIds = [
+    ...(input.retrievedContext?.projectFacts ?? []),
+    ...(input.retrievedContext?.globalFacts ?? []),
+  ].map((fact) => fact.id).filter(Boolean);
+  const sourceLedgerEntryIds = input.sourceLedger?.entries.map((entry) => entry.referenceId) ?? [];
+  return {
+    authorizedFactIds,
+    sourceLedgerEntryIds,
+    boundary: authorizedFactIds.length + sourceLedgerEntryIds.length > 0
+      ? 'bounded_implication'
+      : 'source_only',
+    factualClaimPolicy: 'authorized_sources_only',
+    unsupportedClaimPolicy: 'reject',
+  };
+}
+
 function resolveScriptEditorialContext(input: ScriptWriterInput): ResolvedScriptEditorialContext {
   if (input.editorialPlan) {
     const artifact = requireThinkForgeEditorialPlanForWriter(
@@ -144,6 +163,7 @@ function resolveScriptEditorialContext(input: ScriptWriterInput): ResolvedScript
     return {
       executionPlan: artifact.execution.plan,
       creativeIntent: artifact.creativeIntent,
+      evidencePolicy: artifact.evidence,
       tracePlan: artifact,
     };
   }
@@ -158,6 +178,7 @@ function resolveScriptEditorialContext(input: ScriptWriterInput): ResolvedScript
       source: 'direct_brief',
       overridePolicy: 'current_instruction',
     },
+    evidencePolicy: directScriptEvidencePolicy(input),
     tracePlan: executionPlan,
   };
 }
@@ -333,6 +354,8 @@ const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
   'cast_character_has_no_voice',
   'invalid_source_ref',
   'missing_source_ref',
+  'source_ref_low_support',
+  'source_ref_marker_mismatch',
   'platform_mismatch',
   'profile_forbidden_term',
   'profile_missing_required_brief_claim',
@@ -373,7 +396,7 @@ Critical rules:
 - Omit renderPlan. Technical segmentation is authored later from this narrative sidecar.
 - When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or narration_density_below_mode, use tf_untrusted_data.editorialPlan and writer_contract_repair_input.validatorDiagnostics.narrationBudget as binding. Preserve the exact total runtime and selected narration mode. The fullRuntimeMinimumSpokenWords value is a hard lower bound for canonical spoken lines in a guided non-minimal plan; currentSpokenWords and requiredAdditionalSubstantiveWords localize the deficit, while fullRuntimeReferenceSpokenWords remains guidance. Develop the supported argument or story with non-redundant substantive beats. Never satisfy the count by repeating claims, adding filler, inventing evidence, inflating durations, or appending an unrelated monologue.
 - For profile_missing_required_brief_claim or profile_missing_required_audience_anchor, copy the corresponding exact value from tf_untrusted_data.contentSignalProfile.intent.proofPoints into natural script copy without broadening it.
-- For missing_source_ref or invalid_source_ref, use writer_contract_repair_input.validatorDiagnostics and the authorised Source Ledger. Attach a reference only when its source directly supports that scene, beat, or line; otherwise delete or rewrite the unsupported claim. Never cite by keyword resemblance alone.
+- For missing_source_ref, invalid_source_ref, source_ref_low_support, or source_ref_marker_mismatch, use writer_contract_repair_input.validatorDiagnostics, tf_untrusted_data.evidencePolicy, and the authorised Source Ledger. A valid reference ID is not proof that its source supports the sentence. Do not keep a claim and merely swap or remove its reference. Rewrite the claim to what the cited source directly establishes; when the evidence policy allows bounded implication, state the narrow scope explicitly; otherwise delete the unsupported claim or turn it into a clearly framed question. Every statistic, date, price, URL, contact detail, and other factual anchor must exactly match the cited evidence.
 - For banned_phrase, replace each exact match listed in writer_contract_repair_input.validatorDiagnostics.aiFillerHits with concrete, source-supported language. Preserve an exact required brief claim or an accepted Brand Vault recurring phrase.
 - For on_screen_text_duplicates_speech, keep the information in narration and remove the repeated visible phrase, or replace it with distinct source-backed information that genuinely complements the spoken line.
 - For on_screen_text_not_selective, leave visualIntent.onScreenText empty on beats that do not need a sourced title, label, statistic, quote, or distinct counterpoint. Do not populate every narrated beat by default.
@@ -981,8 +1004,8 @@ Your task is to write a high-retention, engaging video script.
 3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover for off-camera speech, sync-dialogue only for speech captured on camera, and on-screen-text only for visible text. Every spoken line identifies speakerId, actual languageCode, delivery, camera presence, and source refs.
 4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, visual-verbal policy, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. When narration.wordBudgetPolicy is "guided" and the mode is non-minimal, fullRuntimeMinimumSpokenWords is a hard lower bound across canonical spoken lines; fullRuntimeReferenceSpokenWords is the mode's planning reference, not a mandatory exact count. Develop the evidence, reasoning, tension, examples, and implications needed for the selected angle before allocating durations, then audit the whole-script spoken total. Narration density is a full-runtime mode contract, never a per-beat quota: anchor/standard voiceover cannot fall below the knowledge base's 120 WPM slow-VO floor; complement/counterpoint must remain above the 0-50 WPM minimal-narration band; minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum is an overridable warning, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
 5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Use voiceover/dialogue/mixed for beats with speech; use visual/transition for deliberate non-verbal time. If a mixed beat contains a substantial speech-free interval, represent that interval as its own meaningful visual or transition beat. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
-6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. When tf_untrusted_data.contentSignalProfile.intent.proofPoints contains a Required brief claim or Required audience anchor, include that value exactly in natural script copy. Never invent proof, testimonials, logos, or product facts.
-7. **Provenance:** Use only Source Ledger referenceId values. Carry refs at sidecar, scene, beat, and line level. Every numeric/date/price/URL/proof/testimonial claim needs a real source ref; an undeclared ref is invalid.
+6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Execute tf_untrusted_data.evidencePolicy as binding. Under source_only, state only what authorised evidence directly establishes; do not add causal, benefit, outcome, market, or future claims. Under bounded_implication, an implication must remain inside the cited evidence and explicitly state its scope with language such as "in the measured period", "in the pilot", "within this sample", "limited to", or "not a forecast". Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. When tf_untrusted_data.contentSignalProfile.intent.proofPoints contains a Required brief claim or Required audience anchor, include that value exactly in natural script copy. Never invent proof, testimonials, logos, or product facts.
+7. **Provenance:** Use only Source Ledger referenceId values. Carry refs at sidecar, scene, beat, and line level. Every numeric/date/price/URL/proof/testimonial claim needs a real source ref; an undeclared ref is invalid. A declared reference is not permission to broaden the source: every cited sentence must be directly supported or a clearly bounded implication permitted by tf_untrusted_data.evidencePolicy.
 8. **Visual and audio intent:** Every beat needs concrete visualIntent, including motion, quality, and asset recommendation. Follow tf_untrusted_data.editorialPlan.visualVerbal exactly. In non-minimal modes, leave onScreenText empty by default and use it selectively only for a sourced title, label, statistic, quote, or a distinct counterpoint that adds information the narration does not say. Never repeat a spoken line or phrase on screen, and never populate every narrated beat automatically. Minimal mode may let sourced on-screen text replace speech. Describe what the viewer can actually see; avoid empty style adjectives. Add audioIntent when ambience, music, or SFX serves the beat.
 9. **Characters and casting:** Include only characters used by the narrative. A visible character belongs in charactersPresent; a speaking line uses that character's exact ID. Follow the casting contract without inventing avatar or voice IDs. Do not translate, split, shorten, or move speech merely to satisfy a renderer.
 10. **Shot intent:** Every beat needs one complete shotIntent expressing creative purpose, emotional beat, energy, visual priority, action, framing, angle, movement, performance, and continuity. Express shotIntent.energy and every performance intensity as normalized decimals from 0 to 1, never a 1-5 or 1-10 scale. A moving shot requires a non-empty movementMotivation. spokenAudio is true exactly when the beat contains on-camera sync-dialogue. simultaneousPerformers equals the number of unique performance character IDs, and every sync speaker has a matching performance entry. Never invent equipment, room dimensions, coordinates, budgets, or setup claims.
@@ -1032,7 +1055,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read Brand Vault and learned voice evidence only from tf_untrusted_data.brandContext.
 - Read retrieved facts only from tf_untrusted_data.databankFacts.
 - Read binding proof claims, forbidden terms, audience anchors, and format constraints only from tf_untrusted_data.contentSignalProfile.
-- Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, and sourceLedger.
+- Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, sourceLedger, and evidencePolicy.
 - Read binding creative direction only from tf_untrusted_data.creativeIntent. A selected angle survives ordinary generation and revision; only an explicit current edit instruction may replace it.
 - Read exact creative destination and deliverable shape from tf_untrusted_data.authoringDestination when present. Read technical output platform and geometry only from tf_untrusted_data.productionOutput.
 - Read runtime policy, full-runtime narration mode boundaries, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Exact total runtime, mode-compatible minimum density, and beat-channel semantics are binding; target density is guidance, pacing excess is a warning, and structure recommendations are advisory. An open runtime carries no numeric target.
@@ -1042,7 +1065,12 @@ Return your response strictly adhering to the JSON schema.`;
       systemInstruction: this.applyGlobalConstraints(
         `${this.buildTrustedTemplate(placeholderInput)}\n\n${runtimeDataRules}`,
       ),
-      data: this.buildUntrustedPromptData(input, editorialPlan, resolvedEditorial.creativeIntent),
+      data: this.buildUntrustedPromptData(
+        input,
+        editorialPlan,
+        resolvedEditorial.creativeIntent,
+        resolvedEditorial.evidencePolicy,
+      ),
       fieldLimits: {
         projectSummary: 12_000,
         userBrief: 12_000,
@@ -1064,6 +1092,7 @@ Return your response strictly adhering to the JSON schema.`;
     input: ScriptWriterInput,
     editorialPlan: ScriptEditorialPlan,
     creativeIntent: ThinkForgeEditorialCreativeIntent,
+    evidencePolicy: ThinkForgeEditorialEvidencePolicy,
   ): Record<string, unknown> {
     const { context, userPrompt, retrievedContext, editContext, productionBrief, sourceLedger } = input;
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
@@ -1084,6 +1113,7 @@ Return your response strictly adhering to the JSON schema.`;
       })),
       trendBrief: formatTrendBriefForPrompt(productionBrief) || null,
       creativeIntent,
+      evidencePolicy,
       editorialPlan,
       castingBrief: formatCastingBriefForPrompt(productionBrief) || null,
       sourceLedger: sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : null,

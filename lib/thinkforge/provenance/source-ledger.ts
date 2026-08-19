@@ -266,9 +266,13 @@ function tokenOverlapCount(left: Set<string>, right: Set<string>): number {
   return overlap;
 }
 
+function entryEvidenceText(entry: SourceLedgerEntry): string {
+  return [entry.title, entry.summary, entry.sourceUrl].filter(Boolean).join(' ');
+}
+
 function overlapsEntry(text: string, entry: SourceLedgerEntry): boolean {
   const normalizedText = normalizeUnicodeText(text);
-  const normalizedSource = normalizeUnicodeText(`${entry.title} ${entry.summary}`);
+  const normalizedSource = normalizeUnicodeText(entryEvidenceText(entry));
   if (
     normalizedText.length >= 4
     && normalizedSource.length >= 4
@@ -279,8 +283,53 @@ function overlapsEntry(text: string, entry: SourceLedgerEntry): boolean {
 
   const textTokens = tokenSet(text);
   if (textTokens.size === 0) return false;
-  const sourceTokens = tokenSet(`${entry.title} ${entry.summary}`);
+  const sourceTokens = tokenSet(entryEvidenceText(entry));
   return tokenOverlapCount(textTokens, sourceTokens) >= 2;
+}
+
+function ledgerEntriesByReferenceId(ledger: SourceLedger): Map<string, SourceLedgerEntry> {
+  return new Map(ledger.entries.map((entry) => [entry.referenceId, entry]));
+}
+
+function factualAnchorTokens(text: string): string[] {
+  return [...new Set(unicodeLexicalTokens(text).filter((token) => /^\p{N}/u.test(token)))];
+}
+
+function sourceUrls(text: string): string[] {
+  return (text.match(/(?:https?:\/\/|www\.)[^\s]+/giu) ?? [])
+    .map((url) => normalizeUnicodeText(url.replace(/[),.;!?]+$/u, '')));
+}
+
+function addUnsupportedCitationIssues(
+  issues: string[],
+  text: string | undefined,
+  refs: string[] | undefined,
+  entriesById: Map<string, SourceLedgerEntry>,
+  label: string,
+): void {
+  const normalized = cleanText(text, 4000);
+  if (!normalized || !refs?.length) return;
+
+  const citedEntries = refs.flatMap((ref) => {
+    const entry = entriesById.get(ref);
+    return entry ? [entry] : [];
+  });
+  if (citedEntries.length === 0) return;
+
+  const combinedEvidence = citedEntries.map(entryEvidenceText).join(' ');
+  const evidenceTokens = tokenSet(combinedEvidence);
+  const missingNumericAnchor = factualAnchorTokens(normalized)
+    .some((anchor) => !evidenceTokens.has(anchor));
+  const evidenceUrls = new Set(sourceUrls(combinedEvidence));
+  const missingUrlAnchor = sourceUrls(normalized).some((url) => !evidenceUrls.has(url));
+  if (missingNumericAnchor || missingUrlAnchor) {
+    issues.push(`source_ref_marker_mismatch:${label}`);
+  }
+
+  const claimTokens = tokenSet(normalized);
+  if (claimTokens.size >= 2 && !citedEntries.some((entry) => overlapsEntry(normalized, entry))) {
+    issues.push(`source_ref_low_support:${label}`);
+  }
 }
 
 function requiresSourceRef(text: string, ledger: SourceLedger): boolean {
@@ -298,6 +347,7 @@ export function findSourceLedgerIssuesForSidecar(
 
   const parsedLedger = parseSourceLedger(ledger);
   const allowed = ledgerReferenceIds(parsedLedger);
+  const entriesById = ledgerEntriesByReferenceId(parsedLedger);
   const issues: string[] = [];
 
   addInvalidRefs(issues, sidecar.sourceRefs, allowed, 'sidecar');
@@ -310,6 +360,22 @@ export function findSourceLedgerIssuesForSidecar(
     if (requiresSourceRef(sceneFactText, parsedLedger) && (scene.sourceRefs ?? []).length === 0) {
       issues.push(`missing_source_ref:${sceneLabel}`);
     }
+    addUnsupportedCitationIssues(
+      issues,
+      scene.narration,
+      scene.sourceRefs,
+      entriesById,
+      `${sceneLabel}.narration`,
+    );
+    if (hasUnicodeFactualMarker(scene.visualDescription ?? '')) {
+      addUnsupportedCitationIssues(
+        issues,
+        scene.visualDescription,
+        scene.sourceRefs,
+        entriesById,
+        `${sceneLabel}.visual`,
+      );
+    }
 
     scene.lines?.forEach((line, lineIndex) => {
       const lineLabel = `${sceneLabel}.line_${lineIndex + 1}`;
@@ -317,6 +383,7 @@ export function findSourceLedgerIssuesForSidecar(
       if (requiresSourceRef(line.text ?? '', parsedLedger) && (line.sourceRefs ?? []).length === 0) {
         issues.push(`missing_source_ref:${lineLabel}`);
       }
+      addUnsupportedCitationIssues(issues, line.text, line.sourceRefs, entriesById, lineLabel);
     });
   });
 
@@ -331,6 +398,7 @@ export function findSourceLedgerIssuesForNarrativeSidecar(
 
   const parsedLedger = parseSourceLedger(ledger);
   const allowed = ledgerReferenceIds(parsedLedger);
+  const entriesById = ledgerEntriesByReferenceId(parsedLedger);
   const issues: string[] = [];
 
   addInvalidRefs(issues, sidecar.sourceRefs, allowed, 'sidecar');
@@ -357,6 +425,24 @@ export function findSourceLedgerIssuesForNarrativeSidecar(
         if (requiresSourceRef(beatFactText, parsedLedger) && (beat.sourceRefs ?? []).length === 0) {
           issues.push(`missing_source_ref:${beatLabel}`);
         }
+        if (hasUnicodeFactualMarker(beat.visualIntent?.description ?? '')) {
+          addUnsupportedCitationIssues(
+            issues,
+            beat.visualIntent?.description,
+            beat.sourceRefs,
+            entriesById,
+            `${beatLabel}.visual`,
+          );
+        }
+        beat.visualIntent?.onScreenText?.forEach((text, textIndex) => {
+          addUnsupportedCitationIssues(
+            issues,
+            text,
+            beat.sourceRefs,
+            entriesById,
+            `${beatLabel}.on_screen_text_${textIndex + 1}`,
+          );
+        });
 
         beat.lines?.forEach((line, lineIndex) => {
           const lineLabel = `${beatLabel}.line_${lineIndex + 1}`;
@@ -364,6 +450,7 @@ export function findSourceLedgerIssuesForNarrativeSidecar(
           if (requiresSourceRef(line.text ?? '', parsedLedger) && (line.sourceRefs ?? []).length === 0) {
             issues.push(`missing_source_ref:${lineLabel}`);
           }
+          addUnsupportedCitationIssues(issues, line.text, line.sourceRefs, entriesById, lineLabel);
         });
       });
     });
