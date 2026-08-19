@@ -3,8 +3,8 @@ import type { GenericLoweringPolicyV2R } from './generic-lowerer-v2r';
 
 // Frozen DEV-03 (audio/video beat-sync) field-binding policy. Semantic values
 // (the find query, the shake effect plan) are MODEL_INPUT; structural values
-// (revision, overlay ids from the timeline snapshot, the final-hit range) are
-// bound by the lowerer from revision/facts.
+// (revision, overlay ids, beat-sync constraints and post-alignment target) are
+// bound by the lowerer from revision/facts/causal owner outputs.
 export const DEV03_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1({
   policyVersion: 'EDITRON_OE_GENERIC_LOWERING_POLICY_V2R_3',
   taskId: 'DEV-03',
@@ -13,9 +13,12 @@ export const DEV03_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
     expectedProjectRevision: { source: 'REVISION_EXPECTED_REVISION' },
     evidenceIds: { source: 'EVIDENCE_IDS' },
     overlayIds: { source: 'FACT_FIELD', factKind: 'TIMELINE_SNAPSHOT', factField: 'overlayIds' },
-    audioPlan: {
+    beatPlan: {
       source: 'NODE_OUTPUT',
       producers: [{ operatorId: 'find_audio_moment', outputName: 'result' }],
+    },
+    beatSyncConstraints: {
+      source: 'FACT_FIELD', factKind: 'BEAT_SYNC_CONSTRAINTS', factField: 'constraints',
     },
   },
   operatorFieldBindings: {
@@ -38,7 +41,7 @@ export const DEV03_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
     },
     resolve_keyframe_edit: {
       intent: { source: 'MODEL_INPUT' },
-      overlayId: { source: 'STATIC', staticValue: 'dev03-card-4' },
+      overlayId: { source: 'MODEL_INPUT' },
     },
     resolve_visual_edit: {
       intent: { source: 'MODEL_INPUT' },
@@ -47,11 +50,13 @@ export const DEV03_LOWERING_POLICY_V2R: GenericLoweringPolicyV2R = deepFreezeV1(
       intent: { source: 'MODEL_INPUT' },
     },
     apply_camera_shake: {
-      overlayId: { source: 'STATIC', staticValue: 'dev03-card-4' },
-      targetRange: {
-        source: 'STATIC',
-        staticValue: { coordinateDomain: 'PROJECT_TICK', start: '472', endExclusive: '600' },
-        valueAdapter: 'FRAME_RANGE_V2R',
+      overlayId: {
+        source: 'NODE_OUTPUT',
+        producers: [{ operatorId: 'sync_cuts_to_beats', outputName: 'result', projectionPath: ['finalHitOverlayId'] }],
+      },
+      targetFrame: {
+        source: 'NODE_OUTPUT',
+        producers: [{ operatorId: 'sync_cuts_to_beats', outputName: 'result', projectionPath: ['finalStrongPeakFrame'] }],
       },
       effectPlan: { source: 'MODEL_INPUT' },
     },
