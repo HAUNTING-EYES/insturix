@@ -10,6 +10,7 @@ import {
 } from '@/lib/shared/brand-signal-profile';
 import type { UnifiedBrand } from '@/lib/shared/brand-registry';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
+import { buildScriptEditorialPlan } from '@/lib/thinkforge/agents/script-editorial-plan';
 
 function brand(): UnifiedBrand {
   return {
@@ -72,6 +73,16 @@ describe('resolveContentSignalProfile', () => {
 
     expect(resolved.profile.constraints.output_format).toBe('video_script');
     expect(resolved.intent.platform).toBe('YouTube');
+    expect(resolved.profile.signals.visual_dependency).toBe(0.7);
+    expect(resolved.profile.signals.show_tell_ratio).toBe(0.6);
+    expect(resolved.profile.signals.pathos_load).toBe(0.6);
+    expect(resolved.profile.signals.multimodal_counterpoint).toBe(0.1);
+    expect(resolved.profile._inference_metadata?.visual_dependency).toMatchObject({
+      source: 'format_default',
+      resolvedFrom: 'video_script',
+    });
+    expect(buildScriptEditorialPlan({ contentSignalProfile: resolved }).narration.mode)
+      .toBe('complement');
   });
 
   it('preserves an exact custom platform label and rejects a competing contract', () => {

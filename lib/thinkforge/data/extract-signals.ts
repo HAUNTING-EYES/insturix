@@ -154,8 +154,8 @@ const KEYWORD_SIGNALS: Array<{ pattern: RegExp; signals: PartialSignals }> = [
 /**
  * Extract a basic signal profile from ThinkForge context.
  *
- * Merges TIER_1 (document type defaults) with TIER_2 (keyword extraction).
- * TIER_2 signals override TIER_1 when both provide the same signal —
+ * Merges canonical numeric defaults with TIER_1 document defaults and TIER_2 keyword extraction.
+ * Each higher tier overrides the previous tier when both provide the same signal —
  * brief-extracted signals are more specific than format defaults.
  */
 export function extractSignalsFromContext(params: {
@@ -167,18 +167,17 @@ export function extractSignalsFromContext(params: {
   const { documentType, medium, projectSummary, userPrompt } = params;
 
   const signals: PartialSignals = {};
+  for (const key of Object.keys(SIGNAL_RANGES) as Array<keyof typeof SIGNAL_RANGES>) {
+    const range = SIGNAL_RANGES[key];
+    if (range) {
+      (signals as Record<string, number>)[key] = range.default;
+    }
+  }
 
   const docKey = (documentType || medium || '').toLowerCase().replace(/\s+/g, '_');
   const defaults = DOC_TYPE_DEFAULTS[docKey];
   if (defaults) {
     Object.assign(signals, defaults);
-  } else {
-    for (const key of Object.keys(SIGNAL_RANGES) as Array<keyof typeof SIGNAL_RANGES>) {
-      const range = SIGNAL_RANGES[key];
-      if (range) {
-        (signals as Record<string, number>)[key] = range.default;
-      }
-    }
   }
 
   const text = `${projectSummary || ''} ${userPrompt || ''}`;

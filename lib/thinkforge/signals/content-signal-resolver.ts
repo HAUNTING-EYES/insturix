@@ -341,7 +341,7 @@ function normalizePlatform(value: string): string {
 
 function toExtractionDocumentType(outputFormat: OutputFormat, explicit?: string): string {
   if (outputFormat === 'social_post' || outputFormat === 'caption') return 'post';
-  if (outputFormat === 'video_script') return 'script';
+  if (outputFormat === 'video_script') return 'video_script';
   if (outputFormat === 'blog_article') return 'article';
   if (explicit?.trim()) return explicit.trim().toLowerCase().replace(/\s+/g, '_');
   return outputFormat;
