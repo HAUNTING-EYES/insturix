@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildIntakeGuidance, buildSourceLanes, groupConflicts } from '../../components/dashboard/BrandVault/brand-vault-data';
-import type { BrandVaultSnapshot } from '../../components/dashboard/BrandVault/brand-vault-types';
+import {
+  buildIntakeGuidance,
+  buildSourceLanes,
+  groupConflicts,
+  isBrandVaultScanActive,
+  mergeSnapshot,
+} from '../../components/dashboard/BrandVault/brand-vault-data';
+import type { BrandVaultApiSuccess, BrandVaultSnapshot } from '../../components/dashboard/BrandVault/brand-vault-types';
 import type {
   BrandEvidenceCandidate,
   BrandVaultSourceInput,
@@ -39,7 +45,52 @@ function source(kind: BrandVaultSourceInput['kind'], overrides: Partial<BrandVau
   };
 }
 
+function job(
+  status: NonNullable<BrandVaultSnapshot['job']>['status'],
+): NonNullable<BrandVaultSnapshot['job']> {
+  return {
+    id: `brand_refinery_job_${status}`,
+    userId: 'user_truth',
+    status,
+    inputs: {
+      websiteUrl: 'https://signal.example',
+      socialLinks: [],
+    },
+    warnings: [],
+    createdAt: OBSERVED_AT,
+    updatedAt: OBSERVED_AT,
+  };
+}
+
 describe('Brand Vault review data helpers', () => {
+  it('treats a pending create request as active before the queued response clears a prior profile', () => {
+    expect(isBrandVaultScanActive(job('accepted'), true)).toBe(true);
+    expect(isBrandVaultScanActive(job('queued'), false)).toBe(true);
+    expect(isBrandVaultScanActive(job('running'), false)).toBe(true);
+    expect(isBrandVaultScanActive(job('needs_review'), false)).toBe(false);
+  });
+
+  it('clears a prior profile when a queued result explicitly returns no record', () => {
+    const previous = {
+      job: job('accepted'),
+      record: { id: 'profile_previous' } as NonNullable<BrandVaultSnapshot['record']>,
+      reviewPayload: null,
+      candidates: [],
+    } satisfies BrandVaultSnapshot;
+    const queued: BrandVaultApiSuccess = {
+      ok: true,
+      job: job('queued'),
+      record: null,
+      reviewPayload: null,
+      candidates: [],
+    };
+
+    const next = mergeSnapshot(previous, queued);
+
+    expect(next.record).toBeNull();
+    expect(next.job?.status).toBe('queued');
+  });
+
   it('does not treat asset alternatives as signal conflicts', () => {
     const conflicts = groupConflicts([
       candidate('assets.logoCandidates', 'https://signal.example/logo.svg', 0.86),

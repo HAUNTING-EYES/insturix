@@ -125,6 +125,13 @@ export function mergeSnapshot(
   };
 }
 
+export function isBrandVaultScanActive(
+  job: BrandVaultSnapshot['job'],
+  createDraftPending: boolean,
+): boolean {
+  return createDraftPending || job?.status === 'queued' || job?.status === 'running';
+}
+
 /* ------------------------------------------------------------------ */
 /*  Signal collection                                                  */
 /* ------------------------------------------------------------------ */

@@ -41,6 +41,7 @@ import {
   formatValue,
   groupConflicts,
   groupMeta,
+  isBrandVaultScanActive,
   mergeSnapshot,
   parseSocialLinks,
   profileBrandName,
@@ -279,9 +280,8 @@ export function BrandVaultReview() {
   const brandName = profileBrandName(snapshot);
   const facets = useMemo(() => buildFacets(snapshot, editedSignals), [editedSignals, snapshot]);
   const canReview = Boolean(snapshot.record?.id && snapshot.record.status === 'draft');
-  const activeScanStatus = snapshot.job?.status === 'queued' || snapshot.job?.status === 'running';
-  const scanBusy = createDraft.isPending || activeScanStatus;
-  const isScanning = scanBusy && !snapshot.record;
+  const scanBusy = isBrandVaultScanActive(snapshot.job, createDraft.isPending);
+  const isScanning = scanBusy;
   const busy =
     scanBusy ||
     acceptDraft.isPending ||
