@@ -25,3 +25,24 @@ regexes = [
   '''placeholder''',
   '''sk_test_''',                     # Stripe/Clerk publishable test keys
 ]
+
+# The default generic-api-key rule misidentifies these published protocol
+# artifacts and SHA-256 integrity receipts. Every exception is constrained by
+# both the semantic field name and the exact line shape.
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Public IndexNow ownership proof"
+condition = "AND"
+regexTarget = "line"
+paths = [ '''(?:^|[\\/])scripts[\\/]indexnow-submit\.mjs$''' ]
+regexes = [ '''^\s*const KEY = "[a-z0-9]{32}";\s*$''' ]
+
+[[rules.allowlists]]
+description = "Named SHA-256 integrity receipts"
+regexTarget = "line"
+regexes = [
+  '''(?i)^\s*(?:RENDER_PROOF_DELIVERY_API_WORKERS|apiImplementationHash)\s*[:=]\s*['"][a-f0-9]{64}['"],?\s*$''',
+  '''(?i)^\s*"(?:packetHash|transportHash|providerCountTokensRequestHash|planHash)"\s*:\s*"[a-f0-9]{64}",?\s*$''',
+]
