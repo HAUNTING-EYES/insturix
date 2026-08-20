@@ -216,6 +216,74 @@ describe('assertUsablePostWriterResult', () => {
     const source = readFileSync(resolve(process.cwd(), 'lib/thinkforge/agents/post-writer-agent.ts'));
     expect(() => new TextDecoder('utf-8', { fatal: true }).decode(source)).not.toThrow();
   });
+
+  it('accepts a concept-only editorial post without fabricating a factual ledger', () => {
+    const input: PostWriterInput = {
+      context: {
+        projectSummary: 'Platform: LinkedIn. Topic: duplicate reporting and final ownership.',
+      },
+      userPrompt: 'Write a fictional LinkedIn post about an office team reducing duplicate reporting. Do not invent real customers, people, products, statistics, campaigns, or results.',
+      authoringRequest: createThinkForgeAuthoringRequest({
+        contentContract: createThinkForgeWriterContract('social_post'),
+        platformSurface: { id: 'linkedin' },
+        postControls: {
+          version: 1,
+          cta: { preference: 'editorial' },
+          hashtags: { preference: 'editorial' },
+          emoji: { preference: 'none' },
+        },
+      }),
+    };
+    const result = makeResult({
+      content: [
+        'Imagine a fictional office team passing the same report from desk to desk.',
+        '',
+        'The missing piece is a named final owner, not another spreadsheet.',
+        '',
+        'Clear ownership gives the thought experiment its turn.',
+      ].join('\n'),
+      hashtags: [],
+      clickatron: {
+        singleImagePrompt: 'A text-free editorial office scene with duplicated paper reports on separate desks and one approval folder in focus, soft window light, generous headline-safe negative space, no readable labels.',
+      },
+      metadata: { platform: 'linkedin', charCount: 0 },
+    });
+    result.contentAnalysis.claimSupport = [];
+
+    expect(() => assertUsablePostWriterResult(result, input)).not.toThrow();
+    expect(new PostWriterAgent().buildPrompt(input)).toContain('When sourceBoundary is conceptual');
+  });
+
+  it('rejects conceptual provenance that points outside the authorized ledger', () => {
+    const input: PostWriterInput = {
+      context: { projectSummary: 'Platform: LinkedIn. Topic: duplicate reporting.' },
+      userPrompt: 'Write a fictional LinkedIn post about duplicate reporting.',
+      authoringRequest: createThinkForgeAuthoringRequest({
+        contentContract: createThinkForgeWriterContract('social_post'),
+        platformSurface: { id: 'linkedin' },
+        postControls: {
+          version: 1,
+          cta: { preference: 'editorial' },
+          hashtags: { preference: 'editorial' },
+          emoji: { preference: 'none' },
+        },
+      }),
+    };
+    const result = makeResult({
+      content: 'Imagine a fictional team passing one report from desk to desk. Clear ownership changes the shape of the thought experiment.',
+      hashtags: [],
+      metadata: { platform: 'linkedin', charCount: 0 },
+    });
+    result.contentAnalysis.claimSupport = [{
+      sentence: 'Imagine a fictional team passing one report from desk to desk.',
+      sourceRef: 'unknown_source',
+      sourceExcerpt: 'untrusted',
+      relationship: 'paraphrase',
+    }];
+
+    expect(() => assertUsablePostWriterResult(result, input)).toThrow('claim_support_invalid_source:1');
+  });
+
   it('authors visual-only Clickatron prompts and leaves exact copy to editable layers', () => {
     const prompt = new PostWriterAgent().buildPrompt(baseInput);
 

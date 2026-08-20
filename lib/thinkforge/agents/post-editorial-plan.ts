@@ -28,7 +28,7 @@ type PostEditorialShape =
   | 'instructional'
   | 'personal_narrative'
   | 'general';
-type PostSourceBoundary = 'source_only' | 'bounded_implication';
+type PostSourceBoundary = 'source_only' | 'bounded_implication' | 'conceptual';
 
 interface PostEditorialPlanInput {
   userPrompt: string;
@@ -83,6 +83,10 @@ const ACTION_DESTINATION_PATTERN = /(?:(?:https?:\/\/|www\.)[^\s]+|(?:[a-z0-9-]+
 const EXPLICIT_LENGTH_PATTERN = /\b\d{2,5}\s*(?:characters?|chars?|words?)\b/i;
 const PERCENTAGE_PATTERN = /\b\d+(?:\.\d+)?%/;
 const MULTIPLIER_PATTERN = /\b\d+(?:\.\d+)?x\b/i;
+// This is a narrow safety boundary, not a creative classifier. It identifies
+// directly supplied documentary values which must remain source-bounded even
+// when no retrieved fact record was available for the request.
+const DOCUMENTARY_BRIEF_MARKER_PATTERN = /(?:https?:\/\/|www\.|\p{Sc}\s*\p{N}|\b(?:aed|aud|cad|chf|cny|eur|gbp|inr|jpy|rs|usd)\.?\s*\p{N}|\p{N}[\p{N},.\s]*?(?:%|％|percent(?:age)?\b|per\s+cent\b)|\p{N}{1,4}[\/.\p{Pd}]\p{N}{1,2}(?:[\/.\p{Pd}]\p{N}{1,4})?|\p{N}{1,2}:\p{N}{2}|\b\p{N}+\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b)/iu;
 
 function requiredProfileValue(
   profile: ThinkForgeContentSignalProfile | undefined,
@@ -109,6 +113,10 @@ function quantitativeProofMarkers(profile: ThinkForgeContentSignalProfile | unde
 
 function suppliedActionDestination(userPrompt: string): string | undefined {
   return userPrompt.match(ACTION_DESTINATION_PATTERN)?.[0]?.replace(/[.,;:!?]+$/, '');
+}
+
+function hasDirectDocumentaryBriefEvidence(userPrompt: string): boolean {
+  return DOCUMENTARY_BRIEF_MARKER_PATTERN.test(userPrompt);
 }
 
 function resolvePostAuthoringRequest(
@@ -182,7 +190,8 @@ function selectStructureDirective(
   const signals = profile?.profile.signals;
   if (!signals) return undefined;
 
-  const persuasionNeedsUnsupportedMaterial = sourceBoundary === 'source_only' || evidenceDensity === 'thin';
+  const persuasionNeedsUnsupportedMaterial = sourceBoundary === 'source_only'
+    || (sourceBoundary !== 'conceptual' && evidenceDensity === 'thin');
   const unsupported = persuasionNeedsUnsupportedMaterial
     ? new Set(['problem_agitate_solve', 'attention_interest_desire_action', 'sparkline_structure'])
     : new Set<string>();
@@ -201,7 +210,9 @@ function resolveCtaMode(
     if (controls.cta.preference === 'none') return 'none';
     if (controls.cta.preference === 'soft') return 'soft';
     if (controls.cta.preference === 'direct') return 'hard';
-    return profile?.profile.constraints.cta_type ?? 'none';
+    // "Editorial" keeps the brand's CTA temperament as a writing preference, but
+    // does not silently turn an unselected CTA into a publishing requirement.
+    return 'none';
   }
   if (legacyDestination) return 'supplied_action';
   return profile?.profile.constraints.cta_type ?? 'none';
@@ -242,10 +253,13 @@ function resolvedLengthTargets(
 function developmentSequence(
   selectedStructure: PostTechniqueDirective | undefined,
   ctaMode: PostCtaMode,
+  sourceBoundary: PostSourceBoundary,
 ): string[] {
   return [
     ...(selectedStructure ? [selectedStructure.guidance] : []),
-    'Order only source-supported claims and clearly bounded implications; do not add a generic problem, benefit, story, or outcome to fill space.',
+    sourceBoundary === 'conceptual'
+      ? 'Develop one clear editorial observation or explicitly illustrative scenario. Do not present invented facts, outcomes, customer stories, or evidence as real.'
+      : 'Order only source-supported claims and clearly bounded implications; do not add a generic problem, benefit, story, or outcome to fill space.',
     ...(ctaMode === 'none'
       ? ['End when the editorial thought is complete; do not append a perfunctory CTA.']
       : ['Close by executing the selected CTA directive with only a supplied action, offer, or destination.']),
@@ -283,7 +297,11 @@ export function buildPostEditorialPlan(input: PostEditorialPlanInput): PostEdito
   const retrievedFactCount = Math.max(0, input.retrievedFactCount ?? 0);
   const evidenceDensity = evidenceUnitCount + retrievedFactCount >= 2 ? 'supported' : 'thin';
   const sourceDetailDensity = evidenceUnitCount + retrievedFactCount >= 3 ? 'rich' : 'sparse';
-  const sourceBoundary = retrievedFactCount > 0 ? 'bounded_implication' : 'source_only';
+  const sourceBoundary: PostSourceBoundary = retrievedFactCount > 0
+    ? 'bounded_implication'
+    : !authoringRequest || requiredClaim || hasDirectDocumentaryBriefEvidence(input.userPrompt)
+      ? 'source_only'
+      : 'conceptual';
   const editorialShape = classifyEditorialShape(profile, hookProofMarkers, ctaMode);
   const selectedHook = selectHookDirective(profile, editorialShape, hookProofMarkers, sourceBoundary);
   const selectedStructure = selectStructureDirective(profile, editorialShape, sourceBoundary, evidenceDensity);
@@ -312,12 +330,18 @@ export function buildPostEditorialPlan(input: PostEditorialPlanInput): PostEdito
     explicitLengthRequested,
     evidenceDensity,
     sourceDetailDensity,
-    developmentSequence: developmentSequence(selectedStructure, ctaMode),
-    forbiddenNarrativeExpansions: [
-      'facts, causes, capabilities, outcomes, testimonials, urgency, or scarcity absent from authorized sources',
-      'generalizing a measured result beyond its named sample, period, workflow, or stated scope',
-      'adding a problem, benefit, story, or emotional reaction only to reach a generic length target',
-    ],
+    developmentSequence: developmentSequence(selectedStructure, ctaMode, sourceBoundary),
+    forbiddenNarrativeExpansions: sourceBoundary === 'conceptual'
+      ? [
+        'presenting an illustrative scenario, opinion, or creative framing as a documented customer fact',
+        'invented metrics, dates, named people, product capabilities, testimonials, guarantees, or outcomes',
+        'universal causal claims presented as evidence without an authorized source',
+      ]
+      : [
+        'facts, causes, capabilities, outcomes, testimonials, urgency, or scarcity absent from authorized sources',
+        'generalizing a measured result beyond its named sample, period, workflow, or stated scope',
+        'adding a problem, benefit, story, or emotional reaction only to reach a generic length target',
+      ],
     ...lengthTargets,
     ...(maximumBodyCharacters ? { maximumBodyCharacters } : {}),
     ...(requiredAudience ? { requiredAudience } : {}),

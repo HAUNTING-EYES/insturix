@@ -64,7 +64,7 @@ export const PostWriterResultSchema = z.object({
       sourceRef: z.string().min(1).max(120).describe('An authorized source ID listed in tf_untrusted_data.claimSources'),
       sourceExcerpt: z.string().min(1).max(1200).optional().describe('Server-owned audit evidence resolved from sourceRef. Do not invent this field.'),
       relationship: z.enum(['verbatim', 'paraphrase', 'bounded_implication']).describe('How the sentence relates to the cited source excerpt'),
-    })).optional().describe('Hidden factual-support ledger. Required for every factual sentence, and for every substantive declarative sentence when the editorial plan is source-only or evidence-thin.'),
+    })).optional().describe('Hidden factual-support ledger. Required for every factual sentence, and for every substantive declarative sentence when the editorial plan is source-only or evidence-thin with an explicit required claim. Do not add entries for conceptual observations or clearly illustrative scenarios.'),
   }),
   clickatron: z.object({
     singleImagePrompt: z.string().optional().describe('A visual-only prompt for one Clickatron raster background. Describe concrete scene, composition, props, lighting, style, mood, and safe zones. Never include readable copy, text-overlay instructions, logos, watermarks, or legible UI labels.'),
@@ -755,7 +755,10 @@ function claimBearingSentences(
     const substantive = sourceCoverageTokens(sentence).length >= 2;
     const requiresEvidence = comprehensive
       || hasUnicodeFactualMarker(sentence)
-      || sentenceOverlapsAuthorizedSource(sentence, sources);
+      || (
+        editorialPlan.sourceBoundary !== 'conceptual'
+        && sentenceOverlapsAuthorizedSource(sentence, sources)
+      );
     return substantive && requiresEvidence
       ? [{ sentence, index: index + 1 }]
       : [];
@@ -835,9 +838,34 @@ function claimSupportIssues(
   const claimSupport = result.contentAnalysis.claimSupport ?? [];
   const claimSentences = claimBearingSentences(result.content, editorialPlan, sources);
   if (claimSentences.length === 0 && claimSupport.length === 0) return [];
-  const currentSentenceKeys = new Set(claimSentences.map(({ sentence }) => normalizedClaimText(sentence)));
-  const staleEntries = claimSupport.some((entry) => !currentSentenceKeys.has(normalizedClaimText(entry.sentence)));
+  const requiredSentenceKeys = new Set(claimSentences.map(({ sentence }) => normalizedClaimText(sentence)));
+  const visibleSentenceKeys = new Set(postContentSentences(result.content)
+    .map((sentence) => normalizedClaimText(sentence)));
+  const permittedSentenceKeys = editorialPlan.sourceBoundary === 'conceptual'
+    ? visibleSentenceKeys
+    : requiredSentenceKeys;
+  const staleEntries = claimSupport.some((entry) => (
+    !permittedSentenceKeys.has(normalizedClaimText(entry.sentence))
+  ));
   const issues = staleEntries ? ['claim_support_stale_sentence'] : [];
+
+  if (editorialPlan.sourceBoundary === 'conceptual') {
+    const seenOptionalSupport = new Set<string>();
+    issues.push(...claimSupport.flatMap((support, index) => {
+      const key = normalizedClaimText(support.sentence);
+      if (seenOptionalSupport.has(key)) return [`claim_support_duplicate_sentence:${index + 1}`];
+      seenOptionalSupport.add(key);
+
+      const source = sources.get(support.sourceRef);
+      if (!source) return [`claim_support_invalid_source:${index + 1}`];
+
+      const normalizedSource = normalizedClaimText(source);
+      const normalizedExcerpt = normalizedClaimText(support.sourceExcerpt ?? '');
+      return !normalizedExcerpt || !normalizedSource.includes(normalizedExcerpt)
+        ? [`claim_support_invalid_excerpt:${index + 1}`]
+        : [];
+    }));
+  }
 
   issues.push(...claimSentences.flatMap(({ sentence, index }) => {
     const matchingSupport = claimSupport.filter(
@@ -1442,10 +1470,12 @@ SOURCE CATALOG
 - Keep supplied formats when possible: "9am" stays "9am", "$40K" stays "$40K".
 - Do not invent ingredients, study results, timelines, percentages, discounts, prices, guarantees, or performance claims.
 - If proof is thin, make the writing specific through only source-supplied audience, workflow, product/category, timing, proof, and scope. Do not invent a pain point, scene, benefit, or operational outcome to create volume. A named audience or season is not evidence of its pain or business impact.
+- When postEditorialPlan.sourceBoundary is conceptual, the brief supplies a creative topic rather than documentary evidence. You may write a clearly editorial observation or illustrative scenario, but never present invented metrics, dates, named people, customer stories, capabilities, outcomes, or outside facts as real.
 
 CLAIM-SUPPORT LEDGER
 - Populate contentAnalysis.claimSupport for every factual sentence in every evidence mode.
 - When postEditorialPlan.sourceBoundary is source_only, or evidenceDensity is thin and requiredClaim is present, add one entry for every substantive declarative sentence in content.
+- When sourceBoundary is conceptual, add claimSupport entries only for factual sentences. Do not cite the brief merely because an editorial observation uses the same topic terms.
 - Do not add entries for hashtags, questions, or pure action CTAs.
 - sentence must be copied exactly from the final content. Return no claimSupport entries for a sentence that is absent from final content.
 - sourceRef must be one of tf_untrusted_data.claimSources[].sourceRef. ThinkForge resolves sourceExcerpt from that authoritative sourceRef after generation; do not invent or summarize source excerpts.
@@ -1473,6 +1503,7 @@ EDITORIAL PLAN
 - Technique guidance defines editorial form only. Its examples, cited studies, sample numbers, brands, and outcomes are never claim sources and must not appear unless tf_untrusted_data.claimSources independently authorizes them.
 - Follow postEditorialPlan.developmentSequence in order. It defines the allowed editorial progression, not merely a suggestion.
 - When sourceBoundary is source_only, every stated cause, condition, consequence, beneficiary outcome, urgency claim, and impact claim must be explicitly present in tf_untrusted_data. A named topic, event, audience, or mission does not authorize related background knowledge.
+- When sourceBoundary is conceptual, write an opinion or explicitly illustrative scenario without pretending it is a documented case study. Do not introduce external facts merely to make the post sound authoritative.
 - Every entry in forbiddenNarrativeExpansions is binding. Do not state or paraphrase those ideas in content, hashtags, contentAnalysis, or Clickatron prompts.
 - When ctaMode is none, do not append a CTA. When it is not none, execute selectedCta using only supplied actions, offers, urgency, and destinations.
 - When hookRequiresProof is true, put a supplied numeric or named proof marker in the hook together with the audience's supplied workflow context. Do not make the exact proof claim the entire hook. Never manufacture friction merely to frame the proof.
@@ -1486,7 +1517,7 @@ EXECUTION ANCHORS
 - Every Clickatron prompt must contain at least two supplied topic terms through concrete visual objects, actions, or environment. Do not replace them with generic office, tablet, dashboard, or abstract data-flow scenery.
 
 HOOK
-- Execute postEditorialPlan.selectedHook when present. Otherwise open naturally with the most relevant source-backed idea rather than forcing a hook archetype.
+- Execute postEditorialPlan.selectedHook when present. Otherwise open naturally with the most relevant source-backed or brief-specific idea rather than forcing a hook archetype.
 - No cliche openers.
 
 OUTPUT LENGTH

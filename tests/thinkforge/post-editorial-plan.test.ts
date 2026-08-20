@@ -238,6 +238,42 @@ describe('buildPostEditorialPlan', () => {
     expect(plan.sourceDetailDensity).toBe('rich');
   });
 
+  it('treats a concept brief as editorial material instead of pretending it is evidence', () => {
+    const authoringRequest = postRequest();
+    const userPrompt = 'Write a LinkedIn post exploring duplicate reporting and shared ownership.';
+    const profile = resolveContentSignalProfile({
+      userPrompt,
+      authoringRequest,
+      contentContract: authoringRequest.contentContract,
+      documentType: 'post',
+    });
+    profile.profile.constraints.cta_type = 'soft';
+
+    const plan = buildPostEditorialPlan({
+      userPrompt,
+      authoringRequest,
+      contentSignalProfile: profile,
+    });
+
+    expect(plan).toMatchObject({
+      sourceBoundary: 'conceptual',
+      ctaMode: 'none',
+    });
+    expect(plan.requiredAction).toBeUndefined();
+    expect(plan.requiredDestination).toBeUndefined();
+    expect(plan.developmentSequence[1]).toContain('editorial observation');
+    expect(plan.forbiddenNarrativeExpansions.join(' ')).toContain('invented metrics');
+  });
+
+  it('keeps a directly supplied event brief source-bounded without requiring a retrieved fact record', () => {
+    const plan = planFor(
+      'Write a LinkedIn post for a neighborhood cleanup on April 22. Check-in starts at 8:30am and 500 kits are available.',
+    );
+
+    expect(plan.sourceBoundary).toBe('source_only');
+    expect(plan.developmentSequence[1]).toContain('source-supported claims');
+  });
+
   it('contains no customer, evaluation-case, event-family, or fixed-length classifier', () => {
     const source = readFileSync(
       resolve(process.cwd(), 'lib/thinkforge/agents/post-editorial-plan.ts'),

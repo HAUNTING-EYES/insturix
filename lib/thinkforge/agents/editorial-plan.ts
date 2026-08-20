@@ -64,7 +64,7 @@ export interface ThinkForgeEditorialDoctrineSelection {
 export interface ThinkForgeEditorialEvidencePolicy {
   authorizedFactIds: string[];
   sourceLedgerEntryIds: string[];
-  boundary: 'source_only' | 'bounded_implication';
+  boundary: 'source_only' | 'bounded_implication' | 'conceptual';
   factualClaimPolicy: 'authorized_sources_only';
   unsupportedClaimPolicy: 'reject';
 }
