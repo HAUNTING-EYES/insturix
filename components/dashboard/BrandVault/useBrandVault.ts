@@ -88,9 +88,9 @@ async function fetchProfile(recordId: string): Promise<BrandVaultApiSuccess> {
   return brandVaultFetch(`/api/brand-vault/signal-profiles/${encodeURIComponent(recordId)}`);
 }
 
-/** Latest accepted brand profile record id for the signed-in user + brand (null if none accepted yet). */
-async function fetchLatestAcceptedRecordId(brandId: string | null | undefined): Promise<string | null> {
-  const query = brandId ? `?${new URLSearchParams({ brandId }).toString()}` : '';
+/** Latest accepted brand profile record id for one explicitly selected client. */
+async function fetchLatestAcceptedRecordId(brandId: string): Promise<string | null> {
+  const query = `?${new URLSearchParams({ brandId }).toString()}`;
   const response = await fetch(`/api/brand-vault/signal-profiles${query}`, { credentials: 'include' });
   const payload = (await response.json().catch(() => null)) as
     | { ok: true; recordId?: string | null }
@@ -212,13 +212,14 @@ export function useBrandVaultProfile(recordId: string | null) {
   });
 }
 
-/** Id of the signed-in user's latest accepted brand profile, so the tab can reload it on mount. */
+/** Id of the accepted profile for the explicit active client. Never queries a global latest record. */
 export function useLatestAcceptedBrandVaultRecordId(brandId: string | null | undefined) {
   const { isSignedIn } = useAuth();
+  const normalizedBrandId = brandId?.trim() || null;
   return useQuery({
-    queryKey: BRAND_VAULT_KEYS.latestAccepted(brandId),
-    queryFn: () => fetchLatestAcceptedRecordId(brandId),
-    enabled: Boolean(isSignedIn),
+    queryKey: BRAND_VAULT_KEYS.latestAccepted(normalizedBrandId),
+    queryFn: () => fetchLatestAcceptedRecordId(normalizedBrandId as string),
+    enabled: Boolean(isSignedIn && normalizedBrandId),
     staleTime: 30 * 1000,
   });
 }
