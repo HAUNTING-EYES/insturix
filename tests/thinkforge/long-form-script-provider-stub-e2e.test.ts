@@ -36,12 +36,14 @@ import {
 import { buildThinkForgeEditorialPlan } from '@/lib/thinkforge/agents/editorial-plan';
 import { mapScriptSidecarToEditronExport } from '@/lib/thinkforge/export/script-sidecar-to-editron';
 import { executeLongFormScriptAction } from '@/lib/thinkforge/long-form/script-generation-execution';
+import { diagnoseThinkForgeDocumentEvidence } from '@/lib/thinkforge/operations/operational-diagnostics';
 import {
   type LongFormScriptGenerationJobSnapshot,
 } from '@/lib/thinkforge/long-form/script-generation-job-contract';
 import { buildScriptShotPlan } from '@/lib/thinkforge/production/build-script-shot-plan';
 import {
   buildThinkForgeWriterInvocationTrace,
+  hashThinkForgeTraceValue,
 } from '@/lib/thinkforge/provenance/generation-trace';
 import {
   buildThinkForgeSourceLedger,
@@ -487,13 +489,40 @@ describe('long-form ThinkForge provider-stub E2E', () => {
     expect(persistence.generateStructuredWithWritingContextCache).toHaveBeenCalledTimes(2);
 
     const command = persistence.applyCommand.mock.calls[0]?.[0] as {
-      payload?: { metadata?: { writerOutput?: unknown } };
+      payload?: {
+        content?: string;
+        contentContract?: unknown;
+        documentType?: string;
+        metadata?: { writerOutput?: unknown } & Record<string, unknown>;
+      };
     };
     const writerOutput = command.payload?.metadata?.writerOutput as {
       scriptSidecar: unknown;
       longForm: { plan: ScriptChapterPlan };
+      profileCompliance?: unknown;
+      generationTrace?: { qualityGate: { evidenceHash: string } };
     };
     expect(writerOutput.longForm.plan.targetDurationSeconds).toBe(420);
+    expect(writerOutput.profileCompliance).toEqual({
+      kind: 'long_form_script',
+      chapterCount: 2,
+      narrativeContract: 'passed',
+      profileCompliance: { status: 'not_applicable' },
+    });
+    expect(hashThinkForgeTraceValue(writerOutput.profileCompliance))
+      .toBe(writerOutput.generationTrace?.qualityGate.evidenceHash);
+    expect(diagnoseThinkForgeDocumentEvidence({
+      sessionId: 'session_1',
+      scriptId: 'script_1',
+      session: { projectMeta: { brandBinding: { version: 2, brandId: 'brand_1', scope: 'personal' } } } as never,
+      script: {
+        version: 1,
+        documentType: command.payload?.documentType,
+        contentContract: command.payload?.contentContract,
+        content: command.payload?.content,
+        metadata: command.payload?.metadata,
+      } as never,
+    }).traceIntegrity).toEqual({ valid: false, codes: ['generation_receipt_missing'] });
 
     const shootKit = buildScriptShotPlan({
       sidecar: writerOutput.scriptSidecar,

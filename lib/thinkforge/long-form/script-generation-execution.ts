@@ -292,6 +292,7 @@ async function commitAssembledScript(
           ...(job.input.contextMetadata?.castingContext
             ? { castingContext: job.input.contextMetadata.castingContext }
             : {}),
+          profileCompliance: qualityGateEvidence,
           generationTrace,
           longForm: { version: 1, jobId: job.id, plan: job.plan, chapterWriterTraces },
         },
