@@ -1,4 +1,8 @@
 import type { ThinkToClickHandoffState } from "@/lib/thinkforge/clickatron-handoff-state";
+import {
+  describeClickatronLogoOverlayForGeneration,
+  resolveClickatronLogoOverlay,
+} from "@/lib/clickatron/brand-logo-overlay-contract";
 
 export function buildClickatronPromptFromHandoff(handoffState: ThinkToClickHandoffState): string {
   const payload = handoffState.payloadPreview;
@@ -7,6 +11,10 @@ export function buildClickatronPromptFromHandoff(handoffState: ThinkToClickHando
   }
 
   const choices = handoffState.display.visualChoices;
+  const logoOverlay = resolveClickatronLogoOverlay(choices);
+  if (logoOverlay.status === "invalid") {
+    throw new Error(`Clickatron handoff has an invalid logo overlay: ${logoOverlay.message}`);
+  }
   const choiceLines = [
     choices?.kind ? `Output type: ${choices.kind}` : "",
     choices?.platform ? `Platform: ${choices.platform}` : "",
@@ -16,6 +24,7 @@ export function buildClickatronPromptFromHandoff(handoffState: ThinkToClickHando
     choices?.vibe ? `Vibe: ${choices.vibe}` : "",
     choices?.imageStyle ? `Image style: ${choices.imageStyle}` : "",
     choices?.notes ? `User notes: ${choices.notes}` : "",
+    logoOverlay.status === "ready" ? describeClickatronLogoOverlayForGeneration(logoOverlay.overlay) : "",
   ].filter(Boolean);
 
   return [
@@ -28,6 +37,10 @@ export function buildClickatronPromptFromHandoff(handoffState: ThinkToClickHando
 
 export function buildClickatronMetadataFromHandoff(handoffState: ThinkToClickHandoffState): Record<string, unknown> {
   const metadata = withApprovedVisualPlanMetadata(handoffState.payloadPreview?.metadata || {}, handoffState);
+  const logoOverlay = resolveClickatronLogoOverlay(handoffState.display.visualChoices);
+  if (logoOverlay.status === "invalid") {
+    throw new Error(`Clickatron handoff has an invalid logo overlay: ${logoOverlay.message}`);
+  }
 
   return {
     ...metadata,
@@ -35,6 +48,7 @@ export function buildClickatronMetadataFromHandoff(handoffState: ThinkToClickHan
       status: handoffState.status,
       visualChoices: handoffState.display.visualChoices,
       requiredUserInput: handoffState.requiredUserInput,
+      ...(logoOverlay.status === "ready" ? { logoOverlay: logoOverlay.overlay } : {}),
       ...(handoffState.approval ? { visualPlanApproval: handoffState.approval } : {}),
       sourceBlockIds: handoffState.debug.sourceBlockIds,
       contentHash: handoffState.debug.contentHash,

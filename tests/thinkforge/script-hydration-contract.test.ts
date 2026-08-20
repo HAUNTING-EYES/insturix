@@ -402,6 +402,9 @@ describe('ThinkForge script hydration contract', () => {
     expect(exportHook).toContain('operation: "preview" as const');
     expect(exportHook).toContain('slideCount: clickatronVisualChoices.slideCount');
     expect(exportHook).toContain('approvedVisualPlan: clickatronVisualChoices.approvedVisualPlan');
+    expect(exportHook).toContain('logoTreatment: clickatronVisualChoices.logoTreatment');
+    expect(exportHook).toContain('logoPlacement: clickatronVisualChoices.logoPlacement');
+    expect(exportHook).toContain('logoScale: clickatronVisualChoices.logoScale');
     expect(exportHook).toContain('fetch("/api/services/thinkforge/clickatron-context"');
     expect(exportHook).toContain('body: JSON.stringify(clickatronContextRequestBody)');
     expect(exportHook).toContain('body: JSON.stringify({ ...clickatronContextRequestBody, operation: "commit" })');
@@ -421,7 +424,12 @@ describe('ThinkForge script hydration contract', () => {
     expect(exportHook).toContain('useState<ThinkToClickUserVisualChoices>({})');
     expect(dialog).not.toContain('DEFAULT_VISUAL_CHOICES');
     expect(dialog).toContain('resolveContext("commit")');
+    expect(dialog).toContain('logoTreatment: visualChoices.logoTreatment');
+    expect(dialog).toContain('logoPlacement: visualChoices.logoPlacement');
+    expect(dialog).toContain('logoScale: visualChoices.logoScale');
     expect(panel).toContain('const resolvedVisualChoices = display?.visualChoices');
+    expect(panel).toContain('label="Brand mark"');
+    expect(panel).toContain('Clickatron will apply the exact accepted Brand Vault asset after generation');
     expect(panel).toContain('visualChoices.kind || resolvedVisualChoices?.kind || display?.kind');
     expect(panel).toContain('visualChoices.platform || resolvedVisualChoices?.platform || display?.platform');
     expect(panel).toContain('visualChoices.aspectRatio || resolvedVisualChoices?.aspectRatio || display?.aspectRatio');

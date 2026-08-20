@@ -32,6 +32,26 @@ export interface ClickatronBrandReferenceEvidence {
   source: ClickatronBrandReferenceSource;
   confidence?: number;
   status?: 'available' | 'unknown';
+  /** Present only for an accepted visual-identity asset persisted by Brand Vault. */
+  isStoredAsset?: boolean;
+  assetId?: string;
+  storageKey?: string;
+  storageProvider?: string;
+  storageContentType?: string;
+}
+
+/**
+ * The only logo evidence eligible for a locked post-render overlay. Candidate
+ * URLs may guide a model in an edit flow, but they are never authoritative
+ * enough to be stamped onto a delivered creative asset.
+ */
+export interface ClickatronAcceptedLogoOverlayEvidence extends ClickatronBrandReferenceEvidence {
+  assetRole: 'logo';
+  source: 'brand-vault-logo';
+  isStoredAsset: true;
+  assetId: string;
+  storageKey: string;
+  storageProvider: 'cloudflare_r2';
 }
 
 export interface ClickatronBrandReferenceIntent {
@@ -49,6 +69,8 @@ export interface ClickatronBrandReferenceResolution {
 export interface ClickatronGenerationBrandEvidenceInput {
   hasParentImage: boolean;
   userReferenceImageCount: number;
+  /** A locked post-render logo overlay replaces model logo references. */
+  excludeLogoReferences?: boolean;
 }
 
 type Maybe = Record<string, unknown> | null | undefined;
@@ -195,12 +217,29 @@ function visualIdentityLogoEvidence(
       if (typeof logo.confidence === 'number' && logo.confidence <= MIN_ACTIONABLE_ASSET_CONFIDENCE) return [];
       const url = visualAssetUrl(logo);
       if (!url) return [];
+      const storageKey = cleanString(logo.storage?.storageKey);
+      const storageProvider = cleanString(logo.storage?.provider);
+      const assetId = cleanString(logo.id);
+      const isStoredAsset = Boolean(
+        logo.storage?.status === 'stored'
+        && httpUrl(logo.storage.publicUrl)
+        && storageKey
+        && storageProvider === 'cloudflare_r2'
+        && assetId,
+      );
       return [{
         url,
         assetRole: 'logo' as const,
         source: 'brand-vault-logo' as const,
         confidence: logo.confidence,
         status: logo.availability?.status === 'available' ? 'available' as const : 'unknown' as const,
+        ...(isStoredAsset ? {
+          isStoredAsset: true as const,
+          assetId,
+          storageKey,
+          storageProvider: 'cloudflare_r2' as const,
+          storageContentType: cleanString(logo.storage?.contentType),
+        } : {}),
       }];
     })
     .slice(0, Math.max(0, max));
@@ -239,6 +278,22 @@ export function brandLogoReferenceEvidence(
   ], max);
 }
 
+/** Select exactly one stored, accepted Brand Vault logo for locked composition. */
+export function selectClickatronAcceptedLogoOverlayEvidence(
+  resolution: ClickatronBrandReferenceResolution,
+): ClickatronAcceptedLogoOverlayEvidence | undefined {
+  return resolution.evidence.find((item): item is ClickatronAcceptedLogoOverlayEvidence => (
+    item.assetRole === 'logo'
+    && item.source === 'brand-vault-logo'
+    && item.isStoredAsset === true
+    && typeof item.assetId === 'string'
+    && item.assetId.length > 0
+    && typeof item.storageKey === 'string'
+    && item.storageKey.length > 0
+    && item.storageProvider === 'cloudflare_r2'
+  ));
+}
+
 /**
  * Actionable product-image URLs from an accepted profile, http(s)-validated and capped. Pure.
  * Returns [] when the signal is missing or below the actionable confidence floor (0.55).
@@ -257,6 +312,8 @@ export interface ResolveClickatronBrandReferenceImagesInput {
   prompt?: string | null;
   orgId?: string | null;
   max?: number;
+  /** A persisted user-reviewed overlay requires a stored accepted logo even without free-text logo cues. */
+  requiresAcceptedLogoOverlay?: boolean;
   /** Test seam: override the accepted-profile read (defaults to the shared effective-brand resolver). */
   resolveProfile?: (
     userId: string,
@@ -301,7 +358,11 @@ async function readAcceptedBrandEvidence(
 export async function resolveClickatronBrandReferenceEvidence(
   input: ResolveClickatronBrandReferenceImagesInput,
 ): Promise<ClickatronBrandReferenceResolution> {
-  const intent = referenceIntentFromInputs(input.metadata, input.prompt);
+  const rawIntent = referenceIntentFromInputs(input.metadata, input.prompt);
+  const intent: ClickatronBrandReferenceIntent = {
+    ...rawIntent,
+    requiresLogo: rawIntent.requiresLogo || input.requiresAcceptedLogoOverlay === true,
+  };
   if (!intent.requiresProduct && !intent.requiresLogo) {
     return { intent, evidence: [], needsUserInput: false };
   }
@@ -353,7 +414,7 @@ export function selectClickatronGenerationBrandEvidence(
 
   return resolution.evidence.filter(
     (item) =>
-      (item.assetRole === 'logo' && canUseLogoAsGenerationReference) ||
+      (item.assetRole === 'logo' && !input.excludeLogoReferences && canUseLogoAsGenerationReference) ||
       (item.assetRole === 'product' && shouldSeedProductImages),
   );
 }

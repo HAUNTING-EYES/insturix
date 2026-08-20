@@ -3,6 +3,10 @@ import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
 import { sanitizeVisualPrompt } from "@/lib/clickatron/sanitize-visual-prompt";
 import {
+  describeClickatronLogoOverlayForGeneration,
+  readClickatronLogoOverlayFromMetadata,
+} from "@/lib/clickatron/brand-logo-overlay-contract";
+import {
   compileClickatronGenerationPrompt,
   type ClickatronGenerationPromptMode,
   type ClickatronGenerationPromptSegment,
@@ -449,6 +453,10 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
   const hardConstraints = normalizedRawList(creativeBrand?.hardConstraints);
   const keyClaims = normalizedRawList(creativeBrief?.keyClaims);
   const brandBrief = normalizedRawText(projectMeta?.brandBrief);
+  const logoOverlay = readClickatronLogoOverlayFromMetadata(input.metadata);
+  const logoOverlayDirective = logoOverlay.status === 'ready'
+    ? describeClickatronLogoOverlayForGeneration(logoOverlay.overlay)
+    : undefined;
   const aspectRatio = normalizedRawText(input.aspectRatio)
     ?? normalizedRawText(creativeSpec?.aspectRatio)
     ?? normalizedRawText(clickatron?.aspectRatio);
@@ -458,7 +466,7 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
   const allBrandLines = brandContextLines(brandContextBlock);
   const requiredBrandLines = allBrandLines.filter(isRequiredBrandContextLine);
   const optionalBrandLines = allBrandLines.filter((line) => !isRequiredBrandContextLine(line));
-  const hasBrandContract = Boolean(brandContextBlock || input.logoEvidenceAvailable || hardConstraints);
+  const hasBrandContract = Boolean(brandContextBlock || input.logoEvidenceAvailable || hardConstraints || logoOverlayDirective);
 
   if (!input.modelId && !sourceContextBlock && !brandContextBlock && !aspectRatio) {
     return prompt;
@@ -486,6 +494,7 @@ export function buildClickatronGenerationPrompt(input: ClickatronPromptContextIn
         : undefined,
       required: true,
     },
+    { id: 'approved-logo-overlay', content: logoOverlayDirective, required: true },
     { id: 'text-hierarchy', content: rasterText.hierarchy ? `Text hierarchy: ${rasterText.hierarchy}` : undefined, required: true },
     ...requiredBrandLines.map((content, index) => ({
       id: `brand-required-${index}`,

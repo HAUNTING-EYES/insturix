@@ -104,6 +104,58 @@ describe("ThinkForge to Clickatron session payload", () => {
     expect(metadata.clickatron.creativeSpec.renderPlan.textPolicy).toBe("editable_text_layers");
   });
 
+  it("serializes an explicit approved-logo overlay without asking the image model to invent it", () => {
+    const context = buildThinkToClickContext({
+      sessionId: "tf_session_logo",
+      scriptId: "script_logo",
+      creativeSpec: creativeSpec(),
+      projectMeta: { brandId: "brand_current" },
+    });
+    const state = buildThinkToClickHandoffState({
+      context,
+      blocks: sourceBlocks(),
+      userVisualChoices: {
+        logoTreatment: "approved_logo",
+        logoPlacement: "bottom_right",
+        logoScale: "small",
+      },
+    });
+
+    const formData = buildClickatronSessionFormData(state);
+    const metadata = JSON.parse(String(formData.get("metadata")));
+    const prompt = String(formData.get("prompt"));
+
+    expect(state.canSendToClickatron).toBe(true);
+    expect(metadata.clickatronHandoff.logoOverlay).toEqual({
+      version: 1,
+      treatment: "approved_logo",
+      placement: "bottom_right",
+      scale: "small",
+      authority: "user_review",
+    });
+    expect(prompt).toContain("composited after raster generation");
+    expect(prompt).toContain("Do not render, redraw, spell, or approximate any logo");
+  });
+
+  it("blocks an approved logo request until the user reviews both placement and size", () => {
+    const context = buildThinkToClickContext({
+      sessionId: "tf_session_logo_incomplete",
+      scriptId: "script_logo_incomplete",
+      creativeSpec: creativeSpec(),
+      projectMeta: { brandId: "brand_current" },
+    });
+    const state = buildThinkToClickHandoffState({
+      context,
+      blocks: sourceBlocks(),
+      userVisualChoices: { logoTreatment: "approved_logo" },
+    });
+
+    expect(state.status).toBe("needs_user_input");
+    expect(state.canSendToClickatron).toBe(false);
+    expect(state.requiredUserInput).toContain("Choose where the approved Brand Vault logo should appear.");
+    expect(() => buildClickatronSessionFormData(state)).toThrow("not ready to send: needs_user_input");
+  });
+
   it("keeps visible-content fallback as a draft instead of sendable FormData", () => {
     const context = buildThinkToClickContext({
       sessionId: "tf_session_123",

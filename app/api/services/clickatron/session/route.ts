@@ -27,8 +27,14 @@ import {
 } from '@/lib/clickatron/image-geometry';
 import {
   resolveClickatronBrandReferenceEvidence,
+  selectClickatronAcceptedLogoOverlayEvidence,
   selectClickatronGenerationBrandEvidence,
 } from '@/lib/clickatron/brand-reference-images';
+import { readClickatronLogoOverlayFromMetadata } from '@/lib/clickatron/brand-logo-overlay-contract';
+import {
+  ClickatronBrandLogoOverlayError,
+  verifyAcceptedBrandVaultLogoAvailable,
+} from '@/lib/clickatron/brand-logo-overlay';
 import {
   admitClickatronCarouselPlan,
   ClickatronCarouselAdmissionError,
@@ -231,6 +237,14 @@ export async function POST(request: Request) {
     };
     const hasCreationMetadata = Object.keys(creationMetadata).length > 0;
     const isBlankSession = isBlankProject && carouselSlides.length === 0;
+    const logoOverlay = readClickatronLogoOverlayFromMetadata(creationMetadata);
+    if (logoOverlay.status === 'invalid') {
+      return NextResponse.json(
+        { error: logoOverlay.message, code: 'BRAND_LOGO_OVERLAY_INVALID' },
+        { status: 422 },
+      );
+    }
+    const hasApprovedLogoOverlay = logoOverlay.status === 'ready';
 
     const brandReferenceResolution = isBlankSession
       ? null
@@ -240,6 +254,7 @@ export async function POST(request: Request) {
           metadata: creationMetadata,
           prompt: parsedData.prompt,
           orgId: orgId ?? null,
+          requiresAcceptedLogoOverlay: hasApprovedLogoOverlay,
         });
     if (brandReferenceResolution?.needsUserInput) {
       return NextResponse.json(
@@ -251,10 +266,36 @@ export async function POST(request: Request) {
       );
     }
 
+    if (hasApprovedLogoOverlay && brandReferenceResolution) {
+      const acceptedOverlayEvidence = selectClickatronAcceptedLogoOverlayEvidence(brandReferenceResolution);
+      if (!acceptedOverlayEvidence) {
+        return NextResponse.json(
+          {
+            error: 'Choose an accepted stored Brand Vault logo before generating this creative.',
+            code: 'BRAND_LOGO_OVERLAY_ASSET_UNAVAILABLE',
+          },
+          { status: 422 },
+        );
+      }
+      try {
+        await verifyAcceptedBrandVaultLogoAvailable(acceptedOverlayEvidence);
+      } catch (error) {
+        const overlayError = error instanceof ClickatronBrandLogoOverlayError ? error : null;
+        return NextResponse.json(
+          {
+            error: overlayError?.message ?? 'Approved-logo generation is temporarily unavailable.',
+            code: overlayError?.code ?? 'BRAND_LOGO_OVERLAY_STORAGE_UNAVAILABLE',
+          },
+          { status: overlayError?.code === 'BRAND_LOGO_OVERLAY_STORAGE_UNAVAILABLE' ? 503 : 422 },
+        );
+      }
+    }
+
     const generationBrandEvidence = brandReferenceResolution
       ? selectClickatronGenerationBrandEvidence(brandReferenceResolution, {
           hasParentImage: false,
           userReferenceImageCount: referenceImages.length,
+          excludeLogoReferences: hasApprovedLogoOverlay,
         })
       : [];
     let resolvedModel: ReturnType<typeof resolveClickatronModelForGeneration>;

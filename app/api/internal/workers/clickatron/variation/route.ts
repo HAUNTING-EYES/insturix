@@ -34,8 +34,15 @@ import {
 } from '@/lib/clickatron/brand-prompt-context';
 import {
   resolveClickatronBrandReferenceEvidence,
+  selectClickatronAcceptedLogoOverlayEvidence,
   selectClickatronGenerationBrandEvidence,
 } from '@/lib/clickatron/brand-reference-images';
+import { readClickatronLogoOverlayFromMetadata } from '@/lib/clickatron/brand-logo-overlay-contract';
+import {
+  ClickatronBrandLogoOverlayError,
+  compositeClickatronBrandLogoOverlay,
+  loadAcceptedBrandVaultLogo,
+} from '@/lib/clickatron/brand-logo-overlay';
 import { resolveClickatronImageGeometry } from '@/lib/clickatron/image-geometry';
 import sharp from 'sharp';
 
@@ -468,6 +475,22 @@ async function handler(req: Request) {
       };
       const promptBrandId = resolveClickatronPromptBrandId(task.brandId, promptMetadata);
       const rawGenerationPrompt = job.prompt;
+      const logoOverlay = readClickatronLogoOverlayFromMetadata(promptMetadata);
+      if (logoOverlay.status === 'invalid') {
+        const message = logoOverlay.message;
+        variation.metadata = {
+          ...(variation.metadata ?? {}),
+          needsUserInput: {
+            code: 'brand_logo_overlay_invalid',
+            assetRole: 'logo',
+            message,
+          },
+        };
+        const needsInputError = new Error(message) as Error & { code?: string };
+        needsInputError.code = 'NEEDS_USER_INPUT';
+        throw needsInputError;
+      }
+      const approvedLogoOverlay = logoOverlay.status === 'ready' ? logoOverlay.overlay : undefined;
       // Org-scope the brand resolution (Phase A.3) â€” task carries orgId on ClickatronTask.
       const brandContextBlock = await resolveClickatronBrandContextBlock(
         job.userId,
@@ -507,6 +530,7 @@ async function handler(req: Request) {
         metadata: promptMetadata,
         prompt: rawGenerationPrompt,
         orgId: task.orgId ?? null,
+        requiresAcceptedLogoOverlay: Boolean(approvedLogoOverlay),
       });
 
       if (brandReferenceResolution.needsUserInput) {
@@ -529,6 +553,48 @@ async function handler(req: Request) {
         throw needsInputError;
       }
 
+      const acceptedLogoOverlayEvidence = approvedLogoOverlay
+        ? selectClickatronAcceptedLogoOverlayEvidence(brandReferenceResolution)
+        : undefined;
+      if (approvedLogoOverlay && !acceptedLogoOverlayEvidence) {
+        const message = 'Choose an accepted stored Brand Vault logo before generating this creative.';
+        variation.metadata = {
+          ...(variation.metadata ?? {}),
+          needsUserInput: {
+            code: 'accepted_brand_logo_unavailable',
+            assetRole: 'logo',
+            message,
+          },
+        };
+        const needsInputError = new Error(message) as Error & { code?: string };
+        needsInputError.code = 'NEEDS_USER_INPUT';
+        throw needsInputError;
+      }
+
+      let acceptedLogoOverlayAsset: Awaited<ReturnType<typeof loadAcceptedBrandVaultLogo>> | undefined;
+      if (acceptedLogoOverlayEvidence) {
+        try {
+          // Re-read before Fal so a deleted or changed Brand Vault object cannot produce a
+          // paid raster with an invented/missing mark after session-time preflight passed.
+          acceptedLogoOverlayAsset = await loadAcceptedBrandVaultLogo(acceptedLogoOverlayEvidence);
+        } catch (error) {
+          if (error instanceof ClickatronBrandLogoOverlayError && error.code !== 'BRAND_LOGO_OVERLAY_STORAGE_UNAVAILABLE') {
+            variation.metadata = {
+              ...(variation.metadata ?? {}),
+              needsUserInput: {
+                code: error.code.toLowerCase(),
+                assetRole: 'logo',
+                message: error.message,
+              },
+            };
+            const needsInputError = new Error(error.message) as Error & { code?: string };
+            needsInputError.code = 'NEEDS_USER_INPUT';
+            throw needsInputError;
+          }
+          throw error;
+        }
+      }
+
       // A logo must NOT be seeded as a generation reference on a fresh text-to-image job.
       // Doing so inflates the reference-image count, which forces the model resolver into
       // image-to-image mode (models.ts: referenceImageCount > 0 => 'image-to-image') and makes
@@ -546,6 +612,7 @@ async function handler(req: Request) {
         {
           hasParentImage: Boolean(parentImageUrl),
           userReferenceImageCount: referenceImageUrls.length,
+          excludeLogoReferences: Boolean(approvedLogoOverlay),
         },
       );
 
@@ -564,7 +631,7 @@ async function handler(req: Request) {
         // The model was selected and billed before the worker was dispatched.
         modelId: variation.modelId || job.modelId,
         aspectRatio: ratio,
-        logoEvidenceAvailable: brandReferenceEvidence.some((item) => item.assetRole === 'logo'),
+        logoEvidenceAvailable: Boolean(approvedLogoOverlay) || brandReferenceEvidence.some((item) => item.assetRole === 'logo'),
         generationMode: maskUrl
           ? 'inpainting'
           : imageUrls.length > 0
@@ -832,25 +899,47 @@ async function handler(req: Request) {
 
       const generatedImageUrl = result.data.images[0].url;
 
-      // Upload image to R2
-      const r2Url = await ClickatronR2Manager.uploadImageFromUrl(
-        job.userId,
-        job.sessionId,
-        job.variationId,
-        generatedImageUrl
-      );
+      let r2Url: string;
+      let imageBuffer: Buffer;
+      if (approvedLogoOverlay && acceptedLogoOverlayEvidence && acceptedLogoOverlayAsset) {
+        const generatedImageResponse = await fetch(generatedImageUrl);
+        if (!generatedImageResponse.ok) {
+          throw new Error('Failed to download generated image for approved-logo composition');
+        }
+        const composed = await compositeClickatronBrandLogoOverlay({
+          imageBuffer: Buffer.from(await generatedImageResponse.arrayBuffer()),
+          logo: acceptedLogoOverlayAsset,
+          evidence: acceptedLogoOverlayEvidence,
+          overlay: approvedLogoOverlay,
+        });
+        r2Url = await ClickatronR2Manager.uploadImageBuffer(
+          job.userId,
+          job.sessionId,
+          job.variationId,
+          composed.imageBuffer,
+          composed.contentType,
+        );
+        imageBuffer = composed.imageBuffer;
+        generationParams.brandLogoOverlay = composed.receipt;
+      } else {
+        r2Url = await ClickatronR2Manager.uploadImageFromUrl(
+          job.userId,
+          job.sessionId,
+          job.variationId,
+          generatedImageUrl,
+        );
+
+        // Store the raw R2 URL without query parameters for long-term storage
+        const signedUrl = await ClickatronR2Manager.getSignedUrl(r2Url.split('?')[0]);
+        const imageResponse = await fetch(signedUrl);
+        if (!imageResponse.ok) {
+          throw new Error('Failed to download image for thumbnail creation');
+        }
+        imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+      }
 
       // Store the raw R2 URL without query parameters for long-term storage
       const rawR2Url = r2Url.split('?')[0];
-
-      // Get a signed URL for fetching the image from R2
-      const signedUrl = await ClickatronR2Manager.getSignedUrl(rawR2Url);
-
-      const imageResponse = await fetch(signedUrl);
-      if (!imageResponse.ok) {
-        throw new Error('Failed to download image for thumbnail creation');
-      }
-      const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
 
       const thumbnailBuffer = await sharp(imageBuffer)
         .resize(512, 512, {

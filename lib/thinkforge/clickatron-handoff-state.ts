@@ -10,6 +10,12 @@ import {
 } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import { toNonEmptyString, type ThinkToClickContext } from "@/lib/thinkforge/clickatron-context";
 import type { ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
+import {
+  resolveClickatronLogoOverlay,
+  type ClickatronLogoOverlayPlacement,
+  type ClickatronLogoOverlayScale,
+  type ClickatronLogoOverlayTreatment,
+} from "@/lib/clickatron/brand-logo-overlay-contract";
 
 export type ThinkToClickHandoffStatus = ClickatronValidationStatus | "missing_sidecar";
 
@@ -24,6 +30,9 @@ export interface ThinkToClickUserVisualChoices {
   notes?: string;
   slideCount?: number | string;
   approvedVisualPlan?: boolean | string;
+  logoTreatment?: ClickatronLogoOverlayTreatment;
+  logoPlacement?: ClickatronLogoOverlayPlacement;
+  logoScale?: ClickatronLogoOverlayScale;
 }
 
 export interface ThinkToClickSessionPayloadPreview {
@@ -239,6 +248,13 @@ function effectiveValidation(
     issues.push(issueOf("visual_plan_approved_by_user", "User reviewed and approved the derived Clickatron visual plan.", "info"));
   }
 
+  const logoOverlay = resolveClickatronLogoOverlay(input.userVisualChoices);
+  if (logoOverlay.status === "invalid") {
+    if (status !== "invalid" && status !== "stale") status = "needs_user_input";
+    requiredUserInput = [...new Set([...requiredUserInput, logoOverlay.message])];
+    issues.push(issueOf("approved_logo_overlay_incomplete", logoOverlay.message, "warning"));
+  }
+
   return { status, issues, requiredUserInput, ...(approval ? { approval } : {}) };
 }
 
@@ -347,6 +363,9 @@ function resolvedChoices(spec: ClickatronCreativeSpec, choices?: ThinkToClickUse
     notes: toNonEmptyString(choices?.notes),
     slideCount: choices?.slideCount ?? (spec.kind === "carousel" ? spec.renderPlan.slides?.length : undefined),
     approvedVisualPlan: hasApprovedVisualPlan(choices) || undefined,
+    logoTreatment: choices?.logoTreatment,
+    logoPlacement: choices?.logoPlacement,
+    logoScale: choices?.logoScale,
   });
 }
 

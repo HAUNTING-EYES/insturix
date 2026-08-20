@@ -113,6 +113,10 @@ export function ClickatronHandoffDialog({
           imageStyle: visualChoices.imageStyle,
           notes: visualChoices.notes,
           slideCount: visualChoices.slideCount,
+          approvedVisualPlan: visualChoices.approvedVisualPlan,
+          logoTreatment: visualChoices.logoTreatment,
+          logoPlacement: visualChoices.logoPlacement,
+          logoScale: visualChoices.logoScale,
         }),
       });
       const contextData = await contextRes.json().catch(() => ({}));

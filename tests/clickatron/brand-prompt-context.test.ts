@@ -509,7 +509,7 @@ describe("Clickatron brand prompt context", () => {
       "utf8",
     );
 
-    expect(worker).toContain("logoEvidenceAvailable: brandReferenceEvidence.some");
+    expect(worker).toContain("logoEvidenceAvailable: Boolean(approvedLogoOverlay) || brandReferenceEvidence.some");
     expect(worker).toContain("generationMode: maskUrl");
     expect(worker).toContain("CLICKATRON_PROMPT_COMPILER_LIMIT_VIOLATION");
     expect(worker).not.toContain("fitClickatronPromptToModelLimit");

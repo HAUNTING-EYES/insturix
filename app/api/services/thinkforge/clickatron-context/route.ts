@@ -24,6 +24,14 @@ import {
   CLICKATRON_VISUAL_MODES,
 } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import { resolveThinkForgeExportDestination } from "@/lib/thinkforge/export/export-destination-policy";
+import {
+  CLICKATRON_LOGO_OVERLAY_PLACEMENTS,
+  CLICKATRON_LOGO_OVERLAY_SCALES,
+  CLICKATRON_LOGO_OVERLAY_TREATMENTS,
+  type ClickatronLogoOverlayPlacement,
+  type ClickatronLogoOverlayScale,
+  type ClickatronLogoOverlayTreatment,
+} from "@/lib/clickatron/brand-logo-overlay-contract";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +83,9 @@ export async function POST(request: Request) {
       ? body.userVisualChoices as Record<string, unknown>
       : body;
   let userVisualChoices: ThinkToClickVisibleContentChoices;
+  let logoTreatment: ClickatronLogoOverlayTreatment | undefined;
+  let logoPlacement: ClickatronLogoOverlayPlacement | undefined;
+  let logoScale: ClickatronLogoOverlayScale | undefined;
   try {
     userVisualChoices = {
       kind: readOptionalEnum(rawVisualChoices.kind, "kind", CLICKATRON_CREATIVE_KINDS),
@@ -87,6 +98,9 @@ export async function POST(request: Request) {
       notes: toNonEmptyString(rawVisualChoices.notes),
       slideCount: normalizeRequestedCarouselSlideCount(rawVisualChoices.slideCount),
     };
+    logoTreatment = readOptionalEnum(rawVisualChoices.logoTreatment, "logoTreatment", CLICKATRON_LOGO_OVERLAY_TREATMENTS);
+    logoPlacement = readOptionalEnum(rawVisualChoices.logoPlacement, "logoPlacement", CLICKATRON_LOGO_OVERLAY_PLACEMENTS);
+    logoScale = readOptionalEnum(rawVisualChoices.logoScale, "logoScale", CLICKATRON_LOGO_OVERLAY_SCALES);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Invalid visual choices" },
@@ -134,6 +148,9 @@ export async function POST(request: Request) {
 
     const handoffVisualChoices: ThinkToClickUserVisualChoices = {
       ...userVisualChoices,
+      logoTreatment,
+      logoPlacement,
+      logoScale,
       approvedVisualPlan:
         rawVisualChoices.approvedVisualPlan === true
         || rawVisualChoices.approvedVisualPlan === "true",

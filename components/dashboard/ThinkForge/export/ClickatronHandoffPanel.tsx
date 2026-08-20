@@ -9,6 +9,10 @@ import {
   ImageIcon,
   Layers3,
 } from "lucide-react";
+import {
+  CLICKATRON_LOGO_OVERLAY_PLACEMENTS,
+  CLICKATRON_LOGO_OVERLAY_SCALES,
+} from "@/lib/clickatron/brand-logo-overlay-contract";
 import type { UseExportPipelineReturn } from "./hooks/useExportPipeline";
 
 interface ClickatronHandoffPanelProps {
@@ -35,6 +39,17 @@ const TEXT_DENSITIES = [
   ["medium", "Medium text"],
   ["high", "High text"],
 ] as const;
+const LOGO_PLACEMENT_LABELS: Record<(typeof CLICKATRON_LOGO_OVERLAY_PLACEMENTS)[number], string> = {
+  top_left: "Top left",
+  top_right: "Top right",
+  bottom_left: "Bottom left",
+  bottom_right: "Bottom right",
+};
+const LOGO_SCALE_LABELS: Record<(typeof CLICKATRON_LOGO_OVERLAY_SCALES)[number], string> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+};
 
 // Chips are a READ-OUT of what the deriver decided from the content signals — not a menu
 // the user picks from. The system reads the atoms and shows its answer; the user glances.
@@ -108,6 +123,7 @@ export function ClickatronHandoffPanel({
   const visualPlanApproval = handoffState?.approval;
   const needsVisualPlanApproval = Boolean(visualPlanApproval?.visualPlanRequired && !visualPlanApproval.visualPlanApproved);
   const approvedVisualPlan = Boolean(visualPlanApproval?.visualPlanApproved);
+  const logoTreatment = visualChoices.logoTreatment || resolvedVisualChoices?.logoTreatment || "none";
   const debugPayload = handoffState
     ? JSON.stringify({
         status: handoffState.status,
@@ -194,6 +210,41 @@ export function ClickatronHandoffPanel({
           </select>
         </FieldLabel>
       </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))", gap: 7, marginBottom: 8 }}>
+        <FieldLabel label="Brand mark">
+          <select value={logoTreatment} onChange={(e) => setVisualChoice("logoTreatment", e.target.value)} style={fieldStyle}>
+            <option value="none">No logo</option>
+            <option value="approved_logo">Use accepted logo</option>
+          </select>
+        </FieldLabel>
+        {logoTreatment === "approved_logo" && (
+          <>
+            <FieldLabel label="Logo position">
+              <select value={visualChoices.logoPlacement || resolvedVisualChoices?.logoPlacement || ""} onChange={(e) => setVisualChoice("logoPlacement", e.target.value)} style={fieldStyle}>
+                <option value="" disabled>Choose position</option>
+                {CLICKATRON_LOGO_OVERLAY_PLACEMENTS.map((placement) => (
+                  <option key={placement} value={placement}>{LOGO_PLACEMENT_LABELS[placement]}</option>
+                ))}
+              </select>
+            </FieldLabel>
+            <FieldLabel label="Logo size">
+              <select value={visualChoices.logoScale || resolvedVisualChoices?.logoScale || ""} onChange={(e) => setVisualChoice("logoScale", e.target.value)} style={fieldStyle}>
+                <option value="" disabled>Choose size</option>
+                {CLICKATRON_LOGO_OVERLAY_SCALES.map((scale) => (
+                  <option key={scale} value={scale}>{LOGO_SCALE_LABELS[scale]}</option>
+                ))}
+              </select>
+            </FieldLabel>
+          </>
+        )}
+      </div>
+
+      {logoTreatment === "approved_logo" && (
+        <p style={{ marginBottom: 8, fontSize: 10, color: "#9A968B", lineHeight: 1.45 }}>
+          Clickatron will apply the exact accepted Brand Vault asset after generation. It will not ask the image model to draw a logo.
+        </p>
+      )}
 
       {visualLanguage ? (
         <div style={{ padding: "9px 10px", borderRadius: 4, background: "rgba(92,184,204,0.05)", border: "1px solid rgba(92,184,204,0.16)" }}>
