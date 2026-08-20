@@ -809,7 +809,7 @@ export default function ThinkForgeLanding() {
 		[scriptHook.script],
 	);
 
-	// Handlers using autosave hook
+	// Remote output only synchronizes the local model. ScriptEditor owns browser-origin saves.
 	const handleApplyEdit = useCallback((updated: Script) => {
 		const model = uiScriptToScriptModel(updated);
 		if (!model) return;
@@ -857,11 +857,6 @@ export default function ThinkForgeLanding() {
 				setWorkspaceMode('scripting');
 				return;
 			}
-
-			if (scriptHook.script) {
-				await scriptHook.autosave(scriptHook.script);
-			}
-			if (!isCurrentSessionOpen()) return;
 
 			scriptHook.resetSessionState();
 			setOpeningSession(true);
@@ -1020,20 +1015,10 @@ export default function ThinkForgeLanding() {
 					setTabsRefreshCounter(c => c + 1);
 					scriptHook.resetSessionState();
 				}}
-				onSwitchScript={async (scriptId) => {
+				onSwitchScript={(scriptId) => {
 					if (!activeSessionId) return;
-					try {
-						setOpeningSession(true);
-						if (scriptHook.script) {
-							await scriptHook.autosave(scriptHook.script);
-						}
-						setActiveScriptId(scriptId);
-						scriptHook.resetSessionState();
-					} catch (err) {
-						console.error('[ThinkForge] Failed to switch script:', err);
-					} finally {
-						setOpeningSession(false);
-					}
+					setActiveScriptId(scriptId);
+					scriptHook.resetSessionState();
 				}}
 				onTabClose={(scriptId) => {
 					if (!activeSessionId) return;

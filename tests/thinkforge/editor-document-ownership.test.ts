@@ -36,6 +36,7 @@ describe('ThinkForge editor document ownership', () => {
   });
 
   it('lets the parent own initial loading and isolates stale async work', () => {
+    const page = read('app/dashboard/thinkforge/page.tsx');
     const editor = read('components/dashboard/ThinkForge/ScriptEditor.tsx');
     const panel = read('components/dashboard/ThinkForge/ScriptPanel.tsx');
     const storyboarding = read('components/dashboard/ThinkForge/StoryboardingMode.tsx');
@@ -56,6 +57,7 @@ describe('ThinkForge editor document ownership', () => {
     expect(editor).toContain('flushPendingDocumentSaveRef.current?.(previousDocumentKey)');
     expect(editor).toContain('matchesThinkForgeDocumentIdentity(script, activeIdentity)');
     expect(editor).toContain('activeDocumentKeyRef.current !== pending.documentKey');
+    expect(page).not.toContain('scriptHook.autosave(');
   });
 
   it('rejects stale remote updates and recovers the server-created document id', () => {
