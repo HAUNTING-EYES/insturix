@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   resolveCompletedGenerationDelivery,
   resolveThinkForgeGenerationFailureMessage,
+  shouldReconcileThinkForgeCompletedDocument,
   shouldProbeThinkForgeGeneration,
   shouldScheduleThinkForgeGenerationPolling,
 } from '@/lib/thinkforge/client-generation-lifecycle';
@@ -421,6 +422,29 @@ describe('ThinkForge generation lifecycle', () => {
     })).toEqual({ type: 'missing_document' });
   });
 
+  it('reconciles a durable document only after a completed generation actually emitted one', () => {
+    expect(shouldReconcileThinkForgeCompletedDocument({
+      doneReceived: true,
+      hasDocumentEvent: true,
+      scriptId: 'post_generated',
+    })).toBe(true);
+    expect(shouldReconcileThinkForgeCompletedDocument({
+      doneReceived: false,
+      hasDocumentEvent: true,
+      scriptId: 'post_generated',
+    })).toBe(false);
+    expect(shouldReconcileThinkForgeCompletedDocument({
+      doneReceived: true,
+      hasDocumentEvent: false,
+      scriptId: 'post_generated',
+    })).toBe(false);
+    expect(shouldReconcileThinkForgeCompletedDocument({
+      doneReceived: true,
+      hasDocumentEvent: true,
+      scriptId: null,
+    })).toBe(false);
+  });
+
   it('converts terminal server failures into actionable author-facing messages', () => {
     expect(resolveThinkForgeGenerationFailureMessage(
       'SCRIPT_REQUIRES_ADDITIONAL_EVIDENCE: source record is too thin',
@@ -453,6 +477,9 @@ describe('ThinkForge generation lifecycle', () => {
     expect(hook).toContain("data?.type === 'error'");
     expect(hook).toContain('finishWithServerFailure(data?.error)');
     expect(hook).toContain('resolveThinkForgeGenerationFailureMessage');
+    expect(hook).toContain('shouldReconcileThinkForgeCompletedDocument');
+    expect(hook).toContain('receivedGeneratedDocumentEvent');
+    expect(hook).toContain('reconcilePersistedDocument');
     expect(hook).toContain('shouldScheduleThinkForgeGenerationPolling');
   });
 });

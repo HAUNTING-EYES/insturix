@@ -4,6 +4,7 @@ import { toast } from "@/hooks/use-toast";
 import {
   resolveCompletedGenerationDelivery,
   resolveThinkForgeGenerationFailureMessage,
+  shouldReconcileThinkForgeCompletedDocument,
   shouldProbeThinkForgeGeneration,
   shouldScheduleThinkForgeGenerationPolling,
 } from "@/lib/thinkforge/client-generation-lifecycle";
@@ -354,6 +355,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       let buffer = '';
 
       const doneReceivedRef = { current: false } as { current: boolean };
+      let receivedGeneratedDocumentEvent = false;
 
       const scheduleFlush = () => {
         if (rafFlushRef.current) return;
@@ -433,6 +435,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
             setGenerationMessage(data.message);
           }
         } else if (data?.type === 'script_update') {
+          receivedGeneratedDocumentEvent = true;
           const remoteScript = normalizeRemoteScriptUpdate(data.script, data.metadata, data?.metadata?.workflow || 'create', {
             sessionId,
             scriptId: data?.script?.scriptId || data?.metadata?.scriptId || data?.scriptId,
@@ -453,6 +456,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
           }
         } else if (data?.type === 'script_created') {
           if (typeof data?.scriptId !== 'string') return;
+          receivedGeneratedDocumentEvent = true;
           resolvedScriptId = data.scriptId;
           const notifyScriptCreated = options?.onScriptCreated || optionsRef.current?.onScriptCreated;
           notifyScriptCreated?.(data.scriptId);
@@ -499,30 +503,36 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         }
       };
 
-      const fallbackResync = async () => {
+      const reconcilePersistedDocument = async (): Promise<boolean> => {
+        const recoveryScriptId = resolvedScriptId || options?.scriptId;
+        if (!optionsRef.current?.onRemoteScriptUpdate || !sessionId || !recoveryScriptId) return false;
+
+        try {
+          const res = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(recoveryScriptId)}`, { cache: 'no-store' });
+          if (!res.ok || !ownsLiveStream()) return false;
+          const data = await res.json();
+          if (!ownsLiveStream() || typeof data?.version !== 'number') return false;
+          const fallbackWorkflow = intentRef.current === 'edit' ? 'edit' : 'create';
+          optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data, data?.metadata, fallbackWorkflow, {
+            sessionId,
+            scriptId: recoveryScriptId,
+            generationId,
+            forceSource: 'ai',
+          }));
+          return true;
+        } catch (e) {
+          console.error('[useThinkForgeChat] persisted document reconciliation failed:', e);
+          return false;
+        }
+      };
+
+      const fallbackResync = async (): Promise<boolean> => {
         try {
           await refreshMessages();
         } catch (e) {
           console.error('[useThinkForgeChat] fallbackResync refreshMessages failed:', e);
         }
-        const recoveryScriptId = resolvedScriptId || options?.scriptId;
-        if (optionsRef.current?.onRemoteScriptUpdate && sessionId && recoveryScriptId) {
-          try {
-            const res = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(recoveryScriptId)}`, { cache: 'no-store' });
-            if (res.ok) {
-              const data = await res.json();
-              const fallbackWorkflow = intentRef.current === 'edit' ? 'edit' : 'create';
-              optionsRef.current.onRemoteScriptUpdate(normalizeRemoteScriptUpdate(data, data?.metadata, fallbackWorkflow, {
-                sessionId,
-                scriptId: recoveryScriptId,
-                generationId: generationIdRef.current,
-                forceSource: 'ai',
-              }));
-            }
-          } catch (e) {
-            console.error('[useThinkForgeChat] fallbackResync script fetch failed:', e);
-          }
-        }
+        return reconcilePersistedDocument();
       };
 
       try {
@@ -555,10 +565,26 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         return updated;
       });
 
+      let reconciledPersistedDocument = false;
       if (ownsLiveStream() && !doneReceivedRef.current) {
         const replayed = await replayEvents();
         if (!replayed) {
-          await fallbackResync();
+          reconciledPersistedDocument = await fallbackResync();
+        }
+      }
+
+      if (ownsLiveStream() && !reconciledPersistedDocument && shouldReconcileThinkForgeCompletedDocument({
+        doneReceived: doneReceivedRef.current,
+        hasDocumentEvent: receivedGeneratedDocumentEvent,
+        scriptId: resolvedScriptId,
+      })) {
+        reconciledPersistedDocument = await reconcilePersistedDocument();
+        if (!reconciledPersistedDocument && ownsLiveStream()) {
+          toast({
+            title: 'Saved draft could not be loaded',
+            description: 'The generation completed, but its saved document is not available yet. Please reopen the session before trying again.',
+            variant: 'destructive',
+          });
         }
       }
     } catch (e: any) {

@@ -10,6 +10,12 @@ export type ThinkForgeCompletedGenerationDelivery =
   | { type: 'switch_document'; scriptId: string }
   | { type: 'missing_document' };
 
+export type ThinkForgeCompletedDocumentReconciliationInput = {
+  doneReceived: boolean;
+  hasDocumentEvent: boolean;
+  scriptId?: string | null;
+};
+
 const RUNTIME_CONTRACT_FAILURE_PATTERN = /\b(?:runtime_duration_mismatch|spoken_word_count_mismatch|spoken_density_mismatch|narration_mode_missing_speech)\b/i;
 const EVIDENCE_REQUIREMENT_FAILURE_PATTERN = /\bSCRIPT_REQUIRES_ADDITIONAL_EVIDENCE\b/i;
 const TIMEOUT_FAILURE_PATTERN = /\b(?:timed out|timeout)\b/i;
@@ -72,4 +78,16 @@ export function resolveCompletedGenerationDelivery(input: {
   return input.hasScriptPayload
     ? { type: 'apply_current_document' }
     : { type: 'missing_document' };
+}
+
+/**
+ * A streamed document update is an optimistic delivery signal. Once the server
+ * declares the generation complete, re-read its durable document exactly once.
+ */
+export function shouldReconcileThinkForgeCompletedDocument(
+  input: ThinkForgeCompletedDocumentReconciliationInput,
+): boolean {
+  return input.doneReceived
+    && input.hasDocumentEvent
+    && readNonEmptyString(input.scriptId) !== null;
 }

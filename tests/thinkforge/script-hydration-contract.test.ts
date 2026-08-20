@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   mergeThinkForgeScriptDocument,
   parseThinkForgeLoadedDocument,
+  shouldApplyThinkForgeScriptLoad,
 } from '@/app/dashboard/thinkforge/hooks/useThinkForgeScript';
 import {
   detectContentPath,
@@ -244,6 +245,20 @@ describe('ThinkForge script hydration contract', () => {
       documentType: null,
       contentContract: null,
     }, { sessionId: 'session_a', scriptId: 'missing' })).toThrow(/not found/i);
+  });
+
+  it('revalidates hydrated documents and rejects a late load after a newer mutation', () => {
+    expect(shouldApplyThinkForgeScriptLoad({ requestEpoch: 4, currentEpoch: 4 })).toBe(true);
+    expect(shouldApplyThinkForgeScriptLoad({ requestEpoch: 4, currentEpoch: 5 })).toBe(false);
+
+    const hook = read('app/dashboard/thinkforge/hooks/useThinkForgeScript.ts');
+    const snapshotPaint = hook.indexOf('cachedScript = hydratedSnapshot.script;');
+    const authoritativeRead = hook.indexOf('const url = `/api/services/thinkforge/script/blocks?', snapshotPaint);
+
+    expect(snapshotPaint).toBeGreaterThan(-1);
+    expect(authoritativeRead).toBeGreaterThan(snapshotPaint);
+    expect(hook).toContain('documentLoadEpochRef.current += 1;');
+    expect(hook).toContain('shouldApplyThinkForgeScriptLoad({');
   });
 
   it('routes by canonical document authority, not prompt keywords', () => {
