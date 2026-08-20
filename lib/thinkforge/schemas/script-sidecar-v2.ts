@@ -444,6 +444,191 @@ export type ScriptSidecarV2 = z.infer<typeof ScriptSidecarV2Schema>;
 export type ScriptWriterSidecarV2 = z.infer<typeof ScriptWriterSidecarV2Schema>;
 export type ScriptWriterSidecarV2Model = z.infer<typeof ScriptWriterSidecarV2ModelSchema>;
 
+export type ScriptWriterModelSidecarIdentityPolicy =
+  | { mode: 'ordinary' }
+  | { mode: 'chapter'; chapterId: string };
+
+type ModelNarrativeBeat = ScriptWriterSidecarV2Model['acts'][number]['narrativeScenes'][number]['beats'][number];
+type ModelContinuity = NonNullable<ModelNarrativeBeat['shotIntent']>['continuity'];
+
+interface ModelNarrativeSceneIdentity {
+  canonicalId: string;
+}
+
+interface ModelNarrativeBeatIdentity {
+  originalBeatId: string;
+  originalSceneId: string;
+  canonicalId: string;
+  index: number;
+  isFinalBeatInScene: boolean;
+}
+
+export class ScriptWriterSidecarIdentityError extends Error {
+  constructor(readonly issues: readonly string[]) {
+    super(`Script writer sidecar identity resolution failed: ${issues.join(', ')}`);
+    this.name = 'ScriptWriterSidecarIdentityError';
+  }
+}
+
+function addContinuityAlias(
+  aliases: Map<string, ModelNarrativeBeatIdentity[]>,
+  alias: string,
+  identity: ModelNarrativeBeatIdentity,
+): void {
+  const entries = aliases.get(alias);
+  if (!entries) {
+    aliases.set(alias, [identity]);
+    return;
+  }
+  if (!entries.includes(identity)) entries.push(identity);
+}
+
+function canonicalContinuityReferences(input: {
+  continuity: ModelContinuity;
+  currentBeat: ModelNarrativeBeatIdentity;
+  beatIdentities: readonly ModelNarrativeBeatIdentity[];
+  aliases: ReadonlyMap<string, readonly ModelNarrativeBeatIdentity[]>;
+  issues: string[];
+}): string[] {
+  const { continuity, currentBeat, beatIdentities, aliases, issues } = input;
+  const positionalReferences = continuity.previousBeatIndexes ?? [];
+  const legacyReferences = continuity.previousSceneIds ?? [];
+  const resolved: string[] = [];
+
+  if (positionalReferences.length > 0 && legacyReferences.length > 0) {
+    issues.push(`mixed_continuity_reference_forms:beat_${currentBeat.index + 1}`);
+    return [];
+  }
+
+  for (const reference of positionalReferences) {
+    const target = beatIdentities[reference - 1];
+    if (!target) {
+      issues.push(`unknown_continuity_beat_index:beat_${currentBeat.index + 1}:${reference}`);
+    } else if (target.index >= currentBeat.index) {
+      issues.push(`forward_continuity_beat_index:beat_${currentBeat.index + 1}:${reference}`);
+    } else {
+      resolved.push(target.canonicalId);
+    }
+  }
+
+  for (const reference of legacyReferences) {
+    const candidates = aliases.get(reference) ?? [];
+    const preceding = candidates.filter((candidate) => candidate.index < currentBeat.index);
+    if (candidates.length === 0) {
+      issues.push(`unknown_legacy_continuity_alias:beat_${currentBeat.index + 1}:${reference}`);
+    } else if (preceding.length === 0) {
+      issues.push(`forward_legacy_continuity_alias:beat_${currentBeat.index + 1}:${reference}`);
+    } else if (preceding.length > 1) {
+      issues.push(`ambiguous_legacy_continuity_alias:beat_${currentBeat.index + 1}:${reference}`);
+    } else {
+      resolved.push(preceding[0]!.canonicalId);
+    }
+  }
+
+  return [...new Set(resolved)];
+}
+
+/**
+ * The model owns narrative content, never persisted technical identifiers. Ordinary
+ * scripts receive a complete server-issued hierarchy. Chapter jobs preserve their
+ * approved act/scene identities while still issuing beat and line IDs server-side.
+ */
+export function canonicalizeScriptWriterModelSidecarIds(
+  sidecar: ScriptWriterSidecarV2Model,
+  policy: ScriptWriterModelSidecarIdentityPolicy,
+): unknown {
+  const scenes = sidecar.acts.flatMap((act) => act.narrativeScenes);
+  const sceneIdentities = scenes.map((scene, index) => ({
+    canonicalId: policy.mode === 'ordinary' ? `scene_${index + 1}` : scene.id,
+  }));
+  const beatIdentities: ModelNarrativeBeatIdentity[] = [];
+  let sourceSceneIndex = 0;
+  let sourceBeatIndex = 0;
+  sidecar.acts.forEach((act) => act.narrativeScenes.forEach((scene) => {
+    const sceneIdentity = sceneIdentities[sourceSceneIndex++]!;
+    scene.beats.forEach((beat, sceneBeatIndex) => {
+      beatIdentities.push({
+        originalBeatId: beat.id,
+        originalSceneId: scene.id,
+        canonicalId: policy.mode === 'ordinary'
+          ? `beat_${sourceBeatIndex + 1}`
+          : `beat_${policy.chapterId}_${sceneIdentity.canonicalId}_${sceneBeatIndex + 1}`,
+        index: sourceBeatIndex,
+        isFinalBeatInScene: sceneBeatIndex === scene.beats.length - 1,
+      });
+      sourceBeatIndex += 1;
+    });
+  }));
+  const aliases = new Map<string, ModelNarrativeBeatIdentity[]>();
+  beatIdentities.forEach((identity) => {
+    addContinuityAlias(aliases, identity.originalBeatId, identity);
+    if (identity.isFinalBeatInScene) {
+      addContinuityAlias(aliases, identity.originalSceneId, identity);
+    }
+  });
+  const issues: string[] = [];
+  let sceneIndex = 0;
+  let beatIndex = 0;
+  let lineIndex = 0;
+
+  const normalized = {
+    ...sidecar,
+    acts: sidecar.acts.map((act, actIndex) => ({
+      ...act,
+      id: policy.mode === 'ordinary' ? `act_${actIndex + 1}` : act.id,
+      narrativeScenes: act.narrativeScenes.map((scene) => {
+        const currentSceneIndex = sceneIndex++;
+        const sceneIdentity = sceneIdentities[currentSceneIndex]!;
+        return {
+          ...scene,
+          id: sceneIdentity.canonicalId,
+          beats: scene.beats.map((beat, sceneBeatIndex) => {
+            const beatIdentity = beatIdentities[beatIndex++]!;
+            const nextLines = beat.lines.map((line, lineIndexWithinBeat) => {
+              const currentLineIndex = lineIndex++;
+              return {
+                ...line,
+                id: policy.mode === 'ordinary'
+                  ? `line_${currentLineIndex + 1}`
+                  : `line_${policy.chapterId}_${sceneIdentity.canonicalId}_${sceneBeatIndex + 1}_${lineIndexWithinBeat + 1}`,
+              };
+            });
+            if (!beat.shotIntent) {
+              return { ...beat, id: beatIdentity.canonicalId, lines: nextLines };
+            }
+            const {
+              previousBeatIndexes: _previousBeatIndexes,
+              previousSceneIds: _previousSceneIds,
+              ...continuity
+            } = beat.shotIntent.continuity;
+            return {
+              ...beat,
+              id: beatIdentity.canonicalId,
+              lines: nextLines,
+              shotIntent: {
+                ...beat.shotIntent,
+                continuity: {
+                  ...continuity,
+                  previousSceneIds: canonicalContinuityReferences({
+                    continuity: beat.shotIntent.continuity,
+                    currentBeat: beatIdentity,
+                    beatIdentities,
+                    aliases,
+                    issues,
+                  }),
+                },
+              },
+            };
+          }),
+        };
+      }),
+    })),
+  };
+
+  if (issues.length > 0) throw new ScriptWriterSidecarIdentityError(issues);
+  return normalized;
+}
+
 /** Audible text has exactly one owner: ordered beat lines, never render segments. */
 export function getCanonicalBeatSpokenText(
   beat: Pick<NarrativeBeatV2, 'lines'>,

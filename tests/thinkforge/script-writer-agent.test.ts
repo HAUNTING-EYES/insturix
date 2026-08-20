@@ -25,6 +25,8 @@ import {
 import { buildContinuedThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger-continuity';
 import {
   SCRIPT_SIDECAR_V2_VERSION,
+  canonicalizeScriptWriterModelSidecarIds,
+  parseScriptSidecarV2,
   ScriptSidecarV2Schema,
   type NarrativeBeatV2,
   type NarrativeSceneV2,
@@ -884,6 +886,123 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(first.visualMetadata.scenePrompts).toHaveLength(2);
     expect(first.visualMetadata.scenePrompts[0]).toContain('Beat 1:');
     expect(first.visualMetadata.scenePrompts[0]).toContain('Beat 2:');
+  });
+
+  it('reissues duplicate model-owned sidecar IDs while retaining continuity and casting IDs', async () => {
+    const firstScene = makeScene(1);
+    const secondBeat = makeBeat(1, {
+      shotIntent: makeShotIntent({
+        continuity: {
+          wardrobe: [],
+          props: ['approval board'],
+          previousSceneIds: ['scene_1'],
+        },
+      }),
+    });
+    const secondScene = makeScene(1, { beats: [secondBeat] });
+    const duplicateIds = makeSidecar({
+      acts: [
+        {
+          id: 'act_1',
+          title: 'The original act',
+          narrativePurpose: 'Establish the initial operating problem.',
+          narrativeScenes: [firstScene],
+        },
+        {
+          id: 'act_1',
+          title: 'The repeated act id',
+          narrativePurpose: 'Resolve the operating problem.',
+          narrativeScenes: [secondScene],
+        },
+      ],
+    });
+
+    const modelSidecar = duplicateIds as unknown as ScriptWriterModelOutput['sidecar'];
+    const continuity = modelSidecar.acts[1]!.narrativeScenes[0]!.beats[0]!.shotIntent!.continuity;
+    continuity.previousSceneIds = [];
+    continuity.previousBeatIndexes = [1];
+    expect(ScriptWriterModelOutputSchema.safeParse(makeModelOutput({ sidecar: modelSidecar })).success).toBe(true);
+    generateStructuredWithWritingContextCacheMock.mockResolvedValueOnce({
+      result: makeModelOutput({ sidecar: modelSidecar }),
+      cacheStatus: 'hit',
+      modelName: 'models/gemini-2.5-flash',
+    });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Approval workflow launch.' },
+      userPrompt: 'Write a short Instagram video script for the launch.',
+    });
+    const scenes = output.result.sidecar.acts.flatMap((act) => act.narrativeScenes);
+    const beats = scenes.flatMap((scene) => scene.beats);
+    const lines = beats.flatMap((beat) => beat.lines);
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
+    expect(output.result.sidecar.acts.map((act) => act.id)).toEqual(['act_1', 'act_2']);
+    expect(scenes.map((scene) => scene.id)).toEqual(['scene_1', 'scene_2']);
+    expect(beats.map((beat) => beat.id)).toEqual(['beat_1', 'beat_2']);
+    expect(lines.map((line) => line.id)).toEqual(['line_1', 'line_2']);
+    expect(beats[1]?.shotIntent?.continuity.previousSceneIds).toEqual(['beat_1']);
+    expect(output.result.sidecar.characters).toEqual([narrator]);
+  });
+
+  it('preserves master-plan act and scene IDs while issuing chapter beat and line IDs', () => {
+    const chapterSidecar = makeSidecar({
+      acts: [{
+        id: 'act_observe',
+        title: 'Observe the work',
+        narrativePurpose: 'Establish the chapter evidence.',
+        narrativeScenes: [makeScene(1, {
+          id: 'scene_open',
+          beats: [makeBeat(1), makeBeat(1)],
+        })],
+      }],
+    });
+
+    const normalized = parseScriptSidecarV2(canonicalizeScriptWriterModelSidecarIds(
+      chapterSidecar as unknown as ScriptWriterModelOutput['sidecar'],
+      { mode: 'chapter', chapterId: 'chapter_open' },
+    ));
+    const scene = normalized.acts[0]!.narrativeScenes[0]!;
+
+    expect(normalized.acts[0]?.id).toBe('act_observe');
+    expect(scene.id).toBe('scene_open');
+    expect(scene.beats.map((beat) => beat.id)).toEqual([
+      'beat_chapter_open_scene_open_1',
+      'beat_chapter_open_scene_open_2',
+    ]);
+    expect(scene.beats.flatMap((beat) => beat.lines.map((line) => line.id))).toEqual([
+      'line_chapter_open_scene_open_1_1',
+      'line_chapter_open_scene_open_2_1',
+    ]);
+  });
+
+  it('rejects an ambiguous legacy continuity alias instead of guessing a preceding beat', () => {
+    const thirdBeat = makeBeat(1, {
+      shotIntent: makeShotIntent({
+        continuity: {
+          wardrobe: [],
+          props: ['approval board'],
+          previousSceneIds: ['scene_1'],
+        },
+      }),
+    });
+    const ambiguous = makeSidecar({
+      acts: [{
+        id: 'act_1',
+        title: 'Three repeated legacy scenes',
+        narrativePurpose: 'Exercise legacy continuity safety.',
+        narrativeScenes: [
+          makeScene(1),
+          makeScene(1),
+          makeScene(1, { beats: [thirdBeat] }),
+        ],
+      }],
+    });
+
+    expect(() => canonicalizeScriptWriterModelSidecarIds(
+      ambiguous as unknown as ScriptWriterModelOutput['sidecar'],
+      { mode: 'ordinary' },
+    )).toThrow(/ambiguous_legacy_continuity_alias:beat_3:scene_1/);
   });
 
   it('surfaces an unrepairable provider failure without starting another call', async () => {

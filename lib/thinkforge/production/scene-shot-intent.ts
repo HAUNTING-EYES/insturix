@@ -69,12 +69,18 @@ const SceneShotContinuityModelSchema = z.object({
   wardrobe: z.array(z.string()).default([]),
   props: z.array(z.string()).default([]),
   screenDirection: z.string().optional(),
-  previousSceneIds: z.array(z.string()).default([]),
+  previousSceneIds: z.array(z.string()).default([]).describe(
+    'Legacy continuity aliases. Leave empty for new writer output and use previousBeatIndexes instead.',
+  ),
+  previousBeatIndexes: z.array(z.number().int().positive()).optional().describe(
+    'One-based global positions of earlier narrative beats whose continuity must carry into this beat.',
+  ),
 }).strict();
 
-const SceneShotContinuitySchema = SceneShotContinuityModelSchema.extend({
+const SceneShotContinuitySchema = z.object({
   wardrobe: z.array(z.string().min(1)).default([]),
   props: z.array(z.string().min(1)).default([]),
+  screenDirection: z.string().optional(),
   previousSceneIds: z.array(z.string().min(1)).default([]),
 }).strict();
 

@@ -5,14 +5,17 @@ import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput, AgentStructuredOutput } from './types';
 import { generateStructuredWithWritingContextCache } from '../services/gemini-writing-context-cache';
 import {
+  canonicalizeScriptWriterModelSidecarIds,
   getCanonicalBeatSpokenText,
   parseScriptSidecarV2,
   SCRIPT_SIDECAR_V2_VERSION,
   ScriptSidecarV2Schema,
+  ScriptWriterSidecarIdentityError,
   ScriptWriterSidecarV2ModelSchema,
   type NarrativeBeatV2,
   type NarrativeSceneV2,
   type ScriptSidecarV2,
+  type ScriptWriterModelSidecarIdentityPolicy,
 } from '../schemas/script-sidecar-v2';
 import {
   findDirectlySupportingSourceReferenceIds,
@@ -105,6 +108,27 @@ export const ScriptWriterResultSchema = z.object({
 export type ScriptWriterResult = z.infer<typeof ScriptWriterResultSchema>;
 export type ScriptWriterModelOutput = z.infer<typeof ScriptWriterModelOutputSchema>;
 
+function withCanonicalModelOwnedSidecarIds(
+  modelOutput: ScriptWriterModelOutput,
+  policy: ScriptWriterModelSidecarIdentityPolicy,
+): ScriptWriterModelOutput {
+  try {
+    return {
+      ...modelOutput,
+      // The next materialization step owns final semantic validation and repair.
+      sidecar: canonicalizeScriptWriterModelSidecarIds(
+        modelOutput.sidecar,
+        policy,
+      ) as ScriptWriterModelOutput['sidecar'],
+    };
+  } catch (error) {
+    if (error instanceof ScriptWriterSidecarIdentityError) {
+      throw new ScriptWriterContractError(error.issues.map((issue) => `invalid_model_identity:${issue}`));
+    }
+    throw error;
+  }
+}
+
 interface ResolvedScriptEditorialContext {
   executionPlan: ScriptEditorialPlan;
   creativeIntent: ThinkForgeEditorialCreativeIntent;
@@ -112,6 +136,14 @@ interface ResolvedScriptEditorialContext {
   tracePlan: ThinkForgeScriptEditorialPlanArtifact | ScriptEditorialPlan;
   productionBrief: ProductionBrief | null | undefined;
   chapterExecution: ResolvedScriptChapterExecution | null;
+}
+
+function scriptWriterIdentityPolicy(
+  chapterExecution: ResolvedScriptChapterExecution | null,
+): ScriptWriterModelSidecarIdentityPolicy {
+  return chapterExecution
+    ? { mode: 'chapter', chapterId: chapterExecution.assignment.chapter.id }
+    : { mode: 'ordinary' };
 }
 
 /**
@@ -450,6 +482,7 @@ function parseMaterializedScriptWriterResult(input: unknown): ScriptWriterResult
 }
 
 const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
+  'invalid_model_identity',
   'invalid_sidecar',
   'invalid_writer_result',
   'writer_render_plan_forbidden',
@@ -512,6 +545,7 @@ Critical rules:
 - Preserve the authored act, narrative-scene, and beat hierarchy unless an editorial contract failure requires changing it. Never split story units to satisfy a renderer.
 - Every beat requires visualIntent, shotIntent, and narrative duration intent. Every spoken line requires its actual languageCode.
 - shotIntent.energy and every performance intensity use normalized decimal values from 0 to 1. A moving shot requires a non-empty movementMotivation. shotIntent.spokenAudio is true exactly when the beat contains on-camera sync-dialogue; simultaneousPerformers equals the unique performance character count, and every sync speaker has a performance entry.
+- For invalid_model_identity, never try to repair opaque act, scene, beat, or line IDs: the server issues them. Express continuity only through shotIntent.continuity.previousBeatIndexes, using one-based global positions of earlier beats. Do not send previousSceneIds for new writer output, mix both reference forms, or point at the current/later beat.
 - Omit renderPlan. Technical segmentation is authored later from this narrative sidecar.
 - For chapter_act_count_mismatch, chapter_act_id_mismatch, chapter_scene_count_mismatch, chapter_scene_id_mismatch, chapter_scene_duration_mismatch, chapter_required_character_missing, or chapter_required_source_missing, execute tf_untrusted_data.chapterExecution exactly. Repair the assigned chapter only; do not add other chapters or change the master plan.
 - When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or narration_density_below_mode, use tf_untrusted_data.editorialPlan and writer_contract_repair_input.validatorDiagnostics.narrationBudget as binding. Preserve the exact total runtime and selected narration mode. The fullRuntimeMinimumSpokenWords value is a hard lower bound for canonical spoken lines in a guided non-minimal plan; currentSpokenWords and requiredAdditionalSubstantiveWords localize the deficit, while fullRuntimeReferenceSpokenWords remains guidance. Develop the supported argument or story with non-redundant substantive beats. Never satisfy the count by repeating claims, adding filler, inventing evidence, inflating durations, or appending an unrelated monologue.
@@ -1134,7 +1168,7 @@ Your task is to write a high-retention, engaging video script.
 7. **Provenance:** Use only Source Ledger referenceId values. Put evidence on factual spoken lines and factual visible on-screen copy, never on a title, narrative purpose, or visual description. The server derives scene, beat, and sidecar aggregate sourceRefs from those verified claims, so do not carry a citation mechanically across the sidecar. Every numeric/date/price/URL/proof/testimonial claim needs a real source ref; an undeclared ref is invalid. A declared reference is not permission to broaden the source: every cited sentence must be directly supported or a clearly bounded implication permitted by tf_untrusted_data.evidencePolicy.
 8. **Visual and audio intent:** Every beat needs concrete visualIntent, including motion, quality, and asset recommendation. Follow tf_untrusted_data.editorialPlan.visualVerbal exactly. In non-minimal modes, leave onScreenText empty by default and use it selectively only for a sourced title, label, statistic, quote, or a distinct counterpoint that adds information the narration does not say. Never repeat a spoken line or phrase on screen, and never populate every narrated beat automatically. Minimal mode may let sourced on-screen text replace speech. Describe what the viewer can actually see; avoid empty style adjectives. Add audioIntent when ambience, music, or SFX serves the beat.
 9. **Characters and casting:** Include only characters used by the narrative. A visible character belongs in charactersPresent; a speaking line uses that character's exact ID. Follow the casting contract without inventing avatar or voice IDs. Do not translate, split, shorten, or move speech merely to satisfy a renderer.
-10. **Shot intent:** Every beat needs one complete shotIntent expressing creative purpose, emotional beat, energy, visual priority, action, framing, angle, movement, performance, and continuity. Express shotIntent.energy and every performance intensity as normalized decimals from 0 to 1, never a 1-5 or 1-10 scale. A moving shot requires a non-empty movementMotivation. spokenAudio is true exactly when the beat contains on-camera sync-dialogue. simultaneousPerformers equals the number of unique performance character IDs, and every sync speaker has a matching performance entry. Never invent equipment, room dimensions, coordinates, budgets, or setup claims.
+10. **Shot intent:** Every beat needs one complete shotIntent expressing creative purpose, emotional beat, energy, visual priority, action, framing, angle, movement, performance, and continuity. Express shotIntent.energy and every performance intensity as normalized decimals from 0 to 1, never a 1-5 or 1-10 scale. A moving shot requires a non-empty movementMotivation. spokenAudio is true exactly when the beat contains on-camera sync-dialogue. simultaneousPerformers equals the number of unique performance character IDs, and every sync speaker has a matching performance entry. The server owns act, scene, beat, and line IDs. For continuity, use only previousBeatIndexes: one-based global positions of strictly earlier beats in output order. Leave previousSceneIds empty in new writer output. Never invent equipment, room dimensions, coordinates, budgets, or setup claims.
 11. **Technical separation:** Do not mention lip-sync job length, provider language support, model limits, scene caps, or render chunks. Preserve narrative intent. Production planning will later emit compatibility warnings, alternatives, and provider-safe segments without rewriting the story.
 12. **Metadata:** Set only the publication platform requested in tf_untrusted_data.productionOutput. Duration and spoken languages are derived by the server from the sidecar.
 13. **Long-form chapter execution:** When tf_untrusted_data.chapterExecution is present, it is a server-validated semantic assignment inside one approved master narrative. Return exactly its assigned act and chapter: one sidecar act with the exact act ID, the exact scene IDs in blueprint order, and each exact scene duration. Do not add, merge, split, rename, reorder, summarize, or omit planned scenes. Execute every opening state, development requirement, closing state, required character, source reference, and continuity thread. The preceding/following chapter descriptors and previousChapterContinuity preserve narrative handoff; do not restart the premise, repeat a completed reveal, resolve a later payoff early, or write beyond the assigned chapter. The chapter runtime is only this call's envelope; the master-plan runtime remains the complete work. Never turn chapter boundaries into editorial scene boundaries or shorten a long coherent scene for provider convenience.
@@ -1310,6 +1344,7 @@ Return your response strictly adhering to the JSON schema.`;
       abortSignal,
     });
 
+    const identityPolicy = scriptWriterIdentityPolicy(resolvedEditorial.chapterExecution);
     let modelOutput = initialGeneration.result;
     let result: ScriptWriterResult;
     let scriptContractRepairApplied = false;
@@ -1322,7 +1357,10 @@ Return your response strictly adhering to the JSON schema.`;
     );
 
     try {
-      result = materializeScriptWriterResult(modelOutput, executionInput.sourceLedger);
+      result = materializeScriptWriterResult(
+        withCanonicalModelOwnedSidecarIds(modelOutput, identityPolicy),
+        executionInput.sourceLedger,
+      );
       validationReport = assertUsableScriptWriterResult(result, {
         sourceLedger: executionInput.sourceLedger,
         productionBrief: executionInput.productionBrief,
@@ -1364,7 +1402,10 @@ Return your response strictly adhering to the JSON schema.`;
       modelOutput = repairedGeneration.result;
       scriptContractRepairApplied = true;
       try {
-        result = materializeScriptWriterResult(modelOutput, executionInput.sourceLedger);
+        result = materializeScriptWriterResult(
+          withCanonicalModelOwnedSidecarIds(modelOutput, identityPolicy),
+          executionInput.sourceLedger,
+        );
         validationReport = assertUsableScriptWriterResult(result, {
           sourceLedger: executionInput.sourceLedger,
           productionBrief: executionInput.productionBrief,
