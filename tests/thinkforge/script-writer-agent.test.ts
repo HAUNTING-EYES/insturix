@@ -23,6 +23,7 @@ import {
   findDirectlySupportingSourceReferenceIds,
 } from '@/lib/thinkforge/provenance/source-ledger';
 import { buildContinuedThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger-continuity';
+import { ScriptEvidenceSufficiencyError } from '@/lib/thinkforge/provenance/script-evidence-sufficiency';
 import {
   SCRIPT_SIDECAR_V2_VERSION,
   canonicalizeScriptWriterModelSidecarIds,
@@ -1354,5 +1355,80 @@ describe('native Script Sidecar V2 production semantics', () => {
       productionBrief: brief({ targetDurationSec: 60 }),
     });
     expect(report.editorialWarnings).toEqual([]);
+  });
+});
+
+describe('ScriptWriterAgent evidence readiness', () => {
+  beforeEach(() => {
+    generateStructuredWithWritingContextCacheMock.mockReset();
+  });
+
+  it('rejects a thin long-form factual record before a writer call', async () => {
+    const userPrompt = [
+      'Write a seven-minute documentary about HarborGrid, a six-month pilot at two cargo terminals.',
+      'The supplied pilot record says 18 diesel yard tractors were replaced and idling fuel use fell 31% during the measured period.',
+      'Make clear that this is a bounded pilot result, not a forecast for total port emissions.',
+      'Use an investigative structure with concrete visual evidence, a skeptical middle, and a measured conclusion.',
+    ].join(' ');
+
+    await expect(new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Evidence-led port pilot.' },
+      userPrompt,
+      productionBrief: brief({ targetDurationSec: 420 }),
+      sourceLedger: buildThinkForgeSourceLedger({ userPrompt }),
+    })).rejects.toMatchObject({
+      code: 'SCRIPT_REQUIRES_ADDITIONAL_EVIDENCE',
+      assessment: expect.objectContaining({
+        status: 'requires_additional_evidence',
+        targetDurationSeconds: 420,
+      }),
+    });
+
+    expect(generateStructuredWithWritingContextCacheMock).not.toHaveBeenCalled();
+  });
+
+  it('allows a source-bounded long-form record with enough distinct material to reach the writer', async () => {
+    const userPrompt = Array.from({ length: 10 }, (_, index) => (
+      `Pilot log ${index + 1}: Terminal ${index + 1} recorded a dated operational observation, a measured equipment state, `
+      + `a named shift decision, and a documented limitation for the HarborGrid pilot during week ${index + 1}.`
+    )).join(' ');
+    generateStructuredWithWritingContextCacheMock.mockRejectedValueOnce(new Error('provider reached'));
+
+    await expect(new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Evidence-led port pilot.' },
+      userPrompt,
+      productionBrief: brief({ targetDurationSec: 420 }),
+      sourceLedger: buildThinkForgeSourceLedger({ userPrompt }),
+    })).rejects.toThrow('provider reached');
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks evidence readiness before long-form dispatch and ordinary writer execution', () => {
+    const source = readFileSync(
+      new URL('../../lib/thinkforge/services/chat-service.ts', import.meta.url),
+      'utf8',
+    );
+    const readiness = source.indexOf('assertScriptEvidenceSufficiency({');
+    const longFormDispatch = source.indexOf('handoffChapteredScriptGenerationIfRequired({');
+    const writerDispatch = source.indexOf('writer.runStructured(baseInput as ScriptWriterInput');
+
+    expect(readiness).toBeGreaterThan(-1);
+    expect(readiness).toBeLessThan(longFormDispatch);
+    expect(readiness).toBeLessThan(writerDispatch);
+  });
+
+  it('keeps the evidence requirement as an explicit typed error', async () => {
+    const error = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Evidence-led port pilot.' },
+      userPrompt: 'Write a seven-minute documentary. The pilot reduced idling by 31%.',
+      productionBrief: brief({ targetDurationSec: 420 }),
+      sourceLedger: buildThinkForgeSourceLedger({
+        userPrompt: 'Write a seven-minute documentary. The pilot reduced idling by 31%.',
+      }),
+    }).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(ScriptEvidenceSufficiencyError);
+    expect(error.message).toContain('ThinkForge will not pad the runtime with unsupported claims.');
   });
 });

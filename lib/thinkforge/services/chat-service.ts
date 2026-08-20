@@ -48,6 +48,7 @@ import {
 import { resolveThinkForgeAvatarCasting, type ThinkForgeCastingMetadata } from '../casting/resolve-casting';
 import { buildKnobParserSystemInstruction, parsePromptUnderstanding } from '../intake/prompt-knob-parser';
 import { buildContinuedThinkForgeSourceLedger } from '../provenance/source-ledger-continuity';
+import { assertScriptEvidenceSufficiency } from '../provenance/script-evidence-sufficiency';
 import { persistGroundedResearchMemory } from '../provenance/research-memory';
 import {
   buildThinkForgeDocumentGenerationTrace,
@@ -922,6 +923,13 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             if (!signalTrace) {
               throw new Error('Chaptered script generation requires a resolved signal trace.');
             }
+            if (editorialPlan.writerKind !== 'script') {
+              throw new Error('Video-script generation requires a script editorial plan.');
+            }
+            assertScriptEvidenceSufficiency({
+              editorialPlan: editorialPlan.execution.plan,
+              sourceLedger,
+            });
             const scriptInput = baseInput as ScriptWriterInput;
             const longFormHandoff = await handoffChapteredScriptGenerationIfRequired({
               userId,

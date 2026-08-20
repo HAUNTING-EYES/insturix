@@ -24,6 +24,7 @@ import {
   resolveThinkForgeSourceLedgerEvidenceBoundary,
   type SourceLedger,
 } from '../provenance/source-ledger';
+import { assertScriptEvidenceSufficiency } from '../provenance/script-evidence-sufficiency';
 import { buildThinkForgeWriterInvocationTrace } from '../provenance/generation-trace';
 import { requireSourceReferenceIdForFact } from '../provenance/source-ledger-continuity';
 import { formatTrendBriefForPrompt } from './trend-brief-context';
@@ -1321,6 +1322,10 @@ Return your response strictly adhering to the JSON schema.`;
     const executionInput = resolvedEditorial.productionBrief === input.productionBrief
       ? input
       : { ...input, productionBrief: resolvedEditorial.productionBrief };
+    assertScriptEvidenceSufficiency({
+      editorialPlan,
+      sourceLedger: executionInput.sourceLedger,
+    });
     const recommendedMaxTokens = durationAwareMaxTokens(editorialPlan);
     const promptParts = this.buildPromptParts(executionInput, resolvedEditorial);
     if (
