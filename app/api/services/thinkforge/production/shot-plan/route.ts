@@ -82,18 +82,27 @@ function previewApproval(reason: string) {
   return { status: 'preview' as const, reason };
 }
 
+function longFormChapterPlanFromMetadata(metadata: Record<string, unknown>): unknown | undefined {
+  const writerOutput = recordOf(metadata.writerOutput);
+  const longForm = writerOutput ? recordOf(writerOutput.longForm) : null;
+  if (!longForm) return undefined;
+  return Object.prototype.hasOwnProperty.call(longForm, 'plan') ? longForm.plan : null;
+}
+
 function buildPlanPayload(input: {
   authority: AuthoritativePersistedScriptSidecar;
   profile: ProductionCapabilityProfile;
   settings: ShootKitSettings;
   documentVersion: number;
   approvalReason: string;
+  chapterPlan?: unknown;
 }) {
   const result = buildScriptShotPlan({
     sidecar: input.authority.rawSidecar,
     profile: input.profile,
     aspectRatio: input.settings.aspectRatio,
     tier: input.settings.tier,
+    chapterPlan: input.chapterPlan,
   });
   return {
     ...result,
@@ -207,6 +216,7 @@ export async function GET(request: Request) {
       settings: settingsResult.data,
       documentVersion: currentDocumentVersion,
       approvalReason,
+      chapterPlan: longFormChapterPlanFromMetadata(metadata),
     }));
   } catch (error) {
     return NextResponse.json({
@@ -250,6 +260,7 @@ export async function POST(request: Request) {
   }
 
   const sidecarResolution = resolveSidecarAuthority(script);
+  const metadata = recordOf(script.metadata) ?? {};
   if (sidecarResolution.issue) {
     await db.setSessionProductionConfiguration(canonicalSessionId, {
       capabilityProfile: profile,
@@ -273,6 +284,7 @@ export async function POST(request: Request) {
       settings,
       documentVersion: currentDocumentVersion,
       approvalReason: 'not_approved',
+      chapterPlan: longFormChapterPlanFromMetadata(metadata),
     });
     if (payload.status !== 'ready') {
       await db.setSessionProductionConfiguration(canonicalSessionId, {

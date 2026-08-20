@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { PRODUCTION_CAPABILITY_PROFILE_VERSION } from './production-capability-profile';
 
 export const SHOT_PLAN_VERSION = 1 as const;
+export const SHOT_PLAN_NARRATIVE_STRUCTURE_VERSION = 1 as const;
 
 const Vector3Schema = z.object({
   x: z.number().finite(),
@@ -121,6 +122,30 @@ const SceneShotSchema = z.object({
   }).strict().optional(),
 }).strict();
 
+const NarrativeStructureSceneSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  narrativePurpose: z.string().min(1),
+  shootSceneIds: z.array(z.string().min(1)).min(1),
+}).strict();
+
+const NarrativeStructureChapterSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  narrativePurpose: z.string().min(1),
+  narrativeScenes: z.array(NarrativeStructureSceneSchema).min(1),
+}).strict();
+
+const NarrativeStructureSchema = z.object({
+  version: z.number().int().default(SHOT_PLAN_NARRATIVE_STRUCTURE_VERSION),
+  acts: z.array(z.object({
+    id: z.string().min(1),
+    title: z.string().min(1),
+    narrativePurpose: z.string().min(1),
+    chapters: z.array(NarrativeStructureChapterSchema).min(1),
+  }).strict()).min(1),
+}).strict();
+
 export const ShotPlanSchema = z.object({
   version: z.number().int().default(SHOT_PLAN_VERSION),
   capabilityProfileVersion: z.number().int().default(PRODUCTION_CAPABILITY_PROFILE_VERSION),
@@ -138,6 +163,7 @@ export const ShotPlanSchema = z.object({
   resources: z.array(PlanResourceSchema),
   setupGroups: z.array(SetupGroupSchema).min(1),
   scenes: z.array(SceneShotSchema).min(1),
+  narrativeStructure: NarrativeStructureSchema.optional(),
   shootOrder: z.array(z.string().min(1)).min(1),
   totalIncrementalCost: z.number().finite().min(0),
   totalSetupMinutes: z.number().finite().min(0),
@@ -193,6 +219,26 @@ export const ShotPlanSchema = z.object({
   const sceneById = new Map(plan.scenes.map((scene) => [scene.sceneId, scene]));
   if (sceneById.size !== plan.scenes.length) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scenes'], message: 'scene ids must be unique' });
+  }
+  if (plan.narrativeStructure) {
+    if (plan.narrativeStructure.version !== SHOT_PLAN_NARRATIVE_STRUCTURE_VERSION) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['narrativeStructure', 'version'], message: 'unsupported narrative structure version' });
+    }
+    const hierarchicalShootSceneIds = plan.narrativeStructure.acts.flatMap((act) => act.chapters.flatMap(
+      (chapter) => chapter.narrativeScenes.flatMap((scene) => scene.shootSceneIds),
+    ));
+    const hierarchyIds = new Set(hierarchicalShootSceneIds);
+    if (
+      hierarchyIds.size !== hierarchicalShootSceneIds.length
+      || hierarchyIds.size !== sceneById.size
+      || [...hierarchyIds].some((sceneId) => !sceneById.has(sceneId))
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['narrativeStructure'],
+        message: 'narrativeStructure must map every Shoot Kit scene exactly once',
+      });
+    }
   }
   if (setupById.size !== plan.setupGroups.length) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['setupGroups'], message: 'setup group ids must be unique' });

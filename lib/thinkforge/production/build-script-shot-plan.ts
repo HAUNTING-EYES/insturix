@@ -4,11 +4,19 @@ import {
   type ProductionCapabilityProfile,
 } from './production-capability-profile';
 import { resolveSceneShotPlan } from './resolve-scene-shot-plan';
-import { parseShotPlan, type ShotPlan } from './shot-plan';
+import {
+  parseShotPlan,
+  SHOT_PLAN_NARRATIVE_STRUCTURE_VERSION,
+  type ShotPlan,
+} from './shot-plan';
 import {
   readScriptSidecar,
   type ScriptSidecarReadResult,
 } from '../schemas/script-sidecar-v1-adapter';
+import {
+  ScriptChapterPlanSchema,
+  type ScriptChapterPlan,
+} from '../schemas/script-chapter-plan';
 
 export const SHOOT_KIT_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:5'] as const;
 export type ShootKitAspectRatio = typeof SHOOT_KIT_ASPECT_RATIOS[number];
@@ -31,10 +39,29 @@ export interface BuildScriptShotPlanInput {
   profile: unknown;
   aspectRatio: ShootKitAspectRatio;
   tier?: ShotPlan['tier'];
+  /** Server-owned long-form plan persisted with the bound writer output. */
+  chapterPlan?: unknown;
 }
 
 type ScriptSidecarV2 = ScriptSidecarReadResult['sidecar'];
 type BeatShotIntent = NonNullable<ScriptSidecarV2['acts'][number]['narrativeScenes'][number]['beats'][number]['shotIntent']>;
+type ScriptChapterPlanAct = ScriptChapterPlan['acts'][number];
+type ScriptChapterPlanChapter = ScriptChapterPlanAct['chapters'][number];
+
+interface LongFormSceneOwner {
+  act: ScriptChapterPlanAct;
+  chapter: ScriptChapterPlanChapter;
+}
+
+interface LongFormChapterContext {
+  plan: ScriptChapterPlan;
+  ownerByNarrativeSceneId: Map<string, LongFormSceneOwner>;
+}
+
+type LongFormChapterResolution =
+  | { status: 'absent' }
+  | { status: 'ready'; context: LongFormChapterContext }
+  | { status: 'invalid'; issue: ScriptShotPlanIssue };
 
 interface ShotPlanningUnit {
   legacyV1: boolean;
@@ -45,6 +72,7 @@ interface ShotPlanningUnit {
   durationSeconds?: number;
   shotIntent?: BeatShotIntent;
   aliases: string[];
+  narrativeSceneId?: string;
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -126,6 +154,7 @@ function v2PlanningUnits(sidecar: ScriptSidecarV2): ShotPlanningUnit[] {
             ?? (scene.beats.length === 1 ? scene.durationIntentSeconds : undefined),
           shotIntent: beat.shotIntent,
           aliases: [beat.id],
+          narrativeSceneId: scene.id,
         });
       });
 
@@ -135,6 +164,133 @@ function v2PlanningUnits(sidecar: ScriptSidecarV2): ShotPlanningUnit[] {
   });
 
   return units;
+}
+
+function resolveLongFormChapterContext(
+  chapterPlanInput: unknown | undefined,
+  readResult: ScriptSidecarReadResult,
+): LongFormChapterResolution {
+  if (chapterPlanInput === undefined) return { status: 'absent' };
+  if (readResult.sourceVersion !== 2) {
+    return {
+      status: 'invalid',
+      issue: {
+        code: 'long_form_sidecar_version_mismatch',
+        message: 'This long-form script must retain its V2 production sidecar before a Shoot Kit can be created.',
+        questions: ['Regenerate or restore the current long-form script before creating its Shoot Kit.'],
+      },
+    };
+  }
+
+  const parsed = ScriptChapterPlanSchema.safeParse(chapterPlanInput);
+  if (!parsed.success) {
+    return {
+      status: 'invalid',
+      issue: {
+        code: 'long_form_chapter_plan_invalid',
+        message: 'This long-form script has an invalid chapter plan and cannot safely create a Shoot Kit.',
+        questions: ['Regenerate the long-form script before creating its Shoot Kit.'],
+      },
+    };
+  }
+
+  const ownerByNarrativeSceneId = new Map<string, LongFormSceneOwner>();
+  parsed.data.acts.forEach((act) => act.chapters.forEach((chapter) => chapter.sceneBlueprints.forEach((scene) => {
+    ownerByNarrativeSceneId.set(scene.id, { act, chapter });
+  })));
+
+  const sidecarSceneIds = new Set<string>();
+  for (const act of readResult.sidecar.acts) {
+    for (const scene of act.narrativeScenes) {
+      sidecarSceneIds.add(scene.id);
+      const owner = ownerByNarrativeSceneId.get(scene.id);
+      if (!owner) {
+        return {
+          status: 'invalid',
+          issue: {
+            code: 'long_form_scene_unmapped',
+            message: `Long-form scene "${scene.title}" is not owned by the saved chapter plan.`,
+            sceneId: scene.id,
+            questions: ['Regenerate the long-form script so its chapter plan and production sidecar match.'],
+          },
+        };
+      }
+      if (owner.act.id !== act.id) {
+        return {
+          status: 'invalid',
+          issue: {
+            code: 'long_form_act_mismatch',
+            message: `Long-form scene "${scene.title}" no longer belongs to its saved act.`,
+            sceneId: scene.id,
+            questions: ['Regenerate the long-form script so its chapter plan and production sidecar match.'],
+          },
+        };
+      }
+    }
+  }
+
+  const missingSceneId = [...ownerByNarrativeSceneId.keys()].find((sceneId) => !sidecarSceneIds.has(sceneId));
+  if (missingSceneId) {
+    return {
+      status: 'invalid',
+      issue: {
+        code: 'long_form_scene_missing',
+        message: `The saved chapter plan expects scene "${missingSceneId}", but it is absent from the production sidecar.`,
+        sceneId: missingSceneId,
+        questions: ['Regenerate the long-form script so its chapter plan and production sidecar match.'],
+      },
+    };
+  }
+
+  return { status: 'ready', context: { plan: parsed.data, ownerByNarrativeSceneId } };
+}
+
+function attachLongFormNarrativeStructure(input: {
+  plan: ShotPlan;
+  sidecar: ScriptSidecarV2;
+  units: ShotPlanningUnit[];
+  context: LongFormChapterContext;
+}): ShotPlan {
+  const sidecarSceneById = new Map(
+    input.sidecar.acts.flatMap((act) => act.narrativeScenes.map((scene) => [scene.id, scene] as const)),
+  );
+  const shootSceneIdsByNarrativeScene = new Map<string, string[]>();
+  input.units.forEach((unit) => {
+    if (!unit.narrativeSceneId) return;
+    const ids = shootSceneIdsByNarrativeScene.get(unit.narrativeSceneId) ?? [];
+    ids.push(unit.sceneId);
+    shootSceneIdsByNarrativeScene.set(unit.narrativeSceneId, ids);
+  });
+
+  return parseShotPlan({
+    ...input.plan,
+    narrativeStructure: {
+      version: SHOT_PLAN_NARRATIVE_STRUCTURE_VERSION,
+      acts: input.context.plan.acts.map((act) => ({
+        id: act.id,
+        title: act.title,
+        narrativePurpose: act.narrativePurpose,
+        chapters: act.chapters.map((chapter) => ({
+          id: chapter.id,
+          title: chapter.title,
+          narrativePurpose: chapter.narrativePurpose,
+          narrativeScenes: chapter.sceneBlueprints.map((blueprint) => {
+            const narrativeScene = sidecarSceneById.get(blueprint.id);
+            const shootSceneIds = shootSceneIdsByNarrativeScene.get(blueprint.id);
+            if (!narrativeScene || !shootSceneIds?.length) {
+              throw new Error(`Long-form narrative structure lost scene ${blueprint.id}.`);
+            }
+            return {
+              id: narrativeScene.id,
+              title: narrativeScene.title,
+              narrativePurpose: narrativeScene.narrativePurpose,
+              shootSceneIds,
+            };
+          }),
+        })),
+      })),
+    },
+  });
 }
 
 function planningUnits(readResult: ScriptSidecarReadResult): ShotPlanningUnit[] {
@@ -218,6 +374,10 @@ export function buildScriptShotPlan(input: BuildScriptShotPlanInput): ScriptShot
   const profile = parseProductionCapabilityProfile(input.profile);
   const tier = input.tier ?? profile.preferences.defaultPlanTier;
   const issues: ScriptShotPlanIssue[] = [];
+  const longForm = resolveLongFormChapterContext(input.chapterPlan, readResult);
+  if (longForm.status === 'invalid') {
+    return { status: 'needs-user-input', plan: null, issues: [longForm.issue] };
+  }
   const units = planningUnits(readResult);
   const sceneIndexByAlias = new Map<string, number>();
   const sceneIdByIndex = new Map(units.map((unit) => [unit.sceneIndex, unit.sceneId]));
@@ -291,7 +451,15 @@ export function buildScriptShotPlan(input: BuildScriptShotPlanInput): ScriptShot
 
   if (issues.length > 0) return { status: 'needs-user-input', plan: null, issues };
 
-  const plan = optimizeScriptShotPlans(scenePlans);
+  const optimizedPlan = optimizeScriptShotPlans(scenePlans);
+  const plan = longForm.status === 'ready'
+    ? attachLongFormNarrativeStructure({
+        plan: optimizedPlan,
+        sidecar: readResult.sidecar,
+        units,
+        context: longForm.context,
+      })
+    : optimizedPlan;
   addPlanLimitIssues(plan, profile, issues);
   return issues.length > 0
     ? { status: 'needs-user-input', plan: null, issues }

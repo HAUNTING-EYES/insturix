@@ -141,6 +141,60 @@ function addTechnicalRenderPlan(sidecar: ScriptSidecarV2): void {
   };
 }
 
+function longFormChapterPlan() {
+  return {
+    version: 1,
+    title: 'Evidence documentary',
+    narrativeThesis: 'Evidence becomes useful when the audience can follow its full context.',
+    targetDurationSeconds: 420,
+    audienceJourney: {
+      openingState: 'Uncertain about the evidence.',
+      closingState: 'Ready to act on the evidence.',
+    },
+    continuityBible: {
+      pointOfView: 'Measured narrator.',
+      temporalFrame: 'One continuous explanation.',
+      toneProgression: ['Measured clarity.'],
+      recurringMotifs: [],
+      terminologyInvariants: [],
+    },
+    characters: [{
+      id: 'narrator',
+      name: 'Narrator',
+      narrativeRole: 'Guide',
+      voice: 'Measured and exact.',
+      openingState: 'Introducing the evidence.',
+      closingState: 'Connecting evidence to action.',
+      invariantTraits: [],
+    }],
+    continuityThreads: [],
+    acts: [{
+      id: 'act_context',
+      title: 'Context',
+      narrativePurpose: 'Explain the complete argument before the conclusion.',
+      chapters: [{
+        id: 'chapter_evidence',
+        title: 'The evidence',
+        narrativePurpose: 'Develop the evidence as one coherent section.',
+        audienceStateBefore: 'The evidence is unstructured.',
+        audienceStateAfter: 'The evidence has clear meaning.',
+        sceneBlueprints: [{
+          id: 'scene_long_argument',
+          title: 'The complete argument',
+          narrativePurpose: 'Keep the evidence in one coherent narrative scene.',
+          openingState: 'The evidence board is introduced.',
+          development: ['The narrator connects each proof point.'],
+          closingState: 'The evidence supports the conclusion.',
+          durationIntentSeconds: 420,
+          requiredSourceRefs: [],
+          requiredCharacterIds: ['narrator'],
+          continuityThreadIds: [],
+        }],
+      }],
+    }],
+  };
+}
+
 describe('buildScriptShotPlan V2 narrative reads', () => {
   it('plans one long narrative beat without requiring a render plan or imposing a duration cap', () => {
     const input = longNarrativeSidecar();
@@ -174,6 +228,53 @@ describe('buildScriptShotPlan V2 narrative reads', () => {
     expect(input.renderPlan?.renderSegments).toHaveLength(2);
     expect(result.plan.scenes).toHaveLength(1);
     expect(result.plan.scenes[0]?.durationSec).toBe(420);
+  });
+
+  it('keeps the approved long-form chapter hierarchy with the real Shoot Kit beats', () => {
+    const result = buildScriptShotPlan({
+      sidecar: longNarrativeSidecar(),
+      chapterPlan: longFormChapterPlan(),
+      profile: profile(),
+      aspectRatio: '16:9',
+    });
+
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') throw new Error('Expected a ready long-form Shoot Kit');
+    expect(result.plan.narrativeStructure).toEqual({
+      version: 1,
+      acts: [{
+        id: 'act_context',
+        title: 'Context',
+        narrativePurpose: 'Explain the complete argument before the conclusion.',
+        chapters: [{
+          id: 'chapter_evidence',
+          title: 'The evidence',
+          narrativePurpose: 'Develop the evidence as one coherent section.',
+          narrativeScenes: [{
+            id: 'scene_long_argument',
+            title: 'The complete argument',
+            narrativePurpose: 'Keep the evidence in one coherent narrative scene.',
+            shootSceneIds: ['beat_long_argument'],
+          }],
+        }],
+      }],
+    });
+  });
+
+  it('fails closed when the saved chapter plan no longer owns the production sidecar scene', () => {
+    const chapterPlan = longFormChapterPlan();
+    chapterPlan.acts[0]!.chapters[0]!.sceneBlueprints[0]!.id = 'scene_stale';
+
+    expect(buildScriptShotPlan({
+      sidecar: longNarrativeSidecar(),
+      chapterPlan,
+      profile: profile(),
+      aspectRatio: '16:9',
+    })).toMatchObject({
+      status: 'needs-user-input',
+      plan: null,
+      issues: [expect.objectContaining({ code: 'long_form_scene_unmapped' })],
+    });
   });
 
   it('uses an authored single-beat narrative-scene duration when the beat omits its own', () => {
