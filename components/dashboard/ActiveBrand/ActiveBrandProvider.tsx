@@ -20,7 +20,11 @@ import { useAuth } from '@clerk/nextjs';
 
 const LEGACY_ACTIVE_BRAND_KEY = 'brand_vault_selected_brand_id';
 const ACTIVE_BRAND_SCOPE_POINTER_KEY = 'brand_vault_active_scope_v2';
+// v2 is a shared localStorage key. Keep it only as a one-time migration input: old open tabs can still
+// mutate it after a deploy, so it cannot remain the owner of an active workspace's brand.
 const ACTIVE_BRAND_SELECTION_PREFIX = 'brand_vault_selected_brand_id_v2:';
+const ACTIVE_BRAND_PREFERENCE_PREFIX = 'brand_vault_selected_brand_id_v3:';
+const ACTIVE_BRAND_TAB_SELECTION_PREFIX = 'brand_vault_active_brand_id_v3:';
 
 export interface ActiveBrandScope {
   userId: string;
@@ -52,6 +56,23 @@ function getActiveBrandStorageKeyFromIdentity(scopeIdentity: string): string {
   return `${ACTIVE_BRAND_SELECTION_PREFIX}${scopeIdentity}`;
 }
 
+function getActiveBrandPreferenceStorageKeyFromIdentity(scopeIdentity: string): string {
+  return `${ACTIVE_BRAND_PREFERENCE_PREFIX}${scopeIdentity}`;
+}
+
+function getActiveBrandTabStorageKeyFromIdentity(scopeIdentity: string): string {
+  return `${ACTIVE_BRAND_TAB_SELECTION_PREFIX}${scopeIdentity}`;
+}
+
+function readBrandSelection(storage: ActiveBrandStorageLike, key: string): string | null {
+  return storage.getItem(key)?.trim() || null;
+}
+
+function writeBrandSelection(storage: ActiveBrandStorageLike, key: string, brandId: string | null): void {
+  if (brandId) storage.setItem(key, brandId);
+  else storage.removeItem(key);
+}
+
 export function getActiveBrandStorageKey(scope: ActiveBrandScope): string {
   return getActiveBrandStorageKeyFromIdentity(getActiveBrandScopeIdentity(scope));
 }
@@ -78,8 +99,35 @@ export function writeScopedActiveBrandId(
 ): void {
   const key = getActiveBrandStorageKey(scope);
   const normalizedBrandId = brandId?.trim() || null;
-  if (normalizedBrandId) storage.setItem(key, normalizedBrandId);
-  else storage.removeItem(key);
+  writeBrandSelection(storage, key, normalizedBrandId);
+}
+
+function writeActiveBrandSelectionForScopeIdentity(
+  persistentStorage: ActiveBrandStorageLike,
+  tabStorage: ActiveBrandStorageLike,
+  scopeIdentity: string,
+  brandId: string | null,
+): void {
+  const normalizedBrandId = brandId?.trim() || null;
+  writeBrandSelection(tabStorage, getActiveBrandTabStorageKeyFromIdentity(scopeIdentity), normalizedBrandId);
+  writeBrandSelection(persistentStorage, getActiveBrandPreferenceStorageKeyFromIdentity(scopeIdentity), normalizedBrandId);
+  // Retiring v2 is intentional: an old bundle may still clear that key after a fresh selection, but it
+  // cannot affect the v3 tab selection or v3 preference.
+  persistentStorage.removeItem(getActiveBrandStorageKeyFromIdentity(scopeIdentity));
+}
+
+export function writeActiveBrandSelection(
+  persistentStorage: ActiveBrandStorageLike,
+  tabStorage: ActiveBrandStorageLike,
+  scope: ActiveBrandScope,
+  brandId: string | null,
+): void {
+  writeActiveBrandSelectionForScopeIdentity(
+    persistentStorage,
+    tabStorage,
+    getActiveBrandScopeIdentity(scope),
+    brandId,
+  );
 }
 
 export function activateActiveBrandStorageScope(
@@ -94,8 +142,25 @@ export function activateActiveBrandStorageScope(
     tabStorage.removeItem(ACTIVE_BRAND_SCOPE_POINTER_KEY);
     return null;
   }
-  tabStorage.setItem(ACTIVE_BRAND_SCOPE_POINTER_KEY, getActiveBrandScopeIdentity(scope));
-  return readScopedActiveBrandId(persistentStorage, scope);
+  const scopeIdentity = getActiveBrandScopeIdentity(scope);
+  tabStorage.setItem(ACTIVE_BRAND_SCOPE_POINTER_KEY, scopeIdentity);
+
+  const tabSelection = readBrandSelection(tabStorage, getActiveBrandTabStorageKeyFromIdentity(scopeIdentity));
+  if (tabSelection) return tabSelection;
+
+  const persistedPreference = readBrandSelection(
+    persistentStorage,
+    getActiveBrandPreferenceStorageKeyFromIdentity(scopeIdentity),
+  );
+  if (persistedPreference) {
+    writeBrandSelection(tabStorage, getActiveBrandTabStorageKeyFromIdentity(scopeIdentity), persistedPreference);
+    return persistedPreference;
+  }
+
+  const legacySelection = readScopedActiveBrandId(persistentStorage, scope);
+  if (!legacySelection) return null;
+  writeActiveBrandSelectionForScopeIdentity(persistentStorage, tabStorage, scopeIdentity, legacySelection);
+  return legacySelection;
 }
 
 export function reconcileActiveBrandSelection(
@@ -119,15 +184,39 @@ export function getActiveBrandIdFromStorage(scope?: ActiveBrandScope): string | 
     ? getActiveBrandScopeIdentity(scope)
     : window.sessionStorage.getItem(ACTIVE_BRAND_SCOPE_POINTER_KEY);
   if (!scopeIdentity || scopeIdentity === 'signed-out') return undefined;
-  return window.localStorage.getItem(getActiveBrandStorageKeyFromIdentity(scopeIdentity)) ?? undefined;
+  const tabSelection = readBrandSelection(
+    window.sessionStorage,
+    getActiveBrandTabStorageKeyFromIdentity(scopeIdentity),
+  );
+  if (tabSelection) return tabSelection;
+
+  const persistedPreference = readBrandSelection(
+    window.localStorage,
+    getActiveBrandPreferenceStorageKeyFromIdentity(scopeIdentity),
+  );
+  if (persistedPreference) {
+    writeBrandSelection(window.sessionStorage, getActiveBrandTabStorageKeyFromIdentity(scopeIdentity), persistedPreference);
+    return persistedPreference;
+  }
+
+  const legacySelection = readBrandSelection(
+    window.localStorage,
+    getActiveBrandStorageKeyFromIdentity(scopeIdentity),
+  );
+  if (!legacySelection) return undefined;
+  writeActiveBrandSelectionForScopeIdentity(
+    window.localStorage,
+    window.sessionStorage,
+    scopeIdentity,
+    legacySelection,
+  );
+  return legacySelection;
 }
 
 /**
- * localStorage fires NO event in the same tab, so a component that wrote the key can't notify other
- * components that read it — the switcher pill would show a stale brand until it remounted. This custom
- * event is the missing signal: any writer dispatches it, every reader listens, so the selection stays in
- * sync live across the pill and the Brand Vault page. (Cross-tab is already covered by the native
- * 'storage' event.) All brand-selection writes MUST go through setActiveBrandIdInStorage.
+ * The active brand is workspace state, so it synchronizes only inside the current tab. Cross-tab storage
+ * events are deliberately ignored: an already-open stale bundle must never overwrite a newer workspace.
+ * All same-tab selection writes MUST go through setActiveBrandIdInStorage.
  */
 export const ACTIVE_BRAND_CHANGED_EVENT = 'active-brand-changed';
 
@@ -137,10 +226,12 @@ export function setActiveBrandIdInStorage(brandId: string | null, scope?: Active
     ? getActiveBrandScopeIdentity(scope)
     : window.sessionStorage.getItem(ACTIVE_BRAND_SCOPE_POINTER_KEY);
   if (!scopeIdentity || scopeIdentity === 'signed-out') return;
-  const key = getActiveBrandStorageKeyFromIdentity(scopeIdentity);
-  const normalizedBrandId = brandId?.trim() || null;
-  if (normalizedBrandId) window.localStorage.setItem(key, normalizedBrandId);
-  else window.localStorage.removeItem(key);
+  writeActiveBrandSelectionForScopeIdentity(
+    window.localStorage,
+    window.sessionStorage,
+    scopeIdentity,
+    brandId,
+  );
   window.localStorage.removeItem(LEGACY_ACTIVE_BRAND_KEY);
   window.dispatchEvent(new Event(ACTIVE_BRAND_CHANGED_EVENT));
 }
@@ -273,12 +364,11 @@ export function ActiveBrandProvider({ children }: { children: ReactNode }) {
       setSelection({ scopeIdentity, brandId });
     };
     sync();
-    // Same-tab writes signal via the custom event; cross-tab writes via the native 'storage' event.
+    // A tab's active brand is workspace state. It follows same-tab writes only, so a stale or unrelated
+    // dashboard tab cannot redirect this workspace by mutating shared browser storage.
     window.addEventListener(ACTIVE_BRAND_CHANGED_EVENT, sync);
-    window.addEventListener('storage', sync);
     return () => {
       window.removeEventListener(ACTIVE_BRAND_CHANGED_EVENT, sync);
-      window.removeEventListener('storage', sync);
     };
   }, [queryClient, scope, scopeIdentity]);
 

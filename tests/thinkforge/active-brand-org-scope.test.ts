@@ -10,6 +10,7 @@ import {
   readScopedActiveBrandId,
   reconcileActiveBrandSelection,
   shouldClearUnauthorizedActiveBrandSelection,
+  writeActiveBrandSelection,
   writeScopedActiveBrandId,
   type ActiveBrandStorageLike,
 } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
@@ -52,7 +53,7 @@ describe('active brand account and organization scope', () => {
     expect(getActiveBrandAccessQueryKey(organization)).not.toEqual(getActiveBrandAccessQueryKey(otherAccount));
   });
 
-  it('clears the unscoped legacy value and restores only the new scope selection', () => {
+  it('migrates the shared v2 selection once and restores only the current tab selection', () => {
     const persistent = new MemoryStorage();
     const tab = new MemoryStorage();
     persistent.setItem('brand_vault_selected_brand_id', 'brand_from_prior_scope');
@@ -62,13 +63,33 @@ describe('active brand account and organization scope', () => {
 
     writeScopedActiveBrandId(persistent, personal, 'brand_personal');
     expect(activateActiveBrandStorageScope(persistent, tab, personal)).toBe('brand_personal');
+    expect(readScopedActiveBrandId(persistent, personal)).toBeNull();
     expect(activateActiveBrandStorageScope(persistent, tab, organization)).toBeNull();
-    expect(readScopedActiveBrandId(persistent, personal)).toBe('brand_personal');
 
     writeScopedActiveBrandId(persistent, organization, 'brand_organization');
     expect(activateActiveBrandStorageScope(persistent, tab, personal)).toBe('brand_personal');
     expect(activateActiveBrandStorageScope(persistent, tab, organization)).toBe('brand_organization');
     expect(activateActiveBrandStorageScope(persistent, tab, otherAccount)).toBeNull();
+  });
+
+  it('keeps active brands independent across open tabs even when an old v2 tab clears its key', () => {
+    const persistent = new MemoryStorage();
+    const firstTab = new MemoryStorage();
+    const secondTab = new MemoryStorage();
+    const newTab = new MemoryStorage();
+
+    writeActiveBrandSelection(persistent, firstTab, personal, 'brand_canary');
+    expect(activateActiveBrandStorageScope(persistent, firstTab, personal)).toBe('brand_canary');
+
+    writeActiveBrandSelection(persistent, secondTab, personal, 'brand_registry');
+    expect(activateActiveBrandStorageScope(persistent, firstTab, personal)).toBe('brand_canary');
+    expect(activateActiveBrandStorageScope(persistent, secondTab, personal)).toBe('brand_registry');
+    expect(activateActiveBrandStorageScope(persistent, newTab, personal)).toBe('brand_registry');
+
+    // A pre-v3 tab can only mutate this old key; it cannot erase either tab's active selection or v3 preference.
+    writeScopedActiveBrandId(persistent, personal, null);
+    expect(activateActiveBrandStorageScope(persistent, firstTab, personal)).toBe('brand_canary');
+    expect(activateActiveBrandStorageScope(persistent, newTab, personal)).toBe('brand_registry');
   });
 
   it('removes a persisted selection once the server-authorized list excludes it', () => {
