@@ -328,6 +328,30 @@ describe('export-for-editron route', () => {
     expect(payload.productionManifest.warnings).toEqual([]);
     expect(JSON.stringify(payload)).not.toContain('product launch film');
   });
+
+  it('preserves multi-hour runtime instead of silently clamping it to one hour', async () => {
+    const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
+    const documentaryScript = 'A documentary with an approved two-hour runtime.';
+
+    const response = await POST(request({
+      plainText: documentaryScript,
+      sessionId: 'tf_session_2h',
+      scriptId: 'script_2h',
+      targetDurationSeconds: 7_200,
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mocks.parseScriptWithLLM).toHaveBeenCalledWith(
+      documentaryScript,
+      expect.objectContaining({ targetDuration: 7_200 }),
+    );
+    expect(payload.productionManifest).toMatchObject({
+      targetDurationSeconds: 7_200,
+      targetDurationSource: 'request',
+    });
+  });
+
   it('uses the persisted same-pass sidecar for an unchanged saved script', async () => {
     const savedBlocks = [
       block('blk_1', 'header', 'Same-pass Scene'),

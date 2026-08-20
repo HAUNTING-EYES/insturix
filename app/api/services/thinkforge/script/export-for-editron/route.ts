@@ -43,7 +43,6 @@ export const runtime = 'nodejs';
 export const maxDuration = 300; // gemini-3.1-pro-preview needs more time for complex multi-scene scripts
 const EXPORT_FOR_EDITRON_MAX_PARSER_INPUT_CHARS = 24_000;
 const SCRIPT_TRUNCATED_SENTINEL = 'SCRIPT_TRUNCATED';
-const MAX_TARGET_DURATION_SECONDS = 60 * 60;
 
 type TargetDurationSource = 'request' | 'script-explicit' | 'unknown';
 type ExportSourceKind = 'request' | 'stored-script';
@@ -66,15 +65,16 @@ function isParserSentinelScene(scene: Pick<SceneDescriptor, 'title'>): boolean {
 
 function durationUnitToSeconds(value: number, unit: string): number {
   const normalized = unit.toLowerCase();
-  if (/^h|hours?|hrs?$/.test(normalized)) return value * 3600;
-  if (/^m|minutes?|mins?$/.test(normalized)) return value * 60;
+  if (/^(?:h|hours?|hrs?)$/.test(normalized)) return value * 3600;
+  if (/^(?:m|minutes?|mins?)$/.test(normalized)) return value * 60;
   return value;
 }
 
 function normalizeDurationSeconds(value: unknown): number | undefined {
   const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value.trim()) : NaN;
   if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
-  return Math.min(MAX_TARGET_DURATION_SECONDS, Math.max(1, Math.round(numeric)));
+  const rounded = Math.round(numeric);
+  return Number.isSafeInteger(rounded) && rounded > 0 ? rounded : undefined;
 }
 
 function inferTargetDurationFromScript(scriptText: string): { seconds?: number; source: TargetDurationSource } {
