@@ -5,6 +5,11 @@ import { getDefaultBrandVaultRefineryStore } from '@/lib/shared/brand-vault-refi
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const PRIVATE_NO_STORE_HEADERS = {
+  'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
+  Vary: 'Cookie',
+};
+
 /**
  * GET /api/brand-vault/brands
  *
@@ -14,13 +19,13 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET() {
   const { userId, orgId, has } = await auth();
-  if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+  if (!userId) return new NextResponse('Unauthorized', { status: 401, headers: PRIVATE_NO_STORE_HEADERS });
 
   const store = getDefaultBrandVaultRefineryStore();
   if (!store.listAcceptedBrands) {
     return NextResponse.json(
       { ok: false, error: { code: 'unsupported_store', message: 'Brand Vault store cannot list accepted brands.' } },
-      { status: 500 },
+      { status: 500, headers: PRIVATE_NO_STORE_HEADERS },
     );
   }
 
@@ -30,5 +35,5 @@ export async function GET() {
   const brands = await store.listAcceptedBrands(
     orgId ? { orgId, userId, isOrgAdmin: has({ role: 'org:admin' }) } : { orgId: null, userId },
   );
-  return NextResponse.json({ ok: true, brands });
+  return NextResponse.json({ ok: true, brands }, { headers: PRIVATE_NO_STORE_HEADERS });
 }

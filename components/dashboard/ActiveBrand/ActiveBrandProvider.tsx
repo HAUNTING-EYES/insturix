@@ -156,6 +156,7 @@ interface ActiveBrandContextValue {
   activeBrand: ActiveBrandOption | null;
   setActiveBrandId: (brandId: string | null) => void;
   isLoading: boolean;
+  isBrandListUnavailable: boolean;
 }
 
 const ActiveBrandContext = createContext<ActiveBrandContextValue | null>(null);
@@ -186,20 +187,58 @@ function normalizeBrands(value: unknown): ActiveBrandOption[] {
   return out;
 }
 
-async function fetchAllBrands(): Promise<ActiveBrandOption[]> {
-  const [editron, vault] = await Promise.all([
-    // FAILLOUD: remove after brand-vault verify (revert to `.catch(() => null)`). These were TRULY
-    // silent — a failed brand-list fetch showed an empty switcher with zero log trail.
-    fetch('/api/services/editron/brands', { credentials: 'include' }).then((r) => r.json()).catch((err) => { console.error('[FAILLOUD][ActiveBrand] editron brands fetch failed', err); return null; }),
-    fetch('/api/brand-vault/brands', { credentials: 'include' }).then((r) => r.json()).catch((err) => { console.error('[FAILLOUD][ActiveBrand] vault brands fetch failed', err); return null; }),
+function hasSuccessfulBrandListEnvelope(
+  value: unknown,
+  successField: 'success' | 'ok',
+): value is Record<string, unknown> {
+  return Boolean(
+    value
+      && typeof value === 'object'
+      && (value as Record<string, unknown>)[successField] === true,
+  );
+}
+
+async function fetchBrandListSource(
+  url: string,
+  sourceName: string,
+  successField: 'success' | 'ok',
+): Promise<ActiveBrandOption[]> {
+  const response = await fetch(url, { credentials: 'include', cache: 'no-store' });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok || !hasSuccessfulBrandListEnvelope(payload, successField)) {
+    throw new Error(`[ActiveBrand] ${sourceName} brand list unavailable (${response.status}).`);
+  }
+  return normalizeBrands(payload.brands);
+}
+
+/**
+ * The client-side union is a display preference, never an authorization shortcut. Both sources must be
+ * fresh and valid before the provider may conclude that a persisted selection is no longer available.
+ */
+export async function fetchAuthorizedActiveBrands(): Promise<ActiveBrandOption[]> {
+  const [editronBrands, vaultBrands] = await Promise.all([
+    fetchBrandListSource('/api/services/editron/brands', 'Editron', 'success'),
+    fetchBrandListSource('/api/brand-vault/brands', 'Brand Vault', 'ok'),
   ]);
-  const editronBrands = editron && editron.success ? normalizeBrands(editron.brands) : [];
-  const vaultBrands = vault && vault.ok ? normalizeBrands(vault.brands) : [];
   const merged = new Map<string, ActiveBrandOption>();
   for (const brand of [...editronBrands, ...vaultBrands]) {
     if (!merged.has(brand.brandId)) merged.set(brand.brandId, brand);
   }
   return Array.from(merged.values());
+}
+
+export function shouldClearUnauthorizedActiveBrandSelection({
+  hasScope,
+  hasAuthoritativeBrandList,
+  selectedBrandId,
+  resolvedBrandId,
+}: {
+  hasScope: boolean;
+  hasAuthoritativeBrandList: boolean;
+  selectedBrandId: string | null;
+  resolvedBrandId: string | null;
+}): boolean {
+  return hasScope && hasAuthoritativeBrandList && Boolean(selectedBrandId) && !resolvedBrandId;
 }
 
 export function ActiveBrandProvider({ children }: { children: ReactNode }) {
@@ -243,9 +282,15 @@ export function ActiveBrandProvider({ children }: { children: ReactNode }) {
     };
   }, [queryClient, scope, scopeIdentity]);
 
-  const { data: brands = [], isLoading } = useQuery({
+  const {
+    data: brands = [],
+    isError: isBrandListUnavailable,
+    isFetching,
+    isLoading,
+    isSuccess,
+  } = useQuery({
     queryKey: getActiveBrandListQueryKey(scope),
-    queryFn: fetchAllBrands,
+    queryFn: fetchAuthorizedActiveBrands,
     enabled: Boolean(isSignedIn && scope),
     staleTime: 0,
     gcTime: 0,
@@ -263,12 +308,20 @@ export function ActiveBrandProvider({ children }: { children: ReactNode }) {
   }, [brands, scope, scopeIdentity]);
 
   // A stored brand is only a preference. If the server-authorized list no longer contains it, erase it.
-  // Never guess another brand: an explicit selection is required in the new account/org scope.
+  // Never guess another brand: an explicit selection is required in the new account/org scope. A failed
+  // or in-flight refresh is not proof that the brand was revoked, so it must never erase the preference.
   useEffect(() => {
-    if (!scope || isLoading || !selectedForCurrentScope || activeBrandId) return;
+    if (!scope) return;
+    const hasAuthoritativeBrandList = isSuccess && !isFetching && !isBrandListUnavailable;
+    if (!shouldClearUnauthorizedActiveBrandSelection({
+      hasScope: true,
+      hasAuthoritativeBrandList,
+      selectedBrandId: selectedForCurrentScope,
+      resolvedBrandId: activeBrandId,
+    })) return;
     setSelection({ scopeIdentity, brandId: null });
     setActiveBrandIdInStorage(null, scope);
-  }, [activeBrandId, isLoading, scope, scopeIdentity, selectedForCurrentScope]);
+  }, [activeBrandId, isBrandListUnavailable, isFetching, isSuccess, scope, scopeIdentity, selectedForCurrentScope]);
 
   const value = useMemo<ActiveBrandContextValue>(
     () => ({
@@ -277,8 +330,9 @@ export function ActiveBrandProvider({ children }: { children: ReactNode }) {
       activeBrand: brands.find((b) => b.brandId === activeBrandId) ?? null,
       setActiveBrandId,
       isLoading,
+      isBrandListUnavailable,
     }),
-    [brands, activeBrandId, setActiveBrandId, isLoading],
+    [brands, activeBrandId, setActiveBrandId, isBrandListUnavailable, isLoading],
   );
 
   return <ActiveBrandContext.Provider value={value}>{children}</ActiveBrandContext.Provider>;

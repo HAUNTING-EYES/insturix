@@ -1,13 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   activateActiveBrandStorageScope,
   createActiveBrandScope,
+  fetchAuthorizedActiveBrands,
   getActiveBrandAccessQueryKey,
   getActiveBrandListQueryKey,
   getActiveBrandScopeIdentity,
   getActiveBrandStorageKey,
   readScopedActiveBrandId,
   reconcileActiveBrandSelection,
+  shouldClearUnauthorizedActiveBrandSelection,
   writeScopedActiveBrandId,
   type ActiveBrandStorageLike,
 } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
@@ -29,6 +31,10 @@ class MemoryStorage implements ActiveBrandStorageLike {
     this.values.delete(key);
   }
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('active brand account and organization scope', () => {
   const personal = createActiveBrandScope('user_admin', null)!;
@@ -82,6 +88,54 @@ describe('active brand account and organization scope', () => {
 
     writeScopedActiveBrandId(persistent, otherAccount, resolved);
     expect(readScopedActiveBrandId(persistent, otherAccount)).toBeNull();
+  });
+
+  it('does not treat an unavailable or in-flight list as evidence to erase a selected brand', () => {
+    expect(shouldClearUnauthorizedActiveBrandSelection({
+      hasScope: true,
+      hasAuthoritativeBrandList: false,
+      selectedBrandId: 'brand_canary',
+      resolvedBrandId: null,
+    })).toBe(false);
+
+    expect(shouldClearUnauthorizedActiveBrandSelection({
+      hasScope: true,
+      hasAuthoritativeBrandList: true,
+      selectedBrandId: 'brand_canary',
+      resolvedBrandId: null,
+    })).toBe(true);
+  });
+
+  it('reads both authorized sources without cache and rejects an unavailable source', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        brands: [{ brandId: 'brand_registry', name: 'Registry Brand' }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ok: true,
+        brands: [{ brandId: 'brand_canary', name: 'Canary Brand' }],
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchAuthorizedActiveBrands()).resolves.toEqual([
+      { brandId: 'brand_registry', name: 'Registry Brand' },
+      { brandId: 'brand_canary', name: 'Canary Brand' },
+    ]);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/services/editron/brands', {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/brand-vault/brands', {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+
+    fetchMock.mockReset()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, brands: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false }), { status: 500 }));
+
+    await expect(fetchAuthorizedActiveBrands()).rejects.toThrow('Brand Vault brand list unavailable');
   });
 
   it('defines two opposite accepted-brand fixtures and a separate restricted identity', () => {

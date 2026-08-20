@@ -90,6 +90,8 @@ describe('Brand Vault signal profile routes', () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('private, no-store, max-age=0, must-revalidate');
+    expect(response.headers.get('vary')).toBe('Cookie');
     expect(payload).toEqual({
       ok: true,
       brands: [

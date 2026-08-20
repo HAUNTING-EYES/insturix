@@ -20,7 +20,13 @@ import { BrandAccessEditor } from './BrandAccessEditor';
 
 export function BrandSwitcher() {
   const pathname = usePathname();
-  const { brands, activeBrand, setActiveBrandId, isLoading } = useActiveBrand();
+  const {
+    brands,
+    activeBrand,
+    setActiveBrandId,
+    isLoading,
+    isBrandListUnavailable,
+  } = useActiveBrand();
   const { userId, orgId, orgRole } = useAuth();
   const isAdmin = orgRole === 'org:admin';
   const scope = useMemo(() => createActiveBrandScope(userId, orgId), [orgId, userId]);
@@ -104,6 +110,11 @@ export function BrandSwitcher() {
             {isAdmin && accessMapUnavailable && (
               <div role="alert" className="mx-3 mb-2 rounded border border-[#8B5A26] bg-[#2A2115] px-2 py-1.5 text-[11px] text-[#E0B266]">
                 Brand access settings are temporarily unavailable.
+              </div>
+            )}
+            {isBrandListUnavailable && (
+              <div role="alert" className="mx-3 mb-2 rounded border border-[#8B5A26] bg-[#2A2115] px-2 py-1.5 text-[11px] text-[#E0B266]">
+                Brand list could not be refreshed. Your selected brand will be kept until it reconnects.
               </div>
             )}
             {brands.length === 0 && (
