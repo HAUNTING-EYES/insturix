@@ -247,7 +247,7 @@ export function parseWebsiteHtml(input: BrandWebsiteDraftInput): ParsedWebsiteEv
   const $ = load(input.html);
   const stylesheetCss = input.stylesheets?.map((stylesheet) => stylesheet.css) ?? [];
   const jsonLd = extractJsonLd($('script[type="application/ld+json"]').map((_, el) => $(el).text()).get());
-  const schema = chooseSchemaObject(jsonLd);
+  const schema = chooseSchemaObject(jsonLd, normalizedUrl);
   const title = cleanText($('title').first().text());
   const metaDescription = meta($, ['description', 'og:description', 'twitter:description']) ?? readString(schema, 'description');
   const siteName = meta($, ['og:site_name', 'application-name']);
@@ -1228,8 +1228,101 @@ function collectJsonObjects(value: unknown, output: Record<string, unknown>[]): 
   if ('@graph' in value) collectJsonObjects(value['@graph'], output);
 }
 
-function chooseSchemaObject(objects: Record<string, unknown>[]): Record<string, unknown> | undefined {
-  return objects.find((obj) => readTypes(obj).some((type) => /organization|localbusiness|corporation|product|brand/i.test(type))) ?? objects[0];
+function chooseSchemaObject(
+  objects: Record<string, unknown>[],
+  normalizedUrl: string,
+): Record<string, unknown> | undefined {
+  const rootUrl = new URL(normalizedUrl);
+  const rootWebsite = objects.find((object) =>
+    hasSchemaType(object, 'website') && schemaObjectMatchesHost(object, rootUrl),
+  );
+
+  if (rootWebsite) {
+    const publisher = resolveSchemaPublisher(rootWebsite, objects, rootUrl);
+    if (publisher && isBrandIdentitySchemaObject(publisher) && schemaObjectMatchesHost(publisher, rootUrl)) {
+      return publisher;
+    }
+    if (readString(rootWebsite, 'name')) return rootWebsite;
+    if (publisher && isBrandIdentitySchemaObject(publisher) && !schemaObjectHasExplicitDifferentHost(publisher, rootUrl)) {
+      return publisher;
+    }
+  }
+
+  const hostBoundIdentity = objects.find((object) =>
+    isBrandIdentitySchemaObject(object) && schemaObjectMatchesHost(object, rootUrl),
+  );
+  if (hostBoundIdentity) return hostBoundIdentity;
+
+  // Legacy JSON-LD often omits both url and @id. Preserve the old ranking only when the
+  // document cannot establish which entity owns the scanned host.
+  return objects.find(isBrandIdentitySchemaObject) ?? objects[0];
+}
+
+function hasSchemaType(object: Record<string, unknown>, type: string): boolean {
+  return readTypes(object).some((candidate) => candidate.toLowerCase() === type);
+}
+
+function isBrandIdentitySchemaObject(object: Record<string, unknown>): boolean {
+  return readTypes(object).some((type) => /organization|localbusiness|corporation|product|brand|person/i.test(type));
+}
+
+function resolveSchemaPublisher(
+  website: Record<string, unknown>,
+  objects: Record<string, unknown>[],
+  rootUrl: URL,
+): Record<string, unknown> | undefined {
+  const reference = website.publisher ?? website.creator ?? website.author;
+  const referenceIds = schemaReferenceIds(reference, rootUrl);
+  if (referenceIds.length > 0) {
+    const referenced = objects.find((object) =>
+      schemaReferenceIds(object['@id'], rootUrl).some((id) => referenceIds.includes(id)),
+    );
+    if (referenced) return referenced;
+  }
+  return isRecord(reference) ? reference : undefined;
+}
+
+function schemaReferenceIds(value: unknown, rootUrl: URL): string[] {
+  const rawIds = Array.isArray(value)
+    ? value.flatMap((item) => schemaReferenceIds(item, rootUrl))
+    : typeof value === 'string'
+      ? [value]
+      : isRecord(value)
+        ? [readString(value, '@id')]
+        : [];
+  return rawIds.flatMap((rawId) => {
+    if (!rawId) return [];
+    try {
+      return [new URL(rawId, rootUrl).toString()];
+    } catch {
+      return [rawId];
+    }
+  });
+}
+
+function schemaObjectMatchesHost(object: Record<string, unknown>, rootUrl: URL): boolean {
+  return schemaObjectHosts(object, rootUrl).includes(normalizedSchemaHost(rootUrl));
+}
+
+function schemaObjectHasExplicitDifferentHost(object: Record<string, unknown>, rootUrl: URL): boolean {
+  const hosts = schemaObjectHosts(object, rootUrl);
+  return hosts.length > 0 && !hosts.includes(normalizedSchemaHost(rootUrl));
+}
+
+function schemaObjectHosts(object: Record<string, unknown>, rootUrl: URL): string[] {
+  return [readString(object, 'url'), readString(object, '@id')]
+    .flatMap((value) => {
+      if (!value) return [];
+      try {
+        return [normalizedSchemaHost(new URL(value, rootUrl))];
+      } catch {
+        return [];
+      }
+    });
+}
+
+function normalizedSchemaHost(url: URL): string {
+  return url.hostname.toLowerCase().replace(/^www\./, '');
 }
 
 function extractColors($: ReturnType<typeof load>, stylesheetCss: string[] = []): string[] {

@@ -190,6 +190,62 @@ describe('Brand website refinery', () => {
     expect(validation.warnings.some((issue) => issue.path === 'voice.killList')).toBe(true);
   });
 
+  it('uses the scanned site identity instead of an affiliated off-domain organization in JSON-LD', () => {
+    const result = createWebsiteBrandSignalProfile({
+      websiteUrl: 'https://nimitgotnolimit.example',
+      brandId: 'brand_personal_site',
+      userId: 'user_1',
+      fetchedAt: NOW,
+      jobId: 'job_personal_site',
+      html: `
+        <!doctype html>
+        <html>
+          <head>
+            <title>Nimit Jain, Founder & CEO of Insturix</title>
+            <meta property="og:site_name" content="Nimit Jain">
+            <script type="application/ld+json">
+              {
+                "@context": "https://schema.org",
+                "@graph": [
+                  {
+                    "@type": "Person",
+                    "@id": "https://nimitgotnolimit.example/#nimit",
+                    "name": "Nimit Jain",
+                    "url": "https://nimitgotnolimit.example/",
+                    "worksFor": { "@id": "https://insturix.example/#organization" }
+                  },
+                  {
+                    "@type": "Organization",
+                    "@id": "https://insturix.example/#organization",
+                    "name": "Insturix",
+                    "url": "https://insturix.example/"
+                  },
+                  {
+                    "@type": "WebSite",
+                    "@id": "https://nimitgotnolimit.example/#website",
+                    "name": "Nimit Jain",
+                    "url": "https://nimitgotnolimit.example/",
+                    "publisher": { "@id": "https://nimitgotnolimit.example/#nimit" }
+                  }
+                ]
+              }
+            </script>
+          </head>
+          <body><h1>Nimit Jain</h1></body>
+        </html>
+      `,
+    });
+
+    expect(result.profile.identity.brandName).toMatchObject({
+      value: 'Nimit Jain',
+      trustLevel: 'first_party_website',
+    });
+    expect(result.candidates.find((candidate) => candidate.signalPath === 'identity.brandName')).toMatchObject({
+      sourceType: 'json_ld',
+      rawValue: 'Nimit Jain',
+    });
+  });
+
   it('keeps distinctive brand colors from noisy compiled frontend CSS', () => {
     const neutralCss = Array.from({ length: 48 }, (_, index) => {
       const channel = (24 + index * 3).toString(16).padStart(2, '0').slice(-2);
