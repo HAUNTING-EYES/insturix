@@ -858,6 +858,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               ...authoringContextSnapshot.retrieval.projectFactIds,
               ...authoringContextSnapshot.retrieval.globalFactIds,
             ],
+            sourceLedger,
             sourceLedgerEntryIds: sourceLedger.entries.map((entry) => entry.referenceId),
           });
 

@@ -18,6 +18,11 @@ import {
   ThinkForgeIdeaAngleSchema,
   type ThinkForgeIdeaAngle,
 } from '../schemas/idea-angle';
+import {
+  parseSourceLedger,
+  resolveThinkForgeSourceLedgerEvidenceBoundary,
+  type SourceLedger,
+} from '../provenance/source-ledger';
 import type { ThinkForgeContentSignalProfile } from '../signals';
 
 export const THINKFORGE_EDITORIAL_PLAN_VERSION = 2;
@@ -118,6 +123,7 @@ export interface BuildThinkForgeEditorialPlanInput {
   productionBrief?: ScriptEditorialPlanInput['productionBrief'];
   editorialAngle?: ThinkForgeIdeaAngle | null;
   authorizedFactIds?: readonly string[];
+  sourceLedger?: SourceLedger | null;
   sourceLedgerEntryIds?: readonly string[];
 }
 
@@ -196,6 +202,10 @@ function normalizeEvidenceIds(
     }
   }
   return normalized;
+}
+
+function hasSameEvidenceIds(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((id) => right.includes(id));
 }
 
 function normalizedBriefDuration(
@@ -283,10 +293,23 @@ export function buildThinkForgeEditorialPlan(
   const editorialAngle = parseEditorialAngle(input.editorialAngle);
   const identity = getWritingKnowledgeIdentity();
   const authorizedFactIds = normalizeEvidenceIds(input.authorizedFactIds, 'authorizedFactIds');
-  const sourceLedgerEntryIds = normalizeEvidenceIds(
+  const suppliedSourceLedgerEntryIds = normalizeEvidenceIds(
     input.sourceLedgerEntryIds,
     'sourceLedgerEntryIds',
   );
+  const sourceLedger = input.sourceLedger ? parseSourceLedger(input.sourceLedger) : null;
+  const sourceLedgerEntryIds = sourceLedger?.entries.map((entry) => entry.referenceId)
+    ?? suppliedSourceLedgerEntryIds;
+  if (
+    sourceLedger
+    && suppliedSourceLedgerEntryIds.length > 0
+    && !hasSameEvidenceIds(suppliedSourceLedgerEntryIds, sourceLedgerEntryIds)
+  ) {
+    throw new ThinkForgeEditorialPlanError(
+      'EDITORIAL_PLAN_INPUT_CONFLICT',
+      'Editorial planning received source ledger IDs that do not match the canonical source ledger',
+    );
+  }
   const common: {
     version: typeof THINKFORGE_EDITORIAL_PLAN_VERSION;
     authoringRequest: ThinkForgeAuthoringRequest;
@@ -353,9 +376,7 @@ export function buildThinkForgeEditorialPlan(
       },
       evidence: {
         ...common.evidence,
-        boundary: authorizedFactIds.length + sourceLedgerEntryIds.length > 0
-          ? 'bounded_implication'
-          : 'source_only',
+        boundary: resolveThinkForgeSourceLedgerEvidenceBoundary(sourceLedger),
       },
       resolvedProduction: targetDurationSec === undefined ? {} : { targetDurationSec },
       execution: { kind: 'script', plan },

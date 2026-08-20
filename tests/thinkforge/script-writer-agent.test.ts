@@ -372,17 +372,32 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(output.result).toEqual(materializeScriptWriterResult(modelOutput));
   });
 
-  it('derives directly supported provenance and removes only duplicate visible copy before validation', async () => {
+  it('derives aggregate provenance from directly supported user-facing claims', async () => {
     const userPrompt = 'Adobe raised prices by 12 percent.';
-    const sourceLedger = buildThinkForgeSourceLedger({ userPrompt });
+    const sourceLedger = buildThinkForgeSourceLedger({
+      userPrompt,
+      retrievedContext: {
+        brandDNA: {},
+        projectFacts: [{
+          id: 'pricing_review',
+          title: 'Pricing review',
+          summary: 'An internal pricing review is in progress.',
+          tags: [],
+        }],
+        globalFacts: [],
+        semanticFacts: [],
+        interactionPatterns: [],
+      },
+    });
     const modelOutput = makeModelOutput();
     const scene = modelOutput.sidecar.acts[0]!.narrativeScenes[0]!;
     const beat = scene.beats[0]!;
+    modelOutput.sidecar.sourceRefs = ['source_1'];
     scene.title = userPrompt;
     scene.narrativePurpose = userPrompt;
-    scene.sourceRefs = [];
+    scene.sourceRefs = ['source_1'];
     beat.narrativePurpose = userPrompt;
-    beat.sourceRefs = [];
+    beat.sourceRefs = ['source_1'];
     beat.visualIntent = {
       ...beat.visualIntent!,
       description: userPrompt,
@@ -391,7 +406,7 @@ describe('ScriptWriterAgent structured generation', () => {
     beat.lines = [{
       ...beat.lines[0]!,
       text: userPrompt,
-      sourceRefs: [],
+      sourceRefs: ['source_1'],
     }];
     generateStructuredWithWritingContextCacheMock.mockResolvedValue({
       result: modelOutput,
@@ -408,6 +423,8 @@ describe('ScriptWriterAgent structured generation', () => {
     const normalizedBeat = normalizedScene.beats[0]!;
 
     expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
+    expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.prompt)
+      .toContain('"boundary": "source_only"');
     expect(output.metadata?.notes).not.toContain('script_contract_repair:applied');
     expect(output.result.sidecar.sourceRefs).toEqual(['brief_user']);
     expect(normalizedScene.sourceRefs).toEqual(['brief_user']);
@@ -523,7 +540,7 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
     const initialCall = generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0];
     const repairCall = generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0];
-    expect(initialCall?.prompt).toContain('"boundary": "bounded_implication"');
+    expect(initialCall?.prompt).toContain('"boundary": "source_only"');
     expect(repairCall?.systemInstruction).toContain('source_ref_low_support');
     expect(repairCall?.systemInstruction).toContain('A valid reference ID is not proof');
     expect(repairCall?.prompt).toContain('"evidencePolicy"');
@@ -1041,7 +1058,7 @@ describe('native Script Sidecar V2 production semantics', () => {
     })).not.toThrow();
   });
 
-  it('reports missing factual provenance independently at scene, beat, and line level', () => {
+  it('requires provenance on user-facing factual copy, not internal metadata', () => {
     const ledger = buildThinkForgeSourceLedger({ userPrompt: 'Adobe raised prices by 12 percent.' });
     const factBeat = makeBeat(1, {
       narrativePurpose: 'Explain the 12 percent price change.',
@@ -1072,9 +1089,27 @@ describe('native Script Sidecar V2 production semantics', () => {
       message = error instanceof Error ? error.message : String(error);
     }
 
-    expect(message).toContain('missing_source_ref:act_1.scene_1');
-    expect(message).toContain('missing_source_ref:act_1.scene_1.beat_1');
     expect(message).toContain('missing_source_ref:act_1.scene_1.beat_1.line_1');
+    expect(message).not.toMatch(/missing_source_ref:act_1\.scene_1(?:,|$)/);
+    expect(message).not.toMatch(/missing_source_ref:act_1\.scene_1\.beat_1(?:,|$)/);
+  });
+
+  it('does not demand a citation for a question that mentions sourced timing', () => {
+    const ledger = buildThinkForgeSourceLedger({
+      userPrompt: 'HarborGrid documented a six-month pilot.',
+    });
+    const questionBeat = makeBeat(1, {
+      lines: [{
+        ...makeBeat(1).lines[0]!,
+        text: 'What changed across the six-month pilot?',
+        sourceRefs: [],
+      }],
+    });
+    const sidecar = sidecarWithScenes([makeScene(1, { beats: [questionBeat] })]);
+
+    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar), {
+      sourceLedger: ledger,
+    })).not.toThrow();
   });
 
   it('rejects source references that do not exist in the authorised ledger', () => {

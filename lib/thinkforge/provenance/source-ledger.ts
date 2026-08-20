@@ -55,6 +55,7 @@ export const SourceLedgerSchema = z.object({
 
 export type SourceLedgerEntry = z.infer<typeof SourceLedgerEntrySchema>;
 export type SourceLedger = z.infer<typeof SourceLedgerSchema>;
+export type ThinkForgeSourceLedgerEvidenceBoundary = 'source_only' | 'bounded_implication';
 
 export interface BuildThinkForgeSourceLedgerInput {
   userPrompt: string;
@@ -166,6 +167,25 @@ function factEntry(
 
 export function parseSourceLedger(input: unknown): SourceLedger {
   return SourceLedgerSchema.parse(input);
+}
+
+/**
+ * A user brief or internal project summary can establish direct facts, but it cannot license
+ * causal or market-level inference. That broader boundary requires independently attributable
+ * material such as research, an upload, or an explicit source URL.
+ */
+export function resolveThinkForgeSourceLedgerEvidenceBoundary(
+  ledger: SourceLedger | null | undefined,
+): ThinkForgeSourceLedgerEvidenceBoundary {
+  if (!ledger) return 'source_only';
+
+  return parseSourceLedger(ledger).entries.some((entry) => (
+    entry.kind === 'research_source'
+    || entry.kind === 'upload'
+    || Boolean(entry.sourceUrl)
+  ))
+    ? 'bounded_implication'
+    : 'source_only';
 }
 
 export function buildThinkForgeSourceLedger(input: BuildThinkForgeSourceLedgerInput): SourceLedger {
@@ -311,10 +331,14 @@ function hasExactEvidenceContainment(text: string, entry: SourceLedgerEntry): bo
 function hasDirectFactualSupport(text: string, entry: SourceLedgerEntry): boolean {
   if (!overlapsEntry(text, entry)) return false;
   if (hasExactEvidenceContainment(text, entry)) return true;
-  if (!hasUnicodeFactualMarker(text)) return false;
 
   const evidenceText = entryEvidenceText(entry);
   const evidenceTokens = tokenSet(evidenceText);
+  if (!hasUnicodeFactualMarker(text)) {
+    const claimTokens = tokenSet(text);
+    return claimTokens.size >= 2 && [...claimTokens].every((token) => evidenceTokens.has(token));
+  }
+
   if (factualAnchorTokens(text).some((anchor) => !evidenceTokens.has(anchor))) return false;
 
   const evidenceUrls = new Set(sourceUrls(evidenceText));
@@ -374,14 +398,19 @@ function addUnsupportedCitationIssues(
   }
 
   const claimTokens = tokenSet(normalized);
-  if (claimTokens.size >= 2 && !citedEntries.some((entry) => overlapsEntry(normalized, entry))) {
+  if (claimTokens.size >= 2 && !citedEntries.some((entry) => hasDirectFactualSupport(normalized, entry))) {
     issues.push(`source_ref_low_support:${label}`);
   }
+}
+
+function isQuestion(text: string): boolean {
+  return /[?？]$/u.test(text.trim());
 }
 
 function requiresSourceRef(text: string, ledger: SourceLedger): boolean {
   const normalized = cleanText(text, 4000);
   if (!normalized) return false;
+  if (isQuestion(normalized)) return false;
   if (hasUnicodeFactualMarker(normalized)) return true;
   return ledger.entries.some((entry) => overlapsEntry(normalized, entry));
 }
@@ -403,8 +432,7 @@ export function findSourceLedgerIssuesForSidecar(
     const sceneLabel = `scene_${sceneIndex + 1}`;
     addInvalidRefs(issues, scene.sourceRefs, allowed, sceneLabel);
 
-    const sceneFactText = [scene.title, scene.narration, scene.visualDescription].filter(Boolean).join(' ');
-    if (requiresSourceRef(sceneFactText, parsedLedger) && (scene.sourceRefs ?? []).length === 0) {
+    if (requiresSourceRef(scene.narration ?? '', parsedLedger) && (scene.sourceRefs ?? []).length === 0) {
       issues.push(`missing_source_ref:${sceneLabel}`);
     }
     addUnsupportedCitationIssues(
@@ -414,16 +442,6 @@ export function findSourceLedgerIssuesForSidecar(
       entriesById,
       `${sceneLabel}.narration`,
     );
-    if (hasUnicodeFactualMarker(scene.visualDescription ?? '')) {
-      addUnsupportedCitationIssues(
-        issues,
-        scene.visualDescription,
-        scene.sourceRefs,
-        entriesById,
-        `${sceneLabel}.visual`,
-      );
-    }
-
     scene.lines?.forEach((line, lineIndex) => {
       const lineLabel = `${sceneLabel}.line_${lineIndex + 1}`;
       addInvalidRefs(issues, line.sourceRefs, allowed, lineLabel);
@@ -455,39 +473,21 @@ export function findSourceLedgerIssuesForNarrativeSidecar(
       const sceneLabel = `act_${actIndex + 1}.scene_${sceneIndex + 1}`;
       addInvalidRefs(issues, scene.sourceRefs, allowed, sceneLabel);
 
-      const sceneFactText = [scene.title, scene.narrativePurpose].filter(Boolean).join(' ');
-      if (requiresSourceRef(sceneFactText, parsedLedger) && (scene.sourceRefs ?? []).length === 0) {
-        issues.push(`missing_source_ref:${sceneLabel}`);
-      }
-
       scene.beats?.forEach((beat, beatIndex) => {
         const beatLabel = `${sceneLabel}.beat_${beatIndex + 1}`;
         addInvalidRefs(issues, beat.sourceRefs, allowed, beatLabel);
 
-        const beatFactText = [
-          beat.narrativePurpose,
-          beat.visualIntent?.description,
-          ...(beat.visualIntent?.onScreenText ?? []),
-        ].filter(Boolean).join(' ');
-        if (requiresSourceRef(beatFactText, parsedLedger) && (beat.sourceRefs ?? []).length === 0) {
-          issues.push(`missing_source_ref:${beatLabel}`);
-        }
-        if (hasUnicodeFactualMarker(beat.visualIntent?.description ?? '')) {
-          addUnsupportedCitationIssues(
-            issues,
-            beat.visualIntent?.description,
-            beat.sourceRefs,
-            entriesById,
-            `${beatLabel}.visual`,
-          );
-        }
         beat.visualIntent?.onScreenText?.forEach((text, textIndex) => {
+          const onScreenTextLabel = `${beatLabel}.on_screen_text_${textIndex + 1}`;
+          if (requiresSourceRef(text, parsedLedger) && (beat.sourceRefs ?? []).length === 0) {
+            issues.push(`missing_source_ref:${onScreenTextLabel}`);
+          }
           addUnsupportedCitationIssues(
             issues,
             text,
             beat.sourceRefs,
             entriesById,
-            `${beatLabel}.on_screen_text_${textIndex + 1}`,
+            onScreenTextLabel,
           );
         });
 
