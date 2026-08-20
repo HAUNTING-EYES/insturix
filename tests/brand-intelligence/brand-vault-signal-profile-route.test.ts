@@ -355,4 +355,32 @@ describe('Brand Vault signal profile routes', () => {
     });
     expect(mocks.listJobSnapshots).not.toHaveBeenCalled();
   });
+
+  it('fails closed when organization scan-history access cannot be verified', async () => {
+    const unavailableStores = [
+      { listJobSnapshots: mocks.listJobSnapshots },
+      {
+        listJobSnapshots: mocks.listJobSnapshots,
+        getBrandAccessGrants: vi.fn().mockRejectedValue(new Error('brand access storage unavailable')),
+      },
+    ];
+
+    for (const store of unavailableStores) {
+      mocks.getDefaultBrandVaultRefineryStore.mockReturnValue(store);
+
+      const response = await GET_SCANS(scansRequest(), {
+        params: Promise.resolve({ brandId: 'brand_route' }),
+      });
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        ok: false,
+        error: {
+          code: 'brand_scope_unavailable',
+          message: 'Brand Vault cannot verify organization brand access.',
+        },
+      });
+    }
+    expect(mocks.listJobSnapshots).not.toHaveBeenCalled();
+  });
 });

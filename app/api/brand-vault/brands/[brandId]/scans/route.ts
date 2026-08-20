@@ -14,6 +14,15 @@ const MAX_LIMIT = 50;
 
 type Params = { params: Promise<{ brandId: string }> };
 
+type BrandScanHistoryAccessDecision =
+  | { allowed: true }
+  | {
+      allowed: false;
+      status: 403 | 503;
+      code: 'forbidden' | 'brand_scope_unavailable';
+      message: string;
+    };
+
 export interface BrandVaultBrandScanSummary {
   jobId: string;
   brandId: string | null;
@@ -61,10 +70,10 @@ export async function GET(request: Request, { params }: Params) {
 
   const isOrgAdmin = Boolean(orgId && has({ role: 'org:admin' }));
   const access = await canReadBrandScanHistory(store, { orgId: orgId ?? null, userId, brandId, isOrgAdmin });
-  if (!access) {
+  if (!access.allowed) {
     return NextResponse.json(
-      { ok: false, error: { code: 'forbidden', message: 'You do not have access to this brand.' } },
-      { status: 403 },
+      { ok: false, error: { code: access.code, message: access.message } },
+      { status: access.status },
     );
   }
 
@@ -115,10 +124,10 @@ export async function DELETE(request: Request, { params }: Params) {
 
   const isOrgAdmin = Boolean(orgId && has({ role: 'org:admin' }));
   const access = await canReadBrandScanHistory(store, { orgId: orgId ?? null, userId, brandId, isOrgAdmin });
-  if (!access) {
+  if (!access.allowed) {
     return NextResponse.json(
-      { ok: false, error: { code: 'forbidden', message: 'You do not have access to this brand.' } },
-      { status: 403 },
+      { ok: false, error: { code: access.code, message: access.message } },
+      { status: access.status },
     );
   }
 
@@ -136,11 +145,34 @@ export async function DELETE(request: Request, { params }: Params) {
 async function canReadBrandScanHistory(
   store: BrandVaultRefineryStore,
   args: { orgId: string | null; userId: string; brandId: string; isOrgAdmin: boolean },
-): Promise<boolean> {
-  if (!args.orgId || args.isOrgAdmin || !store.getBrandAccessGrants) return true;
-  const grants = await store.getBrandAccessGrants(args.orgId);
-  const restrictedUserIds = grants.get(args.brandId);
-  return !restrictedUserIds?.length || restrictedUserIds.includes(args.userId);
+): Promise<BrandScanHistoryAccessDecision> {
+  if (!args.orgId || args.isOrgAdmin) return { allowed: true };
+  if (!store.getBrandAccessGrants) return brandScanHistoryAccessUnavailable();
+
+  try {
+    const grants = await store.getBrandAccessGrants(args.orgId);
+    const restrictedUserIds = grants.get(args.brandId);
+    if (!restrictedUserIds?.length || restrictedUserIds.includes(args.userId)) {
+      return { allowed: true };
+    }
+    return {
+      allowed: false,
+      status: 403,
+      code: 'forbidden',
+      message: 'You do not have access to this brand.',
+    };
+  } catch {
+    return brandScanHistoryAccessUnavailable();
+  }
+}
+
+function brandScanHistoryAccessUnavailable(): BrandScanHistoryAccessDecision {
+  return {
+    allowed: false,
+    status: 503,
+    code: 'brand_scope_unavailable',
+    message: 'Brand Vault cannot verify organization brand access.',
+  };
 }
 
 async function listScopedBrandScans(
