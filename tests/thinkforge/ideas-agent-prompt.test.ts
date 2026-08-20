@@ -262,6 +262,45 @@ describe('IdeasAgent typed authoring contract', () => {
     expect(recoveryCall.seed).toBe(firstCall.seed);
   });
 
+  it('accepts a detailed creative treatment instead of rejecting it at the obsolete 240-character boundary', async () => {
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+    const detailedTreatment = [
+      'An expert-led, comprehensive explainer that starts with the founder decision that makes a moat necessary,',
+      'then moves through two concrete examples before landing on a practical diagnostic founders can use this week.',
+      'Use clear visual chaptering and an unhurried pace appropriate to a seven-minute video.',
+    ].join(' ');
+    expect(detailedTreatment.length).toBeGreaterThan(240);
+    expect(detailedTreatment.length).toBeLessThanOrEqual(1_000);
+
+    aiMocks.generateObject.mockReset().mockResolvedValue({
+      object: {
+        ideas: diverseIdeas().map((idea, index) => ({
+          ...idea,
+          ...(index === 0 ? { style: detailedTreatment } : {}),
+        })),
+      },
+      usage: {},
+    });
+
+    const agent = new IdeasAgent(undefined, { embeddingProvider: async () => null });
+    const ideas = await agent.generateIdeas(
+      'Create four seven-minute YouTube video ideas about sustainable competitive advantage.',
+      withRequest(YOUTUBE_LONG_SCRIPT_REQUEST),
+    );
+
+    expect(ideas[0]?.style).toBe(detailedTreatment);
+    expect(ideas[0]?.editorialAngle?.creativeTreatment).toBe(detailedTreatment);
+    expect(agent.buildPrompt({
+      context: { projectSummary: '', systemBrief: '' },
+      userPrompt: 'Create a video idea.',
+      authoringRequest: YOUTUBE_LONG_SCRIPT_REQUEST,
+      editorialPlan: buildThinkForgeEditorialPlan({
+        userPrompt: 'Create a video idea.',
+        authoringRequest: YOUTUBE_LONG_SCRIPT_REQUEST,
+      }),
+    })).toContain('never exceed 1000 characters');
+  });
+
   it('honors an explicit output budget instead of silently escalating it', async () => {
     process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
     const lengthFailure = Object.assign(

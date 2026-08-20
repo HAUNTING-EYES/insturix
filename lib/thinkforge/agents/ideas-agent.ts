@@ -16,14 +16,19 @@ import {
   ThinkForgeAuthoringRequestSchema,
   type ThinkForgeAuthoringRequest,
 } from '../schemas/authoring-request';
-import { buildThinkForgeIdeaAngle } from '../schemas/idea-angle';
+import {
+  buildThinkForgeIdeaAngle,
+  THINKFORGE_IDEA_ANGLE_PURPOSE_MAX_CHARS,
+  THINKFORGE_IDEA_ANGLE_TITLE_MAX_CHARS,
+  THINKFORGE_IDEA_ANGLE_TREATMENT_MAX_CHARS,
+} from '../schemas/idea-angle';
 import type { ThinkForgeEditorialPlan } from './editorial-plan';
 
 const IdeaSchema = z.object({
-  id: z.string(),
-  idea: z.string().max(120),
-  purpose: z.string().max(500),
-  style: z.string().max(240),
+  id: z.string().trim().min(1),
+  idea: z.string().trim().min(1).max(THINKFORGE_IDEA_ANGLE_TITLE_MAX_CHARS),
+  purpose: z.string().trim().min(1).max(THINKFORGE_IDEA_ANGLE_PURPOSE_MAX_CHARS),
+  style: z.string().trim().min(1).max(THINKFORGE_IDEA_ANGLE_TREATMENT_MAX_CHARS),
   tone: z.enum(['white', 'red', 'black', 'yellow', 'green', 'blue']),
 });
 
@@ -260,9 +265,9 @@ ${isQualityRepair ? '- This is one bounded repair. Resolve every generation.qual
 
 ## Output schema per idea
 - id: "idea_1" through "idea_4"
-- idea: specific title, maximum 80 characters
-- purpose: unique strategic job of this angle, 1-2 sentences
-- style: editorial or visual treatment appropriate to the fixed output contract
+ - idea: specific title, aim for 80 characters and never exceed ${THINKFORGE_IDEA_ANGLE_TITLE_MAX_CHARS}
+ - purpose: unique strategic job of this angle, 1-2 sentences, never exceed ${THINKFORGE_IDEA_ANGLE_PURPOSE_MAX_CHARS} characters
+ - style: one compact editorial or visual treatment appropriate to the fixed output contract; never exceed ${THINKFORGE_IDEA_ANGLE_TREATMENT_MAX_CHARS} characters
 - tone: one of white, red, black, yellow, green, blue
 
 Generate 4 ideas now.`;
@@ -309,9 +314,9 @@ Generate 4 ideas now.`;
         userRequest: 12_000,
         projectSummary: 12_000,
         brandContext: 24_000,
-        title: 160,
-        purpose: 500,
-        style: 240,
+        title: THINKFORGE_IDEA_ANGLE_TITLE_MAX_CHARS,
+        purpose: THINKFORGE_IDEA_ANGLE_PURPOSE_MAX_CHARS,
+        style: THINKFORGE_IDEA_ANGLE_TREATMENT_MAX_CHARS,
         qualityRepairIssues: 4_000,
       },
     });
