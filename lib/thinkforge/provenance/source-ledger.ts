@@ -300,6 +300,53 @@ function sourceUrls(text: string): string[] {
     .map((url) => normalizeUnicodeText(url.replace(/[),.;!?]+$/u, '')));
 }
 
+function hasExactEvidenceContainment(text: string, entry: SourceLedgerEntry): boolean {
+  const normalizedText = normalizeUnicodeText(text);
+  const normalizedEvidence = normalizeUnicodeText(entryEvidenceText(entry));
+  return normalizedText.length >= 4
+    && normalizedEvidence.length >= 4
+    && (normalizedText.includes(normalizedEvidence) || normalizedEvidence.includes(normalizedText));
+}
+
+function hasDirectFactualSupport(text: string, entry: SourceLedgerEntry): boolean {
+  if (!overlapsEntry(text, entry)) return false;
+  if (hasExactEvidenceContainment(text, entry)) return true;
+  if (!hasUnicodeFactualMarker(text)) return false;
+
+  const evidenceText = entryEvidenceText(entry);
+  const evidenceTokens = tokenSet(evidenceText);
+  if (factualAnchorTokens(text).some((anchor) => !evidenceTokens.has(anchor))) return false;
+
+  const evidenceUrls = new Set(sourceUrls(evidenceText));
+  if (sourceUrls(text).some((url) => !evidenceUrls.has(url))) return false;
+
+  const nonNumericTextTokens = new Set(
+    [...tokenSet(text)].filter((token) => !/^\p{N}/u.test(token)),
+  );
+  const nonNumericEvidenceTokens = new Set(
+    [...evidenceTokens].filter((token) => !/^\p{N}/u.test(token)),
+  );
+  return tokenOverlapCount(nonNumericTextTokens, nonNumericEvidenceTokens) >= 2;
+}
+
+/**
+ * Returns only source IDs whose evidence directly supports the supplied text. This intentionally
+ * refuses keyword-only matches so the writer can never repair an unsupported claim by auto-citing
+ * a merely related ledger entry.
+ */
+export function findDirectlySupportingSourceReferenceIds(
+  text: string | undefined,
+  ledger: SourceLedger | null | undefined,
+): string[] {
+  if (!ledger) return [];
+  const normalized = cleanText(text, 4000);
+  if (!normalized) return [];
+
+  return parseSourceLedger(ledger).entries
+    .filter((entry) => hasDirectFactualSupport(normalized, entry))
+    .map((entry) => entry.referenceId);
+}
+
 function addUnsupportedCitationIssues(
   issues: string[],
   text: string | undefined,

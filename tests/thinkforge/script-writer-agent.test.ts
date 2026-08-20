@@ -267,6 +267,8 @@ describe('ScriptWriterAgent prompt contract', () => {
     expect(prompt).toContain('Runtime never creates, forbids, or counts acts, scenes, or beats');
     expect(prompt).toContain('structure.recommendedTechniques are advisory candidates');
     expect(prompt).toContain('Every spoken line declares its actual languageCode');
+    expect(prompt).toContain('creative narration keeps an empty sourceRefs array');
+    expect(prompt).toContain('do not carry a citation mechanically across the sidecar');
     expect(prompt).toContain('Do not author visible markdown, duplicate narration fields, or renderPlan');
     expect(prompt).toContain('Do not split, shorten, translate, or move speech merely to satisfy a renderer');
     expect(prompt).toContain('Never target an arbitrary on-camera ratio');
@@ -368,6 +370,50 @@ describe('ScriptWriterAgent structured generation', () => {
     });
     expect(output.metadata?.notes).toBe('writing_context_cache:hit');
     expect(output.result).toEqual(materializeScriptWriterResult(modelOutput));
+  });
+
+  it('derives directly supported provenance and removes only duplicate visible copy before validation', async () => {
+    const userPrompt = 'Adobe raised prices by 12 percent.';
+    const sourceLedger = buildThinkForgeSourceLedger({ userPrompt });
+    const modelOutput = makeModelOutput();
+    const scene = modelOutput.sidecar.acts[0]!.narrativeScenes[0]!;
+    const beat = scene.beats[0]!;
+    scene.title = userPrompt;
+    scene.narrativePurpose = userPrompt;
+    scene.sourceRefs = [];
+    beat.narrativePurpose = userPrompt;
+    beat.sourceRefs = [];
+    beat.visualIntent = {
+      ...beat.visualIntent!,
+      description: userPrompt,
+      onScreenText: [userPrompt],
+    };
+    beat.lines = [{
+      ...beat.lines[0]!,
+      text: userPrompt,
+      sourceRefs: [],
+    }];
+    generateStructuredWithWritingContextCacheMock.mockResolvedValue({
+      result: modelOutput,
+      cacheStatus: 'hit',
+      modelName: 'models/gemini-2.5-flash',
+    });
+
+    const output = await new ScriptWriterAgent().runStructured({
+      context: { projectSummary: 'Evidence-led pricing update.' },
+      userPrompt,
+      sourceLedger,
+    });
+    const normalizedScene = output.result.sidecar.acts[0]!.narrativeScenes[0]!;
+    const normalizedBeat = normalizedScene.beats[0]!;
+
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
+    expect(output.metadata?.notes).not.toContain('script_contract_repair:applied');
+    expect(output.result.sidecar.sourceRefs).toEqual(['brief_user']);
+    expect(normalizedScene.sourceRefs).toEqual(['brief_user']);
+    expect(normalizedBeat.sourceRefs).toEqual(['brief_user']);
+    expect(normalizedBeat.lines[0]?.sourceRefs).toEqual(['brief_user']);
+    expect(normalizedBeat.visualIntent?.onScreenText).toEqual([]);
   });
 
   it.each([

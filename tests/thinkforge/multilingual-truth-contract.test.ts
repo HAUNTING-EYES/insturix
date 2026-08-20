@@ -8,6 +8,7 @@ import {
 import { buildPostEditorialPlan } from '@/lib/thinkforge/agents/post-editorial-plan';
 import {
   buildThinkForgeSourceLedger,
+  findDirectlySupportingSourceReferenceIds,
   findSourceLedgerIssuesForNarrativeSidecar,
   findSourceLedgerIssuesForSidecar,
 } from '@/lib/thinkforge/provenance/source-ledger';
@@ -199,6 +200,25 @@ describe('source-ledger truth contract', () => {
 
     expect(issues).not.toContain('source_ref_marker_mismatch:act_1.scene_1.beat_1.line_1');
     expect(issues).not.toContain('source_ref_low_support:act_1.scene_1.beat_1.line_1');
+  });
+
+  it('resolves citations only for directly supported factual claims', () => {
+    const ledger = buildThinkForgeSourceLedger({
+      userPrompt: 'HarborGrid replaced 18 yard tractors and idling fuel use fell 31%.',
+    });
+
+    expect(findDirectlySupportingSourceReferenceIds(
+      'After HarborGrid replaced 18 yard tractors, idling fuel use was 31% lower.',
+      ledger,
+    )).toEqual(['brief_user']);
+    expect(findDirectlySupportingSourceReferenceIds(
+      'HarborGrid recorded a 31% decline in air pollution.',
+      ledger,
+    )).toEqual([]);
+    expect(findDirectlySupportingSourceReferenceIds(
+      'HarborGrid replaced 18 yard tractors and idling fuel use fell 41%.',
+      ledger,
+    )).toEqual([]);
   });
 });
 
