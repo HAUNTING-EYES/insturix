@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, Check, ChevronDown, Globe, Lock } from 'lucide-react';
+import { Building2, Check, ChevronDown, CircleAlert, Globe, Loader2, Lock } from 'lucide-react';
 import {
   createActiveBrandScope,
   getActiveBrandAccessQueryKey,
@@ -31,12 +31,25 @@ export function BrandSwitcher() {
 
   // Access chips (#3 — option C): the org's restricted-brand map. Admin-only data; the endpoint returns
   // an empty map for non-admins, and chips render only when isAdmin, so members never see them.
-  const { data: accessData } = useQuery({
+  const {
+    data: accessData,
+    isError: accessMapUnavailable,
+    isFetching: accessMapLoading,
+  } = useQuery({
     queryKey: getActiveBrandAccessQueryKey(scope),
     queryFn: async (): Promise<{ ok: boolean; grants: Record<string, string[]> }> => {
       const res = await fetch('/api/brand-vault/brands/access', { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load brand access map');
-      return res.json();
+      const payload = await res.json().catch(() => null) as {
+        error?: { message?: unknown };
+        grants?: Record<string, string[]>;
+        ok?: unknown;
+      } | null;
+      if (!res.ok || payload?.ok !== true) {
+        throw new Error(typeof payload?.error?.message === 'string'
+          ? payload.error.message
+          : 'Failed to load brand access map');
+      }
+      return { ok: true, grants: payload.grants ?? {} };
     },
     enabled: Boolean(scope && open && isAdmin),
     staleTime: 0,
@@ -44,7 +57,8 @@ export function BrandSwitcher() {
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always',
   });
-  const accessGrants = accessData?.grants ?? {};
+  const accessMapReady = accessData?.ok === true;
+  const accessGrants = accessMapReady ? accessData.grants : {};
 
   useEffect(() => {
     // A modal or access map opened under one organization is never valid in another authority scope.
@@ -87,6 +101,11 @@ export function BrandSwitcher() {
         {open && (
           <div className="absolute right-0 mt-2 w-72 overflow-hidden rounded-xl border border-[#1C1B19] bg-[#0F0F0E] shadow-2xl">
             <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-[#5F5E5A]">Active brand</div>
+            {isAdmin && accessMapUnavailable && (
+              <div role="alert" className="mx-3 mb-2 rounded border border-[#8B5A26] bg-[#2A2115] px-2 py-1.5 text-[11px] text-[#E0B266]">
+                Brand access settings are temporarily unavailable.
+              </div>
+            )}
             {brands.length === 0 && (
               <div className="px-3 py-2 text-sm text-[#7A776E]">No brands yet — scan or create one in Brand Vault.</div>
             )}
@@ -115,7 +134,7 @@ export function BrandSwitcher() {
                       {active && <Check size={14} className="shrink-0" />}
                       <span className="truncate">{brand.name}</span>
                     </button>
-                    {isAdmin && (
+                    {isAdmin && accessMapReady && (
                       <button
                         type="button"
                         onClick={() => {
@@ -133,6 +152,17 @@ export function BrandSwitcher() {
                         {restricted ? <Lock size={11} /> : <Globe size={11} />}
                         {restricted ? grant.length : 'All'}
                       </button>
+                    )}
+                    {isAdmin && !accessMapReady && (
+                      <span
+                        title={accessMapUnavailable ? 'Brand access settings are unavailable' : 'Checking brand access settings'}
+                        aria-label={accessMapUnavailable ? 'Brand access settings are unavailable' : 'Checking brand access settings'}
+                        className="flex h-6 w-7 shrink-0 items-center justify-center text-[#7A776E]"
+                      >
+                        {accessMapUnavailable
+                          ? <CircleAlert size={14} className="text-[#E0B266]" />
+                          : <Loader2 size={14} className={accessMapLoading ? 'animate-spin' : ''} />}
+                      </span>
                     )}
                   </div>
                 );

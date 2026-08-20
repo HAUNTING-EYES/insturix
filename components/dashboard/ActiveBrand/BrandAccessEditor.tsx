@@ -27,6 +27,18 @@ interface AccessResponse {
   userIds: string[];
 }
 
+async function readAccessResponse(response: Response, fallbackMessage: string): Promise<AccessResponse> {
+  const payload = await response.json().catch(() => null) as {
+    error?: { message?: unknown };
+    ok?: unknown;
+    userIds?: unknown;
+  } | null;
+  if (!response.ok || payload?.ok !== true || !Array.isArray(payload.userIds)) {
+    throw new Error(typeof payload?.error?.message === 'string' ? payload.error.message : fallbackMessage);
+  }
+  return { ok: true, userIds: payload.userIds.filter((userId): userId is string => typeof userId === 'string') };
+}
+
 export function BrandAccessEditor({ brandId, brandName, open, onClose }: BrandAccessEditorProps) {
   const { orgId, orgRole } = useAuth();
   const isAdmin = orgRole === 'org:admin';
@@ -40,8 +52,7 @@ export function BrandAccessEditor({ brandId, brandName, open, onClose }: BrandAc
       const res = await fetch(`/api/brand-vault/brands/${encodeURIComponent(brandId)}/access`, {
         credentials: 'include',
       });
-      if (!res.ok) throw new Error('Failed to load brand access');
-      return res.json();
+      return readAccessResponse(res, 'Failed to load brand access.');
     },
     enabled: open && Boolean(orgId) && isAdmin,
   });
@@ -63,8 +74,7 @@ export function BrandAccessEditor({ brandId, brandName, open, onClose }: BrandAc
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ userIds }),
       });
-      if (!res.ok) throw new Error('Failed to save brand access');
-      return res.json();
+      return readAccessResponse(res, 'Failed to save brand access.');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['brand-access'] });
@@ -94,6 +104,12 @@ export function BrandAccessEditor({ brandId, brandName, open, onClose }: BrandAc
           <div className="flex items-center gap-2 px-2 py-6 text-sm text-[#7A776E]">
             <Loader2 size={14} className="animate-spin" /> Loading members…
           </div>
+        ) : accessQuery.isError ? (
+          <p role="alert" className="px-2 py-6 text-sm leading-relaxed text-red-300">
+            {accessQuery.error instanceof Error
+              ? accessQuery.error.message
+              : 'Brand access could not be verified. No changes were made.'}
+          </p>
         ) : (
           <>
             <button
@@ -161,7 +177,9 @@ export function BrandAccessEditor({ brandId, brandName, open, onClose }: BrandAc
               </button>
             </div>
             {save.isError && (
-              <p className="px-1 pt-2 text-[11px] text-red-400">Couldn’t save. Try again.</p>
+              <p role="alert" className="px-1 pt-2 text-[11px] text-red-400">
+                {save.error instanceof Error ? save.error.message : 'Couldn’t save. Try again.'}
+              </p>
             )}
           </>
         )}

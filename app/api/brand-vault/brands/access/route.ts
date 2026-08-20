@@ -5,6 +5,19 @@ import { getDefaultBrandVaultRefineryStore } from '@/lib/shared/brand-vault-refi
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+function brandAccessUnavailable() {
+  return NextResponse.json(
+    {
+      ok: false,
+      error: {
+        code: 'brand_scope_unavailable',
+        message: 'Brand Vault cannot verify organization brand access.',
+      },
+    },
+    { status: 503 },
+  );
+}
+
 /**
  * GET /api/brand-vault/brands/access  ->  { ok, grants: { [brandId]: userIds } }
  *
@@ -18,10 +31,14 @@ export async function GET() {
   if (!orgId || !has({ role: 'org:admin' })) return NextResponse.json({ ok: true, grants: {} });
 
   const store = getDefaultBrandVaultRefineryStore();
-  if (!store.getBrandAccessGrants) return NextResponse.json({ ok: true, grants: {} });
+  if (!store.getBrandAccessGrants) return brandAccessUnavailable();
 
-  const grants = await store.getBrandAccessGrants(orgId);
-  const out: Record<string, string[]> = {};
-  for (const [brandId, userIds] of grants) out[brandId] = [...userIds];
-  return NextResponse.json({ ok: true, grants: out });
+  try {
+    const grants = await store.getBrandAccessGrants(orgId);
+    const out: Record<string, string[]> = {};
+    for (const [brandId, userIds] of grants) out[brandId] = [...userIds];
+    return NextResponse.json({ ok: true, grants: out });
+  } catch {
+    return brandAccessUnavailable();
+  }
 }

@@ -18,6 +18,32 @@ export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ brandId: string }> };
 
+function brandAccessUnavailable() {
+  return NextResponse.json(
+    {
+      ok: false,
+      error: {
+        code: 'brand_scope_unavailable',
+        message: 'Brand Vault cannot verify organization brand access.',
+      },
+    },
+    { status: 503 },
+  );
+}
+
+function invalidAccessAssignment() {
+  return NextResponse.json(
+    {
+      ok: false,
+      error: {
+        code: 'invalid_request',
+        message: 'userIds must be an array. Send [] only to intentionally reopen a brand to the organization.',
+      },
+    },
+    { status: 400 },
+  );
+}
+
 async function requireOrgAdmin(): Promise<
   | { ok: true; orgId: string }
   | { ok: false; response: NextResponse }
@@ -51,9 +77,13 @@ export async function GET(_req: Request, { params }: Params) {
   const { brandId } = await params;
 
   const store = getDefaultBrandVaultRefineryStore();
-  if (!store.getBrandAccessGrants) return NextResponse.json({ ok: true, brandId, userIds: [] });
-  const grants = await store.getBrandAccessGrants(gate.orgId);
-  return NextResponse.json({ ok: true, brandId, userIds: [...(grants.get(brandId) ?? [])] });
+  if (!store.getBrandAccessGrants) return brandAccessUnavailable();
+  try {
+    const grants = await store.getBrandAccessGrants(gate.orgId);
+    return NextResponse.json({ ok: true, brandId, userIds: [...(grants.get(brandId) ?? [])] });
+  } catch {
+    return brandAccessUnavailable();
+  }
 }
 
 export async function PUT(req: Request, { params }: Params) {
@@ -61,16 +91,16 @@ export async function PUT(req: Request, { params }: Params) {
   if (!gate.ok) return gate.response;
   const { brandId } = await params;
 
-  const body = (await req.json().catch(() => null)) as { userIds?: unknown } | null;
+  const body = await req.json().catch(() => null) as { userIds?: unknown } | null;
+  if (!body || !Array.isArray(body.userIds)) return invalidAccessAssignment();
   const userIds = normalizeBrandAccessUserIds(body?.userIds);
 
   const store = getDefaultBrandVaultRefineryStore();
-  if (!store.setBrandAccess) {
-    return NextResponse.json(
-      { ok: false, error: { code: 'unsupported_store', message: 'Brand Vault store cannot persist access.' } },
-      { status: 500 },
-    );
+  if (!store.setBrandAccess) return brandAccessUnavailable();
+  try {
+    await store.setBrandAccess({ orgId: gate.orgId, brandId, userIds });
+    return NextResponse.json({ ok: true, brandId, userIds });
+  } catch {
+    return brandAccessUnavailable();
   }
-  await store.setBrandAccess({ orgId: gate.orgId, brandId, userIds });
-  return NextResponse.json({ ok: true, brandId, userIds });
 }
