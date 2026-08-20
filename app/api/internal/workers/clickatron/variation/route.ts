@@ -17,7 +17,6 @@ import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
 import {
   CLICKATRON_MODELS,
-  fitClickatronPromptToModelLimit,
   generateModelPayload,
   modelSupportsAspectRatio,
   modelSupportsSeed,
@@ -476,19 +475,6 @@ async function handler(req: Request) {
         undefined,
         task.orgId ?? null,
       );
-      const enrichedPrompt = buildClickatronGenerationPrompt({
-        prompt: rawGenerationPrompt,
-        metadata: promptMetadata,
-        brandContextBlock,
-        // C2: the picked model decides in-image text rendering on the default text policy.
-        modelId: variation.modelId,
-        aspectRatio: ratio,
-      });
-
-      if (enrichedPrompt !== job.prompt) {
-        job.prompt = enrichedPrompt;
-        generationParams.promptContextApplied = true;
-      }
 
       // Process mask URL if it exists (for inpainting/generative fill)
       let maskUrl: string | null = null;
@@ -567,10 +553,27 @@ async function handler(req: Request) {
         imageUrls.push(...brandReferenceEvidence.map((item) => item.url));
         generationParams.brandReferenceEvidence = brandReferenceEvidence;
         if (brandReferenceEvidence.some((item) => item.assetRole === 'logo')) {
-          job.prompt = `${job.prompt}\n\nUse the supplied Brand Vault logo reference as the only brand mark. Preserve its shape, colors, and proportions; do not invent, redesign, or spell a logo from text. Keep the logo placement overlay-safe for a locked Brand Vault mark.`;
           generationParams.logoReferencePolicy = 'brand_vault_reference_required';
         }
       }
+
+      const enrichedPrompt = buildClickatronGenerationPrompt({
+        prompt: rawGenerationPrompt,
+        metadata: promptMetadata,
+        brandContextBlock,
+        // The model was selected and billed before the worker was dispatched.
+        modelId: variation.modelId || job.modelId,
+        aspectRatio: ratio,
+        logoEvidenceAvailable: brandReferenceEvidence.some((item) => item.assetRole === 'logo'),
+        generationMode: maskUrl
+          ? 'inpainting'
+          : imageUrls.length > 0
+            ? 'image-to-image'
+            : 'text-to-image',
+      });
+      job.prompt = enrichedPrompt;
+      generationParams.prompt = enrichedPrompt;
+      generationParams.promptContextApplied = enrichedPrompt !== rawGenerationPrompt;
 
       // Only add image_urls to generationParams if we have images
       if (imageUrls.length > 0) {
@@ -803,22 +806,18 @@ async function handler(req: Request) {
         }
       }
 
-      const originalPromptLength = job.prompt.length;
-      const fittedPrompt = fitClickatronPromptToModelLimit(modelConfig.id, job.prompt);
-      if (fittedPrompt.length !== originalPromptLength) {
-        console.warn('Worker: Prompt compacted for selected model provider limit:', {
-          modelId: modelConfig.id,
-          originalPromptLength,
-          fittedPromptLength: fittedPrompt.length,
-        });
-        job.prompt = fittedPrompt;
-        generationParams.promptCompactedForModel = true;
-        generationParams.originalPromptLength = originalPromptLength;
-        generationParams.finalPromptLength = fittedPrompt.length;
-      }
-
       // Construct the payload dynamically based on the model configuration
       const payload = generateModelPayload(modelConfig.id, generationParams, job, ratio, width, height);
+      const payloadPrompt = typeof payload.prompt === 'string' ? payload.prompt : '';
+      const modelPromptLimit = modelConfig.constraints.promptMaxLength;
+      if (modelPromptLimit !== undefined && payloadPrompt.length > modelPromptLimit) {
+        const promptLimitError = new Error(
+          `Prompt compiler produced ${payloadPrompt.length} characters for ${modelConfig.id}, exceeding its ${modelPromptLimit}-character limit.`,
+        ) as Error & { code?: string };
+        promptLimitError.code = 'CLICKATRON_PROMPT_COMPILER_LIMIT_VIOLATION';
+        throw promptLimitError;
+      }
+      generationParams.finalPromptLength = payloadPrompt.length;
 
       falCallAttempted = true;
       const result = await fal.subscribe(modelId, {
@@ -981,6 +980,12 @@ async function handler(req: Request) {
       if (generationError.code === 'NEEDS_USER_INPUT') {
         errorCode = 'NEEDS_USER_INPUT';
         errorMessage = generationError.message || 'needs_user_input: Brand Vault evidence is required before generation.';
+      } else if (
+        generationError.code === 'CLICKATRON_PROMPT_REQUIRED_CONTEXT_EXCEEDS_MODEL_LIMIT'
+        || generationError.code === 'CLICKATRON_PROMPT_COMPILER_LIMIT_VIOLATION'
+      ) {
+        errorCode = generationError.code;
+        errorMessage = generationError.message || 'The selected image model cannot safely fit this creative brief.';
       } else if (generationError.status === 422) {
         errorCode = 'INVALID_PARAMETERS';
 

@@ -2,6 +2,11 @@ import type { EffectiveBrandResolution } from "@/lib/shared/brand-effective-reso
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 import { isBrandSignalActionable, type BrandSignal, type BrandSignalProfile } from "@/lib/shared/brand-signal-profile";
 import { sanitizeVisualPrompt } from "@/lib/clickatron/sanitize-visual-prompt";
+import {
+  compileClickatronGenerationPrompt,
+  type ClickatronGenerationPromptMode,
+  type ClickatronGenerationPromptSegment,
+} from "@/lib/clickatron/generation-prompt-compiler";
 
 type MetadataRecord = Record<string, unknown>;
 
@@ -13,6 +18,10 @@ export interface ClickatronPromptContextInput {
   modelId?: string | null;
   /** Aspect ratio of the canvas to explicitly steer compositional framing */
   aspectRatio?: string | null;
+  /** True only when the worker resolved accepted Brand Vault logo evidence. */
+  logoEvidenceAvailable?: boolean;
+  /** Actual payload mode. Image edit/inpainting reserve their provider preamble. */
+  generationMode?: ClickatronGenerationPromptMode;
 }
 
 export interface BrandContextResolverDeps {
@@ -23,7 +32,6 @@ export interface BrandContextResolverDeps {
 }
 
 const MAX_FIELD_LENGTH = 700;
-const MAX_PROMPT_LENGTH = 6000;
 const PROJECT_META_FIELDS = [
   ["idea", "Idea"],
   ["purpose", "Purpose"],
@@ -382,16 +390,7 @@ function parseTextHierarchy(metadata?: MetadataRecord | null): string {
 
   return lines.join("\n");
 }
-function isLlmImageModel(modelId?: string | null): boolean {
-  if (!modelId) return false;
-  const id = modelId.toLowerCase();
-  return id.includes('gemini') || id.includes('nano-banana');
-}
-
-function buildRasterTextDirective(metadata?: MetadataRecord | null, modelId?: string | null): {
-  hierarchy: string;
-  directive: string;
-} {
+function buildRasterTextDirective(metadata?: MetadataRecord | null, modelId?: string | null): { hierarchy: string } {
   const clickatron = asRecord(asRecord(metadata)?.clickatron);
   const creativeSpec = asRecord(clickatron?.creativeSpec);
   const renderPlan = asRecord(creativeSpec?.renderPlan);
@@ -399,229 +398,118 @@ function buildRasterTextDirective(metadata?: MetadataRecord | null, modelId?: st
   if (hierarchy && shouldRenderTextInImage(renderPlan?.textPolicy, modelId)) {
     return {
       hierarchy,
-      directive: "Raster text policy: Render only the exact supplied text hierarchy accurately and legibly; do not invent additional copy.",
     };
   }
 
   return {
     hierarchy: "",
-    directive: "Raster text policy: Do not render any readable text, letters, numbers, hashtags, captions, logos, brand marks, watermarks, or legible interface labels in the raster image. Treat screens and interfaces as abstract or defocused shapes. Reserve clear safe zones for editable Clickatron overlays.",
   };
+}
+
+function normalizedRawText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized || undefined;
+}
+
+function normalizedRawList(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .map((item) => normalizedRawText(item))
+    .filter((item): item is string => Boolean(item));
+  return items.length > 0 ? items.join('; ') : undefined;
+}
+
+function brandContextLines(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !/^<\/?[a-z_]+>$/i.test(line));
+}
+
+function isRequiredBrandContextLine(line: string): boolean {
+  return /^(?:Brand:|BrandVault:|Brand source:|Brand colors:|Typography:|Visual direction:|Voice:|Never use words\/phrases:)/i.test(line);
 }
 
 export function buildClickatronGenerationPrompt(input: ClickatronPromptContextInput): string {
   const prompt = sanitizeVisualPrompt(input.prompt).clean.trim();
   const sourceContextBlock = buildClickatronSourceContextBlock(input.metadata, input.modelId);
   const brandContextBlock = input.brandContextBlock?.trim() || "";
-  const contextBlocks = [sourceContextBlock, brandContextBlock].filter(Boolean);
-
-  if (contextBlocks.length === 0) return prompt;
-
   const rasterText = buildRasterTextDirective(input.metadata, input.modelId);
-  const rasterPolicyPriority = rasterText.hierarchy
-    ? "Render only the exact supplied text hierarchy. Never invent or add copy."
-    : "Generate a text-free raster background. Editable copy and logos are composited later and must not appear in this image.";
-  const typographyInstruction = rasterText.hierarchy
-    ? "Typography is part of the composition. Use the supplied hierarchy intentionally."
-    : "Do not draw typography. Use negative space and clean contrast zones for later editable text overlays.";
-  const textRenderingInstruction = rasterText.hierarchy
-    ? "Render only text explicitly supplied in the extracted text hierarchy. Never invent dates, venues, event names, slogans, logos, or additional copy."
-    : "Do not render readable text or typography. Do not invent copy, logos, brand marks, watermarks, hashtags, captions, or legible interface labels.";
-  const brandIntegrityDirective = brandContextBlock
-    ? "Brand integrity: Never invent, redraw, or spell a logo from text. Use supplied logo evidence only; otherwise leave logo-safe space."
-    : "";
-  
-  // Aspect ratio compositional steering
-  const layoutRatioBlock = input.aspectRatio 
-    ? `\nCRITICAL LAYOUT RULE: The final image will be generated at a ${input.aspectRatio} aspect ratio. You MUST compose the layout, typography, and focal point specifically to fit a ${input.aspectRatio} canvas. Do not compose a square image for a rectangular canvas, and ensure text/subjects are not cut off.`
-    : "";
+  const metadata = asRecord(input.metadata);
+  const clickatron = asRecord(metadata?.clickatron);
+  const creativeSpec = asRecord(clickatron?.creativeSpec);
+  const creativeBrief = asRecord(creativeSpec?.creativeBrief);
+  const creativeBrand = asRecord(creativeSpec?.brand);
+  const renderPlan = asRecord(creativeSpec?.renderPlan);
+  const projectMeta = asRecord(asRecord(metadata?.thinkforge)?.projectMeta);
+  const visualBrief = normalizedRawText(renderPlan?.imagePrompt);
+  const layoutIntent = normalizedRawText(renderPlan?.layoutIntent);
+  const visualMetaphor = normalizedRawText(creativeBrief?.visualMetaphor);
+  const hardConstraints = normalizedRawList(creativeBrand?.hardConstraints);
+  const keyClaims = normalizedRawList(creativeBrief?.keyClaims);
+  const brandBrief = normalizedRawText(projectMeta?.brandBrief);
+  const aspectRatio = normalizedRawText(input.aspectRatio)
+    ?? normalizedRawText(creativeSpec?.aspectRatio)
+    ?? normalizedRawText(clickatron?.aspectRatio);
+  const compactRasterPolicy = rasterText.hierarchy
+    ? 'Raster text policy: Render only the exact supplied text hierarchy accurately and legibly; do not invent additional copy.'
+    : 'Raster text policy: Do not render readable text, logos, brand marks, watermarks, or interface labels. Generate a text-free raster background and reserve clear safe zones for editable overlays.';
+  const allBrandLines = brandContextLines(brandContextBlock);
+  const requiredBrandLines = allBrandLines.filter(isRequiredBrandContextLine);
+  const optionalBrandLines = allBrandLines.filter((line) => !isRequiredBrandContextLine(line));
+  const hasBrandContract = Boolean(brandContextBlock || input.logoEvidenceAvailable || hardConstraints);
 
-  // V11: Dual-Engine Prompter
-  // Uses V7 (XML/Creative Director) for LLM-based models (Gemini, Nano Banana) which parse XML well.
-  // Uses V10 (Hybrid Natural Language + Keywords) for Diffusion models (Flux, Ideogram) which hallucinate on XML.
-  if (isLlmImageModel(input.modelId)) {
-    const v7SystemInstructions = `<role>
-You are Clickatron, an expert AI creative director and visual designer specialized in producing premium social media creatives, campaign posters, event graphics, advertisements, thumbnails, and marketing assets.
-
-Your goal is to create visuals that feel professionally designed rather than AI-generated.
-</role>
-
-<priority_order>
-0. RASTER CONTRACT (Highest Priority)
-${rasterPolicyPriority}
-
-1. USER PROMPT
-The user's prompt is the primary creative source of truth.
-Never replace, reinterpret, or weaken explicit instructions.
-If the user specifies a style, scene, layout, palette, typography, composition, subject, mood, or design language, follow it exactly.
-
-2. BRAND CONTEXT
-If brand guidelines are provided, use them to influence colors, typography, tone, logo placement, spacing, and overall visual identity.
-Brand context should enhance the user's request, never override it.
-
-3. DEFAULT DESIGN KNOWLEDGE
-Only when information is missing should you rely on professional graphic design principles.
-</priority_order>
-
-<creative_principles>
-Every design should have:
-• One dominant visual focal point.
-• Clear information hierarchy.
-• Professional spacing.
-• Intentional use of negative space.
-• Balanced composition.
-- Consistent visual language.
-• Strong visual storytelling.
-• Modern editorial aesthetics.
-
-Avoid filling empty space simply because it exists.
-Less clutter usually creates stronger designs.
-</creative_principles>
-
-<visual_quality>
-Aim for the quality of work typically seen on:
-• Behance Featured
-• Awwwards
-• Pentagram
-• Landor
-• Apple Keynote
-• Nike Campaigns
-• Spotify Editorial
-• Modern University Campaigns
-
-Designs should feel premium, contemporary and authentic.
-Never generate generic Canva-style layouts.
-</visual_quality>
-
-<composition>
-Before generating the image, internally decide:
-• What is the hero element?
-• Where should the viewer look first?
-• What supports the hero?
-• What information is secondary?
-• What should remain visually quiet?
-
-The design should naturally guide the viewer's eyes.${layoutRatioBlock}
-</composition>
-
-<typography>
-${typographyInstruction}
-${rasterText.hierarchy ? `
-
-Headline
-↓
-Subheadline
-↓
-Supporting Information
-↓
-Footer` : ""}
-${rasterText.hierarchy ? "Avoid making every text element equally large." : ""}
-</typography>
-
-<text_rendering>
-${textRenderingInstruction}
-</text_rendering>
-
-<brand>
-If logos are supplied:
-• Respect clear space.
-• Keep them small.
-• Never let them dominate the design.
-• Follow the supplied brand colors whenever possible.
-</brand>
-
-<creativity>
-When multiple compositions satisfy the request,
-choose the one that feels:
-• More premium
-• More memorable
-• More visually balanced
-• More emotionally engaging
-
-Do not default to centered templates.
-Do not default to generic event flyers.
-Think like an experienced creative director.
-</creativity>
-
-<negative_bias>
-Avoid defaulting toward:
-• Music festival posters
-• Neon cyberpunk
-• Purple glow
-• Gaming aesthetics
-• Generic templates
-• Stock-photo layouts
-• Clipart
-• Excessive icons
-• Random decorative elements
-• Overcrowded compositions
-
-Unless the user explicitly asks for those styles.
-</negative_bias>
-
-<final_goal>
-The finished design should look like it was created by an experienced designer at a professional creative agency.
-If someone saw the image without context, they should assume it was designed by a human—not generated by AI.
-</final_goal>
-
-<internal_design_process>
-Before generating the final image, internally determine:
-1. Hero visual
-2. Layout style
-3. Visual hierarchy
-4. Typography hierarchy
-5. Color story
-6. Emotional tone
-7. Lighting
-8. Camera/composition (if photographic)
-9. Placement of information
-10. Negative space
-
-Do not output this reasoning.
-Use it only to improve the final design.
-</internal_design_process>`;
-
-    const userExplicitContent = `<user_explicit_content>\nUser's Request:\n${prompt}\n</user_explicit_content>`;
-    const textHierarchyBlock = rasterText.hierarchy ? `<extracted_text_hierarchy>\n${rasterText.hierarchy}\n</extracted_text_hierarchy>` : "";
-
-    const enriched = [
-      v7SystemInstructions,
-      rasterText.directive,
-      brandIntegrityDirective,
-      userExplicitContent,
-      textHierarchyBlock,
-      ...contextBlocks
-    ].filter(Boolean).join("\n\n");
-
-    return enriched.length > MAX_PROMPT_LENGTH
-      ? `${enriched.slice(0, MAX_PROMPT_LENGTH - 3)}...`
-      : enriched;
+  if (!input.modelId && !sourceContextBlock && !brandContextBlock && !aspectRatio) {
+    return prompt;
   }
 
-  // Otherwise, use V10 Hybrid Diffusion Prompter
-  const diffusionEnhancers = "award-winning professional graphic design, premium editorial aesthetics, masterpiece, striking visual hierarchy, high-end commercial quality, clean composition, deliberate negative space, highly detailed, non-generic, unique artistic layout";
+  const segments: ClickatronGenerationPromptSegment[] = [
+    { id: 'raster-policy', content: compactRasterPolicy, required: true },
+    { id: 'user-intent', content: prompt ? `User request: ${prompt}` : undefined, required: true },
+    { id: 'visual-brief', content: visualBrief ? `Visual brief: ${visualBrief}` : undefined, required: true },
+    {
+      id: 'composition',
+      content: [layoutIntent ? `Layout: ${layoutIntent}` : undefined, visualMetaphor ? `Visual metaphor: ${visualMetaphor}` : undefined]
+        .filter(Boolean)
+        .join(' | '),
+      required: true,
+    },
+    { id: 'aspect-ratio', content: aspectRatio ? `Canvas aspect ratio: ${aspectRatio}` : undefined, required: true },
+    { id: 'brand-brief', content: brandBrief ? `Brand brief: ${brandBrief}` : undefined, required: true },
+    { id: 'brand-hard-constraints', content: hardConstraints ? `Brand hard constraints: ${hardConstraints}` : undefined, required: true },
+    { id: 'visual-claims', content: keyClaims ? `Evoke these claims visually without text: ${keyClaims}` : undefined, required: true },
+    {
+      id: 'brand-logo-policy',
+      content: hasBrandContract
+        ? 'Brand integrity: Never invent, redraw, or spell a logo from text. Use accepted Brand Vault logo evidence only; otherwise leave logo-safe space.'
+        : undefined,
+      required: true,
+    },
+    { id: 'text-hierarchy', content: rasterText.hierarchy ? `Text hierarchy: ${rasterText.hierarchy}` : undefined, required: true },
+    ...requiredBrandLines.map((content, index) => ({
+      id: `brand-required-${index}`,
+      content,
+      required: true,
+    })),
+    {
+      id: 'quality-bar',
+      content: 'Quality bar: premium editorial composition, one focal point, clear hierarchy, deliberate negative space; avoid generic templates and stock layouts.',
+      required: false,
+      priority: 100,
+    },
+    ...optionalBrandLines.map((content, index) => ({
+      id: `brand-optional-${index}`,
+      content,
+      required: false,
+      priority: 80,
+    })),
+    { id: 'source-context', content: sourceContextBlock, required: false, priority: 20 },
+  ];
 
-  const coreVisualPrompt = prompt ? `${prompt}, ${diffusionEnhancers}` : diffusionEnhancers;
-  
-  const textHierarchyBlock = rasterText.hierarchy ? `Text elements to incorporate seamlessly into the design:\n${rasterText.hierarchy}` : "";
-
-  const brandDirective = contextBlocks.length > 0 
-    ? "Design instructions: Incorporate the following brand guidelines and contextual details naturally. The brand colors, tone, and visual identity should influence the final design without overriding the primary visual prompt. Maintain premium creativity and professional spacing."
-    : "";
-    
-  const layoutDirective = layoutRatioBlock ? `Layout Instructions: ${layoutRatioBlock}` : "";
-
-  const enriched = [
-    rasterText.directive,
-    brandIntegrityDirective,
-    coreVisualPrompt,
-    textHierarchyBlock,
-    brandDirective,
-    layoutDirective,
-    ...contextBlocks
-  ].filter(Boolean).join("\n\n");
-
-  return enriched.length > MAX_PROMPT_LENGTH
-    ? `${enriched.slice(0, MAX_PROMPT_LENGTH - 3)}...`
-    : enriched;
+  return compileClickatronGenerationPrompt({
+    modelId: input.modelId,
+    generationMode: input.generationMode,
+    segments,
+  }).prompt;
 }

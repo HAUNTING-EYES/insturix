@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildClickatronGenerationPrompt,
@@ -9,6 +10,7 @@ import {
   DEFAULT_CLICKATRON_TEXT_TO_IMAGE_MODEL_ID,
   generateModelPayload,
 } from "@/lib/config/clickatron-models";
+import { ClickatronPromptBudgetError } from "@/lib/clickatron/generation-prompt-compiler";
 import { CLICKATRON_CREATIVE_SPEC_VERSION } from "@/lib/thinkforge/schemas/clickatron-creative-contract";
 import type { UnifiedBrand } from "@/lib/shared/brand-registry";
 import { resolveEffectiveBrandWithProfile } from "@/lib/shared/brand-effective-resolver";
@@ -177,7 +179,7 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).toContain("Brand: Signal Supply");
     expect(prompt).toContain("Create a high-click thumbnail.");
     expect(prompt).toContain("Brand integrity: Never invent, redraw, or spell a logo from text.");
-    expect(prompt).toContain("Use supplied logo evidence only");
+    expect(prompt).toContain("Use accepted Brand Vault logo evidence only");
     expect(prompt).not.toContain("tf_session_secret");
     expect(prompt).not.toContain("script_secret");
     expect(prompt).not.toContain("plink_secret");
@@ -254,9 +256,9 @@ describe("Clickatron brand prompt context", () => {
     expect(prompt).toContain("exact copy withheld from raster prompt");
     expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");
     expect(prompt).toContain("Carousel slides: Slide 1 (Hook): Bold opening slide");
-    expect(prompt).toContain("Raster text policy: Do not render any readable text");
-    expect(prompt).toContain("Treat screens and interfaces as abstract or defocused shapes");
-    expect(prompt).toContain("Reserve clear safe zones for editable Clickatron overlays");
+    expect(prompt).toContain("Raster text policy: Do not render readable text");
+    expect(prompt).toContain("Generate a text-free raster background");
+    expect(prompt).toContain("reserve clear safe zones for editable overlays");
     expect(prompt).not.toContain("Stop rebuilding context for every tool.");
     expect(prompt).not.toContain("Design this in Clickatron");
     expect(prompt).not.toContain("tf_session_secret");
@@ -272,9 +274,8 @@ describe("Clickatron brand prompt context", () => {
     const prompt = buildClickatronGenerationPrompt({ ...base, modelId: "fal-ai/nano-banana-pro" });
 
     expect(prompt).toContain("Generate a text-free raster background");
-    expect(prompt).toContain("Raster text policy: Do not render any readable text");
-    expect(prompt).toContain("Do not draw typography");
-    expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");
+    expect(prompt).toContain("Raster text policy: Do not render readable text");
+    expect(prompt).toContain("Generate a text-free raster background");
     expect(prompt).not.toContain("THE FRAGMENTATION TRAP");
     expect(prompt).not.toContain("Stop rebuilding context for every tool.");
   });
@@ -289,7 +290,7 @@ describe("Clickatron brand prompt context", () => {
     });
 
     expect(prompt).toContain("Raster text policy: Render only the exact supplied text hierarchy");
-    expect(prompt).toContain("Text-layer copy handling: render this exact copy accurately and legibly");
+    expect(prompt).toContain("Text hierarchy: LEVEL 2");
     expect(prompt).toContain("Stop rebuilding context for every tool.");
   });
 
@@ -302,8 +303,7 @@ describe("Clickatron brand prompt context", () => {
       modelId: "fal-ai/imagen4/preview",
     });
 
-    expect(prompt).toContain("Raster text policy: Do not render any readable text");
-    expect(prompt).toContain("Text-layer copy handling: exact copy is metadata only");
+    expect(prompt).toContain("Raster text policy: Do not render readable text");
     expect(prompt).not.toContain("Stop rebuilding context for every tool.");
   });
 
@@ -420,9 +420,98 @@ describe("Clickatron brand prompt context", () => {
       1024,
     );
 
-    expect(payload.prompt).toContain("<brand_context>");
     expect(payload.prompt).toContain("Brand: Signal Supply");
     expect(payload.prompt).toContain("Voice: Plainspoken, sharp, no hype.");
     expect(payload.prompt).toContain("Brand integrity: Never invent, redraw, or spell a logo from text.");
+  });
+
+  it("preserves required ThinkForge visual and brand intent inside the actual image-edit provider limit", () => {
+    const baseSpec = creativeSpec();
+    const spec = {
+      ...baseSpec,
+      creativeBrief: {
+        ...baseSpec.creativeBrief,
+        keyClaims: ["Production context must remain traceable."],
+      },
+      brand: { hardConstraints: ["Never render invented logos."] },
+    };
+    const prompt = buildClickatronGenerationPrompt({
+      prompt: "Create a high-contrast editorial carousel cover.",
+      metadata: { clickatron: { creativeSpec: spec } },
+      brandContextBlock: [
+        "<brand_context>",
+        "Brand: Signal Supply",
+        "Brand colors: primary #111111; accent #f5c542",
+        "Visual direction: structured symmetrical layout; high-contrast composition",
+        "Never use words/phrases: revolutionary",
+        "</brand_context>",
+      ].join("\n"),
+      modelId: "fal-ai/flux-kontext/dev",
+      aspectRatio: "4:5",
+      logoEvidenceAvailable: true,
+      generationMode: "image-to-image",
+    });
+    const payload = generateModelPayload(
+      "fal-ai/flux-kontext/dev",
+      { image_urls: ["https://example.test/reference.png"], num_images: 1 },
+      { prompt },
+      "4:5",
+      1024,
+      1280,
+    );
+
+    expect(prompt).toContain("User request: Create a high-contrast editorial carousel cover.");
+    expect(prompt).toContain("Visual brief: Editorial carousel system with connected creative workflow nodes.");
+    expect(prompt).toContain("Brand hard constraints: Never render invented logos.");
+    expect(prompt).toContain("Brand colors: primary #111111; accent #f5c542");
+    expect(prompt).toContain("Visual direction: structured symmetrical layout; high-contrast composition");
+    expect(prompt).toContain("Canvas aspect ratio: 4:5");
+    expect(prompt).toContain("Use accepted Brand Vault logo evidence only");
+    expect(payload.prompt.length).toBeLessThanOrEqual(1024);
+  });
+
+  it("rejects an oversized required contract for a 512-character image-edit model instead of truncating it", () => {
+    const baseSpec = creativeSpec();
+    const spec = {
+      ...baseSpec,
+      brand: { hardConstraints: ["Never render invented logos."] },
+    };
+
+    expect(() => buildClickatronGenerationPrompt({
+      prompt: "Create a high-contrast editorial carousel cover.",
+      metadata: { clickatron: { creativeSpec: spec } },
+      brandContextBlock: [
+        "<brand_context>",
+        "Brand: Signal Supply",
+        "Brand colors: primary #111111; accent #f5c542",
+        "Visual direction: structured symmetrical layout; high-contrast composition",
+        "Never use words/phrases: revolutionary",
+        "</brand_context>",
+      ].join("\n"),
+      modelId: "fal-ai/bytedance/seedream/v5/lite/edit",
+      aspectRatio: "4:5",
+      logoEvidenceAvailable: true,
+      generationMode: "image-to-image",
+    })).toThrow(ClickatronPromptBudgetError);
+  });
+
+  it("uses the full model budget for text-to-image jobs without an edit preamble", () => {
+    expect(() => buildClickatronGenerationPrompt({
+      prompt: "x".repeat(800),
+      modelId: "fal-ai/flux-kontext/dev",
+      generationMode: "text-to-image",
+    })).not.toThrow();
+  });
+
+  it("uses the semantic compiler in the worker and never applies a second positional prompt cut", () => {
+    const worker = readFileSync(
+      new URL("../../app/api/internal/workers/clickatron/variation/route.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(worker).toContain("logoEvidenceAvailable: brandReferenceEvidence.some");
+    expect(worker).toContain("generationMode: maskUrl");
+    expect(worker).toContain("CLICKATRON_PROMPT_COMPILER_LIMIT_VIOLATION");
+    expect(worker).not.toContain("fitClickatronPromptToModelLimit");
   });
 });
