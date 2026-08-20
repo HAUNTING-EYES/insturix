@@ -13,6 +13,9 @@ import {
 } from '@/lib/thinkforge/schemas/script-sidecar-v2';
 import { SCRIPT_SIDECAR_VERSION, type ScriptSidecar } from '@/lib/thinkforge/schemas/script-sidecar';
 import {
+  ScriptChapterPlanSchema,
+} from '@/lib/thinkforge/schemas/script-chapter-plan';
+import {
   projectThinkForgeAuthoringProvenance,
   type ThinkForgeAuthoringProvenance,
 } from '@/lib/thinkforge/context/brand-authoring-context';
@@ -33,6 +36,8 @@ export type ThinkForgeEditronDurationSource =
 export interface ThinkForgeEditronSceneBinding {
   sceneIndex: number;
   actId: string;
+  /** Present only when a persisted long-form plan owns this narrative scene. */
+  chapterId?: string;
   narrativeSceneId: string;
   beatIds: string[];
   lineIds: string[];
@@ -85,12 +90,22 @@ export interface ScriptSidecarEditronExport {
   suggestedProfileCategory: string;
 }
 
+export interface ScriptSidecarEditronCompilationOptions {
+  /** Server-owned long-form plan persisted with the bound script sidecar. */
+  chapterPlan?: unknown;
+}
+
 export type ThinkForgeSidecarCompilationErrorCode =
   | 'invalid-sidecar'
   | 'compiler-invariant'
   | 'scene-duration-unresolved'
   | 'scene-visual-intent-missing'
-  | 'render-plan-unresolved';
+  | 'render-plan-unresolved'
+  | 'long-form-sidecar-version-mismatch'
+  | 'long-form-chapter-plan-invalid'
+  | 'long-form-scene-unmapped'
+  | 'long-form-act-mismatch'
+  | 'long-form-scene-missing';
 
 export class ThinkForgeSidecarCompilationError extends Error {
   readonly code: ThinkForgeSidecarCompilationErrorCode;
@@ -115,6 +130,11 @@ interface FlattenedNarrativeScene {
   actId: string;
   scene: NarrativeSceneV2;
   sceneIndex: number;
+}
+
+interface LongFormSceneOwner {
+  actId: string;
+  chapterId: string;
 }
 
 interface CompiledSidecar {
@@ -329,9 +349,69 @@ function mapLegacyV1Scenes(sidecar: ScriptSidecar): SceneDescriptor[] {
   }));
 }
 
+function resolveLongFormSceneOwners(input: {
+  chapterPlan: unknown | undefined;
+  readResult: ScriptSidecarReadResult;
+  claimedVersion: number;
+}): Map<string, LongFormSceneOwner> | undefined {
+  if (input.chapterPlan === undefined) return undefined;
+  if (input.readResult.sourceVersion !== SCRIPT_SIDECAR_V2_VERSION) {
+    throw new ThinkForgeSidecarCompilationError({
+      code: 'long-form-sidecar-version-mismatch',
+      claimedVersion: input.claimedVersion,
+      message: 'A long-form Editron export requires the persisted V2 production sidecar.',
+    });
+  }
+  const parsedPlan = ScriptChapterPlanSchema.safeParse(input.chapterPlan);
+  if (!parsedPlan.success) {
+    throw new ThinkForgeSidecarCompilationError({
+      code: 'long-form-chapter-plan-invalid',
+      claimedVersion: input.claimedVersion,
+      message: 'The saved long-form chapter plan is invalid and cannot be exported safely.',
+      originalError: parsedPlan.error,
+    });
+  }
+
+  const expectedOwners = new Map<string, LongFormSceneOwner>();
+  parsedPlan.data.acts.forEach((act) => act.chapters.forEach((chapter) => {
+    chapter.sceneBlueprints.forEach((scene) => {
+      expectedOwners.set(scene.id, { actId: act.id, chapterId: chapter.id });
+    });
+  }));
+  const resolvedOwners = new Map<string, LongFormSceneOwner>();
+  flattenNarrativeScenes(input.readResult.sidecar).forEach(({ actId, scene }) => {
+    const owner = expectedOwners.get(scene.id);
+    if (!owner) {
+      throw new ThinkForgeSidecarCompilationError({
+        code: 'long-form-scene-unmapped',
+        claimedVersion: input.claimedVersion,
+        message: `Long-form scene "${scene.id}" is not owned by the saved chapter plan.`,
+      });
+    }
+    if (owner.actId !== actId) {
+      throw new ThinkForgeSidecarCompilationError({
+        code: 'long-form-act-mismatch',
+        claimedVersion: input.claimedVersion,
+        message: `Long-form scene "${scene.id}" belongs to ${owner.actId}, not ${actId}.`,
+      });
+    }
+    resolvedOwners.set(scene.id, owner);
+  });
+  const missingSceneId = [...expectedOwners.keys()].find((sceneId) => !resolvedOwners.has(sceneId));
+  if (missingSceneId) {
+    throw new ThinkForgeSidecarCompilationError({
+      code: 'long-form-scene-missing',
+      claimedVersion: input.claimedVersion,
+      message: `The saved long-form chapter plan expects scene "${missingSceneId}", but it is absent from the production sidecar.`,
+    });
+  }
+  return resolvedOwners;
+}
+
 function buildSidecarCompilation(
   readResult: ScriptSidecarReadResult,
   durationSources: ThinkForgeEditronDurationSource[],
+  chapterPlan?: unknown,
 ): ThinkForgeEditronSidecarCompilation {
   const flattenedScenes = flattenNarrativeScenes(readResult.sidecar);
   if (durationSources.length !== flattenedScenes.length) {
@@ -341,26 +421,38 @@ function buildSidecarCompilation(
       message: 'Compiled scene duration evidence does not match the narrative scene count.',
     });
   }
+  const chapterOwners = resolveLongFormSceneOwners({
+    chapterPlan,
+    readResult,
+    claimedVersion: readResult.sourceVersion,
+  });
   return {
     version: THINKFORGE_EDITRON_SIDECAR_COMPILATION_VERSION,
     sourceSidecarVersion: readResult.sourceVersion,
     canonicalSidecarVersion: SCRIPT_SIDECAR_V2_VERSION,
     spokenTextSource: 'beat-lines',
     narrativeSidecar: readResult.sidecar,
-    sceneBindings: flattenedScenes.map(({ actId, scene, sceneIndex }) => ({
-      sceneIndex,
-      actId,
-      narrativeSceneId: scene.id,
-      beatIds: scene.beats.map((beat) => beat.id),
-      lineIds: scene.beats.flatMap((beat) => beat.lines.map((line) => line.id)),
-      sourceRefs: [...scene.sourceRefs],
-      renderSegmentIds: renderSegmentsForScene(readResult.sidecar, scene.id).map((segment) => segment.id),
-      durationSource: durationSources[sceneIndex]!,
-    })),
+    sceneBindings: flattenedScenes.map(({ actId, scene, sceneIndex }) => {
+      const chapterOwner = chapterOwners?.get(scene.id);
+      return {
+        sceneIndex,
+        actId,
+        ...(chapterOwner ? { chapterId: chapterOwner.chapterId } : {}),
+        narrativeSceneId: scene.id,
+        beatIds: scene.beats.map((beat) => beat.id),
+        lineIds: scene.beats.flatMap((beat) => beat.lines.map((line) => line.id)),
+        sourceRefs: [...scene.sourceRefs],
+        renderSegmentIds: renderSegmentsForScene(readResult.sidecar, scene.id).map((segment) => segment.id),
+        durationSource: durationSources[sceneIndex]!,
+      };
+    }),
   };
 }
 
-function compileScriptSidecar(input: unknown): CompiledSidecar {
+function compileScriptSidecar(
+  input: unknown,
+  options: ScriptSidecarEditronCompilationOptions = {},
+): CompiledSidecar {
   const claimedVersion = declaredSidecarVersion(input);
   let readResult: ScriptSidecarReadResult;
   try {
@@ -401,7 +493,7 @@ function compileScriptSidecar(input: unknown): CompiledSidecar {
   return {
     readResult,
     scenes: compiled.scenes,
-    sidecarCompilation: buildSidecarCompilation(readResult, compiled.durationSources),
+    sidecarCompilation: buildSidecarCompilation(readResult, compiled.durationSources, options.chapterPlan),
   };
 }
 
@@ -494,12 +586,15 @@ function buildAvatarDirectives(
 /** Preserve server-resolved ThinkForge context for the downstream Editron seam. */
 export function buildThinkForgeEditronHandoffContext(input: {
   sidecar?: unknown;
+  chapterPlan?: unknown;
   briefSnapshot?: unknown;
   sourceLedger?: unknown;
   authoringContextSnapshot?: unknown;
   expectedBrandId?: string;
 }): ThinkForgeEditronHandoffContext {
-  const compiled = input.sidecar === undefined ? null : compileScriptSidecar(input.sidecar);
+  const compiled = input.sidecar === undefined
+    ? null
+    : compileScriptSidecar(input.sidecar, { chapterPlan: input.chapterPlan });
   const briefSnapshot = sanitizeBriefSnapshotForEditron(input.briefSnapshot);
   const sourceLedger = asRecord(input.sourceLedger);
   const authoringProvenance = projectThinkForgeAuthoringProvenance({
@@ -524,8 +619,11 @@ export function buildThinkForgeEditronHandoffContext(input: {
  * Narrative hierarchy remains intact in sidecarCompilation; render segments never
  * become narrative scenes or replace canonical beat-line text.
  */
-export function mapScriptSidecarToEditronExport(input: unknown): ScriptSidecarEditronExport {
-  const compiled = compileScriptSidecar(input);
+export function mapScriptSidecarToEditronExport(
+  input: unknown,
+  options: ScriptSidecarEditronCompilationOptions = {},
+): ScriptSidecarEditronExport {
+  const compiled = compileScriptSidecar(input, options);
   const creativeDirection = compiled.readResult.sidecar.creativeDirection;
   const legacyV1 = compiled.readResult.sourceVersion === SCRIPT_SIDECAR_VERSION
     ? compiled.readResult.legacyV1

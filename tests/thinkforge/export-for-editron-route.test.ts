@@ -98,6 +98,60 @@ function boundWriterOutput(
     }),
   };
 }
+
+function longFormChapterPlanForSingleScene() {
+  return {
+    version: 1,
+    title: 'Same-pass Scene',
+    narrativeThesis: 'One complete workflow remains visible from first frame to final decision.',
+    targetDurationSeconds: 8,
+    audienceJourney: {
+      openingState: 'The workflow is fragmented.',
+      closingState: 'The workflow is connected.',
+    },
+    continuityBible: {
+      pointOfView: 'A clear observer.',
+      temporalFrame: 'One continuous moment.',
+      toneProgression: ['clarity'],
+      recurringMotifs: [],
+      terminologyInvariants: ['workflow'],
+    },
+    characters: [{
+      id: 'narrator',
+      name: 'Narrator',
+      narrativeRole: 'Explain the connected workflow.',
+      voice: 'Warm and credible.',
+      openingState: 'Introduces the workflow.',
+      closingState: 'Confirms the connected outcome.',
+      invariantTraits: ['clear'],
+    }],
+    continuityThreads: [],
+    acts: [{
+      id: 'act_1',
+      title: 'The connected workflow',
+      narrativePurpose: 'Show the complete production timeline.',
+      chapters: [{
+        id: 'chapter_workflow',
+        title: 'The workflow',
+        narrativePurpose: 'Establish the connected workflow as one coherent section.',
+        audienceStateBefore: 'The workflow is fragmented.',
+        audienceStateAfter: 'The workflow is connected.',
+        sceneBlueprints: [{
+          id: 'scene_1',
+          title: 'Same-pass Scene',
+          narrativePurpose: 'Keep the production timeline connected from first frame to final decision.',
+          openingState: 'The team sees separate steps.',
+          development: ['Show the connected timeline.'],
+          closingState: 'The workflow is visible as one system.',
+          durationIntentSeconds: 8,
+          requiredSourceRefs: ['brief_user'],
+          requiredCharacterIds: ['narrator'],
+          continuityThreadIds: [],
+        }],
+      }],
+    }],
+  };
+}
 describe('export-for-editron route', () => {
   beforeEach(() => {
     mocks.auth.mockReset();
@@ -783,7 +837,11 @@ describe('export-for-editron route', () => {
       blocks: savedBlocks,
       contentContract: VIDEO_SCRIPT_CONTRACT,
       version: 1,
-      metadata: { writerOutput: boundWriterOutput(savedContent, v2, 1) },
+      metadata: {
+        writerOutput: boundWriterOutput(savedContent, v2, 1, {
+          longForm: { version: 1, jobId: 'longscript_1', plan: longFormChapterPlanForSingleScene() },
+        }),
+      },
     });
     const { POST } = await import('@/app/api/services/thinkforge/script/export-for-editron/route');
 
@@ -812,6 +870,13 @@ describe('export-for-editron route', () => {
         }],
       },
     });
+    expect(payload.productionManifest.thinkforgeContext.sidecarCompilation.sceneBindings).toEqual([
+      expect.objectContaining({
+        actId: 'act_1',
+        chapterId: 'chapter_workflow',
+        narrativeSceneId: 'scene_1',
+      }),
+    ]);
     expect(payload.scenes).toHaveLength(1);
     expect(mocks.parseScriptWithLLM).not.toHaveBeenCalled();
   });

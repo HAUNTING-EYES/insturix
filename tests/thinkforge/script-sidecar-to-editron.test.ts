@@ -244,6 +244,102 @@ function v2Sidecar() {
   };
 }
 
+function longFormChapterPlan() {
+  return {
+    version: 1,
+    title: 'Evidence documentary',
+    narrativeThesis: 'The decision becomes credible when its evidence is seen in context.',
+    targetDurationSeconds: 54,
+    audienceJourney: {
+      openingState: 'The audience sees an unproven claim.',
+      closingState: 'The audience understands the evidence and decision.',
+    },
+    continuityBible: {
+      pointOfView: 'Measured and evidence-led.',
+      temporalFrame: 'One continuous evidence review.',
+      toneProgression: ['curiosity', 'clarity'],
+      recurringMotifs: ['the printed report'],
+      terminologyInvariants: ['report', 'evidence'],
+    },
+    characters: [{
+      id: 'host',
+      name: 'Host',
+      narrativeRole: 'Present the source-backed claim.',
+      voice: 'Assured and measured.',
+      openingState: 'Introduces the report.',
+      closingState: 'Leaves the evidence with the audience.',
+      invariantTraits: ['credible'],
+    }, {
+      id: 'narrator',
+      name: 'Narrator',
+      narrativeRole: 'Connect the report and interview.',
+      voice: 'Clear and precise.',
+      openingState: 'Frames the evidence.',
+      closingState: 'Lands the conclusion.',
+      invariantTraits: ['specific'],
+    }],
+    continuityThreads: [],
+    acts: [{
+      id: 'act_open',
+      title: 'Open',
+      narrativePurpose: 'Establish the claim and its evidence.',
+      chapters: [{
+        id: 'chapter_claim',
+        title: 'The claim',
+        narrativePurpose: 'State the sourced claim before the conclusion.',
+        audienceStateBefore: 'The claim is unproven.',
+        audienceStateAfter: 'The evidence is visible.',
+        sceneBlueprints: [{
+          id: 'scene_claim',
+          title: 'The claim',
+          narrativePurpose: 'State and substantiate the core argument.',
+          openingState: 'The report enters the frame.',
+          development: ['The host identifies the central finding.'],
+          closingState: 'The source requires contextual interpretation.',
+          durationIntentSeconds: 30,
+          requiredSourceRefs: ['source_report'],
+          requiredCharacterIds: ['host', 'narrator'],
+          continuityThreadIds: [],
+        }],
+      }],
+    }, {
+      id: 'act_resolve',
+      title: 'Resolve',
+      narrativePurpose: 'Turn the evidence into a conclusion.',
+      chapters: [{
+        id: 'chapter_decision',
+        title: 'The decision',
+        narrativePurpose: 'Compare the evidence and land the conclusion.',
+        audienceStateBefore: 'The evidence is visible.',
+        audienceStateAfter: 'The decision is supported.',
+        sceneBlueprints: [{
+          id: 'scene_synthesis',
+          title: 'Synthesis',
+          narrativePurpose: 'Connect the two sources.',
+          openingState: 'The report and interview are separate.',
+          development: ['Compare the two sources.'],
+          closingState: 'Their agreement becomes clear.',
+          durationIntentSeconds: 15,
+          requiredSourceRefs: ['source_report', 'source_interview'],
+          requiredCharacterIds: ['narrator'],
+          continuityThreadIds: [],
+        }, {
+          id: 'scene_close',
+          title: 'Close',
+          narrativePurpose: 'Land the conclusion without changing the wording.',
+          openingState: 'The supported option is visible.',
+          development: ['State the supported decision.'],
+          closingState: 'The conclusion remains with the audience.',
+          durationIntentSeconds: 9,
+          requiredSourceRefs: ['source_report'],
+          requiredCharacterIds: ['narrator'],
+          continuityThreadIds: [],
+        }],
+      }],
+    }],
+  };
+}
+
 function v1Sidecar() {
   return {
     sidecarVersion: 1,
@@ -352,6 +448,38 @@ describe('ThinkForge Script Sidecar to Editron compiler', () => {
     });
     expect(result.sidecarCompilation.narrativeSidecar.acts[0]?.narrativeScenes[0]?.beats[0]?.shotIntent)
       .toEqual(shotIntent());
+  });
+
+  it('binds every long-form V2 scene to its persisted chapter for Editron', () => {
+    const input = v2Sidecar();
+    const chapterPlan = longFormChapterPlan();
+    const result = mapScriptSidecarToEditronExport(input, { chapterPlan });
+    const context = buildThinkForgeEditronHandoffContext({ sidecar: input, chapterPlan });
+
+    expect(result.sidecarCompilation.sceneBindings.map((binding) => ({
+      actId: binding.actId,
+      chapterId: binding.chapterId,
+      narrativeSceneId: binding.narrativeSceneId,
+    }))).toEqual([
+      { actId: 'act_open', chapterId: 'chapter_claim', narrativeSceneId: 'scene_claim' },
+      { actId: 'act_resolve', chapterId: 'chapter_decision', narrativeSceneId: 'scene_synthesis' },
+      { actId: 'act_resolve', chapterId: 'chapter_decision', narrativeSceneId: 'scene_close' },
+    ]);
+    expect(context.sidecarCompilation?.sceneBindings.map((binding) => binding.chapterId))
+      .toEqual(['chapter_claim', 'chapter_decision', 'chapter_decision']);
+  });
+
+  it('rejects a claimed long-form plan that no longer owns every V2 scene', () => {
+    const chapterPlan = longFormChapterPlan();
+    chapterPlan.acts[1]!.chapters[0]!.sceneBlueprints[1]!.id = 'scene_replaced_after_save';
+
+    expect(() => mapScriptSidecarToEditronExport(v2Sidecar(), { chapterPlan }))
+      .toThrow(ThinkForgeSidecarCompilationError);
+    try {
+      mapScriptSidecarToEditronExport(v2Sidecar(), { chapterPlan });
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'long-form-scene-unmapped', claimedVersion: 2 });
+    }
   });
 
   it('adds a technical render plan for a fully timed native V2 sidecar without splitting narrative scenes', () => {

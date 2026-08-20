@@ -188,6 +188,17 @@ function buildExportSource(input: {
   return source;
 }
 
+function longFormChapterPlanFromWriterOutput(
+  writerOutput: Record<string, unknown> | undefined,
+): unknown | undefined {
+  if (!writerOutput || !Object.prototype.hasOwnProperty.call(writerOutput, 'longForm')) return undefined;
+  const longForm = writerOutput.longForm;
+  if (!longForm || typeof longForm !== 'object' || Array.isArray(longForm)) return null;
+  const record = longForm as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(record, 'plan') || record.plan === undefined) return null;
+  return record.plan;
+}
+
 function buildStoredScriptSource(
   session: NonNullable<Awaited<ReturnType<typeof db.getSession>>>,
   script: NonNullable<Awaited<ReturnType<typeof db.getScript>>>,
@@ -218,6 +229,7 @@ function buildStoredScriptSource(
   const writerOutput = metadata?.writerOutput && typeof metadata.writerOutput === 'object' && !Array.isArray(metadata.writerOutput)
     ? metadata.writerOutput as Record<string, unknown>
     : undefined;
+  const chapterPlan = longFormChapterPlanFromWriterOutput(writerOutput);
   const authoringContext = buildThinkForgeEditronHandoffContext({
     authoringContextSnapshot: metadata?.authoringContextSnapshot,
     expectedBrandId: resolveProjectMetaBrandId(session.projectMeta),
@@ -240,9 +252,10 @@ function buildStoredScriptSource(
   try {
     return {
       ...storedSource,
-      sidecarExport: mapScriptSidecarToEditronExport(rawSidecar),
+      sidecarExport: mapScriptSidecarToEditronExport(rawSidecar, { chapterPlan }),
       thinkforgeContext: buildThinkForgeEditronHandoffContext({
         sidecar: rawSidecar,
+        chapterPlan,
         briefSnapshot: metadata?.briefSnapshot,
         sourceLedger: writerOutput?.sourceLedger,
         authoringContextSnapshot: metadata?.authoringContextSnapshot,
@@ -251,7 +264,10 @@ function buildStoredScriptSource(
     };
   } catch (error) {
     if (error instanceof ThinkForgeAuthoringProvenanceError) throw error;
-    if (error instanceof ThinkForgeSidecarCompilationError && error.claimedVersion === 2) {
+    if (
+      error instanceof ThinkForgeSidecarCompilationError
+      && (error.claimedVersion === 2 || error.code.startsWith('long-form-'))
+    ) {
       console.error('[export-for-editron] Stored V2 sidecar failed compilation', {
         code: error.code,
         claimedVersion: error.claimedVersion,
