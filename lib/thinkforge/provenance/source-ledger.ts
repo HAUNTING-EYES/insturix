@@ -130,6 +130,64 @@ const TOKEN_STOP_WORDS = new Set([
   'your',
 ]);
 
+// Evidence may express the same fact as a digit or a written cardinal. Keep this
+// normalization local to source matching; it does not rewrite generated copy.
+const CARDINAL_NUMBER_TOKENS = new Map<string, string>([
+  ['zero', '0'],
+  ['one', '1'],
+  ['two', '2'],
+  ['three', '3'],
+  ['four', '4'],
+  ['five', '5'],
+  ['six', '6'],
+  ['seven', '7'],
+  ['eight', '8'],
+  ['nine', '9'],
+  ['ten', '10'],
+  ['eleven', '11'],
+  ['twelve', '12'],
+  ['thirteen', '13'],
+  ['fourteen', '14'],
+  ['fifteen', '15'],
+  ['sixteen', '16'],
+  ['seventeen', '17'],
+  ['eighteen', '18'],
+  ['nineteen', '19'],
+  ['twenty', '20'],
+  ['thirty', '30'],
+  ['forty', '40'],
+  ['fifty', '50'],
+  ['sixty', '60'],
+  ['seventy', '70'],
+  ['eighty', '80'],
+  ['ninety', '90'],
+  ['hundred', '100'],
+  ['thousand', '1000'],
+]);
+
+// These words frame a claim without adding a proposition that a ledger source
+// must independently establish. They remain in generated copy; only entailment
+// comparison ignores them.
+const EVIDENCE_NEUTRAL_TOKENS = new Set([
+  'consider',
+  'discover',
+  'enter',
+  'finally',
+  'here',
+  'introduce',
+  'isnt',
+  'look',
+  'meet',
+  'next',
+  'now',
+  'today',
+  'welcome',
+  'werent',
+  'wasnt',
+]);
+
+const PERCENT_EVIDENCE_PATTERN = /\p{N}[\p{N},.\s]*?(?:%|％|percent(?:age)?\b|per\s+cent\b)/iu;
+
 function cleanText(value: unknown, maxChars: number): string {
   return String(value ?? '')
     .replace(/\s+/g, ' ')
@@ -273,9 +331,31 @@ function addInvalidRefs(
   }
 }
 
+function normalizeEvidenceToken(token: string): string {
+  const cardinal = CARDINAL_NUMBER_TOKENS.get(token);
+  if (cardinal) return cardinal;
+  if (
+    /^[a-z]+$/u.test(token)
+    && token.length >= 5
+    && token.endsWith('s')
+    && !/(?:ss|us|is)$/u.test(token)
+  ) {
+    return token.slice(0, -1);
+  }
+  return token;
+}
+
 function tokenSet(text: string): Set<string> {
-  return new Set(unicodeLexicalTokens(text)
-    .filter((token) => isSubstantiveUnicodeToken(token) && !TOKEN_STOP_WORDS.has(token)));
+  const tokens = new Set(unicodeLexicalTokens(text)
+    .filter((token) => isSubstantiveUnicodeToken(token) || CARDINAL_NUMBER_TOKENS.has(token))
+    .map(normalizeEvidenceToken)
+    .filter((token) => !TOKEN_STOP_WORDS.has(token)));
+  if (PERCENT_EVIDENCE_PATTERN.test(text)) tokens.add('percent');
+  return tokens;
+}
+
+function claimEvidenceTokens(text: string): Set<string> {
+  return new Set([...tokenSet(text)].filter((token) => !EVIDENCE_NEUTRAL_TOKENS.has(token)));
 }
 
 function tokenOverlapCount(left: Set<string>, right: Set<string>): number {
@@ -312,7 +392,9 @@ function ledgerEntriesByReferenceId(ledger: SourceLedger): Map<string, SourceLed
 }
 
 function factualAnchorTokens(text: string): string[] {
-  return [...new Set(unicodeLexicalTokens(text).filter((token) => /^\p{N}/u.test(token)))];
+  return [...new Set(unicodeLexicalTokens(text)
+    .filter((token) => /^\p{N}/u.test(token) || CARDINAL_NUMBER_TOKENS.has(token))
+    .map(normalizeEvidenceToken))];
 }
 
 function sourceUrls(text: string): string[] {
@@ -334,8 +416,8 @@ function hasDirectFactualSupport(text: string, entry: SourceLedgerEntry): boolea
 
   const evidenceText = entryEvidenceText(entry);
   const evidenceTokens = tokenSet(evidenceText);
+  const claimTokens = claimEvidenceTokens(text);
   if (!hasUnicodeFactualMarker(text)) {
-    const claimTokens = tokenSet(text);
     return claimTokens.size >= 2 && [...claimTokens].every((token) => evidenceTokens.has(token));
   }
 
@@ -345,12 +427,14 @@ function hasDirectFactualSupport(text: string, entry: SourceLedgerEntry): boolea
   if (sourceUrls(text).some((url) => !evidenceUrls.has(url))) return false;
 
   const nonNumericTextTokens = new Set(
-    [...tokenSet(text)].filter((token) => !/^\p{N}/u.test(token)),
+    [...claimTokens].filter((token) => !/^\p{N}/u.test(token)),
   );
   const nonNumericEvidenceTokens = new Set(
     [...evidenceTokens].filter((token) => !/^\p{N}/u.test(token)),
   );
-  return tokenOverlapCount(nonNumericTextTokens, nonNumericEvidenceTokens) >= 2;
+  const requiredSupportedTokens = Math.ceil(nonNumericTextTokens.size * 0.75);
+  return nonNumericTextTokens.size > 0
+    && tokenOverlapCount(nonNumericTextTokens, nonNumericEvidenceTokens) >= requiredSupportedTokens;
 }
 
 /**
@@ -397,7 +481,7 @@ function addUnsupportedCitationIssues(
     issues.push(`source_ref_marker_mismatch:${label}`);
   }
 
-  const claimTokens = tokenSet(normalized);
+  const claimTokens = claimEvidenceTokens(normalized);
   if (claimTokens.size >= 2 && !citedEntries.some((entry) => hasDirectFactualSupport(normalized, entry))) {
     issues.push(`source_ref_low_support:${label}`);
   }

@@ -20,7 +20,6 @@ import {
 } from '../schemas/idea-angle';
 import {
   parseSourceLedger,
-  resolveThinkForgeSourceLedgerEvidenceBoundary,
   type SourceLedger,
 } from '../provenance/source-ledger';
 import type { ThinkForgeContentSignalProfile } from '../signals';
@@ -366,6 +365,7 @@ export function buildThinkForgeEditorialPlan(
         ? null
         : { output: { targetDurationSec } },
       contentSignalProfile: input.contentSignalProfile ?? undefined,
+      sourceLedger,
     });
     return {
       ...common,
@@ -376,7 +376,7 @@ export function buildThinkForgeEditorialPlan(
       },
       evidence: {
         ...common.evidence,
-        boundary: resolveThinkForgeSourceLedgerEvidenceBoundary(sourceLedger),
+        boundary: plan.evidenceNarrative.sourceBoundary,
       },
       resolvedProduction: targetDurationSec === undefined ? {} : { targetDurationSec },
       execution: { kind: 'script', plan },

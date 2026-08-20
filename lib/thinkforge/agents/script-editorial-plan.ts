@@ -3,6 +3,11 @@ import {
   selectTechniques,
   type TechniqueResult,
 } from '../data/writing-graph-query';
+import {
+  resolveThinkForgeSourceLedgerEvidenceBoundary,
+  type SourceLedger,
+  type ThinkForgeSourceLedgerEvidenceBoundary,
+} from '../provenance/source-ledger';
 import type { ThinkForgeContentSignalProfile } from '../signals';
 
 export type ScriptNarrationMode =
@@ -11,6 +16,17 @@ export type ScriptNarrationMode =
   | 'counterpoint'
   | 'minimal'
   | 'standard_voiceover';
+
+export type ScriptEvidenceNarrativeMode =
+  | 'creative_without_authorized_evidence'
+  | 'source_bounded_inquiry'
+  | 'bounded_evidence_argument';
+
+export interface ScriptEvidenceNarrativePlan {
+  mode: ScriptEvidenceNarrativeMode;
+  sourceBoundary: ThinkForgeSourceLedgerEvidenceBoundary;
+  requirements: string[];
+}
 
 export interface ScriptTechniqueDirective {
   id: string;
@@ -51,6 +67,7 @@ export type ScriptNarrationPlan = {
 export interface ScriptEditorialPlan {
   runtime: ScriptRuntimePlan;
   narration: ScriptNarrationPlan;
+  evidenceNarrative: ScriptEvidenceNarrativePlan;
   visualVerbal: {
     onScreenTextRole: 'may_replace_narration' | 'selective_complement';
     defaultUsage: 'selective' | 'omit';
@@ -71,6 +88,7 @@ export interface ScriptEditorialPlanInput {
     output: Pick<BriefOutputSpec, 'targetDurationSec'>;
   } | null;
   contentSignalProfile?: ThinkForgeContentSignalProfile | null;
+  sourceLedger?: SourceLedger | null;
 }
 
 interface NarrationRateGuidance {
@@ -163,6 +181,45 @@ function minimumSpokenWords(targetDurationSeconds: number, wordsPerMinute: numbe
   return Math.ceil((targetDurationSeconds / 60) * wordsPerMinute);
 }
 
+function resolveEvidenceNarrativePlan(
+  sourceLedger: SourceLedger | null | undefined,
+): ScriptEvidenceNarrativePlan {
+  const sourceBoundary = resolveThinkForgeSourceLedgerEvidenceBoundary(sourceLedger);
+  if (!sourceLedger || sourceLedger.entries.length === 0) {
+    return {
+      mode: 'creative_without_authorized_evidence',
+      sourceBoundary,
+      requirements: [
+        'Do not present invented facts, proof, statistics, dates, testimonials, or named outcomes as true.',
+        'Let the approved creative direction and requested format determine the narrative.',
+      ],
+    };
+  }
+
+  if (sourceBoundary === 'source_only') {
+    return {
+      mode: 'source_bounded_inquiry',
+      sourceBoundary,
+      requirements: [
+        'Build a record-led inquiry around what the authorised record directly establishes.',
+        'Use scope, uncertainty, and unanswered questions as narrative turns without answering those questions with outside knowledge.',
+        'Do not fill runtime with generic sector context, technical explanations, challenges, causes, benefits, forecasts, roadmaps, or comparisons absent from the record.',
+        'Use supplied concrete evidence for visual progression; do not fabricate unavailable research or footage as fact.',
+      ],
+    };
+  }
+
+  return {
+    mode: 'bounded_evidence_argument',
+    sourceBoundary,
+    requirements: [
+      'Lead with direct evidence, then make only narrow implications that remain inside the authorised record.',
+      'Name the evidence boundary whenever an implication could be mistaken for a universal claim.',
+      'Do not use authorised sources as permission for broader unsourced context or conclusions.',
+    ],
+  };
+}
+
 /**
  * Resolve writing form from the accepted brief and content-signal graph. Runtime sets the
  * production envelope; the approved creative direction and material determine hierarchy.
@@ -178,6 +235,7 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
   const rateGuidance = NARRATION_RATE_GUIDANCE[narrationMode];
   const narrationDirective = directive(selectedNarration);
   const recommendedStructures = selectStructureTechniques(signals, targetDurationSeconds);
+  const evidenceNarrative = resolveEvidenceNarrativePlan(input.sourceLedger);
 
   return {
     runtime: hasExactRuntime
@@ -213,6 +271,7 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
         : { wordBudgetPolicy: 'open' as const }),
       ...(narrationDirective ? { selectedTechnique: narrationDirective } : {}),
     },
+    evidenceNarrative,
     visualVerbal: {
       onScreenTextRole: narrationMode === 'minimal'
         ? 'may_replace_narration'

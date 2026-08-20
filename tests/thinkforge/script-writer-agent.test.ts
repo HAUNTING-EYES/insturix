@@ -18,7 +18,10 @@ import {
   type ScriptWriterModelOutput,
   type ScriptWriterResult,
 } from '@/lib/thinkforge/agents/script-writer-agent';
-import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
+import {
+  buildThinkForgeSourceLedger,
+  findDirectlySupportingSourceReferenceIds,
+} from '@/lib/thinkforge/provenance/source-ledger';
 import { buildContinuedThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger-continuity';
 import {
   SCRIPT_SIDECAR_V2_VERSION,
@@ -292,6 +295,7 @@ describe('ScriptWriterAgent prompt contract', () => {
       context: { projectSummary: 'Evidence-led port pilot.' },
       userPrompt,
       contentSignalProfile,
+      sourceLedger: buildThinkForgeSourceLedger({ userPrompt }),
     });
 
     expect(contentSignalProfile.intent.proofPoints)
@@ -302,6 +306,8 @@ describe('ScriptWriterAgent prompt contract', () => {
     expect(prompt).toContain('"evidencePolicy"');
     expect(prompt).toContain('"boundary": "source_only"');
     expect(prompt).toContain('A declared reference is not permission to broaden the source');
+    expect(prompt).toContain('"mode": "source_bounded_inquiry"');
+    expect(prompt).toContain('build a record-led inquiry');
   });
 
   it('maps reordered retrieved facts to their immutable ledger references', () => {
@@ -431,6 +437,48 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(normalizedBeat.sourceRefs).toEqual(['brief_user']);
     expect(normalizedBeat.lines[0]?.sourceRefs).toEqual(['brief_user']);
     expect(normalizedBeat.visualIntent?.onScreenText).toEqual([]);
+  });
+
+  it('normalizes written and digit evidence markers without approving padded source claims', () => {
+    const userPrompt = [
+      'HarborGrid was a synthetic six-month port-electrification pilot across two cargo terminals.',
+      '18 diesel yard tractors were replaced and idling fuel use fell 31% during the measured period.',
+    ].join(' ');
+    const sourceLedger = buildThinkForgeSourceLedger({ userPrompt });
+
+    expect(findDirectlySupportingSourceReferenceIds(
+      'Enter HarborGrid: a synthetic six-month port-electrification pilot.',
+      sourceLedger,
+    )).toEqual(['brief_user']);
+    expect(findDirectlySupportingSourceReferenceIds(
+      'HarborGrid Pilot: 6 Months',
+      sourceLedger,
+    )).toEqual(['brief_user']);
+    expect(findDirectlySupportingSourceReferenceIds(
+      'Idling fuel use was 31 percent lower during the measured period.',
+      sourceLedger,
+    )).toEqual(['brief_user']);
+    expect(findDirectlySupportingSourceReferenceIds(
+      'This was a hands-on, six-month pilot across two active cargo terminals.',
+      sourceLedger,
+    )).toEqual([]);
+
+    const modelOutput = makeModelOutput();
+    const beat = modelOutput.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!;
+    beat.lines = [{
+      ...beat.lines[0]!,
+      text: 'Enter HarborGrid: a synthetic six-month port-electrification pilot.',
+      sourceRefs: ['source_1'],
+    }];
+    beat.visualIntent = {
+      ...beat.visualIntent!,
+      onScreenText: ['HarborGrid Pilot: 6 Months'],
+    };
+    const result = materializeScriptWriterResult(modelOutput, sourceLedger);
+    const normalizedBeat = result.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!;
+
+    expect(normalizedBeat.lines[0]?.sourceRefs).toEqual(['brief_user']);
+    expect(normalizedBeat.sourceRefs).toEqual(['brief_user']);
   });
 
   it.each([
