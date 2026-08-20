@@ -35,7 +35,6 @@ export type HydrateResponse = {
   chat: any[];
 };
 
-const LS_CURRENT_SESSION = "thinkforge_current_session";
 const LS_SESSION_PREFIX = "thinkforge_session_";
 
 function saveLocal(sessionId: string, data: Partial<HydrateResponse & { script: ScriptModel }>) {
@@ -70,26 +69,6 @@ export function useThinkForgeClient() {
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSnapshotRef = useRef<string>("");
-
-  // Recover last session on mount
-  useEffect(() => {
-    try {
-      const last = localStorage.getItem(LS_CURRENT_SESSION);
-      if (last) {
-        const cached = getLocal(last);
-        if (cached) {
-          setSessionId(last);
-          setScript(cached.script || null);
-          setChat((cached as any).chat || []);
-          setPreferences(cached.preferences || {});
-          setProjectMeta(cached.projectMeta || {});
-        }
-      }
-    } catch (err) {
-      // STEP 7: Log localStorage errors instead of silent swallow
-      console.error('[useThinkForgeClient] Failed to recover session from localStorage:', err);
-    }
-  }, []);
 
   const hydrate = useCallback(async (payload?: HydratePayload) => {
     setIsHydrating(true);
@@ -126,8 +105,7 @@ export function useThinkForgeClient() {
       setChat(data.chat || []);
       setPreferences(data.preferences || {});
       setProjectMeta(data.projectMeta || {});
-      // Cache
-      localStorage.setItem(LS_CURRENT_SESSION, data.sessionId);
+      // Cache only the explicitly opened session; there is no browser-wide current-session pointer.
       const cachePayload: Partial<HydrateResponse & { script: ScriptModel }> = {
         ...data,
         script: (sanitized ?? undefined) as any,
@@ -137,7 +115,6 @@ export function useThinkForgeClient() {
     } catch (e) {
       // If this was a brand-new session creation attempt, do NOT fallback to old cached session; start clean
       if (isCreateNew) {
-        try { localStorage.removeItem(LS_CURRENT_SESSION); } catch {}
         setSessionId(null);
         setScript(null);
         setChat([]);
@@ -145,8 +122,8 @@ export function useThinkForgeClient() {
         setProjectMeta({});
         return null;
       }
-      // Otherwise, fallback to local cache if present for the requested/last session
-      const sid = payload?.sessionId || localStorage.getItem(LS_CURRENT_SESSION) || null;
+      // Otherwise, fallback only for the session the caller explicitly requested.
+      const sid = payload?.sessionId || null;
       if (sid) {
         const cached = getLocal(sid);
         if (cached) {
@@ -354,17 +331,13 @@ export function useThinkForgeClient() {
   // Close session locally (frontend-only cleanup)
   const closeSession = useCallback(async () => {
     try {
-      if (sessionId) {
-        localStorage.removeItem(LS_CURRENT_SESSION);
-        // Keep cached data in LS_SESSION_PREFIX for future re-open
-      }
       setSessionId(null);
       setScript(null);
       setChat([]);
       setPreferences({});
       setProjectMeta({});
     } catch {}
-  }, [sessionId]);
+  }, []);
 
   // Cleanup timer on unmount
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);

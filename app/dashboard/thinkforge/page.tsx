@@ -180,7 +180,6 @@ export default function ThinkForgeLanding() {
 	const initialDraftRequestedRef = useRef(false);
 	const successfulIdeaVariationRef = useRef(-1);
 	const rejectedIdeasRef = useRef<Array<{ title: string; purpose: string; style: string }>>([]);
-	const resumedSessionIdRef = useRef<string | null>(null);
 	const sessionOpenRevisionRef = useRef(0);
 
 	// Modular hooks
@@ -228,30 +227,6 @@ export default function ThinkForgeLanding() {
 		});
 		if (projectAuthoringRequest) setAuthoringRequest(projectAuthoringRequest);
 	}, [workspaceMode, selectedIdea, session.projectMeta]);
-
-	useEffect(() => {
-		const restoredSessionId = session.restoredSessionId;
-		if (!restoredSessionId || session.isRestoringCurrentSession) return;
-		if (session.sessionId !== restoredSessionId) return;
-		if (resumedSessionIdRef.current === restoredSessionId) return;
-
-		resumedSessionIdRef.current = restoredSessionId;
-		setActiveScriptId(
-			session.hydratedScriptSnapshot?.sessionId === restoredSessionId
-				? session.hydratedScriptSnapshot.scriptId
-				: 'default',
-		);
-		const restoredIdea = buildIdeaFromSessionMeta(restoredSessionId, session.projectMeta || {});
-		setSelectedIdea(restoredIdea);
-		setAuthoringRequest(restoredIdea.authoringRequest || null);
-		setWorkspaceMode('scripting');
-	}, [
-		session.restoredSessionId,
-		session.isRestoringCurrentSession,
-		session.sessionId,
-		session.projectMeta,
-		session.hydratedScriptSnapshot,
-	]);
 
 	const panelRef = useRef<HTMLElement | null>(null);
 

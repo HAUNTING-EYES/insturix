@@ -15,7 +15,7 @@ import {
 export type Block = any;
 export type { ScriptModel } from "@/lib/thinkforge/json";
 
-const LS_CURRENT_SESSION = "thinkforge_current_session";
+const LEGACY_LS_CURRENT_SESSION = "thinkforge_current_session";
 const LS_SESSION_PREFIX = "thinkforge_session_";
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours TTL for cached sessions
 
@@ -93,8 +93,6 @@ export function useThinkForgeSession() {
   const [isHydrating, setIsHydrating] = useState(false);
   const [hydratedScriptSnapshot, setHydratedScriptSnapshot] = useState<HydratedScriptSnapshot | null>(null);
   const [hydratedChatSnapshot, setHydratedChatSnapshot] = useState<HydratedChatSnapshot | null>(null);
-  const [restoredSessionId, setRestoredSessionId] = useState<string | null>(null);
-  const [isRestoringCurrentSession, setIsRestoringCurrentSession] = useState(true);
   const [hydrationFailure, setHydrationFailure] = useState<ThinkForgeSessionHydrationFailure | null>(null);
   const hydrationRevisionRef = useRef(0);
   const hydrationRequestRevisionRef = useRef(0);
@@ -104,6 +102,16 @@ export function useThinkForgeSession() {
     hydrationRequestRevisionRef.current += 1;
     hydrationAbortControllerRef.current?.abort();
     hydrationAbortControllerRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    // Older releases used this browser-wide pointer to reopen a session on every
+    // ThinkForge mount. A session must now be opened through an explicit action.
+    try {
+      localStorage.removeItem(LEGACY_LS_CURRENT_SESSION);
+    } catch (error) {
+      console.warn('[useThinkForgeSession] Failed to clear legacy session pointer:', error);
+    }
   }, []);
 
   const hydrate = useCallback(async (payload?: HydratePayload): Promise<HydrateResponse | null> => {
@@ -134,18 +142,12 @@ export function useThinkForgeSession() {
       aborted: controller.signal.aborted,
     }) && hydrationAbortControllerRef.current === controller;
 
-    // If we're explicitly creating a new session, clear any stale state before requesting
+    // Creating a session starts from clean in-memory state; it must not revive a prior document.
     if (isCreateNew) {
-      try {
-        localStorage.removeItem(LS_CURRENT_SESSION);
-      } catch (e) {
-        console.warn('[useThinkForgeSession] Failed to clear localStorage on new session:', e);
-      }
       setSessionId(null);
       setPreferences({});
       setProjectMeta({});
       setHydratedChatSnapshot(null);
-      setRestoredSessionId(null);
     }
 
     try {
@@ -231,11 +233,6 @@ export function useThinkForgeSession() {
         }));
       }
 
-      try {
-        localStorage.setItem(LS_CURRENT_SESSION, data.sessionId);
-      } catch (error) {
-        console.warn('[useThinkForgeSession] Failed to cache current session identity:', error);
-      }
       const cachePayload: Partial<HydrateResponse & { script: ScriptModel }> = {
         ...data,
         script: data.script ?? undefined as any,
@@ -253,20 +250,12 @@ export function useThinkForgeSession() {
         }));
       }
       if (isCreateNew) {
-        try { localStorage.removeItem(LS_CURRENT_SESSION); } catch (lsErr) { console.warn('[useThinkForgeSession] localStorage cleanup failed:', lsErr); }
         setSessionId(null);
         setPreferences({});
         setProjectMeta({});
         return null;
       }
-      let sid = payload?.sessionId || null;
-      if (!sid) {
-        try {
-          sid = localStorage.getItem(LS_CURRENT_SESSION) || null;
-        } catch (error) {
-          console.warn('[useThinkForgeSession] Failed to read cached session identity:', error);
-        }
-      }
+      const sid = payload?.sessionId || null;
       if (sid && payload?.allowCachedFallback !== false) {
         const cached = getLocal(sid);
         if (cached) {
@@ -288,46 +277,12 @@ export function useThinkForgeSession() {
     }
   }, [router]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const restoreCurrentSession = async () => {
-      let lastSessionId: string | null = null;
-      try {
-        lastSessionId = localStorage.getItem(LS_CURRENT_SESSION)?.trim() || null;
-      } catch (error) {
-        console.error('[useThinkForgeSession] Failed to read the last session:', error);
-      }
-
-      try {
-        if (!lastSessionId) return;
-
-        const data = await hydrate({
-          sessionId: lastSessionId,
-          allowCachedFallback: false,
-        });
-
-        if (!cancelled && data?.sessionId === lastSessionId) {
-          setRestoredSessionId(data.sessionId);
-        }
-      } finally {
-        if (!cancelled) setIsRestoringCurrentSession(false);
-      }
-    };
-
-    void restoreCurrentSession();
-    return () => {
-      cancelled = true;
-    };
-  }, [hydrate]);
-
   const closeSession = useCallback(async () => {
     hydrationRequestRevisionRef.current += 1;
     hydrationAbortControllerRef.current?.abort();
     hydrationAbortControllerRef.current = null;
     if (sessionId) {
       try {
-        localStorage.removeItem(LS_CURRENT_SESSION);
         localStorage.removeItem(`${LS_SESSION_PREFIX}${sessionId}`);
       } catch (error) {
         console.warn('[useThinkForgeSession] Failed to remove session cache:', error);
@@ -338,7 +293,6 @@ export function useThinkForgeSession() {
     setProjectMeta({});
     setHydratedScriptSnapshot(null);
     setHydratedChatSnapshot(null);
-    setRestoredSessionId(null);
     setHydrationFailure(null);
     setIsHydrating(false);
   }, [sessionId]);
@@ -375,7 +329,6 @@ export function useThinkForgeSession() {
         // If session doesn't exist, clear local state
         if (res.status === 404) {
           try {
-            localStorage.removeItem(LS_CURRENT_SESSION);
             localStorage.removeItem(`${LS_SESSION_PREFIX}${targetSessionId}`);
           } catch (e) {
             console.warn('[useThinkForgeSession] Failed to clear invalid session from localStorage:', e);
@@ -409,8 +362,6 @@ export function useThinkForgeSession() {
     hydratedChatSnapshot,
     isHydrating,
     hydrationFailure,
-    restoredSessionId,
-    isRestoringCurrentSession,
     hydrate,
     closeSession,
     verifySession,

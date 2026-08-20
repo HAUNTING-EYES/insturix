@@ -176,7 +176,7 @@ describe('ThinkForge session open policy', () => {
     expect(panel).not.toContain('onNewScript={async');
   });
 
-  it('lets the page owner decide how to reopen an active Library row', () => {
+  it('opens sessions only through an explicit Library action', () => {
     const library = read('components/dashboard/ThinkForge/LibraryPanel.tsx');
     const page = read('app/dashboard/thinkforge/page.tsx');
 
@@ -199,11 +199,16 @@ describe('ThinkForge session open policy', () => {
     expect(route).toContain('version: script.version');
     expect(sessionHook).toContain('setHydratedScriptSnapshot({');
     expect(sessionHook).toContain('hydrationAbortControllerRef.current?.abort()');
-    expect(sessionHook).toContain("allowCachedFallback: false");
-    expect(sessionHook).not.toContain("sessionId: lastSessionId,\n          scriptId: 'default'");
-    expect(sessionHook).toContain('setRestoredSessionId(data.sessionId);');
-    expect(page).toContain('session.restoredSessionId');
-    expect(page).toContain('buildIdeaFromSessionMeta(restoredSessionId, session.projectMeta || {})');
+    expect(page).toContain('allowCachedFallback: false');
+    expect(sessionHook).toContain("localStorage.removeItem(LEGACY_LS_CURRENT_SESSION);");
+    expect(sessionHook).not.toContain('restoreCurrentSession');
+    expect(sessionHook).not.toContain('localStorage.getItem(LEGACY_LS_CURRENT_SESSION)');
+    expect(page).toContain("const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ideation');");
+    expect(page).not.toContain('session.restoredSessionId');
+    expect(page).not.toContain('setWorkspaceMode(\'scripting\');\n\t}, [\n\t\tsession.restoredSessionId');
+    const legacyHook = read('app/dashboard/thinkforge/hooks/useThinkForgeClient.ts');
+    expect(legacyHook).not.toContain('thinkforge_current_session');
+    expect(legacyHook).not.toContain('Recover last session on mount');
     expect(scriptHook).toContain('consumedHydrationSnapshotsRef.current.has');
   });
 });
