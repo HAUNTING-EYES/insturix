@@ -30,6 +30,10 @@ import {
   findScriptChapterWriteCapacityConflicts,
   type ScriptChapterWriteCapacityConflict,
 } from './script-chapter-capacity';
+import {
+  ScriptChapterSemanticValidationInputError,
+  validateScriptChapterSemanticExecution,
+} from './script-chapter-semantic-validation';
 import type {
   LongFormScriptCommitReceipt,
   LongFormScriptGenerationJobSnapshot,
@@ -83,16 +87,22 @@ export async function executeLongFormScriptAction(input: {
     case 'write_chapter': {
       if (!job.plan) throw new LongFormScriptNonRetryableError('Chapter generation requires a durable master plan.');
       assertScriptChapterPlanFitsWriter(job, job.plan);
+      const chapterExecution = {
+        plan: job.plan,
+        actId: action.actId,
+        chapterId: action.chapterId,
+        previousArtifact: previousChapterArtifact(job, action.chapterId),
+      };
       const output = await new ScriptWriterAgent().runStructured({
         ...buildChapterPlanInput(job),
         contentSignalProfile: job.input.authoringInput.contentSignalProfile,
-        chapterExecution: {
-          plan: job.plan,
-          actId: action.actId,
-          chapterId: action.chapterId,
-          previousArtifact: previousChapterArtifact(job, action.chapterId),
-        },
+        chapterExecution,
       } satisfies ScriptWriterInput, undefined, signal);
+      const semanticValidation = await validateScriptChapterSemanticExecution({
+        chapterExecution,
+        result: output.result,
+        abortSignal: signal,
+      });
       return {
         kind: 'write_chapter',
         artifact: createScriptChapterArtifact({
@@ -100,6 +110,7 @@ export async function executeLongFormScriptAction(input: {
           chapterId: action.chapterId,
           result: output.result,
           writerTrace: requireThinkForgeWriterInvocationTrace(output.metadata?.writerTrace),
+          semanticValidation,
         }),
       };
     }
@@ -139,7 +150,8 @@ function assertScriptChapterPlanFitsWriter(
 
 export function isRetryableLongFormScriptActionError(error: unknown): boolean {
   return !(error instanceof LongFormScriptNonRetryableError)
-    && !(error instanceof ScriptChapterAssemblyError);
+    && !(error instanceof ScriptChapterAssemblyError)
+    && !(error instanceof ScriptChapterSemanticValidationInputError);
 }
 
 function buildChapterPlanInput(job: LongFormScriptGenerationJobSnapshot): ScriptChapterPlanInput {

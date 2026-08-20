@@ -7,6 +7,12 @@ import {
 import { materializeScriptWriterResult, type ScriptWriterModelOutput } from '@/lib/thinkforge/agents/script-writer-agent';
 import { materializeScriptChapterPlan, type ScriptChapterPlan } from '@/lib/thinkforge/schemas/script-chapter-plan';
 import type { ThinkForgeWriterInvocationTraceV1 } from '@/lib/thinkforge/provenance/generation-trace';
+import {
+  assertScriptChapterSemanticValidationReceipt,
+  buildScriptChapterSemanticRequirementsForPlan,
+  validateScriptChapterSemanticExecution,
+} from '@/lib/thinkforge/long-form/script-chapter-semantic-validation';
+import { hashLongFormScriptJobValue } from '@/lib/thinkforge/long-form/script-generation-job-contract';
 
 const SHA = 'a'.repeat(64);
 
@@ -169,19 +175,71 @@ function chapterResult(actId: string, sceneId: string, durationSeconds: number) 
   return materializeScriptWriterResult(output);
 }
 
+function semanticReceipt(
+  masterPlan: ScriptChapterPlan,
+  actId: string,
+  chapterId: string,
+  result: ReturnType<typeof chapterResult>,
+) {
+  const requirements = buildScriptChapterSemanticRequirementsForPlan({
+    plan: masterPlan,
+    actId,
+    chapterId,
+  });
+  const receipt = {
+    version: 1,
+    planHash: hashLongFormScriptJobValue(masterPlan),
+    actId,
+    chapterId,
+    resultHash: hashLongFormScriptJobValue(result),
+    validator: { provider: 'gemini' as const, model: 'gemini-test', cacheStatus: 'inline' as const },
+    outcome: 'passed' as const,
+    assessments: requirements.map((requirement) => {
+      const scene = result.sidecar.acts
+        .flatMap((act) => act.narrativeScenes)
+        .find((candidate) => requirement.allowedSceneIds.includes(candidate.id));
+      const beat = scene?.beats[0];
+      const line = beat?.lines[0];
+      if (!scene || !beat || !line) throw new Error(`Missing test evidence for ${requirement.id}.`);
+      return {
+        requirementId: requirement.id,
+        status: 'satisfied' as const,
+        evidence: [{
+          sceneId: scene.id,
+          beatId: beat.id,
+          kind: 'spoken_line' as const,
+          lineIds: [line.id],
+        }],
+        rationale: 'The fixture cites a real generated spoken line for this requirement.',
+      };
+    }),
+  };
+  return assertScriptChapterSemanticValidationReceipt({
+    plan: masterPlan,
+    actId,
+    chapterId,
+    result,
+    receipt,
+  });
+}
+
 function artifacts(masterPlan = plan()) {
+  const opening = chapterResult('act_one', 'scene_open', 180);
+  const closing = chapterResult('act_two', 'scene_close', 240);
   return {
     chapter_open: createScriptChapterArtifact({
       plan: masterPlan,
       chapterId: 'chapter_open',
-      result: chapterResult('act_one', 'scene_open', 180),
+      result: opening,
       writerTrace: trace(),
+      semanticValidation: semanticReceipt(masterPlan, 'act_one', 'chapter_open', opening),
     }),
     chapter_close: createScriptChapterArtifact({
       plan: masterPlan,
       chapterId: 'chapter_close',
-      result: chapterResult('act_two', 'scene_close', 240),
+      result: closing,
       writerTrace: trace(),
+      semanticValidation: semanticReceipt(masterPlan, 'act_two', 'chapter_close', closing),
     }),
   };
 }
@@ -225,6 +283,7 @@ describe('long-form script chapter assembly', () => {
       chapterId: 'chapter_open',
       result: wrongScene,
       writerTrace: trace(),
+      semanticValidation: undefined as never,
     })).toThrow(/scene_order_mismatch/);
 
     const wrongDuration = chapterResult('act_one', 'scene_open', 180);
@@ -234,6 +293,7 @@ describe('long-form script chapter assembly', () => {
       chapterId: 'chapter_open',
       result: wrongDuration,
       writerTrace: trace(),
+      semanticValidation: undefined as never,
     })).toThrow(/scene_duration_mismatch/);
 
     const missingEvidence = chapterResult('act_one', 'scene_open', 180);
@@ -246,7 +306,78 @@ describe('long-form script chapter assembly', () => {
       chapterId: 'chapter_open',
       result: missingEvidence,
       writerTrace: trace(),
+      semanticValidation: undefined as never,
     })).toThrow(/required_source_missing/);
+  });
+
+  it('rejects a semantic receipt that is not bound to the exact generated chapter', () => {
+    const masterPlan = plan();
+    const result = chapterResult('act_one', 'scene_open', 180);
+    const receipt = semanticReceipt(masterPlan, 'act_one', 'chapter_open', result);
+
+    expect(() => createScriptChapterArtifact({
+      plan: masterPlan,
+      chapterId: 'chapter_open',
+      result,
+      writerTrace: trace(),
+      semanticValidation: { ...receipt, resultHash: 'b'.repeat(64) },
+    })).toThrow(/semantic_validation_result_hash_mismatch/);
+  });
+
+  it('rejects ambiguous findings and invented citations from the semantic validator', async () => {
+    const masterPlan = plan();
+    const result = chapterResult('act_one', 'scene_open', 180);
+    const requirements = buildScriptChapterSemanticRequirementsForPlan({
+      plan: masterPlan,
+      actId: 'act_one',
+      chapterId: 'chapter_open',
+    });
+
+    await expect(validateScriptChapterSemanticExecution({
+      chapterExecution: { plan: masterPlan, actId: 'act_one', chapterId: 'chapter_open' },
+      result,
+    }, {
+      generate: async () => ({
+        modelName: 'gemini-test',
+        cacheStatus: 'inline',
+        result: {
+          assessments: requirements.map((requirement, index) => ({
+            requirementId: requirement.id,
+            status: index === 0 ? 'ambiguous' as const : 'satisfied' as const,
+            evidence: [{
+              sceneId: 'scene_open',
+              beatId: 'beat_scene_open',
+              kind: 'spoken_line' as const,
+              lineIds: index === 1 ? ['invented_line'] : ['line_scene_open'],
+            }],
+            rationale: 'Injected validator output.',
+          })),
+        },
+      }),
+    })).rejects.toThrow(/semantic_validation_ambiguous_requirement/);
+
+    await expect(validateScriptChapterSemanticExecution({
+      chapterExecution: { plan: masterPlan, actId: 'act_one', chapterId: 'chapter_open' },
+      result,
+    }, {
+      generate: async () => ({
+        modelName: 'gemini-test',
+        cacheStatus: 'inline',
+        result: {
+          assessments: requirements.map((requirement, index) => ({
+            requirementId: requirement.id,
+            status: 'satisfied' as const,
+            evidence: [{
+              sceneId: 'scene_open',
+              beatId: 'beat_scene_open',
+              kind: 'spoken_line' as const,
+              lineIds: index === 0 ? ['invented_line'] : ['line_scene_open'],
+            }],
+            rationale: 'Injected validator output.',
+          })),
+        },
+      }),
+    })).rejects.toThrow(/semantic_validation_unknown_line_citation/);
   });
 
   it('rejects cross-chapter platform, character, and global direction conflicts', () => {
@@ -255,16 +386,34 @@ describe('long-form script chapter assembly', () => {
 
     const platformConflict = structuredClone(complete);
     platformConflict.chapter_close.result.metadata.platform = 'instagram';
+    platformConflict.chapter_close.semanticValidation = semanticReceipt(
+      masterPlan,
+      'act_two',
+      'chapter_close',
+      platformConflict.chapter_close.result,
+    );
     expect(() => assembleLongFormScriptResult({ plan: masterPlan, artifacts: platformConflict }))
       .toThrow(/platform_conflict/);
 
     const characterConflict = structuredClone(complete);
     characterConflict.chapter_close.result.sidecar.characters[0]!.name = 'Different Narrator';
+    characterConflict.chapter_close.semanticValidation = semanticReceipt(
+      masterPlan,
+      'act_two',
+      'chapter_close',
+      characterConflict.chapter_close.result,
+    );
     expect(() => assembleLongFormScriptResult({ plan: masterPlan, artifacts: characterConflict }))
       .toThrow(/character_conflict:narrator/);
 
     const directionConflict = structuredClone(complete);
     directionConflict.chapter_close.result.sidecar.creativeDirection!.overallMusicPrompt = 'Unrelated dance track.';
+    directionConflict.chapter_close.semanticValidation = semanticReceipt(
+      masterPlan,
+      'act_two',
+      'chapter_close',
+      directionConflict.chapter_close.result,
+    );
     expect(() => assembleLongFormScriptResult({ plan: masterPlan, artifacts: directionConflict }))
       .toThrow(/creative_direction_conflict/);
 

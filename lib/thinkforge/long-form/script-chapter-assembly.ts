@@ -17,6 +17,7 @@ import {
   hashLongFormScriptJobValue,
   type ScriptChapterArtifact,
 } from './script-generation-job-contract';
+import { assertScriptChapterSemanticValidationReceipt } from './script-chapter-semantic-validation';
 
 export class ScriptChapterAssemblyError extends Error {
   constructor(readonly failures: string[]) {
@@ -30,6 +31,7 @@ export function createScriptChapterArtifact(input: {
   chapterId: string;
   result: ScriptWriterResult;
   writerTrace: ScriptChapterArtifact['writerTrace'];
+  semanticValidation: ScriptChapterArtifact['semanticValidation'];
 }): ScriptChapterArtifact {
   const plan = ScriptChapterPlanSchema.parse(input.plan);
   const owner = findChapterOwner(plan, input.chapterId);
@@ -40,6 +42,7 @@ export function createScriptChapterArtifact(input: {
     planHash: hashLongFormScriptJobValue(plan),
     result: ScriptWriterResultSchema.parse(input.result),
     writerTrace: ThinkForgeWriterInvocationTraceV1Schema.parse(input.writerTrace),
+    semanticValidation: input.semanticValidation,
   };
   assertScriptChapterArtifact(plan, artifact);
   return artifact;
@@ -62,6 +65,7 @@ export function assertScriptChapterArtifact(
   if (artifact.planHash !== hashLongFormScriptJobValue(plan)) failures.push(`plan_hash_mismatch:${artifact.chapterId}`);
   if (artifact.writerTrace.writerType !== 'script') failures.push(`writer_type_mismatch:${artifact.chapterId}`);
   if (artifact.result.sidecar.renderPlan) failures.push(`writer_render_plan_forbidden:${artifact.chapterId}`);
+  if (!artifact.semanticValidation) failures.push(`semantic_validation_missing:${artifact.chapterId}`);
 
   const sidecarActs = artifact.result.sidecar.acts;
   if (sidecarActs.length !== 1) failures.push(`chapter_act_count:${artifact.chapterId}:${sidecarActs.length}`);
@@ -91,6 +95,23 @@ export function assertScriptChapterArtifact(
         if (!evidenceRefs.has(sourceRef)) failures.push(`required_source_missing:${scene.id}:${sourceRef}`);
       });
     });
+  }
+  if (failures.length === 0) {
+    try {
+      artifact.semanticValidation = assertScriptChapterSemanticValidationReceipt({
+        plan,
+        actId: artifact.actId,
+        chapterId: artifact.chapterId,
+        result: artifact.result,
+        receipt: artifact.semanticValidation,
+      });
+    } catch (error) {
+      if (error instanceof Error && 'failures' in error && Array.isArray(error.failures)) {
+        failures.push(...error.failures.filter((failure): failure is string => typeof failure === 'string'));
+      } else {
+        failures.push(`semantic_validation_invalid:${artifact.chapterId}`);
+      }
+    }
   }
   if (failures.length > 0) throw new ScriptChapterAssemblyError(failures);
   return artifact;

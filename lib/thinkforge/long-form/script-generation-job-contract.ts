@@ -6,6 +6,7 @@ import type { ThinkForgeResolvedAuthoringContext } from '../context/resolved-aut
 import type { ThinkForgeWriterInvocationTraceV1 } from '../provenance/generation-trace';
 import type { ScriptChapterPlan } from '../schemas/script-chapter-plan';
 import type { ThinkForgeSignalTrace } from '../signals/signal-trace';
+import type { ScriptChapterSemanticValidationReceipt } from './script-chapter-semantic-validation';
 
 export const LONG_FORM_SCRIPT_JOB_VERSION = 1;
 export const LONG_FORM_SCRIPT_JOB_COLLECTION = 'thinkforge_long_form_script_jobs';
@@ -70,6 +71,7 @@ export interface ScriptChapterArtifact {
   planHash: string;
   result: ScriptWriterResult;
   writerTrace: ThinkForgeWriterInvocationTraceV1;
+  semanticValidation: ScriptChapterSemanticValidationReceipt;
 }
 
 export interface LongFormScriptCommitReceipt {
