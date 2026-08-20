@@ -40,8 +40,12 @@ import {
 } from '@/lib/thinkforge/long-form/script-generation-job';
 import {
   LongFormScriptNonRetryableError,
+  ScriptChapterCapacityConflictError,
   executeLongFormScriptAction,
 } from '@/lib/thinkforge/long-form/script-generation-execution';
+import { ScriptWriterAgent } from '@/lib/thinkforge/agents/script-writer-agent';
+import { findScriptChapterWriteCapacityConflicts } from '@/lib/thinkforge/long-form/script-chapter-capacity';
+import { normalizeLongFormScriptJobError } from '@/lib/thinkforge/long-form/script-generation-job-contract';
 
 function job(overrides: Partial<LongFormScriptGenerationJobSnapshot> = {}): LongFormScriptGenerationJobSnapshot {
   return {
@@ -157,6 +161,49 @@ function handoffInput(authoringContext: LongFormScriptGenerationHandoffInput['au
   };
 }
 
+function chapterPlan(targetDurationSeconds: number): NonNullable<LongFormScriptGenerationJobSnapshot['plan']> {
+  return {
+    version: 1,
+    title: 'Evidence-led documentary',
+    narrativeThesis: 'A complete, sustained inquiry.',
+    targetDurationSeconds,
+    audienceJourney: { openingState: 'Curious', closingState: 'Informed' },
+    continuityBible: {
+      pointOfView: 'Investigative narrator',
+      temporalFrame: 'Present day',
+      toneProgression: ['Curious', 'Grounded'],
+      recurringMotifs: [],
+      terminologyInvariants: [],
+    },
+    characters: [],
+    continuityThreads: [],
+    acts: [{
+      id: 'act_inquiry',
+      title: 'The inquiry',
+      narrativePurpose: 'Develop the central question.',
+      chapters: [{
+        id: 'chapter_full_record',
+        title: 'The complete record',
+        narrativePurpose: 'Carry one coherent development without artificial cuts.',
+        audienceStateBefore: 'Curious',
+        audienceStateAfter: 'Informed',
+        sceneBlueprints: [{
+          id: 'scene_full_record',
+          title: 'The record',
+          narrativePurpose: 'Examine the record in full.',
+          openingState: 'Question open',
+          development: ['Establish the record'],
+          closingState: 'Question answered',
+          durationIntentSeconds: targetDurationSeconds,
+          requiredSourceRefs: [],
+          requiredCharacterIds: [],
+          continuityThreadIds: [],
+        }],
+      }],
+    }],
+  } as NonNullable<LongFormScriptGenerationJobSnapshot['plan']>;
+}
+
 describe('processLongFormScriptJob', () => {
   it('checkpoints one action, releases its lease, and dispatches the next action', async () => {
     const claimedJob = job();
@@ -206,6 +253,87 @@ describe('processLongFormScriptJob', () => {
     expect(deps.store.retryOrDeadLetter).toHaveBeenCalledWith(
       claimedJob.id, 'lease_3', expect.any(LongFormScriptNonRetryableError), false,
     );
+  });
+
+  it('dead-letters an oversized planned chapter before any paid chapter writer call', async () => {
+    const handoff = handoffInput();
+    const plan = chapterPlan(36_000);
+    const { systemBrief: _systemBrief, ...context } = handoff.writerInput.context;
+    const authoringRequest = handoff.writerInput.authoringRequest;
+    const editorialPlan = handoff.writerInput.editorialPlan;
+    const productionBrief = handoff.writerInput.productionBrief;
+    const sourceLedger = handoff.writerInput.sourceLedger;
+    if (
+      !authoringRequest
+      || !editorialPlan
+      || editorialPlan.writerKind !== 'script'
+      || !productionBrief
+      || !sourceLedger
+    ) {
+      throw new Error('Expected a complete script authoring fixture.');
+    }
+    const claimedJob = job({
+      stage: 'writing',
+      plan,
+      input: {
+        userId: handoff.userId,
+        orgId: handoff.orgId,
+        sessionId: handoff.sessionId,
+        generationId: handoff.generationId,
+        scriptId: handoff.scriptId,
+        baseVersion: handoff.baseVersion,
+        authoringContext: handoff.authoringContext!,
+        authoringInput: {
+          context,
+          userPrompt: handoff.writerInput.userPrompt,
+          authoringRequest,
+          editorialPlan,
+          productionBrief,
+          sourceLedger,
+          contentSignalProfile: handoff.writerInput.contentSignalProfile,
+          generationMode: handoff.writerInput.generationMode,
+          generationIdentity: handoff.writerInput.generationIdentity,
+        },
+        signalTrace: handoff.signalTrace,
+        contextMetadata: handoff.contextMetadata,
+      },
+    });
+    const deps = dependencies({ kind: 'claimed', job: claimedJob, leaseToken: 'lease_capacity' });
+    deps.execute = executeLongFormScriptAction;
+    vi.mocked(deps.store.retryOrDeadLetter).mockResolvedValue('dead_letter');
+    persistence.getActiveGeneration.mockResolvedValue({
+      id: 'generation_1', scriptId: 'script_1', status: 'running',
+    });
+    const writer = vi.spyOn(ScriptWriterAgent.prototype, 'runStructured');
+
+    try {
+      await expect(processLongFormScriptJob(claimedJob.id, deps)).resolves.toMatchObject({
+        status: 'dead_letter',
+        error: expect.stringContaining('chapter_full_record'),
+      });
+      expect(writer).not.toHaveBeenCalled();
+      expect(deps.store.retryOrDeadLetter).toHaveBeenCalledWith(
+        claimedJob.id,
+        'lease_capacity',
+        expect.any(ScriptChapterCapacityConflictError),
+        false,
+      );
+      const failure = vi.mocked(deps.store.retryOrDeadLetter).mock.calls[0]![2];
+      expect(normalizeLongFormScriptJobError(failure, 'writing', false)).toMatchObject({
+        code: 'SCRIPT_CHAPTER_CAPACITY_CONFLICT', retryable: false, stage: 'writing',
+      });
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  it('allows a coherent seven-minute chapter when it fits the real writer envelope', () => {
+    const handoff = handoffInput();
+    expect(findScriptChapterWriteCapacityConflicts({
+      plan: chapterPlan(420),
+      productionBrief: handoff.writerInput.productionBrief!,
+      contentSignalProfile: handoff.writerInput.contentSignalProfile,
+    })).toEqual([]);
   });
 
   it('defers when cancellation or another worker invalidates the lease', async () => {

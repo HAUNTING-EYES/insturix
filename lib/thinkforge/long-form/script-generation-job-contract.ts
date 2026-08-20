@@ -186,11 +186,24 @@ export function normalizeLongFormScriptJobError(
   retryable: boolean,
 ): LongFormScriptJobError {
   return {
-    code: error instanceof Error ? error.name || 'processing_failed' : 'processing_failed',
+    code: longFormScriptJobErrorCode(error),
     message: safeLongFormScriptJobErrorMessage(error),
     retryable,
     stage,
   };
+}
+
+function longFormScriptJobErrorCode(error: unknown): string {
+  if (
+    error
+    && typeof error === 'object'
+    && 'code' in error
+    && typeof (error as { code?: unknown }).code === 'string'
+    && (error as { code: string }).code.trim()
+  ) {
+    return (error as { code: string }).code;
+  }
+  return error instanceof Error ? error.name || 'processing_failed' : 'processing_failed';
 }
 
 export function resolveLongFormScriptJobNextAction(

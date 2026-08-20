@@ -26,6 +26,10 @@ import {
   createScriptChapterArtifact,
   ScriptChapterAssemblyError,
 } from './script-chapter-assembly';
+import {
+  findScriptChapterWriteCapacityConflicts,
+  type ScriptChapterWriteCapacityConflict,
+} from './script-chapter-capacity';
 import type {
   LongFormScriptCommitReceipt,
   LongFormScriptGenerationJobSnapshot,
@@ -47,6 +51,21 @@ export class LongFormScriptNonRetryableError extends Error {
   }
 }
 
+export class ScriptChapterCapacityConflictError extends LongFormScriptNonRetryableError {
+  readonly code = 'SCRIPT_CHAPTER_CAPACITY_CONFLICT';
+
+  constructor(readonly conflicts: readonly ScriptChapterWriteCapacityConflict[]) {
+    super(
+      `The approved narrative contains ${conflicts.length} chapter${conflicts.length === 1 ? '' : 's'} `
+      + `that cannot fit the current writer response envelope: ${conflicts.map((conflict) => (
+        `${conflict.actId}/${conflict.chapterId} (${conflict.targetDurationSeconds}s, `
+        + `${conflict.feasibility.requiredVisibleOutputTokens}/${conflict.feasibility.maximumOutputTokens - conflict.feasibility.thinkingBudgetTokens} visible tokens)`
+      )).join('; ')}. Replan the chapter semantically before writing it.`,
+    );
+    this.name = 'ScriptChapterCapacityConflictError';
+  }
+}
+
 export async function executeLongFormScriptAction(input: {
   job: LongFormScriptGenerationJobSnapshot;
   action: LongFormScriptJobNextAction;
@@ -63,6 +82,7 @@ export async function executeLongFormScriptAction(input: {
     }
     case 'write_chapter': {
       if (!job.plan) throw new LongFormScriptNonRetryableError('Chapter generation requires a durable master plan.');
+      assertScriptChapterPlanFitsWriter(job, job.plan);
       const output = await new ScriptWriterAgent().runStructured({
         ...buildChapterPlanInput(job),
         contentSignalProfile: job.input.authoringInput.contentSignalProfile,
@@ -103,6 +123,18 @@ export async function executeLongFormScriptAction(input: {
     case 'complete': return { kind: 'complete' };
     case 'none': throw new LongFormScriptNonRetryableError('A terminal long-form job has no executable action.');
   }
+}
+
+function assertScriptChapterPlanFitsWriter(
+  job: LongFormScriptGenerationJobSnapshot,
+  plan: NonNullable<LongFormScriptGenerationJobSnapshot['plan']>,
+): void {
+  const conflicts = findScriptChapterWriteCapacityConflicts({
+    plan,
+    productionBrief: job.input.authoringInput.productionBrief,
+    contentSignalProfile: job.input.authoringInput.contentSignalProfile,
+  });
+  if (conflicts.length > 0) throw new ScriptChapterCapacityConflictError(conflicts);
 }
 
 export function isRetryableLongFormScriptActionError(error: unknown): boolean {
