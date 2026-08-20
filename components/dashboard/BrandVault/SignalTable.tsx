@@ -30,9 +30,10 @@ import { formatValue, groupMeta, isActionable } from './brand-vault-data';
 interface SignalTableProps {
   signals: SignalRow[];
   editedValues?: Record<string, unknown>;
+  confirmedSignalPaths?: readonly string[];
   disabled?: boolean;
-  onAccept: (path: string) => void;
-  onEdit: (path: string, value: unknown) => void;
+  onAccept: (path: string) => void | Promise<void>;
+  onEdit: (path: string, value: unknown) => void | Promise<void>;
 }
 
 type EditorKind = 'text' | 'number' | 'boolean' | 'array' | 'json';
@@ -59,12 +60,21 @@ const SIGNAL_EDIT_INPUT_STYLE = {
   outline: 'none',
 } as const;
 
-export function SignalTable({ signals, editedValues = {}, disabled = false, onAccept, onEdit }: SignalTableProps) {
+export function SignalTable({
+  signals,
+  editedValues = {},
+  confirmedSignalPaths = [],
+  disabled = false,
+  onAccept,
+  onEdit,
+}: SignalTableProps) {
   const [search, setSearch] = useState('');
-  const [accepted, setAccepted] = useState<Set<string>>(() => new Set());
+  const accepted = useMemo(() => new Set(confirmedSignalPaths), [confirmedSignalPaths]);
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [draftValue, setDraftValue] = useState('');
   const [editError, setEditError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [savingPath, setSavingPath] = useState<string | null>(null);
   const [inView, setInView] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -96,16 +106,25 @@ export function SignalTable({ signals, editedValues = {}, disabled = false, onAc
     return signals.filter((signal) => [signal.label, formatValue(signal.value)].join(' ').toLowerCase().includes(q));
   }, [search, signals]);
 
-  function acceptSignal(path: string) {
-    setAccepted((current) => new Set(current).add(path));
-    onAccept(path);
+  async function acceptSignal(path: string) {
+    if (disabled || accepted.has(path) || savingPath) return;
+    setActionError(null);
+    setSavingPath(path);
+    try {
+      await onAccept(path);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not save that confirmation.');
+    } finally {
+      setSavingPath(null);
+    }
   }
 
   function startEdit(signal: SignalRow) {
-    if (disabled) return;
+    if (disabled || savingPath) return;
     setEditingPath(signal.path);
     setDraftValue(draftValueForSignal(signal.value));
     setEditError(null);
+    setActionError(null);
   }
 
   function cancelEdit() {
@@ -114,14 +133,22 @@ export function SignalTable({ signals, editedValues = {}, disabled = false, onAc
     setEditError(null);
   }
 
-  function saveEdit(signal: SignalRow) {
+  async function saveEdit(signal: SignalRow) {
     const parsed = parseDraftValue(signal, draftValue);
     if (!parsed.ok) {
       setEditError(parsed.message);
       return;
     }
-    onEdit(signal.path, parsed.value);
-    cancelEdit();
+    setActionError(null);
+    setSavingPath(signal.path);
+    try {
+      await onEdit(signal.path, parsed.value);
+      cancelEdit();
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Could not save that edit.');
+    } finally {
+      setSavingPath(null);
+    }
   }
 
   return (
@@ -156,6 +183,12 @@ export function SignalTable({ signals, editedValues = {}, disabled = false, onAc
           />
         </label>
       </div>
+
+      {actionError && (
+        <div className="mb-3 rounded-[8px] border border-[rgba(212,106,92,0.3)] bg-[rgba(212,106,92,0.06)] px-3 py-2 text-[12px] text-[#D46A5C]">
+          {actionError}
+        </div>
+      )}
 
       <div ref={rootRef} className="overflow-hidden rounded-[14px]" style={{ background: '#0F0F0E', border: '1px solid #1C1B19' }}>
         {processed.map((signal, index) => {
@@ -214,11 +247,11 @@ export function SignalTable({ signals, editedValues = {}, disabled = false, onAc
                         <SignalValueEditor
                           kind={editorKindForValue(signal.value)}
                           value={draftValue}
-                          disabled={disabled}
+                          disabled={disabled || Boolean(savingPath)}
                           error={editError}
                           onChange={setDraftValue}
                           onCancel={cancelEdit}
-                          onSave={() => saveEdit(signal)}
+                          onSave={() => void saveEdit(signal)}
                         />
                       ) : (
                         <SignalValuePreview value={signal.value} />
@@ -233,7 +266,7 @@ export function SignalTable({ signals, editedValues = {}, disabled = false, onAc
                       onClick={() => startEdit(signal)}
                       aria-label={`Edit ${signal.label}`}
                       className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-[7px]"
-                      disabled={disabled}
+                      disabled={disabled || Boolean(savingPath)}
                       style={{
                         border: '1px solid #282724',
                         background: edited ? 'rgba(94,201,126,0.08)' : '#1B1A18',
@@ -245,10 +278,10 @@ export function SignalTable({ signals, editedValues = {}, disabled = false, onAc
                     {actionable && (
                       <button
                         type="button"
-                        onClick={() => acceptSignal(signal.path)}
+                        onClick={() => void acceptSignal(signal.path)}
                         aria-label={`Confirm ${signal.label} looks right`}
                         className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] px-2.5"
-                        disabled={disabled}
+                        disabled={disabled || acceptedSignal || Boolean(savingPath)}
                         style={{
                           border: acceptedSignal ? '1px solid #5EC97E' : '1px solid rgba(94,201,126,0.35)',
                           background: acceptedSignal ? 'rgba(94,201,126,0.18)' : 'rgba(94,201,126,0.06)',
@@ -257,7 +290,7 @@ export function SignalTable({ signals, editedValues = {}, disabled = false, onAc
                           whiteSpace: 'nowrap',
                         }}
                       >
-                        <Check size={13} /> Looks right
+                        <Check size={13} /> {acceptedSignal ? 'Confirmed' : savingPath === signal.path ? 'Saving...' : 'Looks right'}
                       </button>
                     )}
                   </div>

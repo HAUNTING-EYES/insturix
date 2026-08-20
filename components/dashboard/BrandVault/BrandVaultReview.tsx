@@ -119,13 +119,13 @@ export function BrandVaultReview() {
   const [uploadedSources, setUploadedSources] = useState<BrandVaultUploadSourceEvidence[]>([]);
   const [uploadWarnings, setUploadWarnings] = useState<string[]>([]);
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
-  const [scanLatchActive, setScanLatchActive] = useState(false);
   const [activeGuidanceWorkflow, setActiveGuidanceWorkflow] = useState<string | null>(null);
   const [domainVerification, setDomainVerification] = useState<DomainVerificationState | null>(null);
   const [domainVerificationStatus, setDomainVerificationStatus] = useState<DomainVerificationRequestStatus>('idle');
   const [jobId, setJobId] = useState<string | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
-  const [resolvedConflicts, setResolvedConflicts] = useState<Set<string>>(() => new Set());
+  const [confirmedSignalPaths, setConfirmedSignalPaths] = useState<Set<string>>(() => new Set());
+  const [deferredConflictPaths, setDeferredConflictPaths] = useState<Set<string>>(() => new Set());
   const [resolvingConflictPath, setResolvingConflictPath] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -141,7 +141,7 @@ export function BrandVaultReview() {
 
   const jobQuery = useBrandVaultJob(jobId);
   const profileQuery = useBrandVaultProfile(profileId);
-  const { createDraft, acceptDraft, rejectDraft } = useBrandVaultMutations();
+  const { createDraft, acceptDraft, rejectDraft, saveDraftReview } = useBrandVaultMutations();
   const latestAccepted = useLatestAcceptedBrandVaultRecordId(workspaceBrandId);
   const acceptedBrands = useAcceptedBrandVaultBrands();
   const brandScans = useBrandVaultScans(workspaceBrandId);
@@ -193,7 +193,8 @@ export function BrandVaultReview() {
     setDomainVerification(null);
     setJobId(null);
     setProfileId(null);
-    setResolvedConflicts(new Set());
+    setConfirmedSignalPaths(new Set());
+    setDeferredConflictPaths(new Set());
     setResolvingConflictPath(null);
     setActiveGuidanceWorkflow(null);
     setSignalEdits({});
@@ -212,8 +213,11 @@ export function BrandVaultReview() {
   }, [profileQuery.data]);
 
   useEffect(() => {
-    setSignalEdits({});
-  }, [snapshot.record?.id]);
+    const decisions = snapshot.record?.status === 'draft' ? snapshot.record.review.decisions : undefined;
+    setSignalEdits(Object.fromEntries((decisions?.signalEdits ?? []).map((edit) => [edit.path, edit.value])));
+    setConfirmedSignalPaths(new Set(decisions?.confirmedSignalPaths ?? []));
+    setDeferredConflictPaths(new Set(decisions?.deferredConflictPaths ?? []));
+  }, [snapshot.record?.id, snapshot.record?.updatedAt]);
 
   // Fresh visit (no in-session scan/draft): load the user's saved accepted vault so the tab shows
   // it instead of the build screen. Reuses the by-id load path via setProfileId.
@@ -245,12 +249,16 @@ export function BrandVaultReview() {
   const editedSignals = useMemo(() => applySignalEditsToRows(signals, signalEdits), [signalEdits, signals]);
   const editedSignalCount = Object.keys(signalEdits).length;
   const allConflicts = useMemo(() => groupConflicts(snapshot.candidates), [snapshot.candidates]);
+  const resolvedConflictPaths = useMemo(
+    () => new Set([...Object.keys(signalEdits), ...confirmedSignalPaths, ...deferredConflictPaths]),
+    [confirmedSignalPaths, deferredConflictPaths, signalEdits],
+  );
   const activeConflicts = useMemo(
     () =>
       allConflicts.filter(
-        (conflict) => !resolvedConflicts.has(conflict.path) && conflict.path !== resolvingConflictPath,
+        (conflict) => !resolvedConflictPaths.has(conflict.path) && conflict.path !== resolvingConflictPath,
       ),
-    [allConflicts, resolvedConflicts, resolvingConflictPath],
+    [allConflicts, resolvedConflictPaths, resolvingConflictPath],
   );
   const displayedConflict = useMemo(
     () =>
@@ -272,12 +280,13 @@ export function BrandVaultReview() {
   const facets = useMemo(() => buildFacets(snapshot, editedSignals), [editedSignals, snapshot]);
   const canReview = Boolean(snapshot.record?.id && snapshot.record.status === 'draft');
   const activeScanStatus = snapshot.job?.status === 'queued' || snapshot.job?.status === 'running';
-  const scanBusy = createDraft.isPending || scanLatchActive || activeScanStatus;
+  const scanBusy = createDraft.isPending || activeScanStatus;
   const isScanning = scanBusy && !snapshot.record;
   const busy =
     scanBusy ||
     acceptDraft.isPending ||
     rejectDraft.isPending ||
+    saveDraftReview.isPending ||
     profileQuery.isFetching ||
     uploadStatus === 'extracting';
   const currentError =
@@ -285,6 +294,7 @@ export function BrandVaultReview() {
     errorMessage(createDraft.error) ??
     errorMessage(acceptDraft.error) ??
     errorMessage(rejectDraft.error) ??
+    errorMessage(saveDraftReview.error) ??
     errorMessage(jobQuery.error) ??
     errorMessage(profileQuery.error) ??
     errorMessage(latestAccepted.error) ??
@@ -301,17 +311,6 @@ export function BrandVaultReview() {
     const timer = setTimeout(() => setToast(null), 2600);
     return () => clearTimeout(timer);
   }, [toast]);
-
-  useEffect(() => {
-    if (!scanLatchActive) return;
-    if (createDraft.error) {
-      setScanLatchActive(false);
-      return;
-    }
-    if (snapshot.job && snapshot.job.status !== 'queued' && snapshot.job.status !== 'running') {
-      setScanLatchActive(false);
-    }
-  }, [createDraft.error, scanLatchActive, snapshot.job]);
 
   async function handleCreateDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -335,7 +334,6 @@ export function BrandVaultReview() {
     }
 
     setLocalError(null);
-    setScanLatchActive(true);
     const input: CreateBrandVaultDraftInput = {
       brandId: scanBrandId,
       websiteUrl: cleanUrl,
@@ -350,11 +348,11 @@ export function BrandVaultReview() {
     setJobId(nextJobId);
     setProfileId(nextProfileId);
     setLookupId(nextJobId ?? nextProfileId ?? '');
-    setResolvedConflicts(new Set());
+    setConfirmedSignalPaths(new Set());
+    setDeferredConflictPaths(new Set());
     setResolvingConflictPath(null);
     setSignalEdits({});
     const resultStillScanning = result.job?.status === 'queued' || result.job?.status === 'running';
-    setScanLatchActive(resultStillScanning);
     showToast(resultStillScanning ? 'Scan queued. Results will appear here.' : 'Draft ready for review.', 'good');
   }
 
@@ -512,6 +510,8 @@ export function BrandVaultReview() {
       setPendingBrandActivationId(acceptedBrandId);
     }
     setSignalEdits({});
+    setConfirmedSignalPaths(new Set());
+    setDeferredConflictPaths(new Set());
     showToast(edits.length ? `Profile accepted with ${edits.length} user edit${edits.length === 1 ? '' : 's'}.` : 'Profile accepted as brand truth.', 'good');
   }
 
@@ -529,18 +529,84 @@ export function BrandVaultReview() {
     showToast('Draft rejected.', 'risk');
   }
 
-  function resolveConflict(path: string, value: unknown) {
-    setResolvingConflictPath(path);
-    showToast(`Conflict resolved / ${formatValue(value)}`, 'good');
-    window.setTimeout(() => {
-      setResolvedConflicts((current) => new Set(current).add(path));
-      setResolvingConflictPath(null);
-    }, 650);
+  async function persistDraftReview(
+    nextSignalEdits: Record<string, unknown>,
+    nextConfirmedSignalPaths: Set<string>,
+    nextDeferredConflictPaths: Set<string>,
+  ): Promise<void> {
+    const record = snapshot.record;
+    if (!record?.id || record.status !== 'draft') {
+      const message = 'Open a draft before saving review decisions.';
+      setLocalError(message);
+      throw new Error(message);
+    }
+
+    setLocalError(null);
+    const result = await saveDraftReview.mutateAsync({
+      recordId: record.id,
+      expectedUpdatedAt: record.updatedAt,
+      signalEdits: Object.entries(nextSignalEdits).map(([path, value]) => ({ path, value })),
+      confirmedSignalPaths: [...nextConfirmedSignalPaths],
+      deferredConflictPaths: [...nextDeferredConflictPaths],
+    });
+    if (!result.record) {
+      const message = 'Brand Vault did not return the saved draft.';
+      setLocalError(message);
+      throw new Error(message);
+    }
+
+    setSnapshot((current) => mergeSnapshot(current, result));
+    const decisions = result.record.review.decisions;
+    setSignalEdits(Object.fromEntries((decisions?.signalEdits ?? []).map((edit) => [edit.path, edit.value])));
+    setConfirmedSignalPaths(new Set(decisions?.confirmedSignalPaths ?? []));
+    setDeferredConflictPaths(new Set(decisions?.deferredConflictPaths ?? []));
   }
 
-  function editSignalValue(path: string, value: unknown) {
-    setSignalEdits((current) => ({ ...current, [path]: value }));
-    showToast(`Edited ${path}. Accept the profile to save it.`, 'good');
+  async function resolveConflict(path: string, value: unknown) {
+    setResolvingConflictPath(path);
+    try {
+      await persistDraftReview(
+        { ...signalEdits, [path]: value },
+        confirmedSignalPaths,
+        deferredConflictPaths,
+      );
+      showToast(`Saved ${formatValue(value)}.`, 'good');
+      window.setTimeout(() => setResolvingConflictPath(null), 650);
+    } catch (error) {
+      setResolvingConflictPath(null);
+      setLocalError(errorMessage(error) ?? 'Could not save that choice.');
+    }
+  }
+
+  async function deferConflict(path: string) {
+    setResolvingConflictPath(path);
+    try {
+      const nextDeferredConflictPaths = new Set(deferredConflictPaths);
+      nextDeferredConflictPaths.add(path);
+      await persistDraftReview(signalEdits, confirmedSignalPaths, nextDeferredConflictPaths);
+      showToast('Marked this conflict to revisit later.', 'warn');
+      window.setTimeout(() => setResolvingConflictPath(null), 650);
+    } catch (error) {
+      setResolvingConflictPath(null);
+      setLocalError(errorMessage(error) ?? 'Could not save that review choice.');
+    }
+  }
+
+  async function confirmSignal(path: string) {
+    if (confirmedSignalPaths.has(path)) return;
+    const nextConfirmedSignalPaths = new Set(confirmedSignalPaths);
+    nextConfirmedSignalPaths.add(path);
+    await persistDraftReview(signalEdits, nextConfirmedSignalPaths, deferredConflictPaths);
+    showToast('Saved confirmation.', 'good');
+  }
+
+  async function editSignalValue(path: string, value: unknown) {
+    await persistDraftReview(
+      { ...signalEdits, [path]: value },
+      confirmedSignalPaths,
+      deferredConflictPaths,
+    );
+    showToast('Saved edit.', 'good');
   }
 
   function showToast(message: string, tone: ToastTone) {
@@ -561,7 +627,8 @@ export function BrandVaultReview() {
     setDomainVerification(null);
     setJobId(null);
     setProfileId(null);
-    setResolvedConflicts(new Set());
+    setConfirmedSignalPaths(new Set());
+    setDeferredConflictPaths(new Set());
     setResolvingConflictPath(null);
     setActiveGuidanceWorkflow(null);
     setSignalEdits({});
@@ -595,7 +662,8 @@ export function BrandVaultReview() {
     if (!id) return;
     setLocalError(null);
     setProfileId(null);
-    setResolvedConflicts(new Set());
+    setConfirmedSignalPaths(new Set());
+    setDeferredConflictPaths(new Set());
     setResolvingConflictPath(null);
     setSignalEdits({});
     setLookupId(id);
@@ -798,13 +866,14 @@ export function BrandVaultReview() {
             <ConflictCard
               conflict={displayedConflict}
               resolved={Boolean(resolvingConflictPath)}
-              onAccept={resolveConflict}
+              disabled={busy || Boolean(resolvingConflictPath)}
+              onAccept={(path, value) => void resolveConflict(path, value)}
               onEdit={(path) => {
                 setShowSignals(true);
-                showToast(`Open ${path} in the signal table to edit it.`, 'warn');
+                showToast('Open this detail in the table to edit it.', 'warn');
                 requestAnimationFrame(() => signalTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
               }}
-              onReject={(path) => resolveConflict(path, 'rejected')}
+              onReject={(path) => void deferConflict(path)}
             />
           </div>
 
@@ -834,8 +903,9 @@ export function BrandVaultReview() {
                 <SignalTable
                   signals={editedSignals}
                   editedValues={signalEdits}
+                  confirmedSignalPaths={[...confirmedSignalPaths]}
                   disabled={!canReview || busy}
-                  onAccept={(path) => showToast(`Signal accepted / ${path}`, 'good')}
+                  onAccept={confirmSignal}
                   onEdit={editSignalValue}
                 />
               </div>

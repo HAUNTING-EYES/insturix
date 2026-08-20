@@ -16,6 +16,7 @@ import { formatValue } from './brand-vault-data';
 interface ConflictCardProps {
   conflict: SignalConflict | null;
   resolved?: boolean;
+  disabled?: boolean;
   onAccept: (path: string, value: unknown) => void;
   onEdit: (path: string) => void;
   onReject: (path: string) => void;
@@ -29,7 +30,7 @@ function candidateValue(candidate: SignalConflict['candidates'][number]): unknow
   return candidate.normalizedValue ?? candidate.rawValue;
 }
 
-export function ConflictCard({ conflict, resolved = false, onAccept, onEdit, onReject }: ConflictCardProps) {
+export function ConflictCard({ conflict, resolved = false, disabled = false, onAccept, onEdit, onReject }: ConflictCardProps) {
   // Distinct candidate values, highest-confidence first (candidates arrive pre-sorted). Hooks run before
   // the null guard so the order is stable.
   const options = useMemo(() => {
@@ -70,7 +71,7 @@ export function ConflictCard({ conflict, resolved = false, onAccept, onEdit, onR
         <div className="absolute left-0 right-0 top-0 h-0.5" style={{ background: '#D4A652' }} />
 
         <h2 style={{ margin: 0, fontSize: 17, fontWeight: 500, color: '#ECE9E1' }}>
-          {conflict.label} — which fits?
+          {conflict.label} - which fits?
         </h2>
         <p style={{ margin: '4px 0 16px', fontSize: 13, color: '#9A978E', lineHeight: 1.5 }}>
           We saw a few possibilities across your content. Pick the one that sounds like you.
@@ -85,6 +86,7 @@ export function ConflictCard({ conflict, resolved = false, onAccept, onEdit, onR
                 key={option.label}
                 type="button"
                 onClick={() => setSelected(index)}
+                disabled={disabled}
                 className="flex min-w-0 items-center gap-3 text-left"
                 style={{
                   padding: '11px 13px',
@@ -134,17 +136,19 @@ export function ConflictCard({ conflict, resolved = false, onAccept, onEdit, onR
           <button
             type="button"
             onClick={() => onAccept(conflict.path, chosen?.value)}
+            disabled={disabled}
             className="inline-flex min-h-8 items-center gap-2 rounded-[7px] px-4"
             style={{ background: '#D4A652', border: '1px solid #D4A652', color: '#0B0B0A', fontSize: 13, fontWeight: 500 }}
           >
             Use this
           </button>
-          <button type="button" onClick={() => onEdit(conflict.path)} className="bv-c1-button">
+          <button type="button" onClick={() => onEdit(conflict.path)} disabled={disabled} className="bv-c1-button">
             Edit
           </button>
           <button
             type="button"
             onClick={() => onReject(conflict.path)}
+            disabled={disabled}
             className="bv-c1-button"
             style={{ color: '#9A978E', borderColor: '#282724', background: 'transparent' }}
           >

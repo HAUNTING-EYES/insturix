@@ -72,6 +72,14 @@ export interface AcceptBrandVaultDraftInput {
   signalEdits?: BrandVaultSignalEditInput[];
 }
 
+export interface SaveBrandVaultDraftReviewInput {
+  recordId: string;
+  expectedUpdatedAt: string;
+  signalEdits: BrandVaultSignalEditInput[];
+  confirmedSignalPaths: string[];
+  deferredConflictPaths: string[];
+}
+
 async function createDraftRequest(input: CreateBrandVaultDraftInput): Promise<BrandVaultApiSuccess> {
   return brandVaultFetch('/api/brand-vault/refinery/jobs', {
     method: 'POST',
@@ -161,6 +169,20 @@ async function reviewDraftRequest(
   });
 }
 
+async function saveDraftReviewRequest(input: SaveBrandVaultDraftReviewInput): Promise<BrandVaultApiSuccess> {
+  return brandVaultFetch(`/api/brand-vault/signal-profiles/${encodeURIComponent(input.recordId)}`, {
+    method: 'PATCH',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      action: 'save_review',
+      expectedUpdatedAt: input.expectedUpdatedAt,
+      signalEdits: input.signalEdits,
+      confirmedSignalPaths: input.confirmedSignalPaths,
+      deferredConflictPaths: input.deferredConflictPaths,
+    }),
+  });
+}
+
 function syncReviewCaches(queryClient: QueryClient, data: BrandVaultApiSuccess, fallbackRecordId: string): void {
   const recordId = data.record?.id ?? fallbackRecordId;
   const jobId = data.job?.id ?? data.reviewPayload?.jobId ?? null;
@@ -180,6 +202,16 @@ function syncReviewCaches(queryClient: QueryClient, data: BrandVaultApiSuccess, 
   }
   if (recordId) queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.profile(recordId) });
   if (jobId) queryClient.invalidateQueries({ queryKey: BRAND_VAULT_KEYS.job(jobId) });
+}
+
+function syncDraftReviewCache(queryClient: QueryClient, data: BrandVaultApiSuccess, fallbackRecordId: string): void {
+  const recordId = data.record?.id ?? fallbackRecordId;
+  const jobId = data.job?.id ?? data.reviewPayload?.jobId ?? null;
+
+  // A saved review is durable draft state, not accepted brand truth. Update the open draft immediately
+  // without invalidating accepted-profile or active-brand caches.
+  if (recordId) queryClient.setQueryData(BRAND_VAULT_KEYS.profile(recordId), data);
+  if (jobId && data.job) queryClient.setQueryData(BRAND_VAULT_KEYS.job(jobId), data);
 }
 
 /* ------------------------------------------------------------------ */
@@ -257,7 +289,7 @@ export function useDeleteBrandVaultScan() {
   });
 }
 
-/** Create-draft, accept, and reject mutations with cache invalidation. */
+/** Create-draft and review mutations with lifecycle-appropriate cache behavior. */
 export function useBrandVaultMutations() {
   const queryClient = useQueryClient();
 
@@ -288,5 +320,12 @@ export function useBrandVaultMutations() {
     },
   });
 
-  return { createDraft, acceptDraft, rejectDraft };
+  const saveDraftReview = useMutation({
+    mutationFn: (input: SaveBrandVaultDraftReviewInput) => saveDraftReviewRequest(input),
+    onSuccess: (data, input) => {
+      syncDraftReviewCache(queryClient, data, input.recordId);
+    },
+  });
+
+  return { createDraft, acceptDraft, rejectDraft, saveDraftReview };
 }
