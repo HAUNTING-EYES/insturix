@@ -23,13 +23,19 @@ export type ThinkForgeError =
 
 export function isGenerationTemporarilyUnavailable(error: unknown): boolean {
   const err = error as any;
-  const status = err?.status || err?.statusCode || err?.response?.status;
+  const status = Number(err?.status || err?.statusCode || err?.response?.status);
   const code = String(err?.code || '').toLowerCase();
   const message = String(err?.message || '').toLowerCase();
 
-  if (status === 503 || status === 529) return true;
-  if (code.includes('overload') || code.includes('timeout')) return true;
-  if (message.includes('overload') || message.includes('temporarily unavailable')) return true;
+  if (status === 429 || status === 503 || status === 529) return true;
+  if (code.includes('overload') || code.includes('timeout') || code.includes('capacity') || code.includes('resource_exhausted')) return true;
+  if (
+    message.includes('overload')
+    || message.includes('temporarily unavailable')
+    || message.includes('temporarily busy')
+    || message.includes('high demand')
+    || message.includes('capacity')
+  ) return true;
   if (message.includes('timeout') || message.includes('rate limit') || message.includes('too many requests')) return true;
 
   return false;

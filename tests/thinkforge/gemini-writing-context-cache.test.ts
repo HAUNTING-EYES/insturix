@@ -44,6 +44,7 @@ import {
   getCreativeContentKnowledgeText,
   resetWritingContextCacheMemoryForTests,
 } from '@/lib/thinkforge/services/gemini-writing-context-cache';
+import { resolveThinkForgeGenerationFailureMessage } from '@/lib/thinkforge/client-generation-lifecycle';
 import { buildIsolatedPromptParts } from '@/lib/thinkforge/agents/prompt-boundary';
 import { PostWriterAgent, PostWriterResultSchema } from '@/lib/thinkforge/agents/post-writer-agent';
 import {
@@ -64,6 +65,7 @@ import {
   runWithThinkForgeEvalProviderBudget,
   ThinkForgeEvalProviderBudget,
 } from '@/lib/thinkforge/eval/provider-budget';
+import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
 
 function nativeV2CacheOutput(): ScriptWriterModelOutput {
   return {
@@ -357,6 +359,45 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
         abortSignal: controller.signal,
       }),
     ).rejects.toThrow('aborted before start');
+  });
+
+  it('retries one high-demand structured writer call and records the provider retry', async () => {
+    sdkMocks.generateObject
+      .mockRejectedValueOnce(new Error('This model is currently experiencing high demand.'))
+      .mockResolvedValueOnce({ object: { output: 'Recovered copy' } });
+
+    await expect(generateStructuredWithWritingContextCache({
+      prompt: 'Write a post.',
+      schema: z.object({ output: z.string() }),
+    })).resolves.toMatchObject({ result: { output: 'Recovered copy' } });
+
+    expect(sdkMocks.generateObject).toHaveBeenCalledTimes(2);
+    expect(sdkMocks.recordProviderCostEvent.mock.calls.at(-1)?.[0]).toMatchObject({
+      status: 'success',
+      units: { requestCount: 2, retryCount: 1 },
+      metadata: { retryCount: 1 },
+    });
+    expect(resolveThinkForgeGenerationFailureMessage('This model is currently experiencing high demand.'))
+      .toBe('The writing service is temporarily busy. No draft was saved. Please try again in a moment.');
+  });
+
+  it('keeps nested writer retries bounded after both high-demand attempts fail', async () => {
+    const highDemandError = new Error('This model is currently experiencing high demand.');
+    sdkMocks.generateObject.mockRejectedValue(highDemandError);
+    const outerWriterCall = vi.fn(() => generateStructuredWithWritingContextCache({
+      prompt: 'Write a post.',
+      schema: z.object({ output: z.string() }),
+    }));
+
+    await expect(retryOnceOnOverload(outerWriterCall, 0)).rejects.toBe(highDemandError);
+
+    expect(outerWriterCall).toHaveBeenCalledTimes(1);
+    expect(sdkMocks.generateObject).toHaveBeenCalledTimes(2);
+    expect(sdkMocks.recordProviderCostEvent.mock.calls.at(-1)?.[0]).toMatchObject({
+      status: 'failed',
+      units: { requestCount: 2, retryCount: 1 },
+      metadata: { retryCount: 1 },
+    });
   });
 
   it.each([

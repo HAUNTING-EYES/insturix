@@ -4,6 +4,7 @@ import { join } from 'path';
 import { generateObject } from 'ai';
 import type { z } from 'zod';
 import { createThinkForgeModel } from '../agents/model-factory';
+import { retryOnceOnOverload } from './retry-on-overload';
 import { resolveThinkForgeE2EStructuredFixture } from '../testing/structured-writer-fixtures';
 import {
   recordProviderCostEvent,
@@ -26,6 +27,7 @@ const CACHE_TTL_SECONDS = 1800;
 const CACHE_STORE_TIMEOUT_MS = 1_500;
 const CACHE_PROVIDER_TIMEOUT_MS = 10_000;
 const WRITING_PROVIDER_TIMEOUT_MS = 120_000;
+const WRITING_OVERLOAD_RETRY_DELAY_MS = 700;
 const REDIS_KEY_PREFIX = 'thinkforge:gemini:creative-content-cache:v4';
 const DEFAULT_CACHE_MODEL = 'models/gemini-2.5-flash';
 const INLINE_KNOWLEDGE_MAX_CHARS = 24_000;
@@ -120,12 +122,17 @@ async function recordThinkForgeWritingContextCost(input: {
   usage?: GeminiWritingContextUsage;
   privacyAudit?: ProviderPrivacyAuditRecord;
   thinkingBudgetTokens?: number;
-  providerRequestCount?: 0 | 1;
+  providerRequestCount?: number;
+  retryCount?: number;
   error?: unknown;
 }) {
-  const requestCount = input.providerRequestCount ?? 1;
-  const estimatedInputTokens = requestCount > 0
-    ? estimateTokensFromChars(sumOptional(input.userInputChars, input.systemInstructionChars))
+  const requestCount = Math.max(0, Math.floor(input.providerRequestCount ?? 1));
+  const retryCount = Math.max(0, Math.floor(input.retryCount ?? Math.max(0, requestCount - 1)));
+  const estimatedInputTokensPerRequest = estimateTokensFromChars(
+    sumOptional(input.userInputChars, input.systemInstructionChars),
+  );
+  const estimatedInputTokens = requestCount > 0 && estimatedInputTokensPerRequest !== undefined
+    ? estimatedInputTokensPerRequest * requestCount
     : undefined;
   const estimatedOutputTokens = requestCount > 0
     ? estimateTokensFromChars(input.outputChars)
@@ -141,6 +148,7 @@ async function recordThinkForgeWritingContextCost(input: {
     operation: input.operation,
     units: {
       requestCount,
+      retryCount,
       inputTokens: requestCount > 0 ? input.usage?.inputTokens ?? estimatedInputTokens : undefined,
       outputTokens: requestCount > 0 ? input.usage?.outputTokens ?? estimatedOutputTokens : undefined,
       totalTokens: requestCount > 0
@@ -157,6 +165,7 @@ async function recordThinkForgeWritingContextCost(input: {
       userInputChars: input.userInputChars,
       systemInstructionChars: input.systemInstructionChars,
       outputChars: input.outputChars,
+      retryCount,
       thinkingBudgetTokens: input.thinkingBudgetTokens,
       privacyRoutePurpose: input.privacyAudit?.routePurpose,
       privacyClass: input.privacyAudit?.privacyClass,
@@ -819,7 +828,7 @@ export async function generateWithWritingContextCache(
   let privacyAudit: ProviderPrivacyAuditRecord | undefined;
   let sentPromptChars: number | undefined;
   let sentSystemInstructionChars: number | undefined;
-  let providerCallStarted = false;
+  let providerAttemptCount = 0;
 
   try {
     const dispatch = prepareThinkForgeProviderPromptDispatch({
@@ -848,18 +857,20 @@ export async function generateWithWritingContextCache(
       ),
       maxOutputTokens: input.maxTokens ?? 0,
     });
-    providerCallStarted = true;
-    const result = await client.models.generateContent({
-      model: toRuntimeModelName(modelName),
-      contents: dispatch.prompt,
-      config: {
-        ...(context.cacheName ? {} : { systemInstruction: dispatch.systemInstruction }),
-        temperature: input.temperature,
-        maxOutputTokens: input.maxTokens,
-        abortSignal: input.abortSignal,
-        ...(context.cacheName ? { cachedContent: context.cacheName } : {}),
-      },
-    });
+    const result = await retryOnceOnOverload(async () => {
+      providerAttemptCount += 1;
+      return client.models.generateContent({
+        model: toRuntimeModelName(modelName),
+        contents: dispatch.prompt,
+        config: {
+          ...(context.cacheName ? {} : { systemInstruction: dispatch.systemInstruction }),
+          temperature: input.temperature,
+          maxOutputTokens: input.maxTokens,
+          abortSignal: input.abortSignal,
+          ...(context.cacheName ? { cachedContent: context.cacheName } : {}),
+        },
+      });
+    }, WRITING_OVERLOAD_RETRY_DELAY_MS, input.abortSignal);
     const text = readGeneratedText(result);
     recordThinkForgeWritingContextCost({
       status: 'success',
@@ -872,6 +883,8 @@ export async function generateWithWritingContextCache(
       functionMs: Date.now() - startedAt,
       usage: readGeminiUsage(result),
       privacyAudit,
+      providerRequestCount: providerAttemptCount,
+      retryCount: Math.max(0, providerAttemptCount - 1),
     });
     return { text, cacheStatus: context.cacheStatus, modelName };
   } catch (error) {
@@ -885,7 +898,8 @@ export async function generateWithWritingContextCache(
       systemInstructionChars: sentSystemInstructionChars,
       functionMs: Date.now() - startedAt,
       privacyAudit: failedAudit,
-      providerRequestCount: providerCallStarted ? 1 : 0,
+      providerRequestCount: providerAttemptCount,
+      retryCount: Math.max(0, providerAttemptCount - 1),
       error,
     });
     throw error;
@@ -926,7 +940,7 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
   let privacyAudit: ProviderPrivacyAuditRecord | undefined;
   let sentPromptChars: number | undefined;
   let sentSystemInstructionChars: number | undefined;
-  let providerCallStarted = false;
+  let providerAttemptCount = 0;
 
   try {
     const dispatch = prepareThinkForgeProviderPromptDispatch({
@@ -955,29 +969,31 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       ),
       maxOutputTokens: input.maxTokens ?? 0,
     });
-    providerCallStarted = true;
     const googleProviderOptions = {
       ...(context.cacheName ? { cachedContent: context.cacheName } : {}),
       ...(input.thinkingBudgetTokens !== undefined
         ? { thinkingConfig: { thinkingBudget: input.thinkingBudgetTokens } }
         : {}),
     };
-    const generation = await awaitStructuredGeneration(
-      generateObject({
-        model: createThinkForgeModel(toRuntimeModelName(modelName)),
-        schema: input.schema,
-        prompt: dispatch.prompt,
-        ...(context.cacheName ? {} : { system: dispatch.systemInstruction }),
-        temperature: input.temperature,
-        maxOutputTokens: input.maxTokens,
-        maxRetries: 0,
-        abortSignal: deadline.abortSignal,
-        ...(Object.keys(googleProviderOptions).length > 0
-          ? { providerOptions: { google: googleProviderOptions } }
-          : {}),
-      }),
-      deadline,
-    );
+    const generation = await retryOnceOnOverload(async () => {
+      providerAttemptCount += 1;
+      return awaitStructuredGeneration(
+        generateObject({
+          model: createThinkForgeModel(toRuntimeModelName(modelName)),
+          schema: input.schema,
+          prompt: dispatch.prompt,
+          ...(context.cacheName ? {} : { system: dispatch.systemInstruction }),
+          temperature: input.temperature,
+          maxOutputTokens: input.maxTokens,
+          maxRetries: 0,
+          abortSignal: deadline.abortSignal,
+          ...(Object.keys(googleProviderOptions).length > 0
+            ? { providerOptions: { google: googleProviderOptions } }
+            : {}),
+        }),
+        deadline,
+      );
+    }, WRITING_OVERLOAD_RETRY_DELAY_MS, deadline.abortSignal);
     const outputChars = JSON.stringify(generation.object).length;
     recordThinkForgeWritingContextCost({
       status: 'success',
@@ -991,6 +1007,8 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       usage: await readAiSdkUsage(generation.usage),
       privacyAudit,
       thinkingBudgetTokens: input.thinkingBudgetTokens,
+      providerRequestCount: providerAttemptCount,
+      retryCount: Math.max(0, providerAttemptCount - 1),
     });
     return {
       result: generation.object,
@@ -1013,7 +1031,8 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
       functionMs: Date.now() - startedAt,
       privacyAudit: failedAudit,
       thinkingBudgetTokens: input.thinkingBudgetTokens,
-      providerRequestCount: providerCallStarted ? 1 : 0,
+      providerRequestCount: providerAttemptCount,
+      retryCount: Math.max(0, providerAttemptCount - 1),
       error: failure,
     });
     throw failure;

@@ -13,6 +13,7 @@ export type ThinkForgeCompletedGenerationDelivery =
 const RUNTIME_CONTRACT_FAILURE_PATTERN = /\b(?:runtime_duration_mismatch|spoken_word_count_mismatch|spoken_density_mismatch|narration_mode_missing_speech)\b/i;
 const EVIDENCE_REQUIREMENT_FAILURE_PATTERN = /\bSCRIPT_REQUIRES_ADDITIONAL_EVIDENCE\b/i;
 const TIMEOUT_FAILURE_PATTERN = /\b(?:timed out|timeout)\b/i;
+const TEMPORARY_PROVIDER_FAILURE_PATTERN = /\b(?:high demand|temporarily unavailable|temporarily busy|overload(?:ed)?|capacity|rate limit|too many requests|service unavailable)\b/i;
 
 function readNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0
@@ -34,6 +35,10 @@ export function resolveThinkForgeGenerationFailureMessage(error: unknown): strin
 
   if (message && TIMEOUT_FAILURE_PATTERN.test(message)) {
     return 'The draft took too long to complete and was not saved. Please try again.';
+  }
+
+  if (message && TEMPORARY_PROVIDER_FAILURE_PATTERN.test(message)) {
+    return 'The writing service is temporarily busy. No draft was saved. Please try again in a moment.';
   }
 
   return 'The draft could not be completed and was not saved. Please try again.';
