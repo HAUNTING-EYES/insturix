@@ -539,26 +539,25 @@ describe('ScriptWriterAgent structured generation', () => {
     expect(() => assertUsableScriptWriterResult(output.result)).not.toThrow();
   });
 
-  it('repairs graph-defined AI filler inside the canonical sidecar', async () => {
-    const invalid = makeModelOutput();
-    invalid.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0]!.text =
+  it('records graph-defined AI filler as editorial guidance without a second full generation', async () => {
+    const authored = makeModelOutput();
+    authored.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0]!.text =
       'This nuanced approach transforms the approval workflow.';
-    const repaired = makeModelOutput();
-    generateStructuredWithWritingContextCacheMock
-      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
-      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+    generateStructuredWithWritingContextCacheMock.mockResolvedValueOnce({
+      result: authored,
+      cacheStatus: 'hit',
+      modelName: 'models/gemini-2.5-flash',
+    });
 
     const output = await new ScriptWriterAgent().runStructured({
       context: { projectSummary: 'Approval workflow launch.' },
       userPrompt: 'Write the complete video script.',
     });
 
-    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
-    const repairCall = generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0];
-    expect(repairCall?.systemInstruction).toContain('banned_phrase:nuanced [approach]');
-    expect(repairCall?.prompt).toContain('"aiFillerHits"');
-    expect(repairCall?.prompt).toContain('"matchedText": "nuanced approach"');
-    expect(output.result.content).not.toContain('nuanced approach');
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
+    expect(output.result.content).toContain('nuanced approach');
+    expect(output.result.metadata.editorialWarnings).toContain('ai_filler_words:nuanced [approach]');
+    expect(output.metadata?.notes).toContain('editorial_warnings:1');
   });
 
   it('repairs a plausible claim that is not supported by its valid source reference', async () => {
@@ -715,24 +714,23 @@ describe('ScriptWriterAgent structured generation', () => {
     }
   });
 
-  it('repairs a script whose spoken substance cannot occupy its claimed runtime', async () => {
-    const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
-    const invalid = makeModelOutput({
+  it('keeps mode-density and anti-AI wording as editorial guidance without a second full generation', async () => {
+    const lowDensityBeat = withSpokenWordCount(
+      makeBeat(1, { durationIntentSeconds: 420 }),
+      745,
+    );
+    lowDensityBeat.lines[0] = {
+      ...lowDensityBeat.lines[0]!,
+      text: `This innovative solution ${lowDensityBeat.lines[0]!.text}`,
+    };
+    const authored = makeModelOutput({
       metadata: { platform: 'youtube' },
       sidecar: sidecarWithScenes([
-        makeScene(1, { durationIntentSeconds: 420, beats: [sparseBeat] }),
-      ]),
-    });
-    const slowButCompleteBeat = withSpokenWordCount(makeBeat(1, { durationIntentSeconds: 420 }), 840);
-    const repaired = makeModelOutput({
-      metadata: { platform: 'youtube' },
-      sidecar: sidecarWithScenes([
-        makeScene(1, { durationIntentSeconds: 420, beats: [slowButCompleteBeat] }),
+        makeScene(1, { durationIntentSeconds: 420, beats: [lowDensityBeat] }),
       ]),
     });
     generateStructuredWithWritingContextCacheMock
-      .mockResolvedValueOnce({ result: invalid, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' })
-      .mockResolvedValueOnce({ result: repaired, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
+      .mockResolvedValueOnce({ result: authored, cacheStatus: 'hit', modelName: 'models/gemini-2.5-flash' });
 
     const output = await new ScriptWriterAgent().runStructured({
       context: { projectSummary: 'Long-form creative production explainer.' },
@@ -740,22 +738,14 @@ describe('ScriptWriterAgent structured generation', () => {
       productionBrief: brief({ targetDurationSec: 420 }),
     });
 
-    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
-    expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.cacheSystemInstruction)
-      .toContain('fullRuntimeMinimumSpokenWords is a hard lower bound');
-    expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
-      .toContain('narration_density_below_mode');
-    expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
-      .toContain('requiredAdditionalSubstantiveWords');
-    const repairPrompt = generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.prompt;
-    expect(repairPrompt).toContain('"narrationBudget"');
-    expect(repairPrompt).toContain('"fullRuntimeMinimumSpokenWords": 840');
-    expect(repairPrompt).toContain('"fullRuntimeReferenceSpokenWords": 1050');
-    expect(repairPrompt).toContain('"requiredAdditionalSubstantiveWords"');
+    expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(1);
     expect(output.result.metadata.estimatedTimeSeconds).toBe(420);
-    expect(output.result.metadata.editorialWarnings).toBeUndefined();
+    expect(output.result.metadata.editorialWarnings).toEqual([
+      'wpm_below_mode_guidance:106.9/120:standard_voiceover',
+      'ai_filler_words:innovative [solution]',
+    ]);
     expect(output.result.sidecar.renderPlan).toBeUndefined();
-    expect(output.metadata?.notes).toContain('script_contract_repair:applied');
+    expect(output.metadata?.notes).toContain('editorial_warnings:2');
     expect(() => assertUsableScriptWriterResult(output.result, {
       productionBrief: brief({ targetDurationSec: 420 }),
     })).not.toThrow();
@@ -1291,6 +1281,30 @@ describe('native Script Sidecar V2 production semantics', () => {
     })).toThrow(/invalid_source_ref:sidecar:missing_ref/);
   });
 
+  it('drops untrusted model references instead of preserving Brand Vault storage IDs', () => {
+    const ledger = buildThinkForgeSourceLedger({
+      userPrompt: 'HarborGrid replaced 18 yard tractors and idling fuel use fell 31%.',
+    });
+    const invalidRef = 'brand_bcd205d7-72bd-413a-a2d5-617fae11fa8b';
+    const beat = makeBeat(1, {
+      lines: [{
+        ...makeBeat(1).lines[0]!,
+        text: 'Let the visual tension resolve without making a factual claim.',
+        sourceRefs: [invalidRef],
+      }],
+      sourceRefs: [invalidRef],
+    });
+    const result = materializeScriptWriterResult(makeModelOutput({
+      sidecar: sidecarWithScenes([
+        makeScene(1, { beats: [beat], sourceRefs: [invalidRef] }),
+      ], { sourceRefs: [invalidRef] }),
+    }), ledger);
+
+    expect(result.sidecar.sourceRefs).toEqual([]);
+    expect(result.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.lines[0]!.sourceRefs).toEqual([]);
+    expect(() => assertUsableScriptWriterResult(result, { sourceLedger: ledger })).not.toThrow();
+  });
+
   it('rejects spoken lines for a cast character whose voice mode is none', () => {
     const result = resultFromSidecar(hostVoiceoverSidecar(), 'instagram-reels');
 
@@ -1331,18 +1345,20 @@ describe('native Script Sidecar V2 production semantics', () => {
     expect(message).not.toContain('scene_count');
   });
 
-  it('rejects a seven-minute speaking beat with only a few words without inventing scene rules', () => {
+  it('returns sparse long-form speaking density as guidance without inventing scene rules', () => {
     const sparseBeat = makeBeat(1, { durationIntentSeconds: 420 });
     const sidecar = sidecarWithScenes([
       makeScene(1, { durationIntentSeconds: 420, beats: [sparseBeat] }),
     ]);
 
-    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
+    const report = assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
       productionBrief: brief({ targetDurationSec: 420 }),
-    })).toThrow(/narration_density_below_mode/);
-    expect(() => assertUsableScriptWriterResult(resultFromSidecar(sidecar, 'youtube'), {
-      productionBrief: brief({ targetDurationSec: 420 }),
-    })).not.toThrow(/scene_count|60s|per_scene/);
+    });
+
+    expect(report.editorialWarnings.some((warning) => (
+      warning.startsWith('wpm_below_mode_guidance:')
+    ))).toBe(true);
+    expect(report.editorialWarnings.join(';')).not.toMatch(/scene_count|60s|per_scene/);
   });
 
   it('accepts a script that satisfies a 60-second runtime and spoken-word contract', () => {

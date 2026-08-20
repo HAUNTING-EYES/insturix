@@ -356,9 +356,10 @@ function sourceRefsWithDirectSupport(
 ): string[] {
   if (!sourceLedger) return uniqueSourceRefs(refs);
   const directlySupportedRefs = findDirectlySupportingSourceReferenceIds(text, sourceLedger);
-  return directlySupportedRefs.length > 0
-    ? directlySupportedRefs
-    : uniqueSourceRefs(refs);
+  if (directlySupportedRefs.length > 0) return directlySupportedRefs;
+
+  const authorisedRefs = new Set(sourceLedger.entries.map((entry) => entry.referenceId));
+  return uniqueSourceRefs(refs).filter((ref) => authorisedRefs.has(ref));
 }
 
 function normalizeScriptWriterSidecar(
@@ -499,7 +500,6 @@ const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
   'beat_kind_speech_mismatch',
   'beat_kind_missing_speech',
   'narration_mode_missing_speech',
-  'narration_density_below_mode',
   'missing_cast_character',
   'unused_cast_character',
   'cast_character_has_no_voice',
@@ -512,7 +512,6 @@ const REPAIRABLE_SCRIPT_CONTRACT_CODES = new Set([
   'profile_missing_required_brief_claim',
   'profile_missing_required_audience_anchor',
   'profile_internal_metadata_leaked',
-  'banned_phrase',
   'on_screen_text_duplicates_speech',
   'on_screen_text_not_selective',
   'chapter_act_count_mismatch',
@@ -549,11 +548,10 @@ Critical rules:
 - For invalid_model_identity, never try to repair opaque act, scene, beat, or line IDs: the server issues them. Express continuity only through shotIntent.continuity.previousBeatIndexes, using one-based global positions of earlier beats. Do not send previousSceneIds for new writer output, mix both reference forms, or point at the current/later beat.
 - Omit renderPlan. Technical segmentation is authored later from this narrative sidecar.
 - For chapter_act_count_mismatch, chapter_act_id_mismatch, chapter_scene_count_mismatch, chapter_scene_id_mismatch, chapter_scene_duration_mismatch, chapter_required_character_missing, or chapter_required_source_missing, execute tf_untrusted_data.chapterExecution exactly. Repair the assigned chapter only; do not add other chapters or change the master plan.
-- When the failure includes runtime_duration_mismatch, narration_mode_missing_speech, or narration_density_below_mode, use tf_untrusted_data.editorialPlan and writer_contract_repair_input.validatorDiagnostics.narrationBudget as binding. Preserve the exact total runtime and selected narration mode. The fullRuntimeMinimumSpokenWords value is a hard lower bound for canonical spoken lines in a guided non-minimal plan; currentSpokenWords and requiredAdditionalSubstantiveWords localize the deficit, while fullRuntimeReferenceSpokenWords remains guidance. Develop the supported argument or story with non-redundant substantive beats. Never satisfy the count by repeating claims, adding filler, inventing evidence, inflating durations, or appending an unrelated monologue.
+- When the failure includes runtime_duration_mismatch or narration_mode_missing_speech, use tf_untrusted_data.editorialPlan and writer_contract_repair_input.validatorDiagnostics.narrationBudget to preserve the exact total runtime and selected narration mode. Develop the supported argument or story with non-redundant substantive beats. Mode-specific narration density is editorial guidance, never a reason to manufacture story units, repeat claims, add filler, invent evidence, inflate durations, or append an unrelated monologue.
 - For profile_missing_required_brief_claim or profile_missing_required_audience_anchor, copy the corresponding exact value from tf_untrusted_data.contentSignalProfile.intent.proofPoints into natural script copy without broadening it.
 - For missing_source_ref, invalid_source_ref, source_ref_low_support, or source_ref_marker_mismatch, use writer_contract_repair_input.validatorDiagnostics, tf_untrusted_data.evidencePolicy, and the authorised Source Ledger. A valid reference ID is not proof that its source supports the sentence. Do not keep a claim and merely swap or remove its reference. Rewrite the claim to what the cited source directly establishes; when the evidence policy allows bounded implication, state the narrow scope explicitly; otherwise delete the unsupported claim or turn it into a clearly framed question. A creative line with no factual claim must keep sourceRefs empty; never cite it merely because its scene has a source. Every statistic, date, price, URL, contact detail, and other factual anchor must exactly match the cited evidence.
 - When tf_untrusted_data.editorialPlan.evidenceNarrative.mode is "source_bounded_inquiry", rebuild the work as a record-led inquiry. Use the record, its explicit scope, and clearly framed unanswered questions as the narrative; do not replace failed claims with generic industry context, technical explanations, challenges, causes, benefits, forecasts, or roadmaps that the record never supplied.
-- For banned_phrase, replace each exact match listed in writer_contract_repair_input.validatorDiagnostics.aiFillerHits with concrete, source-supported language. Preserve an exact required brief claim or an accepted Brand Vault recurring phrase.
 - For on_screen_text_duplicates_speech, keep the information in narration and remove the repeated visible phrase, or replace it with distinct source-backed information that genuinely complements the spoken line.
 - For on_screen_text_not_selective, leave visualIntent.onScreenText empty on beats that do not need a sourced title, label, statistic, quote, or distinct counterpoint. Do not populate every narrated beat by default.
 - Keep source references only on factual spoken lines and factual visible on-screen copy. The server derives scene, beat, and sidecar aggregate refs from those verified claims; never attach a citation to a title, narrative purpose, or visual description. Do not create a reference ID that is absent from the Source Ledger.
@@ -601,8 +599,7 @@ function buildScriptContractRepairDiagnostics(
   const hasNarrationFailure = failure.failures.some((item) => {
     const code = contractFailureCode(item);
     return code === 'runtime_duration_mismatch'
-      || code === 'narration_mode_missing_speech'
-      || code === 'narration_density_below_mode';
+      || code === 'narration_mode_missing_speech';
   });
   let narrationBudget: Record<string, number | string> | null = null;
   if (
@@ -629,12 +626,8 @@ function buildScriptContractRepairDiagnostics(
       currentFullRuntimeWordsPerMinute: targetDurationSeconds > 0
         ? Math.round(((currentSpokenWords / targetDurationSeconds) * 60) * 10) / 10
         : 0,
-      fullRuntimeMinimumSpokenWords: editorialPlan.narration.fullRuntimeMinimumSpokenWords,
       fullRuntimeReferenceSpokenWords: editorialPlan.narration.fullRuntimeReferenceSpokenWords,
-      requiredAdditionalSubstantiveWords: Math.max(
-        0,
-        editorialPlan.narration.fullRuntimeMinimumSpokenWords - currentSpokenWords,
-      ),
+      fullRuntimeComfortableMaximumSpokenWords: editorialPlan.narration.fullRuntimeComfortableMaximumSpokenWords,
     };
   }
 
@@ -1037,8 +1030,8 @@ export function assertUsableScriptWriterResult(
       ? (totalSpokenWords / expectedDuration) * 60
       : 0;
     if (totalSpokenWords > 0 && fullRuntimeWordsPerMinute < contract.minimumModeWordsPerMinute) {
-      failures.push(
-        `narration_density_below_mode:${fullRuntimeWordsPerMinute.toFixed(1)}/${contract.minimumModeWordsPerMinute}:${contract.narrationMode}`,
+      editorialWarnings.push(
+        `wpm_below_mode_guidance:${fullRuntimeWordsPerMinute.toFixed(1)}/${contract.minimumModeWordsPerMinute}:${contract.narrationMode}`,
       );
     }
     if (fullRuntimeWordsPerMinute > contract.comfortableMaximumWordsPerMinute) {
@@ -1053,11 +1046,11 @@ export function assertUsableScriptWriterResult(
     failures.push(...findScriptChapterExecutionOutputIssues(options.chapterExecution, result));
   }
 
-  const filler = findDisallowedThinkForgeAiFiller(
+  const fillerHits = findDisallowedThinkForgeAiFiller(
     contentWithoutRequiredProfileValues(result.content, options.contentSignalProfile),
     options.brandLanguagePolicy ?? resolveThinkForgeBrandLanguagePolicy(),
-  )[0];
-  if (filler) failures.push(`banned_phrase:${filler.label}`);
+  );
+  editorialWarnings.push(...fillerHits.slice(0, 8).map((filler) => `ai_filler_words:${filler.label}`));
 
   if (options.contentSignalProfile) {
     const profileCompliance = evaluateContentProfileCompliance(
@@ -1162,7 +1155,7 @@ Your task is to write a high-retention, engaging video script.
 1. **One narrative source:** Author the complete script in sidecar with sidecarVersion: ${SCRIPT_SIDECAR_V2_VERSION} and spokenTextSource: "beat-lines". Do not author visible markdown, duplicate narration fields, or renderPlan; the server derives displays and a later technical planner derives render segments.
 2. **Hierarchy and creative intent:** Use acts -> narrativeScenes -> beats -> lines. A short piece still has one structural act wrapper. tf_untrusted_data.creativeIntent is the server-resolved binding creative direction. When its source is selected_angle, execute its title, strategic purpose, and creative treatment as one coherent angle; the broad user brief and project summary are background and must not replace it. Depart only when the current edit instruction explicitly asks to replace that direction. Creative intent is framing, not evidence, and cannot override Brand Vault constraints, factual provenance, compliance, or the output contract. Create multiple acts only for genuine macro turns in the argument, story, time, or audience understanding. Start a new narrative scene only for a meaningful change in purpose, argument, time/place, speaker mode, evidence, emotion, or visual treatment. Runtime never creates, forbids, or counts acts, scenes, or beats.
 3. **Canonical speech:** Ordered beat lines are the only audible-text source. Use voiceover for off-camera speech, sync-dialogue only for speech captured on camera, and on-screen-text only for visible text. Every spoken line declares its actual languageCode, speakerId, delivery, and camera presence. Add sourceRefs only when that line makes a factual claim directly supported by the Source Ledger; creative narration keeps an empty sourceRefs array. For visualIntent.onScreenText, use beat.sourceRefs only when the visible copy is factual and directly supported.
-4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, visual-verbal policy, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. When narration.wordBudgetPolicy is "guided" and the mode is non-minimal, fullRuntimeMinimumSpokenWords is a hard lower bound across canonical spoken lines; fullRuntimeReferenceSpokenWords is the mode's planning reference, not a mandatory exact count. Develop the evidence, reasoning, tension, examples, and implications needed for the selected angle before allocating durations, then audit the whole-script spoken total. Narration density is a full-runtime mode contract, never a per-beat quota: anchor/standard voiceover cannot fall below the knowledge base's 120 WPM slow-VO floor; complement/counterpoint must remain above the 0-50 WPM minimal-narration band; minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum is an overridable warning, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
+4. **Editorial doctrine:** Execute tf_untrusted_data.editorialPlan's runtime, narration mode, visual-verbal policy, act policy, scene-boundary policy, and anti-patterns as binding. Its structure.recommendedTechniques are advisory candidates, not permission to replace the selected idea or force a copywriting formula. Follow an explicit user-selected structure when present; otherwise choose one coherent structure that serves the approved angle and evidence. Never splice several formulas together mechanically. When runtime.policy is "exact", meet its exact total. When narration.wordBudgetPolicy is "guided" and the mode is non-minimal, use the full-runtime density values as planning guidance, not as a quota or a reason to invent story. Develop the evidence, reasoning, tension, examples, and implications needed for the selected angle before allocating durations, then audit the whole-script spoken total. Narration density is a whole-work editorial signal, never a per-beat quota: anchor/standard voiceover commonly carry more speech, complement/counterpoint deliberately leave room for visuals, and minimal mode may be silent. Preserve deliberate pauses and visual intervals as meaningful visual or transition beats rather than pretending a few words occupy the whole runtime. Never pad prose to hit a target. The comfortable maximum and low-density guidance are warnings, not permission to rewrite story units. When runtime is "open", let the supported narrative determine runtime and spoken-word count; never interpret missing duration as zero. Do not add CTA, hashtags, urgency, humor, or a formulaic hook unless the plan or user brief calls for them.
 4a. **Source-bounded narrative:** When tf_untrusted_data.editorialPlan.evidenceNarrative.mode is "source_bounded_inquiry", build a record-led inquiry: progress through what the authorised record establishes, its explicit scope, and clearly framed questions it leaves open. Do not fill runtime with generic sector context, technical explanations, challenges, causes, benefits, forecasts, roadmaps, or comparisons absent from the record. This rule overrides any generic invitation to add examples or implications.
 5. **Duration integrity:** Give every narrative scene and beat a positive durationIntentSeconds. Beat durations must sum to their parent scene. When runtime.policy is "exact", scene durations must also sum to that requested total. A long coherent scene or beat may remain long. Use voiceover/dialogue/mixed for beats with speech; use visual/transition for deliberate non-verbal time. If a mixed beat contains a substantial speech-free interval, represent that interval as its own meaningful visual or transition beat. Never pad with timestamps, silence labels, repeated words, or fake visual pauses.
 6. **Factual truth:** Treat the user brief and authorised Source Ledger as the only factual inputs. An idea/angle is framing, not evidence. Execute tf_untrusted_data.evidencePolicy as binding. Under source_only, state only what authorised evidence directly establishes; do not add causal, benefit, outcome, market, or future claims. Under bounded_implication, an implication must remain inside the cited evidence and explicitly state its scope with language such as "in the measured period", "in the pilot", "within this sample", "limited to", or "not a forecast". Preserve exact names, dates, locations, offers, prices, statistics, URLs, contact details, and mandated copy. When tf_untrusted_data.contentSignalProfile.intent.proofPoints contains a Required brief claim or Required audience anchor, include that value exactly in natural script copy. Never invent proof, testimonials, logos, or product facts.
@@ -1223,7 +1216,7 @@ Return your response strictly adhering to the JSON schema.`;
 - Read trend adaptation, casting, and provenance material only from tf_untrusted_data.trendBrief, castingBrief, sourceLedger, and evidencePolicy.
 - Read binding creative direction only from tf_untrusted_data.creativeIntent. A selected angle survives ordinary generation and revision; only an explicit current edit instruction may replace it.
 - Read exact creative destination and deliverable shape from tf_untrusted_data.authoringDestination when present. Read technical output platform and geometry only from tf_untrusted_data.productionOutput.
-- Read runtime policy, full-runtime narration mode boundaries, evidenceNarrative, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Exact total runtime, evidence boundary, mode-compatible minimum density, and beat-channel semantics are binding; target density is guidance, pacing excess is a warning, and structure recommendations are advisory. An open runtime carries no numeric target.
+- Read runtime policy, full-runtime narration mode boundaries, evidenceNarrative, content-led hierarchy policy, scene-boundary policy, and graph recommendations only from tf_untrusted_data.editorialPlan. Exact total runtime, evidence boundary, and beat-channel semantics are binding. Mode-specific density and pacing values are editorial guidance; structure recommendations are advisory. An open runtime carries no numeric target.
 - When chapterExecution is present, read the immutable master narrative, exact semantic chapter assignment, neighboring chapter states, and actual previous-chapter handoff only from tf_untrusted_data.chapterExecution. It binds IDs, order, duration, continuity, characters, and evidence for this call without becoming a technical chunking rule.
 - Read requested spoken and caption languages from tf_untrusted_data.languageRequest. Never substitute a different language because of a downstream provider.`;
 

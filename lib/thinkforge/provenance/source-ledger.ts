@@ -496,7 +496,7 @@ function requiresSourceRef(text: string, ledger: SourceLedger): boolean {
   if (!normalized) return false;
   if (isQuestion(normalized)) return false;
   if (hasUnicodeFactualMarker(normalized)) return true;
-  return ledger.entries.some((entry) => overlapsEntry(normalized, entry));
+  return findDirectlySupportingSourceReferenceIds(normalized, ledger).length > 0;
 }
 
 export function findSourceLedgerIssuesForSidecar(
@@ -563,16 +563,16 @@ export function findSourceLedgerIssuesForNarrativeSidecar(
 
         beat.visualIntent?.onScreenText?.forEach((text, textIndex) => {
           const onScreenTextLabel = `${beatLabel}.on_screen_text_${textIndex + 1}`;
-          if (requiresSourceRef(text, parsedLedger) && (beat.sourceRefs ?? []).length === 0) {
+          const directlySupportingRefs = new Set(
+            findDirectlySupportingSourceReferenceIds(text, parsedLedger),
+          );
+          const citedSupportingRefs = (beat.sourceRefs ?? []).filter(
+            (ref) => directlySupportingRefs.has(ref),
+          );
+          const needsSourceRef = hasUnicodeFactualMarker(text) || directlySupportingRefs.size > 0;
+          if (needsSourceRef && citedSupportingRefs.length === 0) {
             issues.push(`missing_source_ref:${onScreenTextLabel}`);
           }
-          addUnsupportedCitationIssues(
-            issues,
-            text,
-            beat.sourceRefs,
-            entriesById,
-            onScreenTextLabel,
-          );
         });
 
         beat.lines?.forEach((line, lineIndex) => {

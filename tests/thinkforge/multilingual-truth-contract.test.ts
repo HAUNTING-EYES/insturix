@@ -119,6 +119,39 @@ describe('source-ledger truth contract', () => {
       .toContain('missing_source_ref:scene_1');
   });
 
+  it('does not mistake ordinary creative overlap for a factual claim needing a citation', () => {
+    const ledger = buildThinkForgeSourceLedger({
+      userPrompt: 'HarborGrid runs a community pilot with a local operations team.',
+    });
+
+    expect(findSourceLedgerIssuesForSidecar({
+      scenes: [{ narration: 'The community pilot gives the team a reason to listen.' }],
+    }, ledger)).toEqual([]);
+  });
+
+  it('does not apply a spoken claim citation to unrelated creative on-screen copy', () => {
+    const ledger = buildThinkForgeSourceLedger({
+      userPrompt: 'HarborGrid replaced 18 yard tractors and idling fuel use fell 31%.',
+    });
+
+    const issues = findSourceLedgerIssuesForNarrativeSidecar({
+      acts: [{
+        narrativeScenes: [{
+          beats: [{
+            sourceRefs: ['brief_user'],
+            visualIntent: { onScreenText: ['The decision is no longer invisible.'] },
+            lines: [{
+              text: 'HarborGrid replaced 18 yard tractors and idling fuel use fell 31%.',
+              sourceRefs: ['brief_user'],
+            }],
+          }],
+        }],
+      }],
+    }, ledger);
+
+    expect(issues).toEqual([]);
+  });
+
   it('preserves long brief evidence and ranks a relevant fact beyond position twelve', () => {
     const longBrief = `${'A'.repeat(1_500)} NEEDLE_AT_END`;
     const facts: SemanticFact[] = Array.from({ length: 15 }, (_, index) => ({
