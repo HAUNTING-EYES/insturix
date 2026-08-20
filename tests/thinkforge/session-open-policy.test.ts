@@ -193,11 +193,14 @@ describe('ThinkForge session open policy', () => {
     const sessionHook = read('app/dashboard/thinkforge/hooks/useThinkForgeSession.ts');
     const scriptHook = read('app/dashboard/thinkforge/hooks/useThinkForgeScript.ts');
     expect(route).toContain('db.getScript(session._id, effectiveScriptId)');
-    expect(route).toContain("const effectiveScriptId = scriptId ?? 'default'");
+    expect(route).toContain("let effectiveScriptId = scriptId ?? 'default'");
+    expect(route).toContain('db.listScripts(session._id)');
+    expect(route).not.toContain("if (sessionId && !scriptId)");
     expect(route).toContain('version: script.version');
     expect(sessionHook).toContain('setHydratedScriptSnapshot({');
     expect(sessionHook).toContain('hydrationAbortControllerRef.current?.abort()');
     expect(sessionHook).toContain("allowCachedFallback: false");
+    expect(sessionHook).not.toContain("sessionId: lastSessionId,\n          scriptId: 'default'");
     expect(sessionHook).toContain('setRestoredSessionId(data.sessionId);');
     expect(page).toContain('session.restoredSessionId');
     expect(page).toContain('buildIdeaFromSessionMeta(restoredSessionId, session.projectMeta || {})');

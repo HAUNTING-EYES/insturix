@@ -85,10 +85,6 @@ export async function POST(req: Request) {
     if (sessionId && !existingSession) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
-    if (sessionId && !scriptId) {
-      return NextResponse.json({ error: 'Missing scriptId' }, { status: 400 });
-    }
-
     const requestedBrandId = typeof projectMeta?.brandId === 'string'
       ? projectMeta.brandId.trim()
       : '';
@@ -153,15 +149,33 @@ export async function POST(req: Request) {
     // Create/get session with org context
     const session = await db.getOrCreateSession(userId, sessionId, projectMeta, orgId, createdByName);
 
-    // These reads share only the authorized canonical identity, so running them
-    // together keeps hydration atomic without paying their latency serially.
+    // An explicit scriptId is an exact document request. For a session reopen
+    // without one, the server selects the most recently persisted document;
+    // client storage is not allowed to decide which server document is real.
     const stateReadStartedAt = performance.now();
-    const effectiveScriptId = scriptId ?? 'default';
-    const [script, chat, preferences] = await Promise.all([
-      db.getScript(session._id, effectiveScriptId),
-      db.getChatHistory(session._id, 50, 'default'),
-      db.getUserPreferences(userId),
-    ]);
+    const isExistingSessionReopen = Boolean(sessionId);
+    let effectiveScriptId = scriptId ?? 'default';
+    let script;
+    let chat;
+    let preferences;
+
+    if (scriptId || !isExistingSessionReopen) {
+      [script, chat, preferences] = await Promise.all([
+        db.getScript(session._id, effectiveScriptId),
+        db.getChatHistory(session._id, 50, 'default'),
+        db.getUserPreferences(userId),
+      ]);
+    } else {
+      const [documents, hydratedChat, hydratedPreferences] = await Promise.all([
+        db.listScripts(session._id),
+        db.getChatHistory(session._id, 50, 'default'),
+        db.getUserPreferences(userId),
+      ]);
+      effectiveScriptId = documents[0]?.scriptId || 'default';
+      script = await db.getScript(session._id, effectiveScriptId);
+      chat = hydratedChat;
+      preferences = hydratedPreferences;
+    }
     const stateReadMs = performance.now() - stateReadStartedAt;
     const totalMs = performance.now() - requestStartedAt;
 

@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   isOrgWalletBillingEnabled: vi.fn(),
   listAuthorizedBrandScopes: vi.fn(),
   listChatThreads: vi.fn(),
+  listScripts: vi.fn(),
   refundCredits: vi.fn(),
   reviseDocument: vi.fn(),
   resolveContextBillingOwner: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock('@/lib/thinkforge/services/db', () => ({
   getSession: mocks.getSession,
   getUserPreferences: mocks.getUserPreferences,
   listChatThreads: mocks.listChatThreads,
+  listScripts: mocks.listScripts,
   saveScriptWithVersion: mocks.saveScriptWithVersion,
 }));
 vi.mock('@/lib/services/creditsMiddleware', () => ({
@@ -253,6 +255,7 @@ describe('ThinkForge session route authorization', () => {
       activeGeneration: null,
     });
     mocks.listChatThreads.mockResolvedValue([]);
+    mocks.listScripts.mockResolvedValue([]);
     mocks.getScript.mockResolvedValue(null);
     mocks.getUserPreferences.mockResolvedValue({ tone: 'direct' });
     mocks.deleteScript.mockResolvedValue(true);
@@ -466,15 +469,51 @@ describe('ThinkForge session route authorization', () => {
     expect(mocks.getOrCreateSession).not.toHaveBeenCalled();
   });
 
-  it('requires an exact document identity when reopening an existing session', async () => {
-    const missingResponse = await callSessionHydrate({ sessionId: 'session_requested' });
+  it('resolves the latest persisted document when reopening without an explicit document ID', async () => {
+    mocks.listScripts.mockResolvedValueOnce([
+      {
+        scriptId: 'post_latest',
+        title: 'Latest post',
+        documentType: 'social_post',
+        version: 4,
+        updatedAt: new Date('2026-08-21T10:00:00.000Z'),
+        createdAt: new Date('2026-08-21T09:00:00.000Z'),
+      },
+      {
+        scriptId: 'default',
+        title: 'Empty document',
+        documentType: 'social_post',
+        version: 1,
+        updatedAt: new Date('2026-08-21T08:00:00.000Z'),
+        createdAt: new Date('2026-08-21T08:00:00.000Z'),
+      },
+    ]);
+    mocks.getScript.mockResolvedValueOnce({
+      sessionId: 'session_canonical',
+      scriptId: 'post_latest',
+      title: 'Latest post',
+      content: 'The generated post is here.',
+      blocks: [],
+      metadata: { workflow: 'create', source: 'ai' },
+      version: 4,
+      documentType: 'social_post',
+    });
+
+    const response = await callSessionHydrate({ sessionId: 'session_requested' });
     const coercedResponse = await callSessionHydrate({ sessionId: 'session_requested', scriptId: 42 });
 
-    expect(missingResponse.status).toBe(400);
-    await expect(missingResponse.json()).resolves.toEqual({ error: 'Missing scriptId' });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      script: {
+        sessionId: 'session_canonical',
+        scriptId: 'post_latest',
+        content: 'The generated post is here.',
+      },
+    });
+    expect(mocks.listScripts).toHaveBeenCalledWith('session_canonical');
+    expect(mocks.getScript).toHaveBeenCalledWith('session_canonical', 'post_latest');
     expect(coercedResponse.status).toBe(400);
     await expect(coercedResponse.json()).resolves.toEqual({ error: 'Invalid scriptId' });
-    expect(mocks.getScript).not.toHaveBeenCalled();
   });
 
   it('assigns the server-owned default identity only when creating a new session', async () => {

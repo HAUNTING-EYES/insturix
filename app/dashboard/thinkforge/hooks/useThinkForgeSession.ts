@@ -112,7 +112,11 @@ export function useThinkForgeSession() {
     const requestRevision = hydrationRequestRevisionRef.current + 1;
     hydrationRequestRevisionRef.current = requestRevision;
     hydrationAbortControllerRef.current = controller;
-    const hydrationTarget = createThinkForgeSessionDocumentTarget(payload?.sessionId, payload?.scriptId);
+    // A supplied document ID must be exact. Omitting it asks the server to
+    // resolve the latest persisted document for an existing session.
+    const hydrationTarget = payload?.sessionId && payload.scriptId
+      ? createThinkForgeSessionDocumentTarget(payload.sessionId, payload.scriptId)
+      : null;
     setHydrationFailure((current) => hydrationTarget
       ? transitionThinkForgeSessionHydrationFailure(current, {
           type: 'started',
@@ -300,7 +304,6 @@ export function useThinkForgeSession() {
 
         const data = await hydrate({
           sessionId: lastSessionId,
-          scriptId: 'default',
           allowCachedFallback: false,
         });
 

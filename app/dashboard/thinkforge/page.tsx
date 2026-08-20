@@ -190,12 +190,6 @@ export default function ThinkForgeLanding() {
 	const scriptHook = useThinkForgeScript(activeSessionId, activeScriptId, session.hydratedScriptSnapshot);
 
 	useEffect(() => {
-		if (activeSessionId) {
-			setActiveScriptId('default');
-		}
-	}, [activeSessionId]);
-
-	useEffect(() => {
 		if (workspaceMode !== 'scripting' || !selectedIdea) return;
 		const pm = session.projectMeta || {};
 		const projectAuthoringRequest = pm.authoringRequest === undefined
@@ -242,12 +236,22 @@ export default function ThinkForgeLanding() {
 		if (resumedSessionIdRef.current === restoredSessionId) return;
 
 		resumedSessionIdRef.current = restoredSessionId;
-		setActiveScriptId('default');
+		setActiveScriptId(
+			session.hydratedScriptSnapshot?.sessionId === restoredSessionId
+				? session.hydratedScriptSnapshot.scriptId
+				: 'default',
+		);
 		const restoredIdea = buildIdeaFromSessionMeta(restoredSessionId, session.projectMeta || {});
 		setSelectedIdea(restoredIdea);
 		setAuthoringRequest(restoredIdea.authoringRequest || null);
 		setWorkspaceMode('scripting');
-	}, [session.restoredSessionId, session.isRestoringCurrentSession, session.sessionId, session.projectMeta]);
+	}, [
+		session.restoredSessionId,
+		session.isRestoringCurrentSession,
+		session.sessionId,
+		session.projectMeta,
+		session.hydratedScriptSnapshot,
+	]);
 
 	const panelRef = useRef<HTMLElement | null>(null);
 
@@ -521,6 +525,7 @@ export default function ThinkForgeLanding() {
 		try { await session.closeSession(); } catch (err) { console.warn('[ThinkForge] closeSession warning:', err); }
 		scriptHook.resetSessionState();
 		setPendingSessionId(null);
+		setActiveScriptId('default');
 		setWorkspaceMode('scripting');
 		setIdeationPhase('PROMPT');
 		setIdeas([]);
@@ -549,6 +554,7 @@ export default function ThinkForgeLanding() {
 			}),
 		});
 		if (created?.sessionId) {
+			setActiveScriptId(created.script?.scriptId || 'default');
 			setPendingSessionId(created.sessionId);
 			return created.sessionId;
 		}
@@ -739,10 +745,11 @@ export default function ThinkForgeLanding() {
 					console.warn('[ThinkForge] Hydration completed but component unmounted - skipping state update');
 					return;
 				}
-				if (created?.sessionId) {
-					hasHydratedRef.current = true;
-					initialDraftRequestedRef.current = false;
-					setPendingSessionId(created.sessionId);
+			if (created?.sessionId) {
+				hasHydratedRef.current = true;
+				initialDraftRequestedRef.current = false;
+				setActiveScriptId(created.script?.scriptId || 'default');
+				setPendingSessionId(created.sessionId);
 					scriptHook.resetSessionState();
 				} else {
 					// Hydration returned null - allow retry by NOT setting hasHydratedRef
@@ -860,12 +867,12 @@ export default function ThinkForgeLanding() {
 			setOpeningSession(true);
 			const data = await session.hydrate({
 				sessionId: id,
-				scriptId: 'default',
 				allowCachedFallback: false,
 			});
 			if (!data || !isCurrentSessionOpen()) return;
 
 			const sid = data.sessionId;
+			setActiveScriptId(data.script?.scriptId || 'default');
 			setPendingSessionId(sid);
 			scriptHook.resetSessionState();
 			const restoredIdea = buildIdeaFromSessionMeta(sid, data.projectMeta || {});
@@ -1060,8 +1067,9 @@ export default function ThinkForgeLanding() {
 						scriptHook.resetSessionState();
 
 						// Hydrate the session from content card
-						const data = await session.hydrate({ sessionId, scriptId: 'default' });
+						const data = await session.hydrate({ sessionId });
 						if (data?.sessionId) {
+							setActiveScriptId(data.script?.scriptId || 'default');
 							setPendingSessionId(data.sessionId);
 							scriptHook.resetSessionState();
 
