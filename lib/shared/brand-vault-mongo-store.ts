@@ -38,6 +38,7 @@ import type {
   BrandVaultAcceptedBrandListFilter,
   BrandVaultAcceptedBrandSummary,
   BrandVaultDraftProductUiPatch,
+  BrandVaultDraftReviewPatch,
   BrandVaultRefineryJobListFilter,
   BrandVaultRefineryJobSnapshot,
   BrandVaultRefineryStore,
@@ -174,6 +175,35 @@ export class BrandVaultMongoRefineryStore implements BrandVaultRefineryStore {
       profile: {
         ...current.record.profile,
         ...input.patch,
+      },
+      updatedAt: input.options?.now ?? new Date().toISOString(),
+    };
+    const update = await collections.profiles.updateOne(filter, { $set: profileDocument(next) });
+    if (!wasMatched(update)) return null;
+    await appendEvent(collections.events, 'draft_saved', next, input.options ?? {});
+    return clone(next);
+  }
+
+  async patchDraftReview(input: {
+    recordId: string;
+    expectedUpdatedAt: string;
+    patch: BrandVaultDraftReviewPatch;
+    options?: BrandSignalLifecycleOptions;
+  }): Promise<BrandSignalProfileRecord | null> {
+    const collections = await this.getCollections();
+    const filter = {
+      _id: input.recordId,
+      status: 'draft',
+      updatedAt: input.expectedUpdatedAt,
+    } as Filter<BrandVaultMongoProfileDocument>;
+    const current = await collections.profiles.findOne(filter);
+    if (!current) return null;
+
+    const next: BrandSignalProfileRecord = {
+      ...current.record,
+      review: {
+        ...current.record.review,
+        decisions: input.patch.decisions,
       },
       updatedAt: input.options?.now ?? new Date().toISOString(),
     };

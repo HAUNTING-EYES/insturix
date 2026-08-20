@@ -220,6 +220,41 @@ describe('Brand Vault Mongo refinery store', () => {
     expect((await store.getRecord(record.id))?.status).toBe('accepted');
   });
 
+  it('persists review decisions only at the expected draft revision', async () => {
+    const store = createBrandVaultMongoRefineryStore({ collections: createMemoryCollections() });
+    const record = draftRecord({ id: 'review_revision', name: 'Review revision', now: '2026-06-10T09:05:00.000Z' });
+    await store.saveRecord(record);
+
+    const saved = await store.patchDraftReview({
+      recordId: record.id,
+      expectedUpdatedAt: record.updatedAt,
+      patch: {
+        decisions: {
+          signalEdits: [{ path: 'identity.category', value: 'creative operations platform' }],
+          confirmedSignalPaths: ['identity.brandName'],
+          deferredConflictPaths: ['identity.proofStyle'],
+          savedAt: '2026-06-10T09:06:00.000Z',
+          savedBy: 'brand_manager_1',
+        },
+      },
+      options: { now: '2026-06-10T09:06:00.000Z', actorId: 'brand_manager_1' },
+    });
+
+    expect(saved?.status).toBe('draft');
+    expect(saved?.review.decisions).toMatchObject({
+      signalEdits: [{ path: 'identity.category', value: 'creative operations platform' }],
+      confirmedSignalPaths: ['identity.brandName'],
+      deferredConflictPaths: ['identity.proofStyle'],
+      savedBy: 'brand_manager_1',
+    });
+    await expect(store.patchDraftReview({
+      recordId: record.id,
+      expectedUpdatedAt: record.updatedAt,
+      patch: { decisions: { confirmedSignalPaths: ['identity.category'] } },
+    })).resolves.toBeNull();
+    expect((await store.getRecord(record.id))?.review.decisions).toEqual(saved?.review.decisions);
+  });
+
   it('returns a controlled conflict when the accepted-scope invariant rejects a concurrent accept', async () => {
     const collections = createMemoryCollections();
     const originalUpdateOne = collections.profiles.updateOne.bind(collections.profiles);

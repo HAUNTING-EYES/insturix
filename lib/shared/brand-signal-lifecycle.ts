@@ -34,6 +34,19 @@ export interface BrandSignalValidationResult {
   warnings: BrandSignalProfileIssue[];
 }
 
+/**
+ * Review decisions belong to a draft until acceptance turns selected values
+ * into manual evidence. Keeping them separate prevents unaccepted choices from
+ * influencing downstream generation or the learning loop.
+ */
+export interface BrandSignalDraftReviewDecisions {
+  signalEdits?: Array<{ path: string; value: unknown }>;
+  confirmedSignalPaths?: string[];
+  deferredConflictPaths?: string[];
+  savedAt?: string;
+  savedBy?: string;
+}
+
 export interface BrandSignalProfileRecord {
   id: string;
   status: BrandSignalProfileStatus;
@@ -53,6 +66,7 @@ export interface BrandSignalProfileRecord {
     rejectedAt?: string;
     rejectedBy?: string;
     rejectionReason?: string;
+    decisions?: BrandSignalDraftReviewDecisions;
   };
 }
 

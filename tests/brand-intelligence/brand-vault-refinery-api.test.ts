@@ -74,6 +74,7 @@ function createPromiseBackedStore(): BrandVaultRefineryStore {
   return {
     saveRecord: async (record, options) => store.saveRecord(record, options),
     patchDraftProductUi: async (input) => store.patchDraftProductUi(input),
+    patchDraftReview: async (input) => store.patchDraftReview(input),
     getRecord: async (id) => store.getRecord(id),
     acceptDraft: async (id, options) => store.acceptDraft(id, options),
     rejectDraft: async (id, reason, options) => store.rejectDraft(id, reason, options),
@@ -284,6 +285,7 @@ describe('Brand Vault refinery API boundary', () => {
     const store: BrandVaultRefineryStore = {
       saveRecord: (record, options) => backingStore.saveRecord(record, options),
       patchDraftProductUi: (input) => backingStore.patchDraftProductUi(input),
+      patchDraftReview: (input) => backingStore.patchDraftReview(input),
       getRecord: (id) => backingStore.getRecord(id),
       acceptDraft: (id, options) => backingStore.acceptDraft(id, options),
       rejectDraft: (id, reason, options) => backingStore.rejectDraft(id, reason, options),
@@ -2175,6 +2177,81 @@ describe('Brand Vault refinery API boundary', () => {
     if (!accepted.body.ok) throw new Error(accepted.body.error.message);
     expect(accepted.body.job?.status).toBe('accepted');
     expect(accepted.body.record.status).toBe('accepted');
+  });
+
+  it('persists validated review decisions without teaching the brand until final acceptance', async () => {
+    const store = createInMemoryBrandVaultRefineryStore();
+    const created = await createBrandVaultRefineryJobFromWebsite(
+      { userId: 'user_vault', body: { websiteUrl: 'vaultline.example', brandId: 'brand_vaultline' } },
+      { store, clock: () => NOW, fetchOptions: { fetchFn: async () => htmlResponse() } },
+    );
+    if (!created.body.ok) throw new Error(created.body.error.message);
+
+    const saved = await reviewBrandVaultSignalProfileDraft(
+      {
+        userId: 'user_vault',
+        recordId: created.body.record.id,
+        actorId: 'brand_manager_1',
+        body: {
+          action: 'save_review',
+          expectedUpdatedAt: created.body.record.updatedAt,
+          signalEdits: [{ path: 'identity.category', value: 'creative operations platform' }],
+          confirmedSignalPaths: ['identity.brandName'],
+          deferredConflictPaths: ['identity.proofStyle'],
+        },
+        now: '2026-06-09T06:20:00.000Z',
+      },
+      { store },
+    );
+
+    expect(saved.status).toBe(200);
+    expect(saved.body.ok).toBe(true);
+    if (!saved.body.ok) throw new Error(saved.body.error.message);
+    expect(saved.body.record.status).toBe('draft');
+    expect(saved.body.record.profile.identity.category.value).not.toBe('creative operations platform');
+    expect(saved.body.record.review.decisions).toMatchObject({
+      signalEdits: [{ path: 'identity.category', value: 'creative operations platform' }],
+      confirmedSignalPaths: ['identity.brandName'],
+      deferredConflictPaths: ['identity.proofStyle'],
+      savedAt: '2026-06-09T06:20:00.000Z',
+      savedBy: 'brand_manager_1',
+    });
+    expect(saved.body.job?.status).toBe('needs_review');
+    expect(saved.body.learningEvents).toEqual([]);
+
+    const reloaded = await store.getRecord(created.body.record.id);
+    expect(reloaded?.review.decisions).toEqual(saved.body.record.review.decisions);
+
+    const staleSave = await reviewBrandVaultSignalProfileDraft(
+      {
+        userId: 'user_vault',
+        recordId: created.body.record.id,
+        body: {
+          action: 'save_review',
+          expectedUpdatedAt: created.body.record.updatedAt,
+          confirmedSignalPaths: ['identity.category'],
+        },
+        now: '2026-06-09T06:21:00.000Z',
+      },
+      { store },
+    );
+    expect(staleSave).toMatchObject({ status: 409, body: { ok: false, error: { code: 'conflict' } } });
+
+    const accepted = await reviewBrandVaultSignalProfileDraft(
+      {
+        userId: 'user_vault',
+        recordId: created.body.record.id,
+        body: { action: 'accept' },
+        now: '2026-06-09T06:25:00.000Z',
+      },
+      { store },
+    );
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.ok).toBe(true);
+    if (!accepted.body.ok) throw new Error(accepted.body.error.message);
+    expect(accepted.body.record.status).toBe('accepted');
+    expect(accepted.body.record.profile.identity.category.value).toBe('creative operations platform');
+    expect(accepted.body.learningEvents).toHaveLength(1);
   });
 
   it('accepts and rejects drafts while updating the stored job review state', async () => {

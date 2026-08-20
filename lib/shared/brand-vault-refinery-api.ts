@@ -9,6 +9,7 @@ import {
 } from './brand-access';
 import {
   collectBrandSignals,
+  type BrandSignalDraftReviewDecisions,
   type BrandSignalLifecycleOptions,
   type BrandSignalProfileRecord,
 } from './brand-signal-lifecycle';
@@ -152,11 +153,25 @@ export type BrandVaultDraftProductUiPatch = {
   productUiModelDecodeAttemptedAt?: string;
 };
 
+/**
+ * A review save only carries draft decision metadata. Final acceptance remains
+ * the sole operation that turns those decisions into brand-truth evidence.
+ */
+export type BrandVaultDraftReviewPatch = {
+  decisions: BrandSignalDraftReviewDecisions;
+};
+
 export interface BrandVaultRefineryStore extends BrandVaultSignalProfileStore {
   patchDraftProductUi(input: {
     recordId: string;
     expectedUpdatedAt: string;
     patch: BrandVaultDraftProductUiPatch;
+    options?: BrandSignalLifecycleOptions;
+  }): BrandVaultStoreResult<BrandSignalProfileRecord | null>;
+  patchDraftReview(input: {
+    recordId: string;
+    expectedUpdatedAt: string;
+    patch: BrandVaultDraftReviewPatch;
     options?: BrandSignalLifecycleOptions;
   }): BrandVaultStoreResult<BrandSignalProfileRecord | null>;
   getLatestAcceptedRecord(filter: BrandVaultAcceptedProfileFilter): BrandVaultStoreResult<BrandSignalProfileRecord | null>;
@@ -197,6 +212,9 @@ export type ReviewBrandVaultSignalProfileBody = {
   action?: unknown;
   reason?: unknown;
   signalEdits?: unknown;
+  confirmedSignalPaths?: unknown;
+  deferredConflictPaths?: unknown;
+  expectedUpdatedAt?: unknown;
 };
 
 type ParsedCreateBody =
@@ -313,6 +331,28 @@ export class InMemoryBrandVaultRefineryStore implements BrandVaultRefineryStore 
         profile: {
           ...current.profile,
           ...input.patch,
+        },
+        updatedAt: input.options?.now ?? new Date().toISOString(),
+      },
+      input.options,
+    );
+  }
+
+  patchDraftReview(input: {
+    recordId: string;
+    expectedUpdatedAt: string;
+    patch: BrandVaultDraftReviewPatch;
+    options?: BrandSignalLifecycleOptions;
+  }): BrandSignalProfileRecord | null {
+    const current = this.profiles.getRecord(input.recordId);
+    if (!current || current.status !== 'draft' || current.updatedAt !== input.expectedUpdatedAt) return null;
+
+    return this.profiles.saveRecord(
+      {
+        ...current,
+        review: {
+          ...current.review,
+          decisions: input.patch.decisions,
         },
         updatedAt: input.options?.now ?? new Date().toISOString(),
       },
@@ -1080,6 +1120,28 @@ export async function reviewBrandVaultSignalProfileDraft(
   const action = typeof body.action === 'string' ? body.action.trim() : '';
   const now = args.now ?? new Date().toISOString();
   const options = { actorId: args.actorId ?? args.userId, now };
+
+  if (action === 'save_review') {
+    const parsedReviewSave = parseDraftReviewSave(body);
+    if (!parsedReviewSave.ok) return invalidRequest(parsedReviewSave.message);
+
+    const result = await saveDraftReview(record, parsedReviewSave.value, dependencies.store, options);
+    if (!result.ok) return reviewFailure(result);
+
+    const snapshot = await dependencies.store.getJobSnapshotByRecordId(args.recordId);
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        record: result.record,
+        job: snapshot?.job ?? null,
+        reviewPayload: snapshot?.reviewPayload ?? null,
+        superseded: [],
+        learningEvents: [],
+      },
+    };
+  }
+
   const parsedSignalEdits = parseSignalValueEdits(body.signalEdits);
   if (!parsedSignalEdits.ok) return invalidRequest(parsedSignalEdits.message);
   if (action === 'accept' && !cleanString(record.profile.brandId)) {
@@ -1091,33 +1153,28 @@ export async function reviewBrandVaultSignalProfileDraft(
     await dependencies.store.saveRecord(record, options);
   }
 
+  const acceptedSignalEdits = action === 'accept'
+    ? normalizeReviewedLearningEdits([
+        ...(record.review.decisions?.signalEdits ?? []),
+        ...parsedSignalEdits.value,
+      ])
+    : parsedSignalEdits.value;
   const result =
     action === 'accept'
-      ? await acceptDraft(record, parsedSignalEdits.value, dependencies.store, options)
+      ? await acceptDraft(record, acceptedSignalEdits, dependencies.store, options)
       : action === 'reject'
         ? await rejectDraft(args.recordId, body, dependencies.store, options)
         : null;
 
-  if (!result) return invalidRequest('Action must be "accept" or "reject".');
-  if (!result.ok) {
-    return {
-      status: result.code === 'not_draft' || result.code === 'conflict' ? 409 : 422,
-      body: {
-        ok: false,
-        error: {
-          code: result.code,
-          message: result.issues[0]?.message ?? 'Brand signal profile review failed.',
-        },
-      },
-    };
-  }
+  if (!result) return invalidRequest('Action must be "save_review", "accept", or "reject".');
+  if (!result.ok) return reviewFailure(result);
 
   const status = action === 'accept' ? 'accepted' : 'rejected';
   const learningEvents = action === 'accept'
     ? createReviewedSignalEditLearningEvents({
         beforeRecord: record,
         afterRecord: result.record,
-        signalEdits: parsedSignalEdits.value,
+        signalEdits: acceptedSignalEdits,
         options,
       })
     : [];
@@ -1131,6 +1188,21 @@ export async function reviewBrandVaultSignalProfileDraft(
       reviewPayload: snapshot?.reviewPayload ?? null,
       superseded: result.superseded,
       learningEvents,
+    },
+  };
+}
+
+function reviewFailure(
+  result: Exclude<BrandSignalProfileRepositoryResult, { ok: true }>,
+): BrandVaultApiResult<BrandVaultApiErrorBody> {
+  return {
+    status: result.code === 'not_draft' || result.code === 'conflict' ? 409 : 422,
+    body: {
+      ok: false,
+      error: {
+        code: result.code,
+        message: result.issues[0]?.message ?? 'Brand signal profile review failed.',
+      },
     },
   };
 }
@@ -1230,6 +1302,153 @@ function rejectDraft(
   const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
   if (!reason) return null;
   return store.rejectDraft(recordId, reason, options);
+}
+
+type ParsedDraftReviewSave =
+  | {
+      ok: true;
+      value: {
+        expectedUpdatedAt: string;
+        signalEdits?: BrandVaultSignalValueEdit[];
+        confirmedSignalPaths?: string[];
+        deferredConflictPaths?: string[];
+      };
+    }
+  | { ok: false; message: string };
+
+function parseDraftReviewSave(body: Record<string, unknown>): ParsedDraftReviewSave {
+  const expectedUpdatedAt = cleanString(body.expectedUpdatedAt);
+  if (!isExactIsoTimestamp(expectedUpdatedAt)) {
+    return { ok: false, message: 'save_review requires the current draft revision timestamp.' };
+  }
+
+  const signalEdits = parseOptionalSignalValueEdits(body, 'signalEdits');
+  if (!signalEdits.ok) return signalEdits;
+  const confirmedSignalPaths = parseOptionalReviewSignalPaths(body.confirmedSignalPaths, 'confirmedSignalPaths');
+  if (!confirmedSignalPaths.ok) return confirmedSignalPaths;
+  const deferredConflictPaths = parseOptionalReviewSignalPaths(body.deferredConflictPaths, 'deferredConflictPaths');
+  if (!deferredConflictPaths.ok) return deferredConflictPaths;
+
+  return {
+    ok: true,
+    value: {
+      expectedUpdatedAt,
+      signalEdits: signalEdits.value,
+      confirmedSignalPaths: confirmedSignalPaths.value,
+      deferredConflictPaths: deferredConflictPaths.value,
+    },
+  };
+}
+
+function parseOptionalSignalValueEdits(
+  body: Record<string, unknown>,
+  key: string,
+): { ok: true; value: BrandVaultSignalValueEdit[] | undefined } | { ok: false; message: string } {
+  if (!Object.prototype.hasOwnProperty.call(body, key)) return { ok: true, value: undefined };
+  return parseSignalValueEdits(body[key]);
+}
+
+function parseOptionalReviewSignalPaths(
+  value: unknown,
+  field: string,
+): { ok: true; value: string[] | undefined } | { ok: false; message: string } {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (!Array.isArray(value)) return { ok: false, message: `${field} must be an array when provided.` };
+  if (value.length > 100) return { ok: false, message: `${field} can include at most 100 paths.` };
+
+  const paths = new Set<string>();
+  for (const valueItem of value) {
+    const path = cleanString(valueItem);
+    if (!path || path.length > 160) return { ok: false, message: `${field} can only include signal paths.` };
+    paths.add(path);
+  }
+  return { ok: true, value: [...paths] };
+}
+
+async function saveDraftReview(
+  record: BrandSignalProfileRecord,
+  input: Extract<ParsedDraftReviewSave, { ok: true }>['value'],
+  store: BrandVaultRefineryStore,
+  options: BrandSignalLifecycleOptions,
+): Promise<BrandSignalProfileRepositoryResult> {
+  if (record.status !== 'draft') {
+    return reviewRepositoryFailure('not_draft', 'status', `Only draft profiles can be reviewed. Current status: ${record.status}.`);
+  }
+  if (record.updatedAt !== input.expectedUpdatedAt) {
+    return reviewRepositoryFailure('conflict', 'expectedUpdatedAt', 'This draft changed while you were reviewing it. Refresh before saving your decisions.');
+  }
+
+  const existing = record.review.decisions;
+  const confirmedSignalPaths = input.confirmedSignalPaths ?? existing?.confirmedSignalPaths ?? [];
+  const confirmedSet = new Set(confirmedSignalPaths);
+  const deferredConflictPaths = (input.deferredConflictPaths ?? existing?.deferredConflictPaths ?? [])
+    .filter((path) => !confirmedSet.has(path));
+  const signalEdits = normalizeReviewedLearningEdits(input.signalEdits ?? existing?.signalEdits ?? []);
+  const decisions: BrandSignalDraftReviewDecisions = {
+    signalEdits,
+    confirmedSignalPaths,
+    deferredConflictPaths,
+  };
+
+  const decisionPaths = [...confirmedSignalPaths, ...deferredConflictPaths];
+  const knownSignalPaths = new Set(collectBrandSignals(record.profile).map((entry) => entry.path));
+  for (const path of decisionPaths) {
+    if (!knownSignalPaths.has(path)) {
+      return reviewRepositoryFailure('validation_failed', path, `Unknown brand signal path "${path}" in review decisions.`);
+    }
+  }
+
+  const revisionUpdatedAt = nextDraftRevisionTimestamp(record.updatedAt, options.now);
+  // Reuse the final-accept validator on an in-memory copy. A saved review never writes this temporary
+  // manual evidence, so downstream systems cannot observe it before the user accepts the draft.
+  const validation = applyBrandVaultSignalValueEditsToDraftRecord(record, signalEdits, {
+    ...options,
+    now: revisionUpdatedAt,
+  });
+  if (!validation.ok) return validation;
+
+  const saved = await store.patchDraftReview({
+    recordId: record.id,
+    expectedUpdatedAt: input.expectedUpdatedAt,
+    patch: {
+      decisions: {
+        ...decisions,
+        savedAt: revisionUpdatedAt,
+        savedBy: options.actorId,
+      },
+    },
+    options: {
+      ...options,
+      now: revisionUpdatedAt,
+    },
+  });
+  if (!saved) {
+    return reviewRepositoryFailure('conflict', 'expectedUpdatedAt', 'This draft changed while you were saving review decisions. Refresh and try again.');
+  }
+
+  return { ok: true, record: saved, superseded: [] };
+}
+
+function reviewRepositoryFailure(
+  code: Exclude<BrandSignalProfileRepositoryResult, { ok: true }>['code'],
+  path: string,
+  message: string,
+): BrandSignalProfileRepositoryResult {
+  return { ok: false, code, issues: [{ severity: 'error', code: 'review_required', path, message }] };
+}
+
+function nextDraftRevisionTimestamp(previousUpdatedAt: string, requestedNow?: string): string {
+  const previous = Date.parse(previousUpdatedAt);
+  const requested = Date.parse(requestedNow ?? '');
+  const next = Number.isFinite(previous)
+    ? Math.max(Number.isFinite(requested) ? requested : Date.now(), previous + 1)
+    : (Number.isFinite(requested) ? requested : Date.now());
+  return new Date(next).toISOString();
+}
+
+function isExactIsoTimestamp(value: string): boolean {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
 }
 
 type ParsedSignalValueEdits =
