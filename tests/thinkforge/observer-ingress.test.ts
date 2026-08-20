@@ -57,9 +57,9 @@ vi.mock('@/lib/thinkforge/refinery/refinery-job', () => ({
 }));
 
 import { GET, POST } from '@/app/api/services/thinkforge/events/observe/route';
-import { observerWorkerHandler } from '@/app/api/internal/workers/thinkforge/observer/route';
 import { GET as recoverLearningJobs } from '@/app/api/cron/process-thinkforge-refinery/route';
 import type { ObserverJobSnapshot, ObserverJobStoreLike } from '@/lib/thinkforge/events/observer-job';
+import { observerWorkerHandler } from '@/lib/thinkforge/events/observer-worker-handler';
 
 const LONG_TEXT = 'This is a long enough editor buffer where I explain that I prefer warm direct response openings and crisp captions.';
 const PERSONAL_TEXT = 'Please remember that Alex can be reached at alex@example.com for every future campaign review.';
@@ -417,12 +417,12 @@ describe('ThinkForge observer durable processing', () => {
     const retry = await observerWorkerHandler(new Request(
       'http://localhost/api/internal/workers/thinkforge/observer',
       { method: 'POST', body: JSON.stringify({ jobId: 'observer_123' }) },
-    ) as never);
+    ));
     mocks.processObserverJob.mockResolvedValueOnce({ status: 'dead_letter', error: 'terminal' });
     const terminal = await observerWorkerHandler(new Request(
       'http://localhost/api/internal/workers/thinkforge/observer',
       { method: 'POST', body: JSON.stringify({ jobId: 'observer_123' }) },
-    ) as never);
+    ));
 
     expect(retry.status).toBe(500);
     expect(terminal.status).toBe(200);
