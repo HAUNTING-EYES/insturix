@@ -11,6 +11,7 @@ export type ThinkForgeCompletedGenerationDelivery =
   | { type: 'missing_document' };
 
 const RUNTIME_CONTRACT_FAILURE_PATTERN = /\b(?:runtime_duration_mismatch|spoken_word_count_mismatch|spoken_density_mismatch|narration_mode_missing_speech)\b/i;
+const EVIDENCE_REQUIREMENT_FAILURE_PATTERN = /\bSCRIPT_REQUIRES_ADDITIONAL_EVIDENCE\b/i;
 const TIMEOUT_FAILURE_PATTERN = /\b(?:timed out|timeout)\b/i;
 
 function readNonEmptyString(value: unknown): string | null {
@@ -22,6 +23,10 @@ function readNonEmptyString(value: unknown): string | null {
 /** Convert server-only generation failures into a stable message the author can act on. */
 export function resolveThinkForgeGenerationFailureMessage(error: unknown): string {
   const message = readNonEmptyString(error);
+
+  if (message && EVIDENCE_REQUIREMENT_FAILURE_PATTERN.test(message)) {
+    return 'This long factual script needs more approved source material before it can be written. Add a detailed record, upload, or source link, or change the request to a creative treatment.';
+  }
 
   if (message && RUNTIME_CONTRACT_FAILURE_PATTERN.test(message)) {
     return 'The draft did not meet the requested runtime and production requirements, so it was not saved. Please try again.';

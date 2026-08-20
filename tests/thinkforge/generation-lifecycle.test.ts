@@ -423,6 +423,9 @@ describe('ThinkForge generation lifecycle', () => {
 
   it('converts terminal server failures into actionable author-facing messages', () => {
     expect(resolveThinkForgeGenerationFailureMessage(
+      'SCRIPT_REQUIRES_ADDITIONAL_EVIDENCE: source record is too thin',
+    )).toBe('This long factual script needs more approved source material before it can be written. Add a detailed record, upload, or source link, or change the request to a creative treatment.');
+    expect(resolveThinkForgeGenerationFailureMessage(
       'Script writer output failed document contract: spoken_word_count_mismatch:591/945',
     )).toBe('The draft did not meet the requested runtime and production requirements, so it was not saved. Please try again.');
     expect(resolveThinkForgeGenerationFailureMessage('Generation timed out before a script could be saved.'))
