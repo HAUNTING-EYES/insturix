@@ -2,6 +2,7 @@ import {
   THINKFORGE_CAROUSEL_AUTHORING_BATCH_MAX_SLIDES,
   THINKFORGE_CAROUSEL_MIN_SLIDES,
 } from '../schemas/carousel-capabilities';
+import { THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS } from '../production/output-duration-capability';
 
 export type ContentCardStatus = 'scheduled' | 'draft' | 'published' | 'in_production';
 export type ContentPlanningClickatronStatus =
@@ -265,8 +266,15 @@ function normalizeScore(value: unknown): number | undefined {
 
 function normalizeTargetDuration(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 3600) {
-    throw new ContentCardValidationError('targetDurationSeconds must be a whole number from 1 to 3600');
+  if (
+    typeof value !== 'number'
+    || !Number.isInteger(value)
+    || value < 1
+    || value > THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS
+  ) {
+    throw new ContentCardValidationError(
+      `targetDurationSeconds must be a whole number from 1 to ${THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS}`,
+    );
   }
   return value;
 }

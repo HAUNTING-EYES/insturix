@@ -5,6 +5,7 @@ import {
   mergeContentCardUpdate,
   normalizeContentCardForStorage,
 } from '@/lib/thinkforge/planning/content-card-contract';
+import { THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS } from '@/lib/thinkforge/production/output-duration-capability';
 
 describe('ThinkForge content card contract', () => {
   it('normalizes legacy cards into planning-ready records', () => {
@@ -78,6 +79,27 @@ describe('ThinkForge content card contract', () => {
       .toThrow(/whole number from 2 to 10/i);
     expect(() => normalizeContentCardForStorage({ ...base, carouselSlideCount: 3.5 }, options))
       .toThrow(/whole number from 2 to 10/i);
+  });
+
+  it('uses the shared production-duration capability instead of a calendar-only hour cap', () => {
+    const base = {
+      id: 'card_long_form',
+      title: 'Two-hour documentary plan',
+      platform: 'youtube',
+      contentFormat: 'video_script',
+    };
+    const options = { userId: 'user_1', now: '2026-06-14T00:00:00.000Z' };
+
+    expect(normalizeContentCardForStorage({ ...base, targetDurationSeconds: 7_200 }, options).targetDurationSeconds)
+      .toBe(7_200);
+    expect(normalizeContentCardForStorage({
+      ...base,
+      targetDurationSeconds: THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS,
+    }, options).targetDurationSeconds).toBe(THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS);
+    expect(() => normalizeContentCardForStorage({
+      ...base,
+      targetDurationSeconds: THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS + 1,
+    }, options)).toThrow(new RegExp(`1 to ${THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS}`));
   });
 
   it('merges updates without allowing ownership or identity changes', () => {

@@ -3,6 +3,7 @@ import {
   THINKFORGE_EDITRON_PRODUCTION_MANIFEST_MAX_BYTES,
   verifyThinkForgeEditronProductionManifest,
 } from '@/lib/thinkforge/export/editron-production-manifest-contract';
+import { THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS } from '@/lib/thinkforge/production/output-duration-capability';
 
 function manifest(thinkforgeContext?: Record<string, unknown>) {
   return {
@@ -61,5 +62,18 @@ describe('ThinkForge Editron production manifest contract', () => {
 
     expect(() => verifyThinkForgeEditronProductionManifest(manifest({ evidence: oversized })))
       .toThrow('exceeds the byte limit');
+  });
+
+  it('shares the video-duration capability with calendar planning', () => {
+    expect(verifyThinkForgeEditronProductionManifest({
+      ...manifest(),
+      targetDurationSeconds: THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS,
+      parsedDurationSeconds: THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS,
+    }).manifest.targetDurationSeconds).toBe(THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS);
+
+    expect(() => verifyThinkForgeEditronProductionManifest({
+      ...manifest(),
+      targetDurationSeconds: THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS + 1,
+    })).toThrow('Invalid ThinkForge production manifest');
   });
 });

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS } from '../production/output-duration-capability';
 
 export const THINKFORGE_EDITRON_PRODUCTION_MANIFEST_VERSION = 1;
 export const THINKFORGE_EDITRON_PRODUCTION_MANIFEST_MAX_BYTES = 256 * 1_024;
@@ -29,9 +30,9 @@ export const ThinkForgeEditronProductionManifestSchema = z.object({
   sourceService: z.literal('thinkforge'),
   sourceSessionId: IdentifierSchema,
   sourceScriptId: IdentifierSchema,
-  targetDurationSeconds: z.number().finite().nonnegative().max(24 * 60 * 60).nullable(),
+  targetDurationSeconds: z.number().finite().nonnegative().max(THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS).nullable(),
   targetDurationSource: z.enum(['request', 'script-explicit', 'unknown']),
-  parsedDurationSeconds: z.number().finite().nonnegative().max(24 * 60 * 60),
+  parsedDurationSeconds: z.number().finite().nonnegative().max(THINKFORGE_MAX_PRODUCTION_OUTPUT_DURATION_SECONDS),
   expectedSceneCount: CountSchema,
   expectedStoryboardImages: CountSchema,
   expectedVideoClips: CountSchema,
