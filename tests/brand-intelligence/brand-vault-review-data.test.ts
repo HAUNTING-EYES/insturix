@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildIntakeGuidance,
   buildSourceLanes,
+  findBrandVaultWebsiteAssociationConflict,
   groupConflicts,
   isBrandVaultScanActive,
   mergeSnapshot,
@@ -89,6 +90,38 @@ describe('Brand Vault review data helpers', () => {
 
     expect(next.record).toBeNull();
     expect(next.job?.status).toBe('queued');
+  });
+
+  it('keeps exact, www, and subdomain scans with their known client website', () => {
+    const knownWebsiteUrls = ['https://insturix.com', 'https://www.insturix.com/about'];
+
+    expect(findBrandVaultWebsiteAssociationConflict('https://www.insturix.com', knownWebsiteUrls)).toBeNull();
+    expect(findBrandVaultWebsiteAssociationConflict('https://studio.insturix.com/showcase', knownWebsiteUrls)).toBeNull();
+    expect(findBrandVaultWebsiteAssociationConflict('insturix.com/products', knownWebsiteUrls)).toBeNull();
+  });
+
+  it('requires an explicit choice before associating an unrelated website with a client', () => {
+    expect(
+      findBrandVaultWebsiteAssociationConflict('https://chaayos.com', [
+        'https://insturix.com',
+        'not a website',
+        'https://www.insturix.com/about',
+      ]),
+    ).toEqual({
+      targetHost: 'chaayos.com',
+      knownHosts: ['insturix.com'],
+    });
+    expect(
+      findBrandVaultWebsiteAssociationConflict('https://notinsturix.com', ['https://insturix.com']),
+    ).toEqual({
+      targetHost: 'notinsturix.com',
+      knownHosts: ['insturix.com'],
+    });
+  });
+
+  it('does not invent an ownership conflict without a valid prior website', () => {
+    expect(findBrandVaultWebsiteAssociationConflict('https://chaayos.com', [])).toBeNull();
+    expect(findBrandVaultWebsiteAssociationConflict('not a website', ['https://insturix.com'])).toBeNull();
   });
 
   it('does not treat asset alternatives as signal conflicts', () => {

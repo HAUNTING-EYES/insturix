@@ -38,6 +38,7 @@ import {
   collectSignals,
   coveragePercent,
   EMPTY_SNAPSHOT,
+  findBrandVaultWebsiteAssociationConflict,
   formatValue,
   groupConflicts,
   groupMeta,
@@ -47,7 +48,10 @@ import {
   profileBrandName,
   summarize,
 } from './brand-vault-data';
-import type { BrandVaultIntakeGuidance } from './brand-vault-data';
+import type {
+  BrandVaultIntakeGuidance,
+  BrandVaultWebsiteAssociationConflict,
+} from './brand-vault-data';
 import type {
   BrandConstellationFacet,
   BrandVaultSignalGroup,
@@ -82,6 +86,13 @@ interface DomainVerificationState {
   checkedAt?: string;
   observedRecordValues?: string[];
   error?: string;
+}
+
+interface BrandVaultDraftStartOptions {
+  brandIdOverride?: string;
+  isNewClient?: boolean;
+  skipWebsiteOwnershipCheck?: boolean;
+  clearInheritedEvidence?: boolean;
 }
 
 const BRAND_GROUPS: BrandVaultSignalGroup[] = [
@@ -132,6 +143,8 @@ export function BrandVaultReview() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [newClientMode, setNewClientMode] = useState(false);
   const [newClientBrandId, setNewClientBrandId] = useState<string | null>(null);
+  const [websiteAssociationConflict, setWebsiteAssociationConflict] =
+    useState<BrandVaultWebsiteAssociationConflict | null>(null);
   const [pendingBrandActivationId, setPendingBrandActivationId] = useState<string | null>(null);
   const [showSignals, setShowSignals] = useState(false);
   const [signalEdits, setSignalEdits] = useState<Record<string, unknown>>({});
@@ -200,6 +213,7 @@ export function BrandVaultReview() {
     setActiveGuidanceWorkflow(null);
     setSignalEdits({});
     setShowSignals(false);
+    setWebsiteAssociationConflict(null);
     setLocalError(null);
   }, [newClientMode, workspaceBrandId]);
 
@@ -305,6 +319,7 @@ export function BrandVaultReview() {
   const scanWebsiteUrl = websiteUrl.trim() || snapshot.job?.inputs.websiteUrl?.trim() || snapshot.reviewPayload?.normalizedUrl?.trim() || '';
   const activeBrandName = newClientMode ? 'New client' : activeBrand?.name ?? 'Choose a client';
   const canRescanWithEvidence = Boolean(scanWebsiteUrl) && !busy;
+  const scanTargetReady = newClientMode || !workspaceBrandId || !brandScans.isLoading;
 
   useEffect(() => {
     if (!toast) return;
@@ -317,29 +332,58 @@ export function BrandVaultReview() {
     await createDraftFromCurrentInputs();
   }
 
-  async function createDraftFromCurrentInputs() {
+  async function createDraftFromCurrentInputs(options: BrandVaultDraftStartOptions = {}) {
     const cleanUrl = scanWebsiteUrl;
     if (!cleanUrl) {
       setLocalError('Enter a client website before scanning.');
       return;
     }
-    let scanBrandId = workspaceBrandId;
-    if (newClientMode) {
-      scanBrandId = newClientBrandId ?? `brand_${crypto.randomUUID()}`;
-      if (!newClientBrandId) setNewClientBrandId(scanBrandId);
+    const isNewClientScan = options.isNewClient ?? newClientMode;
+    let scanBrandId = options.brandIdOverride ?? workspaceBrandId;
+    if (isNewClientScan) {
+      scanBrandId = options.brandIdOverride ?? newClientBrandId ?? `brand_${crypto.randomUUID()}`;
+      if (!options.brandIdOverride && !newClientBrandId) setNewClientBrandId(scanBrandId);
     }
     if (!scanBrandId) {
       setLocalError('Choose an existing client or start a new client before scanning.');
       return;
     }
 
+    if (!isNewClientScan && workspaceBrandId) {
+      if (brandScans.isLoading) {
+        setLocalError("Loading this client's known websites. Try again in a moment.");
+        return;
+      }
+      if (brandScans.isError) {
+        setLocalError("Could not load this client's scan history. Retry before scanning another website.");
+        return;
+      }
+      if (!options.skipWebsiteOwnershipCheck) {
+        const conflict = findBrandVaultWebsiteAssociationConflict(
+          cleanUrl,
+          brandScans.data?.map((scan) => scan.websiteUrl) ?? [],
+        );
+        if (conflict) {
+          setWebsiteAssociationConflict(conflict);
+          setLocalError(null);
+          return;
+        }
+      }
+    }
+
     setLocalError(null);
+    setWebsiteAssociationConflict(null);
+    const scanCompanyName = options.clearInheritedEvidence ? undefined : companyName.trim() || undefined;
+    const scanSocialLinks = options.clearInheritedEvidence ? [] : parseSocialLinks(socialLinksText);
+    const scanSourceEvidence = options.clearInheritedEvidence
+      ? createSourceEvidence(cleanUrl, '', [])
+      : createSourceEvidence(cleanUrl, sourceNotes, uploadedSources);
     const input: CreateBrandVaultDraftInput = {
       brandId: scanBrandId,
       websiteUrl: cleanUrl,
-      companyName: companyName.trim() || undefined,
-      socialLinks: parseSocialLinks(socialLinksText),
-      sourceEvidence: createSourceEvidence(cleanUrl, sourceNotes, uploadedSources),
+      companyName: scanCompanyName,
+      socialLinks: scanSocialLinks,
+      sourceEvidence: scanSourceEvidence,
     };
     const result = await createDraft.mutateAsync(input);
     setSnapshot((current) => mergeSnapshot(current, result));
@@ -614,9 +658,9 @@ export function BrandVaultReview() {
   }
 
   // Clear the whole review workspace back to a fresh scan/create state (shared by brand switch + new client).
-  function resetWorkspaceState() {
+  function resetWorkspaceState(options: { preserveWebsiteUrl?: boolean } = {}) {
     setSnapshot(EMPTY_SNAPSHOT);
-    setWebsiteUrl('');
+    if (!options.preserveWebsiteUrl) setWebsiteUrl('');
     setCompanyName('');
     setSocialLinksText('');
     setSourceNotes('');
@@ -633,6 +677,7 @@ export function BrandVaultReview() {
     setActiveGuidanceWorkflow(null);
     setSignalEdits({});
     setShowSignals(false);
+    setWebsiteAssociationConflict(null);
     setLocalError(null);
   }
 
@@ -654,6 +699,33 @@ export function BrandVaultReview() {
     setNewClientBrandId(null);
     resetWorkspaceState();
     showToast('New client started. Add a website and scan.', 'good');
+  }
+
+  function updateWebsiteUrl(value: string) {
+    setWebsiteUrl(value);
+    setWebsiteAssociationConflict(null);
+  }
+
+  function confirmWebsiteAssociationWithActiveBrand() {
+    setWebsiteAssociationConflict(null);
+    void createDraftFromCurrentInputs({ skipWebsiteOwnershipCheck: true });
+  }
+
+  function startNewClientFromWebsiteAssociation() {
+    const cleanUrl = scanWebsiteUrl;
+    if (!cleanUrl) return;
+
+    const brandId = `brand_${crypto.randomUUID()}`;
+    previousWorkspaceBrandIdRef.current = null;
+    setNewClientMode(true);
+    setNewClientBrandId(brandId);
+    resetWorkspaceState({ preserveWebsiteUrl: true });
+    void createDraftFromCurrentInputs({
+      brandIdOverride: brandId,
+      isNewClient: true,
+      skipWebsiteOwnershipCheck: true,
+      clearInheritedEvidence: true,
+    });
   }
 
   // Reload a scan from the brand's history by its job id (never shown to the user) into the review pane.
@@ -831,6 +903,17 @@ export function BrandVaultReview() {
             deletingJobId={deleteScan.isPending ? deleteScan.variables?.jobId ?? null : null}
           />
 
+          {websiteAssociationConflict && (
+            <WebsiteAssociationConfirmation
+              brandName={activeBrandName}
+              conflict={websiteAssociationConflict}
+              disabled={busy}
+              onUseActiveBrand={confirmWebsiteAssociationWithActiveBrand}
+              onStartNewClient={startNewClientFromWebsiteAssociation}
+              onCancel={() => setWebsiteAssociationConflict(null)}
+            />
+          )}
+
           {!snapshot.record && (
             <FastSetupPanel
               websiteUrl={websiteUrl}
@@ -842,8 +925,10 @@ export function BrandVaultReview() {
               uploadWarnings={uploadWarnings}
               busy={busy}
               scanBusy={scanBusy}
+              scanTargetLabel={activeBrandName}
+              scanTargetReady={scanTargetReady}
               uploadStatus={uploadStatus}
-              onWebsiteUrlChange={setWebsiteUrl}
+              onWebsiteUrlChange={updateWebsiteUrl}
               onCompanyNameChange={setCompanyName}
               onSocialLinksTextChange={setSocialLinksText}
               onSourceNotesChange={setSourceNotes}
@@ -1222,6 +1307,60 @@ function isCaptureAction(actionId: string): boolean {
   return actionId === 'add_pinned_posts' || actionId === 'add_uploads' || actionId === 'connect_social' || actionId === 'verify_domain_access';
 }
 
+function WebsiteAssociationConfirmation({
+  brandName,
+  conflict,
+  disabled,
+  onUseActiveBrand,
+  onStartNewClient,
+  onCancel,
+}: {
+  brandName: string;
+  conflict: BrandVaultWebsiteAssociationConflict;
+  disabled: boolean;
+  onUseActiveBrand: () => void;
+  onStartNewClient: () => void;
+  onCancel: () => void;
+}) {
+  const knownHosts = conflict.knownHosts.slice(0, 3).join(', ');
+  return (
+    <section
+      className="mb-6 border-y border-[rgba(212,166,82,0.35)] bg-[rgba(212,166,82,0.06)] px-5 py-4"
+      role="alert"
+      aria-live="assertive"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 gap-3">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-[#D4A652]" />
+          <div className="min-w-0">
+            <span className="bv-c1-mono text-[#D4A652]">Different website</span>
+            <h2 className="mt-1 text-[18px] font-bold text-[#ECE9E1]">
+              Choose where {conflict.targetHost} belongs
+            </h2>
+            <p className="mt-1 max-w-[680px] text-[13px] leading-5 text-[#B5B2A8]">
+              It is not among {brandName}&apos;s known websites: {knownHosts}.
+            </p>
+            <p className="mt-1 max-w-[680px] text-[12px] leading-5 text-[#7A776E]">
+              A new client keeps this website and clears the current company name, social links, files, and notes.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="bv-c1-primary min-h-9" disabled={disabled} onClick={onUseActiveBrand}>
+            <Check size={13} /> Use for {brandName}
+          </button>
+          <button type="button" className="bv-c1-button min-h-9" disabled={disabled} onClick={onStartNewClient}>
+            <Plus size={13} /> Start new client
+          </button>
+          <button type="button" className="bv-c1-icon-button" disabled={disabled} onClick={onCancel} aria-label="Cancel website association choice">
+            <X size={13} />
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 interface FastSetupPanelProps {
   websiteUrl: string;
   companyName: string;
@@ -1232,6 +1371,8 @@ interface FastSetupPanelProps {
   uploadWarnings: string[];
   busy: boolean;
   scanBusy: boolean;
+  scanTargetLabel: string;
+  scanTargetReady: boolean;
   uploadStatus: UploadStatus;
   onWebsiteUrlChange: (value: string) => void;
   onCompanyNameChange: (value: string) => void;
@@ -1254,6 +1395,8 @@ function FastSetupPanel({
   uploadWarnings,
   busy,
   scanBusy,
+  scanTargetLabel,
+  scanTargetReady,
   uploadStatus,
   onWebsiteUrlChange,
   onCompanyNameChange,
@@ -1333,7 +1476,16 @@ function FastSetupPanel({
               className="bv-c1-input min-h-[92px] resize-y"
             />
           </label>
-          <button type="submit" className="bv-c1-primary min-h-10 w-full" disabled={busy}>
+          <p className="text-[11px] text-[#7A776E]" aria-live="polite">
+            Scan target: <strong className="font-medium text-[#B5B2A8]">{scanTargetLabel}</strong>
+            {!scanTargetReady && ' / Loading known websites'}
+          </p>
+          <button
+            type="submit"
+            className="bv-c1-primary min-h-10 w-full"
+            disabled={busy || !scanTargetReady}
+            title={scanTargetReady ? undefined : "Loading this client's known websites"}
+          >
             {scanBusy || uploadStatus === 'extracting' ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
             {uploadStatus === 'extracting' ? 'Reading files' : scanBusy ? 'Scanning site' : 'Start scan'}
           </button>

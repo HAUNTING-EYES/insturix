@@ -132,6 +132,54 @@ export function isBrandVaultScanActive(
   return createDraftPending || job?.status === 'queued' || job?.status === 'running';
 }
 
+export interface BrandVaultWebsiteAssociationConflict {
+  targetHost: string;
+  knownHosts: string[];
+}
+
+export function findBrandVaultWebsiteAssociationConflict(
+  websiteUrl: string,
+  knownWebsiteUrls: readonly (string | null | undefined)[],
+): BrandVaultWebsiteAssociationConflict | null {
+  const targetHost = normalizeBrandVaultWebsiteHost(websiteUrl);
+  if (!targetHost) return null;
+
+  const knownHosts = [
+    ...new Set(
+      knownWebsiteUrls
+        .map((value) => normalizeBrandVaultWebsiteHost(value))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  if (knownHosts.length === 0 || knownHosts.some((knownHost) => areRelatedBrandVaultWebsiteHosts(targetHost, knownHost))) {
+    return null;
+  }
+
+  return { targetHost, knownHosts };
+}
+
+function normalizeBrandVaultWebsiteHost(value: string | null | undefined): string | null {
+  const clean = value?.trim();
+  if (!clean) return null;
+  const candidate = clean.startsWith('//')
+    ? `https:${clean}`
+    : /^[a-z][a-z\d+.-]*:\/\//i.test(clean)
+      ? clean
+      : `https://${clean}`;
+
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url.hostname.toLowerCase().replace(/^www\./, '') || null;
+  } catch {
+    return null;
+  }
+}
+
+function areRelatedBrandVaultWebsiteHosts(left: string, right: string): boolean {
+  return left === right || left.endsWith(`.${right}`) || right.endsWith(`.${left}`);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Signal collection                                                  */
 /* ------------------------------------------------------------------ */
