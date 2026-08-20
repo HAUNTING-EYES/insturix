@@ -7,6 +7,7 @@ import {
   type ScriptWriterInput,
 } from '../agents/script-writer-agent';
 import type { ThinkForgeResolvedAuthoringContext } from '../context';
+import { assertScriptEvidenceSufficiency } from '../provenance/script-evidence-sufficiency';
 import type { ThinkForgeSignalTrace } from '../signals/signal-trace';
 import {
   LongFormScriptJobLeaseLostError,
@@ -120,6 +121,10 @@ export async function handoffChapteredScriptGenerationIfRequired(
   );
   if (!productionBrief) throw new Error('Chaptered script generation requires a production brief.');
   if (!sourceLedger) throw new Error('Chaptered script generation requires a source ledger.');
+  assertScriptEvidenceSufficiency({
+    editorialPlan: editorialPlan.execution.plan,
+    sourceLedger,
+  });
 
   const { systemBrief: _systemBrief, ...context } = input.writerInput.context;
   await dependencies.beforeEnqueue?.(feasibility);

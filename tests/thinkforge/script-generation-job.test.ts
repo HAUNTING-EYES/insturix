@@ -444,6 +444,41 @@ describe('long-form chat handoff', () => {
     }));
   });
 
+  it('enforces source-evidence readiness at the durable handoff before queue creation', async () => {
+    const input = handoffInput();
+    const userPrompt = [
+      'Write a ten-hour documentary about HarborGrid.',
+      'The supplied pilot record says 18 diesel yard tractors were replaced and idling fuel use fell 31% during the measured period.',
+      'Treat this as a bounded pilot result, not a forecast.',
+    ].join(' ');
+    const sourceLedger = buildThinkForgeSourceLedger({ userPrompt });
+    const editorialPlan = buildThinkForgeEditorialPlan({
+      userPrompt,
+      authoringRequest: input.writerInput.authoringRequest!,
+      productionBrief: input.writerInput.productionBrief!,
+      sourceLedger,
+      sourceLedgerEntryIds: sourceLedger.entries.map((entry) => entry.referenceId),
+    });
+    if (editorialPlan.writerKind !== 'script') throw new Error('Expected a script editorial plan fixture.');
+    input.writerInput = {
+      ...input.writerInput,
+      userPrompt,
+      sourceLedger,
+      editorialPlan,
+    };
+    const enqueue = vi.fn();
+    const beforeEnqueue = vi.fn();
+
+    await expect(handoffChapteredScriptGenerationIfRequired(input, {
+      resolveFeasibility: () => chapteredFeasibility,
+      enqueue,
+      beforeEnqueue,
+    })).rejects.toMatchObject({ code: 'SCRIPT_REQUIRES_ADDITIONAL_EVIDENCE' });
+
+    expect(beforeEnqueue).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
   it('wires chat preflight before the paid writer and preserves durable lifecycle ownership', () => {
     const chat = readFileSync(
       new URL('../../lib/thinkforge/services/chat-service.ts', import.meta.url),
