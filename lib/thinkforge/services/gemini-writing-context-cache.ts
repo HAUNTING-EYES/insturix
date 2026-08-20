@@ -42,7 +42,16 @@ interface CacheEntry {
 
 export interface WritingContextGenerationInput {
   prompt: string;
+  /**
+   * Per-request trusted instruction. It is deliberately never stored in an
+   * explicit Gemini cache, because it can contain repair-specific diagnostics.
+   */
   systemInstruction?: string;
+  /**
+   * Reusable, data-free writer contract that belongs in the cached Gemini
+   * system instruction. Callers must use placeholders for request data.
+   */
+  cacheSystemInstruction?: string;
   modelName?: string;
   temperature?: number;
   maxTokens?: number;
@@ -685,6 +694,7 @@ async function createCache(
 async function resolveWritingContext(
   modelName: string,
   taskInstruction?: string,
+  cacheSystemInstruction?: string,
   prompt = '',
   abortSignal?: AbortSignal,
 ): Promise<ResolvedWritingContext> {
@@ -692,8 +702,11 @@ async function resolveWritingContext(
     throw new Error('ThinkForge writing context resolution aborted before start');
   }
   const cacheContent = buildWritingContextCacheContent();
-  const cachedSystemInstruction = buildWritingContextSystemInstruction();
-  const inlineSystemInstruction = buildWritingContextSystemInstruction(taskInstruction);
+  const cachedSystemInstruction = buildWritingContextSystemInstruction(cacheSystemInstruction);
+  const inlineSystemInstruction = buildWritingContextSystemInstruction([
+    cacheSystemInstruction,
+    taskInstruction,
+  ].filter((instruction): instruction is string => Boolean(instruction?.trim())).join('\n\n'));
   const contextHash = hashWritingContext(cacheContent, cachedSystemInstruction);
   const existing = await getCachedEntry(modelName, contextHash);
 
@@ -745,7 +758,7 @@ async function resolveWritingContext(
     ...(cacheName ? {} : {
       inlineKnowledgeContext: buildRelevantInlineWritingContext(
         getCreativeContentKnowledgeText(),
-        `${taskInstruction ?? ''}\n${prompt}`,
+        `${cacheSystemInstruction ?? ''}\n${taskInstruction ?? ''}\n${prompt}`,
       ),
     }),
   };
@@ -763,7 +776,7 @@ function writingDispatchInputTokenUpperBound(
   systemInstruction: string,
 ): number {
   const billedContext = context.cacheName
-    ? buildWritingContextCacheContent()
+    ? `${buildWritingContextCacheContent()}\n${context.systemInstruction}`
     : systemInstruction;
   return Math.max(1, Buffer.byteLength(`${billedContext}\n${prompt}`, 'utf8'));
 }
@@ -787,7 +800,13 @@ export async function generateWithWritingContextCache(
 
   const modelName = normalizeCacheModelName(input.modelName);
   assertWritingPromptPreflight(input, modelName, 'llm_completion_privacy_blocked');
-  const context = await resolveWritingContext(modelName, input.systemInstruction, input.prompt, input.abortSignal);
+  const context = await resolveWritingContext(
+    modelName,
+    input.systemInstruction,
+    input.cacheSystemInstruction,
+    input.prompt,
+    input.abortSignal,
+  );
   const promptForGeneration = context.inlineKnowledgeContext
     ? `${context.inlineKnowledgeContext}\n\n${input.prompt}`
     : buildWritingTaskContractPrompt(input.prompt, input.systemInstruction);
@@ -889,7 +908,13 @@ export async function generateStructuredWithWritingContextCache<TOutput>(
   const e2eFixture = resolveThinkForgeE2EStructuredFixture(input);
   if (e2eFixture) return e2eFixture;
 
-  const context = await resolveWritingContext(modelName, input.systemInstruction, input.prompt, input.abortSignal);
+  const context = await resolveWritingContext(
+    modelName,
+    input.systemInstruction,
+    input.cacheSystemInstruction,
+    input.prompt,
+    input.abortSignal,
+  );
   const promptForGeneration = context.inlineKnowledgeContext
     ? `${context.inlineKnowledgeContext}\n\n${input.prompt}`
     : buildWritingTaskContractPrompt(input.prompt, input.systemInstruction);

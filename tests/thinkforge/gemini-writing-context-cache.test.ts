@@ -829,6 +829,40 @@ describe('ThinkForge Gemini writing context cache helpers', () => {
     expect(JSON.stringify(generationEvent)).not.toContain('Follow the script writer contract.');
   });
 
+  it('caches a reusable writer contract while keeping repair instructions per request', async () => {
+    const reusableWriterContract = 'Follow the approved source-grounded script writer contract.';
+    const repairInstruction = 'Repair only the reported source-reference violations.';
+
+    await generateStructuredWithWritingContextCache({
+      cacheSystemInstruction: reusableWriterContract,
+      prompt: '<tf_untrusted_data>{"userBrief":"Write the first script"}</tf_untrusted_data>',
+      schema: z.object({ output: z.string() }),
+    });
+    await generateStructuredWithWritingContextCache({
+      cacheSystemInstruction: reusableWriterContract,
+      systemInstruction: repairInstruction,
+      prompt: '<tf_untrusted_data>{"userBrief":"Repair the second script"}</tf_untrusted_data>',
+      schema: z.object({ output: z.string() }),
+    });
+
+    expect(sdkMocks.createCache).toHaveBeenCalledTimes(1);
+    expect(sdkMocks.createCache).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({
+        systemInstruction: expect.stringContaining(reusableWriterContract),
+      }),
+    }));
+    const firstRequest = sdkMocks.generateObject.mock.calls[0]?.[0];
+    const secondRequest = sdkMocks.generateObject.mock.calls[1]?.[0];
+    expect(firstRequest?.prompt).not.toContain(reusableWriterContract);
+    expect(secondRequest?.prompt).not.toContain(reusableWriterContract);
+    expect(secondRequest?.prompt).toContain(
+      `<thinkforge_task_contract>\n${repairInstruction}\n</thinkforge_task_contract>`,
+    );
+    expect(secondRequest?.providerOptions).toEqual({
+      google: { cachedContent: 'cachedContents/thinkforge-test' },
+    });
+  });
+
   it('memoizes permanent cache rejection and sends bounded retrieved knowledge inline', async () => {
     sdkMocks.createCache.mockRejectedValue(
       new Error('TotalCachedContentStorageTokensPerModelFreeTier limit exceeded for cached content: limit=0'),

@@ -589,6 +589,8 @@ describe('ScriptWriterAgent structured generation', () => {
     const initialCall = generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0];
     const repairCall = generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0];
     expect(initialCall?.prompt).toContain('"boundary": "source_only"');
+    expect(initialCall?.cacheSystemInstruction).toContain('Source-bounded narrative');
+    expect(repairCall?.cacheSystemInstruction).toBe(initialCall?.cacheSystemInstruction);
     expect(repairCall?.systemInstruction).toContain('source_ref_low_support');
     expect(repairCall?.systemInstruction).toContain('A valid reference ID is not proof');
     expect(repairCall?.prompt).toContain('"evidencePolicy"');
@@ -736,7 +738,7 @@ describe('ScriptWriterAgent structured generation', () => {
     });
 
     expect(generateStructuredWithWritingContextCacheMock).toHaveBeenCalledTimes(2);
-    expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.systemInstruction)
+    expect(generateStructuredWithWritingContextCacheMock.mock.calls[0]?.[0]?.cacheSystemInstruction)
       .toContain('fullRuntimeMinimumSpokenWords is a hard lower bound');
     expect(generateStructuredWithWritingContextCacheMock.mock.calls[1]?.[0]?.systemInstruction)
       .toContain('narration_density_below_mode');

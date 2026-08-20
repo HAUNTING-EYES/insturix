@@ -501,13 +501,8 @@ function isRepairableScriptContractError(error: unknown): error is ScriptWriterC
     && error.failures.every((failure) => REPAIRABLE_SCRIPT_CONTRACT_CODES.has(contractFailureCode(failure)));
 }
 
-function buildScriptContractRepairSystemInstruction(
-  systemInstruction: string,
-  failure: ScriptWriterContractError,
-): string {
-  return `${systemInstruction}
-
-<writer_contract_repair>
+function buildScriptContractRepairSystemInstruction(failure: ScriptWriterContractError): string {
+  return `<writer_contract_repair>
 The previous structured output failed a production writer contract:
 ${failure.failures.map((item) => `- ${item}`).join('\n')}
 
@@ -1306,7 +1301,7 @@ Return your response strictly adhering to the JSON schema.`;
     });
     const initialGeneration = await generateStructuredWithWritingContextCache({
       prompt: promptParts.prompt,
-      systemInstruction: promptParts.systemInstruction,
+      cacheSystemInstruction: promptParts.systemInstruction,
       schema: ScriptWriterModelOutputSchema,
       modelName: this.config.modelName,
       temperature: gen.temperature,
@@ -1356,7 +1351,8 @@ Return your response strictly adhering to the JSON schema.`;
 
       const repairedGeneration = await generateStructuredWithWritingContextCache({
         prompt: `${promptParts.prompt}\n\n<writer_contract_repair>\n${repairData.prompt}\n</writer_contract_repair>`,
-        systemInstruction: buildScriptContractRepairSystemInstruction(promptParts.systemInstruction, error),
+        cacheSystemInstruction: promptParts.systemInstruction,
+        systemInstruction: buildScriptContractRepairSystemInstruction(error),
         schema: ScriptWriterModelOutputSchema,
         modelName: this.config.modelName,
         temperature: Math.min(gen.temperature, 0.25),
