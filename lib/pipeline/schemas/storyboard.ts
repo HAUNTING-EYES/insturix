@@ -85,7 +85,9 @@ export interface SceneEditorialVisualEvent {
   id: string;
   audienceJob: string;
   visualThesis: string;
-  audioRelationship: 'anchor' | 'complement' | 'counterpoint';
+  // Preserve the authored treatment relation exactly; Editron may resolve
+  // final form later but this semantic handoff must not silently downgrade it.
+  audioRelationship: 'anchor' | 'complement' | 'counterpoint' | 'replace';
   timingNote: string;
   continuityNotes: string[];
   sourceRefs: string[];

@@ -603,6 +603,15 @@ describe('ThinkForge Script Sidecar to Editron compiler', () => {
     expect(JSON.stringify(result)).not.toContain('"assetRecommendation"');
   });
 
+  it('preserves a replace-audio treatment relationship in the Editron handoff', () => {
+    const sidecar = v3Sidecar();
+    sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.visualEvents[0]!.audioRelationship = 'replace';
+
+    const result = mapScriptSidecarToEditronExport(sidecar);
+
+    expect(result.scenes[0]?.editorialIntent?.visualEvents[0]?.audioRelationship).toBe('replace');
+  });
+
   it('binds every long-form V2 scene to its persisted chapter for Editron', () => {
     const input = v2Sidecar();
     const chapterPlan = longFormChapterPlan();
