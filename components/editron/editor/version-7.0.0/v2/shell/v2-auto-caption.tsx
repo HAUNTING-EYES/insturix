@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Wand2, Loader2, AlertCircle, Languages } from 'lucide-react';
-import { Mono } from '@/components/primitives';
+import { Mono, Select } from '@/components/primitives';
 import { cn } from '@/lib/utils';
 import { useEditorContext } from '../../contexts/editor-context';
 import { ClipOverlay, CaptionOverlay, OverlayType, CaptionWord } from '../../types';
@@ -28,7 +28,6 @@ interface TranscribeResponse {
 
 const FUN_MESSAGES = ['Listening to your video…', 'Transcribing speech…', 'Finding the perfect words…', 'Almost there…'];
 
-const selectCls = 'w-full rounded-button border border-ds-subtle bg-surface-deeper px-2.5 py-2 text-[12px] text-ds-primary outline-hidden focus-visible:ring-1 focus-visible:ring-gold/50';
 
 function videoLabel(video: ClipOverlay): string {
   const MAX = 34;
@@ -155,16 +154,14 @@ export function V2AutoCaption() {
   return (
     <div className="flex flex-col gap-2.5">
       {videoOverlays.length > 1 && (
-        <select value={String(selectedVideo?.id ?? '')} onChange={(e) => setSelectedVideoId(Number(e.target.value))} className={selectCls}>
-          {videoOverlays.map((v) => <option key={v.id} value={v.id}>{videoLabel(v)}</option>)}
-        </select>
+        <Select size="sm" aria-label="Video to caption" value={String(selectedVideo?.id ?? '')} onChange={(v) => setSelectedVideoId(Number(v))}
+          options={videoOverlays.map((v) => ({ value: String(v.id), label: videoLabel(v) }))} />
       )}
 
       <div className="flex items-center gap-2">
         <Languages size={14} className="shrink-0 text-ds-muted" />
-        <select value={language} onChange={(e) => setLanguage(e.target.value)} className={selectCls}>
-          {languages.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
-        </select>
+        <Select size="sm" aria-label="Caption language" className="flex-1" value={language} onChange={setLanguage}
+          options={languages.map((l) => ({ value: l.code, label: l.label }))} />
       </div>
 
       <button

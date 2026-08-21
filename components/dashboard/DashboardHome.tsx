@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
+import { Select } from "@/components/primitives";
 
 /* ── Design tokens ── */
 const C = {
@@ -394,25 +395,20 @@ export function DashboardHome() {
             {/* Group-by dropdown */}
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span className="dh-mono" style={{ fontSize: 11, color: C.dim, letterSpacing: "0.04em" }}>GROUP</span>
-              <select
-                value={groupBy}
-                onChange={(e) => setGroupBy(e.target.value as GroupBy)}
-                style={{
-                  background: C.deeper, border: `1px solid ${C.border}`, borderRadius: 5,
-                  padding: "4px 8px", fontSize: 11, color: C.text, fontFamily: "inherit",
-                  cursor: "pointer", outline: "none",
-                  appearance: "none", WebkitAppearance: "none",
-                  paddingRight: 22,
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237A776E' strokeWidth='1.5' strokeLinecap='round' strokeLinejoin='round'/%3E%3C/svg%3E")`,
-                  backgroundRepeat: "no-repeat",
-                  backgroundPosition: "right 6px center",
-                }}
-              >
-                <option value="stage">Stage</option>
-                <option value="brand">Brand</option>
-                <option value="date">Date</option>
-                <option value="status">Status</option>
-              </select>
+              <div style={{ minWidth: 110 }}>
+                <Select
+                  size="sm"
+                  aria-label="Group projects by"
+                  value={groupBy}
+                  onChange={(v) => setGroupBy(v as GroupBy)}
+                  options={[
+                    { value: "stage", label: "Stage" },
+                    { value: "brand", label: "Brand" },
+                    { value: "date", label: "Date" },
+                    { value: "status", label: "Status" },
+                  ]}
+                />
+              </div>
             </div>
 
             {/* View-as toggle */}

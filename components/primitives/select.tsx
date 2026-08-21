@@ -32,6 +32,7 @@ export function Select({
   options,
   placeholder = 'Select…',
   disabled,
+  size = 'md',
   className,
   panelClassName,
   'aria-label': ariaLabel,
@@ -41,6 +42,8 @@ export function Select({
   options: SelectOption[];
   placeholder?: string;
   disabled?: boolean;
+  /** md = form fields (h-11) · sm = dense panels/toolbars (h-8). */
+  size?: 'md' | 'sm';
   className?: string;
   panelClassName?: string;
   'aria-label'?: string;
@@ -141,7 +144,8 @@ export function Select({
         aria-label={ariaLabel}
         onClick={() => (open ? close() : openList())}
         className={cn(
-          'flex h-11 w-full items-center justify-between gap-2 rounded-md border bg-surface-well px-3.5 text-left text-[14px] transition-colors',
+          'flex w-full items-center justify-between gap-2 rounded-md border bg-surface-well text-left transition-colors',
+          size === 'sm' ? 'h-8 px-2.5 text-[12.5px]' : 'h-11 px-3.5 text-[14px]',
           'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60',
           disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
           open ? 'border-gold' : 'border-ds-subtle hover:border-ds-emphasis',

@@ -1,7 +1,7 @@
 'use client';
 
 import { Trash2, AlignLeft, AlignCenter, AlignRight, X } from 'lucide-react';
-import { Mono, Glyph } from '@/components/primitives';
+import { Mono, Glyph, Select } from '@/components/primitives';
 import { cn } from '@/lib/utils';
 import { useEditorContext } from '../../contexts/editor-context';
 import { OverlayType, type Overlay, type TextOverlay, type ClipOverlay, type ImageOverlay, type SoundOverlay } from '../../types';
@@ -160,9 +160,8 @@ export function V2PropsPanel({ onClose }: { onClose?: () => void }) {
               </div>
               <div>
                 <Mono size="8" className={labelCls}>Weight</Mono>
-                <select value={String(t.styles?.fontWeight ?? '400')} onChange={(e) => setStyle({ fontWeight: e.target.value })} className={boxCls}>
-                  {WEIGHTS.map((w) => <option key={w} value={w}>{w}</option>)}
-                </select>
+                <Select size="sm" aria-label="Font weight" value={String(t.styles?.fontWeight ?? '400')} onChange={(v) => setStyle({ fontWeight: v })}
+                  options={WEIGHTS.map((w) => ({ value: w, label: w }))} />
               </div>
             </div>
             <Section label="Colour">
@@ -205,9 +204,8 @@ export function V2PropsPanel({ onClose }: { onClose?: () => void }) {
               </div>
               <div>
                 <Mono size="8" className={labelCls}>Fit</Mono>
-                <select value={fit} onChange={(e) => setStyle({ objectFit: e.target.value })} className={boxCls}>
-                  {FITS.map((f) => <option key={f} value={f}>{f}</option>)}
-                </select>
+                <Select size="sm" aria-label="Fit" value={fit} onChange={(v) => setStyle({ objectFit: v })}
+                  options={FITS.map((f) => ({ value: f, label: f }))} />
               </div>
             </div>
             <Section label="Volume">
@@ -229,9 +227,8 @@ export function V2PropsPanel({ onClose }: { onClose?: () => void }) {
             <div className="mt-4 grid grid-cols-2 gap-2">
               <div>
                 <Mono size="8" className={labelCls}>Fit</Mono>
-                <select value={fit} onChange={(e) => setStyle({ objectFit: e.target.value })} className={boxCls}>
-                  {FITS.map((f) => <option key={f} value={f}>{f}</option>)}
-                </select>
+                <Select size="sm" aria-label="Fit" value={fit} onChange={(v) => setStyle({ objectFit: v })}
+                  options={FITS.map((f) => ({ value: f, label: f }))} />
               </div>
               <div>
                 <Mono size="8" className={labelCls}>Radius</Mono>
