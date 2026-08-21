@@ -12,9 +12,10 @@ selected-operation trace and hidden structural
 evaluator are `RESEARCH_PREPROOF_READY`. Owner-only evidence resolution and
 isolated operation-log execution are wired. V2R-3 resource/route accounting and
 research no-edit proof for HOLD-06/07/08 are implemented; one bounded rendered
-research proxies now prove the selected source-range splice for HOLD-01 and
-the selected three-range bookend proposal for HOLD-02. Real native execution
-for HOLD-04/05 and generated/hybrid HOLD-03 remain
+research proxies now prove the selected source-range splice for HOLD-01,
+the selected three-range bookend proposal for HOLD-02 and the canonical
+range-cut/state/AV claim for HOLD-04. Real native execution for HOLD-05 and
+generated/hybrid HOLD-03 remain
 unwired. The credentialed initial-request
 preflight is
 `PASS_INITIAL_REQUESTS_BOUNDED_PROOF_AND_RUNTIME_GUARDS_PENDING`; provider
@@ -189,6 +190,31 @@ project duration is 720 frames, so `[240,720)` is explicitly
 mutation, product-renderer parity, general callback taste or mixed-rate
 correctness.
 
+## HOLD-04 canonical-owner and rendered AV proof
+
+Commit `82f412bbb` consumes the exact budgeted trace after hidden evaluation
+and requires one successful `cut_section` over `[120,225)`, both transcript
+and caption-state evidence references, the original `R6` binding and a
+writer-issued research revision. It does not force `add_captions`: the existing
+`timeline-range-cut.ts#cutTimelineRange` owner already removes caption words in
+the deleted interval, shifts retained words and preserves presentation fields.
+
+On an isolated project clone, the canonical owner produces a 435-frame state,
+maps the right video child to source frame 225 and leaves exactly one
+`our launch is Friday` caption occurrence. The proof hashes the actual
+presentation material before and after the cut and requires equality. It then
+binds `h04-host` to the committed media identity, renders the same removal to
+a 640x360 H.264/AAC proxy, decodes 435 frames and mono 48-kHz audio, and proves
+that the green second-take marker and loud synthetic-tone interval moved to
+`[120,192)` while adjacent windows remain quiet.
+
+This is `RESEARCH_PROVEN_LIMITED`. The declared caption presentation reference
+is symbolic and the media fixture contains no bound caption-pixel form, so the
+receipt says `NOT_RENDERED_FIXTURE_HAS_NO_BOUND_CAPTION_PIXEL_FORM`. Its audio
+is synthetic tone, so speech intelligibility is also `NOT_CLAIMED`. Real
+ProjectService mutation, save/reload, undo, product-renderer parity, mixed-rate
+handling and real-dialogue quality remain unproved.
+
 ## Credentialed zero-inference request preflight
 
 Commit `dc341dfbe` captures the exact initial provider requests without making
@@ -248,13 +274,13 @@ cumulative provider spend, model output, real execution or rendered proof.
    expiry and a no-secret/no-inference receipt. Its focused checks pass 3/3.
    This closes the standalone route-binding gap, not the complete-episode gate.
 2. Connect the remaining claim-appropriate real native/generated proof
-   adapters. Commits `3e22af490` and `81eeb933a` close bounded rendered research
-   claims for HOLD-01 and HOLD-02 respectively, while commit
+   adapters. Commits `3e22af490`, `81eeb933a` and `82f412bbb` close bounded
+   research claims for HOLD-01, HOLD-02 and HOLD-04 respectively, while commit
    `83405595b` closes only the research no-edit family for HOLD-06/07/08 by
    recomputing hidden evaluation and proving no successful edit/state effect.
    It explicitly does not claim real ProjectService byte equality. The current
    operation-log clone remains insufficient for visual, audible or semantic
-   PASS on HOLD-04/05, and generated/hybrid HOLD-03 remains unproved.
+   PASS on HOLD-05, and generated/hybrid HOLD-03 remains unproved.
 3. Run the combined zero-inference complete-episode budget/proof simulation
    and keep dispatch disabled unless both the V2R-3 resource receipt and the
    selected proof adapters pass without an unresolved reservation or usage
@@ -277,6 +303,8 @@ cumulative provider spend, model output, real execution or rendered proof.
   full typecheck and focused ESLint passed.
 - HOLD-01/HOLD-02 rendered-native proof regression: 5/5 passed; full typecheck
   and focused ESLint passed.
+- HOLD-01/HOLD-02/HOLD-04 plus no-edit proof regression: 13/13 passed; full
+  typecheck and focused ESLint passed.
 - Credentialed initial-request preflight and combined sealed checks: 22/22
   passed; 96/96 captures verified with zero inference calls.
 - `npx tsc --noEmit`: passed.
