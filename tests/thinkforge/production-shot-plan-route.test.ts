@@ -50,6 +50,7 @@ describe('ThinkForge long-form Shoot Kit route', () => {
       },
     });
     mocks.requireCurrentPersistedScriptSidecar.mockReturnValue({
+      readResult: { sourceVersion: 2, sidecar: { sidecarVersion: 2 } },
       rawSidecar: { sidecarVersion: 2 },
       binding: { documentHash: 'a'.repeat(64), sidecarHash: 'b'.repeat(64) },
     });
@@ -78,6 +79,46 @@ describe('ThinkForge long-form Shoot Kit route', () => {
       chapterPlan,
       aspectRatio: '16:9',
       tier: 'no-spend',
+    }));
+  });
+
+  it('returns a V3 semantic capture projection before requiring a legacy physical profile', async () => {
+    mocks.getSession.mockResolvedValue({ _id: 'session_canonical', projectMeta: {} });
+    mocks.getScript.mockResolvedValue({
+      _id: 'script_1',
+      content: 'Semantic script.',
+      metadata: { writerOutput: { videoTreatment: { treatmentId: 'treatment_1' } } },
+      version: 1,
+    });
+    mocks.requireCurrentPersistedScriptSidecar.mockReturnValue({
+      readResult: { sourceVersion: 3, sidecar: { sidecarVersion: 3 } },
+      rawSidecar: { sidecarVersion: 3 },
+      binding: { documentHash: 'a'.repeat(64), sidecarHash: 'b'.repeat(64) },
+    });
+    mocks.buildScriptShotPlan.mockReturnValue({
+      status: 'capture-projection',
+      plan: null,
+      capturePlan: { kind: 'treatment-capture-plan', status: 'no-physical-capture' },
+      issues: [],
+    });
+    const { GET } = await import('@/app/api/services/thinkforge/production/shot-plan/route');
+
+    const response = await GET(new Request(
+      'http://localhost/api/services/thinkforge/production/shot-plan?sessionId=session_alias&scriptId=script_1',
+    ));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: 'capture-projection',
+      profile: null,
+      settings: null,
+      capturePlan: { kind: 'treatment-capture-plan', status: 'no-physical-capture' },
+    });
+    expect(mocks.buildScriptShotPlan).toHaveBeenCalledWith(expect.objectContaining({
+      sidecar: { sidecarVersion: 3 },
+      videoTreatment: { treatmentId: 'treatment_1' },
+      profile: null,
+      aspectRatio: undefined,
     }));
   });
 });

@@ -9,6 +9,7 @@ import {
   ProductionCapabilityProfileSchema,
   type ProductionCapabilityProfile,
 } from '@/lib/thinkforge/production/production-capability-profile';
+import { TreatmentCapturePlanSchema } from '@/lib/thinkforge/production/semantic-capture-plan';
 import {
   APPROVED_SHOOT_KIT_SNAPSHOT_METADATA_KEY,
   createApprovedShootKitSnapshot,
@@ -89,19 +90,29 @@ function longFormChapterPlanFromMetadata(metadata: Record<string, unknown>): unk
   return Object.prototype.hasOwnProperty.call(longForm, 'plan') ? longForm.plan : null;
 }
 
+function videoTreatmentFromMetadata(metadata: Record<string, unknown>): unknown | undefined {
+  const writerOutput = recordOf(metadata.writerOutput);
+  if (!writerOutput || !Object.prototype.hasOwnProperty.call(writerOutput, 'videoTreatment')) {
+    return undefined;
+  }
+  return writerOutput.videoTreatment;
+}
+
 function buildPlanPayload(input: {
   authority: AuthoritativePersistedScriptSidecar;
-  profile: ProductionCapabilityProfile;
-  settings: ShootKitSettings;
+  profile: ProductionCapabilityProfile | null;
+  settings: ShootKitSettings | null;
   documentVersion: number;
   approvalReason: string;
   chapterPlan?: unknown;
+  videoTreatment?: unknown;
 }) {
   const result = buildScriptShotPlan({
     sidecar: input.authority.rawSidecar,
     profile: input.profile,
-    aspectRatio: input.settings.aspectRatio,
-    tier: input.settings.tier,
+    videoTreatment: input.videoTreatment,
+    aspectRatio: input.settings?.aspectRatio,
+    tier: input.settings?.tier,
     chapterPlan: input.chapterPlan,
   });
   return {
@@ -148,6 +159,24 @@ export async function GET(request: Request) {
     });
     if (verification.current) {
       const snapshot = verification.snapshot;
+      const semanticCapturePlan = TreatmentCapturePlanSchema.safeParse(snapshot.plan);
+      if (semanticCapturePlan.success) {
+        return NextResponse.json({
+          status: 'capture-projection',
+          profile: snapshot.profile,
+          settings: snapshot.settings,
+          plan: null,
+          capturePlan: semanticCapturePlan.data,
+          issues: [],
+          documentVersion: currentDocumentVersion,
+          approval: {
+            status: 'approved',
+            snapshotHash: snapshot.snapshotHash,
+            approvedAt: snapshot.approvedAt,
+            approvedBy: snapshot.approvedBy,
+          },
+        });
+      }
       return NextResponse.json({
         status: 'ready',
         profile: snapshot.profile,
@@ -171,6 +200,24 @@ export async function GET(request: Request) {
     projectMeta.productionCapabilityProfile,
   );
   const settingsResult = ShootKitSettingsSchema.safeParse(projectMeta.productionShotSettings);
+  if (sidecarResolution.authority?.readResult.sourceVersion === 3) {
+    try {
+      return NextResponse.json(buildPlanPayload({
+        authority: sidecarResolution.authority,
+        profile: profileResult.success ? profileResult.data : null,
+        settings: settingsResult.success ? settingsResult.data : null,
+        documentVersion: currentDocumentVersion,
+        approvalReason,
+        chapterPlan: longFormChapterPlanFromMetadata(metadata),
+        videoTreatment: videoTreatmentFromMetadata(metadata),
+      }));
+    } catch (error) {
+      return NextResponse.json({
+        error: 'Invalid production contract',
+        details: error instanceof Error ? error.message : String(error),
+      }, { status: 422 });
+    }
+  }
   if (!profileResult.success) {
     return NextResponse.json({
       status: 'needs-profile',
@@ -278,6 +325,66 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (sidecarResolution.authority.readResult.sourceVersion === 3) {
+      const payload = buildPlanPayload({
+        authority: sidecarResolution.authority,
+        profile,
+        settings,
+        documentVersion: currentDocumentVersion,
+        approvalReason: 'not_approved',
+        chapterPlan: longFormChapterPlanFromMetadata(metadata),
+        videoTreatment: videoTreatmentFromMetadata(metadata),
+      });
+      await db.setSessionProductionConfiguration(canonicalSessionId, {
+        capabilityProfile: profile,
+        shotSettings: settings,
+      });
+      if (payload.status !== 'capture-projection') {
+        return NextResponse.json(payload);
+      }
+      if (payload.capturePlan.status !== 'capture-brief-ready') {
+        return NextResponse.json(payload);
+      }
+
+      const snapshot = createApprovedShootKitSnapshot({
+        sessionId: canonicalSessionId,
+        scriptId,
+        sourceDocument: {
+          version: currentDocumentVersion,
+          contentHash: sidecarResolution.authority.binding.documentHash,
+          sidecarHash: sidecarResolution.authority.binding.sidecarHash,
+        },
+        profile,
+        settings,
+        plan: payload.capturePlan,
+        approvedBy: userId,
+      });
+      const saved = await db.saveApprovedShootKitSnapshot({
+        sessionId: canonicalSessionId,
+        scriptId,
+        expectedVersion: currentDocumentVersion,
+        expectedContent: script.content,
+        expectedSidecarHash: sidecarResolution.authority.binding.sidecarHash,
+        snapshot,
+      });
+      if (!saved.ok) {
+        return NextResponse.json({
+          error: 'The script or its production contract changed before approval could be saved.',
+          reason: 'document-version-conflict',
+          currentVersion: saved.currentVersion,
+        }, { status: 409 });
+      }
+      return NextResponse.json({
+        ...payload,
+        approval: {
+          status: 'approved',
+          snapshotHash: snapshot.snapshotHash,
+          approvedAt: snapshot.approvedAt,
+          approvedBy: snapshot.approvedBy,
+        },
+      });
+    }
+
     const payload = buildPlanPayload({
       authority: sidecarResolution.authority,
       profile,

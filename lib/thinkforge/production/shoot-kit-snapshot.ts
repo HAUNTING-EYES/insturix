@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { hashJsonArtifact } from '@/lib/thinkforge/persistence/script-sidecar-binding';
 import { SHOOT_KIT_ASPECT_RATIOS } from './build-script-shot-plan';
 import { ProductionCapabilityProfileSchema } from './production-capability-profile';
+import { TreatmentCapturePlanSchema } from './semantic-capture-plan';
 import { ShotPlanSchema } from './shot-plan';
 
 export const SHOOT_KIT_SNAPSHOT_VERSION = 1 as const;
@@ -27,7 +28,7 @@ const ApprovedShootKitSnapshotBodySchema = z.object({
   }).strict(),
   profile: ProductionCapabilityProfileSchema,
   settings: ShootKitSettingsSchema,
-  plan: ShotPlanSchema,
+  plan: z.union([ShotPlanSchema, TreatmentCapturePlanSchema]),
   approvedBy: z.string().min(1),
   approvedAt: z.string().datetime({ offset: true }),
 }).strict().superRefine((snapshot, ctx) => {

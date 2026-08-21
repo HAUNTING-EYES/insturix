@@ -10,6 +10,10 @@ import {
   parseProductionCapabilityProfile,
 } from '@/lib/thinkforge/production/production-capability-profile';
 import {
+  createApprovedShootKitSnapshot,
+  verifyApprovedShootKitSnapshot,
+} from '@/lib/thinkforge/production/shoot-kit-snapshot';
+import {
   materializeScriptSidecarV3,
   ScriptWriterSidecarV3ModelSchema,
 } from '@/lib/thinkforge/schemas/script-sidecar-v3';
@@ -175,5 +179,39 @@ describe('semantic V3 capture projection', () => {
       plan: null,
       issues: [expect.objectContaining({ code: 'missing_video_treatment' })],
     });
+  });
+
+  it('keeps a semantic capture brief in the document-bound approval snapshot', () => {
+    const treatment = structuredClone(mixedPresenterCutawayTreatment);
+    treatment.captureRequirements[0]!.unresolvedCapabilityQuestions = [];
+    const capturePlan = buildTreatmentCapturePlan({
+      sidecar: sidecarFor(treatment, ['event_host_claim', 'event_process_cutaway']),
+      treatment,
+      profile: confirmedProfile(),
+    });
+    const snapshot = createApprovedShootKitSnapshot({
+      sessionId: 'session_1',
+      scriptId: 'script_1',
+      sourceDocument: {
+        version: 1,
+        contentHash: 'a'.repeat(64),
+        sidecarHash: 'b'.repeat(64),
+      },
+      profile: confirmedProfile(),
+      settings: { aspectRatio: '16:9', tier: 'no-spend' },
+      plan: capturePlan,
+      approvedBy: 'user_1',
+      approvedAt: new Date('2026-08-22T00:00:00.000Z'),
+    });
+
+    expect(snapshot.plan).toMatchObject({ kind: 'treatment-capture-plan', status: 'capture-brief-ready' });
+    expect(verifyApprovedShootKitSnapshot({
+      snapshot,
+      sessionId: 'session_1',
+      scriptId: 'script_1',
+      documentVersion: 1,
+      documentHash: 'a'.repeat(64),
+      sidecarHash: 'b'.repeat(64),
+    })).toMatchObject({ current: true });
   });
 });

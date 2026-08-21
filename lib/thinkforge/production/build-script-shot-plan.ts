@@ -44,7 +44,7 @@ export interface BuildScriptShotPlanInput {
   profile?: unknown | null;
   /** Canonical V3 treatment persisted with the same writer output as the sidecar. */
   videoTreatment?: unknown;
-  aspectRatio: ShootKitAspectRatio;
+  aspectRatio?: ShootKitAspectRatio;
   tier?: ShotPlan['tier'];
   /** Server-owned long-form plan persisted with the bound writer output. */
   chapterPlan?: unknown;
@@ -425,6 +425,18 @@ export function buildScriptShotPlan(input: BuildScriptShotPlanInput): ScriptShot
   }
   if (readResult.sourceVersion === 3) return buildV3CaptureProjection(input, readResult);
 
+  const aspectRatio = input.aspectRatio;
+  if (!aspectRatio) {
+    return {
+      status: 'needs-user-input',
+      plan: null,
+      issues: [{
+        code: 'missing_shot_settings',
+        message: 'Choose an aspect ratio before creating a legacy physical Shot Plan.',
+        questions: ['Which aspect ratio should this shoot use?'],
+      }],
+    };
+  }
   const profile = parseProductionCapabilityProfile(input.profile);
   const tier = input.tier ?? profile.preferences.defaultPlanTier;
   const issues: ScriptShotPlanIssue[] = [];
@@ -483,7 +495,7 @@ export function buildScriptShotPlan(input: BuildScriptShotPlanInput): ScriptShot
         sidecarSceneIndex: unit.sceneIndex,
         generationUnitId: unit.generationUnitId,
         durationSec: unit.durationSeconds,
-        aspectRatio: input.aspectRatio,
+        aspectRatio,
         ...unit.shotIntent,
         continuity,
       },
