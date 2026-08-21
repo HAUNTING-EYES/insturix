@@ -354,6 +354,8 @@ export function materializeScriptSidecarV3(input: {
   modelSidecar: ScriptWriterSidecarV3Model;
   treatment: VideoTreatment;
   identityPolicy: ScriptWriterModelSidecarIdentityPolicy;
+  /** A chapter can materialize only the treatment events allocated to its scenes. */
+  treatmentEventIds?: readonly string[];
 }): ScriptSidecarV3 {
   const canonical = canonicalizeScriptWriterV3ModelSidecarIds(
     input.modelSidecar,
@@ -362,6 +364,19 @@ export function materializeScriptSidecarV3(input: {
   const treatmentEvents = new Map(input.treatment.visualEvents.map((event) => [event.id, event]));
   const selectedEventIds = new Set<string>();
   const issues: string[] = [];
+  const expectedEventIds = new Set<string>();
+  const scopedEventIds = input.treatmentEventIds ?? input.treatment.visualEvents.map((event) => event.id);
+  scopedEventIds.forEach((eventId) => {
+    if (expectedEventIds.has(eventId)) {
+      issues.push(`duplicate_treatment_event_scope:${eventId}`);
+      return;
+    }
+    if (!treatmentEvents.has(eventId)) {
+      issues.push(`unknown_treatment_event_scope:${eventId}`);
+      return;
+    }
+    expectedEventIds.add(eventId);
+  });
 
   const acts = canonical.acts.map((act) => ({
     ...act,
@@ -371,6 +386,14 @@ export function materializeScriptSidecarV3(input: {
           const treatmentEvent = treatmentEvents.get(selection.treatmentEventId);
           if (!treatmentEvent) {
             issues.push(`unknown_treatment_visual_event:${selection.treatmentEventId}`);
+            return null;
+          }
+          if (!expectedEventIds.has(treatmentEvent.id)) {
+            issues.push(`out_of_scope_treatment_visual_event:${treatmentEvent.id}`);
+            return null;
+          }
+          if (selectedEventIds.has(treatmentEvent.id)) {
+            issues.push(`duplicate_treatment_visual_event:${treatmentEvent.id}`);
             return null;
           }
           selectedEventIds.add(treatmentEvent.id);
@@ -407,8 +430,8 @@ export function materializeScriptSidecarV3(input: {
     }),
   }));
 
-  input.treatment.visualEvents.forEach((event) => {
-    if (!selectedEventIds.has(event.id)) issues.push(`unused_treatment_visual_event:${event.id}`);
+  expectedEventIds.forEach((eventId) => {
+    if (!selectedEventIds.has(eventId)) issues.push(`unused_treatment_visual_event:${eventId}`);
   });
   if (issues.length > 0) throw new ScriptSidecarV3TreatmentError(issues);
 

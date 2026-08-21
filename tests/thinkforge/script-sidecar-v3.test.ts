@@ -101,6 +101,25 @@ describe('Script Sidecar V3 semantic treatment contract', () => {
     expect(invented.issues).toContain('unknown_treatment_visual_event:missing_event');
   });
 
+  it('lets a chapter select exactly its assigned treatment events and rejects all others', () => {
+    const scoped = materializeScriptSidecarV3({
+      modelSidecar: ScriptWriterSidecarV3ModelSchema.parse(modelSidecar(['event_host_claim'])),
+      treatment: mixedPresenterCutawayTreatment,
+      identityPolicy: { mode: 'chapter', chapterId: 'chapter_open' },
+      treatmentEventIds: ['event_host_claim'],
+    });
+    expect(scoped.acts[0]!.narrativeScenes[0]!.beats[0]!.visualEvents.map((event) => event.id))
+      .toEqual(['event_host_claim']);
+
+    const outOfScope = captureTreatmentError(() => materializeScriptSidecarV3({
+      modelSidecar: ScriptWriterSidecarV3ModelSchema.parse(modelSidecar(['event_process_cutaway'])),
+      treatment: mixedPresenterCutawayTreatment,
+      identityPolicy: { mode: 'chapter', chapterId: 'chapter_open' },
+      treatmentEventIds: ['event_host_claim'],
+    }));
+    expect(outOfScope.issues).toContain('out_of_scope_treatment_visual_event:event_process_cutaway');
+  });
+
   it('rejects final-form fields from the model-facing V3 schema', () => {
     const candidate = modelSidecar() as Record<string, unknown>;
     const beat = (((candidate.acts as Array<Record<string, unknown>>)[0]!.narrativeScenes as Array<Record<string, unknown>>)[0]!

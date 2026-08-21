@@ -31,6 +31,7 @@ import {
   type ScriptSidecarV3,
 } from '../schemas/script-sidecar-v3';
 import type { VideoTreatment } from '../schemas/video-treatment';
+import { assertUsableScriptChapterPlan } from '../schemas/script-chapter-plan';
 import {
   findDirectlySupportingSourceReferenceIds,
   findSourceLedgerIssuesForNarrativeSidecar,
@@ -210,6 +211,70 @@ function scriptWriterIdentityPolicy(
     : { mode: 'ordinary' };
 }
 
+function normalizeTreatmentEventScope(
+  treatment: VideoTreatment,
+  treatmentEventIds?: readonly string[],
+): string[] {
+  const scope = treatmentEventIds ?? treatment.visualEvents.map((event) => event.id);
+  const available = new Set(treatment.visualEvents.map((event) => event.id));
+  const seen = new Set<string>();
+  const failures: string[] = [];
+  scope.forEach((eventId) => {
+    if (!available.has(eventId)) failures.push(`unknown_treatment_event_scope:${eventId}`);
+    if (seen.has(eventId)) failures.push(`duplicate_treatment_event_scope:${eventId}`);
+    seen.add(eventId);
+  });
+  if (failures.length > 0) throw new ScriptWriterContractError(failures);
+  return [...scope];
+}
+
+function resolveScriptWriterTreatmentEventScope(
+  treatment: VideoTreatment,
+  chapterExecution: ResolvedScriptChapterExecution | null,
+): string[] {
+  const chapterEventIds = chapterExecution
+    ? chapterExecution.assignment.chapter.sceneBlueprints.flatMap(
+      (scene) => scene.treatmentEventIds ?? [],
+    )
+    : undefined;
+  return normalizeTreatmentEventScope(treatment, chapterEventIds);
+}
+
+function projectVideoTreatmentForWriter(
+  treatment: VideoTreatment | null | undefined,
+  treatmentEventIds: readonly string[] | undefined,
+): Record<string, unknown> | null {
+  if (!treatment) return null;
+  const allowedEventIds = new Set(normalizeTreatmentEventScope(treatment, treatmentEventIds));
+  const visualEvents = treatment.visualEvents.filter((event) => allowedEventIds.has(event.id));
+  const captureRequirementIds = new Set(
+    visualEvents.flatMap((event) => event.captureRequirementIds),
+  );
+  return {
+    treatmentId: treatment.treatmentId,
+    audienceOutcome: treatment.audienceOutcome,
+    viewerPromise: treatment.viewerPromise,
+    narrativeArc: treatment.narrativeArc,
+    visualVerbalRelationship: treatment.visualVerbalRelationship,
+    visualRhythm: treatment.visualRhythm,
+    informationHierarchy: treatment.informationHierarchy,
+    brandBoundaries: treatment.brandBoundaries,
+    referenceSynthesis: treatment.referenceSynthesis,
+    continuityStrategy: treatment.continuityStrategy,
+    audioVoiceStrategy: treatment.audioVoiceStrategy,
+    userConstraints: treatment.userConstraints,
+    visualEvents,
+    captureRequirements: treatment.captureRequirements.filter((requirement) => (
+      captureRequirementIds.has(requirement.id)
+    )),
+    decisionTrace: {
+      inputFingerprint: treatment.decisionTrace.inputFingerprint,
+      appliedConstraintIds: treatment.decisionTrace.appliedConstraintIds,
+      unresolvedAssumptions: treatment.decisionTrace.unresolvedAssumptions,
+    },
+  };
+}
+
 /**
  * Edit framing for the revise-existing-content path (P5).
  * When present, the writer REVISES `existingContent` per `instruction` and returns the COMPLETE
@@ -244,6 +309,7 @@ interface ScriptWriterValidationOptions {
   productionBrief?: ProductionBrief | null;
   contentSignalProfile?: ThinkForgeContentSignalProfile | null;
   videoTreatment?: VideoTreatment | null;
+  treatmentEventIds?: readonly string[];
   editorialPlan?: ScriptEditorialPlan;
   brandLanguagePolicy?: ThinkForgeBrandLanguagePolicy;
   chapterExecution?: ResolvedScriptChapterExecution | null;
@@ -268,6 +334,16 @@ function resolveScriptEditorialContext(input: ScriptWriterInput): ResolvedScript
   const chapterExecution = input.chapterExecution
     ? resolveScriptChapterExecution(input.chapterExecution)
     : null;
+  if (chapterExecution && input.videoTreatment) {
+    if (!input.sourceLedger) {
+      throw new ScriptWriterContractError(['chapter_treatment_requires_source_ledger']);
+    }
+    assertUsableScriptChapterPlan(input.chapterExecution!.plan, {
+      expectedTargetDurationSeconds: chapterExecution.masterPlan.targetDurationSeconds,
+      sourceLedger: input.sourceLedger,
+      videoTreatment: input.videoTreatment,
+    });
+  }
   const productionBrief = chapterExecution
     ? projectProductionBriefForScriptChapter(input.productionBrief, chapterExecution)
     : input.productionBrief;
@@ -635,6 +711,7 @@ export function materializeScriptWriterV3Result(
   treatment: VideoTreatment,
   identityPolicy: ScriptWriterModelSidecarIdentityPolicy,
   sourceLedger?: SourceLedger | null,
+  treatmentEventIds?: readonly string[],
 ): ScriptWriterV3Result {
   let sidecar: ScriptSidecarV3;
   try {
@@ -642,6 +719,7 @@ export function materializeScriptWriterV3Result(
       modelSidecar: normalizeScriptWriterV3Sidecar(modelOutput.sidecar, sourceLedger),
       treatment,
       identityPolicy,
+      treatmentEventIds,
     });
   } catch (error) {
     if (error instanceof ScriptSidecarV3TreatmentError || error instanceof ScriptSidecarV3IdentityError) {
@@ -803,13 +881,20 @@ function buildScriptContractRepairDiagnostics(
   input: Pick<ScriptWriterInput, 'sourceLedger' | 'contentSignalProfile' | 'retrievedContext' | 'videoTreatment'>,
   editorialPlan: ScriptEditorialPlan,
   identityPolicy: ScriptWriterModelSidecarIdentityPolicy,
+  treatmentEventIds?: readonly string[],
 ): Record<string, unknown> {
   let profileViolations: Array<{ id: string; message: string; location?: string }> = [];
   let materialized: ScriptWriterResult | null = null;
   try {
     materialized = isScriptWriterV3ModelOutput(modelOutput)
       ? input.videoTreatment
-        ? materializeScriptWriterV3Result(modelOutput, input.videoTreatment, identityPolicy, input.sourceLedger)
+        ? materializeScriptWriterV3Result(
+          modelOutput,
+          input.videoTreatment,
+          identityPolicy,
+          input.sourceLedger,
+          treatmentEventIds,
+        )
         : null
       : materializeScriptWriterResult(modelOutput, input.sourceLedger);
   } catch {
@@ -1188,7 +1273,10 @@ function assertUsableScriptWriterV3Result(
     const selectedEventIds = sidecar.acts.flatMap((act) => act.narrativeScenes.flatMap((scene) => (
       scene.beats.flatMap((beat) => beat.visualEvents.map((event) => event.treatmentEventId))
     ))).sort();
-    const expectedEventIds = treatment.visualEvents.map((event) => event.id).sort();
+    const expectedEventIds = normalizeTreatmentEventScope(
+      treatment,
+      options.treatmentEventIds,
+    ).sort();
     if (JSON.stringify(selectedEventIds) !== JSON.stringify(expectedEventIds)) {
       failures.push('video_treatment_event_coverage_mismatch');
     }
@@ -1268,7 +1356,9 @@ function assertUsableScriptWriterV3Result(
   }));
 
   validateCastingBriefCompliance(sidecar, options.productionBrief, failures);
-  if (options.chapterExecution) failures.push('v3_chapter_execution_not_supported');
+  if (options.chapterExecution) {
+    failures.push(...findScriptChapterExecutionOutputIssues(options.chapterExecution, result));
+  }
 
   const briefPlatform = options.productionBrief?.output.platform;
   if (briefPlatform && result.metadata.platform.toLowerCase() !== briefPlatform.toLowerCase()) {
@@ -1631,9 +1721,12 @@ Return your response strictly adhering to the JSON schema.`;
       ? input
       : { ...input, productionBrief: resolvedEditorial.productionBrief };
     const usesSemanticVideoTreatment = Boolean(executionInput.videoTreatment);
-    if (usesSemanticVideoTreatment && resolvedEditorial.chapterExecution) {
-      throw new Error('Script Sidecar V3 chapter execution is not wired yet; preserve the approved treatment for the durable chapter path.');
-    }
+    const treatmentEventIds = executionInput.videoTreatment
+      ? resolveScriptWriterTreatmentEventScope(
+        executionInput.videoTreatment,
+        resolvedEditorial.chapterExecution,
+      )
+      : undefined;
     const placeholderInput: ScriptWriterInput = {
       ...executionInput,
       userPrompt: '[tf_untrusted_data.userBrief]',
@@ -1679,6 +1772,7 @@ ${treatmentRuntimeDataRule}`;
         resolvedEditorial.creativeIntent,
         resolvedEditorial.evidencePolicy,
         resolvedEditorial.chapterExecution,
+        treatmentEventIds,
       ),
       fieldLimits: {
         projectSummary: 12_000,
@@ -1704,6 +1798,7 @@ ${treatmentRuntimeDataRule}`;
     creativeIntent: ThinkForgeEditorialCreativeIntent,
     evidencePolicy: ThinkForgeEditorialEvidencePolicy,
     chapterExecution: ResolvedScriptChapterExecution | null,
+    treatmentEventIds?: readonly string[],
   ): Record<string, unknown> {
     const { context, userPrompt, retrievedContext, editContext, productionBrief, sourceLedger } = input;
     const facts = [...(retrievedContext?.projectFacts || []), ...(retrievedContext?.globalFacts || [])];
@@ -1729,7 +1824,7 @@ ${treatmentRuntimeDataRule}`;
       editorialPlan,
       castingBrief: formatCastingBriefForPrompt(productionBrief) || null,
       sourceLedger: sourceLedger ? formatSourceLedgerForPrompt(sourceLedger) : null,
-      videoTreatment: input.videoTreatment ?? null,
+      videoTreatment: projectVideoTreatmentForWriter(input.videoTreatment, treatmentEventIds),
       authoringDestination: input.authoringRequest
         ? {
             deliverable: describeThinkForgeAuthoringDeliverable(input.authoringRequest),
@@ -1767,9 +1862,12 @@ ${treatmentRuntimeDataRule}`;
       ? input
       : { ...input, productionBrief: resolvedEditorial.productionBrief };
     const usesSemanticVideoTreatment = Boolean(executionInput.videoTreatment);
-    if (usesSemanticVideoTreatment && resolvedEditorial.chapterExecution) {
-      throw new Error('Script Sidecar V3 chapter execution is not wired yet; preserve the approved treatment for the durable chapter path.');
-    }
+    const treatmentEventIds = executionInput.videoTreatment
+      ? resolveScriptWriterTreatmentEventScope(
+        executionInput.videoTreatment,
+        resolvedEditorial.chapterExecution,
+      )
+      : undefined;
     assertScriptEvidenceSufficiency({
       editorialPlan,
       sourceLedger: executionInput.sourceLedger,
@@ -1828,6 +1926,7 @@ ${treatmentRuntimeDataRule}`;
           treatment,
           identityPolicy,
           executionInput.sourceLedger,
+          treatmentEventIds,
         );
       }
       if (isScriptWriterV3ModelOutput(candidate)) {
@@ -1843,6 +1942,7 @@ ${treatmentRuntimeDataRule}`;
       productionBrief: executionInput.productionBrief,
       contentSignalProfile: executionInput.contentSignalProfile,
       videoTreatment: executionInput.videoTreatment,
+      treatmentEventIds,
       editorialPlan,
       brandLanguagePolicy,
       chapterExecution: resolvedEditorial.chapterExecution,
@@ -1865,6 +1965,7 @@ ${treatmentRuntimeDataRule}`;
             executionInput,
             editorialPlan,
             identityPolicy,
+            treatmentEventIds,
           ),
         },
         totalLimit: 80_000,
