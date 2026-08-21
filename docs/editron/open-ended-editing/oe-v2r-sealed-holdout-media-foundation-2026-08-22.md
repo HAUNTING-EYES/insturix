@@ -11,9 +11,10 @@ generic public-case episode shell, owner connector, lossless
 selected-operation trace and hidden structural
 evaluator are `RESEARCH_PREPROOF_READY`. Owner-only evidence resolution and
 isolated operation-log execution are wired. V2R-3 resource/route accounting and
-research no-edit proof for HOLD-06/07/08 are implemented; real native media
-execution and generated compilation/rendering for HOLD-01 through HOLD-05
-remain unwired. The credentialed initial-request
+research no-edit proof for HOLD-06/07/08 are implemented; one bounded rendered
+research proxy now proves the selected source-range splice for HOLD-01. Real
+native execution for HOLD-02/04/05 and generated/hybrid HOLD-03 remain
+unwired. The credentialed initial-request
 preflight is
 `PASS_INITIAL_REQUESTS_BOUNDED_PROOF_AND_RUNTIME_GUARDS_PENDING`; provider
 inference dispatch remains disabled.
@@ -138,6 +139,34 @@ Commit `b148486ce` freezes the research trace/evaluator boundary:
 This is pre-proof benchmark plumbing. It is not generic production lowering,
 real native/generated execution, rendered quality or ProjectService authority.
 
+## HOLD-01 rendered research-native proof
+
+Commit `3e22af490` adds the first claim-appropriate sealed media proof. It does
+not infer or repair an edit. It consumes the exact V2R-3 trace after hidden
+evaluation and requires one successful model-selected
+`use_matching_footage` mutation, its writer-issued research revision, both
+resolved evidence references and the original `R9` project binding.
+
+The adapter then:
+
+- binds `h01-clock` and `h01-dial` to the committed media-manifest and public
+  case hashes and rejects changed bytes;
+- renders the model-selected incoming source start as a hard-cut-only,
+  640x360, 30/1, 300-frame H.264 proxy;
+- decodes adjacent output frames 149 and 150;
+- measures the gold clock and cyan dial bounds directly from decoded pixels;
+- requires centre distance at most `0.03`, diameter ratio within `0.9..1.1`,
+  no audio stream and no transition operation;
+- records the trace, evaluator, runtime-budget, writer-revision, source and
+  output hashes in the proof receipt.
+
+The positive case passes. A source start of frame 90 remains inside the broad
+incoming evidence window but visibly misses at the boundary and is rejected by
+decoded geometry. A one-byte source change is rejected before render. This is
+`RESEARCH_PROVEN_LIMITED`: it proves the isolated fixture/source-splice claim,
+not ProjectService mutation, editor/product-renderer parity, mixed rates, crop
+or keyframe lowering, or a generally certified match-cut capability.
+
 ## Credentialed zero-inference request preflight
 
 Commit `dc341dfbe` captures the exact initial provider requests without making
@@ -196,12 +225,14 @@ cumulative provider spend, model output, real execution or rendered proof.
    input estimation, authorized Google `countTokens` context egress, price
    expiry and a no-secret/no-inference receipt. Its focused checks pass 3/3.
    This closes the standalone route-binding gap, not the complete-episode gate.
-2. Connect claim-appropriate real native/generated proof adapters. Commit
+2. Connect the remaining claim-appropriate real native/generated proof
+   adapters. Commit `3e22af490` closes the bounded rendered-native source-splice
+   claim for HOLD-01, while commit
    `83405595b` closes only the research no-edit family for HOLD-06/07/08 by
    recomputing hidden evaluation and proving no successful edit/state effect.
    It explicitly does not claim real ProjectService byte equality. The current
    operation-log clone remains insufficient for visual, audible or semantic
-   PASS on HOLD-01 through HOLD-05.
+   PASS on HOLD-02/04/05, and generated/hybrid HOLD-03 remains unproved.
 3. Run the combined zero-inference complete-episode budget/proof simulation
    and keep dispatch disabled unless both the V2R-3 resource receipt and the
    selected proof adapters pass without an unresolved reservation or usage
@@ -220,10 +251,13 @@ cumulative provider spend, model output, real execution or rendered proof.
   ESLint passed.
 - Research no-edit proof checks: 5/5 passed; full typecheck and focused ESLint
   passed.
+- HOLD-01 rendered-native proof plus media/no-edit regression: 12/12 passed;
+  full typecheck and focused ESLint passed.
 - Credentialed initial-request preflight and combined sealed checks: 22/22
   passed; 96/96 captures verified with zero inference calls.
 - `npx tsc --noEmit`: passed.
 - Repository ESLint: passed.
 
-These checks establish reproducible benchmark inputs only. No provider saw a
-sealed task, no model row ran, and no Editron project was read or mutated.
+These checks establish reproducible benchmark inputs and one bounded rendered
+research proof. No provider saw a sealed task, no model row ran, and no Editron
+project was read or mutated.
