@@ -10,9 +10,10 @@ credentialed initial-request preflight now pass their bounded gates, and the
 generic public-case episode shell, owner connector, lossless
 selected-operation trace and hidden structural
 evaluator are `RESEARCH_PREPROOF_READY`. Owner-only evidence resolution and
-isolated operation-log execution are wired; real native media execution,
-generated compilation/rendering, claim-appropriate proof and a cumulative
-per-turn resource guard remain unwired. The credentialed initial-request
+isolated operation-log execution are wired. V2R-3 resource/route accounting and
+research no-edit proof for HOLD-06/07/08 are implemented; real native media
+execution and generated compilation/rendering for HOLD-01 through HOLD-05
+remain unwired. The credentialed initial-request
 preflight is
 `PASS_INITIAL_REQUESTS_BOUNDED_PROOF_AND_RUNTIME_GUARDS_PENDING`; provider
 inference dispatch remains disabled.
@@ -195,8 +196,12 @@ cumulative provider spend, model output, real execution or rendered proof.
    input estimation, authorized Google `countTokens` context egress, price
    expiry and a no-secret/no-inference receipt. Its focused checks pass 3/3.
    This closes the standalone route-binding gap, not the complete-episode gate.
-2. Connect claim-appropriate real native/generated proof adapters. The current
-   operation-log clone is insufficient for visual, audible or semantic PASS.
+2. Connect claim-appropriate real native/generated proof adapters. Commit
+   `83405595b` closes only the research no-edit family for HOLD-06/07/08 by
+   recomputing hidden evaluation and proving no successful edit/state effect.
+   It explicitly does not claim real ProjectService byte equality. The current
+   operation-log clone remains insufficient for visual, audible or semantic
+   PASS on HOLD-01 through HOLD-05.
 3. Run the combined zero-inference complete-episode budget/proof simulation
    and keep dispatch disabled unless both the V2R-3 resource receipt and the
    selected proof adapters pass without an unresolved reservation or usage
@@ -213,6 +218,8 @@ cumulative provider spend, model output, real execution or rendered proof.
 - Generic causal/owner/trace/evaluator checks: 21/21 passed.
 - V2R-3 route/accounting binding checks: 3/3 passed; full typecheck and focused
   ESLint passed.
+- Research no-edit proof checks: 5/5 passed; full typecheck and focused ESLint
+  passed.
 - Credentialed initial-request preflight and combined sealed checks: 22/22
   passed; 96/96 captures verified with zero inference calls.
 - `npx tsc --noEmit`: passed.
