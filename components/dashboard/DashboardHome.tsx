@@ -97,6 +97,15 @@ function enrichProject(raw: ApiProject): Project {
   };
 }
 
+/* One canonical open target for a project, used by every view (board, list,
+   split, cinematic) so a card is never a dead click in one view and a link in
+   another. Script-stage pipeline projects re-open their ThinkForge session. */
+function projectHref(p: Project): string {
+  return p.stage === "script" && p.sourceSessionId
+    ? `/dashboard/thinkforge?session=${p.sourceSessionId}`
+    : `/dashboard/editron/project/${p.id}`;
+}
+
 /* ── Grouping helpers ── */
 function groupByStage(projects: Project[]): { key: string; label: string; color: string; projects: Project[] }[] {
   return STAGES.map((s) => ({
@@ -504,13 +513,18 @@ export function DashboardHome() {
 
 function AttentionZone() {
   const [items, setItems] = useState<{ id: string; type: string; title: string; detail: string; time: string; severity: string }[]>([]);
+  // A failed load must never masquerade as "nothing needs attention" — that is
+  // the opposite of the truth this zone exists to tell.
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoadFailed(false);
     fetch("/api/dashboard/attention", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data?.items) setItems(data.items); })
-      .catch(() => {});
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then((data) => { setItems(data?.items ?? []); })
+      .catch(() => setLoadFailed(true));
   }, []);
+  useEffect(() => { load(); }, [load]);
 
   // Clear = dismiss (soft) so it stops showing. Optimistic: drop from the list, then persist.
   const dismiss = (id: string) => {
@@ -533,7 +547,7 @@ function AttentionZone() {
   return (
     <section style={{ marginBottom: 24 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <div style={{ width: 6, height: 6, borderRadius: 3, background: items.length > 0 ? C.red : C.green }} />
+        <div style={{ width: 6, height: 6, borderRadius: 3, background: loadFailed || items.length > 0 ? C.red : C.green }} />
         <span className="dh-mono" style={{ fontSize: 11, color: C.dim, letterSpacing: "0.06em" }}>
           NEEDS ATTENTION
         </span>
@@ -560,7 +574,14 @@ function AttentionZone() {
           padding: "12px 16px", background: C.raised,
           border: `1px solid ${C.border}`, borderRadius: 8,
         }}>
-          <span style={{ fontSize: 13, color: C.muted }}>No items need attention</span>
+          {loadFailed ? (
+            <span style={{ fontSize: 13, color: C.red }}>
+              Couldn&apos;t check for items needing attention.{" "}
+              <button onClick={load} style={{ background: "none", border: "none", color: C.red, textDecoration: "underline", cursor: "pointer", fontSize: 13, padding: 0, fontFamily: "inherit" }}>Retry</button>
+            </span>
+          ) : (
+            <span style={{ fontSize: 13, color: C.muted }}>No items need attention</span>
+          )}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -669,6 +690,7 @@ function BoardCard({ project, stageColor }: { project: Project; stageColor: stri
     : null;
 
   return (
+    <Link href={projectHref(project)} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
     <div style={{
       background: C.deeper, border: `1px solid ${C.border}`,
       borderRadius: 8, padding: 10, cursor: "pointer",
@@ -735,6 +757,7 @@ function BoardCard({ project, stageColor }: { project: Project; stageColor: stri
         <span className="dh-mono" style={{ fontSize: 11, color: C.faint }}>{timeAgo(project.updatedAt)}</span>
       </div>
     </div>
+    </Link>
   );
 }
 
@@ -808,7 +831,8 @@ function ListView({
           const isPL = !!p.sourceSessionId;
           const sc = isPL ? (stage?.color ?? C.dim) : C.dim;
           return (
-            <div key={p.id} style={{
+            <Link key={p.id} href={projectHref(p)} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+            <div style={{
               display: "grid", gridTemplateColumns: gridCols,
               gap: 16, padding: "12px 16px",
               borderBottom: i < projects.length - 1 ? `1px solid ${C.border}` : "none",
@@ -852,6 +876,7 @@ function ListView({
               {/* Updated */}
               <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{timeAgo(p.updatedAt)}</span>
             </div>
+            </Link>
           );
         })}
       </div>
@@ -1016,14 +1041,7 @@ function SplitDetail({ project }: { project: Project }) {
           </div>
         )}
       </div>
-      <Link
-        href={
-          project.stage === "script" && project.sourceSessionId
-            ? `/dashboard/thinkforge?session=${project.sourceSessionId}`
-            : `/dashboard/editron/project/${project.id}`
-        }
-        style={{ textDecoration: "none" }}
-      >
+      <Link href={projectHref(project)} style={{ textDecoration: "none" }}>
         <button style={{
           background: C.accent, color: C.bg, border: "none",
           padding: "10px 28px", borderRadius: 7, fontSize: 13, fontWeight: 800,
@@ -1192,13 +1210,16 @@ function CinematicView({
 
 function ShippedSection() {
   const [videos, setVideos] = useState<{ filename: string; uploadedAt: string; status: string; publicUrl: string }[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoadFailed(false);
     fetch("/api/services/uploaderx/videos", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data?.videos) setVideos(data.videos.slice(0, 5)); })
-      .catch(() => {});
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then((data) => { setVideos((data?.videos ?? []).slice(0, 5)); })
+      .catch(() => setLoadFailed(true));
   }, []);
+  useEffect(() => { load(); }, [load]);
 
   return (
     <section>
@@ -1211,7 +1232,14 @@ function ShippedSection() {
           background: C.raised, border: `1px solid ${C.border}`,
           borderRadius: 12, padding: "24px 16px", textAlign: "center",
         }}>
-          <span style={{ fontSize: 13, color: C.faint }}>No shipped content yet</span>
+          {loadFailed ? (
+            <span style={{ fontSize: 13, color: C.red }}>
+              Couldn&apos;t load shipped content.{" "}
+              <button onClick={load} style={{ background: "none", border: "none", color: C.red, textDecoration: "underline", cursor: "pointer", fontSize: 13, padding: 0, fontFamily: "inherit" }}>Retry</button>
+            </span>
+          ) : (
+            <span style={{ fontSize: 13, color: C.faint }}>No shipped content yet</span>
+          )}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

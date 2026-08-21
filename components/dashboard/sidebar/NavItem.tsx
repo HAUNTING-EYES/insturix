@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useMemo, cloneElement } from "react";
 import { useSidebar } from "./context";
@@ -18,6 +18,21 @@ import {
 } from "@/components/ui/tooltip";
 import type { NavItemProps } from "./types";
 
+/* Design-system notes (2026-08 audit batch B):
+   - Items are real <Link>s (keyboard, middle-click, screen readers) — the one
+     exception is a Pro-locked item, which is a <button> that opens the upgrade
+     dialog instead of navigating.
+   - Active state matches by route PREFIX so sub-routes keep their section lit;
+     "/dashboard" (Overview) stays exact-only or it would match everything.
+   - Gold is the only accent: active indicator + tint are gold, neutrals are the
+     warm ds ramp. Per-product rainbow colors are deliberately NOT used here. */
+
+const GOLD = "#D4A652";
+const GOLD_TINT = "rgba(212, 166, 82, 0.10)";
+const HOVER_BG = "rgba(236, 233, 225, 0.05)";
+const TEXT_ACTIVE = "#ECE9E1";
+const TEXT_DEFAULT = "#B5B2A8";
+
 export function NavItem({
   href,
   icon,
@@ -32,50 +47,25 @@ export function NavItem({
     userPlan,
     openUpgradeDialog,
   } = useSidebar();
-  const router = useRouter();
-  const isActive = activeRoute === href;
+  const isActive =
+    activeRoute === href ||
+    (href !== "/dashboard" && activeRoute.startsWith(`${href}/`));
   const isHovered = hoveredItem === href;
   const hasPro = userPlan === "Pro" || userPlan === "Enterprise";
+  const proLocked = Boolean(isPro && !hasPro);
 
   const product = useMemo(() => products.find((p) => p.path === href), [href]);
-  const itemColor = product?.color;
-  const itemHoverColor = product?.hoverColor;
 
-  const shouldApplyColor = isActive && itemColor;
-  const shouldApplyHoverColor = isHovered && itemHoverColor && !isActive;
+  const backgroundColor = isActive ? GOLD_TINT : isHovered ? HOVER_BG : "transparent";
+  const inkColor = isActive || isHovered ? TEXT_ACTIVE : TEXT_DEFAULT;
 
-  const backgroundColor = useMemo(() => {
-    if (isActive) return "rgba(28, 29, 36, 0.6)"; // Subtle depth for active state
-    if (isHovered) return "rgba(255, 255, 255, 0.05)"; // Very subtle hover
-    return "transparent";
-  }, [isActive, isHovered]);
-
-  const iconColor = useMemo(() => {
-    if (isActive) return "#ffffff"; // Pure white for active
-    if (isHovered) return "#ffffff"; // Pure white for hover
-    return "#a0a0a0"; // Light grey for default state
-  }, [isActive, isHovered]);
-
-  const textColor = useMemo(() => {
-    if (isActive) return "#ffffff"; // Pure white for active
-    if (isHovered) return "#ffffff"; // Pure white for hover
-    return "#a0a0a0"; // Light grey for default state
-  }, [isActive, isHovered]);
-
-  // Create consistent icon with proper styling for active state
+  // Consistent icon sizing; bolder stroke stands in for a filled active state.
   const iconElement = useMemo(() => {
     if (icon) {
       const iconProps: any = {
-        className: "h-5 w-5", // Ensure consistent size
+        className: "h-5 w-5",
+        strokeWidth: isActive ? 2.5 : 2,
       };
-
-      // Adjust stroke for active state to make it bolder (simulating filled)
-      if (isActive) {
-        iconProps.strokeWidth = 2.5;
-      } else {
-        iconProps.strokeWidth = 2;
-      }
-
       return cloneElement(icon as React.ReactElement, iconProps);
     }
     return icon;
@@ -83,12 +73,12 @@ export function NavItem({
 
   const content = (
     <motion.div className="relative">
-      {/* Active indicator bar with smooth sliding animation */}
+      {/* Active indicator bar with smooth sliding animation — gold, always. */}
       {isActive && (
         <motion.div
           layoutId="activeIndicator"
           className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 rounded-r-sm z-10"
-          style={{ backgroundColor: itemColor || "#ffffff" }}
+          style={{ backgroundColor: GOLD }}
           initial={false}
           animate={{ height: "60%" }}
           transition={{
@@ -103,25 +93,14 @@ export function NavItem({
       <motion.div
         className={cn(
           "flex items-center rounded-lg w-full transition-all duration-200 ease-out relative overflow-hidden py-1.5 cursor-pointer ml-1",
-          isPro && !hasPro ? "opacity-80" : ""
+          proLocked ? "opacity-80" : ""
         )}
-        style={{
-          backgroundColor: backgroundColor,
-        }}
+        style={{ backgroundColor }}
         variants={linkVariants}
         animate={isExpanded ? "expanded" : "collapsed"}
         initial={false}
         onMouseEnter={() => setHoveredItem(href)}
         onMouseLeave={() => setHoveredItem(null)}
-        onClick={(e) => {
-          if (isPro && !hasPro) {
-            e.preventDefault();
-            openUpgradeDialog();
-          } else {
-            e.preventDefault();
-            router.push(href);
-          }
-        }}
       >
         <motion.div
           className="flex items-center"
@@ -140,9 +119,7 @@ export function NavItem({
           >
             <motion.div
               className="flex items-center justify-center transition-all duration-200"
-              style={{
-                color: iconColor,
-              }}
+              style={{ color: inkColor }}
               whileHover={{ scale: 1.05 }}
               transition={{ duration: 0.15 }}
             >
@@ -165,14 +142,14 @@ export function NavItem({
                 isActive ? "font-semibold" : "font-medium"
               )}
               style={{
-                color: textColor,
+                color: inkColor,
                 whiteSpace: "nowrap",
               }}
             >
               {label}
             </motion.span>
 
-            {isPro && !hasPro && (
+            {proLocked && (
               <motion.div
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={
@@ -182,7 +159,7 @@ export function NavItem({
                 }
                 whileHover={{ scale: 1.1 }}
                 transition={{ duration: 0.2 }}
-                className="flex items-center justify-center bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded ml-2 flex-shrink-0"
+                className="flex items-center justify-center bg-[#D4A652] text-[#241B08] text-[10px] font-bold px-1.5 py-0.5 rounded ml-2 flex-shrink-0"
               >
                 PRO
               </motion.div>
@@ -193,23 +170,44 @@ export function NavItem({
     </motion.div>
   );
 
+  // Pro-locked items open the upgrade dialog instead of navigating; everything
+  // else is a real link so keyboard/middle-click/new-tab all work.
+  const interactive = proLocked ? (
+    <button
+      type="button"
+      onClick={openUpgradeDialog}
+      className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4A652]/60 rounded-lg"
+      aria-label={`${label} — Pro feature, opens upgrade`}
+    >
+      {content}
+    </button>
+  ) : (
+    <Link
+      href={href}
+      aria-current={isActive ? "page" : undefined}
+      className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4A652]/60 rounded-lg"
+    >
+      {content}
+    </Link>
+  );
+
   // Wrap with tooltip for collapsed state
   if (!isExpanded) {
     return (
       <Tooltip delayDuration={200}>
-        <TooltipTrigger asChild>{content}</TooltipTrigger>
+        <TooltipTrigger asChild>{interactive}</TooltipTrigger>
         <TooltipContent
           side="right"
-          className="bg-zinc-800 border-zinc-700 text-white"
+          className="border-[#282724] bg-[#131312] text-[#ECE9E1]"
         >
           <p className="font-medium">{label}</p>
           {product?.description && (
-            <p className="text-[11px] text-zinc-400 mt-1">{product.description}</p>
+            <p className="text-[11px] text-[#7A776E] mt-1">{product.description}</p>
           )}
         </TooltipContent>
       </Tooltip>
     );
   }
 
-  return content;
+  return interactive;
 }
