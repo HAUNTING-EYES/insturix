@@ -177,14 +177,24 @@ cumulative provider spend, model output, real execution or rendered proof.
 
 ## What remains before inference calls
 
-1. Enforce a fail-closed per-turn and cumulative episode budget for input,
-   output, calls, repeated calls and spend. Mechanically bind each case's
-   declared resource budget instead of relying on the current shared
-   `24 / 4096 / 2` loop constants.
+1. Exercise the new fail-closed V2R-3 runtime budget path in a complete
+   zero-inference simulation with the real per-route token counters and an
+   exact case/manifest/route/spend authorization. Commit `e034f713a` contains
+   the four Editron-owned guard files alongside unrelated ThinkForge files due
+   to a shared-worktree commit race. The guard now binds per-case nodes,
+   candidates and cumulative output; dynamically lowers later-turn output;
+   pre-authorizes input and worst-case spend; prices OpenAI cache writes and
+   Gemini thought tokens; and rejects absent, inconsistent or over-bound usage.
+   Focused guard/historical-compatibility checks pass 23/23, and repository
+   typecheck/lint pass. This is `IMPLEMENTED_NOT_DISPATCH_PROVEN`: the
+   historical V2R-2 path remains unchanged, and no sealed inference call has
+   used V2R-3 yet.
 2. Connect claim-appropriate real native/generated proof adapters. The current
    operation-log clone is insufficient for visual, audible or semantic PASS.
-3. Run a zero-inference complete-episode budget/proof simulation and keep
-   dispatch disabled unless the runtime guard and proof adapters both pass.
+3. Run the combined zero-inference complete-episode budget/proof simulation
+   and keep dispatch disabled unless both the V2R-3 resource receipt and the
+   selected proof adapters pass without an unresolved reservation or usage
+   gap.
 4. Only then may a separately authorized sealed cohort make inference calls.
    CAP-2A V3 remains an immutable bound census artifact, not newly reissued
    merely because research harness files were added.

@@ -1418,6 +1418,25 @@ any bound file changes.
   retained by the owner session nor returned in the trace. Focused
   causal/owner/trace/evaluator checks pass 21/21; repository typecheck and lint
   pass. `READY_FOR_PROOF` still means real claim-appropriate proof is required.
+- **Fail-closed sealed runtime resource accounting is
+  `IMPLEMENTED_NOT_DISPATCH_PROVEN`.** Budgeted episode V2R-3 is a new identity;
+  historical V2R-2 bytes and behavior remain unchanged. V2R-3 binds an
+  operator authorization to the exact manifest, case, public-case hash and
+  provider route hash. It derives selected-operation, per-operation candidate
+  and cumulative-output limits from the case; permits only the node allowance
+  plus two schema repairs and one finish; lowers each later output allowance;
+  requires a request-hash-bound input-token upper bound; reserves worst-case
+  spend before each call; and records actual normal/cached/cache-write,
+  output/reasoning/thought usage afterward. Missing, inconsistent, stale or
+  over-bound accounting terminates before an owner operation runs. Candidate
+  counting is explicitly pinned to catalog V2R-8 discovery/resolver outputs,
+  so a later catalog revision must update that policy instead of silently
+  bypassing it. Focused historical and adversarial checks pass 23/23, and full
+  typecheck/lint pass. The code landed in mixed shared-worktree commit
+  `e034f713a`; its Editron scope is exactly four files, while two ThinkForge
+  files in that commit are unrelated. No sealed inference call has used this
+  path, real token-counter/pricing wiring and a full zero-inference episode
+  simulation remain pending, and proof adapters remain the dispatch blocker.
 - **Stage 2.5 status remains `MODIFY_AND_PROCEED_RESEARCH`.** No production
   model-driven mutation or Stage 3 control plane is authorized. Revision
   handoff repair, stale cohort correction, CAP-2A V3 reissue, the V3R4
@@ -1426,10 +1445,10 @@ any bound file changes.
   is pending. All eight sealed holdouts now have frozen media inputs, but none
   has made an inference call. The generic selected-operation projection and hidden
   pre-proof evaluator are now frozen without task-specific creative
-  compilation. The exact immediate order is now: freeze fail-closed per-turn,
-  cumulative token/spend and per-case resource-budget enforcement; connect
-  bounded real native/generated proof adapters for the claims being scored;
-  exercise both in a complete zero-inference simulation; keep dispatch disabled
+  compilation. The exact immediate order is now: bind the real per-route token
+  counters and approved pricing/egress facts to V2R-3; connect bounded real
+  native/generated proof adapters for the claims being scored; exercise both
+  in a complete zero-inference simulation; keep dispatch disabled
   until those gates pass while HREF review remains pending;
   then run all eight sealed unseen holdouts,
   dependency diversity, forced native/generated/hybrid comparisons, conflict/rebase,
@@ -1444,7 +1463,7 @@ any bound file changes.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. V3R4 is reproducibly landed and valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V3 is current. HREF-01 has one complete Gemini 3.6 native-video/audio observation and a blinded full-reference plus 180-frame dense-window review pack. All eight sealed holdouts have deterministic, rights-bound media inputs. Their leakage-free 16-case/40-operation local preflight passes, and the credentialed preflight verifies 96/96 distinct initial requests across three routes and two handoff modes with zero inference. The generic sealed episode now has owner-only evidence resolution, distinct clarification/policy outcomes, schema-derived direct/opaque handoff, a CAS-bound isolated operation-log owner, a zero-add/drop selected-operation trace and a hidden non-repairing structural evaluator; no sealed holdout has made an inference call. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. HREF-01 output review is pending and formal promotion requires a second independent qualified reviewer. Enforce per-turn/cumulative token, spend and per-case resource budgets, connect claim-appropriate real proof adapters, and pass a complete zero-inference simulation before enabling provider dispatch. Then complete all eight sealed unseen holdouts, different dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. The current clone logs typed operations but is not real native/generated execution. `READY_FOR_PROOF` is not a quality PASS. H04 uses synthetic tone audio and DEV-03 does not contain intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. V3R4 is reproducibly landed and valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V3 is current. HREF-01 has one complete Gemini 3.6 native-video/audio observation and a blinded full-reference plus 180-frame dense-window review pack. All eight sealed holdouts have deterministic, rights-bound media inputs. Their leakage-free 16-case/40-operation local preflight passes, and the credentialed preflight verifies 96/96 distinct initial requests across three routes and two handoff modes with zero inference. The generic sealed episode now has owner-only evidence resolution, distinct clarification/policy outcomes, schema-derived direct/opaque handoff, a CAS-bound isolated operation-log owner, a zero-add/drop selected-operation trace and a hidden non-repairing structural evaluator. Budgeted V2R-3 adds fail-closed, case/route-bound node, candidate, per-turn/cumulative token and spend accounting; focused adversarial/historical checks pass 23/23, but no sealed holdout has made an inference call through it. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. HREF-01 output review is pending and formal promotion requires a second independent qualified reviewer. Wire real per-route token counters and approved pricing/egress facts into V2R-3, connect claim-appropriate real proof adapters, and pass a complete zero-inference simulation before enabling provider dispatch. Then complete all eight sealed unseen holdouts, different dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. The current clone logs typed operations but is not real native/generated execution. `READY_FOR_PROOF` is not a quality PASS. H04 uses synthetic tone audio and DEV-03 does not contain intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
