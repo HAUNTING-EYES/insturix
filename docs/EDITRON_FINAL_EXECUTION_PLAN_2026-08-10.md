@@ -1375,15 +1375,16 @@ any bound file changes.
   all evaluator/expected-answer material. The local receipt made zero network,
   inference, project-read or project-mutation calls and has SHA-256
   `69821f932e6baf6c5312d764ebdb836c232f842e7e3b018fcac621fea46b8773`.
-- **The generic sealed-holdout episode shell and causal contract are
-  `RESEARCH_CONNECTOR_READY`; lowering, proof and evaluation remain unwired.** Commit
+- **The generic sealed-holdout episode, lossless selected-operation trace and
+  hidden structural evaluator are `RESEARCH_PREPROOF_READY`; real execution and
+  proof remain unwired.** Commit
   `2a0176cc9f84f6b253a49757e1145f3dcf6c00be` connects every frozen public case
   to the existing provider-native episode loop. Every case receives the same
   forty-record planning context: thirty-three callable tools and seven visible
   unavailable records. Task-shaped tool subsets are rejected, evaluator-only
   facts remain absent, direct and opaque-result handoff remain available, and
   rights/privacy/security denial now has a distinct `POLICY_BLOCKED` terminal
-  instead of being mislabeled as editing failure or capability absence. This
+  instead of being mislabeled as editing failure or capability absence.
   Commits `7e80a05b4` and `2835458fb` then make
   `CLARIFICATION_REQUIRED` distinct, derive opaque output references from the
   complete tool schemas, bind every callable writer's
@@ -1395,20 +1396,29 @@ any bound file changes.
   without an injected executor. The clone does **not** execute real native
   media mechanics, compile generated code, render, mutate ProjectService or
   judge quality; its PASS receipt means only “typed operation admitted to the
-  isolated log, proof not run.” Focused causal/owner checks pass 16/16;
-  repository typecheck and lint pass.
+  isolated log, proof not run.” Commit `b148486ce` then freezes a lossless
+  projection of the model's exact calls, normalized arguments, typed result
+  references, evidence references and writer-issued revisions. The projector
+  adds or removes zero creative operations. A separate hidden post-episode
+  evaluator rejects invalid traces, missing evidence, forbidden operations,
+  stale conflicts without evidence, premature PASS and structurally incomplete
+  task plans; it never repairs a model plan. Hidden rubric material is neither
+  retained by the owner session nor returned in the trace. Focused
+  causal/owner/trace/evaluator checks pass 21/21; repository typecheck and lint
+  pass. `READY_FOR_PROOF` still means real claim-appropriate proof is required.
 - **Stage 2.5 status remains `MODIFY_AND_PROCEED_RESEARCH`.** No production
   model-driven mutation or Stage 3 control plane is authorized. Revision
-  handoff repair, stale cohort correction, CAP-2A V3 reissue, zero-inference
-  preflight, the fair eighteen-row rerun and reproducible V3R4 landing are
+  handoff repair, stale cohort correction, CAP-2A V3 reissue, the V3R4
+  zero-inference preflight, the fair eighteen-row rerun and reproducible landing are
   complete. HREF-01's reproducible blinded pack is ready, but its output review
   is pending. All eight sealed holdouts now have frozen media inputs, but none
-  has been dispatched. The exact immediate order is now: freeze the generic
-  selected-operation trace/lowering projection and hidden evaluator without
-  task-specific creative compilation; connect bounded real native/generated
-  proof adapters for the claims being scored; capture and token-bound the real requests
-  in a credentialed zero-inference preflight
-  while HREF review remains pending, then run all eight sealed unseen holdouts,
+  has been dispatched. The generic selected-operation projection and hidden
+  pre-proof evaluator are now frozen without task-specific creative
+  compilation. The exact immediate order is now: capture and token-bound the
+  real requests in a credentialed zero-inference preflight; connect bounded
+  real native/generated proof adapters for the claims being scored; keep
+  dispatch disabled until both gates pass while HREF review remains pending;
+  then run all eight sealed unseen holdouts,
   dependency diversity, forced native/generated/hybrid comparisons, conflict/rebase,
   compaction/resume, long-form/range trials and blind editor receipts before a
   frozen `GO`, `MODIFY` or `NO-GO` decision.
@@ -1421,7 +1431,7 @@ any bound file changes.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. V3R4 is reproducibly landed and valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V3 is current. HREF-01 has one complete Gemini 3.6 native-video/audio observation and a blinded full-reference plus 180-frame dense-window review pack. All eight sealed holdouts have deterministic, rights-bound media inputs, and their leakage-free 16-case/40-operation local preflight passes. The generic sealed episode now has owner-only evidence resolution, distinct clarification/policy outcomes, schema-derived direct/opaque handoff and a CAS-bound isolated operation-log owner; no sealed holdout has been dispatched. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. HREF-01 output review is pending and formal promotion requires a second independent qualified reviewer. Freeze generic trace lowering/hidden evaluation, connect claim-appropriate real proof adapters, and run credentialed request/token preflight; then complete all eight sealed unseen holdouts, different dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. The current clone logs typed operations but is not real native/generated execution. H04 uses synthetic tone audio and DEV-03 does not contain intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. V3R4 is reproducibly landed and valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V3 is current. HREF-01 has one complete Gemini 3.6 native-video/audio observation and a blinded full-reference plus 180-frame dense-window review pack. All eight sealed holdouts have deterministic, rights-bound media inputs, and their leakage-free 16-case/40-operation local preflight passes. The generic sealed episode now has owner-only evidence resolution, distinct clarification/policy outcomes, schema-derived direct/opaque handoff, a CAS-bound isolated operation-log owner, a zero-add/drop selected-operation trace and a hidden non-repairing structural evaluator; no sealed holdout has been dispatched. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. HREF-01 output review is pending and formal promotion requires a second independent qualified reviewer. Run credentialed zero-inference request/token preflight, connect claim-appropriate real proof adapters, and keep dispatch disabled until both pass; then complete all eight sealed unseen holdouts, different dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. The current clone logs typed operations but is not real native/generated execution. `READY_FOR_PROOF` is not a quality PASS. H04 uses synthetic tone audio and DEV-03 does not contain intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -1843,16 +1853,17 @@ foundation and is no longer the active queue. The next three slices are:
    and exact 180-frame motion/audio window are materialized and verified. The
    project owner must now complete the blinded review. Formal promotion remains
    blocked pending a second independent qualified reviewer.
-3. **V2-2 unseen holdouts and integration gate - generic owner connector
+3. **V2-2 unseen holdouts and integration gate - generic pre-proof connector
    ready, dispatch zero:** all eight sealed unseen holdouts now have frozen,
    rights-bound synthetic media plus a leakage-free sixteen-case cohort bound
    to the same complete forty-operation context. The generic episode shell is
    connected and preserves complete-context, opaque-result and policy-blocked
    semantics. Owner-only evidence now resolves only through declared tool
    families, and a CAS-bound operation-log clone issues writer revisions while
-   explicitly withholding render/quality proof. Next freeze generic trace
-   lowering/hidden evaluation, connect the required real proof adapters and run the credentialed
-   request/token preflight while HREF-01 review remains pending; do not alter
+   explicitly withholding render/quality proof. A lossless selected-operation
+   trace and hidden non-repairing structural evaluator are now frozen. Next run
+   the credentialed zero-inference request/token preflight and connect the
+   required real proof adapters while HREF-01 review remains pending; do not alter
    the historical DEV harness. HREF-01 is a separate reference-observation
    diagnostic and did not consume or replace `HOLD-01`. After the receipt and
    operator confirmation, run all eight holdouts and additional

@@ -7,10 +7,11 @@ media suitable for a zero-inference benchmark preflight. This is
 `INPUT_EVIDENCE_READY`, not provider execution, model success, rendered edit
 quality or production certification. The subsequent local cohort preflight is
 now `PASS_READY_FOR_CREDENTIAL_PREFLIGHT`, and the generic public-case episode
-shell and owner connector are `RESEARCH_CONNECTOR_READY`. Owner-only evidence
-resolution and isolated operation-log execution are wired; real native media
-execution, generated compilation/rendering, lowering, proof and evaluation
-remain unwired. Provider dispatch remains disabled.
+shell, owner connector, lossless selected-operation trace and hidden structural
+evaluator are `RESEARCH_PREPROOF_READY`. Owner-only evidence resolution and
+isolated operation-log execution are wired; real native media execution,
+generated compilation/rendering and claim-appropriate proof remain unwired.
+Provider dispatch remains disabled.
 
 ## Bound identity
 
@@ -110,21 +111,37 @@ default owner session:
 
 The connector validates provider protocol and causal revision flow, but it
 does not execute the real native media owners, compile generated code, render,
-mutate ProjectService or judge the result. `RESEARCH_CONNECTOR_READY` therefore
+mutate ProjectService or judge the result. `RESEARCH_PREPROOF_READY` therefore
 does not mean executable holdout certification or provider readiness.
+
+## Lossless trace and hidden pre-proof evaluation
+
+Commit `b148486ce` freezes the research trace/evaluator boundary:
+
+- the trace is a lossless projection of model-selected calls, normalized
+  arguments, typed result-reference bindings, evidence references, execution
+  dispositions and writer-issued project revisions;
+- it adds or removes zero creative operations and records zero real-project
+  state effects;
+- hidden evaluator policy is read only after the provider episode and is never
+  retained by the owner session or returned to model context;
+- the evaluator fails invalid traces, missing evidence, forbidden operations,
+  premature PASS, unsafe post-edit stops and incomplete task structure;
+- the evaluator never repairs a plan and returns `READY_FOR_PROOF`, not PASS,
+  when an executable structure still requires rendered or audible evidence.
+
+This is pre-proof benchmark plumbing. It is not generic production lowering,
+real native/generated execution, rendered quality or ProjectService authority.
 
 ## What remains before provider calls
 
-1. Freeze schema-driven selected-operation trace lowering and hidden evaluation
-   before inference. Lowering may
-   bind exact arguments, coordinates, revisions and result references; it may
-   add or remove zero model-selected creative operations.
-2. Connect claim-appropriate real native/generated proof adapters. The current
-   operation-log clone is insufficient for visual, audible or semantic PASS.
-3. Capture the exact Luna, Terra and Gemini requests, verify provider-native
+1. Capture the exact Luna, Terra and Gemini requests, verify provider-native
    model identity and modalities, count/bound input tokens, and issue a
    production-credential zero-inference receipt.
-4. Only after that receipt may the explicitly authorized cohort dispatch. CAP-2A
+2. Connect claim-appropriate real native/generated proof adapters. The current
+   operation-log clone is insufficient for visual, audible or semantic PASS.
+3. Only after both the zero-inference receipt and real proof adapters pass may
+   the explicitly authorized cohort dispatch. CAP-2A
    V3 remains an immutable bound census artifact, not newly reissued merely
    because research harness files were added.
 
@@ -133,7 +150,7 @@ does not mean executable holdout certification or provider readiness.
 - Holdout materializer: 4/4 tests passed.
 - Combined development and holdout materializers: 11/11 tests passed.
 - Sealed cohort/preflight tests: 3/3 passed; combined focused checks: 7/7.
-- Generic causal/owner connector checks: 16/16 passed.
+- Generic causal/owner/trace/evaluator checks: 21/21 passed.
 - `npx tsc --noEmit`: passed.
 - Repository ESLint: passed.
 
