@@ -24,7 +24,7 @@ const READ_EVIDENCE_KINDS: Readonly<Record<string, readonly string[]>> = {
 };
 
 export class SealedHoldoutOwnerSessionV2R {
-  private readonly taskCase: Readonly<JsonRecord>;
+  private readonly caseId: string;
   private readonly project: Readonly<JsonRecord>;
   private readonly media: readonly Readonly<JsonRecord>[];
   private readonly evidence: readonly Readonly<JsonRecord>[];
@@ -40,7 +40,7 @@ export class SealedHoldoutOwnerSessionV2R {
     const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
     const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
     if (!taskCase) fail(`SEALED_OWNER_CASE_MISSING:${input.caseId}`);
-    this.taskCase = taskCase as unknown as JsonRecord;
+    this.caseId = taskCase.caseId;
     const publicCase = record(taskCase.publicCase);
     this.project = deepFreezeV1(record(publicCase.project));
     this.media = deepFreezeV1(records(publicCase.media));
@@ -74,6 +74,11 @@ export class SealedHoldoutOwnerSessionV2R {
       return deepFreezeV1(execution);
     } catch (error) {
       const message = errorMessage(error);
+      const conflictEvidenceIds = message.includes('REVISION_CONFLICT')
+        ? this.evidence.filter(({ kind }) => kind === 'PROJECT_REVISION')
+          .map(({ evidenceRef }) => text(evidenceRef))
+        : [];
+      conflictEvidenceIds.forEach((evidenceRef) => this.resolvedEvidenceRefs.add(evidenceRef));
       const disposition = message.includes('CONFLICT') ? 'CONFLICT'
         : message.includes('UNVERIFIABLE') || message.includes('EVIDENCE_')
           ? 'UNVERIFIABLE' : 'FAIL';
@@ -90,7 +95,7 @@ export class SealedHoldoutOwnerSessionV2R {
           message,
           details: { currentProjectRevision: this.revisionKnown ? this.currentRevision : 'UNKNOWN' },
         },
-        evidenceIds: [] as const,
+        evidenceIds: conflictEvidenceIds,
       });
     }
   }
@@ -99,7 +104,7 @@ export class SealedHoldoutOwnerSessionV2R {
     return deepFreezeV1({
       version: SEALED_HOLDOUT_OWNER_SESSION_VERSION_V2R,
       authority: 'RESEARCH_ISOLATED_OPERATION_LOG_NO_PROJECT_MUTATION',
-      caseId: text(this.taskCase.caseId), currentProjectRevision: this.currentRevision,
+      caseId: this.caseId, currentProjectRevision: this.currentRevision,
       revisionKnown: this.revisionKnown,
       resolvedEvidenceRefs: [...this.resolvedEvidenceRefs].sort(compareUtf16),
       trace: clone(this.trace), stateEffects: [],
