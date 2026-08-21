@@ -15,27 +15,24 @@ import {
   Copy,
   Check,
   Share2,
-  QrCode,
   ExternalLink,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
-import Image from "next/image";
 
 interface SocializeShareBarProps {
   uniqueUsername: string;
   onShare?: (platform: string) => void;
   className?: string;
-  showQRCode?: boolean;
 }
 
 export function SocializeShareBar({
   uniqueUsername,
   onShare,
   className,
-  showQRCode = true,
+
 }: SocializeShareBarProps) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -55,11 +52,6 @@ export function SocializeShareBar({
     navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     onShare?.("copy");
-  };
-  const generateQRCode = () => {
-    // In a real implementation, this would generate a QR code
-    // For now, we'll just return a placeholder
-    return `/placeholder.svg?height=200&width=200`;
   };
 
   return (
@@ -183,14 +175,9 @@ export function SocializeShareBar({
                   >
                     Link
                   </TabsTrigger>
-                  {showQRCode && (
-                    <TabsTrigger
-                      value="qrcode"
-                      className="data-[state=active]:bg-[#D4A652] data-[state=active]:text-[#0B0B0A] rounded-[4px]"
-                    >
-                      QR Code
-                    </TabsTrigger>
-                  )}
+                  {/* QR tab removed: it rendered a placeholder.svg posing as a
+                      real QR code and its download button fired a scaffold
+                      alert(). Reinstate only with real QR generation. */}
                 </TabsList>
 
                 <TabsContent value="link" className="mt-0">
@@ -231,36 +218,6 @@ export function SocializeShareBar({
                     </Button>
                   </div>
                 </TabsContent>
-                {showQRCode && (
-                  <TabsContent value="qrcode" className="mt-0">
-                    <div className="flex flex-col items-center">
-                      <div className="p-3 rounded-[12px] mb-3" style={{ backgroundColor: '#1B1A18' }}>
-                        <Image
-                          width={200}
-                          height={200}
-                          src={generateQRCode() || "/placeholder.svg"}
-                          alt="QR Code for your share link"
-                          className="w-40 h-40"
-                        />
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-none hover:opacity-90 transition-opacity rounded-[7px]"
-                        style={{ backgroundColor: '#D4A652', color: '#0B0B0A' }}
-                        onClick={() => {
-                          // In a real implementation, this would download the QR code
-                          alert(
-                            "QR Code download functionality would be implemented here"
-                          );
-                        }}
-                      >
-                        <QrCode className="mr-2 h-4 w-4" />
-                        Download QR Code
-                      </Button>
-                    </div>
-                  </TabsContent>
-                )}
               </Tabs>
             </motion.div>
           )}

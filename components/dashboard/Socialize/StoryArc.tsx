@@ -6,6 +6,8 @@ interface StoryArcProps {
   username: string;
   activeSection: string | null;
   onWaypointClick: (sectionId: string) => void;
+  /** Live public profile URL. When absent (no username yet) the header CTA is hidden. */
+  profileUrl?: string;
 }
 
 const WAYPOINTS = [
@@ -31,7 +33,7 @@ const ARC_PATH =
 const ARC_FILL_PATH =
   "M0,38 C150,38 200,30 350,18 C450,10 500,6 550,10 C650,18 750,28 850,14 C900,8 950,20 1000,22 L1000,40 L0,40Z";
 
-export function StoryArc({ username, activeSection, onWaypointClick }: StoryArcProps) {
+export function StoryArc({ username, activeSection, onWaypointClick, profileUrl }: StoryArcProps) {
   const [hasAnimated, setHasAnimated] = useState(false);
   const arcRef = useRef<SVGPathElement>(null);
 
@@ -109,32 +111,40 @@ export function StoryArc({ username, activeSection, onWaypointClick }: StoryArcP
           {username ? `${username}’s profile` : "your profile"}
         </div>
 
-        {/* Publish button */}
-        <button
-          className="font-jakarta"
-          style={{
-            padding: "9px 22px",
-            borderRadius: 7,
-            border: "none",
-            background: "#D4A652",
-            color: "#0B0B0A",
-            fontSize: "0.82rem",
-            fontWeight: 800,
-            cursor: "pointer",
-            letterSpacing: "0.02em",
-            transition: "all 0.3s cubic-bezier(.16,1,.3,1)",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "#C49840";
-            e.currentTarget.style.transform = "translateY(-1px)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "#D4A652";
-            e.currentTarget.style.transform = "translateY(0)";
-          }}
-        >
-          Publish
-        </button>
+        {/* Header CTA — was a "Publish" button with NO onClick (a dead primary
+            action). Sections save individually, so the honest top-level action
+            is opening the live public page. Hidden until a username exists. */}
+        {profileUrl ? (
+          <a
+            className="font-jakarta"
+            href={profileUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: "9px 22px",
+              borderRadius: 7,
+              border: "none",
+              background: "#D4A652",
+              color: "#0B0B0A",
+              fontSize: "0.82rem",
+              fontWeight: 800,
+              cursor: "pointer",
+              letterSpacing: "0.02em",
+              textDecoration: "none",
+              transition: "all 0.3s cubic-bezier(.16,1,.3,1)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#C49840";
+              e.currentTarget.style.transform = "translateY(-1px)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#D4A652";
+              e.currentTarget.style.transform = "translateY(0)";
+            }}
+          >
+            View public page ↗
+          </a>
+        ) : null}
       </div>
 
       {/* ── Story arc SVG + labels ── */}

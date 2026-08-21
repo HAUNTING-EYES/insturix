@@ -68,6 +68,21 @@ interface ISocialize {
   accentColor?: string;
 }
 
+/** Honest relative timestamp for "Updated …" — the label was previously a
+    hardcoded "2m ago" regardless of reality. */
+function relativeTime(value: Date | string): string {
+  const then = new Date(value).getTime();
+  if (!Number.isFinite(then)) return "recently";
+  const s = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return d < 30 ? `${d}d ago` : new Date(then).toLocaleDateString();
+}
+
 const api = axios.create({
   baseURL: "/api",
   headers: {
@@ -516,6 +531,7 @@ export default function SocializeDashboard({
         username={uniqueUsername || "your"}
         activeSection={activeSection}
         onWaypointClick={scrollToSection}
+        profileUrl={uniqueUsername ? `https://insturix.com/profile/${uniqueUsername}` : undefined}
       />
       </div>
 
@@ -771,9 +787,11 @@ export default function SocializeDashboard({
             <div style={{ fontFamily: "var(--font-jetbrains-mono)", fontSize: 12, color: "#B5B2A8", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
               insturix.com/profile/{uniqueUsername}
             </div>
-            <div style={{ fontFamily: "var(--font-jetbrains-mono)", fontSize: 11, color: "#7A776E", marginTop: 4 }}>
-              Updated 2m ago
-            </div>
+            {userData?.updatedAt ? (
+              <div style={{ fontFamily: "var(--font-jetbrains-mono)", fontSize: 11, color: "#7A776E", marginTop: 4 }}>
+                Updated {relativeTime(userData.updatedAt)}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

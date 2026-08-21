@@ -499,6 +499,12 @@ export function UploaderXClientWrapper() {
       return;
     }
     setSelectedFile(file);
+    // A new video = a fresh publish run: drop the previous run's receipts and
+    // uploaded artifacts (they are what the fragmentation view's arm logic
+    // reads to decide retry-only arming).
+    setPublishResults({});
+    setUploadedGcsPath(null);
+    setUploadedVideoUuid(null);
     try {
       const meta = await extractVideoMetadata(file);
       setVideoMetadata(meta);
@@ -679,13 +685,27 @@ export function UploaderXClientWrapper() {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  // ─── Auto-arm connected platforms when entering fragmentation ─
+  // ─── Auto-arm when entering fragmentation ─────────────────────
+  // After a partial failure, re-entering must arm ONLY the failed platforms:
+  // the old behaviour re-armed everything (and wiped the receipts), so
+  // "retry" double-posted to every platform that had already succeeded.
+  // Results are kept here and cleared only when a new video is selected.
   useEffect(() => {
     if (view === "fragmentation") {
-      const connected = new Set(platformStatuses.filter(p => p.connected).map(p => p.key));
-      setArmedPlatforms(connected);
-      setPublishResults({});
+      const failed = Object.entries(publishResults)
+        .filter(([, r]) => r && !r.success)
+        .map(([key]) => key);
+      if (failed.length > 0) {
+        setArmedPlatforms(new Set(failed));
+      } else if (Object.keys(publishResults).length === 0) {
+        const connected = new Set(platformStatuses.filter(p => p.connected).map(p => p.key));
+        setArmedPlatforms(connected);
+      } else {
+        // Everything already succeeded — nothing should be armed by default.
+        setArmedPlatforms(new Set());
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, platformStatuses]);
 
   const toggleArm = useCallback((key: string) => {
@@ -731,7 +751,10 @@ export function UploaderXClientWrapper() {
         description,
         tags: metaTags.split(",").map(t => t.trim()).filter(Boolean),
         privacyStatus: metaPrivacy,
-        videoType: selectedPostTypes["youtube"] === "short" ? "short" : "long",
+        // Driven by the visible Short/Long toggle (metaVideoType) — it used to
+        // write state nothing read, while this line read a value the toggle
+        // never set. One control, one source.
+        videoType: metaVideoType,
         videoMetadata: videoMetadata || undefined,
       });
       if (!result.success) {
@@ -863,9 +886,11 @@ export function UploaderXClientWrapper() {
           {/* Pipeline breadcrumb */}
           <div data-ux-animate style={{ display: "flex", alignItems: "center", gap: 4, padding: "14px 0", borderBottom: `1px solid ${C.border}`, marginBottom: 24, overflowX: "auto", opacity: 0 }}>
             {STAGES.map((s, i) => {
-              const isDone = i < 4; // Script through Thumbnails done
+              // Earlier steps are UPSTREAM of this page, not verifiably "done" —
+              // the old `isDone = i < 4` painted them green-complete for every
+              // video regardless of reality. Neutral for prior, gold for here.
+              const isPrior = i < 4;
               const isCurrent = s.key === "publish";
-              const isFuture = i > 4;
               return (
                 <React.Fragment key={s.key}>
                   {i > 0 && <span style={{ color: C.t5, fontSize: 10, margin: "0 2px" }}>→</span>}
@@ -873,15 +898,15 @@ export function UploaderXClientWrapper() {
                     display: "flex", alignItems: "center", gap: 6,
                     padding: "5px 12px", borderRadius: 5,
                     fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)", fontSize: 10, letterSpacing: ".04em",
-                    color: isDone ? C.green : isCurrent ? C.gold : C.t5,
+                    color: isCurrent ? C.gold : isPrior ? C.t3 : C.t5,
                     background: isCurrent ? C.goldBg : "transparent",
                     border: isCurrent ? `1px solid ${C.goldBd}` : "1px solid transparent",
                     whiteSpace: "nowrap",
                   }}>
                     <span style={{
                       width: 5, height: 5, borderRadius: 3, flexShrink: 0,
-                      background: isDone ? C.green : isCurrent ? C.gold : C.t5,
-                      boxShadow: isDone ? "0 0 4px rgba(94,201,126,.25)" : isCurrent ? "0 0 4px rgba(212,166,82,.25)" : "none",
+                      background: isCurrent ? C.gold : isPrior ? C.t3 : C.t5,
+                      boxShadow: isCurrent ? "0 0 4px rgba(212,166,82,.25)" : "none",
                     }} />
                     {s.label}
                   </span>
