@@ -179,15 +179,17 @@ cumulative provider spend, model output, real execution or rendered proof.
 
 1. Exercise the new fail-closed V2R-3 runtime budget path in a complete
    zero-inference simulation with the real per-route token counters and an
-   exact case/manifest/route/spend authorization. Commit `e034f713a` contains
-   the four Editron-owned guard files alongside unrelated ThinkForge files due
-   to a shared-worktree commit race. The guard now binds per-case nodes,
+   exact case/manifest/route/spend authorization. Commit `ddfc04b78` contains
+   the four-file runtime guard slice. The guard now binds per-case nodes,
    candidates and cumulative output; dynamically lowers later-turn output;
    pre-authorizes input and worst-case spend; prices OpenAI cache writes and
    Gemini thought tokens; and rejects absent, inconsistent or over-bound usage.
-   Focused guard/historical-compatibility checks pass 23/23, and repository
-   typecheck/lint pass. This is `IMPLEMENTED_NOT_DISPATCH_PROVEN`: the
-   historical V2R-2 path remains unchanged, and no sealed inference call has
+   Commit `4d6230a04` adds the separately versioned budgeted trace/evaluator
+   path, binds both resource receipts to the V2R-3 context, and keeps resource
+   guard stops distinct from model/editing failure. Forged terminal/accounting
+   bindings fail closed. The combined current checks pass 17/17 and
+   typecheck/focused lint pass. This is `IMPLEMENTED_NOT_DISPATCH_PROVEN`: the
+   historical V2R-2/V1 paths remain unchanged, and no sealed inference call has
    used V2R-3 yet.
 2. Connect claim-appropriate real native/generated proof adapters. The current
    operation-log clone is insufficient for visual, audible or semantic PASS.

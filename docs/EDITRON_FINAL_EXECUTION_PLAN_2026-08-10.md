@@ -1431,12 +1431,17 @@ any bound file changes.
   over-bound accounting terminates before an owner operation runs. Candidate
   counting is explicitly pinned to catalog V2R-8 discovery/resolver outputs,
   so a later catalog revision must update that policy instead of silently
-  bypassing it. Focused historical and adversarial checks pass 23/23, and full
-  typecheck/lint pass. The code landed in mixed shared-worktree commit
-  `e034f713a`; its Editron scope is exactly four files, while two ThinkForge
-  files in that commit are unrelated. No sealed inference call has used this
-  path, real token-counter/pricing wiring and a full zero-inference episode
-  simulation remain pending, and proof adapters remain the dispatch blocker.
+  bypassing it. Commit `ddfc04b78` contains the four-file runtime owner slice.
+  Commit `4d6230a04` then adds a separately versioned V2R-3 selected-operation
+  trace and hidden evaluator: it binds the budgeted wrapper, provider receipt,
+  runtime-budget receipt and V2R-3 context while preserving the historical
+  V2R-2/V1 artifacts. Resource exhaustion or unverifiable accounting is now
+  `NOT_EVALUATED_RESOURCE_GUARD`, never an editing-model failure; forged or
+  inconsistent wrapper/trace bindings fail closed. The combined current
+  episode/resource/trace/evaluator checks pass 17/17 and typecheck/focused lint
+  pass. No sealed inference call has used this path, real token-counter/pricing
+  wiring and a full zero-inference episode simulation remain pending, and proof
+  adapters remain the dispatch blocker.
 - **Stage 2.5 status remains `MODIFY_AND_PROCEED_RESEARCH`.** No production
   model-driven mutation or Stage 3 control plane is authorized. Revision
   handoff repair, stale cohort correction, CAP-2A V3 reissue, the V3R4
@@ -1445,7 +1450,8 @@ any bound file changes.
   is pending. All eight sealed holdouts now have frozen media inputs, but none
   has made an inference call. The generic selected-operation projection and hidden
   pre-proof evaluator are now frozen without task-specific creative
-  compilation. The exact immediate order is now: bind the real per-route token
+  compilation. The budgeted V2R-3 trace/evaluation compatibility gap is also
+  closed. The exact immediate order is now: bind the real per-route token
   counters and approved pricing/egress facts to V2R-3; connect bounded real
   native/generated proof adapters for the claims being scored; exercise both
   in a complete zero-inference simulation; keep dispatch disabled

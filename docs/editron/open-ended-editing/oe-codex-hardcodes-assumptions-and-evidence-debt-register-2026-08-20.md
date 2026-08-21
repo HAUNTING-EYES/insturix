@@ -3,7 +3,7 @@
 Opened: 2026-08-20; last reconciled: 2026-08-22
 Authority: code-grounded programme audit; status register, not runtime authority
 Audit lane: editron-worktree / infrastructure-improvs-+Editron
-Audit HEAD: findings rechecked through 4939b96b1b30d6c210dbb15694f21040e1e6eddb;
+Audit HEAD: findings rechecked through 4d6230a04;
 sealed credential-preflight boundary dc341dfbe
 
 ## Purpose
@@ -134,7 +134,7 @@ stated. Later code fixes do not retroactively make the old run valid.
 | SEALED-07 | Task fixtures declare synthetic/no-egress policies, while a separate operator authorization allowed three metadata GETs and thirty-two Google `countTokens` POSTs. | RESEARCH_BOUND | Task policy is not itself provider authorization. The receipt must preserve this distinction; a future inference run needs an explicit egress/spend authorization covering its exact request hashes and routes. |
 | SEALED-08 | Complete tool context is repeated across the prompt, tool authority and provider declarations, producing roughly 67k-81k bounded initial tokens. | PROVISIONAL_POLICY | The repetition is transparent but expensive. Stable-prefix caching or a smaller lossless representation may be benchmarked only if request semantics remain byte-auditable and every provider receives equivalent information. |
 | SEALED-09 | The connected owner records typed operations and writer revisions in an isolated in-memory log. | RESEARCH_BOUND | It validates protocol and causal handoff only. It is not real native execution, generated compilation, ProjectService mutation, render proof or editorial quality evidence. |
-| SEALED-10 | Runtime-budget code landed in mixed shared-worktree commit `e034f713a` with two unrelated ThinkForge files. | HISTORY_NOTE | The Editron-owned scope is exactly `provider-native-tool-episode-v2r.ts`, `sealed-holdout-episode-v2r.ts`, new `sealed-holdout-runtime-budget-v2r.ts` and its focused test. Do not infer an Editron/ThinkForge architectural dependency from the mixed commit. |
+| SEALED-10 | Runtime budgeting and its budgeted trace/evaluator landed as two clean commits: `ddfc04b78` and `4d6230a04`. | VERIFIED_CURRENT | V2R-3 binds the runtime authorization, per-turn accounting and resource receipt through a separately versioned lossless trace and evaluator. Historical V2R-2/V1 artifacts remain unchanged. This is still `IMPLEMENTED_NOT_DISPATCH_PROVEN`; real counter/pricing/egress wiring, proof adapters and complete zero-inference simulation remain mandatory before dispatch. |
 
 ## D. Production timebase, media and render assumptions
 
