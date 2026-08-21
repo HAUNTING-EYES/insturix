@@ -6,7 +6,9 @@
 media suitable for a zero-inference benchmark preflight. This is
 `INPUT_EVIDENCE_READY`, not provider execution, model success, rendered edit
 quality or production certification. The subsequent local cohort preflight is
-now `PASS_READY_FOR_CREDENTIAL_PREFLIGHT`; provider dispatch remains disabled.
+now `PASS_READY_FOR_CREDENTIAL_PREFLIGHT`, and the generic public-case episode
+shell is `CODE_CONNECTED`. Owner-only evidence, execution, lowering and
+evaluation remain unwired; provider dispatch remains disabled.
 
 ## Bound identity
 
@@ -71,11 +73,35 @@ project mutations and kept `dispatchAuthorized=false`.
 - Local preflight receipt SHA-256:
   `69821f932e6baf6c5312d764ebdb836c232f842e7e3b018fcac621fea46b8773`
 
+## Generic public-case episode shell
+
+Commit `2a0176cc9f84f6b253a49757e1145f3dcf6c00be` connects each frozen public
+case to the existing provider-native sequential tool loop without modifying the
+historical DEV harness. It establishes these boundaries:
+
+- every case receives the same complete forty-operation planning context;
+- thirty-three operations are provider-callable while the seven unavailable
+  records remain visible and cannot be fabricated as calls;
+- a task-shaped operation subset is rejected rather than used as a hidden hint;
+- direct arguments and typed opaque-result references use the existing handoff
+  protocol;
+- `POLICY_BLOCKED` is distinct from `FAIL`, `CAPABILITY_GAP`, `UNVERIFIABLE`
+  and `CONFLICT` for supplied rights, privacy, egress or security denial;
+- evaluator-only facts, semantic condition names and expected answers remain
+  absent from provider requests;
+- the shell has no ProjectService authority and records no real-project state
+  effects.
+
+The shell accepts an injected isolated executor, but that executor is not yet
+connected to the owner-only evidence partition. It also does not lower or judge
+the completed episode. `CODE_CONNECTED` therefore does not mean executable
+holdout certification or provider readiness.
+
 ## What remains before provider calls
 
-1. Build one generic provider-native episode shell over the frozen public
-   packets. It must expose the complete tool context, resolve owner-only
-   evidence only after a valid tool call, and preserve typed opaque results.
+1. Connect the separately hashed owner-only evidence partition to an isolated
+   executor. Evidence may resolve only after a valid declared tool call, and
+   typed opaque results must remain causal handles rather than copied values.
 2. Freeze schema-driven lowering and evaluation before inference. Lowering may
    bind exact arguments, coordinates, revisions and result references; it may
    add or remove zero model-selected creative operations.
@@ -91,6 +117,7 @@ project mutations and kept `dispatchAuthorized=false`.
 - Holdout materializer: 4/4 tests passed.
 - Combined development and holdout materializers: 11/11 tests passed.
 - Sealed cohort/preflight tests: 3/3 passed; combined focused checks: 7/7.
+- Generic episode plus related protocol/preflight tests: 25/25 passed.
 - `npx tsc --noEmit`: passed.
 - Repository ESLint: passed.
 
