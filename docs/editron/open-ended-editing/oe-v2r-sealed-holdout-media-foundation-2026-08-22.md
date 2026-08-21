@@ -190,7 +190,11 @@ cumulative provider spend, model output, real execution or rendered proof.
    bindings fail closed. The combined current checks pass 17/17 and
    typecheck/focused lint pass. This is `IMPLEMENTED_NOT_DISPATCH_PROVEN`: the
    historical V2R-2/V1 paths remain unchanged, and no sealed inference call has
-   used V2R-3 yet.
+   used V2R-3 yet. Commit `94de011ae` now supplies the fail-closed route layer:
+   official dated prices, exact route/approval/request binding, local Luna/Terra
+   input estimation, authorized Google `countTokens` context egress, price
+   expiry and a no-secret/no-inference receipt. Its focused checks pass 3/3.
+   This closes the standalone route-binding gap, not the complete-episode gate.
 2. Connect claim-appropriate real native/generated proof adapters. The current
    operation-log clone is insufficient for visual, audible or semantic PASS.
 3. Run the combined zero-inference complete-episode budget/proof simulation
@@ -207,6 +211,8 @@ cumulative provider spend, model output, real execution or rendered proof.
 - Combined development and holdout materializers: 11/11 tests passed.
 - Sealed cohort/preflight tests: 3/3 passed; combined focused checks: 7/7.
 - Generic causal/owner/trace/evaluator checks: 21/21 passed.
+- V2R-3 route/accounting binding checks: 3/3 passed; full typecheck and focused
+  ESLint passed.
 - Credentialed initial-request preflight and combined sealed checks: 22/22
   passed; 96/96 captures verified with zero inference calls.
 - `npx tsc --noEmit`: passed.
