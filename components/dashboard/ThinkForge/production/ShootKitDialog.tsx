@@ -29,10 +29,12 @@ import {
 } from "@/components/ui/dialog";
 import type { ProductionCapabilityProfile } from "@/lib/thinkforge/production/production-capability-profile";
 import type { ScriptShotPlanIssue } from "@/lib/thinkforge/production/build-script-shot-plan";
+import type { CaptureAcquisitionDecisionInput } from "@/lib/thinkforge/production/capture-acquisition-decisions";
 import type { TreatmentCapturePlan } from "@/lib/thinkforge/production/semantic-capture-plan";
 import type { ShotPlan } from "@/lib/thinkforge/production/shot-plan";
 import { ShootKitProfileForm, type ShootKitSettings } from "./ShootKitProfileForm";
 import { ShootKitResult } from "./ShootKitResult";
+import { CaptureAcquisitionDecisionForm } from "./CaptureAcquisitionDecisionForm";
 import { TreatmentCapturePlanResult } from "./TreatmentCapturePlanResult";
 
 const ENDPOINT = "/api/services/thinkforge/production/shot-plan";
@@ -169,6 +171,42 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
       if (result.ok && (result.body.status === "ready" || result.body.status === "capture-projection")) {
         setEditing(false);
       }
+    } finally {
+      submitLockRef.current = false;
+      setSubmitting(false);
+    }
+  }, [request, scriptId, sessionId]);
+
+  const submitCaptureAcquisition = React.useCallback(async (
+    decisions: CaptureAcquisitionDecisionInput[],
+  ) => {
+    if (submitLockRef.current || !sessionId || !scriptId) return;
+    const current = dataRef.current;
+    if (
+      !current
+      || current.status !== "capture-projection"
+      || current.capturePlan.unclassifiedRequirements.length === 0
+      || !Number.isInteger(current.documentVersion)
+      || current.documentVersion < 1
+    ) {
+      setError({ message: "Reload the Shoot Kit before saving an evidence acquisition choice." });
+      return;
+    }
+    submitLockRef.current = true;
+    setSubmitting(true);
+    try {
+      await request({
+        url: ENDPOINT,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save-capture-acquisition",
+          sessionId,
+          scriptId,
+          expectedDocumentVersion: current.documentVersion,
+          decisions,
+        }),
+      });
     } finally {
       submitLockRef.current = false;
       setSubmitting(false);
@@ -332,6 +370,11 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
                 plan={data.capturePlan}
                 onEditInputs={data.capturePlan.physicalCaptureRequirements.length > 0 ? () => setEditing(true) : undefined}
                 refreshing={refreshing}
+              />
+              <CaptureAcquisitionDecisionForm
+                requirements={data.capturePlan.unclassifiedRequirements}
+                submitting={submitting}
+                onSubmit={(decisions) => void submitCaptureAcquisition(decisions)}
               />
             </>
           ) : (
