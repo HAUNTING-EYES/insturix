@@ -5,6 +5,7 @@ import {
   type GeneratedCompositionProgramV1,
   type GeneratedCompositionSourceBundleV1,
 } from './generated-composition-program-v1';
+import { DEV02_GENERATED_SOURCE_ACCEPTANCE_CONTRACT_V1 } from './generated-composition-dev02-rendered-proof-v1';
 import type { HashedStagePacketV2, ProviderStagePacketV2 } from './staged-packet-v2';
 import {
   DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1,
@@ -68,9 +69,16 @@ const API_SURFACE_V1 = deepFreezeV1({
 export function buildDev02GeneratedCompositionModelPacketV1(input: {
   apiImplementationHash: string;
   repair?: GeneratedCompositionModelRepairV1;
+  orchestratorSpec?: Readonly<JsonRecord>;
 }): Readonly<HashedStagePacketV2> {
   if (!/^[a-f0-9]{64}$/.test(input.apiImplementationHash)) throw new Error('MODEL_PACKET_API_HASH_INVALID');
   if (input.repair) validateRepair(input.repair);
+  if (input.orchestratorSpec && !Object.keys(input.orchestratorSpec).length) {
+    throw new Error('MODEL_PACKET_ORCHESTRATOR_SPEC_EMPTY');
+  }
+  const orchestratorSpec = input.orchestratorSpec
+    ? structuredClone(input.orchestratorSpec)
+    : undefined;
   const packet: ProviderStagePacketV2 = {
     packetVersion: 'EDITRON_OE_PROVIDER_STAGE_PACKET_V2',
     authority: 'RESEARCH_ONLY_NO_PROVIDER_DISPATCH_OR_PROJECT_MUTATION',
@@ -84,6 +92,8 @@ export function buildDev02GeneratedCompositionModelPacketV1(input: {
       'Write the complete GeneratedComposition.tsx implementation against only the closed API surface.',
       'Satisfy the target blueprint and program manifest; do not reproduce prose or emit Markdown fences.',
       'Do not claim success: the host verifier, deny-all render, rendered hard gates, and editor review decide it.',
+      'Treat renderedAcceptanceContract as the declared tests for this operation; satisfy them without copying or gaming a known implementation.',
+      'Keep the complete UTF-8 TSX source at or below sourceAcceptanceContract.maxSourceBytes.',
       'Return source code only in the outputContract source field.',
       ...(input.repair ? ['Repair only the supplied prior source against the bounded diagnostics; preserve already valid behavior.'] : []),
     ],
@@ -95,13 +105,25 @@ export function buildDev02GeneratedCompositionModelPacketV1(input: {
       maxProviderCostUsd: 0.75,
     },
     modelInput: {
-      benchmarkContract: 'EDITRON_DEV02_MODEL_GENERATED_SOURCE_V1',
+      benchmarkContract: 'EDITRON_DEV02_MODEL_GENERATED_SOURCE_V2',
       targetBlueprint: DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1 as unknown as JsonRecord,
       evidencePack: DEV02_GENERATED_COMPOSITION_EVIDENCE_PACK_V1 as unknown as JsonRecord,
       supplementalFacts: DEV02_GENERATED_COMPOSITION_SUPPLEMENTAL_FACTS_V1 as unknown as JsonRecord[],
       programManifest: promptProgramManifest(),
       allowedApiSurface: API_SURFACE_V1,
       apiImplementationHash: input.apiImplementationHash,
+      renderedAcceptanceContract: DEV02_GENERATED_SOURCE_ACCEPTANCE_CONTRACT_V1,
+      sourceAcceptanceContract: {
+        maxSourceBytes: DEV02_GENERATED_COMPOSITION_PROGRAM_V1.resourceBudget.maxSourceBytes,
+        encoding: 'UTF-8',
+        fileCount: DEV02_GENERATED_COMPOSITION_PROGRAM_V1.resourceBudget.maxSourceFiles,
+      },
+      ...(orchestratorSpec ? {
+        orchestratorOperationRequest: {
+          arguments: orchestratorSpec,
+          argumentsSha256: hashCanonicalJsonV1(orchestratorSpec),
+        },
+      } : {}),
       ...(input.repair ? { repair: input.repair } : {}),
     },
     outputContract: {

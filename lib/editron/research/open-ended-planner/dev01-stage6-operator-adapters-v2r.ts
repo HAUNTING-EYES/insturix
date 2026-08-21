@@ -57,8 +57,18 @@ function resolveTranscript(
   const query = requiredString(inputs.query, 'TRANSCRIPT_QUERY');
   const intent = requiredRecord(inputs.intent, 'TRANSCRIPT_INTENT');
   const action = requiredString(intent.action, 'TRANSCRIPT_ACTION') as TranscriptEditAction;
+  const minGapFrames = intent.minGapFrames === undefined
+    ? undefined
+    : requiredInteger(intent.minGapFrames, 'TRANSCRIPT_MIN_GAP_FRAMES');
+  const maxCutFrames = intent.maxCutFrames === undefined
+    ? undefined
+    : requiredInteger(intent.maxCutFrames, 'TRANSCRIPT_MAX_CUT_FRAMES');
   const evidence = dev01Stage6CausalEvidenceV2R(fixture);
-  const resolution = resolveTranscriptEditRange([...evidence.transcriptWords], query, { action });
+  const resolution = resolveTranscriptEditRange([...evidence.transcriptWords], query, {
+    action,
+    ...(minGapFrames === undefined ? {} : { minGapFrames }),
+    ...(maxCutFrames === undefined ? {} : { maxCutFrames }),
+  });
   if (resolution.status !== 'ready' || !resolution.cutSection) {
     throw new Error(`DEV01_STAGE6_TRANSCRIPT_UNRESOLVED:${resolution.status}`);
   }
@@ -93,12 +103,14 @@ function applyCut(
   return {
     outputs: {
       receipt: {
-        result: 'PASS',
-        targetRange: range,
-        framesCut: cut.framesCut,
-        counts: {
-          deleted: cut.deleted, trimmed: cut.trimmed, shifted: cut.shifted,
-          split: cut.split, created: cut.created,
+        status: 'PASS',
+        proof: {
+          targetRange: range,
+          framesCut: cut.framesCut,
+          counts: {
+            deleted: cut.deleted, trimmed: cut.trimmed, shifted: cut.shifted,
+            split: cut.split, created: cut.created,
+          },
         },
       },
       timelineCoordinateTransform: cut.timelineCoordinateTransform,
@@ -200,7 +212,7 @@ function applyKeyframes(
     ...(inputs.focalPoint === undefined ? {} : { focalPoint: normalizedPoint(inputs.focalPoint) }),
   });
   return {
-    outputs: { receipt: { result: 'PASS', overlayId, property: 'scale' } },
+    outputs: { receipt: { status: 'PASS', proof: { overlayId, property: 'scale' } } },
     nextProject: replaceOverlay(project, overlayId, { ...overlay, ...mutation.patch }),
     mutationStage: 'PUSH',
     changedPaths: [
@@ -229,7 +241,12 @@ function applyDucking(
     changedPaths.push(`overlays.${overlayId}.styles.duckingConfig`);
   }
   return {
-    outputs: { receipt: { result: 'PASS', updatedOverlayIds: plan.updates.map(({ overlayId }) => overlayId) } },
+    outputs: {
+      receipt: {
+        status: 'PASS',
+        proof: { updatedOverlayIds: plan.updates.map(({ overlayId }) => overlayId) },
+      },
+    },
     nextProject,
     mutationStage: 'DUCK',
     changedPaths,

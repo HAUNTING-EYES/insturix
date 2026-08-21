@@ -4,7 +4,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { evaluateDev02GeneratedCompositionRenderedProofV1 } from './generated-composition-dev02-rendered-proof-v1';
+import {
+  evaluateDev02GeneratedCompositionRenderedProofV1,
+  type Dev02GeneratedCompositionRenderedProofV1,
+} from './generated-composition-dev02-rendered-proof-v1';
 import { materializeGeneratedCompositionLocalEvidenceV1 } from './generated-composition-local-evidence-v1';
 import { DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V1 } from './generated-composition-research-proxy-capability-v1';
 import { compileCanonicalDev02HybridStage4GraphV2 } from './dev02-hybrid-stage4-compiler-v2';
@@ -85,10 +88,6 @@ export async function executeConnectedDev02HybridMechanicsV2(input: {
     boundaryReferencePath,
     referenceBlueprint: record(record(sourceGraph).previewInputBundle).referenceBlueprint,
   });
-  if (renderedProof.hardGateDisposition !== 'PASS') {
-    throw new Error('DEV02_CONNECTED_MECHANICS_GENERATED_PROOF_NOT_PASS');
-  }
-
   const sourceStage6ReceiptPath = path.join(islandRoot, 'stage6-research-proxy-receipt-v2.json');
   await Promise.all([
     writeJson(sourceStage6ReceiptPath, stage6Evidence.receipt),
@@ -96,6 +95,9 @@ export async function executeConnectedDev02HybridMechanicsV2(input: {
     writeJson(path.join(islandRoot, 'sandbox-worker-result.json'), stage6Evidence.workerResult),
     writeJson(path.join(islandRoot, 'rendered-proof.json'), renderedProof),
   ]);
+  if (renderedProof.hardGateDisposition !== 'PASS') {
+    throw new Error(summarizeDev02RenderedProofFailureV2(renderedProof));
+  }
 
   const closeHash = sha256(closeBytes);
   const nativeSource: Dev02HybridNativeSourceBindingV2 = {
@@ -126,6 +128,16 @@ export async function executeConnectedDev02HybridMechanicsV2(input: {
     hybridVideoPath: hybridVideo.path,
     diagnostics: hybridEvaluation.diagnostics,
   });
+}
+
+export function summarizeDev02RenderedProofFailureV2(
+  proof: Pick<Dev02GeneratedCompositionRenderedProofV1, 'checks'>,
+): string {
+  const failed = proof.checks
+    .filter(({ status }) => status === 'FAIL')
+    .map(({ checkId, metrics }) => `${checkId}:${JSON.stringify(metrics)}`);
+  const detail = (failed.length ? failed : ['UNKNOWN_HARD_GATE']).join('|').slice(0, 420);
+  return `DEV02_CONNECTED_MECHANICS_GENERATED_PROOF_NOT_PASS:${detail}`;
 }
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {

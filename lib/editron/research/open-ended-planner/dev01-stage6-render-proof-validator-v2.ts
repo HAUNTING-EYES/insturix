@@ -10,6 +10,25 @@ type ProofDimensionV2 = 'PASS' | 'FAIL';
 export const DEV01_STAGE6_RENDER_PROOF_POLICY_V2 =
   'EDITRON_OE_DEV01_STAGE6_RENDER_PROOF_POLICY_V2' as const;
 
+export const DEV01_PROVIDER_NATIVE_AUDIO_PROOF_REQUIREMENTS_V2R = Object.freeze({
+  policyVersion: 'EDITRON_OE_DEV01_PROVIDER_NATIVE_AUDIO_PROOF_V2R_1' as const,
+  minimumEffectiveDuckReductionDb: 1,
+  maximumRenderedToExpectedDeviationDb: 0.75,
+  soloRecoveryRatio: Object.freeze({ minimum: 0.97, maximum: 1.03 }),
+  minimumDialogueLiftOverDuckedBgmDb: 6,
+  fullMixPeakExclusiveMaximum: 0.99,
+});
+
+export interface Dev01BoundAudioProofPolicyV2R {
+  policyVersion: typeof DEV01_PROVIDER_NATIVE_AUDIO_PROOF_REQUIREMENTS_V2R.policyVersion;
+  minimumEffectiveDuckReductionDb: number;
+  maximumRenderedToExpectedDeviationDb: number;
+  soloRecoveryRatio: Readonly<{ minimum: number; maximum: number }>;
+  minimumDialogueLiftOverDuckedBgmDb: number;
+  fullMixPeakExclusiveMaximum: number;
+  expectedDuckReductionDb: number;
+}
+
 export interface Dev01Stage6RenderProofValidationV2 {
   policyVersion: typeof DEV01_STAGE6_RENDER_PROOF_POLICY_V2;
   assessment: ProofDimensionV2;
@@ -27,6 +46,7 @@ const EXPECTED_RENDERER = {
 
 export function validateDev01Stage6RenderProofV2(
   candidate: unknown,
+  boundAudioPolicy?: Readonly<Dev01BoundAudioProofPolicyV2R>,
 ): Readonly<Dev01Stage6RenderProofValidationV2> {
   const proof = record(candidate);
   const diagnostics: string[] = [];
@@ -58,11 +78,15 @@ export function validateDev01Stage6RenderProofV2(
 
   if (!exact(audio.sampleRateHz, 48_000) || !exact(audio.bgmProofSampleFrames, 696_000)
     || !within(audio.fullMixSampleFrames, 696_000, 700_000)) diagnostics.push('AUDIO_DURATION_OR_RATE_INVALID');
+  const envelopeValid = boundAudioPolicy
+    ? matchesBoundAudioPolicy(audio, boundAudioPolicy)
+    : within(audio.duckReductionDb, 10, 14) && within(audio.soloRecoveryRatio, 0.97, 1.03);
   if (!positive(audio.bgmSoloBeforeRms) || !positive(audio.bgmDuckedRms)
-    || !positive(audio.bgmSoloAfterRms) || !within(audio.duckReductionDb, 10, 14)
-    || !within(audio.soloRecoveryRatio, 0.97, 1.03)) diagnostics.push('AUDIO_DUCK_ENVELOPE_INVALID');
-  if (!positive(audio.fullSpeechRms) || !atLeast(audio.dialogueLiftOverDuckedBgmDb, 6)
-    || !withinExclusive(audio.fullMixPeak, 0, 0.99)) diagnostics.push('AUDIO_DIALOGUE_OR_PEAK_INVALID');
+    || !positive(audio.bgmSoloAfterRms) || !envelopeValid) diagnostics.push('AUDIO_DUCK_ENVELOPE_INVALID');
+  const minimumDialogueLift = boundAudioPolicy?.minimumDialogueLiftOverDuckedBgmDb ?? 6;
+  const peakMaximum = boundAudioPolicy?.fullMixPeakExclusiveMaximum ?? 0.99;
+  if (!positive(audio.fullSpeechRms) || !atLeast(audio.dialogueLiftOverDuckedBgmDb, minimumDialogueLift)
+    || !withinExclusive(audio.fullMixPeak, 0, peakMaximum)) diagnostics.push('AUDIO_DIALOGUE_OR_PEAK_INVALID');
 
   const browserErrors = proof.browserErrors;
   const externalCallsValid = same(proof.externalCalls, {
@@ -87,12 +111,47 @@ export function validateDev01Stage6RenderProofV2(
 
 export function assertValidDev01Stage6RenderProofV2(
   proof: Dev01Stage6RenderProofV2,
+  boundAudioPolicy?: Readonly<Dev01BoundAudioProofPolicyV2R>,
 ): Readonly<Dev01Stage6RenderProofValidationV2> {
-  const validation = validateDev01Stage6RenderProofV2(proof);
+  const validation = validateDev01Stage6RenderProofV2(proof, boundAudioPolicy);
   if (validation.assessment !== 'PASS') {
     throw new Error(`DEV01_STAGE6_RENDER_PROOF_INVALID:${validation.diagnostics.join('|')}`);
   }
   return validation;
+}
+
+export function bindDev01ProviderNativeAudioProofPolicyV2R(
+  projectSnapshot: unknown,
+): Readonly<Dev01BoundAudioProofPolicyV2R> {
+  const bgmOverlays = records(record(projectSnapshot).overlays)
+    .filter((overlay) => overlay.assetId === 'dev01-bgm-truth-v2');
+  if (bgmOverlays.length !== 1) throw new Error('DEV01_PROVIDER_NATIVE_AUDIO_POLICY_BGM_IDENTITY_INVALID');
+  const styles = record(bgmOverlays[0].styles);
+  const duckingConfig = record(styles.duckingConfig);
+  const baseVolume = number(styles.volume);
+  const duckLevel = number(duckingConfig.duckLevel);
+  if (duckingConfig.enabled !== true || baseVolume === undefined || duckLevel === undefined
+    || baseVolume <= 0 || duckLevel <= 0 || duckLevel >= baseVolume) {
+    throw new Error('DEV01_PROVIDER_NATIVE_AUDIO_POLICY_DUCK_CONFIG_INVALID');
+  }
+  return Object.freeze({
+    ...DEV01_PROVIDER_NATIVE_AUDIO_PROOF_REQUIREMENTS_V2R,
+    expectedDuckReductionDb: round(20 * Math.log10(baseVolume / duckLevel)),
+  });
+}
+
+function matchesBoundAudioPolicy(
+  audio: Readonly<JsonRecord>,
+  policy: Readonly<Dev01BoundAudioProofPolicyV2R>,
+): boolean {
+  const reduction = number(audio.duckReductionDb);
+  if (reduction === undefined || reduction < policy.minimumEffectiveDuckReductionDb) return false;
+  if (Math.abs(reduction - policy.expectedDuckReductionDb) > policy.maximumRenderedToExpectedDeviationDb) return false;
+  return within(
+    audio.soloRecoveryRatio,
+    policy.soloRecoveryRatio.minimum,
+    policy.soloRecoveryRatio.maximum,
+  );
 }
 
 function record(value: unknown): JsonRecord {
@@ -100,6 +159,7 @@ function record(value: unknown): JsonRecord {
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null ? value as JsonRecord : {};
 }
+function records(value: unknown): JsonRecord[] { return Array.isArray(value) ? value.map(record) : []; }
 function number(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
@@ -126,3 +186,4 @@ function dimension(diagnostics: readonly string[], prefix: string): ProofDimensi
   return diagnostics.some((diagnostic) => diagnostic.startsWith(prefix)) ? 'FAIL' : 'PASS';
 }
 function compareUtf16(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
+function round(value: number): number { return Number(value.toFixed(6)); }

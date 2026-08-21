@@ -37,6 +37,57 @@ export const DEV02_RENDERED_PROOF_POLICY_V1 = Object.freeze({
   },
 } as const);
 
+export const DEV02_GENERATED_SOURCE_ACCEPTANCE_CONTRACT_V1 = Object.freeze({
+  contractId: 'EDITRON_DEV02_GENERATED_SOURCE_ACCEPTANCE_CONTRACT_V1',
+  policyId: DEV02_RENDERED_PROOF_POLICY_V1.policyId,
+  requiredFrames: DEV02_RENDERED_PROOF_POLICY_V1.requiredFrames,
+  thresholds: DEV02_RENDERED_PROOF_POLICY_V1.thresholds,
+  hardGateChecks: [
+    {
+      checkId: 'FRAME_INTEGRITY',
+      rule: 'Every required frame must meet minimumNonBlackRatio and minimumFrameVariance.',
+    },
+    {
+      checkId: 'SETTLED_PANEL_GEOMETRY',
+      observationFrame: 108,
+      rule: 'All five declared panel interiors must be occupied while the declared black gutters remain black.',
+    },
+    {
+      checkId: 'TITLE_FORM',
+      observationFrame: 108,
+      rule: 'Exactly two visible yellow title-line bands must remain inside the centre 90 percent title-safe area.',
+    },
+    {
+      checkId: 'OPPOSED_PANEL_MOTION',
+      earlyFrame: 24,
+      settledFrame: 108,
+      rule: 'Centre occupancy must rise and side occupancy must descend by at least minimumOpposedTravelPixelsAt1080x1920.',
+    },
+    {
+      checkId: 'PHASE_STRUCTURE',
+      comparisons: ['0->24 build', '24->108 build', '108->144 hold', '145->179 release'],
+      rule: 'Both build comparisons and the release must exceed their minimum differences; the hold must remain below maximumHoldDifference.',
+    },
+    {
+      checkId: 'FULL_CANVAS_RELEASE',
+      observationFrame: 179,
+      rule: 'The final centre takeover must meet minimumFullCanvasNonBlackRatio.',
+    },
+  ],
+  additionalProof: [
+    {
+      checkId: 'BOUNDARY_CONTINUITY',
+      generatedFrame: 179,
+      followingSourceFrame: 180,
+      rule: 'The generated exit and trusted following source frame must remain within maximumBoundaryDifference.',
+    },
+    {
+      checkId: 'FLASH_SAFETY',
+      rule: 'Still-frame checks cannot prove flash safety; frame-complete approved PSE QC remains required.',
+    },
+  ],
+} as const);
+
 type ProofStatus = 'PASS' | 'FAIL' | 'UNVERIFIABLE';
 
 export interface GeneratedCompositionRenderedCheckV1 {
@@ -83,7 +134,7 @@ export async function evaluateDev02GeneratedCompositionRenderedProofV1(input: {
   for (const still of input.proxyReceipt.stills) {
     const bytes = await fs.readFile(still.path);
     if (sha256(bytes) !== still.sha256) throw new Error(`DEV-02 rendered proof still hash drift: ${still.frame}`);
-    const image = await loadImage(still.path, input.program.canvas.width, input.program.canvas.height, still.frame);
+    const image = await loadImage(bytes, input.program.canvas.width, input.program.canvas.height, still.frame);
     frames.set(still.frame, image);
   }
   const required = DEV02_RENDERED_PROOF_POLICY_V1.requiredFrames.map((frame) => requiredFrame(frames, frame));
@@ -147,8 +198,8 @@ function assertPolicyBindings(
     });
 }
 
-async function loadImage(filePath: string, width: number, height: number, frame: number): Promise<LoadedFrame> {
-  const decoded = await sharp(filePath).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+async function loadImage(bytes: Buffer, width: number, height: number, frame: number): Promise<LoadedFrame> {
+  const decoded = await sharp(bytes).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   if (decoded.info.width !== width || decoded.info.height !== height || decoded.info.channels !== 3) throw new Error(`DEV-02 rendered proof dimensions drift: ${frame}`);
   return { frame, data: decoded.data, width, height };
 }
@@ -230,7 +281,7 @@ function fullCanvasReleaseCheck(frame: LoadedFrame, claimIds: readonly string[])
 
 async function boundaryContinuityCheck(finalFrame: LoadedFrame, referencePath: string | undefined, claimIds: readonly string[]): Promise<GeneratedCompositionRenderedCheckV1> {
   if (!referencePath) return unverifiable('BOUNDARY_CONTINUITY', claimIds, 'No trusted following-shot source frame was supplied.');
-  const decoded = await sharp(referencePath).resize(finalFrame.width, finalFrame.height, { fit: 'cover' }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const decoded = await sharp(await fs.readFile(referencePath)).resize(finalFrame.width, finalFrame.height, { fit: 'cover' }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const reference: LoadedFrame = { frame: finalFrame.frame + 1, data: decoded.data, width: decoded.info.width, height: decoded.info.height };
   const difference = meanAbsoluteDifference(finalFrame, reference);
   return check('BOUNDARY_CONTINUITY', difference <= DEV02_RENDERED_PROOF_POLICY_V1.thresholds.maximumBoundaryDifference, claimIds, { normalizedDifference: difference }, 'The generated exit must match the trusted source frame used by the following native shot.');
