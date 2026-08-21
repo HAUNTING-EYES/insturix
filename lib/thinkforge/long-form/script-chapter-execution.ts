@@ -1,5 +1,7 @@
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
 import type { ScriptWriterResult } from '../agents/script-writer-agent';
+import type { NarrativeBeatV2 } from '../schemas/script-sidecar-v2';
+import type { NarrativeBeatV3 } from '../schemas/script-sidecar-v3';
 import type { ScriptChapterArtifact } from './script-generation-job-contract';
 import {
   ScriptChapterPlanSchema,
@@ -58,6 +60,15 @@ interface PreviousChapterContinuity {
       narrativePurpose: string;
       spokenText: string;
       visualDescription: string;
+      /** Immutable V3 treatment meaning, never a technical shot or render instruction. */
+      visualEventSemantics: Array<{
+        treatmentEventId: string;
+        visualThesis: string;
+        audienceJob: string;
+        audioRelationship: string;
+        continuityNotes: string[];
+        sourceRefs: string[];
+      }>;
     }>;
   };
 }
@@ -192,6 +203,7 @@ export function findScriptChapterExecutionOutputIssues(
       ...scene.beats.flatMap((beat) => [
         ...beat.sourceRefs,
         ...beat.lines.flatMap((line) => line.sourceRefs),
+        ...('visualEvents' in beat ? beat.visualEvents.flatMap((event) => event.sourceRefs) : []),
       ]),
     ]);
     blueprint.requiredSourceRefs.forEach((sourceRef) => {
@@ -245,10 +257,30 @@ function resolvePreviousChapterContinuity(input: {
           .filter((line) => line.delivery !== 'on-screen-text')
           .map((line) => line.text)
           .join(' '),
-        visualDescription: beat.visualIntent?.description ?? '',
+        ...previousBeatVisualContinuity(beat),
       })),
     },
   };
+}
+
+function previousBeatVisualContinuity(beat: NarrativeBeatV2 | NarrativeBeatV3): {
+  visualDescription: string;
+  visualEventSemantics: PreviousChapterContinuity['finalScene']['beats'][number]['visualEventSemantics'];
+} {
+  const visualEventSemantics = 'visualEvents' in beat
+    ? beat.visualEvents.map((event) => ({
+      treatmentEventId: event.treatmentEventId,
+      visualThesis: event.visualThesis,
+      audienceJob: event.audienceJob,
+      audioRelationship: event.audioRelationship,
+      continuityNotes: [...event.continuityNotes],
+      sourceRefs: [...event.sourceRefs],
+    }))
+    : [];
+  const visualDescription = visualEventSemantics.length > 0
+    ? visualEventSemantics.map((event) => `${event.visualThesis} Audience job: ${event.audienceJob}`).join(' | ')
+    : ('visualIntent' in beat && beat.visualIntent ? beat.visualIntent.description : '');
+  return { visualDescription, visualEventSemantics };
 }
 
 function chapterNeighbor(

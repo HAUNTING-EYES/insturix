@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
-import { ScriptWriterAgent } from '@/lib/thinkforge/agents/script-writer-agent';
+import {
+  ScriptWriterAgent,
+  isScriptWriterV3Result,
+  materializeScriptWriterV3Result,
+  type ScriptWriterV3ModelOutput,
+} from '@/lib/thinkforge/agents/script-writer-agent';
 import { buildThinkForgeEditorialPlan } from '@/lib/thinkforge/agents/editorial-plan';
 import {
   findScriptChapterExecutionOutputIssues,
@@ -8,6 +13,10 @@ import {
   resolveScriptChapterExecution,
   ScriptChapterExecutionError,
 } from '@/lib/thinkforge/long-form/script-chapter-execution';
+import {
+  buildScriptChapterSemanticRequirementsForPlan,
+  validateScriptChapterSemanticExecution,
+} from '@/lib/thinkforge/long-form/script-chapter-semantic-validation';
 import {
   hashLongFormScriptJobValue,
   type ScriptChapterArtifact,
@@ -19,6 +28,7 @@ import {
   materializeScriptChapterPlan,
   type ScriptChapterPlan,
 } from '@/lib/thinkforge/schemas/script-chapter-plan';
+import { mixedPresenterCutawayTreatment } from '@/tests/fixtures/thinkforge-video-treatment';
 
 const FULL_RUNTIME_SECONDS = 3_600;
 const OPENING_CHAPTER_SECONDS = 180;
@@ -157,6 +167,67 @@ function previousArtifact(masterPlan: ScriptChapterPlan): ScriptChapterArtifact 
   } as unknown as ScriptChapterArtifact;
 }
 
+function previousV3Artifact(masterPlan: ScriptChapterPlan): ScriptChapterArtifact {
+  const output: ScriptWriterV3ModelOutput = {
+    contentAnalysis: {
+      hooks: ['Open on the question that the following chapter must carry forward.'],
+      theme: 'Knowledge transfer.',
+      emphasisPoints: ['scene_open'],
+      qualityScore: 91,
+    },
+    visualMetadata: { motionInfo: mixedPresenterCutawayTreatment.visualRhythm },
+    metadata: { platform: 'youtube' },
+    sidecar: {
+      sidecarVersion: 3,
+      spokenTextSource: 'beat-lines',
+      characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }],
+      acts: [{
+        id: 'act_observe',
+        title: 'What the object hides',
+        narrativePurpose: 'Make the invisible work and stakes concrete.',
+        narrativeScenes: [{
+          id: 'scene_open',
+          title: 'Unfinished work',
+          narrativePurpose: 'Open the central question through observed work.',
+          durationIntentSeconds: OPENING_CHAPTER_SECONDS,
+          charactersPresent: ['narrator'],
+          sourceRefs: ['brief_user'],
+          beats: [{
+            id: 'beat_open',
+            kind: 'voiceover',
+            narrativePurpose: 'Leave the central question active.',
+            durationIntentSeconds: OPENING_CHAPTER_SECONDS,
+            lines: [{
+              id: 'line_open',
+              text: 'The unfinished edge leaves one question: who learns the next movement?',
+              speakerId: 'narrator',
+              languageCode: 'en',
+              onCamera: false,
+              delivery: 'voiceover',
+              sourceRefs: ['brief_user'],
+            }],
+            treatmentVisualEvents: [{ treatmentEventId: 'event_host_claim' }],
+            sourceRefs: ['brief_user'],
+          }],
+        }],
+      }],
+      sourceRefs: ['brief_user'],
+    },
+  };
+  return {
+    actId: 'act_observe',
+    chapterId: 'chapter_open',
+    planHash: hashLongFormScriptJobValue(masterPlan),
+    result: materializeScriptWriterV3Result(
+      output,
+      mixedPresenterCutawayTreatment,
+      { mode: 'chapter', chapterId: 'chapter_open' },
+      undefined,
+      ['event_host_claim'],
+    ),
+  } as ScriptChapterArtifact;
+}
+
 describe('script chapter execution', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -211,6 +282,96 @@ describe('script chapter execution', () => {
       chapterId: 'chapter_future',
       previousArtifact: artifact,
     })).toThrowError(ScriptChapterExecutionError);
+  });
+
+  it('carries V3 treatment meaning through chapter continuity without inventing technical form', () => {
+    const masterPlan = plan();
+    const execution = resolveScriptChapterExecution({
+      plan: masterPlan,
+      actId: 'act_continue',
+      chapterId: 'chapter_future',
+      previousArtifact: previousV3Artifact(masterPlan),
+    });
+    const beat = execution.previousChapterContinuity?.finalScene.beats[0];
+
+    expect(beat?.visualDescription).toContain('Keep the audience with the host');
+    expect(beat?.visualEventSemantics).toEqual([expect.objectContaining({
+      treatmentEventId: 'event_host_claim',
+      audienceJob: 'Establish authority and emotional stakes.',
+      audioRelationship: 'anchor',
+    })]);
+    expect(JSON.stringify(beat?.visualEventSemantics)).not.toContain('shotIntent');
+    expect(JSON.stringify(beat?.visualEventSemantics)).not.toContain('camera');
+  });
+
+  it('lets the semantic validator cite real V3 treatment events and rejects invented IDs', async () => {
+    const masterPlan = plan();
+    const artifact = previousV3Artifact(masterPlan);
+    if (!isScriptWriterV3Result(artifact.result)) {
+      throw new Error('Expected the fixture to materialize a V3 result.');
+    }
+    const actualScene = artifact.result.sidecar.acts[0]?.narrativeScenes[0];
+    const actualBeat = actualScene?.beats[0];
+    const actualVisualEventId = actualBeat?.visualEvents[0]?.id;
+    if (!actualScene || !actualBeat || !actualVisualEventId) {
+      throw new Error('Expected a materialized V3 scene, beat, and visual event.');
+    }
+    const requirements = buildScriptChapterSemanticRequirementsForPlan({
+      plan: masterPlan,
+      actId: 'act_observe',
+      chapterId: 'chapter_open',
+    });
+    const receipt = await validateScriptChapterSemanticExecution({
+      chapterExecution: { plan: masterPlan, actId: 'act_observe', chapterId: 'chapter_open' },
+      result: artifact.result,
+    }, {
+      generate: async (input) => {
+        expect(input.prompt).toContain('SEMANTIC VISUAL EVENT event_host_claim');
+        return {
+          modelName: 'gemini-test',
+          cacheStatus: 'inline',
+          result: {
+            assessments: requirements.map((requirement) => ({
+              requirementId: requirement.id,
+              status: 'satisfied' as const,
+              evidence: [{
+                sceneId: actualScene.id,
+                beatId: actualBeat.id,
+                kind: 'visual_event' as const,
+                lineIds: [],
+                visualEventIds: [actualVisualEventId],
+              }],
+              rationale: 'The cited treatment event is present in the approved V3 chapter sidecar.',
+            })),
+          },
+        };
+      },
+    });
+    expect(receipt.assessments).toHaveLength(requirements.length);
+
+    await expect(validateScriptChapterSemanticExecution({
+      chapterExecution: { plan: masterPlan, actId: 'act_observe', chapterId: 'chapter_open' },
+      result: artifact.result,
+    }, {
+      generate: async () => ({
+        modelName: 'gemini-test',
+        cacheStatus: 'inline',
+        result: {
+          assessments: requirements.map((requirement) => ({
+            requirementId: requirement.id,
+              status: 'satisfied' as const,
+              evidence: [{
+                sceneId: actualScene.id,
+                beatId: actualBeat.id,
+              kind: 'visual_event' as const,
+              lineIds: [],
+              visualEventIds: ['invented_event'],
+            }],
+            rationale: 'Injected invalid citation.',
+          })),
+        },
+      }),
+    })).rejects.toThrow(/semantic_validation_unknown_visual_event_citation/);
   });
 
   it('reports assignment drift early enough for the writer repair pass', () => {
