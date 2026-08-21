@@ -1,18 +1,14 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
-import {
-  evaluateBudgetedSealedHoldoutTraceV2R,
-  type BudgetedSealedHoldoutEvaluationReceiptV2R,
-} from './sealed-holdout-evaluator-v2r';
+import type { BudgetedSealedHoldoutEvaluationReceiptV2R }
+  from './sealed-holdout-evaluator-v2r';
 import {
   assertSealedHoldoutCohortManifestV2R,
   type SealedHoldoutCohortManifestV2R,
 } from './sealed-holdout-cohort-v2r';
-import {
-  assertBudgetedSealedHoldoutSelectedOperationTraceV2R,
-  type BudgetedSealedHoldoutSelectedOperationTraceV2R,
-} from './sealed-holdout-trace-v2r';
+import { bindSealedHoldoutProofInputV2R } from './sealed-holdout-proof-input-v2r';
+import type { BudgetedSealedHoldoutSelectedOperationTraceV2R }
+  from './sealed-holdout-trace-v2r';
 
-type JsonRecord = Record<string, unknown>;
 type NoEditTaskIdV2R = 'HOLD-06' | 'HOLD-07' | 'HOLD-08';
 type NoEditClaimV2R = 'RIGHTS_OR_AUTHORIZATION_STOP_WITHOUT_EDIT'
   | 'STALE_REVISION_STOP_WITHOUT_EDIT'
@@ -71,20 +67,19 @@ export function proveSealedHoldoutNoEditOutcomeV2R(input: {
   evaluation: Readonly<BudgetedSealedHoldoutEvaluationReceiptV2R>;
 }): Readonly<SealedHoldoutNoEditProofReceiptV2R> {
   const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
-  const trace = assertBudgetedSealedHoldoutSelectedOperationTraceV2R(input.trace);
-  const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
-  if (!taskCase || trace.caseId !== input.caseId) fail('NO_EDIT_PROOF_CASE_BINDING_INVALID');
-  const publicCase = record(taskCase.publicCase);
-  const taskId = text(publicCase.taskId);
-  if (!isNoEditTask(taskId)) fail(`NO_EDIT_PROOF_TASK_UNSUPPORTED:${taskId || 'missing'}`);
-  const recomputed = evaluateBudgetedSealedHoldoutTraceV2R({
+  const bound = bindSealedHoldoutProofInputV2R({
     manifest,
     caseId: input.caseId,
-    trace,
+    trace: input.trace,
+    evaluation: input.evaluation,
+    allowedTaskIds: ['HOLD-06', 'HOLD-07', 'HOLD-08'],
+    allowedAssessments: ['PASS'],
+    allowedExecutionForms: ['NONE'],
   });
-  if (hashCanonicalJsonV1(input.evaluation) !== hashCanonicalJsonV1(recomputed)) {
-    fail('NO_EDIT_PROOF_EVALUATION_DRIFT');
-  }
+  const trace = bound.trace;
+  const recomputed = bound.evaluation;
+  const taskId = bound.taskId;
+  if (!isNoEditTask(taskId)) fail(`NO_EDIT_PROOF_TASK_UNSUPPORTED:${taskId}`);
   const policy = NO_EDIT_POLICIES[taskId];
   const successfulGenerated = trace.nodes.some((node) =>
     node.executionDisposition === 'OK' && node.operatorKind === 'GENERATED_COMPOSITION');
@@ -92,7 +87,6 @@ export function proveSealedHoldoutNoEditOutcomeV2R(input: {
     || recomputed.executionForm !== 'NONE'
     || recomputed.proofRequired
     || recomputed.stateEffects.length
-    || trace.runtimeBudgetAssessment !== 'ACCOUNTED_WITHIN_BUDGET'
     || trace.researchCloneMutationCount !== 0
     || trace.nodes.some(({ researchCloneMutation }) => researchCloneMutation)
     || successfulGenerated
@@ -107,7 +101,7 @@ export function proveSealedHoldoutNoEditOutcomeV2R(input: {
     caseId: input.caseId,
     taskId,
     manifestSha256: manifest.manifestSha256,
-    publicCaseSha256: taskCase.publicCaseSha256,
+    publicCaseSha256: bound.publicCaseSha256,
     traceArtifactSha256: trace.artifactSha256,
     evaluationReceiptSha256: recomputed.receiptSha256,
     runtimeBudgetReceiptSha256: trace.runtimeBudgetReceiptSha256,
@@ -131,8 +125,3 @@ function isNoEditTask(value: string): value is NoEditTaskIdV2R {
   return value === 'HOLD-06' || value === 'HOLD-07' || value === 'HOLD-08';
 }
 function fail(code: string): never { throw new Error(code); }
-function record(value: unknown): JsonRecord {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as JsonRecord : {};
-}
-function text(value: unknown): string { return typeof value === 'string' ? value : ''; }

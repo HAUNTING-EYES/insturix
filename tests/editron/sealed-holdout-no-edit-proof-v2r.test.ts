@@ -197,7 +197,7 @@ describe('sealed holdout research no-edit proof V2R', () => {
       caseId: 'HOLD-08:C1',
       trace: result.trace,
       evaluation: forged as Parameters<typeof proveSealedHoldoutNoEditOutcomeV2R>[0]['evaluation'],
-    })).toThrow('NO_EDIT_PROOF_EVALUATION_DRIFT');
+    })).toThrow('SEALED_PROOF_INPUT_EVALUATION_DRIFT');
   });
 
   it('does not turn missing resource accounting into a no-edit pass', async () => {
@@ -210,6 +210,6 @@ describe('sealed holdout research no-edit proof V2R', () => {
       caseId: 'HOLD-06:C1',
       trace: result.trace,
       evaluation: result.evaluation,
-    })).toThrow('NO_EDIT_PROOF_PRECONDITION_FAILED');
+    })).toThrow('SEALED_PROOF_INPUT_PRECONDITION_FAILED');
   });
 });
