@@ -14,9 +14,11 @@ isolated operation-log execution are wired. V2R-3 resource/route accounting and
 research no-edit proof for HOLD-06/07/08 are implemented; one bounded rendered
 research proxies now prove the selected source-range splice for HOLD-01,
 the selected three-range bookend proposal for HOLD-02 and the canonical
-range-cut/state/AV claim for HOLD-04. Real native execution for HOLD-05 and
-generated/hybrid HOLD-03 remain
-unwired. The credentialed initial-request
+range-cut/state/AV claim for HOLD-04. HOLD-05 is now code-disproven against
+the current reframe owner: its cover-crop focal math clips the fixture subject
+and its absolute-pixel skip behavior cannot preserve the authored logo's safe
+relation after the canvas change. Generated/hybrid HOLD-03 remains unwired.
+The credentialed initial-request
 preflight is
 `PASS_INITIAL_REQUESTS_BOUNDED_PROOF_AND_RUNTIME_GUARDS_PENDING`; provider
 inference dispatch remains disabled.
@@ -280,7 +282,10 @@ cumulative provider spend, model output, real execution or rendered proof.
    recomputing hidden evaluation and proving no successful edit/state effect.
    It explicitly does not claim real ProjectService byte equality. The current
    operation-log clone remains insufficient for visual, audible or semantic
-   PASS on HOLD-05, and generated/hybrid HOLD-03 remains unproved.
+   PASS on HOLD-05. A direct zero-inference owner diagnostic additionally
+   found 38 clipped frames at 360x640 and no authored-layout transform, so the
+   existing sole owner must be repaired before a proof adapter can claim PASS.
+   Generated/hybrid HOLD-03 remains unproved.
 3. Run the combined zero-inference complete-episode budget/proof simulation
    and keep dispatch disabled unless both the V2R-3 resource receipt and the
    selected proof adapters pass without an unresolved reservation or usage
