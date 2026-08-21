@@ -5,13 +5,17 @@
 `HOLD-01` through `HOLD-08` now have deterministic, rights-bound synthetic
 media suitable for a zero-inference benchmark preflight. This is
 `INPUT_EVIDENCE_READY`, not provider execution, model success, rendered edit
-quality or production certification. The subsequent local cohort preflight is
-now `PASS_READY_FOR_CREDENTIAL_PREFLIGHT`, and the generic public-case episode
-shell, owner connector, lossless selected-operation trace and hidden structural
+quality or production certification. The local cohort preflight and subsequent
+credentialed initial-request preflight now pass their bounded gates, and the
+generic public-case episode shell, owner connector, lossless
+selected-operation trace and hidden structural
 evaluator are `RESEARCH_PREPROOF_READY`. Owner-only evidence resolution and
 isolated operation-log execution are wired; real native media execution,
-generated compilation/rendering and claim-appropriate proof remain unwired.
-Provider dispatch remains disabled.
+generated compilation/rendering, claim-appropriate proof and a cumulative
+per-turn resource guard remain unwired. The credentialed initial-request
+preflight is
+`PASS_INITIAL_REQUESTS_BOUNDED_PROOF_AND_RUNTIME_GUARDS_PENDING`; provider
+inference dispatch remains disabled.
 
 ## Bound identity
 
@@ -133,17 +137,57 @@ Commit `b148486ce` freezes the research trace/evaluator boundary:
 This is pre-proof benchmark plumbing. It is not generic production lowering,
 real native/generated execution, rendered quality or ProjectService authority.
 
-## What remains before provider calls
+## Credentialed zero-inference request preflight
 
-1. Capture the exact Luna, Terra and Gemini requests, verify provider-native
-   model identity and modalities, count/bound input tokens, and issue a
-   production-credential zero-inference receipt.
+Commit `dc341dfbe` captures the exact initial provider requests without making
+an inference call. It used the paid Vercel Production Google credential and a
+local OpenAI credential only in process memory; no credential value or
+temporary credential file was retained.
+
+- 16 opaque cases x 3 routes x 2 handoff modes = 96 captures;
+- all 96 request hashes are distinct and bind the same complete 40-operation
+  context, including 33 callable and 7 visible unavailable records;
+- returned model identities passed for `gpt-5.6-luna`, `gpt-5.6-terra` and
+  `models/gemini-3.7-flash`;
+- bounded initial input estimates range from 67,364 to 75,011 for Luna/Terra
+  and from 73,028 to 81,464 for Gemini;
+- the experiment-only initial ceiling is 85,000 tokens. It is a measured
+  research bound, not a product context limit;
+- the preflight made three model-metadata GETs and thirty-two Google
+  `countTokens` POSTs. Those thirty-two calls disclosed the serialized request
+  context to the selected provider and are recorded as provider-context
+  egress; inference calls remained zero;
+- no hidden rubric, credential-like material, media bytes, project reads,
+  project mutations or state effects were found;
+- `dispatchAuthorized=false`, `runtimePerTurnTokenGuardRequired=true` and
+  `realProofAdapterGate=PENDING` remain explicit.
+
+Reproducible artifact root:
+`.calibration-temp/open-ended-planner-v2/sealed-holdout-credential-preflight-20260821205058`.
+
+- Cohort manifest SHA-256:
+  `abdcafe133cbff5f4e9b8325e665636d6d553a6fd966b0170e37bbd97cc5cdbb`
+- Credential-preflight receipt SHA-256:
+  `a7da12363bf0397a8e88c0d116fcc1ac0f6763eb28fbaddb388b9156d3d10eef`
+- Request-capture-set SHA-256:
+  `467e0163ec8485b83359d1e5e100e3dace2dc9e41b4b4677b49bd1fb504e2431`
+
+This receipt bounds only the initial request. It does not bound later turns,
+cumulative provider spend, model output, real execution or rendered proof.
+
+## What remains before inference calls
+
+1. Enforce a fail-closed per-turn and cumulative episode budget for input,
+   output, calls, repeated calls and spend. Mechanically bind each case's
+   declared resource budget instead of relying on the current shared
+   `24 / 4096 / 2` loop constants.
 2. Connect claim-appropriate real native/generated proof adapters. The current
    operation-log clone is insufficient for visual, audible or semantic PASS.
-3. Only after both the zero-inference receipt and real proof adapters pass may
-   the explicitly authorized cohort dispatch. CAP-2A
-   V3 remains an immutable bound census artifact, not newly reissued merely
-   because research harness files were added.
+3. Run a zero-inference complete-episode budget/proof simulation and keep
+   dispatch disabled unless the runtime guard and proof adapters both pass.
+4. Only then may a separately authorized sealed cohort make inference calls.
+   CAP-2A V3 remains an immutable bound census artifact, not newly reissued
+   merely because research harness files were added.
 
 ## Verification at issuance
 
@@ -151,6 +195,8 @@ real native/generated execution, rendered quality or ProjectService authority.
 - Combined development and holdout materializers: 11/11 tests passed.
 - Sealed cohort/preflight tests: 3/3 passed; combined focused checks: 7/7.
 - Generic causal/owner/trace/evaluator checks: 21/21 passed.
+- Credentialed initial-request preflight and combined sealed checks: 22/22
+  passed; 96/96 captures verified with zero inference calls.
 - `npx tsc --noEmit`: passed.
 - Repository ESLint: passed.
 

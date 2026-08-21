@@ -413,6 +413,30 @@ function semanticVisualDescription(scene: NarrativeSceneV3): string {
   ].join('\n\n');
 }
 
+function v3SceneEditorialIntent(
+  sidecar: ScriptSidecarV3,
+  scene: NarrativeSceneV3,
+): NonNullable<SceneDescriptor['editorialIntent']> {
+  return {
+    source: 'thinkforge-v3-treatment',
+    treatment: { ...sidecar.treatment },
+    narrativePurpose: scene.narrativePurpose,
+    visualEvents: scene.beats.flatMap((beat) => beat.visualEvents.map((event) => ({
+      id: event.treatmentEventId,
+      audienceJob: event.audienceJob,
+      visualThesis: event.visualThesis,
+      audioRelationship: event.audioRelationship,
+      timingNote: event.timingNote,
+      continuityNotes: [...event.continuityNotes],
+      sourceRefs: [...event.sourceRefs],
+      creativeReferenceIds: [...event.creativeReferenceIds],
+      brandConstraints: [...event.brandConstraints],
+      accessibilityRequirements: [...event.accessibilityRequirements],
+      captureRequirementIds: [...event.captureRequirementIds],
+    }))),
+  };
+}
+
 function compileV3Scenes(
   sidecar: ScriptSidecarV3,
   claimedVersion: number,
@@ -431,6 +455,7 @@ function compileV3Scenes(
       visualDescription: semanticVisualDescription(scene),
       durationSeconds: duration.durationSeconds,
       mood: scene.mood ?? '',
+      editorialIntent: v3SceneEditorialIntent(sidecar, scene),
     } satisfies SceneDescriptor;
   });
   return { scenes, durationSources };

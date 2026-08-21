@@ -77,6 +77,35 @@ export interface SubShot {
   };
 }
 
+/**
+ * Semantic editorial evidence supplied by ThinkForge V3. These fields describe
+ * what the visual must accomplish, never how Editron should render or edit it.
+ */
+export interface SceneEditorialVisualEvent {
+  id: string;
+  audienceJob: string;
+  visualThesis: string;
+  audioRelationship: 'anchor' | 'complement' | 'counterpoint';
+  timingNote: string;
+  continuityNotes: string[];
+  sourceRefs: string[];
+  creativeReferenceIds: string[];
+  brandConstraints: string[];
+  accessibilityRequirements: string[];
+  captureRequirementIds: string[];
+}
+
+export interface SceneEditorialIntent {
+  source: 'thinkforge-v3-treatment';
+  treatment: {
+    treatmentId: string;
+    treatmentVersion: number;
+    inputFingerprint: string;
+  };
+  narrativePurpose: string;
+  visualEvents: SceneEditorialVisualEvent[];
+}
+
 export interface SceneDescriptor {
   sceneIndex: number;
   title: string;
@@ -128,6 +157,8 @@ export interface SceneDescriptor {
   /** Structured edit directions extracted from the script by the LLM parser.
    *  These drive automated editing in the finalize route and Director Agent. */
   editDirections?: SceneEditDirections;
+  /** Semantic treatment evidence. Editron owns any final visual or editorial form. */
+  editorialIntent?: SceneEditorialIntent;
 
   // ─── Generation Unit + Sub-Shot System ────────────────────────
 

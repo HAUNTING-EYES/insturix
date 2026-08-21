@@ -519,6 +519,28 @@ describe('ThinkForge Script Sidecar to Editron compiler', () => {
     expect(result.scenes[0]?.visualDescription).toContain(
       'Make the abstract operational cost visible while the host continues speaking.',
     );
+    expect(result.scenes[0]?.editorialIntent).toMatchObject({
+      source: 'thinkforge-v3-treatment',
+      treatment: {
+        treatmentId: mixedPresenterCutawayTreatment.treatmentId,
+        treatmentVersion: mixedPresenterCutawayTreatment.version,
+        inputFingerprint: mixedPresenterCutawayTreatment.decisionTrace.inputFingerprint,
+      },
+      narrativePurpose: 'Keep the human claim and the explanatory counterpoint active together.',
+      visualEvents: [
+        expect.objectContaining({
+          id: 'event_host_claim',
+          audioRelationship: 'anchor',
+          captureRequirementIds: ['capture_host_opening'],
+        }),
+        expect.objectContaining({
+          id: 'event_process_cutaway',
+          audioRelationship: 'counterpoint',
+          sourceRefs: ['src_brief'],
+          brandConstraints: ['Do not use unreadable text as a substitute for explanation.'],
+        }),
+      ],
+    });
     expect(result.scenes[0]).not.toHaveProperty('cameraDirection');
     expect(result.scenes[0]).not.toHaveProperty('videoMotionPrompt');
     expect(result.scenes[0]).not.toHaveProperty('assetRecommendation');

@@ -82,6 +82,33 @@ const ART_STYLE_PROMPTS: Record<string, string> = {
   architectural: 'architectural visualization, precise technical rendering, clean lines, dramatic vanishing point perspective',
 };
 
+function buildSemanticEditorialIntentFragment(
+  intent: NonNullable<SceneDescriptor['editorialIntent']>,
+): string | undefined {
+  if (intent.visualEvents.length === 0) return undefined;
+
+  const eventFragments = intent.visualEvents.map((event) => [
+    `Visual job: ${event.audienceJob}.`,
+    `Meaning to make legible: ${event.visualThesis}.`,
+    `Relationship to narration: ${event.audioRelationship}.`,
+    `Narrative timing: ${event.timingNote}.`,
+    ...(event.continuityNotes.length > 0
+      ? [`Continuity requirements: ${event.continuityNotes.join(' ')}`]
+      : []),
+    ...(event.brandConstraints.length > 0
+      ? [`Brand constraints: ${event.brandConstraints.join(' ')}`]
+      : []),
+    ...(event.accessibilityRequirements.length > 0
+      ? [`Accessibility requirements: ${event.accessibilityRequirements.join(' ')}`]
+      : []),
+  ].join(' '));
+
+  return [
+    `Editorial intent for this scene: ${intent.narrativePurpose}.`,
+    ...eventFragments,
+  ].join(' ');
+}
+
 /**
  * Build an image generation prompt for a storyboard scene.
  * Produces a STILL IMAGE prompt — no camera movement, no motion.
@@ -150,6 +177,13 @@ export function buildStoryboardPrompt(
     // collages/multi-frame images because the model tries to depict sequential narrative.
     const visualHint = scene.narration.substring(0, 300).replace(/["\n]/g, ' ');
     parts.push(`Scene context: ${visualHint}`);
+  }
+
+  // V3 passes semantic intent, not final form. The existing Editron graph still
+  // resolves composition, motion, overlays, and timeline implementation later.
+  if (scene.editorialIntent) {
+    const semanticIntent = buildSemanticEditorialIntentFragment(scene.editorialIntent);
+    if (semanticIntent) parts.push(semanticIntent);
   }
 
   // Character descriptions — additional subject definition, matched by name occurrence
