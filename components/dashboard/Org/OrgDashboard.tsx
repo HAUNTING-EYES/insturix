@@ -9,6 +9,8 @@
  */
 
 import { useRef, useCallback, useMemo } from 'react';
+import Link from 'next/link';
+import { Settings } from 'lucide-react';
 import {
   useOrgMembers,
   useOrganizationMutations,
@@ -124,11 +126,40 @@ export function OrgDashboard({ orgId, orgName, userRole }: OrgDashboardProps) {
 
   return (
     <div style={{ background: '#0B0B0A', minHeight: '100vh' }}>
-      <ConstellationHero
-        members={members}
-        orgName={orgName}
-        onMemberClick={handleMemberClick}
-      />
+      <div style={{ position: 'relative' }}>
+        <ConstellationHero
+          members={members}
+          orgName={orgName}
+          onMemberClick={handleMemberClick}
+        />
+        {/* Settings was previously reachable only by typing the URL — every
+            manageable org page now links to it (rename, invites, danger zone). */}
+        {canManage && (
+          <Link
+            href={`/dashboard/org/${orgId}/settings`}
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 24,
+              zIndex: 5,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 7,
+              padding: '8px 14px',
+              borderRadius: 7,
+              border: '1px solid #282724',
+              background: 'rgba(15, 15, 14, 0.82)',
+              color: '#B5B2A8',
+              fontSize: 12.5,
+              fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            <Settings size={14} aria-hidden />
+            Settings
+          </Link>
+        )}
+      </div>
 
       <div className="py-10">
         <OrgStatsBar stats={stats} />
