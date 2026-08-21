@@ -12,8 +12,9 @@ selected-operation trace and hidden structural
 evaluator are `RESEARCH_PREPROOF_READY`. Owner-only evidence resolution and
 isolated operation-log execution are wired. V2R-3 resource/route accounting and
 research no-edit proof for HOLD-06/07/08 are implemented; one bounded rendered
-research proxy now proves the selected source-range splice for HOLD-01. Real
-native execution for HOLD-02/04/05 and generated/hybrid HOLD-03 remain
+research proxies now prove the selected source-range splice for HOLD-01 and
+the selected three-range bookend proposal for HOLD-02. Real native execution
+for HOLD-04/05 and generated/hybrid HOLD-03 remain
 unwired. The credentialed initial-request
 preflight is
 `PASS_INITIAL_REQUESTS_BOUNDED_PROOF_AND_RUNTIME_GUARDS_PENDING`; provider
@@ -167,6 +168,27 @@ decoded geometry. A one-byte source change is rejected before render. This is
 not ProjectService mutation, editor/product-renderer parity, mixed rates, crop
 or keyframe lowering, or a generally certified match-cut capability.
 
+## HOLD-02 rendered research-native proof
+
+Commit `81eeb933a` adds a bounded bookend proof. It consumes exactly three
+successful `add_overlay` mutations and verifies that the second and third
+writes use the preceding writer-issued revision; the test exercises typed
+opaque result references rather than copied revision strings.
+
+The adapter binds and renders the selected door-open, process and door-close
+ranges into a 360x640, 30/1, 240-frame H.264 proxy. Decoded frames prove that
+the brown door narrows across the opener, the middle is the distinct blue
+process footage, and the same door widens across a non-overlapping closing
+range. The committed negative case shows why the hidden structural evaluator
+is only pre-proof: a distinct but semantically wrong closing range can be
+structurally complete and is still rejected by the claim adapter.
+
+This is `RESEARCH_PROVEN_LIMITED`. Only `[0,240)` is rendered; the original
+project duration is 720 frames, so `[240,720)` is explicitly
+`NOT_RENDERED_NOT_CLAIMED`. The receipt does not establish real ProjectService
+mutation, product-renderer parity, general callback taste or mixed-rate
+correctness.
+
 ## Credentialed zero-inference request preflight
 
 Commit `dc341dfbe` captures the exact initial provider requests without making
@@ -226,13 +248,13 @@ cumulative provider spend, model output, real execution or rendered proof.
    expiry and a no-secret/no-inference receipt. Its focused checks pass 3/3.
    This closes the standalone route-binding gap, not the complete-episode gate.
 2. Connect the remaining claim-appropriate real native/generated proof
-   adapters. Commit `3e22af490` closes the bounded rendered-native source-splice
-   claim for HOLD-01, while commit
+   adapters. Commits `3e22af490` and `81eeb933a` close bounded rendered research
+   claims for HOLD-01 and HOLD-02 respectively, while commit
    `83405595b` closes only the research no-edit family for HOLD-06/07/08 by
    recomputing hidden evaluation and proving no successful edit/state effect.
    It explicitly does not claim real ProjectService byte equality. The current
    operation-log clone remains insufficient for visual, audible or semantic
-   PASS on HOLD-02/04/05, and generated/hybrid HOLD-03 remains unproved.
+   PASS on HOLD-04/05, and generated/hybrid HOLD-03 remains unproved.
 3. Run the combined zero-inference complete-episode budget/proof simulation
    and keep dispatch disabled unless both the V2R-3 resource receipt and the
    selected proof adapters pass without an unresolved reservation or usage
@@ -253,6 +275,8 @@ cumulative provider spend, model output, real execution or rendered proof.
   passed.
 - HOLD-01 rendered-native proof plus media/no-edit regression: 12/12 passed;
   full typecheck and focused ESLint passed.
+- HOLD-01/HOLD-02 rendered-native proof regression: 5/5 passed; full typecheck
+  and focused ESLint passed.
 - Credentialed initial-request preflight and combined sealed checks: 22/22
   passed; 96/96 captures verified with zero inference calls.
 - `npx tsc --noEmit`: passed.
