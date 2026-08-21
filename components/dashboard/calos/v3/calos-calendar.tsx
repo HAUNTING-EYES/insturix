@@ -93,7 +93,7 @@ export default function CalosCalendarV3() {
     return () => clearInterval(id);
   }, []);
 
-  const { cards, loading, createCard, updateCard, deleteCard, deleteCardsForDate, clearAll, refresh } =
+  const { cards, loading, error: loadError, createCard, updateCard, deleteCard, deleteCardsForDate, clearAll, refresh } =
     useCalosDeliverables(brandId);
 
   const items = useMemo(() => cards.map(toItem), [cards]);
@@ -393,7 +393,9 @@ export default function CalosCalendarV3() {
   const cells = useMemo(() => monthCells(cursor), [cursor]);
   const wk = useMemo(() => weekDays(selDay), [selDay]);
   const selDayPlacements = byDay.get(dateKey(selDay)) ?? [];
-  const isEmpty = !loading && items.length === 0;
+  // A failed load must never read as an empty calendar ("No content yet" on a
+  // server error tells an agency their month is gone) — error wins over empty.
+  const isEmpty = !loading && !loadError && items.length === 0;
 
   const controlTitle =
     view === 'day' ? dayTitle(selDay) :
@@ -517,6 +519,17 @@ export default function CalosCalendarV3() {
           </div>
         ) : (
           <>
+            {/* Load failure — distinct from empty, with a retry. */}
+            {loadError && (
+              <div role="alert" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '11px 14px', background: 'rgba(212,106,92,0.08)', border: `1px solid rgba(212,106,92,0.35)`, borderRadius: 10, marginBottom: 12 }}>
+                <div>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: C.coral }}>Couldn&apos;t load the calendar.</span>
+                  <span style={{ color: C.soft, fontSize: 13.5, marginLeft: 8 }}>{loadError} — your content is still there.</span>
+                </div>
+                <Btn size="sm" variant="ghost" onClick={refresh}>Retry</Btn>
+              </div>
+            )}
+
             {/* First-run hint — a slim banner, never replaces the dated grid. */}
             {isEmpty && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '11px 14px', background: C.raised, border: `1px dashed ${C.bs}`, borderRadius: 10, marginBottom: 12 }}>

@@ -56,6 +56,8 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
     storyboard,
     isLoading,
     error,
+    actionError,
+    clearActionError,
     selectedSceneIndex,
     setSelectedSceneIndex,
     approveScene,
@@ -211,6 +213,17 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
 
   return (
     <div className="flex flex-col h-screen bg-background">
+      {/* Non-fatal action failures (regenerate / voiceover / videos / finalize,
+          incl. insufficient credits) surface HERE, dismissible — they used to
+          unmount this entire workspace into a dead-end "Go Back" screen. */}
+      {actionError && (
+        <div role="alert" className="flex items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-6 py-2.5">
+          <p className="text-sm text-destructive min-w-0 truncate" title={actionError}>{actionError}</p>
+          <Button variant="ghost" size="sm" className="shrink-0" onClick={clearActionError}>
+            Dismiss
+          </Button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-3 border-b bg-background/95 backdrop-blur-sm">
         <div className="flex items-center gap-4">

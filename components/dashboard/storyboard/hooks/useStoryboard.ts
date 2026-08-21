@@ -1,16 +1,25 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Storyboard } from "@/lib/pipeline/schemas/storyboard";
 
 /**
  * Hook for managing storyboard state with polling and mutations.
  * Uses native fetch + useState instead of React Query for simplicity.
+ *
+ * Error model (2026-08 audit): `error` is FATAL — the storyboard could not be
+ * loaded and there is nothing to render. `actionError` is NON-FATAL — a
+ * mutation (regenerate/voiceover/videos/finalize, incl. insufficient credits)
+ * or a background poll failed while a loaded storyboard is on screen. The two
+ * used to share one state, so any mutation failure unmounted the entire
+ * workspace into a dead-end "Go Back" screen with no recovery.
  */
 export function useStoryboard(storyboardId: string) {
   const [storyboard, setStoryboard] = useState<Storyboard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
   const [selectedSceneIndex, setSelectedSceneIndex] = useState<number | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -20,22 +29,26 @@ export function useStoryboard(storyboardId: string) {
 
   const BASE = `/api/services/pipeline/storyboard/${storyboardId}`;
 
-  // Fetch storyboard data
+  // Fetch storyboard data. A failure BEFORE first load is fatal; a failure of
+  // a background poll AFTER load must not nuke the on-screen workspace.
   const fetchStoryboard = useCallback(async () => {
     try {
       const res = await fetch(BASE);
       const data = await res.json();
       if (data.success) {
+        hasLoadedRef.current = true;
+        setError(null);
         setStoryboard(data.storyboard);
         // Auto-select first scene if none selected
         if (data.storyboard.scenes?.length > 0 && selectedSceneIndex === null) {
           setSelectedSceneIndex(data.storyboard.scenes[0].sceneIndex);
         }
       } else {
-        setError(data.error || "Failed to load storyboard");
+        const msg = data.error || "Failed to load storyboard";
+        if (hasLoadedRef.current) setActionError(msg); else setError(msg);
       }
     } catch (e: any) {
-      setError(e.message);
+      if (hasLoadedRef.current) setActionError(e.message); else setError(e.message);
     } finally {
       setIsLoading(false);
     }
@@ -69,9 +82,12 @@ export function useStoryboard(storyboardId: string) {
         });
         if (res.ok) {
           await fetchStoryboard();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          setActionError(data.error || `Approve failed (${res.status})`);
         }
-      } catch (e) {
-        console.error("Failed to approve scene:", e);
+      } catch (e: any) {
+        setActionError(`Approve failed: ${e.message}`);
       }
     },
     [BASE, fetchStoryboard]
@@ -86,9 +102,12 @@ export function useStoryboard(storyboardId: string) {
         });
         if (res.ok) {
           await fetchStoryboard();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          setActionError(data.error || `Reject failed (${res.status})`);
         }
-      } catch (e) {
-        console.error("Failed to reject scene:", e);
+      } catch (e: any) {
+        setActionError(`Reject failed: ${e.message}`);
       }
     },
     [BASE, fetchStoryboard]
@@ -111,10 +130,10 @@ export function useStoryboard(storyboardId: string) {
           await fetchStoryboard();
         } else {
           const data = await res.json();
-          setError(data.error);
+          setActionError(data.error);
         }
       } catch (e: any) {
-        setError(e.message);
+        setActionError(e.message);
       } finally {
         setIsRegenerating(false);
       }
@@ -137,10 +156,10 @@ export function useStoryboard(storyboardId: string) {
           await fetchStoryboard();
         } else {
           const data = await res.json();
-          setError(data.error);
+          setActionError(data.error);
         }
       } catch (e: any) {
-        setError(e.message);
+        setActionError(e.message);
       } finally {
         setIsGenerating(false);
       }
@@ -162,10 +181,10 @@ export function useStoryboard(storyboardId: string) {
           await fetchStoryboard();
         } else {
           const data = await res.json();
-          setError(data.error);
+          setActionError(data.error);
         }
       } catch (e: any) {
-        setError(e.message);
+        setActionError(e.message);
       } finally {
         setIsVoiceoverGenerating(false);
       }
@@ -195,11 +214,11 @@ export function useStoryboard(storyboardId: string) {
             data.batchId ? `[batch: ${data.batchId}]` : '',
             data.partialFailure ? '(partial failure)' : '',
           ].filter(Boolean).join(' ');
-          setError(errorDetail);
+          setActionError(errorDetail);
           return null;
         }
       } catch (e: any) {
-        setError(`Video generation request failed: ${e.message}`);
+        setActionError(`Video generation request failed: ${e.message}`);
         return null;
       } finally {
         setIsVideoGenerating(false);
@@ -221,11 +240,11 @@ export function useStoryboard(storyboardId: string) {
       if (data.success) {
         return { projectId: data.projectId };
       } else {
-        setError(data.error);
+        setActionError(data.error);
         return null;
       }
     } catch (e: any) {
-      setError(e.message);
+      setActionError(e.message);
       return null;
     } finally {
       setIsFinalizing(false);
@@ -236,6 +255,8 @@ export function useStoryboard(storyboardId: string) {
     storyboard,
     isLoading,
     error,
+    actionError,
+    clearActionError: () => setActionError(null),
     selectedSceneIndex,
     setSelectedSceneIndex,
     approveScene,

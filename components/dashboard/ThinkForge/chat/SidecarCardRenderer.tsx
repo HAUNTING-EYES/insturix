@@ -63,7 +63,15 @@ export function SidecarCardRenderer({ card, onAction, onDismiss }: SidecarCardRe
           {card.actions.map((action) => (
             <React.Fragment key={`${action.id}-${action.label}`}>
               <button
-                onClick={() => onAction?.(action)}
+                onClick={() =>
+                  // Actions carry no back-reference to their card, but handlers
+                  // like copy_hooks/copy_shots need the card's data to act on —
+                  // merge it into the payload so the action is self-contained.
+                  onAction?.({
+                    ...action,
+                    payload: { ...action.payload, cardData: card.data, cardTitle: card.title },
+                  })
+                }
                 className={cn(
                   "px-2.5 py-1 rounded-lg text-[10px] font-medium transition-all",
                   action.variant === 'primary'

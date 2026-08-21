@@ -624,11 +624,33 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const handleCardAction = useCallback(async (action: SidecarCardAction) => {
     if (action.id === 'open_tab' && action.payload?.scriptId && onScriptCreated) {
       onScriptCreated(action.payload.scriptId);
-    } else if (action.id === 'retry') {
-      toast({ title: 'Retry', description: 'Please try the action again.' });
     } else if (action.id === 'copy_hooks' || action.id === 'copy_shots') {
-      toast({ title: 'Copied', description: 'Content copied to clipboard.' });
+      // This used to toast "Copied" WITHOUT writing the clipboard. Format the
+      // card's real data and only claim success after the write succeeds.
+      const data = (action.payload?.cardData ?? {}) as Record<string, any>;
+      let text = '';
+      if (action.id === 'copy_hooks') {
+        const hooks: string[] = Array.isArray(data.viralHooks) ? data.viralHooks : [];
+        text = hooks.map((h, i) => `${i + 1}. ${typeof h === 'string' ? h : JSON.stringify(h)}`).join('\n');
+      } else {
+        const shots: any[] = Array.isArray(data.shots) ? data.shots : [];
+        text = shots
+          .map((s, i) => typeof s === 'string' ? `${i + 1}. ${s}` : `${i + 1}. ${s.description ?? s.shot ?? JSON.stringify(s)}`)
+          .join('\n');
+      }
+      if (!text) {
+        toast({ title: 'Nothing to copy', description: 'This card has no content for that action.', variant: 'destructive' });
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        toast({ title: 'Copied', description: `${text.split('\n').length} lines copied to clipboard.` });
+      } catch {
+        toast({ title: 'Copy failed', description: 'Your browser blocked clipboard access.', variant: 'destructive' });
+      }
     }
+    // 'retry' intentionally unhandled: its toast just told the user to retry
+    // manually — a no-op pretending to be an action.
   }, [onScriptCreated]);
 
   const handleCardDismiss = useCallback((cardId: string) => {
