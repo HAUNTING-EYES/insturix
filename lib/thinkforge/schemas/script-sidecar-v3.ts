@@ -300,6 +300,77 @@ export class ScriptSidecarV3TreatmentError extends Error {
   }
 }
 
+/**
+ * Verifies that a persisted V3 sidecar still carries the exact semantic event
+ * payload from its approved treatment. This is intentionally independent from
+ * model materialization so durable chapter assembly cannot mutate evidence.
+ */
+export function assertMaterializedScriptSidecarV3Treatment(input: {
+  sidecar: ScriptSidecarV3;
+  treatment: VideoTreatment;
+  treatmentEventIds?: readonly string[];
+}): ScriptSidecarV3 {
+  const sidecar = parseScriptSidecarV3(input.sidecar);
+  const issues: string[] = [];
+  const expectedEventsById = new Map(input.treatment.visualEvents.map((event) => [event.id, event]));
+  const expectedEventIds = new Set<string>();
+  const scopedEventIds = input.treatmentEventIds ?? input.treatment.visualEvents.map((event) => event.id);
+
+  if (
+    sidecar.treatment.treatmentId !== input.treatment.treatmentId
+    || sidecar.treatment.treatmentVersion !== input.treatment.version
+    || sidecar.treatment.inputFingerprint !== input.treatment.decisionTrace.inputFingerprint
+  ) {
+    issues.push('video_treatment_binding_mismatch');
+  }
+
+  scopedEventIds.forEach((eventId) => {
+    if (expectedEventIds.has(eventId)) {
+      issues.push(`duplicate_treatment_event_scope:${eventId}`);
+      return;
+    }
+    if (!expectedEventsById.has(eventId)) {
+      issues.push(`unknown_treatment_event_scope:${eventId}`);
+      return;
+    }
+    expectedEventIds.add(eventId);
+  });
+
+  const encounteredEventIds = new Set<string>();
+  sidecar.acts.forEach((act) => act.narrativeScenes.forEach((scene) => scene.beats.forEach((beat) => {
+    beat.visualEvents.forEach((event) => {
+      const eventId = event.treatmentEventId;
+      const expectedEvent = expectedEventsById.get(eventId);
+      if (!expectedEvent) {
+        issues.push(`unknown_treatment_visual_event:${eventId}`);
+        return;
+      }
+      if (!expectedEventIds.has(eventId)) {
+        issues.push(`out_of_scope_treatment_visual_event:${eventId}`);
+        return;
+      }
+      if (encounteredEventIds.has(eventId)) {
+        issues.push(`duplicate_treatment_visual_event:${eventId}`);
+        return;
+      }
+      encounteredEventIds.add(eventId);
+      const canonicalEvent = {
+        ...structuredClone(expectedEvent),
+        treatmentEventId: expectedEvent.id,
+      };
+      if (stableStringify(event) !== stableStringify(canonicalEvent)) {
+        issues.push(`treatment_visual_event_payload_mismatch:${eventId}`);
+      }
+    });
+  })));
+
+  expectedEventIds.forEach((eventId) => {
+    if (!encounteredEventIds.has(eventId)) issues.push(`unused_treatment_visual_event:${eventId}`);
+  });
+  if (issues.length > 0) throw new ScriptSidecarV3TreatmentError(issues);
+  return sidecar;
+}
+
 /** The model never owns persisted hierarchy IDs. Chapter jobs retain only approved act/scene IDs. */
 export function canonicalizeScriptWriterV3ModelSidecarIds(
   sidecar: ScriptWriterSidecarV3Model,
@@ -472,6 +543,16 @@ export function getCanonicalBeatSpokenTextV3(beat: Pick<NarrativeBeatV3, 'lines'
 
 export function parseScriptSidecarV3(input: unknown): ScriptSidecarV3 {
   return ScriptSidecarV3Schema.parse(input);
+}
+
+function stableStringify(value: unknown): string {
+  if (value === undefined) return 'undefined';
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => (
+    `${JSON.stringify(key)}:${stableStringify(record[key])}`
+  )).join(',')}}`;
 }
 
 function unique(values: readonly string[]): string[] {

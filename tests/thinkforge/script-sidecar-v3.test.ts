@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ScriptSidecarV3TreatmentError,
   ScriptWriterSidecarV3ModelSchema,
+  assertMaterializedScriptSidecarV3Treatment,
   canonicalizeScriptWriterV3ModelSidecarIds,
   materializeScriptSidecarV3,
   parseScriptSidecarV3,
@@ -118,6 +119,23 @@ describe('Script Sidecar V3 semantic treatment contract', () => {
       treatmentEventIds: ['event_host_claim'],
     }));
     expect(outOfScope.issues).toContain('out_of_scope_treatment_visual_event:event_process_cutaway');
+  });
+
+  it('rejects persisted semantic-event or treatment-binding drift after materialization', () => {
+    const sidecar = materializeScriptSidecarV3({
+      modelSidecar: ScriptWriterSidecarV3ModelSchema.parse(modelSidecar()),
+      treatment: mixedPresenterCutawayTreatment,
+      identityPolicy: { mode: 'ordinary' },
+    });
+    sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.visualEvents[1]!.visualThesis = 'A changed meaning.';
+    sidecar.treatment.inputFingerprint = 'stale_treatment_fingerprint';
+
+    const error = captureTreatmentError(() => assertMaterializedScriptSidecarV3Treatment({
+      sidecar,
+      treatment: mixedPresenterCutawayTreatment,
+    }));
+    expect(error.issues).toContain('video_treatment_binding_mismatch');
+    expect(error.issues).toContain('treatment_visual_event_payload_mismatch:event_process_cutaway');
   });
 
   it('rejects final-form fields from the model-facing V3 schema', () => {

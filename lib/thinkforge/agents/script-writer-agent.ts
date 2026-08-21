@@ -18,6 +18,7 @@ import {
   type ScriptWriterModelSidecarIdentityPolicy,
 } from '../schemas/script-sidecar-v2';
 import {
+  assertMaterializedScriptSidecarV3Treatment,
   getCanonicalBeatSpokenTextV3,
   materializeScriptSidecarV3,
   parseScriptSidecarV3,
@@ -729,7 +730,7 @@ export function materializeScriptWriterV3Result(
   }
   const scenes = narrativeScenesV3(sidecar);
 
-  return parseMaterializedScriptWriterV3Result({
+  const result = parseMaterializedScriptWriterV3Result({
     content: materializeScriptContentV3(sidecar),
     contentAnalysis: modelOutput.contentAnalysis,
     visualMetadata: {
@@ -739,6 +740,48 @@ export function materializeScriptWriterV3Result(
     metadata: {
       estimatedTimeSeconds: scenes.reduce((sum, scene) => sum + sceneDurationIntentV3(scene), 0),
       platform: modelOutput.metadata.platform,
+      voiceLanguages: spokenLanguagesV3(sidecar),
+    },
+    sidecar,
+  });
+  assertMaterializedScriptSidecarV3Treatment({ sidecar: result.sidecar, treatment, treatmentEventIds });
+  return result;
+}
+
+/**
+ * Long-form assembly receives already materialized chapter sidecars. Rebuild
+ * only the deterministic editor projections after proving their treatment
+ * semantics still match the single approved video treatment.
+ */
+export function materializeAssembledScriptWriterV3Result(input: {
+  sidecar: ScriptSidecarV3;
+  treatment: VideoTreatment;
+  contentAnalysis: ScriptWriterV3Result['contentAnalysis'];
+  platform: string;
+}): ScriptWriterV3Result {
+  let sidecar: ScriptSidecarV3;
+  try {
+    sidecar = assertMaterializedScriptSidecarV3Treatment({
+      sidecar: input.sidecar,
+      treatment: input.treatment,
+    });
+  } catch (error) {
+    if (error instanceof ScriptSidecarV3TreatmentError) {
+      throw new ScriptWriterContractError(error.issues.map((issue) => `invalid_assembled_treatment:${issue}`));
+    }
+    throw error;
+  }
+  const scenes = narrativeScenesV3(sidecar);
+  return parseMaterializedScriptWriterV3Result({
+    content: materializeScriptContentV3(sidecar),
+    contentAnalysis: input.contentAnalysis,
+    visualMetadata: {
+      motionInfo: input.treatment.visualRhythm,
+      scenePrompts: scenes.map(semanticSceneProjectionV3),
+    },
+    metadata: {
+      estimatedTimeSeconds: scenes.reduce((sum, scene) => sum + sceneDurationIntentV3(scene), 0),
+      platform: input.platform,
       voiceLanguages: spokenLanguagesV3(sidecar),
     },
     sidecar,
@@ -1262,23 +1305,15 @@ function assertUsableScriptWriterV3Result(
   if (!treatment) {
     failures.push('missing_video_treatment_for_v3');
   } else {
-    const binding = sidecar.treatment;
-    if (
-      binding.treatmentId !== treatment.treatmentId
-      || binding.treatmentVersion !== treatment.version
-      || binding.inputFingerprint !== treatment.decisionTrace.inputFingerprint
-    ) {
-      failures.push('video_treatment_binding_mismatch');
-    }
-    const selectedEventIds = sidecar.acts.flatMap((act) => act.narrativeScenes.flatMap((scene) => (
-      scene.beats.flatMap((beat) => beat.visualEvents.map((event) => event.treatmentEventId))
-    ))).sort();
-    const expectedEventIds = normalizeTreatmentEventScope(
-      treatment,
-      options.treatmentEventIds,
-    ).sort();
-    if (JSON.stringify(selectedEventIds) !== JSON.stringify(expectedEventIds)) {
-      failures.push('video_treatment_event_coverage_mismatch');
+    try {
+      assertMaterializedScriptSidecarV3Treatment({
+        sidecar,
+        treatment,
+        treatmentEventIds: options.treatmentEventIds,
+      });
+    } catch (error) {
+      if (error instanceof ScriptSidecarV3TreatmentError) failures.push(...error.issues);
+      else throw error;
     }
     if (result.visualMetadata.motionInfo !== treatment.visualRhythm) {
       failures.push('materialized_treatment_visual_rhythm_mismatch');

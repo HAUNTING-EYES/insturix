@@ -4,7 +4,14 @@ import {
   createScriptChapterArtifact,
   ScriptChapterAssemblyError,
 } from '@/lib/thinkforge/long-form/script-chapter-assembly';
-import { materializeScriptWriterResult, type ScriptWriterModelOutput } from '@/lib/thinkforge/agents/script-writer-agent';
+import {
+  isScriptWriterV3Result,
+  materializeScriptWriterResult,
+  materializeScriptWriterV3Result,
+  type ScriptWriterModelOutput,
+  type ScriptWriterResult,
+  type ScriptWriterV3ModelOutput,
+} from '@/lib/thinkforge/agents/script-writer-agent';
 import { materializeScriptChapterPlan, type ScriptChapterPlan } from '@/lib/thinkforge/schemas/script-chapter-plan';
 import type { ThinkForgeWriterInvocationTraceV1 } from '@/lib/thinkforge/provenance/generation-trace';
 import {
@@ -13,6 +20,7 @@ import {
   validateScriptChapterSemanticExecution,
 } from '@/lib/thinkforge/long-form/script-chapter-semantic-validation';
 import { hashLongFormScriptJobValue } from '@/lib/thinkforge/long-form/script-generation-job-contract';
+import { mixedPresenterCutawayTreatment } from '@/tests/fixtures/thinkforge-video-treatment';
 
 const SHA = 'a'.repeat(64);
 
@@ -175,11 +183,83 @@ function chapterResult(actId: string, sceneId: string, durationSeconds: number) 
   return materializeScriptWriterResult(output);
 }
 
+function v3Plan(): ScriptChapterPlan {
+  const masterPlan = plan();
+  masterPlan.acts[0]!.chapters[0]!.sceneBlueprints[0]!.treatmentEventIds = ['event_host_claim'];
+  masterPlan.acts[1]!.chapters[0]!.sceneBlueprints[0]!.treatmentEventIds = ['event_process_cutaway'];
+  return masterPlan;
+}
+
+function chapterV3Result(
+  chapterId: string,
+  actId: string,
+  sceneId: string,
+  durationSeconds: number,
+  treatmentEventId: 'event_host_claim' | 'event_process_cutaway',
+) {
+  const output: ScriptWriterV3ModelOutput = {
+    contentAnalysis: {
+      hooks: [`Semantic hook for ${sceneId}`],
+      theme: 'Knowledge transfer.',
+      emphasisPoints: [sceneId],
+      qualityScore: sceneId === 'scene_open' ? 94 : 91,
+    },
+    visualMetadata: { motionInfo: mixedPresenterCutawayTreatment.visualRhythm },
+    metadata: { platform: 'youtube' },
+    sidecar: {
+      sidecarVersion: 3,
+      spokenTextSource: 'beat-lines',
+      characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }],
+      acts: [{
+        id: actId,
+        title: 'Chapter act',
+        narrativePurpose: 'Serve the master plan without choosing final media form.',
+        narrativeScenes: [{
+          id: sceneId,
+          title: sceneId === 'scene_open' ? 'Unfinished work' : 'The handover',
+          narrativePurpose: 'Advance the planned audience journey.',
+          durationIntentSeconds: durationSeconds,
+          charactersPresent: ['narrator'],
+          sourceRefs: ['brief_user'],
+          beats: [{
+            id: `beat_${sceneId}`,
+            kind: 'voiceover',
+            narrativePurpose: 'Connect observed detail to the narrative claim.',
+            durationIntentSeconds: durationSeconds,
+            lines: [{
+              id: `line_${sceneId}`,
+              text: sceneId === 'scene_open'
+                ? 'The unfinished edge reveals how much knowledge lives inside one practiced movement.'
+                : 'The apprentice continues the same edge, turning inheritance into visible daily work.',
+              speakerId: 'narrator',
+              languageCode: 'en',
+              onCamera: false,
+              delivery: 'voiceover',
+              sourceRefs: ['brief_user'],
+            }],
+            treatmentVisualEvents: [{ treatmentEventId }],
+            sourceRefs: ['brief_user'],
+          }],
+        }],
+      }],
+      briefId: 'brief_long_form',
+      sourceRefs: ['brief_user'],
+    },
+  };
+  return materializeScriptWriterV3Result(
+    output,
+    mixedPresenterCutawayTreatment,
+    { mode: 'chapter', chapterId },
+    undefined,
+    [treatmentEventId],
+  );
+}
+
 function semanticReceipt(
   masterPlan: ScriptChapterPlan,
   actId: string,
   chapterId: string,
-  result: ReturnType<typeof chapterResult>,
+  result: ScriptWriterResult,
 ) {
   const requirements = buildScriptChapterSemanticRequirementsForPlan({
     plan: masterPlan,
@@ -244,6 +324,27 @@ function artifacts(masterPlan = plan()) {
   };
 }
 
+function v3Artifacts(masterPlan = v3Plan()) {
+  const opening = chapterV3Result('chapter_open', 'act_one', 'scene_open', 180, 'event_host_claim');
+  const closing = chapterV3Result('chapter_close', 'act_two', 'scene_close', 240, 'event_process_cutaway');
+  return {
+    chapter_open: createScriptChapterArtifact({
+      plan: masterPlan,
+      chapterId: 'chapter_open',
+      result: opening,
+      writerTrace: trace(),
+      semanticValidation: semanticReceipt(masterPlan, 'act_one', 'chapter_open', opening),
+    }),
+    chapter_close: createScriptChapterArtifact({
+      plan: masterPlan,
+      chapterId: 'chapter_close',
+      result: closing,
+      writerTrace: trace(),
+      semanticValidation: semanticReceipt(masterPlan, 'act_two', 'chapter_close', closing),
+    }),
+  };
+}
+
 describe('long-form script chapter assembly', () => {
   it('assembles semantic chapters in plan order and preserves long scene durations', () => {
     const masterPlan = plan();
@@ -259,6 +360,73 @@ describe('long-form script chapter assembly', () => {
     expect(result.content).toContain('# Act 1: What the object hides');
     expect(result.contentAnalysis.qualityScore).toBe(91);
     expect(result.sidecar).not.toHaveProperty('renderPlan');
+  });
+
+  it('assembles V3 chapters without changing their approved treatment semantics', () => {
+    const masterPlan = v3Plan();
+    const result = assembleLongFormScriptResult({
+      plan: masterPlan,
+      artifacts: v3Artifacts(masterPlan),
+      videoTreatment: mixedPresenterCutawayTreatment,
+    });
+    if (!isScriptWriterV3Result(result)) throw new Error('Expected a V3 assembled script.');
+
+    expect(result.metadata.estimatedTimeSeconds).toBe(420);
+    expect(result.sidecar.treatment.treatmentId).toBe(mixedPresenterCutawayTreatment.treatmentId);
+    expect(result.sidecar.acts.flatMap((act) => act.narrativeScenes)
+      .flatMap((scene) => scene.beats)
+      .flatMap((beat) => beat.visualEvents)
+      .map((event) => event.treatmentEventId))
+      .toEqual(['event_host_claim', 'event_process_cutaway']);
+    expect(JSON.stringify(result.sidecar)).not.toContain('visualIntent');
+    expect(JSON.stringify(result.sidecar)).not.toContain('shotIntent');
+    expect(JSON.stringify(result.sidecar)).not.toContain('renderPlan');
+  });
+
+  it('fails closed for missing treatment, version-mixed chapters, or altered V3 treatment meaning', () => {
+    const masterPlan = v3Plan();
+    const complete = v3Artifacts(masterPlan);
+    expect(() => assembleLongFormScriptResult({
+      plan: masterPlan,
+      artifacts: complete,
+    })).toThrow(/video_treatment_required_for_v3/);
+
+    const mixed = {
+      chapter_open: createScriptChapterArtifact({
+        plan: masterPlan,
+        chapterId: 'chapter_open',
+        result: chapterResult('act_one', 'scene_open', 180),
+        writerTrace: trace(),
+        semanticValidation: semanticReceipt(
+          masterPlan,
+          'act_one',
+          'chapter_open',
+          chapterResult('act_one', 'scene_open', 180),
+        ),
+      }),
+      chapter_close: complete.chapter_close,
+    };
+    expect(() => assembleLongFormScriptResult({
+      plan: masterPlan,
+      artifacts: mixed,
+      videoTreatment: mixedPresenterCutawayTreatment,
+    })).toThrow(/sidecar_version_conflict/);
+
+    const altered = structuredClone(complete);
+    const alteredClosing = altered.chapter_close.result;
+    if (!isScriptWriterV3Result(alteredClosing)) throw new Error('Expected a V3 chapter artifact.');
+    alteredClosing.sidecar.acts[0]!.narrativeScenes[0]!.beats[0]!.visualEvents[0]!.visualThesis = 'Changed meaning.';
+    altered.chapter_close.semanticValidation = semanticReceipt(
+      masterPlan,
+      'act_two',
+      'chapter_close',
+      alteredClosing,
+    );
+    expect(() => assembleLongFormScriptResult({
+      plan: masterPlan,
+      artifacts: altered,
+      videoTreatment: mixedPresenterCutawayTreatment,
+    })).toThrow(/v3_chapter_treatment_invalid:chapter_close:treatment_visual_event_payload_mismatch:event_process_cutaway/);
   });
 
   it('rejects missing and duplicate chapter artifacts instead of publishing partial work', () => {
