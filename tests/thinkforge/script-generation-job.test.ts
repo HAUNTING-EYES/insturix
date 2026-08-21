@@ -103,6 +103,16 @@ function dependencies(claim: ClaimLongFormScriptJobResult): Required<LongFormScr
 function handoffInput(authoringContext: LongFormScriptGenerationHandoffInput['authoringContext'] = {
   projectMeta: { brandId: 'brand_1' },
   retrievedContext: { projectFacts: [], globalFacts: [], semanticFacts: [], interactionPatterns: [] } as never,
+  creativeReferenceContext: {
+    version: 1,
+    referenceSet: { version: 1, referenceSetId: 'creative_refs_empty', references: [] },
+    scope: { kind: 'personal', ownerUserId: 'user_1', brandId: 'brand_1' },
+    sources: [],
+    selectedReferenceIds: [],
+    analyzedReferenceIds: [],
+    unresolved: [],
+    brandRevision: null,
+  },
   systemBrief: 'Grounded Brand Vault and trend context.',
   snapshot: { profile: { recordId: 'profile_1', revision: 4, checksum: 'c'.repeat(64) } } as never,
 }): LongFormScriptGenerationHandoffInput {

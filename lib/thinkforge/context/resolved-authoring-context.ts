@@ -12,6 +12,10 @@ import {
   type ThinkForgeAuthoringContextSnapshot,
 } from '@/lib/thinkforge/context/brand-authoring-context';
 import {
+  resolveCreativeReferenceContext,
+  type ResolvedCreativeReferenceContext,
+} from '@/lib/thinkforge/context/creative-reference-context';
+import {
   matchesThinkForgeSessionBrandBindingPrincipal,
   resolveProjectMetaAuthoringRequest,
   resolveProjectMetaBrandId,
@@ -22,6 +26,8 @@ import {
 export type ThinkForgeResolvedAuthoringContext = {
   projectMeta: ProjectMeta;
   retrievedContext: RetrievedContext;
+  /** Visual influence provenance, deliberately separate from factual Source Ledger evidence. */
+  creativeReferenceContext: ResolvedCreativeReferenceContext;
   systemBrief: string;
   snapshot: ThinkForgeAuthoringContextSnapshot;
 };
@@ -40,6 +46,9 @@ export interface ResolveThinkForgeAuthoringContextInput {
   interactionWindowDays?: number;
   /** Trusted server-side facts that must participate in the same brief and immutable snapshot. */
   additionalProjectFacts?: readonly SemanticFact[];
+  /** Optional structured references; a non-empty set must carry a matching server-owned scope. */
+  creativeReferenceSet?: unknown | null;
+  creativeReferenceScope?: unknown | null;
   writingKnowledgeVersion?: string | null;
   resolvedAt?: Date;
 }
@@ -92,10 +101,20 @@ export async function resolveThinkForgeAuthoringContext(
     fetchedContext,
     input.additionalProjectFacts ?? [],
   );
+  const creativeReferenceContext = resolveCreativeReferenceContext({
+    userId: input.userId,
+    orgId: input.orgId ?? null,
+    brandAuthority: retrievedContext.brandAuthority,
+    // Never resolve a trend reference from the browser-merged project object.
+    persistedSelectedTrend: input.sessionProjectMeta?.selectedTrend,
+    explicitReferenceSet: input.creativeReferenceSet,
+    explicitReferenceScope: input.creativeReferenceScope,
+  });
 
   return {
     projectMeta,
     retrievedContext,
+    creativeReferenceContext,
     systemBrief: formatSystemBrief(retrievedContext),
     snapshot: buildThinkForgeAuthoringContextSnapshot({
       orgId: input.orgId ?? null,

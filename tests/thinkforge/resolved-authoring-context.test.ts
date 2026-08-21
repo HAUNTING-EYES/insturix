@@ -186,6 +186,59 @@ describe('resolveThinkForgeAuthoringContext', () => {
     expect(mocks.formatSystemBrief).toHaveBeenCalledWith(result.retrievedContext);
   });
 
+  it('attaches scope-checked creative references without treating them as factual retrieval', async () => {
+    const result = await resolveThinkForgeAuthoringContext({
+      userId: 'user_1',
+      orgId: 'org_1',
+      sessionProjectMeta: {
+        brandId: 'brand_b',
+        brandBinding: {
+          version: 2,
+          brandId: 'brand_b',
+          scope: 'organization',
+          orgId: 'org_1',
+          boundAt: '2026-08-10T00:00:00.000Z',
+        },
+      },
+      creativeReferenceScope: { kind: 'organization', orgId: 'org_1', brandId: 'brand_b' },
+      creativeReferenceSet: {
+        version: 1,
+        referenceSetId: 'refs_context_1',
+        references: [{
+          id: 'reference_context_1',
+          kind: 'image',
+          title: 'Approved visual reference',
+          rightsStatus: 'user-provided',
+          analysisStatus: 'pending',
+        }],
+      },
+    });
+
+    expect(result.creativeReferenceContext).toMatchObject({
+      scope: { kind: 'organization', orgId: 'org_1', brandId: 'brand_b' },
+      selectedReferenceIds: ['reference_context_1'],
+      unresolved: [expect.objectContaining({ code: 'reference_analysis_pending' })],
+      brandRevision: { brandId: 'brand_b', recordId: 'record_b_12' },
+    });
+    expect(JSON.stringify(result.retrievedContext)).not.toContain('Approved visual reference');
+    expect(result.snapshot.retrieval.projectFactIds).toEqual(['project_fact_1']);
+  });
+
+  it('never adapts a selected trend from browser-merged project metadata', async () => {
+    const result = await resolveThinkForgeAuthoringContext({
+      userId: 'user_1',
+      providedProject: {
+        brandId: 'brand_b',
+        selectedTrend: { candidate: { candidateId: 'forged_browser_trend' } } as any,
+      },
+    });
+
+    expect(result.projectMeta.selectedTrend).toEqual({ candidate: { candidateId: 'forged_browser_trend' } });
+    expect(result.creativeReferenceContext.sources).toEqual([]);
+    expect(result.creativeReferenceContext.selectedReferenceIds).toEqual([]);
+    expect(result.creativeReferenceContext.unresolved).toEqual([]);
+  });
+
   it('does not downgrade an explicit Brand Vault resolution failure into unbranded authoring', async () => {
     mocks.fetchContextSources.mockRejectedValueOnce(new Error('The selected brand no longer has an accepted profile.'));
 
