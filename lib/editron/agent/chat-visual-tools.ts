@@ -134,10 +134,13 @@ export interface VisualEditResolution {
   };
 }
 
+export type CameraShakeFormIntent = "subtle-impact" | "restrained-impact" | "pronounced-impact";
+
 export interface CameraShakeOptions {
   targetFrame?: number;
   videoOverlayId?: OverlayId;
   targetQuery?: string;
+  formIntent?: CameraShakeFormIntent;
   intensity?: number;
   durationFrames?: number;
   canvasWidth?: number;
@@ -153,6 +156,7 @@ export interface CameraShakeOverlayUpdate {
   intensity: number;
   durationFrames: number;
   maxOffset: number;
+  resolvedFormIntent: CameraShakeFormIntent | "explicit-values" | "legacy-default";
   reason: string;
 }
 
@@ -1795,8 +1799,20 @@ export function applyCameraShakeToProject(
     ?? positiveNumber(project?.playerDimensions?.width)
     ?? positiveNumber(project?.dimensions?.width)
     ?? 1920;
-  const intensity = round3(clamp(options.intensity ?? 0.3, config.shakeIntensityRange[0], config.shakeIntensityRange[1]));
-  const durationFrames = clampInt(options.durationFrames ?? 10, 2, config.shakeMaxDurationFrames);
+  const semanticForm = options.formIntent
+    ? CAMERA_SHAKE_FORM_BY_INTENT[options.formIntent]
+    : undefined;
+  const hasExplicitFormValue = options.intensity !== undefined || options.durationFrames !== undefined;
+  const intensity = round3(clamp(
+    options.intensity ?? semanticForm?.intensity ?? 0.3,
+    config.shakeIntensityRange[0],
+    config.shakeIntensityRange[1],
+  ));
+  const durationFrames = clampInt(
+    options.durationFrames ?? semanticForm?.durationFrames ?? 10,
+    2,
+    config.shakeMaxDurationFrames,
+  );
   const maxOffset = round3(intensity * canvasWidth * config.shakeCanvasOffsetFraction);
   const replacedPosition = options.replacePositionKeyframes && nonShakePositionTracks.length
     ? evaluateAllTracks(nonShakePositionTracks, localFrame)
@@ -1830,12 +1846,24 @@ export function applyCameraShakeToProject(
       intensity,
       durationFrames,
       maxOffset,
+      resolvedFormIntent: hasExplicitFormValue
+        ? "explicit-values"
+        : options.formIntent ?? "legacy-default",
       reason: "brief-impact-camera-shake",
     }],
     warnings,
     message: `Applied bounded camera shake to video overlay ${String(video.id)} at frame ${targetFrame}.`,
   };
 }
+
+const CAMERA_SHAKE_FORM_BY_INTENT: Readonly<Record<
+  CameraShakeFormIntent,
+  Readonly<{ intensity: number; durationFrames: number }>
+>> = {
+  "subtle-impact": { intensity: 0.3, durationFrames: 6 },
+  "restrained-impact": { intensity: 0.35, durationFrames: 8 },
+  "pronounced-impact": { intensity: 0.45, durationFrames: 10 },
+};
 
 export function applySpeedRampToProject(
   project: any,

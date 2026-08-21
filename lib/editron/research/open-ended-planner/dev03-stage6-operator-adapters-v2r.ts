@@ -1,5 +1,6 @@
 import {
   applyCameraShakeToProject,
+  type CameraShakeFormIntent,
   type CameraShakeOptions,
   type CameraShakePlan,
 } from '@/lib/editron/agent/chat-visual-tools';
@@ -213,12 +214,8 @@ function applyFinalShake(input: {
   const shakeOptions: CameraShakeOptions = {
     targetFrame,
     videoOverlayId: targetOverlayId,
-    ...(effectPlan.intensity === undefined
-      ? {} : { intensity: requiredNumber(effectPlan.intensity, 'SHAKE_INTENSITY') }),
-    ...(effectPlan.durationFrames === undefined
-      ? {} : { durationFrames: requiredInteger(effectPlan.durationFrames, 'SHAKE_DURATION') }),
-    ...(effectPlan.replacePositionKeyframes === undefined
-      ? {} : { replacePositionKeyframes: requiredBoolean(effectPlan.replacePositionKeyframes, 'SHAKE_REPLACE_POSITION') }),
+    formIntent: cameraShakeFormIntent(effectPlan.formIntent),
+    replacePositionKeyframes: false,
   };
   const plan = applyCameraShakeToProject(nextProject, shakeOptions);
   const update = exactShakeUpdate(plan, targetOverlayId, targetFrame);
@@ -391,9 +388,10 @@ function requiredInteger(value: unknown, code: string): number {
   return number;
 }
 
-function requiredBoolean(value: unknown, code: string): boolean {
-  if (typeof value !== 'boolean') throw new Error(`DEV03_STAGE6_${code}_INVALID`);
-  return value;
+function cameraShakeFormIntent(value: unknown): CameraShakeFormIntent {
+  if (value === 'subtle-impact' || value === 'restrained-impact'
+    || value === 'pronounced-impact') return value;
+  throw new Error('DEV03_STAGE6_SHAKE_FORM_INTENT_INVALID');
 }
 function requiredRecord(value: unknown, code: string): JsonRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {

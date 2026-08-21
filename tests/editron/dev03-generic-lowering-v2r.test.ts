@@ -31,7 +31,10 @@ describe('DEV-03 generic causal lowering V2R', () => {
       query: 'strongest measured musical impacts',
     });
     expect(intentNodes.get('node-final-shake')?.nodeInputs).toEqual({
-      effectPlan: { goal: 'restrained bounded shake at the final strongest impact, returning to neutral' },
+      effectPlan: {
+        goal: 'restrained bounded shake at the final strongest impact, returning to neutral',
+        formIntent: 'restrained-impact',
+      },
     });
     const evidenceBoundIntent = structuredClone(canonical.evidenceBoundIntentsV2R.BASELINE);
     for (const node of records(evidenceBoundIntent.nodes)) delete node.nodeInputs;
@@ -45,7 +48,12 @@ describe('DEV-03 generic causal lowering V2R', () => {
     expect(compiledNodes.find(({ operatorId }) => operatorId === 'find_audio_moment')?.inputs)
       .toMatchObject({ query: 'strongest measured musical impacts' });
     expect(compiledNodes.find(({ operatorId }) => operatorId === 'apply_camera_shake')?.inputs)
-      .toMatchObject({ effectPlan: { goal: 'restrained bounded shake at the final strongest impact, returning to neutral' } });
+      .toMatchObject({
+        effectPlan: {
+          goal: 'restrained bounded shake at the final strongest impact, returning to neutral',
+          formIntent: 'restrained-impact',
+        },
+      });
   });
 
   it('compiles all seven selected operators without adding or dropping one', () => {
@@ -78,7 +86,10 @@ describe('DEV-03 generic causal lowering V2R', () => {
     expect(record(sync?.inputs)).not.toHaveProperty('beatPlan');
     expect(record(shake?.inputs)).toEqual({
       projectId: 'oe-dev-03', expectedProjectRevision: 'R11',
-      effectPlan: { goal: 'restrained bounded shake at the final strongest impact, returning to neutral' },
+      effectPlan: {
+        goal: 'restrained bounded shake at the final strongest impact, returning to neutral',
+        formIntent: 'restrained-impact',
+      },
     });
 
     const bindings = compiled.edges as CompiledPortBindingEdgeV2R[];

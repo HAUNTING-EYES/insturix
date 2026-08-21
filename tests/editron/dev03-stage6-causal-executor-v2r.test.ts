@@ -126,9 +126,7 @@ describe('DEV-03 Stage-6 causal compiled-graph executor V2R', () => {
     if (!shakeNode) throw new Error('test shake node missing');
     (shakeNode.inputs as JsonRecord).effectPlan = {
       goal: 'Apply one modest short-lived accent on the final selected impact.',
-      intensity: 0.2,
-      durationFrames: 8,
-      replacePositionKeyframes: false,
+      formIntent: 'restrained-impact',
     };
 
     const execution = await execute(changed, evidencePack(), fakeRenderer());
@@ -139,7 +137,7 @@ describe('DEV-03 Stage-6 causal compiled-graph executor V2R', () => {
     for (const track of shakeTracks) {
       const keyframes = track.keyframes as Array<{ value: number }>;
       expect(keyframes).toHaveLength(10);
-      expect(Math.max(...keyframes.map(({ value }) => Math.abs(value)))).toBeLessThanOrEqual(0.64);
+      expect(Math.max(...keyframes.map(({ value }) => Math.abs(value)))).toBeLessThanOrEqual(1.12);
       expect(keyframes.at(-1)?.value).toBe(0);
     }
   });

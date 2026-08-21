@@ -148,7 +148,7 @@ function editorialIntentV2R(): JsonRecord {
       intentNodeV2R('node-observe-timeline', 'inspect_current_timeline', hardClaimIds, 'get_timeline_view', ['node-observe-project'], ['EV-DEV03-T1']),
       intentNodeV2R('node-resolve-impacts', 'locate_measured_audio_impacts', ['claim-align-existing-boundaries', 'claim-final-hit-shake'], 'find_audio_moment', ['node-observe-timeline'], ['EV-DEV03-B1'], { query: 'strongest measured musical impacts' }),
       intentNodeV2R('node-align-boundaries', 'beat_aligned_retime', ['claim-align-existing-boundaries', 'claim-protect-audio-range'], 'sync_cuts_to_beats', ['node-resolve-impacts'], allEvidenceIds),
-      intentNodeV2R('node-final-shake', 'camera_shake', ['claim-final-hit-shake'], 'apply_camera_shake', ['node-align-boundaries'], ['EV-DEV03-B1', 'EV-DEV03-T1'], { effectPlan: { goal: 'restrained bounded shake at the final strongest impact, returning to neutral' } }),
+      intentNodeV2R('node-final-shake', 'camera_shake', ['claim-final-hit-shake'], 'apply_camera_shake', ['node-align-boundaries'], ['EV-DEV03-B1', 'EV-DEV03-T1'], { effectPlan: { goal: 'restrained bounded shake at the final strongest impact, returning to neutral', formIntent: 'restrained-impact' } }),
       intentNodeV2R('node-proof-project', 'post_mutation_project_state_proof', hardClaimIds, 'read_project_file', ['node-final-shake'], allEvidenceIds),
       intentNodeV2R('node-proof-timeline', 'post_mutation_timeline_proof', hardClaimIds, 'get_timeline_view', ['node-proof-project'], allEvidenceIds),
     ],
