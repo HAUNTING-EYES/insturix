@@ -120,6 +120,7 @@ export interface BuildThinkForgeEditorialPlanInput {
   authoringRequest: ThinkForgeAuthoringRequest;
   contentSignalProfile?: ThinkForgeContentSignalProfile | null;
   productionBrief?: ScriptEditorialPlanInput['productionBrief'];
+  evidenceNarrativeIntent?: ScriptEditorialPlanInput['evidenceNarrativeIntent'];
   editorialAngle?: ThinkForgeIdeaAngle | null;
   authorizedFactIds?: readonly string[];
   sourceLedger?: SourceLedger | null;
@@ -366,6 +367,7 @@ export function buildThinkForgeEditorialPlan(
         : { output: { targetDurationSec } },
       contentSignalProfile: input.contentSignalProfile ?? undefined,
       sourceLedger,
+      evidenceNarrativeIntent: input.evidenceNarrativeIntent,
     });
     return {
       ...common,

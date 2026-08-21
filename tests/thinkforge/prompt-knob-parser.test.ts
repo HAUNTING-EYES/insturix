@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { buildThinkForgeEditorialPlan } from '@/lib/thinkforge/agents/editorial-plan';
 import { KNOB_CASES } from '@/lib/thinkforge/intake/knob-parser-cases';
 import { aggregateKnobEval, scoreKnobCases, tallyCase } from '@/lib/thinkforge/intake/knob-parser-eval';
 import {
@@ -14,6 +15,10 @@ import {
   resolveDeterministicOutputKnobs,
   resolveExplicitDurationStatement,
 } from '@/lib/thinkforge/intake/explicit-output-knobs';
+import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
+import { assessScriptEvidenceSufficiency } from '@/lib/thinkforge/provenance/script-evidence-sufficiency';
+import { createThinkForgeAuthoringRequest } from '@/lib/thinkforge/schemas/authoring-request';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 
 describe('buildKnobParserPrompt', () => {
   it('has the required XML sections with data (the request) LAST', () => {
@@ -120,10 +125,11 @@ describe('parseKnobResponse - conservative / never-throws (the safety net)', () 
 });
 
 
-describe('parsePromptUnderstandingResponse - casting intent', () => {
+describe('parsePromptUnderstandingResponse - semantic intake', () => {
   it('keeps output knobs and accepted self-casting intent', () => {
     const r = parsePromptUnderstandingResponse('{"requested":{"platform":"youtube"},"castingIntent":{"requested":true,"target":"self","characterId":"founder","characterName":"Founder"}}');
     expect(r.requested).toEqual({ platform: 'youtube' });
+    expect(r.evidenceNarrativeIntent).toBe('creative');
     expect(r.castingIntent).toEqual({
       requested: true,
       target: 'self',
@@ -141,6 +147,64 @@ describe('parsePromptUnderstandingResponse - casting intent', () => {
   it('drops unrequested or non-self casting payloads', () => {
     expect(parsePromptUnderstandingResponse('{"castingIntent":{"requested":false,"target":"self"}}').castingIntent).toBeUndefined();
     expect(parsePromptUnderstandingResponse('{"castingIntent":{"requested":true,"target":"actor"}}').castingIntent).toBeUndefined();
+  });
+
+  it('accepts an explicit record-led treatment and safely defaults malformed responses to creative', () => {
+    expect(parsePromptUnderstandingResponse('{"evidenceNarrativeIntent":"record_led"}'))
+      .toMatchObject({ evidenceNarrativeIntent: 'record_led' });
+    expect(parsePromptUnderstandingResponse('{"evidenceNarrativeIntent":"unsupported"}'))
+      .toMatchObject({ evidenceNarrativeIntent: 'creative' });
+    expect(parsePromptUnderstandingResponse('not json at all'))
+      .toMatchObject({ evidenceNarrativeIntent: 'creative' });
+  });
+
+  it('does not turn a normal time-bounded brief into a record-led inquiry merely because it has factual material', () => {
+    const userPrompt = 'Make a 5-minute YouTube brand film about our work. Our 2025 programme reached 91 students.';
+    const authoringRequest = createThinkForgeAuthoringRequest({
+      contentContract: createThinkForgeWriterContract('video_script'),
+      platformSurface: { id: 'youtube' },
+      publishingSurface: 'youtube_video',
+      targetDurationSec: 300,
+    });
+    const sourceLedger = buildThinkForgeSourceLedger({ userPrompt });
+    const creativePlan = buildThinkForgeEditorialPlan({
+      userPrompt,
+      authoringRequest,
+      productionBrief: { output: { targetDurationSec: 300 } },
+      sourceLedger,
+      evidenceNarrativeIntent: 'creative',
+    });
+    const recordLedPlan = buildThinkForgeEditorialPlan({
+      userPrompt,
+      authoringRequest,
+      productionBrief: { output: { targetDurationSec: 300 } },
+      sourceLedger,
+      evidenceNarrativeIntent: 'record_led',
+    });
+
+    expect(creativePlan.writerKind).toBe('script');
+    expect(recordLedPlan.writerKind).toBe('script');
+    if (creativePlan.writerKind !== 'script' || recordLedPlan.writerKind !== 'script') {
+      throw new Error('Expected script editorial plan fixtures');
+    }
+    expect(creativePlan.execution.plan.evidenceNarrative).toMatchObject({
+      selection: 'creative',
+      mode: 'creative_without_authorized_evidence',
+      sourceBoundary: 'source_only',
+    });
+    expect(assessScriptEvidenceSufficiency({
+      editorialPlan: creativePlan.execution.plan,
+      sourceLedger,
+    })).toEqual({ status: 'not_applicable' });
+    expect(recordLedPlan.execution.plan.evidenceNarrative).toMatchObject({
+      selection: 'record_led',
+      mode: 'source_bounded_inquiry',
+      sourceBoundary: 'source_only',
+    });
+    expect(assessScriptEvidenceSufficiency({
+      editorialPlan: recordLedPlan.execution.plan,
+      sourceLedger,
+    }).status).toBe('requires_additional_evidence');
   });
 });
 
@@ -189,7 +253,11 @@ describe('parsePromptKnobs - impure edge with injected llm', () => {
 
   it('returns parsed prompt understanding from the llm response', async () => {
     const r = await parsePromptUnderstanding('make me the host', echo('{"castingIntent":{"requested":true,"target":"self"}}'));
-    expect(r).toEqual({ requested: {}, castingIntent: { requested: true, target: 'self', characterId: 'host', characterName: 'Host' } });
+    expect(r).toEqual({
+      requested: {},
+      evidenceNarrativeIntent: 'creative',
+      castingIntent: { requested: true, target: 'self', characterId: 'host', characterName: 'Host' },
+    });
   });
 });
 

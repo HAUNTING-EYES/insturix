@@ -854,7 +854,10 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             authoringRequest: authoritativeAuthoringRequest,
             contentSignalProfile: resolvedSignalProfile,
             editorialAngle: resolveProjectMetaEditorialAngle(sessionState.metadata),
-            ...(contentPath === 'post' ? {} : { productionBrief: briefSnapshot }),
+            ...(contentPath === 'post' ? {} : {
+              productionBrief: briefSnapshot,
+              evidenceNarrativeIntent: promptUnderstanding?.evidenceNarrativeIntent,
+            }),
             authorizedFactIds: [
               ...authoringContextSnapshot.retrieval.projectFactIds,
               ...authoringContextSnapshot.retrieval.globalFactIds,

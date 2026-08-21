@@ -22,8 +22,17 @@ export type ScriptEvidenceNarrativeMode =
   | 'source_bounded_inquiry'
   | 'bounded_evidence_argument';
 
+/**
+ * The semantic form selected at intake. It intentionally does not describe whether facts are
+ * true or evidence is available: source-ledger claim validation owns those decisions.
+ */
+export type ScriptEvidenceNarrativeIntent = 'creative' | 'record_led';
+
+export type ScriptEvidenceNarrativeSelection = ScriptEvidenceNarrativeIntent | 'legacy_source_derived';
+
 export interface ScriptEvidenceNarrativePlan {
   mode: ScriptEvidenceNarrativeMode;
+  selection: ScriptEvidenceNarrativeSelection;
   sourceBoundary: ThinkForgeSourceLedgerEvidenceBoundary;
   requirements: string[];
 }
@@ -89,6 +98,8 @@ export interface ScriptEditorialPlanInput {
   } | null;
   contentSignalProfile?: ThinkForgeContentSignalProfile | null;
   sourceLedger?: SourceLedger | null;
+  /** Supplied by semantic script intake. Omitted legacy callers preserve their existing behavior. */
+  evidenceNarrativeIntent?: ScriptEvidenceNarrativeIntent;
 }
 
 interface NarrationRateGuidance {
@@ -183,11 +194,14 @@ function minimumSpokenWords(targetDurationSeconds: number, wordsPerMinute: numbe
 
 function resolveEvidenceNarrativePlan(
   sourceLedger: SourceLedger | null | undefined,
+  evidenceNarrativeIntent?: ScriptEvidenceNarrativeIntent,
 ): ScriptEvidenceNarrativePlan {
   const sourceBoundary = resolveThinkForgeSourceLedgerEvidenceBoundary(sourceLedger);
+  const selection: ScriptEvidenceNarrativeSelection = evidenceNarrativeIntent ?? 'legacy_source_derived';
   if (!sourceLedger || sourceLedger.entries.length === 0) {
     return {
       mode: 'creative_without_authorized_evidence',
+      selection,
       sourceBoundary,
       requirements: [
         'Do not present invented facts, proof, statistics, dates, testimonials, or named outcomes as true.',
@@ -196,9 +210,10 @@ function resolveEvidenceNarrativePlan(
     };
   }
 
-  if (sourceBoundary === 'source_only') {
+  if (sourceBoundary === 'source_only' && selection !== 'creative') {
     return {
       mode: 'source_bounded_inquiry',
+      selection,
       sourceBoundary,
       requirements: [
         'Build a record-led inquiry around what the authorised record directly establishes.',
@@ -209,8 +224,22 @@ function resolveEvidenceNarrativePlan(
     };
   }
 
+  if (sourceBoundary === 'source_only') {
+    return {
+      mode: 'creative_without_authorized_evidence',
+      selection,
+      sourceBoundary,
+      requirements: [
+        'Let the approved creative direction and requested format determine the narrative.',
+        'Use source-ledger material only for factual claims it directly supports; creative narrative must not invent proof, outcomes, statistics, dates, testimonials, or named facts.',
+        'Do not treat the existence of a brief, date, number, link, or source reference as an instruction to turn the work into a record-led inquiry.',
+      ],
+    };
+  }
+
   return {
     mode: 'bounded_evidence_argument',
+    selection,
     sourceBoundary,
     requirements: [
       'Lead with direct evidence, then make only narrow implications that remain inside the authorised record.',
@@ -235,7 +264,10 @@ export function buildScriptEditorialPlan(input: ScriptEditorialPlanInput): Scrip
   const rateGuidance = NARRATION_RATE_GUIDANCE[narrationMode];
   const narrationDirective = directive(selectedNarration);
   const recommendedStructures = selectStructureTechniques(signals, targetDurationSeconds);
-  const evidenceNarrative = resolveEvidenceNarrativePlan(input.sourceLedger);
+  const evidenceNarrative = resolveEvidenceNarrativePlan(
+    input.sourceLedger,
+    input.evidenceNarrativeIntent,
+  );
 
   return {
     runtime: hasExactRuntime
