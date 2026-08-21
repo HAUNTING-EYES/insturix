@@ -18,6 +18,7 @@ import {
   ScriptWriterSidecarV3ModelSchema,
 } from '@/lib/thinkforge/schemas/script-sidecar-v3';
 import { materializeScriptChapterPlan } from '@/lib/thinkforge/schemas/script-chapter-plan';
+import { createCaptureAcquisitionDecisionSet } from '@/lib/thinkforge/production/capture-acquisition-decisions';
 import {
   abstractExplainerTreatment,
   mixedPresenterCutawayTreatment,
@@ -94,6 +95,14 @@ function confirmedProfile() {
     preferences: { defaultPlanTier: 'no-spend', prioritize: ['cost'], householdSubstitutionsAllowed: false },
     provenance: {},
   });
+}
+
+function acquisitionSourceDocument() {
+  return {
+    version: 1,
+    contentHash: 'c'.repeat(64),
+    sidecarHash: 'd'.repeat(64),
+  };
 }
 
 function chapteredHostTreatment() {
@@ -254,6 +263,51 @@ describe('semantic V3 capture projection', () => {
     expect(plan.status).toBe('needs-acquisition-decision');
     expect(plan.physicalCaptureRequirements).toEqual([]);
     expect(plan.unclassifiedRequirements.map((requirement) => requirement.id)).toEqual(['capture_real_workflow']);
+  });
+
+  it('applies only a document-bound user acquisition choice to an otherwise unresolved requirement', () => {
+    const treatment = structuredClone(productDemonstrationTreatment);
+    treatment.captureRequirements[0]!.unresolvedCapabilityQuestions = [];
+    const sourceDocument = acquisitionSourceDocument();
+    const acquisitionDecisions = createCaptureAcquisitionDecisionSet({
+      treatment,
+      sourceDocument,
+      decisions: [{ requirementId: 'capture_real_workflow', acquisitionKind: 'source-asset', requiredCapabilities: [] }],
+      decidedBy: 'user_1',
+      decidedAt: new Date('2026-08-22T00:00:00.000Z'),
+    });
+
+    const plan = buildTreatmentCapturePlan({
+      sidecar: sidecarFor(treatment, ['event_workflow_proof']),
+      treatment,
+      acquisitionDecisions,
+      acquisitionDecisionSourceDocument: sourceDocument,
+    });
+
+    expect(plan.status).toBe('no-physical-capture');
+    expect(plan.unclassifiedRequirements).toEqual([]);
+    expect(plan.nonPhysicalAcquisitionRequirements).toMatchObject([
+      { id: 'capture_real_workflow', captureKind: 'source-asset' },
+    ]);
+  });
+
+  it('rejects acquisition decisions copied from another document', () => {
+    const treatment = structuredClone(productDemonstrationTreatment);
+    const sourceDocument = acquisitionSourceDocument();
+    const acquisitionDecisions = createCaptureAcquisitionDecisionSet({
+      treatment,
+      sourceDocument,
+      decisions: [{ requirementId: 'capture_real_workflow', acquisitionKind: 'screen-recording', requiredCapabilities: [] }],
+      decidedBy: 'user_1',
+      decidedAt: new Date('2026-08-22T00:00:00.000Z'),
+    });
+
+    expect(() => buildTreatmentCapturePlan({
+      sidecar: sidecarFor(treatment, ['event_workflow_proof']),
+      treatment,
+      acquisitionDecisions,
+      acquisitionDecisionSourceDocument: { ...sourceDocument, contentHash: 'e'.repeat(64) },
+    })).toThrow(/no longer match this script content/);
   });
 
   it('fails closed when a saved V3 sidecar no longer matches the treatment it claims to use', () => {

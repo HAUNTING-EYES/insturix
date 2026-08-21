@@ -8,6 +8,7 @@ import {
   resolveLongFormChapterSceneOwnership,
   type LongFormChapterSceneOwnership,
 } from '../long-form/chapter-scene-ownership';
+import { resolveCaptureAcquisitionDecisions } from './capture-acquisition-decisions';
 import {
   CaptureRequirementCapabilitySchema,
   CaptureRequirementKindSchema,
@@ -143,6 +144,10 @@ export interface BuildTreatmentCapturePlanInput {
   profile?: unknown | null;
   /** Durable chapter hierarchy for a long-form script. Omitted for ordinary scripts. */
   chapterPlan?: unknown;
+  /** Server-verified, document-bound choices for requirements that the treatment left unresolved. */
+  acquisitionDecisions?: unknown;
+  /** Exact source document identity required to verify acquisition decisions. */
+  acquisitionDecisionSourceDocument?: unknown;
 }
 
 type CapabilityEvidence = z.infer<typeof CapabilityEvidenceSchema>;
@@ -397,13 +402,26 @@ export function buildTreatmentCapturePlan(input: BuildTreatmentCapturePlanInput)
     chapterPlan: input.chapterPlan,
     acts: sidecar.acts,
   });
+  const acquisitionDecisions = resolveCaptureAcquisitionDecisions({
+    decisionSet: input.acquisitionDecisions,
+    treatment,
+    sourceDocument: input.acquisitionDecisionSourceDocument,
+  });
   const momentsByRequirementId = linkedMoments(sidecar, chapterOwnership);
   const physicalCaptureRequirements: z.infer<typeof TreatmentCaptureRequirementProjectionSchema>[] = [];
   const nonPhysicalAcquisitionRequirements: z.infer<typeof TreatmentCaptureRequirementProjectionSchema>[] = [];
   const unclassifiedRequirements: z.infer<typeof TreatmentCaptureRequirementProjectionSchema>[] = [];
   const calibrationQuestions: string[] = [];
 
-  treatment.captureRequirements.forEach((requirement) => {
+  treatment.captureRequirements.forEach((declaredRequirement) => {
+    const acquisitionDecision = acquisitionDecisions.get(declaredRequirement.id);
+    const requirement = acquisitionDecision
+      ? {
+          ...declaredRequirement,
+          captureKind: acquisitionDecision.acquisitionKind,
+          requiredCapabilities: acquisitionDecision.requiredCapabilities,
+        }
+      : declaredRequirement;
     const linkedNarrativeMoments = momentsByRequirementId.get(requirement.id) ?? [];
     if (linkedNarrativeMoments.length === 0) return;
     const evidence = requirement.captureKind === 'physical-camera'
@@ -435,7 +453,9 @@ export function buildTreatmentCapturePlan(input: BuildTreatmentCapturePlanInput)
   });
 
   const questions = uniqueStrings(calibrationQuestions);
-  const status = unclassifiedRequirements.length > 0
+  const hasUnresolvedAcquisition = unclassifiedRequirements.length > 0
+    || nonPhysicalAcquisitionRequirements.some((requirement) => requirement.unresolvedCapabilityQuestions.length > 0);
+  const status = hasUnresolvedAcquisition
     ? 'needs-acquisition-decision'
     : physicalCaptureRequirements.length === 0
       ? 'no-physical-capture'
