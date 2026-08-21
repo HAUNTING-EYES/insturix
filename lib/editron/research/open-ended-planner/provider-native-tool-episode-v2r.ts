@@ -33,7 +33,52 @@ export type ProviderNativeTerminalDispositionV2R =
   | 'CLARIFICATION_REQUIRED' | 'POLICY_BLOCKED' | 'CONFLICT'
   | 'PROVIDER_RATE_LIMIT' | 'PROVIDER_TIMEOUT' | 'PROVIDER_REFUSAL'
   | 'PROVIDER_ERROR' | 'TOOL_PROTOCOL_FAILURE' | 'TOOL_EXECUTION_FAILURE'
-  | 'STEP_BUDGET_EXHAUSTED';
+  | 'STEP_BUDGET_EXHAUSTED' | 'RESOURCE_BUDGET_EXHAUSTED'
+  | 'RESOURCE_ACCOUNTING_UNVERIFIABLE';
+
+export type ProviderNativeRuntimeGuardDecisionV2R = Readonly<
+  | {
+      status: 'ALLOW';
+      audit: Readonly<JsonRecord>;
+      maxOutputTokens?: number;
+    }
+  | {
+      status: 'DENY';
+      disposition: 'RESOURCE_BUDGET_EXHAUSTED' | 'RESOURCE_ACCOUNTING_UNVERIFIABLE';
+      reasonCode: string;
+      summary: string;
+      audit: Readonly<JsonRecord>;
+    }
+>;
+
+export interface ProviderNativeRuntimeGuardV2R {
+  beforeTurn(input: Readonly<{
+    turn: number;
+    configuredMaxOutputTokens: number;
+  }>): ProviderNativeRuntimeGuardDecisionV2R | Promise<ProviderNativeRuntimeGuardDecisionV2R>;
+  beforeInvoke(input: Readonly<{
+    turn: number;
+    request: Readonly<SerializedProviderNativeTurnV2R>;
+    maxOutputTokens: number;
+  }>): ProviderNativeRuntimeGuardDecisionV2R | Promise<ProviderNativeRuntimeGuardDecisionV2R>;
+  afterInvoke(input: Readonly<{
+    turn: number;
+    request: Readonly<SerializedProviderNativeTurnV2R>;
+    response: Readonly<ProviderNativeInvokeResponseV2R>;
+    maxOutputTokens: number;
+  }>): ProviderNativeRuntimeGuardDecisionV2R | Promise<ProviderNativeRuntimeGuardDecisionV2R>;
+  beforeExecute(input: Readonly<{
+    turn: number;
+    operatorId: string;
+    arguments: Readonly<JsonRecord>;
+  }>): ProviderNativeRuntimeGuardDecisionV2R | Promise<ProviderNativeRuntimeGuardDecisionV2R>;
+  afterExecute(input: Readonly<{
+    turn: number;
+    operatorId: string;
+    arguments: Readonly<JsonRecord>;
+    execution: Readonly<ProviderNativeToolExecutionV2R>;
+  }>): ProviderNativeRuntimeGuardDecisionV2R | Promise<ProviderNativeRuntimeGuardDecisionV2R>;
+}
 
 export interface ProviderNativeEpisodeContextV2R {
   episodeId: string;
@@ -101,6 +146,7 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   finishInputSchema?: Readonly<JsonRecord>;
   additionalInstructions?: readonly string[];
   invoke: (request: Readonly<SerializedProviderNativeTurnV2R>) => Promise<ProviderNativeInvokeResponseV2R>;
+  runtimeGuard?: Readonly<ProviderNativeRuntimeGuardV2R>;
   executeIsolated: (
     call: Readonly<{ operatorId: string; arguments: Readonly<JsonRecord>; turn: number }>,
   ) => Promise<Readonly<ProviderNativeToolExecutionV2R>>;
@@ -181,16 +227,74 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   let operatorArgumentRepairCount = 0;
 
   for (let turn = 1; turn <= input.context.budget.maxTurns; turn += 1) {
+    const runtimeGuardAudit: JsonRecord[] = [];
+    const turnAuthorization = await runRuntimeGuardHook(
+      input.runtimeGuard ? () => input.runtimeGuard!.beforeTurn({
+        turn,
+        configuredMaxOutputTokens: input.context.budget.maxOutputTokensPerTurn,
+      }) : undefined,
+      'BEFORE_TURN',
+    );
+    if (input.runtimeGuard) runtimeGuardAudit.push(turnAuthorization.audit);
+    if (turnAuthorization.status === 'DENY') {
+      turns.push({ turn, runtimeGuardAudit });
+      return runtimeGuardFailure(
+        input, toolSet.toolSetSha256, contextSha256, turns,
+        selectedOperatorIds, turnAuthorization,
+      );
+    }
+    const maxOutputTokens = turnAuthorization.maxOutputTokens
+      ?? input.context.budget.maxOutputTokensPerTurn;
+    if (!Number.isSafeInteger(maxOutputTokens)
+      || maxOutputTokens < 64
+      || maxOutputTokens > input.context.budget.maxOutputTokensPerTurn) {
+      const denial = runtimeGuardAccountingFailure(
+        'BEFORE_TURN_OUTPUT_LIMIT_INVALID',
+        { turn, maxOutputTokens },
+      );
+      runtimeGuardAudit.push(denial.audit);
+      turns.push({ turn, runtimeGuardAudit });
+      return runtimeGuardFailure(
+        input, toolSet.toolSetSha256, contextSha256, turns,
+        selectedOperatorIds, denial,
+      );
+    }
     const request = serializeProviderNativeTurnV2R({
       route: input.route,
       toolSet,
       history,
-      maxOutputTokens: input.context.budget.maxOutputTokensPerTurn,
+      maxOutputTokens,
     });
+    const requestAuthorization = await runRuntimeGuardHook(
+      input.runtimeGuard
+        ? () => input.runtimeGuard!.beforeInvoke({ turn, request, maxOutputTokens })
+        : undefined,
+      'BEFORE_INVOKE',
+    );
+    if (input.runtimeGuard) runtimeGuardAudit.push(requestAuthorization.audit);
+    if (requestAuthorization.status === 'DENY') {
+      turns.push({ turn, requestHash: request.requestHash, runtimeGuardAudit });
+      return runtimeGuardFailure(
+        input, toolSet.toolSetSha256, contextSha256, turns,
+        selectedOperatorIds, requestAuthorization,
+      );
+    }
     let response: ProviderNativeInvokeResponseV2R;
     try {
       response = await input.invoke(request);
     } catch (error) {
+      if (input.runtimeGuard) {
+        const denial = runtimeGuardAccountingFailure(
+          'PROVIDER_INVOKE_RESULT_UNAVAILABLE',
+          { turn, requestHash: request.requestHash, error: errorMessage(error) },
+        );
+        runtimeGuardAudit.push(denial.audit);
+        turns.push({ turn, requestHash: request.requestHash, runtimeGuardAudit });
+        return runtimeGuardFailure(
+          input, toolSet.toolSetSha256, contextSha256, turns,
+          selectedOperatorIds, denial,
+        );
+      }
       const disposition = error instanceof ProviderNativeTransportErrorV2R
         ? error.code
         : 'PROVIDER_ERROR';
@@ -199,9 +303,30 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       });
     }
     const rawResponseSha256 = hashCanonicalJsonV1(response.body);
+    const responseAccounting = await runRuntimeGuardHook(
+      input.runtimeGuard
+        ? () => input.runtimeGuard!.afterInvoke({ turn, request, response, maxOutputTokens })
+        : undefined,
+      'AFTER_INVOKE',
+    );
+    if (input.runtimeGuard) runtimeGuardAudit.push(responseAccounting.audit);
+    if (responseAccounting.status === 'DENY') {
+      turns.push({
+        turn, requestHash: request.requestHash, responseStatus: response.status,
+        rawResponseSha256, rawResponse: response.body, runtimeGuardAudit,
+      });
+      return runtimeGuardFailure(
+        input, toolSet.toolSetSha256, contextSha256, turns,
+        selectedOperatorIds, responseAccounting,
+      );
+    }
     if (response.status < 200 || response.status >= 300) {
       const disposition = mapHttpFailure(response.status);
-      turns.push({ turn, requestHash: request.requestHash, responseStatus: response.status, rawResponseSha256, rawResponse: response.body });
+      turns.push({
+        turn, requestHash: request.requestHash, responseStatus: response.status,
+        rawResponseSha256, rawResponse: response.body,
+        ...(input.runtimeGuard ? { runtimeGuardAudit } : {}),
+      });
       return finalize(input, toolSet.toolSetSha256, contextSha256, turns, selectedOperatorIds, {
         disposition, reasonCodes: [`HTTP_${response.status}`], evidenceIds: [], summary: disposition,
       });
@@ -213,6 +338,7 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       providerRequestId: normalized.providerRequestId,
       returnedModelIdentity: normalized.providerModel,
       finishReason: normalized.finishReason,
+      ...(input.runtimeGuard ? { runtimeGuardAudit } : {}),
     };
     if (normalized.refusal) {
       turns.push({ ...turnBase, refusal: normalized.refusal });
@@ -303,6 +429,23 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       turns.push({ ...turnBase, modelCall: call, callFingerprint: fingerprint, repeatCount });
       return protocolFailure(input, toolSet.toolSetSha256, contextSha256, turns, selectedOperatorIds, 'IDENTICAL_CALL_BUDGET_EXHAUSTED');
     }
+    const operationAuthorization = await runRuntimeGuardHook(
+      input.runtimeGuard ? () => input.runtimeGuard!.beforeExecute({
+        turn, operatorId: exactTool.operatorId, arguments: args,
+      }) : undefined,
+      'BEFORE_EXECUTE',
+    );
+    if (input.runtimeGuard) runtimeGuardAudit.push(operationAuthorization.audit);
+    if (operationAuthorization.status === 'DENY') {
+      turns.push({
+        ...turnBase, modelCall: call, normalizedArguments: args,
+        runtimeGuardAudit,
+      });
+      return runtimeGuardFailure(
+        input, toolSet.toolSetSha256, contextSha256, turns,
+        selectedOperatorIds, operationAuthorization,
+      );
+    }
     let execution: Readonly<ProviderNativeToolExecutionV2R>;
     try {
       execution = await input.executeIsolated({ operatorId: exactTool.operatorId, arguments: args, turn });
@@ -312,6 +455,23 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         disposition: 'TOOL_EXECUTION_FAILURE', reasonCodes: ['ISOLATED_EXECUTOR_THROWN'],
         evidenceIds: [], summary: errorMessage(error),
       });
+    }
+    const executionAccounting = await runRuntimeGuardHook(
+      input.runtimeGuard ? () => input.runtimeGuard!.afterExecute({
+        turn, operatorId: exactTool.operatorId, arguments: args, execution,
+      }) : undefined,
+      'AFTER_EXECUTE',
+    );
+    if (input.runtimeGuard) runtimeGuardAudit.push(executionAccounting.audit);
+    if (executionAccounting.status === 'DENY') {
+      turns.push({
+        ...turnBase, modelCall: call, normalizedArguments: args, execution,
+        runtimeGuardAudit,
+      });
+      return runtimeGuardFailure(
+        input, toolSet.toolSetSha256, contextSha256, turns,
+        selectedOperatorIds, executionAccounting,
+      );
     }
     if (!validExecutionEnvelope(execution)) {
       turns.push({ ...turnBase, modelCall: call, normalizedArguments: args, execution });
@@ -361,6 +521,61 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   return finalize(input, toolSet.toolSetSha256, contextSha256, turns, selectedOperatorIds, {
     disposition: 'STEP_BUDGET_EXHAUSTED', reasonCodes: ['STEP_BUDGET_EXHAUSTED'], evidenceIds: [],
     summary: 'The model did not issue a typed finish disposition within the frozen turn budget.',
+  });
+}
+
+async function runRuntimeGuardHook(
+  invoke: (() => ProviderNativeRuntimeGuardDecisionV2R
+    | Promise<ProviderNativeRuntimeGuardDecisionV2R>) | undefined,
+  phase: string,
+): Promise<ProviderNativeRuntimeGuardDecisionV2R> {
+  if (!invoke) return { status: 'ALLOW', audit: { phase, guard: 'NOT_CONFIGURED' } };
+  try {
+    const decision = await invoke();
+    if (!validRuntimeGuardDecision(decision)) {
+      return runtimeGuardAccountingFailure(`${phase}_DECISION_INVALID`, { phase });
+    }
+    return decision;
+  } catch (error) {
+    return runtimeGuardAccountingFailure(`${phase}_THREW`, {
+      phase, error: errorMessage(error),
+    });
+  }
+}
+
+function validRuntimeGuardDecision(
+  value: ProviderNativeRuntimeGuardDecisionV2R,
+): boolean {
+  if (!value || typeof value !== 'object' || !value.audit
+    || typeof value.audit !== 'object' || Array.isArray(value.audit)) return false;
+  if (value.status === 'ALLOW') {
+    return value.maxOutputTokens === undefined
+      || Number.isSafeInteger(value.maxOutputTokens);
+  }
+  return value.status === 'DENY'
+    && ['RESOURCE_BUDGET_EXHAUSTED', 'RESOURCE_ACCOUNTING_UNVERIFIABLE']
+      .includes(value.disposition)
+    && Boolean(value.reasonCode.trim()) && Boolean(value.summary.trim());
+}
+
+function runtimeGuardAccountingFailure(
+  reasonCode: string,
+  audit: Readonly<JsonRecord>,
+): Extract<ProviderNativeRuntimeGuardDecisionV2R, { status: 'DENY' }> {
+  return {
+    status: 'DENY', disposition: 'RESOURCE_ACCOUNTING_UNVERIFIABLE',
+    reasonCode, summary: reasonCode, audit: { ...audit, reasonCode },
+  };
+}
+
+function runtimeGuardFailure(
+  input: Parameters<typeof runProviderNativeToolEpisodeV2R>[0], toolSetSha256: string,
+  contextSha256: string, turns: JsonRecord[], selected: string[],
+  denial: Extract<ProviderNativeRuntimeGuardDecisionV2R, { status: 'DENY' }>,
+): Readonly<ProviderNativeEpisodeReceiptV2R> {
+  return finalize(input, toolSetSha256, contextSha256, turns, selected, {
+    disposition: denial.disposition, reasonCodes: [denial.reasonCode],
+    evidenceIds: [], summary: denial.summary,
   });
 }
 
