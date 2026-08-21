@@ -646,10 +646,12 @@ describe('chat edit context bundle', () => {
           }],
         },
       }],
+      sourceRastersByAssetId: { 'asset-subject': { width: 1920, height: 1080 } },
       targetAspectRatio: '9:16',
     }, {
       loadProject: async () => reframeProject,
       loadAnalyses: async () => [],
+      loadSourceRasters: async () => ({ 'asset-subject': { width: 1920, height: 1080 } }),
       saveProject,
       updateProject,
     });

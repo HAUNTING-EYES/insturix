@@ -93,6 +93,7 @@ interface CreateChatVisualToolsOptions {
 export interface SubjectReframeDependencies {
   loadProject(userId: string, projectId: string): Promise<Record<string, any> | null>;
   loadAnalyses(projectId: string, assetIds: string[]): Promise<unknown[]>;
+  loadSourceRasters(userId: string, assetIds: string[]): Promise<Record<string, { width: number; height: number }>>;
   saveProject(userId: string, projectId: string, project: Record<string, any>): Promise<void>;
   updateProject(userId: string, projectId: string, updates: Record<string, unknown>): Promise<void>;
 }
@@ -1165,12 +1166,16 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
             .map((overlay: any) => typeof overlay.assetId === "string" ? overlay.assetId.trim() : "")
             .filter(Boolean),
         ));
-        const analyses = await dependencies.loadAnalyses(projectId, assetIds);
+        const [analyses, sourceRastersByAssetId] = await Promise.all([
+          dependencies.loadAnalyses(projectId, assetIds),
+          dependencies.loadSourceRasters(userId, assetIds),
+        ]);
         const plan = await applySubjectReframeMutation({
           userId,
           projectId,
           project,
           analyses,
+          sourceRastersByAssetId,
           targetAspectRatio: input.targetAspectRatio,
         }, dependencies);
         const resultData = plan.status === "changed"
@@ -1193,7 +1198,7 @@ Writes only overlay.styles.filter, which is already consumed by the renderer. It
     {
       name: "reframe_project",
       description: `Reframe the full edited project to an explicitly requested aspect ratio while keeping grounded subjects visible.
-Uses persisted per-asset spatial evidence to build subject-following focal tracks. Full-canvas media without usable subject evidence is safely contained; authored picture-in-picture and other non-full-canvas layouts are preserved.
+Uses persisted per-asset spatial evidence and canonical source rasters to build subject-following focal tracks. Full-canvas media without usable subject evidence is safely contained; non-full-canvas media without explicit authored-layout evidence is left unchanged and reported as unresolved.
 Use for direct requests such as "make this 9:16 and keep the subject in frame". This tool owns its evidence lookup and mutation; do not route the request through apply_editorial_intent.`,
       schema: subjectReframeSchema,
     },
@@ -1208,6 +1213,7 @@ export async function applySubjectReframeMutation(
     projectId: string;
     project: Record<string, any>;
     analyses: unknown[];
+    sourceRastersByAssetId: Record<string, { width: number; height: number }>;
     targetAspectRatio: "16:9" | "9:16" | "1:1" | "4:5";
   },
   dependencies: SubjectReframeDependencies,
@@ -1215,6 +1221,7 @@ export async function applySubjectReframeMutation(
   const plan = buildSubjectAwareReframePlan({
     project: input.project,
     analyses: input.analyses,
+    sourceRastersByAssetId: input.sourceRastersByAssetId,
     targetAspectRatio: input.targetAspectRatio,
   });
   if (plan.status !== "changed") return plan;
@@ -1240,7 +1247,7 @@ export async function applySubjectReframeMutation(
 }
 
 async function createSubjectReframeDependencies(): Promise<SubjectReframeDependencies> {
-  const [{ projectService }, { getDatabase }] = await Promise.all([
+  const [{ projectService }, { getDatabase, COLLECTIONS }] = await Promise.all([
     import("../services/project-service"),
     import("../db/mongodb"),
   ]);
@@ -1253,6 +1260,21 @@ async function createSubjectReframeDependencies(): Promise<SubjectReframeDepende
         projectId,
         assetId: { $in: assetIds },
       }).toArray();
+    },
+    loadSourceRasters: async (userId, assetIds) => {
+      if (assetIds.length === 0) return {};
+      const assets = await db.collection(COLLECTIONS.MEDIA_ASSETS).find({
+        userId,
+        assetId: { $in: assetIds },
+      }).project({ assetId: 1, dimensions: 1, _id: 0 }).toArray();
+      return Object.fromEntries(assets.flatMap((asset: any) => {
+        const width = Number(asset?.dimensions?.width);
+        const height = Number(asset?.dimensions?.height);
+        return typeof asset?.assetId === "string" && Number.isFinite(width) && width > 0
+          && Number.isFinite(height) && height > 0
+          ? [[asset.assetId, { width, height }]]
+          : [];
+      }));
     },
     saveProject: (userId, projectId, project) => projectService.saveProject(userId, projectId, project as any),
     updateProject: (userId, projectId, updates) => projectService.updateProject(userId, projectId, updates),

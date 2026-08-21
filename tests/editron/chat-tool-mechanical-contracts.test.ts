@@ -319,6 +319,7 @@ describe('chat mechanical tool contracts', () => {
     const reframeDependencies = {
       loadProject: vi.fn(async () => structuredClone(project) as Record<string, any>),
       loadAnalyses: vi.fn(async () => []),
+      loadSourceRasters: vi.fn(async () => ({})),
       saveProject: vi.fn(async (_userId: string, _projectId: string, next: Record<string, any>) => {
         Object.assign(project, structuredClone(next));
       }),
