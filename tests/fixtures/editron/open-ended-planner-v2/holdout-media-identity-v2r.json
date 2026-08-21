@@ -1,0 +1,29 @@
+{
+  "version": "EDITRON_OE_HOLDOUT_MEDIA_IDENTITY_V2R_1",
+  "manifestVersion": "2.2.0-r1",
+  "manifestSha256": "435a7b35f9e4f7d8071609100c38031a17058a3bc96950ed9e603dd78b0535ed",
+  "taskCount": 8,
+  "artifactCount": 12,
+  "ffmpegBinarySha256": "c8abc49e7be62dde8e12972af373959e0076a7b8dc8040eb45978e0608f8781e",
+  "sourceBindings": [
+    { "path": "tests/fixtures/editron/open-ended-planner-v1/holdout-tasks-v1.json", "sha256": "f8b509c0f0fcc3277ff4fe8e9dacb734ce6ec7d9fb8ac25a26578e1354c9d845" },
+    { "path": "tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json", "sha256": "40f52a6d04aadc1d265d6520646725e5254362ce56c468d0ff6726bcbb8e89fa" },
+    { "path": "lib/editron/research/open-ended-planner/holdout-media-materializer-v2r.ts", "sha256": "a22ef997cfd8e24d46a4e0d98d7a6b6586b8dd1c88464a472a7e9a74a5c3771e" },
+    { "path": "lib/editron/research/open-ended-planner/holdout-media-codec-v2r.ts", "sha256": "e2e299b4e0232ddbc5bef05c91795a06b3c73ea3873b57d55f270c2e06f43b5b" },
+    { "path": "lib/editron/research/open-ended-planner/holdout-media-fixtures-v2r.ts", "sha256": "327ce752b40c865c71d479686d78ebb6c6b2528d9e42352a4e9666193129bf66" }
+  ],
+  "artifactSha256ById": {
+    "h01-clock": "sha256:2f184ee32fc577443cd88d22b5a000f0dae471c83e086dc3aa8713539cde4558",
+    "h01-dial": "sha256:08d1ff86a27e7b932881a336460ecf7693e15bb3db14d087e6d988e6207cd435",
+    "h02-door": "sha256:58daf39e65895ee234d6f10125e416b45aa08e804ba83af26042405c1c72f5df",
+    "h02-process": "sha256:338f039c15098f5699c010bb38b9b2370b6ceaafef843d594c9b688cb642bbe3",
+    "h03-a": "sha256:cb54ba193dad9159cdd0856ce39280855af4adb1c3d4f8de50fd13fc2a1bef25",
+    "h03-b": "sha256:3bc9ff365921e4a3043490f05c7e6bee68d4e067a3ead8e6013f981aebbbff6f",
+    "h03-ref": "sha256:14a179905f09eb1d6155528ed1561a156f63b589fac7187871a7e77a94c9fbea",
+    "h04-host": "sha256:9d87ba1b03318c005889c77e915b44a10bf570c641b0f03bbd0d283fe9177fa3",
+    "h05-subject": "sha256:26082c9fb44744a92245eec94af72144c149caa30794ae4ba718a5263c5a8083",
+    "h06-office": "sha256:cfb31b086e20e167de9ded91c57f5c59f5744f329da973ea2e086922711cf725",
+    "h07-card": "sha256:397516ef3fa1339183f6f8d04f45fd74bf85f71aabf077d6b0c4879fffe6459d",
+    "h08-runner": "sha256:5048a4aabc74055d6c976cfa3498c36e57398f984f9b7beeab8c890557d68308"
+  }
+}
