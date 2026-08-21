@@ -75,11 +75,22 @@ type CurrentScriptPayload = {
         sourceLedger?: Record<string, unknown>;
         profileCompliance?: Record<string, unknown>;
         generationTrace?: unknown;
+        videoTreatment?: {
+          visualEvents?: Array<{ id?: string }>;
+        };
         scriptSidecar?: {
           sidecarVersion?: number;
+          treatment?: {
+            treatmentId?: string;
+            treatmentVersion?: number;
+            inputFingerprint?: string;
+          };
           acts?: Array<{
             narrativeScenes?: Array<{
               durationIntentSeconds?: number;
+              beats?: Array<{
+                visualEvents?: Array<{ treatmentEventId?: string }>;
+              }>;
             }>;
           }>;
         };
@@ -123,6 +134,18 @@ type EditronExportPayload = {
       sidecarVersion?: number;
       sidecarSource?: string;
     };
+  };
+};
+
+type ProductionShotPlanPayload = {
+  status?: string;
+  documentVersion?: number;
+  capturePlan?: {
+    kind?: string;
+    status?: string;
+    physicalCaptureRequirements?: unknown[];
+    nonPhysicalAcquisitionRequirements?: unknown[];
+    unclassifiedRequirements?: unknown[];
   };
 };
 
@@ -320,7 +343,7 @@ function buildBrowserScenario(
       fixture,
       format: '7-minute YouTube video script',
       platform: 'YouTube',
-      prompt: 'Create a seven-minute montage-driven YouTube documentary with sparse voiceover. Use this supplied editorial framework as the only factual basis: hidden decision ownership can delay a campaign launch; name one decision owner; use one shared review lane; keep status and unresolved choices visible; preserve accepted decisions beside the work; test whether contributors can see the current artifact, owner, and next unresolved choice. Present the framework as practical guidance, not measured research.',
+      prompt: 'Create a seven-minute montage-driven YouTube documentary with sparse voiceover. Use this supplied editorial framework as the only factual basis: hidden decision ownership can delay a campaign launch; name one decision owner; use one shared review lane; keep status and unresolved choices visible; preserve accepted decisions beside the work; test whether contributors can see the current artifact, owner, and next unresolved choice. Present the framework as practical guidance, not measured research. Do not require physical filming, a presenter, camera, screen recording, source footage, or equipment; keep all visual intent semantic for later editorial resolution.',
       authoringRequest: createThinkForgeAuthoringRequest({
         contentContract: createThinkForgeWriterContract('video_script'),
         platformSurface: { id: 'youtube' },
@@ -881,11 +904,40 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
       );
       const scenes = sidecar.acts?.flatMap((act) => act.narrativeScenes ?? []) ?? [];
       const durations = scenes.map((scene) => scene.durationIntentSeconds ?? 0);
-      expect(sidecar.sidecarVersion).toBe(2);
+      const selectedTreatmentEventIds = scenes.flatMap((scene) => (
+        scene.beats?.flatMap((beat) => beat.visualEvents?.map((event) => event.treatmentEventId) ?? []) ?? []
+      ));
+      const treatmentEventIds = persisted.script?.metadata?.writerOutput?.videoTreatment?.visualEvents
+        ?.map((event) => event.id)
+        .filter((id): id is string => Boolean(id)) ?? [];
+      expect(sidecar.sidecarVersion).toBe(3);
+      expect(sidecar.treatment).toMatchObject({
+        treatmentId: expect.any(String),
+        treatmentVersion: 1,
+        inputFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
       expect(scenes).toHaveLength(6);
       expect(durations.reduce((total, duration) => total + duration, 0)).toBe(420);
       expect(new Set(durations).size).toBeGreaterThan(1);
       expect(durations.every((duration) => duration > 0)).toBe(true);
+      expect(selectedTreatmentEventIds).toHaveLength(treatmentEventIds.length);
+      expect(new Set(selectedTreatmentEventIds)).toEqual(new Set(treatmentEventIds));
+      expect(JSON.stringify(sidecar)).not.toMatch(/shotIntent|visualIntent|renderPlan/i);
+
+      const captureProjection = await fetchBrowserJson<ProductionShotPlanPayload>(
+        page,
+        `/api/services/thinkforge/production/shot-plan?sessionId=${encodeURIComponent(sessionId!)}&scriptId=${encodeURIComponent(scriptId)}`,
+        'GET',
+      );
+      expect(captureProjection.status).toBe('capture-projection');
+      expect(captureProjection.documentVersion).toBe(persisted.script?.version);
+      expect(captureProjection.capturePlan).toMatchObject({
+        kind: 'treatment-capture-plan',
+        status: 'no-physical-capture',
+      });
+      expect(captureProjection.capturePlan?.physicalCaptureRequirements).toEqual([]);
+      expect(captureProjection.capturePlan?.nonPhysicalAcquisitionRequirements).toEqual([]);
+      expect(captureProjection.capturePlan?.unclassifiedRequirements).toEqual([]);
     }
 
     const initialVersion = requireEvidence(persisted.script?.version, 'the initial document version');
@@ -1109,10 +1161,10 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
     }
 
     if (fixture === 'script') {
-      const scriptContent = requireEvidence(revised.script?.content, 'the persisted V2 script content');
+      const scriptContent = requireEvidence(revised.script?.content, 'the persisted V3 script content');
       const scriptBlocks = requireEvidence(
         (await readScriptBlocks(page, sessionId!, scriptId)).blocks,
-        'the persisted V2 script blocks',
+        'the persisted V3 script blocks',
       );
       const editronExport = await fetchBrowserJson<EditronExportPayload>(
         page,
@@ -1132,7 +1184,7 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
         parser: {
           fallbackUsed: false,
           sidecarUsed: true,
-          sidecarVersion: 2,
+          sidecarVersion: 3,
           sidecarSource: 'stored-script',
         },
       });

@@ -111,46 +111,40 @@ const SCRIPT_SCENES = [
     narrativePurpose: 'Reveal that the launch delay lives in an unseen decision path.',
     durationSeconds: 55,
     narration: 'Most launch delays do not begin with a bad idea. They begin when a decision has no visible owner. The brief sits in one document, feedback lands in several chats, and the release decision lives in someone\'s memory. The team keeps working, but nobody can tell which version is current or who can approve it. Before fixing the schedule, make that hidden queue visible.',
-    visualDescription: 'A campaign card moves between disconnected desks while unanswered approval markers accumulate around it.',
   },
   {
     title: 'Name the Decision Owner',
     narrativePurpose: 'Establish one accountable owner before creative work begins.',
     durationSeconds: 68,
     narration: 'Name one decision owner before creative work starts. This person does not need to make every edit or attend every review. They do need authority to confirm the audience, the claim, the evidence, and the release moment. Write the owner\'s name beside the campaign outcome, then record who advises and who executes. Clear responsibility at the start keeps later feedback from becoming a second, unofficial approval system.',
-    visualDescription: 'One owner card is placed at the head of a physical campaign board before any draft enters review.',
   },
   {
     title: 'Build One Review Lane',
     narrativePurpose: 'Show how a shared review record replaces scattered feedback.',
     durationSeconds: 74,
     narration: 'Next, build one review lane. Every comment should point to the same artifact, carry a reason, and end in a visible decision: accept, revise, or reject. When feedback arrives elsewhere, move the decision back to the shared record instead of copying fragments between tools. The goal is not more process. It is a reliable chain from the original brief to the version the team is actually preparing to publish.',
-    visualDescription: 'Loose feedback notes converge into one ordered review lane with visible change, reason, and decision states.',
   },
   {
     title: 'Remove the Status Chase',
     narrativePurpose: 'Contrast visible decisions with deadline-driven status hunting.',
     durationSeconds: 63,
     narration: 'Once the lane exists, remove the status chase. A teammate should be able to open the record and see what changed, why it changed, what is still unresolved, and who owns the next move. That visibility protects the final hours before launch for craft rather than detective work. It also makes a delay diagnosable: the team can see whether the blocker is evidence, creative judgment, or release authority.',
-    visualDescription: 'A clock advances while a clear approval record lets the team refine the work instead of opening more chat windows.',
   },
   {
     title: 'Create a Calmer Launch Rhythm',
     narrativePurpose: 'Demonstrate the operational payoff of visible approval ownership.',
     durationSeconds: 82,
     narration: 'Use the record to create a calmer launch rhythm. Review at defined moments, resolve one class of decision at a time, and preserve the accepted answer beside the work. The team can then refine the message without reopening settled questions or collecting duplicate comments. After launch, the same record becomes a practical history: what the campaign promised, what evidence supported it, and which decision rules should carry into the next brief.',
-    visualDescription: 'The same campaign board now moves through review with fewer duplicate notes and a legible decision history.',
   },
   {
     title: 'Make the Next Decision Visible',
     narrativePurpose: 'Close with a practical action that preserves the approved angle.',
     durationSeconds: 78,
     narration: 'Before the next campaign begins, test the workflow with one simple question: can every contributor see the current artifact, the decision owner, and the next unresolved choice without asking for a status update? If the answer is no, fix the path before adding another tool or meeting. Visible approval ownership does not make creative judgment automatic. It makes the judgment inspectable, accountable, and easier for the whole team to act on.',
-    visualDescription: 'The completed approval record is filed beside the next campaign brief, ready to guide the following launch.',
   },
 ] as const;
 
-const THINKFORGE_E2E_SCRIPT_FIXTURE = {
+const THINKFORGE_E2E_SCRIPT_OUTPUT = {
   contentAnalysis: {
     hooks: ['Approval ownership is a launch constraint.'],
     theme: 'Make approval ownership visible before a campaign launch.',
@@ -163,8 +157,83 @@ const THINKFORGE_E2E_SCRIPT_FIXTURE = {
   metadata: {
     platform: 'youtube',
   },
-  sidecar: {
-    sidecarVersion: 2,
+};
+
+function resolveTreatmentEventIds(data: Record<string, unknown>): string[] {
+  const treatment = asRecord(data.videoTreatment);
+  const events = Array.isArray(treatment?.visualEvents) ? treatment.visualEvents : null;
+  if (!events?.length) {
+    throw new Error('ThinkForge E2E script fixture requires one or more approved video treatment visual events.');
+  }
+
+  const eventIds = events.map((event) => asRecord(event)?.id).filter((id): id is string => (
+    typeof id === 'string' && id.trim().length > 0
+  ));
+  if (eventIds.length !== events.length || new Set(eventIds).size !== eventIds.length) {
+    throw new Error('ThinkForge E2E script fixture requires unique, non-empty video treatment visual event IDs.');
+  }
+  return eventIds;
+}
+
+function stringValues(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+}
+
+function buildThinkForgeE2EVideoTreatmentFixture(data: Record<string, unknown>) {
+  const allowedTraceEvidence = asRecord(data.allowedTraceEvidence);
+  const sourceRefs = stringValues(allowedTraceEvidence?.sourceRefs);
+  const eventCount = SCRIPT_SCENES.length;
+
+  return {
+    audienceOutcome: 'Understand the approval path before the campaign reaches its release decision.',
+    viewerPromise: 'A clear, semantic explanation of how visible ownership keeps a launch moving.',
+    narrativeArc: 'Reveal the hidden queue, name the owner, make review visible, and close on the next accountable decision.',
+    visualVerbalRelationship: 'complement' as const,
+    visualRhythm: 'Steady explanatory progress with a semantic visual turn at each argument shift.',
+    informationHierarchy: ['Hidden approval queue', 'Named decision owner', 'Visible review lane', 'Next accountable choice'],
+    brandBoundaries: ['Honor the resolved Brand Vault visual boundaries without inventing brand assets or final form.'],
+    referenceSynthesis: [],
+    continuityStrategy: 'Return to the approval-path motif only when the narrative advances to a new decision.',
+    audioVoiceStrategy: 'Sparse voiceover carries the reasoning while semantic visuals make each operational change legible.',
+    userConstraints: ['Keep the treatment semantic; final editorial form remains owned by Editron.'],
+    visualEvents: Array.from({ length: eventCount }, (_, index) => ({
+      id: `event_approval_${index + 1}`,
+      momentId: `moment_approval_${index + 1}`,
+      audienceJob: SCRIPT_SCENES[index]!.narrativePurpose,
+      visualThesis: 'Clarify the current decision relationship without prescribing footage, graphics, layout, or camera form.',
+      audioRelationship: 'complement' as const,
+      timingNote: 'Appears with the narrative turn and clears once the next decision becomes the focus.',
+      continuityNotes: ['Keep the approval-path relationship coherent across the full narrative.'],
+      sourceRefs,
+      creativeReferenceIds: [],
+      brandConstraints: ['Respect the resolved brand visual boundaries.'],
+      accessibilityRequirements: ['Do not rely on color alone to communicate the approval relationship.'],
+      captureRequirementIds: [],
+    })),
+    captureRequirements: [],
+    decisionTrace: {
+      sourceRefs,
+      creativeReferenceIds: [],
+      appliedConstraintIds: [],
+      unresolvedAssumptions: [],
+      decisions: [{
+        id: 'decision_semantic_approval_path',
+        decision: 'Use semantic visual events to clarify each approval decision without choosing final execution form.',
+        rationale: 'The QA treatment must exercise the same semantic-to-editorial handoff contract as production.',
+        evidenceIds: sourceRefs,
+        confidence: 0.9,
+      }],
+    },
+  };
+}
+
+function buildThinkForgeE2EScriptFixture(treatmentEventIds: readonly string[]) {
+  return {
+    ...cloneFixture(THINKFORGE_E2E_SCRIPT_OUTPUT),
+    sidecar: {
+    sidecarVersion: 3,
     spokenTextSource: 'beat-lines',
     characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }],
     acts: [{
@@ -193,52 +262,16 @@ const THINKFORGE_E2E_SCRIPT_FIXTURE = {
             delivery: 'voiceover',
             sourceRefs: ['brief_user'],
           }],
-          visualIntent: {
-            description: scene.visualDescription,
-            motion: 'A restrained push-in or lateral reveal motivated by the next decision.',
-            onScreenText: [],
-            imageQualityTokens: 'editorial detail, controlled contrast, natural materials',
-            videoQualityTokens: 'stable camera, clean cadence, production-ready composition',
-            assetRecommendation: 'ai-video',
-          },
-          audioIntent: {
-            ambience: 'Quiet campaign operations workspace with a low room tone.',
-            music: 'Measured percussive underscore that supports clear instruction.',
-            sfx: ['Subtle paper movement', 'Restrained keyboard accents'],
-          },
-          shotIntent: {
-            narrativePurpose: scene.narrativePurpose,
-            emotionalBeat: 'Calm clarity replaces deadline anxiety.',
-            energy: 0.45,
-            visualPriority: 'The decision artifact and its owner.',
-            action: 'still',
-            desiredFraming: 'medium-close-up',
-            desiredAngle: 'eye-level',
-            desiredMovement: 'static',
-            movementMotivation: '',
-            simultaneousPerformers: 0,
-            spokenAudio: false,
-            performance: [],
-            continuity: {
-              wardrobe: [],
-              props: ['approval artifact'],
-              previousSceneIds: index === 0 ? [] : [`scene_${index}`],
-            },
-          },
+          treatmentVisualEvents: treatmentEventIds
+            .filter((_, eventIndex) => eventIndex % SCRIPT_SCENES.length === index)
+            .map((treatmentEventId) => ({ treatmentEventId })),
           sourceRefs: ['brief_user'],
         }],
       })),
     }],
-    creativeDirection: {
-      overallMusicPrompt: 'Precise editorial rhythm with a restrained optimistic finish.',
-      characterDescriptions: { narrator: 'A calm, exact voiceover narrator. No on-camera performer.' },
-      colorPalette: ['#0F172A', '#D97706', '#F8FAFC'],
-      environmentNotes: 'A practical campaign operations workspace with natural daylight and no visible brand marks.',
-      globalEditDirections: {},
-      suggestedProfileCategory: 'production-mode',
-    },
     sourceRefs: ['brief_user'],
-  },
+    },
+  };
 };
 
 const E2E_BRAND_FINGERPRINTS: Record<ThinkForgeE2EBrandFingerprint, {
@@ -366,11 +399,12 @@ function applyPostBrandFingerprint(
 function buildAutoFixtureCandidate(
   fixture: ThinkForgeE2EResolvedWriterFixture,
   brand: ThinkForgeE2EBrandFingerprint,
+  data: Record<string, unknown>,
 ): unknown {
   const fingerprint = E2E_BRAND_FINGERPRINTS[brand];
 
   if (fixture === 'script') {
-    const candidate = cloneFixture(THINKFORGE_E2E_SCRIPT_FIXTURE);
+    const candidate = buildThinkForgeE2EScriptFixture(resolveTreatmentEventIds(data));
     const firstScene = candidate.sidecar.acts[0]?.narrativeScenes[0] as { title: string } | undefined;
     if (!firstScene) throw new Error('ThinkForge E2E script fixture has no first scene.');
     firstScene.title = `${fingerprint.marker}: ${firstScene.title}`;
@@ -418,20 +452,33 @@ export function resolveThinkForgeE2EStructuredFixture<TOutput>(input: {
   const fixture = getThinkForgeE2EWriterFixture();
   if (!fixture) return null;
 
+  if (input.systemInstruction?.includes('<video_treatment_planner_contract')) {
+    const candidate = buildThinkForgeE2EVideoTreatmentFixture(readUntrustedWriterData(input.prompt));
+    const parsed = input.schema.safeParse(candidate);
+    if (!parsed.success) {
+      throw new Error(`ThinkForge E2E video treatment fixture does not satisfy the requested schema: ${parsed.error.message}`);
+    }
+    return {
+      result: parsed.data,
+      cacheStatus: 'inline',
+      modelName: 'thinkforge-e2e-stub',
+    };
+  }
+
   let resolvedFixture: ThinkForgeE2EResolvedWriterFixture;
   let candidate: unknown;
   if (fixture === 'auto') {
     const data = readUntrustedWriterData(input.prompt);
     const brand = resolveAutoBrandFingerprint(data);
     resolvedFixture = resolveAutoWriterFixture(input.systemInstruction ?? '', data);
-    candidate = buildAutoFixtureCandidate(resolvedFixture, brand);
+    candidate = buildAutoFixtureCandidate(resolvedFixture, brand, data);
   } else {
     resolvedFixture = fixture;
     candidate = fixture === 'post'
       ? THINKFORGE_E2E_POST_FIXTURE
       : fixture === 'carousel'
         ? THINKFORGE_E2E_CAROUSEL_FIXTURE
-        : THINKFORGE_E2E_SCRIPT_FIXTURE;
+        : buildThinkForgeE2EScriptFixture(resolveTreatmentEventIds(readUntrustedWriterData(input.prompt)));
   }
   const parsed = input.schema.safeParse(candidate);
   if (!parsed.success) {

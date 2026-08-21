@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -70,6 +71,7 @@ describe('ThinkForge to Editron no-credit dry run', () => {
       title: 'Authorized dry-run script',
       content: '',
       blocks: [],
+      contentContract: createThinkForgeWriterContract('video_script'),
       metadata: {},
     }));
     mocks.isLLMParserAvailable.mockReturnValue(true);
