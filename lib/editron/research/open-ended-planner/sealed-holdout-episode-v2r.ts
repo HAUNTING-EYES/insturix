@@ -23,11 +23,11 @@ import { assertNoEvaluatorLeakV2 } from './staged-packet-v2';
 type JsonRecord = Record<string, unknown>;
 
 export const SEALED_HOLDOUT_EPISODE_VERSION_V2R =
-  'EDITRON_OE_SEALED_HOLDOUT_EPISODE_V2R_1' as const;
+  'EDITRON_OE_SEALED_HOLDOUT_EPISODE_V2R_2' as const;
 export const SEALED_HOLDOUT_FINISH_SCHEMA_V2R =
   buildProviderNativeFinishControlSchemaV2R([
     'READY_FOR_PROOF', 'PASS', 'FAIL', 'UNVERIFIABLE', 'CAPABILITY_GAP',
-    'POLICY_BLOCKED', 'CONFLICT',
+    'CLARIFICATION_REQUIRED', 'POLICY_BLOCKED', 'CONFLICT',
   ]);
 
 export function buildSealedHoldoutEpisodeContextV2R(input: {
@@ -41,6 +41,7 @@ export function buildSealedHoldoutEpisodeContextV2R(input: {
   const project = record(publicCase.project);
   const shared = record(manifest.sharedModelContext);
   const planningSheet = record(shared.planningToolSheet);
+  const resultReferenceSupplements = buildGenericResultReferenceSupplements(shared);
   const unavailableIds = new Set(strings(shared.unavailableOperatorIds));
   const unavailableOperatorRecords = records(planningSheet.operators)
     .filter((operator) => unavailableIds.has(text(operator.operatorId)));
@@ -71,6 +72,11 @@ export function buildSealedHoldoutEpisodeContextV2R(input: {
       projectAuthority: 'DENIED_RESEARCH_CLONE_ONLY',
       evaluatorKnowledge: 'DENIED',
       unavailableOperationsAreVisibleButNotCallable: true,
+      completeCapabilityDossier: {
+        sharedModelContextSha256: manifest.sharedModelContextSha256,
+        outputHandoffPolicy: 'SCHEMA_DERIVED_SAME_FIELD_PLUS_WRITER_REVISION_V1',
+        plannerRecordSupplements: resultReferenceSupplements,
+      },
     },
     budget: { maxTurns: 24, maxOutputTokensPerTurn: 4096, maxIdenticalCalls: 2 },
   } satisfies ProviderNativeEpisodeContextV2R);
@@ -108,6 +114,32 @@ export async function runSealedHoldoutEpisodeV2R(input: {
     invoke: input.invoke,
     executeIsolated: input.executeIsolated,
   });
+}
+
+function buildGenericResultReferenceSupplements(shared: JsonRecord): readonly JsonRecord[] {
+  const callableIds = new Set(strings(shared.callableOperatorIds));
+  const operators = records(record(shared.operatorCatalog).operators)
+    .filter((operator) => callableIds.has(text(operator.operatorId)));
+  const downstreamInputFields = new Set(operators.flatMap(
+    (operator) => strings(record(operator.input).fields),
+  ));
+  const origins = operators.flatMap((source) => {
+    const operatorId = text(source.operatorId);
+    const outputFields = strings(record(source.output).fields);
+    const sameFieldOrigins = outputFields
+      .filter((field) => downstreamInputFields.has(field))
+      .map((outputField) => ({ origin: 'OPERATOR_OUTPUT', operatorId, outputField }));
+    return outputFields.includes('receipt') && downstreamInputFields.has('expectedProjectRevision')
+      ? [...sameFieldOrigins, {
+          origin: 'OPERATOR_OUTPUT', operatorId,
+          outputField: 'receipt.projectRevision',
+        }]
+      : sameFieldOrigins;
+  });
+  const inputOrigins = Object.fromEntries(origins.map((origin, index) => [
+    `schemaDerivedOrigin${index + 1}`, [origin],
+  ]));
+  return [{ selectableOperatorId: 'SCHEMA_DERIVED_HANDOFF', inputOrigins }];
 }
 
 function sameSet(left: readonly string[], right: readonly string[]): boolean {

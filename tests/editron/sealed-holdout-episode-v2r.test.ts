@@ -6,11 +6,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { mapProviderNativeNonProofTerminalToProductOutcomeV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-product-outcome-v2r';
+import { buildProviderNativeResultReferenceProjectionPolicyV2R }
+  from '@/lib/editron/research/open-ended-planner/provider-native-result-references-v2r';
 import {
   buildSealedHoldoutCohortManifestV2R,
   SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V2R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v2r';
-import { runSealedHoldoutEpisodeV2R }
+import { buildSealedHoldoutEpisodeContextV2R, runSealedHoldoutEpisodeV2R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-episode-v2r';
 import { buildProviderNativeToolSetV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-tool-catalog-v2r';
@@ -86,5 +88,120 @@ describe('sealed holdout provider-native episode V2R', () => {
       operatorPresentationOrder: ['find_visual_moment', 'use_matching_footage'],
       invoke: vi.fn(), executeIsolated: vi.fn(),
     })).rejects.toThrow('SEALED_HOLDOUT_EPISODE_OPERATOR_SET_DRIFT');
+  });
+
+  it('keeps clarification distinct and declares generic writer-revision handoff', async () => {
+    const cohort = await manifest();
+    const context = buildSealedHoldoutEpisodeContextV2R({
+      manifest: cohort, caseId: 'HOLD-02:C1',
+    });
+    const projections = buildProviderNativeResultReferenceProjectionPolicyV2R(
+      context as unknown as Record<string, unknown>,
+    );
+    expect(projections).toContainEqual({
+      sourceOperatorId: 'add_overlay',
+      sourceOutputPath: ['receipt', 'projectRevision'],
+    });
+    expect(projections).toContainEqual({
+      sourceOperatorId: 'cut_section',
+      sourceOutputPath: ['timelineCoordinateTransform'],
+    });
+
+    const receipt = await runSealedHoldoutEpisodeV2R({
+      manifest: cohort, caseId: 'HOLD-02:C2',
+      route: {
+        routeId: 'OPENAI_TERRA', provider: 'openai', model: 'gpt-5.6-terra',
+        claimedModelIdentity: 'gpt-5.6-terra', reasoningMode: 'medium',
+      },
+      invoke: vi.fn(async () => ({
+        status: 200,
+        body: {
+          id: 'response-clarify', model: 'gpt-5.6-terra', status: 'completed',
+          output: [{
+            type: 'function_call', call_id: 'finish-clarify',
+            name: 'finish_editron_research_episode',
+            arguments: JSON.stringify({
+              disposition: 'CLARIFICATION_REQUIRED',
+              reasonCodes: ['NARRATIVE_CALLBACK_AMBIGUOUS'], evidenceIds: ['E1', 'E2'],
+              summary: 'The callback asset cannot be identified reliably.',
+            }),
+          }],
+        },
+      })),
+      executeIsolated: vi.fn(),
+    });
+    expect(receipt.terminal.disposition).toBe('CLARIFICATION_REQUIRED');
+    expect(mapProviderNativeNonProofTerminalToProductOutcomeV2R('CLARIFICATION_REQUIRED'))
+      .toBe('CLARIFICATION_REQUIRED');
+  });
+
+  it('carries a writer-issued revision through an opaque causal reference', async () => {
+    let invocation = 0;
+    const executeIsolated = vi.fn(async ({ operatorId, arguments: args }) => {
+      if (operatorId === 'add_overlay') {
+        expect(args.expectedProjectRevision).toBe('R4');
+        return {
+          authority: 'RESEARCH_ISOLATED_NO_PROJECT_MUTATION' as const,
+          disposition: 'OK' as const,
+          output: { receipt: { status: 'PASS', projectRevision: 'R5' } },
+          evidenceIds: ['E1'],
+        };
+      }
+      expect(operatorId).toBe('update_overlay');
+      expect(args.expectedProjectRevision).toBe('R5');
+      return {
+        authority: 'RESEARCH_ISOLATED_NO_PROJECT_MUTATION' as const,
+        disposition: 'OK' as const,
+        output: { receipt: { status: 'PASS', projectRevision: 'R6' } },
+        evidenceIds: ['E1'],
+      };
+    });
+    const receipt = await runSealedHoldoutEpisodeV2R({
+      manifest: await manifest(), caseId: 'HOLD-02:C1',
+      argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES',
+      route: {
+        routeId: 'OPENAI_LUNA', provider: 'openai', model: 'gpt-5.6-luna',
+        claimedModelIdentity: 'gpt-5.6-luna', reasoningMode: 'medium',
+      },
+      invoke: vi.fn(async () => {
+        invocation += 1;
+        const calls = invocation === 1 ? [{
+          type: 'function_call', call_id: 'add', name: 'add_overlay',
+          arguments: JSON.stringify({
+            projectId: 'proj-h02', expectedProjectRevision: 'R4', assetId: 'h02-door',
+            targetRange: { startFrame: 0, endFrame: 75 },
+          }),
+        }] : invocation === 2 ? [{
+          type: 'function_call', call_id: 'update', name: 'update_overlay',
+          arguments: JSON.stringify({
+            projectId: 'proj-h02', overlayId: 1, patch: { role: 'callback' },
+            argumentReferences: [{
+              targetField: 'expectedProjectRevision', resultReferenceId: 'result_t1_1',
+            }],
+          }),
+        }] : [{
+          type: 'function_call', call_id: 'finish',
+          name: 'finish_editron_research_episode',
+          arguments: JSON.stringify({
+            disposition: 'READY_FOR_PROOF', reasonCodes: ['ISOLATED_EDIT_COMPLETE'],
+            evidenceIds: ['E1'], summary: 'The research clone is ready for proof.',
+          }),
+        }];
+        return {
+          status: 200,
+          body: { id: `response-${invocation}`, model: 'gpt-5.6-luna', status: 'completed', output: calls },
+        };
+      }),
+      executeIsolated,
+    });
+    expect(receipt.terminal.disposition).toBe('READY_FOR_PROOF');
+    expect(executeIsolated).toHaveBeenCalledTimes(2);
+    expect(receipt.turns[1].argumentReferenceBindings).toEqual([
+      expect.objectContaining({
+        targetField: 'expectedProjectRevision', sourceOperatorId: 'add_overlay',
+        sourceOutputField: 'receipt.projectRevision',
+      }),
+    ]);
+    expect(receipt.stateEffects).toEqual([]);
   });
 });

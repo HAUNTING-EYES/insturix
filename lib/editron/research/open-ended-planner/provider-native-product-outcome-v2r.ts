@@ -4,6 +4,7 @@ export type ProviderNativeProductOutcomeV2R =
   | 'PASS'
   | 'FAIL'
   | 'UNVERIFIABLE'
+  | 'CLARIFICATION_REQUIRED'
   | 'CAPABILITY_GAP'
   | 'POLICY_BLOCKED'
   | 'CONFLICT'
@@ -29,6 +30,7 @@ export function mapProviderNativeNonProofTerminalToProductOutcomeV2R(
     return 'NOT_EVALUATED_PROVIDER_INFRASTRUCTURE';
   }
   if (disposition === 'UNVERIFIABLE') return 'UNVERIFIABLE';
+  if (disposition === 'CLARIFICATION_REQUIRED') return 'CLARIFICATION_REQUIRED';
   if (disposition === 'CAPABILITY_GAP') return 'CAPABILITY_GAP';
   if (disposition === 'POLICY_BLOCKED') return 'POLICY_BLOCKED';
   if (disposition === 'CONFLICT') return 'CONFLICT';
