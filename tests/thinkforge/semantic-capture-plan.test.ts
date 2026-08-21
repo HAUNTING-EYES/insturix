@@ -4,6 +4,9 @@ import {
   buildTreatmentCapturePlan,
 } from '@/lib/thinkforge/production/semantic-capture-plan';
 import {
+  buildScriptShotPlan,
+} from '@/lib/thinkforge/production/build-script-shot-plan';
+import {
   parseProductionCapabilityProfile,
 } from '@/lib/thinkforge/production/production-capability-profile';
 import {
@@ -147,5 +150,30 @@ describe('semantic V3 capture projection', () => {
     expect(() => buildTreatmentCapturePlan({ sidecar, treatment: unknownSetupTreatment })).toThrow(
       /video_treatment_binding_mismatch/,
     );
+  });
+
+  it('routes V3 through semantic capture projection rather than the legacy camera resolver', () => {
+    const sidecar = sidecarFor(abstractExplainerTreatment, ['event_system_map']);
+
+    const result = buildScriptShotPlan({
+      sidecar,
+      videoTreatment: abstractExplainerTreatment,
+      aspectRatio: '16:9',
+    });
+
+    expect(result).toMatchObject({ status: 'capture-projection', plan: null, issues: [] });
+    if (result.status !== 'capture-projection') throw new Error('Expected a V3 capture projection');
+    expect(result.capturePlan.status).toBe('no-physical-capture');
+    expect(JSON.stringify(result.capturePlan)).not.toContain('coordinateSystem');
+  });
+
+  it('fails closed instead of treating a V3 script as a V2 shot plan when its treatment is unavailable', () => {
+    const sidecar = sidecarFor(abstractExplainerTreatment, ['event_system_map']);
+
+    expect(buildScriptShotPlan({ sidecar, aspectRatio: '16:9' })).toMatchObject({
+      status: 'needs-user-input',
+      plan: null,
+      issues: [expect.objectContaining({ code: 'missing_video_treatment' })],
+    });
   });
 });

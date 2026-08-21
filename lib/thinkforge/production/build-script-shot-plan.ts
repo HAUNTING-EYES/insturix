@@ -5,6 +5,10 @@ import {
 } from './production-capability-profile';
 import { resolveSceneShotPlan } from './resolve-scene-shot-plan';
 import {
+  buildTreatmentCapturePlan,
+  type TreatmentCapturePlan,
+} from './semantic-capture-plan';
+import {
   parseShotPlan,
   SHOT_PLAN_NARRATIVE_STRUCTURE_VERSION,
   type ShotPlan,
@@ -32,18 +36,21 @@ export interface ScriptShotPlanIssue {
 
 export type ScriptShotPlanBuildResult =
   | { status: 'ready'; plan: ShotPlan; issues: [] }
+  | { status: 'capture-projection'; plan: null; capturePlan: TreatmentCapturePlan; issues: [] }
   | { status: 'needs-user-input'; plan: null; issues: ScriptShotPlanIssue[] };
 
 export interface BuildScriptShotPlanInput {
   sidecar: unknown;
-  profile: unknown;
+  profile?: unknown | null;
+  /** Canonical V3 treatment persisted with the same writer output as the sidecar. */
+  videoTreatment?: unknown;
   aspectRatio: ShootKitAspectRatio;
   tier?: ShotPlan['tier'];
   /** Server-owned long-form plan persisted with the bound writer output. */
   chapterPlan?: unknown;
 }
 
-type ScriptSidecarV2 = ScriptSidecarReadResult['sidecar'];
+type ScriptSidecarV2 = Extract<ScriptSidecarReadResult, { sourceVersion: 1 | 2 }>['sidecar'];
 type BeatShotIntent = NonNullable<ScriptSidecarV2['acts'][number]['narrativeScenes'][number]['beats'][number]['shotIntent']>;
 type ScriptChapterPlanAct = ScriptChapterPlan['acts'][number];
 type ScriptChapterPlanChapter = ScriptChapterPlanAct['chapters'][number];
@@ -294,9 +301,14 @@ function attachLongFormNarrativeStructure(input: {
 }
 
 function planningUnits(readResult: ScriptSidecarReadResult): ShotPlanningUnit[] {
-  return readResult.sourceVersion === 1
-    ? v1PlanningUnits(readResult)
-    : v2PlanningUnits(readResult.sidecar);
+  switch (readResult.sourceVersion) {
+    case 1:
+      return v1PlanningUnits(readResult);
+    case 2:
+      return v2PlanningUnits(readResult.sidecar);
+    case 3:
+      throw new Error('V3 treatment sidecars must use semantic capture projection, not legacy shot planning.');
+  }
 }
 
 function addPlanningUnitAliases(
@@ -355,6 +367,46 @@ function addPlanLimitIssues(
   }
 }
 
+function buildV3CaptureProjection(
+  input: BuildScriptShotPlanInput,
+  readResult: Extract<ScriptSidecarReadResult, { sourceVersion: 3 }>,
+): ScriptShotPlanBuildResult {
+  if (input.videoTreatment === undefined) {
+    return {
+      status: 'needs-user-input',
+      plan: null,
+      issues: [{
+        code: 'missing_video_treatment',
+        message: 'This semantic video script is missing its bound treatment contract.',
+        questions: ['Regenerate or restore this script before opening its Shoot Kit.'],
+      }],
+    };
+  }
+
+  try {
+    return {
+      status: 'capture-projection',
+      plan: null,
+      capturePlan: buildTreatmentCapturePlan({
+        sidecar: readResult.sidecar,
+        treatment: input.videoTreatment,
+        profile: input.profile,
+      }),
+      issues: [],
+    };
+  } catch {
+    return {
+      status: 'needs-user-input',
+      plan: null,
+      issues: [{
+        code: 'invalid_video_treatment_binding',
+        message: 'This semantic video script no longer matches its saved treatment contract.',
+        questions: ['Regenerate or restore this script before opening its Shoot Kit.'],
+      }],
+    };
+  }
+}
+
 export function buildScriptShotPlan(input: BuildScriptShotPlanInput): ScriptShotPlanBuildResult {
   let readResult: ScriptSidecarReadResult;
   try {
@@ -371,6 +423,8 @@ export function buildScriptShotPlan(input: BuildScriptShotPlanInput): ScriptShot
       }],
     };
   }
+  if (readResult.sourceVersion === 3) return buildV3CaptureProjection(input, readResult);
+
   const profile = parseProductionCapabilityProfile(input.profile);
   const tier = input.tier ?? profile.preferences.defaultPlanTier;
   const issues: ScriptShotPlanIssue[] = [];
