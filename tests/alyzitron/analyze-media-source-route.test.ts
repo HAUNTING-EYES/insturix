@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   checkCredits: vi.fn(),
   deduct: vi.fn(),
+  refund: vi.fn(),
   uploadFindOne: vi.fn(),
   analysesInsertOne: vi.fn(),
   analysesDeleteOne: vi.fn(),
@@ -95,8 +96,11 @@ describe("Alyzitron analyze media source ownership", () => {
     mocks.checkCredits.mockResolvedValue({
       allowed: true,
       deduct: mocks.deduct,
+      refund: mocks.refund,
       errorResponse: Response.json({ error: "no credits" }, { status: 402 }),
     });
+    mocks.deduct.mockResolvedValue({ transactionId: "txn_alyzitron_test" });
+    mocks.refund.mockResolvedValue(undefined);
     mocks.uploadFindOne.mockResolvedValue({ uploadId: "upload_1" });
     mocks.analysesInsertOne.mockResolvedValue({ acknowledged: true });
     mocks.analysesDeleteOne.mockResolvedValue({ deletedCount: 1 });
@@ -162,6 +166,28 @@ describe("Alyzitron analyze media source ownership", () => {
         userId: "user_123",
         videoUrl: "https://cdn.example.com/asset/user_123/alyzitron-uploads/clip.mp4",
       }),
+    }));
+  });
+
+  it("preflights Brand Vault context in the authenticated organization scope", async () => {
+    mocks.auth.mockResolvedValue({ userId: "user_123", orgId: "org_agency" });
+    mocks.resolveTaskBrandId.mockResolvedValue("brand_alyzi");
+
+    const response = await POST(request({
+      video_url: "user_123/alyzitron-uploads/clip.mp4",
+      storage: "r2",
+      metadata: { duration: 60, mimeType: "video/mp4" },
+    }));
+
+    expect(response!.status).toBe(200);
+    expect(mocks.resolveBrandContext).toHaveBeenCalledWith({
+      userId: "user_123",
+      orgId: "org_agency",
+      brandId: "brand_alyzi",
+    });
+    expect(mocks.analysesInsertOne).toHaveBeenCalledWith(expect.objectContaining({
+      orgId: "org_agency",
+      brandId: "brand_alyzi",
     }));
   });
 

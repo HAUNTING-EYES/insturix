@@ -222,7 +222,11 @@ async function handler(request: NextRequest) {
     });
     const intentMetadata = buildIntentMetadata(intentResolution, mediaSourceKind);
     const intentCompletionFields = buildIntentCompletionFields(intentResolution, mediaSourceKind);
-    const brandContext = await resolveAlyzitronBrandContext({ userId, brandId: taskBrandId });
+    const brandContext = await resolveAlyzitronBrandContext({
+      userId,
+      orgId: cleanString(task.orgId) ?? null,
+      brandId: taskBrandId,
+    });
     const analysisContext = buildAlyzitronAnalysisContext(task.context || {}, brandContext, intentResolution);
     const analysisMetadata = {
       ...(task.metadata || {}),

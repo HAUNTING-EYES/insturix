@@ -86,7 +86,7 @@ describe("Alyzitron Brand Vault context", () => {
     const result = await resolveAlyzitronBrandContext({ userId: "user_alyzi", brandId: "brand_alyzi" }, {
       getLegacyBrand: async () => brand(),
       getAcceptedProfile: async (filter) => {
-        expect(filter).toEqual({ userId: "user_alyzi", brandId: "brand_alyzi" });
+        expect(filter).toEqual({ userId: "user_alyzi", brandId: "brand_alyzi", orgId: null });
         return vaultProfile();
       },
       formatBrand: (resolved) => `Brand block: ${resolved?.name} / ${resolved?.visual.colors.join(", ")}`,
@@ -96,6 +96,27 @@ describe("Alyzitron Brand Vault context", () => {
     expect(result.brand?.name).toBe("Vault Brand");
     expect(result.brandContextBlock).toContain("Vault Brand");
     expect(result.brandContextBlock).toContain("#123456");
+  });
+
+  it("uses the organization scope for an accepted Brand Vault profile", async () => {
+    const result = await resolveAlyzitronBrandContext({
+      userId: "user_alyzi",
+      orgId: "org_agency",
+      brandId: "brand_alyzi",
+    }, {
+      getLegacyBrand: async () => null,
+      getAcceptedProfile: async (filter) => {
+        expect(filter).toEqual({
+          userId: "user_alyzi",
+          orgId: "org_agency",
+          brandId: "brand_alyzi",
+        });
+        return vaultProfile();
+      },
+    });
+
+    expect(result.source).toBe("brand_vault");
+    expect(result.brand?.name).toBe("Vault Brand");
   });
 
   it("throws loudly when a requested brand cannot resolve from Vault or legacy stores", async () => {
@@ -165,10 +186,12 @@ describe("Alyzitron Brand Vault context", () => {
     const vertexService = readRepoFile("lib/services/vertexAiService.ts");
 
     expect(analyzeRoute).toContain("resolveAlyzitronTaskBrandId");
+    expect(analyzeRoute).toContain("resolveAlyzitronBrandContext({ userId, orgId: orgId ?? null, brandId: taskBrandId })");
     expect(analyzeRoute).toContain("resolveAlyzitronContentIntent");
     expect(analyzeRoute).toContain("contentIntent: intentResolution.contentIntent");
     expect(analyzeRoute).toContain("context: analysisContext");
     expect(processorRoute).toContain("resolveAlyzitronBrandContext");
+    expect(processorRoute).toContain("orgId: cleanString(task.orgId) ?? null,");
     expect(processorRoute).toContain("resolveAlyzitronContentIntent");
     expect(processorRoute).toContain("buildAlyzitronAnalysisContext(task.context || {}, brandContext, intentResolution)");
     expect(processorRoute).toContain("...intentMetadata");

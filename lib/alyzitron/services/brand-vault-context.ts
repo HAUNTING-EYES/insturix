@@ -17,7 +17,7 @@ export interface AlyzitronBrandContextResolution {
 
 export interface ResolveAlyzitronBrandContextDeps {
   getLegacyBrand?: (userId: string, brandId: string) => Promise<UnifiedBrand | null>;
-  getAcceptedProfile?: (filter: { userId: string; brandId: string }) => Promise<BrandSignalProfile | null>;
+  getAcceptedProfile?: (filter: { userId: string; brandId: string; orgId: string | null }) => Promise<BrandSignalProfile | null>;
   formatBrand?: (brand: UnifiedBrand | null) => string;
   onVaultFallback?: (message: string, error?: unknown) => void;
 }
@@ -77,7 +77,7 @@ function buildIntentDetails(intent: AlyzitronIntentResolution): string {
     intentInstruction(intent),
   ].join('\n');
 }
-async function defaultAcceptedProfileGetter(filter: { userId: string; brandId: string }) {
+async function defaultAcceptedProfileGetter(filter: { userId: string; brandId: string; orgId: string | null }) {
   return getDefaultBrandVaultRefineryStore().getLatestAcceptedProfile(filter);
 }
 
@@ -93,6 +93,7 @@ function warnVaultFallback(message: string, error?: unknown): void {
 export async function resolveAlyzitronBrandContext(
   args: {
     userId: string;
+    orgId?: string | null;
     brandId?: string | null;
   },
   deps: ResolveAlyzitronBrandContextDeps = {},
@@ -105,6 +106,7 @@ export async function resolveAlyzitronBrandContext(
   const getLegacyBrand = deps.getLegacyBrand ?? defaultLegacyBrandGetter;
   const getAcceptedProfile = deps.getAcceptedProfile ?? defaultAcceptedProfileGetter;
   const formatBrand = deps.formatBrand ?? buildBrandContextBlock;
+  const orgId = cleanString(args.orgId) ?? null;
 
   let legacy: UnifiedBrand | null = null;
   try {
@@ -115,7 +117,7 @@ export async function resolveAlyzitronBrandContext(
 
   let profile: BrandSignalProfile | null = null;
   try {
-    profile = await getAcceptedProfile({ userId: args.userId, brandId });
+    profile = await getAcceptedProfile({ userId: args.userId, brandId, orgId });
   } catch (error) {
     (deps.onVaultFallback ?? warnVaultFallback)('accepted Brand Vault profile read failed; using legacy brand context.', error);
   }

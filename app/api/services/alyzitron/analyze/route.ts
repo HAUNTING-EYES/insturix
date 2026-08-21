@@ -171,7 +171,7 @@ export async function POST(request: Request) {
 
     let brandContext = null;
     try {
-      brandContext = await resolveAlyzitronBrandContext({ userId, brandId: taskBrandId });
+      brandContext = await resolveAlyzitronBrandContext({ userId, orgId: orgId ?? null, brandId: taskBrandId });
     } catch (error) {
       if (error instanceof AlyzitronBrandContextError) {
         return NextResponse.json(
