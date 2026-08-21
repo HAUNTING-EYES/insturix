@@ -11,13 +11,13 @@ generic public-case episode shell, owner connector, lossless
 selected-operation trace and hidden structural
 evaluator are `RESEARCH_PREPROOF_READY`. Owner-only evidence resolution and
 isolated operation-log execution are wired. V2R-3 resource/route accounting and
-research no-edit proof for HOLD-06/07/08 are implemented; one bounded rendered
+research no-edit proof for HOLD-06/07/08 are implemented; bounded rendered
 research proxies now prove the selected source-range splice for HOLD-01,
 the selected three-range bookend proposal for HOLD-02 and the canonical
-range-cut/state/AV claim for HOLD-04. HOLD-05 is now code-disproven against
-the current reframe owner: its cover-crop focal math clips the fixture subject
-and its absolute-pixel skip behavior cannot preserve the authored logo's safe
-relation after the canvas change. Generated/hybrid HOLD-03 remains unwired.
+range-cut/state/AV claim for HOLD-04. Commit `0404a253f` repairs the sole
+HOLD-05 reframe owner with source-raster-bound cover geometry and explicit
+authored-layout projection; its full-range rendered proof is still pending.
+Generated/hybrid HOLD-03 remains unwired.
 The credentialed initial-request
 preflight is
 `PASS_INITIAL_REQUESTS_BOUNDED_PROOF_AND_RUNTIME_GUARDS_PENDING`; provider
@@ -282,17 +282,22 @@ cumulative provider spend, model output, real execution or rendered proof.
    recomputing hidden evaluation and proving no successful edit/state effect.
    It explicitly does not claim real ProjectService byte equality. The current
    operation-log clone remains insufficient for visual, audible or semantic
-   PASS on HOLD-05. A direct zero-inference owner diagnostic additionally
-   found 38 clipped frames at 360x640 and no authored-layout transform, so the
-   existing sole owner must be repaired before a proof adapter can claim PASS.
+   PASS on HOLD-05. The historical zero-inference owner diagnostic found 38
+   clipped frames at 360x640 and no authored-layout transform. Commit
+   `0404a253f` repairs those owner defects and passes 80/80 focused tests, but a
+   hash-bound adapter must still render and decode all 450 affected frames.
+   The live chat caller supplies no canonical authored-layout evidence and its
+   whole-project save/audit path is not ProjectService receipt proof.
    Generated/hybrid HOLD-03 remains unproved.
 3. Run the combined zero-inference complete-episode budget/proof simulation
    and keep dispatch disabled unless both the V2R-3 resource receipt and the
    selected proof adapters pass without an unresolved reservation or usage
    gap.
 4. Only then may a separately authorized sealed cohort make inference calls.
-   CAP-2A V3 remains an immutable bound census artifact, not newly reissued
-   merely because research harness files were added.
+   CAP-2A V3 remains an immutable historical census artifact. Because commit
+   `0404a253f` changed a bound owner—not merely a research harness—the current
+   truth must be reissued after the HOLD-05/HOLD-03 owners stabilize and before
+   any provider dispatch.
 
 ## Verification at issuance
 
