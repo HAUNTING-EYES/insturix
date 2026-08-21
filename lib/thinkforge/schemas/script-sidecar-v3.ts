@@ -122,6 +122,11 @@ const NarrativeBeatV3ObjectSchema = z.object({
   lines: z.array(NarrativeLineV3Schema).default([]),
   visualEvents: z.array(NarrativeVisualEventV3Schema).default([]),
   sourceRefs: SourceRefsSchema,
+  // These V2 render-form fields are named only to keep legacy consumers type-safe.
+  // `z.never()` makes their presence a hard V3 contract failure.
+  visualIntent: z.never().optional(),
+  audioIntent: z.never().optional(),
+  shotIntent: z.never().optional(),
 }).strict();
 
 export const NarrativeBeatV3Schema = NarrativeBeatV3ObjectSchema.superRefine((beat, ctx) => {
@@ -191,6 +196,9 @@ const ScriptSidecarV3ObjectSchema = z.object({
   acts: z.array(NarrativeActV3Schema).min(1),
   briefId: IdentifierSchema.optional(),
   sourceRefs: SourceRefsSchema,
+  // V3 keeps treatment semantics separate from V2 creative/render form.
+  creativeDirection: z.never().optional(),
+  renderPlan: z.never().optional(),
 }).strict();
 
 function validateScriptSidecarV3(
