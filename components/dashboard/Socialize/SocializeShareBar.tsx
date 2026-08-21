@@ -15,11 +15,13 @@ import {
   Copy,
   Check,
   Share2,
+  QrCode,
   ExternalLink,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import QRCode from "qrcode";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface SocializeShareBarProps {
@@ -37,8 +39,25 @@ export function SocializeShareBar({
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("link");
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [qrError, setQrError] = useState(false);
 
   const shareUrl = `https://insturix.com/profile/${uniqueUsername}`;
+
+  // Generate a real QR for the share link. Lazy: only once the panel is
+  // expanded, so the canvas work doesn't run for users who never open it.
+  useEffect(() => {
+    if (!expanded || qrDataUrl) return;
+    let cancelled = false;
+    QRCode.toDataURL(shareUrl, {
+      width: 512,
+      margin: 2,
+      color: { dark: "#0B0B0A", light: "#ECE9E1" },
+    })
+      .then((url) => { if (!cancelled) { setQrDataUrl(url); setQrError(false); } })
+      .catch(() => { if (!cancelled) setQrError(true); });
+    return () => { cancelled = true; };
+  }, [expanded, qrDataUrl, shareUrl]);
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
@@ -175,9 +194,12 @@ export function SocializeShareBar({
                   >
                     Link
                   </TabsTrigger>
-                  {/* QR tab removed: it rendered a placeholder.svg posing as a
-                      real QR code and its download button fired a scaffold
-                      alert(). Reinstate only with real QR generation. */}
+                  <TabsTrigger
+                    value="qrcode"
+                    className="data-[state=active]:bg-[#D4A652] data-[state=active]:text-[#0B0B0A] rounded-[4px]"
+                  >
+                    QR Code
+                  </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="link" className="mt-0">
@@ -216,6 +238,45 @@ export function SocializeShareBar({
                         <ExternalLink className="h-4 w-4" />
                       </Link>
                     </Button>
+                  </div>
+                </TabsContent>
+
+                {/* Real QR code (qrcode lib, client-side) — replaces the old
+                    placeholder.svg + alert() scaffold. */}
+                <TabsContent value="qrcode" className="mt-0">
+                  <div className="flex flex-col items-center">
+                    {qrDataUrl ? (
+                      <>
+                        <div className="p-3 rounded-[12px] mb-3" style={{ backgroundColor: '#ECE9E1' }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element -- data URL, no optimizer benefit */}
+                          <img
+                            src={qrDataUrl}
+                            alt={`QR code linking to ${shareUrl}`}
+                            className="w-40 h-40"
+                            width={160}
+                            height={160}
+                          />
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          asChild
+                          className="border-none hover:opacity-90 transition-opacity rounded-[7px]"
+                          style={{ backgroundColor: '#D4A652', color: '#0B0B0A' }}
+                        >
+                          <a href={qrDataUrl} download={`insturix-${uniqueUsername}-qr.png`}>
+                            <QrCode className="mr-2 h-4 w-4" />
+                            Download QR Code
+                          </a>
+                        </Button>
+                      </>
+                    ) : qrError ? (
+                      <p role="alert" className="py-6 text-sm" style={{ color: '#D46A5C' }}>
+                        Couldn&apos;t generate the QR code. Copy the link instead.
+                      </p>
+                    ) : (
+                      <p className="py-6 text-sm" style={{ color: '#7A776E' }}>Generating QR code…</p>
+                    )}
                   </div>
                 </TabsContent>
               </Tabs>
