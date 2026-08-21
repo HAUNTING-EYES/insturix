@@ -38,7 +38,7 @@ export interface HoldoutMediaArtifactV2R {
 }
 export interface HoldoutMediaManifestV2R {
   schemaVersion: 'EDITRON_OE_HOLDOUT_MEDIA_MANIFEST_V2R';
-  version: '2.2.0-r1';
+  version: '2.3.0-r2';
   scope: 'EIGHT_SEALED_HOLDOUTS_ONLY';
   authority: 'RESEARCH_ONLY_NO_PROVIDER_OR_PROJECT_AUTHORITY';
   networkPolicy: 'DENY';
@@ -115,7 +115,7 @@ export async function materializeHoldoutMediaV2R(outputDirectory: string): Promi
   artifacts.sort((left, right) => left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : 0);
   const unsigned = {
     schemaVersion: 'EDITRON_OE_HOLDOUT_MEDIA_MANIFEST_V2R' as const,
-    version: '2.2.0-r1' as const,
+    version: '2.3.0-r2' as const,
     scope: 'EIGHT_SEALED_HOLDOUTS_ONLY' as const,
     authority: 'RESEARCH_ONLY_NO_PROVIDER_OR_PROJECT_AUTHORITY' as const,
     networkPolicy: 'DENY' as const,

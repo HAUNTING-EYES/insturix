@@ -60,11 +60,12 @@ export function renderHoldoutFrameV2R(
     rect(rgb, width, height, 0.31, 0.56, 0.38, 0.38, [86, 132, 176]);
   } else if (assetId === 'h03-ref') {
     fill(rgb, 0, 0, 0);
-    rect(rgb, width, height, 0.03, 0.03, 0.27, 0.94, [59, 85, 121]);
+    rect(rgb, width, height, 0.03, 0.03, 0.27, 0.39, [59, 85, 121]);
+    rect(rgb, width, height, 0.03, 0.60, 0.27, 0.37, [51, 77, 105]);
     rect(rgb, width, height, 0.33, 0.03, 0.34, 0.29, [119, 67, 96]);
-    rect(rgb, width, height, 0.70, 0.03, 0.27, 0.44, [119, 84, 54]);
-    rect(rgb, width, height, 0.70, 0.50, 0.27, 0.47, [67, 74, 119]);
-    rect(rgb, width, height, 0.33, 0.35, 0.34, 0.62, [52, 106, 91]);
+    rect(rgb, width, height, 0.33, 0.60, 0.34, 0.37, [52, 106, 91]);
+    rect(rgb, width, height, 0.70, 0.03, 0.27, 0.39, [119, 84, 54]);
+    rect(rgb, width, height, 0.70, 0.60, 0.27, 0.37, [67, 74, 119]);
     rect(rgb, width, height, 0.20, 0.44, 0.60, 0.07, [252, 218, 45]);
     rect(rgb, width, height, 0.28, 0.54, 0.44, 0.045, [252, 218, 45]);
   } else if (assetId === 'h04-host') {

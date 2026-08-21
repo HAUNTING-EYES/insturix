@@ -12,6 +12,7 @@ import type { HoldoutMediaManifestV2R } from './holdout-media-materializer-v2r';
 type JsonRecord = Record<string, unknown>;
 
 const MEDIA_IDENTITY = mediaIdentityJson as Readonly<{
+  manifestVersion: string;
   manifestSha256: string;
   artifactCount: number;
   artifactSha256ById: Readonly<Record<string, string>>;
@@ -47,7 +48,7 @@ export async function bindHoldoutMediaArtifactV2R(input: {
 }): Promise<Readonly<BoundHoldoutMediaArtifactV2R>> {
   const { manifest } = input;
   if (manifest.schemaVersion !== 'EDITRON_OE_HOLDOUT_MEDIA_MANIFEST_V2R'
-    || manifest.version !== '2.2.0-r1'
+    || manifest.version !== MEDIA_IDENTITY.manifestVersion
     || manifest.manifestSha256 !== MEDIA_IDENTITY.manifestSha256
     || manifest.artifacts.length !== MEDIA_IDENTITY.artifactCount) {
     fail('SEALED_MEDIA_MANIFEST_IDENTITY_DRIFT');
