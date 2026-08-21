@@ -1,10 +1,14 @@
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import reconciliationJson from '@/docs/editron/capability-census/editron-cap2-owner-reconciliation-media-audio-v1.json';
 import inventoryJson from '@/docs/editron/capability-census/editron-cap2-source-surface-inventory-v1.json';
+import {
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3,
+  getCap2CurrentTruthDomainEvidencePathsV3,
+  hashNormalizedCap2SourceSnapshotV3,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v3';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -12,18 +16,6 @@ const REPOSITORY_ROOT = process.cwd();
 
 function readSource(relativePath: string): string {
   return readFileSync(path.resolve(REPOSITORY_ROOT, relativePath), 'utf8');
-}
-
-function evidenceSnapshotHash(relativePaths: readonly string[]): string {
-  const rows = [...relativePaths]
-    .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
-    .map((relativePath) => {
-      const fileHash = createHash('sha256')
-        .update(readFileSync(path.resolve(REPOSITORY_ROOT, relativePath)))
-        .digest('hex');
-      return `${relativePath}\0${fileHash}`;
-    });
-  return createHash('sha256').update(rows.join('\n')).digest('hex');
 }
 
 function candidate(candidateId: string) {
@@ -70,11 +62,15 @@ describe('CAP-2 media/audio/music/SFX owner reconciliation v1', () => {
     ]);
   });
 
-  it('binds all 23 evidence files and every cited symbol to current source', () => {
+  it('binds all 23 current evidence files over immutable v1 history', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     expect(artifact.sourceBinding.evidencePaths).toHaveLength(23);
-    expect(evidenceSnapshotHash(artifact.sourceBinding.evidencePaths))
-      .toBe(artifact.sourceBinding.evidenceSnapshotHash);
+    const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.domainBindings
+      .find(({ domain }) => domain === 'MEDIA_AUDIO_MUSIC_SFX')!;
+    expect(hashNormalizedCap2SourceSnapshotV3(
+      getCap2CurrentTruthDomainEvidencePathsV3('MEDIA_AUDIO_MUSIC_SFX'),
+    )).toBe(binding.normalizedEvidenceHash);
+    expect(binding.reissueStatus).toBe('RECONCILED_CURRENT_TRUTH_V3');
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));

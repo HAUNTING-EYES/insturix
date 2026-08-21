@@ -1,10 +1,17 @@
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import reconciliationJson from '@/docs/editron/capability-census/editron-cap2-owner-reconciliation-visual-v1.json';
 import inventoryJson from '@/docs/editron/capability-census/editron-cap2-source-surface-inventory-v1.json';
+import {
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V2,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v2';
+import {
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3,
+  getCap2CurrentTruthDomainEvidencePathsV3,
+  hashNormalizedCap2SourceSnapshotV3,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v3';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -12,18 +19,6 @@ const REPOSITORY_ROOT = process.cwd();
 
 function readSource(relativePath: string): string {
   return readFileSync(path.resolve(REPOSITORY_ROOT, relativePath), 'utf8');
-}
-
-function evidenceSnapshotHash(relativePaths: readonly string[]): string {
-  const rows = [...relativePaths]
-    .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
-    .map((relativePath) => {
-      const fileHash = createHash('sha256')
-        .update(readFileSync(path.resolve(REPOSITORY_ROOT, relativePath)))
-        .digest('hex');
-      return `${relativePath}\0${fileHash}`;
-    });
-  return createHash('sha256').update(rows.join('\n')).digest('hex');
 }
 
 function candidate(candidateId: string) {
@@ -67,11 +62,15 @@ describe('CAP-2 visual/keyframe/transition/caption owner reconciliation v1', () 
     ]);
   });
 
-  it('binds all 27 evidence files and every cited symbol to current source', () => {
+  it('binds all 27 reconciled current evidence files over immutable v1 history', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     expect(artifact.sourceBinding.evidencePaths).toHaveLength(27);
-    expect(evidenceSnapshotHash(artifact.sourceBinding.evidencePaths))
-      .toBe(artifact.sourceBinding.evidenceSnapshotHash);
+    const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.domainBindings
+      .find(({ domain }) => domain === 'VISUAL_KEYFRAME_TRANSITION_CAPTION_RENDER')!;
+    expect(hashNormalizedCap2SourceSnapshotV3(
+      getCap2CurrentTruthDomainEvidencePathsV3('VISUAL_KEYFRAME_TRANSITION_CAPTION_RENDER'),
+    )).toBe(binding.normalizedEvidenceHash);
+    expect(binding.reissueStatus).toBe('RECONCILED_CURRENT_TRUTH_V3');
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
@@ -160,6 +159,25 @@ describe('CAP-2 visual/keyframe/transition/caption owner reconciliation v1', () 
       .toBe('MULTIWRITE_NON_ATOMIC');
   });
 
+  it('records camera-shake baseline preservation without granting certification', () => {
+    const visualTools = readSource('lib/editron/agent/chat-visual-tools.ts');
+    expect(visualTools).toContain('evaluateAllTracks(nonShakePositionTracks, localFrame)');
+    expect(visualTools).toContain('baseX: finiteNumber(replacedPosition.x)');
+    expect(visualTools).toContain('baseY: finiteNumber(replacedPosition.y)');
+    expect(visualTools).toContain('value: input.baseX, easing: "ease-out"');
+    expect(visualTools).toContain('value: input.baseY, easing: "ease-out"');
+
+    const shake = candidate('visual.apply-camera-shake');
+    expect(shake.catalogDisposition).toBe('ATOMIC_CANDIDATE');
+    expect(shake.revisionSafety.status).toBe('INTERNAL_READ_THEN_CAS');
+    expect(shake.chain.proofOwners).toEqual([]);
+    const resolution = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V2.semanticDeltas
+      .find(({ deltaId }) => deltaId === 'visual.camera-shake-position-anchor')!;
+    expect(resolution.catalogPromotion).toBe(false);
+    expect(resolution.resolution.remainingGaps)
+      .toContain('Enforce the camera-shake speech, formality, density and impact-sound policy before eligibility.');
+  });
+
   it('rejects false promotion, missing ownership and evidence-union drift', () => {
     const falseAtomic = structuredClone(reconciliationJson);
     falseAtomic.candidates.find(({ candidateId }) => candidateId === 'transition.manual-chat-add')!
@@ -180,4 +198,3 @@ describe('CAP-2 visual/keyframe/transition/caption owner reconciliation v1', () 
     expect(() => parseCap2OwnerReconciliationArtifactV1(badDomain)).toThrow();
   });
 });
-
