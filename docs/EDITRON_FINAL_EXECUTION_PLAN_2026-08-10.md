@@ -1363,7 +1363,7 @@ any bound file changes.
   preflight, the fair eighteen-row rerun and reproducible V3R4 landing are
   complete. HREF-01's reproducible blinded pack is ready, but its output review
   is pending. The exact immediate order is now: complete that review, then run
-  seven unseen holdouts, dependency
+  all eight sealed unseen holdouts, dependency
   diversity, forced native/generated/hybrid comparisons, conflict/rebase,
   compaction/resume, long-form/range trials and blind editor receipts before a
   frozen `GO`, `MODIFY` or `NO-GO` decision.
@@ -1376,7 +1376,7 @@ any bound file changes.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. V3R4 is reproducibly landed and valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V3 is current. HREF-01 has one complete Gemini 3.6 native-video/audio observation and a blinded full-reference plus 180-frame dense-window review pack. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. HREF-01 output review is pending and formal promotion requires a second independent qualified reviewer. Then complete seven unseen holdouts, different dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. The synthetic DEV-03 audio is not intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. V3R4 is reproducibly landed and valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V3 is current. HREF-01 has one complete Gemini 3.6 native-video/audio observation and a blinded full-reference plus 180-frame dense-window review pack. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. HREF-01 output review is pending and formal promotion requires a second independent qualified reviewer. Then complete all eight sealed unseen holdouts, different dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. The synthetic DEV-03 audio is not intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -1798,8 +1798,10 @@ foundation and is no longer the active queue. The next three slices are:
    and exact 180-frame motion/audio window are materialized and verified. The
    project owner must now complete the blinded review. Formal promotion remains
    blocked pending a second independent qualified reviewer.
-3. **V2-2 unseen holdouts and integration gate:** after HREF-01 closes, run the
-   seven unseen holdouts and additional dependency/invalidation shapes. Follow
+3. **V2-2 unseen holdouts and integration gate:** after HREF-01 closes, run all
+   eight sealed unseen holdouts and additional dependency/invalidation shapes. HREF-01
+   is a separate reference-observation diagnostic and did not consume or replace
+   `HOLD-01`. Follow
    with stale-revision/user-change, context-resume and long-form range trials;
    force native/generated/hybrid baselines and obtain blind-editor quality,
    correction-time, latency and cost receipts. Only a passing gate may
