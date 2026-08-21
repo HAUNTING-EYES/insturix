@@ -586,6 +586,16 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       updateCanvas(rollbackCanvas);
       setLocalActiveVariation(localActiveVariation);
       setActiveVariationId(localActiveVariation);
+      // The optimistic card just vanished — without this toast the failure is
+      // completely silent (incl. insufficient credits / 4xx / 5xx).
+      toast({
+        title: "Generation failed",
+        description:
+          error instanceof Error && error.message
+            ? error.message
+            : "The variation could not be generated. Check your credits and try again.",
+        variant: "destructive",
+      });
     } finally {
       setNewVariationCreating(false);
     }
@@ -964,7 +974,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       status: "blank" as const,
       imageRef: "",
       aspectRatio: aspectRatio,
-      fineTuning: { brightness: 10, contrast: 100, saturation: 100 },
+      fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
       createdAt: now,
       updatedAt: now,
       modelId: "fal-ai/flux-kontext/dev", // Default model for new variations
@@ -1404,7 +1414,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             {process.env.NODE_ENV === 'development' && (
               <button
                 onClick={handleManualSync}
-                className="text-[11px] bg-blue-60 text-white px-2 py-1 rounded mt-1"
+                className="text-[11px] bg-blue-600 text-white px-2 py-1 rounded mt-1"
               >
                 Manual Sync (Debug)
               </button>
@@ -1471,7 +1481,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               ) : activeVariation.status === "failed" ? (
                 // Failed variation - Enhanced error state with retry option
                 <div
-                  className="bg-gradient-to-br from-red-900/20 to-red-80/10 border-2 border-dashed border-red-60/40 flex items-center justify-center rounded-xl transition-all duration-300 relative overflow-hidden"
+                  className="bg-gradient-to-br from-red-900/20 to-red-800/10 border-2 border-dashed border-red-600/40 flex items-center justify-center rounded-xl transition-all duration-300 relative overflow-hidden"
                   style={{
                     width: `${800}px`,
                     height: `${450}px`,
@@ -1480,7 +1490,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   }}
                 >
                   {/* Ambient background gradient */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-red-50/5 to-orange-500/5 opacity-40" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-orange-500/5 opacity-40" />
 
                   <div className="text-center relative z-10 p-8">
                     {/* Error icon with enhanced styling */}
@@ -1494,23 +1504,25 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                         <div className="text-red-300 text-[18px] font-semibold">
                           Generation Failed
                         </div>
-                        <div className="text-red-40/70 text-sm max-w-md mx-auto">
+                        <div className="text-red-400/70 text-sm max-w-md mx-auto">
                           Something went wrong while generating this variation. This could be due to content policy restrictions or technical issues.
                         </div>
 
-                        {/* Retry button */}
-                        {/* <div className="mt-6">
-                          <button
-                            onClick={() => handleAIGenerate(activeVariation.prompt)}
-                            className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-xl text-sm font-medium transition-all duration-200 shadow-lg"
-                          >
-                            Try Again
-                          </button>
-                        </div> */}
+                        {/* Retry — a failed generation must never be a dead end. */}
+                        {activeVariation.prompt ? (
+                          <div className="mt-6">
+                            <button
+                              onClick={() => handleAIGenerate(activeVariation.prompt)}
+                              disabled={newVariationCreating}
+                              className="px-6 py-3 bg-[#D46A5C] hover:bg-[#c05c4f] disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-all duration-200 shadow-lg"
+                            >
+                              {newVariationCreating ? "Retrying…" : "Try Again"}
+                            </button>
+                          </div>
+                        ) : null}
 
-                        <div className="mt-4 text-[11px] text-red-50/60">
-                          Consider adjusting your prompt or trying different
-                          settings
+                        <div className="mt-4 text-[11px] text-red-500/60">
+                          Or adjust the prompt below and generate again
                         </div>
                       </div>
                     </div>
@@ -1667,8 +1679,10 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           )}
         </AnimatePresence>
 
-        {/* Bottom AI Command Console - Hide for generating and failed variations */}
-        {activeVariation?.status !== "generating" && activeVariation?.status !== "failed" && (
+        {/* Bottom AI Command Console — hidden only WHILE generating. It must stay
+            visible on failed variations so the user can rewrite the prompt and
+            recover; hiding it made every failure a dead end. */}
+        {activeVariation?.status !== "generating" && (
           <div className="relative z-20 w-full flex-shrink-0">
             {activeVariation?.status === "blank" ? (
               <NewVariationConsole
