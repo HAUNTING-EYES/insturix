@@ -312,6 +312,9 @@ export interface Project {
   fps: number;
   durationInFrames: number;
   thumbnail?: string;
+  /** Script pasted at intake (Script door). Never silently dropped; the
+      in-editor AI / Mode-1 generation is its consumer. */
+  initialScript?: string;
   createdAt: Date;
   updatedAt: Date;
   /** Durable optimistic-concurrency counter for ProjectService editor writes. */
@@ -402,20 +405,37 @@ export class ProjectService {
       brandId?: string;
       orgId?: string | null;
       sourceSessionId?: string;
+      /** Chosen at intake (Script door / dialogs). Was silently dropped and
+          every project hardcoded 16:9 regardless of the user's pick. */
+      aspectRatio?: AspectRatio;
+      /** The user's pasted script from the Script door. Persisted so intake
+          can never silently destroy it; consumed by the in-editor AI /
+          script-driven generation (the remaining Mode-1 gap). */
+      initialScript?: string;
     },
   ): Promise<Project> {
     const projectId = `proj_${nanoid(12)}`;
+
+    // Long edge pinned to 1080, matching lib/editron/storyline ASPECT_DIMENSIONS.
+    const ASPECT_TO_DIMENSIONS: Record<AspectRatio, { width: number; height: number }> = {
+      "16:9": { width: 1920, height: 1080 },
+      "9:16": { width: 1080, height: 1920 },
+      "1:1": { width: 1080, height: 1080 },
+      "4:5": { width: 1080, height: 1350 },
+    };
+    const aspectRatio: AspectRatio =
+      options?.aspectRatio && ASPECT_TO_DIMENSIONS[options.aspectRatio]
+        ? options.aspectRatio
+        : "16:9";
 
     const project: Project = {
       projectId,
       userId,
       name,
       overlays: [],
-      aspectRatio: "16:9",
-      playerDimensions: {
-        width: 1920,
-        height: 1080,
-      },
+      aspectRatio,
+      playerDimensions: ASPECT_TO_DIMENSIONS[aspectRatio],
+      ...(options?.initialScript ? { initialScript: options.initialScript } : {}),
       fps: 30,
       durationInFrames: 0,
       // P0/D9: orgId present ⇒ explicit org context (OrgSwitcher setActive) ⇒ org-owned

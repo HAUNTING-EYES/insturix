@@ -237,7 +237,14 @@ export default function NewProjectFlow() {
       const res = await fetch('/api/services/editron/projects/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, brandId: getActiveBrandIdFromStorage() }),
+        // scriptText + scriptAspect were collected by this form and then
+        // silently dropped from this POST — the door's whole promise.
+        body: JSON.stringify({
+          name,
+          brandId: getActiveBrandIdFromStorage(),
+          aspectRatio: scriptAspect,
+          initialScript: scriptText.trim() || undefined,
+        }),
       });
       if (!res.ok) throw new Error('Could not create the project.');
       const data = await res.json();
@@ -246,7 +253,7 @@ export default function NewProjectFlow() {
       setBusy(false); setScreen('script');
       setError(e instanceof Error ? e.message : 'Could not create the project.');
     }
-  }, [busy, scriptName, router]);
+  }, [busy, scriptName, scriptText, scriptAspect, router]);
 
 
   // UPLOAD → inline footage auto-edit. Reopen existing projects → the dashboard/upload route.
