@@ -18,9 +18,10 @@ import {
   type ScriptSidecarReadResult,
 } from '../schemas/script-sidecar-v1-adapter';
 import {
-  ScriptChapterPlanSchema,
-  type ScriptChapterPlan,
-} from '../schemas/script-chapter-plan';
+  LongFormChapterSceneOwnershipError,
+  resolveLongFormChapterSceneOwnership,
+  type LongFormChapterSceneOwnership,
+} from '../long-form/chapter-scene-ownership';
 
 export const SHOOT_KIT_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:5'] as const;
 export type ShootKitAspectRatio = typeof SHOOT_KIT_ASPECT_RATIOS[number];
@@ -52,18 +53,7 @@ export interface BuildScriptShotPlanInput {
 
 type ScriptSidecarV2 = Extract<ScriptSidecarReadResult, { sourceVersion: 1 | 2 }>['sidecar'];
 type BeatShotIntent = NonNullable<ScriptSidecarV2['acts'][number]['narrativeScenes'][number]['beats'][number]['shotIntent']>;
-type ScriptChapterPlanAct = ScriptChapterPlan['acts'][number];
-type ScriptChapterPlanChapter = ScriptChapterPlanAct['chapters'][number];
-
-interface LongFormSceneOwner {
-  act: ScriptChapterPlanAct;
-  chapter: ScriptChapterPlanChapter;
-}
-
-interface LongFormChapterContext {
-  plan: ScriptChapterPlan;
-  ownerByNarrativeSceneId: Map<string, LongFormSceneOwner>;
-}
+type LongFormChapterContext = LongFormChapterSceneOwnership;
 
 type LongFormChapterResolution =
   | { status: 'absent' }
@@ -173,6 +163,15 @@ function v2PlanningUnits(sidecar: ScriptSidecarV2): ShotPlanningUnit[] {
   return units;
 }
 
+function longFormChapterPlanIssue(error: LongFormChapterSceneOwnershipError): ScriptShotPlanIssue {
+  return {
+    code: error.code,
+    message: error.message,
+    ...(error.sceneId ? { sceneId: error.sceneId } : {}),
+    questions: ['Regenerate the long-form script so its chapter plan and production sidecar match.'],
+  };
+}
+
 function resolveLongFormChapterContext(
   chapterPlanInput: unknown | undefined,
   readResult: ScriptSidecarReadResult,
@@ -188,68 +187,19 @@ function resolveLongFormChapterContext(
       },
     };
   }
-
-  const parsed = ScriptChapterPlanSchema.safeParse(chapterPlanInput);
-  if (!parsed.success) {
-    return {
-      status: 'invalid',
-      issue: {
-        code: 'long_form_chapter_plan_invalid',
-        message: 'This long-form script has an invalid chapter plan and cannot safely create a Shoot Kit.',
-        questions: ['Regenerate the long-form script before creating its Shoot Kit.'],
-      },
-    };
-  }
-
-  const ownerByNarrativeSceneId = new Map<string, LongFormSceneOwner>();
-  parsed.data.acts.forEach((act) => act.chapters.forEach((chapter) => chapter.sceneBlueprints.forEach((scene) => {
-    ownerByNarrativeSceneId.set(scene.id, { act, chapter });
-  })));
-
-  const sidecarSceneIds = new Set<string>();
-  for (const act of readResult.sidecar.acts) {
-    for (const scene of act.narrativeScenes) {
-      sidecarSceneIds.add(scene.id);
-      const owner = ownerByNarrativeSceneId.get(scene.id);
-      if (!owner) {
-        return {
-          status: 'invalid',
-          issue: {
-            code: 'long_form_scene_unmapped',
-            message: `Long-form scene "${scene.title}" is not owned by the saved chapter plan.`,
-            sceneId: scene.id,
-            questions: ['Regenerate the long-form script so its chapter plan and production sidecar match.'],
-          },
-        };
-      }
-      if (owner.act.id !== act.id) {
-        return {
-          status: 'invalid',
-          issue: {
-            code: 'long_form_act_mismatch',
-            message: `Long-form scene "${scene.title}" no longer belongs to its saved act.`,
-            sceneId: scene.id,
-            questions: ['Regenerate the long-form script so its chapter plan and production sidecar match.'],
-          },
-        };
-      }
+  try {
+    const context = resolveLongFormChapterSceneOwnership({
+      chapterPlan: chapterPlanInput,
+      acts: readResult.sidecar.acts,
+    });
+    if (!context) return { status: 'absent' };
+    return { status: 'ready', context };
+  } catch (error) {
+    if (error instanceof LongFormChapterSceneOwnershipError) {
+      return { status: 'invalid', issue: longFormChapterPlanIssue(error) };
     }
+    throw error;
   }
-
-  const missingSceneId = [...ownerByNarrativeSceneId.keys()].find((sceneId) => !sidecarSceneIds.has(sceneId));
-  if (missingSceneId) {
-    return {
-      status: 'invalid',
-      issue: {
-        code: 'long_form_scene_missing',
-        message: `The saved chapter plan expects scene "${missingSceneId}", but it is absent from the production sidecar.`,
-        sceneId: missingSceneId,
-        questions: ['Regenerate the long-form script so its chapter plan and production sidecar match.'],
-      },
-    };
-  }
-
-  return { status: 'ready', context: { plan: parsed.data, ownerByNarrativeSceneId } };
 }
 
 function attachLongFormNarrativeStructure(input: {
@@ -391,10 +341,18 @@ function buildV3CaptureProjection(
         sidecar: readResult.sidecar,
         treatment: input.videoTreatment,
         profile: input.profile,
+        chapterPlan: input.chapterPlan,
       }),
       issues: [],
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof LongFormChapterSceneOwnershipError) {
+      return {
+        status: 'needs-user-input',
+        plan: null,
+        issues: [longFormChapterPlanIssue(error)],
+      };
+    }
     return {
       status: 'needs-user-input',
       plan: null,

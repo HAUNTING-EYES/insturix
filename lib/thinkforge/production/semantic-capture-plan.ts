@@ -5,6 +5,10 @@ import {
   type ScriptSidecarV3,
 } from '../schemas/script-sidecar-v3';
 import {
+  resolveLongFormChapterSceneOwnership,
+  type LongFormChapterSceneOwnership,
+} from '../long-form/chapter-scene-ownership';
+import {
   CaptureRequirementCapabilitySchema,
   CaptureRequirementKindSchema,
   parseVideoTreatment,
@@ -40,12 +44,31 @@ const CapabilityEvidenceSchema = z.object({
 
 const LinkedNarrativeMomentSchema = z.object({
   actId: IdentifierSchema,
+  actTitle: NonEmptyTextSchema,
+  chapterId: IdentifierSchema.optional(),
+  chapterTitle: NonEmptyTextSchema.optional(),
   narrativeSceneId: IdentifierSchema,
   beatId: IdentifierSchema,
   eventId: IdentifierSchema,
   narrativePurpose: NonEmptyTextSchema,
   timingNote: NonEmptyTextSchema,
   sourceRefs: z.array(IdentifierSchema).default([]),
+  continuityNotes: z.array(NonEmptyTextSchema).default([]),
+}).strict();
+
+const CaptureRequirementChapterLinkSchema = z.object({
+  actId: IdentifierSchema,
+  actTitle: NonEmptyTextSchema,
+  chapterId: IdentifierSchema,
+  chapterTitle: NonEmptyTextSchema,
+  narrativeSceneIds: z.array(IdentifierSchema).min(1),
+}).strict();
+
+const CaptureRequirementContinuitySchema = z.object({
+  chapterScope: z.enum(['unmapped', 'single-chapter', 'cross-chapter']),
+  actIds: z.array(IdentifierSchema).min(1),
+  chapters: z.array(CaptureRequirementChapterLinkSchema).default([]),
+  continuityNotes: z.array(NonEmptyTextSchema).default([]),
 }).strict();
 
 const TreatmentCaptureRequirementProjectionSchema = z.object({
@@ -61,6 +84,7 @@ const TreatmentCaptureRequirementProjectionSchema = z.object({
   unresolvedCapabilityQuestions: z.array(NonEmptyTextSchema).default([]),
   capabilityEvidence: z.array(CapabilityEvidenceSchema).default([]),
   linkedNarrativeMoments: z.array(LinkedNarrativeMomentSchema).min(1),
+  continuity: CaptureRequirementContinuitySchema,
 }).strict();
 
 const VoiceRecordingGuideSchema = z.object({
@@ -117,6 +141,8 @@ export interface BuildTreatmentCapturePlanInput {
   sidecar: ScriptSidecarV3;
   treatment: unknown;
   profile?: unknown | null;
+  /** Durable chapter hierarchy for a long-form script. Omitted for ordinary scripts. */
+  chapterPlan?: unknown;
 }
 
 type CapabilityEvidence = z.infer<typeof CapabilityEvidenceSchema>;
@@ -257,24 +283,63 @@ function capabilityEvidence(
   };
 }
 
-function linkedMoments(sidecar: ScriptSidecarV3): Map<string, LinkedNarrativeMoment[]> {
+function linkedMoments(
+  sidecar: ScriptSidecarV3,
+  chapterOwnership: LongFormChapterSceneOwnership | null,
+): Map<string, LinkedNarrativeMoment[]> {
   const result = new Map<string, LinkedNarrativeMoment[]>();
   sidecar.acts.forEach((act) => act.narrativeScenes.forEach((scene) => scene.beats.forEach((beat) => {
     beat.visualEvents.forEach((event) => event.captureRequirementIds.forEach((requirementId) => {
+      const owner = chapterOwnership?.ownerByNarrativeSceneId.get(scene.id);
       const moments = result.get(requirementId) ?? [];
       moments.push({
         actId: act.id,
+        actTitle: act.title,
+        ...(owner ? { chapterId: owner.chapter.id, chapterTitle: owner.chapter.title } : {}),
         narrativeSceneId: scene.id,
         beatId: beat.id,
         eventId: event.treatmentEventId,
         narrativePurpose: beat.narrativePurpose,
         timingNote: event.timingNote,
         sourceRefs: [...event.sourceRefs],
+        continuityNotes: [...event.continuityNotes],
       });
       result.set(requirementId, moments);
     }));
   })));
   return result;
+}
+
+function captureRequirementContinuity(
+  moments: readonly LinkedNarrativeMoment[],
+): z.infer<typeof CaptureRequirementContinuitySchema> {
+  const chapters = new Map<string, z.infer<typeof CaptureRequirementChapterLinkSchema>>();
+  moments.forEach((moment) => {
+    if (!moment.chapterId || !moment.chapterTitle) return;
+    const key = `${moment.actId}:${moment.chapterId}`;
+    const current = chapters.get(key) ?? {
+      actId: moment.actId,
+      actTitle: moment.actTitle,
+      chapterId: moment.chapterId,
+      chapterTitle: moment.chapterTitle,
+      narrativeSceneIds: [],
+    };
+    if (!current.narrativeSceneIds.includes(moment.narrativeSceneId)) {
+      current.narrativeSceneIds.push(moment.narrativeSceneId);
+    }
+    chapters.set(key, current);
+  });
+  const chapterLinks = [...chapters.values()];
+  return CaptureRequirementContinuitySchema.parse({
+    chapterScope: chapterLinks.length === 0
+      ? 'unmapped'
+      : chapterLinks.length === 1
+        ? 'single-chapter'
+        : 'cross-chapter',
+    actIds: uniqueStrings(moments.map((moment) => moment.actId)),
+    chapters: chapterLinks,
+    continuityNotes: uniqueStrings(moments.flatMap((moment) => moment.continuityNotes)),
+  });
 }
 
 function voiceRecordingGuide(sidecar: ScriptSidecarV3): z.infer<typeof VoiceRecordingGuideSchema> {
@@ -328,7 +393,11 @@ export function buildTreatmentCapturePlan(input: BuildTreatmentCapturePlanInput)
   const profile = input.profile === undefined || input.profile === null
     ? null
     : parseProductionCapabilityProfile(input.profile);
-  const momentsByRequirementId = linkedMoments(sidecar);
+  const chapterOwnership = resolveLongFormChapterSceneOwnership({
+    chapterPlan: input.chapterPlan,
+    acts: sidecar.acts,
+  });
+  const momentsByRequirementId = linkedMoments(sidecar, chapterOwnership);
   const physicalCaptureRequirements: z.infer<typeof TreatmentCaptureRequirementProjectionSchema>[] = [];
   const nonPhysicalAcquisitionRequirements: z.infer<typeof TreatmentCaptureRequirementProjectionSchema>[] = [];
   const unclassifiedRequirements: z.infer<typeof TreatmentCaptureRequirementProjectionSchema>[] = [];
@@ -344,6 +413,7 @@ export function buildTreatmentCapturePlan(input: BuildTreatmentCapturePlanInput)
       ...requirement,
       capabilityEvidence: evidence,
       linkedNarrativeMoments,
+      continuity: captureRequirementContinuity(linkedNarrativeMoments),
     });
 
     if (requirement.captureKind === 'physical-camera') {

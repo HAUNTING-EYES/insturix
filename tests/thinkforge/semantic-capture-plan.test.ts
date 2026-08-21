@@ -17,6 +17,7 @@ import {
   materializeScriptSidecarV3,
   ScriptWriterSidecarV3ModelSchema,
 } from '@/lib/thinkforge/schemas/script-sidecar-v3';
+import { materializeScriptChapterPlan } from '@/lib/thinkforge/schemas/script-chapter-plan';
 import {
   abstractExplainerTreatment,
   mixedPresenterCutawayTreatment,
@@ -92,6 +93,114 @@ function confirmedProfile() {
     },
     preferences: { defaultPlanTier: 'no-spend', prioritize: ['cost'], householdSubstitutionsAllowed: false },
     provenance: {},
+  });
+}
+
+function chapteredHostTreatment() {
+  const treatment = structuredClone(mixedPresenterCutawayTreatment);
+  treatment.visualEvents[1]!.captureRequirementIds = ['capture_host_opening'];
+  return treatment;
+}
+
+function chapteredHostSidecar(treatment: ReturnType<typeof chapteredHostTreatment>) {
+  const sidecar = structuredClone(sidecarFor(treatment, ['event_host_claim', 'event_process_cutaway']));
+  const returnEvent = treatment.visualEvents.find((event) => event.id === 'event_process_cutaway');
+  if (!returnEvent) throw new Error('Expected return treatment event fixture.');
+  const openingBeat = sidecar.acts[0]?.narrativeScenes[0]?.beats[0];
+  if (!openingBeat) throw new Error('Expected opening beat fixture.');
+  openingBeat.visualEvents = openingBeat.visualEvents.filter(
+    (event) => event.treatmentEventId !== returnEvent.id,
+  );
+  sidecar.acts.push({
+    id: 'return_act',
+    title: 'Return',
+    narrativePurpose: 'Return to the human claim after the evidence changes its meaning.',
+    narrativeScenes: [{
+      id: 'return_scene',
+      title: 'Return to the host',
+      narrativePurpose: 'Reconnect the human claim to the newly visible process.',
+      durationIntentSeconds: 12,
+      charactersPresent: ['model_host'],
+      sourceRefs: ['src_brief'],
+      beats: [{
+        id: 'return_beat',
+        kind: 'visual',
+        narrativePurpose: 'Carry the established host evidence across the chapter boundary.',
+        durationIntentSeconds: 12,
+        lines: [],
+        visualEvents: [{ ...returnEvent, treatmentEventId: returnEvent.id }],
+        sourceRefs: ['src_brief'],
+      }],
+    }],
+  });
+  return sidecar;
+}
+
+function chapteredHostPlan() {
+  return materializeScriptChapterPlan({
+    title: 'A complete host argument',
+    narrativeThesis: 'The host claim gains meaning when the hidden process becomes visible across two chapters.',
+    targetDurationSeconds: 24,
+    audienceJourney: {
+      openingState: 'The viewer hears a credible but untested claim.',
+      closingState: 'The viewer understands the process behind that claim.',
+    },
+    continuityBible: {
+      pointOfView: 'A credible host and an evidence-led counterpoint.',
+      temporalFrame: 'One continuous explanation across two chapters.',
+      toneProgression: ['calm', 'clear'],
+      recurringMotifs: ['host claim'],
+      terminologyInvariants: ['handoff'],
+    },
+    characters: [],
+    continuityThreads: [],
+    acts: [{
+      id: 'act_1',
+      title: 'Opening',
+      narrativePurpose: 'Establish the opening claim.',
+      chapters: [{
+        id: 'chapter_opening',
+        title: 'Opening claim',
+        narrativePurpose: 'Let the claim land before the evidence changes it.',
+        audienceStateBefore: 'The claim is unfamiliar.',
+        audienceStateAfter: 'The claim is clear but needs proof.',
+        sceneBlueprints: [{
+          id: 'scene_1',
+          title: 'Opening claim',
+          narrativePurpose: 'Introduce the host claim.',
+          openingState: 'The host is ready to speak.',
+          development: ['State the claim.'],
+          closingState: 'The claim is ready for evidence.',
+          durationIntentSeconds: 12,
+          requiredSourceRefs: [],
+          requiredCharacterIds: [],
+          continuityThreadIds: [],
+        }],
+      }],
+    }, {
+      id: 'return_act',
+      title: 'Return',
+      narrativePurpose: 'Reconnect the claim to the evidence.',
+      chapters: [{
+        id: 'chapter_return',
+        title: 'Return to the claim',
+        narrativePurpose: 'Close the loop after the counterpoint.',
+        audienceStateBefore: 'The hidden process is visible.',
+        audienceStateAfter: 'The claim has earned context.',
+        sceneBlueprints: [{
+          id: 'return_scene',
+          title: 'Return to the host',
+          narrativePurpose: 'Reconnect the host to the proof.',
+          openingState: 'The process has been revealed.',
+          development: ['Return to the host.'],
+          closingState: 'The claim is now grounded.',
+          durationIntentSeconds: 12,
+          requiredSourceRefs: [],
+          requiredCharacterIds: [],
+          continuityThreadIds: [],
+        }],
+      }],
+    }],
   });
 }
 
@@ -213,5 +322,48 @@ describe('semantic V3 capture projection', () => {
       documentHash: 'a'.repeat(64),
       sidecarHash: 'b'.repeat(64),
     })).toMatchObject({ current: true });
+  });
+
+  it('carries only confirmed long-form chapter ownership into a recurring capture requirement', () => {
+    const treatment = chapteredHostTreatment();
+    const result = buildScriptShotPlan({
+      sidecar: chapteredHostSidecar(treatment),
+      videoTreatment: treatment,
+      chapterPlan: chapteredHostPlan(),
+    });
+
+    expect(result.status).toBe('capture-projection');
+    if (result.status !== 'capture-projection') throw new Error('Expected semantic capture projection.');
+    const requirement = result.capturePlan.physicalCaptureRequirements[0];
+    expect(requirement?.continuity).toMatchObject({
+      chapterScope: 'cross-chapter',
+      actIds: ['act_1', 'return_act'],
+      chapters: [
+        expect.objectContaining({ chapterId: 'chapter_opening', narrativeSceneIds: ['scene_1'] }),
+        expect.objectContaining({ chapterId: 'chapter_return', narrativeSceneIds: ['return_scene'] }),
+      ],
+    });
+    expect(requirement?.linkedNarrativeMoments.map((moment) => moment.chapterId))
+      .toEqual(['chapter_opening', 'chapter_return']);
+    expect(requirement?.continuity.continuityNotes).toEqual([
+      'Return to the host after the counterpoint resolves.',
+      'Reuse the visual vocabulary when the consequence returns later.',
+    ]);
+  });
+
+  it('fails closed when a V3 chapter plan no longer owns its persisted scene', () => {
+    const treatment = chapteredHostTreatment();
+    const chapterPlan = chapteredHostPlan();
+    chapterPlan.acts[1]!.chapters[0]!.sceneBlueprints[0]!.id = 'stale_scene';
+
+    expect(buildScriptShotPlan({
+      sidecar: chapteredHostSidecar(treatment),
+      videoTreatment: treatment,
+      chapterPlan,
+    })).toMatchObject({
+      status: 'needs-user-input',
+      plan: null,
+      issues: [expect.objectContaining({ code: 'long_form_scene_unmapped' })],
+    });
   });
 });
