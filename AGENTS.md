@@ -72,10 +72,35 @@ pnpm test                # vitest run
 - `CAP-0` is a broad family census and the current 40-operator benchmark catalog
   is a bounded research slice. Neither is the complete atomic Editron tool
   contract. Do not call either one "all tools".
+- Before relying on a numeric threshold, fixture choice, benchmark score,
+  sampling rule, timebase claim or production assumption, read
+  `docs/editron/open-ended-editing/oe-codex-hardcodes-assumptions-and-evidence-debt-register-2026-08-20.md`.
+  Keep fixture, research, provisional-policy, defect and production-contract
+  claims separate; append newly discovered material assumptions instead of
+  silently promoting or forgetting them.
 - Before adding any operation, planner, resolver, renderer, compiler or agent,
   search direct calls, types, strings, dynamic imports, re-exports, tests and
   mocks for an existing owner. Extend or adapt the sole owner; do not create a
   shadow authority.
+
+### Living-plan and compaction discipline
+
+- Update the authoritative master ledger in the same bounded phase whenever
+  code, a benchmark, a receipt, an invalidation, a blocker or the next action
+  materially changes. Never leave "calls pending" after calls ran, preserve a
+  pass after its evidence was invalidated, or report a historical source hash
+  as current truth.
+- Keep `RAW_EXECUTED`, `VALID_EVIDENCE`, `INVALID_EVIDENCE` and production
+  promotion status separate. A paid call, green unit test or attractive render
+  is not automatically valid evidence and is never production certification.
+- Add concise adjacent code comments when a non-obvious owner, revision origin,
+  evidence boundary, proof invariant or failure disposition would otherwise be
+  lost during context compaction or a handoff to another agent. Comments must
+  explain the authority or reason, not narrate syntax; versioned contracts,
+  tests, receipts and the master ledger remain the source of truth.
+- Before a handoff, reconcile the ledger against current code and artifacts and
+  record the exact version/hash/path needed to resume. Do not rely on chat
+  memory to carry unresolved assumptions or the next executable step.
 
 ### Mandatory pre-implementation grounding gate
 
@@ -189,8 +214,9 @@ EDITRON.md + user brief/script/brand/references
 - Keep coding-agent performance, structured-plan/schema performance,
   provider-native tool-calling performance and rendered editorial quality as
   separate evidence. A failure in one is not automatically a failure in the
-  others. The governing cohort is Luna, Terra, Gemini 3.7 Flash and
-  Qwen3.8-Max until a repeated fair run supports removing or adding a route.
+  others. The governing future cohort is Luna, Terra and Gemini 3.7 Flash.
+  Qwen3.8-Max is historical evidence only and MUST NOT receive a new benchmark
+  call, repair, score or production-routing slot.
 - The model receives the actual request/reference evidence and the relevant
   `CAP-2` atomic tool sheet. Each tool row must declare owner, exact inputs and
   outputs, support/certification, planner eligibility, state effects,
@@ -280,16 +306,14 @@ Migrated from the prior Claude-Code sessions. Layout:
    documents only as supporting evidence.
 2. Reproduce repository/worktree truth and run proportionate verification. Do
    not trust the historical status tables above.
-3. Execute `CAP-2A`: freeze the complete atomic executable capability sheet
-   from actual manual/chat/Director/worker/API owners without repairing runtime
-   behavior inside the census slice.
-4. Execute `V2-1R`: correct Stage-2 selected-versus-alternative semantics,
-   implement generic zero-add/drop lowering, freeze fair evaluator rules and
-   fix per-attempt budgets.
-5. Execute `V2-1F`: carry untouched Luna, Terra, Gemini 3.7 Flash and
-   Qwen3.8-Max outputs through separate structured-artifact and provider-native
-   tool-calling arms, isolated native/generated/hybrid execution, actual render
-   proof and blind review. Publish no model ranking before this passes.
+3. Reissue `CAP-2A` as a new current-truth version after source drift; never
+   rewrite the historical v1 freeze.
+4. Restore the V2R suite to green, freeze a new three-route manifest, and build
+   the provider-native sequential tool-result loop without changing V19.
+5. Execute `V2-1F` with untouched Luna, Terra and Gemini 3.7 Flash outputs
+   through separate structured-artifact and provider-native tool-calling arms,
+   isolated native/generated/hybrid execution, actual render proof and blind
+   review. Publish no model ranking before this passes.
 
 Fail-closed internal-worker authentication, IF1 runtime migration, timebase and
 stale-writer safety are production-risk interrupts. They must be resolved

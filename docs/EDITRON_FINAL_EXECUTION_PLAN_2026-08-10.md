@@ -1226,13 +1226,20 @@ Its complete benchmark error ledger supersedes earlier aggregate provider
 rankings and ambiguous `executable pass` interpretations. This execution ledger
 remains the authority for implementation status.
 
-The audited active lane is `editron-worktree` on
-`infrastructure-improvs-+Editron`. The Editron audit began at
-`81c906f976c49beca9e5cd398595b369599b6d6d` and verification completed at
-`8e8357df5f35acee1c8aec5f8ded2e8dbac755ef`; the intervening commit changed
-only ThinkForge Playwright configuration/tests, not an Editron production
-path. The worktree is intentionally dirty with work from this programme. This
-reconciliation does not reset, clean, stash, merge, commit or push that work.
+The material constants, authored fixture choices, provisional thresholds,
+invalid earlier evidence and unresolved production assumptions found from
+2026-08-10 through 2026-08-20 are maintained in the
+[hardcodes, assumptions and evidence-debt register](./editron/open-ended-editing/oe-codex-hardcodes-assumptions-and-evidence-debt-register-2026-08-20.md).
+No fixture or research budget in that register becomes a product default
+without a separately declared owner, calibration scorecard and held-out proof.
+
+The audited active lane remains `editron-worktree` on
+`infrastructure-improvs-+Editron`. The 2026-08-20 assumption-register audit was
+run at `012012c5b1ea0aeaf689e1d3c17aaaa05dc35326`, exactly aligned with its
+upstream at that instant. The earlier reconciliation anchors remain historical
+evidence. The worktree is intentionally dirty with work from this programme.
+This reconciliation does not reset, clean, stash, merge, commit or push that
+work.
 
 Status vocabulary used below:
 
@@ -1249,6 +1256,8 @@ Status vocabulary used below:
 - `MISSING`: no implementation satisfying the stated contract was found.
 - `INVALID_EVIDENCE`: an earlier score or verdict was produced by a benchmark
   condition that did not test what it claimed.
+- `RAW_EXECUTED`: calls or jobs ran and their bytes/receipts are preserved, but
+  no validity claim is implied until the governing contract is reconciled.
 
 ### Repository, IF1 and Phase 2C truth
 
@@ -1266,15 +1275,93 @@ timeline revision, changed paths, proof result, undo/replay binding or the full
 retry disposition. Existing safety work is valuable, but it is not IF1 runtime
 convergence.
 
+### Stage 2.5 current evidence ledger - 2026-08-21
+
+This subsection supersedes older "calls pending" and paid-cohort status text
+below. At the reconciliation snapshot, the active lane was
+`infrastructure-improvs-+Editron` at `cf8a633dceaebc84b8e08e2731df72d7c56608f0`,
+equal to `origin/infrastructure-improvs-+Editron`, with the programme worktree
+intentionally dirty. Later commits do not inherit these findings without
+rechecking the bound source and artifact hashes.
+
+Latest bounded reissue checkpoint: active branch and origin both pointed to
+`67f2eb48b8888550632c79b9f1133b2d85f8630d` before CAP-2A V3 was issued.
+The worktree remained intentionally dirty, so V3 binds every current source
+and supplemental evidence file by normalized SHA-256 and must be reissued if
+any bound file changes.
+
+- **V3 P1/P2/P3 is `RAW_EXECUTED`, not valid sequential-mutation evidence.**
+  All eighteen Luna/Terra/Gemini 3.7 route/arm/permutation rows ran. The P2/P3
+  paid root is
+  `.calibration-temp/open-ended-planner-v2/provider-native-handoff-order-v3-run-20260821144755`;
+  its manifest and experiment-receipt SHA-256 values are respectively
+  `b9a4284b1c609472e91ca08ab21710b42da5be1a2f231541cec35c8f0033fcb3`
+  and `46577191dd2c03d354975ce0fbe204e66099e59623466f49ffd0376aa95f8080`.
+  The P2/P3 calls cost approximately `$0.421437`, made zero real-project
+  mutations and selected `find_audio_moment` first in 12/12 rows. Across all
+  three presentation orders, the only currently defensible model observation
+  is 18/18 correct first relevant operation choice.
+- **The old execution verdict is `INVALID_EVIDENCE`.** The isolated
+  `sync_cuts_to_beats` write did not expose a writer-issued post-mutation
+  project revision. Eleven raw P2/P3 passes reused stale `R11`; Terra direct P2
+  correctly stopped with
+  `MUTATION_REVISION_NOT_EXPOSED_FOR_REQUIRED_FOLLOW_ON_CAS`. P1 used the same
+  defective clone, so all eighteen rows must be rerun under a new identity.
+  The immutable reconciliation report is
+  `docs/editron/open-ended-editing/oe-v3r-provider-native-handoff-order-p2-p3-results-2026-08-21.md`.
+- **The writer foundation and fair benchmark contract are repaired; fair
+  re-execution is complete.** The isolated DEV-03 session now issues an opaque revision
+  after each write, records before/after revisions, rejects stale reuse and
+  binds repair to the latest revision. The connected episode is V2R_5. The
+  new V3R contract declares
+  `sync_cuts_to_beats.receipt.projectRevision` as the origin of
+  `apply_camera_shake.expectedProjectRevision`, carries it directly in one arm
+  and by an opaque result reference in the other. Its evaluator rejects
+  missing, stale, forged and copied-literal opaque revisions. Focused V3R tests
+  pass 25/25; the complete provider-native suite passes 100/100 with two
+  intentional real-render skips. The stale V2R_4 cohort assertion is corrected.
+- **CAP-2A V3 is `DONE_ARTIFACT` for the current bound snapshot.** V1 and V2
+  remain immutable historical evidence. V3 chains V2 manifest
+  `3451770615e7313158b7fcb6e7d298cf7c5bd88db09287b4a9b07069b7c88276`,
+  binds the current 221-path normalized snapshot
+  `f9d7ed86323aa83605e491bb5d240235f4c228036fc69b9b9ade686e4b9b6655`,
+  and has manifest hash
+  `180e5699ee939b9514dfc50b41513361c525fb7a0b433bda4226b466553cbf2a`.
+  All 81 CAP tests pass. Its four post-V2 deltas record the reaffirmed
+  ThinkForge detach, organization-scoped Alyzitron Brand Vault lookup, the MG
+  review deploy gate with missing per-operator authorization, and project
+  intake script/aspect persistence with fail-soft gaps. It grants zero planner,
+  mutation or production authority and is invalidated by any bound-file drift.
+- **V3R4 is `VALID_EVIDENCE / RESEARCH_PROVEN` for the bounded DEV-03
+  handoff/order claim.** The production-credential preflight bound V3R4 to
+  CAP-2A V3 and passed 18/18 request/token checks with zero inference. The fair
+  paid cohort then passed 18/18 for first relevant choice, causal execution,
+  semantic handoff, writer-issued revision handoff, rendered proxy proof and
+  no real-project mutation across Luna, Terra and Gemini 3.7, both handoff arms
+  and three presentation permutations. There were zero evaluator,
+  provider-infrastructure, render-infrastructure or harness failures. Estimated
+  actual spend from provider token receipts is `$0.626745190`, not the
+  `$21.126758` worst-case ceiling. The immutable interpretation is
+  `docs/editron/open-ended-editing/oe-v3r4-provider-native-handoff-order-results-2026-08-22.md`.
+- **Stage 2.5 status remains `MODIFY_AND_PROCEED_RESEARCH`.** No production
+  model-driven mutation or Stage 3 control plane is authorized. Revision
+  handoff repair, stale cohort correction, CAP-2A V3 reissue, zero-inference
+  preflight and the fair eighteen-row rerun are complete. The exact immediate
+  order is now: land the reproducible benchmark code and report; then complete
+  HREF-01, seven unseen holdouts, dependency
+  diversity, forced native/generated/hybrid comparisons, conflict/rebase,
+  compaction/resume, long-form/range trials and blind editor receipts before a
+  frozen `GO`, `MODIFY` or `NO-GO` decision.
+
 ### Master-stage completion ledger
 
 | Master stage | What is verified done | What remains before the stage exit is honest |
 | --- | --- | --- |
-| Stage 0 - governance and capability truth | `CAP-0` family-level census and `CAP-1` Adobe gap matrix are `DONE_ARTIFACT`. The census records 30 broad Editron families, 66 chat-registry rows and manual/chat/renderer divergence. The Adobe matrix records 118 atomic functions, workflows and product duties. | The census is not the final per-operation tool sheet. `CAP-2` must enumerate every real manual, shortcut, chat, Director, worker and API operation at atomic owner/schema/proof level. No capability is currently certified by the census. |
+| Stage 0 - governance and capability truth | `CAP-0` family-level census, `CAP-1` Adobe gap matrix and CAP-2A V3 current-truth reissue are `DONE_ARTIFACT`. CAP-2A V3 binds 221 current evidence paths, chains immutable V1/V2 history and passes 81/81 CAP tests. | Land the V3 source binding and reissue whenever a bound file changes. CAP-2A remains a bounded research tool dossier, not the complete Editron/Adobe toolset and not production certification; candidate owner/proof gaps remain product work. |
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | The V19 cohort has immutable manifest/receipt identities, 40/40 enriched research operators, actual model handoff, generic lowering, causal terminal scoring and isolated proof-capable DEV-01/DEV-03 adapters. Hash verification passed for all 18 rows. | V19 is `MODIFY`, not `GO`: OpenAI was rate-limited in all Luna/Terra rows; Qwen passed only DEV-04's honest gap, reached but failed DEV-03 rendered proof, and failed schema/semantic controls elsewhere. No model is production-approved and no V19 proxy reached Stage 7. |
+| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. HREF-01 has a hash-bound native-video/audio path and one complete Gemini 3.6 observation. The old V3 sequential verdict remains invalid, but V3R4 is valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V3 is current. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. Land V3R4 reproducibly, then complete HREF dense/human review, seven unseen holdouts, different dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. The synthetic DEV-03 audio is not intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -1490,8 +1577,8 @@ from the canonical Stage-1/2/3 artifact rather than an untouched provider
 episode. The live `cut_section` chat response and canonical ProjectService/IF1
 receipt also do not yet expose/bind the coordinate mapping. DEV-03 still needs
 the same causal conversion, and the refreshed evaluator/manifest must be frozen
-before Luna, Terra or Qwen is called. Therefore no provider rerun, model ranking
-or production mutation is authorised by these commits.
+before Luna, Terra or Gemini 3.7 is called. Therefore no provider rerun, model
+ranking or production mutation is authorised by these commits.
 
 #### V2R V19 connected cohort - 2026-08-19
 
@@ -1517,9 +1604,9 @@ label is `UNVERIFIABLE`.
 
 The immediate benchmark work is therefore: repair and certify the shared
 resolution-aware form/proof contract exposed by DEV-03; restore a usable
-OpenAI test lane without changing the frozen semantics; improve schema-bound
-Qwen transport/repair without leaking expected answers; then issue a new
-version and run repeated trials. The detailed ledger is
+OpenAI test lane without changing the frozen semantics; add Gemini 3.7 to the
+connected route; then issue a new version and run repeated trials. The detailed
+ledger is
 [oe-v2-1f-connected-model-episode-results-2026-08-19.md](editron/open-ended-editing/oe-v2-1f-connected-model-episode-results-2026-08-19.md).
 
 #### Provider capability and benchmark-interface correction - 2026-08-19
@@ -1543,14 +1630,113 @@ Qwen's fair receipt record is mixed rather than a universal failure: V17
 DEV-03 completed real isolated video/audio execution and proof, V19 DEV-03
 reached execution but failed visible-shake proof, and DEV-04 returned the
 expected capability gap in all three cohorts. Other losses include strict
-artifact-schema and missing-evidence policy failures. Qwen remains in the
-cohort but is not production-approved.
+artifact-schema and missing-evidence policy failures. By operator decision on
+2026-08-20, Qwen is now historical evidence only and is retired from every
+future benchmark call, repair, score and production-routing slot.
 
 The governing provider matrix, official-source record, exact Qwen
 classification, live smoke and replacement multi-arm protocol are in
 [the model-provider capability and benchmark protocol](editron/open-ended-editing/oe-model-provider-capabilities-and-benchmark-protocol-2026-08-19.md).
 Before another paid cohort, preserve the structured-artifact test as its own
-arm and add a provider-native, sequential tool-result loop for all four models.
+arm and add a provider-native, sequential tool-result loop for Luna, Terra and
+Gemini 3.7.
+
+#### V2-1R provider-native adapter progress - 2026-08-20
+
+The research adapter core now exists without changing the historical
+structured-artifact arm. `provider-native-tool-catalog-v2r.ts` derives each
+eligible function and its exact input/output schema from
+`V2R_OPERATOR_CATALOG`, and binds the same selected records to the CAP-2A
+planner dossier. It rejects unknown, duplicate and `NOT_COMPILABLE` rows rather
+than inventing or hiding operations. The separate finish function is explicitly
+a control disposition, not a catalog editing operation.
+
+`provider-native-tool-codecs-v2r.ts` implements stateless full-history request
+shapes for Luna/Terra through OpenAI Responses and Gemini 3.7 through Gemini
+Interactions. It preserves OpenAI reasoning items, Gemini thought steps and
+exact function-call IDs when returning results. OpenAI parallel calls are
+disabled for this causal baseline; the harness also rejects more than one call
+per turn locally. Strict mode is enabled only where the current exact operator
+schema is genuinely strict-compatible. Rows with open-ended fields such as
+`cut_section.constraints` remain non-strict and are validated against the exact
+local schema; the adapter does not falsely claim strict enforcement.
+
+`provider-native-tool-episode-v2r.ts` gives the model one bounded objective,
+revision/state, evidence, preservation/policy facts, budget and complete
+eligible CAP-2A records; executes only a supplied research-isolated callback;
+returns the typed result to the same conversation; and preserves raw response,
+request, model-identity and transcript hashes. Unknown/invalid/parallel or
+repeated calls, malformed tool results, missing typed finish, 429, timeout,
+refusal and other provider failures remain distinct fail-closed outcomes. A
+model `PASS` in this adapter is not product proof: every receipt is explicitly
+`NOT_EVALUATED_ADAPTER_ONLY`, carries no state effects and imports no
+ProjectService owner.
+
+The fake transport suite passes for Luna, Terra and Gemini sequential result
+replay, strict/local schema modes, missing evidence, invalid and parallel
+calls, HTTP 429, timeout and raw-output retention. This closes the pure adapter
+core only.
+
+The candidate cohort manifest and zero-inference preflight now live in
+`provider-native-cohort-manifest-v2r.ts`. The manifest freezes Luna, Terra and
+Gemini 3.7 Flash; six DEV-01--04 baseline/withheld-evidence cases; three planned
+repetitions per route/case; exact task, evidence, context and tool-set hashes;
+the current price snapshot including OpenAI cache-write prices; and an absolute
+worst-case ceiling of `$65.140838`. Qwen is absent. The stable 40-operation
+CAP-2A dossier is bound once by identity/hash/count, while each episode exposes
+only its relevant complete callable records through the provider-native tool
+authority.
+
+The live no-spend run on 2026-08-20 produced manifest
+`38ec31270b1c0f9487ef3e848f4e17733f31e15c1a53d5867fb5cd29ca5205db` and
+preflight receipt
+`48cdb825ffd159402a333b793302f1f5b82b1944e234ceb3d844cebb9a9a70c9`.
+It made three model-metadata GETs, six Gemini `countTokens` requests and zero
+inference calls. Infrastructure assessment was `PASS`; every bounded initial
+request was below the frozen 64,000-token limit (OpenAI range 13,938--21,695;
+Gemini range 15,278--24,159). Dispatch correctly remained
+`BLOCKED_CONNECTOR_GAP`.
+
+That candidate status is superseded by the V27 result below. The adapter,
+per-turn provider-native session binding and DEV-02 model-source-to-proof path
+now exist in the research lane. This does not change product support or
+authorise ProjectService mutation.
+
+#### V2R V27 provider-native result - 2026-08-20
+
+The corrected V27 manifest hash is
+`1f807926d6c6a1fa061611e771d211dd36a1dc025173b7e9c0791ce80341ebe2`.
+Across three independent repetitions of every case, Luna and Terra each matched
+17/18 expected outcomes. Both routes passed DEV-01 native editing, DEV-02
+generated-island/hybrid proof, both withheld-evidence controls and DEV-04 in
+every repetition. Each route missed one DEV-03 baseline. No accepted row
+mutated a real project, no harness error occurred and no failed proof became a
+false product success.
+
+The misses remain important. Luna chose a camera-shake form that rendered with
+zero measurable displacement and then made a causally invalid repair. Terra
+called beat sync before resolving the required audio evidence and searched the
+wrong range after the typed failure. These findings require form-owner
+calibration and additional operation-order holdouts; they must not be erased by
+changing the evaluator after the run.
+
+Gemini 3.7 produced no model output: the six-case prior attempt and the current
+V27 probe returned HTTP 429 on every retry. Its editing performance remains
+`PROVIDER_INFRASTRUCTURE_UNVERIFIABLE`.
+
+The complete matrix and receipt hashes are in
+[the V27 provider-native results](editron/open-ended-editing/oe-v2r-provider-native-v27-results-2026-08-20.md).
+The research bet is supported, but production autonomy is not certified.
+
+The later DEV-03 form-owner requalification supersedes V27 for that one
+condition. After moving concrete shake intensity/duration back to the existing
+visual form owner, Terra passed 3/3 and Luna/Gemini each passed 2/3. All nine
+provider calls returned HTTP 200; the two misses were model-controlled causal
+or evidence-handoff failures before execution, not provider infrastructure or
+render failures. Its receipt and exact miss analysis are in
+[the DEV-03 requalification](editron/open-ended-editing/oe-v2r-dev03-form-owner-requalification-2026-08-20.md).
+This result also changes a CAP-2 evidence file, so the prior current-truth hash
+binding is now stale and must be reissued rather than silently updated.
 
 ### GeneratedCompositionProgram current truth
 
@@ -1588,28 +1774,27 @@ deployment:
 The old `CAP-0 -> CAP-1 -> V2-0` next-three list is complete as historical
 foundation and is no longer the active queue. The next three slices are:
 
-1. **CAP-2A - atomic executable tool truth:** derive the complete detailed
-   per-operation packet from real manual, chat, Director, worker and API owners;
-   freeze stable IDs, schemas, parity, state effects, proof, policy and support
-   status; generate count and consumer tests. No runtime repair in this slice.
-2. **V2-1R - benchmark contract reset:** replace
-   `candidateCapabilityIds` with selected-versus-alternative semantics; replace
-   DEV-specific compilers with one schema-driven lowerer; enforce zero operator
-   add/drop; separate planner-envelope facts from selected tools; fix
-   per-attempt timeout/token budgets; freeze condition-aware evaluators before
-   provider calls.
-3. **V2-1F - fair connected model run:** run Luna, Terra, Gemini 3.7 Flash and
-   Qwen3.8-Max across separate structured-artifact and provider-native
-   tool-calling arms for DEV-01 native,
-   DEV-02 generated-island/full-reel-hybrid, DEV-03 audio/video-dependent and
-   DEV-04 truthful capability-gap conditions. Preserve raw model output, run at
-   least repeated trials, compile without hidden creative repair, execute only
-   isolated proxies, render actual video/audio and obtain blind review before
-   any `GO`, `MODIFY` or `NO-GO` verdict.
+1. **Reproducible V3R4 benchmark landing - active:** commit the V3R4 benchmark sources, CAP-2A
+   V3, immutable raw/report hashes and verified aggregate receipt without
+   adding operator-only scripts or unrelated dirty work. Recheck every bound
+   source hash at landing; a changed hash requires reissue, never editing the
+   frozen expected value in place.
+2. **HREF-01 dense/human closeout:** retain the fourteen-image preflight as a
+   no-inference sparse control, build the usable anonymized review pack, and
+   execute only the targeted dense motion/audio window needed to judge claims
+   the sparse control cannot establish.
+3. **V2-2 unseen holdouts and integration gate:** after HREF-01 closes, run the
+   seven unseen holdouts and additional dependency/invalidation shapes. Follow
+   with stale-revision/user-change, context-resume and long-form range trials;
+   force native/generated/hybrid baselines and obtain blind-editor quality,
+   correction-time, latency and cost receipts. Only a passing gate may
+   authorise ProjectService-owned proposal integration design, never direct
+   model writes.
 
-Only after V2-1F can this programme answer whether the tested models can plan
-native edits reliably. A pass authorises V2-2 holdouts and production
-integration design; it does not authorise direct ProjectService mutation.
+V3R4 answers one narrow premise positively: Luna, Terra and Gemini 3.7 can
+execute the bounded DEV-03 native dependency chain through real tool calls,
+including direct and opaque writer-revision handoff. It does not certify a
+production model, a real-project mutation path or agency/film-post replacement.
 
 ## Historical current position and next three bounded slices
 
