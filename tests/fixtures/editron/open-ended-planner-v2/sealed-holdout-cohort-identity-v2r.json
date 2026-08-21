@@ -1,0 +1,9 @@
+{
+  "version": "EDITRON_OE_SEALED_HOLDOUT_COHORT_IDENTITY_V2R_1",
+  "contractSourceSha256": "1b830040ea2b1b6ea3fb6c880fed4864e6da0b879e9e0a8960572e26fa309150",
+  "preflightSourceSha256": "5d20adbd709a91b3989cbd87394a0a122e97317cc422c0e731af964dfc22da15",
+  "manifestSha256": "abdcafe133cbff5f4e9b8325e665636d6d553a6fd966b0170e37bbd97cc5cdbb",
+  "sharedModelContextSha256": "f501f0e3bb7c4bee3bc4e3dd1c418adc9cd5ff933439baf81386009c3a205338",
+  "mediaManifestSha256": "435a7b35f9e4f7d8071609100c38031a17058a3bc96950ed9e603dd78b0535ed",
+  "preflightReceiptSha256": "69821f932e6baf6c5312d764ebdb836c232f842e7e3b018fcac621fea46b8773"
+}
