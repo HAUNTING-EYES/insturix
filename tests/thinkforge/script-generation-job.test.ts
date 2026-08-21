@@ -507,14 +507,21 @@ describe('long-form chat handoff', () => {
       new URL('../../lib/thinkforge/services/chat-service.ts', import.meta.url),
       'utf8',
     );
-    const handoff = chat.indexOf('await handoffChapteredScriptGenerationIfRequired({');
+    const treatmentPlan = chat.indexOf('const videoTreatmentPlan = await planVideoTreatment({');
+    const scriptInput = chat.indexOf('const scriptInput = {', treatmentPlan);
+    const handoff = chat.indexOf('await handoffChapteredScriptGenerationIfRequired({', scriptInput);
     const paidWriter = chat.indexOf(
-      'writer.runStructured(baseInput as ScriptWriterInput, undefined, abortSignal)',
+      'writer.runStructured(scriptInput, undefined, abortSignal)',
       handoff,
     );
 
+    expect(treatmentPlan).toBeGreaterThan(-1);
+    expect(scriptInput).toBeGreaterThan(treatmentPlan);
     expect(handoff).toBeGreaterThan(-1);
+    expect(handoff).toBeGreaterThan(scriptInput);
     expect(paidWriter).toBeGreaterThan(handoff);
+    expect(chat.slice(scriptInput, handoff)).toContain('videoTreatment: videoTreatmentPlan.treatment,');
+    expect(chat.slice(handoff, paidWriter)).toContain('writerInput: scriptInput,');
     expect(chat).toContain('intent: LONG_FORM_SCRIPT_GENERATION_INTENT');
     expect(chat).toContain('systemBrief: groundedSystemBrief');
     expect(chat).toContain('generationHandedOff = true');

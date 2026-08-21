@@ -289,6 +289,9 @@ async function commitAssembledScript(
           visualPrompts: job.assembledResult.visualMetadata,
           scriptSidecar: job.assembledResult.sidecar,
           sidecarVersion: job.assembledResult.sidecar.sidecarVersion,
+          ...(job.input.authoringInput.videoTreatment
+            ? { videoTreatment: job.input.authoringInput.videoTreatment }
+            : {}),
           sourceLedger: job.input.authoringInput.sourceLedger,
           writerMetadata: job.assembledResult.metadata,
           ...(job.input.contextMetadata?.trendContext

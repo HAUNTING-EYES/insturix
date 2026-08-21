@@ -77,6 +77,7 @@ import {
   handoffChapteredScriptGenerationIfRequired,
 } from '../long-form/script-generation-job';
 import { LONG_FORM_SCRIPT_GENERATION_INTENT } from '../long-form/script-generation-job-contract';
+import { planVideoTreatment } from '../video-treatment/treatment-planner';
 import crypto from 'crypto';
 
 const PROMPT_UNDERSTANDING_SEED = 7;
@@ -923,17 +924,47 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
             finalRichText = thinkForgeBlocksToTiptapJSON(finalBlocks);
             
           } else {
+            if (!authoringContext) {
+              throw new Error('Video-script generation requires a resolved authoring context.');
+            }
             if (!signalTrace) {
               throw new Error('Chaptered script generation requires a resolved signal trace.');
             }
             if (editorialPlan.writerKind !== 'script') {
               throw new Error('Video-script generation requires a script editorial plan.');
             }
+            if (authoritativeAuthoringRequest.contentContract.outputKind !== 'video_script') {
+              throw new Error('Video-script generation requires a video-script document contract.');
+            }
             assertScriptEvidenceSufficiency({
               editorialPlan: editorialPlan.execution.plan,
               sourceLedger,
             });
-            const scriptInput = baseInput as ScriptWriterInput;
+            const treatmentAuthoringContext = {
+              ...authoringContext,
+              projectMeta: sessionState.metadata,
+              retrievedContext: retrievedCtx ?? authoringContext.retrievedContext,
+              systemBrief: groundedSystemBrief,
+              snapshot: authoringContextSnapshot,
+            };
+            const videoTreatmentPlan = await planVideoTreatment({
+              userPrompt: authoringPrompt,
+              authoringRequest: authoritativeAuthoringRequest,
+              editorialPlan,
+              productionBrief: briefSnapshot,
+              authoringContext: treatmentAuthoringContext,
+              contentSignalProfile: resolvedSignalProfile,
+              sourceLedger,
+              userId,
+              orgId: session.orgId ?? null,
+              sessionId: canonicalSessionId,
+              projectId: canonicalSessionId,
+              abortSignal,
+            });
+            const scriptInput = {
+              ...baseInput,
+              videoTreatment: videoTreatmentPlan.treatment,
+            } satisfies ScriptWriterInput;
             const longFormHandoff = await handoffChapteredScriptGenerationIfRequired({
               userId,
               orgId: session.orgId ?? null,
@@ -941,13 +972,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               generationId: activeGenerationId,
               scriptId: effectiveScriptId!,
               baseVersion: resolveThinkForgeCommitBaseVersion(commitBaseline, effectiveScriptId!),
-              authoringContext: authoringContext ? {
-                ...authoringContext,
-                projectMeta: sessionState.metadata,
-                retrievedContext: retrievedCtx ?? authoringContext.retrievedContext,
-                systemBrief: groundedSystemBrief,
-                snapshot: authoringContextSnapshot,
-              } : null,
+              authoringContext: treatmentAuthoringContext,
               writerInput: scriptInput,
               signalTrace,
               contextMetadata: {
@@ -983,7 +1008,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
 
             const writer = new ScriptWriterAgent();
             const { result, metadata } = await retryOnceOnOverload(
-              () => writer.runStructured(baseInput as ScriptWriterInput, undefined, abortSignal),
+              () => writer.runStructured(scriptInput, undefined, abortSignal),
               700,
               abortSignal,
             );
@@ -996,6 +1021,21 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               visualPrompts: result.visualMetadata,
               scriptSidecar: result.sidecar,
               sidecarVersion: result.sidecar.sidecarVersion,
+              videoTreatment: videoTreatmentPlan.treatment,
+              videoTreatmentPlanning: {
+                version: 1,
+                inputFingerprint: videoTreatmentPlan.inputFingerprint,
+                treatmentId: videoTreatmentPlan.treatment.treatmentId,
+                source: videoTreatmentPlan.source,
+                cacheStatus: videoTreatmentPlan.cacheStatus,
+                modelName: videoTreatmentPlan.modelName,
+                latencyMs: videoTreatmentPlan.latencyMs,
+                writingKnowledgeVersion: videoTreatmentPlan.knowledge.writingKnowledge.version,
+                editronCreativeGraphVersion: videoTreatmentPlan.knowledge.editronGraph.version,
+                ...(videoTreatmentPlan.writingContextCacheStatus
+                  ? { writingContextCacheStatus: videoTreatmentPlan.writingContextCacheStatus }
+                  : {}),
+              },
               sourceLedger,
               writerMetadata: result.metadata,
               ...(trendContextMetadata ? { trendContext: trendContextMetadata } : {}),

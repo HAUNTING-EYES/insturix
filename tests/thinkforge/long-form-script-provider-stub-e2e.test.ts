@@ -737,9 +737,18 @@ describe('long-form ThinkForge provider-stub E2E', () => {
     })).resolves.toMatchObject({ kind: 'commit', receipt: { documentVersion: 1 } });
     expect(planAgent).toHaveBeenCalledOnce();
     expect(writer).toHaveBeenCalledTimes(2);
-    const persistedSidecar = (persistence.applyCommand.mock.calls[0]?.[0] as {
-      payload?: { metadata?: { writerOutput?: { scriptSidecar?: { sidecarVersion?: number } } } };
-    }).payload?.metadata?.writerOutput?.scriptSidecar;
+    const persistedWriterOutput = (persistence.applyCommand.mock.calls[0]?.[0] as {
+      payload?: {
+        metadata?: {
+          writerOutput?: {
+            scriptSidecar?: { sidecarVersion?: number };
+            videoTreatment?: unknown;
+          };
+        };
+      };
+    }).payload?.metadata?.writerOutput;
+    const persistedSidecar = persistedWriterOutput?.scriptSidecar;
     expect(persistedSidecar?.sidecarVersion).toBe(3);
+    expect(persistedWriterOutput?.videoTreatment).toEqual(treatment);
   });
 });

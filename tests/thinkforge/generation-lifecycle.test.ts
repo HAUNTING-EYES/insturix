@@ -314,7 +314,14 @@ describe('ThinkForge generation lifecycle', () => {
     expect(service).toContain('if (isThinkForgeAbortFailure(thinkErr, abortSignal))');
     expect(service).toContain('if (isThinkForgeAbortFailure(trendErr, abortSignal))');
     expect(service).toContain('writer.runStructured(baseInput as PostWriterInput, undefined, abortSignal)');
-    expect(service).toContain('writer.runStructured(baseInput as ScriptWriterInput, undefined, abortSignal)');
+    const treatmentPlan = service.indexOf('const videoTreatmentPlan = await planVideoTreatment({');
+    const longFormHandoff = service.indexOf('await handoffChapteredScriptGenerationIfRequired({', treatmentPlan);
+    const scriptWriter = service.indexOf('writer.runStructured(scriptInput, undefined, abortSignal)', treatmentPlan);
+    expect(treatmentPlan).toBeGreaterThan(-1);
+    expect(longFormHandoff).toBeGreaterThan(treatmentPlan);
+    expect(scriptWriter).toBeGreaterThan(longFormHandoff);
+    expect(service).toContain("throw new Error('Video-script generation requires a resolved authoring context.')");
+    expect(service).toContain('videoTreatment: videoTreatmentPlan.treatment,');
     expect(service).toContain('beforeCommit: claimCommitOwnership');
     expect(service.indexOf('beforeCommit: claimCommitOwnership'))
       .toBeGreaterThan(service.indexOf('reviseDocumentViaFlatWriter({'));
