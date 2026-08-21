@@ -1,9 +1,9 @@
 {
-  "version": "EDITRON_OE_SEALED_HOLDOUT_COHORT_IDENTITY_V2R_1",
-  "contractSourceSha256": "1b830040ea2b1b6ea3fb6c880fed4864e6da0b879e9e0a8960572e26fa309150",
+  "version": "EDITRON_OE_SEALED_HOLDOUT_COHORT_IDENTITY_V2R_2",
+  "contractSourceSha256": "c5bde2e5b1a9b004ec49a9d47b4a020bd160d657cd2d73f28b25be2314ba92c6",
   "preflightSourceSha256": "5d20adbd709a91b3989cbd87394a0a122e97317cc422c0e731af964dfc22da15",
-  "manifestSha256": "abdcafe133cbff5f4e9b8325e665636d6d553a6fd966b0170e37bbd97cc5cdbb",
+  "manifestSha256": "65e00a28e68a4f2d3c2eb8b4b9a89aed2ca9c9e08d1813d56d512b9d2dd236be",
   "sharedModelContextSha256": "f501f0e3bb7c4bee3bc4e3dd1c418adc9cd5ff933439baf81386009c3a205338",
-  "mediaManifestSha256": "435a7b35f9e4f7d8071609100c38031a17058a3bc96950ed9e603dd78b0535ed",
-  "preflightReceiptSha256": "69821f932e6baf6c5312d764ebdb836c232f842e7e3b018fcac621fea46b8773"
+  "mediaManifestSha256": "4527aadaea84cf91a9499439dafd369a773ee01b97a49fe0ef9c68ce74fa63b6",
+  "preflightReceiptSha256": "97ae84e7ebea8840e4e1cd8b6dac384e67ca8549080b0227324132081445326f"
 }

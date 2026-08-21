@@ -1362,12 +1362,16 @@ any bound file changes.
   internally owned synthetic artifacts for `HOLD-01` through `HOLD-08` to the
   immutable task recipes, codec binary and exact output bytes. Its manifest
   hash is
-  `435a7b35f9e4f7d8071609100c38031a17058a3bc96950ed9e603dd78b0535ed`.
+  `4527aadaea84cf91a9499439dafd369a773ee01b97a49fe0ef9c68ce74fa63b6`.
+  The immutable V1 task fixture remains unchanged; a separately hashed V2R
+  correction overlay binds HOLD-03's full-screen return to `h03-a` source
+  frame 270. The corrected reference now contains six actual windows rather
+  than six being asserted over a five-window image.
   `HOLD-04` contains a synthetic tone and quiet interval, not intelligible
   speech. The media contract is research-only and supplies no provider,
   ProjectService or production authority. Exact scope and limitations are in
   `docs/editron/open-ended-editing/oe-v2r-sealed-holdout-media-foundation-2026-08-22.md`.
-- **The leakage-free sealed cohort has passed credentialed initial-request
+- **The reissued leakage-free sealed cohort passes local zero-inference
   preflight; provider inference dispatch is still zero.** Commit `f3ce50970`
   binds eight tasks,
   sixteen opaque cases, the same forty-operation planning context for every
@@ -1375,8 +1379,8 @@ any bound file changes.
   unavailable operations. Public packets exclude semantic condition names and
   all evaluator/expected-answer material. The local receipt made zero network,
   inference, project-read or project-mutation calls and has SHA-256
-  `69821f932e6baf6c5312d764ebdb836c232f842e7e3b018fcac621fea46b8773`.
-  Commit `dc341dfbe` then captured all 96 exact initial requests under paid
+  `97ae84e7ebea8840e4e1cd8b6dac384e67ca8549080b0227324132081445326f`.
+  Commit `dc341dfbe` previously captured all 96 exact initial requests under paid
   credentials: sixteen cases, three routes and two handoff modes. All 96
   request hashes are distinct; provider identities passed; bounded initial
   inputs span 67,364-81,464 tokens under an 85,000 research ceiling. The run
@@ -1385,8 +1389,10 @@ any bound file changes.
   `a7da12363bf0397a8e88c0d116fcc1ac0f6763eb28fbaddb388b9156d3d10eef`
   and capture-set hash
   `467e0163ec8485b83359d1e5e100e3dace2dc9e41b4b4677b49bd1fb504e2431`
-  verify `dispatchAuthorized=false`. This bounds initial requests only;
-  cumulative per-turn token/spend controls and real proof remain pending.
+  verify `dispatchAuthorized=false` for the superseded identity only. It is
+  historical evidence, not authorization for the reissued cohort. Credentialed
+  preflight must be rerun after CAP-2A/V3R current truth is frozen; cumulative
+  per-turn token/spend controls and real proof remain pending.
 - **The generic sealed-holdout episode, lossless selected-operation trace and
   hidden structural evaluator are `RESEARCH_PREPROOF_READY`; real execution and
   proof remain unwired.** Commit
@@ -1551,7 +1557,7 @@ any bound file changes.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. V3R4 is reproducibly landed and valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V3 was current before the repaired reframe owner changed a bound source. HREF-01 has one complete Gemini 3.6 native-video/audio observation and a blinded full-reference plus 180-frame dense-window review pack. All eight sealed holdouts have deterministic, rights-bound media inputs. Their leakage-free 16-case/40-operation local preflight passes, and the credentialed preflight verifies 96/96 distinct initial requests across three routes and two handoff modes with zero inference. The generic sealed episode now has owner-only evidence resolution, distinct clarification/policy outcomes, schema-derived direct/opaque handoff, a CAS-bound isolated operation-log owner, a zero-add/drop selected-operation trace and a hidden non-repairing structural evaluator. Budgeted V2R-3 adds fail-closed, case/route-bound node, candidate, per-turn/cumulative token and spend accounting; its route boundary now binds official prices, route identity, exact approval and Google counter egress while authorizing zero inference. HOLD-06/07/08 have a hash-bound research no-edit proof that refuses to claim ProjectService byte equality or render quality. HOLD-01 has a hash-bound rendered research-native splice proof over the model-selected source range, with decoded adjacent-frame geometry. HOLD-02 has a hash-bound rendered research-native bookend proof over its selected three-range sequence, including opaque writer-revision handoff and decoded open/process/close action. HOLD-04 binds the canonical cut owner to caption-state preservation and a rendered AV splice. HOLD-05 now binds its sole reframe owner to all-frame decoded source/output geometry and an explicit symbolic authored-layout proof. None claims ProjectService mutation. No sealed holdout has made an inference call through V2R-3. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. HREF-01 output review is pending and formal promotion requires a second independent qualified reviewer. HOLD-03 still needs generated/hybrid proof; CAP-2A must then be reissued against the stable bound owners and a complete zero-inference accounting-plus-proof episode must pass before provider dispatch. Then complete all eight sealed unseen holdouts, different dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. HOLD-01/HOLD-02/HOLD-04/HOLD-05 prove only bounded fixed-30-fps research proposals; the current clone is still not ProjectService execution. `READY_FOR_PROOF` is not a quality PASS. H04 uses synthetic tone audio and has no bound caption-pixel form; H05 has no audio stream or real logo pixels; DEV-03 does not contain intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. V3R4 is reproducibly landed and valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V3 was current before the repaired reframe owner changed a bound source. HREF-01 has one complete Gemini 3.6 native-video/audio observation and a blinded full-reference plus 180-frame dense-window review pack. All eight sealed holdouts have deterministic, rights-bound media inputs. Their reissued leakage-free 16-case/40-operation local preflight passes. The earlier credentialed preflight's 96/96 distinct initial-request captures are historical and do not authorize the reissued identity. The generic sealed episode now has owner-only evidence resolution, distinct clarification/policy outcomes, schema-derived direct/opaque handoff, a CAS-bound isolated operation-log owner, a zero-add/drop selected-operation trace and a hidden non-repairing structural evaluator. Budgeted V2R-3 adds fail-closed, case/route-bound node, candidate, per-turn/cumulative token and spend accounting; its route boundary now binds official prices, route identity, exact approval and Google counter egress while authorizing zero inference. HOLD-06/07/08 have a hash-bound research no-edit proof that refuses to claim ProjectService byte equality or render quality. HOLD-01 has a hash-bound rendered research-native splice proof over the model-selected source range, with decoded adjacent-frame geometry. HOLD-02 has a hash-bound rendered research-native bookend proof over its selected three-range sequence, including opaque writer-revision handoff and decoded open/process/close action. HOLD-04 binds the canonical cut owner to caption-state preservation and a rendered AV splice. HOLD-05 now binds its sole reframe owner to all-frame decoded source/output geometry and an explicit symbolic authored-layout proof. None claims ProjectService mutation. No sealed holdout has made an inference call through V2R-3. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. HREF-01 output review is pending and formal promotion requires a second independent qualified reviewer. HOLD-03 still needs generated/hybrid proof; CAP-2A must then be reissued against the stable bound owners and a complete zero-inference accounting-plus-proof episode must pass before provider dispatch. Then complete all eight sealed unseen holdouts, different dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. HOLD-01/HOLD-02/HOLD-04/HOLD-05 prove only bounded fixed-30-fps research proposals; the current clone is still not ProjectService execution. `READY_FOR_PROOF` is not a quality PASS. H04 uses synthetic tone audio and has no bound caption-pixel form; H05 has no audio stream or real logo pixels; DEV-03 does not contain intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -1990,8 +1996,12 @@ foundation and is no longer the active queue. The next three slices are:
    selected native source splice, and HOLD-02 has decoded open/process/close
    proof for its causally chained bookend proposal. HOLD-04 now binds the
    canonical range-cut owner to caption-state preservation and rendered AV
-   proof. HOLD-05 now has decoded full-range research-native proof. Next connect
-   generated/hybrid proof for HOLD-03, and pass a complete zero-inference
+   proof. HOLD-05 now has decoded full-range research-native proof. The sole
+   generated-composition API now supports bounded normalized panel geometry
+   and horizontal motion, and HOLD-03's reissued input identity is locally
+   preflighted; it still lacks executed/rendered hybrid proof. Next connect
+   that proof, reissue CAP-2A against the stable owners, create the new V3R
+   identity, and pass a complete zero-inference
    simulation while HREF-01 review remains pending; do not alter
    the historical DEV harness. HREF-01 is a separate reference-observation
    diagnostic and did not consume or replace `HOLD-01`. After the receipt and

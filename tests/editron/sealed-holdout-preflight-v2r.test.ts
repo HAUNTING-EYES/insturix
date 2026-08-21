@@ -51,6 +51,17 @@ describe('sealed holdout cohort V2R', () => {
     });
     expect((manifest.sharedModelContext.operatorCatalog as { operators: unknown[] }).operators)
       .toHaveLength(40);
+    const hold03 = manifest.cases.find(({ caseId }) => caseId === 'HOLD-03:C1');
+    const hold03Evidence = (hold03?.ownerOnly as { evidence?: Array<Record<string, unknown>> }).evidence ?? [];
+    expect(hold03Evidence.find(({ evidenceId }) => evidenceId === 'EV-H03-T1')).toMatchObject({
+      value: {
+        returnBinding: {
+          overlayId: 'ov-full', assetId: 'h03-a', coordinateDomain: 'SOURCE_FRAME',
+          sourceRange: [0, 420], sourceFrameAtReturn: 270, fit: 'cover', objectPosition: [0.5, 0.5],
+        },
+      },
+    });
+    expect(JSON.stringify(hold03?.publicCase)).not.toContain('returnBinding');
     for (const entry of manifest.cases) {
       const publicText = JSON.stringify(entry.publicCase);
       expect(publicText).not.toMatch(/BASELINE|WITHHELD|NOISY|REVISION-NOISY/);

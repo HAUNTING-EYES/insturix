@@ -5,8 +5,9 @@
 `HOLD-01` through `HOLD-08` now have deterministic, rights-bound synthetic
 media suitable for a zero-inference benchmark preflight. This is
 `INPUT_EVIDENCE_READY`, not provider execution, model success, rendered edit
-quality or production certification. The local cohort preflight and subsequent
-credentialed initial-request preflight now pass their bounded gates, and the
+quality or production certification. The reissued local cohort preflight passes
+its bounded gate. The earlier credentialed initial-request preflight belongs to
+the superseded identity and is retained only as historical evidence. The
 generic public-case episode shell, owner connector, lossless
 selected-operation trace and hidden structural
 evaluator are `RESEARCH_PREPROOF_READY`. Owner-only evidence resolution and
@@ -18,30 +19,30 @@ range-cut/state/AV claim for HOLD-04. Commit `0404a253f` repairs the sole
 HOLD-05 reframe owner with source-raster-bound cover geometry and explicit
 authored-layout projection. Commit `8d1afc89f` now binds the sealed selected
 operation and decodes the complete source and rendered 450-frame range.
-Generated/hybrid HOLD-03 remains unwired.
-The credentialed initial-request
-preflight is
-`PASS_INITIAL_REQUESTS_BOUNDED_PROOF_AND_RUNTIME_GUARDS_PENDING`; provider
+Generated/hybrid HOLD-03 proof remains unwired. The sole generated-composition
+API now supports validated normalized panel bounds and horizontal motion, and
+the corrected reference actually contains six windows, but this is API/input
+readiness rather than executed or rendered HOLD-03 proof.
+Credentialed preflight must be rerun after the CAP-2A/V3R reissue; provider
 inference dispatch remains disabled.
 
 ## Bound identity
 
-- Implementation commit: `79f5caf839f89d786f8c563f11732f1a65c339d8`
-- Contract: `EDITRON_OE_HOLDOUT_MEDIA_MANIFEST_V2R`, version `2.2.0-r1`
+- Reissue source commits: `f16b01543`, `4abcbab4c`
+- Contract: `EDITRON_OE_HOLDOUT_MEDIA_MANIFEST_V2R`, version `2.3.0-r2`
 - Scope: exactly eight sealed holdout tasks and twelve artifacts
 - Manifest SHA-256:
-  `435a7b35f9e4f7d8071609100c38031a17058a3bc96950ed9e603dd78b0535ed`
+  `4527aadaea84cf91a9499439dafd369a773ee01b97a49fe0ef9c68ce74fa63b6`
 - FFmpeg binary SHA-256:
   `c8abc49e7be62dde8e12972af373959e0076a7b8dc8040eb45978e0608f8781e`
 - Frozen identity:
   `tests/fixtures/editron/open-ended-planner-v2/holdout-media-identity-v2r.json`
 - Current authoritative local materialization:
-  `.calibration-temp/open-ended-planner-v2/holdout-media-v2r-r2-20260822`
+  `.calibration-temp/open-ended-planner-v2/holdout-media-v2r-r4-20260822`
 
-The earlier local directory
-`.calibration-temp/open-ended-planner-v2/holdout-media-v2r-20260822` is
-superseded. It is retained rather than destructively removed and must not be
-selected by the benchmark.
+Earlier `holdout-media-v2r-*` local directories are superseded. They are
+retained rather than destructively removed and must not be selected by the
+benchmark.
 
 ## What the fixture proves
 
@@ -51,6 +52,12 @@ selected by the benchmark.
   or project authority are denied.
 - Artifact identity is independent of the local output path and binds exact
   bytes, recipe, generator sources and codec toolchain.
+- The immutable V1 task file remains byte-identical. Current HOLD-03 timeline
+  continuity evidence is applied through the separately hashed
+  `holdout-task-corrections-v2r.json`; the resolved value remains owner-only.
+- `h03-ref` has six independently coloured window regions. HOLD-03 continuity
+  binds `ov-full` to `h03-a` source frame 270 instead of inferring a source from
+  an overlay name.
 - `HOLD-04` carries embedded synthetic tone audio with an authored quiet
   interval. It can exercise temporal audio preservation mechanics. It is not
   intelligible dialogue and cannot prove speech intelligibility or caption
@@ -77,15 +84,15 @@ The local preflight made zero network calls, inference calls, project reads or
 project mutations and kept `dispatchAuthorized=false`.
 
 - Cohort contract SHA-256:
-  `1b830040ea2b1b6ea3fb6c880fed4864e6da0b879e9e0a8960572e26fa309150`
+  `c5bde2e5b1a9b004ec49a9d47b4a020bd160d657cd2d73f28b25be2314ba92c6`
 - Preflight contract SHA-256:
   `5d20adbd709a91b3989cbd87394a0a122e97317cc422c0e731af964dfc22da15`
 - Cohort manifest SHA-256:
-  `abdcafe133cbff5f4e9b8325e665636d6d553a6fd966b0170e37bbd97cc5cdbb`
+  `65e00a28e68a4f2d3c2eb8b4b9a89aed2ca9c9e08d1813d56d512b9d2dd236be`
 - Shared model context SHA-256:
   `f501f0e3bb7c4bee3bc4e3dd1c418adc9cd5ff933439baf81386009c3a205338`
 - Local preflight receipt SHA-256:
-  `69821f932e6baf6c5312d764ebdb836c232f842e7e3b018fcac621fea46b8773`
+  `97ae84e7ebea8840e4e1cd8b6dac384e67ca8549080b0227324132081445326f`
 
 ## Generic public-case episode shell
 
@@ -218,12 +225,16 @@ is synthetic tone, so speech intelligibility is also `NOT_CLAIMED`. Real
 ProjectService mutation, save/reload, undo, product-renderer parity, mixed-rate
 handling and real-dialogue quality remain unproved.
 
-## Credentialed zero-inference request preflight
+## Historical credentialed zero-inference request preflight
 
-Commit `dc341dfbe` captures the exact initial provider requests without making
+Commit `dc341dfbe` captured the exact initial provider requests without making
 an inference call. It used the paid Vercel Production Google credential and a
 local OpenAI credential only in process memory; no credential value or
 temporary credential file was retained.
+
+This receipt binds the superseded cohort/media identity shown below. It must
+not authorize the reissued cohort and must be rerun after CAP-2A/V3R current
+truth is frozen.
 
 - 16 opaque cases x 3 routes x 2 handoff modes = 96 captures;
 - all 96 request hashes are distinct and bind the same complete 40-operation
@@ -294,7 +305,9 @@ cumulative provider spend, model output, real execution or rendered proof.
    changed-byte negatives fail closed.
    The live chat caller supplies no canonical authored-layout evidence and its
    whole-project save/audit path is not ProjectService receipt proof.
-   Generated/hybrid HOLD-03 remains unproved.
+   Generated/hybrid HOLD-03 remains unproved. Its reference/evidence inputs and
+   generalized composition API are now truthful, so the next slice can test
+   the real bounded generated island and native continuity handoff.
 3. Run the combined zero-inference complete-episode budget/proof simulation
    and keep dispatch disabled unless both the V2R-3 resource receipt and the
    selected proof adapters pass without an unresolved reservation or usage

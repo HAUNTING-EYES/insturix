@@ -35,6 +35,18 @@ describe('sealed holdout media materializer V2R', () => {
     expect(() => renderHoldoutFrameV2R('h01-clock', 1, 160, 90, 1)).toThrow('HOLDOUT_VISUAL_COORDINATES_INVALID');
   });
 
+  it('renders HOLD-03 as six distinct windows instead of trusting the authored label', () => {
+    const frame = renderHoldoutFrameV2R('h03-ref', 0, 360, 640, 420);
+    const windowColors = new Set<string>();
+    for (let offset = 0; offset < frame.length; offset += 3) {
+      const color = `${frame[offset]},${frame[offset + 1]},${frame[offset + 2]}`;
+      if (color !== '0,0,0' && color !== '252,218,45') windowColors.add(color);
+    }
+    expect([...windowColors].sort()).toEqual([
+      '119,67,96', '119,84,54', '51,77,105', '52,106,91', '59,85,121', '67,74,119',
+    ]);
+  });
+
   it('creates a deterministic non-silent transcript-tone WAV with the authored pause', () => {
     const wav = synthesizeHoldout04AudioV2R();
     expect(wav.subarray(0, 4).toString('ascii')).toBe('RIFF');
@@ -60,7 +72,7 @@ describe('sealed holdout media materializer V2R', () => {
     const manifest = await materializeHoldoutMediaV2R(output);
     expect(manifest).toMatchObject({
       schemaVersion: 'EDITRON_OE_HOLDOUT_MEDIA_MANIFEST_V2R',
-      version: '2.2.0-r1',
+      version: '2.3.0-r2',
       scope: 'EIGHT_SEALED_HOLDOUTS_ONLY',
       authority: 'RESEARCH_ONLY_NO_PROVIDER_OR_PROJECT_AUTHORITY',
       networkPolicy: 'DENY',
@@ -82,6 +94,8 @@ describe('sealed holdout media materializer V2R', () => {
     expect(manifest.manifestSha256).toBe(identityJson.manifestSha256);
     expect(manifest.toolchain.ffmpegBinarySha256).toBe(identityJson.ffmpegBinarySha256);
     expect(manifest.sourceBindings).toEqual(identityJson.sourceBindings);
+    expect(manifest.sourceBindings.map(({ path: sourcePath }) => sourcePath))
+      .toContain('tests/fixtures/editron/open-ended-planner-v2/holdout-task-corrections-v2r.json');
     expect(Object.fromEntries(manifest.artifacts.map(({ assetId, artifactSha256 }) =>
       [assetId, artifactSha256]))).toEqual(identityJson.artifactSha256ById);
     const persisted = JSON.parse(await readFile(path.join(output, 'manifest.json'), 'utf8'));
