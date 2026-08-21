@@ -18,22 +18,42 @@ import {
   type ShootKitSettings,
 } from '@/lib/thinkforge/production/shoot-kit-snapshot';
 import {
+  CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY,
+  CaptureAcquisitionDecisionInputsSchema,
+  createCaptureAcquisitionDecisionSet,
+} from '@/lib/thinkforge/production/capture-acquisition-decisions';
+import {
   requireCurrentPersistedScriptSidecar,
   ThinkForgeScriptSidecarAuthorityError,
   type AuthoritativePersistedScriptSidecar,
 } from '@/lib/thinkforge/persistence/script-sidecar-reader';
+import { parseVideoTreatment } from '@/lib/thinkforge/schemas/video-treatment';
 import * as db from '@/lib/thinkforge/services/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const SaveShotPlanRequestSchema = z.object({
+const ProductionDocumentRequestSchema = z.object({
   sessionId: z.string().trim().min(1),
   scriptId: z.string().trim().min(1),
   expectedDocumentVersion: z.number().int().positive(),
+});
+
+const SaveShotPlanRequestSchema = ProductionDocumentRequestSchema.extend({
+  action: z.literal('save-shot-plan').optional(),
   profile: ProductionCapabilityProfileSchema,
   settings: ShootKitSettingsSchema,
 }).strict();
+
+const SaveCaptureAcquisitionRequestSchema = ProductionDocumentRequestSchema.extend({
+  action: z.literal('save-capture-acquisition'),
+  decisions: CaptureAcquisitionDecisionInputsSchema,
+}).strict();
+
+const ProductionShotPlanRequestSchema = z.union([
+  SaveCaptureAcquisitionRequestSchema,
+  SaveShotPlanRequestSchema,
+]);
 
 function recordOf(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -98,6 +118,25 @@ function videoTreatmentFromMetadata(metadata: Record<string, unknown>): unknown 
   return writerOutput.videoTreatment;
 }
 
+function sourceDocumentFromAuthority(
+  authority: AuthoritativePersistedScriptSidecar,
+  version: number,
+) {
+  return {
+    version,
+    contentHash: authority.binding.documentHash,
+    sidecarHash: authority.binding.sidecarHash,
+  };
+}
+
+function captureAcquisitionDecisionsFromMetadata(
+  metadata: Record<string, unknown>,
+): unknown | undefined {
+  return Object.prototype.hasOwnProperty.call(metadata, CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY)
+    ? metadata[CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY]
+    : undefined;
+}
+
 function buildPlanPayload(input: {
   authority: AuthoritativePersistedScriptSidecar;
   profile: ProductionCapabilityProfile | null;
@@ -106,6 +145,8 @@ function buildPlanPayload(input: {
   approvalReason: string;
   chapterPlan?: unknown;
   videoTreatment?: unknown;
+  acquisitionDecisions?: unknown;
+  acquisitionDecisionSourceDocument?: unknown;
 }) {
   const result = buildScriptShotPlan({
     sidecar: input.authority.rawSidecar,
@@ -114,6 +155,8 @@ function buildPlanPayload(input: {
     aspectRatio: input.settings?.aspectRatio,
     tier: input.settings?.tier,
     chapterPlan: input.chapterPlan,
+    acquisitionDecisions: input.acquisitionDecisions,
+    acquisitionDecisionSourceDocument: input.acquisitionDecisionSourceDocument,
   });
   return {
     ...result,
@@ -219,6 +262,11 @@ export async function GET(request: Request) {
         approvalReason,
         chapterPlan: longFormChapterPlanFromMetadata(metadata),
         videoTreatment: videoTreatmentFromMetadata(metadata),
+        acquisitionDecisions: captureAcquisitionDecisionsFromMetadata(metadata),
+        acquisitionDecisionSourceDocument: sourceDocumentFromAuthority(
+          sidecarResolution.authority,
+          currentDocumentVersion,
+        ),
       });
       return payload.status === 'capture-projection'
         ? NextResponse.json(payload)
@@ -276,6 +324,11 @@ export async function GET(request: Request) {
       documentVersion: currentDocumentVersion,
       approvalReason,
       chapterPlan: longFormChapterPlanFromMetadata(metadata),
+      acquisitionDecisions: captureAcquisitionDecisionsFromMetadata(metadata),
+      acquisitionDecisionSourceDocument: sourceDocumentFromAuthority(
+        sidecarResolution.authority,
+        currentDocumentVersion,
+      ),
     }));
   } catch (error) {
     return NextResponse.json({
@@ -295,7 +348,7 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
-  const parsed = SaveShotPlanRequestSchema.safeParse(input);
+  const parsed = ProductionShotPlanRequestSchema.safeParse(input);
   if (!parsed.success) {
     return NextResponse.json({
       error: 'Invalid production request',
@@ -303,7 +356,7 @@ export async function POST(request: Request) {
     }, { status: 400 });
   }
 
-  const { sessionId, scriptId, expectedDocumentVersion, profile, settings } = parsed.data;
+  const { sessionId, scriptId, expectedDocumentVersion } = parsed.data;
   const session = await db.getSession(sessionId, userId, orgId);
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   const canonicalSessionId = String(session._id);
@@ -320,6 +373,77 @@ export async function POST(request: Request) {
 
   const sidecarResolution = resolveSidecarAuthority(script);
   const metadata = recordOf(script.metadata) ?? {};
+  if (parsed.data.action === 'save-capture-acquisition') {
+    if (sidecarResolution.issue) {
+      return NextResponse.json({
+        error: sidecarResolution.issue.message,
+        reason: sidecarResolution.issue.code,
+        details: [sidecarResolution.issue],
+      }, { status: 422 });
+    }
+    if (sidecarResolution.authority.readResult.sourceVersion !== 3) {
+      return NextResponse.json({
+        error: 'Capture acquisition choices are available only for semantic V3 video scripts.',
+        reason: 'capture_acquisition_requires_v3_sidecar',
+      }, { status: 422 });
+    }
+
+    try {
+      const treatment = parseVideoTreatment(videoTreatmentFromMetadata(metadata));
+      const sourceDocument = sourceDocumentFromAuthority(
+        sidecarResolution.authority,
+        currentDocumentVersion,
+      );
+      const decisionSet = createCaptureAcquisitionDecisionSet({
+        treatment,
+        sourceDocument,
+        decisions: parsed.data.decisions,
+        decidedBy: userId,
+      });
+      const saved = await db.saveCaptureAcquisitionDecisionSet({
+        sessionId: canonicalSessionId,
+        scriptId,
+        expectedVersion: currentDocumentVersion,
+        expectedContent: script.content,
+        expectedSidecarHash: sidecarResolution.authority.binding.sidecarHash,
+        decisionSet,
+      });
+      if (!saved.ok) {
+        return NextResponse.json({
+          error: 'The script or its production contract changed before the acquisition choice could be saved.',
+          reason: 'document-version-conflict',
+          currentVersion: saved.currentVersion,
+        }, { status: 409 });
+      }
+
+      const projectMeta = recordOf(session.projectMeta) ?? {};
+      const profileResult = ProductionCapabilityProfileSchema.safeParse(
+        projectMeta.productionCapabilityProfile,
+      );
+      const settingsResult = ShootKitSettingsSchema.safeParse(projectMeta.productionShotSettings);
+      const payload = buildPlanPayload({
+        authority: sidecarResolution.authority,
+        profile: profileResult.success ? profileResult.data : null,
+        settings: settingsResult.success ? settingsResult.data : null,
+        documentVersion: currentDocumentVersion,
+        approvalReason: 'capture_acquisition_updated',
+        chapterPlan: longFormChapterPlanFromMetadata(metadata),
+        videoTreatment: treatment,
+        acquisitionDecisions: decisionSet,
+        acquisitionDecisionSourceDocument: sourceDocument,
+      });
+      return payload.status === 'capture-projection'
+        ? NextResponse.json(payload)
+        : semanticContractError(payload);
+    } catch (error) {
+      return NextResponse.json({
+        error: 'Invalid capture acquisition decision',
+        details: error instanceof Error ? error.message : String(error),
+      }, { status: 422 });
+    }
+  }
+
+  const { profile, settings } = parsed.data;
   if (sidecarResolution.issue) {
     await db.setSessionProductionConfiguration(canonicalSessionId, {
       capabilityProfile: profile,
@@ -346,6 +470,11 @@ export async function POST(request: Request) {
         approvalReason: 'not_approved',
         chapterPlan: longFormChapterPlanFromMetadata(metadata),
         videoTreatment: videoTreatmentFromMetadata(metadata),
+        acquisitionDecisions: captureAcquisitionDecisionsFromMetadata(metadata),
+        acquisitionDecisionSourceDocument: sourceDocumentFromAuthority(
+          sidecarResolution.authority,
+          currentDocumentVersion,
+        ),
       });
       if (payload.status !== 'capture-projection') {
         return semanticContractError(payload);
@@ -408,6 +537,11 @@ export async function POST(request: Request) {
       documentVersion: currentDocumentVersion,
       approvalReason: 'not_approved',
       chapterPlan: longFormChapterPlanFromMetadata(metadata),
+      acquisitionDecisions: captureAcquisitionDecisionsFromMetadata(metadata),
+      acquisitionDecisionSourceDocument: sourceDocumentFromAuthority(
+        sidecarResolution.authority,
+        currentDocumentVersion,
+      ),
     });
     if (payload.status !== 'ready') {
       await db.setSessionProductionConfiguration(canonicalSessionId, {

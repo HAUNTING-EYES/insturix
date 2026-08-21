@@ -22,6 +22,7 @@ import {
   resolveLongFormChapterSceneOwnership,
   type LongFormChapterSceneOwnership,
 } from '../long-form/chapter-scene-ownership';
+import { CaptureAcquisitionDecisionError } from './capture-acquisition-decisions';
 
 export const SHOOT_KIT_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:5'] as const;
 export type ShootKitAspectRatio = typeof SHOOT_KIT_ASPECT_RATIOS[number];
@@ -49,6 +50,10 @@ export interface BuildScriptShotPlanInput {
   tier?: ShotPlan['tier'];
   /** Server-owned long-form plan persisted with the bound writer output. */
   chapterPlan?: unknown;
+  /** User-confirmed acquisition choices bound to this exact document and treatment. */
+  acquisitionDecisions?: unknown;
+  /** Exact source document identity required to verify acquisition choices. */
+  acquisitionDecisionSourceDocument?: unknown;
 }
 
 type ScriptSidecarV2 = Extract<ScriptSidecarReadResult, { sourceVersion: 1 | 2 }>['sidecar'];
@@ -342,6 +347,8 @@ function buildV3CaptureProjection(
         treatment: input.videoTreatment,
         profile: input.profile,
         chapterPlan: input.chapterPlan,
+        acquisitionDecisions: input.acquisitionDecisions,
+        acquisitionDecisionSourceDocument: input.acquisitionDecisionSourceDocument,
       }),
       issues: [],
     };
@@ -351,6 +358,17 @@ function buildV3CaptureProjection(
         status: 'needs-user-input',
         plan: null,
         issues: [longFormChapterPlanIssue(error)],
+      };
+    }
+    if (error instanceof CaptureAcquisitionDecisionError) {
+      return {
+        status: 'needs-user-input',
+        plan: null,
+        issues: [{
+          code: `capture_acquisition_${error.code}`,
+          message: error.message,
+          questions: ['Review and save the capture acquisition choice for this script.'],
+        }],
       };
     }
     return {

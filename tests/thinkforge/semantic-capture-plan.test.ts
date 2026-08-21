@@ -310,6 +310,29 @@ describe('semantic V3 capture projection', () => {
     })).toThrow(/no longer match this script content/);
   });
 
+  it('surfaces a copied acquisition decision as a named Shoot Kit issue', () => {
+    const treatment = structuredClone(productDemonstrationTreatment);
+    const sourceDocument = acquisitionSourceDocument();
+    const acquisitionDecisions = createCaptureAcquisitionDecisionSet({
+      treatment,
+      sourceDocument,
+      decisions: [{ requirementId: 'capture_real_workflow', acquisitionKind: 'screen-recording', requiredCapabilities: [] }],
+      decidedBy: 'user_1',
+      decidedAt: new Date('2026-08-22T00:00:00.000Z'),
+    });
+
+    expect(buildScriptShotPlan({
+      sidecar: sidecarFor(treatment, ['event_workflow_proof']),
+      videoTreatment: treatment,
+      acquisitionDecisions,
+      acquisitionDecisionSourceDocument: { ...sourceDocument, contentHash: 'e'.repeat(64) },
+    })).toMatchObject({
+      status: 'needs-user-input',
+      plan: null,
+      issues: [expect.objectContaining({ code: 'capture_acquisition_document_hash_mismatch' })],
+    });
+  });
+
   it('fails closed when a saved V3 sidecar no longer matches the treatment it claims to use', () => {
     const sidecar = sidecarFor(unknownSetupTreatment, ['event_unmeasured_host']);
     sidecar.treatment.inputFingerprint = 'tampered_fingerprint';

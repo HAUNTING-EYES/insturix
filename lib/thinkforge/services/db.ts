@@ -81,6 +81,12 @@ import {
   resolveThinkForgeDocumentWriteClassification,
 } from '../persistence/document-authority';
 import { readPersistedScriptSidecar } from '../persistence/script-sidecar-reader';
+import {
+  CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY,
+} from '../production/capture-acquisition-decisions';
+import {
+  APPROVED_SHOOT_KIT_SNAPSHOT_METADATA_KEY,
+} from '../production/shoot-kit-snapshot';
 
 // ==================== ThinkForge Database Connection ====================
 // Production uses the dedicated 'thinkforge_db' database. The explicit override is
@@ -1832,12 +1838,31 @@ type SaveApprovedShootKitSnapshotResult =
   | { ok: true; script: Script }
   | { ok: false; error: 'Document conflict'; currentVersion: number };
 
-function clonePersistableScriptMetadata(metadata: NonNullable<Script['metadata']>): Script['metadata'] {
+type SaveCaptureAcquisitionDecisionSetResult =
+  | { ok: true; script: Script }
+  | { ok: false; error: 'Document conflict'; currentVersion: number };
+
+function clonePersistableScriptMetadata(
+  metadata: NonNullable<Script['metadata']>,
+): NonNullable<Script['metadata']> {
   const serialized = JSON.stringify(metadata);
   if (serialized === undefined) {
     throw new Error('ThinkForge document metadata must be JSON-serializable');
   }
-  return JSON.parse(serialized) as Script['metadata'];
+  return JSON.parse(serialized) as NonNullable<Script['metadata']>;
+}
+
+/**
+ * These artifacts are valid only for one exact document/sidecar binding. A
+ * normal document write must never carry them into the next document version.
+ */
+function metadataForDocumentWrite(
+  metadata: NonNullable<Script['metadata']> | undefined,
+): NonNullable<Script['metadata']> {
+  const cloned = clonePersistableScriptMetadata(metadata ?? {});
+  delete cloned[CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY];
+  delete cloned[APPROVED_SHOOT_KIT_SNAPSHOT_METADATA_KEY];
+  return cloned;
 }
 
 export async function saveApprovedShootKitSnapshot(input: {
@@ -1877,6 +1902,74 @@ export async function saveApprovedShootKitSnapshot(input: {
       $set: {
         'metadata.approvedShootKitSnapshot': snapshot,
         updatedAt: new Date(),
+      },
+    },
+    { new: true, lean: true },
+  ) as any;
+
+  if (updated) return { ok: true, script: mapStoredScript(updated) };
+  const latest = await ScriptModel.findOne({
+    sessionId: exactSessionId,
+    scriptId: exactScriptId,
+    recordStatus: 'active',
+  }).lean() as any;
+  return {
+    ok: false,
+    error: 'Document conflict',
+    currentVersion: typeof latest?.version === 'number' ? latest.version : 0,
+  };
+}
+
+/**
+ * Persists a user-confirmed acquisition decision only while the exact source
+ * document and sidecar are still current. A changed decision invalidates an
+ * earlier approved Shoot Kit snapshot without changing document content.
+ */
+export async function saveCaptureAcquisitionDecisionSet(input: {
+  sessionId: string;
+  scriptId: string;
+  expectedVersion: number;
+  expectedContent: string;
+  expectedSidecarHash: string;
+  decisionSet: unknown;
+}): Promise<SaveCaptureAcquisitionDecisionSetResult> {
+  const exactSessionId = input.sessionId.trim();
+  const exactScriptId = input.scriptId.trim();
+  if (!exactSessionId || exactSessionId !== input.sessionId) {
+    throw new Error('ThinkForge session ID must be a non-empty trimmed string');
+  }
+  if (!exactScriptId || exactScriptId !== input.scriptId) {
+    throw new Error('ThinkForge document ID must be a non-empty trimmed string');
+  }
+  if (!Number.isInteger(input.expectedVersion) || input.expectedVersion <= 0) {
+    throw new Error('Capture acquisition source document version must be a positive integer');
+  }
+  if (typeof input.expectedContent !== 'string') {
+    throw new Error('Capture acquisition source document content must be a string');
+  }
+  if (!/^[a-f0-9]{64}$/u.test(input.expectedSidecarHash)) {
+    throw new Error('Capture acquisition source sidecar hash must be a SHA-256 digest');
+  }
+  const persistedDecisionSet: unknown = clonePersistableScriptMetadata({
+    decisionSet: input.decisionSet,
+  }).decisionSet;
+  const { ScriptModel } = await getModels();
+  const updated = await ScriptModel.findOneAndUpdate(
+    {
+      sessionId: exactSessionId,
+      scriptId: exactScriptId,
+      recordStatus: 'active',
+      version: input.expectedVersion,
+      content: input.expectedContent,
+      'metadata.writerOutput.sidecarBinding.sidecarHash': input.expectedSidecarHash,
+    },
+    {
+      $set: {
+        [`metadata.${CAPTURE_ACQUISITION_DECISIONS_METADATA_KEY}`]: persistedDecisionSet,
+        updatedAt: new Date(),
+      },
+      $unset: {
+        [`metadata.${APPROVED_SHOOT_KIT_SNAPSHOT_METADATA_KEY}`]: '',
       },
     },
     { new: true, lean: true },
@@ -1967,7 +2060,7 @@ export async function saveScriptWithVersion(
         };
         if (script.richText !== undefined) doc.richText = script.richText;
         if (script.metadata !== undefined) {
-          doc.metadata = clonePersistableScriptMetadata(script.metadata);
+          doc.metadata = metadataForDocumentWrite(script.metadata);
         }
         const created = mongoSession
           ? (await ScriptModel.create([doc], { session: mongoSession }))[0]
@@ -1987,9 +2080,9 @@ export async function saveScriptWithVersion(
           updatedAt: now,
         };
         if (script.richText !== undefined) updateDoc.richText = script.richText;
-        if (script.metadata !== undefined) {
-          updateDoc.metadata = clonePersistableScriptMetadata(script.metadata);
-        }
+        updateDoc.metadata = metadataForDocumentWrite(
+          script.metadata ?? existing.metadata,
+        );
         let updateQuery = ScriptModel.findOneAndUpdate(
           { _id: existing._id, version: baseVersion, recordStatus: 'active' },
           { $set: updateDoc },
