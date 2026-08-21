@@ -10,6 +10,7 @@ import {
   CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3,
   CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V3,
   CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3,
+  assertCap2CurrentTruthSourcesMatchV3,
   hashNormalizedCap2FileV3,
   hashNormalizedCap2SourceSnapshotV3,
   parseCap2CurrentTruthReissueAuditV3,
@@ -51,14 +52,16 @@ describe('CAP-2A frozen current-truth manifest v1', () => {
     })));
   });
 
-  it('keeps the 222-file raw v1 record immutable and binds the 221-file current view separately', () => {
+  it('keeps the raw v1 and V3 observations immutable while detecting later source drift', () => {
     const inventory = parseCap2SourceSurfaceInventoryV1(inventoryJson);
     expect(inventory.sourceBinding.sourceSnapshotPaths).toHaveLength(222);
     expect(inventory.sourceBinding.sourceSnapshotHash)
       .toBe('a453fec27ef72e9497fa15ba8b9419023619e0f45e50ad9b674825ac5c84d95a');
     expect(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3).toHaveLength(221);
     expect(hashNormalizedCap2SourceSnapshotV3(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3))
-      .toBe(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.sourceBinding.normalizedSourceSnapshotHash);
+      .not.toBe(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.sourceBinding.normalizedSourceSnapshotHash);
+    expect(() => assertCap2CurrentTruthSourcesMatchV3())
+      .toThrow(/current source snapshot drift/);
   });
 
   it('reconciles all 11 overlapping source rows without summing them as tools', () => {

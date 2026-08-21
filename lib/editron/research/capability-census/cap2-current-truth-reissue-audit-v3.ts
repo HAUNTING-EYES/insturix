@@ -329,35 +329,43 @@ export function parseCap2CurrentTruthReissueAuditV3(
   return parsed;
 }
 
-if (CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V2.manifestHash !== PRIOR_AUDIT_MANIFEST_HASH_V2) {
-  throw new Error('CAP-2 v2 changed beneath the v3 reissue audit.');
-}
-if (CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3.length !== 221
-  || CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V3.length !== 11
-  || CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V3.reduce(
-    (total, observation) => total + observation.observedCount,
-    0,
-  ) !== 475) {
-  throw new Error('CAP-2 v3 current source coverage drift.');
-}
-if (hashNormalizedCap2SourceSnapshotV3(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3)
-  !== CURRENT_NORMALIZED_SOURCE_SNAPSHOT_HASH_V3) {
-  throw new Error('CAP-2 v3 current source snapshot drift.');
-}
-for (const binding of expectedDomainBindings) {
-  const actual = hashNormalizedCap2SourceSnapshotV3(
-    getCap2CurrentTruthDomainEvidencePathsV3(binding.domain),
-  );
-  if (actual !== binding.normalizedEvidenceHash) {
-    throw new Error(`CAP-2 v3 ${binding.domain} evidence drift.`);
+/**
+ * Validates that today's mutable source tree still matches the immutable V3
+ * observation. Historical consumers may parse V3 without making that claim;
+ * current-truth consumers must call this guard explicitly.
+ */
+export function assertCap2CurrentTruthSourcesMatchV3(): void {
+  if (CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3.length !== 221
+    || CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V3.length !== 11
+    || CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V3.reduce(
+      (total, observation) => total + observation.observedCount,
+      0,
+    ) !== 475) {
+    throw new Error('CAP-2 v3 current source coverage drift.');
   }
-}
-for (const delta of semanticDeltasSinceV2) {
-  for (const evidence of delta.evidence) {
-    if (hashNormalizedCap2FileV3(evidence.path) !== evidence.normalizedSha256) {
-      throw new Error(`CAP-2 v3 semantic evidence drift: ${evidence.path}.`);
+  if (hashNormalizedCap2SourceSnapshotV3(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3)
+    !== CURRENT_NORMALIZED_SOURCE_SNAPSHOT_HASH_V3) {
+    throw new Error('CAP-2 v3 current source snapshot drift.');
+  }
+  for (const binding of expectedDomainBindings) {
+    const actual = hashNormalizedCap2SourceSnapshotV3(
+      getCap2CurrentTruthDomainEvidencePathsV3(binding.domain),
+    );
+    if (actual !== binding.normalizedEvidenceHash) {
+      throw new Error(`CAP-2 v3 ${binding.domain} evidence drift.`);
     }
   }
+  for (const delta of semanticDeltasSinceV2) {
+    for (const evidence of delta.evidence) {
+      if (hashNormalizedCap2FileV3(evidence.path) !== evidence.normalizedSha256) {
+        throw new Error(`CAP-2 v3 semantic evidence drift: ${evidence.path}.`);
+      }
+    }
+  }
+}
+
+if (CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V2.manifestHash !== PRIOR_AUDIT_MANIFEST_HASH_V2) {
+  throw new Error('CAP-2 v2 changed beneath the v3 reissue audit.');
 }
 
 const auditMaterial = {
