@@ -124,6 +124,15 @@ function buildPlanPayload(input: {
   };
 }
 
+function semanticContractError(payload: ReturnType<typeof buildPlanPayload>) {
+  const issue = payload.issues[0];
+  return NextResponse.json({
+    error: issue?.message ?? 'This script is missing the semantic treatment required for its Shoot Kit.',
+    reason: issue?.code ?? 'semantic_capture_contract_unavailable',
+    details: payload.issues,
+  }, { status: 422 });
+}
+
 export async function GET(request: Request) {
   const { userId, orgId } = await auth();
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -202,7 +211,7 @@ export async function GET(request: Request) {
   const settingsResult = ShootKitSettingsSchema.safeParse(projectMeta.productionShotSettings);
   if (sidecarResolution.authority?.readResult.sourceVersion === 3) {
     try {
-      return NextResponse.json(buildPlanPayload({
+      const payload = buildPlanPayload({
         authority: sidecarResolution.authority,
         profile: profileResult.success ? profileResult.data : null,
         settings: settingsResult.success ? settingsResult.data : null,
@@ -210,7 +219,10 @@ export async function GET(request: Request) {
         approvalReason,
         chapterPlan: longFormChapterPlanFromMetadata(metadata),
         videoTreatment: videoTreatmentFromMetadata(metadata),
-      }));
+      });
+      return payload.status === 'capture-projection'
+        ? NextResponse.json(payload)
+        : semanticContractError(payload);
     } catch (error) {
       return NextResponse.json({
         error: 'Invalid production contract',
@@ -335,14 +347,14 @@ export async function POST(request: Request) {
         chapterPlan: longFormChapterPlanFromMetadata(metadata),
         videoTreatment: videoTreatmentFromMetadata(metadata),
       });
-      await db.setSessionProductionConfiguration(canonicalSessionId, {
-        capabilityProfile: profile,
-        shotSettings: settings,
-      });
       if (payload.status !== 'capture-projection') {
-        return NextResponse.json(payload);
+        return semanticContractError(payload);
       }
       if (payload.capturePlan.status !== 'capture-brief-ready') {
+        await db.setSessionProductionConfiguration(canonicalSessionId, {
+          capabilityProfile: profile,
+          shotSettings: settings,
+        });
         return NextResponse.json(payload);
       }
 
@@ -374,6 +386,10 @@ export async function POST(request: Request) {
           currentVersion: saved.currentVersion,
         }, { status: 409 });
       }
+      await db.setSessionProductionConfiguration(canonicalSessionId, {
+        capabilityProfile: profile,
+        shotSettings: settings,
+      });
       return NextResponse.json({
         ...payload,
         approval: {

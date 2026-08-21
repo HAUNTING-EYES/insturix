@@ -3,10 +3,9 @@
 /**
  * ShootKitDialog — the Shoot Kit entry surface.
  *
- * Owns ONLY the network round-trips and view routing. All planning, geometry, cost,
- * and optimization come from the deterministic backend at
- * /api/services/thinkforge/production/shot-plan. The dialog edits capability inputs
- * (via ShootKitProfileForm) and displays the returned ShotPlan (via ShootKitResult).
+ * Owns ONLY the network round-trips and view routing. The backend returns either a
+ * legacy physical ShotPlan or a semantic V3 capture brief. This dialog edits only
+ * explicit capability inputs and never infers camera geometry or creative form.
  *
  * Robustness: every request is abortable and aborted on close / session / script
  * change; the last valid server response is preserved while refreshing; submits are
@@ -30,9 +29,11 @@ import {
 } from "@/components/ui/dialog";
 import type { ProductionCapabilityProfile } from "@/lib/thinkforge/production/production-capability-profile";
 import type { ScriptShotPlanIssue } from "@/lib/thinkforge/production/build-script-shot-plan";
+import type { TreatmentCapturePlan } from "@/lib/thinkforge/production/semantic-capture-plan";
 import type { ShotPlan } from "@/lib/thinkforge/production/shot-plan";
 import { ShootKitProfileForm, type ShootKitSettings } from "./ShootKitProfileForm";
 import { ShootKitResult } from "./ShootKitResult";
+import { TreatmentCapturePlanResult } from "./TreatmentCapturePlanResult";
 
 const ENDPOINT = "/api/services/thinkforge/production/shot-plan";
 
@@ -40,6 +41,7 @@ type ShotPlanResponse = (
   | { status: "needs-profile"; profile: null; settings: ShootKitSettings | null; plan: null; issues: [] }
   | { status: "needs-user-input"; profile: ProductionCapabilityProfile | null; settings: ShootKitSettings | null; plan: null; issues: ScriptShotPlanIssue[] }
   | { status: "ready"; profile: ProductionCapabilityProfile; settings: ShootKitSettings; plan: ShotPlan; issues: [] }
+  | { status: "capture-projection"; profile: ProductionCapabilityProfile | null; settings: ShootKitSettings | null; plan: null; capturePlan: TreatmentCapturePlan; issues: [] }
 ) & {
   documentVersion: number;
   approval:
@@ -164,7 +166,9 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
           settings,
         }),
       });
-      if (result.ok && result.body.status === "ready") setEditing(false);
+      if (result.ok && (result.body.status === "ready" || result.body.status === "capture-projection")) {
+        setEditing(false);
+      }
     } finally {
       submitLockRef.current = false;
       setSubmitting(false);
@@ -190,7 +194,22 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
     setSubmitting(false);
   }, [open]);
 
-  const showResult = data?.status === "ready" && !editing;
+  const showResult = (data?.status === "ready" || data?.status === "capture-projection") && !editing;
+  const formIssues: ScriptShotPlanIssue[] = data?.status === "needs-user-input"
+    ? data.issues
+    : data?.status === "capture-projection"
+      ? data.capturePlan.calibrationQuestions.map((message, index) => ({
+          code: `capture_calibration_${index + 1}`,
+          message,
+          questions: [],
+        }))
+      : [];
+  const captureApprovalInput = data?.status === "capture-projection"
+    && data.capturePlan.status === "capture-brief-ready"
+    && data.profile !== null
+    && data.settings !== null
+    ? { profile: data.profile, settings: data.settings }
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -205,7 +224,7 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
             {refreshing && <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7A776E]" aria-label="Refreshing" />}
           </div>
           <DialogDescription className="sr-only">
-            Turn this script into a deterministic, capability-aware shot plan.
+            Review this script's semantic capture requirements or capability-aware physical shot plan.
           </DialogDescription>
         </DialogHeader>
 
@@ -277,12 +296,50 @@ export function ShootKitDialog({ open, onOpenChange, sessionId, scriptId }: Shoo
               </div>
               <ShootKitResult plan={data.plan} onEditInputs={() => setEditing(true)} refreshing={refreshing} />
             </>
+          ) : showResult && data.status === "capture-projection" ? (
+            <>
+              {captureApprovalInput && (
+                <div
+                  className="mb-3 flex items-center justify-between gap-3 border-y px-3 py-2"
+                  style={{ borderColor: "#282724", background: data.approval.status === "approved" ? "#5FA36A12" : "#D4A65210" }}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    {data.approval.status === "approved" ? (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-[#5FA36A]" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 shrink-0 text-[#D4A652]" />
+                    )}
+                    <span className="text-[11px] text-[#B5B2A8]">
+                      {data.approval.status === "approved"
+                        ? `Approved for document v${data.documentVersion}`
+                        : `Capture brief for document v${data.documentVersion}`}
+                    </span>
+                  </div>
+                  {data.approval.status !== "approved" && (
+                    <button
+                      type="button"
+                      disabled={submitting}
+                      onClick={() => void submitPlan(captureApprovalInput.profile, captureApprovalInput.settings)}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-[7px] border border-[#D4A65255] px-3 py-1.5 text-[11px] text-[#D4A652] transition-colors duration-[250ms] hover:bg-[#D4A65212] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                      Approve brief
+                    </button>
+                  )}
+                </div>
+              )}
+              <TreatmentCapturePlanResult
+                plan={data.capturePlan}
+                onEditInputs={data.capturePlan.physicalCaptureRequirements.length > 0 ? () => setEditing(true) : undefined}
+                refreshing={refreshing}
+              />
+            </>
           ) : (
             <ShootKitProfileForm
               key={formEpoch}
               initialProfile={data?.profile ?? null}
               initialSettings={data?.settings ?? null}
-              issues={data?.status === "needs-user-input" ? data.issues : []}
+              issues={formIssues}
               submitting={submitting}
               onGenerate={(profile, settings) => void submitPlan(profile, settings)}
             />

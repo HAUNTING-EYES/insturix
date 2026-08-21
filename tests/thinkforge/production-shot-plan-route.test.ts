@@ -121,4 +121,39 @@ describe('ThinkForge long-form Shoot Kit route', () => {
       aspectRatio: undefined,
     }));
   });
+
+  it('fails closed when a V3 script is missing its persisted semantic treatment', async () => {
+    mocks.getSession.mockResolvedValue({ _id: 'session_canonical', projectMeta: {} });
+    mocks.getScript.mockResolvedValue({
+      _id: 'script_1',
+      content: 'Semantic script.',
+      metadata: { writerOutput: {} },
+      version: 1,
+    });
+    mocks.requireCurrentPersistedScriptSidecar.mockReturnValue({
+      readResult: { sourceVersion: 3, sidecar: { sidecarVersion: 3 } },
+      rawSidecar: { sidecarVersion: 3 },
+      binding: { documentHash: 'a'.repeat(64), sidecarHash: 'b'.repeat(64) },
+    });
+    mocks.buildScriptShotPlan.mockReturnValue({
+      status: 'needs-user-input',
+      plan: null,
+      issues: [{
+        code: 'missing_video_treatment',
+        message: 'The saved V3 script is missing its video treatment.',
+        questions: ['Regenerate this script.'],
+      }],
+    });
+    const { GET } = await import('@/app/api/services/thinkforge/production/shot-plan/route');
+
+    const response = await GET(new Request(
+      'http://localhost/api/services/thinkforge/production/shot-plan?sessionId=session_alias&scriptId=script_1',
+    ));
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      reason: 'missing_video_treatment',
+      error: 'The saved V3 script is missing its video treatment.',
+    });
+  });
 });
