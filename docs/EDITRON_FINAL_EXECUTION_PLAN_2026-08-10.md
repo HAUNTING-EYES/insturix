@@ -1275,7 +1275,7 @@ timeline revision, changed paths, proof result, undo/replay binding or the full
 retry disposition. Existing safety work is valuable, but it is not IF1 runtime
 convergence.
 
-### Stage 2.5 current evidence ledger - 2026-08-21
+### Stage 2.5 current evidence ledger - 2026-08-22
 
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. At the reconciliation snapshot, the active lane was
@@ -1343,12 +1343,27 @@ any bound file changes.
   actual spend from provider token receipts is `$0.626745190`, not the
   `$21.126758` worst-case ceiling. The immutable interpretation is
   `docs/editron/open-ended-editing/oe-v3r4-provider-native-handoff-order-results-2026-08-22.md`.
+- **HREF-01 is `READY_FOR_SINGLE_PROJECT_OWNER_REVIEW`, not human-approved.**
+  One Gemini 3.6 native-video/audio observation completed with no editing
+  operators and no project mutation. Its blinded pack contains the exact full
+  64.75-second source plus the requested `[20s,23s)` window at 60/1 fps: 180
+  decoded frames, embedded audio and a separate 96 kHz stereo PCM WAV. The
+  public pack hash is
+  `4431c08ba4f3731718f350723137699dd57cca810e0c80c0f5c95b922fbe93ba`.
+  Gemini 3.7 attempts ended in provider HTTP 500/high-demand errors and are
+  infrastructure failures, not semantic failures. The user's earlier sparse
+  rubric approval approved the protocol, not this model output. A single
+  project-owner review is useful evidence, while formal promotion remains
+  blocked pending a second independent qualified reviewer. Exact artifacts and
+  hashes are recorded in
+  `docs/editron/open-ended-editing/oe-href01-native-review-pack-2026-08-22.md`.
 - **Stage 2.5 status remains `MODIFY_AND_PROCEED_RESEARCH`.** No production
   model-driven mutation or Stage 3 control plane is authorized. Revision
   handoff repair, stale cohort correction, CAP-2A V3 reissue, zero-inference
-  preflight and the fair eighteen-row rerun are complete. The exact immediate
-  order is now: land the reproducible benchmark code and report; then complete
-  HREF-01, seven unseen holdouts, dependency
+  preflight, the fair eighteen-row rerun and reproducible V3R4 landing are
+  complete. HREF-01's reproducible blinded pack is ready, but its output review
+  is pending. The exact immediate order is now: complete that review, then run
+  seven unseen holdouts, dependency
   diversity, forced native/generated/hybrid comparisons, conflict/rebase,
   compaction/resume, long-form/range trials and blind editor receipts before a
   frozen `GO`, `MODIFY` or `NO-GO` decision.
@@ -1361,7 +1376,7 @@ any bound file changes.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. HREF-01 has a hash-bound native-video/audio path and one complete Gemini 3.6 observation. The old V3 sequential verdict remains invalid, but V3R4 is valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V3 is current. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. Land V3R4 reproducibly, then complete HREF dense/human review, seven unseen holdouts, different dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. The synthetic DEV-03 audio is not intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. V3R4 is reproducibly landed and valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V3 is current. HREF-01 has one complete Gemini 3.6 native-video/audio observation and a blinded full-reference plus 180-frame dense-window review pack. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. HREF-01 output review is pending and formal promotion requires a second independent qualified reviewer. Then complete seven unseen holdouts, different dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. The synthetic DEV-03 audio is not intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -1774,15 +1789,15 @@ deployment:
 The old `CAP-0 -> CAP-1 -> V2-0` next-three list is complete as historical
 foundation and is no longer the active queue. The next three slices are:
 
-1. **Reproducible V3R4 benchmark landing - active:** commit the V3R4 benchmark sources, CAP-2A
-   V3, immutable raw/report hashes and verified aggregate receipt without
-   adding operator-only scripts or unrelated dirty work. Recheck every bound
-   source hash at landing; a changed hash requires reissue, never editing the
-   frozen expected value in place.
-2. **HREF-01 dense/human closeout:** retain the fourteen-image preflight as a
-   no-inference sparse control, build the usable anonymized review pack, and
-   execute only the targeted dense motion/audio window needed to judge claims
-   the sparse control cannot establish.
+1. **Reproducible V3R4 benchmark landing - complete:** the V3R4 sources,
+   CAP-2A V3 binding, adversarial tests and immutable report are committed.
+   Recheck every bound source hash on any future reissue; never edit a frozen
+   expected hash in place.
+2. **HREF-01 dense/human closeout - review pending:** the fourteen-image
+   no-inference control remains historical; the anonymized full-reference pack
+   and exact 180-frame motion/audio window are materialized and verified. The
+   project owner must now complete the blinded review. Formal promotion remains
+   blocked pending a second independent qualified reviewer.
 3. **V2-2 unseen holdouts and integration gate:** after HREF-01 closes, run the
    seven unseen holdouts and additional dependency/invalidation shapes. Follow
    with stale-revision/user-change, context-resume and long-form range trials;
