@@ -8,8 +8,7 @@
  * ProductionCapabilityProfileSchema the server uses (single source of truth, not a
  * re-implementation), so predictable 400s surface inline before submit.
  *
- * It starts empty: no room, phone, tripod, light, mic, or operator is assumed. The
- * only baseline is one self-shooting performer, which the user sees and can change.
+ * It starts empty: no room, phone, tripod, light, mic, operator, or performer is assumed.
  *
  * Styling follows design-system v1 (design-tokens.css): palette tokens only, type
  * scale 10/11/13, weights 400/500, radii 4 (inputs/tags) / 7 (buttons/cards), 4px
@@ -110,10 +109,10 @@ const numOrUndef = (s: string): number | undefined => {
 
 function emptyDraft(): Draft {
   return {
-    people: { performers: 1, operators: 0, assistants: 0, selfShoot: true },
+    people: { performers: 0, operators: 0, assistants: 0, selfShoot: false },
     currency: "USD", maxSpend: "0", rentalAllowed: false, purchaseAllowed: false,
     maxSetupMinutes: "", maxSetupChanges: "", maxLocationChanges: "0",
-    householdSubstitutionsAllowed: true, prioritize: ["cost", "setup-time"],
+    householdSubstitutionsAllowed: false, prioritize: ["cost", "setup-time"],
     spaces: [], equipment: [],
   };
 }

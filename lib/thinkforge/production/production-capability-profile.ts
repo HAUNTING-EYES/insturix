@@ -98,15 +98,15 @@ export const ProductionCapabilityProfileSchema = z.object({
   spaces: z.array(ProductionSpaceSchema).default([]),
   equipment: z.array(ProductionEquipmentSchema).default([]),
   people: z.object({
-    performersAvailable: z.number().int().min(0).max(100).default(1),
+    performersAvailable: z.number().int().min(0).max(100).default(0),
     cameraOperatorsAvailable: z.number().int().min(0).max(100).default(0),
     assistantsAvailable: z.number().int().min(0).max(100).default(0),
-    selfShoot: z.boolean().default(true),
+    selfShoot: z.boolean().default(false),
   }).strict().default({
-    performersAvailable: 1,
+    performersAvailable: 0,
     cameraOperatorsAvailable: 0,
     assistantsAvailable: 0,
-    selfShoot: true,
+    selfShoot: false,
   }),
   constraints: z.object({
     currency: z.string().length(3).transform((value) => value.toUpperCase()),
@@ -123,11 +123,11 @@ export const ProductionCapabilityProfileSchema = z.object({
   preferences: z.object({
     defaultPlanTier: z.enum(['no-spend', 'minimum-upgrade', 'enhanced']).default('no-spend'),
     prioritize: z.array(z.enum(['cost', 'setup-time', 'image-quality', 'audio-quality', 'mobility'])).min(1).default(['cost', 'setup-time']),
-    householdSubstitutionsAllowed: z.boolean().default(true),
+    householdSubstitutionsAllowed: z.boolean().default(false),
   }).strict().default({
     defaultPlanTier: 'no-spend',
     prioritize: ['cost', 'setup-time'],
-    householdSubstitutionsAllowed: true,
+    householdSubstitutionsAllowed: false,
   }),
   provenance: z.record(z.string(), z.object({
     source: z.enum(['user', 'saved-profile', 'brand-vault', 'session', 'inferred', 'default']),

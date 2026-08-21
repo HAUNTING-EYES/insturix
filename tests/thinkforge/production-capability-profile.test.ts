@@ -32,13 +32,19 @@ function profile() {
 }
 
 describe('ProductionCapabilityProfile contract', () => {
-  it('represents a zero-spend self-shoot setup without inventing professional gear', () => {
+  it('does not invent a performer, self-shoot permission, or household substitutes when they are omitted', () => {
     const parsed = parseProductionCapabilityProfile(profile());
 
     expect(parsed.version).toBe(PRODUCTION_CAPABILITY_PROFILE_VERSION);
     expect(parsed.constraints.currency).toBe('INR');
     expect(parsed.preferences.defaultPlanTier).toBe('no-spend');
-    expect(parsed.people.selfShoot).toBe(true);
+    expect(parsed.people).toEqual({
+      performersAvailable: 0,
+      cameraOperatorsAvailable: 0,
+      assistantsAvailable: 0,
+      selfShoot: false,
+    });
+    expect(parsed.preferences.householdSubstitutionsAllowed).toBe(false);
     expect(parsed.equipment.map((item) => item.id)).toEqual(['phone_1', 'tripod_1', 'mic_1']);
   });
 
