@@ -6,6 +6,7 @@ import MusicPlayerWrapper from "@/components/dashboard/Musitron/MusicPlayerWrapp
 import { TaskDetails } from "./components/TaskDetails";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
 import { Types } from "mongoose";
 
 export const dynamic = "force-dynamic";
@@ -73,14 +74,15 @@ export default async function TaskDetailsPage({ params }: PageProps) {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
-      {/* Back to History Button */}
+      {/* Back to History — a client-side Link, not the old GET <form> that
+          forced a full page load and dropped any ?tab= context. */}
       <div className="mb-6 max-w-4xl mx-auto">
-        <form action="/dashboard/musitron/" method="get">
-          <Button variant="outline" type="submit" className="flex items-center gap-2">
+        <Button variant="outline" asChild className="flex items-center gap-2 w-fit">
+          <Link href="/dashboard/musitron">
             <ArrowLeft className="w-4 h-4" />
             Back to Music
-          </Button>
-        </form>
+          </Link>
+        </Button>
       </div>
       <div className="max-w-4xl mx-auto">
         <TaskDetails task={result.task} />

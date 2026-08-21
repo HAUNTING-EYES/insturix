@@ -2,13 +2,16 @@
 "use client";
 
 import React, { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import {
   Calendar,
   FileText,
   Hash,
   AlertCircle,
   Music,
+  Loader2,
 } from "lucide-react";
 
 interface MusitronTask {
@@ -34,23 +37,73 @@ interface MusitronTask {
 
 interface TaskDetailsProps {
   task: MusitronTask;
-  signedUrlApi?: string; // Optional override for signed url endpoint
 }
 
-import { Separator } from "@/components/ui/separator";
+/** Shared meta row (created time · style) */
+function MetaRow({ task }: { task: MusitronTask }) {
+  return (
+    <div className="flex items-center gap-2 text-[#7A776E] text-sm">
+      <Calendar className="w-4 h-4" />
+      <span>{new Date(task.createdAt).toLocaleString()}</span>
+      {task.style ? (
+        <>
+          <span className="mx-2">•</span>
+          <FileText className="w-4 h-4" />
+          <span>{task.style}</span>
+        </>
+      ) : null}
+    </div>
+  );
+}
 
+export function TaskDetails({ task }: TaskDetailsProps) {
+  const router = useRouter();
+  const inProgress = task.status === "processing" || task.status === "listed";
 
-
-export function TaskDetails({ task, signedUrlApi }: TaskDetailsProps) {
-  // Fetch signed URL for audio file
+  // While the track is still generating, this server-rendered page would
+  // otherwise go stale — poll by refreshing the route until a terminal state.
+  // (This page used to render NOTHING for in-progress tasks: `return null`.)
   useEffect(() => {
-    const fetchSignedUrl = async () => {
-      if (!task.gcs_url || task.status !== "completed") return;
-    };
-    fetchSignedUrl();
-  }, [task.gcs_url, task.status, signedUrlApi]);
+    if (!inProgress) return;
+    const id = setInterval(() => router.refresh(), 5000);
+    return () => clearInterval(id);
+  }, [inProgress, router]);
 
-  // Failed task UI (music player style, only error.action)
+  if (inProgress) {
+    return (
+      <Card className="w-full shadow-lg border border-[#282724] bg-[#0F0F0E]">
+        <CardHeader className="flex flex-row items-center gap-3">
+          <Music className="text-[#D4A652]" />
+          <CardTitle className="flex-1 text-[#ECE9E1]">{task.title || "Untitled"}</CardTitle>
+          <span className="ml-2 inline-flex items-center gap-2 text-[#D4A652] font-semibold text-[14px]">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            {task.status === "listed" ? "Queued" : "Recording…"}
+          </span>
+        </CardHeader>
+        <Separator className="bg-[#1C1B19]" />
+        <CardContent className="py-6 flex flex-col gap-4">
+          <MetaRow task={task} />
+          <p className="text-sm text-[#B5B2A8]">
+            Your track is being generated. This page updates automatically — the
+            player appears here the moment it&apos;s ready.
+          </p>
+          {task.lyrics && (
+            <div className="mt-2">
+              <div className="text-[11px] text-[#7A776E] mb-1 flex items-center gap-1">
+                <FileText className="w-4 h-4" />
+                Lyrics
+              </div>
+              <div className="whitespace-pre-line text-sm text-[#ECE9E1] bg-[#131312] rounded p-3 border border-[#1C1B19]">
+                {task.lyrics}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Failed task UI (error + suggested action)
   if (task.status === "failed") {
     return (
       <Card className="w-full shadow-lg border border-zinc-300/30">
@@ -61,13 +114,7 @@ export function TaskDetails({ task, signedUrlApi }: TaskDetailsProps) {
         </CardHeader>
         <Separator />
         <CardContent className="py-6 flex flex-col gap-4">
-          <div className="flex items-center gap-2 text-zinc-500 text-sm">
-            <Calendar className="w-4 h-4" />
-            <span>{new Date(task.createdAt).toLocaleString()}</span>
-            <span className="mx-2">•</span>
-            <FileText className="w-4 h-4" />
-            <span>{task.style}</span>
-          </div>
+          <MetaRow task={task} />
           {task.error?.message && (
             <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 font-medium">
               <AlertCircle className="w-5 h-5 mr-1 text-red-500 shrink-0 mt-0.5" />
@@ -107,5 +154,6 @@ export function TaskDetails({ task, signedUrlApi }: TaskDetailsProps) {
     );
   }
 
+  // Completed: the player (MusicPlayerWrapper) is rendered by the page below.
   return null;
 }

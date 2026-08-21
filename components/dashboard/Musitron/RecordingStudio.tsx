@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import type { MusitronTask } from "@/app/api/services/musitron/types/shared";
 import { VUMeter } from "./VUMeter";
 import { useQuery } from "@tanstack/react-query";
@@ -24,6 +25,7 @@ function titleToGradient(title: string): string {
 }
 
 export function RecordingStudio({ children }: RecordingStudioProps) {
+  const router = useRouter();
   const [view, setView] = useState<"studio" | "daw">("studio");
   const [activeTrackIdx, setActiveTrackIdx] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -545,10 +547,10 @@ export function RecordingStudio({ children }: RecordingStudioProps) {
           const isActive = i === activeTrackIdx;
           const statusColor =
             task.status === "completed"
-              ? "#4ade80"
+              ? "#5EC97E"
               : task.status === "processing" || task.status === "listed"
                 ? "#D4A652"
-                : "#f87171";
+                : "#D46A5C";
 
           return (
             <div
@@ -617,11 +619,24 @@ export function RecordingStudio({ children }: RecordingStudioProps) {
                     fontFamily: "'JetBrains Mono', monospace",
                   }}
                 >
-                  {task.status === "processing" || task.status === "listed"
-                    ? "Generating..."
-                    : task.status === "failed"
-                      ? "Failed · Retry"
-                      : task.style || ""}
+                  {task.status === "processing" || task.status === "listed" ? (
+                    "Generating..."
+                  ) : task.status === "failed" ? (
+                    // Was "Failed · Retry" — no retry exists anywhere in the
+                    // product. Link to the task page, which shows the real
+                    // error and suggested action.
+                    <span
+                      role="link"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); router.push(`/dashboard/musitron/task/${task._id}`); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); router.push(`/dashboard/musitron/task/${task._id}`); } }}
+                      style={{ color: "#D46A5C", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2 }}
+                    >
+                      Failed · View details
+                    </span>
+                  ) : (
+                    task.style || ""
+                  )}
                 </div>
               </div>
 
