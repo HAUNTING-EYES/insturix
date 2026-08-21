@@ -5,7 +5,8 @@
 `HOLD-01` through `HOLD-08` now have deterministic, rights-bound synthetic
 media suitable for a zero-inference benchmark preflight. This is
 `INPUT_EVIDENCE_READY`, not provider execution, model success, rendered edit
-quality or production certification.
+quality or production certification. The subsequent local cohort preflight is
+now `PASS_READY_FOR_CREDENTIAL_PREFLIGHT`; provider dispatch remains disabled.
 
 ## Bound identity
 
@@ -41,28 +42,57 @@ selected by the benchmark.
 - Unsupported asset IDs, unsafe repository-root output, an existing output
   directory, source drift and byte/hash drift fail closed.
 
+## Leakage-free cohort preflight
+
+Commit `f3ce50970` adds a separate V2R cohort rather than changing the frozen
+DEV staged-packet implementation. The cohort binds:
+
+- eight sealed tasks and sixteen opaque `C1`/`C2` cases;
+- the same complete forty-operation V2R/CAP-2A planning context in every case;
+- thirty-three research-callable operations and seven visible but honestly
+  `NOT_COMPILABLE` operations;
+- model-visible task/media/policy/evidence-availability facts;
+- exact owner-only evidence and evaluator-only policy in separately hashed
+  partitions.
+
+The public packet contains no semantic condition name, `evaluatorOnly`,
+behaviour brief, success predicate, allowed disposition or active predicate.
+The local preflight made zero network calls, inference calls, project reads or
+project mutations and kept `dispatchAuthorized=false`.
+
+- Cohort contract SHA-256:
+  `1b830040ea2b1b6ea3fb6c880fed4864e6da0b879e9e0a8960572e26fa309150`
+- Preflight contract SHA-256:
+  `5d20adbd709a91b3989cbd87394a0a122e97317cc422c0e731af964dfc22da15`
+- Cohort manifest SHA-256:
+  `abdcafe133cbff5f4e9b8325e665636d6d553a6fd966b0170e37bbd97cc5cdbb`
+- Shared model context SHA-256:
+  `f501f0e3bb7c4bee3bc4e3dd1c418adc9cd5ff933439baf81386009c3a205338`
+- Local preflight receipt SHA-256:
+  `69821f932e6baf6c5312d764ebdb836c232f842e7e3b018fcac621fea46b8773`
+
 ## What remains before provider calls
 
-1. Issue a new versioned holdout packet and cohort identity; do not modify the
-   historical DEV staged-packet implementation or its frozen hashes.
-2. Bind CAP-2A V3 as the exact research tool dossier and bind this holdout
-   manifest as a separate input supplement. CAP-2A V3 does not automatically
-   become a new current snapshot because new research fixture files exist.
-3. Produce model-visible packets that exclude `evaluatorOnly`, predicates,
-   allowed dispositions, expected answers and other hidden scoring material.
-4. Freeze generic schema-driven lowering and evaluator policy before any paid
-   inference. It may bind arguments and typed results but may not add or remove
-   creative operations.
-5. Run a zero-inference readiness check across all eight tasks and both
-   conditions. Provider dispatch remains unauthorized until that receipt is
-   valid and the operator explicitly confirms the issued cohort.
+1. Build one generic provider-native episode shell over the frozen public
+   packets. It must expose the complete tool context, resolve owner-only
+   evidence only after a valid tool call, and preserve typed opaque results.
+2. Freeze schema-driven lowering and evaluation before inference. Lowering may
+   bind exact arguments, coordinates, revisions and result references; it may
+   add or remove zero model-selected creative operations.
+3. Capture the exact Luna, Terra and Gemini requests, verify provider-native
+   model identity and modalities, count/bound input tokens, and issue a
+   production-credential zero-inference receipt.
+4. Only after that receipt may the explicitly authorized cohort dispatch. CAP-2A
+   V3 remains an immutable bound census artifact, not newly reissued merely
+   because research harness files were added.
 
 ## Verification at issuance
 
 - Holdout materializer: 4/4 tests passed.
 - Combined development and holdout materializers: 11/11 tests passed.
+- Sealed cohort/preflight tests: 3/3 passed; combined focused checks: 7/7.
 - `npx tsc --noEmit`: passed.
-- Focused ESLint: passed.
+- Repository ESLint: passed.
 
 These checks establish reproducible benchmark inputs only. No provider saw a
 sealed task, no model row ran, and no Editron project was read or mutated.
