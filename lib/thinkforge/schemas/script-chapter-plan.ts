@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { SourceLedger } from '../provenance/source-ledger';
+import type { VideoTreatment } from './video-treatment';
 
 export const SCRIPT_CHAPTER_PLAN_VERSION = 1 as const;
 
@@ -7,6 +8,8 @@ const IdentifierSchema = z.string().trim().min(1).regex(/^[a-zA-Z0-9_-]+$/);
 const NonEmptyTextSchema = z.string().trim().min(1);
 const ModelSourceRefsSchema = z.array(z.string()).default([]);
 const SourceRefsSchema = z.array(IdentifierSchema).default([]);
+const ModelTreatmentEventIdsSchema = z.array(z.string()).optional();
+const TreatmentEventIdsSchema = z.array(IdentifierSchema).optional();
 
 const ScriptPlanCharacterModelSchema = z.object({
   id: z.string(),
@@ -37,6 +40,9 @@ const ScriptSceneBlueprintModelSchema = z.object({
   closingState: z.string(),
   durationIntentSeconds: z.number(),
   requiredSourceRefs: ModelSourceRefsSchema,
+  // This allocates approved semantic treatment events to narrative scenes.
+  // It is deliberately not a shot, asset, or render-plan choice.
+  treatmentEventIds: ModelTreatmentEventIdsSchema,
   requiredCharacterIds: z.array(z.string()).default([]),
   continuityThreadIds: z.array(z.string()).default([]),
 }).strict();
@@ -50,6 +56,7 @@ const ScriptSceneBlueprintSchema = ScriptSceneBlueprintModelSchema.extend({
   closingState: NonEmptyTextSchema,
   durationIntentSeconds: z.number().finite().positive(),
   requiredSourceRefs: SourceRefsSchema,
+  treatmentEventIds: TreatmentEventIdsSchema,
   requiredCharacterIds: z.array(IdentifierSchema).default([]),
   continuityThreadIds: z.array(IdentifierSchema).default([]),
 }).strict();
@@ -199,6 +206,7 @@ function validateScriptChapterPlan(plan: ScriptChapterPlanObject, ctx: z.Refinem
   const allIds = new Set<string>();
   const characterIds = new Set<string>();
   const threadIds = new Set<string>();
+  const assignedTreatmentEventIds = new Set<string>();
   const scenePositions = new Map<string, number>();
   const scenesById = new Map<string, ScriptChapterPlanObject['acts'][number]['chapters'][number]['sceneBlueprints'][number]>();
   let durationSeconds = 0;
@@ -225,6 +233,17 @@ function validateScriptChapterPlan(plan: ScriptChapterPlanObject, ctx: z.Refinem
         scenesById.set(scene.id, scene);
         scenePosition += 1;
         durationSeconds += scene.durationIntentSeconds;
+
+        (scene.treatmentEventIds ?? []).forEach((eventId, eventIndex) => {
+          if (assignedTreatmentEventIds.has(eventId)) {
+            addIssue(
+              ctx,
+              [...scenePath, 'treatmentEventIds', eventIndex],
+              `Treatment visual event "${eventId}" may be assigned to only one scene blueprint.`,
+            );
+          }
+          assignedTreatmentEventIds.add(eventId);
+        });
 
         scene.requiredCharacterIds.forEach((characterId, characterIndex) => {
           if (!characterIds.has(characterId)) {
@@ -316,6 +335,7 @@ export function findScriptChapterPlanExternalIssues(
   options: {
     expectedTargetDurationSeconds: number;
     sourceLedger: SourceLedger;
+    videoTreatment?: VideoTreatment | null;
   },
 ): string[] {
   const issues: string[] = [];
@@ -337,6 +357,38 @@ export function findScriptChapterPlanExternalIssues(
       });
     });
   });
+
+  const assignedTreatmentEvents = plan.acts.flatMap((act) => act.chapters.flatMap((chapter) => (
+    chapter.sceneBlueprints.flatMap((scene) => (scene.treatmentEventIds ?? []).map((eventId) => ({
+      sceneId: scene.id,
+      eventId,
+    })))
+  )));
+  if (!options.videoTreatment) {
+    assignedTreatmentEvents.forEach(({ sceneId, eventId }) => {
+      issues.push(`treatment_event_assignment_without_treatment:${sceneId}:${eventId}`);
+    });
+    return issues;
+  }
+
+  const allowedTreatmentEventIds = new Set(
+    options.videoTreatment.visualEvents.map((event) => event.id),
+  );
+  const assignedTreatmentEventIds = new Set<string>();
+  assignedTreatmentEvents.forEach(({ sceneId, eventId }) => {
+    if (!allowedTreatmentEventIds.has(eventId)) {
+      issues.push(`invalid_treatment_event_assignment:${sceneId}:${eventId}`);
+    }
+    if (assignedTreatmentEventIds.has(eventId)) {
+      issues.push(`duplicate_treatment_event_assignment:${eventId}`);
+    }
+    assignedTreatmentEventIds.add(eventId);
+  });
+  options.videoTreatment.visualEvents.forEach((event) => {
+    if (!assignedTreatmentEventIds.has(event.id)) {
+      issues.push(`missing_treatment_event_assignment:${event.id}`);
+    }
+  });
   return issues;
 }
 
@@ -345,6 +397,7 @@ export function assertUsableScriptChapterPlan(
   options: {
     expectedTargetDurationSeconds: number;
     sourceLedger: SourceLedger;
+    videoTreatment?: VideoTreatment | null;
   },
 ): ScriptChapterPlan {
   const parsed = ScriptChapterPlanSchema.safeParse(plan);

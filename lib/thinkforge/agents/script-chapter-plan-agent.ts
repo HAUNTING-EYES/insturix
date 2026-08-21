@@ -8,6 +8,7 @@ import {
 } from './editorial-plan';
 import type { AgentInput, AgentStructuredOutput } from './types';
 import type { SourceLedger } from '../provenance/source-ledger';
+import type { VideoTreatment } from '../schemas/video-treatment';
 import {
   assertUsableScriptChapterPlan,
   materializeScriptChapterPlan,
@@ -21,6 +22,8 @@ export interface ScriptChapterPlanInput extends AgentInput {
   editorialPlan: ThinkForgeScriptEditorialPlanArtifact;
   productionBrief: ProductionBrief;
   sourceLedger: SourceLedger;
+  /** Approved semantic treatment used only to allocate events to narrative scenes. */
+  videoTreatment?: VideoTreatment | null;
 }
 
 interface ResolvedChapterPlanContext {
@@ -77,7 +80,8 @@ Create a semantic narrative plan, not script prose and not a render plan. The pl
 7. Plant and resolve continuity threads deliberately. An intentionally open thread needs a narrative rationale. Never invent a callback merely to fill structure.
 8. Use only Source Ledger reference IDs from tf_untrusted_data.sourceLedger. Attach requiredSourceRefs to every scene blueprint that will carry facts, dates, statistics, prices, quotations, testimonials, or named proof. Never use creative direction as factual evidence.
 9. Each scene blueprint must state its opening state, concrete development steps, and closing state. Do not write dialogue, narration, shot lists, camera settings, image prompts, or production instructions.
-10. Keep all titles, states, and planning language compatible with the requested content language. Do not force English phrasing or a stock three-act template.
+10. When tf_untrusted_data.videoTreatment is present, allocate every listed visualEvents[].id exactly once to the scene blueprint where its semantic moment belongs through treatmentEventIds. This is narrative placement only: do not choose shots, assets, camera settings, graphics, layouts, or render form. When no treatment is supplied, treatmentEventIds must stay empty.
+11. Keep all titles, states, and planning language compatible with the requested content language. Do not force English phrasing or a stock three-act template.
 
 ## Runtime data map
 - creativeIntent is the approved angle or direct brief.
@@ -110,6 +114,20 @@ Return only the schema-conforming master plan.`;
         productionOutput: input.productionBrief.output,
         casting: input.productionBrief.casting ?? null,
         sourceLedger: input.sourceLedger.entries,
+        videoTreatment: input.videoTreatment ? {
+          treatmentId: input.videoTreatment.treatmentId,
+          visualEvents: input.videoTreatment.visualEvents.map((event) => ({
+            id: event.id,
+            momentId: event.momentId,
+            audienceJob: event.audienceJob,
+            visualThesis: event.visualThesis,
+            audioRelationship: event.audioRelationship,
+            timingNote: event.timingNote,
+            continuityNotes: event.continuityNotes,
+            sourceRefs: event.sourceRefs,
+            captureRequirementIds: event.captureRequirementIds,
+          })),
+        } : null,
       },
       fieldLimits: {
         projectSummary: 12_000,
@@ -132,6 +150,7 @@ Return only the schema-conforming master plan.`;
     assertUsableScriptChapterPlan(plan, {
       expectedTargetDurationSeconds: targetDurationSeconds,
       sourceLedger: input.sourceLedger,
+      videoTreatment: input.videoTreatment,
     });
     return { result: plan, metadata: output.metadata };
   }

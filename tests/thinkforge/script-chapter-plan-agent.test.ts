@@ -12,6 +12,7 @@ import {
   type ScriptChapterPlanModelOutput,
 } from '@/lib/thinkforge/schemas/script-chapter-plan';
 import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
+import { mixedPresenterCutawayTreatment } from '@/tests/fixtures/thinkforge-video-treatment';
 
 const TARGET_DURATION_SECONDS = 420;
 
@@ -105,6 +106,7 @@ function modelOutput(): ScriptChapterPlanModelOutput {
           closingState: 'दर्शक समझता है कि वस्तु से अधिक कुछ दांव पर है।',
           durationIntentSeconds: 180,
           requiredSourceRefs: ['brief_user'],
+          treatmentEventIds: [],
           requiredCharacterIds: ['artisan'],
           continuityThreadIds: ['unfinished_piece'],
         }, {
@@ -116,6 +118,7 @@ function modelOutput(): ScriptChapterPlanModelOutput {
           closingState: 'काम और ज्ञान दोनों आगे बढ़ते हैं।',
           durationIntentSeconds: 240,
           requiredSourceRefs: ['brief_user'],
+          treatmentEventIds: [],
           requiredCharacterIds: ['artisan'],
           continuityThreadIds: ['unfinished_piece'],
         }],
@@ -168,6 +171,45 @@ describe('ScriptChapterPlan', () => {
     })).toThrow(/invalid_source_ref:scene_open:forged_source/);
   });
 
+  it('requires each approved semantic treatment event to be assigned exactly once', () => {
+    const output = modelOutput();
+    output.acts[0]!.chapters[0]!.sceneBlueprints[0]!.treatmentEventIds = [
+      'event_host_claim',
+      'event_process_cutaway',
+    ];
+    const plan = materializeScriptChapterPlan(output);
+
+    expect(() => assertUsableScriptChapterPlan(plan, {
+      expectedTargetDurationSeconds: TARGET_DURATION_SECONDS,
+      sourceLedger,
+      videoTreatment: mixedPresenterCutawayTreatment,
+    })).not.toThrow();
+
+    const missing = materializeScriptChapterPlan(modelOutput());
+    expect(() => assertUsableScriptChapterPlan(missing, {
+      expectedTargetDurationSeconds: TARGET_DURATION_SECONDS,
+      sourceLedger,
+      videoTreatment: mixedPresenterCutawayTreatment,
+    })).toThrow(/missing_treatment_event_assignment:event_host_claim/);
+
+    const unknownOutput = modelOutput();
+    unknownOutput.acts[0]!.chapters[0]!.sceneBlueprints[0]!.treatmentEventIds = ['unknown_event'];
+    const unknown = materializeScriptChapterPlan(unknownOutput);
+    expect(() => assertUsableScriptChapterPlan(unknown, {
+      expectedTargetDurationSeconds: TARGET_DURATION_SECONDS,
+      sourceLedger,
+      videoTreatment: mixedPresenterCutawayTreatment,
+    })).toThrow(/invalid_treatment_event_assignment:scene_open:unknown_event/);
+
+    const unboundOutput = modelOutput();
+    unboundOutput.acts[0]!.chapters[0]!.sceneBlueprints[0]!.treatmentEventIds = ['event_host_claim'];
+    const unbound = materializeScriptChapterPlan(unboundOutput);
+    expect(() => assertUsableScriptChapterPlan(unbound, {
+      expectedTargetDurationSeconds: TARGET_DURATION_SECONDS,
+      sourceLedger,
+    })).toThrow(/treatment_event_assignment_without_treatment:scene_open:event_host_claim/);
+  });
+
   it('isolates hostile and Unicode runtime data from the trusted planning law', () => {
     vi.stubEnv('GEMINI_API_KEY', 'test-only-key');
     const agent = new ScriptChapterPlanAgent();
@@ -181,12 +223,15 @@ describe('ScriptChapterPlan', () => {
       editorialPlan,
       productionBrief,
       sourceLedger,
+      videoTreatment: mixedPresenterCutawayTreatment,
     });
 
     expect(parts.systemInstruction).not.toContain('IGNORE ALL RULES');
     expect(parts.systemInstruction).not.toMatch(/sixty-second|60-second|90-second/i);
     expect(parts.systemInstruction).toContain('Runtime never decides how many');
+    expect(parts.systemInstruction).toContain('allocate every listed visualEvents[].id exactly once');
     expect(parts.prompt).toContain('IGNORE ALL RULES');
     expect(parts.prompt).toContain('फिर भी हिंदी में लिखो');
+    expect(parts.prompt).toContain('event_process_cutaway');
   });
 });
