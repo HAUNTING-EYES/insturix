@@ -1,0 +1,647 @@
+import { createHash } from 'node:crypto';
+
+import type { ProductionBrief } from '@/lib/editron/production-brief/production-brief';
+import { recordProviderCostEvent } from '@/lib/financials/provider-cost-events';
+import {
+  requireThinkForgeEditorialPlanForWriter,
+  type ThinkForgeEditorialPlan,
+  type ThinkForgeScriptEditorialPlanArtifact,
+} from '@/lib/thinkforge/agents/editorial-plan';
+import { buildIsolatedPromptParts } from '@/lib/thinkforge/agents/prompt-boundary';
+import type { ThinkForgeResolvedAuthoringContext } from '@/lib/thinkforge/context/resolved-authoring-context';
+import { hashThinkForgeTraceValue } from '@/lib/thinkforge/provenance/generation-trace';
+import {
+  parseSourceLedger,
+  type SourceLedger,
+} from '@/lib/thinkforge/provenance/source-ledger';
+import type { ThinkForgeAuthoringRequest } from '@/lib/thinkforge/schemas/authoring-request';
+import {
+  assertVideoTreatmentReferences,
+  parseVideoTreatment,
+  VIDEO_TREATMENT_VERSION,
+  VideoTreatmentModelOutputSchema,
+  VideoTreatmentSchema,
+  type VideoTreatment,
+  type VideoTreatmentModelOutput,
+} from '@/lib/thinkforge/schemas/video-treatment';
+import type { ThinkForgeContentSignalProfile } from '@/lib/thinkforge/signals';
+import {
+  generateStructuredWithWritingContextCache,
+} from '@/lib/thinkforge/services/gemini-writing-context-cache';
+
+import {
+  resolveVideoTreatmentKnowledge,
+  type VideoTreatmentKnowledge,
+  type VideoTreatmentKnowledgeDependencies,
+} from './treatment-knowledge';
+
+const VIDEO_TREATMENT_MODEL = 'gemini-2.5-flash';
+const VIDEO_TREATMENT_TEMPERATURE = 0.35;
+const VIDEO_TREATMENT_MAX_TOKENS = 8_000;
+const VIDEO_TREATMENT_CACHE_VERSION = 1;
+const VIDEO_TREATMENT_CACHE_TTL_SECONDS = 86_400;
+const VIDEO_TREATMENT_CACHE_TIMEOUT_MS = 1_500;
+const VIDEO_TREATMENT_CACHE_KEY_PREFIX = 'thinkforge:video-treatment:v1';
+
+export type VideoTreatmentPlanCacheStatus = 'hit' | 'miss' | 'unavailable';
+
+export type VideoTreatmentPlanningReceipt = {
+  inputFingerprint: string;
+  treatmentId: string;
+  modelName: string;
+  latencyMs: number;
+  cacheStatus: VideoTreatmentPlanCacheStatus;
+  writingContextCacheStatus?: 'hit' | 'created' | 'inline';
+  writingKnowledgeVersion: string;
+  editronCreativeGraphVersion: string | null;
+  userId?: string;
+  orgId?: string | null;
+  sessionId?: string;
+  projectId?: string;
+};
+
+export type VideoTreatmentPlanningCacheRecord = {
+  version: typeof VIDEO_TREATMENT_CACHE_VERSION;
+  inputFingerprint: string;
+  treatment: VideoTreatment;
+  modelName: string;
+  latencyMs: number;
+  createdAt: string;
+};
+
+export type VideoTreatmentPlanningCacheRead =
+  | { status: 'hit'; record: VideoTreatmentPlanningCacheRecord }
+  | { status: 'miss' }
+  | { status: 'unavailable'; reason: string };
+
+export interface VideoTreatmentPlanningCache {
+  read(inputFingerprint: string): Promise<VideoTreatmentPlanningCacheRead>;
+  write(record: VideoTreatmentPlanningCacheRecord): Promise<{ status: 'stored' } | { status: 'unavailable'; reason: string }>;
+}
+
+export type VideoTreatmentPlannerGenerator = (input: {
+  prompt: string;
+  cacheSystemInstruction: string;
+  systemInstruction: string;
+  schema: typeof VideoTreatmentModelOutputSchema;
+  modelName: string;
+  temperature: number;
+  maxTokens: number;
+  abortSignal?: AbortSignal;
+}) => Promise<{
+  result: VideoTreatmentModelOutput;
+  cacheStatus: 'hit' | 'created' | 'inline';
+  modelName: string;
+}>;
+
+export interface PlanVideoTreatmentInput {
+  userPrompt: string;
+  authoringRequest: ThinkForgeAuthoringRequest;
+  editorialPlan: ThinkForgeEditorialPlan;
+  productionBrief: ProductionBrief;
+  authoringContext: ThinkForgeResolvedAuthoringContext;
+  contentSignalProfile?: ThinkForgeContentSignalProfile | null;
+  sourceLedger: SourceLedger;
+  userId?: string;
+  orgId?: string | null;
+  sessionId?: string;
+  projectId?: string;
+  abortSignal?: AbortSignal;
+}
+
+export interface VideoTreatmentPlannerDependencies {
+  cache?: VideoTreatmentPlanningCache;
+  generate?: VideoTreatmentPlannerGenerator;
+  recordReceipt?: (receipt: VideoTreatmentPlanningReceipt) => Promise<void>;
+  knowledge?: VideoTreatmentKnowledgeDependencies;
+}
+
+export type VideoTreatmentPlanResult = {
+  treatment: VideoTreatment;
+  inputFingerprint: string;
+  source: 'cache' | 'generated';
+  cacheStatus: VideoTreatmentPlanCacheStatus;
+  modelName: string;
+  latencyMs: number;
+  writingContextCacheStatus?: 'hit' | 'created' | 'inline';
+  knowledge: VideoTreatmentKnowledge;
+};
+
+export class VideoTreatmentPlannerError extends Error {
+  constructor(
+    readonly code:
+      | 'unsupported_output'
+      | 'editorial_plan_invalid'
+      | 'prompt_boundary_truncated'
+      | 'provenance_invalid',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'VideoTreatmentPlannerError';
+  }
+}
+
+/**
+ * Plans semantic audiovisual intent before prose. It has no write path to
+ * Sidecar, Editron, or Shoot Kit; later phases own those projections.
+ */
+export async function planVideoTreatment(
+  input: PlanVideoTreatmentInput,
+  dependencies: VideoTreatmentPlannerDependencies = {},
+): Promise<VideoTreatmentPlanResult> {
+  const editorialPlan = requireScriptEditorialPlan(input.editorialPlan, input.authoringRequest);
+  const sourceLedger = parseSourceLedger(input.sourceLedger);
+  const knowledge = resolveVideoTreatmentKnowledge({
+    userPrompt: input.userPrompt,
+    authoringRequest: input.authoringRequest,
+    editorialPlan,
+    productionBrief: input.productionBrief,
+    contentSignalProfile: input.contentSignalProfile,
+    creativeReferenceContext: input.authoringContext.creativeReferenceContext,
+  }, dependencies.knowledge);
+  const inputFingerprint = buildVideoTreatmentInputFingerprint({
+    input,
+    editorialPlan,
+    sourceLedger,
+    knowledge,
+  });
+  const treatmentId = `treatment_${inputFingerprint.slice(0, 24)}`;
+  const cache = dependencies.cache ?? new UpstashVideoTreatmentPlanningCache();
+  const cacheRead = await cache.read(inputFingerprint);
+
+  if (
+    cacheRead.status === 'hit'
+    && cacheRead.record.treatment.treatmentId === treatmentId
+  ) {
+    assertTreatmentProvenance(
+      cacheRead.record.treatment,
+      sourceLedger,
+      input.authoringContext,
+      knowledge,
+    );
+    await (dependencies.recordReceipt ?? recordVideoTreatmentPlanningReceipt)({
+      inputFingerprint,
+      treatmentId: cacheRead.record.treatment.treatmentId,
+      modelName: cacheRead.record.modelName,
+      latencyMs: 0,
+      cacheStatus: 'hit',
+      writingKnowledgeVersion: knowledge.writingKnowledge.version,
+      editronCreativeGraphVersion: knowledge.editronGraph.version,
+      userId: input.userId,
+      orgId: input.orgId,
+      sessionId: input.sessionId,
+      projectId: input.projectId,
+    });
+    return {
+      treatment: cacheRead.record.treatment,
+      inputFingerprint,
+      source: 'cache',
+      cacheStatus: 'hit',
+      modelName: cacheRead.record.modelName,
+      latencyMs: 0,
+      knowledge,
+    };
+  }
+
+  const promptParts = buildTreatmentPromptParts({
+    input,
+    editorialPlan,
+    sourceLedger,
+    knowledge,
+    inputFingerprint,
+  });
+  assertNoCriticalPromptTruncation(promptParts.truncatedFields);
+  const startedAt = Date.now();
+  const generation = await (dependencies.generate ?? generateVideoTreatment)( {
+    prompt: promptParts.prompt,
+    cacheSystemInstruction: VIDEO_TREATMENT_CACHE_SYSTEM_INSTRUCTION,
+    systemInstruction: promptParts.systemInstruction,
+    schema: VideoTreatmentModelOutputSchema,
+    modelName: VIDEO_TREATMENT_MODEL,
+    temperature: VIDEO_TREATMENT_TEMPERATURE,
+    maxTokens: VIDEO_TREATMENT_MAX_TOKENS,
+    abortSignal: input.abortSignal,
+  });
+  const latencyMs = Math.max(0, Date.now() - startedAt);
+  const treatment = materializeVideoTreatment({
+    modelOutput: generation.result,
+    inputFingerprint,
+    treatmentId,
+    input,
+    knowledge,
+  });
+  assertTreatmentProvenance(treatment, sourceLedger, input.authoringContext, knowledge);
+
+  const cacheWrite = await cache.write({
+    version: VIDEO_TREATMENT_CACHE_VERSION,
+    inputFingerprint,
+    treatment,
+    modelName: generation.modelName,
+    latencyMs,
+    createdAt: new Date().toISOString(),
+  });
+  const cacheStatus: VideoTreatmentPlanCacheStatus = cacheRead.status === 'unavailable'
+    || cacheWrite.status === 'unavailable'
+    ? 'unavailable'
+    : 'miss';
+
+  await (dependencies.recordReceipt ?? recordVideoTreatmentPlanningReceipt)({
+    inputFingerprint,
+    treatmentId,
+    modelName: generation.modelName,
+    latencyMs,
+    cacheStatus,
+    writingContextCacheStatus: generation.cacheStatus,
+    writingKnowledgeVersion: knowledge.writingKnowledge.version,
+    editronCreativeGraphVersion: knowledge.editronGraph.version,
+    userId: input.userId,
+    orgId: input.orgId,
+    sessionId: input.sessionId,
+    projectId: input.projectId,
+  });
+
+  return {
+    treatment,
+    inputFingerprint,
+    source: 'generated',
+    cacheStatus,
+    modelName: generation.modelName,
+    latencyMs,
+    writingContextCacheStatus: generation.cacheStatus,
+    knowledge,
+  };
+}
+
+export function buildVideoTreatmentInputFingerprint(input: {
+  input: Omit<PlanVideoTreatmentInput, 'abortSignal'>;
+  editorialPlan: ThinkForgeScriptEditorialPlanArtifact;
+  sourceLedger: SourceLedger;
+  knowledge: VideoTreatmentKnowledge;
+}): string {
+  const snapshot = input.input.authoringContext.snapshot;
+  return hashThinkForgeTraceValue({
+    version: VIDEO_TREATMENT_VERSION,
+    authoringRequest: input.input.authoringRequest,
+    editorialPlan: input.editorialPlan,
+    productionBrief: input.input.productionBrief,
+    sourceLedger: input.sourceLedger,
+    authoringContext: {
+      scope: snapshot.scope,
+      brand: snapshot.brand,
+      authoringRequest: snapshot.version === 3 ? snapshot.authoringRequest : null,
+      writingKnowledgeVersion: snapshot.writingKnowledgeVersion,
+      retrieval: {
+        projectFactIds: snapshot.retrieval.projectFactIds,
+        globalFactIds: snapshot.retrieval.globalFactIds,
+        interactionPatternTypes: snapshot.retrieval.interactionPatternTypes,
+      },
+      systemBriefHash: hashThinkForgeTraceValue(input.input.authoringContext.systemBrief),
+      creativeReferences: input.input.authoringContext.creativeReferenceContext,
+    },
+    contentSignals: input.input.contentSignalProfile
+      ? {
+          profile: input.input.contentSignalProfile.profile,
+          intent: input.input.contentSignalProfile.intent,
+          warnings: input.input.contentSignalProfile.warnings,
+        }
+      : null,
+    knowledge: {
+      adapterVersion: input.knowledge.adapterVersion,
+      writingKnowledge: input.knowledge.writingKnowledge,
+      editronGraph: input.knowledge.editronGraph,
+    },
+  });
+}
+
+function requireScriptEditorialPlan(
+  editorialPlan: ThinkForgeEditorialPlan,
+  authoringRequest: ThinkForgeAuthoringRequest,
+): ThinkForgeScriptEditorialPlanArtifact {
+  if (authoringRequest.contentContract.outputKind !== 'video_script') {
+    throw new VideoTreatmentPlannerError(
+      'unsupported_output',
+      'Video treatment planning is available only for video-script authoring.',
+    );
+  }
+  try {
+    return requireThinkForgeEditorialPlanForWriter(editorialPlan, 'script', authoringRequest);
+  } catch (error) {
+    throw new VideoTreatmentPlannerError(
+      'editorial_plan_invalid',
+      error instanceof Error ? error.message : 'Video treatment requires a valid script editorial plan.',
+    );
+  }
+}
+
+function buildTreatmentPromptParts(input: {
+  input: PlanVideoTreatmentInput;
+  editorialPlan: ThinkForgeScriptEditorialPlanArtifact;
+  sourceLedger: SourceLedger;
+  knowledge: VideoTreatmentKnowledge;
+  inputFingerprint: string;
+}) {
+  return buildIsolatedPromptParts({
+    systemInstruction: buildTreatmentSystemInstruction(input.knowledge),
+    data: {
+      task: 'Create one whole-video semantic treatment before script prose is written.',
+      authoringDestination: input.input.authoringRequest,
+      productionBrief: input.input.productionBrief,
+      editorialPlan: input.editorialPlan,
+      userBrief: input.input.userPrompt,
+      brandContext: input.input.authoringContext.systemBrief,
+      contentSignalProfile: input.input.contentSignalProfile
+        ? {
+            constraints: input.input.contentSignalProfile.profile.constraints,
+            signals: input.input.contentSignalProfile.profile.signals,
+            derived: input.input.contentSignalProfile.profile.derived,
+            intent: input.input.contentSignalProfile.intent,
+          }
+        : null,
+      sourceLedger: input.sourceLedger,
+      creativeReferences: input.input.authoringContext.creativeReferenceContext,
+      treatmentIdentity: {
+        treatmentId: `treatment_${input.inputFingerprint.slice(0, 24)}`,
+        inputFingerprint: input.inputFingerprint,
+        note: 'The server owns these values and will attach them after model output validation.',
+      },
+      allowedTraceEvidence: {
+        sourceRefs: input.sourceLedger.entries.map((entry) => entry.referenceId),
+        creativeReferenceIds: input.input.authoringContext.creativeReferenceContext.selectedReferenceIds,
+        creativeReferenceEvidenceIds: input.input.authoringContext.creativeReferenceContext.referenceSet.references
+          .flatMap((reference) => reference.analysis?.evidence.map((evidence) => evidence.id) ?? []),
+        graphConstraintIds: input.knowledge.editronGraph.evidence.map((evidence) => evidence.id),
+      },
+    },
+    fieldLimits: {
+      userBrief: 16_000,
+      brandContext: 24_000,
+      sourceLedger: 48_000,
+      creativeReferences: 32_000,
+      editorialPlan: 28_000,
+      productionBrief: 16_000,
+      contentSignalProfile: 24_000,
+    },
+  });
+}
+
+function buildTreatmentSystemInstruction(knowledge: VideoTreatmentKnowledge): string {
+  return [
+    VIDEO_TREATMENT_CACHE_SYSTEM_INSTRUCTION,
+    '<selected_creative_content_knowledge>',
+    knowledge.writingKnowledge.relevantSections,
+    '</selected_creative_content_knowledge>',
+    '<selected_editron_semantic_evidence>',
+    JSON.stringify({
+      version: knowledge.editronGraph.version,
+      guardrails: knowledge.editronGraph.evidence,
+      unresolvedAssumptions: knowledge.editronGraph.unresolvedAssumptions,
+    }),
+    '</selected_editron_semantic_evidence>',
+  ].join('\n');
+}
+
+const VIDEO_TREATMENT_CACHE_SYSTEM_INSTRUCTION = `<video_treatment_planner_contract version="1">
+- Plan the entire video's audiovisual meaning before prose. The result is a semantic treatment, not a shot list or render plan.
+- Return only the structured model schema. The server owns treatment IDs, input fingerprints, Brand Vault revision provenance, and knowledge versions.
+- A visual event may coexist with spoken audio and another visual event inside one narrative moment. Do not flatten mixed media into a single asset recommendation.
+- Choose a capture requirement only when the approved brief genuinely needs real-world capture, a real product demonstration, screen evidence, a host, a location, or another confirmed physical requirement. A conceptual, graphics-led, archive-led, or generated treatment can have zero capture requirements.
+- Do not prescribe a camera, lens, framing coordinate, room geometry, lighting position, equipment, asset query, visual layout, typography, keyframe, transition implementation, SFX token, render provider, or timeline segmentation. Editron owns final editorial form; Shoot Kit owns physical calibration after user confirmation.
+- Treat sourceLedger as the only factual source. Use only listed source reference IDs; no invented claims, proof, dates, statistics, outcomes, people, UI states, or logos.
+- Treat creativeReferences as influence only. Use only provided reference IDs and evidence IDs. Do not copy a reference's wording, layout, branded assets, named people, logos, or recognizable execution.
+- Treat selected creative-content knowledge and selected Editron semantic evidence as binding guidance. They constrain attention, accessibility, continuity, rhythm, and audiovisual relationships; they do not license final form choices.
+- Put unknown setup or unavailable reference analysis into named unresolved assumptions. Do not invent capabilities or technical certainty.
+</video_treatment_planner_contract>`;
+
+function assertNoCriticalPromptTruncation(truncatedFields: readonly string[]): void {
+  const critical = truncatedFields.filter((path) => /^(data\.(brandContext|sourceLedger|creativeReferences|editorialPlan|productionBrief|contentSignalProfile))/.test(path));
+  if (critical.length === 0) return;
+  throw new VideoTreatmentPlannerError(
+    'prompt_boundary_truncated',
+    `Video treatment input exceeded a protected prompt boundary: ${critical.join(', ')}`,
+  );
+}
+
+function materializeVideoTreatment(input: {
+  modelOutput: VideoTreatmentModelOutput;
+  inputFingerprint: string;
+  treatmentId: string;
+  input: PlanVideoTreatmentInput;
+  knowledge: VideoTreatmentKnowledge;
+}): VideoTreatment {
+  const inheritedUnknowns = [
+    ...input.modelOutput.decisionTrace.unresolvedAssumptions,
+    ...input.input.authoringContext.creativeReferenceContext.unresolved.map((unknown) => unknown.message),
+    ...input.knowledge.editronGraph.unresolvedAssumptions,
+  ];
+  const snapshotBrand = input.input.authoringContext.snapshot.brand;
+  // The authoring-context snapshot carries additional diagnostic fields. The
+  // treatment trace deliberately persists only its stable brand provenance.
+  const traceBrand = snapshotBrand
+    ? {
+        brandId: snapshotBrand.brandId,
+        recordId: snapshotBrand.recordId,
+        profileFingerprint: snapshotBrand.profileFingerprint,
+      }
+    : undefined;
+
+  return parseVideoTreatment({
+    version: VIDEO_TREATMENT_VERSION,
+    treatmentId: input.treatmentId,
+    ...input.modelOutput,
+    decisionTrace: {
+      ...input.modelOutput.decisionTrace,
+      inputFingerprint: input.inputFingerprint,
+      ...(traceBrand ? { brand: traceBrand } : {}),
+      contentSignalProfileVersion: input.input.contentSignalProfile
+        ? hashThinkForgeTraceValue({
+            profile: input.input.contentSignalProfile.profile,
+            intent: input.input.contentSignalProfile.intent,
+          })
+        : undefined,
+      writingKnowledgeVersion: input.knowledge.writingKnowledge.version,
+      ...(input.knowledge.editronGraph.version
+        ? { editronCreativeGraphVersion: input.knowledge.editronGraph.version }
+        : {}),
+      unresolvedAssumptions: unique(inheritedUnknowns),
+    },
+  });
+}
+
+function assertTreatmentProvenance(
+  treatment: VideoTreatment,
+  sourceLedger: SourceLedger,
+  authoringContext: ThinkForgeResolvedAuthoringContext,
+  knowledge: VideoTreatmentKnowledge,
+): void {
+  assertVideoTreatmentReferences(treatment, authoringContext.creativeReferenceContext.referenceSet);
+
+  const allowedSourceRefs = new Set(sourceLedger.entries.map((entry) => entry.referenceId));
+  const allowedDecisionEvidence = new Set([
+    ...allowedSourceRefs,
+    ...authoringContext.creativeReferenceContext.selectedReferenceIds,
+    ...authoringContext.creativeReferenceContext.referenceSet.references.flatMap(
+      (reference) => reference.analysis?.evidence.map((evidence) => evidence.id) ?? [],
+    ),
+    ...knowledge.editronGraph.evidence.map((evidence) => evidence.id),
+  ]);
+  const allowedConstraintIds = new Set(knowledge.editronGraph.evidence.map((evidence) => evidence.id));
+  const issues: string[] = [];
+  const check = (ids: readonly string[], allowed: Set<string>, owner: string) => {
+    ids.forEach((id) => {
+      if (!allowed.has(id)) issues.push(`${owner}:${id}`);
+    });
+  };
+
+  check(treatment.decisionTrace.sourceRefs, allowedSourceRefs, 'trace_source_ref');
+  check(treatment.decisionTrace.appliedConstraintIds, allowedConstraintIds, 'trace_constraint');
+  treatment.decisionTrace.decisions.forEach((decision) => {
+    check(decision.evidenceIds, allowedDecisionEvidence, `decision_evidence:${decision.id}`);
+  });
+  treatment.visualEvents.forEach((event) => check(event.sourceRefs, allowedSourceRefs, `visual_event_source:${event.id}`));
+  treatment.captureRequirements.forEach((requirement) => check(
+    requirement.sourceRefs,
+    allowedSourceRefs,
+    `capture_requirement_source:${requirement.id}`,
+  ));
+
+  if (issues.length > 0) {
+    throw new VideoTreatmentPlannerError(
+      'provenance_invalid',
+      `Video treatment contains undeclared provenance: ${issues.join(', ')}`,
+    );
+  }
+}
+
+function unique(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+async function generateVideoTreatment(input: Parameters<VideoTreatmentPlannerGenerator>[0]) {
+  return generateStructuredWithWritingContextCache<VideoTreatmentModelOutput>(input);
+}
+
+async function recordVideoTreatmentPlanningReceipt(input: VideoTreatmentPlanningReceipt): Promise<void> {
+  await recordProviderCostEvent({
+    status: 'success',
+    service: 'thinkforge',
+    action: 'video_treatment_planning',
+    route: 'lib/thinkforge/video-treatment/treatment-planner',
+    provider: 'gemini',
+    model: input.modelName,
+    // Provider cost itself is recorded by the shared writing-context operation.
+    operation: 'treatment_planning_receipt',
+    userId: input.userId,
+    orgId: input.orgId ?? undefined,
+    projectId: input.projectId,
+    taskId: input.sessionId,
+    units: { requestCount: 0, functionMs: input.latencyMs },
+    metadata: {
+      inputFingerprint: input.inputFingerprint,
+      treatmentId: input.treatmentId,
+      cacheStatus: input.cacheStatus,
+      writingContextCacheStatus: input.writingContextCacheStatus,
+      writingKnowledgeVersion: input.writingKnowledgeVersion,
+      editronCreativeGraphVersion: input.editronCreativeGraphVersion,
+      upstreamCostOperation: 'writing_context_cache',
+    },
+  });
+}
+
+class UpstashVideoTreatmentPlanningCache implements VideoTreatmentPlanningCache {
+  async read(inputFingerprint: string): Promise<VideoTreatmentPlanningCacheRead> {
+    const redis = await getTreatmentRedis();
+    if (!redis) return { status: 'unavailable', reason: 'redis_not_configured' };
+
+    try {
+      const raw = await withCacheDeadline(
+        redis.get<unknown>(cacheKey(inputFingerprint)),
+        'read',
+      );
+      const record = parseCacheRecord(raw, inputFingerprint);
+      if (record) return { status: 'hit', record };
+      if (raw !== null) await withCacheDeadline(redis.del(cacheKey(inputFingerprint)), 'write');
+      return { status: 'miss' };
+    } catch (error) {
+      return { status: 'unavailable', reason: cacheErrorMessage(error) };
+    }
+  }
+
+  async write(record: VideoTreatmentPlanningCacheRecord): Promise<{ status: 'stored' } | { status: 'unavailable'; reason: string }> {
+    const redis = await getTreatmentRedis();
+    if (!redis) return { status: 'unavailable', reason: 'redis_not_configured' };
+
+    try {
+      await withCacheDeadline(
+        redis.set(cacheKey(record.inputFingerprint), record, { ex: VIDEO_TREATMENT_CACHE_TTL_SECONDS }),
+        'write',
+      );
+      return { status: 'stored' };
+    } catch (error) {
+      return { status: 'unavailable', reason: cacheErrorMessage(error) };
+    }
+  }
+}
+
+type TreatmentRedis = {
+  get<T>(key: string): Promise<T | null>;
+  set(key: string, value: unknown, options: { ex: number }): Promise<unknown>;
+  del(key: string): Promise<unknown>;
+};
+
+async function getTreatmentRedis(): Promise<TreatmentRedis | null> {
+  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  if (!url || !token) return null;
+  const { Redis } = await import('@upstash/redis');
+  return new Redis({ url, token }) as unknown as TreatmentRedis;
+}
+
+function withCacheDeadline<T>(promise: Promise<T>, operation: 'read' | 'write'): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Treatment cache ${operation} timed out`)), VIDEO_TREATMENT_CACHE_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function parseCacheRecord(value: unknown, inputFingerprint: string): VideoTreatmentPlanningCacheRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Partial<VideoTreatmentPlanningCacheRecord>;
+  if (
+    record.version !== VIDEO_TREATMENT_CACHE_VERSION
+    || record.inputFingerprint !== inputFingerprint
+    || typeof record.modelName !== 'string'
+    || typeof record.latencyMs !== 'number'
+    || !Number.isFinite(record.latencyMs)
+    || typeof record.createdAt !== 'string'
+  ) return null;
+
+  const parsedTreatment = VideoTreatmentSchema.safeParse(record.treatment);
+  if (!parsedTreatment.success) return null;
+  const treatment = parsedTreatment.data;
+  if (treatment.decisionTrace.inputFingerprint !== inputFingerprint) return null;
+  return {
+    version: VIDEO_TREATMENT_CACHE_VERSION,
+    inputFingerprint,
+    treatment,
+    modelName: record.modelName,
+    latencyMs: record.latencyMs,
+    createdAt: record.createdAt,
+  };
+}
+
+function cacheKey(inputFingerprint: string): string {
+  return `${VIDEO_TREATMENT_CACHE_KEY_PREFIX}:${createHash('sha256').update(inputFingerprint).digest('hex')}`;
+}
+
+function cacheErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 240) : 'cache_unavailable';
+}

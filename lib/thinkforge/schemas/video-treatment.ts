@@ -125,7 +125,7 @@ export const TreatmentDecisionSchema = z.object({
   confidence: z.number().finite().min(0).max(1),
 }).strict();
 
-export const VideoTreatmentDecisionTraceSchema = z.object({
+const VideoTreatmentDecisionTraceObjectSchema = z.object({
   inputFingerprint: NonEmptyTextSchema,
   brand: z.object({
     brandId: IdentifierSchema,
@@ -140,8 +140,22 @@ export const VideoTreatmentDecisionTraceSchema = z.object({
   appliedConstraintIds: NonEmptyTextListSchema,
   unresolvedAssumptions: NonEmptyTextListSchema,
   decisions: z.array(TreatmentDecisionSchema).min(1),
-}).strict().superRefine((trace, ctx) => {
+}).strict();
+
+export const VideoTreatmentDecisionTraceSchema = VideoTreatmentDecisionTraceObjectSchema.superRefine((trace, ctx) => {
   validateUniqueIds(ctx, trace.decisions, 'decisions', 'treatment decision');
+});
+
+/**
+ * The planner never lets a model author identity or provenance version fields.
+ * It supplies semantic decisions only; the server materializes the final trace.
+ */
+export const VideoTreatmentModelDecisionTraceSchema = VideoTreatmentDecisionTraceObjectSchema.omit({
+  inputFingerprint: true,
+  brand: true,
+  contentSignalProfileVersion: true,
+  writingKnowledgeVersion: true,
+  editronCreativeGraphVersion: true,
 });
 
 export const CaptureRequirementSchema = z.object({
@@ -232,6 +246,21 @@ export const VideoTreatmentSchema = VideoTreatmentObjectSchema.superRefine((trea
   });
 });
 
+/**
+ * Structured provider output excludes all server-owned treatment identity and
+ * trace provenance. This prevents a model from becoming an authority for IDs,
+ * Brand Vault revisions, or cache identity.
+ */
+export const VideoTreatmentModelOutputSchema = VideoTreatmentObjectSchema
+  .omit({
+    version: true,
+    treatmentId: true,
+    decisionTrace: true,
+  })
+  .extend({
+    decisionTrace: VideoTreatmentModelDecisionTraceSchema,
+  });
+
 export const VideoTreatmentSidecarBindingSchema = z.object({
   treatmentId: IdentifierSchema,
   treatmentVersion: z.number().int().default(VIDEO_TREATMENT_VERSION),
@@ -245,6 +274,7 @@ export const VideoTreatmentSidecarBindingSchema = z.object({
 export type CreativeReferenceSet = z.infer<typeof CreativeReferenceSetSchema>;
 export type CreativeReference = z.infer<typeof CreativeReferenceSchema>;
 export type VideoTreatment = z.infer<typeof VideoTreatmentSchema>;
+export type VideoTreatmentModelOutput = z.infer<typeof VideoTreatmentModelOutputSchema>;
 export type VideoTreatmentDecisionTrace = z.infer<typeof VideoTreatmentDecisionTraceSchema>;
 export type TreatmentDecision = z.infer<typeof TreatmentDecisionSchema>;
 export type CaptureRequirement = z.infer<typeof CaptureRequirementSchema>;

@@ -1,7 +1,7 @@
 # ThinkForge Semantic Video Treatment Plan
 
 **Date:** 2026-08-21
-**Status:** proposed; no implementation starts until Phase 0 is approved
+**Status:** Phase 2 complete; Phase 3 not started
 **Scope owner:** ThinkForge
 **Related systems:** Editron consumes semantic intent; Shoot Kit consumes capture requirements. Neither becomes a second authoring authority.
 
@@ -191,6 +191,8 @@ Every implementation batch is at most five production/test files, has one focuse
 - Cost, model, latency, and input fingerprint are persisted for the operation.
 
 **Stop line:** no Sidecar V3 write path, no Shoot Kit UI, and no final Editron rendering change. Do not use the planner for posts or generic chat.
+
+**Completion evidence (2026-08-22):** `planVideoTreatment` now resolves selected writing doctrine and compact, read-only Editron semantic constraints, produces a server-materialized versioned treatment/trace, validates source/reference provenance, records a non-billing planning receipt, and caches only an exact stable input fingerprint. Focused tests prove cache reuse, Brand Vault/reference invalidation, no-capture output, protected prompt boundaries, undeclared-provenance rejection, and rejection of non-video requests. No writer, Sidecar, Editron handoff, or Shoot Kit path consumes it yet.
 
 ### Phase 3: Make the script writer treatment-aware
 
