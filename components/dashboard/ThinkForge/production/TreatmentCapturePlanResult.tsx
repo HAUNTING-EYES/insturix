@@ -127,6 +127,31 @@ function RequirementList({
               ))}
             </ul>
           </div>
+
+          {requirement.continuity.chapterScope !== "unmapped" && (
+            <div className="mt-3 border-t border-[#1C1B19] pt-2">
+              <p className={MONO_LABEL}>Story continuity</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-[#B5B2A8]">
+                {requirement.continuity.chapterScope === "cross-chapter"
+                  ? `Appears in ${requirement.continuity.chapters.length} planned chapters. Keep the treatment's story connection where it applies.`
+                  : "Appears in one planned chapter."}
+              </p>
+              <ul className="mt-2 space-y-1">
+                {requirement.continuity.chapters.map((chapter) => (
+                  <li key={`${chapter.actId}:${chapter.chapterId}`} className="text-[11px] leading-relaxed text-[#B5B2A8]">
+                    <span className="font-medium text-[#ECE9E1]">{chapter.actTitle}: </span>{chapter.chapterTitle}
+                  </li>
+                ))}
+              </ul>
+              {requirement.continuity.continuityNotes.length > 0 && (
+                <ul className="mt-2 space-y-1 pl-3">
+                  {requirement.continuity.continuityNotes.map((note) => (
+                    <li key={note} className="list-disc text-[11px] leading-relaxed text-[#B5B2A8]">{note}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </article>
       ))}
     </section>

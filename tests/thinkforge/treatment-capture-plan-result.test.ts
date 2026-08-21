@@ -22,13 +22,16 @@ function requirement(overrides: Partial<CaptureRequirement> = {}): CaptureRequir
     capabilityEvidence: [],
     linkedNarrativeMoments: [{
       actId: 'act_1',
+      actTitle: 'Opening',
       narrativeSceneId: 'scene_1',
       beatId: 'beat_1',
       eventId: 'event_1',
       narrativePurpose: 'Let the evidence carry the proof while narration adds context.',
       timingNote: 'Appears alongside the explanation.',
       sourceRefs: [],
+      continuityNotes: [],
     }],
+    continuity: { chapterScope: 'unmapped', actIds: ['act_1'], chapters: [], continuityNotes: [] },
     ...overrides,
   } as CaptureRequirement;
 }
@@ -95,5 +98,34 @@ describe('TreatmentCapturePlanResult', () => {
     expect(html).toContain('Confirm capture inputs');
     expect(html).not.toContain('26mm');
     expect(html).not.toContain('room-center');
+  });
+
+  it('shows authored cross-chapter continuity without promising that physical setup can be reused', () => {
+    vi.stubGlobal('React', React);
+    const html = renderToStaticMarkup(React.createElement(TreatmentCapturePlanResult, {
+      plan: plan({
+        physicalCaptureRequirements: [requirement({
+          captureKind: 'physical-camera',
+          continuity: {
+            chapterScope: 'cross-chapter',
+            actIds: ['act_1', 'act_2'],
+            chapters: [
+              { actId: 'act_1', actTitle: 'Opening', chapterId: 'chapter_1', chapterTitle: 'The claim', narrativeSceneIds: ['scene_1'] },
+              { actId: 'act_2', actTitle: 'Return', chapterId: 'chapter_2', chapterTitle: 'The consequence', narrativeSceneIds: ['scene_2'] },
+            ],
+            continuityNotes: ['Return to the host after the counterpoint resolves.'],
+          },
+        })],
+        nonPhysicalAcquisitionRequirements: [],
+      }),
+    }));
+
+    expect(html).toContain('Story continuity');
+    expect(html).toContain('Appears in 2 planned chapters.');
+    expect(html).toContain('Opening: ');
+    expect(html).toContain('The consequence');
+    expect(html).toContain('Return to the host after the counterpoint resolves.');
+    expect(html).not.toContain('same camera');
+    expect(html).not.toContain('same room');
   });
 });
