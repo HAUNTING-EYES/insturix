@@ -183,11 +183,11 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
           className="text-center space-y-6"
         >
           <motion.div
-            className="inline-flex items-center gap-2 px-4 py-2 bg-black backdrop-blur-sm rounded-full border border-zinc-800"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-surface-raised backdrop-blur-sm rounded-full border border-ds-emphasis"
             whileHover={{ scale: 1.02 }}
           >
-            <Music className="w-5 h-5 text-yellow-400" />
-            <span className="text-yellow-300 font-medium">Generated Music</span>
+            <Music className="w-5 h-5 text-gold" />
+            <span className="text-gold font-medium">Generated Music</span>
           </motion.div>
           
           <motion.h1
@@ -209,8 +209,8 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
             className="flex items-center justify-center py-12"
           >
             <div className="text-center space-y-4">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400 mx-auto"></div>
-              <p className="text-zinc-300">Loading audio...</p>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold mx-auto"></div>
+              <p className="text-ds-secondary">Loading audio...</p>
             </div>
           </motion.div>
         )}
@@ -239,14 +239,14 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3 }}
           >
-            <Card className="bg-yellow-900/20 border-yellow-800/50 shadow-elevated overflow-hidden">
+            <Card className="bg-gold/10 border-gold/40 shadow-elevated overflow-hidden">
               <div className="p-8 text-center space-y-4">
-                <div className="flex items-center justify-center gap-2 text-yellow-400">
+                <div className="flex items-center justify-center gap-2 text-gold">
                   <Music className="w-8 h-8" />
                   <span className="text-lg font-semibold">Audio Not Available</span>
                 </div>
-                <p className="text-yellow-300">Audio file is not ready or could not be loaded.</p>
-                <p className="text-sm text-yellow-400/70">Please check back later or try refreshing the page.</p>
+                <p className="text-ds-secondary">Audio file is not ready or could not be loaded.</p>
+                <p className="text-sm text-ds-muted">Please check back later or try refreshing the page.</p>
               </div>
             </Card>
           </motion.div>
@@ -259,17 +259,17 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3 }}
           >
-            <Card className="bg-black backdrop-blur-sm border-zinc-800 shadow-elevated overflow-hidden">
+            <Card className="bg-surface-raised backdrop-blur-sm border-ds-emphasis shadow-elevated overflow-hidden">
               <div className="p-8 space-y-8">
                 {/* Audio Visualizer */}
                 <motion.div
-                  className="h-40 bg-zinc-800/50 rounded-xl border border-zinc-700 flex items-center justify-center relative overflow-hidden"
+                  className="h-40 bg-surface-well rounded-xl border border-ds-emphasis flex items-center justify-center relative overflow-hidden"
                   animate={{
                     backgroundColor: "hsl(0 0% 15% / 0.5)"
                   }}
                 >
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <Music className="w-16 h-16 text-zinc-500" />
+                    <Music className="w-16 h-16 text-ds-dim" />
                   </div>
                   
                   {/* Minimal animated bars when playing */}
@@ -296,11 +296,11 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                       max="100"
                       value={duration ? (currentTime / duration) * 100 : 0}
                       onChange={handleSeek}
-                      className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer premium-slider"
+                      className="w-full h-1 bg-surface-well rounded-lg appearance-none cursor-pointer premium-slider"
                       disabled={isControlsDisabled}
                     />
                   </div>
-                  <div className="flex justify-between text-sm text-zinc-300 font-mono">
+                  <div className="flex justify-between text-sm text-ds-secondary font-mono">
                     <span>{formatTime(currentTime)}</span>
                     <span>{formatTime(duration)}</span>
                   </div>
@@ -317,7 +317,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                       size="player"
                       onClick={togglePlay}
                       disabled={isControlsDisabled}
-                      className={`shadow-elevated bg-yellow-400 text-zinc-950 hover:bg-yellow-300 ${isControlsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      className={`shadow-elevated bg-gold text-gold-contrast hover:bg-gold-hover ${isControlsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       {isPlaying ? (
                         <Pause className="w-6 h-6" />
@@ -334,7 +334,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                       size="icon"
                       onClick={toggleMute}
                       disabled={isControlsDisabled}
-                      className={`text-zinc-300 hover:text-white ${isControlsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      className={`text-ds-secondary hover:text-ds-primary ${isControlsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                     </Button>
@@ -344,7 +344,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                       max="100"
                       value={isMuted ? 0 : volume * 100}
                       onChange={handleVolumeChange}
-                      className="w-24 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer premium-slider"
+                      className="w-24 h-1 bg-surface-well rounded-lg appearance-none cursor-pointer premium-slider"
                       disabled={isControlsDisabled}
                     />
                   </div>
@@ -378,7 +378,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
           className="grid md:grid-cols-2 gap-6"
         >
           {/* Generation Details */}
-          <Card className="bg-black backdrop-blur-sm border-zinc-800 shadow-elevated">
+          <Card className="bg-surface-raised backdrop-blur-sm border-ds-emphasis shadow-elevated">
             <div className="p-6 space-y-6 relative overflow-hidden">
               {/* Gradient Mesh Background */}
               <div
@@ -386,43 +386,43 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                 className="pointer-events-none absolute inset-0 z-0"
                 style={{
                   background:
-                    "radial-gradient(ellipse 40% 30% at 25% 35%, #FFD60022 0%, transparent 70%), radial-gradient(ellipse 30% 20% at 75% 65%, #7dd3fc22 0%, transparent 70%), radial-gradient(ellipse 30% 20% at 60% 20%, #a78bfa22 0%, transparent 70%)",
+                    "radial-gradient(ellipse 40% 30% at 25% 35%, rgba(212,166,82,0.12) 0%, transparent 70%), radial-gradient(ellipse 30% 20% at 75% 65%, rgba(212,166,82,0.06) 0%, transparent 70%)",
                   filter: "blur(40px)",
                   opacity: 0.45,
                 }}
               />
-              <h3 className="text-lg font-semibold text-yellow-300 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-yellow-400" />
+              <h3 className="text-lg font-semibold text-gold flex items-center gap-2">
+                <FileText className="w-5 h-5 text-gold" />
                 Generation Details
               </h3>
               
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Style:</span>
-                  <Badge className="bg-yellow-400 text-zinc-950 border-yellow-400">
+                  <span className="text-ds-secondary">Style:</span>
+                  <Badge className="bg-gold text-gold-contrast border-gold">
                     {style}
                   </Badge>
                 </div>
                 
-                <Separator className="bg-zinc-700" />
+                <Separator className="bg-ds-emphasis" />
                 
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-300 flex items-center gap-2">
+                  <span className="text-ds-secondary flex items-center gap-2">
                     <Mic className="w-4 h-4" />
                     Instrumental Only:
                   </span>
-                  <Badge className={instrumentalOnly ? "bg-yellow-400 text-zinc-950" : "bg-zinc-800 text-zinc-300 border-zinc-700"}>
+                  <Badge className={instrumentalOnly ? "bg-gold text-gold-contrast" : "bg-surface-well text-ds-secondary border-ds-emphasis"}>
                     {instrumentalOnly ? "Yes" : "No"}
                   </Badge>
                 </div>
                 
                 {lyrics && (
                   <>
-                    <Separator className="bg-zinc-700" />
+                    <Separator className="bg-ds-emphasis" />
                     <div className="space-y-3">
-                      <span className="text-zinc-300">Lyrics:</span>
-                      <div className="p-4 bg-zinc-800/50 rounded-lg border border-zinc-700">
-                        <p className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed">
+                      <span className="text-ds-secondary">Lyrics:</span>
+                      <div className="p-4 bg-surface-well rounded-lg border border-ds-emphasis">
+                        <p className="text-sm text-ds-primary whitespace-pre-wrap leading-relaxed">
                           {lyrics}
                         </p>
                       </div>
@@ -434,7 +434,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
           </Card>
 
           {/* Metadata */}
-          <Card className="bg-black backdrop-blur-sm border-zinc-800 shadow-elevated">
+          <Card className="bg-surface-raised backdrop-blur-sm border-ds-emphasis shadow-elevated">
             <div className="p-6 space-y-6 relative overflow-hidden">
               {/* Gradient Mesh Background */}
               <div
@@ -442,19 +442,19 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                 className="pointer-events-none absolute inset-0 z-0"
                 style={{
                   background:
-                    "radial-gradient(ellipse 40% 30% at 25% 35%, #FFD60022 0%, transparent 70%), radial-gradient(ellipse 30% 20% at 75% 65%, #7dd3fc22 0%, transparent 70%), radial-gradient(ellipse 30% 20% at 60% 20%, #a78bfa22 0%, transparent 70%)",
+                    "radial-gradient(ellipse 40% 30% at 25% 35%, rgba(212,166,82,0.12) 0%, transparent 70%), radial-gradient(ellipse 30% 20% at 75% 65%, rgba(212,166,82,0.06) 0%, transparent 70%)",
                   filter: "blur(40px)",
                   opacity: 0.45,
                 }}
               />
-              <h3 className="text-lg font-semibold text-yellow-300 flex items-center gap-2">
-                <Hash className="w-5 h-5 text-yellow-400" />
+              <h3 className="text-lg font-semibold text-gold flex items-center gap-2">
+                <Hash className="w-5 h-5 text-gold" />
                 Metadata
               </h3>
               
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-300 flex items-center gap-2">
+                  <span className="text-ds-secondary flex items-center gap-2">
                     <Calendar className="w-4 h-4" />
                     Created:
                   </span>
@@ -463,12 +463,12 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                   </span>
                 </div>
                 
-                <Separator className="bg-zinc-700" />
+                <Separator className="bg-ds-emphasis" />
                 
                 <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Task ID:</span>
+                  <span className="text-ds-secondary">Task ID:</span>
                   <div className="flex items-center gap-2">
-                    <code className="px-3 py-1 bg-black/50 rounded-md text-sm text-zinc-200 border border-zinc-700 font-mono">
+                    <code className="px-3 py-1 bg-surface-canvas rounded-md text-sm text-ds-primary border border-ds-emphasis font-mono">
                       {taskId}
                     </code>
                   </div>
@@ -495,7 +495,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
             height: 16px;
             width: 16px;
             border-radius: 50%;
-            background: hsl(0 0% 98%);
+            background: #D4A652;
             cursor: pointer;
             box-shadow: 0 1px 3px hsl(0 0% 0% / 0.5);
           }
@@ -504,7 +504,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
             height: 16px;
             width: 16px;
             border-radius: 50%;
-            background: hsl(0 0% 98%);
+            background: #D4A652;
             cursor: pointer;
             border: none;
             box-shadow: 0 1px 3px hsl(0 0% 0% / 0.5);
@@ -545,7 +545,7 @@ const AudioVisualizer = ({ analyser }: { analyser: AnalyserNode | null }) => {
       {Array.from(barHeights).map((height, i) => (
         <motion.div
           key={i}
-          className="w-1 bg-zinc-300 rounded-full"
+          className="w-1 bg-gold rounded-full"
           initial={{ height: 0 }}
           animate={{ height: height / 2.5 }}
           transition={{ duration: 0.05 }}
