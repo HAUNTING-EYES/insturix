@@ -1,0 +1,122 @@
+import { deepFreezeV1 } from './contracts-v1';
+import {
+  runProviderNativeToolEpisodeV2R,
+  type ProviderNativeEpisodeContextV2R,
+  type ProviderNativeEpisodeReceiptV2R,
+  type ProviderNativeInvokeResponseV2R,
+  type ProviderNativeToolExecutionV2R,
+} from './provider-native-tool-episode-v2r';
+import type {
+  ProviderNativeRouteV2R,
+  SerializedProviderNativeTurnV2R,
+} from './provider-native-tool-codecs-v2r';
+import { buildProviderNativeFinishControlSchemaV2R }
+  from './provider-native-tool-catalog-v2r';
+import type { ProviderNativeArgumentHandoffModeV2R }
+  from './provider-native-result-references-v2r';
+import {
+  assertSealedHoldoutCohortManifestV2R,
+  type SealedHoldoutCohortManifestV2R,
+} from './sealed-holdout-cohort-v2r';
+import { assertNoEvaluatorLeakV2 } from './staged-packet-v2';
+
+type JsonRecord = Record<string, unknown>;
+
+export const SEALED_HOLDOUT_EPISODE_VERSION_V2R =
+  'EDITRON_OE_SEALED_HOLDOUT_EPISODE_V2R_1' as const;
+export const SEALED_HOLDOUT_FINISH_SCHEMA_V2R =
+  buildProviderNativeFinishControlSchemaV2R([
+    'READY_FOR_PROOF', 'PASS', 'FAIL', 'UNVERIFIABLE', 'CAPABILITY_GAP',
+    'POLICY_BLOCKED', 'CONFLICT',
+  ]);
+
+export function buildSealedHoldoutEpisodeContextV2R(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV2R>;
+  caseId: string;
+}): Readonly<ProviderNativeEpisodeContextV2R> {
+  const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
+  const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
+  if (!taskCase) fail(`SEALED_HOLDOUT_EPISODE_CASE_MISSING:${input.caseId}`);
+  const publicCase = record(taskCase.publicCase);
+  const project = record(publicCase.project);
+  const shared = record(manifest.sharedModelContext);
+  const planningSheet = record(shared.planningToolSheet);
+  const unavailableIds = new Set(strings(shared.unavailableOperatorIds));
+  const unavailableOperatorRecords = records(planningSheet.operators)
+    .filter((operator) => unavailableIds.has(text(operator.operatorId)));
+  const context = deepFreezeV1({
+    episodeId: `${SEALED_HOLDOUT_EPISODE_VERSION_V2R}:${taskCase.caseId}`,
+    objective: text(publicCase.request),
+    activeTarget: {
+      case: taskCase.publicCase,
+      unavailableOperatorRecords,
+      completeCapabilityContextSha256: manifest.sharedModelContextSha256,
+    },
+    revisionBinding: {
+      projectId: text(project.projectId),
+      expectedProjectRevision: text(project.expectedProjectRevision),
+    },
+    projectState: {
+      project: publicCase.project,
+      media: publicCase.media,
+    },
+    evidence: records(publicCase.evidenceAvailability),
+    preservationRules: [
+      'Preserve every explicit user do-not-change requirement.',
+      'Do not infer or fabricate evidence that an owner tool did not return.',
+      'Do not claim rendered proof before the isolated proof stage supplies it.',
+    ],
+    authorityAndPolicy: {
+      ...record(publicCase.policy),
+      projectAuthority: 'DENIED_RESEARCH_CLONE_ONLY',
+      evaluatorKnowledge: 'DENIED',
+      unavailableOperationsAreVisibleButNotCallable: true,
+    },
+    budget: { maxTurns: 24, maxOutputTokensPerTurn: 4096, maxIdenticalCalls: 2 },
+  } satisfies ProviderNativeEpisodeContextV2R);
+  assertNoEvaluatorLeakV2(context);
+  return context;
+}
+
+export async function runSealedHoldoutEpisodeV2R(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV2R>;
+  caseId: string;
+  route: Readonly<ProviderNativeRouteV2R>;
+  argumentHandoffMode?: ProviderNativeArgumentHandoffModeV2R;
+  operatorPresentationOrder?: readonly string[];
+  invoke: (request: Readonly<SerializedProviderNativeTurnV2R>)
+    => Promise<ProviderNativeInvokeResponseV2R>;
+  executeIsolated: (call: Readonly<{
+    operatorId: string; arguments: Readonly<JsonRecord>; turn: number;
+  }>) => Promise<Readonly<ProviderNativeToolExecutionV2R>>;
+}): Promise<Readonly<ProviderNativeEpisodeReceiptV2R>> {
+  const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
+  const expected = strings(record(manifest.sharedModelContext).callableOperatorIds);
+  const operatorOrder = input.operatorPresentationOrder ?? expected;
+  if (!sameSet(operatorOrder, expected)) fail('SEALED_HOLDOUT_EPISODE_OPERATOR_SET_DRIFT');
+  return runProviderNativeToolEpisodeV2R({
+    route: input.route,
+    context: buildSealedHoldoutEpisodeContextV2R({ manifest, caseId: input.caseId }),
+    eligibleOperatorIds: operatorOrder,
+    argumentHandoffMode: input.argumentHandoffMode,
+    finishInputSchema: SEALED_HOLDOUT_FINISH_SCHEMA_V2R,
+    additionalInstructions: [
+      'All forty planning records are represented: callable operations are tools; unavailable records are context-only and must never be fabricated as calls.',
+      'Use POLICY_BLOCKED only when supplied rights, privacy, egress, or security policy forbids the required action.',
+      'The opaque C1/C2 label carries no semantic meaning. Base every choice on the request and returned tool evidence.',
+    ],
+    invoke: input.invoke,
+    executeIsolated: input.executeIsolated,
+  });
+}
+
+function sameSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && new Set(left).size === left.length
+    && left.every((value) => right.includes(value));
+}
+function fail(code: string): never { throw new Error(code); }
+function isRecord(value: unknown): value is JsonRecord { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
+function record(value: unknown): JsonRecord { return isRecord(value) ? value : {}; }
+function records(value: unknown): JsonRecord[] { return Array.isArray(value) ? value.filter(isRecord) : []; }
+function strings(value: unknown): string[] { return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []; }
+function text(value: unknown): string { return typeof value === 'string' ? value : ''; }

@@ -29,7 +29,8 @@ export const PROVIDER_NATIVE_EPISODE_VERSION_V2R =
 export const MAX_OPERATOR_ARGUMENT_REPAIRS_PER_EPISODE_V2R = 2 as const;
 
 export type ProviderNativeTerminalDispositionV2R =
-  | 'READY_FOR_PROOF' | 'PASS' | 'FAIL' | 'UNVERIFIABLE' | 'CAPABILITY_GAP' | 'CONFLICT'
+  | 'READY_FOR_PROOF' | 'PASS' | 'FAIL' | 'UNVERIFIABLE' | 'CAPABILITY_GAP'
+  | 'POLICY_BLOCKED' | 'CONFLICT'
   | 'PROVIDER_RATE_LIMIT' | 'PROVIDER_TIMEOUT' | 'PROVIDER_REFUSAL'
   | 'PROVIDER_ERROR' | 'TOOL_PROTOCOL_FAILURE' | 'TOOL_EXECUTION_FAILURE'
   | 'STEP_BUDGET_EXHAUSTED';
@@ -97,14 +98,20 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   eligibleOperatorIds: readonly string[];
   argumentHandoffMode?: ProviderNativeArgumentHandoffModeV2R;
   referenceInput?: Readonly<ProviderNativeReferenceInputV2R>;
+  finishInputSchema?: Readonly<JsonRecord>;
+  additionalInstructions?: readonly string[];
   invoke: (request: Readonly<SerializedProviderNativeTurnV2R>) => Promise<ProviderNativeInvokeResponseV2R>;
   executeIsolated: (
     call: Readonly<{ operatorId: string; arguments: Readonly<JsonRecord>; turn: number }>,
   ) => Promise<Readonly<ProviderNativeToolExecutionV2R>>;
 }): Promise<Readonly<ProviderNativeEpisodeReceiptV2R>> {
   validateContext(input.context);
+  const additionalInstructions = validateAdditionalInstructions(input.additionalInstructions);
   const argumentHandoffMode = input.argumentHandoffMode ?? 'DIRECT_ARGUMENTS';
-  const exactToolSet = buildProviderNativeToolSetV2R(input.eligibleOperatorIds);
+  const exactToolSet = buildProviderNativeToolSetV2R(
+    input.eligibleOperatorIds,
+    input.finishInputSchema,
+  );
   const toolSet = argumentHandoffMode === 'OPAQUE_RESULT_REFERENCES'
     ? buildOpaqueResultReferenceToolSetV2R(exactToolSet)
     : exactToolSet;
@@ -131,6 +138,7 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       'Do not invent operations, internal ports, receipt plumbing, rendered proof or real-project mutation success.',
       'Treat every tool result as new causal state. When all requested isolated-clone edits are complete but system-owned render or acceptance proof has not run, finish READY_FOR_PROOF without claiming that proof.',
       'Finish PASS only when the supplied tool results already contain every required proof.',
+      ...additionalInstructions,
       ...(argumentHandoffMode === 'OPAQUE_RESULT_REFERENCES' ? [
         'Declared prior tool-output projections expose opaque resultReferences while their raw values are withheld. To pass an exact prior value into a later operation, omit that direct argument and bind it with argumentReferences [{targetField,resultReferenceId}].',
         'Reference IDs are episode-local causal handles, not values. Do not copy, edit, predict or forge the referenced value. All direct and resolved arguments still undergo the operation exact-input validator before execution.',
@@ -451,6 +459,14 @@ function validateContext(context: Readonly<ProviderNativeEpisodeContextV2R>): vo
     || !Number.isSafeInteger(maxIdenticalCalls) || maxIdenticalCalls < 1 || maxIdenticalCalls > 3) {
     throw new Error('PROVIDER_NATIVE_CONTEXT_BUDGET_INVALID');
   }
+}
+
+function validateAdditionalInstructions(value: readonly string[] | undefined): readonly string[] {
+  if (value === undefined) return [];
+  if (value.length > 8 || value.some((entry) => !entry.trim() || entry.length > 1_000)) {
+    throw new Error('PROVIDER_NATIVE_ADDITIONAL_INSTRUCTIONS_INVALID');
+  }
+  return [...value];
 }
 
 function validExecutionEnvelope(value: Readonly<ProviderNativeToolExecutionV2R>): boolean {

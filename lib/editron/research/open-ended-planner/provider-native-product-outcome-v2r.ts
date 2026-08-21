@@ -5,6 +5,7 @@ export type ProviderNativeProductOutcomeV2R =
   | 'FAIL'
   | 'UNVERIFIABLE'
   | 'CAPABILITY_GAP'
+  | 'POLICY_BLOCKED'
   | 'CONFLICT'
   | 'NOT_EVALUATED_PROVIDER_INFRASTRUCTURE';
 
@@ -29,6 +30,7 @@ export function mapProviderNativeNonProofTerminalToProductOutcomeV2R(
   }
   if (disposition === 'UNVERIFIABLE') return 'UNVERIFIABLE';
   if (disposition === 'CAPABILITY_GAP') return 'CAPABILITY_GAP';
+  if (disposition === 'POLICY_BLOCKED') return 'POLICY_BLOCKED';
   if (disposition === 'CONFLICT') return 'CONFLICT';
   return 'FAIL';
 }

@@ -50,6 +50,7 @@ export interface ProviderNativeToolSetV2R {
 
 export function buildProviderNativeToolSetV2R(
   eligibleOperatorIds: readonly string[],
+  finishInputSchema: Readonly<JsonRecord> = finishControlSchema(),
 ): Readonly<ProviderNativeToolSetV2R> {
   const operatorIds = requireUniqueIds(eligibleOperatorIds);
   const catalogOperators = records(V2R_OPERATOR_CATALOG.operators);
@@ -67,7 +68,8 @@ export function buildProviderNativeToolSetV2R(
     dossier.operators.map((operator) => [text(operator.operatorId), operator]),
   );
   const operators = selected.map((operator) => buildOperatorTool(operator, plannerById));
-  const finishControl = buildFinishControl(finishControlSchema());
+  assertProviderStrictControlSchema(finishInputSchema, '$');
+  const finishControl = buildFinishControl(finishInputSchema);
   const material = {
     version: PROVIDER_NATIVE_TOOL_SET_VERSION_V2R,
     authority: 'V2R_CATALOG_PLUS_CAP2A_DOSSIER' as const,
@@ -272,11 +274,24 @@ function makeOpenAiStrictSchema(schema: Readonly<JsonRecord>): Readonly<JsonReco
 }
 
 function finishControlSchema(): Readonly<JsonRecord> {
+  return buildProviderNativeFinishControlSchemaV2R([
+    'READY_FOR_PROOF', 'PASS', 'FAIL', 'UNVERIFIABLE', 'CAPABILITY_GAP', 'CONFLICT',
+  ]);
+}
+
+export function buildProviderNativeFinishControlSchemaV2R(
+  dispositions: readonly string[],
+): Readonly<JsonRecord> {
+  const unique = dispositions.map((value) => value.trim());
+  if (!unique.length || unique.some((value) => !value)
+    || new Set(unique).size !== unique.length) {
+    throw new Error('PROVIDER_NATIVE_FINISH_DISPOSITIONS_INVALID');
+  }
   return deepFreezeV1({
     type: 'object',
     properties: {
       disposition: {
-        enum: ['READY_FOR_PROOF', 'PASS', 'FAIL', 'UNVERIFIABLE', 'CAPABILITY_GAP', 'CONFLICT'],
+        enum: unique,
       },
       reasonCodes: {
         type: 'array', items: { type: 'string', minLength: 1 }, minItems: 1, uniqueItems: true,
