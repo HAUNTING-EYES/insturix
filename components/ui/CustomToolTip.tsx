@@ -230,7 +230,7 @@ export default function UserDropdown({
               ease: [0.4, 0, 0.2, 1],
               layout: { duration: 0.2 }
             }}
-            className="absolute bottom-full left-0 mb-2 w-full bg-zinc-900 border border-white/10 rounded-lg overflow-hidden shadow-xl z-50 backdrop-blur-sm"
+            className="absolute bottom-full left-0 mb-2 w-full bg-[#131312] border border-[#282724] rounded-lg overflow-hidden shadow-xl z-50 backdrop-blur-sm"
             style={{
               minWidth: isCollapsed ? "240px" : "100%",
               transformOrigin: "bottom center"
@@ -259,7 +259,7 @@ export default function UserDropdown({
                   <p className="font-medium">
                     {clerkUser.fullName || clerkUser.username}
                   </p>
-                  <p className="text-[11px] text-zinc-400">
+                  <p className="text-[11px] text-[#7A776E]">
                     {clerkUser.primaryEmailAddress?.emailAddress}
                   </p>
                 </div>
@@ -282,7 +282,7 @@ export default function UserDropdown({
                           <span className="text-sm font-medium">Settings</span>
                         </motion.button>
                       </TooltipTrigger>
-                      <TooltipContent side="right" className="bg-zinc-800 border-white/10">
+                      <TooltipContent side="right" className="bg-[#131312] border-[#282724] text-[#ECE9E1]">
                         <p className="text-[11px]">Manage your account settings</p>
                       </TooltipContent>
                     </Tooltip>
@@ -302,7 +302,7 @@ export default function UserDropdown({
                           <span className="text-sm font-medium">Manage Plan</span>
                         </motion.button>
                       </TooltipTrigger>
-                      <TooltipContent side="right" className="bg-zinc-800 border-white/10">
+                      <TooltipContent side="right" className="bg-[#131312] border-[#282724] text-[#ECE9E1]">
                         <p className="text-[11px]">View and manage your subscription plan</p>
                       </TooltipContent>
                     </Tooltip>
@@ -324,7 +324,7 @@ export default function UserDropdown({
                           <span className="text-sm font-medium">Sign Out</span>
                         </motion.button>
                       </TooltipTrigger>
-                      <TooltipContent side="right" className="bg-zinc-800 border-white/10">
+                      <TooltipContent side="right" className="bg-[#131312] border-[#282724] text-[#ECE9E1]">
                         <p className="text-[11px]">Sign out of your account</p>
                       </TooltipContent>
                     </Tooltip>
@@ -332,15 +332,15 @@ export default function UserDropdown({
                 </div>
             </motion.div>
 
-            <div className="p-3 bg-zinc-900 border-t border-white/10">
+            <div className="p-3 bg-[#131312] border-t border-[#282724]">
               <motion.button
                 whileHover={{ scale: 1.07 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleUpgradeClick}
-                className="w-full py-2.5 bg-white/60 hover:bg-zinc-200/80 border border-white text-zinc-900 font-medium text-sm rounded-lg shadow-lg overflow-hidden relative group transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-amber-400 hover:shadow-[0_0_24px_6px_rgba(202,138,4,0.25)]"
+                className="w-full py-2.5 bg-gold hover:bg-gold-hover border border-gold text-gold-contrast font-medium text-sm rounded-lg shadow-lg overflow-hidden relative group transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gold/70"
                 type="button"
               >
-                <span className="relative z-10 bg-gradient-to-r from-zinc-900 via-yellow-900 to-amber-800 bg-clip-text text-transparent font-extrabold text-[14px] drop-shadow-sm select-none">
+                <span className="relative z-10 text-gold-contrast font-extrabold text-[14px] select-none">
                   Upgrade Plan
                 </span>
                 {/* Always-on shine */}
