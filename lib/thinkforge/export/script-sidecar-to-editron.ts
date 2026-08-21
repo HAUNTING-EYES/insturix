@@ -11,6 +11,14 @@ import {
   type ProviderRenderSegmentV2,
   type ScriptSidecarV2,
 } from '@/lib/thinkforge/schemas/script-sidecar-v2';
+import {
+  getCanonicalBeatSpokenTextV3,
+  SCRIPT_SIDECAR_V3_VERSION,
+  type NarrativeBeatV3,
+  type NarrativeSceneV3,
+  type NarrativeVisualEventV3,
+  type ScriptSidecarV3,
+} from '@/lib/thinkforge/schemas/script-sidecar-v3';
 import { SCRIPT_SIDECAR_VERSION, type ScriptSidecar } from '@/lib/thinkforge/schemas/script-sidecar';
 import {
   ScriptChapterPlanSchema,
@@ -43,10 +51,19 @@ export interface ThinkForgeEditronSceneBinding {
   lineIds: string[];
   sourceRefs: string[];
   renderSegmentIds: string[];
+  /** Present for V3 semantic sidecars; final render form remains Editron-owned. */
+  semanticVisualEventIds?: string[];
   durationSource: ThinkForgeEditronDurationSource;
 }
 
-export interface ThinkForgeEditronSidecarCompilation {
+export interface ThinkForgeEditronSemanticVisualEvent {
+  actId: string;
+  narrativeSceneId: string;
+  beatId: string;
+  event: NarrativeVisualEventV3;
+}
+
+interface ThinkForgeEditronLegacySidecarCompilation {
   version: typeof THINKFORGE_EDITRON_SIDECAR_COMPILATION_VERSION;
   sourceSidecarVersion: typeof SCRIPT_SIDECAR_VERSION | typeof SCRIPT_SIDECAR_V2_VERSION;
   canonicalSidecarVersion: typeof SCRIPT_SIDECAR_V2_VERSION;
@@ -54,6 +71,21 @@ export interface ThinkForgeEditronSidecarCompilation {
   narrativeSidecar: ScriptSidecarV2;
   sceneBindings: ThinkForgeEditronSceneBinding[];
 }
+
+interface ThinkForgeEditronV3SidecarCompilation {
+  version: typeof THINKFORGE_EDITRON_SIDECAR_COMPILATION_VERSION;
+  sourceSidecarVersion: typeof SCRIPT_SIDECAR_V3_VERSION;
+  canonicalSidecarVersion: typeof SCRIPT_SIDECAR_V3_VERSION;
+  spokenTextSource: 'beat-lines';
+  narrativeSidecar: ScriptSidecarV3;
+  treatment: ScriptSidecarV3['treatment'];
+  semanticVisualEvents: ThinkForgeEditronSemanticVisualEvent[];
+  sceneBindings: ThinkForgeEditronSceneBinding[];
+}
+
+export type ThinkForgeEditronSidecarCompilation =
+  | ThinkForgeEditronLegacySidecarCompilation
+  | ThinkForgeEditronV3SidecarCompilation;
 
 export interface ThinkForgeEditronHandoffContext {
   version: typeof THINKFORGE_EDITRON_HANDOFF_VERSION;
@@ -132,6 +164,12 @@ interface FlattenedNarrativeScene {
   sceneIndex: number;
 }
 
+interface FlattenedNarrativeSceneV3 {
+  actId: string;
+  scene: NarrativeSceneV3;
+  sceneIndex: number;
+}
+
 interface LongFormSceneOwner {
   actId: string;
   chapterId: string;
@@ -154,6 +192,15 @@ function declaredSidecarVersion(value: unknown): number | undefined {
 }
 
 function flattenNarrativeScenes(sidecar: ScriptSidecarV2): FlattenedNarrativeScene[] {
+  let sceneIndex = 0;
+  return sidecar.acts.flatMap((act) => act.narrativeScenes.map((scene) => ({
+    actId: act.id,
+    scene,
+    sceneIndex: sceneIndex++,
+  })));
+}
+
+function flattenNarrativeScenesV3(sidecar: ScriptSidecarV3): FlattenedNarrativeSceneV3[] {
   let sceneIndex = 0;
   return sidecar.acts.flatMap((act) => act.narrativeScenes.map((scene) => ({
     actId: act.id,
@@ -326,6 +373,80 @@ function compileV2Scenes(
   return { scenes, durationSources };
 }
 
+function resolveV3SceneDuration(
+  claimedVersion: number,
+  scene: NarrativeSceneV3,
+): { durationSeconds: number; source: Exclude<ThinkForgeEditronDurationSource, 'legacy-v1' | 'render-segments'> } {
+  if (scene.durationIntentSeconds !== undefined) {
+    return { durationSeconds: scene.durationIntentSeconds, source: 'narrative-scene' };
+  }
+
+  if (scene.beats.every((beat) => beat.durationIntentSeconds !== undefined)) {
+    return {
+      durationSeconds: scene.beats.reduce((total, beat) => total + (beat.durationIntentSeconds ?? 0), 0),
+      source: 'narrative-beats',
+    };
+  }
+
+  throw new ThinkForgeSidecarCompilationError({
+    code: 'scene-duration-unresolved',
+    claimedVersion,
+    message: `Semantic narrative scene "${scene.id}" has no complete authored duration evidence.`,
+  });
+}
+
+function semanticVisualDescription(scene: NarrativeSceneV3): string {
+  const eventDescriptions = scene.beats.flatMap((beat) => beat.visualEvents.map((event) => [
+    `Audience job: ${event.audienceJob}.`,
+    `Visual thesis: ${event.visualThesis}.`,
+    `Relationship to audio: ${event.audioRelationship}.`,
+    `Timing: ${event.timingNote}.`,
+    ...(event.brandConstraints.length > 0 ? [`Brand constraints: ${event.brandConstraints.join(' ')}`] : []),
+    ...(event.accessibilityRequirements.length > 0
+      ? [`Accessibility: ${event.accessibilityRequirements.join(' ')}`]
+      : []),
+  ].join(' ')));
+
+  return [
+    `Narrative purpose: ${scene.narrativePurpose}.`,
+    ...eventDescriptions,
+  ].join('\n\n');
+}
+
+function compileV3Scenes(
+  sidecar: ScriptSidecarV3,
+  claimedVersion: number,
+): { scenes: SceneDescriptor[]; durationSources: ThinkForgeEditronDurationSource[] } {
+  const durationSources: ThinkForgeEditronDurationSource[] = [];
+  const scenes = flattenNarrativeScenesV3(sidecar).map(({ scene, sceneIndex }) => {
+    const duration = resolveV3SceneDuration(claimedVersion, scene);
+    durationSources.push(duration.source);
+    return {
+      sceneIndex,
+      title: scene.title,
+      narration: scene.beats
+        .map(getCanonicalBeatSpokenTextV3)
+        .filter(Boolean)
+        .join('\n\n'),
+      visualDescription: semanticVisualDescription(scene),
+      durationSeconds: duration.durationSeconds,
+      mood: scene.mood ?? '',
+    } satisfies SceneDescriptor;
+  });
+  return { scenes, durationSources };
+}
+
+function v3SceneSourceRefs(scene: NarrativeSceneV3): string[] {
+  return Array.from(new Set([
+    ...scene.sourceRefs,
+    ...scene.beats.flatMap((beat) => [
+      ...beat.sourceRefs,
+      ...beat.lines.flatMap((line) => line.sourceRefs),
+      ...beat.visualEvents.flatMap((event) => event.sourceRefs),
+    ]),
+  ]));
+}
+
 function mapLegacyV1Scenes(sidecar: ScriptSidecar): SceneDescriptor[] {
   return sidecar.scenes.map((scene, sceneIndex) => ({
     sceneIndex,
@@ -355,11 +476,11 @@ function resolveLongFormSceneOwners(input: {
   claimedVersion: number;
 }): Map<string, LongFormSceneOwner> | undefined {
   if (input.chapterPlan === undefined) return undefined;
-  if (input.readResult.sourceVersion !== SCRIPT_SIDECAR_V2_VERSION) {
+  if (input.readResult.sourceVersion === SCRIPT_SIDECAR_VERSION) {
     throw new ThinkForgeSidecarCompilationError({
       code: 'long-form-sidecar-version-mismatch',
       claimedVersion: input.claimedVersion,
-      message: 'A long-form Editron export requires the persisted V2 production sidecar.',
+      message: 'A long-form Editron export requires a persisted V2 or V3 production sidecar.',
     });
   }
   const parsedPlan = ScriptChapterPlanSchema.safeParse(input.chapterPlan);
@@ -379,7 +500,10 @@ function resolveLongFormSceneOwners(input: {
     });
   }));
   const resolvedOwners = new Map<string, LongFormSceneOwner>();
-  flattenNarrativeScenes(input.readResult.sidecar).forEach(({ actId, scene }) => {
+  const flattenedScenes = input.readResult.sourceVersion === SCRIPT_SIDECAR_V3_VERSION
+    ? flattenNarrativeScenesV3(input.readResult.sidecar)
+    : flattenNarrativeScenes(input.readResult.sidecar);
+  flattenedScenes.forEach(({ actId, scene }) => {
     const owner = expectedOwners.get(scene.id);
     if (!owner) {
       throw new ThinkForgeSidecarCompilationError({
@@ -413,6 +537,69 @@ function buildSidecarCompilation(
   durationSources: ThinkForgeEditronDurationSource[],
   chapterPlan?: unknown,
 ): ThinkForgeEditronSidecarCompilation {
+  const chapterOwners = resolveLongFormSceneOwners({
+    chapterPlan,
+    readResult,
+    claimedVersion: readResult.sourceVersion,
+  });
+
+  if (readResult.sourceVersion === SCRIPT_SIDECAR_V3_VERSION) {
+    const flattenedScenes = flattenNarrativeScenesV3(readResult.sidecar);
+    if (durationSources.length !== flattenedScenes.length) {
+      throw new ThinkForgeSidecarCompilationError({
+        code: 'compiler-invariant',
+        claimedVersion: readResult.sourceVersion,
+        message: 'Compiled semantic scene duration evidence does not match the narrative scene count.',
+      });
+    }
+    const semanticVisualEvents = flattenedScenes.flatMap(({ actId, scene }) => scene.beats.flatMap((beat) => (
+      beat.visualEvents.map((event) => ({
+        actId,
+        narrativeSceneId: scene.id,
+        beatId: beat.id,
+        event,
+      }))
+    )));
+    const semanticEventIds = new Set<string>();
+    semanticVisualEvents.forEach(({ event }) => {
+      if (semanticEventIds.has(event.treatmentEventId)) {
+        throw new ThinkForgeSidecarCompilationError({
+          code: 'compiler-invariant',
+          claimedVersion: readResult.sourceVersion,
+          message: `Semantic treatment event "${event.treatmentEventId}" is bound to more than one beat.`,
+        });
+      }
+      semanticEventIds.add(event.treatmentEventId);
+    });
+
+    return {
+      version: THINKFORGE_EDITRON_SIDECAR_COMPILATION_VERSION,
+      sourceSidecarVersion: SCRIPT_SIDECAR_V3_VERSION,
+      canonicalSidecarVersion: SCRIPT_SIDECAR_V3_VERSION,
+      spokenTextSource: 'beat-lines',
+      narrativeSidecar: readResult.sidecar,
+      treatment: readResult.sidecar.treatment,
+      semanticVisualEvents,
+      sceneBindings: flattenedScenes.map(({ actId, scene, sceneIndex }) => {
+        const chapterOwner = chapterOwners?.get(scene.id);
+        return {
+          sceneIndex,
+          actId,
+          ...(chapterOwner ? { chapterId: chapterOwner.chapterId } : {}),
+          narrativeSceneId: scene.id,
+          beatIds: scene.beats.map((beat) => beat.id),
+          lineIds: scene.beats.flatMap((beat) => beat.lines.map((line) => line.id)),
+          sourceRefs: v3SceneSourceRefs(scene),
+          renderSegmentIds: [],
+          semanticVisualEventIds: scene.beats.flatMap((beat) => (
+            beat.visualEvents.map((event) => event.treatmentEventId)
+          )),
+          durationSource: durationSources[sceneIndex]!,
+        };
+      }),
+    };
+  }
+
   const flattenedScenes = flattenNarrativeScenes(readResult.sidecar);
   if (durationSources.length !== flattenedScenes.length) {
     throw new ThinkForgeSidecarCompilationError({
@@ -421,11 +608,6 @@ function buildSidecarCompilation(
       message: 'Compiled scene duration evidence does not match the narrative scene count.',
     });
   }
-  const chapterOwners = resolveLongFormSceneOwners({
-    chapterPlan,
-    readResult,
-    claimedVersion: readResult.sourceVersion,
-  });
   return {
     version: THINKFORGE_EDITRON_SIDECAR_COMPILATION_VERSION,
     sourceSidecarVersion: readResult.sourceVersion,
@@ -488,7 +670,9 @@ function compileScriptSidecar(
         scenes: mapLegacyV1Scenes(readResult.legacyV1),
         durationSources: readResult.legacyV1.scenes.map(() => 'legacy-v1' as const),
       }
-    : compileV2Scenes(readResult.sidecar, claimedVersion ?? SCRIPT_SIDECAR_V2_VERSION);
+    : readResult.sourceVersion === SCRIPT_SIDECAR_V2_VERSION
+      ? compileV2Scenes(readResult.sidecar, claimedVersion ?? SCRIPT_SIDECAR_V2_VERSION)
+      : compileV3Scenes(readResult.sidecar, claimedVersion ?? SCRIPT_SIDECAR_V3_VERSION);
 
   return {
     readResult,
@@ -556,7 +740,10 @@ function buildAvatarDirectives(
       .filter((directive): directive is ThinkForgeAvatarSceneDirective => directive !== null);
   }
 
-  return flattenNarrativeScenes(compiled.readResult.sidecar)
+  const flattenedScenes = compiled.readResult.sourceVersion === SCRIPT_SIDECAR_V3_VERSION
+    ? flattenNarrativeScenesV3(compiled.readResult.sidecar)
+    : flattenNarrativeScenes(compiled.readResult.sidecar);
+  return flattenedScenes
     .map(({ scene, sceneIndex }) => {
       const speakers = scene.beats
         .flatMap((beat) => beat.lines)
@@ -615,16 +802,19 @@ export function buildThinkForgeEditronHandoffContext(input: {
 }
 
 /**
- * Compile a validated V1 or V2 writer sidecar into Editron's current scene contract.
+ * Compile a validated writer sidecar into Editron's current scene contract.
  * Narrative hierarchy remains intact in sidecarCompilation; render segments never
- * become narrative scenes or replace canonical beat-line text.
+ * become narrative scenes or replace canonical beat-line text. V3 retains its
+ * treatment events as semantic evidence and never receives V2 render form.
  */
 export function mapScriptSidecarToEditronExport(
   input: unknown,
   options: ScriptSidecarEditronCompilationOptions = {},
 ): ScriptSidecarEditronExport {
   const compiled = compileScriptSidecar(input, options);
-  const creativeDirection = compiled.readResult.sidecar.creativeDirection;
+  const creativeDirection = compiled.readResult.sourceVersion === SCRIPT_SIDECAR_V3_VERSION
+    ? undefined
+    : compiled.readResult.sidecar.creativeDirection;
   const legacyV1 = compiled.readResult.sourceVersion === SCRIPT_SIDECAR_VERSION
     ? compiled.readResult.legacyV1
     : undefined;

@@ -397,9 +397,9 @@ describe('Script Sidecar V2 narrative contract', () => {
     expect(() => parseScriptSidecarV2(input)).toThrow();
   });
 
-  it('discriminates versions before invoking either parser', () => {
+  it('discriminates versions before invoking an incompatible parser', () => {
     expect(() => readScriptSidecar({ ...v1Sidecar(), sidecarVersion: 3 }))
-      .toThrow(/Unsupported script sidecar version: 3/);
+      .toThrow(/(treatment|Expected Script Sidecar version 3|Unrecognized key)/);
     expect(() => parseScriptSidecarV2({ ...v2Sidecar(), sidecarVersion: 1 }))
       .toThrow(/Expected Script Sidecar version 2/);
   });

@@ -5,6 +5,11 @@ import {
   ThinkForgeSidecarCompilationError,
 } from '@/lib/thinkforge/export/script-sidecar-to-editron';
 import { parseScriptSidecarV2 } from '@/lib/thinkforge/schemas/script-sidecar-v2';
+import {
+  materializeScriptSidecarV3,
+  ScriptWriterSidecarV3ModelSchema,
+} from '@/lib/thinkforge/schemas/script-sidecar-v3';
+import { mixedPresenterCutawayTreatment } from '@/tests/fixtures/thinkforge-video-treatment';
 
 function shotIntent() {
   return {
@@ -383,6 +388,52 @@ function v1Sidecar() {
   };
 }
 
+function v3Sidecar() {
+  return materializeScriptSidecarV3({
+    treatment: mixedPresenterCutawayTreatment,
+    identityPolicy: { mode: 'ordinary' },
+    modelSidecar: ScriptWriterSidecarV3ModelSchema.parse({
+      sidecarVersion: 3,
+      spokenTextSource: 'beat-lines',
+      characters: [{ id: 'host', name: 'Host', role: 'host' }],
+      acts: [{
+        id: 'draft_act',
+        title: 'The claim and its counterpoint',
+        narrativePurpose: 'Let the host establish stakes while the process becomes visible.',
+        narrativeScenes: [{
+          id: 'draft_scene',
+          title: 'The hidden process',
+          narrativePurpose: 'Keep the human claim and the explanatory counterpoint active together.',
+          durationIntentSeconds: 12,
+          charactersPresent: ['host'],
+          sourceRefs: ['src_brief'],
+          beats: [{
+            id: 'draft_beat',
+            kind: 'mixed',
+            narrativePurpose: 'Make the cost clear without repeating the narration as an overlay.',
+            durationIntentSeconds: 12,
+            lines: [{
+              id: 'draft_line',
+              text: 'The cost is visible long before the handoff that caused it.',
+              speakerId: 'host',
+              languageCode: 'en',
+              onCamera: true,
+              delivery: 'sync-dialogue',
+              sourceRefs: ['src_brief'],
+            }],
+            treatmentVisualEvents: [
+              { treatmentEventId: 'event_host_claim' },
+              { treatmentEventId: 'event_process_cutaway' },
+            ],
+            sourceRefs: ['src_brief'],
+          }],
+        }],
+      }],
+      sourceRefs: ['src_brief'],
+    }),
+  });
+}
+
 describe('ThinkForge Script Sidecar to Editron compiler', () => {
   it('preserves V1 scene projection while carrying the normalized hierarchy', () => {
     const result = mapScriptSidecarToEditronExport(v1Sidecar());
@@ -448,6 +499,86 @@ describe('ThinkForge Script Sidecar to Editron compiler', () => {
     });
     expect(result.sidecarCompilation.narrativeSidecar.acts[0]?.narrativeScenes[0]?.beats[0]?.shotIntent)
       .toEqual(shotIntent());
+  });
+
+  it('compiles V3 treatment semantics without fabricating V2 render form', () => {
+    const result = mapScriptSidecarToEditronExport(v3Sidecar());
+    const context = buildThinkForgeEditronHandoffContext({
+      sidecar: v3Sidecar(),
+      briefSnapshot: {
+        casting: { map: { host: { avatarProfileId: 'avatar_host', voice: { mode: 'cloned' } } } },
+      },
+    });
+
+    expect(result.sidecarVersion).toBe(3);
+    expect(result.scenes).toHaveLength(1);
+    expect(result.scenes[0]).toMatchObject({
+      narration: 'The cost is visible long before the handoff that caused it.',
+      durationSeconds: 12,
+    });
+    expect(result.scenes[0]?.visualDescription).toContain(
+      'Make the abstract operational cost visible while the host continues speaking.',
+    );
+    expect(result.scenes[0]).not.toHaveProperty('cameraDirection');
+    expect(result.scenes[0]).not.toHaveProperty('videoMotionPrompt');
+    expect(result.scenes[0]).not.toHaveProperty('assetRecommendation');
+
+    expect(result.sidecarCompilation).toMatchObject({
+      sourceSidecarVersion: 3,
+      canonicalSidecarVersion: 3,
+      treatment: {
+        treatmentId: mixedPresenterCutawayTreatment.treatmentId,
+        treatmentVersion: mixedPresenterCutawayTreatment.version,
+      },
+      sceneBindings: [expect.objectContaining({
+        narrativeSceneId: 'scene_1',
+        sourceRefs: ['src_brief'],
+        renderSegmentIds: [],
+        semanticVisualEventIds: ['event_host_claim', 'event_process_cutaway'],
+      })],
+    });
+    if (result.sidecarCompilation.sourceSidecarVersion !== 3) {
+      throw new Error('Expected V3 semantic compilation.');
+    }
+    expect(result.sidecarCompilation.semanticVisualEvents.map(({ actId, narrativeSceneId, beatId, event }) => ({
+      actId,
+      narrativeSceneId,
+      beatId,
+      eventId: event.treatmentEventId,
+      relationship: event.audioRelationship,
+      sourceRefs: event.sourceRefs,
+    }))).toEqual([
+      {
+        actId: 'act_1',
+        narrativeSceneId: 'scene_1',
+        beatId: 'beat_1',
+        eventId: 'event_host_claim',
+        relationship: 'anchor',
+        sourceRefs: [],
+      },
+      {
+        actId: 'act_1',
+        narrativeSceneId: 'scene_1',
+        beatId: 'beat_1',
+        eventId: 'event_process_cutaway',
+        relationship: 'counterpoint',
+        sourceRefs: ['src_brief'],
+      },
+    ]);
+    expect(context.avatarDirectives).toEqual([{
+      sceneIndex: 0,
+      durationSeconds: 12,
+      speakers: [{
+        characterId: 'host',
+        avatarProfileId: 'avatar_host',
+        voiceMode: 'cloned',
+        lineText: 'The cost is visible long before the handoff that caused it.',
+        sourceRefs: ['src_brief'],
+      }],
+    }]);
+    expect(JSON.stringify(result)).not.toContain('"shotIntent"');
+    expect(JSON.stringify(result)).not.toContain('"renderPlan"');
+    expect(JSON.stringify(result)).not.toContain('"assetRecommendation"');
   });
 
   it('binds every long-form V2 scene to its persisted chapter for Editron', () => {

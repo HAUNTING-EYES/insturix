@@ -12,6 +12,11 @@ import {
   type ProviderRenderSegmentV2,
   type ScriptSidecarV2,
 } from './script-sidecar-v2';
+import {
+  parseScriptSidecarV3,
+  SCRIPT_SIDECAR_V3_VERSION,
+  type ScriptSidecarV3,
+} from './script-sidecar-v3';
 
 export type ScriptSidecarReadResult =
   | {
@@ -22,6 +27,10 @@ export type ScriptSidecarReadResult =
   | {
       sourceVersion: typeof SCRIPT_SIDECAR_V2_VERSION;
       sidecar: ScriptSidecarV2;
+    }
+  | {
+      sourceVersion: typeof SCRIPT_SIDECAR_V3_VERSION;
+      sidecar: ScriptSidecarV3;
     };
 
 type LegacyScriptSidecarReadResult = Extract<ScriptSidecarReadResult, { sourceVersion: 1 }>;
@@ -187,7 +196,13 @@ export function adaptScriptSidecarV1(input: unknown): LegacyScriptSidecarReadRes
   return { sourceVersion: SCRIPT_SIDECAR_VERSION, sidecar, legacyV1 };
 }
 
-/** Version-discriminating reader for migration callers; no live consumer uses it yet. */
+/**
+ * Version-discriminating reader for persisted writer sidecars.
+ *
+ * V3 is intentionally read as its native semantic contract. It is never
+ * projected through V2 because that would fabricate render-form fields which
+ * the V3 authoring contract expressly forbids.
+ */
 export function readScriptSidecar(input: unknown): ScriptSidecarReadResult {
   const declaredVersion = readDeclaredVersion(input);
   if (declaredVersion === undefined || declaredVersion === SCRIPT_SIDECAR_VERSION) {
@@ -197,6 +212,12 @@ export function readScriptSidecar(input: unknown): ScriptSidecarReadResult {
     return {
       sourceVersion: SCRIPT_SIDECAR_V2_VERSION,
       sidecar: parseScriptSidecarV2(input),
+    };
+  }
+  if (declaredVersion === SCRIPT_SIDECAR_V3_VERSION) {
+    return {
+      sourceVersion: SCRIPT_SIDECAR_V3_VERSION,
+      sidecar: parseScriptSidecarV3(input),
     };
   }
   throw new Error(`Unsupported script sidecar version: ${declaredVersion}.`);
