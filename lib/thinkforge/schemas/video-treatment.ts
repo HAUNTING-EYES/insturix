@@ -158,16 +158,58 @@ export const VideoTreatmentModelDecisionTraceSchema = VideoTreatmentDecisionTrac
   editronCreativeGraphVersion: true,
 });
 
+export const CaptureRequirementKindSchema = z.enum([
+  'physical-camera',
+  'screen-recording',
+  'source-asset',
+  'unspecified',
+]);
+
+/**
+ * These are user-confirmable production capabilities, not a visual-form preset.
+ * A treatment says what evidence must be captured; a later technical planner
+ * decides any actual camera, lighting, or layout form.
+ */
+export const CaptureRequirementCapabilitySchema = z.enum([
+  'performer',
+  'camera',
+  'space',
+  'audio',
+  'lighting',
+]);
+
 export const CaptureRequirementSchema = z.object({
   id: IdentifierSchema,
   objective: NonEmptyTextSchema,
   whyRequired: NonEmptyTextSchema,
   subjectOrEvidence: NonEmptyTextSchema.optional(),
+  // Older cached treatments are intentionally unclassified until reviewed.
+  // They must never be treated as implicit camera work.
+  captureKind: CaptureRequirementKindSchema.default('unspecified'),
+  requiredCapabilities: z.array(CaptureRequirementCapabilitySchema).default([]),
   sourceRefs: NonEmptyTextListSchema,
   creativeReferenceIds: NonEmptyTextListSchema,
   constraints: NonEmptyTextListSchema,
   unresolvedCapabilityQuestions: NonEmptyTextListSchema,
-}).strict();
+}).strict().superRefine((requirement, ctx) => {
+  if (new Set(requirement.requiredCapabilities).size !== requirement.requiredCapabilities.length) {
+    addIssue(ctx, ['requiredCapabilities'], 'Capture requirement capabilities must be unique.');
+  }
+  if (requirement.captureKind === 'physical-camera' && requirement.requiredCapabilities.length === 0) {
+    addIssue(
+      ctx,
+      ['requiredCapabilities'],
+      'A physical-camera requirement must declare the user-confirmable capabilities it needs.',
+    );
+  }
+  if (requirement.captureKind !== 'physical-camera' && requirement.requiredCapabilities.length > 0) {
+    addIssue(
+      ctx,
+      ['requiredCapabilities'],
+      'Only physical-camera requirements may declare physical production capabilities.',
+    );
+  }
+});
 
 export const VisualEventSchema = z.object({
   id: IdentifierSchema,
@@ -278,6 +320,8 @@ export type VideoTreatmentModelOutput = z.infer<typeof VideoTreatmentModelOutput
 export type VideoTreatmentDecisionTrace = z.infer<typeof VideoTreatmentDecisionTraceSchema>;
 export type TreatmentDecision = z.infer<typeof TreatmentDecisionSchema>;
 export type CaptureRequirement = z.infer<typeof CaptureRequirementSchema>;
+export type CaptureRequirementKind = z.infer<typeof CaptureRequirementKindSchema>;
+export type CaptureRequirementCapability = z.infer<typeof CaptureRequirementCapabilitySchema>;
 export type VisualEvent = z.infer<typeof VisualEventSchema>;
 export type VideoTreatmentSidecarBinding = z.infer<typeof VideoTreatmentSidecarBindingSchema>;
 

@@ -40,6 +40,10 @@ describe('ThinkForge VideoTreatment contract', () => {
     expect(events.map((event) => event.audioRelationship)).toEqual(['anchor', 'counterpoint']);
     expect(events[0]?.captureRequirementIds).toEqual(['capture_host_opening']);
     expect(events[1]?.captureRequirementIds).toEqual([]);
+    expect(parsed.captureRequirements[0]).toMatchObject({
+      captureKind: 'physical-camera',
+      requiredCapabilities: ['performer', 'camera', 'space', 'audio'],
+    });
   });
 
   it('does not permit a legacy asset recommendation to become a treatment decision', () => {
@@ -77,7 +81,21 @@ describe('ThinkForge VideoTreatment contract', () => {
       'Which room can be used?',
       'What audio and lighting are available?',
     ]);
+    expect(requirement.requiredCapabilities).toEqual(['performer', 'camera', 'space', 'audio', 'lighting']);
     expect(requirement.constraints.join(' ')).toMatch(/Do not estimate a lens, room depth, lighting layout, cost, or setup time/);
+  });
+
+  it('keeps legacy capture records unclassified rather than inventing camera work', () => {
+    const legacy = structuredClone(mixedPresenterCutawayTreatment);
+    const requirement = legacy.captureRequirements[0]! as Record<string, unknown>;
+    delete requirement.captureKind;
+    delete requirement.requiredCapabilities;
+
+    const parsed = parseVideoTreatment(legacy);
+    expect(parsed.captureRequirements[0]).toMatchObject({
+      captureKind: 'unspecified',
+      requiredCapabilities: [],
+    });
   });
 
   it('keeps brand treatment variation semantic rather than changing document type', () => {
