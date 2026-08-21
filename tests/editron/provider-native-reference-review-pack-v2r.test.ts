@@ -125,7 +125,7 @@ function validEpisodeReceipt(): Readonly<ReferenceObserverEpisodeReceiptV2R> {
       provider: 'google' as const,
       model: 'gemini-3.6-flash' as const,
       claimedModelIdentity: 'gemini-3.6-flash',
-      reasoningMode: 'medium',
+      reasoningMode: 'medium' as const,
     },
     taskManifestSha256: manifest.manifestSha256,
     referenceInputManifestSha256: REFERENCE_HOLDOUT_01_NATIVE_EXPECTED_INPUT_SHA256,
@@ -201,10 +201,13 @@ function range(startTimestampUs: string, endTimestampUsExclusive: string, modali
 function sourcePath(): string {
   return path.resolve('public/product_demos/showcase/insturix-final-intro.mp4');
 }
-function mutableReceipt(receipt: Readonly<ReferenceObserverEpisodeReceiptV2R>): JsonRecord {
-  return structuredClone(receipt) as unknown as JsonRecord;
+function mutableReceipt(
+  receipt: Readonly<ReferenceObserverEpisodeReceiptV2R>,
+): ReferenceObserverEpisodeReceiptV2R {
+  return structuredClone(receipt) as ReferenceObserverEpisodeReceiptV2R;
 }
-function receiptHash(receipt: JsonRecord): string {
-  const material = structuredClone(receipt); delete material.receiptSha256;
+function receiptHash(receipt: Readonly<ReferenceObserverEpisodeReceiptV2R>): string {
+  const material = structuredClone(receipt) as unknown as JsonRecord;
+  delete material.receiptSha256;
   return hashCanonicalJsonV1(material);
 }
