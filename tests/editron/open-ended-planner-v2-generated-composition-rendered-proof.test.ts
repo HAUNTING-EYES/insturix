@@ -7,6 +7,7 @@ import sharp, { type OverlayOptions } from 'sharp';
 import { describe, expect, it } from 'vitest';
 
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import { summarizeDev02RenderedProofFailureV2 } from '@/lib/editron/research/open-ended-planner/dev02-connected-hybrid-mechanics-v2';
 import { resolveDev02RenderedProofClaimBindingsV1 } from '@/lib/editron/research/open-ended-planner/dev02-rendered-proof-claim-policy-v1';
 import { evaluateDev02GeneratedCompositionRenderedProofV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-dev02-rendered-proof-v1';
 import type { GeneratedCompositionProxyReceiptV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-proxy-renderer-v1';
@@ -30,6 +31,38 @@ describe('open-ended planner V2 DEV-02 rendered proof policy', () => {
     } finally { await fs.rm(scratch, { recursive: true, force: true }); }
   });
 
+  it('evaluates hash-bound stills and boundary evidence when Windows artifact paths exceed 260 characters', async () => {
+    const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'editron-dev02-proof-long-'));
+    const longRoot = path.join(scratch, 'artifact-segment-a'.repeat(4), 'artifact-segment-b'.repeat(4), 'artifact-segment-c'.repeat(4));
+    try {
+      const fixture = await proofFixture(scratch);
+      await fs.mkdir(longRoot, { recursive: true });
+      const stills = await Promise.all(fixture.proxyReceipt.stills.map(async (still) => {
+        const stillPath = path.join(longRoot, path.basename(still.path));
+        await fs.copyFile(still.path, stillPath);
+        return { ...still, path: stillPath };
+      }));
+      const boundaryReferencePath = path.join(longRoot, path.basename(fixture.boundaryReferencePath));
+      await fs.copyFile(fixture.boundaryReferencePath, boundaryReferencePath);
+      const { receiptHash: _receiptHash, ...unsignedReceipt } = fixture.proxyReceipt;
+      const unsignedLongReceipt = { ...unsignedReceipt, stills };
+      const proxyReceipt = {
+        ...unsignedLongReceipt,
+        receiptHash: hashCanonicalJsonV1(unsignedLongReceipt),
+      } satisfies GeneratedCompositionProxyReceiptV1;
+      expect(Math.max(...stills.map(({ path: stillPath }) => stillPath.length))).toBeGreaterThan(260);
+      expect(boundaryReferencePath.length).toBeGreaterThan(260);
+      const proof = await evaluateDev02GeneratedCompositionRenderedProofV1({
+        ...fixture,
+        proxyReceipt,
+        authoritativeProxyReceiptHash: proxyReceipt.receiptHash,
+        boundaryReferencePath,
+      });
+      expect(proof.hardGateDisposition).toBe('PASS');
+      expect(proof.checks.find(({ checkId }) => checkId === 'BOUNDARY_CONTINUITY')?.status).toBe('PASS');
+    } finally { await fs.rm(scratch, { recursive: true, force: true }); }
+  });
+
   it('fails a same-direction build, missing gutter, and broken boundary instead of accepting a plausible contact sheet', async () => {
     const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'editron-dev02-proof-fail-'));
     try {
@@ -38,6 +71,10 @@ describe('open-ended planner V2 DEV-02 rendered proof policy', () => {
       expect(proof.hardGateDisposition).toBe('FAIL');
       expect(proof.technicalDisposition).toBe('FAIL');
       expect(proof.checks.filter(({ status }) => status === 'FAIL').map(({ checkId }) => checkId)).toEqual(expect.arrayContaining(['SETTLED_PANEL_GEOMETRY', 'OPPOSED_PANEL_MOTION', 'BOUNDARY_CONTINUITY']));
+      const diagnostic = summarizeDev02RenderedProofFailureV2(proof);
+      expect(diagnostic).toContain('SETTLED_PANEL_GEOMETRY:');
+      expect(diagnostic).toContain('OPPOSED_PANEL_MOTION:');
+      expect(diagnostic.length).toBeLessThanOrEqual(480);
     } finally { await fs.rm(scratch, { recursive: true, force: true }); }
   });
 

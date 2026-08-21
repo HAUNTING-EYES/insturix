@@ -116,7 +116,9 @@ describe('V2-1F V2R connected episode harness', () => {
     expect(receipt.preregistrationManifestSha256).toBe(manifest.manifestSha256);
     expect(manifest.executionOrchestration).toEqual({
       connectedEpisodeReceiptVersion: 'EDITRON_OE_V2R_CONNECTED_EPISODE_RECEIPT_V5',
-      stage5ExecutionDecisionVersion: 'EDITRON_OE_V2R_STAGE5_EXECUTION_DECISION_V3',
+      stage5ExecutionDecisionVersion: 'EDITRON_OE_V2R_STAGE5_EXECUTION_DECISION_V4',
+      fullEpisodeReceiptVersion: 'EDITRON_OE_V2R_FULL_EPISODE_RECEIPT_V3',
+      benchmarkCohortReceiptVersion: 'EDITRON_OE_V2R_BENCHMARK_COHORT_RECEIPT_V3',
       capabilityGapRule: 'STOP_BEFORE_LOWERING_NO_EXECUTION_AUTHORIZATION',
     });
     expect(receipt.rows.map(({ stage }) => stage)).toEqual([1, 2, 3]);

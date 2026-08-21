@@ -33,6 +33,42 @@ describe('open-ended planner V2 model-generated composition candidate', () => {
     expect(serialized).not.toContain('exitSourceFrame');
     expect(serialized).toContain('claim-ref-opposed-motion');
     expect(serialized).toContain('@editron/generated-composition-api/v1');
+    expect(first.packet.modelInput).toMatchObject({
+      benchmarkContract: 'EDITRON_DEV02_MODEL_GENERATED_SOURCE_V2',
+      renderedAcceptanceContract: {
+        contractId: 'EDITRON_DEV02_GENERATED_SOURCE_ACCEPTANCE_CONTRACT_V1',
+        requiredFrames: [0, 24, 108, 144, 145, 179],
+        thresholds: {
+          minimumNonBlackRatio: 0.02,
+          minimumOpposedTravelPixelsAt1080x1920: 100,
+        },
+      },
+      sourceAcceptanceContract: {
+        maxSourceBytes: 64 * 1024,
+        encoding: 'UTF-8',
+        fileCount: 1,
+      },
+    });
+    expect(serialized).toContain('FRAME_INTEGRITY');
+    expect(serialized).toContain('OPPOSED_PANEL_MOTION');
+  });
+
+  it('hash-binds the orchestrator operation request into the specialist prompt', () => {
+    const orchestratorSpec = {
+      projectId: 'oe-dev-02', expectedProjectRevision: 'R3',
+      layoutSpec: { objective: 'relational multi-panel island' },
+      motionSpec: { objective: 'build, hold, then centre takeover' },
+    };
+    const packet = buildDev02GeneratedCompositionModelPacketV1({
+      apiImplementationHash: API_HASH, orchestratorSpec,
+    });
+    expect(packet.packet.modelInput.orchestratorOperationRequest).toEqual({
+      arguments: orchestratorSpec,
+      argumentsSha256: hashCanonicalJsonV1(orchestratorSpec),
+    });
+    expect(() => buildDev02GeneratedCompositionModelPacketV1({
+      apiImplementationHash: API_HASH, orchestratorSpec: {},
+    })).toThrow('MODEL_PACKET_ORCHESTRATOR_SPEC_EMPTY');
   });
 
   it('binds accepted source to model and prompt identity before the canonical verifier', () => {
