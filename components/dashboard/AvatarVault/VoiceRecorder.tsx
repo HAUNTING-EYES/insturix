@@ -133,11 +133,11 @@ export function VoiceRecorder({ onUploaded, disabled, subjectName }: VoiceRecord
   const canUse = Boolean(previewUrl) && !analyzing && !blocked && consent && !uploading;
 
   return (
-    <div className="rounded-lg border border-[#293034] bg-[#0F1213] px-3 py-2.5">
+    <div className="rounded-lg border border-ds-emphasis bg-surface-raised px-3 py-2.5">
       {/* read-aloud script */}
-      <div className="rounded-md border border-[#293034] bg-[#0B0E0F] px-3 py-2">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6C7570]">Read this aloud</p>
-        <p className="mt-1 text-[12.5px] leading-relaxed text-[#D7D2C4]">“{consentScript(subjectName)}”</p>
+      <div className="rounded-md border border-ds-subtle bg-surface-canvas px-3 py-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-ds-muted">Read this aloud</p>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-ds-secondary">“{consentScript(subjectName)}”</p>
       </div>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
@@ -146,7 +146,7 @@ export function VoiceRecorder({ onUploaded, disabled, subjectName }: VoiceRecord
             type="button"
             disabled={busy}
             onClick={start}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#74D6C6] px-3 text-xs font-semibold text-[#E7FFFB] hover:bg-[#12302B] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-gold px-3 text-xs font-semibold text-gold hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Mic size={14} /> {previewUrl ? 'Re-record' : 'Record'}
           </button>
@@ -154,17 +154,17 @@ export function VoiceRecorder({ onUploaded, disabled, subjectName }: VoiceRecord
           <button
             type="button"
             onClick={stop}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#73453F] bg-[#211312] px-3 text-xs font-semibold text-[#F0B3AC] hover:bg-[#2A1917]"
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-status-danger/50 bg-status-danger/10 px-3 text-xs font-semibold text-status-danger hover:bg-status-danger/15"
           >
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[#F0B3AC]" />
+            <span className="h-2 w-2 animate-pulse rounded-full bg-status-danger" />
             <Square size={13} /> Stop
           </button>
         )}
         {analyzing && (
-          <span className="inline-flex items-center gap-1 text-xs text-[#9EA7A4]"><Loader2 size={12} className="animate-spin" /> Checking…</span>
+          <span className="inline-flex items-center gap-1 text-xs text-ds-muted"><Loader2 size={12} className="animate-spin" /> Checking…</span>
         )}
         {previewUrl && !recording && (
-          <button type="button" onClick={reset} className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#293034] px-2 text-xs text-[#9EA7A4] hover:text-[#D7D2C4]">
+          <button type="button" onClick={reset} className="inline-flex h-9 items-center gap-1 rounded-lg border border-ds-subtle px-2 text-xs text-ds-muted hover:text-ds-secondary">
             <Trash2 size={12} /> Clear
           </button>
         )}
@@ -173,25 +173,25 @@ export function VoiceRecorder({ onUploaded, disabled, subjectName }: VoiceRecord
       {previewUrl && <audio className="mt-2 w-full" controls src={previewUrl} />}
 
       {quality && (
-        <div className={`mt-2 rounded-md border px-2.5 py-2 ${quality.level === 'good' ? 'border-[#2E5A3E] bg-[#0E1A12]' : quality.level === 'warn' ? 'border-[#7C6735] bg-[#1A150B]' : 'border-[#73453F] bg-[#1A100E]'}`}>
+        <div className={`mt-2 rounded-md border px-2.5 py-2 ${quality.level === 'good' ? 'border-status-success/40 bg-status-success/10' : quality.level === 'warn' ? 'border-gold/40 bg-gold/10' : 'border-status-danger/40 bg-status-danger/10'}`}>
           <div className="flex items-center gap-1.5">
             {quality.level === 'good'
-              ? <CheckCircle2 size={13} className="text-[#7FD69A]" />
-              : <AlertTriangle size={13} className={quality.level === 'warn' ? 'text-[#EDD494]' : 'text-[#F0B3AC]'} />}
-            <span className={`text-xs font-semibold ${quality.level === 'good' ? 'text-[#7FD69A]' : quality.level === 'warn' ? 'text-[#EDD494]' : 'text-[#F0B3AC]'}`}>
+              ? <CheckCircle2 size={13} className="text-status-success" />
+              : <AlertTriangle size={13} className={quality.level === 'warn' ? 'text-gold' : 'text-status-danger'} />}
+            <span className={`text-xs font-semibold ${quality.level === 'good' ? 'text-status-success' : quality.level === 'warn' ? 'text-gold' : 'text-status-danger'}`}>
               {quality.level === 'good' ? 'Good sample' : quality.level === 'warn' ? 'Usable — could be better' : 'Please re-record'}
             </span>
-            <span className="ml-auto text-[10px] text-[#6C7570]">{quality.durationSec.toFixed(1)}s · SNR {Math.round(quality.snrDb)}dB</span>
+            <span className="ml-auto text-[10px] text-ds-dim">{quality.durationSec.toFixed(1)}s · SNR {Math.round(quality.snrDb)}dB</span>
           </div>
           <ul className="mt-1 space-y-0.5">
-            {quality.notes.map((note) => <li key={note} className="text-[11px] leading-snug text-[#9EA7A4]">{note}</li>)}
+            {quality.notes.map((note) => <li key={note} className="text-[11px] leading-snug text-ds-muted">{note}</li>)}
           </ul>
         </div>
       )}
 
       {previewUrl && !blocked && (
-        <label className="mt-2 flex items-start gap-2 text-[11.5px] leading-snug text-[#C7C2B4]">
-          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 accent-[#74D6C6]" />
+        <label className="mt-2 flex items-start gap-2 text-[11.5px] leading-snug text-ds-secondary">
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 accent-[#D4A652]" />
           <span>I read the statement above and I own this voice (or am authorized to clone it).</span>
         </label>
       )}
@@ -201,13 +201,13 @@ export function VoiceRecorder({ onUploaded, disabled, subjectName }: VoiceRecord
           type="button"
           disabled={!canUse}
           onClick={useRecording}
-          className="mt-2 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-[#74D6C6] text-xs font-semibold text-[#081211] hover:bg-[#8BE0D3] disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-2 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-gold text-xs font-semibold text-gold-contrast hover:bg-gold-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {uploading ? <><Loader2 size={13} className="animate-spin" /> Uploading…</> : 'Use this recording'}
         </button>
       )}
 
-      {error && <p className="mt-2 text-xs text-[#F0B3AC]">{error}</p>}
+      {error && <p className="mt-2 text-xs text-status-danger">{error}</p>}
     </div>
   );
 }
