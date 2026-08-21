@@ -30,8 +30,11 @@ import {
 } from '@/lib/thinkforge/agents/script-chapter-plan-agent';
 import {
   ScriptWriterAgent,
+  isScriptWriterV3Result,
+  materializeScriptWriterV3Result,
   materializeScriptWriterResult,
   type ScriptWriterModelOutput,
+  type ScriptWriterV3ModelOutput,
 } from '@/lib/thinkforge/agents/script-writer-agent';
 import { buildThinkForgeEditorialPlan } from '@/lib/thinkforge/agents/editorial-plan';
 import { mapScriptSidecarToEditronExport } from '@/lib/thinkforge/export/script-sidecar-to-editron';
@@ -55,6 +58,7 @@ import {
 } from '@/lib/thinkforge/schemas/script-chapter-plan';
 import { createThinkForgeAuthoringRequest } from '@/lib/thinkforge/schemas/authoring-request';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
+import { longFormTreatment } from '@/tests/fixtures/thinkforge-video-treatment';
 
 function masterPlan(): ScriptChapterPlan {
   return materializeScriptChapterPlan({
@@ -237,6 +241,68 @@ function chapterResult(input: {
   return materializeScriptWriterResult(output);
 }
 
+function chapterResultV3(input: {
+  actId: string;
+  chapterId: string;
+  sceneId: string;
+  durationSeconds: number;
+  treatmentEventIds: string[];
+}) {
+  const output: ScriptWriterV3ModelOutput = {
+    contentAnalysis: {
+      hooks: [`A specific opening for ${input.sceneId}.`],
+      theme: 'Visible practice.',
+      emphasisPoints: [input.sceneId],
+      qualityScore: 92,
+    },
+    visualMetadata: { motionInfo: 'Patient documentary movement that follows the argument.' },
+    metadata: { platform: 'youtube' },
+    sidecar: {
+      sidecarVersion: 3,
+      spokenTextSource: 'beat-lines',
+      characters: [{ id: 'narrator', name: 'Narrator', role: 'narrator' }],
+      acts: [{
+        id: input.actId,
+        title: input.actId === 'act_attention' ? 'What the finished outcome hides' : 'Why the practice matters',
+        narrativePurpose: 'Serve the approved master narrative.',
+        narrativeScenes: [{
+          id: input.sceneId,
+          title: input.sceneId === 'scene_preparation' ? 'The work before the work' : 'The mark remains',
+          narrativePurpose: 'Advance the planned audience transition.',
+          durationIntentSeconds: input.durationSeconds,
+          charactersPresent: ['narrator'],
+          sourceRefs: [],
+          beats: [{
+            id: `beat_${input.sceneId}`,
+            kind: 'voiceover',
+            narrativePurpose: 'Carry the approved narrative development in spoken form.',
+            durationIntentSeconds: input.durationSeconds,
+            lines: [{
+              id: `line_${input.sceneId}`,
+              text: sustainedNarration(input.sceneId, input.durationSeconds),
+              speakerId: 'narrator',
+              languageCode: 'en',
+              onCamera: false,
+              delivery: 'voiceover',
+              sourceRefs: [],
+            }],
+            treatmentVisualEvents: input.treatmentEventIds.map((treatmentEventId) => ({ treatmentEventId })),
+            sourceRefs: [],
+          }],
+        }],
+      }],
+      sourceRefs: [],
+    },
+  };
+  return materializeScriptWriterV3Result(
+    output,
+    longFormTreatment,
+    { mode: 'chapter', chapterId: input.chapterId },
+    undefined,
+    input.treatmentEventIds,
+  );
+}
+
 function jobFixture(): {
   job: LongFormScriptGenerationJobSnapshot;
   editorialPlan: ReturnType<typeof buildThinkForgeEditorialPlan>;
@@ -357,6 +423,36 @@ function semanticRequirements(prompt: string): Array<{ id: string; allowedSceneI
   return JSON.parse(requirements) as Array<{ id: string; allowedSceneIds: string[] }>;
 }
 
+function semanticCitationsByScene(prompt: string): Map<string, { beatId: string; lineId: string }> {
+  const encoded = prompt.match(/<tf_untrusted_data version="1">\n([\s\S]+)\n<\/tf_untrusted_data>/)?.[1];
+  if (!encoded) throw new Error('Provider stub did not receive an isolated semantic-validation envelope.');
+  const envelope = JSON.parse(encoded) as { data?: { chapterTranscript?: string } };
+  const transcript = envelope.data?.chapterTranscript;
+  if (!transcript) throw new Error('Provider stub did not receive the chapter transcript.');
+
+  const citations = new Map<string, { beatId: string; lineId: string }>();
+  let sceneId: string | null = null;
+  let beatId: string | null = null;
+  transcript.split('\n').forEach((line) => {
+    const scene = line.match(/^SCENE (?!PURPOSE:)([^:]+):/);
+    if (scene) {
+      sceneId = scene[1] ?? null;
+      beatId = null;
+      return;
+    }
+    const beat = line.match(/^BEAT ([^\s]+) \(/);
+    if (beat) {
+      beatId = beat[1] ?? null;
+      return;
+    }
+    const spokenLine = line.match(/^LINE ([^:]+):/);
+    if (sceneId && beatId && spokenLine && !citations.has(sceneId)) {
+      citations.set(sceneId, { beatId, lineId: spokenLine[1]! });
+    }
+  });
+  return citations;
+}
+
 beforeEach(() => {
   // Constructors use the real provider router, but every provider call below is stubbed.
   process.env.GEMINI_API_KEY = 'provider-stub-key';
@@ -383,14 +479,21 @@ beforeEach(() => {
       assessments: semanticRequirements(input.prompt).map((requirement) => {
         const sceneId = requirement.allowedSceneIds[0];
         if (!sceneId) throw new Error(`Semantic requirement ${requirement.id} has no allowed scene.`);
+        const citations = semanticCitationsByScene(input.prompt);
+        const citation = citations.get(sceneId);
+        if (!citation) {
+          throw new Error(
+            `Semantic transcript has no spoken citation for ${sceneId}; available scenes: ${[...citations.keys()].join(', ') || 'none'}.`,
+          );
+        }
         return {
           requirementId: requirement.id,
           status: 'satisfied',
           evidence: [{
             sceneId,
-            beatId: `beat_${sceneId}`,
+            beatId: citation.beatId,
             kind: 'spoken_line',
-            lineIds: [`line_${sceneId}`],
+            lineIds: [citation.lineId],
           }],
           rationale: 'The stub cites a real chapter line, allowing the runtime receipt validator to run normally.',
         };
@@ -546,5 +649,97 @@ describe('long-form ThinkForge provider-stub E2E', () => {
       { actId: 'act_attention', chapterId: 'chapter_preparation', narrativeSceneId: 'scene_preparation' },
       { actId: 'act_meaning', chapterId: 'chapter_public_meaning', narrativeSceneId: 'scene_public_meaning' },
     ]);
+  });
+
+  it('preserves an approved V3 semantic treatment through durable chapter assembly and commit', async () => {
+    const fixture = jobFixture();
+    const treatment = structuredClone(longFormTreatment);
+    fixture.job.input.authoringInput = {
+      ...fixture.job.input.authoringInput,
+      videoTreatment: treatment,
+    };
+    const plan = masterPlan();
+    plan.acts[0]!.chapters[0]!.sceneBlueprints[0]!.treatmentEventIds = ['event_long_form_anchor'];
+    const trace = buildThinkForgeWriterInvocationTrace({
+      writerType: 'script',
+      editorialPlan: fixture.editorialPlan,
+      selectedTechniques: [],
+      promptTemplate: 'provider-stub-long-form-v3-writer',
+      sourceLedger: fixture.sourceLedger,
+      provider: 'gemini',
+      model: 'gemini-provider-stub',
+      cacheStatus: 'inline',
+      generatedAt: '2026-08-22T10:00:00.000Z',
+    });
+    const planAgent = vi.spyOn(ScriptChapterPlanAgent.prototype, 'generatePlan').mockImplementation(async (input) => {
+      expect(input.videoTreatment).toEqual(treatment);
+      return { result: plan, metadata: {} } as never;
+    });
+    const writer = vi.spyOn(ScriptWriterAgent.prototype, 'runStructured').mockImplementation(async (input) => {
+      const execution = input.chapterExecution;
+      if (!execution) throw new Error('Chapter writer must receive the server-owned assignment.');
+      expect(input.videoTreatment).toEqual(treatment);
+      const chapter = execution.plan.acts
+        .flatMap((act) => act.chapters.map((candidate) => ({ actId: act.id, chapter: candidate })))
+        .find((candidate) => candidate.chapter.id === execution.chapterId);
+      const scene = chapter?.chapter.sceneBlueprints[0];
+      if (!chapter || !scene) throw new Error(`Unexpected chapter assignment: ${execution.chapterId}`);
+      return {
+        result: chapterResultV3({
+          actId: chapter.actId,
+          chapterId: chapter.chapter.id,
+          sceneId: scene.id,
+          durationSeconds: scene.durationIntentSeconds,
+          treatmentEventIds: [...(scene.treatmentEventIds ?? [])],
+        }),
+        metadata: { writerTrace: trace },
+      } as never;
+    });
+
+    const planned = await executeLongFormScriptAction({ job: fixture.job, action: { kind: 'plan' } });
+    if (planned.kind !== 'plan') throw new Error('Expected master-plan action.');
+    const plannedJob: LongFormScriptGenerationJobSnapshot = {
+      ...fixture.job,
+      plan: planned.plan,
+      stage: 'writing',
+    };
+    const firstChapter = await executeLongFormScriptAction({
+      job: plannedJob,
+      action: { kind: 'write_chapter', actId: 'act_attention', chapterId: 'chapter_preparation' },
+    });
+    if (firstChapter.kind !== 'write_chapter') throw new Error('Expected first chapter artifact.');
+    const secondChapter = await executeLongFormScriptAction({
+      job: { ...plannedJob, chapterArtifacts: { chapter_preparation: firstChapter.artifact } },
+      action: { kind: 'write_chapter', actId: 'act_meaning', chapterId: 'chapter_public_meaning' },
+    });
+    if (secondChapter.kind !== 'write_chapter') throw new Error('Expected second chapter artifact.');
+    const completeArtifactJob: LongFormScriptGenerationJobSnapshot = {
+      ...plannedJob,
+      chapterArtifacts: {
+        chapter_preparation: firstChapter.artifact,
+        chapter_public_meaning: secondChapter.artifact,
+      },
+      stage: 'assembling',
+    };
+    const assembled = await executeLongFormScriptAction({ job: completeArtifactJob, action: { kind: 'assemble' } });
+    if (assembled.kind !== 'assemble' || !isScriptWriterV3Result(assembled.result)) {
+      throw new Error('Expected a materialized V3 long-form script.');
+    }
+    expect(assembled.result.metadata.estimatedTimeSeconds).toBe(420);
+    expect(assembled.result.sidecar.acts.flatMap((act) => act.narrativeScenes).flatMap((scene) => scene.beats)
+      .flatMap((beat) => beat.visualEvents.map((event) => event.id))).toEqual(['event_long_form_anchor']);
+    expect(JSON.stringify(assembled.result.sidecar)).not.toContain('shotIntent');
+    expect(JSON.stringify(assembled.result.sidecar)).not.toContain('renderPlan');
+
+    await expect(executeLongFormScriptAction({
+      job: { ...completeArtifactJob, assembledResult: assembled.result, stage: 'committing' },
+      action: { kind: 'commit' },
+    })).resolves.toMatchObject({ kind: 'commit', receipt: { documentVersion: 1 } });
+    expect(planAgent).toHaveBeenCalledOnce();
+    expect(writer).toHaveBeenCalledTimes(2);
+    const persistedSidecar = (persistence.applyCommand.mock.calls[0]?.[0] as {
+      payload?: { metadata?: { writerOutput?: { scriptSidecar?: { sidecarVersion?: number } } } };
+    }).payload?.metadata?.writerOutput?.scriptSidecar;
+    expect(persistedSidecar?.sidecarVersion).toBe(3);
   });
 });

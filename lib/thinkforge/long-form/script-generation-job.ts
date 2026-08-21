@@ -143,6 +143,11 @@ export async function handoffChapteredScriptGenerationIfRequired(
       editorialPlan,
       productionBrief,
       sourceLedger,
+      // The treatment is approved before durable work begins. Preserve its exact
+      // semantic intent rather than asking a later chapter or assembler to recreate it.
+      ...(input.writerInput.videoTreatment
+        ? { videoTreatment: structuredClone(input.writerInput.videoTreatment) }
+        : {}),
       contentSignalProfile: input.writerInput.contentSignalProfile,
       generationMode: input.writerInput.generationMode,
       generationIdentity: input.writerInput.generationIdentity,

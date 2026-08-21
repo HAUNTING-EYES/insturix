@@ -6,6 +6,7 @@ import { buildThinkForgeEditorialPlan } from '@/lib/thinkforge/agents/editorial-
 import { buildThinkForgeSourceLedger } from '@/lib/thinkforge/provenance/source-ledger';
 import { createThinkForgeAuthoringRequest } from '@/lib/thinkforge/schemas/authoring-request';
 import { createThinkForgeWriterContract } from '@/lib/thinkforge/schemas/document-contract';
+import { longFormTreatment } from '@/tests/fixtures/thinkforge-video-treatment';
 const persistence = vi.hoisted(() => ({
   applyCommand: vi.fn(),
   claimGenerationCommit: vi.fn(),
@@ -420,13 +421,18 @@ describe('long-form chat handoff', () => {
 
   it('freezes the complete grounded contract and establishes ownership before durable enqueue', async () => {
     const order: string[] = [];
+    const handoff = handoffInput();
+    const approvedTreatment = structuredClone(longFormTreatment);
+    handoff.writerInput.videoTreatment = approvedTreatment;
+    let enqueuedInput: LongFormScriptGenerationJobInput | undefined;
     const enqueue = vi.fn(async (input: LongFormScriptGenerationJobInput) => {
+      enqueuedInput = input;
       order.push('enqueue');
       return { job: job({ input, status: 'queued' }), created: true, queueMessageId: 'message_1' };
     });
     const beforeEnqueue = vi.fn(async () => { order.push('ownership'); });
 
-    const result = await handoffChapteredScriptGenerationIfRequired(handoffInput(), {
+    const result = await handoffChapteredScriptGenerationIfRequired(handoff, {
       resolveFeasibility: () => chapteredFeasibility,
       enqueue,
       beforeEnqueue,
@@ -446,12 +452,19 @@ describe('long-form chat handoff', () => {
         productionBrief: expect.objectContaining({ output: expect.objectContaining({ targetDurationSec: 36_000 }) }),
         editorialPlan: expect.objectContaining({ writerKind: 'script' }),
         sourceLedger: expect.objectContaining({ entries: expect.any(Array) }),
+        videoTreatment: expect.objectContaining({
+          treatmentId: 'treatment_long_form',
+          visualEvents: [expect.objectContaining({ id: 'event_long_form_anchor' })],
+        }),
       }),
       contextMetadata: {
         trendContext: { trendId: 'trend_1' },
         castingContext: { status: 'resolved' },
       },
     }));
+    expect(enqueuedInput?.authoringInput.videoTreatment).toEqual(approvedTreatment);
+    expect(enqueuedInput?.authoringInput.videoTreatment).not.toBe(approvedTreatment);
+    expect(enqueuedInput?.authoringInput.videoTreatment?.visualEvents).not.toBe(approvedTreatment.visualEvents);
   });
 
   it('enforces source-evidence readiness at the durable handoff before queue creation', async () => {

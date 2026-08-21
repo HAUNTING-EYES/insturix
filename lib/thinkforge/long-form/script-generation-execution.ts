@@ -116,7 +116,11 @@ export async function executeLongFormScriptAction(input: {
     }
     case 'assemble': {
       if (!job.plan) throw new LongFormScriptNonRetryableError('Assembly requires a durable master plan.');
-      const result = assembleLongFormScriptResult({ plan: job.plan, artifacts: job.chapterArtifacts });
+      const result = assembleLongFormScriptResult({
+        plan: job.plan,
+        artifacts: job.chapterArtifacts,
+        videoTreatment: job.input.authoringInput.videoTreatment,
+      });
       const approvedPlan = requireThinkForgeEditorialPlanForWriter(
         job.input.authoringInput.editorialPlan,
         'script',
@@ -125,6 +129,7 @@ export async function executeLongFormScriptAction(input: {
       assertUsableScriptWriterResult(result, {
         productionBrief: job.input.authoringInput.productionBrief,
         contentSignalProfile: job.input.authoringInput.contentSignalProfile,
+        videoTreatment: job.input.authoringInput.videoTreatment,
         editorialPlan: approvedPlan.execution.plan,
       });
       assertFinalProfileCompliance(job, result.content);
