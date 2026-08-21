@@ -11,6 +11,11 @@ import {
   type GeneratedCompositionSourceBundleV1,
 } from '@/lib/editron/research/open-ended-planner/generated-composition-program-v1';
 
+export const DEV02_GENERATED_COMPOSITION_REFERENCE_BINDING_V1 = deepFreezeV1({
+  blueprintId: 'DEV-02-CANONICAL-REFERENCE-V2',
+  blueprintHash: hashCanonicalJsonV1(blueprint),
+});
+
 export const DEV02_GENERATED_COMPOSITION_SOURCE_V1 = `import React from 'react';
 import { interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { AssetSlot, CompositionStage, Panel, TextSlot, useCompositionParameter } from '@editron/generated-composition-api/v1';
@@ -86,7 +91,7 @@ export const DEV02_GENERATED_COMPOSITION_PROGRAM_V1 = deepFreezeV1({
   sourceBundleHash: hashGeneratedCompositionSourceBundleV1(DEV02_GENERATED_COMPOSITION_SOURCE_BUNDLE_V1),
   generator: { kind: 'HUMAN_AUTHORED_FIXTURE', modelId: 'NONE', promptHash: 'NOT_APPLICABLE', toolVersions: ['typescript@5.9.3', 'remotion@4.0.509'] },
   projectBinding: { projectId: 'oe-dev-02', expectedProjectRevision: 'R3', evidencePackHash: hashCanonicalJsonV1(evidencePack) },
-  referenceBinding: { blueprintId: 'DEV-02-CANONICAL-REFERENCE-V2', blueprintHash: hashCanonicalJsonV1(blueprint) },
+  referenceBinding: DEV02_GENERATED_COMPOSITION_REFERENCE_BINDING_V1,
   projectTimebase: { timebaseId: 'oe-dev-02:timeline', timebaseVersion: 'V2_1F', rate: { numerator: '30', denominator: '1' } },
   compositionTimebase: { timebaseId: 'gcp-dev02-filmstrip-v1:local', timebaseVersion: 'GCP_V1', rate: { numerator: '30', denominator: '1' } },
   canvas: { width: 1080, height: 1920, pixelAspectRatio: { numerator: '1', denominator: '1' }, colorIntent: 'SDR_BT709' },

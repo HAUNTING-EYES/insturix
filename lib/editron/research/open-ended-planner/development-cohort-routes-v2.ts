@@ -43,8 +43,8 @@ const DIRECT_ROUTES: readonly DirectRouteFactV2[] = [
     },
   },
   {
-    routeId: 'GOOGLE_FLASH', provider: 'google', requestModel: 'gemini-3.6-flash',
-    claimedModelIdentity: 'gemini-3.6-flash', reasoningMode: 'medium',
+    routeId: 'GOOGLE_FLASH', provider: 'google', requestModel: 'gemini-3.7-flash',
+    claimedModelIdentity: 'gemini-3.7-flash', reasoningMode: 'medium',
     pricing: {
       inputUsdPerMillion: 0.75, cachedInputUsdPerMillion: 0.075,
       outputUsdPerMillion: 3.75,
@@ -54,12 +54,15 @@ const DIRECT_ROUTES: readonly DirectRouteFactV2[] = [
 
 export const V2R_BENCHMARK_ROUTE_ROSTER_VERSION =
   'EDITRON_OE_V2R_BENCHMARK_ROUTE_ROSTER_V4' as const;
+export const V2R_NEXT_BENCHMARK_ROUTE_ROSTER_VERSION =
+  'EDITRON_OE_V2R_BENCHMARK_ROUTE_ROSTER_V5' as const;
 
 export interface V2RBenchmarkRouteIdentityV2 {
-  routeId: 'OPENAI_LUNA' | 'OPENAI_TERRA' | 'QWEN_3_8_MAX';
+  routeId: 'OPENAI_LUNA' | 'OPENAI_TERRA' | 'GOOGLE_FLASH' | 'QWEN_3_8_MAX';
   claimedModelIdentity: string;
   costBasis: 'USD_METERED' | 'TOKEN_PLAN_CREDITS_UNPRICED';
-  providerTransport: 'OPENAI_RESPONSES' | 'ALIBABA_DIRECT_CHAT_COMPLETIONS';
+  providerTransport: 'OPENAI_RESPONSES' | 'GOOGLE_GENERATE_CONTENT'
+    | 'ALIBABA_DIRECT_CHAT_COMPLETIONS';
   structuredOutputMode: SchemaModeV2;
   planningMode: 'medium' | 'FAIR_STAGE_BUDGET';
 }
@@ -87,9 +90,29 @@ export function buildV2RBenchmarkRouteRosterV2(): readonly Readonly<V2RBenchmark
   return deepFreezeV1([...openAiRoutes, QWEN_ROUTE_FACT]);
 }
 
+/**
+ * Future benchmark roster. The V4 builder above is intentionally retained only
+ * to verify already-issued V17-V19 manifests and receipts.
+ */
+export function buildV2RNextBenchmarkRouteRosterV2(): readonly Readonly<V2RBenchmarkRouteIdentityV2>[] {
+  return deepFreezeV1(DIRECT_ROUTES.map((fact): V2RBenchmarkRouteIdentityV2 => ({
+    routeId: fact.routeId,
+    claimedModelIdentity: fact.claimedModelIdentity,
+    costBasis: 'USD_METERED',
+    providerTransport: fact.provider === 'openai'
+      ? 'OPENAI_RESPONSES'
+      : 'GOOGLE_GENERATE_CONTENT',
+    structuredOutputMode: fact.provider === 'openai'
+      ? OPENAI_STRUCTURED_OUTPUT_MODE_V2
+      : 'NATIVE_JSON_SCHEMA',
+    planningMode: 'medium',
+  })));
+}
+
 export function buildDevelopmentModelRoutesV2(input: {
   environment: Readonly<Record<string, string | undefined>>;
-  qwenBudgetMode: 'FAIR_STAGE_BUDGET' | 'ASYNC_QUALITY_DIAGNOSTIC';
+  /** @deprecated Qwen is excluded from future cohorts; retained for old script compatibility. */
+  qwenBudgetMode?: 'FAIR_STAGE_BUDGET' | 'ASYNC_QUALITY_DIAGNOSTIC';
   qwenDiagnosticTimeoutOverrideMs?: number;
   fetchImpl?: FetchV2;
   qwenExecute?: QwenProviderExecutorV2;
@@ -101,22 +124,14 @@ export function buildDevelopmentModelRoutesV2(input: {
   );
   const fetchImpl = input.fetchImpl ?? fetch;
 
-  return [
-    ...DIRECT_ROUTES.map((fact) => buildDirectDevelopmentRouteV2({
-      fact, apiKey: fact.provider === 'openai' ? openAIKey : googleKey, fetchImpl,
-    })),
-    buildQwenDevelopmentModelRouteV2({
-      environment: input.environment,
-      qwenBudgetMode: input.qwenBudgetMode,
-      ...(input.qwenDiagnosticTimeoutOverrideMs === undefined
-        ? {} : { diagnosticTimeoutOverrideMs: input.qwenDiagnosticTimeoutOverrideMs }),
-      ...(input.qwenExecute ? { qwenExecute: input.qwenExecute } : {}),
-    }),
-  ];
+  return DIRECT_ROUTES.map((fact) => buildDirectDevelopmentRouteV2({
+    fact, apiKey: fact.provider === 'openai' ? openAIKey : googleKey, fetchImpl,
+  }));
 }
 
 export function buildV2RBenchmarkModelRoutesV2(input: {
   environment: Readonly<Record<string, string | undefined>>;
+  /** @deprecated Historical V19 replay only. Use buildV2RNextBenchmarkModelRoutesV2. */
   qwenBudgetMode: 'FAIR_STAGE_BUDGET' | 'ASYNC_QUALITY_DIAGNOSTIC';
   qwenDiagnosticTimeoutOverrideMs?: number;
   fetchImpl?: FetchV2;
@@ -137,6 +152,14 @@ export function buildV2RBenchmarkModelRoutesV2(input: {
       ...(input.qwenExecute ? { qwenExecute: input.qwenExecute } : {}),
     }),
   ];
+}
+
+/** Future V20+ benchmark routes. Qwen is deliberately unreachable here. */
+export function buildV2RNextBenchmarkModelRoutesV2(input: {
+  environment: Readonly<Record<string, string | undefined>>;
+  fetchImpl?: FetchV2;
+}): readonly DevelopmentModelRouteV2[] {
+  return buildDevelopmentModelRoutesV2(input);
 }
 
 export function buildQwenDevelopmentModelRouteV2(input: {

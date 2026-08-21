@@ -9,7 +9,7 @@ type JsonRecord = Record<string, unknown>;
 // The historical V2 JSON is immutable benchmark evidence. V2R derives its own
 // explicitly identified contract from those bytes so later causal amendments do
 // not rewrite, or silently masquerade as, the issued V2 catalog.
-export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_5' as const;
+export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_8' as const;
 
 const historicalCatalog = cloneJsonV2R(historicalOperatorCatalogJson) as JsonRecord;
 const amendedCatalog = amendCausalOwnerContractsV2R(historicalCatalog);
@@ -40,7 +40,7 @@ function amendCausalOwnerContractsV2R(source: JsonRecord): JsonRecord {
     ['resolve_transcript_edit', {
       ownerRef: 'lib/editron/agent/chat-transcript-tools.ts#resolveTranscriptEditRange',
       input: operatorIoV2R(
-        ['projectId', 'expectedProjectRevision', 'query', 'intent', 'evidenceIds', 'constraints'],
+        ['projectId', 'expectedProjectRevision', 'query', 'intent', 'evidenceIds'],
         ['projectId', 'expectedProjectRevision', 'query', 'intent', 'evidenceIds'],
       ),
     }],
@@ -122,19 +122,38 @@ function amendCausalOwnerContractsV2R(source: JsonRecord): JsonRecord {
       beatSyncConstraints: beatSyncConstraintsSchemaV2R(),
       audioPlan: {
         type: 'object',
+        description: 'BGM ducking form owned by applyAudioDuckingToProject. Optional form values may be omitted so the owner applies its declared defaults.',
         required: ['enabled'],
         properties: {
-          enabled: { enum: [true, false] },
-          duckLevel: { type: 'number', minimum: 0.02, maximum: 0.8 },
-          rampDownMs: { type: 'integer', minimum: 50, maximum: 2000 },
-          rampUpMs: { type: 'integer', minimum: 50, maximum: 3000 },
-          lookAheadMs: { type: 'integer', minimum: 0, maximum: 1000 },
+          enabled: {
+            enum: [true, false],
+            description: 'Enable ducking under measured speech. False disables ducking; it does not mute the BGM.',
+          },
+          duckLevel: {
+            type: 'number', minimum: 0.02, maximum: 0.8,
+            description: 'Absolute linear BGM output gain while speech is active, not a percentage or reduction amount. It must be lower than the current un-ducked BGM base gain. Omit it when the user did not specify a justified mix level so the owner default is used.',
+          },
+          rampDownMs: {
+            type: 'integer', minimum: 50, maximum: 2000,
+            description: 'Milliseconds for BGM to reach duckLevel when speech begins. Omit for the owner default.',
+          },
+          rampUpMs: {
+            type: 'integer', minimum: 50, maximum: 3000,
+            description: 'Milliseconds for BGM to return to its un-ducked base gain after speech. Omit for the owner default.',
+          },
+          lookAheadMs: {
+            type: 'integer', minimum: 0, maximum: 1000,
+            description: 'Milliseconds before measured speech at which the BGM ramp begins. Omit for the owner default.',
+          },
         },
         additionalProperties: false,
       },
     },
     operatorFieldSchemas: {
-      resolve_transcript_edit: { intent: transcriptEditIntentSchemaV2R() },
+      resolve_transcript_edit: {
+        query: transcriptPhraseQuerySchemaV2R(),
+        intent: transcriptEditIntentSchemaV2R(),
+      },
       resolve_visual_edit: { intent: visualEditIntentSchemaV2R() },
       resolve_keyframe_edit: { intent: keyframeEditIntentSchemaV2R() },
       resolve_audio_edit: { intent: audioEditIntentSchemaV2R() },
@@ -164,6 +183,15 @@ function transcriptEditIntentSchemaV2R(): JsonRecord {
   });
 }
 
+function transcriptPhraseQuerySchemaV2R(): JsonRecord {
+  return {
+    type: 'string',
+    minLength: 1,
+    maxLength: 1000,
+    description: 'Exact spoken transcript phrase to locate (for example "here it is"), not the editing instruction. If the exact phrase is unknown, call find_transcript_moment first and use its returned candidate text.',
+  };
+}
+
 function visualEditIntentSchemaV2R(): JsonRecord {
   return closedObject(['query', 'action'], {
     query: { type: 'string', minLength: 1, maxLength: 1000 },
@@ -190,11 +218,12 @@ function audioEditIntentSchemaV2R(): JsonRecord {
 }
 
 function cameraShakeEffectPlanSchemaV2R(): JsonRecord {
-  return closedObject(['goal'], {
+  return closedObject(['goal', 'formIntent'], {
     goal: { type: 'string', minLength: 1, maxLength: 1000 },
-    intensity: { type: 'number', minimum: 0, maximum: 1 },
-    durationFrames: { type: 'integer', minimum: 2, maximum: 30 },
-    replacePositionKeyframes: { enum: [true, false] },
+    formIntent: {
+      enum: ['subtle-impact', 'restrained-impact', 'pronounced-impact'],
+      description: 'Semantic emphasis class. The applyCameraShakeToProject owner resolves exact intensity, duration and decaying keyframes.',
+    },
   });
 }
 

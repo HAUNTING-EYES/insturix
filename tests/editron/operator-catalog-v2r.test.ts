@@ -11,7 +11,7 @@ type JsonRecord = Record<string, unknown>;
 
 describe('V2R operator-specific input contracts', () => {
   it('versions causal contract changes without rewriting the historical catalog', () => {
-    expect(V2R_OPERATOR_CATALOG_REVISION).toBe('EDITRON_OPERATOR_SPECS_V2R_5');
+    expect(V2R_OPERATOR_CATALOG_REVISION).toBe('EDITRON_OPERATOR_SPECS_V2R_8');
     expect(V2R_OPERATOR_CATALOG.derivedFrom).toMatchObject({
       artifact: 'tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json',
       version: '2.0.0',
@@ -40,6 +40,27 @@ describe('V2R operator-specific input contracts', () => {
       'projectId', 'expectedProjectRevision', 'overlayId', 'targetFrame', 'effectPlan',
     ]);
     expect(record(shake.input).fields).not.toContain('targetRange');
+
+    const effectPlan = requiredSchema('apply_camera_shake', 'effectPlan');
+    expect(validateJsonSchemaV2({
+      goal: 'Accentuate the final measured impact without overwhelming the cut.',
+      formIntent: 'restrained-impact',
+    }, effectPlan, '$.effectPlan')).toEqual([]);
+    expect(validateJsonSchemaV2({
+      goal: 'Accentuate the final measured impact.',
+      formIntent: 'restrained-impact',
+      intensity: 0.2,
+      durationFrames: 12,
+      replacePositionKeyframes: false,
+    }, effectPlan, '$.effectPlan')).toEqual(expect.arrayContaining([
+      '$.effectPlan.intensity:ADDITIONAL',
+      '$.effectPlan.durationFrames:ADDITIONAL',
+      '$.effectPlan.replacePositionKeyframes:ADDITIONAL',
+    ]));
+    expect(validateJsonSchemaV2({
+      goal: 'Accentuate the final measured impact.',
+      formIntent: 'barely-visible',
+    }, effectPlan, '$.effectPlan')).toContain('$.effectPlan.formIntent:ENUM');
   });
 
   it('accepts the real mixed overlay identity domain only for operators that declare it', () => {
@@ -70,6 +91,19 @@ describe('V2R operator-specific input contracts', () => {
     ]));
   });
 
+  it('defines duckLevel as an absolute speech-time gain owned by the audio resolver', () => {
+    const audioPlan = requiredSchema('apply_audio_ducking', 'audioPlan');
+    const properties = record(audioPlan.properties);
+    expect(audioPlan.description).toContain('applyAudioDuckingToProject');
+    expect(record(properties.duckLevel).description).toContain('Absolute linear BGM output gain');
+    expect(record(properties.duckLevel).description).toContain('not a percentage');
+    expect(record(properties.duckLevel).description).toContain('owner default');
+    expect(validateJsonSchemaV2({ enabled: true }, audioPlan, '$.audioPlan')).toEqual([]);
+    expect(validateJsonSchemaV2({ enabled: true, duckLevel: 0.089 }, audioPlan, '$.audioPlan')).toEqual([]);
+    expect(validateJsonSchemaV2({ enabled: true, duckLevel: 0.9 }, audioPlan, '$.audioPlan'))
+      .toContain('$.audioPlan.duckLevel:NUMBER');
+  });
+
   it('validates evidence-bound beat-sync constraints including source handles', () => {
     const constraints = requiredSchema('sync_cuts_to_beats', 'beatSyncConstraints');
     const valid = {
@@ -89,6 +123,15 @@ describe('V2R operator-specific input contracts', () => {
   });
 
   it('publishes the real closed resolver action domains instead of opaque objects', () => {
+    const transcriptOperator = operator('resolve_transcript_edit');
+    expect(record(transcriptOperator.input).fields).toEqual([
+      'projectId', 'expectedProjectRevision', 'query', 'intent', 'evidenceIds',
+    ]);
+    expect(record(transcriptOperator.input).fields).not.toContain('constraints');
+    const transcriptQuery = requiredSchema('resolve_transcript_edit', 'query');
+    expect(transcriptQuery.description).toContain('Exact spoken transcript phrase');
+    expect(transcriptQuery.description).toContain('not the editing instruction');
+
     const transcript = requiredSchema('resolve_transcript_edit', 'intent');
     expect(validateJsonSchemaV2({ action: 'cut_after_phrase', minGapFrames: 6 }, transcript, '$.intent'))
       .toEqual([]);

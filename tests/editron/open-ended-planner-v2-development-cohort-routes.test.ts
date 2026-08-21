@@ -3,26 +3,23 @@ import { describe, expect, it, vi } from 'vitest';
 import { getCanonicalDev01Stage123V2 } from '@/lib/editron/research/open-ended-planner/dev01-stage123-canonical-v2';
 import {
   buildDevelopmentModelRoutesV2,
-  buildQwenDevelopmentModelRouteV2,
-  buildV2RBenchmarkRouteRosterV2,
-  buildV2RBenchmarkModelRoutesV2,
+  buildV2RNextBenchmarkModelRoutesV2,
+  buildV2RNextBenchmarkRouteRosterV2,
 } from '@/lib/editron/research/open-ended-planner/development-cohort-routes-v2';
-import type { QwenProviderExecutorV2 } from '@/lib/editron/research/open-ended-planner/qwen-direct-provider-v2';
 import { buildDev01TruthfulStageOneTextPacketV2 } from '@/lib/editron/research/open-ended-planner/staged-packet-v2';
 
 const packet = buildDev01TruthfulStageOneTextPacketV2('BASELINE');
 const canonical = getCanonicalDev01Stage123V2().referenceBlueprints.BASELINE;
 
 describe('open-ended planner V2 development cohort provider routes', () => {
-  it('binds the intended current four-route cohort without silently pricing Qwen at zero', () => {
+  it('binds the intended future cohort to Luna, Terra, and Gemini 3.7 only', () => {
     const routes = routesWithFakes();
     expect(routes.map(({ routeId, claimedModelIdentity, costBasis }) => ({
       routeId, claimedModelIdentity, costBasis,
     }))).toEqual([
       { routeId: 'OPENAI_LUNA', claimedModelIdentity: 'gpt-5.6-luna', costBasis: 'USD_METERED' },
       { routeId: 'OPENAI_TERRA', claimedModelIdentity: 'gpt-5.6-terra', costBasis: 'USD_METERED' },
-      { routeId: 'GOOGLE_FLASH', claimedModelIdentity: 'gemini-3.6-flash', costBasis: 'USD_METERED' },
-      { routeId: 'QWEN_3_8_MAX', claimedModelIdentity: 'qwen3.8-max', costBasis: 'TOKEN_PLAN_CREDITS_UNPRICED' },
+      { routeId: 'GOOGLE_FLASH', claimedModelIdentity: 'gemini-3.7-flash', costBasis: 'USD_METERED' },
     ]);
   });
 
@@ -50,85 +47,44 @@ describe('open-ended planner V2 development cohort provider routes', () => {
       expect.stringContaining(':countTokens'),
       expect.stringContaining(':generateContent'),
     ]);
-    expect(run.attempts[0].providerModel).toBe('gemini-3.6-flash-2026-08');
+    expect(run.attempts[0].providerModel).toBe('3.7-flash-08-2026');
   });
 
-  it('keeps Qwen on its isolated direct-provider adapter', async () => {
-    const qwenExecuteMock = vi.fn(async ({ apiKey, prompt }: Parameters<QwenProviderExecutorV2>[0]) => {
-      expect(apiKey).toBe('qwen-test');
-      expect(prompt).not.toContain('qwen-test');
-      return {
-        stdout: qwenEvents(canonical), stderr: '', exitCode: 0, timedOut: false, latencyMs: 900,
-      };
-    });
-    const qwenExecute = qwenExecuteMock as QwenProviderExecutorV2;
-    const routes = routesWithFakes({ qwenExecute });
-    const run = await requiredRoute(routes, 'QWEN_3_8_MAX').runStage(packet);
-    expect(run.disposition).toBe('ARTIFACT_ACCEPTED');
-    expect(run.attempts[0]).toMatchObject({
-      provider: 'alibaba-token-plan-direct', providerCostUsd: null,
-    });
-    expect(qwenExecuteMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('builds a Qwen-only diagnostic route without unrelated provider credentials', async () => {
-    const qwenExecuteMock = vi.fn(async (input: Parameters<QwenProviderExecutorV2>[0]) => {
-      expect(input.timeoutMs).toBe(900_000);
-      return { stdout: qwenEvents(canonical), stderr: '', exitCode: 0, timedOut: false, latencyMs: 900 };
-    });
-    const route = buildQwenDevelopmentModelRouteV2({
-      environment: { QWEN_API_KEY: 'qwen-test' },
-      qwenBudgetMode: 'ASYNC_QUALITY_DIAGNOSTIC', diagnosticTimeoutOverrideMs: 900_000,
-      qwenExecute: qwenExecuteMock as QwenProviderExecutorV2,
-    });
-    expect((await route.runStage(packet)).disposition).toBe('ARTIFACT_ACCEPTED');
-    expect(qwenExecuteMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('builds the exact V2R roster without requiring an unregistered Gemini credential', () => {
-    expect(buildV2RBenchmarkRouteRosterV2().map(({ routeId, structuredOutputMode }) => ({
+  it('builds the exact next V2R roster and excludes retired providers', () => {
+    expect(buildV2RNextBenchmarkRouteRosterV2().map(({ routeId, structuredOutputMode }) => ({
       routeId, structuredOutputMode,
     }))).toEqual([
       { routeId: 'OPENAI_LUNA', structuredOutputMode: 'NATIVE_JSON_SCHEMA_NON_STRICT' },
       { routeId: 'OPENAI_TERRA', structuredOutputMode: 'NATIVE_JSON_SCHEMA_NON_STRICT' },
-      { routeId: 'QWEN_3_8_MAX', structuredOutputMode: 'NATIVE_JSON_OBJECT' },
+      { routeId: 'GOOGLE_FLASH', structuredOutputMode: 'NATIVE_JSON_SCHEMA' },
     ]);
-    const routes = buildV2RBenchmarkModelRoutesV2({
-      environment: { OPENAI_API_KEY: 'openai-test', QWEN_API_KEY: 'qwen-test' },
-      qwenBudgetMode: 'FAIR_STAGE_BUDGET', fetchImpl: fakeFetch,
-      qwenExecute: () => Promise.resolve({
-        stdout: qwenEvents(canonical), stderr: '', exitCode: 0, timedOut: false, latencyMs: 900,
-      }),
+    const routes = buildV2RNextBenchmarkModelRoutesV2({
+      environment: { OPENAI_API_KEY: 'openai-test', GEMINI_API_KEY: 'google-test' },
+      fetchImpl: fakeFetch,
     });
     expect(routes.map(({ routeId, claimedModelIdentity }) => ({ routeId, claimedModelIdentity })))
       .toEqual([
         { routeId: 'OPENAI_LUNA', claimedModelIdentity: 'gpt-5.6-luna' },
         { routeId: 'OPENAI_TERRA', claimedModelIdentity: 'gpt-5.6-terra' },
-        { routeId: 'QWEN_3_8_MAX', claimedModelIdentity: 'qwen3.8-max' },
+        { routeId: 'GOOGLE_FLASH', claimedModelIdentity: 'gemini-3.7-flash' },
       ]);
   });
 
   it('fails before dispatch when any required credential is absent', () => {
     expect(() => buildDevelopmentModelRoutesV2({
-      environment: { OPENAI_API_KEY: 'openai-test', GEMINI_API_KEY: 'google-test' },
-      qwenBudgetMode: 'FAIR_STAGE_BUDGET',
-    })).toThrow(/QWEN/);
+      environment: { OPENAI_API_KEY: 'openai-test' },
+    })).toThrow(/GEMINI_API_KEY_OR_GOOGLE_API_KEY/);
   });
 });
 
 function routesWithFakes(overrides: {
   fetchImpl?: typeof fetch;
-  qwenExecute?: QwenProviderExecutorV2;
 } = {}) {
   return buildDevelopmentModelRoutesV2({
     environment: {
-      OPENAI_API_KEY: 'openai-test', GEMINI_API_KEY: 'google-test', QWEN_API_KEY: 'qwen-test',
+      OPENAI_API_KEY: 'openai-test', GEMINI_API_KEY: 'google-test',
     },
-    qwenBudgetMode: 'FAIR_STAGE_BUDGET',
     fetchImpl: overrides.fetchImpl ?? fakeFetch,
-    qwenExecute: overrides.qwenExecute ?? (() => Promise.resolve({
-      stdout: qwenEvents(canonical), stderr: '', exitCode: 0, timedOut: false, latencyMs: 900,
-    })),
   });
 }
 
@@ -143,7 +99,7 @@ async function fakeFetch(url: string | URL | Request): Promise<Response> {
   if (endpoint.includes(':countTokens')) return jsonResponse({ totalTokens: 1_000 });
   if (endpoint.includes('generativelanguage.googleapis.com')) {
     return jsonResponse({
-      responseId: 'gemini-test', modelVersion: 'gemini-3.6-flash-2026-08',
+      responseId: 'gemini-test', modelVersion: '3.7-flash-08-2026',
       candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(canonical) }] } }],
       usageMetadata: {
         promptTokenCount: 1_000, candidatesTokenCount: 500,
@@ -159,19 +115,6 @@ async function fakeFetch(url: string | URL | Request): Promise<Response> {
       output_tokens_details: { reasoning_tokens: 100 }, total_tokens: 1_600,
     },
   });
-}
-
-function qwenEvents(artifact: unknown): string {
-  return [
-    JSON.stringify({ type: 'text', sessionID: 'qwen-test-session', part: { text: JSON.stringify(artifact) } }),
-    JSON.stringify({
-      type: 'step_finish', sessionID: 'qwen-test-session',
-      part: {
-        tokens: { input: 1_000, output: 500, reasoning: 100, total: 1_600, cache: { read: 0, write: 0 } },
-        reason: 'stop',
-      },
-    }),
-  ].join('\n');
 }
 
 function jsonResponse(body: unknown): Response {
