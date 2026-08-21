@@ -13,6 +13,8 @@ import { synthesizeHoldout04AudioV2R } from './holdout-media-fixtures-v2r';
 
 const V1_PATH = 'tests/fixtures/editron/open-ended-planner-v1/holdout-tasks-v1.json';
 const V2_PATH = 'tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json';
+const CORRECTIONS_PATH =
+  'tests/fixtures/editron/open-ended-planner-v2/holdout-task-corrections-v2r.json';
 const MATERIALIZER_PATH = 'lib/editron/research/open-ended-planner/holdout-media-materializer-v2r.ts';
 const CODEC_PATH = 'lib/editron/research/open-ended-planner/holdout-media-codec-v2r.ts';
 const FIXTURES_PATH = 'lib/editron/research/open-ended-planner/holdout-media-fixtures-v2r.ts';
@@ -119,7 +121,9 @@ export async function materializeHoldoutMediaV2R(outputDirectory: string): Promi
     scope: 'EIGHT_SEALED_HOLDOUTS_ONLY' as const,
     authority: 'RESEARCH_ONLY_NO_PROVIDER_OR_PROJECT_AUTHORITY' as const,
     networkPolicy: 'DENY' as const,
-    sourceBindings: await Promise.all([V1_PATH, V2_PATH, MATERIALIZER_PATH, CODEC_PATH, FIXTURES_PATH].map(async (path) => ({
+    sourceBindings: await Promise.all([
+      V1_PATH, V2_PATH, CORRECTIONS_PATH, MATERIALIZER_PATH, CODEC_PATH, FIXTURES_PATH,
+    ].map(async (path) => ({
       path, sha256: sha256(await readFile(resolve(path))),
     }))),
     toolchain: {

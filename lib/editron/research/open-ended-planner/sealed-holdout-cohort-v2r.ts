@@ -1,4 +1,6 @@
 import holdoutV1Json from '@/tests/fixtures/editron/open-ended-planner-v1/holdout-tasks-v1.json';
+import holdoutCorrectionsV2RJson
+  from '@/tests/fixtures/editron/open-ended-planner-v2/holdout-task-corrections-v2r.json';
 import holdoutMediaIdentityJson
   from '@/tests/fixtures/editron/open-ended-planner-v2/holdout-media-identity-v2r.json';
 import tasksV2Json from '@/tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json';
@@ -84,7 +86,8 @@ export function buildSealedHoldoutCohortManifestV2R(
   });
   assertNoEvaluatorLeakV2(sharedModelContext);
   const sharedModelContextSha256 = hashCanonicalJsonV1(sharedModelContext);
-  const v1Tasks = records(holdoutV1Json.tasks) as V1Task[];
+  // Preserve the frozen V1 fixture; current V2R evidence changes only through this hashed overlay.
+  const v1Tasks = applyCurrentTaskCorrectionsV2R(records(holdoutV1Json.tasks) as V1Task[]);
   const v2Tasks = (records(tasksV2Json.tasks) as V2Task[])
     .filter(({ split, sealed }) => split === 'HOLDOUT' && sealed);
   if (v1Tasks.length !== 8 || v2Tasks.length !== 8) fail('HOLDOUT_COHORT_TASK_SET_INVALID');
@@ -224,6 +227,34 @@ function buildCase(input: {
     ownerOnlySha256: hashCanonicalJsonV1(ownerOnly),
     evaluatorOnlySha256: hashCanonicalJsonV1(evaluatorOnly),
   });
+}
+
+function applyCurrentTaskCorrectionsV2R(tasks: V1Task[]): V1Task[] {
+  const base = record(holdoutCorrectionsV2RJson.baseTaskFixture);
+  const corrections = records(holdoutCorrectionsV2RJson.corrections);
+  if (holdoutCorrectionsV2RJson.version !== 'EDITRON_OE_HOLDOUT_TASK_CORRECTIONS_V2R_1'
+    || holdoutCorrectionsV2RJson.authority
+      !== 'CURRENT_V2R_EVIDENCE_CORRECTION_ONLY_NO_PROVIDER_OR_PROJECT_AUTHORITY'
+    || text(base.path) !== 'tests/fixtures/editron/open-ended-planner-v1/holdout-tasks-v1.json'
+    || text(base.sha256) !== 'f8b509c0f0fcc3277ff4fe8e9dacb734ce6ec7d9fb8ac25a26578e1354c9d845'
+    || corrections.length !== 1) {
+    return fail('HOLDOUT_TASK_CORRECTION_IDENTITY_INVALID');
+  }
+  const applied = new Set<string>();
+  const corrected = tasks.map((task) => ({
+    ...task,
+    evidence: task.evidence.map((evidence) => {
+      const correction = corrections.find((candidate) =>
+        text(candidate.taskId) === task.taskId && text(candidate.evidenceId) === evidence.evidenceId);
+      if (!correction) return evidence;
+      const key = `${task.taskId}:${evidence.evidenceId}`;
+      if (applied.has(key)) return fail(`HOLDOUT_TASK_CORRECTION_DUPLICATE:${key}`);
+      applied.add(key);
+      return { ...evidence, value: { ...record(evidence.value), ...record(correction.valuePatch) } };
+    }),
+  }));
+  if (applied.size !== corrections.length) fail('HOLDOUT_TASK_CORRECTION_TARGET_MISSING');
+  return corrected;
 }
 
 function requireSha(value: string, code: string): void { if (!/^[a-f0-9]{64}$/.test(value)) fail(code); }

@@ -1,0 +1,26 @@
+{
+  "version": "EDITRON_OE_HOLDOUT_TASK_CORRECTIONS_V2R_1",
+  "authority": "CURRENT_V2R_EVIDENCE_CORRECTION_ONLY_NO_PROVIDER_OR_PROJECT_AUTHORITY",
+  "baseTaskFixture": {
+    "path": "tests/fixtures/editron/open-ended-planner-v1/holdout-tasks-v1.json",
+    "sha256": "f8b509c0f0fcc3277ff4fe8e9dacb734ce6ec7d9fb8ac25a26578e1354c9d845"
+  },
+  "corrections": [
+    {
+      "taskId": "HOLD-03",
+      "evidenceId": "EV-H03-T1",
+      "valuePatch": {
+        "returnBinding": {
+          "overlayId": "ov-full",
+          "assetId": "h03-a",
+          "assetVersionSource": "HOLDOUT_MEDIA_IDENTITY",
+          "coordinateDomain": "SOURCE_FRAME",
+          "sourceRange": [0, 420],
+          "sourceFrameAtReturn": 270,
+          "fit": "cover",
+          "objectPosition": [0.5, 0.5]
+        }
+      }
+    }
+  ]
+}

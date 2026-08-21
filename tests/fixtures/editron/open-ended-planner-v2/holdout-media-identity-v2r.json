@@ -1,14 +1,15 @@
 {
-  "version": "EDITRON_OE_HOLDOUT_MEDIA_IDENTITY_V2R_2",
+  "version": "EDITRON_OE_HOLDOUT_MEDIA_IDENTITY_V2R_3",
   "manifestVersion": "2.3.0-r2",
-  "manifestSha256": "a538b1c1d087c575c6b593b2f3ce7ded4a2b7e9560fbae25cb261e953c1a0dc8",
+  "manifestSha256": "4527aadaea84cf91a9499439dafd369a773ee01b97a49fe0ef9c68ce74fa63b6",
   "taskCount": 8,
   "artifactCount": 12,
   "ffmpegBinarySha256": "c8abc49e7be62dde8e12972af373959e0076a7b8dc8040eb45978e0608f8781e",
   "sourceBindings": [
-    { "path": "tests/fixtures/editron/open-ended-planner-v1/holdout-tasks-v1.json", "sha256": "3820928c11456d61580bc08c21e333bb7155a786d555838e1e7b2dfe95c41d7a" },
+    { "path": "tests/fixtures/editron/open-ended-planner-v1/holdout-tasks-v1.json", "sha256": "f8b509c0f0fcc3277ff4fe8e9dacb734ce6ec7d9fb8ac25a26578e1354c9d845" },
     { "path": "tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json", "sha256": "40f52a6d04aadc1d265d6520646725e5254362ce56c468d0ff6726bcbb8e89fa" },
-    { "path": "lib/editron/research/open-ended-planner/holdout-media-materializer-v2r.ts", "sha256": "3aefd284836ab427e43e7e00069b820e206dd2cc9968443c258ecc3bf0a13b23" },
+    { "path": "tests/fixtures/editron/open-ended-planner-v2/holdout-task-corrections-v2r.json", "sha256": "14b67ebeaa8fc8f58f90608f5e0ec4be42bd96c9a53d1b34dd3719467e76912c" },
+    { "path": "lib/editron/research/open-ended-planner/holdout-media-materializer-v2r.ts", "sha256": "3def368f965406bcb43c1dea2480dc8e2290cda12860f84bfe2f9ffae115b77b" },
     { "path": "lib/editron/research/open-ended-planner/holdout-media-codec-v2r.ts", "sha256": "e2e299b4e0232ddbc5bef05c91795a06b3c73ea3873b57d55f270c2e06f43b5b" },
     { "path": "lib/editron/research/open-ended-planner/holdout-media-fixtures-v2r.ts", "sha256": "2430c7c471494b8dd56ef39c353f25c4b4c9daf9a14d1d4d3aa93a259a19d34d" }
   ],
