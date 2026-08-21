@@ -21,6 +21,7 @@ interface PexelsVideo { id: number | string; image: string; video_files: PexelsV
 
 export function V2VideoBrowse() {
   const [q, setQ] = useState('');
+  const [addError, setAddError] = useState<string | null>(null);
   const { videos, isLoading, fetchVideos } = usePexelsVideos();
   const { addOverlay, overlays, durationInFrames } = useEditorContext();
   const { findNextAvailablePosition } = useTimelinePositioning();
@@ -68,8 +69,12 @@ export function V2VideoBrowse() {
         styles: { opacity: 1, zIndex: 100, transform: 'none', objectFit: 'cover' },
       };
       addOverlay(newOverlay);
+      setAddError(null);
     } catch (error) {
       console.error('Error adding video to timeline:', error);
+      // Clicking a tile and having nothing happen is indistinguishable from a
+      // broken app — surface the failure inline.
+      setAddError('Could not add that video — try again.');
     }
   };
 
@@ -82,6 +87,9 @@ export function V2VideoBrowse() {
         </button>
       </form>
       <a href="https://www.pexels.com" target="_blank" rel="noopener noreferrer" className="text-center text-[10px] text-ds-faint hover:text-ds-muted">Powered by Pexels</a>
+      {addError && (
+        <p role="alert" className="rounded-md border border-status-danger/40 bg-status-danger/10 px-2.5 py-1.5 text-[11px] text-status-danger">{addError}</p>
+      )}
 
       <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-2 overflow-y-auto">
         {isLoading ? (

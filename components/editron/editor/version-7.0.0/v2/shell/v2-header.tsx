@@ -31,6 +31,7 @@ const iconBtn =
 
 export function V2Header({
   projectName,
+  saveState,
   aiOpen,
   onToggleAi,
   onOpenRecovery,
@@ -38,6 +39,8 @@ export function V2Header({
   onOpenMobilePreview,
 }: {
   projectName: string;
+  /** Real autosave state from the editor root. Absent = unknown (render dim, never claim "Saved"). */
+  saveState?: { isSaving: boolean; lastSaveTime: number | null };
   aiOpen: boolean;
   onToggleAi: () => void;
   onOpenRecovery?: () => void;
@@ -80,15 +83,30 @@ export function V2Header({
         <span className="h-2 w-2 shrink-0 rounded-full bg-gold" />
         <span className="max-w-[260px] truncate text-[13.5px] font-bold" title={displayName}>{displayName}</span>
         <span className="relative">
+          {/* Honest save pill — this was static "Saved" JSX with a green dot
+              from first paint, regardless of reality. Now driven by the real
+              autosave state; with no state it stays neutral, never claims. */}
           <button type="button" onClick={() => setSaveMenu((m) => !m)} className="inline-flex items-center gap-1.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60">
-            <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
-            <Mono size="8">Saved</Mono>
+            <span className={cn('h-1.5 w-1.5 rounded-full',
+              saveState?.isSaving ? 'animate-pulse bg-gold'
+              : saveState?.lastSaveTime ? 'bg-status-success'
+              : 'bg-ds-faint')} />
+            <Mono size="8">
+              {saveState?.isSaving ? 'Saving…' : saveState?.lastSaveTime ? 'Saved' : 'Not saved yet'}
+            </Mono>
             <span className="text-[9px] text-ds-dim">▾</span>
           </button>
           {saveMenu && (
             <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-[210px] rounded-card border border-ds-emphasis bg-surface-raised p-2.5">
               <Mono size="8" className="mb-2 block">Autosave</Mono>
-              <div className="mb-1.5 flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-status-success" /><span className="text-[12px] text-ds-secondary">Backed up locally every edit.</span></div>
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <span className={cn('h-1.5 w-1.5 rounded-full', saveState?.lastSaveTime ? 'bg-status-success' : 'bg-ds-faint')} />
+                <span className="text-[12px] text-ds-secondary">
+                  {saveState?.lastSaveTime
+                    ? `Last saved ${new Date(saveState.lastSaveTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                    : 'Saves automatically while you edit.'}
+                </span>
+              </div>
               <button type="button" onClick={() => { setSaveMenu(false); onOpenRecovery?.(); }} className="w-full rounded-button border border-ds-subtle bg-surface-deeper py-1.5 text-[11.5px] font-bold text-ds-secondary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold/60">Recover a version…</button>
             </div>
           )}

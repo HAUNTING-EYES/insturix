@@ -22,7 +22,7 @@ import { V2Modals, type V2ModalKind } from './modals/v2-modals';
    hotkeys and context wiring. v1 stays the source of truth; this mounts at
    /v2 until the founder swaps it in. */
 
-export function V2Editor() {
+export function V2Editor({ saveState }: { saveState?: { isSaving: boolean; lastSaveTime: number | null } }) {
   const [isMobile, setIsMobile] = useState(false);
   const [aiOpen, setAiOpen] = useState(true);
   const [modal, setModal] = useState<V2ModalKind>(null);
@@ -115,6 +115,7 @@ export function V2Editor() {
       <style>{`.v2-warm{--bg-canvas:#0A0908;--bg-raised:#14110D;--bg-deeper:#1B1712;--bg-well:#241E17;--border-subtle:#2A241C;--border-emphasis:#3A3227;}`}</style>
       <V2Header
         projectName={projectId ?? 'Project'}
+        saveState={saveState}
         aiOpen={aiOpen}
         onToggleAi={() => setAiOpen((o) => !o)}
         onOpenRecovery={() => setModal('recovery')}

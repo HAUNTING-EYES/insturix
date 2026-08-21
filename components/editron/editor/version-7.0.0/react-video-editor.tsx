@@ -340,7 +340,7 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
                         } catch {}
                       }}
                     />
-                    {variant === "v2" ? <V2Editor /> : <Editor />}
+                    {variant === "v2" ? <V2Editor saveState={{ isSaving, lastSaveTime }} /> : <Editor />}
                     {/* AI Processing Overlay */}
                     <div className={`absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/50 backdrop-blur-sm transition-opacity duration-300 ${isAIProcessing ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
                       <div className="flex flex-col items-center gap-4 rounded-lg bg-card p-8 shadow-lg border border-border">
@@ -350,11 +350,15 @@ export default function ReactVideoEditor({ projectId, variant = "v1" }: { projec
                     </div>
                   </SidebarInset>
 
-                  {/* Autosave Status Indicator */}
-                  <AutosaveStatus
-                    isSaving={isSaving}
-                    lastSaveTime={lastSaveTime}
-                  />
+                  {/* Autosave Status Indicator — v1 only. In v2 the header's
+                      save pill is wired to the same state; showing both meant
+                      two (previously contradictory) save UIs at once. */}
+                  {variant !== "v2" && (
+                    <AutosaveStatus
+                      isSaving={isSaving}
+                      lastSaveTime={lastSaveTime}
+                    />
+                  )}
 
                   <NativeVideoAudioRightsDialog
                     open={pendingRightsRenderMode !== null}

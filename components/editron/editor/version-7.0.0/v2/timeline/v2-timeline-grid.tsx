@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useMemo, useState } from 'react';
+import { cn } from '@/lib/utils';
 import { ROW_HEIGHT, SNAPPING_CONFIG, FPS } from '../../constants';
 import { useTimeline } from '../../contexts/timeline-context';
 import { useEditorContext } from '../../contexts/editor-context';
@@ -266,7 +267,12 @@ export function V2TimelineGrid({
       <BackgroundMusicAssignmentDialog controller={backgroundMusicAssignment} />
       <UploadedAudioAssignmentDialog controller={uploadedAudioAssignment} />
       {actionStatus && (
-        <div className="absolute left-1/2 top-0 z-[100] -translate-x-1/2 rounded-b-md bg-status-success px-3 py-1.5 text-[11px] font-medium text-[#0B0B0A] shadow-lg">
+        // Failure strings must not wear the success color — "Failed: …" used to
+        // render on the same green chip as confirmations.
+        <div className={cn(
+          'absolute left-1/2 top-0 z-[100] -translate-x-1/2 rounded-b-md px-3 py-1.5 text-[11px] font-medium shadow-lg',
+          /fail/i.test(actionStatus) ? 'bg-status-danger text-white' : 'bg-status-success text-[#0B0B0A]',
+        )}>
           {actionStatus}
         </div>
       )}
