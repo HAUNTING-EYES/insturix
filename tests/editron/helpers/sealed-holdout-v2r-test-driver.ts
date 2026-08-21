@@ -17,6 +17,8 @@ import {
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v2r';
 import { buildBudgetedSealedHoldoutSelectedOperationTraceV2R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-trace-v2r';
+import type { ProviderNativeArgumentHandoffModeV2R }
+  from '@/lib/editron/research/open-ended-planner/provider-native-result-references-v2r';
 
 export type SealedHoldoutScriptedCallV2R = Readonly<{
   name: string; arguments: Readonly<Record<string, unknown>>;
@@ -34,6 +36,7 @@ const USAGE = {
 export async function runScriptedBudgetedSealedHoldoutV2R(input: {
   caseId: string;
   calls: readonly SealedHoldoutScriptedCallV2R[];
+  argumentHandoffMode?: ProviderNativeArgumentHandoffModeV2R;
 }) {
   const contract = await readFile(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V2R);
   const manifest = buildSealedHoldoutCohortManifestV2R(
@@ -44,6 +47,7 @@ export async function runScriptedBudgetedSealedHoldoutV2R(input: {
   let turn = 0;
   const budgetedEpisode = await runBudgetedSealedHoldoutEpisodeV2R({
     manifest, caseId: input.caseId, route: ROUTE,
+    argumentHandoffMode: input.argumentHandoffMode,
     authorization: {
       version: SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
       manifestSha256: manifest.manifestSha256, caseId: input.caseId,

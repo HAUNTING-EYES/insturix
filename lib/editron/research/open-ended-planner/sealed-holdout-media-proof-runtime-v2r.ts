@@ -109,6 +109,51 @@ export async function renderHardCutProxyV2R(input: {
   return Object.freeze({ outputPath, artifactSha256: `sha256:${sha256(bytes)}`, bytes: bytes.length });
 }
 
+export async function renderConcatenatedProxyV2R(input: {
+  segments: readonly Readonly<{ sourcePath: string; startFrame: number; endFrame: number }>[];
+  width: number;
+  height: number;
+  outputDirectory: string;
+  outputFilename: string;
+  ffmpegPath?: string;
+}): Promise<Readonly<{ outputPath: string; artifactSha256: string; bytes: number; frameCount: number }>> {
+  if (input.segments.length < 2 || input.segments.length > 16
+    || !Number.isSafeInteger(input.width) || input.width < 16
+    || !Number.isSafeInteger(input.height) || input.height < 16
+    || !/^[a-z0-9][a-z0-9-]*\.mp4$/.test(input.outputFilename)) {
+    fail('SEALED_MEDIA_CONCAT_CONTRACT_INVALID');
+  }
+  for (const segment of input.segments) {
+    if (!Number.isSafeInteger(segment.startFrame) || segment.startFrame < 0
+      || !Number.isSafeInteger(segment.endFrame) || segment.endFrame <= segment.startFrame) {
+      fail('SEALED_MEDIA_CONCAT_RANGE_INVALID');
+    }
+  }
+  const root = resolve(input.outputDirectory);
+  if (root === parse(root).root || root === resolve(process.cwd())) fail('SEALED_MEDIA_OUTPUT_ROOT_UNSAFE');
+  await mkdir(dirname(root), { recursive: true });
+  await mkdir(root);
+  const outputPath = resolve(root, input.outputFilename);
+  const frameCount = input.segments.reduce(
+    (total, segment) => total + segment.endFrame - segment.startFrame, 0,
+  );
+  const inputs = input.segments.flatMap((segment) => ['-i', segment.sourcePath]);
+  const filters = input.segments.map((segment, index) =>
+    `[${index}:v]trim=start_frame=${segment.startFrame}:end_frame=${segment.endFrame},setpts=PTS-STARTPTS,scale=${input.width}:${input.height}:flags=lanczos,setsar=1[v${index}]`);
+  filters.push(`${input.segments.map((_, index) => `[v${index}]`).join('')}concat=n=${input.segments.length}:v=1:a=0[v]`);
+  await capture(input.ffmpegPath ?? getFFmpegPath(), [
+    '-nostdin', '-hide_banner', '-loglevel', 'error', ...inputs,
+    '-filter_complex', filters.join(';'), '-map', '[v]', '-an', '-c:v', 'libx264',
+    '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', '30',
+    '-frames:v', String(frameCount), '-map_metadata', '-1', '-movflags', '+faststart',
+    '-n', outputPath,
+  ]);
+  const bytes = await readFile(outputPath);
+  return Object.freeze({
+    outputPath, artifactSha256: `sha256:${sha256(bytes)}`, bytes: bytes.length, frameCount,
+  });
+}
+
 export async function probeHoldoutVideoV2R(
   filePath: string,
   ffprobePath = 'ffprobe',
@@ -144,7 +189,7 @@ export function measureHoldoutColorBoundsV2R(
   rgb: Buffer,
   width: number,
   height: number,
-  color: 'CLOCK_GOLD' | 'DIAL_CYAN',
+  color: 'CLOCK_GOLD' | 'DIAL_CYAN' | 'DOOR_BROWN',
 ): Readonly<HoldoutColorBoundsV2R> {
   if (rgb.length !== width * height * 3) fail('SEALED_MEDIA_COLOR_FRAME_INVALID');
   let left = width; let right = -1; let top = height; let bottom = -1; let pixels = 0;
@@ -153,7 +198,9 @@ export function measureHoldoutColorBoundsV2R(
     const red = rgb[offset]; const green = rgb[offset + 1]; const blue = rgb[offset + 2];
     const matches = color === 'CLOCK_GOLD'
       ? red > 150 && green > 120 && blue < 135 && red > green && green > blue * 1.2
-      : blue > 145 && green > 125 && red < 155 && blue > red * 1.15;
+      : color === 'DIAL_CYAN'
+        ? blue > 145 && green > 125 && red < 155 && blue > red * 1.15
+        : red > 90 && green > 40 && green < 125 && blue < 95 && red > green * 1.25;
     if (!matches) continue;
     left = Math.min(left, x); right = Math.max(right, x);
     top = Math.min(top, y); bottom = Math.max(bottom, y); pixels += 1;
