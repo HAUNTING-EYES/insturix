@@ -1,10 +1,17 @@
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import reconciliationJson from '@/docs/editron/capability-census/editron-cap2-owner-reconciliation-core-timeline-v1.json';
 import inventoryJson from '@/docs/editron/capability-census/editron-cap2-source-surface-inventory-v1.json';
+import {
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V2,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v2';
+import {
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3,
+  getCap2CurrentTruthDomainEvidencePathsV3,
+  hashNormalizedCap2SourceSnapshotV3,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v3';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -16,18 +23,6 @@ function absolutePath(relativePath: string): string {
 
 function readSource(relativePath: string): string {
   return readFileSync(absolutePath(relativePath), 'utf8');
-}
-
-function evidenceSnapshotHash(relativePaths: readonly string[]): string {
-  const rows = [...relativePaths]
-    .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
-    .map((relativePath) => {
-      const fileHash = createHash('sha256')
-        .update(readFileSync(absolutePath(relativePath)))
-        .digest('hex');
-      return `${relativePath}\0${fileHash}`;
-    });
-  return createHash('sha256').update(rows.join('\n')).digest('hex');
 }
 
 function candidate(candidateId: string) {
@@ -66,10 +61,14 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
     ]);
   });
 
-  it('binds the reconciliation to the exact current source bytes and symbols', () => {
+  it('binds the reconciled current core evidence over immutable v1 history', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
-    expect(evidenceSnapshotHash(artifact.sourceBinding.evidencePaths))
-      .toBe(artifact.sourceBinding.evidenceSnapshotHash);
+    const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.domainBindings
+      .find(({ domain }) => domain === 'CORE_PROJECT_TIMELINE_CHECKPOINT')!;
+    expect(hashNormalizedCap2SourceSnapshotV3(
+      getCap2CurrentTruthDomainEvidencePathsV3('CORE_PROJECT_TIMELINE_CHECKPOINT'),
+    )).toBe(binding.normalizedEvidenceHash);
+    expect(binding.reissueStatus).toBe('RECONCILED_CURRENT_TRUTH_V3');
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
@@ -142,6 +141,32 @@ describe('CAP-2 core timeline owner reconciliation v1', () => {
       .toContain('projectService.saveProject(userId, projectId, project)');
     expect(candidate('timeline.cut-range').revisionSafety.status)
       .toBe('WHOLE_STATE_STALE_SNAPSHOT_RISK');
+  });
+
+  it('records receipt and coordinate-output improvements without false atomic promotion', () => {
+    const scriptImport = readSource('app/api/services/editron/projects/import-from-script/route.ts');
+    expect(scriptImport).toContain('verifyThinkForgeEditronProductionManifest');
+    expect(scriptImport).toContain('projectService.saveProjectWithReceipt');
+    expect(scriptImport).not.toContain('getDatabase');
+
+    const timelineCut = readSource('lib/editron/services/timeline-range-cut.ts');
+    expect(timelineCut).toContain('TimelineRangeCutCoordinateTransformV1');
+    expect(timelineCut).toContain('timelineCoordinateTransform');
+    expect(timelineCut).toContain('splitChildren');
+    expect(candidate('timeline.cut-range').catalogDisposition).toBe('EXCLUDED_UNSAFE');
+
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V2.semanticDeltas
+      .filter(({ domain }) => domain === 'CORE_PROJECT_TIMELINE_CHECKPOINT')
+      .map(({ deltaId }) => deltaId)).toEqual([
+      'core.script-import-writer-receipt',
+      'core.timeline-cut-coordinate-output',
+    ]);
+    const cutResolution = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V2.semanticDeltas
+      .find(({ deltaId }) => deltaId === 'core.timeline-cut-coordinate-output')!.resolution;
+    expect(cutResolution.supersededV1Claims)
+      .toContain('The cut result does not expose its internal original-to-split-child mapping.');
+    expect(cutResolution.remainingGaps)
+      .toContain('Carry the caller-pinned expected revision through one canonical project mutation.');
   });
 
   it('keeps overlay metadata receipts outside transaction authority', () => {

@@ -1,10 +1,15 @@
-import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 import inventoryJson from '@/docs/editron/capability-census/editron-cap2-source-surface-inventory-v1.json';
+import {
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3,
+  CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V3,
+  CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3,
+  hashNormalizedCap2SourceSnapshotV3,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v3';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
 const REPOSITORY_ROOT = process.cwd();
@@ -288,14 +293,6 @@ function currentExtractions(): Record<string, ExtractedSurface> {
   };
 }
 
-function sourceSnapshotHash(paths: readonly string[]): string {
-  const rows = paths.map((relativePath) => {
-    const fileHash = createHash('sha256').update(readFileSync(absolutePath(relativePath))).digest('hex');
-    return `${relativePath}\0${fileHash}`;
-  });
-  return createHash('sha256').update(rows.join('\n')).digest('hex');
-}
-
 describe('CAP-2 source-surface inventory v1', () => {
   it('accepts the closed inventory while retaining zero authority claims', () => {
     const inventory = parseCap2SourceSurfaceInventoryV1(inventoryJson);
@@ -304,11 +301,12 @@ describe('CAP-2 source-surface inventory v1', () => {
     expect(inventory.unresolvedSourceIds).toEqual(inventory.observations.map(({ sourceId }) => sourceId));
   });
 
-  it('matches every frozen observation to a fresh source extraction', () => {
-    const inventory = parseCap2SourceSurfaceInventoryV1(inventoryJson);
+  it('matches every reissued current observation to a fresh source extraction', () => {
     const extracted = currentExtractions();
-    expect(Object.keys(extracted).sort(compareCodeUnits)).toEqual(inventory.unresolvedSourceIds);
-    for (const observation of inventory.observations) {
+    expect(Object.keys(extracted).sort(compareCodeUnits)).toEqual(
+      CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V3.map(({ sourceId }) => sourceId),
+    );
+    for (const observation of CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V3) {
       expect(extracted[observation.sourceId], observation.sourceId).toEqual({
         ids: observation.observedIds,
         paths: observation.evidencePaths,
@@ -316,10 +314,14 @@ describe('CAP-2 source-surface inventory v1', () => {
     }
   });
 
-  it('binds the artifact to the raw bytes of every evidence source', () => {
-    const inventory = parseCap2SourceSurfaceInventoryV1(inventoryJson);
-    expect(sourceSnapshotHash(inventory.sourceBinding.sourceSnapshotPaths))
-      .toBe(inventory.sourceBinding.sourceSnapshotHash);
+  it('binds current source content without treating CRLF checkout changes as architecture drift', () => {
+    expect(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3).toHaveLength(221);
+    expect(hashNormalizedCap2SourceSnapshotV3(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3))
+      .toBe(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.sourceBinding.normalizedSourceSnapshotHash);
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.status)
+      .toBe('REISSUED_CURRENT_TRUTH_RESEARCH_ONLY');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.sourceBinding.reconciliationStatus)
+      .toBe('RECONCILED_CURRENT_TRUTH_V3');
   });
 
   it('keeps chat descriptors distinct from the executable compatibility bundle', () => {
