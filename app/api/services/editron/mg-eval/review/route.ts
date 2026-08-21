@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { internalToolsEnabled } from '@/lib/editron/internal-tools';
 import { MIN_CALIBRATION_LABELS } from '@/lib/editron/motion-graphics/eval/eval-dataset';
 import type { EvalItem } from '@/lib/editron/motion-graphics/eval/eval-dataset';
 import {
@@ -50,8 +51,13 @@ async function saveLabel(itemId: string, label: EvalReviewLabel): Promise<number
   return saveEvalLabel(labelsFileFor(evalCorpusDir()), itemId, label, base).count;
 }
 
-/** GET: the review corpus (renders + judge verdicts + current labels). POST: save a human label. */
+/** GET: the review corpus (renders + judge verdicts + current labels). POST: save a human label.
+ *  Operator-only: labels are calibration ground truth, so both verbs 404 unless
+ *  INTERNAL_TOOLS_ENABLED is set (mirrors the page gate — UI hiding alone is not a gate). */
 export async function GET() {
+  if (!internalToolsEnabled()) {
+    return NextResponse.json({ ok: false, error: 'not found' }, { status: 404 });
+  }
   const items = loadSeed();
   const labels = await loadLabels();
   const review = items.map((it) => ({
@@ -76,6 +82,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!internalToolsEnabled()) {
+    return NextResponse.json({ ok: false, error: 'not found' }, { status: 404 });
+  }
   try {
     const body = (await request.json()) as {
       itemId: string;
