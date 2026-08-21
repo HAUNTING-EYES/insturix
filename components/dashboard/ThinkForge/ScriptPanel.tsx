@@ -3,8 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ScriptEditor from '@/components/dashboard/ThinkForge/ScriptEditor';
 import { DocumentTabs, type DocumentTab } from '@/components/dashboard/ThinkForge/DocumentTabs';
 import { Idea, Script } from '@/app/dashboard/thinkforge/types';
-import WhiteboardPlaceholder from './WhiteboardPlaceholder';
-import { FileText, Brain, RefreshCw } from 'lucide-react';
+import { FileText, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 
 interface ScriptPanelProps {
@@ -175,18 +174,9 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                 <FileText className="w-3.5 h-3.5" />
                 Scripting
              </button>
-             <button
-                onClick={() => setMode('whiteboard')}
-                className={clsx(
-                   "flex items-center gap-2 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all duration-200",
-                   mode === 'whiteboard' 
-                      ? "bg-[#1C1B19] text-[#ECE9E1] shadow-sm ring-1 ring-[#282724]" 
-                      : "text-[#5F5E5A] hover:text-[#B5B2A8] hover:bg-[#131312]"
-                )}
-             >
-                <Brain className="w-3.5 h-3.5" />
-                Whiteboard
-             </button>
+             {/* Whiteboard toggle removed: it occupied half the primary
+                 mode-switcher and rendered a "Coming Soon" placeholder — a
+                 dead end in prime navigation. Reinstate with the feature. */}
           </div>
        </div>
 
@@ -263,9 +253,7 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                   generatingScript={generatingScript}
                 />
              </div>
-          ) : (
-             <WhiteboardPlaceholder />
-          )}
+          ) : null}
        </div>
     </div>
   );

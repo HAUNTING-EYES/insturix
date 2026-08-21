@@ -1,7 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, FolderOpen, Lightbulb, FileText, Calendar, Brain, Library, RotateCcw } from "lucide-react";
+import { AlertCircle, Lightbulb, FileText, Calendar, Brain, Library, RotateCcw } from "lucide-react";
 import { toast } from '@/hooks/use-toast';
 import {
 	resolveProjectMetaEditorialAngle,
@@ -863,15 +863,10 @@ export default function ThinkForgeLanding() {
 		}
 	};
 
-	// Dock items for ThinkForge features
+	// Dock items for ThinkForge features.
+	// NOTE: no "Projects" item — it fired a "coming soon!" toast, a dead end in
+	// prime navigation. Reinstate only when project management exists.
 	const dockItems = [
-		{
-			icon: FolderOpen,
-			label: 'Projects',
-			onClick: () => {
-				toast({ title: 'Projects', description: 'Project management coming soon!' });
-			}
-		},
 		{
 			icon: Lightbulb,
 			label: 'Ideation',

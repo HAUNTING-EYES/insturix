@@ -851,7 +851,9 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
         style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 22px", background: "transparent", border: `1px solid ${C.red}40`, borderRadius: 8, color: C.red, fontSize: 13, fontWeight: 600, textDecoration: "none" }}
       >
         <RotateCcw size={13} />
-        Try Again
+        {/* Honest label: this navigates to the upload page — it does NOT re-run
+            the failed analysis (no retry endpoint exists yet). */}
+        Start a new analysis
       </Link>
     </div>
   );

@@ -71,7 +71,14 @@ export function MusitronLayout() {
         >
           &#8250;
         </span>
-        <span style={{ fontSize: 13, color: "#7A776E", cursor: "pointer" }}>
+        {/* Was a cursor:pointer span with NO onClick — a fake control. */}
+        <span
+          role="link"
+          tabIndex={0}
+          onClick={() => router.push("/dashboard")}
+          onKeyDown={(e) => { if (e.key === "Enter") router.push("/dashboard"); }}
+          style={{ fontSize: 13, color: "#7A776E", cursor: "pointer" }}
+        >
           Dashboard
         </span>
         <span
