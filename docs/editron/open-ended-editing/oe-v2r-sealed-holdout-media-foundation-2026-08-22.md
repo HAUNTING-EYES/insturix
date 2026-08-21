@@ -7,8 +7,10 @@ media suitable for a zero-inference benchmark preflight. This is
 `INPUT_EVIDENCE_READY`, not provider execution, model success, rendered edit
 quality or production certification. The subsequent local cohort preflight is
 now `PASS_READY_FOR_CREDENTIAL_PREFLIGHT`, and the generic public-case episode
-shell is `CODE_CONNECTED`. Owner-only evidence, execution, lowering and
-evaluation remain unwired; provider dispatch remains disabled.
+shell and owner connector are `RESEARCH_CONNECTOR_READY`. Owner-only evidence
+resolution and isolated operation-log execution are wired; real native media
+execution, generated compilation/rendering, lowering, proof and evaluation
+remain unwired. Provider dispatch remains disabled.
 
 ## Bound identity
 
@@ -92,19 +94,33 @@ historical DEV harness. It establishes these boundaries:
 - the shell has no ProjectService authority and records no real-project state
   effects.
 
-The shell accepts an injected isolated executor, but that executor is not yet
-connected to the owner-only evidence partition. It also does not lower or judge
-the completed episode. `CODE_CONNECTED` therefore does not mean executable
-holdout certification or provider readiness.
+Commits `7e80a05b4` and `2835458fb` close two protocol defects and connect the
+default owner session:
+
+- `CLARIFICATION_REQUIRED` remains distinct from failure and capability gap;
+- opaque handoff projections are derived from the complete operator schemas,
+  including every callable writer's `receipt.projectRevision` as a possible
+  downstream `expectedProjectRevision` origin;
+- owner-only evidence is returned only after a compatible declared read call;
+  condition names, evaluator facts and expected answers remain hidden;
+- the in-memory research clone rejects project/revision drift and issues a
+  deterministic writer revision for each admitted mutation;
+- receipts explicitly record `RESEARCH_CLONE_OPERATION_LOG_ONLY` and
+  `renderedProof: NOT_RUN`.
+
+The connector validates provider protocol and causal revision flow, but it
+does not execute the real native media owners, compile generated code, render,
+mutate ProjectService or judge the result. `RESEARCH_CONNECTOR_READY` therefore
+does not mean executable holdout certification or provider readiness.
 
 ## What remains before provider calls
 
-1. Connect the separately hashed owner-only evidence partition to an isolated
-   executor. Evidence may resolve only after a valid declared tool call, and
-   typed opaque results must remain causal handles rather than copied values.
-2. Freeze schema-driven lowering and evaluation before inference. Lowering may
+1. Freeze schema-driven selected-operation trace lowering and hidden evaluation
+   before inference. Lowering may
    bind exact arguments, coordinates, revisions and result references; it may
    add or remove zero model-selected creative operations.
+2. Connect claim-appropriate real native/generated proof adapters. The current
+   operation-log clone is insufficient for visual, audible or semantic PASS.
 3. Capture the exact Luna, Terra and Gemini requests, verify provider-native
    model identity and modalities, count/bound input tokens, and issue a
    production-credential zero-inference receipt.
@@ -117,7 +133,7 @@ holdout certification or provider readiness.
 - Holdout materializer: 4/4 tests passed.
 - Combined development and holdout materializers: 11/11 tests passed.
 - Sealed cohort/preflight tests: 3/3 passed; combined focused checks: 7/7.
-- Generic episode plus related protocol/preflight tests: 25/25 passed.
+- Generic causal/owner connector checks: 16/16 passed.
 - `npx tsc --noEmit`: passed.
 - Repository ESLint: passed.
 

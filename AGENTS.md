@@ -89,7 +89,8 @@ pnpm test                # vitest run
   code, a benchmark, a receipt, an invalidation, a blocker or the next action
   materially changes. Never leave "calls pending" after calls ran, preserve a
   pass after its evidence was invalidated, or report a historical source hash
-  as current truth.
+  as current truth. Record the exact commit, verified boundary, tests/proof,
+  remaining blockers and next execution order.
 - Keep `RAW_EXECUTED`, `VALID_EVIDENCE`, `INVALID_EVIDENCE` and production
   promotion status separate. A paid call, green unit test or attractive render
   is not automatically valid evidence and is never production certification.
