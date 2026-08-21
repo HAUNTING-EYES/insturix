@@ -14,6 +14,7 @@ import { buildProviderNativeFinishControlSchemaV2R }
   from './provider-native-tool-catalog-v2r';
 import type { ProviderNativeArgumentHandoffModeV2R }
   from './provider-native-result-references-v2r';
+import { SealedHoldoutOwnerSessionV2R } from './sealed-holdout-owner-session-v2r';
 import {
   assertSealedHoldoutCohortManifestV2R,
   type SealedHoldoutCohortManifestV2R,
@@ -92,7 +93,7 @@ export async function runSealedHoldoutEpisodeV2R(input: {
   operatorPresentationOrder?: readonly string[];
   invoke: (request: Readonly<SerializedProviderNativeTurnV2R>)
     => Promise<ProviderNativeInvokeResponseV2R>;
-  executeIsolated: (call: Readonly<{
+  executeIsolated?: (call: Readonly<{
     operatorId: string; arguments: Readonly<JsonRecord>; turn: number;
   }>) => Promise<Readonly<ProviderNativeToolExecutionV2R>>;
 }): Promise<Readonly<ProviderNativeEpisodeReceiptV2R>> {
@@ -100,6 +101,9 @@ export async function runSealedHoldoutEpisodeV2R(input: {
   const expected = strings(record(manifest.sharedModelContext).callableOperatorIds);
   const operatorOrder = input.operatorPresentationOrder ?? expected;
   if (!sameSet(operatorOrder, expected)) fail('SEALED_HOLDOUT_EPISODE_OPERATOR_SET_DRIFT');
+  const ownerSession = input.executeIsolated ? null : new SealedHoldoutOwnerSessionV2R({
+    manifest, caseId: input.caseId,
+  });
   return runProviderNativeToolEpisodeV2R({
     route: input.route,
     context: buildSealedHoldoutEpisodeContextV2R({ manifest, caseId: input.caseId }),
@@ -112,7 +116,7 @@ export async function runSealedHoldoutEpisodeV2R(input: {
       'The opaque C1/C2 label carries no semantic meaning. Base every choice on the request and returned tool evidence.',
     ],
     invoke: input.invoke,
-    executeIsolated: input.executeIsolated,
+    executeIsolated: input.executeIsolated ?? ((call) => ownerSession!.execute(call)),
   });
 }
 
