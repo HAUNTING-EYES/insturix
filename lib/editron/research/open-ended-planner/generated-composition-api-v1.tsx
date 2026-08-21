@@ -23,6 +23,13 @@ export interface GeneratedCompositionRuntimeManifestV1 {
 const RuntimeContext = createContext<GeneratedCompositionRuntimeManifestV1 | null>(null);
 const GutterContext = createContext(0);
 
+export interface GeneratedPanelBoundsV1 {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 export function GeneratedCompositionProvider({
   manifest,
   children,
@@ -72,14 +79,18 @@ export function Panel({
   layerId,
   column,
   row,
+  bounds,
+  translateX = 0,
   translateY,
   entryScale = 1,
   takeoverProgress = 0,
   children,
 }: {
   layerId: string;
-  column: 'left' | 'centre' | 'right';
-  row: 'top' | 'centre' | 'bottom';
+  column?: 'left' | 'centre' | 'right';
+  row?: 'top' | 'centre' | 'bottom';
+  bounds?: GeneratedPanelBoundsV1;
+  translateX?: number;
   translateY: number;
   entryScale?: number;
   takeoverProgress?: number;
@@ -90,15 +101,19 @@ export function Panel({
   const layer = manifest.layers.find((candidate) => candidate.layerId === layerId);
   if (!layer || layer.kind !== 'SOURCE_PANEL') throw new Error(`Generated composition source layer is undeclared: ${layerId}`);
   const geometry = resolveGeneratedPanelGeometryV1({
-    canvas: manifest.canvas, gutter, column, row, takeoverProgress,
+    canvas: manifest.canvas, gutter, column, row, bounds, takeoverProgress,
   });
   const scale = finiteNumber(entryScale, 'entryScale');
+  const x = finiteNumber(translateX, 'translateX');
+  const y = finiteNumber(translateY, 'translateY');
   return (
     <div style={{
       position: 'absolute', left: geometry.left, top: geometry.top, width: geometry.width,
       height: geometry.height, padding: geometry.padding,
       boxSizing: 'border-box', overflow: 'visible', zIndex: layer.zIndex,
-      transform: `translateY(${finiteNumber(translateY, 'translateY')}px) scale(${scale})`,
+      transform: x === 0
+        ? `translateY(${y}px) scale(${scale})`
+        : `translateX(${x}px) translateY(${y}px) scale(${scale})`,
       transformOrigin: 'center center',
     }}>
       <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', backgroundColor: '#000' }}>
@@ -111,22 +126,63 @@ export function Panel({
 export function resolveGeneratedPanelGeometryV1(input: {
   canvas: { width: number; height: number };
   gutter: number;
-  column: 'left' | 'centre' | 'right';
-  row: 'top' | 'centre' | 'bottom';
+  column?: 'left' | 'centre' | 'right';
+  row?: 'top' | 'centre' | 'bottom';
+  bounds?: GeneratedPanelBoundsV1;
   takeoverProgress: number;
 }): { left: number; top: number; width: number; height: number; padding: number } {
   const progress = finiteNumber(input.takeoverProgress, 'takeoverProgress');
   if (progress < 0 || progress > 1) throw new Error(`Generated composition takeoverProgress is outside [0,1]: ${progress}`);
-  const columnWidth = input.canvas.width / 3;
-  const baseLeft = input.column === 'left' ? 0 : input.column === 'centre' ? columnWidth : columnWidth * 2;
-  const baseTop = input.row === 'top' ? 0 : input.row === 'bottom' ? input.canvas.height / 2 : input.canvas.height / 3;
-  const baseHeight = input.row === 'centre' ? input.canvas.height / 3 : input.canvas.height / 2;
+  const canvasWidth = positiveFiniteNumber(input.canvas.width, 'canvas width');
+  const canvasHeight = positiveFiniteNumber(input.canvas.height, 'canvas height');
+  const hasGridPosition = input.column !== undefined || input.row !== undefined;
+  if (input.bounds && hasGridPosition) throw new Error('Generated composition panel geometry must use bounds or grid position, not both');
+  if (!input.bounds && (!input.column || !input.row)) throw new Error('Generated composition panel geometry is missing');
+  const base = input.bounds
+    ? resolveNormalizedBounds(input.bounds, canvasWidth, canvasHeight)
+    : resolveGridBounds(input.column!, input.row!, canvasWidth, canvasHeight);
   return {
-    left: baseLeft * (1 - progress),
-    top: baseTop * (1 - progress),
-    width: columnWidth + (input.canvas.width - columnWidth) * progress,
-    height: baseHeight + (input.canvas.height - baseHeight) * progress,
+    left: base.left * (1 - progress),
+    top: base.top * (1 - progress),
+    width: base.width + (canvasWidth - base.width) * progress,
+    height: base.height + (canvasHeight - base.height) * progress,
     padding: (finiteNumber(input.gutter, 'gutter') / 2) * (1 - progress),
+  };
+}
+
+function resolveGridBounds(
+  column: 'left' | 'centre' | 'right',
+  row: 'top' | 'centre' | 'bottom',
+  canvasWidth: number,
+  canvasHeight: number,
+): GeneratedPanelBoundsV1 {
+  const columnWidth = canvasWidth / 3;
+  return {
+    left: column === 'left' ? 0 : column === 'centre' ? columnWidth : columnWidth * 2,
+    top: row === 'top' ? 0 : row === 'bottom' ? canvasHeight / 2 : canvasHeight / 3,
+    width: columnWidth,
+    height: row === 'centre' ? canvasHeight / 3 : canvasHeight / 2,
+  };
+}
+
+function resolveNormalizedBounds(
+  bounds: GeneratedPanelBoundsV1,
+  canvasWidth: number,
+  canvasHeight: number,
+): GeneratedPanelBoundsV1 {
+  const left = finiteNumber(bounds.left, 'bounds.left');
+  const top = finiteNumber(bounds.top, 'bounds.top');
+  const width = finiteNumber(bounds.width, 'bounds.width');
+  const height = finiteNumber(bounds.height, 'bounds.height');
+  if (left < 0 || top < 0 || width <= 0 || height <= 0
+    || left + width > 1 || top + height > 1) {
+    throw new Error('Generated composition normalized panel bounds must be contained inside [0,1]');
+  }
+  return {
+    left: left * canvasWidth,
+    top: top * canvasHeight,
+    width: width * canvasWidth,
+    height: height * canvasHeight,
   };
 }
 
@@ -208,6 +264,12 @@ function useRuntime(): GeneratedCompositionRuntimeManifestV1 {
 function finiteNumber(value: number, label: string): number {
   if (!Number.isFinite(value)) throw new Error(`Generated composition ${label} must be finite`);
   return value;
+}
+
+function positiveFiniteNumber(value: number, label: string): number {
+  const finite = finiteNumber(value, label);
+  if (finite <= 0) throw new Error(`Generated composition ${label} must be positive`);
+  return finite;
 }
 
 function assertUnique(values: string[], label: string): void {

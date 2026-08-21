@@ -32,6 +32,23 @@ describe('open-ended planner V2 trusted generated-composition proxy', () => {
     expect(resolveGeneratedPanelGeometryV1({
       canvas: { width: 1080, height: 1920 }, gutter: 10, column: 'centre', row: 'centre', takeoverProgress: 1,
     })).toEqual({ left: 0, top: 0, width: 1080, height: 1920, padding: 0 });
+    const arbitrary = resolveGeneratedPanelGeometryV1({
+      canvas: { width: 1080, height: 1920 }, gutter: 0,
+      bounds: { left: 0.03, top: 0.03, width: 0.27, height: 0.39 }, takeoverProgress: 0,
+    });
+    expect(arbitrary.left).toBeCloseTo(32.4, 8);
+    expect(arbitrary.top).toBeCloseTo(57.6, 8);
+    expect(arbitrary.width).toBeCloseTo(291.6, 8);
+    expect(arbitrary.height).toBeCloseTo(748.8, 8);
+    expect(arbitrary.padding).toBe(0);
+    expect(() => resolveGeneratedPanelGeometryV1({
+      canvas: { width: 1080, height: 1920 }, gutter: 0,
+      bounds: { left: 0.8, top: 0, width: 0.3, height: 1 }, takeoverProgress: 0,
+    })).toThrow('must be contained inside [0,1]');
+    expect(() => resolveGeneratedPanelGeometryV1({
+      canvas: { width: 1080, height: 1920 }, gutter: 0, column: 'left', row: 'top',
+      bounds: { left: 0, top: 0, width: 0.3, height: 0.3 }, takeoverProgress: 0,
+    })).toThrow('must use bounds or grid position, not both');
   });
 
   it('renders only an exact human-authored fixture and keeps sandbox/creative proof unresolved', async () => {

@@ -51,7 +51,7 @@ const API_SURFACE_V1 = deepFreezeV1({
   },
   signatures: {
     CompositionStage: '{ background: string; gutter: number; children }',
-    Panel: "{ layerId; column: 'left'|'centre'|'right'; row: 'top'|'centre'|'bottom'; translateY; entryScale?; takeoverProgress?: 0..1; children }",
+    Panel: "{ layerId; exactly one geometry form: (column: 'left'|'centre'|'right' + row: 'top'|'centre'|'bottom') OR bounds: {left,top,width,height} normalized inside [0,1]; translateX?; translateY; entryScale?; takeoverProgress?: 0..1; children }",
     AssetSlot: "{ slotId; sourceFrame: integer inside declared absolute source range; crop: 'portrait-left'|'centre'|'portrait-right' }",
     TextSlot: '{ slotId; fontSlotId; parameterId; value; color; size; fixedToCanvas?; visibleUntilFrame? }',
     useCompositionParameter: 'useCompositionParameter<string|number>(literalParameterId)',
@@ -60,6 +60,7 @@ const API_SURFACE_V1 = deepFreezeV1({
     'Export exactly one React component named GeneratedComposition.',
     'Use every declared layer, source slot, font slot, text slot, and exposed parameter at least once.',
     'All identity arguments must be string literals matching the manifest.',
+    'Panel bounds are normalized canvas coordinates, must remain wholly inside [0,1], and cannot be combined with column/row.',
     'Use only declared imports; no network, filesystem, timers, randomness, dates, dynamic imports, or project state.',
     'The composition has 180 local frames: build 0-107, settled hold 108-144, release 145-179.',
     'Source frames are absolute in each slot range, not composition-relative aliases.',
