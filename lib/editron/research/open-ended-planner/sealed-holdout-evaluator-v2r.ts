@@ -1,12 +1,17 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
-import { isProviderNativeInfrastructureTerminalV2R } from './provider-native-product-outcome-v2r';
+import {
+  isProviderNativeInfrastructureTerminalV2R,
+  isProviderNativeResourceGuardTerminalV2R,
+} from './provider-native-product-outcome-v2r';
 import type { ProviderNativeTerminalDispositionV2R } from './provider-native-tool-episode-v2r';
 import {
   assertSealedHoldoutCohortManifestV2R,
   type SealedHoldoutCohortManifestV2R,
 } from './sealed-holdout-cohort-v2r';
 import {
+  assertBudgetedSealedHoldoutSelectedOperationTraceV2R,
   assertSealedHoldoutSelectedOperationTraceV2R,
+  type BudgetedSealedHoldoutSelectedOperationTraceV2R,
   type SealedHoldoutSelectedOperationTraceV2R,
   type SealedHoldoutTraceNodeV2R,
 } from './sealed-holdout-trace-v2r';
@@ -15,6 +20,12 @@ type JsonRecord = Record<string, unknown>;
 
 export const SEALED_HOLDOUT_EVALUATOR_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V2R_1' as const;
+export const BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V2R =
+  'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V2R_2' as const;
+
+type SealedHoldoutEvaluationAssessmentV2R = 'PASS' | 'FAIL' | 'READY_FOR_PROOF'
+  | 'NOT_EVALUATED_PROVIDER_INFRASTRUCTURE'
+  | 'NOT_EVALUATED_RESOURCE_GUARD';
 
 export interface SealedHoldoutEvaluationReceiptV2R {
   version: typeof SEALED_HOLDOUT_EVALUATOR_VERSION_V2R;
@@ -22,13 +33,24 @@ export interface SealedHoldoutEvaluationReceiptV2R {
   caseId: string;
   traceArtifactSha256: string;
   evaluatorPolicySha256: string;
-  assessment: 'PASS' | 'FAIL' | 'READY_FOR_PROOF' | 'NOT_EVALUATED_PROVIDER_INFRASTRUCTURE';
+  assessment: SealedHoldoutEvaluationAssessmentV2R;
   executionForm: 'NONE' | 'NATIVE' | 'GENERATED_COMPOSITION' | 'HYBRID';
   diagnostics: readonly string[];
   proofRequired: boolean;
   stateEffects: readonly [];
   receiptSha256: string;
 }
+
+export type BudgetedSealedHoldoutEvaluationReceiptV2R = Readonly<
+  Omit<SealedHoldoutEvaluationReceiptV2R, 'version' | 'receiptSha256'> & {
+    version: typeof BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V2R;
+    runtimeBudgetReceiptSha256: string;
+    runtimeBudgetAssessment: BudgetedSealedHoldoutSelectedOperationTraceV2R[
+      'runtimeBudgetAssessment'
+    ];
+    receiptSha256: string;
+  }
+>;
 
 export function evaluateSealedHoldoutTraceV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
@@ -37,6 +59,58 @@ export function evaluateSealedHoldoutTraceV2R(input: {
 }): Readonly<SealedHoldoutEvaluationReceiptV2R> {
   const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
   const trace = assertSealedHoldoutSelectedOperationTraceV2R(input.trace);
+  const evaluated = evaluateTrace({
+    manifest,
+    caseId: input.caseId,
+    trace,
+    evaluatorVersion: SEALED_HOLDOUT_EVALUATOR_VERSION_V2R,
+    structuralPolicy: 'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V1',
+    resourceGuardBound: false,
+  });
+  const material = {
+    version: SEALED_HOLDOUT_EVALUATOR_VERSION_V2R,
+    authority: 'HIDDEN_POST_EPISODE_EVALUATOR_NO_MODEL_CONTEXT_NO_PROJECT_MUTATION' as const,
+    ...evaluated,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
+export function evaluateBudgetedSealedHoldoutTraceV2R(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV2R>;
+  caseId: string;
+  trace: Readonly<BudgetedSealedHoldoutSelectedOperationTraceV2R>;
+}): Readonly<BudgetedSealedHoldoutEvaluationReceiptV2R> {
+  const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
+  const trace = assertBudgetedSealedHoldoutSelectedOperationTraceV2R(input.trace);
+  const evaluated = evaluateTrace({
+    manifest,
+    caseId: input.caseId,
+    trace,
+    evaluatorVersion: BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V2R,
+    structuralPolicy: 'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V2_RESOURCE_BOUND',
+    resourceGuardBound: true,
+  });
+  const material = {
+    version: BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V2R,
+    authority: 'HIDDEN_POST_EPISODE_EVALUATOR_NO_MODEL_CONTEXT_NO_PROJECT_MUTATION' as const,
+    ...evaluated,
+    runtimeBudgetReceiptSha256: trace.runtimeBudgetReceiptSha256,
+    runtimeBudgetAssessment: trace.runtimeBudgetAssessment,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
+function evaluateTrace(input: Readonly<{
+  manifest: Readonly<SealedHoldoutCohortManifestV2R>;
+  caseId: string;
+  trace: Readonly<SealedHoldoutSelectedOperationTraceV2R
+    | BudgetedSealedHoldoutSelectedOperationTraceV2R>;
+  evaluatorVersion: string;
+  structuralPolicy: string;
+  resourceGuardBound: boolean;
+}>): Omit<SealedHoldoutEvaluationReceiptV2R,
+  'version' | 'authority' | 'receiptSha256'> {
+  const { manifest, trace } = input;
   const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
   if (!taskCase || trace.caseId !== input.caseId) fail('SEALED_EVALUATOR_CASE_BINDING_INVALID');
   // Hidden rubric material is consulted only after the provider episode. Never
@@ -46,6 +120,7 @@ export function evaluateSealedHoldoutTraceV2R(input: {
   const taskId = text(publicCase.taskId);
   const terminal = trace.terminalDisposition as ProviderNativeTerminalDispositionV2R;
   const infrastructure = isProviderNativeInfrastructureTerminalV2R(terminal);
+  const resourceGuard = isProviderNativeResourceGuardTerminalV2R(terminal);
   const successfulNodes = trace.nodes.filter(({ executionDisposition }) => executionDisposition === 'OK');
   const nativeMutations = successfulNodes.filter(({ researchCloneMutation }) => researchCloneMutation);
   const generated = successfulNodes.filter(({ operatorKind }) => operatorKind === 'GENERATED_COMPOSITION');
@@ -56,39 +131,65 @@ export function evaluateSealedHoldoutTraceV2R(input: {
   const diagnostics: string[] = [];
   if (trace.assessment !== 'PASS') diagnostics.push('EVAL_TRACE_INVALID');
   const normalizedDisposition = terminal === 'READY_FOR_PROOF' ? 'PROCEED' : terminal;
-  if (!infrastructure && !strings(evaluator.allowedDispositions).includes(normalizedDisposition)) {
+  if (resourceGuard && !input.resourceGuardBound) {
+    diagnostics.push('EVAL_RESOURCE_TERMINAL_WITHOUT_BOUND_BUDGET_RECEIPT');
+  }
+  if (input.resourceGuardBound && 'runtimeBudgetAssessment' in trace) {
+    const expectedBudgetAssessment = terminal === 'RESOURCE_ACCOUNTING_UNVERIFIABLE'
+      ? 'ACCOUNTING_UNVERIFIABLE'
+      : terminal === 'RESOURCE_BUDGET_EXHAUSTED'
+        ? 'BUDGET_EXHAUSTED'
+        : 'ACCOUNTED_WITHIN_BUDGET';
+    if (trace.runtimeBudgetAssessment !== expectedBudgetAssessment) {
+      diagnostics.push('EVAL_RUNTIME_BUDGET_TERMINAL_BINDING_INVALID');
+    }
+  }
+  if (!infrastructure && !resourceGuard
+    && !strings(evaluator.allowedDispositions).includes(normalizedDisposition)) {
     diagnostics.push(`EVAL_DISPOSITION_NOT_ALLOWED:${normalizedDisposition}`);
   }
-  if (terminal === 'PASS') diagnostics.push('EVAL_PREMATURE_MODEL_PASS_WITHOUT_HIDDEN_PROOF');
-  const suppliedEvidence = new Set(trace.nodes.flatMap(({ executionEvidenceRefs }) => executionEvidenceRefs));
-  for (const requiredRef of requiredEvidenceRefs(evaluator, record(taskCase.ownerOnly), diagnostics)) {
-    if (!suppliedEvidence.has(requiredRef)) diagnostics.push(`EVAL_REQUIRED_EVIDENCE_UNRESOLVED:${requiredRef}`);
-  }
-  const selectedIds = trace.nodes.map(({ selectedOperatorId }) => selectedOperatorId);
-  for (const forbiddenId of strings(record(evaluator.sourceEvaluator).forbiddenOperatorIds)) {
-    if (selectedIds.includes(forbiddenId)) diagnostics.push(`EVAL_FORBIDDEN_OPERATOR:${forbiddenId}`);
-  }
   const proceeds = normalizedDisposition === 'PROCEED';
-  if (!proceeds && (nativeMutations.length || generated.length)) {
-    diagnostics.push('EVAL_SAFE_STOP_AFTER_SUCCESSFUL_EDIT_OPERATION');
-  }
-  if (proceeds) {
-    const acceptableForms = strings(record(evaluator.v2Evaluator).acceptableExecutionForms);
-    if (!acceptableForms.includes(executionForm)) diagnostics.push(`EVAL_EXECUTION_FORM_NOT_ALLOWED:${executionForm}`);
-    diagnostics.push(...structuralDiagnostics(taskId, successfulNodes, record(taskCase.ownerOnly)));
+  if (!infrastructure && !resourceGuard) {
+    if (terminal === 'PASS') diagnostics.push('EVAL_PREMATURE_MODEL_PASS_WITHOUT_HIDDEN_PROOF');
+    const suppliedEvidence = new Set(trace.nodes
+      .flatMap(({ executionEvidenceRefs }) => executionEvidenceRefs));
+    for (const requiredRef of requiredEvidenceRefs(
+      evaluator,
+      record(taskCase.ownerOnly),
+      diagnostics,
+    )) {
+      if (!suppliedEvidence.has(requiredRef)) {
+        diagnostics.push(`EVAL_REQUIRED_EVIDENCE_UNRESOLVED:${requiredRef}`);
+      }
+    }
+    const selectedIds = trace.nodes.map(({ selectedOperatorId }) => selectedOperatorId);
+    for (const forbiddenId of strings(record(evaluator.sourceEvaluator).forbiddenOperatorIds)) {
+      if (selectedIds.includes(forbiddenId)) diagnostics.push(`EVAL_FORBIDDEN_OPERATOR:${forbiddenId}`);
+    }
+    if (!proceeds && (nativeMutations.length || generated.length)) {
+      diagnostics.push('EVAL_SAFE_STOP_AFTER_SUCCESSFUL_EDIT_OPERATION');
+    }
+    if (proceeds) {
+      const acceptableForms = strings(record(evaluator.v2Evaluator).acceptableExecutionForms);
+      if (!acceptableForms.includes(executionForm)) {
+        diagnostics.push(`EVAL_EXECUTION_FORM_NOT_ALLOWED:${executionForm}`);
+      }
+      diagnostics.push(...structuralDiagnostics(taskId, successfulNodes, record(taskCase.ownerOnly)));
+    }
   }
   const sortedDiagnostics = [...new Set(diagnostics)].sort(compareUtf16);
   const evaluatorPolicySha256 = hashCanonicalJsonV1({
-    version: SEALED_HOLDOUT_EVALUATOR_VERSION_V2R,
+    version: input.evaluatorVersion,
     evaluatorOnlySha256: taskCase.evaluatorOnlySha256,
-    structuralPolicy: 'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V1',
+    structuralPolicy: input.structuralPolicy,
   });
-  const assessment = infrastructure ? 'NOT_EVALUATED_PROVIDER_INFRASTRUCTURE' as const
-    : sortedDiagnostics.length ? 'FAIL' as const
-      : proceeds ? 'READY_FOR_PROOF' as const : 'PASS' as const;
-  const material = {
-    version: SEALED_HOLDOUT_EVALUATOR_VERSION_V2R,
-    authority: 'HIDDEN_POST_EPISODE_EVALUATOR_NO_MODEL_CONTEXT_NO_PROJECT_MUTATION' as const,
+  const assessment: SealedHoldoutEvaluationAssessmentV2R =
+    trace.assessment !== 'PASS' ? 'FAIL'
+      : sortedDiagnostics.length ? 'FAIL'
+        : resourceGuard && input.resourceGuardBound ? 'NOT_EVALUATED_RESOURCE_GUARD'
+          : infrastructure ? 'NOT_EVALUATED_PROVIDER_INFRASTRUCTURE'
+            : proceeds ? 'READY_FOR_PROOF' : 'PASS';
+  return {
     caseId: input.caseId,
     traceArtifactSha256: trace.artifactSha256,
     evaluatorPolicySha256,
@@ -98,7 +199,6 @@ export function evaluateSealedHoldoutTraceV2R(input: {
     proofRequired: assessment === 'READY_FOR_PROOF',
     stateEffects: [] as const,
   };
-  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
 }
 
 function structuralDiagnostics(
