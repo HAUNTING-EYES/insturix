@@ -195,7 +195,8 @@ The gate must prove:
 - create and edit operations persist immutable generation evidence
 - a single post creates one completed Clickatron variation
 - a five-slide carousel creates five completed Clickatron variations
-- a Sidecar V2 script compiles through Editron with no legacy parser fallback
+- a Sidecar V3 semantic script persists its treatment binding, resolves a `no-physical-capture` Shoot Kit projection when its treatment has no capture requirements, and compiles through Editron with no legacy parser fallback
+- retained V2 documents still pass their deterministic reader/export compatibility coverage; the browser gate must not downgrade a V3 script to prove compatibility
 - a cancelled request sends the exact generation identity, aborts, leaves the saved version unchanged,
   and permits a clean retry
 - session reopen, retry, and visible hydration-error behavior remain correct

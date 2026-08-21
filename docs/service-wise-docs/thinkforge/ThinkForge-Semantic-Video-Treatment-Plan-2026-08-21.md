@@ -1,7 +1,7 @@
 # ThinkForge Semantic Video Treatment Plan
 
 **Date:** 2026-08-21
-**Status:** Phase 2 complete; Phase 3 not started
+**Status:** Phases 0-5 implemented locally; Phase 6 release evidence remains in progress and is not release-approved.
 **Scope owner:** ThinkForge
 **Related systems:** Editron consumes semantic intent; Shoot Kit consumes capture requirements. Neither becomes a second authoring authority.
 
@@ -192,7 +192,7 @@ Every implementation batch is at most five production/test files, has one focuse
 
 **Stop line:** no Sidecar V3 write path, no Shoot Kit UI, and no final Editron rendering change. Do not use the planner for posts or generic chat.
 
-**Completion evidence (2026-08-22):** `planVideoTreatment` now resolves selected writing doctrine and compact, read-only Editron semantic constraints, produces a server-materialized versioned treatment/trace, validates source/reference provenance, records a non-billing planning receipt, and caches only an exact stable input fingerprint. Focused tests prove cache reuse, Brand Vault/reference invalidation, no-capture output, protected prompt boundaries, undeclared-provenance rejection, and rejection of non-video requests. No writer, Sidecar, Editron handoff, or Shoot Kit path consumes it yet.
+**Completion evidence (2026-08-22):** `planVideoTreatment` resolves selected writing doctrine and compact, read-only Editron semantic constraints, produces a server-materialized versioned treatment/trace, validates source/reference provenance, records a non-billing planning receipt, and caches only an exact stable input fingerprint. Focused tests prove cache reuse, Brand Vault/reference invalidation, no-capture output, protected prompt boundaries, undeclared-provenance rejection, and rejection of non-video requests. The V3 writer, Editron handoff, and capture projection now consume the persisted treatment through their declared contracts.
 
 ### Phase 3: Make the script writer treatment-aware
 
@@ -215,6 +215,8 @@ Every implementation batch is at most five production/test files, has one focuse
 
 **Stop line:** do not rewrite Editron's renderer, add visual presets, or generate a Shoot Kit automatically. No camera physics belongs in the writer.
 
+**Completion evidence (2026-08-22):** video-script authoring now plans one treatment before prose, stores a Sidecar V3 treatment binding, and requires the V3 sidecar to select the persisted treatment events rather than re-authoring camera or render form. V2 remains readable and exportable. Deterministic tests cover treatment-event selection, long-form chapter continuity, V2 compatibility, and rejection of missing or stale treatment evidence.
+
 ### Phase 4: Preserve treatment through the Editron handoff
 
 **Goal:** give Editron the meaning it needs without making ThinkForge decide final form.
@@ -234,6 +236,8 @@ Every implementation batch is at most five production/test files, has one focuse
 - Preview remains side-effect free until the user confirms generation.
 
 **Stop line:** do not redesign Editron, replace its graph, or create a parallel motion-graphics engine in ThinkForge.
+
+**Completion evidence (2026-08-22):** the stored V3 sidecar compiles through the existing ThinkForge-to-Editron handoff with semantic treatment evidence and no legacy parser fallback. Invalid V3 compilation fails closed instead of silently reparsing or inventing render form. Deterministic export tests cover stored-script recovery, semantic sidecar compilation, manifest preservation, and explicit invalid-sidecar failure.
 
 ### Phase 5: Rebuild Shoot Kit as a capture-only projection
 
@@ -256,6 +260,8 @@ Every implementation batch is at most five production/test files, has one focuse
 
 **Stop line:** no AR room scanner, equipment marketplace, rental workflow, or advanced cinematography simulator. Those are separate product decisions.
 
+**Completion evidence (2026-08-22):** V3 documents resolve to a capture projection, not a technical shot diagram. A treatment with no capture requirements returns `no-physical-capture`; unknown requirements remain pending an explicit user acquisition decision; and saved decisions bind to the exact document, sidecar, treatment, and user. Long-form chapter identity is preserved as continuity context only. The Shoot Kit UI renders semantic capture requirements and voice guidance without fabricating room, camera, lens, lighting, setup-time, or cost facts.
+
 ### Phase 6: Migration, evaluation, and staged release
 
 **Goal:** prove the new path is safe before it becomes the default.
@@ -275,6 +281,8 @@ Every implementation batch is at most five production/test files, has one focuse
 - Typecheck, lint, focused tests, and deployed canary evidence are attached to the release record.
 
 **Stop line:** no broad mobile redesign, no new trend ingestion, no Avatar Vault redesign, and no production rollout until the treatment, handoff, and capture fixtures pass.
+
+**Current release state (2026-08-22):** deterministic semantic-treatment verification is green: 105 focused ThinkForge tests, TypeScript, ESLint, and static discovery of the six-test authenticated browser gate. The actual browser run remains pending because it correctly requires a disposable Clerk tenant plus isolated Mongo and Redis credentials; no local developer or production tenant was used. The eight-fixture release record and a real-provider/deployed canary remain required before this path can be promoted.
 
 ## Required Verification
 
