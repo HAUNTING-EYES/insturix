@@ -1,8 +1,8 @@
 # Editron Codex hardcodes, assumptions and evidence-debt register
 
-Opened: 2026-08-20; last reconciled: 2026-08-22  
-Authority: code-grounded programme audit; status register, not runtime authority  
-Audit lane: editron-worktree / infrastructure-improvs-+Editron  
+Opened: 2026-08-20; last reconciled: 2026-08-22
+Authority: code-grounded programme audit; status register, not runtime authority
+Audit lane: editron-worktree / infrastructure-improvs-+Editron
 Audit HEAD: findings rechecked through 4939b96b1b30d6c210dbb15694f21040e1e6eddb;
 sealed credential-preflight boundary dc341dfbe
 
