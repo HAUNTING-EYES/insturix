@@ -16,7 +16,8 @@ research proxies now prove the selected source-range splice for HOLD-01,
 the selected three-range bookend proposal for HOLD-02 and the canonical
 range-cut/state/AV claim for HOLD-04. Commit `0404a253f` repairs the sole
 HOLD-05 reframe owner with source-raster-bound cover geometry and explicit
-authored-layout projection; its full-range rendered proof is still pending.
+authored-layout projection. Commit `8d1afc89f` now binds the sealed selected
+operation and decodes the complete source and rendered 450-frame range.
 Generated/hybrid HOLD-03 remains unwired.
 The credentialed initial-request
 preflight is
@@ -281,11 +282,16 @@ cumulative provider spend, model output, real execution or rendered proof.
    `83405595b` closes only the research no-edit family for HOLD-06/07/08 by
    recomputing hidden evaluation and proving no successful edit/state effect.
    It explicitly does not claim real ProjectService byte equality. The current
-   operation-log clone remains insufficient for visual, audible or semantic
-   PASS on HOLD-05. The historical zero-inference owner diagnostic found 38
+   historical operation-log clone alone remains insufficient for visual,
+   audible or semantic PASS. The historical zero-inference owner diagnostic found 38
    clipped frames at 360x640 and no authored-layout transform. Commit
-   `0404a253f` repairs those owner defects and passes 80/80 focused tests, but a
-   hash-bound adapter must still render and decode all 450 affected frames.
+   `0404a253f` repairs those owner defects and passes 80/80 focused tests.
+   Commit `8d1afc89f` binds the model-selected `reframe_project`, writer-issued
+   research revision, E1/E2 and sealed media hash; it decodes all 450 source
+   frames and all 450 rendered output frames. The output is a fixed-30-fps
+   360x640 H.264 research proxy with no audio stream, and the logo is a
+   symbolic proof marker rather than the real asset. Static-centre and
+   changed-byte negatives fail closed.
    The live chat caller supplies no canonical authored-layout evidence and its
    whole-project save/audit path is not ProjectService receipt proof.
    Generated/hybrid HOLD-03 remains unproved.
@@ -315,11 +321,13 @@ cumulative provider spend, model output, real execution or rendered proof.
   and focused ESLint passed.
 - HOLD-01/HOLD-02/HOLD-04 plus no-edit proof regression: 13/13 passed; full
   typecheck and focused ESLint passed.
+- HOLD-05 full-range proof plus historical CAP-audit checks: 13/13 passed;
+  full typecheck and repository ESLint passed.
 - Credentialed initial-request preflight and combined sealed checks: 22/22
   passed; 96/96 captures verified with zero inference calls.
 - `npx tsc --noEmit`: passed.
 - Repository ESLint: passed.
 
-These checks establish reproducible benchmark inputs and one bounded rendered
-research proof. No provider saw a sealed task, no model row ran, and no Editron
+These checks establish reproducible benchmark inputs and bounded rendered
+research proofs. No provider saw a sealed task, no model row ran, and no Editron
 project was read or mutated.
