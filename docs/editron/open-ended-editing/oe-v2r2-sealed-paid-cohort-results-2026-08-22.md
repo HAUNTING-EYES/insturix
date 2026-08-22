@@ -189,5 +189,15 @@ typecheck/lint pass. No provider or real-project call occurred. H01 still needs
 a V3-bound hidden evaluation and rendered-proof receipt before a paid row can
 be called valid.
 
+Commit `e1e92d9f5` adds that V3-bound H01 chain without replacing any owner.
+The V3 episode is projected losslessly, evaluated after the episode, and bound
+to the existing hard-cut media-proof runtime. A real 300-frame H.264/30/1 proxy
+proves the decoded 149/150 boundary geometry. Start 30 passes; the first frame
+outside the measured half-open window, 37, is rejected before render. Altered
+evaluation material and noisy-C2 false-ready behavior cannot reach proof.
+Focused V2/V3 checks pass 10/10 and full typecheck/lint pass. The receipt is
+explicitly non-budgeted and claims neither a paid-row result nor real
+ProjectService mutation; those remain separate gates.
+
 No production model-driven mutation or Stage 3 agent control plane is authorised
 by this run.
