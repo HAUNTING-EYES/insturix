@@ -198,13 +198,13 @@ function buildOperatorTool(
   const input = record(operator.input);
   const fields = strings(input.fields);
   const required = strings(input.required);
-  const exactInputSchema = assembleSchema(operatorId, fields, required, true, catalog);
+  const exactInputSchema = assembleSchema(operatorId, fields, required, 'INPUT', catalog);
   const output = record(operator.output);
   const exactOutputSchema = assembleSchema(
     operatorId,
     strings(output.fields),
     strings(output.required),
-    false,
+    'OUTPUT',
     catalog,
   );
   const providerInputSchema = stripUnsupportedProviderKeywords(exactInputSchema);
@@ -270,13 +270,14 @@ function assembleSchema(
   operatorId: string,
   fields: readonly string[],
   required: readonly string[],
-  allowOperatorOverride: boolean,
+  direction: 'INPUT' | 'OUTPUT',
   catalog: Readonly<JsonRecord>,
 ): Readonly<JsonRecord> {
   const globalSchemas = record(catalog.fieldSchemas);
-  const operatorSchemas = allowOperatorOverride
-    ? record(record(catalog.operatorFieldSchemas)[operatorId])
-    : {};
+  const operatorSchemaTable = direction === 'INPUT'
+    ? record(catalog.operatorFieldSchemas)
+    : record(catalog.operatorOutputFieldSchemas);
+  const operatorSchemas = record(operatorSchemaTable[operatorId]);
   const properties = Object.fromEntries(fields.map((field) => {
     const schema = operatorSchemas[field] ?? globalSchemas[field];
     if (!isRecord(schema)) throw new Error(`PROVIDER_NATIVE_FIELD_SCHEMA_MISSING:${operatorId}:${field}`);

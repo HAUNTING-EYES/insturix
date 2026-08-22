@@ -11,6 +11,19 @@ type JsonRecord = Record<string, unknown>;
 export const SEALED_HOLDOUT_OWNER_SESSION_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_OWNER_SESSION_V2R_1' as const;
 
+export interface SealedHoldoutOwnerSemanticPolicyV2R {
+  version: string;
+  operatorCatalog: Readonly<JsonRecord>;
+  resolveVisualEdit?: (input: Readonly<{
+    arguments: Readonly<JsonRecord>;
+    observations: readonly Readonly<JsonRecord>[];
+    evidenceRefs: readonly string[];
+    project: Readonly<JsonRecord>;
+    media: readonly Readonly<JsonRecord>[];
+    currentProjectRevision: string;
+  }>) => Readonly<JsonRecord>;
+}
+
 const READ_EVIDENCE_KINDS: Readonly<Record<string, readonly string[]>> = {
   read_project_file: ['PROJECT_REVISION', 'RIGHTS_POLICY', 'NARRATIVE', 'ASSET_MANIFEST'],
   get_timeline_view: ['TIMELINE', 'STALE_TIMELINE', 'CAPTION_STATE', 'AUTHORED_LAYOUT'],
@@ -28,6 +41,8 @@ export class SealedHoldoutOwnerSessionV2R {
   private readonly project: Readonly<JsonRecord>;
   private readonly media: readonly Readonly<JsonRecord>[];
   private readonly evidence: readonly Readonly<JsonRecord>[];
+  private readonly semanticPolicy?: Readonly<SealedHoldoutOwnerSemanticPolicyV2R>;
+  private readonly operatorCatalog: Readonly<JsonRecord>;
   private readonly resolvedEvidenceRefs = new Set<string>();
   private readonly trace: JsonRecord[] = [];
   private currentRevision: string;
@@ -36,6 +51,7 @@ export class SealedHoldoutOwnerSessionV2R {
   constructor(input: {
     manifest: Readonly<SealedHoldoutCohortManifestV2R>;
     caseId: string;
+    semanticPolicy?: Readonly<SealedHoldoutOwnerSemanticPolicyV2R>;
   }) {
     const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
     const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
@@ -45,6 +61,8 @@ export class SealedHoldoutOwnerSessionV2R {
     this.project = deepFreezeV1(record(publicCase.project));
     this.media = deepFreezeV1(records(publicCase.media));
     this.evidence = deepFreezeV1(records(record(taskCase.ownerOnly).evidence));
+    this.semanticPolicy = input.semanticPolicy;
+    this.operatorCatalog = input.semanticPolicy?.operatorCatalog ?? V2R_OPERATOR_CATALOG;
     this.currentRevision = text(this.project.expectedProjectRevision);
     const revisionEvidence = this.evidence.find(({ kind }) => kind === 'PROJECT_REVISION');
     const reportedCurrent = text(record(revisionEvidence?.value).currentRevision);
@@ -163,7 +181,13 @@ export class SealedHoldoutOwnerSessionV2R {
       } };
     } else if (operatorId === 'resolve_visual_edit') {
       const intent = record(args.intent);
-      proposedOperation = intent.action === 'cut_range'
+      proposedOperation = this.semanticPolicy?.resolveVisualEdit
+        ? this.semanticPolicy.resolveVisualEdit({
+          arguments: args, observations, evidenceRefs,
+          project: this.project, media: this.media,
+          currentProjectRevision: this.currentRevision,
+        })
+        : intent.action === 'cut_range'
         ? { targetOperatorId: 'cut_section', arguments: {
             ...common, targetRange: requireResolvedRange(observations),
           } }
@@ -232,7 +256,7 @@ export class SealedHoldoutOwnerSessionV2R {
   }
 
   private operator(operatorId: string): JsonRecord {
-    const operator = records(V2R_OPERATOR_CATALOG.operators)
+    const operator = records(this.operatorCatalog.operators)
       .find((entry) => entry.operatorId === operatorId);
     if (!operator || operator.compilerEligibility === 'NOT_COMPILABLE') {
       fail(`SEALED_OWNER_OPERATOR_FORBIDDEN:${operatorId}`);
