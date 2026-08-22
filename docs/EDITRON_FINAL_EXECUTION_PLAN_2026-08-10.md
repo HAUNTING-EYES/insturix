@@ -1275,12 +1275,12 @@ timeline revision, changed paths, proof result, undo/replay binding or the full
 retry disposition. Existing safety work is valuable, but it is not IF1 runtime
 convergence.
 
-### Stage 2.5 current evidence ledger - 2026-08-22
+### Stage 2.5 current evidence ledger - 2026-08-23
 
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `99f363e28` on
+programme code checkpoint represented by this ledger is `a5c379121` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1456,6 +1456,38 @@ exact-region binders, and no ProjectService mutation or rendered quality proof
 occurred. Next freeze a non-leading held-out fork/join episode around this seam,
 run the provider cohort, then interrupt/resume the same episode through opaque
 results before long-form trials.
+
+**Provider-trace schedule-binding checkpoint (2026-08-23):** commit
+`a5c379121` closes the next mechanical seam without reopening the old one-shot
+graph benchmark. The canonical provider-episode receipt and its lossless
+selected-operation trace are now independently revalidated before scheduling:
+episode, transcript, tool-set, trace and node hashes must agree; only
+`OPAQUE_RESULT_REFERENCES` are eligible; every referenced value must match the
+owner-issued output path and hash, the exact normalized target argument and
+the target operator's declared CAP-2A input-origin policy. Those references
+alone become data/dependency edges. The adapter adds zero operations, drops
+zero selected operations and delegates region/effect validation and wave
+construction to the existing Stage-2.5 binder and scheduler.
+
+The six-operation provider-shaped fork/join fixture recovers independent audio
+and visual retrieval in one wave, then orders beat alignment, keyframe-form
+resolution, keyframe mutation and filter mutation. Every node after a writer
+must consume that latest writer's opaque `receipt.projectRevision`; each writer
+must issue an advanced revision. Re-signed forged value hashes, direct
+handoffs, copied stale revisions, duplicate/added trace nodes and non-advancing
+writers all fail closed. The provider-trace, model-binding, scheduler,
+checkpoint and reconciliation suites pass 30/30; repository typecheck and
+quiet ESLint pass.
+
+This remains `RESEARCH_PROVEN`, not provider or product execution evidence.
+The fixture uses authentic signed episode/trace shapes and real CAP-2A schemas,
+but no Luna, Terra or Gemini call selected this fork/join episode, its exact
+region effects are still owner-shaped test receipts rather than live generic
+effect-owner outputs, and neither ProjectService nor a renderer ran. The next
+bounded gate is therefore a frozen non-leading provider episode using this
+same objective, complete relevant tool records, hidden evaluator and opaque
+handoffs. Only after its zero-inference preflight may the three-provider cohort
+run; interruption/resume of that same episode follows before long-form trials.
 
 **Superseding H03 V3R3 paid-run checkpoint (2026-08-22):** commits
 `ee55d9d1d`, `b37e97005` and `ffe78719f` converge the generated render snapshot
