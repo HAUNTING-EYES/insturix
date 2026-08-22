@@ -391,6 +391,30 @@ function projectProviderEpisode(
   return { nodes, sortedDiagnostics };
 }
 
+/**
+ * The sole lossless provider-episode projector for newly versioned holdouts.
+ * Callers still own their versioned artifact envelope and hidden evaluation;
+ * this boundary only exposes the already-canonical node projection.
+ */
+export function projectProviderEpisodeSelectedOperationNodesV2R(input: {
+  providerEpisode: Readonly<ProviderNativeEpisodeReceiptV2R>;
+  context: Readonly<JsonRecord>;
+  operatorCatalog: Readonly<JsonRecord>;
+  includeGeneratedSourceBinding?: boolean;
+}): Readonly<{
+  nodes: readonly Readonly<SealedHoldoutTraceNodeV2R>[];
+  sortedDiagnostics: readonly string[];
+}> {
+  return projectProviderEpisode(
+    input.providerEpisode,
+    input.context,
+    input.operatorCatalog,
+    input.includeGeneratedSourceBinding === undefined
+      ? undefined
+      : { includeGeneratedSourceBinding: input.includeGeneratedSourceBinding },
+  );
+}
+
 export function assertSealedHoldoutSelectedOperationTraceV2R(
   value: unknown,
 ): Readonly<SealedHoldoutSelectedOperationTraceV2R> {
