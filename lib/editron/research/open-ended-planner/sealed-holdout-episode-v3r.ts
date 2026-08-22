@@ -24,6 +24,8 @@ import {
   buildSealedHoldoutEpisodeContextFromManifestV2R,
   SEALED_HOLDOUT_FINISH_SCHEMA_V2R,
 } from './sealed-holdout-episode-v2r';
+import { SealedHoldoutH04OwnerStateV3R }
+  from './sealed-holdout-h04-owner-state-v3r';
 import { SealedHoldoutOwnerSessionV2R }
   from './sealed-holdout-owner-session-v2r';
 
@@ -46,11 +48,20 @@ export async function runSealedHoldoutEpisodeV3R(input: {
     throw new Error('SEALED_HOLDOUT_V3_EPISODE_OPERATOR_SET_DRIFT');
   }
   const catalogIdentity = sealedHoldoutOperatorCatalogIdentityV3R();
+  const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
+  const taskId = String(record(taskCase?.publicCase).taskId ?? '');
+  const isolatedStateOwner = taskId === 'HOLD-04'
+    ? new SealedHoldoutH04OwnerStateV3R({
+      manifest,
+      caseId: requireH04CaseId(input.caseId),
+    })
+    : undefined;
   const ownerSession = new SealedHoldoutOwnerSessionV2R({
     manifest,
     caseId: input.caseId,
     semanticPolicy: SEALED_HOLDOUT_OWNER_SEMANTIC_POLICY_V3R,
     manifestValidator: assertSealedHoldoutCohortManifestV3R,
+    isolatedStateOwner,
   });
   return runProviderNativeToolEpisodeV2R({
     route: input.route,
@@ -96,4 +107,10 @@ function record(value: unknown): JsonRecord {
 function strings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+}
+function requireH04CaseId(value: string): 'HOLD-04:C1' | 'HOLD-04:C2' {
+  if (value !== 'HOLD-04:C1' && value !== 'HOLD-04:C2') {
+    throw new Error('SEALED_HOLDOUT_V3_H04_CASE_BINDING_INVALID');
+  }
+  return value;
 }

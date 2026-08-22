@@ -35,6 +35,19 @@ export type SealedHoldoutOwnerManifestValidatorV2R = (
   candidate: unknown,
 ) => Readonly<SealedHoldoutOwnerManifestV2R>;
 
+export interface SealedHoldoutIsolatedStateOwnerV2R {
+  readTimeline(input: Readonly<{
+    currentProjectRevision: string;
+  }>): Readonly<JsonRecord>;
+  executeMutation(input: Readonly<{
+    operatorId: string;
+    arguments: Readonly<JsonRecord>;
+    beforeProjectRevision: string;
+    writerIssuedProjectRevision: string;
+  }>): Readonly<JsonRecord>;
+  snapshot(): Readonly<JsonRecord>;
+}
+
 const READ_EVIDENCE_KINDS: Readonly<Record<string, readonly string[]>> = {
   read_project_file: ['PROJECT_REVISION', 'RIGHTS_POLICY', 'NARRATIVE', 'ASSET_MANIFEST'],
   get_timeline_view: ['TIMELINE', 'STALE_TIMELINE', 'CAPTION_STATE', 'AUTHORED_LAYOUT'],
@@ -54,6 +67,7 @@ export class SealedHoldoutOwnerSessionV2R {
   private readonly evidence: readonly Readonly<JsonRecord>[];
   private readonly semanticPolicy?: Readonly<SealedHoldoutOwnerSemanticPolicyV2R>;
   private readonly operatorCatalog: Readonly<JsonRecord>;
+  private readonly isolatedStateOwner?: SealedHoldoutIsolatedStateOwnerV2R;
   private readonly resolvedEvidenceRefs = new Set<string>();
   private readonly trace: JsonRecord[] = [];
   private currentRevision: string;
@@ -64,6 +78,7 @@ export class SealedHoldoutOwnerSessionV2R {
     caseId: string;
     semanticPolicy?: Readonly<SealedHoldoutOwnerSemanticPolicyV2R>;
     manifestValidator?: SealedHoldoutOwnerManifestValidatorV2R;
+    isolatedStateOwner?: SealedHoldoutIsolatedStateOwnerV2R;
   }) {
     const manifest = input.manifestValidator
       ? input.manifestValidator(input.manifest)
@@ -77,6 +92,7 @@ export class SealedHoldoutOwnerSessionV2R {
     this.evidence = deepFreezeV1(records(record(taskCase.ownerOnly).evidence));
     this.semanticPolicy = input.semanticPolicy;
     this.operatorCatalog = input.semanticPolicy?.operatorCatalog ?? V2R_OPERATOR_CATALOG;
+    this.isolatedStateOwner = input.isolatedStateOwner;
     this.currentRevision = text(this.project.expectedProjectRevision);
     const revisionEvidence = this.evidence.find(({ kind }) => kind === 'PROJECT_REVISION');
     const reportedCurrent = text(record(revisionEvidence?.value).currentRevision);
@@ -139,7 +155,10 @@ export class SealedHoldoutOwnerSessionV2R {
       caseId: this.caseId, currentProjectRevision: this.currentRevision,
       revisionKnown: this.revisionKnown,
       resolvedEvidenceRefs: [...this.resolvedEvidenceRefs].sort(compareUtf16),
-      trace: clone(this.trace), stateEffects: [],
+      trace: clone(this.trace),
+      ...(this.isolatedStateOwner
+        ? { isolatedState: this.isolatedStateOwner.snapshot() } : {}),
+      stateEffects: [],
     });
   }
 
@@ -158,6 +177,11 @@ export class SealedHoldoutOwnerSessionV2R {
       const result = {
         project: this.project, observations,
         overlayIdentityMap: buildOverlayIdentityMap(observations),
+        ...(operatorId === 'get_timeline_view' && this.isolatedStateOwner
+          ? { isolatedTimelineState: this.isolatedStateOwner.readTimeline({
+            currentProjectRevision: this.currentRevision,
+          }) }
+          : {}),
       };
       output = { result, evidence };
       if (operatorId === 'find_visual_moment') {
@@ -237,10 +261,17 @@ export class SealedHoldoutOwnerSessionV2R {
     if (typeof args.assetId === 'string') this.assertKnownAssets([args.assetId]);
     this.assertRange(args.targetRange);
     const beforeRevision = this.currentRevision;
-    this.currentRevision = `OE-HOLD-${hashCanonicalJsonV1({
+    const writerIssuedProjectRevision = `OE-HOLD-${hashCanonicalJsonV1({
       authority: 'RESEARCH_ISOLATED_WRITER_REVISION_V2R', beforeRevision,
       operatorId, arguments: args, turn,
     })}`;
+    const isolatedStateMutation = this.isolatedStateOwner?.executeMutation({
+      operatorId,
+      arguments: args,
+      beforeProjectRevision: beforeRevision,
+      writerIssuedProjectRevision,
+    });
+    this.currentRevision = writerIssuedProjectRevision;
     const receipt = {
       status: 'PASS', projectRevision: this.currentRevision,
       proof: {
@@ -248,6 +279,28 @@ export class SealedHoldoutOwnerSessionV2R {
         acceptedArgumentsSha256: hashCanonicalJsonV1(args), renderedProof: 'NOT_RUN',
       },
     };
+    if (isolatedStateMutation) {
+      const timelineCoordinateTransform = record(
+        isolatedStateMutation.timelineCoordinateTransform,
+      );
+      const splitChildren = isolatedStateMutation.splitChildren;
+      const isolatedStateTransition = record(
+        isolatedStateMutation.isolatedStateTransition,
+      );
+      if (!Object.keys(timelineCoordinateTransform).length
+        || !Array.isArray(splitChildren)
+        || !Object.keys(isolatedStateTransition).length) {
+        fail('SEALED_OWNER_ISOLATED_STATE_MUTATION_OUTPUT_INVALID');
+      }
+      return ok({
+        receipt: {
+          ...receipt,
+          proof: { ...receipt.proof, isolatedStateTransition },
+        },
+        timelineCoordinateTransform,
+        splitChildren,
+      }, strings(args.evidenceIds));
+    }
     if (operatorId === 'cut_section') {
       const range = record(args.targetRange);
       const beforeDurationInFrames = number(this.project.durationFrames);
