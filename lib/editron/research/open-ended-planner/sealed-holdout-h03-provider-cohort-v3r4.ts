@@ -32,7 +32,7 @@ const BASE_CONTRACT_SHA256 =
 const H03_PUBLIC_CASE_SHA256 =
   'c60f30c2d91654c37c69cd8ec150b9dd6ed460923b1a012aaf060b8a256b85f2';
 const IMPLEMENTATION_BINDINGS_SHA256 =
-  '21c2eadbe66f9c55837258091173844c3def3fc1bbfabc8fac8e0af9a11d78b4';
+  'b2255d634f61a5f6872ef32ab4b9d121346851639756d3291adcc1009ac14680';
 const SANDBOX_WORKER_IMPLEMENTATION_SHA256 =
   'acbd1e6b8dcd30443b9bb919dc15cf2d8d501b2cee0ba8c460af972b3b5046f0';
 
@@ -43,6 +43,7 @@ export const SEALED_H03_PROVIDER_IMPLEMENTATION_PATHS_V3R4 = deepFreezeV1([
   'lib/editron/research/open-ended-planner/provider-native-generated-source-adapter-v2r.ts',
   'lib/editron/research/open-ended-planner/sealed-holdout-h03-hybrid-proof-v3r2.ts',
   'lib/editron/research/open-ended-planner/sealed-holdout-h03-model-candidate-v3r.ts',
+  'lib/editron/research/open-ended-planner/sealed-holdout-h03-provider-row-runner-v3r3.ts',
   'lib/editron/research/open-ended-planner/sealed-holdout-h03-provider-source-adapter-v3r2.ts',
   'lib/editron/research/open-ended-planner/sealed-holdout-h03-rendered-mechanics-v2r.ts',
   'lib/editron/research/open-ended-planner/sealed-holdout-h03-source-executor-v3r2.ts',

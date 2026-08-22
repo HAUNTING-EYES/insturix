@@ -41,7 +41,7 @@ describe('sealed H03 provider cohort V3R4', () => {
       modelSourceContractVersion: 'EDITRON_OE_SEALED_H03_MODEL_SOURCE_CONTRACT_V3R_2',
       renderedAcceptanceContractVersion: 'EDITRON_OE_SEALED_H03_RENDERED_ACCEPTANCE_V3R_2',
     });
-    expect(manifest.implementationBindings).toHaveLength(9);
+    expect(manifest.implementationBindings).toHaveLength(10);
     expect(manifest.sandboxWorkerImplementationSha256)
       .toBe('acbd1e6b8dcd30443b9bb919dc15cf2d8d501b2cee0ba8c460af972b3b5046f0');
     expect((manifest.providerRouteManifest.routes as Array<{ route: { model: string } }> )
@@ -50,9 +50,9 @@ describe('sealed H03 provider cohort V3R4', () => {
     ]);
     expect(manifest.absoluteMaxSpendUsd).toBe(11.673);
     expect(manifest.contractSource.sha256)
-      .toBe('f508621ce867b02153f40bd28308e71299948c7a2aa71ec61b2325af92c8dcea');
+      .toBe('e5e00b385a5403a639cecef730c48adc52618badc0456c667c3ba9d46ff19742');
     expect(manifest.manifestSha256)
-      .toBe('1b3658cc69ac41fe57b7e99b19c95b8cc1351a33e9e63b8ccf5fa5fc1f1affb9');
+      .toBe('6d3a71d30c9ffd8c920e94cf0bb8df0b97c8c94c2afb9058efa4932074bbde2a');
     expect(operatorInput.sourceRequest.packet.packetHash)
       .toBe('1080c6695444f1a8e728e8d80e2eded43a83fc4430b06d2ffa06b1b29dad9f01');
   });
