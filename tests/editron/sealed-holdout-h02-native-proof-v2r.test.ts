@@ -6,12 +6,16 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { materializeHoldoutMediaV2R }
   from '@/lib/editron/research/open-ended-planner/holdout-media-materializer-v2r';
-import { proveSealedHoldoutH02NativeOutcomeV2R }
+import {
+  proveSealedHoldoutH02NativeOutcomeV2R,
+  proveSealedHoldoutH02NativeOutcomeV3R2,
+}
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-h02-native-proof-v2r';
 
 import {
   finishSealedHoldoutScriptV2R,
   runScriptedBudgetedSealedHoldoutV2R,
+  runScriptedBudgetedSealedHoldoutV3R2,
   type SealedHoldoutScriptedCallV2R,
 } from './helpers/sealed-holdout-v2r-test-driver';
 
@@ -55,7 +59,40 @@ async function setup(closingRange?: { startFrame: number; endFrame: number }) {
   return { root, mediaManifest, ...episode };
 }
 
+async function setupCurrent() {
+  const root = await mkdtemp(join(tmpdir(), 'editron-current-h02-proof-'));
+  scratch.push(root);
+  const [episode, mediaManifest] = await Promise.all([
+    runScriptedBudgetedSealedHoldoutV3R2({
+      caseId: 'HOLD-02:C1', calls: calls(),
+      argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES',
+    }),
+    materializeHoldoutMediaV2R(join(root, 'media')),
+  ]);
+  return { root, mediaManifest, ...episode };
+}
+
 describe('sealed HOLD-02 rendered native proof V2R', () => {
+  it('binds the current resource receipt to the same decoded bookend proof', async () => {
+    const result = await setupCurrent();
+    const proof = await proveSealedHoldoutH02NativeOutcomeV3R2({
+      manifest: result.manifest, caseId: 'HOLD-02:C1', trace: result.trace,
+      evaluation: result.evaluation, mediaManifest: result.mediaManifest,
+      outputDirectory: join(result.root, 'current-proof'),
+    });
+    expect(proof).toMatchObject({
+      version: 'EDITRON_OE_SEALED_HOLDOUT_H02_RENDERED_NATIVE_PROOF_V3R_2_RESOURCE_BOUND_1',
+      authority: 'RESEARCH_RENDERED_NATIVE_PROXY_CURRENT_RESOURCE_BOUND_NO_PROJECT_MUTATION',
+      resourceBudgetProof: 'BOUND_ACCOUNTED_WITHIN_BUDGET',
+      assessment: 'PASS_RESEARCH_RENDERED_NATIVE_PROXY',
+      stateEffects: [],
+      video: { decodedFrameCount: 240, averageFrameRate: '30/1' },
+    });
+    expect(proof.runtimeBudgetReceiptSha256)
+      .toBe(result.trace.runtimeBudgetReceiptSha256);
+    expect(proof.writerIssuedProjectRevisions.every(Boolean)).toBe(true);
+  }, 60_000);
+
   it('proves a causally written open-process-close bookend from decoded frames', async () => {
     const result = await setup();
     const proof = await proveSealedHoldoutH02NativeOutcomeV2R({

@@ -1,8 +1,12 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import type { HoldoutMediaManifestV2R } from './holdout-media-materializer-v2r';
-import type { BudgetedSealedHoldoutEvaluationReceiptV2R }
+import type {
+  BudgetedSealedHoldoutEvaluationReceiptV2R,
+  BudgetedSealedHoldoutEvaluationReceiptV3R2,
+}
   from './sealed-holdout-evaluator-v2r';
 import type { SealedHoldoutCohortManifestV2R } from './sealed-holdout-cohort-v2r';
+import type { SealedHoldoutCohortManifestV3R2 } from './sealed-holdout-cohort-v3r2';
 import {
   bindHoldoutMediaArtifactV2R,
   extractHoldoutRgbFrameV2R,
@@ -10,8 +14,17 @@ import {
   probeHoldoutVideoV2R,
   renderConcatenatedProxyV2R,
 } from './sealed-holdout-media-proof-runtime-v2r';
-import { bindSealedHoldoutProofInputV2R } from './sealed-holdout-proof-input-v2r';
-import type { BudgetedSealedHoldoutSelectedOperationTraceV2R, SealedHoldoutTraceNodeV2R }
+import {
+  bindSealedHoldoutProofInputV2R,
+  bindSealedHoldoutProofInputV3R2,
+  type BoundSealedHoldoutProofInputV2R,
+  type BoundSealedHoldoutProofInputV3R2,
+} from './sealed-holdout-proof-input-v2r';
+import type {
+  BudgetedSealedHoldoutSelectedOperationTraceV2R,
+  BudgetedSealedHoldoutSelectedOperationTraceV3R2,
+  SealedHoldoutTraceNodeV2R,
+}
   from './sealed-holdout-trace-v2r';
 
 type JsonRecord = Record<string, unknown>;
@@ -26,14 +39,10 @@ export const SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_H02_RENDERED_NATIVE_PROOF_V2R_1' as const;
 export const SEALED_HOLDOUT_H02_C2_NATIVE_PROOF_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_H02_RENDERED_NATIVE_PROOF_V2R_2_C2' as const;
+export const SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V3R2 =
+  'EDITRON_OE_SEALED_HOLDOUT_H02_RENDERED_NATIVE_PROOF_V3R_2_RESOURCE_BOUND_1' as const;
 
-export interface SealedHoldoutH02NativeProofReceiptV2R {
-  version: typeof SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V2R
-    | typeof SEALED_HOLDOUT_H02_C2_NATIVE_PROOF_VERSION_V2R;
-  authority: 'RESEARCH_RENDERED_NATIVE_PROXY_NO_PROJECT_MUTATION';
-  caseId: 'HOLD-02:C1' | 'HOLD-02:C2'; taskId: 'HOLD-02'; manifestSha256: string;
-  publicCaseSha256: string; traceArtifactSha256: string;
-  evaluationReceiptSha256: string; runtimeBudgetReceiptSha256: string;
+export interface SealedHoldoutH02NativeProofMechanicsV2R {
   writerIssuedProjectRevisions: readonly [string, string, string];
   selectedSequence: readonly Readonly<{
     nodeId: string; assetId: string; targetRange: JsonRecord; sourceRange: JsonRecord;
@@ -47,6 +56,28 @@ export interface SealedHoldoutH02NativeProofReceiptV2R {
   }>;
   affectedRange: Readonly<{ startFrame: 0; endFrame: 240 }>;
   outsideRangeProof: 'NOT_RENDERED_NOT_CLAIMED';
+}
+
+export interface SealedHoldoutH02NativeProofReceiptV2R
+  extends SealedHoldoutH02NativeProofMechanicsV2R {
+  version: typeof SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V2R
+    | typeof SEALED_HOLDOUT_H02_C2_NATIVE_PROOF_VERSION_V2R;
+  authority: 'RESEARCH_RENDERED_NATIVE_PROXY_NO_PROJECT_MUTATION';
+  caseId: 'HOLD-02:C1' | 'HOLD-02:C2'; taskId: 'HOLD-02'; manifestSha256: string;
+  publicCaseSha256: string; traceArtifactSha256: string;
+  evaluationReceiptSha256: string; runtimeBudgetReceiptSha256: string;
+  assessment: 'PASS_RESEARCH_RENDERED_NATIVE_PROXY';
+  stateEffects: readonly []; receiptSha256: string;
+}
+
+export interface SealedHoldoutH02NativeProofReceiptV3R2
+  extends SealedHoldoutH02NativeProofMechanicsV2R {
+  version: typeof SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V3R2;
+  authority: 'RESEARCH_RENDERED_NATIVE_PROXY_CURRENT_RESOURCE_BOUND_NO_PROJECT_MUTATION';
+  caseId: 'HOLD-02:C1' | 'HOLD-02:C2'; taskId: 'HOLD-02'; manifestSha256: string;
+  publicCaseSha256: string; traceArtifactSha256: string;
+  evaluationReceiptSha256: string; runtimeBudgetReceiptSha256: string;
+  resourceBudgetProof: 'BOUND_ACCOUNTED_WITHIN_BUDGET';
   assessment: 'PASS_RESEARCH_RENDERED_NATIVE_PROXY';
   stateEffects: readonly []; receiptSha256: string;
 }
@@ -64,6 +95,72 @@ export async function proveSealedHoldoutH02NativeOutcomeV2R(input: {
     evaluation: input.evaluation, allowedTaskIds: ['HOLD-02'],
     allowedAssessments: ['READY_FOR_PROOF'], allowedExecutionForms: ['NATIVE'],
   });
+  const mechanics = await executeSealedHoldoutH02NativeProofMechanicsV2R({
+    ...input,
+    bound,
+  });
+  const material = {
+    version: input.caseId === 'HOLD-02:C1'
+      ? SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V2R
+      : SEALED_HOLDOUT_H02_C2_NATIVE_PROOF_VERSION_V2R,
+    authority: 'RESEARCH_RENDERED_NATIVE_PROXY_NO_PROJECT_MUTATION' as const,
+    caseId: input.caseId,
+    taskId: 'HOLD-02' as const,
+    manifestSha256: input.manifest.manifestSha256,
+    publicCaseSha256: bound.publicCaseSha256,
+    traceArtifactSha256: bound.trace.artifactSha256,
+    evaluationReceiptSha256: bound.evaluation.receiptSha256,
+    runtimeBudgetReceiptSha256: bound.trace.runtimeBudgetReceiptSha256,
+    ...mechanics,
+    assessment: 'PASS_RESEARCH_RENDERED_NATIVE_PROXY' as const,
+    stateEffects: [] as const,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
+export async function proveSealedHoldoutH02NativeOutcomeV3R2(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  caseId: 'HOLD-02:C1' | 'HOLD-02:C2';
+  trace: Readonly<BudgetedSealedHoldoutSelectedOperationTraceV3R2>;
+  evaluation: Readonly<BudgetedSealedHoldoutEvaluationReceiptV3R2>;
+  mediaManifest: Readonly<HoldoutMediaManifestV2R>;
+  outputDirectory: string; ffprobePath?: string;
+}): Promise<Readonly<SealedHoldoutH02NativeProofReceiptV3R2>> {
+  const bound = bindSealedHoldoutProofInputV3R2({
+    manifest: input.manifest, caseId: input.caseId, trace: input.trace,
+    evaluation: input.evaluation, allowedTaskIds: ['HOLD-02'],
+    allowedAssessments: ['READY_FOR_PROOF'], allowedExecutionForms: ['NATIVE'],
+  });
+  const mechanics = await executeSealedHoldoutH02NativeProofMechanicsV2R({
+    ...input,
+    bound,
+  });
+  const material = {
+    version: SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V3R2,
+    authority: 'RESEARCH_RENDERED_NATIVE_PROXY_CURRENT_RESOURCE_BOUND_NO_PROJECT_MUTATION' as const,
+    caseId: input.caseId,
+    taskId: 'HOLD-02' as const,
+    manifestSha256: input.manifest.manifestSha256,
+    publicCaseSha256: bound.publicCaseSha256,
+    traceArtifactSha256: bound.trace.artifactSha256,
+    evaluationReceiptSha256: bound.evaluation.receiptSha256,
+    runtimeBudgetReceiptSha256: bound.trace.runtimeBudgetReceiptSha256,
+    resourceBudgetProof: 'BOUND_ACCOUNTED_WITHIN_BUDGET' as const,
+    ...mechanics,
+    assessment: 'PASS_RESEARCH_RENDERED_NATIVE_PROXY' as const,
+    stateEffects: [] as const,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
+async function executeSealedHoldoutH02NativeProofMechanicsV2R(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV2R | SealedHoldoutCohortManifestV3R2>;
+  caseId: 'HOLD-02:C1' | 'HOLD-02:C2';
+  bound: Readonly<BoundSealedHoldoutProofInputV2R | BoundSealedHoldoutProofInputV3R2>;
+  mediaManifest: Readonly<HoldoutMediaManifestV2R>;
+  outputDirectory: string; ffprobePath?: string;
+}): Promise<Readonly<SealedHoldoutH02NativeProofMechanicsV2R>> {
+  const { bound } = input;
   const evidence = new Set(bound.trace.nodes.flatMap(({ executionEvidenceRefs }) => executionEvidenceRefs));
   const mutationNodes = bound.trace.nodes.filter((node) =>
     node.executionDisposition === 'OK' && node.researchCloneMutation);
@@ -111,16 +208,7 @@ export async function proveSealedHoldoutH02NativeOutcomeV2R(input: {
   if (openingDoorWidthRatio >= 0.4 || closingDoorWidthRatio <= 2.5
     || middleMeanRgb[2] - middleMeanRgb[0] < 50
     || middleMeanRgb[1] - middleMeanRgb[0] < 30) fail('SEALED_H02_PROOF_ACTION_SEQUENCE_FAILED');
-  const material = {
-    version: input.caseId === 'HOLD-02:C1'
-      ? SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V2R
-      : SEALED_HOLDOUT_H02_C2_NATIVE_PROOF_VERSION_V2R,
-    authority: 'RESEARCH_RENDERED_NATIVE_PROXY_NO_PROJECT_MUTATION' as const,
-    caseId: input.caseId, taskId: 'HOLD-02' as const,
-    manifestSha256: input.manifest.manifestSha256, publicCaseSha256: bound.publicCaseSha256,
-    traceArtifactSha256: bound.trace.artifactSha256,
-    evaluationReceiptSha256: bound.evaluation.receiptSha256,
-    runtimeBudgetReceiptSha256: bound.trace.runtimeBudgetReceiptSha256,
+  return deepFreezeV1({
     writerIssuedProjectRevisions: revisions as [string, string, string],
     selectedSequence: placements.map(({ node, assetId, target, source }) => ({
       nodeId: node.nodeId, assetId, targetRange: target, sourceRange: source,
@@ -131,10 +219,7 @@ export async function proveSealedHoldoutH02NativeOutcomeV2R(input: {
     actionProof: { openingDoorWidthRatio, closingDoorWidthRatio, middleMeanRgb },
     affectedRange: { startFrame: 0 as const, endFrame: 240 as const },
     outsideRangeProof: 'NOT_RENDERED_NOT_CLAIMED' as const,
-    assessment: 'PASS_RESEARCH_RENDERED_NATIVE_PROXY' as const,
-    stateEffects: [] as const,
-  };
-  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+  });
 }
 
 function placement(node: Readonly<SealedHoldoutTraceNodeV2R>): Placement {
