@@ -102,6 +102,14 @@ describe('sealed holdout cohort V2R', () => {
     leaked.manifestSha256 = hashCanonicalJsonV1(leakedMaterial);
     expect(() => preflightSealedHoldoutCohortV2R({ manifest: leaked, mediaManifest }))
       .toThrow(/EVALUATOR_LEAK|Forbidden provider key/);
+
+    const staleCap = structuredClone(manifest) as any;
+    staleCap.cap2CurrentTruthBinding.manifestSha256 = '0'.repeat(64);
+    const { manifestSha256: _oldCapHash, ...staleCapMaterial } = staleCap;
+    staleCap.manifestSha256 = hashCanonicalJsonV1(staleCapMaterial);
+    expect(() => preflightSealedHoldoutCohortV2R({ manifest: staleCap, mediaManifest }))
+      .toThrow(/HOLDOUT_COHORT_MANIFEST_DRIFT/);
+
     const alteredMedia = structuredClone(mediaManifest) as any;
     alteredMedia.artifacts[0].artifactSha256 = `sha256:${'0'.repeat(64)}`;
     expect(() => preflightSealedHoldoutCohortV2R({ manifest, mediaManifest: alteredMedia }))

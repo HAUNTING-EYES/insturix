@@ -5,8 +5,8 @@ import holdoutMediaIdentityJson
   from '@/tests/fixtures/editron/open-ended-planner-v2/holdout-media-identity-v2r.json';
 import tasksV2Json from '@/tests/fixtures/editron/open-ended-planner-v2/tasks-v2.json';
 
-import { CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3 }
-  from '../capability-census/cap2-current-truth-reissue-audit-v3';
+import { CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4 }
+  from '../capability-census/cap2-current-truth-reissue-audit-v4';
 import { buildCap2aPlannerToolSheetV2R } from './cap2a-planner-dossier-v2r';
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import { V2R_OPERATOR_CATALOG } from './operator-catalog-v2r';
@@ -33,7 +33,7 @@ type V2Task = {
 };
 
 export const SEALED_HOLDOUT_COHORT_VERSION_V2R =
-  'EDITRON_OE_SEALED_HOLDOUT_COHORT_V2R_1' as const;
+  'EDITRON_OE_SEALED_HOLDOUT_COHORT_V2R_2' as const;
 export const SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V2R =
   'lib/editron/research/open-ended-planner/sealed-holdout-cohort-v2r.ts' as const;
 
@@ -108,10 +108,10 @@ export function buildSealedHoldoutCohortManifestV2R(
     authority: 'RESEARCH_ONLY_NO_PROVIDER_DISPATCH_NO_PROJECT_MUTATION' as const,
     contractSource: { path: SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V2R, sha256: contractSourceSha256 },
     cap2CurrentTruthBinding: {
-      artifactType: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.artifactType,
-      manifestSha256: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.manifestHash,
+      artifactType: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4.artifactType,
+      manifestSha256: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4.manifestHash,
       normalizedSourceSnapshotSha256:
-        CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.sourceBinding.normalizedSourceSnapshotHash,
+        CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4.sourceBinding.normalizedSourceSnapshotHash,
       runtimeAuthorityDenied: true as const,
     },
     mediaIdentity: holdoutMediaIdentityJson as JsonRecord,
@@ -133,12 +133,19 @@ export function assertSealedHoldoutCohortManifestV2R(
   if (!isRecord(candidate)) fail('HOLDOUT_COHORT_MANIFEST_MISSING');
   const manifest = candidate as unknown as SealedHoldoutCohortManifestV2R;
   const { manifestSha256, ...material } = manifest;
+  const cap2 = record(manifest.cap2CurrentTruthBinding);
   if (manifest.version !== SEALED_HOLDOUT_COHORT_VERSION_V2R
     || manifest.authority !== 'RESEARCH_ONLY_NO_PROVIDER_DISPATCH_NO_PROJECT_MUTATION'
     || manifest.cases.length !== 16
     || manifest.sharedModelContextSha256 !== hashCanonicalJsonV1(manifest.sharedModelContext)
     || manifestSha256 !== hashCanonicalJsonV1(material)
-    || manifest.executionPolicy.dispatchAuthorized !== false) {
+    || manifest.executionPolicy.dispatchAuthorized !== false
+    // The current cohort may never silently fall back to a stale CAP snapshot.
+    || cap2.artifactType !== CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4.artifactType
+    || cap2.manifestSha256 !== CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4.manifestHash
+    || cap2.normalizedSourceSnapshotSha256
+      !== CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4.sourceBinding.normalizedSourceSnapshotHash
+    || cap2.runtimeAuthorityDenied !== true) {
     fail('HOLDOUT_COHORT_MANIFEST_DRIFT');
   }
   assertNoEvaluatorLeakV2(manifest.sharedModelContext);
