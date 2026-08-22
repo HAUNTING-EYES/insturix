@@ -1296,6 +1296,36 @@ claim only. They do not need another paid rerun unless their frozen inputs,
 operator contracts, evaluator policy or provider routes change.
 
 The active Stage 2.5 reliability work starts after that completed closeout.
+
+**Superseding H03 V3R3 paid-run checkpoint (2026-08-22):** commits
+`ee55d9d1d`, `b37e97005` and `ffe78719f` converge the generated render snapshot
+onto the existing Debian Bookworm VCR runtime, bind the accepted snapshot into
+the spend authorisation and make execution consume that authorised identity.
+Fresh snapshot `snap_6Z8KLEnNn9kLx3JzW7UqcS5NgQEw` passed the exact Remotion
+4.0.509, glibc 2.36, linked-compositor, browser, Sharp, TSX and real H.264
+canaries. A fresh zero-inference preflight then passed, and all eighteen H03
+V3R3 provider rows executed under authorisation
+`7d3cf7dd6fd7aea53f421b70b704e34f9278dcb81d8ea056916ccd331b50ead4`.
+Cohort receipt
+`b0df262777a9e54ca95238ca7c06e4f2a2ebcd71528710a7bccf80ea414318a4`
+records eighteen provider attempts, `$0.21793785` spend, zero project reads,
+zero mutations and no state effects. Luna and Terra returned twelve complete,
+untruncated, contract-accepted source artifacts. Gemini's six generation calls
+returned HTTP 429 after successful official token counting and are
+`UNVERIFIABLE_PROVIDER_RATE_LIMIT`, not editing failures.
+
+The run also exposed a benchmark defect: the provider-visible API did not
+declare component-to-layer-kind bindings or CSS-pixel translation units, and
+the verifier checked only ID existence. Terra's six and Luna's two sources
+therefore passed verification before failing on an undeclared `title-main`
+source-panel use; four other Luna sources rendered real MP4s but failed motion
+proof after using fractional translations. V3R3 remains immutable, valid raw
+execution/accounting evidence, but **invalid for final model ranking**. The
+frozen interpretation is `MODIFY_AND_RERUN_CORRECTED_IDENTITY`. Correct the API,
+kind-aware verifier and target-not-recipe motion proof; reissue CAP-2A; freeze a
+new H03 identity; then rerun affected rows. Full facts and hashes are in
+`docs/editron/open-ended-editing/oe-h03-v3r3-provider-source-results-2026-08-22.md`.
+
 Truthful H03 protected-literal input, source-synthesis contract, owner-gated
 zero-inference source episode and lossless trace/hidden-evaluator binding are
 complete. The exact accepted model-tagged source is also connected to the sole
@@ -1902,7 +1932,7 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | V3R4 is valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 native dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. The sealed V2R2/V2R3 cohort then executed all 96 paid rows for `$9.730960595`, with zero real-project reads/mutations. Frozen interpretation `20b5e1c2...` records 24 valid safe-stop proofs, two valid rendered HOLD-02 edit proofs after unchanged short-path reproof, 21 valid bounded trace failures, 19 benchmark-confounded rows and 30 resource-guard non-evaluations. HREF-01 has one Gemini 3.6 native-video/audio observation plus a full-reference and 180-frame dense-window review pack. Existing H01-H05 proof owners demonstrate bounded fixed-30-fps mechanics. Commits through `4b3209fa1` connect corrected H01/H04 state and proof; `429fb45b1` freezes truthful public H03 target input; `1d902f20f` adds its leak-free source contract; `137692a5c` connects owner-authorized H03 arguments to verified source lineage; `4b04b8676` binds it through lossless trace/evaluation; `545c311bc` connects exact model-tagged source to sandbox-host and decoded hybrid proof contracts; `06150a94e` and `82c7db926` execute that exact synthetic callback in a real deny-all Vercel microVM and bind decoded 420-frame proof, with zero project mutation; `839ce4be5`/`1d0107eab` reissue CAP-2A V5 over that checkpoint; `d318a3122` connects the hash-bound metered H03 provider-source seam; `aa33b4dbc` freezes the V5-bound H03 V3R3 production/capability-ceiling cohort with eighteen rows and an exact `$11.673` maximum; `0302b43a4` adds its operator CLI and the credentialed zero-inference receipt passes with zero inference/state effects. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The live sandbox path, current CAP binding, provider-source adapter, V3R3 identity and credentialed preflight are proved as harness plumbing, but paid authorization and H03 live provider/render results remain unrun. Issue exact bounded authorization, execute all eighteen frozen rows and preserve every failure/guard receipt. H01/H04 V3 proof is explicitly non-budgeted and is not real ProjectService mutation. HREF-01 still needs a second qualified independent review. Then test dependency diversity, forced native/generated/hybrid routes, stale-user-edit/conflict/rebase/locks, context-resume, long-form range planning and blind quality/correction-time/latency/cost. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | V3R4 is valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 native dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. The sealed V2R2/V2R3 cohort then executed all 96 paid rows for `$9.730960595`, with zero real-project reads/mutations. Frozen interpretation `20b5e1c2...` records 24 valid safe-stop proofs, two valid rendered HOLD-02 edit proofs after unchanged short-path reproof, 21 valid bounded trace failures, 19 benchmark-confounded rows and 30 resource-guard non-evaluations. HREF-01 has one Gemini 3.6 native-video/audio observation plus a full-reference and 180-frame dense-window review pack. Existing H01-H05 proof owners demonstrate bounded fixed-30-fps mechanics. H03 V3R3 subsequently executed all 18 paid rows for `$0.21793785` from snapshot-bound authorisation, with zero project reads/mutations. Luna/Terra returned 12 complete source artifacts; Gemini's six calls were HTTP-429 non-evaluations. Commits `ee55d9d1d`, `b37e97005` and `ffe78719f` bind the accepted glibc-compatible render snapshot through authorisation and execution. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. H03 V3R3 is valid raw execution/accounting evidence but invalid for final model ranking: the visible API omitted component-kind bindings and CSS-pixel translation units, while the verifier failed to enforce the kind boundary. Preserve V3R3; correct and test those contracts plus the target-not-recipe motion predicate; reissue CAP-2A; freeze and preflight a corrected cohort; rerun affected rows after resolving Gemini quota. H01/H04 V3 remains non-budgeted and is not real ProjectService mutation. HREF-01 has only one qualified reviewer because the operator is one person; do not fabricate reviewer independence. Then test dependency diversity, forced native/generated/hybrid routes, stale-user-edit/conflict/rebase/locks, context-resume, long-form range planning and blind quality/correction-time/latency/cost. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -3362,7 +3392,7 @@ built around it.
     research slice, not the complete Editron manual/chat/worker capability
     contract. Its `candidateCapabilityIds` node shape and compiler boundary are
     superseded by `CAP-2A` and `V2-1R` in the authoritative ledger.
-- [ ] **T6 (P1, bounded smoke)** — V2-1 — run one mechanics-only trial per
+- [x] **T6 (P1, bounded smoke)** — V2-1 — run one mechanics-only trial per
   model/arm across four owned/synthetic tasks.
   - Surfaced by: need to validate the benchmark before another paid matrix.
   - Reconciled state (2026-08-17): provider transports, token/cost telemetry,
@@ -3380,11 +3410,13 @@ built around it.
     the issued packet allowed that omission. Qwen did select a detailed real
     tool chain, but the ambiguous node schema prevents an honest executable
     verdict. No model advances or fails on these records.
-  - Remaining gate (`RESET_AND_RERUN`): complete `CAP-2A`, freeze the
-    selected-versus-alternative schema, implement one generic zero-add/drop
-    lowerer, allocate fair per-attempt budgets, and carry untouched actual
-    model output through isolated execution and rendered proof. V2-2 remains
-    blocked until that connected rerun passes.
+  - Superseding state (2026-08-22): CAP-2A and the corrected native
+    handoff/order benchmark are complete for their bounded claims. H03 V3R3
+    then carried untouched live Luna/Terra source through isolated generated
+    and hybrid render attempts, but discovered a provider-visible API/verifier
+    confound. T6 is complete as a harness-discovery smoke; it is not model
+    promotion evidence. V2-2 remains blocked on a corrected versioned H03
+    rerun, not on repeating the invalid historical DEV graph benchmark.
   - Verify: raw provider output survives unchanged through all seven stages;
     every executed catalog operator is model-selected; lowering adds or drops
     zero catalog operators; exact token/time/cost telemetry is reconciled;
@@ -3393,6 +3425,12 @@ built around it.
 - [ ] **T7 (P1, bounded matrix)** — V2-2 — run repeated development and locked
   holdout trials, then publish `GO`, `MODIFY` or `NO-GO`.
   - Surfaced by: the open-ended model and routing hypotheses.
+  - Current gate (2026-08-22): first correct H03 component-kind/translation
+    contracts and motion proof, reissue CAP-2A, freeze and preflight the new
+    identity, rerun affected rows including a non-rate-limited Gemini route,
+    and freeze that interpretation. Then execute the seven unseen holdouts,
+    dependency-shape diversity, forced native/generated/hybrid baselines,
+    conflict/rebase/locked-range, context-resume and long-form/range trials.
   - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,
     blind review, cost/latency and no hidden manual rescue.
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
