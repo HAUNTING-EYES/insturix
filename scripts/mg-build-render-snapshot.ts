@@ -155,6 +155,22 @@ async function main(): Promise<void> {
     await runStep(sandbox, 'smoke: Remotion browser launches', 'node', ['-e', "require('@remotion/renderer').openBrowser('chrome').then(async (browser) => { console.log('BROWSER_LAUNCH_OK'); await browser.close({silent: true}); }).catch((e) => { console.error(e); process.exit(1); })"]);
     await runStep(sandbox, 'smoke: sharp loads', 'node', ['-e', "require('sharp'); console.log('SHARP_OK')"]);
     await runStep(sandbox, 'smoke: tsx binary present', 'bash', ['-lc', 'test -x node_modules/.bin/tsx && echo TSX_OK']);
+    // Import-only checks missed the Remotion 4.0.509 / mediabunny 1.27.2
+    // incompatibility because it surfaced only while webpack bundled a real
+    // GeneratedComposition. Never publish a snapshot unless the existing H03
+    // contract test exercises that exact bundle, render, decode and proof path.
+    await runStep(
+      sandbox,
+      'smoke: generated-composition bundle, render, decode and proof',
+      'pnpm',
+      [
+        'exec',
+        'vitest',
+        'run',
+        'tests/editron/sealed-holdout-h03-hybrid-proof-v3r2.test.ts',
+        '--reporter=dot',
+      ],
+    );
 
     process.stdout.write('→ creating snapshot (no expiration) ... ');
     const snapshot = await sandbox.snapshot({ expiration: 0 });
