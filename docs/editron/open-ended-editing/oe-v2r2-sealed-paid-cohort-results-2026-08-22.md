@@ -137,12 +137,19 @@ new frozen identity reruns them fairly.
    post-mutation clone, canonical cut semantics and declared caption-retiming
    state; V3R2 hidden evaluation requires the writer-bound reread and its proof
    binds that state to a real AV proxy.
-5. Supply required literal title/reference material in the public H03 condition
-   and prove model-generated program lineage separately from mechanics.
-6. Use bounded short proof paths on Windows.
-7. Separate capability-ceiling and production-budget conditions.
-8. Pass zero-inference preflight, then rerun only the rows whose validity or
-   evaluation coverage changed under the new identity.
+5. **Completed through `429fb45b1`, `1d902f20f`, `137692a5c`, `4b04b8676`,
+   `545c311bc`, `06150a94e` and `82c7db926`:** supply truthful public H03
+   literals, bind accepted source lineage separately from mechanics, execute
+   the exact synthetic callback in a real deny-all Vercel microVM and bind the
+   decoded hybrid proof without project mutation. This is infrastructure
+   evidence; the source is not provider output and proves no model quality.
+6. Reissue a new immutable CAP-2A current-truth artifact against stable
+   checkpoint `82c7db926`; preserve V4 as history.
+7. Connect the separately metered provider-source adapter so H03 can evaluate
+   provider-produced code rather than replaying the synthetic callback.
+8. Separate capability-ceiling and production-budget conditions, pass a new
+   zero-inference preflight, then rerun only rows whose validity or evaluation
+   coverage changed under the new identities.
 9. Complete HREF-01 qualified review, dependency diversity, forced
    native/generated/hybrid comparisons, stale-user-edit/conflict/rebase/locked
    range trials, context-compaction resume, long-form/range planning and blind
@@ -217,6 +224,31 @@ Vercel microVM or metered model ran. A real sandbox execution and metered
 provider source remain outstanding. Because the refactor changed a CAP-2A
 V4-bound H03 proof path, V4 is preserved history but must be reissued before a
 new provider cohort is frozen.
+
+Commits `06150a94e` and `82c7db926` then carry that exact synthetic
+model-tagged callback through a real Vercel microVM rather than the in-process
+adapter. The corrected image preserves the sandbox's existing npm/package-lock
+and TypeScript alias authority, uses a compatible Remotion/Mediabunny runtime,
+passes compositor/browser/Sharp/FFmpeg/TSX checks and runs with `DENY_ALL`,
+`persistent=false` and verified teardown. Immutable image
+`vcr.vercel.com/nimit-jains-projects-bd2b522e/front-end/editron-gcp-render:gcp-95c5a1fbdccb-1e26d111`
+has OCI digest
+`sha256:90328cd5426725635224528324d54cc38b3e0a812e904d9add81b0c4b3d6c9c1`;
+verified snapshot `snap_CRyxD1vbg4meL6dm1SqXhdxbofnR` binds app commit
+`95c5a1fbdccb3058b408079777266f4e97b10c94`. Receipt
+`17a81dc399d1c9dc0dbe30bc39b6f40d25e4798756271045c39469092d05722f`
+binds sandbox-host receipt
+`b4a6d03f71842cdf23f3cf21ed14f3ed5d230d0a7141d777e07297dcd72eed7c`
+and output
+`sha256:0abf6bc3dbb5f85398f6c3480b129a25bc569c900c449874d52add7a3d27ee4b`.
+The decoded 360x640, 30/1, 420-frame hybrid passed six-panel fill,
+title-safe placement, entry/exit motion, reference exclusion and native
+frame-270 continuation. Source origin remains explicitly
+`SYNTHETIC_CONTRACT_CALLBACK_NOT_PROVIDER_OUTPUT`; model-performance claim and
+project mutation are both `NONE`. The earlier stock-image, glibc,
+registry-size, missing-tsconfig and incompatible-Mediabunny failures are
+diagnostic history, not passes. Live sandbox mechanics are now proved; CAP-2A
+reissue and a separately metered provider-source run remain outstanding.
 
 ## Corrected-identity progress after this cohort
 

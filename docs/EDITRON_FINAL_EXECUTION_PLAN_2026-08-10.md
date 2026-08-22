@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `545c311bc` on
+programme code checkpoint represented by this ledger is `82c7db926` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1299,15 +1299,20 @@ The active Stage 2.5 reliability work starts after that completed closeout.
 Truthful H03 protected-literal input, source-synthesis contract, owner-gated
 zero-inference source episode and lossless trace/hidden-evaluator binding are
 complete. The exact accepted model-tagged source is also connected to the sole
-decoded-output measurement owner through the existing sandbox host contract;
-the in-process contract adapter passes, but a real Vercel microVM has not yet
-run. Next run that live sandbox proof, reissue CAP-2A because a bound H03 proof
-path changed, connect the metered provider adapter, finish remaining short-path
-proof gaps, separate
-capability-ceiling from production-budget conditions, freeze a new
-zero-inference preflight for only the changed rows, and then run the
-generalisation episodes and blind quality receipts before publishing `GO`,
-`MODIFY` or `NO-GO`.
+decoded-output measurement owner through the existing sandbox host contract.
+Commits `06150a94e` and `82c7db926` now carry that synthetic, model-tagged
+contract callback through a real Vercel deny-all microVM and the existing
+decoded hybrid-proof owner. Receipt
+`17a81dc399d1c9dc0dbe30bc39b6f40d25e4798756271045c39469092d05722f`
+records `VERCEL_SANDBOX`, `DENY_ALL`, `persistent=false`, teardown success,
+zero project mutation and a hash-bound 420-frame native/generated/native
+proxy. This is live sandbox/proof infrastructure evidence only: its source is
+`SYNTHETIC_CONTRACT_CALLBACK_NOT_PROVIDER_OUTPUT`, so it proves no provider
+model performance. Next reissue CAP-2A against this stable checkpoint, connect
+the metered provider-source adapter, separate capability-ceiling from
+production-budget conditions, freeze a new zero-inference preflight for only
+changed rows, and then run the generalisation episodes and blind quality
+receipts before publishing `GO`, `MODIFY` or `NO-GO`.
 
 **Latest bounded reissue checkpoint:** CAP-2A V4 was issued in commits
 `7ef8f043d` and `f0b1dd829` against stable source commit `373425480`. It binds
@@ -1800,15 +1805,36 @@ execution/interpretation checkpoint above supersedes it.
   source path, so V4 is now a preserved historical artifact rather than
   current-worktree truth until reissued.
 
-  The immediate order is now: carry the exact connected H03 source and hashes
-  through the real Vercel microVM proof; reissue CAP-2A against the resulting
-  stable checkpoint; then
+  Commits `06150a94e` and `82c7db926` close the next infrastructure boundary.
+  They restore the sandbox's existing npm/package-lock and TypeScript alias
+  authority, pin the compatible Remotion/Mediabunny runtime, and carry the
+  exact synthetic model-tagged callback through a real Vercel microVM with
+  `DENY_ALL`, `persistent=false` and verified teardown. Immutable image
+  `vcr.vercel.com/nimit-jains-projects-bd2b522e/front-end/editron-gcp-render:gcp-95c5a1fbdccb-1e26d111`
+  has OCI digest
+  `sha256:90328cd5426725635224528324d54cc38b3e0a812e904d9add81b0c4b3d6c9c1`;
+  verified snapshot `snap_CRyxD1vbg4meL6dm1SqXhdxbofnR` is bound to app
+  commit `95c5a1fbdccb3058b408079777266f4e97b10c94`. Receipt
+  `17a81dc399d1c9dc0dbe30bc39b6f40d25e4798756271045c39469092d05722f`
+  binds host receipt
+  `b4a6d03f71842cdf23f3cf21ed14f3ed5d230d0a7141d777e07297dcd72eed7c`,
+  output
+  `sha256:0abf6bc3dbb5f85398f6c3480b129a25bc569c900c449874d52add7a3d27ee4b`
+  and a decoded 360x640, 30/1, 420-frame native/generated/native hybrid.
+  Six panels, title-safe placement, entry/exit motion, reference exclusion and
+  frame-270 native continuation passed. The source origin is explicitly
+  `SYNTHETIC_CONTRACT_CALLBACK_NOT_PROVIDER_OUTPUT`, model-performance claim is
+  `NONE`, and project mutation is `NONE`. This proves live sandbox and decoded
+  proof plumbing, not provider editing quality. The failed stock-image,
+  glibc, registry-size, missing-tsconfig and incompatible-Mediabunny attempts
+  remain diagnostic history rather than being relabelled as passes.
+
+  The immediate order is now: reissue CAP-2A against checkpoint `82c7db926`;
   connect the separately metered source-provider adapter and render provider
-  output rather than replaying the human fixture; separate
-  capability-ceiling from production-budget arms, pass a new zero-inference
-  preflight, and rerun only rows whose validity or evaluation coverage changed.
-  Then continue
-  dependency diversity, forced
+  output rather than replaying the synthetic callback; separate
+  capability-ceiling from production-budget arms; freeze and pass a new
+  zero-inference preflight for only changed rows; and rerun only rows whose
+  validity or evaluation coverage changed. Then continue dependency diversity, forced
   native/generated/hybrid comparisons, conflict/rebase/locked-range,
   compaction/resume, long-form/range trials and blind editor receipts before a
   frozen `GO`, `MODIFY` or `NO-GO` decision.
@@ -1817,11 +1843,11 @@ execution/interpretation checkpoint above supersedes it.
 
 | Master stage | What is verified done | What remains before the stage exit is honest |
 | --- | --- | --- |
-| Stage 0 - governance and capability truth | `CAP-0` family-level census and `CAP-1` Adobe gap matrix remain `DONE_ARTIFACT`. CAP-2A V4 is preserved and binds 221 source paths, 11 observations and 475 identifiers to stable source commit `373425480`; immutable V1/V2/V3 history remains chained. | Commit `545c311bc` changed a V4-bound H03 proof path, so V4 is no longer current-worktree truth. Reissue CAP-2A only after the H03 live-sandbox checkpoint stabilizes. CAP-2A remains a bounded research tool dossier, not the complete Editron/Adobe toolset or production certification. |
+| Stage 0 - governance and capability truth | `CAP-0` family-level census and `CAP-1` Adobe gap matrix remain `DONE_ARTIFACT`. CAP-2A V4 is preserved and binds 221 source paths, 11 observations and 475 identifiers to stable source commit `373425480`; immutable V1/V2/V3 history remains chained. The H03 live-sandbox checkpoint is stabilized at `82c7db926`. | H03 proof-path changes after the V4 source snapshot make V4 historical rather than current-worktree truth. Reissue a new immutable CAP-2A version against `82c7db926`; do not rewrite V4. CAP-2A remains a bounded research tool dossier, not the complete Editron/Adobe toolset or production certification. |
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | V3R4 is valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 native dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. The sealed V2R2/V2R3 cohort then executed all 96 paid rows for `$9.730960595`, with zero real-project reads/mutations. Frozen interpretation `20b5e1c2...` records 24 valid safe-stop proofs, two valid rendered HOLD-02 edit proofs after unchanged short-path reproof, 21 valid bounded trace failures, 19 benchmark-confounded rows and 30 resource-guard non-evaluations. HREF-01 has one Gemini 3.6 native-video/audio observation plus a full-reference and 180-frame dense-window review pack. Existing H01-H05 proof owners demonstrate bounded fixed-30-fps mechanics. Commits through `4b3209fa1` connect corrected H01/H04 state and proof; `429fb45b1` freezes truthful public H03 target input; `1d902f20f` adds its leak-free source contract; `137692a5c` connects owner-authorized H03 arguments to verified source lineage; `4b04b8676` binds it through lossless trace/evaluation; `545c311bc` connects exact model-tagged source to sandbox-host and decoded hybrid proof contracts without a project mutation. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. Run H03 through a real Vercel microVM, then reissue CAP-2A and connect/rerun changed provider rows; separate capability-ceiling from production-budget arms first. The current H03 success test is an in-process host-contract simulation, not live sandbox or model-performance evidence. H01/H04 V3 proof is explicitly non-budgeted and is not real ProjectService mutation. HREF-01 still needs a second qualified independent review. Then test dependency diversity, forced native/generated/hybrid routes, stale-user-edit/conflict/rebase/locks, context-resume, long-form range planning and blind quality/correction-time/latency/cost. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | V3R4 is valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 native dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. The sealed V2R2/V2R3 cohort then executed all 96 paid rows for `$9.730960595`, with zero real-project reads/mutations. Frozen interpretation `20b5e1c2...` records 24 valid safe-stop proofs, two valid rendered HOLD-02 edit proofs after unchanged short-path reproof, 21 valid bounded trace failures, 19 benchmark-confounded rows and 30 resource-guard non-evaluations. HREF-01 has one Gemini 3.6 native-video/audio observation plus a full-reference and 180-frame dense-window review pack. Existing H01-H05 proof owners demonstrate bounded fixed-30-fps mechanics. Commits through `4b3209fa1` connect corrected H01/H04 state and proof; `429fb45b1` freezes truthful public H03 target input; `1d902f20f` adds its leak-free source contract; `137692a5c` connects owner-authorized H03 arguments to verified source lineage; `4b04b8676` binds it through lossless trace/evaluation; `545c311bc` connects exact model-tagged source to sandbox-host and decoded hybrid proof contracts; `06150a94e` and `82c7db926` execute that exact synthetic callback in a real deny-all Vercel microVM and bind decoded 420-frame proof, with zero project mutation. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The live sandbox path is now proved, but its H03 source is synthetic and makes no provider-model-performance claim. Reissue CAP-2A, connect the metered provider-source adapter, separate capability-ceiling from production-budget arms, freeze a changed-row zero-inference preflight and rerun only changed provider rows. H01/H04 V3 proof is explicitly non-budgeted and is not real ProjectService mutation. HREF-01 still needs a second qualified independent review. Then test dependency diversity, forced native/generated/hybrid routes, stale-user-edit/conflict/rebase/locks, context-resume, long-form range planning and blind quality/correction-time/latency/cost. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -2249,9 +2275,10 @@ foundation and is no longer the active queue. The next three slices are:
    bind its
    model-source contract and connect the existing owner to a verified
    zero-inference source episode, lossless trace, hidden evaluator and exact
-   model-source sandbox/decoded-proof contract. Next run the real Vercel
-   microVM, reissue CAP-2A for the changed bound proof path, and connect the
-   metered provider
+   model-source sandbox/decoded-proof contract. Commits `06150a94e` and
+   `82c7db926` additionally prove that exact synthetic callback through a real
+   deny-all Vercel microVM; this is infrastructure evidence, not model quality.
+   Next reissue CAP-2A for the changed bound proof path and connect the metered provider
    adapter, separate capability-ceiling from production-budget arms, pass the
    refreshed zero-inference simulation, and rerun only rows whose validity or
    evaluation coverage changed.
