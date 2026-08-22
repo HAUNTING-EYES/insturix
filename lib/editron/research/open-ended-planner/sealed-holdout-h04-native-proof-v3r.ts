@@ -8,6 +8,8 @@ import {
   assertSealedHoldoutCohortManifestV3R,
   type SealedHoldoutCohortManifestV3R,
 } from './sealed-holdout-cohort-v3r';
+import type { SealedHoldoutCohortManifestV3R2 }
+  from './sealed-holdout-cohort-v3r2';
 import {
   executeSealedHoldoutH04RenderedAvMechanicsV2R,
   type SealedHoldoutH04RenderedAvMechanicsV2R,
@@ -31,17 +33,8 @@ type JsonRecord = Record<string, unknown>;
 export const SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V3R =
   'EDITRON_OE_SEALED_HOLDOUT_H04_NATIVE_AV_STATE_PROOF_V3R_1' as const;
 
-export interface SealedHoldoutH04NativeProofReceiptV3R
+export interface SealedHoldoutH04NativeProofMechanicsV3R
   extends SealedHoldoutH04RenderedAvMechanicsV2R {
-  version: typeof SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V3R;
-  authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_AV_PROXY_NO_PROJECT_MUTATION_NO_RESOURCE_BUDGET_CLAIM';
-  caseId: 'HOLD-04:C1';
-  taskId: 'HOLD-04';
-  manifestSha256: string;
-  publicCaseSha256: string;
-  providerEpisodeReceiptSha256: string;
-  traceArtifactSha256: string;
-  evaluationReceiptSha256: string;
   writerIssuedProjectRevision: string;
   selectedMutation: Readonly<{
     nodeId: string;
@@ -62,6 +55,19 @@ export interface SealedHoldoutH04NativeProofReceiptV3R
     retainedCaptionGroupCount: 1;
     presentationReference: 'sha256:caption-presentation-v1';
   }>;
+}
+
+export interface SealedHoldoutH04NativeProofReceiptV3R
+  extends SealedHoldoutH04NativeProofMechanicsV3R {
+  version: typeof SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V3R;
+  authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_AV_PROXY_NO_PROJECT_MUTATION_NO_RESOURCE_BUDGET_CLAIM';
+  caseId: 'HOLD-04:C1';
+  taskId: 'HOLD-04';
+  manifestSha256: string;
+  publicCaseSha256: string;
+  providerEpisodeReceiptSha256: string;
+  traceArtifactSha256: string;
+  evaluationReceiptSha256: string;
   resourceBudgetProof: 'NOT_CLAIMED';
   assessment: 'PASS_RESEARCH_NATIVE_OWNER_STATE_AND_RENDERED_AV_PROXY';
   productProjectMutationProof: 'NOT_CLAIMED';
@@ -107,7 +113,47 @@ export async function proveSealedHoldoutH04NativeOutcomeV3R(input: {
     fail('SEALED_V3_H04_PROOF_PRECONDITION_FAILED');
   }
 
-  const successful = trace.nodes.filter(({ executionDisposition }) =>
+  const mechanics = await executeSealedHoldoutH04NativeProofMechanicsV3R({
+    manifest,
+    caseId: input.caseId,
+    providerEpisode: episode,
+    traceNodes: trace.nodes,
+    publicCase,
+    mediaManifest: input.mediaManifest,
+    outputDirectory: input.outputDirectory,
+    ffprobePath: input.ffprobePath,
+  });
+  const material = {
+    version: SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V3R,
+    authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_AV_PROXY_NO_PROJECT_MUTATION_NO_RESOURCE_BUDGET_CLAIM' as const,
+    caseId: input.caseId,
+    taskId: 'HOLD-04' as const,
+    manifestSha256: manifest.manifestSha256,
+    publicCaseSha256: taskCase.publicCaseSha256,
+    providerEpisodeReceiptSha256: episode.receiptSha256,
+    traceArtifactSha256: trace.artifactSha256,
+    evaluationReceiptSha256: evaluation.receiptSha256,
+    ...mechanics,
+    resourceBudgetProof: 'NOT_CLAIMED' as const,
+    assessment: 'PASS_RESEARCH_NATIVE_OWNER_STATE_AND_RENDERED_AV_PROXY' as const,
+    productProjectMutationProof: 'NOT_CLAIMED' as const,
+    stateEffects: [] as const,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
+export async function executeSealedHoldoutH04NativeProofMechanicsV3R(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV3R | SealedHoldoutCohortManifestV3R2>;
+  caseId: 'HOLD-04:C1';
+  providerEpisode: Readonly<ProviderNativeEpisodeReceiptV2R>;
+  traceNodes: readonly Readonly<SealedHoldoutTraceNodeV2R>[];
+  publicCase: Readonly<JsonRecord>;
+  mediaManifest: Readonly<HoldoutMediaManifestV2R>;
+  outputDirectory: string;
+  ffprobePath?: string;
+}): Promise<Readonly<SealedHoldoutH04NativeProofMechanicsV3R>> {
+  const episode = assertProviderEpisodeReceipt(input.providerEpisode);
+  const successful = input.traceNodes.filter(({ executionDisposition }) =>
     executionDisposition === 'OK');
   const mutations = successful.filter(({ researchCloneMutation }) => researchCloneMutation);
   const mutation = mutations.length === 1 && mutations[0].selectedOperatorId === 'cut_section'
@@ -135,7 +181,7 @@ export async function proveSealedHoldoutH04NativeOutcomeV3R(input: {
     .isolatedStateTransition);
   const actualPostState = record(record(postReadOutput.result).isolatedTimelineState);
   const replayOwner = new SealedHoldoutH04OwnerStateV3R({
-    manifest,
+    manifest: input.manifest,
     caseId: input.caseId,
   });
   const expectedMutation = replayOwner.executeMutation({
@@ -174,7 +220,7 @@ export async function proveSealedHoldoutH04NativeOutcomeV3R(input: {
     fail('SEALED_V3_H04_PROOF_OWNER_STATE_PREDICATE_FAILED');
   }
 
-  const publicMedia = records(publicCase.media);
+  const publicMedia = records(input.publicCase.media);
   const host = publicMedia.find(({ assetId }) => assetId === 'h04-host');
   const avProof = await executeSealedHoldoutH04RenderedAvMechanicsV2R({
     removedRange,
@@ -184,16 +230,7 @@ export async function proveSealedHoldoutH04NativeOutcomeV3R(input: {
     outputFilename: 'sealed-holdout-h04-clean-take-proxy-v3r.mp4',
     ffprobePath: input.ffprobePath,
   });
-  const material = {
-    version: SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V3R,
-    authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_AV_PROXY_NO_PROJECT_MUTATION_NO_RESOURCE_BUDGET_CLAIM' as const,
-    caseId: input.caseId,
-    taskId: 'HOLD-04' as const,
-    manifestSha256: manifest.manifestSha256,
-    publicCaseSha256: taskCase.publicCaseSha256,
-    providerEpisodeReceiptSha256: episode.receiptSha256,
-    traceArtifactSha256: trace.artifactSha256,
-    evaluationReceiptSha256: evaluation.receiptSha256,
+  return deepFreezeV1({
     writerIssuedProjectRevision: writerRevision,
     selectedMutation: {
       nodeId: mutation.nodeId,
@@ -215,12 +252,7 @@ export async function proveSealedHoldoutH04NativeOutcomeV3R(input: {
       presentationReference: 'sha256:caption-presentation-v1' as const,
     },
     ...avProof,
-    resourceBudgetProof: 'NOT_CLAIMED' as const,
-    assessment: 'PASS_RESEARCH_NATIVE_OWNER_STATE_AND_RENDERED_AV_PROXY' as const,
-    productProjectMutationProof: 'NOT_CLAIMED' as const,
-    stateEffects: [] as const,
-  };
-  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+  });
 }
 
 function assertProviderEpisodeReceipt(

@@ -23,10 +23,17 @@ import { runSealedHoldoutEpisodeV3R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-episode-v3r';
 import { proveSealedHoldoutH04NativeOutcomeV3R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-h04-native-proof-v3r';
+import { proveSealedHoldoutH04NativeOutcomeV3R2 }
+  from '@/lib/editron/research/open-ended-planner/sealed-holdout-h04-native-proof-v3r2';
 import type { ProviderNativeEpisodeReceiptV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-tool-episode-v2r';
 import { buildSealedHoldoutSelectedOperationTraceV3R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-trace-v2r';
+
+import {
+  finishSealedHoldoutScriptV2R,
+  runScriptedBudgetedSealedHoldoutV3R2,
+} from './helpers/sealed-holdout-v2r-test-driver';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -44,6 +51,60 @@ afterAll(async () => {
 }, 60_000);
 
 describe('sealed HOLD-04 evolving-state and rendered native proof V3R', () => {
+  it('binds the current metered writer handoff to the same state and AV proof', async () => {
+    const root = join(suiteRoot, `current-${++sequence}`);
+    const result = await runScriptedBudgetedSealedHoldoutV3R2({
+      caseId: 'HOLD-04:C1',
+      argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES',
+      calls: [
+        { name: 'get_video_transcription', arguments: {
+          projectId: 'oe-hold-04', assetId: 'h04-host',
+        } },
+        { name: 'get_timeline_view', arguments: {
+          projectId: 'oe-hold-04', expectedProjectRevision: 'R6',
+        } },
+        { name: 'cut_section', arguments: {
+          projectId: 'oe-hold-04', expectedProjectRevision: 'R6',
+          targetRange: { startFrame: 120, endFrame: 225 },
+          evidenceIds: ['E1', 'E2'],
+          constraints: { retainOccurrence: 'SECOND', preserveCaptionPresentation: true },
+        } },
+        { name: 'get_timeline_view', arguments: {
+          projectId: 'oe-hold-04',
+          argumentReferences: [{
+            targetField: 'expectedProjectRevision', resultReferenceId: 'result_t3_1',
+          }],
+        } },
+        finishSealedHoldoutScriptV2R('READY_FOR_PROOF', ['E1', 'E2']),
+      ],
+    });
+    const proof = await proveSealedHoldoutH04NativeOutcomeV3R2({
+      manifest: result.manifest,
+      caseId: 'HOLD-04:C1',
+      budgetedEpisode: result.budgetedEpisode,
+      trace: result.trace,
+      evaluation: result.evaluation,
+      mediaManifest,
+      outputDirectory: join(root, 'proof'),
+    });
+    expect(proof).toMatchObject({
+      version: 'EDITRON_OE_SEALED_HOLDOUT_H04_NATIVE_AV_STATE_PROOF_V3R_2_RESOURCE_BOUND_1',
+      authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_AV_PROXY_CURRENT_RESOURCE_BOUND_NO_PROJECT_MUTATION',
+      resourceBudgetProof: 'BOUND_ACCOUNTED_WITHIN_BUDGET',
+      assessment: 'PASS_RESEARCH_NATIVE_OWNER_STATE_AND_RENDERED_AV_PROXY',
+      evolvingOwnerStateProof: {
+        beforeDurationInFrames: 540, afterDurationInFrames: 435,
+        retainedCaptionText: 'our launch is Friday', retainedCaptionWordCount: 4,
+      },
+      video: { decodedFrameCount: 435, averageFrameRate: '30/1' },
+      stateEffects: [],
+    });
+    expect(proof.runtimeBudgetReceiptSha256)
+      .toBe(result.trace.runtimeBudgetReceiptSha256);
+    expect(proof.writerIssuedProjectRevision)
+      .toBe(result.trace.nodes[2].writerIssuedProjectRevision);
+  }, 60_000);
+
   it('binds the actual post-cut state and proves the retained take with real AV', async () => {
     const result = await setup(true);
     const proof = await proveSealedHoldoutH04NativeOutcomeV3R({
