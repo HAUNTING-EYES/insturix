@@ -924,6 +924,21 @@ test.describe('ThinkForge authenticated authoring provenance', () => {
       expect(new Set(selectedTreatmentEventIds)).toEqual(new Set(treatmentEventIds));
       expect(JSON.stringify(sidecar)).not.toMatch(/shotIntent|visualIntent|renderPlan/i);
 
+      // A valid V3 script opens as its AV treatment. This is a user-visible
+      // reading surface, not a replacement editor: narration and semantic
+      // visual intent remain concurrent, and prose remains one click away.
+      await expect(page.getByRole('button', { name: 'AV Script' })).toBeVisible();
+      await expect(page.getByText('AV Script · saved document v', { exact: false })).toBeVisible();
+      await expect(page.getByText('What is heard', { exact: true }).first()).toBeVisible();
+      await expect(page.getByText('What the audience sees', { exact: true }).first()).toBeVisible();
+      await expect(page.getByText('The Invisible Queue', { exact: true }).first()).toBeVisible();
+      await expect(page.getByText('No physical shoot is required', { exact: true })).not.toBeVisible();
+
+      await page.getByRole('button', { name: 'Scripting' }).click();
+      await expect(page.getByText(scenario.expectedVisibleContent, { exact: false }).first()).toBeVisible();
+      await page.getByRole('button', { name: 'AV Script' }).click();
+      await expect(page.getByText('What the audience sees', { exact: true }).first()).toBeVisible();
+
       const captureProjection = await fetchBrowserJson<ProductionShotPlanPayload>(
         page,
         `/api/services/thinkforge/production/shot-plan?sessionId=${encodeURIComponent(sessionId!)}&scriptId=${encodeURIComponent(scriptId)}`,
