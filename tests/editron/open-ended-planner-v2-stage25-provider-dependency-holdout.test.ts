@@ -6,6 +6,9 @@ import {
 import type { SerializedProviderNativeTurnV2R }
   from '@/lib/editron/research/open-ended-planner/provider-native-tool-codecs-v2r';
 import {
+  issueStage25ProviderDependencyEffectsV1,
+} from '@/lib/editron/research/open-ended-planner/stage25-provider-dependency-effect-owner-v1';
+import {
   buildStage25ProviderDependencyContextV1,
   buildStage25ProviderDependencyToolSetV1,
   buildStage25ProviderDependencyTraceV1,
@@ -17,7 +20,10 @@ import {
   Stage25ProviderDependencyOwnerV1,
   STAGE25_DEPENDENCY_BEAT_CONSTRAINTS_V1,
 } from '@/lib/editron/research/open-ended-planner/stage25-provider-dependency-owner-v1';
-import { projectProviderTraceForStage25ScheduleV1 }
+import {
+  bindProviderTraceToStage25ScheduleV1,
+  projectProviderTraceForStage25ScheduleV1,
+}
   from '@/lib/editron/research/open-ended-planner/stage25-provider-trace-schedule-binding-v1';
 
 type JsonRecord = Record<string, unknown>;
@@ -27,6 +33,7 @@ const ROUTE = {
   model: 'gpt-5.6-terra', claimedModelIdentity: 'gpt-5.6-terra',
   reasoningMode: 'medium',
 } as const;
+const TIMEBASE = { timebaseId: 'project-42:30fps', version: '1' } as const;
 
 describe('Stage 2.5 non-leading provider dependency holdout', () => {
   it('exposes all 40 directory records but withholds exact owner evidence', () => {
@@ -110,12 +117,28 @@ describe('Stage 2.5 non-leading provider dependency holdout', () => {
     const trace = buildStage25ProviderDependencyTraceV1({
       providerEpisode: episode, context,
     });
+    const ownerSnapshot = owner.snapshot();
     const evaluation = evaluateStage25ProviderDependencyHoldoutV1({
-      providerEpisode: episode, context, trace, ownerSnapshot: owner.snapshot(),
+      providerEpisode: episode, context, trace, ownerSnapshot,
     });
     const projection = projectProviderTraceForStage25ScheduleV1({
       taskId: 'HOLD-FORK-JOIN-01', providerEpisode: episode,
       selectedOperationTrace: trace, episodeContext: context, toolSet,
+    });
+    const effects = issueStage25ProviderDependencyEffectsV1({
+      providerEpisode: episode, projection, ownerSnapshot, toolSet,
+      timebase: TIMEBASE,
+    });
+    const scheduled = await bindProviderTraceToStage25ScheduleV1({
+      taskId: 'HOLD-FORK-JOIN-01', graphId: 'graph-real-owner-effects',
+      providerEpisode: episode, selectedOperationTrace: trace,
+      episodeContext: context, toolSet, timebase: TIMEBASE,
+      currentStability: 'RANGE_STABLE',
+      initialArtifactRefs: effects.initialArtifactRefs,
+      requiredFinalArtifactRefs: effects.requiredFinalArtifactRefs,
+      limits: { maxNodeCount: 12, maxParallelNodes: 3, maxRenderNodes: 1 },
+      effectResolutionRefs: effects.refs,
+      resolveEffectResolution: effects.resolve,
     });
 
     expect(episode).toMatchObject({
@@ -129,6 +152,30 @@ describe('Stage 2.5 non-leading provider dependency holdout', () => {
     expect(trace).toMatchObject({ assessment: 'PASS', diagnostics: [], stateEffects: [] });
     expect(evaluation).toMatchObject({ assessment: 'PASS', diagnostics: [], stateEffects: [] });
     expect(projection.receipt).toMatchObject({ zeroAdd: true, zeroDrop: true });
+    expect(effects.receipt).toMatchObject({
+      authority: 'RESEARCH_EFFECT_OWNER_NO_PROJECT_MUTATION',
+      requiredFinalArtifactRefs: ['receipt:project-42:R45'], stateEffects: [],
+    });
+    expect(scheduled.schedule).toMatchObject({
+      disposition: 'PASS', waves: [
+        { waveIndex: 0, nodeIds: ['compile-turn-1', 'compile-turn-2'] },
+        { waveIndex: 1, nodeIds: ['compile-turn-3'] },
+        { waveIndex: 2, nodeIds: ['compile-turn-4'] },
+        { waveIndex: 3, nodeIds: ['compile-turn-5'] },
+        { waveIndex: 4, nodeIds: ['compile-turn-6'] },
+      ],
+    });
+    expect(effects.resolutions.find(({ operatorId }) =>
+      operatorId === 'sync_cuts_to_beats')?.writeRegions[0]).toMatchObject({
+      path: ['timeline', 'video-boundaries'],
+      range: { startTick: '116', endExclusiveTick: '240' },
+      identityRefs: ['overlay:1', 'overlay:2', 'overlay:3'],
+    });
+    expect(effects.resolutions.find(({ operatorId }) =>
+      operatorId === 'set_keyframes')?.writeRegions[0]).toMatchObject({
+      path: ['overlays', '42', 'keyframeTracks', 'scale'],
+      range: { startTick: '600', endExclusiveTick: '720' },
+    });
     expect(requires(projection.compiledGraph, 'compile-turn-3')).toEqual([
       'compile-turn-2',
     ]);
@@ -141,6 +188,13 @@ describe('Stage 2.5 non-leading provider dependency holdout', () => {
     expect(requires(projection.compiledGraph, 'compile-turn-6')).toEqual([
       'compile-turn-5', 'compile-turn-4',
     ]);
+
+    const forgedSnapshot = structuredClone(ownerSnapshot) as JsonRecord;
+    forgedSnapshot.changedPaths = [];
+    expect(() => issueStage25ProviderDependencyEffectsV1({
+      providerEpisode: episode, projection, ownerSnapshot: forgedSnapshot,
+      toolSet, timebase: TIMEBASE,
+    })).toThrow('SOURCE_INVALID');
   });
 
   it('fails closed on stale revisions and fabricated owner inputs', async () => {
