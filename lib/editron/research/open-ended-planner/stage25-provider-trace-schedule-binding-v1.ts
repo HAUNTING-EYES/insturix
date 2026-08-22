@@ -20,7 +20,7 @@ import type { Stage25ProjectTimebaseRefV1 } from './stage25-proposal-reconciliat
 import { validateJsonSchemaV2 } from './stage4-compilation-evaluator-v2';
 
 export const STAGE25_PROVIDER_TRACE_SCHEDULE_BINDING_VERSION_V1 =
-  'EDITRON_OE_STAGE25_PROVIDER_TRACE_SCHEDULE_BINDING_V1' as const;
+  'EDITRON_OE_STAGE25_PROVIDER_TRACE_SCHEDULE_BINDING_V1_2' as const;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -241,14 +241,16 @@ function validateWriterRevisionLineage(
   for (const node of nodes) {
     const tool = tools.get(text(node.selectedOperatorId)) ?? fail('TRACE_TOOL_MISSING');
     const args = record(node.normalizedArguments); const latest = mutations[mutations.length - 1];
-    if (latest) {
+    const acceptsProjectRevision = 'expectedProjectRevision'
+      in record(tool.exactInputSchema.properties);
+    if (latest && acceptsProjectRevision) {
       const latestRevision = text(latest.writerIssuedProjectRevision);
       const binding = records(node.argumentReferenceBindings).find((candidate) => candidate.targetField === 'expectedProjectRevision');
-      if (!('expectedProjectRevision' in record(tool.exactInputSchema.properties))
-        || args.expectedProjectRevision !== latestRevision || !binding
+      if (args.expectedProjectRevision !== latestRevision || !binding
         || binding.originTurn !== latest.turn || binding.sourceOperatorId !== latest.selectedOperatorId
         || binding.sourceOutputField !== 'receipt.projectRevision') fail(`WRITER_REVISION_HANDOFF_INVALID:${text(node.nodeId)}`);
-    } else if ('expectedProjectRevision' in args && args.expectedProjectRevision !== base) {
+    } else if (!latest && acceptsProjectRevision
+      && args.expectedProjectRevision !== base) {
       fail(`BASE_REVISION_INPUT_INVALID:${text(node.nodeId)}`);
     }
     if (tool.kind === 'MUTATION') {

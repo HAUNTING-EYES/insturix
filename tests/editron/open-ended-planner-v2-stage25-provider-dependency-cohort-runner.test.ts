@@ -85,7 +85,7 @@ describe('Stage 2.5 provider dependency cohort runner', () => {
     expect(records(receipt.rows)[0]).toMatchObject({
       assessment: 'FAIL',
       episode: { selectedOperatorIds: [
-        'find_visual_moment', 'find_audio_moment', 'sync_cuts_to_beats',
+        'find_audio_moment', 'sync_cuts_to_beats', 'find_visual_moment',
         'resolve_keyframe_edit', 'set_keyframes', 'apply_filter',
       ] },
       ownerSnapshot: { currentProjectRevision: 'R45' },
@@ -119,14 +119,11 @@ function scriptedTransport(model: string, copyWriterRevision = false) {
     invoke: async (request: SerializedProviderNativeTurnV2R) => {
       requests.push(request);
       const turn = requests.length;
-      if (turn === 1) return response(model, 'visual', 'find_visual_moment', {
-        projectId: 'project-42', query: 'verified product reveal moment',
-      });
-      if (turn === 2) return response(model, 'audio', 'find_audio_moment', {
+      if (turn === 1) return response(model, 'audio', 'find_audio_moment', {
         projectId: 'project-42', query: 'measured strong music impacts',
         assetIds: ['music-1'], targetRange: { startFrame: 0, endFrame: 360 },
       });
-      if (turn === 3) return response(model, 'sync', 'sync_cuts_to_beats', {
+      if (turn === 2) return response(model, 'sync', 'sync_cuts_to_beats', {
         projectId: 'project-42', expectedProjectRevision: 'R42',
         overlayIds: [1, 2, 3],
         beatSyncConstraints: STAGE25_DEPENDENCY_BEAT_CONSTRAINTS_V1,
@@ -134,6 +131,9 @@ function scriptedTransport(model: string, copyWriterRevision = false) {
           targetField: 'beatPlan',
           resultReferenceId: outputReferenceId(request, 'audio', 'result'),
         }],
+      });
+      if (turn === 3) return response(model, 'visual', 'find_visual_moment', {
+        projectId: 'project-42', query: 'verified product reveal moment',
       });
       if (turn === 4) return response(model, 'resolve', 'resolve_keyframe_edit', {
         projectId: 'project-42',
