@@ -180,7 +180,7 @@
     "lodash": "^4.17.21",
     "lucide-react": "^0.554.0",
     "marked": "^17.0.4",
-    "mediabunny": "1.27.2",
+    "mediabunny": "1.50.8",
     "mongodb": "^7.0.0",
     "mongoose": "^8.20.0",
     "motion": "^12.23.24",

@@ -399,8 +399,8 @@ importers:
         specifier: ^17.0.4
         version: 17.0.4
       mediabunny:
-        specifier: 1.27.2
-        version: 1.27.2
+        specifier: 1.50.8
+        version: 1.50.8
       mongodb:
         specifier: ^7.0.0
         version: 7.0.0(socks@2.8.7)
@@ -8198,9 +8198,6 @@ packages:
   media-typer@0.3.0:
     resolution: {integrity: sha512-dq+qelQ9akHpcOl/gUVRTxVIOkAJ1wR3QAvb4RsVjS8oVoFjDGTc679wJYmUmknUF5HwMLOgb5O+a3KxfWapPQ==}
     engines: {node: '>= 0.6'}
-
-  mediabunny@1.27.2:
-    resolution: {integrity: sha512-0g/vmb6X0xmnzqW0U44weF9CmzcUFFQRHrjzoVpSL2KXuhWIWcW3u9wIcohHiTY78jfr0SauYKLxjOQReaMxXQ==}
 
   mediabunny@1.50.8:
     resolution: {integrity: sha512-LgykLyQzhdpo0V2yw3UXmOpj+b4JAGdpHBwsPE6kjSt8Za0d1VllD+FV7EGHBcdV4+oHUAo+yrqbVAWxNSDCPQ==}
@@ -20293,11 +20290,6 @@ snapshots:
   media-engine@1.0.3: {}
 
   media-typer@0.3.0: {}
-
-  mediabunny@1.27.2:
-    dependencies:
-      '@types/dom-mediacapture-transform': 0.1.11
-      '@types/dom-webcodecs': 0.1.13
 
   mediabunny@1.50.8:
     dependencies:
