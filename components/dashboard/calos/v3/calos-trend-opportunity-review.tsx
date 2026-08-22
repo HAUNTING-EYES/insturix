@@ -5,6 +5,7 @@ import { Check, Clock3, ExternalLink, RefreshCw, XCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { C, SANS } from './calos-view-model';
 import { Btn, Mono, Sheet } from './calos-atoms';
+import { Select } from '@/components/primitives';
 
 type TrendOpportunity = {
   id: string;
@@ -204,9 +205,12 @@ export function CalosTrendOpportunityReview({ brandId, brandName, onClose, onAcc
                 </div>
                 <div style={{ display: 'flex', gap: 7, marginTop: 13, alignItems: 'center', flexWrap: 'wrap' }}>
                   <Btn size="sm" variant="approve" disabled={busy} onClick={() => void review(item, 'accept')}><Check size={13} aria-hidden="true" />Accept</Btn>
-                  <select value={snoozeDays[item.id] ?? 3} disabled={busy} onChange={(event) => setSnoozeDays((current) => ({ ...current, [item.id]: Number(event.target.value) }))} aria-label={`Snooze ${item.candidate.title}`} style={{ height: 30, background: C.bg, color: C.soft, border: `1px solid ${C.border}`, borderRadius: 6, padding: '0 7px', fontFamily: 'monospace', fontSize: 10 }}>
-                    <option value={1}>1 day</option><option value={3}>3 days</option><option value={7}>7 days</option>
-                  </select>
+                  <div style={{ width: 104 }}>
+                    <Select size="sm" aria-label={`Snooze ${item.candidate.title}`} disabled={busy}
+                      value={String(snoozeDays[item.id] ?? 3)}
+                      onChange={(v) => setSnoozeDays((current) => ({ ...current, [item.id]: Number(v) }))}
+                      options={[{ value: '1', label: '1 day' }, { value: '3', label: '3 days' }, { value: '7', label: '7 days' }]} />
+                  </div>
                   <Btn size="sm" disabled={busy} onClick={() => void review(item, 'snooze')}><Clock3 size={13} aria-hidden="true" />Snooze</Btn>
                   <Btn size="sm" variant="danger" disabled={busy} onClick={() => void review(item, 'dismiss')}><XCircle size={13} aria-hidden="true" />Dismiss</Btn>
                 </div>

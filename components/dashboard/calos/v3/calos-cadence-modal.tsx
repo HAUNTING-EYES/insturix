@@ -10,6 +10,7 @@ import type { CadenceRule } from '@/app/dashboard/calos/CadenceEditor';
 import type { CalosCampaignReference } from '@/schemas/calos-campaign';
 import { C, DOW, platLabel } from './calos-view-model';
 import { Sheet, Btn, Glyph, Mono, inpS } from './calos-atoms';
+import { Select } from '@/components/primitives';
 import { CalosReferencesPanel } from './calos-references-panel';
 
 /* ═══ CalOS v3 · cadence modal ════════════════════════════════════════
@@ -132,10 +133,9 @@ export function CalosCadenceModal({
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <label><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Name</Mono>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Campaign name" style={inpS} /></label>
-        <label><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Objective</Mono>
-          <select value={objective} onChange={(e) => setObjective(e.target.value as CalosObjective)} style={{ ...inpS, textTransform: 'capitalize' }}>
-            {CALOS_OBJECTIVES.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select></label>
+        <div><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Objective</Mono>
+          <Select aria-label="Objective" value={objective} onChange={(v) => setObjective(v as CalosObjective)}
+            options={CALOS_OBJECTIVES.map((o) => ({ value: o, label: o.charAt(0).toUpperCase() + o.slice(1) }))} /></div>
       </div>
       <label style={{ display: 'block', marginBottom: 18 }}><Mono s={9} c={C.muted} st={{ display: 'block', marginBottom: 6 }}>Theme</Mono>
         <input value={theme} onChange={(e) => setTheme(e.target.value)} placeholder="The big idea every post ladders up to" style={inpS} /></label>
