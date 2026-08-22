@@ -23,8 +23,8 @@ describe('Stage 2.5 provider dependency cohort', () => {
       'GOOGLE_FLASH:gemini-3.7-flash',
     ]);
     expect(manifest).toMatchObject({
-      version: 'EDITRON_STAGE25_PROVIDER_DEPENDENCY_COHORT_V3R_1',
-      experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R',
+      version: 'EDITRON_STAGE25_PROVIDER_DEPENDENCY_COHORT_V3R_2',
+      experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R_2',
       repetitionsPerRoute: 3,
       rowCount: 9,
       argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES',

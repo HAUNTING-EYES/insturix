@@ -82,8 +82,11 @@ export async function runStage25ProviderDependencyCohortV1(input: {
         trace,
         ownerSnapshot,
       });
-      const schedule = evaluation.assessment === 'PASS'
-        ? projectProviderTraceForStage25ScheduleV1({
+      let schedule: Readonly<JsonRecord> | null = null;
+      let scheduleRejection: string | null = null;
+      if (evaluation.assessment === 'PASS') {
+        try {
+          schedule = projectProviderTraceForStage25ScheduleV1({
             taskId: STAGE25_PROVIDER_DEPENDENCY_TASK_ID_V1,
             providerEpisode: episode,
             selectedOperationTrace: trace,
@@ -91,8 +94,13 @@ export async function runStage25ProviderDependencyCohortV1(input: {
             toolSet: buildStage25ProviderDependencyToolSetV1(
               presentation.operatorOrder,
             ),
-          })
-        : null;
+          });
+        } catch (error) {
+          const rejection = boundedError(error);
+          if (!isProviderScheduleRejection(rejection)) throw error;
+          scheduleRejection = rejection;
+        }
+      }
       const assessment = assessRow(episode.terminal.disposition, evaluation, schedule);
       const row = {
         rowId,
@@ -107,6 +115,7 @@ export async function runStage25ProviderDependencyCohortV1(input: {
         ownerSnapshot,
         evaluation,
         schedule,
+        scheduleRejection,
         transport: transport.snapshot(),
         stateEffects: [] as const,
       };
@@ -196,6 +205,17 @@ function count(rows: readonly JsonRecord[], assessment: string): number {
 }
 function boundedError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
+}
+function isProviderScheduleRejection(message: string): boolean {
+  return [
+    'REFERENCE_TARGET_INVALID',
+    'REFERENCE_ORIGIN_MISSING',
+    'REFERENCE_ORIGIN_NOT_PRIOR',
+    'REFERENCE_BINDING_INVALID',
+    'WRITER_REVISION_HANDOFF_INVALID',
+    'BASE_REVISION_INPUT_INVALID',
+    'WRITER_REVISION_NOT_ADVANCED',
+  ].some((code) => message.includes(`STAGE25_PROVIDER_TRACE_SCHEDULE_BINDING_${code}`));
 }
 function record(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value)

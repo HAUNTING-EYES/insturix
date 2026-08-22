@@ -67,6 +67,35 @@ describe('Stage 2.5 provider dependency cohort runner', () => {
     });
   });
 
+  it('scores a copied writer revision as a model-contract failure, not a harness error', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'editron-stage25-copied-revision-'));
+    const receipt = await runStage25ProviderDependencyCohortV1({
+      manifest: MANIFEST,
+      outputRoot: path.join(root, 'cohort'),
+      routeIds: ['OPENAI_TERRA'],
+      presentationOrdinals: [1],
+      createTransport: ({ route }) => scriptedTransport(route.model, true),
+    });
+    expect(receipt).toMatchObject({
+      passCount: 0,
+      failCount: 1,
+      providerInfrastructureUnverifiableCount: 0,
+      harnessErrorCount: 0,
+    });
+    expect(records(receipt.rows)[0]).toMatchObject({
+      assessment: 'FAIL',
+      episode: { selectedOperatorIds: [
+        'find_visual_moment', 'find_audio_moment', 'sync_cuts_to_beats',
+        'resolve_keyframe_edit', 'set_keyframes', 'apply_filter',
+      ] },
+      ownerSnapshot: { currentProjectRevision: 'R45' },
+      evaluation: { assessment: 'PASS', diagnostics: [] },
+      schedule: null,
+      scheduleRejection:
+        'STAGE25_PROVIDER_TRACE_SCHEDULE_BINDING_WRITER_REVISION_HANDOFF_INVALID:turn-4',
+    });
+  });
+
   it('rejects unknown route and presentation selections before creating rows', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'editron-stage25-invalid-'));
     await expect(runStage25ProviderDependencyCohortV1({
@@ -84,7 +113,7 @@ describe('Stage 2.5 provider dependency cohort runner', () => {
   });
 });
 
-function scriptedTransport(model: string) {
+function scriptedTransport(model: string, copyWriterRevision = false) {
   const requests: SerializedProviderNativeTurnV2R[] = [];
   return {
     invoke: async (request: SerializedProviderNativeTurnV2R) => {
@@ -107,11 +136,15 @@ function scriptedTransport(model: string) {
         }],
       });
       if (turn === 4) return response(model, 'resolve', 'resolve_keyframe_edit', {
-        projectId: 'project-42', intent: {
+        projectId: 'project-42',
+        ...(copyWriterRevision ? { expectedProjectRevision: 'R43' } : {}),
+        intent: {
           direction: 'in', durationFrames: 24, scaleDelta: 0.1,
           replaceExistingScaleKeyframes: false,
         }, evidenceIds: ['EV-V'], argumentReferences: [
-          ref(request, 'sync', 'receipt.projectRevision', 'expectedProjectRevision'),
+          ...(copyWriterRevision ? [] : [
+            ref(request, 'sync', 'receipt.projectRevision', 'expectedProjectRevision'),
+          ]),
           ref(request, 'visual', 'overlayId', 'overlayId'),
           ref(request, 'visual', 'targetFrame', 'targetFrame'),
           ref(request, 'visual', 'focalPoint', 'focalPoint'),

@@ -27,9 +27,9 @@ import {
 type JsonRecord = Record<string, unknown>;
 
 export const STAGE25_PROVIDER_DEPENDENCY_COHORT_VERSION_V1 =
-  'EDITRON_STAGE25_PROVIDER_DEPENDENCY_COHORT_V3R_1' as const;
+  'EDITRON_STAGE25_PROVIDER_DEPENDENCY_COHORT_V3R_2' as const;
 export const STAGE25_PROVIDER_DEPENDENCY_COHORT_SEED_V1 =
-  'editron-stage25-provider-dependency-v3r-20260823' as const;
+  'editron-stage25-provider-dependency-v3r2-20260823' as const;
 export const STAGE25_PROVIDER_DEPENDENCY_EVALUATOR_SOURCE_PATH_V1 =
   'lib/editron/research/open-ended-planner/stage25-provider-dependency-holdout-v1.ts' as const;
 export const STAGE25_PROVIDER_DEPENDENCY_MAX_INPUT_TOKENS_V1 = 60_000 as const;
@@ -44,7 +44,7 @@ interface PresentationEntryV1 {
 export interface Stage25ProviderDependencyCohortManifestV1 {
   version: typeof STAGE25_PROVIDER_DEPENDENCY_COHORT_VERSION_V1;
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
-  experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R';
+  experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R_2';
   sourceBinding: Readonly<{
     sourceCommit: string;
     evaluatorSourcePath: typeof STAGE25_PROVIDER_DEPENDENCY_EVALUATOR_SOURCE_PATH_V1;
@@ -93,7 +93,7 @@ export function buildStage25ProviderDependencyCohortManifestV1(input: {
   const material = {
     version: STAGE25_PROVIDER_DEPENDENCY_COHORT_VERSION_V1,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
-    experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R' as const,
+    experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R_2' as const,
     sourceBinding: {
       sourceCommit: input.sourceCommit,
       evaluatorSourcePath: STAGE25_PROVIDER_DEPENDENCY_EVALUATOR_SOURCE_PATH_V1,
@@ -179,7 +179,7 @@ export async function preflightStage25ProviderDependencyCohortV1(input: {
     });
   }
   const material = {
-    version: 'EDITRON_STAGE25_PROVIDER_DEPENDENCY_PREFLIGHT_V3R_1',
+    version: 'EDITRON_STAGE25_PROVIDER_DEPENDENCY_PREFLIGHT_V3R_2',
     authority: 'RESEARCH_PREFLIGHT_NO_INFERENCE_NO_PROJECT_MUTATION' as const,
     manifestSha256: manifest.manifestSha256,
     checks,
