@@ -1,9 +1,10 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { AVScriptView, type AVScriptPresentationStatus } from '@/components/dashboard/ThinkForge/AVScriptView';
 import ScriptEditor from '@/components/dashboard/ThinkForge/ScriptEditor';
 import { DocumentTabs, type DocumentTab } from '@/components/dashboard/ThinkForge/DocumentTabs';
 import { Idea, Script } from '@/app/dashboard/thinkforge/types';
-import { FileText, RefreshCw } from 'lucide-react';
+import { FileText, FileVideo2, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 
 interface ScriptPanelProps {
@@ -24,11 +25,12 @@ interface ScriptPanelProps {
   onGetSelection?: (callback: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null) => void;
   onEditSelection?: (text: string, range: { from: number; to: number }, blocks: any[]) => void;
   generatingScript?: boolean;
-  onModeChange?: (mode: PanelMode) => void;
+  onModeChange?: (mode: ParentWorkspaceMode) => void;
   documentTabs?: DocumentTab[];
 }
 
-type PanelMode = 'scripting' | 'whiteboard';
+type PanelMode = 'scripting' | 'av-script';
+type ParentWorkspaceMode = 'scripting' | 'whiteboard';
 
 const CLOSED_TABS_KEY = 'thinkforge_closed_tabs_';
 
@@ -50,8 +52,11 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
   const [tabs, setTabs] = useState<DocumentTab[]>(documentTabs || []);
   const [tabOrder, setTabOrder] = useState<string[]>([]);
   const [tabsLoadError, setTabsLoadError] = useState<string | null>(null);
+  const [avPresentationStatus, setAVPresentationStatus] = useState<AVScriptPresentationStatus>('idle');
   const closedTabsRef = useRef<Set<string>>(new Set());
   const tabsSessionIdRef = useRef<string | null>(sessionId || null);
+  const autoSelectedAVDocumentRef = useRef<string | null>(null);
+  const activeDocumentIdentity = `${sessionId || 'no-session'}:${scriptId || script?.scriptId || 'default'}`;
 
   // Load closed tabs from localStorage on session change
   useEffect(() => {
@@ -61,6 +66,12 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
     setTabOrder([]);
     setTabsLoadError(null);
   }, [sessionId]);
+
+  useEffect(() => {
+    setMode('scripting');
+    setAVPresentationStatus('idle');
+    autoSelectedAVDocumentRef.current = null;
+  }, [activeDocumentIdentity]);
 
   useEffect(() => {
     if (documentTabs) {
@@ -153,9 +164,29 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
     if (onTabClose) onTabClose(closedId);
   }, [onTabClose, sessionId]);
 
-   React.useEffect(() => {
-      if (onModeChange) onModeChange(mode);
-   }, [mode, onModeChange]);
+  // AV Script is a read-only surface inside scripting. The parent still sees
+  // the scripting workspace, so chat and selection editing never fall into a
+  // legacy whiteboard branch.
+  React.useEffect(() => {
+    onModeChange?.('scripting');
+  }, [onModeChange]);
+
+  const handleAVPresentationStatus = useCallback((status: AVScriptPresentationStatus) => {
+    setAVPresentationStatus(status);
+    if (status === 'available' && autoSelectedAVDocumentRef.current !== activeDocumentIdentity) {
+      autoSelectedAVDocumentRef.current = activeDocumentIdentity;
+      setMode('av-script');
+    }
+    if (status === 'not_applicable') {
+      setMode((currentMode) => currentMode === 'av-script' ? 'scripting' : currentMode);
+    }
+  }, [activeDocumentIdentity]);
+
+  const canOpenAVScript = avPresentationStatus === 'available'
+    || avPresentationStatus === 'stale'
+    || avPresentationStatus === 'invalid_contract';
+  const resolvedScriptId = scriptId || script?.scriptId || 'default';
+  const documentVersion = typeof script?.version === 'number' ? script.version : undefined;
 
   return (
     <div className="flex flex-col h-full bg-[#0B0B0A]">
@@ -174,6 +205,21 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                 <FileText className="w-3.5 h-3.5" />
                 Scripting
              </button>
+             {canOpenAVScript && (
+               <button
+                 type="button"
+                 onClick={() => setMode('av-script')}
+                 className={clsx(
+                   "flex items-center gap-2 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all duration-200",
+                   mode === 'av-script'
+                     ? "bg-[#1C1B19] text-[#ECE9E1] shadow-sm ring-1 ring-[#282724]"
+                     : "text-[#5F5E5A] hover:text-[#B5B2A8] hover:bg-[#131312]",
+                 )}
+               >
+                 <FileVideo2 className="w-3.5 h-3.5" />
+                 AV Script
+               </button>
+             )}
              {/* Whiteboard toggle removed: it occupied half the primary
                  mode-switcher and rendered a "Coming Soon" placeholder — a
                  dead end in prime navigation. Reinstate with the feature. */}
@@ -225,18 +271,17 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
 
        {/* Content Area */}
        <div className="flex-1 relative overflow-hidden editor-main" style={{ padding: 0 }}>
-          {mode === 'scripting' ? (
-             <div className="absolute inset-0 overflow-hidden">
+             <div className={clsx('absolute inset-0 overflow-hidden', mode === 'scripting' ? '' : 'hidden')} aria-hidden={mode !== 'scripting'}>
                 <ScriptEditor
                   script={script}
                   selectedIdea={selectedIdea}
                   sessionId={sessionId || undefined}
-                           scriptId={scriptId || undefined}
+                  scriptId={resolvedScriptId}
                   onEditScript={onUpdate}
                   isSaving={isSaving}
                   isDocumentLoading={isScriptLoading}
                   onImportScript={onImportScript ? async (data) => onImportScript(data) : undefined}
-                           onSwitchScript={onSwitchScript}
+                  onSwitchScript={onSwitchScript}
                   onTokenStream={(callback) => {
                     // Register callback with parent
                     if (onTokenStream) {
@@ -253,7 +298,16 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                   generatingScript={generatingScript}
                 />
              </div>
-          ) : null}
+             <div className={clsx('absolute inset-0 overflow-hidden', mode === 'av-script' ? '' : 'hidden')} aria-hidden={mode !== 'av-script'}>
+               <AVScriptView
+                 active={mode === 'av-script'}
+                 sessionId={sessionId}
+                 scriptId={resolvedScriptId}
+                 documentVersion={documentVersion}
+                 onStatusChange={handleAVPresentationStatus}
+                 onEditProse={() => setMode('scripting')}
+               />
+             </div>
        </div>
     </div>
   );
