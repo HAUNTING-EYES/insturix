@@ -642,69 +642,11 @@ async function defaultExecuteTargetedIntent(args: {
   intent: GroundedEditorialIntent;
   evidence: CanonicalChatEvidenceCandidate[];
 }): Promise<EditorialOwnerDispatchResult> {
-  const [{ planUnifiedDecisionBundleFromCandidates }, { executeEDL }, { projectService }] = await Promise.all([
-    import('@/lib/editron/services/unified-decision-bundle'),
-    import('@/lib/editron/services/edl-executor'),
-    import('@/lib/editron/services/project-service'),
-  ]);
-  const decisions = buildTargetedSignalDecisions(args.project, args.intent, args.evidence);
-  const edl = createDecisionList(args.projectId, decisions);
-  const bundle = planUnifiedDecisionBundleFromCandidates([{
-    source: 'signal-driven',
-    edl,
-    editorialPreferences: args.intent.editorialPreferences,
-  }], {
-    executionScope: args.intent.executionScope,
-  });
-  if (!bundle || bundle.edl.decisions.length === 0) {
-    return {
-      owner: 'targeted-unified-planner',
-      status: 'advisory',
-      mutated: false,
-      reasons: ['family-planners-rejected-all-grounded-candidates'],
-    };
-  }
-
-  const overlays = [...(args.project.overlays ?? [])];
-  const canvas = args.project.playerDimensions ?? { width: 1920, height: 1080 };
-  const execution = await executeEDL(
-    bundle.edl,
-    args.projectId,
-    args.userId,
-    overlays,
-    canvas,
-    new Map(),
-    bundle.graphicsDensity,
-  );
-  const mutated = execution.overlaysCreated + execution.overlaysModified > 0;
-  if (mutated) {
-    await projectService.saveProject(args.userId, args.projectId, {
-      overlays,
-      aspectRatio: args.project.aspectRatio,
-      playerDimensions: canvas,
-      fps: args.project.fps,
-      durationInFrames: args.project.durationInFrames,
-    });
-  }
   return {
     owner: 'targeted-unified-planner',
-    status: mutated ? 'executed' : 'advisory',
-    mutated,
-    executedDecisions: execution.decisionsExecuted,
-    skippedDecisions: execution.decisionsSkipped,
-    createdOverlays: execution.overlaysCreated,
-    modifiedOverlays: execution.overlaysModified,
-    authority: {
-      version: bundle.authority.version,
-      decisionMode: bundle.authority.decisionMode,
-      executableProducer: bundle.authority.executableProducer,
-      signalRole: bundle.authority.signalRole,
-    },
-    reasons: [
-      ...execution.errors,
-      ...execution.rejectedDecisions.map((decision) => decision.reason),
-      ...(mutated ? [] : ['no-executable-family-decision-survived']),
-    ],
+    status: 'failed',
+    mutated: false,
+    reasons: ['targeted-live-writer-not-revision-bound'],
   };
 }
 

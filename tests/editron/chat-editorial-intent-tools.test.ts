@@ -639,6 +639,36 @@ describe('chat semantic editorial intent', () => {
     expect(deps.executeTargetedIntent).not.toHaveBeenCalled();
   });
 
+  it('fails closed before the default targeted writer can run unrevisioned edits', async () => {
+    const { executeTargetedIntent: _unsafeTargetedWriter, ...defaultDeps } = dependencies();
+    const result = await applyGroundedEditorialIntent({
+      userId: 'user-1',
+      projectId: 'project-1',
+      input: {
+        goal: 'Make the revenue proof pop',
+        scope: { kind: 'moment', startFrame: 100, endFrame: 200, overlayIds: ['video-1'] },
+        targetReference: 'revenue proof',
+        constraints: [],
+        strength: 0.7,
+        uncertainty: 0,
+      },
+    }, defaultDeps);
+
+    expect(result).toMatchObject({
+      status: 'error',
+      dispatch: {
+        owner: 'targeted-unified-planner',
+        status: 'failed',
+        mutated: false,
+        reasons: ['targeted-live-writer-not-revision-bound'],
+      },
+    });
+    expect(defaultDeps.persistAudit).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'error',
+      dispatch: expect.objectContaining({ mutated: false }),
+    }));
+  });
+
   it('builds fact and signal candidates while leaving physical forms to existing owners', () => {
     const intent: GroundedEditorialIntent = compileGroundedEditorialIntent({
       goal: 'Make the doubling proof clear and impactful',
