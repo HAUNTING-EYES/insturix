@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `34d9da281` on
+programme code checkpoint represented by this ledger is `5c179d3a4` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1418,6 +1418,22 @@ pass 16/16 with typecheck and focused quiet ESLint passing. This remains
 research-only: current Stage-4 graphs mostly use string effects rather than
 these structured regions, no durable PlanService/lease executor consumes the
 waves, and no model has yet been scored on this diverse dependency shape.
+
+**Mid-episode resume contract checkpoint (2026-08-22):** commit `5c179d3a4`
+adds a research-only checkpoint/resume boundary over the same scheduler graph.
+The checkpoint hash-binds plan and schedule identities, completed and active
+nodes, every completed-node artifact through an opaque result handle, the
+latest completed writer's receipt as revision origin, compacted transcript and
+summary hashes, remaining turn/spend budget, and declared unchecked work. The
+summary is explicitly non-authoritative: resume rebuilds the schedule from the
+original graph, resolves the opaque writer result through its external owner,
+and compares that exact revision with current project truth. Altered graphs,
+missing result handles, invalid completed-node dependencies, copied handles,
+forged payloads, stale revisions and summary-only node invention fail closed.
+The checkpoint, scheduler and reconciliation suites pass 21/21; repository
+typecheck and quiet ESLint pass. This does **not** yet prove a live model episode
+survives compaction: no provider loop, durable PlanService/result store,
+ProjectService receipt or worker recovery path consumes this research contract.
 
 **Superseding H03 V3R3 paid-run checkpoint (2026-08-22):** commits
 `ee55d9d1d`, `b37e97005` and `ffe78719f` converge the generated render snapshot
@@ -2092,7 +2108,7 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. DEV-02 now has one real native alternative and one real generated-island/native-continuation hybrid at identical decoded scope, plus sealed blind pack `23870abb...`; hard target gates pass for both. Research reconciliation policy `fd2eabcdb` and scheduler `34d9da281` pass 16/16 combined stale/rebase/lock/dependency/invalidation/revision-origin cases. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The DEV-02 A/B preference, correction time and confidence receipt remain pending, and one native-versus-hybrid synthetic case is not a general route policy. Reconciliation/scheduling are not wired to ProjectService or a durable PlanService, and models have not been evaluated on the new dependency shape. Continue three-way held-out route alternatives, model-declared dependency/invalidation episodes, product-authority conflict integration, mid-episode compaction/resume, long-form range planning and blind quality receipts. HREF-01 still has one qualified reviewer only. H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. DEV-02 now has one real native alternative and one real generated-island/native-continuation hybrid at identical decoded scope, plus sealed blind pack `23870abb...`; hard target gates pass for both. Research reconciliation, scheduling and exact-resume contracts through `5c179d3a4` pass 21/21 combined stale/rebase/lock/dependency/invalidation/revision-origin/compaction-identity cases. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The DEV-02 A/B preference, correction time and confidence receipt remain pending, and one native-versus-hybrid synthetic case is not a general route policy. These contracts are not wired to ProjectService, a durable PlanService/result store or the live provider loop; a constructed checkpoint is not a real mid-episode model resume. Continue three-way held-out route alternatives, model-declared dependency/invalidation episodes, product-authority conflict integration, provider interruption/compaction/resume, long-form range planning and blind quality receipts. HREF-01 still has one qualified reviewer only. H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -3670,9 +3686,10 @@ built around it.
     `fd2eabcdb` separately qualifies the deterministic stale/disjoint/
     transformed/conflict/lock/evidence policy in 9/9 research cases. Commit
     `34d9da281` adds the non-executing dependency/invalidation scheduler and
-    brings the combined safety suite to 16/16, including latest-writer opaque
-    revision consumption. Next test model-declared graphs against this shape,
-    then context-resume and long-form/range trials; product integration waits
+    commit `5c179d3a4` adds the hash-bound, non-authoritative compaction/resume
+    checkpoint, bringing the combined safety suite to 21/21. Next test
+    model-declared graphs against this shape, then interrupt and resume a real
+    provider episode before long-form/range trials; product integration waits
     for ProjectService-issued change regions/transforms/locks and a durable
     PlanService rather than a second owner.
   - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,
