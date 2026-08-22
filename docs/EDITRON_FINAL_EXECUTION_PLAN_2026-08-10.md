@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `429fb45b1` on
+programme code checkpoint represented by this ledger is `137692a5c` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1295,12 +1295,15 @@ are bounded `VALID_EVIDENCE / RESEARCH_PROVEN` for the DEV-03 handoff/order
 claim only. They do not need another paid rerun unless their frozen inputs,
 operator contracts, evaluator policy or provider routes change.
 
-The active Stage 2.5 reliability work starts after that completed closeout:
-close truthful H03 protected-literal and model-generated-program lineage,
-finish remaining short-path proof gaps, separate capability-ceiling from
-production-budget conditions, freeze a new zero-inference preflight for only
-the changed rows, and then run the generalisation episodes and blind quality
-receipts before publishing `GO`, `MODIFY` or `NO-GO`.
+The active Stage 2.5 reliability work starts after that completed closeout.
+Truthful H03 protected-literal input, source-synthesis contract and the
+owner-gated zero-inference source episode are complete. Next bind the exact
+model source through lossless trace and short-path rendered proof, connect the
+metered provider adapter, finish remaining short-path proof gaps, separate
+capability-ceiling from production-budget conditions, freeze a new
+zero-inference preflight for only the changed rows, and then run the
+generalisation episodes and blind quality receipts before publishing `GO`,
+`MODIFY` or `NO-GO`.
 
 **Latest bounded reissue checkpoint:** CAP-2A V4 was issued in commits
 `7ef8f043d` and `f0b1dd829` against stable source commit `373425480`. It binds
@@ -1755,10 +1758,24 @@ execution/interpretation checkpoint above supersedes it.
   typecheck/lint pass. This is `SOURCE_CONTRACT_READY`, not a connected episode,
   provider call, rendered H03 proof or model pass.
 
-  The immediate order is now: connect the selected H03 orchestration arguments
-  to a separately metered model-source call and carry the resulting hashes
-  through the episode/trace/proof; render that exact source rather than
-  replaying the human fixture; use short proof paths; separate
+  Commit `137692a5c` connects that source contract to the existing sealed owner
+  and provider-native tool episode without modifying either authority. The
+  owner must first accept the exact H03 evidence, assets and range; only then
+  can the downstream source synthesizer run. Accepted source is bound to the
+  public packet, selected arguments, model/prompt identity, program and source
+  hashes and the canonical verifier. The provider episode receives hashes,
+  not the raw TSX. Missing evidence prevents the source call; unsafe source has
+  one bounded repair; forged packet lineage and duplicate generation fail
+  closed; state effects remain empty. Focused connected/H03/V3 regressions pass
+  14/14 and repository typecheck/lint pass. This is
+  `SOURCE_CONTRACT_READY_FOR_RENDERED_PROOF`; it is still zero-inference
+  harness evidence, not a metered provider result, rendered proof or model
+  pass.
+
+  The immediate order is now: carry the exact connected H03 source and hashes
+  through a lossless trace/evaluator and short-path rendered proof; then
+  connect the separately metered source-provider adapter and render provider
+  output rather than replaying the human fixture; separate
   capability-ceiling from production-budget arms, pass a new zero-inference
   preflight, and rerun only rows whose validity or evaluation coverage changed.
   Then continue
@@ -1775,7 +1792,7 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | V3R4 is valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 native dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V4 is current for the frozen research sources. The sealed V2R2/V2R3 cohort then executed all 96 paid rows for `$9.730960595`, with zero real-project reads/mutations. Frozen interpretation `20b5e1c2...` records 24 valid safe-stop proofs, two valid rendered HOLD-02 edit proofs after unchanged short-path reproof, 21 valid bounded trace failures, 19 benchmark-confounded rows and 30 resource-guard non-evaluations. HREF-01 has one Gemini 3.6 native-video/audio observation plus a full-reference and 180-frame dense-window review pack. Existing H01-H05 proof owners demonstrate bounded fixed-30-fps mechanics; HOLD-03 remains a human-authored generated-program fixture, not model-codegen proof. Commits through `4b3209fa1` connect corrected H01/H04 state and proof; `429fb45b1` freezes truthful public H03 target input; `1d902f20f` adds a leak-free model-source contract and exact source lineage boundary. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. Connect H03 source generation to the episode, trace and rendered proof using short paths; separate capability-ceiling from production-budget arms before targeted paid re-execution. H01/H04 V3 proof is explicitly non-budgeted and is not real ProjectService mutation. HREF-01 still needs a second qualified independent review. Then test dependency diversity, forced native/generated/hybrid routes, stale-user-edit/conflict/rebase/locks, context-resume, long-form range planning and blind quality/correction-time/latency/cost. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | V3R4 is valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 native dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V4 is current for the frozen research sources. The sealed V2R2/V2R3 cohort then executed all 96 paid rows for `$9.730960595`, with zero real-project reads/mutations. Frozen interpretation `20b5e1c2...` records 24 valid safe-stop proofs, two valid rendered HOLD-02 edit proofs after unchanged short-path reproof, 21 valid bounded trace failures, 19 benchmark-confounded rows and 30 resource-guard non-evaluations. HREF-01 has one Gemini 3.6 native-video/audio observation plus a full-reference and 180-frame dense-window review pack. Existing H01-H05 proof owners demonstrate bounded fixed-30-fps mechanics; HOLD-03's rendered mechanics remain a human-authored fixture, not model-codegen proof. Commits through `4b3209fa1` connect corrected H01/H04 state and proof; `429fb45b1` freezes truthful public H03 target input; `1d902f20f` adds its leak-free source contract; `137692a5c` connects owner-authorized H03 arguments to verified source lineage in a zero-inference, no-mutation episode. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. Carry H03's exact source through lossless trace and short-path rendered proof, then connect and rerun the changed provider rows; separate capability-ceiling from production-budget arms first. H01/H04 V3 proof is explicitly non-budgeted and is not real ProjectService mutation. HREF-01 still needs a second qualified independent review. Then test dependency diversity, forced native/generated/hybrid routes, stale-user-edit/conflict/rebase/locks, context-resume, long-form range planning and blind quality/correction-time/latency/cost. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -2198,10 +2215,13 @@ foundation and is no longer the active queue. The next three slices are:
    connects it to the existing owner/episode with no new executor. Next align
    hidden evaluation/render proof; commits `6cc1f56de` and `4b3209fa1` expose
    truthful H04 post-mutation state/caption-retiming effects and bind them
-   through V3R2 hidden evaluation plus rendered AV proof. Next supply H03
-   protected literals, bind model-generated program lineage, use bounded short
-   proof paths and separate capability-ceiling from production-budget arms.
-   Pass a zero-inference simulation, then rerun only rows whose validity or
+   through V3R2 hidden evaluation plus rendered AV proof. Commits `429fb45b1`,
+   `1d902f20f` and `137692a5c` now supply H03 protected literals, bind its
+   model-source contract and connect the existing owner to a verified
+   zero-inference source episode. Next carry that exact source through lossless
+   trace and bounded short-path render proof, connect the metered provider
+   adapter, separate capability-ceiling from production-budget arms, pass the
+   refreshed zero-inference simulation, and rerun only rows whose validity or
    evaluation coverage changed.
 2. **HREF-01 dense/human closeout:** retain the fourteen-image arm as a sparse
    historical control. The full native-video/audio observation and exact

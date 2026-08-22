@@ -179,6 +179,19 @@ typecheck/lint. Status is `SOURCE_CONTRACT_READY`: the sealed episode, metered
 provider adapter, lossless trace and rendered proof still need to carry and
 verify those exact identities.
 
+Commit `137692a5c` completes the zero-inference episode connection without
+granting the connector project or timeline authority. The existing sealed
+owner must accept the exact H03 evidence, assets and range before source
+synthesis runs. The downstream receipt binds the public packet, selected
+arguments, owner authorization, model/prompt identity, program/source hashes
+and canonical verifier; the provider episode sees hashes rather than raw TSX.
+Missing C2 evidence prevents the source call, unsafe source has one bounded
+repair, and forged packet lineage fails closed. Focused connected/H03/V3
+regressions pass 14/14 with full typecheck and lint. Status is now
+`SOURCE_CONTRACT_READY_FOR_RENDERED_PROOF`, not model performance: a metered
+provider output, lossless trace/evaluator, exact-source render proof and blind
+review remain outstanding.
+
 ## Corrected-identity progress after this cohort
 
 Commit `bb16d0b96` adds the prerequisite versioned provider-catalog seam. The
