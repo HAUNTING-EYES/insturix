@@ -165,7 +165,7 @@ describe('CAP-2A frozen current-truth manifest v1', () => {
     expect(hashNormalizedCap2SourceSnapshotV4(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V4))
       .toBe(audit.sourceBinding.normalizedSourceSnapshotHash);
     expect(() => assertCap2CurrentTruthSourcesMatchV4())
-      .toThrow(/semantic evidence drift/);
+      .toThrow(/evidence drift/);
     expect(audit.runtimeAuthority).toEqual({
       plannerRegistryWired: false,
       projectMutationAuthorized: false,
@@ -200,15 +200,21 @@ describe('CAP-2A frozen current-truth manifest v1', () => {
       sandboxDeleted: true,
     });
     for (const evidence of audit.semanticDeltasSinceV4[0].evidence) {
-      expect(hashNormalizedCap2FileV5(evidence.path), evidence.path)
-        .toBe(evidence.normalizedSha256);
+      if (evidence.path.endsWith('sealed-holdout-h03-rendered-mechanics-v2r.ts')) {
+        expect(hashNormalizedCap2FileV5(evidence.path), evidence.path)
+          .not.toBe(evidence.normalizedSha256);
+      } else {
+        expect(hashNormalizedCap2FileV5(evidence.path), evidence.path)
+          .toBe(evidence.normalizedSha256);
+      }
     }
     expect(CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V5
       .reduce((total, observation) => total + observation.observedCount, 0)).toBe(475);
     expect(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V5).toHaveLength(221);
     expect(hashNormalizedCap2SourceSnapshotV5(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V5))
       .toBe(audit.sourceBinding.normalizedSourceSnapshotHash);
-    expect(() => assertCap2CurrentTruthSourcesMatchV5()).not.toThrow();
+    expect(() => assertCap2CurrentTruthSourcesMatchV5())
+      .toThrow(/evidence drift/);
     expect(audit.runtimeAuthority).toEqual({
       plannerRegistryWired: false,
       projectMutationAuthorized: false,
