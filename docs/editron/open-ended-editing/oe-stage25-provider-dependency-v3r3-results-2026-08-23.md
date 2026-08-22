@@ -165,9 +165,11 @@ tool presentation orders.
 
 The following remain open before Stage 2.5 can exit:
 
-1. HREF-01's usable sole-reviewer receipt and targeted dense motion/audio
-   interpretation, while keeping independent agreement unverifiable.
-2. Further unseen holdouts and dependency/invalidation shapes.
+1. HREF-01's usable sole-reviewer judgment against the already materialized
+   full-source, 180-frame dense-motion and separate-audio review pack, while
+   keeping independent agreement unverifiable.
+2. Genuinely new dependency/invalidation holdouts. `HOLD-01` through
+   `HOLD-08` and the six-operation V3R3 fork/join episode are no longer unseen.
 3. Forced native, generated and hybrid executions on held-out targets.
 4. Stale user edits, overlapping changes, safe rebase and locked ranges.
 5. Provider interruption, compaction and exact resume with result identity.

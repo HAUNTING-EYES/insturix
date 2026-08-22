@@ -92,7 +92,10 @@ authorise production mutation or establish a provider rank.
 3. Test stale edits, overlap conflicts, safe disjoint rebase and locked ranges.
 4. Resume mid-episode after context compaction without losing plan or result IDs.
 5. Run long-form sequence/range planning under bounded evidence/context limits.
-6. Close HREF-01 with the sole operator's usable review plus dense motion/audio;
-   independent agreement stays `UNVERIFIABLE` without a real second reviewer.
+6. Close HREF-01 with the sole project owner's usable review receipt. The
+   complete source, one requested 180-frame dense motion window and separate
+   WAV already exist under public pack `4431c08b...`; no further technical
+   materialization is pending. Independent agreement stays `UNVERIFIABLE`
+   without a real second reviewer.
 7. Collect blind-editor quality, correction-time, latency and cost receipts,
    then publish the frozen `GO`, `MODIFY` or `NO-GO` decision.
