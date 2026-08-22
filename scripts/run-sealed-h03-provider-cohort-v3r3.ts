@@ -44,10 +44,11 @@ async function main(): Promise<void> {
   confirm('--confirm-manifest', input.cohortManifest.manifestSha256);
   confirm('--confirm-authorization', authorization.authorizationSha256);
   confirm('--confirm-max-usd', '11.673');
-  const sandboxEnvironment = {
-    snapshotId: requiredEnv('MG_RENDER_SANDBOX_SNAPSHOT_ID'),
-    snapshotCommit: requiredEnv('MG_RENDER_SANDBOX_APP_COMMIT'),
-  };
+  confirm('--confirm-snapshot-id', authorization.sandboxEnvironment.snapshotId);
+  confirm('--confirm-snapshot-commit', authorization.sandboxEnvironment.snapshotCommit);
+  // Snapshot selection is authorization-owned. Ambient env may contain an old
+  // deployment value and must never redirect a paid reproducibility run.
+  const sandboxEnvironment = authorization.sandboxEnvironment;
   const startedAt = new Date().toISOString();
   const outputRoot = path.resolve(option('--output-root') ?? path.join(
     repoRoot, '.calibration-temp', 'open-ended-planner-v2',
@@ -84,7 +85,6 @@ async function overlayProductionEnvironment(filePath: string): Promise<void> {
   const parsed = parseEnv(await readFile(path.resolve(filePath)));
   for (const name of [
     'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'VERCEL_OIDC_TOKEN',
-    'MG_RENDER_SANDBOX_SNAPSHOT_ID', 'MG_RENDER_SANDBOX_APP_COMMIT',
   ] as const) {
     const value = parsed[name]?.trim();
     if (value) process.env[name] = value;
@@ -101,11 +101,6 @@ async function headSha(): Promise<string> {
 }
 async function fileSha(filePath: string): Promise<string> {
   return createHash('sha256').update(await readFile(path.resolve(repoRoot, filePath))).digest('hex');
-}
-function requiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`SEALED_H03_PROVIDER_COHORT_ENV_MISSING:${name}`);
-  return value;
 }
 function option(name: string): string | null {
   const prefix = `${name}=`;
