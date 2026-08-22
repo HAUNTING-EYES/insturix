@@ -2,6 +2,39 @@ import { execSync } from 'node:child_process';
 
 import { Sandbox } from '@vercel/sandbox';
 
+const CANARY_ROOT = '/vercel/sandbox/.editron-generated-composition-image-canary';
+const CANARY_FILES = [
+  {
+    path: `${CANARY_ROOT}/index.ts`,
+    content: Buffer.from("import {registerRoot} from 'remotion';import {Root} from './Root';registerRoot(Root);", 'utf8'),
+  },
+  {
+    path: `${CANARY_ROOT}/Root.tsx`,
+    content: Buffer.from("import React from 'react';import {AbsoluteFill,Composition} from 'remotion';const Scene=()=> <AbsoluteFill style={{backgroundColor:'#d4af37'}}/>;export const Root=()=> <Composition id='RuntimeCanary' component={Scene} durationInFrames={4} fps={30} width={64} height={64}/>;", 'utf8'),
+  },
+  {
+    path: `${CANARY_ROOT}/run.ts`,
+    content: Buffer.from(`import {promises as fs} from 'node:fs';
+import {bundle} from '@remotion/bundler';
+import {renderMedia,selectComposition} from '@remotion/renderer';
+
+async function main(): Promise<void> {
+  const mediabunny = await import('mediabunny');
+  if (typeof mediabunny.Logging !== 'function') throw new Error('MEDIABUNNY_LOGGING_EXPORT_MISSING');
+  const serveUrl = await bundle({entryPoint:'${CANARY_ROOT}/index.ts',outDir:'${CANARY_ROOT}/bundle',enableCaching:false});
+  const composition = await selectComposition({serveUrl,id:'RuntimeCanary',inputProps:{}});
+  const output = '${CANARY_ROOT}/canary.mp4';
+  await renderMedia({serveUrl,composition,outputLocation:output,codec:'h264',x264Preset:'ultrafast',pixelFormat:'yuv420p',colorSpace:'bt709',muted:true,enforceAudioTrack:false,concurrency:1,overwrite:true,logLevel:'error'});
+  const stat = await fs.stat(output);
+  if (!stat.isFile() || stat.size <= 0) throw new Error('GENERATED_COMPOSITION_VIDEO_CANARY_EMPTY');
+  console.log('GENERATED_COMPOSITION_VIDEO_ENCODE_OK:' + stat.size);
+}
+
+main().catch((error) => { console.error(error); process.exit(1); });
+`, 'utf8'),
+  },
+] as const;
+
 const image = process.argv[2]?.trim();
 if (!image || !/^[A-Za-z0-9][A-Za-z0-9._/-]*:[A-Za-z0-9._-]+$/.test(image)) {
   throw new Error('Usage: tsx scripts/editron-build-generated-composition-sandbox-snapshot.ts <vcr-image:tag> [commit]');
@@ -25,6 +58,8 @@ try {
   await step('browser already baked', 'node', ['-e', "require('@remotion/renderer').openBrowser('chrome').then(async (browser) => { console.log('BROWSER_OK'); await browser.close({silent: true}); }).catch((error) => { console.error(error); process.exit(1); })"]);
   await step('sharp loads', 'node', ['-e', "require('sharp'); console.log('SHARP_OK')"]);
   await step('tsx is executable', 'bash', ['-lc', 'test -x node_modules/.bin/tsx && echo TSX_OK']);
+  await sandbox.writeFiles(CANARY_FILES.map((file) => ({ ...file, mode: 0o600 })));
+  await step('real generated-composition video encode', './node_modules/.bin/tsx', [`${CANARY_ROOT}/run.ts`]);
   const snapshot = await sandbox.snapshot({ expiration: 0 });
   console.log(JSON.stringify({ snapshotId: snapshot.snapshotId, appCommit: commit, image }, null, 2));
 } finally {
