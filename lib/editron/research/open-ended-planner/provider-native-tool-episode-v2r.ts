@@ -18,6 +18,7 @@ import {
   hydrateProviderNativeEpisodeResumeCheckpointV2R,
   normalizeProviderNativeExactArgumentsV2R,
   type ProviderNativeEpisodeResumeCheckpointV2R,
+  type ProviderNativeRuntimeGuardResumeStateV2R,
 } from './provider-native-episode-resume-v2r';
 import {
   appendResultReferencesForModelV2R,
@@ -65,6 +66,14 @@ export type ProviderNativeRuntimeGuardDecisionV2R = Readonly<
 >;
 
 export interface ProviderNativeRuntimeGuardV2R {
+  createResumeState(input: Readonly<{
+    completedTurns: readonly Readonly<JsonRecord>[];
+  }>): Readonly<ProviderNativeRuntimeGuardResumeStateV2R>
+    | Promise<Readonly<ProviderNativeRuntimeGuardResumeStateV2R>>;
+  restoreResumeState(input: Readonly<{
+    resumeState: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>;
+    completedTurns: readonly Readonly<JsonRecord>[];
+  }>): void | Promise<void>;
   beforeTurn(input: Readonly<{
     turn: number;
     configuredMaxOutputTokens: number;
@@ -205,8 +214,18 @@ export async function runProviderNativeToolEpisodeV2R(input: {
     && argumentHandoffMode !== 'OPAQUE_RESULT_REFERENCES') {
     throw new Error('PROVIDER_NATIVE_RESUME_REQUIRES_OPAQUE_RESULT_REFERENCES');
   }
-  if ((input.resumeCheckpoint || input.onTurnCommitted) && input.runtimeGuard) {
+  if ((input.resumeCheckpoint || input.onTurnCommitted) && input.runtimeGuard
+    && !supportsRuntimeGuardResume(input.runtimeGuard)) {
     throw new Error('PROVIDER_NATIVE_RESUME_RUNTIME_GUARD_BINDING_UNSUPPORTED');
+  }
+  const checkpointHasRuntimeGuard = Boolean(
+    input.resumeCheckpoint && 'runtimeGuardResumeState' in input.resumeCheckpoint,
+  );
+  if (checkpointHasRuntimeGuard && !input.runtimeGuard) {
+    throw new Error('PROVIDER_NATIVE_RESUME_RUNTIME_GUARD_REQUIRED');
+  }
+  if (input.resumeCheckpoint && input.runtimeGuard && !checkpointHasRuntimeGuard) {
+    throw new Error('PROVIDER_NATIVE_RESUME_RUNTIME_GUARD_STATE_UNBOUND');
   }
   if (input.resumeCheckpoint && !input.resumeCurrentProjectRevision?.trim()) {
     throw new Error('PROVIDER_NATIVE_RESUME_CURRENT_REVISION_REQUIRED');
@@ -282,6 +301,13 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         resultReferences,
       })
     : null;
+  if (resumed && input.runtimeGuard && input.resumeCheckpoint
+    && 'runtimeGuardResumeState' in input.resumeCheckpoint) {
+    await input.runtimeGuard.restoreResumeState({
+      resumeState: input.resumeCheckpoint.runtimeGuardResumeState,
+      completedTurns: input.resumeCheckpoint.completedTurns,
+    });
+  }
   const prompt = canonicalizeJsonV1(resumed ? {
     ...promptMaterial,
     context: buildProviderNativeResumePromptContextV2R(
@@ -321,6 +347,9 @@ export async function runProviderNativeToolEpisodeV2R(input: {
     // A prefix before its first writer has no externally verifiable current
     // revision. Do not publish a checkpoint that hydration must later reject.
     if (!checkpointWriterRevisionAvailable) return;
+    const runtimeGuardResumeState = input.runtimeGuard
+      ? await input.runtimeGuard.createResumeState({ completedTurns: turns })
+      : undefined;
     await input.onTurnCommitted({
       checkpoint: createProviderNativeEpisodeResumeCheckpointV2R({
         route: input.route,
@@ -331,6 +360,7 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         ...(referenceInputManifestSha256
           ? { referenceInputManifestSha256 }
           : {}),
+        ...(runtimeGuardResumeState ? { runtimeGuardResumeState } : {}),
       }),
     });
   };
@@ -449,7 +479,7 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       providerRequestId: normalized.providerRequestId,
       returnedModelIdentity: normalized.providerModel,
       finishReason: normalized.finishReason,
-      ...(input.runtimeGuard ? { runtimeGuardAudit } : {}),
+      ...(input.runtimeGuard ? { runtimeGuardAudit, maxOutputTokens } : {}),
     };
     if (normalized.refusal) {
       turns.push({ ...turnBase, refusal: normalized.refusal });
@@ -684,6 +714,13 @@ function referenceInputManifestSha256V2R(
   return isProviderNativeVideoReferenceInputV2R(referenceInput)
     ? bindProviderNativeVideoReferenceInputV2R(referenceInput).manifestSha256
     : bindProviderNativeReferenceInputV2R(referenceInput).manifestSha256;
+}
+
+function supportsRuntimeGuardResume(
+  guard: Readonly<ProviderNativeRuntimeGuardV2R>,
+): boolean {
+  return typeof guard.createResumeState === 'function'
+    && typeof guard.restoreResumeState === 'function';
 }
 
 async function runRuntimeGuardHook(

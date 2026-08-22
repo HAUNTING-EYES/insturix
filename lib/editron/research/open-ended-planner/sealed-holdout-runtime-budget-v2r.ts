@@ -1,5 +1,9 @@
-import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
+import { canonicalizeJsonV1, deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import { V2R_OPERATOR_CATALOG_REVISION } from './operator-catalog-v2r';
+import {
+  PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R,
+  type ProviderNativeRuntimeGuardResumeStateV2R,
+} from './provider-native-episode-resume-v2r';
 import type {
   ProviderNativeInvokeResponseV2R,
   ProviderNativeRuntimeGuardDecisionV2R,
@@ -20,6 +24,8 @@ export const SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_V2R_1' as const;
 export const SEALED_HOLDOUT_INPUT_TOKEN_BOUND_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_INPUT_TOKEN_BOUND_V2R_1' as const;
+export const SEALED_HOLDOUT_RUNTIME_GUARD_KIND_V2R =
+  'EDITRON_OE_SEALED_HOLDOUT_RUNTIME_GUARD_V2R_1' as const;
 const SUPPORTED_CANDIDATE_POLICY_CATALOG_REVISION =
   'EDITRON_OPERATOR_SPECS_V2R_9' as const;
 
@@ -156,6 +162,92 @@ implements ProviderNativeRuntimeGuardV2R {
       maxInputTokensPerTurn: input.authorization.maxInputTokensPerTurn,
       absoluteMaxSpendNanoUsd: input.authorization.absoluteMaxSpendMicroUsd * 1_000,
     });
+  }
+
+  createResumeState(input: Readonly<{
+    completedTurns: readonly Readonly<JsonRecord>[];
+  }>): Readonly<ProviderNativeRuntimeGuardResumeStateV2R> {
+    if (this.pendingRequest) fail('SEALED_RUNTIME_RESUME_PENDING_REQUEST');
+    assertRuntimeEventsBoundToTurns(this.events, input.completedTurns);
+    const completedTurnsSha256 = hashCanonicalJsonV1(input.completedTurns);
+    const state = {
+      authorizationSha256: this.authorizationSha256,
+      limits: this.limits,
+      usage: this.usage(),
+      events: structuredClone(this.events),
+    };
+    const material = {
+      version: PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R,
+      authority: 'RESEARCH_RUNTIME_GUARD_RESUME_NO_PROJECT_MUTATION' as const,
+      guardKind: SEALED_HOLDOUT_RUNTIME_GUARD_KIND_V2R,
+      guardIdentitySha256: this.guardIdentitySha256(),
+      completedTurnsSha256,
+      nextTurn: input.completedTurns.length + 1,
+      state,
+    };
+    return deepFreezeV1({
+      ...material,
+      resumeStateSha256: hashCanonicalJsonV1(material),
+    });
+  }
+
+  restoreResumeState(input: Readonly<{
+    resumeState: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>;
+    completedTurns: readonly Readonly<JsonRecord>[];
+  }>): void {
+    this.assertPristineForResume();
+    const resumeState = input.resumeState;
+    const material = {
+      version: resumeState.version,
+      authority: resumeState.authority,
+      guardKind: resumeState.guardKind,
+      guardIdentitySha256: resumeState.guardIdentitySha256,
+      completedTurnsSha256: resumeState.completedTurnsSha256,
+      nextTurn: resumeState.nextTurn,
+      state: resumeState.state,
+    };
+    if (resumeState.version !== PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R
+      || resumeState.authority !== 'RESEARCH_RUNTIME_GUARD_RESUME_NO_PROJECT_MUTATION'
+      || resumeState.guardKind !== SEALED_HOLDOUT_RUNTIME_GUARD_KIND_V2R
+      || hashCanonicalJsonV1(material) !== resumeState.resumeStateSha256
+      || canonicalizeJsonV1(resumeState)
+        !== canonicalizeJsonV1({
+          ...material,
+          resumeStateSha256: resumeState.resumeStateSha256,
+        })) {
+      fail('SEALED_RUNTIME_RESUME_STATE_ENVELOPE_INVALID');
+    }
+    if (resumeState.guardIdentitySha256 !== this.guardIdentitySha256()) {
+      fail('SEALED_RUNTIME_RESUME_GUARD_IDENTITY_MISMATCH');
+    }
+    const completedTurnsSha256 = hashCanonicalJsonV1(input.completedTurns);
+    if (resumeState.completedTurnsSha256 !== completedTurnsSha256
+      || resumeState.nextTurn !== input.completedTurns.length + 1) {
+      fail('SEALED_RUNTIME_RESUME_TURN_BINDING_MISMATCH');
+    }
+    const state = record(resumeState.state);
+    const events = records(state.events);
+    assertRuntimeEventsBoundToTurns(events, input.completedTurns);
+    const usage = deriveRuntimeUsageFromEvents(events);
+    const expectedState = {
+      authorizationSha256: this.authorizationSha256,
+      limits: this.limits,
+      usage: { ...usage, pendingRequest: null },
+      events,
+    };
+    if (canonicalizeJsonV1(state) !== canonicalizeJsonV1(expectedState)) {
+      fail('SEALED_RUNTIME_RESUME_USAGE_EVENTS_MISMATCH');
+    }
+    this.events.push(...structuredClone(events));
+    this.providerTurns = usage.providerTurns;
+    this.selectedOperations = usage.selectedOperations;
+    this.totalInputTokens = usage.inputTokens;
+    this.totalCachedInputTokens = usage.cachedInputTokens;
+    this.totalCacheWriteTokens = usage.cacheWriteTokens;
+    this.totalOutputTokens = usage.outputTokens;
+    this.totalThoughtTokens = usage.thoughtTokens;
+    this.totalReasoningTokens = usage.reasoningTokens;
+    this.spentNanoUsd = usage.spentNanoUsd;
   }
 
   beforeTurn(input: Readonly<{
@@ -320,14 +412,7 @@ implements ProviderNativeRuntimeGuardV2R {
       authority: 'RESEARCH_RESOURCE_ACCOUNTING_NO_PROJECT_MUTATION' as const,
       authorizationSha256: this.authorizationSha256,
       limits: this.limits,
-      usage: {
-        providerTurns: this.providerTurns, selectedOperations: this.selectedOperations,
-        inputTokens: this.totalInputTokens, cachedInputTokens: this.totalCachedInputTokens,
-        cacheWriteTokens: this.totalCacheWriteTokens, outputTokens: this.totalOutputTokens,
-        thoughtTokens: this.totalThoughtTokens, reasoningTokens: this.totalReasoningTokens,
-        spentNanoUsd: this.spentNanoUsd,
-        pendingRequest: this.pendingRequest,
-      },
+      usage: this.usage(),
       events: structuredClone(this.events), episodeTerminalDisposition, assessment,
     };
     return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
@@ -369,6 +454,104 @@ implements ProviderNativeRuntimeGuardV2R {
     this.events.push(event);
     return event;
   }
+
+  private usage(): Readonly<JsonRecord> {
+    return {
+      providerTurns: this.providerTurns,
+      selectedOperations: this.selectedOperations,
+      inputTokens: this.totalInputTokens,
+      cachedInputTokens: this.totalCachedInputTokens,
+      cacheWriteTokens: this.totalCacheWriteTokens,
+      outputTokens: this.totalOutputTokens,
+      thoughtTokens: this.totalThoughtTokens,
+      reasoningTokens: this.totalReasoningTokens,
+      spentNanoUsd: this.spentNanoUsd,
+      pendingRequest: this.pendingRequest,
+    };
+  }
+
+  private guardIdentitySha256(): string {
+    return hashCanonicalJsonV1({
+      version: PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R,
+      guardKind: SEALED_HOLDOUT_RUNTIME_GUARD_KIND_V2R,
+      authorizationSha256: this.authorizationSha256,
+      limits: this.limits,
+    });
+  }
+
+  private assertPristineForResume(): void {
+    if (this.pendingRequest || this.events.length || this.providerTurns
+      || this.selectedOperations || this.totalInputTokens
+      || this.totalCachedInputTokens || this.totalCacheWriteTokens
+      || this.totalOutputTokens || this.totalThoughtTokens
+      || this.totalReasoningTokens || this.spentNanoUsd) {
+      fail('SEALED_RUNTIME_RESUME_TARGET_NOT_PRISTINE');
+    }
+  }
+}
+
+function assertRuntimeEventsBoundToTurns(
+  events: readonly Readonly<JsonRecord>[],
+  completedTurns: readonly Readonly<JsonRecord>[],
+): void {
+  const turnEvents = completedTurns.flatMap((turn) => {
+    if (!Array.isArray(turn.runtimeGuardAudit)
+      || !Number.isSafeInteger(turn.maxOutputTokens)
+      || Number(turn.maxOutputTokens) < 64) {
+      fail('SEALED_RUNTIME_RESUME_TURN_AUDIT_INVALID');
+    }
+    return records(turn.runtimeGuardAudit);
+  });
+  if (canonicalizeJsonV1(events) !== canonicalizeJsonV1(turnEvents)) {
+    fail('SEALED_RUNTIME_RESUME_TURN_AUDIT_MISMATCH');
+  }
+}
+
+function deriveRuntimeUsageFromEvents(events: readonly Readonly<JsonRecord>[]) {
+  const usage = {
+    providerTurns: 0,
+    selectedOperations: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 0,
+    thoughtTokens: 0,
+    reasoningTokens: 0,
+    spentNanoUsd: 0,
+  };
+  events.forEach((event, index) => {
+    if (event.ordinal !== index + 1 || event.status !== 'ALLOW') {
+      fail('SEALED_RUNTIME_RESUME_EVENT_SEQUENCE_INVALID');
+    }
+    if (event.phase === 'BEFORE_INVOKE') usage.providerTurns += 1;
+    if (event.phase === 'AFTER_EXECUTE') usage.selectedOperations += 1;
+    if (event.phase !== 'AFTER_INVOKE') return;
+    const eventUsage = record(event.usage);
+    const inputTokens = resumeInteger(eventUsage.inputTokens);
+    const cachedInputTokens = resumeInteger(eventUsage.cachedInputTokens);
+    const cacheWriteTokens = resumeInteger(eventUsage.cacheWriteTokens);
+    const outputTokens = resumeInteger(eventUsage.outputTokens);
+    const thoughtTokens = resumeInteger(eventUsage.thoughtTokens);
+    const reasoningTokens = resumeInteger(eventUsage.reasoningTokens);
+    const actualCostNanoUsd = resumeInteger(event.actualCostNanoUsd);
+    usage.inputTokens += inputTokens;
+    usage.cachedInputTokens += cachedInputTokens;
+    usage.cacheWriteTokens += cacheWriteTokens;
+    usage.outputTokens += outputTokens + thoughtTokens;
+    usage.thoughtTokens += thoughtTokens;
+    usage.reasoningTokens += reasoningTokens;
+    usage.spentNanoUsd += actualCostNanoUsd;
+    if (Object.values(usage).some((value) => !Number.isSafeInteger(value))) {
+      fail('SEALED_RUNTIME_RESUME_USAGE_OVERFLOW');
+    }
+  });
+  return usage;
+}
+
+function resumeInteger(value: unknown): number {
+  const parsed = safeInteger(value);
+  if (parsed === null) fail('SEALED_RUNTIME_RESUME_USAGE_INVALID');
+  return parsed;
 }
 
 function assertAuthorization(input: Readonly<{
@@ -553,4 +736,10 @@ function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 function record(value: unknown): JsonRecord { return isRecord(value) ? value : {}; }
+function records(value: unknown): JsonRecord[] {
+  if (!Array.isArray(value) || value.some((entry) => !isRecord(entry))) {
+    fail('SEALED_RUNTIME_RESUME_EVENT_ARRAY_INVALID');
+  }
+  return value;
+}
 function text(value: unknown): string { return typeof value === 'string' ? value : ''; }

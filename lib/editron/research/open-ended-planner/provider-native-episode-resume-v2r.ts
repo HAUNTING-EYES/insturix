@@ -25,6 +25,12 @@ export const PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_EPISODE_RESUME_V2R_1' as const;
 export const PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_EPISODE_RESUME_V2R_2' as const;
+export const PROVIDER_NATIVE_EPISODE_RESUME_RUNTIME_BOUND_VERSION_V2R =
+  'EDITRON_PROVIDER_NATIVE_EPISODE_RESUME_V2R_3' as const;
+export const PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_RUNTIME_BOUND_VERSION_V2R =
+  'EDITRON_PROVIDER_NATIVE_EPISODE_RESUME_V2R_4' as const;
+export const PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R =
+  'EDITRON_PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_V2R_1' as const;
 export const PROVIDER_NATIVE_RESUMED_RECEIPT_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_RESUMED_RECEIPT_V2R_1' as const;
 
@@ -50,6 +56,17 @@ interface ProviderNativeEpisodeResumeCheckpointBaseV2R {
   checkpointSha256: string;
 }
 
+export interface ProviderNativeRuntimeGuardResumeStateV2R {
+  version: typeof PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R;
+  authority: 'RESEARCH_RUNTIME_GUARD_RESUME_NO_PROJECT_MUTATION';
+  guardKind: string;
+  guardIdentitySha256: string;
+  completedTurnsSha256: string;
+  nextTurn: number;
+  state: Readonly<JsonRecord>;
+  resumeStateSha256: string;
+}
+
 export type ProviderNativeEpisodeResumeCheckpointV2R =
   | (ProviderNativeEpisodeResumeCheckpointBaseV2R & Readonly<{
       checkpointVersion: typeof PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R;
@@ -58,6 +75,17 @@ export type ProviderNativeEpisodeResumeCheckpointV2R =
       checkpointVersion:
         typeof PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R;
       referenceInputManifestSha256: string;
+    }>)
+  | (ProviderNativeEpisodeResumeCheckpointBaseV2R & Readonly<{
+      checkpointVersion:
+        typeof PROVIDER_NATIVE_EPISODE_RESUME_RUNTIME_BOUND_VERSION_V2R;
+      runtimeGuardResumeState: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>;
+    }>)
+  | (ProviderNativeEpisodeResumeCheckpointBaseV2R & Readonly<{
+      checkpointVersion:
+        typeof PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_RUNTIME_BOUND_VERSION_V2R;
+      referenceInputManifestSha256: string;
+      runtimeGuardResumeState: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>;
     }>);
 
 export interface ProviderNativeEpisodeResumeStateV2R {
@@ -93,6 +121,7 @@ export function createProviderNativeEpisodeResumeCheckpointV2R(input: {
   toolSetSha256: string;
   completedTurns: readonly Readonly<JsonRecord>[];
   referenceInputManifestSha256?: string;
+  runtimeGuardResumeState?: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>;
 }): Readonly<ProviderNativeEpisodeResumeCheckpointV2R> {
   requireIdentity(input.episodeId, 'EPISODE');
   requireSha256(input.contextSha256, 'CONTEXT');
@@ -102,11 +131,19 @@ export function createProviderNativeEpisodeResumeCheckpointV2R(input: {
   }
   requireContiguousTurns(input.completedTurns);
   const completedTurns = input.completedTurns.map((turn) => ({ ...turn }));
+  const completedTurnsSha256 = hashCanonicalJsonV1(completedTurns);
+  const nextTurn = completedTurns.length + 1;
   const referenceBound = input.referenceInputManifestSha256 !== undefined;
+  const runtimeBound = input.runtimeGuardResumeState !== undefined;
+  if (input.runtimeGuardResumeState) {
+    verifyRuntimeGuardResumeState(
+      input.runtimeGuardResumeState,
+      completedTurnsSha256,
+      nextTurn,
+    );
+  }
   const material = {
-    checkpointVersion: referenceBound
-      ? PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R
-      : PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R,
+    checkpointVersion: checkpointVersion(referenceBound, runtimeBound),
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     route: input.route,
     episodeId: input.episodeId,
@@ -114,11 +151,14 @@ export function createProviderNativeEpisodeResumeCheckpointV2R(input: {
     toolSetSha256: input.toolSetSha256,
     argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES' as const,
     completedTurns,
-    completedTurnsSha256: hashCanonicalJsonV1(completedTurns),
-    nextTurn: completedTurns.length + 1,
+    completedTurnsSha256,
+    nextTurn,
     whatHasNotBeenChecked: [...UNCHECKED_AFTER_TURN_COMMIT_V2R],
     ...(referenceBound ? {
       referenceInputManifestSha256: input.referenceInputManifestSha256,
+    } : {}),
+    ...(runtimeBound ? {
+      runtimeGuardResumeState: structuredClone(input.runtimeGuardResumeState),
     } : {}),
     stateEffects: [] as const,
   };
@@ -172,11 +212,17 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
 
   for (const storedTurn of input.checkpoint.completedTurns) {
     const turn = positiveInteger(storedTurn.turn, 'TURN');
+    const maxOutputTokens = 'runtimeGuardResumeState' in input.checkpoint
+      ? positiveInteger(storedTurn.maxOutputTokens, 'TURN_MAX_OUTPUT_TOKENS')
+      : input.maxOutputTokensPerTurn;
+    if (maxOutputTokens < 64 || maxOutputTokens > input.maxOutputTokensPerTurn) {
+      throw new Error('PROVIDER_NATIVE_RESUME_TURN_MAX_OUTPUT_TOKENS_INVALID');
+    }
     const request = serializeProviderNativeTurnV2R({
       route: input.route,
       toolSet: input.toolSet,
       history,
-      maxOutputTokens: input.maxOutputTokensPerTurn,
+      maxOutputTokens,
     });
     if (storedTurn.requestHash !== request.requestHash) {
       throw new Error('PROVIDER_NATIVE_RESUME_REQUEST_HASH_MISMATCH');
@@ -300,11 +346,14 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
     completedTurnCount: input.checkpoint.completedTurns.length,
     nextTurn: input.checkpoint.nextTurn,
     latestWriterRevisionReferenceId: latestWriterRevision.resultReferenceId,
-    ...(input.checkpoint.checkpointVersion
-      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R
-      ? { referenceInputManifestSha256:
-          input.checkpoint.referenceInputManifestSha256 }
+    ...('referenceInputManifestSha256' in input.checkpoint
+      ? { referenceInputManifestSha256: input.checkpoint.referenceInputManifestSha256 }
       : {}),
+    ...('runtimeGuardResumeState' in input.checkpoint ? {
+      runtimeGuardKind: input.checkpoint.runtimeGuardResumeState.guardKind,
+      runtimeGuardResumeStateSha256:
+        input.checkpoint.runtimeGuardResumeState.resumeStateSha256,
+    } : {}),
     whatHasNotBeenChecked: [...input.checkpoint.whatHasNotBeenChecked],
     instruction: 'Continue from the completed operations. Use the opaque latest-writer reference for downstream expectedProjectRevision; never copy a revision literal or repeat completed mutations.',
   });
@@ -407,7 +456,9 @@ export function normalizeProviderNativeExactArgumentsV2R(
 
 function verifyCheckpointEnvelope(checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>): void {
   if (![PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R,
-    PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R]
+    PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R,
+    PROVIDER_NATIVE_EPISODE_RESUME_RUNTIME_BOUND_VERSION_V2R,
+    PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_RUNTIME_BOUND_VERSION_V2R]
     .includes(checkpoint.checkpointVersion)
     || checkpoint.authority !== 'RESEARCH_ONLY_NO_PROJECT_MUTATION'
     || checkpoint.argumentHandoffMode !== 'OPAQUE_RESULT_REFERENCES'
@@ -416,16 +467,32 @@ function verifyCheckpointEnvelope(checkpoint: Readonly<ProviderNativeEpisodeResu
       !== canonicalizeJsonV1(UNCHECKED_AFTER_TURN_COMMIT_V2R)) {
     throw new Error('PROVIDER_NATIVE_RESUME_CHECKPOINT_ENVELOPE_INVALID');
   }
-  if (checkpoint.checkpointVersion
-      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R) {
+  const referenceBound = checkpoint.checkpointVersion
+      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R
+    || checkpoint.checkpointVersion
+      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_RUNTIME_BOUND_VERSION_V2R;
+  const runtimeBound = checkpoint.checkpointVersion
+      === PROVIDER_NATIVE_EPISODE_RESUME_RUNTIME_BOUND_VERSION_V2R
+    || checkpoint.checkpointVersion
+      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_RUNTIME_BOUND_VERSION_V2R;
+  if (referenceBound && 'referenceInputManifestSha256' in checkpoint) {
     requireSha256(
       checkpoint.referenceInputManifestSha256,
       'REFERENCE_INPUT_MANIFEST',
     );
-  } else if ('referenceInputManifestSha256' in checkpoint) {
+  } else if (referenceBound || 'referenceInputManifestSha256' in checkpoint) {
     throw new Error('PROVIDER_NATIVE_RESUME_CHECKPOINT_ENVELOPE_INVALID');
   }
   requireContiguousTurns(checkpoint.completedTurns);
+  if (runtimeBound && 'runtimeGuardResumeState' in checkpoint) {
+    verifyRuntimeGuardResumeState(
+      checkpoint.runtimeGuardResumeState,
+      checkpoint.completedTurnsSha256,
+      checkpoint.nextTurn,
+    );
+  } else if (runtimeBound || 'runtimeGuardResumeState' in checkpoint) {
+    throw new Error('PROVIDER_NATIVE_RESUME_CHECKPOINT_ENVELOPE_INVALID');
+  }
   if (checkpoint.nextTurn !== checkpoint.completedTurns.length + 1
     || hashCanonicalJsonV1(checkpoint.completedTurns) !== checkpoint.completedTurnsSha256
     || hashCanonicalJsonV1(checkpointMaterial(checkpoint)) !== checkpoint.checkpointSha256) {
@@ -446,10 +513,11 @@ function checkpointMaterial(checkpoint: Readonly<ProviderNativeEpisodeResumeChec
     completedTurnsSha256: checkpoint.completedTurnsSha256,
     nextTurn: checkpoint.nextTurn,
     whatHasNotBeenChecked: checkpoint.whatHasNotBeenChecked,
-    ...(checkpoint.checkpointVersion
-      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R
-      ? { referenceInputManifestSha256:
-          checkpoint.referenceInputManifestSha256 }
+    ...('referenceInputManifestSha256' in checkpoint
+      ? { referenceInputManifestSha256: checkpoint.referenceInputManifestSha256 }
+      : {}),
+    ...('runtimeGuardResumeState' in checkpoint
+      ? { runtimeGuardResumeState: checkpoint.runtimeGuardResumeState }
       : {}),
     stateEffects: checkpoint.stateEffects,
   };
@@ -459,8 +527,7 @@ function verifyReferenceInputBinding(
   checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
   suppliedManifestSha256: string | undefined,
 ): void {
-  if (checkpoint.checkpointVersion
-      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R) {
+  if ('referenceInputManifestSha256' in checkpoint) {
     if (!suppliedManifestSha256) {
       throw new Error('PROVIDER_NATIVE_RESUME_REFERENCE_INPUT_REQUIRED');
     }
@@ -472,6 +539,48 @@ function verifyReferenceInputBinding(
   }
   if (suppliedManifestSha256 !== undefined) {
     throw new Error('PROVIDER_NATIVE_RESUME_REFERENCE_INPUT_UNBOUND');
+  }
+}
+
+function checkpointVersion(referenceBound: boolean, runtimeBound: boolean) {
+  if (referenceBound && runtimeBound) {
+    return PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_RUNTIME_BOUND_VERSION_V2R;
+  }
+  if (runtimeBound) return PROVIDER_NATIVE_EPISODE_RESUME_RUNTIME_BOUND_VERSION_V2R;
+  return referenceBound
+    ? PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R
+    : PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R;
+}
+
+function verifyRuntimeGuardResumeState(
+  resumeState: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>,
+  completedTurnsSha256: string,
+  nextTurn: number,
+): void {
+  if (resumeState.version !== PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R
+    || resumeState.authority !== 'RESEARCH_RUNTIME_GUARD_RESUME_NO_PROJECT_MUTATION'
+    || !resumeState.guardKind.trim()
+    || resumeState.completedTurnsSha256 !== completedTurnsSha256
+    || resumeState.nextTurn !== nextTurn
+    || !Object.keys(record(resumeState.state)).length) {
+    throw new Error('PROVIDER_NATIVE_RESUME_RUNTIME_GUARD_STATE_INVALID');
+  }
+  requireSha256(resumeState.guardIdentitySha256, 'RUNTIME_GUARD_IDENTITY');
+  requireSha256(resumeState.completedTurnsSha256, 'RUNTIME_GUARD_TURNS');
+  requireSha256(resumeState.resumeStateSha256, 'RUNTIME_GUARD_STATE');
+  const material = {
+    version: resumeState.version,
+    authority: resumeState.authority,
+    guardKind: resumeState.guardKind,
+    guardIdentitySha256: resumeState.guardIdentitySha256,
+    completedTurnsSha256: resumeState.completedTurnsSha256,
+    nextTurn: resumeState.nextTurn,
+    state: resumeState.state,
+  };
+  if (hashCanonicalJsonV1(material) !== resumeState.resumeStateSha256
+    || canonicalizeJsonV1(resumeState)
+      !== canonicalizeJsonV1({ ...material, resumeStateSha256: resumeState.resumeStateSha256 })) {
+    throw new Error('PROVIDER_NATIVE_RESUME_RUNTIME_GUARD_STATE_HASH_MISMATCH');
   }
 }
 
