@@ -35,7 +35,7 @@ async function main(): Promise<void> {
   const mediaManifestPath = option('--media-manifest')
     ? path.resolve(option('--media-manifest') as string)
     : path.join(repoRoot, '.calibration-temp', 'open-ended-planner-v2',
-      'holdout-media-v2r-r2-20260822', 'manifest.json');
+      'holdout-media-v2r-r4-20260822', 'manifest.json');
   const [sourceBytes, mediaBytes] = await Promise.all([
     readFile(sourcePath), readFile(mediaManifestPath),
   ]);

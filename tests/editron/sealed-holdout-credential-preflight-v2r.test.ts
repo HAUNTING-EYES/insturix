@@ -20,7 +20,7 @@ import type { HoldoutMediaManifestV2R }
 async function fixtures() {
   const [source, mediaBytes] = await Promise.all([
     readFile(path.resolve(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V2R)),
-    readFile(path.resolve('.calibration-temp/open-ended-planner-v2/holdout-media-v2r-r2-20260822/manifest.json')),
+    readFile(path.resolve('.calibration-temp/open-ended-planner-v2/holdout-media-v2r-r4-20260822/manifest.json')),
   ]);
   const manifest = buildSealedHoldoutCohortManifestV2R(
     createHash('sha256').update(source).digest('hex'),
