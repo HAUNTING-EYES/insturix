@@ -16,7 +16,7 @@ type CohortRow = SealedH03ProviderCohortManifestV3R3['rows'][number];
 type RowResult = Awaited<ReturnType<typeof runSealedH03ProviderRowV3R3>>;
 type RunRow = typeof runSealedH03ProviderRowV3R3;
 export const SEALED_H03_PROVIDER_COHORT_RUNNER_VERSION_V3R3 =
-  'EDITRON_OE_SEALED_H03_PROVIDER_COHORT_RUNNER_V3R3_2' as const;
+  'EDITRON_OE_SEALED_H03_PROVIDER_COHORT_RUNNER_V3R3_3' as const;
 
 export async function runSealedH03ProviderCohortV3R3(input: Readonly<{
   baseManifest: Readonly<SealedHoldoutCohortManifestV3R2>;
@@ -133,10 +133,10 @@ function validateAuthorization(
     manifest: input.cohortManifest,
     executionCommitSha: input.executionCommitSha,
     runnerSourceSha256: input.runnerSourceSha256,
+    sandboxEnvironment: input.sandboxEnvironment,
     nowUnixMs,
   });
 }
-
 function buildContract(
   input: Parameters<typeof runSealedH03ProviderCohortV3R3>[0],
   authorization: Readonly<SealedH03PaidAuthorizationV3R3>,

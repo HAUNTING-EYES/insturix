@@ -20,6 +20,10 @@ async function main(): Promise<void> {
   const operatorId = required('--operator-id');
   const preflightRoot = path.resolve(required('--preflight-root'));
   const runnerPath = option('--runner-path') ?? defaultRunnerPath;
+  const sandboxEnvironment = {
+    snapshotId: required('--snapshot-id'),
+    snapshotCommit: required('--snapshot-commit'),
+  } as const;
   const input = await buildSealedH03ProviderOperatorInputV3R3(repoRoot);
   const [infrastructure, h03Preflight, operatorPreflight] = await Promise.all([
     readJson(path.join(preflightRoot, 'provider-infrastructure-preflight.json')),
@@ -51,6 +55,7 @@ async function main(): Promise<void> {
       confirmedAbsoluteMaxSpendUsd: 11.673,
       executionCommitSha,
       runnerSourceSha256,
+      sandboxEnvironment,
     },
   });
   const outputPath = path.resolve(option('--output') ?? path.join(
@@ -68,6 +73,7 @@ async function main(): Promise<void> {
     manifestSha256: authorization.manifestSha256,
     executionCommitSha,
     runnerSourceSha256,
+    sandboxEnvironment: authorization.sandboxEnvironment,
     authorizedRows: authorization.limits.authorizedRowCount,
     maximumProviderHttpRequests: authorization.limits.maximumProviderHttpRequests,
     absoluteMaxSpendUsd: authorization.limits.absoluteMaxSpendMicroUsd / 1_000_000,

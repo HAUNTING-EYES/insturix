@@ -16,6 +16,10 @@ const approvedAt = '2026-08-22T08:29:30.000Z';
 const expiresAt = '2026-08-23T07:29:30.000Z';
 const executionCommitSha = 'a'.repeat(40);
 const runnerSourceSha256 = 'b'.repeat(64);
+const sandboxEnvironment = {
+  snapshotId: 'snap_AAAAAAAAAAAAAAAAAAAA',
+  snapshotCommit: 'c'.repeat(40),
+} as const;
 
 let operatorInput: Awaited<ReturnType<typeof buildSealedH03ProviderOperatorInputV3R3>>;
 
@@ -39,6 +43,7 @@ describe('sealed H03 paid authorization V3R3', () => {
       manifest: operatorInput.cohortManifest,
       executionCommitSha,
       runnerSourceSha256,
+      sandboxEnvironment,
       nowUnixMs: now,
     })).toBe(authorization);
   });
@@ -51,6 +56,21 @@ describe('sealed H03 paid authorization V3R3', () => {
       manifest: operatorInput.cohortManifest,
       executionCommitSha,
       runnerSourceSha256,
+      sandboxEnvironment,
+      nowUnixMs: now,
+    })).toThrow('SEALED_H03_PAID_AUTHORIZATION_DRIFT');
+  });
+
+  it('rejects a copied authorization against a different runtime snapshot', () => {
+    const authorization = issue(preflightChain());
+    expect(() => assertSealedH03PaidAuthorizationV3R3(authorization, {
+      manifest: operatorInput.cohortManifest,
+      executionCommitSha,
+      runnerSourceSha256,
+      sandboxEnvironment: {
+        ...sandboxEnvironment,
+        snapshotId: 'snap_BBBBBBBBBBBBBBBBBBBB',
+      },
       nowUnixMs: now,
     })).toThrow('SEALED_H03_PAID_AUTHORIZATION_DRIFT');
   });
@@ -103,6 +123,7 @@ function approval(chain: ReturnType<typeof preflightChain>) {
     confirmedAbsoluteMaxSpendUsd: 11.673 as const,
     executionCommitSha,
     runnerSourceSha256,
+    sandboxEnvironment,
   };
 }
 

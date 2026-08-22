@@ -19,6 +19,10 @@ import { createBudgetedH03SourceGeneratorV3R3 }
 
 type OperatorInput = Awaited<ReturnType<typeof buildSealedH03ProviderOperatorInputV3R3>>;
 let operatorInput: OperatorInput;
+const SANDBOX_ENVIRONMENT = {
+  snapshotId: 'snap_AAAAAAAAAAAAAAAAAAAA',
+  snapshotCommit: 'c'.repeat(40),
+} as const;
 
 beforeAll(async () => {
   operatorInput = await buildSealedH03ProviderOperatorInputV3R3();
@@ -77,9 +81,30 @@ describe('sealed H03 provider row/cohort runner V3R3', () => {
       outputRoot: 'must-not-be-created',
       executionCommitSha: 'a'.repeat(40),
       runnerSourceSha256: 'b'.repeat(64),
-      sandboxEnvironment: { snapshotId: 'snapshot', snapshotCommit: 'commit' },
+      sandboxEnvironment: SANDBOX_ENVIRONMENT,
       repoRoot: process.cwd(),
     })).rejects.toThrow('SEALED_H03_PAID_AUTHORIZATION_DRIFT');
+  });
+
+  it('rejects a runtime snapshot that differs from paid authorization', async () => {
+    const runRow = vi.fn();
+    await expect(runSealedH03ProviderCohortV3R3({
+      ...operatorInput,
+      authorization: authorization(),
+      environment: {},
+      mediaManifest: { manifestSha256: 'f'.repeat(64) } as never,
+      outputRoot: 'must-not-be-created-for-snapshot-drift',
+      executionCommitSha: EXECUTION_COMMIT,
+      runnerSourceSha256: RUNNER_SHA,
+      sandboxEnvironment: {
+        ...SANDBOX_ENVIRONMENT,
+        snapshotId: 'snap_BBBBBBBBBBBBBBBBBBBB',
+      },
+      repoRoot: process.cwd(),
+      now: () => NOW,
+      runRow: runRow as never,
+    })).rejects.toThrow('SEALED_H03_PAID_AUTHORIZATION_DRIFT');
+    expect(runRow).not.toHaveBeenCalled();
   });
 
   it('persists the inner source receipt and proof diagnostic for every completed row', async () => {
@@ -104,7 +129,7 @@ describe('sealed H03 provider row/cohort runner V3R3', () => {
         outputRoot: root,
         executionCommitSha: EXECUTION_COMMIT,
         runnerSourceSha256: RUNNER_SHA,
-        sandboxEnvironment: { snapshotId: 'snapshot', snapshotCommit: 'commit' },
+        sandboxEnvironment: SANDBOX_ENVIRONMENT,
         repoRoot: process.cwd(),
         now: () => NOW,
         runRow: runRow as never,
@@ -166,6 +191,7 @@ function authorization() {
       confirmedOperatorPreflightReceiptSha256: String(operator.receiptSha256),
       confirmedAbsoluteMaxSpendUsd: 11.673,
       executionCommitSha: EXECUTION_COMMIT, runnerSourceSha256: RUNNER_SHA,
+      sandboxEnvironment: SANDBOX_ENVIRONMENT,
     },
     nowUnixMs: nowMs,
   });

@@ -14,7 +14,12 @@ type JsonRecord = Record<string, unknown>;
 type H03Preflight = Awaited<ReturnType<typeof runSealedH03ProviderNoInferencePreflightV3R3>>;
 
 export const SEALED_H03_PAID_AUTHORIZATION_VERSION_V3R3 =
-  'EDITRON_OE_SEALED_H03_PAID_AUTHORIZATION_V3R3_1' as const;
+  'EDITRON_OE_SEALED_H03_PAID_AUTHORIZATION_V3R3_2' as const;
+
+export interface SealedH03SandboxEnvironmentV3R3 {
+  snapshotId: string;
+  snapshotCommit: string;
+}
 
 export interface SealedH03PaidAuthorizationV3R3 {
   version: typeof SEALED_H03_PAID_AUTHORIZATION_VERSION_V3R3;
@@ -29,6 +34,7 @@ export interface SealedH03PaidAuthorizationV3R3 {
   operatorPreflightReceiptSha256: string;
   executionCommitSha: string;
   runnerSourceSha256: string;
+  sandboxEnvironment: Readonly<SealedH03SandboxEnvironmentV3R3>;
   authorizedRows: readonly Readonly<JsonRecord>[];
   limits: Readonly<{
     authorizedRowCount: 18;
@@ -56,6 +62,7 @@ export function issueSealedH03PaidAuthorizationV3R3(input: Readonly<{
     confirmedAbsoluteMaxSpendUsd: 11.673;
     executionCommitSha: string;
     runnerSourceSha256: string;
+    sandboxEnvironment: Readonly<SealedH03SandboxEnvironmentV3R3>;
   }>;
   nowUnixMs?: number;
 }>): Readonly<SealedH03PaidAuthorizationV3R3> {
@@ -77,7 +84,8 @@ export function issueSealedH03PaidAuthorizationV3R3(input: Readonly<{
       !== input.operatorPreflightReceipt.receiptSha256
     || approval.confirmedAbsoluteMaxSpendUsd !== 11.673
     || !/^[a-f0-9]{40}$/.test(approval.executionCommitSha)
-    || !/^[a-f0-9]{64}$/.test(approval.runnerSourceSha256)) {
+    || !/^[a-f0-9]{64}$/.test(approval.runnerSourceSha256)
+    || !isSandboxEnvironment(approval.sandboxEnvironment)) {
     fail('SEALED_H03_PAID_AUTHORIZATION_APPROVAL_INVALID');
   }
   const authorizedRows = manifest.rows.map((row) => deepFreezeV1({
@@ -108,6 +116,7 @@ export function issueSealedH03PaidAuthorizationV3R3(input: Readonly<{
     operatorPreflightReceiptSha256: String(input.operatorPreflightReceipt.receiptSha256),
     executionCommitSha: approval.executionCommitSha,
     runnerSourceSha256: approval.runnerSourceSha256,
+    sandboxEnvironment: approval.sandboxEnvironment,
     authorizedRows,
     limits: {
       authorizedRowCount: 18 as const,
@@ -130,6 +139,7 @@ export function assertSealedH03PaidAuthorizationV3R3(
     manifest: Readonly<SealedH03ProviderCohortManifestV3R3>;
     executionCommitSha: string;
     runnerSourceSha256: string;
+    sandboxEnvironment: Readonly<SealedH03SandboxEnvironmentV3R3>;
     nowUnixMs?: number;
   }>,
 ): Readonly<SealedH03PaidAuthorizationV3R3> {
@@ -154,6 +164,9 @@ export function assertSealedH03PaidAuthorizationV3R3(
     || candidate.manifestSha256 !== manifest.manifestSha256
     || candidate.executionCommitSha !== expected.executionCommitSha
     || candidate.runnerSourceSha256 !== expected.runnerSourceSha256
+    || !isSandboxEnvironment(candidate.sandboxEnvironment)
+    || hashCanonicalJsonV1(candidate.sandboxEnvironment)
+      !== hashCanonicalJsonV1(expected.sandboxEnvironment)
     || !Number.isFinite(approvedAtMs) || !Number.isFinite(expiresAtMs)
     || approvedAtMs > now || expiresAtMs <= now
     || candidate.authorizedRows.length !== 18
@@ -217,5 +230,10 @@ function assertPreflightChain(
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+function isSandboxEnvironment(value: unknown): value is SealedH03SandboxEnvironmentV3R3 {
+  return isRecord(value)
+    && /^snap_[A-Za-z0-9]{20,64}$/.test(String(value.snapshotId ?? ''))
+    && /^[a-f0-9]{40}$/.test(String(value.snapshotCommit ?? ''));
 }
 function fail(code: string): never { throw new Error(code); }
