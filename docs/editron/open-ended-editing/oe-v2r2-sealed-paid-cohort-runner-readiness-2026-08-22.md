@@ -2,6 +2,12 @@
 
 ## Status
 
+**Superseded historical pre-run checkpoint.** The 96-row cohort subsequently
+executed and received a frozen interpretation. Current status and exact hashes
+are in
+[the sealed paid-cohort results](./oe-v2r2-sealed-paid-cohort-results-2026-08-22.md).
+
+At the time of this checkpoint the status was
 `READY_TO_ISSUE_PAID_AUTHORIZATION`, not `RAW_EXECUTED`, valid model evidence,
 production certification or ProjectService execution.
 

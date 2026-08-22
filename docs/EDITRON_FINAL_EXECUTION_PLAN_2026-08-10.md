@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified code
-checkpoint before this ledger update is `5fbf025f5` on
+checkpoint before this ledger update is `b5f2af0da` on
 `infrastructure-improvs-+Editron`; the programme worktree is
 intentionally dirty with unrelated user work that must remain untouched.
 
@@ -1323,12 +1323,40 @@ project-read or project-mutation calls. Receipt SHA-256 is
 `428cdc9aea676c5dae8ac2887cc2e78507b3ef8dcff12d5a059fb5007cbad622`;
 capture-set SHA-256 is
 `62d2626084bfbacd34840ac391001e58c86dac6ce5074a95b1494807f5dc8356`.
-Dispatch remains false. The immutable report is
+At this historical preflight checkpoint dispatch remained false. The report is
 `docs/editron/open-ended-editing/oe-v2r2-sealed-paid-cohort-runner-readiness-2026-08-22.md`.
 
-**Paid-dispatch and proof-readiness checkpoint:** commit `408db9c3f` adds the
-separate, expiring, hash-bound paid-dispatch authorization contract, but no
-authorization artifact has been issued and no paid sealed inference has run.
+**Paid execution and frozen-interpretation checkpoint:** the operator issued
+authorization
+`721324c56ef3d6f82316145df5c6de7de36085459068cd275ed97b09ec08038e`
+and completed all 96 rows at
+`.calibration-temp/open-ended-planner-v2/sealed-holdout-paid-cohort-20260822020829`.
+The immutable raw cohort receipt is
+`9582dffc068b7319835d48da4834c1de70bdb29b39aa011ce0239fa12238022f`:
+466 provider inference turns, 176 Google `countTokens` calls,
+`$9.730960595` recorded spend and zero real-project reads, mutations or state
+effects. Re-running the exact cohort CLI against the completed root returned
+the identical receipt without a provider call.
+
+Commit `b5f2af0da` adds a hash-validating interpretation owner and a read-only
+local environment-reproof CLI. It does not change a request, response, trace,
+evaluation, proof or raw receipt. Interpretation receipt
+`20b5e1c2f1e61c86f918b4894acaa34150faf57e23e86049a5d43cc2514dc01c`
+separates the 96 rows into 24 valid safe-stop proofs, two valid rendered HOLD-02
+edit proofs after unchanged short-path reproof, 21 valid model-trace failures,
+19 benchmark-confounded rows and 30 resource-guard non-evaluations. The two
+claim-proof receipts are `33327b06549e...` and `47d4d223280b...`; both render
+the same hash `6901fd8ec486...`. Raw `PASS_CLAIM_PROOF=24` must never be
+reported as 24 editing passes: every original pass was a no-edit safety proof.
+
+The exact interpretation, route counts, confounds and artifact hashes are in
+`docs/editron/open-ended-editing/oe-v2r2-sealed-paid-cohort-results-2026-08-22.md`.
+The cohort does not support a provider leaderboard or Stage 2.5 `GO`.
+
+**Historical paid-dispatch and proof-readiness checkpoint:** commit `408db9c3f` added the
+separate, expiring, hash-bound paid-dispatch authorization contract. At that
+pre-run checkpoint no authorization artifact or paid sealed inference existed;
+the paid execution checkpoint above is the current truth.
 Before spend, commit `d5a7d949f` closed the hidden-arm no-edit proof gap for
 all eight C2 cases and rejects both forged evaluation and mutation-laundering.
 Commit `dcc0e4008` then versioned the H01/H02/H04 C2 rendered-proof receipts;
@@ -1337,8 +1365,9 @@ state/render predicates as C1. The focused proof regressions pass 14/14 and
 9/9 respectively, with full typecheck and repository lint. This is
 `VALID_HARNESS_EVIDENCE`, not model performance. Commit `5fbf025f5` adds the
 resumable/cohort-budgeted runner, sole proof dispatcher and adversarial 96-row,
-resume, row-tamper and aggregate-tamper tests. The exact immediate action is
-now paid-authorization issuance followed by the 96-row run.
+resume, row-tamper and aggregate-tamper tests. At that checkpoint the next
+action was paid-authorization issuance followed by the 96-row run; the
+execution/interpretation checkpoint above supersedes it.
 
 - **V3 P1/P2/P3 is `RAW_EXECUTED`, not valid sequential-mutation evidence.**
   All eighteen Luna/Terra/Gemini 3.7 route/arm/permutation rows ran. The P2/P3
@@ -1595,23 +1624,24 @@ now paid-authorization issuance followed by the 96-row run.
   current-source assertion; V3 remains stale rather than being rewritten.
 - **Stage 2.5 status remains `MODIFY_AND_PROCEED_RESEARCH`.** No production
   model-driven mutation or Stage 3 control plane is authorized. Revision
-  handoff repair, stale cohort correction, the earlier CAP-2A V3 reissue, the V3R4
-  zero-inference preflight, the fair eighteen-row rerun and reproducible landing are
-  complete. HREF-01's reproducible blinded pack is ready, but its output review
-  is pending. All eight sealed holdouts now have frozen media inputs, but none
-  has made an inference call. The generic selected-operation projection and hidden
-  pre-proof evaluator are now frozen without task-specific creative
-  compilation. The budgeted V2R-3 trace/evaluation compatibility gap is also
-  closed. The real route counter/pricing/egress binding is also implemented but
-  has now been exercised through the complete scripted zero-inference episode.
-  CAP-2A V4 and the V2R2/V2R3 cohort identity are current. The exact immediate
-  current-identity credentialed **zero-inference** request/token/identity
-  preflight has passed through the exact budgeted serializer. The resumable
-  paid-cohort runner and proof adapter are committed and adversarially verified.
-  The exact immediate order is now: issue the paid-dispatch authorization bound
-  to the V2 receipt, runner and complete scripted gate; run all 96
-  route/case/handoff rows; then continue with
-  dependency diversity, forced native/generated/hybrid comparisons, conflict/rebase,
+  handoff repair, CAP-2A V4, V3R4's fair eighteen-row rerun, the sealed
+  credential preflight, paid authorization, all 96 paid rows and frozen
+  interpretation are complete. The sealed run provides 24 valid safe-stop
+  proofs, two rendered HOLD-02 edit proofs after environment-only reproof and
+  21 valid bounded trace failures. Nineteen execution rows are invalid for
+  model comparison because HOLD-01/03/04/05 contain owner, visible-schema,
+  post-state or proof contradictions; thirty more were not evaluated after the
+  85,000-token resource guard stopped them. HREF-01 still lacks its second
+  qualified independent review.
+
+  The immediate order is now: freeze a new corrected sealed identity; align the
+  HOLD-01 resolver/proof contract; expose complete H03/H05 nested schemas or
+  typed resolver outputs; provide truthful evolving post-mutation state for
+  H04; supply H03 literals and prove model-program lineage; use short proof
+  paths; separate capability-ceiling from production-budget arms; pass a new
+  zero-inference preflight; and rerun only rows whose validity or evaluation
+  coverage changed. Then continue dependency diversity, forced
+  native/generated/hybrid comparisons, conflict/rebase/locked-range,
   compaction/resume, long-form/range trials and blind editor receipts before a
   frozen `GO`, `MODIFY` or `NO-GO` decision.
 
@@ -1623,7 +1653,7 @@ now paid-authorization issuance followed by the 96-row run.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Provider-native sequential episodes, typed results, isolated native/generated/hybrid mechanics and rendered proof exist. V3R4 is reproducibly landed and valid bounded evidence: all 18 Luna/Terra/Gemini rows passed causal execution, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V4 is current against stable HOLD-03/HOLD-05 sources. The unspent sealed cohort is reissued as V2R2/identity V2R3 against V4. A complete scripted zero-inference gate composes accounting, isolated execution, hidden evaluation and all eight proof paths; 34/34 tests pass with zero network/inference/project mutation. Credential preflight V2 passed 96/96 exact budgeted initial requests with zero inference; V1 is invalid for dispatch. Commit `5fbf025f5` adds the resumable 96-row runner, sole proof dispatcher and forged-row/aggregate rejection. Dispatch is still false and no paid sealed row has run. All legal C2 no-edit outcomes now have a fail-closed proof, while solvable H01/H02/H04 C2 outcomes have versioned real rendered/state proof. HREF-01 has one complete Gemini 3.6 native-video/audio observation and a blinded full-reference plus 180-frame dense-window review pack. HOLD-06/07/08 have a hash-bound research no-edit proof; HOLD-01/02/04/05 have bounded rendered native proofs; HOLD-03 has a bounded rendered hybrid proof. None claims ProjectService mutation, and HOLD-03's program is human-authored fixture evidence rather than model-generation proof. One project-owner blind review accepted the existing DEV-01/DEV-03 proxies. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. Issue the exact paid authorization, then execute/evaluate all 96 unseen provider rows. HREF-01 output review remains pending and formal promotion requires a second independent qualified reviewer. Then test other dependency shapes, forced routing alternatives, stale-user-edit/conflict/rebase, context-resume, long-form trials and blind quality/correction-time/latency/cost receipts. HOLD-01/02/03/04/05 prove only bounded fixed-30-fps research proposals; the current clone is still not ProjectService execution. `READY_FOR_PROOF` is not a quality PASS. H03 does not prove model codegen or a production sandbox; H04 has synthetic tone and no caption-pixel proof; H05 has no audio or real logo pixels; DEV-03 has no intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | V3R4 is valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 native dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. CAP-2A V4 is current for the frozen research sources. The sealed V2R2/V2R3 cohort then executed all 96 paid rows for `$9.730960595`, with zero real-project reads/mutations. Frozen interpretation `20b5e1c2...` records 24 valid safe-stop proofs, two valid rendered HOLD-02 edit proofs after unchanged short-path reproof, 21 valid bounded trace failures, 19 benchmark-confounded rows and 30 resource-guard non-evaluations. HREF-01 has one Gemini 3.6 native-video/audio observation plus a full-reference and 180-frame dense-window review pack. Existing H01-H05 proof owners demonstrate bounded fixed-30-fps mechanics; HOLD-03 remains a human-authored generated-program fixture, not model-codegen proof. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. Freeze a corrected sealed identity; align HOLD-01 resolver/proof; expose complete H03/H05 nested callable contracts; provide truthful evolving H04 post-state; bind H03 literals and model-program lineage; shorten Windows proof paths; and separate capability-ceiling from production-budget arms before targeted paid re-execution. HREF-01 still needs a second qualified independent review. Then test dependency diversity, forced native/generated/hybrid routes, stale-user-edit/conflict/rebase/locks, context-resume, long-form range planning and blind quality/correction-time/latency/cost. The clone is not ProjectService execution; H04 has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -2036,48 +2066,27 @@ deployment:
 The old `CAP-0 -> CAP-1 -> V2-0` next-three list is complete as historical
 foundation and is no longer the active queue. The next three slices are:
 
-1. **Reproducible V3R4 benchmark landing - complete:** the V3R4 sources,
-   CAP-2A V3 binding, adversarial tests and immutable report are committed.
-   Recheck every bound source hash on any future reissue; never edit a frozen
-   expected hash in place.
-2. **HREF-01 dense/human closeout - review pending:** the fourteen-image
-   no-inference control remains historical; the anonymized full-reference pack
-   and exact 180-frame motion/audio window are materialized and verified. The
-   project owner must now complete the blinded review. Formal promotion remains
-   blocked pending a second independent qualified reviewer.
-3. **V2-2 unseen holdouts and integration gate - initial requests bounded,
-   inference dispatch zero:** all eight sealed unseen holdouts now have frozen,
-   rights-bound synthetic media plus a leakage-free sixteen-case cohort bound
-   to the same complete forty-operation context. The generic episode shell is
-   connected and preserves complete-context, opaque-result and policy-blocked
-   semantics. Owner-only evidence now resolves only through declared tool
-   families, and a CAS-bound operation-log clone issues writer revisions while
-   explicitly withholding render/quality proof. A lossless selected-operation
-   trace and hidden non-repairing structural evaluator are now frozen. The
-   credentialed preflight has verified all 96 exact initial requests, provider
-   identities and the 85,000-token research ceiling with zero inference. The
-   per-turn/cumulative token, spend, case/route authorization and route
-   pricing/egress boundaries are implemented, and HOLD-06/07/08 now have a
-   research no-edit proof. HOLD-01 now has decoded-frame rendered proof for its
-   selected native source splice, and HOLD-02 has decoded open/process/close
-   proof for its causally chained bookend proposal. HOLD-04 now binds the
-   canonical range-cut owner to caption-state preservation and rendered AV
-   proof. HOLD-05 now has decoded full-range research-native proof. The sole
-   generated-composition API now supports bounded normalized panel geometry
-   and horizontal motion. HOLD-03 now has bounded decoded hybrid proof through
-   a human-authored fixture and scripted trace; it still lacks model codegen,
-   production sandbox and ProjectService proof. Next reissue CAP-2A against
-   the stable bound sources, freeze the new cohort identity, and pass a complete zero-inference
-   simulation while HREF-01 review remains pending; do not alter
-   the historical DEV harness. HREF-01 is a separate reference-observation
-   diagnostic and did not consume or replace `HOLD-01`. After the receipt and
-   operator confirmation, run all eight holdouts and additional
-   dependency/invalidation shapes. Follow
-   with stale-revision/user-change, context-resume and long-form range trials;
-   force native/generated/hybrid baselines and obtain blind-editor quality,
-   correction-time, latency and cost receipts. Only a passing gate may
-   authorise ProjectService-owned proposal integration design, never direct
-   model writes.
+1. **Corrected sealed-holdout identity and targeted rerun:** preserve V2R2/V2R3
+   and its 96 raw rows unchanged. Freeze a new identity that aligns HOLD-01's
+   resolver/proof operation, declares complete H03/H05 nested schemas or typed
+   opaque resolver results, exposes truthful H04 post-mutation state and owner
+   effects, supplies H03 protected literals, binds model-generated program
+   lineage, uses bounded short proof paths and separates capability-ceiling
+   from production-budget arms. Pass a zero-inference simulation, then rerun
+   only rows whose validity or evaluation coverage changed.
+2. **HREF-01 dense/human closeout:** retain the fourteen-image arm as a sparse
+   historical control. The full native-video/audio observation and exact
+   180-frame dense window exist; formal promotion still requires a second
+   independent qualified reviewer and a recorded agreement/adjudication
+   disposition.
+3. **Stage 2.5 generalisation episodes:** after the corrected sealed result,
+   test other dependency/invalidation shapes; force native, generated and
+   hybrid implementations on held-out tasks; inject stale user edits, overlap
+   conflicts, safe rebase and locked ranges; resume after context compaction;
+   exercise realistic long-form sequence/range plans under bounded evidence;
+   and collect blind-editor quality, correction-time, latency and cost receipts.
+   Only a frozen passing gate may authorise ProjectService-owned proposal
+   integration design, never direct model writes.
 
 V3R4 answers one narrow premise positively: Luna, Terra and Gemini 3.7 can
 execute the bounded DEV-03 native dependency chain through real tool calls,
