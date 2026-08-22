@@ -261,7 +261,6 @@ function IconCinematic({ active }: { active: boolean }) {
    GLOBAL CSS
    ================================================================ */
 const globalCSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;800&family=JetBrains+Mono:wght@400;500&display=swap');
   .dh-mono { font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace; }
   @keyframes dh-pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.55; } }
   .dh-scroll::-webkit-scrollbar { width: 4px; height: 4px; }

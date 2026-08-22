@@ -313,11 +313,11 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                     whileTap={!isControlsDisabled ? { scale: 0.95 } : {}}
                   >
                     <Button
-                      variant="premium"
+                      variant="gold"
                       size="player"
                       onClick={togglePlay}
                       disabled={isControlsDisabled}
-                      className={`shadow-elevated bg-gold text-gold-contrast hover:bg-gold-hover ${isControlsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      className={`shadow-elevated ${isControlsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       {isPlaying ? (
                         <Pause className="w-6 h-6" />
@@ -355,7 +355,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                     whileTap={!isControlsDisabled ? { scale: 0.98 } : {}}
                   >
                     <Button
-                      variant="elevated"
+                      variant="neutral"
                       onClick={handleDownload}
                       disabled={isControlsDisabled || !audioUrl}
                       className={`gap-2 ${isControlsDisabled || !audioUrl ? 'opacity-50 cursor-not-allowed' : ''}`}

@@ -406,7 +406,6 @@ export default function CalosCalendarV3() {
   return (
     <div className="calos" style={{ minHeight: '100vh', background: C.bg, color: C.text, fontFamily: SANS }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap');
         .calos *{box-sizing:border-box}
         .calos-fr:focus-visible{outline:2px solid ${C.gold};outline-offset:2px}
         .calos-chip:hover{border-color:${C.bs};background:#181614}

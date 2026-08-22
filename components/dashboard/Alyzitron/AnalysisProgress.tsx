@@ -7,8 +7,23 @@ import { useRouter } from 'next/navigation';
 import { QueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
 
-import type { AnalysisStatus, AnalysisResults } from '@/app/api/services/alyzitron/types'
-import type { PaginatedResponse } from './AnalysisList';
+import type { AnalysisStatus, AnalysisResults, AlyzitronAnalysis } from '@/app/api/services/alyzitron/types'
+
+/* Paginated history shape (moved here from the deleted AnalysisList.tsx — this
+   file was its only remaining consumer, for the react-query cache type). */
+interface FetchedAlyzitronAnalysis extends AlyzitronAnalysis {
+  expectedWaitSeconds?: number;
+  createdByName?: string;
+}
+export interface PaginatedResponse {
+  data: FetchedAlyzitronAnalysis[];
+  pagination: {
+    totalItems: number;
+    totalPages: number;
+    currentPage: number;
+    itemsPerPage: number;
+  };
+}
 
 interface AnalysisError {
   code?: string;
