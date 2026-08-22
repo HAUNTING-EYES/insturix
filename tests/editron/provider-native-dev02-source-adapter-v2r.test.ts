@@ -23,6 +23,10 @@ describe('provider-native DEV-02 source adapter V2R', () => {
       source: 'export const GeneratedComposition = () => null;',
       modelId: 'gpt-5.6-terra', promptHash: 'b'.repeat(64),
       orchestratorSpecSha256: hashCanonicalJsonV1(args),
+      generationReceipt: {
+        authority: 'RESEARCH_MODEL_GENERATED_SOURCE_NO_PROJECT_MUTATION',
+        stateEffects: [],
+      },
     });
     expect(runProviderCall).toHaveBeenCalledTimes(1);
   });
