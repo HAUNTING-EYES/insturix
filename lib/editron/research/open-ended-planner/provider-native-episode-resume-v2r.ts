@@ -23,6 +23,8 @@ type JsonRecord = Record<string, unknown>;
 
 export const PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_EPISODE_RESUME_V2R_1' as const;
+export const PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R =
+  'EDITRON_PROVIDER_NATIVE_EPISODE_RESUME_V2R_2' as const;
 export const PROVIDER_NATIVE_RESUMED_RECEIPT_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_RESUMED_RECEIPT_V2R_1' as const;
 
@@ -33,8 +35,7 @@ const UNCHECKED_AFTER_TURN_COMMIT_V2R = [
   'PRODUCT_ACCEPTANCE',
 ] as const;
 
-export interface ProviderNativeEpisodeResumeCheckpointV2R {
-  checkpointVersion: typeof PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R;
+interface ProviderNativeEpisodeResumeCheckpointBaseV2R {
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
   route: Readonly<ProviderNativeRouteV2R>;
   episodeId: string;
@@ -48,6 +49,16 @@ export interface ProviderNativeEpisodeResumeCheckpointV2R {
   stateEffects: readonly [];
   checkpointSha256: string;
 }
+
+export type ProviderNativeEpisodeResumeCheckpointV2R =
+  | (ProviderNativeEpisodeResumeCheckpointBaseV2R & Readonly<{
+      checkpointVersion: typeof PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R;
+    }>)
+  | (ProviderNativeEpisodeResumeCheckpointBaseV2R & Readonly<{
+      checkpointVersion:
+        typeof PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R;
+      referenceInputManifestSha256: string;
+    }>);
 
 export interface ProviderNativeEpisodeResumeStateV2R {
   turns: readonly Readonly<JsonRecord>[];
@@ -81,14 +92,21 @@ export function createProviderNativeEpisodeResumeCheckpointV2R(input: {
   contextSha256: string;
   toolSetSha256: string;
   completedTurns: readonly Readonly<JsonRecord>[];
+  referenceInputManifestSha256?: string;
 }): Readonly<ProviderNativeEpisodeResumeCheckpointV2R> {
   requireIdentity(input.episodeId, 'EPISODE');
   requireSha256(input.contextSha256, 'CONTEXT');
   requireSha256(input.toolSetSha256, 'TOOL_SET');
+  if (input.referenceInputManifestSha256 !== undefined) {
+    requireSha256(input.referenceInputManifestSha256, 'REFERENCE_INPUT_MANIFEST');
+  }
   requireContiguousTurns(input.completedTurns);
   const completedTurns = input.completedTurns.map((turn) => ({ ...turn }));
+  const referenceBound = input.referenceInputManifestSha256 !== undefined;
   const material = {
-    checkpointVersion: PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R,
+    checkpointVersion: referenceBound
+      ? PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R
+      : PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     route: input.route,
     episodeId: input.episodeId,
@@ -99,9 +117,15 @@ export function createProviderNativeEpisodeResumeCheckpointV2R(input: {
     completedTurnsSha256: hashCanonicalJsonV1(completedTurns),
     nextTurn: completedTurns.length + 1,
     whatHasNotBeenChecked: [...UNCHECKED_AFTER_TURN_COMMIT_V2R],
+    ...(referenceBound ? {
+      referenceInputManifestSha256: input.referenceInputManifestSha256,
+    } : {}),
     stateEffects: [] as const,
   };
-  return deepFreezeV1({ ...material, checkpointSha256: hashCanonicalJsonV1(material) });
+  return deepFreezeV1({
+    ...material,
+    checkpointSha256: hashCanonicalJsonV1(material),
+  }) as Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
 }
 
 export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
@@ -115,6 +139,7 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
   maxOutputTokensPerTurn: number;
   maxOperatorArgumentRepairs: number;
   currentProjectRevision: string;
+  referenceInputManifestSha256?: string;
   resultReferences: ProviderNativeResultReferenceRegistryV2R;
 }): Readonly<ProviderNativeEpisodeResumeStateV2R> {
   verifyCheckpointEnvelope(input.checkpoint);
@@ -130,6 +155,10 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
   if (input.checkpoint.toolSetSha256 !== input.toolSet.toolSetSha256) {
     throw new Error('PROVIDER_NATIVE_RESUME_TOOL_SET_MISMATCH');
   }
+  verifyReferenceInputBinding(
+    input.checkpoint,
+    input.referenceInputManifestSha256,
+  );
   if (!input.currentProjectRevision.trim()) {
     throw new Error('PROVIDER_NATIVE_RESUME_CURRENT_REVISION_INVALID');
   }
@@ -265,12 +294,17 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
     throw new Error('PROVIDER_NATIVE_RESUME_STALE_PROJECT_REVISION');
   }
   const publicResumeContext = deepFreezeV1({
-    version: PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R,
+    version: input.checkpoint.checkpointVersion,
     checkpointSha256: input.checkpoint.checkpointSha256,
     completedOperatorIds: [...selectedOperatorIds],
     completedTurnCount: input.checkpoint.completedTurns.length,
     nextTurn: input.checkpoint.nextTurn,
     latestWriterRevisionReferenceId: latestWriterRevision.resultReferenceId,
+    ...(input.checkpoint.checkpointVersion
+      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R
+      ? { referenceInputManifestSha256:
+          input.checkpoint.referenceInputManifestSha256 }
+      : {}),
     whatHasNotBeenChecked: [...input.checkpoint.whatHasNotBeenChecked],
     instruction: 'Continue from the completed operations. Use the opaque latest-writer reference for downstream expectedProjectRevision; never copy a revision literal or repeat completed mutations.',
   });
@@ -372,12 +406,23 @@ export function normalizeProviderNativeExactArgumentsV2R(
 }
 
 function verifyCheckpointEnvelope(checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>): void {
-  if (checkpoint.checkpointVersion !== PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R
+  if (![PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R,
+    PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R]
+    .includes(checkpoint.checkpointVersion)
     || checkpoint.authority !== 'RESEARCH_ONLY_NO_PROJECT_MUTATION'
     || checkpoint.argumentHandoffMode !== 'OPAQUE_RESULT_REFERENCES'
     || checkpoint.stateEffects.length
     || canonicalizeJsonV1(checkpoint.whatHasNotBeenChecked)
       !== canonicalizeJsonV1(UNCHECKED_AFTER_TURN_COMMIT_V2R)) {
+    throw new Error('PROVIDER_NATIVE_RESUME_CHECKPOINT_ENVELOPE_INVALID');
+  }
+  if (checkpoint.checkpointVersion
+      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R) {
+    requireSha256(
+      checkpoint.referenceInputManifestSha256,
+      'REFERENCE_INPUT_MANIFEST',
+    );
+  } else if ('referenceInputManifestSha256' in checkpoint) {
     throw new Error('PROVIDER_NATIVE_RESUME_CHECKPOINT_ENVELOPE_INVALID');
   }
   requireContiguousTurns(checkpoint.completedTurns);
@@ -401,8 +446,33 @@ function checkpointMaterial(checkpoint: Readonly<ProviderNativeEpisodeResumeChec
     completedTurnsSha256: checkpoint.completedTurnsSha256,
     nextTurn: checkpoint.nextTurn,
     whatHasNotBeenChecked: checkpoint.whatHasNotBeenChecked,
+    ...(checkpoint.checkpointVersion
+      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R
+      ? { referenceInputManifestSha256:
+          checkpoint.referenceInputManifestSha256 }
+      : {}),
     stateEffects: checkpoint.stateEffects,
   };
+}
+
+function verifyReferenceInputBinding(
+  checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
+  suppliedManifestSha256: string | undefined,
+): void {
+  if (checkpoint.checkpointVersion
+      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R) {
+    if (!suppliedManifestSha256) {
+      throw new Error('PROVIDER_NATIVE_RESUME_REFERENCE_INPUT_REQUIRED');
+    }
+    requireSha256(suppliedManifestSha256, 'REFERENCE_INPUT_MANIFEST');
+    if (suppliedManifestSha256 !== checkpoint.referenceInputManifestSha256) {
+      throw new Error('PROVIDER_NATIVE_RESUME_REFERENCE_INPUT_MISMATCH');
+    }
+    return;
+  }
+  if (suppliedManifestSha256 !== undefined) {
+    throw new Error('PROVIDER_NATIVE_RESUME_REFERENCE_INPUT_UNBOUND');
+  }
 }
 
 function requireWriterRevision(

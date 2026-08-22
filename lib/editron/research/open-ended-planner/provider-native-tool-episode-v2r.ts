@@ -26,7 +26,13 @@ import {
   ProviderNativeResultReferenceRegistryV2R,
   type ProviderNativeArgumentHandoffModeV2R,
 } from './provider-native-result-references-v2r';
-import type { ProviderNativeReferenceInputV2R } from './provider-native-reference-input-v2r';
+import { bindProviderNativeReferenceInputV2R }
+  from './provider-native-reference-input-v2r';
+import {
+  bindProviderNativeVideoReferenceInputV2R,
+  isProviderNativeVideoReferenceInputV2R,
+  type ProviderNativeReferenceMediaInputV2R,
+} from './provider-native-video-reference-input-v2r';
 import { validateJsonSchemaV2 } from './stage4-compilation-evaluator-v2';
 
 type JsonRecord = Record<string, unknown>;
@@ -149,7 +155,7 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   context: Readonly<ProviderNativeEpisodeContextV2R>;
   eligibleOperatorIds: readonly string[];
   argumentHandoffMode?: ProviderNativeArgumentHandoffModeV2R;
-  referenceInput?: Readonly<ProviderNativeReferenceInputV2R>;
+  referenceInput?: Readonly<ProviderNativeReferenceMediaInputV2R>;
   finishInputSchema?: Readonly<JsonRecord>;
   toolSetFactory?: (input: Readonly<{
     eligibleOperatorIds: readonly string[];
@@ -192,12 +198,12 @@ export async function runProviderNativeToolEpisodeV2R(input: {
     resultReferenceProjectionPolicy,
   );
   const contextSha256 = hashCanonicalJsonV1(input.context);
+  const referenceInputManifestSha256 = referenceInputManifestSha256V2R(
+    input.referenceInput,
+  );
   if ((input.resumeCheckpoint || input.onTurnCommitted)
     && argumentHandoffMode !== 'OPAQUE_RESULT_REFERENCES') {
     throw new Error('PROVIDER_NATIVE_RESUME_REQUIRES_OPAQUE_RESULT_REFERENCES');
-  }
-  if ((input.resumeCheckpoint || input.onTurnCommitted) && input.referenceInput) {
-    throw new Error('PROVIDER_NATIVE_RESUME_REFERENCE_INPUT_BINDING_UNSUPPORTED');
   }
   if ((input.resumeCheckpoint || input.onTurnCommitted) && input.runtimeGuard) {
     throw new Error('PROVIDER_NATIVE_RESUME_RUNTIME_GUARD_BINDING_UNSUPPORTED');
@@ -270,6 +276,9 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         maxOutputTokensPerTurn: input.context.budget.maxOutputTokensPerTurn,
         maxOperatorArgumentRepairs: MAX_OPERATOR_ARGUMENT_REPAIRS_PER_EPISODE_V2R,
         currentProjectRevision: input.resumeCurrentProjectRevision ?? '',
+        ...(referenceInputManifestSha256
+          ? { referenceInputManifestSha256 }
+          : {}),
         resultReferences,
       })
     : null;
@@ -319,6 +328,9 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         contextSha256,
         toolSetSha256: toolSet.toolSetSha256,
         completedTurns: turns,
+        ...(referenceInputManifestSha256
+          ? { referenceInputManifestSha256 }
+          : {}),
       }),
     });
   };
@@ -663,6 +675,15 @@ function assertEpisodeToolSetAuthority(
       !== canonicalizeJsonV1(input.finishInputSchema)) {
     throw new Error('PROVIDER_NATIVE_TOOL_SET_FINISH_SCHEMA_MISMATCH');
   }
+}
+
+function referenceInputManifestSha256V2R(
+  referenceInput: Readonly<ProviderNativeReferenceMediaInputV2R> | undefined,
+): string | undefined {
+  if (!referenceInput) return undefined;
+  return isProviderNativeVideoReferenceInputV2R(referenceInput)
+    ? bindProviderNativeVideoReferenceInputV2R(referenceInput).manifestSha256
+    : bindProviderNativeReferenceInputV2R(referenceInput).manifestSha256;
 }
 
 async function runRuntimeGuardHook(
