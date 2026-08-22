@@ -11,6 +11,7 @@ import {
 import {
   buildProviderNativeToolSetV2R,
   type ProviderNativeOperatorToolV2R,
+  type ProviderNativeToolSetV2R,
 } from './provider-native-tool-catalog-v2r';
 import {
   appendResultReferencesForModelV2R,
@@ -144,6 +145,10 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   argumentHandoffMode?: ProviderNativeArgumentHandoffModeV2R;
   referenceInput?: Readonly<ProviderNativeReferenceInputV2R>;
   finishInputSchema?: Readonly<JsonRecord>;
+  toolSetFactory?: (input: Readonly<{
+    eligibleOperatorIds: readonly string[];
+    finishInputSchema?: Readonly<JsonRecord>;
+  }>) => Readonly<ProviderNativeToolSetV2R>;
   additionalInstructions?: readonly string[];
   invoke: (request: Readonly<SerializedProviderNativeTurnV2R>) => Promise<ProviderNativeInvokeResponseV2R>;
   runtimeGuard?: Readonly<ProviderNativeRuntimeGuardV2R>;
@@ -154,10 +159,16 @@ export async function runProviderNativeToolEpisodeV2R(input: {
   validateContext(input.context);
   const additionalInstructions = validateAdditionalInstructions(input.additionalInstructions);
   const argumentHandoffMode = input.argumentHandoffMode ?? 'DIRECT_ARGUMENTS';
-  const exactToolSet = buildProviderNativeToolSetV2R(
-    input.eligibleOperatorIds,
-    input.finishInputSchema,
-  );
+  const exactToolSet = input.toolSetFactory
+    ? input.toolSetFactory({
+      eligibleOperatorIds: input.eligibleOperatorIds,
+      finishInputSchema: input.finishInputSchema,
+    })
+    : buildProviderNativeToolSetV2R(
+      input.eligibleOperatorIds,
+      input.finishInputSchema,
+    );
+  assertEpisodeToolSetAuthority(input, exactToolSet);
   const toolSet = argumentHandoffMode === 'OPAQUE_RESULT_REFERENCES'
     ? buildOpaqueResultReferenceToolSetV2R(exactToolSet)
     : exactToolSet;
@@ -522,6 +533,39 @@ export async function runProviderNativeToolEpisodeV2R(input: {
     disposition: 'STEP_BUDGET_EXHAUSTED', reasonCodes: ['STEP_BUDGET_EXHAUSTED'], evidenceIds: [],
     summary: 'The model did not issue a typed finish disposition within the frozen turn budget.',
   });
+}
+
+function assertEpisodeToolSetAuthority(
+  input: Parameters<typeof runProviderNativeToolEpisodeV2R>[0],
+  toolSet: Readonly<ProviderNativeToolSetV2R>,
+): void {
+  const material = {
+    version: toolSet.version,
+    authority: toolSet.authority,
+    catalogIdentity: toolSet.catalogIdentity,
+    dossierSha256: toolSet.dossierSha256,
+    operatorIds: toolSet.operatorIds,
+    operators: toolSet.operators,
+    finishControl: toolSet.finishControl,
+  };
+  if (hashCanonicalJsonV1(material) !== toolSet.toolSetSha256) {
+    throw new Error('PROVIDER_NATIVE_TOOL_SET_HASH_MISMATCH');
+  }
+  if (canonicalizeJsonV1(toolSet.operatorIds)
+    !== canonicalizeJsonV1(input.eligibleOperatorIds)) {
+    throw new Error('PROVIDER_NATIVE_TOOL_SET_OPERATOR_IDS_MISMATCH');
+  }
+  if (toolSet.operators.length !== toolSet.operatorIds.length
+    || toolSet.operators.some((operator, index) => (
+      operator.operatorId !== toolSet.operatorIds[index]
+    ))) {
+    throw new Error('PROVIDER_NATIVE_TOOL_SET_OPERATOR_RECORDS_MISMATCH');
+  }
+  if (input.finishInputSchema
+    && canonicalizeJsonV1(toolSet.finishControl.inputSchema)
+      !== canonicalizeJsonV1(input.finishInputSchema)) {
+    throw new Error('PROVIDER_NATIVE_TOOL_SET_FINISH_SCHEMA_MISMATCH');
+  }
 }
 
 async function runRuntimeGuardHook(

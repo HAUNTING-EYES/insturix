@@ -9,6 +9,8 @@ type JsonRecord = Record<string, unknown>;
 
 export const PROVIDER_NATIVE_TOOL_SET_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_TOOL_SET_V2R_6' as const;
+export const PROVIDER_NATIVE_VERSIONED_CATALOG_TOOL_SET_VERSION_V2R =
+  'EDITRON_PROVIDER_NATIVE_VERSIONED_CATALOG_TOOL_SET_V2R_1' as const;
 export const PROVIDER_NATIVE_CONTROL_ONLY_TOOL_SET_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_CONTROL_ONLY_TOOL_SET_V2R_2' as const;
 export const FINISH_RESEARCH_EPISODE_TOOL_V2R =
@@ -31,11 +33,13 @@ export interface ProviderNativeOperatorToolV2R {
 export interface ProviderNativeToolSetV2R {
   version:
     | typeof PROVIDER_NATIVE_TOOL_SET_VERSION_V2R
+    | typeof PROVIDER_NATIVE_VERSIONED_CATALOG_TOOL_SET_VERSION_V2R
     | typeof PROVIDER_NATIVE_CONTROL_ONLY_TOOL_SET_VERSION_V2R;
   authority:
     | 'V2R_CATALOG_PLUS_CAP2A_DOSSIER'
+    | 'VERSIONED_CATALOG_PLUS_CAP2A_DOSSIER'
     | 'RESEARCH_CONTROL_ONLY_NO_EDITING_OPERATORS';
-  catalogIdentity: ReturnType<typeof v2rOperatorCatalogIdentity>;
+  catalogIdentity: Readonly<JsonRecord>;
   dossierSha256: string;
   operatorIds: readonly string[];
   operators: readonly Readonly<ProviderNativeOperatorToolV2R>[];
@@ -52,8 +56,45 @@ export function buildProviderNativeToolSetV2R(
   eligibleOperatorIds: readonly string[],
   finishInputSchema: Readonly<JsonRecord> = finishControlSchema(),
 ): Readonly<ProviderNativeToolSetV2R> {
-  const operatorIds = requireUniqueIds(eligibleOperatorIds);
-  const catalogOperators = records(V2R_OPERATOR_CATALOG.operators);
+  return buildProviderNativeToolSetFromSourceV2R({
+    eligibleOperatorIds,
+    finishInputSchema,
+    catalog: V2R_OPERATOR_CATALOG,
+    catalogIdentity: v2rOperatorCatalogIdentity(),
+    version: PROVIDER_NATIVE_TOOL_SET_VERSION_V2R,
+    authority: 'V2R_CATALOG_PLUS_CAP2A_DOSSIER',
+  });
+}
+
+/**
+ * Builds provider tools from an explicitly versioned catalog. The ordinary V2R
+ * builder above remains the historical default; corrected benchmark identities
+ * must opt into this seam instead of mutating that catalog in place.
+ */
+export function buildProviderNativeToolSetFromCatalogV2R(input: Readonly<{
+  eligibleOperatorIds: readonly string[];
+  finishInputSchema?: Readonly<JsonRecord>;
+  catalog: Readonly<JsonRecord>;
+  catalogIdentity: Readonly<JsonRecord>;
+}>): Readonly<ProviderNativeToolSetV2R> {
+  return buildProviderNativeToolSetFromSourceV2R({
+    ...input,
+    finishInputSchema: input.finishInputSchema ?? finishControlSchema(),
+    version: PROVIDER_NATIVE_VERSIONED_CATALOG_TOOL_SET_VERSION_V2R,
+    authority: 'VERSIONED_CATALOG_PLUS_CAP2A_DOSSIER',
+  });
+}
+
+function buildProviderNativeToolSetFromSourceV2R(input: Readonly<{
+  eligibleOperatorIds: readonly string[];
+  finishInputSchema: Readonly<JsonRecord>;
+  catalog: Readonly<JsonRecord>;
+  catalogIdentity: Readonly<JsonRecord>;
+  version: ProviderNativeToolSetV2R['version'];
+  authority: ProviderNativeToolSetV2R['authority'];
+}>): Readonly<ProviderNativeToolSetV2R> {
+  const operatorIds = requireUniqueIds(input.eligibleOperatorIds);
+  const catalogOperators = records(input.catalog.operators);
   const byId = new Map(catalogOperators.map((operator) => [text(operator.operatorId), operator]));
   const selected = operatorIds.map((operatorId) => {
     const operator = byId.get(operatorId);
@@ -67,13 +108,14 @@ export function buildProviderNativeToolSetV2R(
   const plannerById = new Map(
     dossier.operators.map((operator) => [text(operator.operatorId), operator]),
   );
-  const operators = selected.map((operator) => buildOperatorTool(operator, plannerById));
-  assertProviderStrictControlSchema(finishInputSchema, '$');
-  const finishControl = buildFinishControl(finishInputSchema);
+  const operators = selected.map((operator) =>
+    buildOperatorTool(operator, plannerById, input.catalog));
+  assertProviderStrictControlSchema(input.finishInputSchema, '$');
+  const finishControl = buildFinishControl(input.finishInputSchema);
   const material = {
-    version: PROVIDER_NATIVE_TOOL_SET_VERSION_V2R,
-    authority: 'V2R_CATALOG_PLUS_CAP2A_DOSSIER' as const,
-    catalogIdentity: v2rOperatorCatalogIdentity(),
+    version: input.version,
+    authority: input.authority,
+    catalogIdentity: input.catalogIdentity,
     dossierSha256: dossier.sheetSha256,
     operatorIds,
     operators,
@@ -150,18 +192,20 @@ function assertProviderStrictControlSchema(schema: Readonly<JsonRecord>, path: s
 function buildOperatorTool(
   operator: JsonRecord,
   plannerById: ReadonlyMap<string, Readonly<JsonRecord>>,
+  catalog: Readonly<JsonRecord>,
 ): Readonly<ProviderNativeOperatorToolV2R> {
   const operatorId = text(operator.operatorId);
   const input = record(operator.input);
   const fields = strings(input.fields);
   const required = strings(input.required);
-  const exactInputSchema = assembleSchema(operatorId, fields, required, true);
+  const exactInputSchema = assembleSchema(operatorId, fields, required, true, catalog);
   const output = record(operator.output);
   const exactOutputSchema = assembleSchema(
     operatorId,
     strings(output.fields),
     strings(output.required),
     false,
+    catalog,
   );
   const providerInputSchema = stripUnsupportedProviderKeywords(exactInputSchema);
   const strictSchema = makeOpenAiStrictSchema(providerInputSchema);
@@ -227,10 +271,11 @@ function assembleSchema(
   fields: readonly string[],
   required: readonly string[],
   allowOperatorOverride: boolean,
+  catalog: Readonly<JsonRecord>,
 ): Readonly<JsonRecord> {
-  const globalSchemas = record(V2R_OPERATOR_CATALOG.fieldSchemas);
+  const globalSchemas = record(catalog.fieldSchemas);
   const operatorSchemas = allowOperatorOverride
-    ? record(record(V2R_OPERATOR_CATALOG.operatorFieldSchemas)[operatorId])
+    ? record(record(catalog.operatorFieldSchemas)[operatorId])
     : {};
   const properties = Object.fromEntries(fields.map((field) => {
     const schema = operatorSchemas[field] ?? globalSchemas[field];
