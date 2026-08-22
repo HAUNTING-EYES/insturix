@@ -144,5 +144,15 @@ new frozen identity reruns them fairly.
    editor quality/correction-time/latency/cost receipts.
 10. Publish a frozen `GO`, `MODIFY` or `NO-GO`. Current status is `MODIFY`.
 
+## Corrected-identity progress after this cohort
+
+Commit `bb16d0b96` adds the prerequisite versioned provider-catalog seam. The
+historical V2 tool-set builder remains the default and is pinned by regression
+hash; a corrected benchmark catalog must opt in explicitly. The episode owner
+recomputes the injected tool-set hash and rejects forged hashes, missing or
+reordered operator records, and finish-schema mismatch before inference. This
+commit does not itself correct HOLD-01/03/04/05, freeze a new cohort identity,
+or authorize paid calls.
+
 No production model-driven mutation or Stage 3 agent control plane is authorised
 by this run.
