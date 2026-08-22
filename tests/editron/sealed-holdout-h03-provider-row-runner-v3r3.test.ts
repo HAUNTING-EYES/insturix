@@ -1,7 +1,15 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { hashCanonicalJsonV1 }
+  from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { SEALED_H03_GENERATED_SOURCE_V2R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-h03-generated-program-v2r';
+import { issueSealedH03PaidAuthorizationV3R3 }
+  from '@/lib/editron/research/open-ended-planner/sealed-holdout-h03-paid-authorization-v3r3';
 import { runSealedH03ProviderCohortV3R3 }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-h03-provider-cohort-runner-v3r3';
 import { buildSealedH03ProviderOperatorInputV3R3 }
@@ -73,7 +81,102 @@ describe('sealed H03 provider row/cohort runner V3R3', () => {
       repoRoot: process.cwd(),
     })).rejects.toThrow('SEALED_H03_PAID_AUTHORIZATION_DRIFT');
   });
+
+  it('persists the inner source receipt and proof diagnostic for every completed row', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'editron-h03-v3r3-'));
+    try {
+      const runRow = vi.fn(async ({ row }: { row: { rowId: string } }) => ({
+        receipt: {
+          disposition: 'PROOF_UNVERIFIABLE', failureDiagnostic: `proof:${row.rowId}`,
+          receiptSha256: hashCanonicalJsonV1({ rowId: row.rowId }),
+          accounting: {
+            accountingDisposition: 'EXACT_FROM_PROVIDER_RECEIPTS',
+            actualSpendUsd: 0.001, providerGeneratedCandidates: 1, providerHttpAttempts: 1,
+          },
+        },
+        providerCalls: [], proof: null,
+      }));
+      const receipt = await runSealedH03ProviderCohortV3R3({
+        ...operatorInput,
+        authorization: authorization(),
+        environment: {},
+        mediaManifest: { manifestSha256: 'f'.repeat(64) } as never,
+        outputRoot: root,
+        executionCommitSha: EXECUTION_COMMIT,
+        runnerSourceSha256: RUNNER_SHA,
+        sandboxEnvironment: { snapshotId: 'snapshot', snapshotCommit: 'commit' },
+        repoRoot: process.cwd(),
+        now: () => NOW,
+        runRow: runRow as never,
+      });
+      expect(receipt.rowCount).toBe(18);
+      expect(runRow).toHaveBeenCalledTimes(18);
+      const rowRoot = join(root, 'rows', 'openai_luna-production_budget-r1');
+      const [source, outcome] = await Promise.all([
+        readJson(join(rowRoot, 'source-row-receipt.json')),
+        readJson(join(rowRoot, 'row-receipt.json')),
+      ]);
+      expect(source.failureDiagnostic).toBe('proof:openai_luna-production_budget-r1');
+      expect(outcome.failureDiagnostic).toBe(source.failureDiagnostic);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
+
+const NOW = '2026-08-22T08:30:00.000Z';
+const EXECUTION_COMMIT = 'a'.repeat(40);
+const RUNNER_SHA = 'b'.repeat(64);
+
+function authorization() {
+  const nowMs = Date.parse(NOW);
+  const infrastructure = sign({
+    infrastructureAssessment: 'PASS', dispatchAssessment: 'PASS_READY',
+    networkCalls: { inferenceCalls: 0 }, secretsPersisted: false, stateEffects: [],
+    sandboxCredential: { expiresAtUnixSeconds: Math.floor(nowMs / 1_000) + 3_600 },
+  });
+  const h03 = sign({
+    version: 'EDITRON_OE_SEALED_H03_PROVIDER_PREFLIGHT_V3R3_1',
+    manifestSha256: operatorInput.cohortManifest.manifestSha256,
+    providerInfrastructureReceiptSha256: infrastructure.receiptSha256,
+    infrastructureAssessment: 'PASS',
+    dispatchAssessment: 'PASS_READY_FOR_EXPLICIT_SPEND_AUTHORIZATION',
+    plannedRowCount: 18, absoluteMaxSpendUsd: 11.673,
+    networkCalls: { inferenceCalls: 0 }, secretsPersisted: false, stateEffects: [],
+  });
+  const operator = sign({
+    version: 'EDITRON_OE_SEALED_H03_PROVIDER_OPERATOR_PREFLIGHT_V3R3_1',
+    operatorId: 'admin', createdAt: '2026-08-22T08:20:00.000Z',
+    manifestSha256: operatorInput.cohortManifest.manifestSha256,
+    providerInfrastructureReceiptSha256: infrastructure.receiptSha256,
+    h03PreflightReceiptSha256: h03.receiptSha256,
+    dispatchAuthorized: false, inferenceCalls: 0, projectReads: 0, projectMutations: 0,
+    absoluteMaxSpendUsd: 11.673, secretsPersisted: false, stateEffects: [],
+  });
+  return issueSealedH03PaidAuthorizationV3R3({
+    manifest: operatorInput.cohortManifest,
+    providerInfrastructureReceipt: infrastructure as never,
+    h03PreflightReceipt: h03 as never,
+    operatorPreflightReceipt: operator,
+    approval: {
+      operatorId: 'admin', approvedAt: '2026-08-22T08:29:30.000Z',
+      expiresAt: '2026-08-23T07:29:30.000Z',
+      confirmedManifestSha256: operatorInput.cohortManifest.manifestSha256,
+      confirmedH03PreflightReceiptSha256: String(h03.receiptSha256),
+      confirmedOperatorPreflightReceiptSha256: String(operator.receiptSha256),
+      confirmedAbsoluteMaxSpendUsd: 11.673,
+      executionCommitSha: EXECUTION_COMMIT, runnerSourceSha256: RUNNER_SHA,
+    },
+    nowUnixMs: nowMs,
+  });
+}
+
+function sign(value: Record<string, unknown>): Record<string, unknown> {
+  return { ...value, receiptSha256: hashCanonicalJsonV1(value) };
+}
+async function readJson(filePath: string): Promise<Record<string, unknown>> {
+  return JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
+}
 
 function budget(
   armId: 'PRODUCTION_BUDGET' | 'CAPABILITY_CEILING',

@@ -16,7 +16,7 @@ type CohortRow = SealedH03ProviderCohortManifestV3R3['rows'][number];
 type RowResult = Awaited<ReturnType<typeof runSealedH03ProviderRowV3R3>>;
 type RunRow = typeof runSealedH03ProviderRowV3R3;
 export const SEALED_H03_PROVIDER_COHORT_RUNNER_VERSION_V3R3 =
-  'EDITRON_OE_SEALED_H03_PROVIDER_COHORT_RUNNER_V3R3_1' as const;
+  'EDITRON_OE_SEALED_H03_PROVIDER_COHORT_RUNNER_V3R3_2' as const;
 
 export async function runSealedH03ProviderCohortV3R3(input: Readonly<{
   baseManifest: Readonly<SealedHoldoutCohortManifestV3R2>;
@@ -87,6 +87,7 @@ export async function runSealedH03ProviderCohortV3R3(input: Readonly<{
       const outcome = successfulOutcome(contract, row, result);
       await Promise.all([
         writeJsonOnce(receiptPath, outcome),
+        writeJsonOnce(path.join(rowRoot, 'source-row-receipt.json'), result.receipt),
         writeJsonOnce(path.join(rowRoot, 'provider-calls.json'), result.providerCalls),
         ...(result.proof
           ? [writeJsonOnce(path.join(rowRoot, 'proof-receipt.json'), result.proof)] : []),
@@ -173,6 +174,7 @@ function successfulOutcome(
     contractSha256: contract.contractSha256,
     rowId: row.rowId,
     disposition: result.receipt.disposition,
+    failureDiagnostic: result.receipt.failureDiagnostic,
     rowReceiptSha256: result.receipt.receiptSha256,
     providerGeneratedCandidates: accounting.providerGeneratedCandidates,
     providerHttpAttemptsCommitted: accounting.providerHttpAttempts,
