@@ -179,5 +179,15 @@ false, focused checks pass 14/14, and full typecheck/lint pass. This still does
 not connect the V3R owner/episode, change a proof, expose H04 post-state, prove
 H03 model-code lineage, pass V3R zero-inference preflight or authorize spend.
 
+Commit `d82441179` connects the frozen V3R manifest/catalog to the same
+provider-native loop and isolated owner used by V2. C1's scripted owner chain
+resolves measured evidence, returns `use_matching_footage`, issues a writer
+revision and stops `READY_FOR_PROOF`; noisy C2 remains `UNVERIFIABLE` without a
+mutation. The regression also rejects a false-ready script whose prerequisite
+owner calls were not `OK`. Focused V2/V3 connection checks pass 20/20 and full
+typecheck/lint pass. No provider or real-project call occurred. H01 still needs
+a V3-bound hidden evaluation and rendered-proof receipt before a paid row can
+be called valid.
+
 No production model-driven mutation or Stage 3 agent control plane is authorised
 by this run.
