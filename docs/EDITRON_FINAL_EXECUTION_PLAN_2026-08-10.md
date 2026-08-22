@@ -3575,8 +3575,28 @@ built around it.
     continuation all `PASS`, and zero project reads, changed paths or state
     effects. Creative taste and flash safety remain `UNVERIFIABLE`; there is no
     audio and no product nested-composition mutation. This does not promote
-    product execution or prove the route choice. Next build the forced native
-    baseline against the same target before dependency-shape diversity,
+    product execution or prove the route choice. The same target now also has
+    a real forced-native alternative through the production Editron Remotion
+    root. A route-neutral seam in the existing DEV-02 proof owner applies the
+    identical frame schedule, claim bindings and thresholds without forging a
+    generated receipt or creating a second proof policy. The first native run
+    is preserved as failed evidence: its row-19 black shape fell behind the
+    editor root under the verified row-derived z-index rule, so gutters and
+    motion proof failed. The corrected V1 baseline is hash
+    `8e6cafec7383dfe3e533d189f6b36fed5959eafce63cf43052fbd315b613d409`;
+    execution receipt `f8d8452f...`, target-proof `6ceb231d...` and output
+    SHA-256 `4b5b4cc1...` bind a decoded 345-frame, 1080x1920, 30/1 H.264
+    video with no audio stream. Frame integrity, five-panel/gutter geometry,
+    two-line title, opposed motion, build/hold/release, full-canvas release and
+    boundary continuity pass. Flash safety and creative taste remain
+    `UNVERIFIABLE`. This forced plan required 16 independent native overlays,
+    seven keyframe tracks and 14 keyframes versus the generated program's six
+    declared layers, while representing zero cross-element relationships.
+    It proves current native state can approximate this fixture with substantial
+    authoring/revision surface; it does not prove native is the better route,
+    that a model selected it, or that the target is production-certified.
+    Next freeze the route-comparison receipt and blind pack for native versus
+    generated/hybrid, then continue dependency-shape diversity,
     conflict/rebase/locked-range, context-resume and long-form/range trials.
   - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,
     blind review, cost/latency and no hidden manual rescue.

@@ -112,6 +112,20 @@ export interface Dev02GeneratedCompositionRenderedProofV1 {
   proofHash: string;
 }
 
+export interface Dev02RenderedTargetCandidateProofV1 {
+  artifactType: 'Dev02RenderedTargetCandidateProofV1';
+  policyId: typeof DEV02_RENDERED_PROOF_POLICY_V1.policyId;
+  taskId: 'DEV-02';
+  candidateId: string;
+  candidateKind: 'NATIVE' | 'GENERATED' | 'HYBRID';
+  candidateHash: string;
+  hardGateDisposition: 'PASS' | 'FAIL';
+  technicalDisposition: ProofStatus;
+  creativeDisposition: 'UNVERIFIABLE';
+  checks: readonly GeneratedCompositionRenderedCheckV1[];
+  proofHash: string;
+}
+
 interface LoadedFrame {
   frame: number;
   data: Buffer;
@@ -130,11 +144,63 @@ export async function evaluateDev02GeneratedCompositionRenderedProofV1(input: {
   const claimBindings = assertPolicyBindings(
     input.program, input.proxyReceipt, input.referenceBlueprint,
   );
+  const candidateProof = await evaluateDev02RenderedTargetCandidateV1({
+    candidateId: input.program.programId,
+    candidateKind: 'GENERATED',
+    candidateHash: input.authoritativeProxyReceiptHash,
+    canvas: input.program.canvas,
+    stills: input.proxyReceipt.stills,
+    boundaryReferencePath: input.boundaryReferencePath,
+    claimBindings,
+  });
+  const unsigned = {
+    artifactType: 'Dev02GeneratedCompositionRenderedProofV1' as const,
+    policyId: DEV02_RENDERED_PROOF_POLICY_V1.policyId,
+    taskId: 'DEV-02' as const,
+    programHash: input.proxyReceipt.programHash,
+    proxyReceiptHash: input.authoritativeProxyReceiptHash,
+    hardGateDisposition: candidateProof.hardGateDisposition,
+    technicalDisposition: candidateProof.technicalDisposition,
+    creativeDisposition: 'UNVERIFIABLE' as const,
+    checks: candidateProof.checks,
+    stateEffects: [] as const,
+  };
+  return Object.freeze({ ...unsigned, proofHash: hashCanonicalJsonV1(unsigned) });
+}
+
+/** Route-neutral target checker. Route-specific callers must bind candidate identity first. */
+export async function evaluateDev02RenderedTargetCandidateV1(input: {
+  candidateId: string;
+  candidateKind: 'NATIVE' | 'GENERATED' | 'HYBRID';
+  candidateHash: string;
+  canvas: { width: number; height: number };
+  stills: readonly { frame: number; path: string; sha256: string }[];
+  boundaryReferencePath?: string;
+  claimBindings?: Readonly<Dev02RenderedProofClaimBindingsV1>;
+  referenceBlueprint?: unknown;
+  expectedMeasurementRefs?: readonly string[];
+}): Promise<Readonly<Dev02RenderedTargetCandidateProofV1>> {
+  if (!input.candidateId.trim()) throw new Error('DEV-02 rendered target candidate identity is missing');
+  if (!/^[a-f0-9]{64}$/.test(input.candidateHash)) throw new Error('DEV-02 rendered target candidate hash is invalid');
+  if (!Number.isSafeInteger(input.canvas.width) || input.canvas.width <= 0
+    || !Number.isSafeInteger(input.canvas.height) || input.canvas.height <= 0) {
+    throw new Error('DEV-02 rendered target candidate canvas is invalid');
+  }
+  const claimBindings = input.claimBindings ?? (input.referenceBlueprint === undefined
+    ? legacyClaimBindings()
+    : resolveDev02RenderedProofClaimBindingsV1({
+        expectedMeasurementRefs: input.expectedMeasurementRefs ?? [],
+        referenceBlueprint: input.referenceBlueprint,
+      }));
+  const frameSchedule = input.stills.map(({ frame }) => frame);
+  if (JSON.stringify(frameSchedule) !== JSON.stringify(DEV02_RENDERED_PROOF_POLICY_V1.requiredFrames)) {
+    throw new Error('DEV-02 rendered target candidate frame schedule drift');
+  }
   const frames = new Map<number, LoadedFrame>();
-  for (const still of input.proxyReceipt.stills) {
+  for (const still of input.stills) {
     const bytes = await fs.readFile(still.path);
     if (sha256(bytes) !== still.sha256) throw new Error(`DEV-02 rendered proof still hash drift: ${still.frame}`);
-    const image = await loadImage(bytes, input.program.canvas.width, input.program.canvas.height, still.frame);
+    const image = await loadImage(bytes, input.canvas.width, input.canvas.height, still.frame);
     frames.set(still.frame, image);
   }
   const required = DEV02_RENDERED_PROOF_POLICY_V1.requiredFrames.map((frame) => requiredFrame(frames, frame));
@@ -155,16 +221,16 @@ export async function evaluateDev02GeneratedCompositionRenderedProofV1(input: {
     ? 'FAIL'
     : checks.some(({ status }) => status === 'UNVERIFIABLE') ? 'UNVERIFIABLE' : 'PASS';
   const unsigned = {
-    artifactType: 'Dev02GeneratedCompositionRenderedProofV1' as const,
+    artifactType: 'Dev02RenderedTargetCandidateProofV1' as const,
     policyId: DEV02_RENDERED_PROOF_POLICY_V1.policyId,
     taskId: 'DEV-02' as const,
-    programHash: input.proxyReceipt.programHash,
-    proxyReceiptHash: input.authoritativeProxyReceiptHash,
+    candidateId: input.candidateId,
+    candidateKind: input.candidateKind,
+    candidateHash: input.candidateHash,
     hardGateDisposition,
     technicalDisposition,
     creativeDisposition: 'UNVERIFIABLE' as const,
     checks,
-    stateEffects: [] as const,
   };
   return Object.freeze({ ...unsigned, proofHash: hashCanonicalJsonV1(unsigned) });
 }
