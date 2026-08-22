@@ -14,6 +14,15 @@ type Update = Readonly<{
 export class StatefulMongoCollection<T extends DocumentRecord> {
   private readonly records = new Map<string, T>();
 
+  constructor(initialRecords: readonly T[] = []) {
+    for (const record of initialRecords) {
+      if (this.records.has(record._id)) {
+        throw new Error(`DUPLICATE_TEST_MONGO_RECORD:${record._id}`);
+      }
+      this.records.set(record._id, clone(record));
+    }
+  }
+
   asCollection(): Collection<T> {
     return this as unknown as Collection<T>;
   }
@@ -80,6 +89,10 @@ export class StatefulMongoCollection<T extends DocumentRecord> {
       toArray: async () => result.map(clone),
     };
     return cursor;
+  }
+
+  snapshot(): T[] {
+    return [...this.records.values()].map(clone);
   }
 }
 
