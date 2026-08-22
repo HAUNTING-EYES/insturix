@@ -10,6 +10,8 @@ import { buildProviderNativePresentationPermutationsV3R }
   from './provider-native-evidence-visibility-v3r';
 import { resolveProviderNativeCredentialsV2R }
   from './provider-native-live-transport-v2r';
+import { PROVIDER_NATIVE_RESULT_REFERENCE_VERSION_V2R }
+  from './provider-native-result-references-v2r';
 import { runProviderNativeToolEpisodeV2R }
   from './provider-native-tool-episode-v2r';
 import type {
@@ -27,9 +29,9 @@ import {
 type JsonRecord = Record<string, unknown>;
 
 export const STAGE25_PROVIDER_DEPENDENCY_COHORT_VERSION_V1 =
-  'EDITRON_STAGE25_PROVIDER_DEPENDENCY_COHORT_V3R_2' as const;
+  'EDITRON_STAGE25_PROVIDER_DEPENDENCY_COHORT_V3R_3' as const;
 export const STAGE25_PROVIDER_DEPENDENCY_COHORT_SEED_V1 =
-  'editron-stage25-provider-dependency-v3r2-20260823' as const;
+  'editron-stage25-provider-dependency-v3r3-20260823' as const;
 export const STAGE25_PROVIDER_DEPENDENCY_EVALUATOR_SOURCE_PATH_V1 =
   'lib/editron/research/open-ended-planner/stage25-provider-dependency-holdout-v1.ts' as const;
 export const STAGE25_PROVIDER_DEPENDENCY_MAX_INPUT_TOKENS_V1 = 60_000 as const;
@@ -44,7 +46,7 @@ interface PresentationEntryV1 {
 export interface Stage25ProviderDependencyCohortManifestV1 {
   version: typeof STAGE25_PROVIDER_DEPENDENCY_COHORT_VERSION_V1;
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
-  experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R_2';
+  experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R_3';
   sourceBinding: Readonly<{
     sourceCommit: string;
     evaluatorSourcePath: typeof STAGE25_PROVIDER_DEPENDENCY_EVALUATOR_SOURCE_PATH_V1;
@@ -52,6 +54,7 @@ export interface Stage25ProviderDependencyCohortManifestV1 {
     cap2ManifestSha256: string;
     cap2SourceSnapshotSha256: string;
     cap2SourceCommit: string;
+    resultReferenceVersion: typeof PROVIDER_NATIVE_RESULT_REFERENCE_VERSION_V2R;
   }>;
   holdoutVersion: typeof STAGE25_PROVIDER_DEPENDENCY_HOLDOUT_VERSION_V1;
   argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES';
@@ -93,7 +96,7 @@ export function buildStage25ProviderDependencyCohortManifestV1(input: {
   const material = {
     version: STAGE25_PROVIDER_DEPENDENCY_COHORT_VERSION_V1,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
-    experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R_2' as const,
+    experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R_3' as const,
     sourceBinding: {
       sourceCommit: input.sourceCommit,
       evaluatorSourcePath: STAGE25_PROVIDER_DEPENDENCY_EVALUATOR_SOURCE_PATH_V1,
@@ -102,6 +105,7 @@ export function buildStage25ProviderDependencyCohortManifestV1(input: {
       cap2SourceSnapshotSha256:
         CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V6.sourceBinding.normalizedSourceSnapshotHash,
       cap2SourceCommit: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V6.sourceBinding.commit,
+      resultReferenceVersion: PROVIDER_NATIVE_RESULT_REFERENCE_VERSION_V2R,
     },
     holdoutVersion: STAGE25_PROVIDER_DEPENDENCY_HOLDOUT_VERSION_V1,
     argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES' as const,
@@ -179,7 +183,7 @@ export async function preflightStage25ProviderDependencyCohortV1(input: {
     });
   }
   const material = {
-    version: 'EDITRON_STAGE25_PROVIDER_DEPENDENCY_PREFLIGHT_V3R_2',
+    version: 'EDITRON_STAGE25_PROVIDER_DEPENDENCY_PREFLIGHT_V3R_3',
     authority: 'RESEARCH_PREFLIGHT_NO_INFERENCE_NO_PROJECT_MUTATION' as const,
     manifestSha256: manifest.manifestSha256,
     checks,

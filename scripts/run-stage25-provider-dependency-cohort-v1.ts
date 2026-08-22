@@ -26,6 +26,7 @@ const BENCHMARK_SOURCE_PATHS = [
   'lib/editron/research/open-ended-planner/stage25-provider-trace-schedule-binding-v1.ts',
   'lib/editron/research/open-ended-planner/provider-native-tool-episode-v2r.ts',
   'lib/editron/research/open-ended-planner/provider-native-tool-catalog-v2r.ts',
+  'lib/editron/research/open-ended-planner/provider-native-result-references-v2r.ts',
   'lib/editron/research/open-ended-planner/operator-catalog-v2r.ts',
   'lib/editron/research/open-ended-planner/sealed-holdout-runtime-budget-v2r.ts',
 ] as const;

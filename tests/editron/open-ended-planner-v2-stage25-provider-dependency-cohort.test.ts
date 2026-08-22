@@ -23,8 +23,8 @@ describe('Stage 2.5 provider dependency cohort', () => {
       'GOOGLE_FLASH:gemini-3.7-flash',
     ]);
     expect(manifest).toMatchObject({
-      version: 'EDITRON_STAGE25_PROVIDER_DEPENDENCY_COHORT_V3R_2',
-      experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R_2',
+      version: 'EDITRON_STAGE25_PROVIDER_DEPENDENCY_COHORT_V3R_3',
+      experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R_3',
       repetitionsPerRoute: 3,
       rowCount: 9,
       argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES',
@@ -35,6 +35,7 @@ describe('Stage 2.5 provider dependency cohort', () => {
       cap2SourceSnapshotSha256:
         CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V6.sourceBinding.normalizedSourceSnapshotHash,
       cap2SourceCommit: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V6.sourceBinding.commit,
+      resultReferenceVersion: 'EDITRON_PROVIDER_NATIVE_RESULT_REFERENCE_V2R_3',
     });
     expect(new Set(manifest.presentations.map(
       ({ operatorOrderSha256 }) => operatorOrderSha256,
