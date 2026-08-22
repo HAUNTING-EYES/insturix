@@ -141,6 +141,21 @@ describe('sealed HOLD-01 rendered native proof V3R', () => {
       stateEffects: [],
     });
   }, 60_000);
+
+  it('rejects a current noisy C2 range deletion before proof dispatch', async () => {
+    const result = await setupCurrent(null, 'HOLD-01:C2');
+
+    expect(result.trace.nodes.map(({ selectedOperatorId }) => selectedOperatorId))
+      .toContain('cut_section');
+    expect(result.evaluation).toMatchObject({
+      assessment: 'FAIL',
+      proofRequired: false,
+    });
+    expect(result.evaluation.diagnostics).toEqual(expect.arrayContaining([
+      'EVAL_CURRENT_EXECUTABLE_PROOF_OWNER_MISSING:HOLD-01:C2',
+      'EVAL_H01_RANGE_DELETE_FORBIDDEN',
+    ]));
+  });
 });
 
 async function setup(
@@ -198,14 +213,16 @@ async function buildManifest() {
   });
 }
 
-async function setupCurrent(incomingStartFrame: number) {
+async function setupCurrent(
+  incomingStartFrame: number | null,
+  caseId: 'HOLD-01:C1' | 'HOLD-01:C2' = 'HOLD-01:C1',
+) {
   const root = join(suiteRoot, `c${++caseSequence}`);
   const v3 = await buildManifest();
   const manifest = buildSealedHoldoutCohortManifestV3R2({
     contractSourceSha256: await fileSha(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2),
     baseManifest: v3,
   });
-  const caseId = 'HOLD-01:C1';
   const taskCase = manifest.cases.find((entry) => entry.caseId === caseId)!;
   let turn = 0;
   const episode = await runBudgetedSealedHoldoutEpisodeV3R2({
@@ -249,7 +266,7 @@ async function setupCurrent(incomingStartFrame: number) {
                 action: 'replace_with_matching_source_range' },
               evidenceIds: ['E1', 'E2'],
             })
-            : turn === 4
+            : turn === 4 && incomingStartFrame !== null
               ? call('replace', 'use_matching_footage', {
                 projectId: 'oe-hold-01', expectedProjectRevision: 'R9',
                 assetId: 'h01-dial', targetRange: { startFrame: 150, endFrame: 300 },
@@ -257,6 +274,13 @@ async function setupCurrent(incomingStartFrame: number) {
                   endFrame: incomingStartFrame + 150 },
                 evidenceIds: ['E1', 'E2'], constraints: { transition: 'HARD_CUT_ONLY' },
               })
+              : turn === 4
+                ? call('wrong-range-delete', 'cut_section', {
+                  projectId: 'oe-hold-01', expectedProjectRevision: 'R9',
+                  targetRange: { startFrame: 78, endFrame: 148 },
+                  evidenceIds: ['E1', 'E2'],
+                  constraints: { preserveSpeech: true, preserveOutsideRange: true },
+                })
               : finish('READY_FOR_PROOF', ['E1', 'E2']);
       return response(turn, output);
     }),

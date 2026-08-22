@@ -1,10 +1,15 @@
 import type { HoldoutMediaManifestV2R }
   from './holdout-media-materializer-v2r';
-import type {
-  BudgetedSealedHoldoutEvaluationReceiptV2R,
-  BudgetedSealedHoldoutEvaluationReceiptV3R2,
+import {
+  SEALED_HOLDOUT_CURRENT_EXECUTABLE_PROOF_CASES_V3R2,
+  type BudgetedSealedHoldoutEvaluationReceiptV2R,
+  type BudgetedSealedHoldoutEvaluationReceiptV3R2,
 }
   from './sealed-holdout-evaluator-v2r';
+import type {
+  SealedHoldoutCohortManifestV2R,
+}
+  from './sealed-holdout-cohort-v2r';
 import { proveSealedHoldoutH01NativeOutcomeV2R }
   from './sealed-holdout-h01-native-proof-v2r';
 import { proveSealedHoldoutH01NativeOutcomeV3R2 }
@@ -28,8 +33,6 @@ import {
   proveSealedHoldoutGeneralNoEditOutcomeV2R,
   proveSealedHoldoutGeneralNoEditOutcomeV3R2,
 } from './sealed-holdout-no-edit-proof-v2r';
-import type { SealedHoldoutCohortManifestV2R }
-  from './sealed-holdout-cohort-v2r';
 import type { SealedHoldoutCohortManifestV3R2 }
   from './sealed-holdout-cohort-v3r2';
 import type { BudgetedSealedHoldoutEpisodeReceiptV3R2 }
@@ -108,6 +111,10 @@ export async function proveSealedHoldoutPaidOutcomeV3R2(
     throw new Error(
       `SEALED_CURRENT_PAID_PROOF_EVALUATION_NOT_PROVABLE:${input.evaluation.assessment}`,
     );
+  }
+  if (!SEALED_HOLDOUT_CURRENT_EXECUTABLE_PROOF_CASES_V3R2
+    .some((caseId) => caseId === input.caseId)) {
+    throw new Error(`SEALED_CURRENT_PAID_PROOF_EXECUTABLE_CASE_UNSUPPORTED:${input.caseId}`);
   }
   if (input.caseId === 'HOLD-01:C1') {
     return proveSealedHoldoutH01NativeOutcomeV3R2({ ...input, caseId: input.caseId });

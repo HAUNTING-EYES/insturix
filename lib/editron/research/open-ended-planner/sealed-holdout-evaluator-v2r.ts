@@ -41,7 +41,7 @@ const SEALED_HOLDOUT_EVALUATOR_VERSION_V2R =
 const BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V2R_2' as const;
 const BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2 =
-  'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_2_RESOURCE_BOUND_1' as const;
+  'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_2_CURRENT_PROOF_ELIGIBILITY_1' as const;
 const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_1' as const;
 const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2 =
@@ -52,6 +52,17 @@ const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R3 =
 type SealedHoldoutEvaluationAssessmentV2R = 'PASS' | 'FAIL' | 'READY_FOR_PROOF'
   | 'NOT_EVALUATED_PROVIDER_INFRASTRUCTURE'
   | 'NOT_EVALUATED_RESOURCE_GUARD';
+
+/** Executable cases with a current V3R2 claim-proof owner. The evaluator and
+ * dispatcher share this contract so a trace cannot be promoted to a proof
+ * path that the runtime does not actually implement. */
+export const SEALED_HOLDOUT_CURRENT_EXECUTABLE_PROOF_CASES_V3R2 = deepFreezeV1([
+  'HOLD-01:C1',
+  'HOLD-02:C1',
+  'HOLD-02:C2',
+  'HOLD-04:C1',
+  'HOLD-05:C1',
+] as const);
 
 export interface SealedHoldoutEvaluationReceiptV2R {
   version: typeof SEALED_HOLDOUT_EVALUATOR_VERSION_V2R;
@@ -255,18 +266,58 @@ export function evaluateBudgetedSealedHoldoutTraceV3R2(input: {
     caseId: input.caseId,
     trace,
     evaluatorVersion: BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2,
-    structuralPolicy: 'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V3_CURRENT_RESOURCE_BOUND',
+    structuralPolicy:
+      'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V3_CURRENT_RESOURCE_BOUND_PROOF_ELIGIBILITY',
     resourceGuardBound: true,
     requirePostMutationStateRead: true,
   });
+  const currentDiagnostics = currentExecutableProofDiagnostics(
+    input.caseId,
+    trace.nodes,
+    evaluated.assessment,
+  );
+  const diagnostics = [...new Set([
+    ...evaluated.diagnostics,
+    ...currentDiagnostics,
+  ])].sort(compareUtf16);
+  const assessment = evaluated.assessment === 'READY_FOR_PROOF'
+    && currentDiagnostics.length > 0
+    ? 'FAIL' as const
+    : evaluated.assessment;
   const material = {
     version: BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2,
     authority: 'HIDDEN_POST_EPISODE_EVALUATOR_NO_MODEL_CONTEXT_NO_PROJECT_MUTATION' as const,
     ...evaluated,
+    diagnostics,
+    assessment,
+    proofRequired: assessment === 'READY_FOR_PROOF',
     runtimeBudgetReceiptSha256: trace.runtimeBudgetReceiptSha256,
     runtimeBudgetAssessment: trace.runtimeBudgetAssessment,
   };
   return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
+function currentExecutableProofDiagnostics(
+  caseId: string,
+  nodes: readonly Readonly<SealedHoldoutTraceNodeV2R>[],
+  assessment: SealedHoldoutEvaluationAssessmentV2R,
+): string[] {
+  if (assessment !== 'READY_FOR_PROOF') return [];
+  const diagnostics: string[] = [];
+  const successfulIds = nodes
+    .filter(({ executionDisposition }) => executionDisposition === 'OK')
+    .map(({ selectedOperatorId }) => selectedOperatorId);
+  if (!SEALED_HOLDOUT_CURRENT_EXECUTABLE_PROOF_CASES_V3R2
+    .some((supportedCaseId) => supportedCaseId === caseId)) {
+    diagnostics.push(`EVAL_CURRENT_EXECUTABLE_PROOF_OWNER_MISSING:${caseId}`);
+  }
+  if (caseId === 'HOLD-01:C1' && !successfulIds.includes('use_matching_footage')) {
+    diagnostics.push('EVAL_H01_MATCHING_FOOTAGE_MISSING');
+  }
+  if (caseId.startsWith('HOLD-01:') && successfulIds.includes('cut_section')) {
+    diagnostics.push('EVAL_H01_RANGE_DELETE_FORBIDDEN');
+  }
+  return diagnostics;
 }
 
 function evaluateTrace(input: Readonly<{
