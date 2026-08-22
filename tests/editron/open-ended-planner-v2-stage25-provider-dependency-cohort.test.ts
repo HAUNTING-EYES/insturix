@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V6 }
+  from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v6';
 import {
   assertStage25ProviderDependencyCohortManifestV1,
   buildStage25ProviderDependencyCohortManifestV1,
@@ -21,10 +23,18 @@ describe('Stage 2.5 provider dependency cohort', () => {
       'GOOGLE_FLASH:gemini-3.7-flash',
     ]);
     expect(manifest).toMatchObject({
+      version: 'EDITRON_STAGE25_PROVIDER_DEPENDENCY_COHORT_V3R_1',
+      experimentId: 'EDITRON_STAGE25_FORK_JOIN_PROVIDER_COHORT_V3R',
       repetitionsPerRoute: 3,
       rowCount: 9,
       argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES',
       stateEffects: [],
+    });
+    expect(manifest.sourceBinding).toMatchObject({
+      cap2ManifestSha256: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V6.manifestHash,
+      cap2SourceSnapshotSha256:
+        CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V6.sourceBinding.normalizedSourceSnapshotHash,
+      cap2SourceCommit: CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V6.sourceBinding.commit,
     });
     expect(new Set(manifest.presentations.map(
       ({ operatorOrderSha256 }) => operatorOrderSha256,

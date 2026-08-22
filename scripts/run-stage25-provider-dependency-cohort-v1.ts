@@ -17,6 +17,8 @@ import { createProviderNativeLiveTransportV2R }
 
 const repoRoot = process.cwd();
 const BENCHMARK_SOURCE_PATHS = [
+  'scripts/run-stage25-provider-dependency-cohort-v1.ts',
+  'lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v6.ts',
   'lib/editron/research/open-ended-planner/stage25-provider-dependency-cohort-v1.ts',
   'lib/editron/research/open-ended-planner/stage25-provider-dependency-cohort-runner-v1.ts',
   'lib/editron/research/open-ended-planner/stage25-provider-dependency-holdout-v1.ts',
@@ -24,6 +26,8 @@ const BENCHMARK_SOURCE_PATHS = [
   'lib/editron/research/open-ended-planner/stage25-provider-trace-schedule-binding-v1.ts',
   'lib/editron/research/open-ended-planner/provider-native-tool-episode-v2r.ts',
   'lib/editron/research/open-ended-planner/provider-native-tool-catalog-v2r.ts',
+  'lib/editron/research/open-ended-planner/operator-catalog-v2r.ts',
+  'lib/editron/research/open-ended-planner/sealed-holdout-runtime-budget-v2r.ts',
 ] as const;
 const GOOGLE_CREDENTIAL_NAMES = [
   'GOOGLE_GENERATIVE_AI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY',

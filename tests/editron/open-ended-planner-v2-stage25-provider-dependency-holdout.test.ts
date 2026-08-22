@@ -49,6 +49,21 @@ describe('Stage 2.5 non-leading provider dependency holdout', () => {
         },
       },
     });
+    const filterTool = buildStage25ProviderDependencyToolSetV1().operators
+      .find(({ operatorId }) => operatorId === 'apply_filter');
+    expect(filterTool?.providerInputSchema).toMatchObject({
+      properties: {
+        effectPlan: {
+          required: ['filterIntent'],
+          properties: {
+            filterIntent: {
+              enum: ['warmer', 'cooler', 'brighter', 'higher-contrast', 'black-and-white', 'muted', 'clear'],
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    });
     expect(records(dossier.plannerRecordSupplements)).toContainEqual({
       selectableOperatorId: 'sync_cuts_to_beats',
       inputOrigins: {
