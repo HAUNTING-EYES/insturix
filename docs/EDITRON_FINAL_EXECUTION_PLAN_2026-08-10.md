@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `18ac28f9b` on
+programme code checkpoint represented by this ledger is `301451570` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1350,6 +1350,39 @@ capability-honesty evidence only; no alternative executed or rendered and no
 provider leaderboard is supported. The temporary production environment file
 was deleted and verified absent. Full interpretation is in
 `docs/editron/open-ended-editing/oe-stage25-route-ablation-paid-results-2026-08-22.md`.
+
+**Executable DEV-02 native-versus-hybrid comparison checkpoint
+(2026-08-22):** commits `5255d3564`, `dd4f1b394` and `4304a6301` first
+requalified the existing generated-composition sandbox budget, froze its V2
+research capability and connected the real generated-island plus native-
+continuation Stage-6 path without ProjectService mutation. Hybrid receipt
+`1a56ecb4...` binds output `aa5f6644...`: a decoded 345-frame, 1080x1920,
+30/1, 11.5-second H.264 proxy with no audio. Commit `aab32efcb` then exposed a
+route-neutral DEV-02 target-proof seam without introducing a second proof
+policy. Commit `8114058fd` rendered the same target through current native
+Editron overlay state; native receipt `f8d8452f...`, proof `6ceb231d...` and
+output `4b5b4cc1...` bind the same decoded output scope. Both candidates pass
+frame integrity, geometry/gutters, title, opposed motion, phase structure,
+full-canvas release and boundary continuity; flash safety and creative taste
+remain `UNVERIFIABLE`. The forced-native representation requires sixteen
+overlays, seven keyframe tracks and fourteen keyframes while representing zero
+cross-element relationships; the generated program declares six layers and
+five exposed parameters, but still lacks product nested-composition state.
+
+Commit `301451570` adds the fail-closed randomized review pack. The public pack
+hash is `23870abb472e9ccb4f112b2a435ab0ed2f61fd93a797b3c9ee43567385b6786c`;
+its sealed operator-key hash is
+`e9fc76de02a2aa252ce99cb8e2e54548f1f752d9622770a256f653de824fc880`
+and technical-comparison hash is
+`9e48547ad9ee175b2f57df0043764040b1d3c1ac73440491deb85685e8b7b9e3`.
+Reviewer copies are under
+`.calibration-temp/editron-stage25-route-execution-v1/dev02-route-comparison-v1-20260822-01/reviewer/`;
+their public SHA-256 values are `26ad4d12...` and `a578ef23...`. Both were
+independently probed at the shared output scope and the public files contain no
+route/receipt identity. The A/B mapping must remain sealed until the sole
+reviewer finishes both videos and freezes the review form. This is a fair
+bounded route comparison, not production route certification or a blind-editor
+panel; correction time, preference and confidence are still pending.
 
 **Superseding H03 V3R3 paid-run checkpoint (2026-08-22):** commits
 `ee55d9d1d`, `b37e97005` and `ffe78719f` converge the generated render snapshot
@@ -2024,7 +2057,7 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. Stage-2 routing calls are complete, but no native/generated/hybrid alternative has executed under this frozen target and no rendered route comparison exists. Build only truthful executable alternatives, preserving structured gaps for unavailable routes, then compare fidelity/editability/repair/correction-time/latency/cost. Continue dependency/invalidation diversity, stale/overlap/rebase/lock behavior, mid-episode compaction/resume, long-form range planning and blind quality receipts. HREF-01 still has one qualified reviewer only. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. DEV-02 now has one real native alternative and one real generated-island/native-continuation hybrid at identical decoded scope, plus sealed blind pack `23870abb...`; hard target gates pass for both. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The DEV-02 A/B preference, correction time and confidence receipt remain pending, and one native-versus-hybrid synthetic case is not a general route policy. Continue three-way native/generated/hybrid held-out alternatives, dependency/invalidation diversity, stale/overlap/rebase/lock behavior, mid-episode compaction/resume, long-form range planning and blind quality receipts. HREF-01 still has one qualified reviewer only. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -3595,9 +3628,12 @@ built around it.
     It proves current native state can approximate this fixture with substantial
     authoring/revision surface; it does not prove native is the better route,
     that a model selected it, or that the target is production-certified.
-    Next freeze the route-comparison receipt and blind pack for native versus
-    generated/hybrid, then continue dependency-shape diversity,
-    conflict/rebase/locked-range, context-resume and long-form/range trials.
+    Commit `301451570` now freezes the randomized native-versus-hybrid review
+    pack (`23870abb...`) with two independently probed identity-free reviewer
+    copies and a sealed operator key. Next obtain the sole-reviewer preference,
+    correction-time and confidence receipt without opening the key; then
+    continue dependency-shape diversity, conflict/rebase/locked-range,
+    context-resume and long-form/range trials.
   - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,
     blind review, cost/latency and no hidden manual rescue.
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
