@@ -35,18 +35,43 @@ import {
 } from './sealed-holdout-cohort-v2r';
 import {
   evaluateBudgetedSealedHoldoutTraceV2R,
+  evaluateBudgetedSealedHoldoutTraceV3R2,
   type BudgetedSealedHoldoutEvaluationReceiptV2R,
+  type BudgetedSealedHoldoutEvaluationReceiptV3R2,
 } from './sealed-holdout-evaluator-v2r';
 import { runBudgetedSealedHoldoutEpisodeV2R }
   from './sealed-holdout-episode-v2r';
 import {
+  runBudgetedSealedHoldoutEpisodeV3R2,
+} from './sealed-holdout-episode-v3r';
+import {
   proveSealedHoldoutPaidOutcomeV2R,
+  proveSealedHoldoutPaidOutcomeV3R2,
   type SealedHoldoutPaidProofInputV2R,
+  type SealedHoldoutPaidProofInputV3R2,
   type SealedHoldoutPaidProofSummaryV2R,
 } from './sealed-holdout-paid-proof-adapter-v2r';
 import {
+  assertSealedHoldoutCohortManifestV3R2,
+  type SealedHoldoutCohortManifestV3R2,
+} from './sealed-holdout-cohort-v3r2';
+import {
+  assertSealedHoldoutGeneralisationManifestV4R,
+  type SealedHoldoutGeneralisationManifestV4R,
+} from './sealed-holdout-generalisation-cohort-v4r';
+import {
+  assertSealedHoldoutGeneralisationPaidAuthorizationV4R,
+  type SealedHoldoutGeneralisationPaidAuthorizationV4R,
+} from './sealed-holdout-generalisation-paid-authorization-v4r';
+import {
+  assertSealedHoldoutGeneralisationPreflightReceiptV4R,
+  type SealedHoldoutGeneralisationPreflightReceiptV4R,
+  type SealedHoldoutGeneralisationRequestCaptureV4R,
+} from './sealed-holdout-generalisation-preflight-v4r';
+import {
   SEALED_HOLDOUT_RUNTIME_ROUTE_BINDING_VERSION_V2R,
   buildSealedHoldoutRuntimeAccountingBindingV2R,
+  buildSealedHoldoutRuntimeAccountingBindingV3R2,
   type SealedHoldoutRuntimeAccountingApprovalV2R,
 } from './sealed-holdout-runtime-route-binding-v2r';
 import {
@@ -55,7 +80,9 @@ import {
 } from './sealed-holdout-runtime-route-facts-v2r';
 import {
   assertBudgetedSealedHoldoutSelectedOperationTraceV2R,
+  assertBudgetedSealedHoldoutSelectedOperationTraceV3R2,
   buildBudgetedSealedHoldoutSelectedOperationTraceV2R,
+  buildBudgetedSealedHoldoutSelectedOperationTraceV3R2,
 } from './sealed-holdout-trace-v2r';
 
 type JsonRecord = Record<string, unknown>;
@@ -72,14 +99,60 @@ interface SealedHoldoutPaidRowPlanV2R {
   route: Readonly<ProviderNativeRouteV2R>;
   routeSha256: string;
   handoffMode: ProviderNativeArgumentHandoffModeV2R;
+  orderId?: string;
   operatorOrder: readonly string[];
   operatorOrderSha256: string;
   initialRequestSha256: string;
+  manifestRowPlanSha256?: string;
   rowPlanSha256: string;
 }
 
 const SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_PAID_COHORT_RUNNER_V2R_1' as const;
+export const SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V4R =
+  'EDITRON_OE_STAGE25_GENERALISATION_PAID_COHORT_RUNNER_V4R_1' as const;
+
+type PaidAuthorizationV2R = Readonly<SealedHoldoutPaidDispatchAuthorizationV2R
+  | SealedHoldoutGeneralisationPaidAuthorizationV4R>;
+type PaidEvaluationV2R = Readonly<BudgetedSealedHoldoutEvaluationReceiptV2R
+  | BudgetedSealedHoldoutEvaluationReceiptV3R2>;
+
+interface SealedHoldoutPaidCohortVariantV2R {
+  version: typeof SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R
+    | typeof SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V4R;
+  rowCount: 45 | 96;
+  manifestSha256: string;
+  cap2CurrentTruthManifestSha256: string;
+  preflightReceiptSha256: string;
+  requestCaptureSetSha256: string;
+  rows: readonly Readonly<SealedHoldoutPaidRowPlanV2R>[];
+  authorization: PaidAuthorizationV2R;
+  assertAuthorization: (now: string) => void;
+  buildRouteBinding: (input: Readonly<{
+    rowPlan: Readonly<SealedHoldoutPaidRowPlanV2R>;
+    rowSpendMicroUsd: number;
+    googleApiKey: string;
+    fetchImpl: typeof fetch;
+    now: string;
+  }>) => ReturnType<typeof buildSealedHoldoutRuntimeAccountingBindingV2R>;
+  execute: (input: Readonly<{
+    rowPlan: Readonly<SealedHoldoutPaidRowPlanV2R>;
+    routeBinding: ReturnType<typeof buildSealedHoldoutRuntimeAccountingBindingV2R>;
+    invoke: (request: Readonly<SerializedProviderNativeTurnV2R>)
+      => Promise<ProviderNativeInvokeResponseV2R>;
+    mediaManifest: Readonly<HoldoutMediaManifestV2R>;
+    proofRoot: string;
+  }>) => Promise<Readonly<{
+    episode: Readonly<JsonRecord>;
+    trace: Readonly<JsonRecord>;
+    evaluation: PaidEvaluationV2R;
+    proof: Readonly<JsonRecord>;
+  }>>;
+  validatePersistedEvaluation: (
+    row: Readonly<JsonRecord>,
+    expected: Readonly<SealedHoldoutPaidRowPlanV2R>,
+  ) => void;
+}
 
 interface SealedHoldoutPaidCohortRunnerDependenciesV2R {
   fetchImpl?: typeof fetch;
@@ -103,6 +176,27 @@ interface SealedHoldoutPaidCohortRunInputV2R {
   dependencies?: Readonly<SealedHoldoutPaidCohortRunnerDependenciesV2R>;
 }
 
+interface SealedHoldoutPaidCohortRunnerDependenciesV4R
+extends Omit<SealedHoldoutPaidCohortRunnerDependenciesV2R, 'proofExecutor'> {
+  proofExecutor?: (
+    input: Readonly<SealedHoldoutPaidProofInputV3R2>,
+  ) => Promise<Readonly<SealedHoldoutPaidProofSummaryV2R>>;
+}
+
+export interface SealedHoldoutPaidCohortRunInputV4R {
+  generalisationManifest: Readonly<SealedHoldoutGeneralisationManifestV4R>;
+  baseManifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  credentialPreflight: Readonly<SealedHoldoutGeneralisationPreflightReceiptV4R>;
+  requestCaptures: readonly Readonly<SealedHoldoutGeneralisationRequestCaptureV4R>[];
+  paidAuthorization: Readonly<SealedHoldoutGeneralisationPaidAuthorizationV4R>;
+  mediaManifest: Readonly<HoldoutMediaManifestV2R>;
+  outputRoot: string;
+  implementationCommitSha: string;
+  runnerSourceSha256: string;
+  environment: Readonly<Record<string, string | undefined>>;
+  dependencies?: Readonly<SealedHoldoutPaidCohortRunnerDependenciesV4R>;
+}
+
 interface SealedHoldoutPaidCohortReceiptV2R {
   version: typeof SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R;
   authority: 'RESEARCH_PROVIDER_COHORT_NO_PROJECT_AUTHORITY';
@@ -122,6 +216,35 @@ interface SealedHoldoutPaidCohortReceiptV2R {
   receiptSha256: string;
 }
 
+export interface SealedHoldoutPaidCohortReceiptV4R {
+  version: typeof SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V4R;
+  authority: 'RESEARCH_PROVIDER_COHORT_NO_PROJECT_AUTHORITY';
+  runContractSha256: string;
+  authorizationSha256: string;
+  rowCount: 45;
+  rowSummaries: readonly Readonly<JsonRecord>[];
+  statusCounts: Readonly<Record<RowStatus, number>>;
+  providerInferenceCalls: number;
+  googleCountTokensCalls: number;
+  providerTurns: number;
+  spentNanoUsd: number;
+  projectReads: 0;
+  projectMutations: 0;
+  stateEffects: readonly [];
+  assessment: 'RAW_EXECUTED_PENDING_FROZEN_INTERPRETATION';
+  receiptSha256: string;
+}
+
+interface SealedHoldoutPaidCohortCoreInputV2R {
+  mediaManifest: Readonly<HoldoutMediaManifestV2R>;
+  outputRoot: string;
+  implementationCommitSha: string;
+  runnerSourceSha256: string;
+  environment: Readonly<Record<string, string | undefined>>;
+  dependencies?: Readonly<Omit<SealedHoldoutPaidCohortRunnerDependenciesV2R, 'proofExecutor'>>;
+  variant: Readonly<SealedHoldoutPaidCohortVariantV2R>;
+}
+
 export async function runSealedHoldoutPaidCohortV2R(
   input: Readonly<SealedHoldoutPaidCohortRunInputV2R>,
 ): Promise<Readonly<SealedHoldoutPaidCohortReceiptV2R>> {
@@ -136,16 +259,66 @@ export async function runSealedHoldoutPaidCohortV2R(
     authorization: input.paidAuthorization,
     now: input.paidAuthorization.approvedAt,
   });
+  const variant = buildHistoricalRunnerVariant({
+    input, manifest, credential, authorization,
+  });
+  return runPaidCohortCore({
+    ...input,
+    variant,
+    dependencies: input.dependencies,
+  }) as Promise<Readonly<SealedHoldoutPaidCohortReceiptV2R>>;
+}
+
+export async function runSealedHoldoutPaidCohortV4R(
+  input: Readonly<SealedHoldoutPaidCohortRunInputV4R>,
+): Promise<Readonly<SealedHoldoutPaidCohortReceiptV4R>> {
+  const generalisationManifest = assertSealedHoldoutGeneralisationManifestV4R(
+    input.generalisationManifest,
+  );
+  const baseManifest = assertSealedHoldoutCohortManifestV3R2(input.baseManifest);
+  if (text(record(generalisationManifest.baseCohortIdentity).manifestSha256)
+    !== baseManifest.manifestSha256) {
+    fail('SEALED_PAID_V4R_BASE_MANIFEST_DRIFT');
+  }
+  const credential = assertSealedHoldoutGeneralisationPreflightReceiptV4R({
+    manifest: generalisationManifest,
+    value: input.credentialPreflight,
+  });
+  if (hashCanonicalJsonV1(input.requestCaptures) !== credential.requestCaptureSetSha256) {
+    fail('SEALED_PAID_V4R_REQUEST_CAPTURE_SET_DRIFT');
+  }
+  const authorization = assertSealedHoldoutGeneralisationPaidAuthorizationV4R({
+    generalisationManifest,
+    baseManifest,
+    preflight: credential,
+    authorization: input.paidAuthorization,
+    now: input.paidAuthorization.approvedAt,
+  });
+  const variant = buildCurrentRunnerVariant({
+    input, generalisationManifest, baseManifest, credential, authorization,
+  });
+  return runPaidCohortCore({
+    ...input,
+    variant,
+    dependencies: input.dependencies,
+  }) as Promise<Readonly<SealedHoldoutPaidCohortReceiptV4R>>;
+}
+
+async function runPaidCohortCore(
+  input: Readonly<SealedHoldoutPaidCohortCoreInputV2R>,
+): Promise<Readonly<JsonRecord>> {
+  const variant = input.variant;
+  const authorization = variant.authorization;
   const dependencies = input.dependencies ?? {};
   const now = dependencies.now ?? (() => new Date().toISOString());
   const uniqueId = dependencies.uniqueId ?? randomUUID;
-  const rows = buildRowPlans(manifest, credential);
-  const contract = buildRunContract(input, authorization, rows);
+  const rows = variant.rows;
+  const contract = buildRunContract(input, variant);
   await initializeRunRoot(input.outputRoot, contract);
   const completePath = join(input.outputRoot, 'cohort-receipt.json');
   if (await exists(completePath)) {
     return readAndValidateCohortReceipt(
-      completePath, input.outputRoot, contract, rows, manifest, authorization,
+      completePath, input.outputRoot, contract, variant,
     );
   }
   const credentials = resolveProviderNativeCredentialsV2R(input.environment);
@@ -155,15 +328,13 @@ export async function runSealedHoldoutPaidCohortV2R(
     if (await exists(paths.row)) {
       if (!await exists(paths.attempt)) fail(`SEALED_PAID_ROW_ATTEMPT_MISSING:${rowPlan.rowId}`);
       await readAndValidateAttempt(paths.attempt, contract, rowPlan);
-      completed.push(await readAndValidateRow(paths.row, contract, rowPlan, manifest));
+      completed.push(await readAndValidateRow(paths.row, contract, rowPlan, variant));
       continue;
     }
     if (await exists(paths.attempt)) {
       fail(`SEALED_PAID_ROW_PRIOR_ATTEMPT_INDETERMINATE:${rowPlan.rowId}`);
     }
-    assertSealedHoldoutPaidDispatchAuthorizationV2R({
-      manifest, credentialPreflight: credential, authorization, now: now(),
-    });
+    variant.assertAuthorization(now());
     const totals = aggregateRows(completed);
     const remainingMicroUsd = Math.floor((
       authorization.limits.absoluteMaxCohortSpendMicroUsd * 1_000
@@ -179,7 +350,7 @@ export async function runSealedHoldoutPaidCohortV2R(
       rowPlan.route,
     );
     const routeBinding = buildRouteBinding({
-      manifest, authorization, rowPlan, rowSpendMicroUsd,
+      variant, rowPlan, rowSpendMicroUsd,
       googleApiKey: credentials.googleKey, fetchImpl: network.fetchImpl, now: now(),
     });
     const transport = (dependencies.transportFactory
@@ -206,30 +377,15 @@ export async function runSealedHoldoutPaidCohortV2R(
     };
     await writeJsonOnce(paths.attempt, attemptReceipt(contract, rowPlan, now()));
     try {
-      const episode = await runBudgetedSealedHoldoutEpisodeV2R({
-        manifest, caseId: rowPlan.caseId, route: rowPlan.route,
-        authorization: routeBinding.authorization,
-        countInputTokens: routeBinding.countInputTokens,
-        argumentHandoffMode: rowPlan.handoffMode,
-        operatorPresentationOrder: rowPlan.operatorOrder,
-        invoke,
-      });
-      const trace = buildBudgetedSealedHoldoutSelectedOperationTraceV2R({
-        manifest, caseId: rowPlan.caseId, budgetedEpisode: episode,
-      });
-      const evaluation = evaluateBudgetedSealedHoldoutTraceV2R({
-        manifest, caseId: rowPlan.caseId, trace,
-      });
-      const proof = await runProofIfEligible({
-        manifest, rowPlan, trace, evaluation,
-        mediaManifest: input.mediaManifest,
+      const outcome = await variant.execute({
+        rowPlan, routeBinding, invoke, mediaManifest: input.mediaManifest,
         proofRoot: join(input.outputRoot, 'proof-attempts', `${rowPlan.rowId}-${uniqueId()}`),
-        proofExecutor: dependencies.proofExecutor ?? proveSealedHoldoutPaidOutcomeV2R,
       });
       const transportReceipt = transport.snapshot();
       const row = buildRowReceipt({
+        version: variant.version,
         contract, rowPlan, routeBindingReceipt: routeBinding.receipt,
-        episode, trace, evaluation, proof,
+        ...outcome,
         transportReceipt, networkAudit: network.snapshot(), exchanges,
         firstRequestVerified: invokeCount > 0,
       });
@@ -242,7 +398,7 @@ export async function runSealedHoldoutPaidCohortV2R(
       throw error;
     }
   }
-  const cohort = buildCohortReceipt(contract, authorization, completed);
+  const cohort = buildCohortReceipt(contract, variant, completed);
   assertNoSecrets(cohort, input.environment);
   await writeJsonOnce(completePath, cohort);
   return cohort;
@@ -284,28 +440,253 @@ function buildRowPlans(
   return deepFreezeV1(plans);
 }
 
+function buildHistoricalRunnerVariant(input: Readonly<{
+  input: Readonly<SealedHoldoutPaidCohortRunInputV2R>;
+  manifest: Readonly<SealedHoldoutCohortManifestV2R>;
+  credential: Readonly<SealedHoldoutCredentialPreflightReceiptV2R>;
+  authorization: Readonly<SealedHoldoutPaidDispatchAuthorizationV2R>;
+}>): Readonly<SealedHoldoutPaidCohortVariantV2R> {
+  const proofExecutor = input.input.dependencies?.proofExecutor
+    ?? proveSealedHoldoutPaidOutcomeV2R;
+  return deepFreezeV1({
+    version: SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R,
+    rowCount: 96 as const,
+    manifestSha256: input.manifest.manifestSha256,
+    cap2CurrentTruthManifestSha256:
+      text(record(input.manifest.cap2CurrentTruthBinding).manifestSha256),
+    preflightReceiptSha256: input.credential.receiptSha256,
+    requestCaptureSetSha256: input.credential.requestCaptureSetSha256,
+    rows: buildRowPlans(input.manifest, input.credential),
+    authorization: input.authorization,
+    assertAuthorization: (now: string) => {
+      assertSealedHoldoutPaidDispatchAuthorizationV2R({
+        manifest: input.manifest,
+        credentialPreflight: input.credential,
+        authorization: input.authorization,
+        now,
+      });
+    },
+    buildRouteBinding: (bindingInput) => buildHistoricalRouteBinding({
+      ...bindingInput,
+      manifest: input.manifest,
+      authorization: input.authorization,
+    }),
+    execute: async (executionInput) => {
+      const episode = await runBudgetedSealedHoldoutEpisodeV2R({
+        manifest: input.manifest,
+        caseId: executionInput.rowPlan.caseId,
+        route: executionInput.rowPlan.route,
+        authorization: executionInput.routeBinding.authorization,
+        countInputTokens: executionInput.routeBinding.countInputTokens,
+        argumentHandoffMode: executionInput.rowPlan.handoffMode,
+        operatorPresentationOrder: executionInput.rowPlan.operatorOrder,
+        invoke: executionInput.invoke,
+      });
+      const trace = buildBudgetedSealedHoldoutSelectedOperationTraceV2R({
+        manifest: input.manifest,
+        caseId: executionInput.rowPlan.caseId,
+        budgetedEpisode: episode,
+      });
+      const evaluation = evaluateBudgetedSealedHoldoutTraceV2R({
+        manifest: input.manifest,
+        caseId: executionInput.rowPlan.caseId,
+        trace,
+      });
+      const proof = await runProofIfEligible({
+        evaluation,
+        execute: () => proofExecutor({
+          manifest: input.manifest,
+          caseId: executionInput.rowPlan.caseId,
+          trace,
+          evaluation,
+          mediaManifest: executionInput.mediaManifest,
+          outputDirectory: executionInput.proofRoot,
+        }),
+      });
+      return {
+        episode: episode as unknown as Readonly<JsonRecord>,
+        trace: trace as unknown as Readonly<JsonRecord>,
+        evaluation,
+        proof,
+      };
+    },
+    validatePersistedEvaluation: (row, expected) => {
+      const trace = assertBudgetedSealedHoldoutSelectedOperationTraceV2R(row.trace);
+      const evaluation = evaluateBudgetedSealedHoldoutTraceV2R({
+        manifest: input.manifest,
+        caseId: expected.caseId,
+        trace,
+      });
+      assertPersistedEvaluation(row, expected, evaluation);
+    },
+  });
+}
+
+function buildCurrentRunnerVariant(input: Readonly<{
+  input: Readonly<SealedHoldoutPaidCohortRunInputV4R>;
+  generalisationManifest: Readonly<SealedHoldoutGeneralisationManifestV4R>;
+  baseManifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  credential: Readonly<SealedHoldoutGeneralisationPreflightReceiptV4R>;
+  authorization: Readonly<SealedHoldoutGeneralisationPaidAuthorizationV4R>;
+}>): Readonly<SealedHoldoutPaidCohortVariantV2R> {
+  const proofExecutor = input.input.dependencies?.proofExecutor
+    ?? proveSealedHoldoutPaidOutcomeV3R2;
+  return deepFreezeV1({
+    version: SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V4R,
+    rowCount: 45 as const,
+    manifestSha256: input.generalisationManifest.manifestSha256,
+    cap2CurrentTruthManifestSha256:
+      text(record(input.generalisationManifest.cap2CurrentTruthBinding).manifestSha256),
+    preflightReceiptSha256: input.credential.receiptSha256,
+    requestCaptureSetSha256: input.credential.requestCaptureSetSha256,
+    rows: buildCurrentRowPlans(input),
+    authorization: input.authorization,
+    assertAuthorization: (now: string) => {
+      assertSealedHoldoutGeneralisationPaidAuthorizationV4R({
+        generalisationManifest: input.generalisationManifest,
+        baseManifest: input.baseManifest,
+        preflight: input.credential,
+        authorization: input.authorization,
+        now,
+      });
+    },
+    buildRouteBinding: (bindingInput) => buildCurrentRouteBinding({
+      ...bindingInput,
+      manifest: input.baseManifest,
+      authorization: input.authorization,
+    }),
+    execute: async (executionInput) => {
+      const episode = await runBudgetedSealedHoldoutEpisodeV3R2({
+        manifest: input.baseManifest,
+        caseId: executionInput.rowPlan.caseId,
+        route: executionInput.rowPlan.route,
+        authorization: executionInput.routeBinding.authorization,
+        countInputTokens: executionInput.routeBinding.countInputTokens,
+        argumentHandoffMode: executionInput.rowPlan.handoffMode,
+        operatorPresentationOrder: executionInput.rowPlan.operatorOrder,
+        invoke: executionInput.invoke,
+      });
+      const trace = buildBudgetedSealedHoldoutSelectedOperationTraceV3R2({
+        manifest: input.baseManifest,
+        caseId: executionInput.rowPlan.caseId,
+        budgetedEpisode: episode,
+      });
+      const evaluation = evaluateBudgetedSealedHoldoutTraceV3R2({
+        manifest: input.baseManifest,
+        caseId: executionInput.rowPlan.caseId,
+        trace,
+      });
+      const proof = await runProofIfEligible({
+        evaluation,
+        execute: () => proofExecutor({
+          manifest: input.baseManifest,
+          caseId: executionInput.rowPlan.caseId,
+          budgetedEpisode: episode,
+          trace,
+          evaluation,
+          mediaManifest: executionInput.mediaManifest,
+          outputDirectory: executionInput.proofRoot,
+        }),
+      });
+      return {
+        episode: episode as unknown as Readonly<JsonRecord>,
+        trace: trace as unknown as Readonly<JsonRecord>,
+        evaluation,
+        proof,
+      };
+    },
+    validatePersistedEvaluation: (row, expected) => {
+      const trace = assertBudgetedSealedHoldoutSelectedOperationTraceV3R2(row.trace);
+      const evaluation = evaluateBudgetedSealedHoldoutTraceV3R2({
+        manifest: input.baseManifest,
+        caseId: expected.caseId,
+        trace,
+      });
+      assertPersistedEvaluation(row, expected, evaluation);
+    },
+  });
+}
+
+function buildCurrentRowPlans(input: Readonly<{
+  generalisationManifest: Readonly<SealedHoldoutGeneralisationManifestV4R>;
+  baseManifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  credential: Readonly<SealedHoldoutGeneralisationPreflightReceiptV4R>;
+  authorization: Readonly<SealedHoldoutGeneralisationPaidAuthorizationV4R>;
+  input: Readonly<SealedHoldoutPaidCohortRunInputV4R>;
+}>): readonly Readonly<SealedHoldoutPaidRowPlanV2R>[] {
+  const plans = input.generalisationManifest.rows.map((row) => {
+    const rowId = text(row.rowId);
+    const capture = input.input.requestCaptures.find((entry) => entry.rowId === rowId);
+    const check = records(input.credential.checks).find((entry) => entry.rowId === rowId);
+    const authorized = input.authorization.authorizedRows.find((entry) => entry.rowId === rowId);
+    const taskCase = input.baseManifest.cases.find(({ caseId }) => caseId === text(row.caseId));
+    const route = routeFromCurrentRow(row);
+    const rowIndex = number(row.rowIndex);
+    const operatorOrder = strings(row.operatorOrder);
+    if (!capture || !check || !authorized || !taskCase
+      || rowIndex < 1 || operatorOrder.length !== 33
+      || capture.rowPlanSha256 !== row.rowPlanSha256
+      || check.rowPlanSha256 !== row.rowPlanSha256
+      || authorized.rowPlanSha256 !== row.rowPlanSha256
+      || capture.caseId !== row.caseId || check.caseId !== row.caseId
+      || capture.routeId !== route.routeId || authorized.routeId !== route.routeId
+      || capture.handoffMode !== row.handoffMode || authorized.handoffMode !== row.handoffMode
+      || authorized.orderId !== row.orderId
+      || capture.operatorOrderSha256 !== row.operatorOrderSha256
+      || authorized.operatorOrderSha256 !== row.operatorOrderSha256
+      || hashCanonicalJsonV1(operatorOrder) !== row.operatorOrderSha256
+      || check.requestSha256 !== capture.request.requestHash) {
+      fail(`SEALED_PAID_V4R_ROW_BINDING_DRIFT:${rowId}`);
+    }
+    const material = {
+      rowIndex, rowId, captureId: capture.captureId,
+      caseId: text(row.caseId), publicCaseSha256: taskCase.publicCaseSha256,
+      route, routeSha256: text(row.routeSha256),
+      handoffMode: capture.handoffMode,
+      orderId: text(row.orderId), operatorOrder,
+      operatorOrderSha256: text(row.operatorOrderSha256),
+      initialRequestSha256: capture.request.requestHash,
+      manifestRowPlanSha256: text(row.rowPlanSha256),
+    };
+    return { ...material, rowPlanSha256: hashCanonicalJsonV1(material) };
+  });
+  if (plans.length !== 45 || new Set(plans.map(({ rowId }) => rowId)).size !== 45) {
+    fail('SEALED_PAID_V4R_ROW_PLAN_COUNT_INVALID');
+  }
+  return deepFreezeV1(plans);
+}
+
+function routeFromCurrentRow(row: Readonly<JsonRecord>): Readonly<ProviderNativeRouteV2R> {
+  const route = buildSealedHoldoutBenchmarkRoutesV2R().find(
+    ({ routeId }) => routeId === text(record(row.route).routeId),
+  );
+  if (!route || hashCanonicalJsonV1(route) !== row.routeSha256) {
+    fail(`SEALED_PAID_V4R_ROUTE_DRIFT:${text(row.rowId)}`);
+  }
+  return route;
+}
+
 function buildRunContract(
-  input: Readonly<SealedHoldoutPaidCohortRunInputV2R>,
-  authorization: Readonly<SealedHoldoutPaidDispatchAuthorizationV2R>,
-  rows: readonly Readonly<SealedHoldoutPaidRowPlanV2R>[],
+  input: Readonly<SealedHoldoutPaidCohortCoreInputV2R>,
+  variant: Readonly<SealedHoldoutPaidCohortVariantV2R>,
 ): Readonly<JsonRecord> {
   requireSha(input.runnerSourceSha256, 'SEALED_PAID_RUNNER_SOURCE_SHA_INVALID');
   if (!/^[a-f0-9]{40}$/.test(input.implementationCommitSha)) {
     fail('SEALED_PAID_IMPLEMENTATION_COMMIT_INVALID');
   }
   const material = {
-    version: SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R,
+    version: variant.version,
     authority: 'RESEARCH_PROVIDER_COHORT_NO_PROJECT_AUTHORITY',
     implementationCommitSha: input.implementationCommitSha,
     runnerSourceSha256: input.runnerSourceSha256,
-    manifestSha256: input.manifest.manifestSha256,
-    cap2CurrentTruthManifestSha256: text(record(input.manifest.cap2CurrentTruthBinding).manifestSha256),
-    credentialPreflightReceiptSha256: input.credentialPreflight.receiptSha256,
-    requestCaptureSetSha256: input.credentialPreflight.requestCaptureSetSha256,
-    authorizationSha256: authorization.authorizationSha256,
+    manifestSha256: variant.manifestSha256,
+    cap2CurrentTruthManifestSha256: variant.cap2CurrentTruthManifestSha256,
+    credentialPreflightReceiptSha256: variant.preflightReceiptSha256,
+    requestCaptureSetSha256: variant.requestCaptureSetSha256,
+    authorizationSha256: variant.authorization.authorizationSha256,
     mediaManifestSha256: input.mediaManifest.manifestSha256,
-    rowPlanSetSha256: hashCanonicalJsonV1(rows),
-    rowCount: rows.length,
+    rowPlanSetSha256: hashCanonicalJsonV1(variant.rows),
+    rowCount: variant.rowCount,
     projectReadsAuthorized: 0,
     projectMutationsAuthorized: 0,
     stateEffects: [],
@@ -314,6 +695,17 @@ function buildRunContract(
 }
 
 function buildRouteBinding(input: Readonly<{
+  variant: Readonly<SealedHoldoutPaidCohortVariantV2R>;
+  rowPlan: Readonly<SealedHoldoutPaidRowPlanV2R>;
+  rowSpendMicroUsd: number;
+  googleApiKey: string;
+  fetchImpl: typeof fetch;
+  now: string;
+}>): ReturnType<typeof buildSealedHoldoutRuntimeAccountingBindingV2R> {
+  return input.variant.buildRouteBinding(input);
+}
+
+function buildHistoricalRouteBinding(input: Readonly<{
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
   authorization: Readonly<SealedHoldoutPaidDispatchAuthorizationV2R>;
   rowPlan: Readonly<SealedHoldoutPaidRowPlanV2R>;
@@ -323,9 +715,42 @@ function buildRouteBinding(input: Readonly<{
   now: string;
 }>): ReturnType<typeof buildSealedHoldoutRuntimeAccountingBindingV2R> {
   const route = input.rowPlan.route;
+  const approval = buildRuntimeApproval(input);
+  return buildSealedHoldoutRuntimeAccountingBindingV2R({
+    manifest: input.manifest, caseId: approval.caseId, route, approval,
+    googleApiKey: route.provider === 'google' ? input.googleApiKey : undefined,
+    fetchImpl: input.fetchImpl, now: input.now,
+  });
+}
+
+function buildCurrentRouteBinding(input: Readonly<{
+  manifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  authorization: Readonly<SealedHoldoutGeneralisationPaidAuthorizationV4R>;
+  rowPlan: Readonly<SealedHoldoutPaidRowPlanV2R>;
+  rowSpendMicroUsd: number;
+  googleApiKey: string;
+  fetchImpl: typeof fetch;
+  now: string;
+}>): ReturnType<typeof buildSealedHoldoutRuntimeAccountingBindingV3R2> {
+  const route = input.rowPlan.route;
+  const approval = buildRuntimeApproval(input);
+  return buildSealedHoldoutRuntimeAccountingBindingV3R2({
+    manifest: input.manifest, caseId: approval.caseId, route, approval,
+    googleApiKey: route.provider === 'google' ? input.googleApiKey : undefined,
+    fetchImpl: input.fetchImpl, now: input.now,
+  });
+}
+
+function buildRuntimeApproval(input: Readonly<{
+  manifest: Readonly<{ manifestSha256: string }>;
+  authorization: PaidAuthorizationV2R;
+  rowPlan: Readonly<SealedHoldoutPaidRowPlanV2R>;
+  rowSpendMicroUsd: number;
+}>): SealedHoldoutRuntimeAccountingApprovalV2R {
+  const route = input.rowPlan.route;
   const fact = findSealedHoldoutRuntimeRouteFactV2R(route.routeId);
   if (!fact) fail(`SEALED_PAID_ROUTE_FACT_MISSING:${route.routeId}`);
-  const approval: SealedHoldoutRuntimeAccountingApprovalV2R = {
+  return {
     version: SEALED_HOLDOUT_RUNTIME_ROUTE_BINDING_VERSION_V2R,
     pricingSnapshotVersion: SEALED_HOLDOUT_RUNTIME_PRICE_SNAPSHOT_VERSION_V2R,
     operatorId: input.authorization.operatorId,
@@ -341,32 +766,17 @@ function buildRouteBinding(input: Readonly<{
     absoluteMaxSpendMicroUsd: input.rowSpendMicroUsd,
     inferenceCallsAuthorized: 0,
   };
-  return buildSealedHoldoutRuntimeAccountingBindingV2R({
-    manifest: input.manifest, caseId: approval.caseId, route, approval,
-    googleApiKey: route.provider === 'google' ? input.googleApiKey : undefined,
-    fetchImpl: input.fetchImpl, now: input.now,
-  });
 }
 
 async function runProofIfEligible(input: Readonly<{
-  manifest: Readonly<SealedHoldoutCohortManifestV2R>;
-  rowPlan: Readonly<SealedHoldoutPaidRowPlanV2R>;
-  trace: ReturnType<typeof buildBudgetedSealedHoldoutSelectedOperationTraceV2R>;
-  evaluation: Readonly<BudgetedSealedHoldoutEvaluationReceiptV2R>;
-  mediaManifest: Readonly<HoldoutMediaManifestV2R>;
-  proofRoot: string;
-  proofExecutor: (value: Readonly<SealedHoldoutPaidProofInputV2R>)
-    => Promise<Readonly<SealedHoldoutPaidProofSummaryV2R>>;
+  evaluation: PaidEvaluationV2R;
+  execute: () => Promise<Readonly<SealedHoldoutPaidProofSummaryV2R>>;
 }>): Promise<Readonly<JsonRecord>> {
   if (!['PASS', 'READY_FOR_PROOF'].includes(input.evaluation.assessment)) {
     return deepFreezeV1({ attempted: false });
   }
   try {
-    const receipt = await input.proofExecutor({
-      manifest: input.manifest, caseId: input.rowPlan.caseId,
-      trace: input.trace, evaluation: input.evaluation,
-      mediaManifest: input.mediaManifest, outputDirectory: input.proofRoot,
-    });
+    const receipt = await input.execute();
     requireSha(receipt.receiptSha256, 'SEALED_PAID_PROOF_RECEIPT_HASH_INVALID');
     if (receipt.stateEffects.length) fail('SEALED_PAID_PROOF_STATE_EFFECT_INVALID');
     return deepFreezeV1({ attempted: true, passed: true, receipt });
@@ -376,17 +786,18 @@ async function runProofIfEligible(input: Readonly<{
 }
 
 function buildRowReceipt(input: Readonly<{
+  version: SealedHoldoutPaidCohortVariantV2R['version'];
   contract: Readonly<JsonRecord>; rowPlan: Readonly<SealedHoldoutPaidRowPlanV2R>;
   routeBindingReceipt: Readonly<JsonRecord>; episode: Readonly<JsonRecord>;
-  trace: ReturnType<typeof buildBudgetedSealedHoldoutSelectedOperationTraceV2R>;
-  evaluation: Readonly<BudgetedSealedHoldoutEvaluationReceiptV2R>;
+  trace: Readonly<JsonRecord>;
+  evaluation: PaidEvaluationV2R;
   proof: Readonly<JsonRecord>; transportReceipt: Readonly<JsonRecord>;
   networkAudit: readonly Readonly<JsonRecord>[]; exchanges: readonly Readonly<JsonRecord>[];
   firstRequestVerified: boolean;
 }>): Readonly<JsonRecord> {
   const status = rowStatus(input.evaluation, input.proof);
   const material = {
-    version: SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R,
+    version: input.version,
     authority: 'RAW_PROVIDER_ROW_NO_PROJECT_AUTHORITY',
     runContractSha256: text(input.contract.contractSha256),
     rowPlan: input.rowPlan,
@@ -402,7 +813,7 @@ function buildRowReceipt(input: Readonly<{
 }
 
 function rowStatus(
-  evaluation: Readonly<BudgetedSealedHoldoutEvaluationReceiptV2R>,
+  evaluation: PaidEvaluationV2R,
   proof: Readonly<JsonRecord>,
 ): RowStatus {
   if (evaluation.assessment === 'NOT_EVALUATED_PROVIDER_INFRASTRUCTURE') {
@@ -491,7 +902,7 @@ function attemptReceipt(
   contract: Readonly<JsonRecord>, row: Readonly<JsonRecord>, startedAt: string,
 ): Readonly<JsonRecord> {
   const material = {
-    version: SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R,
+    version: contract.version,
     runContractSha256: contract.contractSha256,
     rowPlanSha256: row.rowPlanSha256,
     startedAt,
@@ -503,24 +914,32 @@ function attemptReceipt(
 async function readAndValidateRow(
   path: string, contract: Readonly<JsonRecord>,
   expected: Readonly<SealedHoldoutPaidRowPlanV2R>,
-  manifest: Readonly<SealedHoldoutCohortManifestV2R>,
+  variant: Readonly<SealedHoldoutPaidCohortVariantV2R>,
 ): Promise<Readonly<JsonRecord>> {
   const row = record(await readJson(path));
   const { receiptSha256, ...material } = row;
   if (receiptSha256 !== hashCanonicalJsonV1(material)
+    || row.version !== variant.version
     || row.runContractSha256 !== contract.contractSha256
     || row.rowPlanSha256 !== expected.rowPlanSha256
-    || hashCanonicalJsonV1(row.rowPlan) !== hashCanonicalJsonV1(expected)) {
+    || hashCanonicalJsonV1(row.rowPlan) !== hashCanonicalJsonV1(expected)
+    || typeof row.firstRequestVerified !== 'boolean'
+    || row.projectReads !== 0 || row.projectMutations !== 0
+    || !Array.isArray(row.stateEffects) || row.stateEffects.length !== 0) {
     fail(`SEALED_PAID_ROW_RECEIPT_DRIFT:${text(expected.rowId)}`);
   }
-  const trace = assertBudgetedSealedHoldoutSelectedOperationTraceV2R(row.trace);
-  const evaluation = evaluateBudgetedSealedHoldoutTraceV2R({
-    manifest, caseId: expected.caseId, trace,
-  });
+  variant.validatePersistedEvaluation(row, expected);
+  return deepFreezeV1(row);
+}
+
+function assertPersistedEvaluation(
+  row: Readonly<JsonRecord>,
+  expected: Readonly<SealedHoldoutPaidRowPlanV2R>,
+  evaluation: PaidEvaluationV2R,
+): void {
   if (hashCanonicalJsonV1(evaluation) !== hashCanonicalJsonV1(row.evaluation)) {
     fail(`SEALED_PAID_ROW_EVALUATION_DRIFT:${text(expected.rowId)}`);
   }
-  return deepFreezeV1(row);
 }
 
 async function readAndValidateAttempt(
@@ -529,6 +948,7 @@ async function readAndValidateAttempt(
   const attempt = record(await readJson(path));
   const { receiptSha256, ...material } = attempt;
   if (receiptSha256 !== hashCanonicalJsonV1(material)
+    || attempt.version !== contract.version
     || attempt.runContractSha256 !== contract.contractSha256
     || attempt.rowPlanSha256 !== expected.rowPlanSha256
     || attempt.disposition !== 'STARTED_PROVIDER_ROW_NO_AUTOMATIC_RETRY_AFTER_CRASH') {
@@ -555,7 +975,7 @@ function aggregateRows(rows: readonly Readonly<JsonRecord>[]): Readonly<{
 
 function assertAuthorizedTotals(
   totals: ReturnType<typeof aggregateRows>,
-  authorization: Readonly<SealedHoldoutPaidDispatchAuthorizationV2R>,
+  authorization: PaidAuthorizationV2R,
 ): void {
   if (totals.spentNanoUsd > authorization.limits.absoluteMaxCohortSpendMicroUsd * 1_000
     || totals.providerTurns > authorization.limits.authorizedProviderTurns
@@ -567,28 +987,33 @@ function assertAuthorizedTotals(
 
 function buildCohortReceipt(
   contract: Readonly<JsonRecord>,
-  authorization: Readonly<SealedHoldoutPaidDispatchAuthorizationV2R>,
+  variant: Readonly<SealedHoldoutPaidCohortVariantV2R>,
   rows: readonly Readonly<JsonRecord>[],
-): Readonly<SealedHoldoutPaidCohortReceiptV2R> {
-  if (rows.length !== 96) fail('SEALED_PAID_COHORT_ROW_COUNT_INVALID');
+): Readonly<JsonRecord> {
+  if (rows.length !== variant.rowCount) fail('SEALED_PAID_COHORT_ROW_COUNT_INVALID');
   const totals = aggregateRows(rows);
-  assertAuthorizedTotals(totals, authorization);
+  assertAuthorizedTotals(totals, variant.authorization);
   const statusCounts = Object.fromEntries([
     'PASS_CLAIM_PROOF', 'FAIL_HIDDEN_EVALUATION', 'FAIL_CLAIM_PROOF',
     'NOT_EVALUATED_PROVIDER_INFRASTRUCTURE', 'NOT_EVALUATED_RESOURCE_GUARD',
   ].map((status) => [status, rows.filter((row) => row.status === status).length])) as Record<RowStatus, number>;
-  const rowSummaries = rows.map((row) => ({
-    rowId: record(row.rowPlan).rowId, caseId: record(row.rowPlan).caseId,
-    routeId: record(record(row.rowPlan).route).routeId,
-    handoffMode: record(row.rowPlan).handoffMode,
-    status: row.status, receiptSha256: row.receiptSha256,
-  }));
+  const rowSummaries = rows.map((row) => {
+    const plan = record(row.rowPlan);
+    return {
+      rowId: plan.rowId, caseId: plan.caseId,
+      routeId: record(plan.route).routeId, handoffMode: plan.handoffMode,
+      ...(plan.orderId === undefined ? {} : { orderId: plan.orderId }),
+      ...(plan.manifestRowPlanSha256 === undefined
+        ? {} : { manifestRowPlanSha256: plan.manifestRowPlanSha256 }),
+      status: row.status, receiptSha256: row.receiptSha256,
+    };
+  });
   const material = {
-    version: SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R,
+    version: variant.version,
     authority: 'RESEARCH_PROVIDER_COHORT_NO_PROJECT_AUTHORITY' as const,
     runContractSha256: text(contract.contractSha256),
-    authorizationSha256: authorization.authorizationSha256,
-    rowCount: 96 as const, rowSummaries, statusCounts,
+    authorizationSha256: variant.authorization.authorizationSha256,
+    rowCount: variant.rowCount, rowSummaries, statusCounts,
     providerInferenceCalls: totals.inferenceCalls,
     googleCountTokensCalls: totals.googleCountTokensCalls,
     providerTurns: totals.providerTurns, spentNanoUsd: totals.spentNanoUsd,
@@ -600,10 +1025,8 @@ function buildCohortReceipt(
 
 async function readAndValidateCohortReceipt(
   path: string, root: string, contract: Readonly<JsonRecord>,
-  plans: readonly Readonly<SealedHoldoutPaidRowPlanV2R>[],
-  manifest: Readonly<SealedHoldoutCohortManifestV2R>,
-  authorization: Readonly<SealedHoldoutPaidDispatchAuthorizationV2R>,
-): Promise<Readonly<SealedHoldoutPaidCohortReceiptV2R>> {
+  variant: Readonly<SealedHoldoutPaidCohortVariantV2R>,
+): Promise<Readonly<JsonRecord>> {
   const receipt = record(await readJson(path));
   const { receiptSha256, ...material } = receipt;
   if (receiptSha256 !== hashCanonicalJsonV1(material)
@@ -611,13 +1034,13 @@ async function readAndValidateCohortReceipt(
     fail('SEALED_PAID_COHORT_RECEIPT_DRIFT');
   }
   const rows: JsonRecord[] = [];
-  for (const plan of plans) {
+  for (const plan of variant.rows) {
     const paths = rowPaths(root, plan);
     if (!await exists(paths.attempt)) fail(`SEALED_PAID_ROW_ATTEMPT_MISSING:${plan.rowId}`);
     await readAndValidateAttempt(paths.attempt, contract, plan);
-    rows.push(await readAndValidateRow(paths.row, contract, plan, manifest));
+    rows.push(await readAndValidateRow(paths.row, contract, plan, variant));
   }
-  const expected = buildCohortReceipt(contract, authorization, rows);
+  const expected = buildCohortReceipt(contract, variant, rows);
   if (hashCanonicalJsonV1(receipt) !== hashCanonicalJsonV1(expected)) {
     fail('SEALED_PAID_COHORT_RECEIPT_DRIFT');
   }
@@ -629,7 +1052,7 @@ async function writeFailure(
   id: string, failedAt: string,
 ): Promise<void> {
   const material = {
-    version: SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R,
+    version: contract.version,
     authority: 'HARNESS_FAILURE_NO_PROJECT_AUTHORITY',
     runContractSha256: contract.contractSha256,
     rowPlanSha256: row.rowPlanSha256,
