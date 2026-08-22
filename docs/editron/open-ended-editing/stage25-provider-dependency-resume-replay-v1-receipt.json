@@ -1,0 +1,70 @@
+{
+  "version": "EDITRON_STAGE25_PROVIDER_DEPENDENCY_RESUME_REPLAY_V1_1",
+  "authority": "RESEARCH_ONLY_ZERO_INFERENCE_NO_PROJECT_MUTATION",
+  "source": {
+    "rowId": "openai_luna-p1",
+    "manifestSha256": "4e38038757205ebabb50967efc62baeb575ff331bbd3362d6f455c1e8e5fa07b",
+    "uninterruptedEpisodeReceiptSha256": "7ea3abbc79fe2ed0e9ffff83ecd0ec4cd066b49b87efcd71fa5ae2a02b0da83d",
+    "uninterruptedEpisodeTranscriptSha256": "4d646b70007d96b802f451701d0fbf50490df67398fc83eec0a70e3dd315497d",
+    "rawResponseSha256s": [
+      "2c8c2229dff9fe8d99cbf455db44ed6662b9cc1f6f49868d47a4e697d2e2820f",
+      "e493ea771c1c849cafb6489dfa7e88bb578a119547ddda9c9693fb3374bc53b3",
+      "6180e63677f5c2a162b206cf98178a0c8f9788683347fef1f0243627e8831401",
+      "a3ef5c629cf590e9840c133b806cf0c1bcf8eed48be0d49fa4f60a9ca384de03",
+      "b04c8d9273cacac77328221064a9c5f6a0da8263c56d3b01119ab604ee29ecce",
+      "e7057a1acf1273379a51d9e355fc0b1dcdf533b90a1cf3cf257c137c8e0048ad",
+      "f7663744c8c6a3bce23ed0eaf0861d60c8513dfcfc5ba57b91a52a0b2ce232e3",
+      "f1d8f315b4ed528dffb33eaece82ade9bedd84a229cfb163a39936f7404a7623"
+    ]
+  },
+  "interruption": {
+    "afterTurn": 4,
+    "checkpointSha256": "f2afee745824c857dd58529626e81e6329b866cd33ab8e552b67788548d4bc50",
+    "prefixOwnerSnapshotSha256": "504fb43b48ec2c8a9cdfe738a9930b95c8e921d21e2c684a827eb12c2e43990f",
+    "freshOwnerRestored": true,
+    "prefixMutationsReplayed": false
+  },
+  "replay": {
+    "prefixProviderCalls": 4,
+    "suffixProviderCalls": 4,
+    "inferenceCalls": 0,
+    "selectedOperatorIds": [
+      "find_audio_moment",
+      "sync_cuts_to_beats",
+      "find_visual_moment",
+      "resolve_keyframe_edit",
+      "set_keyframes",
+      "apply_filter"
+    ],
+    "terminalDisposition": "READY_FOR_PROOF",
+    "finalProjectRevision": "R45",
+    "finalOwnerStateSha256": "a3b2f2ec50dc905c68006bd58b9a3d0ce564eab98f01928cfcb9ffc9693b414e",
+    "prefixRequestIdentityPreserved": true,
+    "suffixRequestIdentityChangedByCompactResumePrompt": true,
+    "semanticOutcomeMatchesUninterruptedSource": true
+  },
+  "resumedEpisode": {
+    "receiptSha256": "fdf81cac8079f772774400b770ae37a72cb517fe49306566ff960199f332b7bc",
+    "transcriptSha256": "f6f3d975386f4a9c2b2b11e6f3dea9600ef377300a0edfd6f6836c6b16661bba",
+    "resumedReceipt": {
+      "receiptVersion": "EDITRON_PROVIDER_NATIVE_RESUMED_RECEIPT_V2R_1",
+      "authority": "RESEARCH_ONLY_NO_PROJECT_MUTATION",
+      "resumeCheckpointSha256": "f2afee745824c857dd58529626e81e6329b866cd33ab8e552b67788548d4bc50",
+      "episodeReceiptSha256": "fdf81cac8079f772774400b770ae37a72cb517fe49306566ff960199f332b7bc",
+      "completedPrefixSha256": "e103061c87b117d04329b3bc6407b3215296220814e0fedc77eee68962c2321e",
+      "resumedSuffixSha256": "77619d63a3d5384b3ea56a9d8bbad99433f51285c06a769e10c173e2e88c94bf",
+      "stateEffects": [],
+      "receiptSha256": "5edf155d5e7d7f831dfe50ecb7ca0828e50ac83d4381ac40e3dd4ad8fb555ea2"
+    }
+  },
+  "whatHasNotBeenChecked": [
+    "DURABLE_STORAGE",
+    "REAL_WORKER_RESTART",
+    "PROJECTSERVICE_MUTATION",
+    "AUTHENTICATED_RESULT_STORE",
+    "PAID_PROVIDER_RESUME",
+    "RENDERED_ACCEPTANCE"
+  ],
+  "stateEffects": [],
+  "receiptSha256": "a7dd98a11dfaeb184acc9b68a160ffff4aa09114ce7b7e41d69997da5a1c2861"
+}

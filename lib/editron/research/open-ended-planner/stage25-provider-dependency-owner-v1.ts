@@ -9,6 +9,9 @@ import type { ProviderNativeToolExecutionV2R }
 
 type JsonRecord = Record<string, unknown>;
 
+export const STAGE25_DEPENDENCY_OWNER_SNAPSHOT_VERSION_V1 =
+  'EDITRON_STAGE25_DEPENDENCY_OWNER_SNAPSHOT_V1_1' as const;
+
 export const STAGE25_DEPENDENCY_BEAT_PLAN_V1 = deepFreezeV1({
   schemaVersion: 'EDITRON_MEASURED_BEAT_PLAN_V2R_1',
   assetId: 'music-1', measuredEvidenceReceiptHash: 'a'.repeat(64),
@@ -34,6 +37,41 @@ export class Stage25ProviderDependencyOwnerV1 {
   private readonly stages = new Set<string>();
   private readonly changedPaths = new Set<string>();
   private readonly trace: JsonRecord[] = [];
+
+  /**
+   * Restores this same isolated mutation owner after an intentional worker
+   * interruption. The snapshot is accepted only when it matches a canonical
+   * prefix rebuilt through the owner's existing resolvers and mutation paths.
+   */
+  static restore(snapshot: unknown): Stage25ProviderDependencyOwnerV1 {
+    const candidate = requireRecord(snapshot, 'RESTORE_SNAPSHOT');
+    verifySnapshotEnvelope(candidate);
+    const mutationStages = stringArray(candidate.mutationStages, 'MUTATION_STAGES');
+    const expected = new Stage25ProviderDependencyOwnerV1();
+    expected.rebuildMutationPrefix(mutationStages);
+    const expectedSnapshot = expected.snapshot();
+    for (const field of [
+      'beforeStateHash', 'afterStateHash', 'currentProjectRevision',
+      'mutationStages', 'changedPaths', 'currentProject', 'stateEffects',
+    ] as const) {
+      if (!same(candidate[field], expectedSnapshot[field])) {
+        fail(`RESTORE_${field.toUpperCase()}_MISMATCH`);
+      }
+    }
+    const trace = validateRestoreTrace(
+      candidate.trace,
+      text(candidate.beforeStateHash),
+      text(candidate.afterStateHash),
+      mutationStages,
+    );
+    const restored = new Stage25ProviderDependencyOwnerV1();
+    restored.current = clone(requireRecord(candidate.currentProject, 'CURRENT_PROJECT'));
+    mutationStages.forEach((stage) => restored.stages.add(stage));
+    stringArray(candidate.changedPaths, 'CHANGED_PATHS')
+      .forEach((path) => restored.changedPaths.add(path));
+    restored.trace.push(...clone(trace));
+    return restored;
+  }
 
   async execute(call: Readonly<{
     operatorId: string; arguments: Readonly<JsonRecord>; turn: number;
@@ -69,7 +107,8 @@ export class Stage25ProviderDependencyOwnerV1 {
   }
 
   snapshot(): Readonly<JsonRecord> {
-    return deepFreezeV1({
+    const material = {
+      snapshotVersion: STAGE25_DEPENDENCY_OWNER_SNAPSHOT_VERSION_V1,
       authority: 'RESEARCH_ISOLATED_CLONE_ONLY',
       beforeStateHash: hashCanonicalJsonV1(this.before),
       afterStateHash: hashCanonicalJsonV1(this.current),
@@ -78,7 +117,48 @@ export class Stage25ProviderDependencyOwnerV1 {
       changedPaths: [...this.changedPaths].sort(compareUtf16),
       currentProject: clone(this.current), trace: clone(this.trace),
       stateEffects: [] as const,
+    };
+    return deepFreezeV1({
+      ...material,
+      snapshotSha256: hashCanonicalJsonV1(material),
     });
+  }
+
+  private rebuildMutationPrefix(stages: readonly string[]): void {
+    const key = [...stages].sort(compareUtf16).join('|');
+    if (!['', 'SYNC', 'KEYFRAMES|SYNC', 'FILTER|KEYFRAMES|SYNC'].includes(key)) {
+      fail('RESTORE_STAGE_PREFIX_INVALID');
+    }
+    if (stages.includes('SYNC')) {
+      this.executeChecked('sync_cuts_to_beats', {
+        projectId: 'project-42', expectedProjectRevision: 'R42',
+        overlayIds: [1, 2, 3], beatPlan: STAGE25_DEPENDENCY_BEAT_PLAN_V1,
+        beatSyncConstraints: STAGE25_DEPENDENCY_BEAT_CONSTRAINTS_V1,
+      });
+    }
+    if (stages.includes('KEYFRAMES')) {
+      const resolution = this.executeChecked('resolve_keyframe_edit', {
+        projectId: 'project-42', expectedProjectRevision: 'R43', overlayId: 42,
+        targetFrame: 660, focalPoint: { x: 0.74, y: 0.5 },
+        evidenceStrength: 0.92,
+        intent: {
+          direction: 'in', durationFrames: 60, scaleDelta: 0.08,
+          replaceExistingScaleKeyframes: true,
+        },
+      });
+      const operation = requireRecord(resolution.proposedOperation, 'RESTORE_OPERATION');
+      this.executeChecked('set_keyframes', {
+        projectId: 'project-42', expectedProjectRevision: 'R43',
+        ...requireRecord(operation.arguments, 'RESTORE_OPERATION_ARGUMENTS'),
+      });
+    }
+    if (stages.includes('FILTER')) {
+      this.executeChecked('apply_filter', {
+        projectId: 'project-42', expectedProjectRevision: 'R44', overlayId: 42,
+        targetRange: { startFrame: 600, endFrame: 720 },
+        effectPlan: { filterIntent: 'warmer', replaceExistingFilter: false },
+      });
+    }
   }
 
   private executeChecked(operatorId: string, args: Readonly<JsonRecord>): JsonRecord {
@@ -235,4 +315,80 @@ function records(value: unknown): JsonRecord[] { return Array.isArray(value) ? v
 function text(value: unknown): string { return typeof value === 'string' ? value : ''; }
 function number(value: unknown): number { return typeof value === 'number' && Number.isFinite(value) ? value : 0; }
 function compareUtf16(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
+function requireRecord(value: unknown, code: string): JsonRecord {
+  return isRecord(value) ? value : fail(code);
+}
+function stringArray(value: unknown, code: string): string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    fail(code);
+  }
+  return [...value] as string[];
+}
+function verifySnapshotEnvelope(snapshot: JsonRecord): void {
+  if (snapshot.snapshotVersion !== STAGE25_DEPENDENCY_OWNER_SNAPSHOT_VERSION_V1
+    || snapshot.authority !== 'RESEARCH_ISOLATED_CLONE_ONLY'
+    || !Array.isArray(snapshot.stateEffects) || snapshot.stateEffects.length !== 0) {
+    fail('RESTORE_ENVELOPE_INVALID');
+  }
+  const material = { ...snapshot };
+  delete material.snapshotSha256;
+  if (!isSha256(snapshot.snapshotSha256)
+    || snapshot.snapshotSha256 !== hashCanonicalJsonV1(material)) {
+    fail('RESTORE_SNAPSHOT_HASH_MISMATCH');
+  }
+}
+function validateRestoreTrace(
+  value: unknown,
+  beforeStateHash: string,
+  afterStateHash: string,
+  mutationStages: readonly string[],
+): JsonRecord[] {
+  if (!Array.isArray(value)) fail('RESTORE_TRACE_INVALID');
+  const trace = value.map((entry) => requireRecord(entry, 'RESTORE_TRACE_ENTRY_INVALID'));
+  const expectedMutations = mutationStages.includes('FILTER')
+    ? ['sync_cuts_to_beats', 'set_keyframes', 'apply_filter']
+    : mutationStages.includes('KEYFRAMES')
+      ? ['sync_cuts_to_beats', 'set_keyframes']
+      : mutationStages.includes('SYNC') ? ['sync_cuts_to_beats'] : [];
+  let priorTurn = 0;
+  let priorStateHash = beforeStateHash;
+  const actualMutations: string[] = [];
+  for (const entry of trace) {
+    const turn = number(entry.turn);
+    const operatorId = text(entry.operatorId);
+    if (!Number.isSafeInteger(turn) || turn <= priorTurn
+      || !OWNED_OPERATOR_IDS.has(operatorId)
+      || !['OK', 'FAIL', 'CONFLICT'].includes(text(entry.disposition))
+      || !isSha256(entry.argumentHash)
+      || !isSha256(entry.beforeStateHash) || !isSha256(entry.afterStateHash)
+      || entry.beforeStateHash !== priorStateHash) {
+      fail('RESTORE_TRACE_CHAIN_INVALID');
+    }
+    const mutating = MUTATING_OPERATOR_IDS.has(operatorId)
+      && entry.disposition === 'OK';
+    if (!mutating && entry.afterStateHash !== entry.beforeStateHash) {
+      fail('RESTORE_TRACE_READ_MUTATED_STATE');
+    }
+    if (mutating) actualMutations.push(operatorId);
+    if (entry.disposition === 'OK' && !isSha256(entry.outputHash)) {
+      fail('RESTORE_TRACE_OUTPUT_HASH_INVALID');
+    }
+    priorTurn = turn;
+    priorStateHash = text(entry.afterStateHash);
+  }
+  if (priorStateHash !== afterStateHash || !same(actualMutations, expectedMutations)) {
+    fail('RESTORE_TRACE_MUTATION_PREFIX_MISMATCH');
+  }
+  return trace;
+}
+function isSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+const OWNED_OPERATOR_IDS = new Set([
+  'find_audio_moment', 'find_visual_moment', 'sync_cuts_to_beats',
+  'resolve_keyframe_edit', 'set_keyframes', 'apply_filter',
+]);
+const MUTATING_OPERATOR_IDS = new Set([
+  'sync_cuts_to_beats', 'set_keyframes', 'apply_filter',
+]);
 function fail(code: string): never { throw new Error(`STAGE25_DEPENDENCY_OWNER_${code}`); }
