@@ -85,6 +85,54 @@ export interface SealedHoldoutCredentialPreflightReceiptV2R {
   receiptSha256: string;
 }
 
+export function assertSealedHoldoutCredentialPreflightReceiptV2R(
+  value: unknown,
+): Readonly<SealedHoldoutCredentialPreflightReceiptV2R> {
+  if (!isRecord(value)) fail('SEALED_CREDENTIAL_PREFLIGHT_RECEIPT_MISSING');
+  const candidate = value as unknown as SealedHoldoutCredentialPreflightReceiptV2R;
+  const { receiptSha256, ...material } = candidate;
+  const networkCalls = record(candidate.networkCalls);
+  const expectedRoutes = buildSealedHoldoutBenchmarkRoutesV2R();
+  const expectedModels = expectedRoutes.map(({ model }) => model);
+  const returnedModels = records(candidate.modelMetadata)
+    .map(({ requestedModel }) => text(requestedModel));
+  const checks = records(candidate.checks);
+  const requestHashes = checks.map(({ requestSha256 }) => text(requestSha256));
+  const modelRowCounts = Object.fromEntries(expectedModels.map((model) => [
+    model,
+    checks.filter((check) => text(check.model) === model).length,
+  ]));
+  if (candidate.version !== SEALED_HOLDOUT_CREDENTIAL_PREFLIGHT_VERSION_V2R
+    || candidate.authority !== 'RESEARCH_CREDENTIAL_PREFLIGHT_INITIAL_REQUESTS_NO_INFERENCE_NO_PROJECT_ACCESS'
+    || !/^[a-f0-9]{64}$/.test(candidate.manifestSha256)
+    || !/^[a-f0-9]{64}$/.test(candidate.localPreflightReceiptSha256)
+    || !/^[a-f0-9]{64}$/.test(candidate.cap2CurrentTruthManifestSha256)
+    || candidate.routeRosterSha256 !== hashCanonicalJsonV1(expectedRoutes)
+    || !/^[a-f0-9]{64}$/.test(candidate.egressAuthorizationSha256)
+    || !/^[a-f0-9]{64}$/.test(candidate.requestCaptureSetSha256)
+    || !sameArray(returnedModels, expectedModels)
+    || checks.length !== 96
+    || requestHashes.some((hash) => !/^[a-f0-9]{64}$/.test(hash))
+    || new Set(requestHashes).size !== 96
+    || expectedModels.some((model) => modelRowCounts[model] !== 32)
+    || candidate.googleCredentialSource !== 'GOOGLE_GENERATIVE_AI_API_KEY'
+    || networkCalls.modelMetadataGets !== 3
+    || networkCalls.googleCountTokensPosts !== 32
+    || networkCalls.providerContextEgressCalls !== 32
+    || networkCalls.inferenceCalls !== 0
+    || candidate.secretsPersisted !== false
+    || candidate.projectReads !== 0 || candidate.projectMutations !== 0
+    || candidate.runtimePerTurnTokenGuardRequired !== true
+    || candidate.realProofAdapterGate !== 'PENDING'
+    || candidate.dispatchAuthorized !== false
+    || candidate.assessment !== 'PASS_INITIAL_REQUESTS_BOUNDED_PROOF_AND_RUNTIME_GUARDS_PENDING'
+    || !Array.isArray(candidate.stateEffects) || candidate.stateEffects.length !== 0
+    || receiptSha256 !== hashCanonicalJsonV1(material)) {
+    fail('SEALED_CREDENTIAL_PREFLIGHT_RECEIPT_INVALID');
+  }
+  return deepFreezeV1(structuredClone(candidate));
+}
+
 export async function preflightSealedHoldoutCredentialsV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
   localPreflight: Readonly<SealedHoldoutPreflightReceiptV2R>;
@@ -102,7 +150,7 @@ export async function preflightSealedHoldoutCredentialsV2R(input: {
   if (credentials.googleCredentialSource !== 'GOOGLE_GENERATIVE_AI_API_KEY') {
     fail('SEALED_CREDENTIAL_PREFLIGHT_PAID_GOOGLE_CREDENTIAL_REQUIRED');
   }
-  const routes = routesFromCanonicalRoster();
+  const routes = buildSealedHoldoutBenchmarkRoutesV2R();
   const fetchImpl = input.fetchImpl ?? fetch;
   const modelMetadata = await Promise.all(routes.map((route) => verifyModel(
     route,
@@ -114,7 +162,10 @@ export async function preflightSealedHoldoutCredentialsV2R(input: {
   const requestCaptures: SealedHoldoutRequestCaptureV2R[] = [];
   const checks: JsonRecord[] = [];
   for (const taskCase of manifest.cases) {
-    const operatorOrder = presentationOrder(taskCase.caseId, callableOperatorIds);
+    const operatorOrder = buildSealedHoldoutPresentationOrderV2R(
+      taskCase.caseId,
+      callableOperatorIds,
+    );
     for (const route of routes) for (const handoffMode of SEALED_HOLDOUT_HANDOFF_ARMS_V2R) {
       const request = await captureInitialRequest({
         manifest, caseId: taskCase.caseId, route, handoffMode, operatorOrder,
@@ -184,11 +235,15 @@ export async function preflightSealedHoldoutCredentialsV2R(input: {
   if ([credentials.openAiKey, credentials.googleKey].some((secret) => artifacts.includes(secret))) {
     fail('SEALED_CREDENTIAL_PREFLIGHT_SECRET_LEAK');
   }
-  const receipt = deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+  const receipt = assertSealedHoldoutCredentialPreflightReceiptV2R({
+    ...material,
+    receiptSha256: hashCanonicalJsonV1(material),
+  });
   return deepFreezeV1({ receipt, requestCaptures });
 }
 
-function routesFromCanonicalRoster(): readonly Readonly<ProviderNativeRouteV2R>[] {
+export function buildSealedHoldoutBenchmarkRoutesV2R():
+readonly Readonly<ProviderNativeRouteV2R>[] {
   const roster = buildV2RNextBenchmarkRouteRosterV2();
   const routes = roster.map((entry): ProviderNativeRouteV2R => {
     if (entry.routeId === 'OPENAI_LUNA' && entry.claimedModelIdentity === 'gpt-5.6-luna') {
@@ -256,7 +311,10 @@ function assertPublicRequest(
   }
 }
 
-function presentationOrder(caseId: string, operatorIds: readonly string[]): string[] {
+export function buildSealedHoldoutPresentationOrderV2R(
+  caseId: string,
+  operatorIds: readonly string[],
+): string[] {
   const ordered = operatorIds.map((operatorId) => ({
     operatorId,
     key: hashCanonicalJsonV1({
