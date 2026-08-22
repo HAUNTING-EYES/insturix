@@ -13,6 +13,8 @@ import {
 import { bindSealedHoldoutProofInputV2R } from './sealed-holdout-proof-input-v2r';
 import type { BudgetedSealedHoldoutSelectedOperationTraceV2R }
   from './sealed-holdout-trace-v2r';
+import type { SealedHoldoutTraceNodeV2R }
+  from './sealed-holdout-trace-v2r';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -53,6 +55,18 @@ export interface SealedHoldoutH01NativeProofReceiptV2R {
   receiptSha256: string;
 }
 
+export interface SealedHoldoutH01NativeProofMechanicsV2R {
+  writerIssuedProjectRevision: string;
+  selectedMutation: Readonly<{
+    nodeId: string; operatorId: 'use_matching_footage'; argumentSha256: string;
+    incomingStartFrame: number; incomingEndFrame: number;
+  }>;
+  sourceArtifactSha256: Readonly<{ outgoing: string; incoming: string }>;
+  outputArtifact: Readonly<{ filename: string; sha256: string; bytes: number }>;
+  video: SealedHoldoutH01NativeProofReceiptV2R['video'];
+  geometry: SealedHoldoutH01NativeProofReceiptV2R['geometry'];
+}
+
 export async function proveSealedHoldoutH01NativeOutcomeV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
   caseId: 'HOLD-01:C1' | 'HOLD-01:C2';
@@ -69,14 +83,49 @@ export async function proveSealedHoldoutH01NativeOutcomeV2R(input: {
   });
   const taskCase = input.manifest.cases.find(({ caseId }) => caseId === input.caseId);
   const publicCase = record(taskCase?.publicCase);
-  const publicMedia = records(publicCase.media);
-  const successfulMutations = bound.trace.nodes.filter((node) =>
+  const mechanics = await executeSealedHoldoutH01NativeProofMechanicsV2R({
+    traceNodes: bound.trace.nodes,
+    publicCase,
+    mediaManifest: input.mediaManifest,
+    outputDirectory: input.outputDirectory,
+    ffprobePath: input.ffprobePath,
+    eligibleIncomingStartWindow: [30, 120],
+  });
+  const material = {
+    version: input.caseId === 'HOLD-01:C1'
+      ? SEALED_HOLDOUT_H01_NATIVE_PROOF_VERSION_V2R
+      : SEALED_HOLDOUT_H01_C2_NATIVE_PROOF_VERSION_V2R,
+    authority: 'RESEARCH_RENDERED_NATIVE_PROXY_NO_PROJECT_MUTATION' as const,
+    caseId: input.caseId, taskId: 'HOLD-01' as const,
+    manifestSha256: input.manifest.manifestSha256,
+    publicCaseSha256: bound.publicCaseSha256,
+    traceArtifactSha256: bound.trace.artifactSha256,
+    evaluationReceiptSha256: bound.evaluation.receiptSha256,
+    runtimeBudgetReceiptSha256: bound.trace.runtimeBudgetReceiptSha256,
+    ...mechanics,
+    assessment: 'PASS_RESEARCH_RENDERED_NATIVE_PROXY' as const,
+    productProjectMutationProof: 'NOT_CLAIMED' as const,
+    stateEffects: [] as const,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
+export async function executeSealedHoldoutH01NativeProofMechanicsV2R(input: {
+  traceNodes: readonly Readonly<SealedHoldoutTraceNodeV2R>[];
+  publicCase: Readonly<JsonRecord>;
+  mediaManifest: Readonly<HoldoutMediaManifestV2R>;
+  outputDirectory: string;
+  eligibleIncomingStartWindow: readonly [number, number];
+  ffprobePath?: string;
+}): Promise<Readonly<SealedHoldoutH01NativeProofMechanicsV2R>> {
+  const publicMedia = records(input.publicCase.media);
+  const successfulMutations = input.traceNodes.filter((node) =>
     node.executionDisposition === 'OK' && node.researchCloneMutation);
   if (successfulMutations.length !== 1
     || successfulMutations[0].selectedOperatorId !== 'use_matching_footage') {
     fail('SEALED_H01_PROOF_MUTATION_FORM_UNSUPPORTED');
   }
-  if (bound.trace.nodes.some(({ selectedOperatorId, executionDisposition }) =>
+  if (input.traceNodes.some(({ selectedOperatorId, executionDisposition }) =>
     executionDisposition === 'OK' && ['add_transition', 'apply_fade'].includes(selectedOperatorId))) {
     fail('SEALED_H01_PROOF_TRANSITION_FORBIDDEN');
   }
@@ -85,10 +134,17 @@ export async function proveSealedHoldoutH01NativeOutcomeV2R(input: {
   const targetRange = frameRange(args.targetRange, 'TARGET');
   const sourceRange = frameRange(args.sourceRange, 'SOURCE');
   const evidenceIds = strings(args.evidenceIds);
+  const [minimumStartFrame, maximumStartFrameExclusive] = input.eligibleIncomingStartWindow;
+  if (!Number.isSafeInteger(minimumStartFrame)
+    || !Number.isSafeInteger(maximumStartFrameExclusive)
+    || maximumStartFrameExclusive <= minimumStartFrame) {
+    fail('SEALED_H01_PROOF_ELIGIBLE_START_WINDOW_INVALID');
+  }
   if (args.projectId !== 'oe-hold-01' || args.expectedProjectRevision !== 'R9'
     || args.assetId !== 'h01-dial' || targetRange.startFrame !== 150
-    || targetRange.endFrame !== 300 || sourceRange.startFrame < 30
-    || sourceRange.startFrame >= 120 || sourceRange.endFrame < sourceRange.startFrame + 150
+    || targetRange.endFrame !== 300 || sourceRange.startFrame < minimumStartFrame
+    || sourceRange.startFrame >= maximumStartFrameExclusive
+    || sourceRange.endFrame < sourceRange.startFrame + 150
     || sourceRange.endFrame > 300 || !['E1', 'E2'].every((ref) => evidenceIds.includes(ref))
     || !mutation.writerIssuedProjectRevision) {
     fail('SEALED_H01_PROOF_SELECTED_MUTATION_INVALID');
@@ -122,17 +178,7 @@ export async function proveSealedHoldoutH01NativeOutcomeV2R(input: {
   if (centerDistance > 0.03 || diameterRatio < 0.9 || diameterRatio > 1.1) {
     fail(`SEALED_H01_PROOF_GEOMETRY_FAILED:${centerDistance}:${diameterRatio}`);
   }
-  const material = {
-    version: input.caseId === 'HOLD-01:C1'
-      ? SEALED_HOLDOUT_H01_NATIVE_PROOF_VERSION_V2R
-      : SEALED_HOLDOUT_H01_C2_NATIVE_PROOF_VERSION_V2R,
-    authority: 'RESEARCH_RENDERED_NATIVE_PROXY_NO_PROJECT_MUTATION' as const,
-    caseId: input.caseId, taskId: 'HOLD-01' as const,
-    manifestSha256: input.manifest.manifestSha256,
-    publicCaseSha256: bound.publicCaseSha256,
-    traceArtifactSha256: bound.trace.artifactSha256,
-    evaluationReceiptSha256: bound.evaluation.receiptSha256,
-    runtimeBudgetReceiptSha256: bound.trace.runtimeBudgetReceiptSha256,
+  return deepFreezeV1({
     writerIssuedProjectRevision: mutation.writerIssuedProjectRevision,
     selectedMutation: {
       nodeId: mutation.nodeId, operatorId: 'use_matching_footage' as const,
@@ -151,11 +197,7 @@ export async function proveSealedHoldoutH01NativeOutcomeV2R(input: {
       outgoingFrame: 149 as const, incomingFrame: 150 as const,
       normalizedCenterDistance: centerDistance, diameterRatio,
     },
-    assessment: 'PASS_RESEARCH_RENDERED_NATIVE_PROXY' as const,
-    productProjectMutationProof: 'NOT_CLAIMED' as const,
-    stateEffects: [] as const,
-  };
-  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+  });
 }
 
 async function bindAsset(
