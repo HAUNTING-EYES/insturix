@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Plus, X } from "lucide-react";
+import { Select } from "@/components/primitives";
 import {
   listThinkForgePublishingSurfaces,
   platformForThinkForgePublishingSurface,
@@ -28,6 +29,8 @@ const OUTPUT_OPTIONS: Array<{ value: ThinkForgeWriterKind; label: string }> = [
 
 const controlClass = "mt-1.5 h-10 w-full rounded-[7px] border border-[#282724] bg-[#0F0F0E] px-3 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60 disabled:cursor-not-allowed disabled:opacity-50";
 const labelClass = "text-[10px] font-semibold uppercase tracking-wider text-[#7A776E]";
+// The caption wrapper's uppercase/semibold/tracking would otherwise inherit into the Select trigger and listbox.
+const selectClass = "mt-1.5 normal-case font-normal tracking-normal";
 
 export function AuthoringRequestControls({ value, onChange, disabled = false }: AuthoringRequestControlsProps) {
   const [hashtagInput, setHashtagInput] = React.useState('');
@@ -86,18 +89,21 @@ export function AuthoringRequestControls({ value, onChange, disabled = false }: 
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className={labelClass}>
+        <div className={labelClass}>
           Publishing destination
-          <select
+          <Select
+            aria-label="Publishing destination"
             value={value.publishingSurfaceId}
             disabled={disabled}
-            onChange={(event) => selectPublishingSurface(event.target.value as ThinkForgePublishingSurfaceId | '')}
-            className={controlClass}
-          >
-            <option value="">Select</option>
-            {publishingOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-          </select>
-        </label>
+            onChange={(next) => selectPublishingSurface(next as ThinkForgePublishingSurfaceId | '')}
+            options={[
+              { value: '', label: 'Select' },
+              ...publishingOptions.map((option) => ({ value: option.id, label: option.label })),
+            ]}
+            placeholder="Select"
+            className={selectClass}
+          />
+        </div>
 
         {value.platformId === 'custom' && (
           <label className={labelClass}>
@@ -207,11 +213,17 @@ export function AuthoringRequestControls({ value, onChange, disabled = false }: 
 
 function PreferenceControl<T extends string>({ label, value, options, onChange, disabled }: { label: string; value: T; options: readonly T[]; onChange: (value: T) => void; disabled: boolean }) {
   return (
-    <label className={labelClass}>
+    <div className={labelClass}>
       {label}
-      <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as T)} className={`${controlClass} capitalize`}>
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
-      </select>
-    </label>
+      <Select
+        aria-label={label}
+        value={value}
+        disabled={disabled}
+        onChange={(next) => onChange(next as T)}
+        // The native select relied on CSS `capitalize`; the listbox trigger is a <button> (UA text-transform: none), so capitalize the label itself.
+        options={options.map((option) => ({ value: option, label: option.charAt(0).toUpperCase() + option.slice(1) }))}
+        className={selectClass}
+      />
+    </div>
   );
 }

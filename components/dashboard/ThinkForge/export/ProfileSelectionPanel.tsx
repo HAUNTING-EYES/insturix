@@ -3,12 +3,54 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
+import { Select, type SelectOption } from "@/components/primitives";
 import { EDIT_PROFILES } from "@/lib/editron/data/edit-profiles";
 import type { UseExportPipelineReturn } from "./hooks/useExportPipeline";
 
 interface ProfileSelectionPanelProps {
   pipeline: UseExportPipelineReturn;
 }
+
+const BRIEF_PLATFORM_OPTIONS: SelectOption[] = [
+  { value: "", label: "Auto (from profile)" },
+  { value: "youtube", label: "YouTube" },
+  { value: "instagram", label: "Instagram" },
+  { value: "tiktok", label: "TikTok" },
+  { value: "linkedin", label: "LinkedIn" },
+  { value: "facebook", label: "Facebook" },
+  { value: "ad", label: "Digital Ad" },
+];
+const BRIEF_TONE_OPTIONS: SelectOption[] = [
+  { value: "", label: "Auto (from profile)" },
+  { value: "professional", label: "Professional" },
+  { value: "energetic", label: "Energetic" },
+  { value: "cinematic", label: "Cinematic" },
+  { value: "minimal", label: "Minimal" },
+  { value: "emotional", label: "Emotional" },
+];
+const BRIEF_CAPTION_STYLE_OPTIONS: SelectOption[] = [
+  { value: "", label: "Auto (from profile)" },
+  { value: "none", label: "None" },
+  { value: "subtitle", label: "Subtitle (clean bottom bar)" },
+  { value: "word-by-word", label: "Word by Word" },
+  { value: "karaoke", label: "Karaoke (progressive highlight)" },
+  { value: "fancy", label: "Fancy / Kinetic (AI-generated)" },
+  { value: "tiktok", label: "TikTok" },
+  { value: "minimal", label: "Minimal" },
+  { value: "bold", label: "Bold" },
+  { value: "hormozi", label: "Hormozi (bold white, yellow keywords)" },
+  { value: "mrbeast", label: "MrBeast (large colorful, pop)" },
+  { value: "ali-abdaal", label: "Ali Abdaal (clean modern)" },
+  { value: "corporate", label: "Corporate (pro bottom bar)" },
+];
+const BRIEF_BGM_MOOD_OPTIONS: SelectOption[] = [
+  { value: "", label: "Auto" },
+  { value: "upbeat", label: "Upbeat" },
+  { value: "calm", label: "Calm" },
+  { value: "dramatic", label: "Dramatic" },
+  { value: "minimal", label: "Minimal" },
+  { value: "cinematic", label: "Cinematic" },
+];
 
 export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) {
   const {
@@ -198,71 +240,43 @@ export function ProfileSelectionPanel({ pipeline }: ProfileSelectionPanelProps) 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
         <div>
           <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "#5F5E5A", display: "block", marginBottom: 2 }}>Platform</label>
-          <select
+          <Select
+            size="sm"
+            aria-label="Platform"
             value={briefPlatform}
-            onChange={(e) => setBriefPlatform(e.target.value)}
-            style={{ width: "100%", height: 26, padding: "0 8px", fontSize: 11, background: "#0F0F0E", border: "1px solid #282724", borderRadius: 3, color: "#B5B2A8", outline: "none" }}
-          >
-            <option value="">Auto (from profile)</option>
-            <option value="youtube">YouTube</option>
-            <option value="instagram">Instagram</option>
-            <option value="tiktok">TikTok</option>
-            <option value="linkedin">LinkedIn</option>
-            <option value="facebook">Facebook</option>
-            <option value="ad">Digital Ad</option>
-          </select>
+            onChange={setBriefPlatform}
+            options={BRIEF_PLATFORM_OPTIONS}
+          />
         </div>
         <div>
           <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "#5F5E5A", display: "block", marginBottom: 2 }}>Tone</label>
-          <select
+          <Select
+            size="sm"
+            aria-label="Tone"
             value={briefTone}
-            onChange={(e) => setBriefTone(e.target.value)}
-            style={{ width: "100%", height: 26, padding: "0 8px", fontSize: 11, background: "#0F0F0E", border: "1px solid #282724", borderRadius: 3, color: "#B5B2A8", outline: "none" }}
-          >
-            <option value="">Auto (from profile)</option>
-            <option value="professional">Professional</option>
-            <option value="energetic">Energetic</option>
-            <option value="cinematic">Cinematic</option>
-            <option value="minimal">Minimal</option>
-            <option value="emotional">Emotional</option>
-          </select>
+            onChange={setBriefTone}
+            options={BRIEF_TONE_OPTIONS}
+          />
         </div>
         <div>
           <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "#5F5E5A", display: "block", marginBottom: 2 }}>Captions</label>
-          <select
+          <Select
+            size="sm"
+            aria-label="Captions"
             value={briefCaptionStyle}
-            onChange={(e) => setBriefCaptionStyle(e.target.value)}
-            style={{ width: "100%", height: 26, padding: "0 8px", fontSize: 11, background: "#0F0F0E", border: "1px solid #282724", borderRadius: 3, color: "#B5B2A8", outline: "none" }}
-          >
-            <option value="">Auto (from profile)</option>
-            <option value="none">None</option>
-            <option value="subtitle">Subtitle (clean bottom bar)</option>
-            <option value="word-by-word">Word by Word</option>
-            <option value="karaoke">Karaoke (progressive highlight)</option>
-            <option value="fancy">Fancy / Kinetic (AI-generated)</option>
-            <option value="tiktok">TikTok</option>
-            <option value="minimal">Minimal</option>
-            <option value="bold">Bold</option>
-            <option value="hormozi">Hormozi (bold white, yellow keywords)</option>
-            <option value="mrbeast">MrBeast (large colorful, pop)</option>
-            <option value="ali-abdaal">Ali Abdaal (clean modern)</option>
-            <option value="corporate">Corporate (pro bottom bar)</option>
-          </select>
+            onChange={setBriefCaptionStyle}
+            options={BRIEF_CAPTION_STYLE_OPTIONS}
+          />
         </div>
         <div>
           <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "#5F5E5A", display: "block", marginBottom: 2 }}>BGM Mood</label>
-          <select
+          <Select
+            size="sm"
+            aria-label="BGM Mood"
             value={briefBgmMood}
-            onChange={(e) => setBriefBgmMood(e.target.value)}
-            style={{ width: "100%", height: 26, padding: "0 8px", fontSize: 11, background: "#0F0F0E", border: "1px solid #282724", borderRadius: 3, color: "#B5B2A8", outline: "none" }}
-          >
-            <option value="">Auto</option>
-            <option value="upbeat">Upbeat</option>
-            <option value="calm">Calm</option>
-            <option value="dramatic">Dramatic</option>
-            <option value="minimal">Minimal</option>
-            <option value="cinematic">Cinematic</option>
-          </select>
+            onChange={setBriefBgmMood}
+            options={BRIEF_BGM_MOOD_OPTIONS}
+          />
         </div>
       </div>
 
