@@ -1298,6 +1298,26 @@ operator contracts, evaluator policy or provider routes change.
 
 The active Stage 2.5 reliability work starts after that completed closeout.
 
+**Superseding V4R current-context execution checkpoint (2026-08-22):** commit
+`ccbe5fc2d` fixes a current-only proof-eligibility defect discovered by a
+partial run: generic visual retrieval plus any native mutation could previously
+claim `READY_FOR_PROOF` even where no current proof owner existed. The reissued
+manifest `df6d9024...` binds the evaluator and dispatcher to the same explicit
+proof-owner set and forbids HOLD-01 range deletion. Fresh zero-inference
+preflight receipt `ba2174fd...` passed all 45 initial requests with zero
+inference or project access. The complete cohort receipt `fe4a3420...` records
+13 claim-proof passes, 15 hidden-evaluation failures, two decoded claim-proof
+failures, 15 Gemini-429 provider non-evaluations, zero resource-guard stops,
+157 provider turns, `$2.91745742` spend and zero project reads, mutations or
+state effects. Luna produced 7/15 proof passes and Terra 6/15; one row per
+provider/case is not a reliability estimate or leaderboard. Gemini remains
+unmeasured, not failed. Reopening the completed root returned the identical
+receipt without duplicate work. Stage 2.5 remains
+`MODIFY_AND_PROCEED_RESEARCH`; forced route, dependency/invalidation,
+conflict/rebase/lock, mid-episode resume, long-form and blind-editor gates remain.
+Full interpretation is in
+`docs/editron/open-ended-editing/oe-v4r-stage25-generalisation-results-2026-08-22.md`.
+
 **Superseding H03 V3R3 paid-run checkpoint (2026-08-22):** commits
 `ee55d9d1d`, `b37e97005` and `ffe78719f` converge the generated render snapshot
 onto the existing Debian Bookworm VCR runtime, bind the accepted snapshot into
@@ -1971,7 +1991,7 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595` with zero real-project reads/mutations; its frozen interpretation keeps passes, bounded failures, confounds and resource-guard non-evaluations separate. HREF-01 has one Gemini 3.6 native-video/audio observation plus a full-reference and 180-frame dense-window review pack. H03 generated-source V3R4 executed all 18 rows for `$0.21068595`: Luna passed 3/6 rendered rows, Terra 1/6, eight other OpenAI rows failed rendered proof, and Gemini's six HTTP-429 calls were non-evaluations. CAP-2A V6 and the corrected kind/unit/motion contract are bound through cohort receipt `47a57bf2...`; all rows had zero project reads/mutations. Generalisation V4R manifest `b7f1f101...` binds the 96-row interpretation, corrected owners and a balanced 45-row no-dispatch cohort. Commit `2fe6a570a` makes the existing budget controller, episode loop, current V3R2 owner session, lossless trace and hidden evaluator one metered path; writer-revision handoff and pre-inference resource-stop classification are tested. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The corrected H03 run proves occasional bounded source synthesis, not reliable unattended generation: 4/12 evaluable rows passed. The other seven tasks are not unseen: H01/H04/H05 need corrected-owner requalification, H02 needs current-context rendered requalification, and H06/H07/H08 already have valid safety evidence but receive current-context replication. Connect the sole current proof dispatcher and paid runner, run zero-inference preflight, then execute V4R; resolve or retire Gemini 3.7 without backfilling 3.6. Then test dependency diversity, forced native/generated/hybrid routes, stale edits/conflict/rebase/locks, context-resume, long-form range planning and blind quality/correction-time/latency/cost. HREF-01 has one qualified reviewer only. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R manifest `df6d9024...` passed fresh zero-inference preflight and executed all 45 rows under receipt `fe4a3420...`: 13 claim-proof passes, 15 hidden failures, two decoded proof failures and 15 Gemini-429 non-evaluations for `$2.91745742`, with zero project reads/mutations. Completed-root replay returned the identical receipt without duplicate work. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. One row per provider/case does not establish reliability or a leaderboard; Gemini remains unmeasured. Next test forced native/generated/hybrid alternatives, dependency/invalidation diversity, stale/overlap/rebase/lock behavior, mid-episode compaction/resume, long-form range planning and blind quality/correction-time/latency/cost. HREF-01 still has one qualified reviewer only. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -2421,12 +2441,12 @@ foundation and is no longer the active queue. The next three slices are:
    promotion still requires a real second qualified reviewer and a recorded
    agreement/adjudication disposition.
 3. **Stage 2.5 generalisation episodes:** the eight HOLD tasks are no longer
-   described as unseen. V4R binds the historical 96-row interpretation and
-   freezes 45 current-context rows over every condition except separately
-   completed H03-C1. The budgeted episode/trace/evaluator spine is current at
-   `2fe6a570a`; connect the existing proof dispatcher and sole paid runner, run
-   zero-inference preflight and execute that identity first. Then test other
-   dependency/invalidation shapes; force native, generated and
+   described as unseen. Current V4R manifest `df6d9024...` passed fresh
+   zero-inference preflight and all 45 rows executed under receipt
+   `fe4a3420...`. Its frozen disposition remains
+   `MODIFY_AND_PROCEED_RESEARCH`: 13 claim-proof passes do not erase 17
+   evaluable failures, and all 15 Gemini rows are infrastructure
+   non-evaluations. Next test other dependency/invalidation shapes; force native, generated and
    hybrid implementations on held-out tasks; inject stale user edits, overlap
    conflicts, safe rebase and locked ranges; resume after context compaction;
    exercise realistic long-form sequence/range plans under bounded evidence;
@@ -3481,11 +3501,11 @@ built around it.
     complete through `7064fe381`. The frozen result is 4/12 rendered passes for
     evaluable Luna/Terra rows; six Gemini 3.7 rows remain provider-rate-limit
     non-evaluations and require a separately versioned supplement if the route
-    becomes callable. The V4R no-dispatch identity corrects the stale “seven
-    unseen” claim and freezes 45 current-context qualification rows. Its
-    budgeted episode/trace/evaluator path is current at `2fe6a570a`. Next
-    connect the sole proof dispatcher and paid runner, preflight and execute it,
-    then test dependency-shape diversity, forced native/generated/hybrid baselines,
+    becomes callable. Current V4R manifest `df6d9024...` corrects the stale
+    “seven unseen” claim and has executed all 45 current-context rows under
+    receipt `fe4a3420...`: 13 proof passes, 17 evaluable failures and 15
+    Gemini-429 non-evaluations, with zero project access. Next test
+    dependency-shape diversity, forced native/generated/hybrid baselines,
     conflict/rebase/locked-range, context-resume and long-form/range trials.
   - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,
     blind review, cost/latency and no hidden manual rescue.
