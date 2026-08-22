@@ -5,10 +5,10 @@ import { describe, expect, it } from 'vitest';
 import reconciliationJson from '@/docs/editron/capability-census/editron-cap2-owner-reconciliation-media-audio-v1.json';
 import inventoryJson from '@/docs/editron/capability-census/editron-cap2-source-surface-inventory-v1.json';
 import {
-  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4,
-  getCap2CurrentTruthDomainEvidencePathsV4,
-  hashNormalizedCap2SourceSnapshotV4,
-} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v4';
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5,
+  getCap2CurrentTruthDomainEvidencePathsV5,
+  hashNormalizedCap2SourceSnapshotV5,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v5';
 import { parseCap2OwnerReconciliationArtifactV1 } from '@/lib/editron/research/capability-census/cap2-owner-reconciliation-contract-v1';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
@@ -65,12 +65,12 @@ describe('CAP-2 media/audio/music/SFX owner reconciliation v1', () => {
   it('binds all 23 current evidence files over immutable v1 history', () => {
     const artifact = parseCap2OwnerReconciliationArtifactV1(reconciliationJson);
     expect(artifact.sourceBinding.evidencePaths).toHaveLength(23);
-    const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4.domainBindings
+    const binding = CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5.domainBindings
       .find(({ domain }) => domain === 'MEDIA_AUDIO_MUSIC_SFX')!;
-    expect(hashNormalizedCap2SourceSnapshotV4(
-      getCap2CurrentTruthDomainEvidencePathsV4('MEDIA_AUDIO_MUSIC_SFX'),
+    expect(hashNormalizedCap2SourceSnapshotV5(
+      getCap2CurrentTruthDomainEvidencePathsV5('MEDIA_AUDIO_MUSIC_SFX'),
     )).toBe(binding.normalizedEvidenceHash);
-    expect(binding.reissueStatus).toBe('RECONCILED_CURRENT_TRUTH_V4');
+    expect(binding.reissueStatus).toBe('RECONCILED_CURRENT_TRUTH_V5');
 
     const refs = artifact.candidates.flatMap(({ evidenceRefs }) => evidenceRefs)
       .concat(artifact.domainConclusions.flatMap(({ evidenceRefs }) => evidenceRefs));
