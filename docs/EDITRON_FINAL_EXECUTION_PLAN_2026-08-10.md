@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `fe22e2f7b` on
+programme code checkpoint represented by this ledger is `ec1432446` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1460,9 +1460,24 @@ durable or product resume claim. The test uses deterministic provider responses
 and an isolated executor, not a paid model call, ProjectService mutation or
 server restart. Checkpoint hashes provide reproducible integrity but are not an
 authenticated external result store. Resume intentionally rejects runtime-
-guard/spend state and multimodal reference input until those identities are
-bound. Durable PlanService/result storage, leases/idempotency, exact V3R3 trace
-replay and worker-recovery proof remain open.
+guard/spend state until that identity is bound. Durable PlanService/result
+storage, leases/idempotency, exact V3R3 trace replay and worker-recovery proof
+remain open.
+
+**Reference-bound provider-resume checkpoint (2026-08-23):** commit
+`ec1432446` extends that same checkpoint owner and provider-native runner with a
+versioned reference-media identity; it does not add a second episode runner or
+media owner. Reference-free episodes continue to issue the exact historical V1
+checkpoint. Image- or native-video-reference episodes issue V2 only after the
+existing binder validates the media and computes its manifest SHA-256. Resume
+requires the exact same validated reference manifest and reattaches the supplied
+media to the compact provider request. Missing, changed and previously unbound
+references fail before provider invocation or isolated execution. The new and
+legacy resume/episode suites pass 23/23, including the unchanged exact captured
+Luna replay receipt; repository typecheck and quiet ESLint pass. This is
+`RESEARCH_PROVEN` for reference identity across in-process restart. It is not
+durable storage, cross-process recovery, runtime/spend-state recovery, paid
+resumed inference, ProjectService mutation or rendered product acceptance.
 
 **Model-selected schedule-binding checkpoint (2026-08-22):** commit
 `99f363e28` connects the existing Stage-2 exact `selectedOperatorId` contract
@@ -2273,14 +2288,14 @@ execution/interpretation checkpoint above supersedes it.
   glibc, registry-size, missing-tsconfig and incompatible-Mediabunny attempts
   remain diagnostic history rather than being relabelled as passes.
 
-  CAP-2A V5 reissue and the zero-inference metered source-adapter connection
-  are complete. The immediate order is now: freeze a new V5-bound benchmark
-  identity with separate capability-ceiling and production-budget arms; pass
-  its zero-inference preflight; then execute and render only provider rows whose
-  H03 source/evaluation coverage changed. Then continue dependency diversity, forced
-  native/generated/hybrid comparisons, conflict/rebase/locked-range,
-  compaction/resume, long-form/range trials and blind editor receipts before a
-  frozen `GO`, `MODIFY` or `NO-GO` decision.
+  **Superseded execution note:** the V5-bound H03 freeze/preflight/run described
+  here subsequently completed through the V6-bound V3R4 cohort recorded in the
+  authoritative ledger above. Do not repeat that paid run from this historical
+  paragraph. Current work continues with the sole-owner HREF receipt, runtime-
+  accounting and durable cross-process resume, genuinely new dependency and
+  invalidation shapes, forced native/generated/hybrid comparisons, conflict/
+  rebase/locked-range cases, long-form/range trials and blind-editor receipts
+  before a frozen `GO`, `MODIFY` or `NO-GO` decision.
 
 ### Master-stage completion ledger
 
@@ -2297,6 +2312,12 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 6 - global scalable professional NLE | Some editor, proxy, chapter render and isolated 60 fps SaaS-explainer mechanisms exist. | Professional source/record editing, mixed rates, rational timebase, VFR, SMPTE/drop-frame display, multicam, relink, project/reel subdivision, shared storage coordination, interchange/conform and genuinely scalable long-form playback/render remain partial or missing. |
 | Stage 7 - agency certification | No accepted certification run. | Real consented projects with zero hidden rescue, fatal false-success rate zero and published quality/cost/latency/rights scorecards. |
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
+
+**Stage 2.5 row correction (2026-08-23):** the row's combined
+`runtime-budget/reference-input binding` clause predates commit `ec1432446`.
+Reference-input identity is now research-proven across in-process restart;
+runtime-budget state recovery, durable storage, cross-process recovery, paid
+resumed inference and ProjectService integration remain open.
 
 ### Global timebase and format truth
 
@@ -2757,8 +2778,9 @@ foundation and is no longer the active queue. The next three slices are:
    render/reload/audiovisual proof remain. Then test further genuinely held-
    out dependency/invalidation shapes; force native, generated and hybrid
    implementations on held-out tasks; inject stale user edits, overlap
-   conflicts, safe rebase and locked ranges; bind runtime accounting and
-   reference-input identity into the now-working provider resume boundary.
+   conflicts, safe rebase and locked ranges. Commit `ec1432446` now binds exact
+   image/native-video reference identity into the working provider resume
+   boundary; bind and restore runtime accounting next.
    Commit `8512970f9` and receipt `a7dd98a1...` prove that one exact captured
    Luna P1 trace survives an in-process turn-four interruption, fresh-owner
    hydration and suffix-only replay without another inference call. Persist
@@ -3889,9 +3911,10 @@ built around it.
     the scheduler, bringing the combined safety suite to 26/26. That graph is a
     constructed fork/join qualification, not provider evidence. The provider
     cohort, the generic resume mechanism and one exact captured Luna P1
-    fresh-owner restart are now complete; durable result storage,
-    runtime/reference identity binding, paid resumed inference and cross-process
-    worker recovery remain before long-form/range trials. Product integration waits
+    fresh-owner restart and reference-input identity binding are now complete;
+    durable result storage, runtime-budget recovery, paid resumed inference and
+    cross-process worker recovery remain before long-form/range trials. Product
+    integration waits
     for ProjectService-issued change regions/transforms/locks and a durable
     PlanService rather than a second owner.
   - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,
