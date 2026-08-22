@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `cdbee7456` on
+programme code checkpoint represented by this ledger is `ee2ac304f` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1527,6 +1527,46 @@ inference request-capture preflight. Only then may Luna, Terra and Gemini 3.7
 Flash execute the holdout. Generic owner-issued effect resolutions and a real
 bounded render remain subsequent gates, not hidden success criteria for the
 first provider selection run.
+
+**Non-leading provider-dependency V3R3 execution checkpoint (2026-08-23):**
+commits `38de0ec96` through `9ca9e8f9a` freeze the provider manifest, pass the
+zero-inference request-capture preflight, connect the resumable provider
+runner, expose the existing beat-sync and filter owners honestly, randomize
+three tool presentations and preserve all intermediate cohort identities.
+Final manifest `4e380387...` is bound to source commit `9ca9e8f9a`, CAP-2A V6,
+the complete forty-operation directory, the exact six eligible records and
+result-reference contract `EDITRON_PROVIDER_NATIVE_RESULT_REFERENCE_V2R_3`.
+Preflight receipt `1f6ec9dc...` covers all nine rows with zero inference and
+zero project access.
+
+The immutable V3R3 provider receipt `929241d7...` originally reported two
+passes, four failures and three Gemini infrastructure non-evaluations. Row
+audit proved that all six Luna/Terra episodes selected the exact six legal
+operations, passed hidden semantic evaluation, advanced the isolated revision
+`R42 -> R43 -> R44 -> R45` and stopped honestly at `READY_FOR_PROOF`. The four
+reported failures came from an over-broad schedule rule that demanded
+`expectedProjectRevision` from a read-only operation whose CAP-2A schema does
+not define that input. Commit `9ecf50240` now requires the latest writer
+revision only from operators that declare that input; stale, copied and forged
+handoffs still fail at the next revision-sensitive owner.
+
+Offline replay tool commit `a7e2cba3d` revalidates the immutable episodes
+without provider inference or project mutation. Replay receipt `d1cc5d7c...`
+at commit `dbbdece5b` records Luna 3/3, Terra 3/3, zero evaluable failures,
+three Gemini credit-depletion 429 non-evaluations, zero inference calls and
+zero state effects. Recorded estimated spend is `$0.244869160`: Luna
+`$0.024154960`, Terra `$0.220714200`, Gemini `$0`. The result interpretation is
+frozen in
+`docs/editron/open-ended-editing/oe-stage25-provider-dependency-v3r3-results-2026-08-23.md`.
+
+Earlier V1.1/V1.2/V3R1/V3R2 runs remain immutable diagnostics, not model
+scores: they exposed hidden owner-value predicates, the absent public filter
+form, schedule-rejection misclassification and rejection of semantically
+empty optional result-reference arrays. V3R3 proves one six-operation
+fork/join dependency episode under three tool orders. It does not prove
+generic dependency planning, rendered quality, durable compaction/resume,
+ProjectService execution or Stage 2.5 `GO`. Gemini remains unmeasured rather
+than failed until a funded credential passes a separately versioned preflight.
 
 **Superseding H03 V3R3 paid-run checkpoint (2026-08-22):** commits
 `ee55d9d1d`, `b37e97005` and `ffe78719f` converge the generated render snapshot
@@ -2201,7 +2241,7 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. DEV-02 now has one real native alternative and one real generated-island/native-continuation hybrid at identical decoded scope, plus sealed blind pack `23870abb...`; hard target gates pass for both. Research reconciliation, scheduling, exact-resume and provider-trace schedule-binding contracts through `cdbee7456` now include a non-leading six-operation fork/join holdout, complete 40-operation directory disclosure, real opaque-reference loop and isolated existing owners; the focused protocol/scheduler set passes 33/33 with zero project effects. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The new fork/join boundary has valid zero-inference evidence but no live Luna/Terra/Gemini result, generic exact-effect owner receipts, rendered acceptance proof or ProjectService wiring. Freeze its versioned cohort manifest and zero-spend request preflight, then execute the three-provider cohort. After that continue owner-issued effect resolution/render proof, product-authority conflict integration, provider interruption/compaction/resume, long-form range planning, forced native/generated/hybrid alternatives and blind quality/correction-time receipts. The DEV-02 A/B receipt remains pending; HREF-01 still has one qualified reviewer only; H04 still has synthetic tone/no caption-pixel proof; H05 lacks audio/real-logo pixel proof; DEV-03 lacks intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. DEV-02 now has one real native alternative and one real generated-island/native-continuation hybrid at identical decoded scope, plus sealed blind pack `23870abb...`; hard target gates pass for both. The V3R3 non-leading dependency cohort now adds a live six-operation fork/join result under three tool orders: corrected immutable replay receipt `d1cc5d7c...` records Luna 3/3, Terra 3/3, zero evaluable failures and three Gemini credit-depletion non-evaluations for `$0.244869160`, with zero replay inference and zero project effects. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. This cohort proves only one dependency shape and stops at `READY_FOR_PROOF`; generic owner-issued exact-effect receipts, bounded render/reload/audiovisual proof and ProjectService wiring remain absent. Continue HREF-01's sole-reviewer/dense AV closeout, genuinely new dependency/invalidation holdouts, product-authority conflict/rebase/lock integration, provider interruption/compaction/resume, long-form range planning, forced native/generated/hybrid alternatives and blind quality/correction-time receipts. The DEV-02 A/B receipt remains pending; H04 still has synthetic tone/no caption-pixel proof; H05 lacks audio/real-logo pixel proof; DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -2656,18 +2696,20 @@ foundation and is no longer the active queue. The next three slices are:
    `fe4a3420...`. Its frozen disposition remains
    `MODIFY_AND_PROCEED_RESEARCH`: 13 claim-proof passes do not erase 17
    evaluable failures, and all 15 Gemini rows are infrastructure
-   non-evaluations. Commit `cdbee7456` now freezes a separate non-leading
-   six-operation fork/join dependency holdout and passes its scripted,
-   zero-inference opaque-reference loop. Next bind that exact identity into a
-   three-provider manifest, pass request-capture preflight and run the live
-   cohort; then add owner-issued exact effects and bounded render proof. After
-   that, test further dependency/invalidation shapes; force native, generated and
-   hybrid implementations on held-out tasks; inject stale user edits, overlap
-   conflicts, safe rebase and locked ranges; resume after context compaction;
-   exercise realistic long-form sequence/range plans under bounded evidence;
-   and collect blind-editor quality, correction-time, latency and cost receipts.
-   Only a frozen passing gate may authorise ProjectService-owned proposal
-   integration design, never direct model writes.
+   non-evaluations. The separate non-leading six-operation fork/join dependency
+   holdout has now completed its live V3R3 cohort and immutable corrected
+   replay. Receipt `d1cc5d7c...` records Luna 3/3 and Terra 3/3 under three tool
+   orders; Gemini's three rows are infrastructure non-evaluations caused by
+   depleted provider credits. This is one positive dependency-shape result,
+   not Stage 2.5 completion. Next bind generic owner-issued exact effects and
+   bounded render/reload/audiovisual proof; then test further genuinely held-
+   out dependency/invalidation shapes; force native, generated and hybrid
+   implementations on held-out tasks; inject stale user edits, overlap
+   conflicts, safe rebase and locked ranges; resume a provider episode after
+   context compaction; exercise realistic long-form sequence/range plans under
+   bounded evidence; and collect blind-editor quality, correction-time,
+   latency and cost receipts. Only a frozen passing gate may authorise
+   ProjectService-owned proposal integration design, never direct model writes.
 
 Native handoff/order V3R4 answers one narrow premise positively: Luna, Terra
 and Gemini 3.7 can execute the bounded DEV-03 native dependency chain through real tool calls,
