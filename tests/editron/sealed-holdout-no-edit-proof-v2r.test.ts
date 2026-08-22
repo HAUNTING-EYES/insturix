@@ -10,7 +10,10 @@ import { evaluateBudgetedSealedHoldoutTraceV2R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-evaluator-v2r';
 import { runBudgetedSealedHoldoutEpisodeV2R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-episode-v2r';
-import { proveSealedHoldoutNoEditOutcomeV2R }
+import {
+  proveSealedHoldoutGeneralNoEditOutcomeV2R,
+  proveSealedHoldoutNoEditOutcomeV2R,
+}
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-no-edit-proof-v2r';
 import {
   bindSealedHoldoutInputTokenBoundV2R,
@@ -179,6 +182,98 @@ describe('sealed holdout research no-edit proof V2R', () => {
       projectStateProof: 'NOT_CLAIMED_RESEARCH_ISOLATION_ONLY',
       stateEffects: [],
     });
+  });
+
+  it.each([
+    {
+      caseId: 'HOLD-01:C2', terminal: 'UNVERIFIABLE', evidenceIds: ['E1', 'E2'],
+      calls: [
+        { name: 'read_project_file', arguments: { projectId: 'oe-hold-01', expectedProjectRevision: 'R9' } },
+        { name: 'find_visual_moment', arguments: { projectId: 'oe-hold-01', query: 'inspect geometric alignment candidates' } },
+        { name: 'get_timeline_view', arguments: { projectId: 'oe-hold-01', expectedProjectRevision: 'R9' } },
+      ],
+    },
+    {
+      caseId: 'HOLD-02:C2', terminal: 'CLARIFICATION_REQUIRED', evidenceIds: ['E1', 'E2'],
+      calls: [
+        { name: 'inspect_user_asset', arguments: { projectId: 'oe-hold-02', assetId: 'h02-door' } },
+        { name: 'read_project_file', arguments: { projectId: 'oe-hold-02', expectedProjectRevision: 'R4' } },
+      ],
+    },
+    {
+      caseId: 'HOLD-03:C2', terminal: 'UNVERIFIABLE', evidenceIds: ['E1', 'E3'],
+      calls: [
+        { name: 'find_visual_moment', arguments: { projectId: 'oe-hold-03', query: 'inspect reference layout without face evidence' } },
+        { name: 'get_timeline_view', arguments: { projectId: 'oe-hold-03', expectedProjectRevision: 'R12' } },
+      ],
+    },
+    {
+      caseId: 'HOLD-04:C2', terminal: 'CLARIFICATION_REQUIRED', evidenceIds: ['E1', 'E2'],
+      calls: [
+        { name: 'get_video_transcription', arguments: { projectId: 'oe-hold-04', assetId: 'h04-host' } },
+        { name: 'get_timeline_view', arguments: { projectId: 'oe-hold-04', expectedProjectRevision: 'R6' } },
+      ],
+    },
+    {
+      caseId: 'HOLD-05:C2', terminal: 'UNVERIFIABLE', evidenceIds: ['E2'],
+      calls: [
+        { name: 'find_visual_moment', arguments: { projectId: 'oe-hold-05', query: 'inspect moving subject evidence availability' } },
+        { name: 'get_timeline_view', arguments: { projectId: 'oe-hold-05', expectedProjectRevision: 'R14' } },
+      ],
+    },
+    {
+      caseId: 'HOLD-06:C2', terminal: 'CLARIFICATION_REQUIRED', evidenceIds: ['E1'],
+      calls: [
+        { name: 'list_user_assets', arguments: { projectId: 'oe-hold-06' } },
+        { name: 'read_project_file', arguments: { projectId: 'oe-hold-06', expectedProjectRevision: 'R5' } },
+      ],
+    },
+    {
+      caseId: 'HOLD-07:C2', terminal: 'UNVERIFIABLE', evidenceIds: ['E1', 'E2'],
+      calls: [
+        { name: 'read_project_file', arguments: { projectId: 'oe-hold-07', expectedProjectRevision: 'R17' } },
+      ],
+    },
+    { caseId: 'HOLD-08:C2', terminal: 'UNVERIFIABLE', evidenceIds: [], calls: [] },
+  ])('proves legal hidden-arm no-edit outcome for $caseId', async ({
+    caseId, terminal, evidenceIds, calls,
+  }) => {
+    const result = await runCase(caseId, [...calls, finish(terminal, evidenceIds)]);
+    expect(result.evaluation).toMatchObject({
+      assessment: 'PASS', executionForm: 'NONE', proofRequired: false,
+    });
+    const proof = proveSealedHoldoutGeneralNoEditOutcomeV2R({
+      manifest: result.cohort,
+      caseId,
+      trace: result.trace,
+      evaluation: result.evaluation,
+    });
+    expect(proof).toMatchObject({
+      authority: 'RESEARCH_GENERAL_NO_EDIT_SAFETY_PROOF_NO_PROJECT_MUTATION',
+      caseId,
+      assessment: 'PASS_RESEARCH_GENERAL_NO_EDIT_SAFETY',
+      renderDisposition: 'NOT_REQUIRED_FOR_NO_EDIT_SAFETY_CLAIM',
+      projectStateProof: 'NOT_CLAIMED_RESEARCH_ISOLATION_ONLY',
+      stateEffects: [],
+    });
+  });
+
+  it('rejects a no-edit terminal after a successful mutation', async () => {
+    const result = await runCase('HOLD-02:C2', [
+      { name: 'inspect_user_asset', arguments: { projectId: 'oe-hold-02', assetId: 'h02-door' } },
+      { name: 'read_project_file', arguments: { projectId: 'oe-hold-02', expectedProjectRevision: 'R4' } },
+      { name: 'add_overlay', arguments: {
+        projectId: 'oe-hold-02', expectedProjectRevision: 'R4', assetId: 'h02-door',
+        targetRange: { startFrame: 0, endFrame: 75 },
+        sourceRange: { startFrame: 30, endFrame: 105 },
+      } },
+      finish('CLARIFICATION_REQUIRED', ['E1', 'E2']),
+    ]);
+    expect(result.evaluation.diagnostics).toContain('EVAL_SAFE_STOP_AFTER_SUCCESSFUL_EDIT_OPERATION');
+    expect(() => proveSealedHoldoutGeneralNoEditOutcomeV2R({
+      manifest: result.cohort, caseId: 'HOLD-02:C2',
+      trace: result.trace, evaluation: result.evaluation,
+    })).toThrow('SEALED_PROOF_INPUT_PRECONDITION_FAILED');
   });
 
   it('rejects a forged evaluation even when its receipt is rehashed', async () => {
