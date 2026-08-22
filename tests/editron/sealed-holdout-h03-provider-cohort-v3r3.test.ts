@@ -1,64 +1,30 @@
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { buildCanonicalDev03MeasuredEvidenceV2 }
-  from '@/lib/editron/research/open-ended-planner/dev03-measured-evidence-v2';
 import { hashCanonicalJsonV1 }
   from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import {
-  buildProviderNativeCohortManifestV2R,
   runProviderNativeNoSpendPreflightV2R,
   type ProviderNativeCohortManifestV2R,
 } from '@/lib/editron/research/open-ended-planner/provider-native-cohort-manifest-v2r';
+import { buildSealedH03ProviderOperatorInputV3R3 }
+  from '@/lib/editron/research/open-ended-planner/sealed-holdout-h03-provider-operator-input-v3r3';
 import {
   assertSealedH03ProviderCohortManifestV3R3,
-  buildSealedH03ProviderCohortManifestV3R3,
-  SEALED_H03_PROVIDER_COHORT_PATH_V3R3,
   type SealedH03ProviderCohortManifestV3R3,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-h03-provider-cohort-v3r3';
-import { buildSealedH03GeneratedCompositionModelPacketV3R }
-  from '@/lib/editron/research/open-ended-planner/sealed-holdout-h03-model-candidate-v3r';
 import { runSealedH03ProviderNoInferencePreflightV3R3 }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-h03-provider-preflight-v3r3';
-import {
-  buildSealedHoldoutCohortManifestV2R,
-  SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V2R,
-} from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v2r';
-import {
-  buildSealedHoldoutCohortManifestV3R,
-  SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R,
-} from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v3r';
-import {
-  buildSealedHoldoutCohortManifestV3R2,
-  SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2,
-} from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v3r2';
-import { SEALED_H03_REFERENCE_BLUEPRINT_ID_V3R }
-  from '@/lib/editron/research/open-ended-planner/sealed-holdout-h03-target-contract-v3r';
-import { buildV2RBenchmarkTaskRegistryV2 }
-  from '@/lib/editron/research/open-ended-planner/v2r-benchmark-task-registry';
 
-type JsonRecord = Record<string, unknown>;
 type FetchCall = { url: string; init?: RequestInit };
 
 let providerManifest: Readonly<ProviderNativeCohortManifestV2R>;
 let manifest: Readonly<SealedH03ProviderCohortManifestV3R3>;
-let implementationBindings: readonly Readonly<{ path: string; sha256: string }>[];
+let operatorInput: Awaited<ReturnType<typeof buildSealedH03ProviderOperatorInputV3R3>>;
 
 beforeAll(async () => {
-  providerManifest = await buildProviderManifest();
-  implementationBindings = await Promise.all(implementationPaths().map(async (filePath) => ({
-    path: filePath,
-    sha256: await fileSha(filePath),
-  })));
-  manifest = buildSealedH03ProviderCohortManifestV3R3({
-    contractSourceSha256: await fileSha(SEALED_H03_PROVIDER_COHORT_PATH_V3R3),
-    baseManifest: await baseManifest(),
-    providerManifest,
-    implementationBindings,
-  });
+  operatorInput = await buildSealedH03ProviderOperatorInputV3R3();
+  providerManifest = operatorInput.providerManifest;
+  manifest = operatorInput.cohortManifest;
 });
 
 describe('sealed H03 provider cohort V3R3', () => {
@@ -118,7 +84,7 @@ describe('sealed H03 provider zero-inference preflight V3R3', () => {
       manifest,
       providerManifest,
       providerInfrastructureReceipt: infrastructure,
-      sourceRequest: await sourceRequest(),
+      sourceRequest: operatorInput.sourceRequest,
       environment,
       fetchImpl: fakeProviderFetch(calls),
     });
@@ -146,7 +112,7 @@ describe('sealed H03 provider zero-inference preflight V3R3', () => {
       environment,
       fetchImpl: fakeProviderFetch([]),
     });
-    const forgedSource = await sourceRequest();
+    const forgedSource = structuredClone(operatorInput.sourceRequest) as any;
     forgedSource.ownerAuthorizationOutputSha256 = 'f'.repeat(64);
     await expect(runSealedH03ProviderNoInferencePreflightV3R3({
       manifest, providerManifest, providerInfrastructureReceipt: infrastructure,
@@ -155,96 +121,19 @@ describe('sealed H03 provider zero-inference preflight V3R3', () => {
 
     await expect(runSealedH03ProviderNoInferencePreflightV3R3({
       manifest, providerManifest, providerInfrastructureReceipt: infrastructure,
-      sourceRequest: await sourceRequest(), environment, fetchImpl: fakeProviderFetch([]),
+      sourceRequest: operatorInput.sourceRequest,
+      environment, fetchImpl: fakeProviderFetch([]),
       nowUnixSeconds: Math.floor(Date.now() / 1000) + 4_000,
     })).rejects.toThrow('SEALED_H03_PROVIDER_PREFLIGHT_INFRASTRUCTURE_RECEIPT_INVALID');
 
     await expect(runSealedH03ProviderNoInferencePreflightV3R3({
       manifest, providerManifest, providerInfrastructureReceipt: infrastructure,
-      sourceRequest: await sourceRequest(), environment,
+      sourceRequest: operatorInput.sourceRequest, environment,
       fetchImpl: fakeProviderFetch([], { googleTokens: 50_000 }),
     })).rejects.toThrow('SEALED_H03_PROVIDER_PREFLIGHT_INPUT_BUDGET_EXCEEDED:GOOGLE_FLASH');
   });
 });
 
-async function buildProviderManifest() {
-  const [audioBytes, analyzerSourceBytes] = await Promise.all([
-    readFile('.calibration-temp/open-ended-planner-v2/development-media/dev03-beats.wav'),
-    readFile('lib/editron/services/media/beat-detection-service.ts'),
-  ]);
-  const measured = await buildCanonicalDev03MeasuredEvidenceV2({
-    audioBytes, analyzerSourceBytes,
-  });
-  return buildProviderNativeCohortManifestV2R(
-    buildV2RBenchmarkTaskRegistryV2({ dev03MeasuredEvidence: measured }),
-  );
-}
-
-async function baseManifest() {
-  const v2 = buildSealedHoldoutCohortManifestV2R(
-    await fileSha(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V2R),
-  );
-  const v3 = buildSealedHoldoutCohortManifestV3R({
-    contractSourceSha256: await fileSha(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R),
-    baseManifest: v2,
-  });
-  return buildSealedHoldoutCohortManifestV3R2({
-    contractSourceSha256: await fileSha(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2),
-    baseManifest: v3,
-  });
-}
-
-async function sourceRequest() {
-  const apiImplementationHash = implementationBindings.find(({ path: filePath }) => (
-    filePath.endsWith('/generated-composition-api-v1.tsx')
-  ))?.sha256 ?? '';
-  const argumentsValue = generatedArguments();
-  const packet = buildSealedH03GeneratedCompositionModelPacketV3R({
-    apiImplementationHash,
-    sourceAArtifactSha256:
-      'sha256:cb54ba193dad9159cdd0856ce39280855af4adb1c3d4f8de50fd13fc2a1bef25',
-    sourceBArtifactSha256:
-      'sha256:3bc9ff365921e4a3043490f05c7e6bee68d4e067a3ead8e6013f981aebbbff6f',
-    orchestratorArguments: argumentsValue,
-  });
-  return {
-    apiImplementationHash,
-    sourceAArtifactSha256:
-      'sha256:cb54ba193dad9159cdd0856ce39280855af4adb1c3d4f8de50fd13fc2a1bef25',
-    sourceBArtifactSha256:
-      'sha256:3bc9ff365921e4a3043490f05c7e6bee68d4e067a3ead8e6013f981aebbbff6f',
-    arguments: argumentsValue,
-    orchestratorSpecSha256: hashCanonicalJsonV1(argumentsValue),
-    ownerAuthorizationOutputSha256:
-      '5ca2f52ad9865f526b7a4ae8ff9955d8496b0901726487fb59e45fa14ffddb9a',
-    packet,
-  };
-}
-
-function generatedArguments(): JsonRecord {
-  return {
-    projectId: 'oe-hold-03', expectedProjectRevision: 'R12',
-    assetIds: ['h03-a', 'h03-b'],
-    targetRange: { startFrame: 90, endFrame: 270 },
-    referenceBlueprintId: SEALED_H03_REFERENCE_BLUEPRINT_ID_V3R,
-    layoutSpec: { panelCount: 6, geometry: 'ASYMMETRIC_NORMALIZED_BOUNDS', gutters: true, titleSafeBand: { left: 0.15, top: 0.43, width: 0.70, height: 0.14 } },
-    motionSpec: { entryFrames: [0, 24], stableFrames: [24, 150], exitFrames: [150, 180], relationship: 'OPPOSED_HORIZONTAL_SIDES_AND_VERTICAL_CENTRE' },
-    typographySpec: { text: 'EVENT\nMOMENT', alignment: 'CENTER', fontAssetId: 'font-noto-sans-v27-regular' },
-    constraints: { referencePixelsForbidden: true, preserveOutsideRange: true, returnBinding: { overlayId: 'ov-full', assetId: 'h03-a', sourceFrame: 270 }, titleFaceOverlapMaximumPixels: 0 },
-    evidenceIds: ['E1', 'E2', 'E3'],
-  };
-}
-
-function implementationPaths(): string[] {
-  return [
-    'lib/editron/research/open-ended-planner/generated-composition-api-v1.tsx',
-    'lib/editron/research/open-ended-planner/generated-composition-program-verifier-v1.ts',
-    'lib/editron/research/open-ended-planner/provider-native-generated-source-adapter-v2r.ts',
-    'lib/editron/research/open-ended-planner/sealed-holdout-h03-hybrid-proof-v3r2.ts',
-    'lib/editron/research/open-ended-planner/sealed-holdout-h03-provider-source-adapter-v3r2.ts',
-    'lib/editron/research/open-ended-planner/sealed-holdout-h03-source-executor-v3r2.ts',
-  ];
-}
 function providerEnvironment(): Record<string, string> {
   return {
     OPENAI_API_KEY: 'openai-test', GEMINI_API_KEY: 'google-test',
@@ -277,9 +166,6 @@ function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status, headers: { 'content-type': 'application/json' },
   });
-}
-async function fileSha(filePath: string): Promise<string> {
-  return createHash('sha256').update(await readFile(path.resolve(filePath))).digest('hex');
 }
 function rehash(value: any): void {
   const { manifestSha256: _old, ...material } = value;
