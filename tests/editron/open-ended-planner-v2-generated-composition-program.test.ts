@@ -49,6 +49,29 @@ describe('open-ended planner V2 GeneratedCompositionProgramV1 contract', () => {
     expect(verify(undeclared).diagnostics).toContain('SOURCE_IMPORT_FORBIDDEN:GeneratedComposition.tsx/not-allowed');
   });
 
+  it('rejects component-to-layer kind mismatches before sandbox execution', () => {
+    const wrappedText = fixture();
+    rebindSource(wrappedText, wrappedText.sourceBundle.files[0].source.replace(
+      '      <TextSlot slotId="title-main" fontSlotId="font-title" parameterId="param-title" value={title} color={titleColor} size={titleSize} fixedToCanvas visibleUntilFrame={172} />',
+      `      <Panel layerId="title-main" bounds={{ left: 0.15, top: 0.43, width: 0.70, height: 0.14 }} translateY={0}>
+        <TextSlot slotId="title-main" fontSlotId="font-title" parameterId="param-title" value={title} color={titleColor} size={titleSize} fixedToCanvas visibleUntilFrame={172} />
+      </Panel>`,
+    ));
+    expect(verify(wrappedText).diagnostics).toContain(
+      'SOURCE_PANEL_LAYER_UNDECLARED:title-main',
+    );
+
+    const wrongTextBinding = fixture();
+    const textLayer = wrongTextBinding.program.declaredLayers
+      .find(({ layerId }) => layerId === 'title-main');
+    if (!textLayer) throw new Error('TEST_TEXT_LAYER_MISSING');
+    textLayer.textSlotId = 'different-text-slot';
+    expect(verify(wrongTextBinding).diagnostics).toEqual(expect.arrayContaining([
+      'DECLARED_LAYER_TEXT_UNKNOWN:title-main',
+      'DECLARED_LAYER_TEXT_BINDING_INVALID:title-main',
+    ]));
+  });
+
   it('rejects stale revisions, illegal ranges, float rates, state effects, and unlicensed fonts', () => {
     const stale = fixture(); stale.program.projectBinding.expectedProjectRevision = 'R2';
     expect(verify(stale).diagnostics).toContain('PROJECT_REVISION_DRIFT');

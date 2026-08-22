@@ -79,6 +79,26 @@ export const GENERATED_COMPOSITION_MODEL_API_SURFACE_V1 = deepFreezeV1({
     .filter((rule) => rule !== DEV02_TEMPORAL_RULE_V1),
 });
 
+// The provider-language contract is versioned independently from the runtime
+// module. V1 remains immutable evidence for historical cohorts; V2 documents
+// runtime rules that the implementation has always enforced, without exposing
+// a task-specific layout, travel magnitude, or authored solution.
+export const GENERATED_COMPOSITION_MODEL_API_SURFACE_V2 = deepFreezeV1({
+  contractVersion: 'EDITRON_GENERATED_COMPOSITION_MODEL_API_SURFACE_V2',
+  ...GENERATED_COMPOSITION_MODEL_API_SURFACE_V1,
+  signatures: {
+    ...GENERATED_COMPOSITION_MODEL_API_SURFACE_V1.signatures,
+    Panel: "{ layerId: literal ID of a declared SOURCE_PANEL layer; exactly one geometry form: (column: 'left'|'centre'|'right' + row: 'top'|'centre'|'bottom') OR bounds: {left,top,width,height} normalized inside [0,1]; translateX?: finite CSS pixels; translateY: finite CSS pixels; entryScale?; takeoverProgress?: 0..1; children }",
+    TextSlot: '{ slotId: literal ID of both a declared text slot and its declared TEXT layer; fontSlotId; parameterId; value; color; size; fixedToCanvas?; visibleUntilFrame?; render directly at stage level rather than wrapping it in Panel }',
+  },
+  runtimeRules: [
+    ...GENERATED_COMPOSITION_MODEL_API_SURFACE_V1.runtimeRules,
+    'Panel.layerId must bind a declared layer whose kind is SOURCE_PANEL; a TEXT layer is never a Panel.',
+    'TextSlot.slotId must bind both the declared text slot and a declared layer whose kind is TEXT; render fixed canvas text directly under CompositionStage, never inside Panel.',
+    'Panel translateX and translateY values are finite CSS pixel offsets in the composition canvas coordinate system, not normalized fractions.',
+  ],
+});
+
 export function buildDev02GeneratedCompositionModelPacketV1(input: {
   apiImplementationHash: string;
   repair?: GeneratedCompositionModelRepairV1;

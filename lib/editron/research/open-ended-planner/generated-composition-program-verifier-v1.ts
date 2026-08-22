@@ -15,6 +15,14 @@ import {
 } from './generated-composition-program-v1';
 
 type JsonRecord = Record<string, unknown>;
+interface SourceReferencesV1 {
+  sourceSlots: Set<string>;
+  textSlots: Set<string>;
+  fontSlots: Set<string>;
+  parameters: Set<string>;
+  sourcePanelLayers: Set<string>;
+  textLayers: Set<string>;
+}
 
 export interface VerifyGeneratedCompositionProgramInputV1 {
   program: unknown;
@@ -124,6 +132,7 @@ function validateFontsAndApi(program: GeneratedCompositionProgramV1, facts: Json
   for (const layer of program.declaredLayers) {
     if (layer.kind === 'SOURCE_PANEL' && (!layer.sourceSlotId || !sourceIds.has(layer.sourceSlotId))) diagnostics.push(`DECLARED_LAYER_SOURCE_UNKNOWN:${layer.layerId}`);
     if (layer.kind === 'TEXT' && (!layer.textSlotId || !textIds.has(layer.textSlotId))) diagnostics.push(`DECLARED_LAYER_TEXT_UNKNOWN:${layer.layerId}`);
+    if (layer.kind === 'TEXT' && layer.layerId !== layer.textSlotId) diagnostics.push(`DECLARED_LAYER_TEXT_BINDING_INVALID:${layer.layerId}`);
   }
   const modules = new Map(program.allowedApi.modules.map(({ specifier, version }) => [specifier, version]));
   if (program.allowedApi.apiId !== GENERATED_COMPOSITION_API_ID_V1 || program.allowedApi.apiVersion !== '1'
@@ -159,7 +168,14 @@ function validateProofAndMeasurements(program: GeneratedCompositionProgramV1, ev
 function validateSourceBundle(program: GeneratedCompositionProgramV1, bundle: GeneratedCompositionSourceBundleV1, diagnostics: string[]): void {
   if (!uniqueIds(bundle.files.map(({ path }) => path)) || !bundle.files.some(({ path }) => path === bundle.entryFile)) diagnostics.push('SOURCE_FILE_IDENTITY_INVALID');
   const allowedModules = new Set(program.allowedApi.modules.map(({ specifier }) => specifier));
-  const usedSourceSlots = new Set<string>(); const usedFontSlots = new Set<string>(); const usedParameters = new Set<string>(); const usedLayers = new Set<string>();
+  const used: SourceReferencesV1 = {
+    sourceSlots: new Set<string>(),
+    textSlots: new Set<string>(),
+    fontSlots: new Set<string>(),
+    parameters: new Set<string>(),
+    sourcePanelLayers: new Set<string>(),
+    textLayers: new Set<string>(),
+  };
   for (const file of bundle.files) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.(ts|tsx)$/.test(file.path) || sha256TextV1(file.source) !== file.sha256) diagnostics.push(`SOURCE_FILE_HASH_OR_PATH_INVALID:${file.path}`);
     if (/https?:\/\/|file:\/\/|[A-Za-z]:\\/.test(file.source)) diagnostics.push(`SOURCE_EXTERNAL_LOCATION_FORBIDDEN:${file.path}`);
@@ -168,27 +184,36 @@ function validateSourceBundle(program: GeneratedCompositionProgramV1, bundle: Ge
     let sourceFile: ts.SourceFile;
     try { sourceFile = parseFreeformTsx(file.source, file.path); } catch { diagnostics.push(`SOURCE_PARSE_FAILED:${file.path}`); continue; }
     if (!hasGeneratedCompositionExport(sourceFile)) diagnostics.push(`SOURCE_EXPORT_MISSING:${file.path}`);
-    inspectAst(sourceFile, allowedModules, usedSourceSlots, usedFontSlots, usedParameters, usedLayers, diagnostics, file.path);
+    inspectAst(sourceFile, allowedModules, used, diagnostics, file.path);
   }
-  compareReferences('SOURCE_SLOT', usedSourceSlots, new Set(program.sourceSlots.map(({ slotId }) => slotId)), diagnostics);
-  compareReferences('FONT_SLOT', usedFontSlots, new Set(program.fontSlots.map(({ slotId }) => slotId)), diagnostics);
-  compareReferences('PARAMETER', usedParameters, new Set(program.exposedParameters.map(({ parameterId }) => parameterId)), diagnostics);
-  compareReferences('LAYER', usedLayers, new Set(program.declaredLayers.map(({ layerId }) => layerId)), diagnostics);
+  compareReferences('SOURCE_SLOT', used.sourceSlots, new Set(program.sourceSlots.map(({ slotId }) => slotId)), diagnostics);
+  compareReferences('TEXT_SLOT', used.textSlots, new Set(program.textSlots.map(({ slotId }) => slotId)), diagnostics);
+  compareReferences('FONT_SLOT', used.fontSlots, new Set(program.fontSlots.map(({ slotId }) => slotId)), diagnostics);
+  compareReferences('PARAMETER', used.parameters, new Set(program.exposedParameters.map(({ parameterId }) => parameterId)), diagnostics);
+  compareReferences('SOURCE_PANEL_LAYER', used.sourcePanelLayers, new Set(program.declaredLayers
+    .filter(({ kind }) => kind === 'SOURCE_PANEL').map(({ layerId }) => layerId)), diagnostics);
+  compareReferences('TEXT_LAYER', used.textLayers, new Set(program.declaredLayers
+    .filter(({ kind }) => kind === 'TEXT').map(({ layerId }) => layerId)), diagnostics);
 }
 
-function inspectAst(sourceFile: ts.SourceFile, allowed: Set<string>, sourceSlots: Set<string>, fontSlots: Set<string>, parameters: Set<string>, layers: Set<string>, diagnostics: string[], path: string): void {
+function inspectAst(sourceFile: ts.SourceFile, allowed: Set<string>, used: SourceReferencesV1, diagnostics: string[], path: string): void {
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && !allowed.has(node.moduleSpecifier.text)) diagnostics.push(`SOURCE_IMPORT_FORBIDDEN:${path}/${node.moduleSpecifier.text}`);
     if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier) && !allowed.has(node.moduleSpecifier.text)) diagnostics.push(`SOURCE_EXPORT_MODULE_FORBIDDEN:${path}/${node.moduleSpecifier.text}`);
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) diagnostics.push(`SOURCE_DYNAMIC_IMPORT_FORBIDDEN:${path}`);
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'useCompositionParameter') {
-      const value = node.arguments[0]; if (value && ts.isStringLiteral(value)) parameters.add(value.text); else diagnostics.push(`SOURCE_PARAMETER_ID_NOT_LITERAL:${path}`);
+      const value = node.arguments[0]; if (value && ts.isStringLiteral(value)) used.parameters.add(value.text); else diagnostics.push(`SOURCE_PARAMETER_ID_NOT_LITERAL:${path}`);
     }
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
       const name = node.tagName.getText(sourceFile);
-      if (name === 'AssetSlot') addJsxLiteral(node, 'slotId', sourceSlots, diagnostics, path);
-      if (name === 'Panel') addJsxLiteral(node, 'layerId', layers, diagnostics, path);
-      if (name === 'TextSlot') { addJsxLiteral(node, 'slotId', layers, diagnostics, path); addJsxLiteral(node, 'fontSlotId', fontSlots, diagnostics, path); addJsxLiteral(node, 'parameterId', parameters, diagnostics, path); }
+      if (name === 'AssetSlot') addJsxLiteral(node, 'slotId', used.sourceSlots, diagnostics, path);
+      if (name === 'Panel') addJsxLiteral(node, 'layerId', used.sourcePanelLayers, diagnostics, path);
+      if (name === 'TextSlot') {
+        addJsxLiteral(node, 'slotId', used.textSlots, diagnostics, path);
+        addJsxLiteral(node, 'slotId', used.textLayers, diagnostics, path);
+        addJsxLiteral(node, 'fontSlotId', used.fontSlots, diagnostics, path);
+        addJsxLiteral(node, 'parameterId', used.parameters, diagnostics, path);
+      }
     }
     ts.forEachChild(node, visit);
   };

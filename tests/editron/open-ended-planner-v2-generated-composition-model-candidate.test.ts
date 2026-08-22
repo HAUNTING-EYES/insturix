@@ -4,6 +4,7 @@ import { hashCanonicalJsonV1, sha256TextV1 } from '@/lib/editron/research/open-e
 import {
   applyDev02HostExecutionPolicyCorrectionV1,
   buildDev02GeneratedCompositionModelPacketV1,
+  GENERATED_COMPOSITION_MODEL_API_SURFACE_V2,
   materializeDev02GeneratedCompositionModelCandidateV1,
 } from '@/lib/editron/research/open-ended-planner/generated-composition-model-candidate-v1';
 import { verifyGeneratedCompositionProgramV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-program-verifier-v1';
@@ -20,6 +21,18 @@ const API_HASH = 'a'.repeat(64);
 const PROMPT_HASH = 'b'.repeat(64);
 
 describe('open-ended planner V2 model-generated composition candidate', () => {
+  it('states layer-kind bindings and pixel units without leaking task motion', () => {
+    const serialized = JSON.stringify(GENERATED_COMPOSITION_MODEL_API_SURFACE_V2);
+    expect(GENERATED_COMPOSITION_MODEL_API_SURFACE_V2.contractVersion)
+      .toBe('EDITRON_GENERATED_COMPOSITION_MODEL_API_SURFACE_V2');
+    expect(serialized).toContain('declared SOURCE_PANEL layer');
+    expect(serialized).toContain('declared TEXT layer');
+    expect(serialized).toContain('CSS pixel offsets');
+    expect(serialized).toContain('never inside Panel');
+    expect(serialized).not.toContain('24px');
+    expect(serialized).not.toContain('SEALED_H03_GENERATED_SOURCE');
+  });
+
   it('builds a stable source-synthesis packet without leaking the human implementation', () => {
     const first = buildDev02GeneratedCompositionModelPacketV1({ apiImplementationHash: API_HASH });
     const second = buildDev02GeneratedCompositionModelPacketV1({ apiImplementationHash: API_HASH });
