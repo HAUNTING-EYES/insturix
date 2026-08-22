@@ -89,6 +89,30 @@ describe('sealed H03 lossless model-source trace and hidden evaluator V3R2', () 
     expect(leakedTrace.diagnostics)
       .toContain('TRACE_GENERATED_SOURCE_LEAKED_TO_PROVIDER_EPISODE');
   });
+
+  it('records an incomplete generic generated owner result without undefined leakage', async () => {
+    const { manifest, connected } = await setup();
+    const incompleteEpisode = structuredClone(connected.providerEpisode) as any;
+    incompleteEpisode.turns[2].execution.output = {
+      codeBundle: {
+        status: 'NOT_COMPILED', operatorId: 'generated_composition_program',
+        inputSha256: 'a'.repeat(64),
+      },
+      renderContract: { status: 'PENDING_SANDBOX', projectMutation: 'NONE' },
+      cueMap: [],
+      proofPlan: { required: ['compile', 'bounded-render'], status: 'NOT_RUN' },
+    };
+    refreshEpisode(incompleteEpisode);
+    const trace = buildSealedHoldoutSelectedOperationTraceV3R2({
+      manifest, caseId: 'HOLD-03:C1', providerEpisode: incompleteEpisode,
+    });
+    const generated = trace.nodes.find(({ selectedOperatorId }) =>
+      selectedOperatorId === 'generated_composition_program');
+    expect(trace.assessment).toBe('FAIL');
+    expect(trace.diagnostics).toContain('TRACE_GENERATED_SOURCE_BINDING_INCOMPLETE');
+    expect(generated?.generatedSourceBinding).toBeUndefined();
+    expect(() => hashCanonicalJsonV1(trace)).not.toThrow();
+  });
 });
 
 async function setup() {

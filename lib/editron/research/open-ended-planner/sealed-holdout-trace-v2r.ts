@@ -360,6 +360,12 @@ function projectProviderEpisode(
       && executionDisposition === 'OK'
       ? projectGeneratedSourceBinding(output)
       : null;
+    if (options?.includeGeneratedSourceBinding
+      && operatorKind === 'GENERATED_COMPOSITION'
+      && executionDisposition === 'OK'
+      && !generatedSourceBinding) {
+      diagnostics.push('TRACE_GENERATED_SOURCE_BINDING_INCOMPLETE');
+    }
     const nodeMaterial = {
       nodeId: `turn-${number(turn.turn) || index + 1}`,
       turn: number(turn.turn) || index + 1,
@@ -460,10 +466,10 @@ export function assertBudgetedSealedHoldoutSelectedOperationTraceV3R2(
 }
 
 function sameArray(left: readonly string[], right: readonly string[]): boolean { return left.length === right.length && left.every((entry, index) => entry === right[index]); }
-function projectGeneratedSourceBinding(output: Readonly<JsonRecord>): Readonly<JsonRecord> {
+function projectGeneratedSourceBinding(output: Readonly<JsonRecord>): Readonly<JsonRecord> | null {
   const code = record(output.codeBundle);
   const render = record(output.renderContract);
-  return {
+  const binding = {
     candidateOrdinal: code.candidateOrdinal,
     sourceContractStatus: code.status,
     programHash: code.programHash,
@@ -476,6 +482,14 @@ function projectGeneratedSourceBinding(output: Readonly<JsonRecord>): Readonly<J
     renderStatus: render.status,
     projectMutation: render.projectMutation,
   };
+  const stringsValid = Object.entries(binding)
+    .filter(([key]) => key !== 'candidateOrdinal')
+    .every(([, value]) => typeof value === 'string' && Boolean(value));
+  return Number.isSafeInteger(binding.candidateOrdinal)
+    && Number(binding.candidateOrdinal) >= 0
+    && stringsValid
+    ? binding
+    : null;
 }
 function containsRawGeneratedSource(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(containsRawGeneratedSource);
