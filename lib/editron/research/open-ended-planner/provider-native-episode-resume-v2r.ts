@@ -308,6 +308,9 @@ export function hydrateProviderNativeEpisodeResumeCheckpointV2R(input: {
           originTurn: turn,
           sourceOperatorId: exactTool.operatorId,
           output: execution.output,
+          ...(advancesEpisodeState(exactTool.kind) ? {
+            requiredSourceOutputPaths: [['receipt', 'projectRevision']],
+          } : {}),
         })
       : [];
     if (canonicalizeJsonV1(storedTurn.issuedResultReferences ?? [])

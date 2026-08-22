@@ -262,9 +262,9 @@ describe('provider-native episode interruption and resume V2R', () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it('refuses to publish a mutation checkpoint without a writer-revision projection', async () => {
+  it('adds the writer revision required to resume a final mutation checkpoint', async () => {
     const onTurnCommitted = vi.fn();
-    await expect(runProviderNativeToolEpisodeV2R({
+    const receipt = await runProviderNativeToolEpisodeV2R({
       route: ROUTE,
       context: {
         ...CONTEXT,
@@ -288,8 +288,17 @@ describe('provider-native episode interruption and resume V2R', () => {
         receipt: { status: 'PASS', projectRevision: 'revision-43' },
       }),
       onTurnCommitted,
-    })).rejects.toThrow('PROVIDER_NATIVE_CHECKPOINT_WRITER_REVISION_REFERENCE_MISSING');
-    expect(onTurnCommitted).not.toHaveBeenCalled();
+    });
+    expect(receipt.terminal.disposition).toBe('STEP_BUDGET_EXHAUSTED');
+    expect(receipt.turns[0].issuedResultReferences).toEqual([
+      expect.objectContaining({
+        sourceOperatorId: 'apply_camera_shake',
+        sourceOutputField: 'receipt.projectRevision',
+        valueSha256: hashCanonicalJsonV1('revision-43'),
+      }),
+    ]);
+    expect(onTurnCommitted).toHaveBeenCalledOnce();
+    expect(onTurnCommitted.mock.calls[0][0].checkpoint).toMatchObject({ nextTurn: 2 });
   });
 });
 

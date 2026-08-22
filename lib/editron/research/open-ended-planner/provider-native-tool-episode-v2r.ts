@@ -642,6 +642,9 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         originTurn: turn,
         sourceOperatorId: exactTool.operatorId,
         output: execution.output,
+        ...(input.onTurnCommitted && advancesEpisodeState(exactTool.kind) ? {
+          requiredSourceOutputPaths: [['receipt', 'projectRevision']],
+        } : {}),
       })
       : [];
     turns.push({

@@ -62,12 +62,22 @@ export class ProviderNativeResultReferenceRegistryV2R {
     originTurn: number;
     sourceOperatorId: string;
     output: Readonly<JsonRecord>;
+    requiredSourceOutputPaths?: readonly (readonly string[])[];
   }): readonly Readonly<ProviderNativeIssuedResultReferenceV2R>[] {
     requirePositiveTurn(input.originTurn);
     if (!input.sourceOperatorId.trim()) {
       throw new Error('PROVIDER_NATIVE_RESULT_REFERENCE_OPERATOR_INVALID');
     }
-    const fields = this.projections
+    // Checkpoint-only causal values stay internal: they are issued and hashed
+    // here but are not added to the model-visible declared projection policy.
+    const projections = validateProjectionPolicy([
+      ...this.projections,
+      ...(input.requiredSourceOutputPaths ?? []).map((sourceOutputPath) => ({
+        sourceOperatorId: input.sourceOperatorId,
+        sourceOutputPath,
+      })),
+    ]);
+    const fields = projections
       .filter(({ sourceOperatorId }) => sourceOperatorId === input.sourceOperatorId)
       .map(({ sourceOutputPath }) => ({
         sourceOutputPath,
