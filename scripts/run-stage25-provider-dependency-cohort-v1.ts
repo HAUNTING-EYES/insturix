@@ -10,10 +10,15 @@ import {
   preflightStage25ProviderDependencyCohortV1,
   STAGE25_PROVIDER_DEPENDENCY_EVALUATOR_SOURCE_PATH_V1,
 } from '../lib/editron/research/open-ended-planner/stage25-provider-dependency-cohort-v1';
+import { runStage25ProviderDependencyCohortV1 }
+  from '../lib/editron/research/open-ended-planner/stage25-provider-dependency-cohort-runner-v1';
+import { createProviderNativeLiveTransportV2R }
+  from '../lib/editron/research/open-ended-planner/provider-native-live-transport-v2r';
 
 const repoRoot = process.cwd();
 const BENCHMARK_SOURCE_PATHS = [
   'lib/editron/research/open-ended-planner/stage25-provider-dependency-cohort-v1.ts',
+  'lib/editron/research/open-ended-planner/stage25-provider-dependency-cohort-runner-v1.ts',
   'lib/editron/research/open-ended-planner/stage25-provider-dependency-holdout-v1.ts',
   'lib/editron/research/open-ended-planner/stage25-provider-dependency-owner-v1.ts',
   'lib/editron/research/open-ended-planner/stage25-provider-trace-schedule-binding-v1.ts',
@@ -25,9 +30,7 @@ const GOOGLE_CREDENTIAL_NAMES = [
 ] as const;
 
 async function main(): Promise<void> {
-  if (process.argv.includes('--run')) {
-    throw new Error('STAGE25_PROVIDER_DEPENDENCY_PREFLIGHT_INFERENCE_NOT_IMPLEMENTED');
-  }
+  const runRequested = process.argv.includes('--run');
   const productionEnvPath = requiredOption('--google-production-env');
   loadEnv({ path: path.join(repoRoot, '.env.local'), override: false, quiet: true });
   loadProductionGoogleCredentials(path.resolve(productionEnvPath));
@@ -54,7 +57,7 @@ async function main(): Promise<void> {
         repoRoot,
         '.calibration-temp',
         'open-ended-planner-v2',
-        `stage25-provider-dependency-preflight-${stamp(createdAt)}`,
+        `stage25-provider-dependency-${runRequested ? 'run' : 'preflight'}-${stamp(createdAt)}`,
       );
   await mkdir(outputRoot, { recursive: false });
   await Promise.all([
@@ -62,7 +65,7 @@ async function main(): Promise<void> {
     writeJson(path.join(outputRoot, 'preflight.json'), preflight),
   ]);
   process.stdout.write(`${JSON.stringify({
-    mode: 'NO_SPEND_PREFLIGHT',
+    mode: runRequested ? 'RUN_REQUESTED' : 'NO_SPEND_PREFLIGHT',
     outputRoot,
     sourceCommit,
     manifestSha256: manifest.manifestSha256,
@@ -73,6 +76,30 @@ async function main(): Promise<void> {
     absoluteMaxSpendUsd: manifest.absoluteMaxSpendUsd,
     preflightReceiptSha256: preflight.receiptSha256,
     networkCalls: preflight.networkCalls,
+  }, null, 2)}\n`);
+  if (!runRequested) return;
+  if (option('--confirm-manifest') !== manifest.manifestSha256) {
+    throw new Error('STAGE25_PROVIDER_DEPENDENCY_MANIFEST_CONFIRMATION_MISMATCH');
+  }
+  if (Number(option('--confirm-max-usd')) !== manifest.absoluteMaxSpendUsd) {
+    throw new Error('STAGE25_PROVIDER_DEPENDENCY_SPEND_CONFIRMATION_MISMATCH');
+  }
+  const receipt = await runStage25ProviderDependencyCohortV1({
+    manifest,
+    outputRoot: path.join(outputRoot, 'cohort'),
+    createTransport: () => createProviderNativeLiveTransportV2R({
+      environment: process.env,
+    }),
+  });
+  process.stdout.write(`${JSON.stringify({
+    cohortReceiptPath: path.join(outputRoot, 'cohort', 'cohort-receipt.json'),
+    receiptSha256: receipt.receiptSha256,
+    rowCount: receipt.rowCount,
+    passCount: receipt.passCount,
+    failCount: receipt.failCount,
+    providerInfrastructureUnverifiableCount:
+      receipt.providerInfrastructureUnverifiableCount,
+    harnessErrorCount: receipt.harnessErrorCount,
   }, null, 2)}\n`);
 }
 
