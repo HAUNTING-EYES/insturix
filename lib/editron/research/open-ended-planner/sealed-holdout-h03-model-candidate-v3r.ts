@@ -24,6 +24,14 @@ type JsonRecord = Record<string, unknown>;
 export const SEALED_H03_MODEL_SOURCE_CONTRACT_VERSION_V3R =
   'EDITRON_OE_SEALED_H03_MODEL_SOURCE_CONTRACT_V3R_1' as const;
 
+export const SEALED_H03_MODEL_SOURCE_STAGE_BUDGET_V3R = deepFreezeV1({
+  maxInputTokens: 40_000,
+  maxVisibleOutputTokens: 14_000,
+  maxReasoningTokens: 16_000,
+  maxWallClockMs: 240_000,
+  maxProviderCostUsd: 0.75,
+});
+
 export interface SealedH03ModelCandidateInputV3R {
   source: string;
   modelId: string;
@@ -67,13 +75,7 @@ export function buildSealedH03GeneratedCompositionModelPacketV3R(input: {
         ? ['Repair only the supplied prior source against the bounded diagnostics; preserve already valid behavior.']
         : []),
     ],
-    stageBudget: {
-      maxInputTokens: 40_000,
-      maxVisibleOutputTokens: 14_000,
-      maxReasoningTokens: 16_000,
-      maxWallClockMs: 240_000,
-      maxProviderCostUsd: 0.75,
-    },
+    stageBudget: SEALED_H03_MODEL_SOURCE_STAGE_BUDGET_V3R,
     modelInput: {
       benchmarkContract: SEALED_H03_MODEL_SOURCE_CONTRACT_VERSION_V3R,
       publicReferenceTarget: SEALED_H03_PUBLIC_TARGET_CONTRACT_V3R,

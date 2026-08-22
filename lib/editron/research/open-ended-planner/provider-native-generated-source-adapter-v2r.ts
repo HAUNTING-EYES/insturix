@@ -26,7 +26,7 @@ export async function generateProviderNativeSourceFromPacketV2R(input: {
   artifact: Readonly<HashedStagePacketV2>;
   runProviderCall?: typeof runGeneratedCompositionSourceProviderCallV1;
 }): Promise<Readonly<ProviderNativeGeneratedSourceResultV2R>> {
-  const route = directRoute(input.routeEntry);
+  const route = buildProviderNativeGeneratedSourceRouteV2R(input.routeEntry);
   const apiKey = requiredKey(input.environment, input.routeEntry.route.provider);
   const call = await (input.runProviderCall ?? runGeneratedCompositionSourceProviderCallV1)({
     artifact: input.artifact,
@@ -51,7 +51,7 @@ export async function generateProviderNativeSourceFromPacketV2R(input: {
   };
 }
 
-function directRoute(
+export function buildProviderNativeGeneratedSourceRouteV2R(
   entry: Readonly<ProviderNativeCohortRouteV2R>,
 ): GeneratedCompositionDirectBenchmarkRouteV1 {
   return {
