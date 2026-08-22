@@ -128,7 +128,7 @@ export async function evaluateDev02GeneratedCompositionRenderedProofV1(input: {
 }): Promise<Readonly<Dev02GeneratedCompositionRenderedProofV1>> {
   if (!/^[a-f0-9]{64}$/.test(input.authoritativeProxyReceiptHash)) throw new Error('DEV-02 rendered proof authoritative proxy identity is invalid');
   const claimBindings = assertPolicyBindings(
-    input.program, input.proxyReceipt, input.authoritativeProxyReceiptHash, input.referenceBlueprint,
+    input.program, input.proxyReceipt, input.referenceBlueprint,
   );
   const frames = new Map<number, LoadedFrame>();
   for (const still of input.proxyReceipt.stills) {
@@ -172,7 +172,6 @@ export async function evaluateDev02GeneratedCompositionRenderedProofV1(input: {
 function assertPolicyBindings(
   program: GeneratedCompositionProgramV1,
   receipt: GeneratedCompositionProxyReceiptV1,
-  _authoritativeProxyReceiptHash: string,
   referenceBlueprint?: unknown,
 ): Readonly<Dev02RenderedProofClaimBindingsV1> {
   if (program.taskId !== DEV02_RENDERED_PROOF_POLICY_V1.taskId) throw new Error('DEV-02 rendered proof policy cannot evaluate another task');
