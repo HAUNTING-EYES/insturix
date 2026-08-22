@@ -5,24 +5,26 @@ import Link from "next/link";
 import { Select } from "@/components/primitives";
 
 /* ── Design tokens ── */
+// Values point at design-tokens.css variables (P2.9) so a theme change propagates.
+// Translucent tints use color-mix() — a var() cannot take a hex-alpha suffix.
 const C = {
-  bg: "#0B0B0A",
-  raised: "#0F0F0E",
-  deeper: "#131312",
-  well: "#1B1A18",
-  border: "#1C1B19",
-  borderL: "#282724",
-  text: "#ECE9E1",
-  soft: "#B5B2A8",
-  muted: "#7A776E",
-  dim: "#5F5E5A",
-  faint: "#454340",
-  accent: "#D4A652",
-  green: "#5EC97E",
-  red: "#D46A5C",
-  purple: "#9088D4",
-  pink: "#D088B4",
-  cyan: "#5CB8CC",
+  bg: "var(--bg-canvas)",
+  raised: "var(--bg-raised)",
+  deeper: "var(--bg-deeper)",
+  well: "var(--bg-well)",
+  border: "var(--border-subtle)",
+  borderL: "var(--border-emphasis)",
+  text: "var(--text-primary)",
+  soft: "var(--text-secondary)",
+  muted: "var(--text-muted)",
+  dim: "var(--text-dim)",
+  faint: "var(--text-faint)",
+  accent: "var(--accent-gold)",
+  green: "var(--status-success)",
+  red: "var(--status-danger)",
+  purple: "var(--category-purple)",
+  pink: "var(--category-pink)",
+  cyan: "var(--category-cyan)",
 } as const;
 
 /* ── Stage definitions ── */
@@ -584,7 +586,7 @@ function AttentionZone() {
           {items.map((item) => (
             <div key={item.id} style={{
               padding: "12px 16px", background: C.raised,
-              border: `1px solid ${item.severity === "high" ? `${C.red}30` : C.border}`,
+              border: `1px solid ${item.severity === "high" ? `color-mix(in srgb, ${C.red} 19%, transparent)` : C.border}`,
               borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
             }}>
               <div style={{ minWidth: 0 }}>
@@ -704,7 +706,7 @@ function BoardCard({ project, stageColor }: { project: Project; stageColor: stri
             position: "absolute", top: 6, right: 6,
             display: "flex", alignItems: "center", gap: 4,
             padding: "2px 6px", borderRadius: 4,
-            background: `${scoreColor}18`,
+            background: `color-mix(in srgb, ${scoreColor} 9%, transparent)`,
             cursor: "pointer",
           }}
         >
@@ -847,7 +849,7 @@ function ListView({
               {/* Stage */}
               <span className="dh-mono" style={{
                 fontSize: 11, fontWeight: 500, color: sc,
-                padding: "3px 8px", background: `${sc}12`,
+                padding: "3px 8px", background: `color-mix(in srgb, ${sc} 7%, transparent)`,
                 borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 5,
                 width: "fit-content",
               }}>
@@ -863,7 +865,7 @@ function ListView({
                 <span className="dh-mono" style={{
                   fontSize: 11, fontWeight: 500,
                   color: p.score >= 85 ? C.green : p.score >= 70 ? C.accent : C.red,
-                  padding: "3px 8px", background: `${p.score >= 85 ? C.green : p.score >= 70 ? C.accent : C.red}12`,
+                  padding: "3px 8px", background: `color-mix(in srgb, ${p.score >= 85 ? C.green : p.score >= 70 ? C.accent : C.red} 7%, transparent)`,
                   borderRadius: 3, textAlign: "center",
                 }}>{p.score}</span>
               ) : (
@@ -1009,7 +1011,7 @@ function SplitDetail({ project }: { project: Project }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <span className="dh-mono" style={{
           fontSize: 11, fontWeight: 500, color: stageColor,
-          padding: "3px 8px", background: `${stageColor}18`, borderRadius: 4,
+          padding: "3px 8px", background: `color-mix(in srgb, ${stageColor} 9%, transparent)`, borderRadius: 4,
         }}>
           {stage?.label ?? project.stage}
         </span>
@@ -1097,7 +1099,7 @@ function CinematicView({
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <span className="dh-mono" style={{
                   fontSize: 11, color: focusStage.color, fontWeight: 500,
-                  padding: "3px 8px", background: `${focusStage.color}20`, borderRadius: 4,
+                  padding: "3px 8px", background: `color-mix(in srgb, ${focusStage.color} 13%, transparent)`, borderRadius: 4,
                 }}>{focusStage.label}</span>
                 {focus.aspectRatio && (
                   <span className="dh-mono" style={{ fontSize: 11, color: C.dim }}>{focus.aspectRatio}</span>
