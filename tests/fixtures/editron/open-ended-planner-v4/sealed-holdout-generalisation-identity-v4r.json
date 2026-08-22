@@ -1,10 +1,10 @@
 {
   "version": "EDITRON_OE_SEALED_HOLDOUT_GENERALISATION_COHORT_V4R_1",
-  "contractSourceSha256": "f5fc458fac2c23d087b2eaf138aa6ec1cd460506078a9cbcf87d626a7f9dfd3c",
-  "manifestSha256": "b7f1f1016822350925cbb9027ba813dfb361a3a26e89592e93e2520c630927eb",
+  "contractSourceSha256": "eb29bc2f94cc9bfdca9431c73c22702dfd89f848aaa2c263eeabed02ed2f6715",
+  "manifestSha256": "9ee7cb4d25c91f2b1821cb1ae46f1ea3ba63a03d4919c841ad4b13b6ea61a6d8",
   "rowSetSha256": "de6d5912bdaa70ddfe2ed1651ebada7fbfd6414bd2633de4f383c8ab373b148e",
   "routeSetSha256": "a9248c24b68842cbe1793a515c219597304fb5494b672fd6b6774e0f98d32072",
-  "implementationBindingsSha256": "a4e72d9f0abcf13e8f349633a4b7583a3e6d66562246ae3857d6afba4e01176e",
+  "implementationBindingsSha256": "4be27c0b23ffe38cb98d7f63da1c41932959fd7cdfb1dfc6ecdf2ebd9f7113fd",
   "baseManifestSha256": "a468c2f487f3a07385dd51ee5653bd9fcdafaeb86130f3fe6a54381d5cc930f3",
   "cap2ManifestSha256": "2549623eaca44feabf15aa53d8dd93c02804b37406db69879fd047981d2f9ce9",
   "caseCount": 15,
