@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `0302b43a4` on
+programme code checkpoint represented by this ledger is `e3ea46fde` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1325,6 +1325,25 @@ frozen interpretation is `MODIFY_AND_RERUN_CORRECTED_IDENTITY`. Correct the API,
 kind-aware verifier and target-not-recipe motion proof; reissue CAP-2A; freeze a
 new H03 identity; then rerun affected rows. Full facts and hashes are in
 `docs/editron/open-ended-editing/oe-h03-v3r3-provider-source-results-2026-08-22.md`.
+
+**Corrected H03/CAP-2A checkpoint:** commits `9632e7541`, `9f0c2c072` and
+`d84b54159` now declare component-to-layer kinds and CSS-pixel units to the
+provider, reject kind-invalid programs before sandbox execution and verify all
+six target-derived panel-motion directions rather than two convenient edges.
+The real V3 sandbox/hybrid canary and the wider V2 H03 proof suite both pass.
+Commit `e3ea46fde` then reissues CAP-2A V6 against source commit `d84b54159`,
+including the committed ThinkForge canary route instead of claiming the old
+surface was unchanged. V6 binds 222 source paths, 11 observations and 477
+identifier occurrences to source snapshot
+`705d4b3d5b8d51fc350af1828a5dea4b216cdb5f45d77c4828c409eb1c8d2060`;
+its manifest is
+`2549623eaca44feabf15aa53d8dd93c02804b37406db69879fd047981d2f9ce9`.
+It still records 37 atomic candidates, zero certified operations, zero
+production-eligible operations and no runtime authority. The next executable
+step is a new H03 cohort identity bound to V6, followed by zero-inference
+preflight and a full eighteen-row rerun because every provider-visible H03 row
+received the corrected API/proof contract. Historical V3R3 artifacts remain
+unchanged and invalid for final model ranking.
 
 Truthful H03 protected-literal input, source-synthesis contract, owner-gated
 zero-inference source episode and lossless trace/hidden-evaluator binding are
@@ -2363,12 +2382,13 @@ foundation and is no longer the active queue. The next three slices are:
    model-source sandbox/decoded-proof contract. Commits `06150a94e` and
    `82c7db926` additionally prove that exact synthetic callback through a real
    deny-all Vercel microVM; this is infrastructure evidence, not model quality.
-   Commits `839ce4be5` and `1d0107eab` now reissue CAP-2A V5 over the stable
-   H03 checkpoint without changing catalog authority. Commit `d318a3122`
-   connects the metered provider adapter to the sealed H03 packet with fake
-   calls only. Next freeze separate capability-ceiling and production-budget
-   identities, pass the refreshed zero-inference simulation, and rerun only
-   rows whose validity or evaluation coverage changed.
+   Commits `839ce4be5` and `1d0107eab` reissued historical CAP-2A V5 over the
+   synthetic H03 checkpoint. Commits `9632e7541`, `9f0c2c072` and `d84b54159`
+   correct the provider API, kind-aware verifier and six-direction motion
+   proof. Commit `e3ea46fde` freezes CAP-2A V6 over that corrected source and
+   the newly observed ThinkForge route without changing catalog or runtime
+   authority. Next freeze the V6-bound H03 cohort identity, pass refreshed
+   zero-inference preflight and rerun all eighteen provider-visible rows.
 2. **HREF-01 dense/human closeout:** retain the fourteen-image arm as a sparse
    historical control. The full native-video/audio observation and exact
    180-frame dense window exist; formal promotion still requires a second
@@ -3425,10 +3445,11 @@ built around it.
 - [ ] **T7 (P1, bounded matrix)** — V2-2 — run repeated development and locked
   holdout trials, then publish `GO`, `MODIFY` or `NO-GO`.
   - Surfaced by: the open-ended model and routing hypotheses.
-  - Current gate (2026-08-22): first correct H03 component-kind/translation
-    contracts and motion proof, reissue CAP-2A, freeze and preflight the new
-    identity, rerun affected rows including a non-rate-limited Gemini route,
-    and freeze that interpretation. Then execute the seven unseen holdouts,
+  - Current gate (2026-08-22): H03 component-kind/translation contracts,
+    six-direction motion proof and CAP-2A V6 reissue are complete at
+    `e3ea46fde`. Freeze and preflight the new H03 identity, rerun all eighteen
+    rows including a non-rate-limited Gemini route, and freeze that
+    interpretation. Then execute the seven unseen holdouts,
     dependency-shape diversity, forced native/generated/hybrid baselines,
     conflict/rebase/locked-range, context-resume and long-form/range trials.
   - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,

@@ -115,6 +115,25 @@ Changing the provider-visible contract or verifier invalidates the current
 CAP-2A source binding by design. Reissue CAP-2A rather than rewriting V5, then
 freeze a new cohort identity and zero-inference preflight before spending.
 
+## Superseding correction checkpoint
+
+The historical V3R3 run and this diagnosis remain unchanged. The corrective
+prerequisites are now code-grounded:
+
+- `9632e7541` adds provider-visible layer-kind/unit semantics and rejects
+  kind-invalid programs before sandbox execution;
+- `9f0c2c072` proves all six declared panel-motion directions using
+  target-derived edge probes;
+- `d84b54159` issues the corrected H03 provider-visible source contract; and
+- `e3ea46fde` issues CAP-2A V6 with manifest
+  `2549623eaca44feabf15aa53d8dd93c02804b37406db69879fd047981d2f9ce9`,
+  binding 222 source paths and 477 observed identifiers with zero runtime or
+  production authority.
+
+These corrections have not yet produced a valid provider result. A new
+V6-bound H03 cohort identity, zero-inference preflight and full eighteen-row
+rerun are still required.
+
 ## Promotion boundary
 
 This run proves the following harness facts:
@@ -132,10 +151,11 @@ production editing agent. Stage 2.5 remains `MODIFY_AND_PROCEED_RESEARCH`.
 
 ## Ordered continuation
 
-1. Correct and test the visible API and kind-aware verifier.
-2. Audit the H03 motion predicate for target fidelity rather than recipe
-   fidelity.
-3. Reissue the capability snapshot and freeze a corrected H03 cohort identity.
+1. **Complete:** correct and test the visible API and kind-aware verifier.
+2. **Complete:** audit the H03 motion predicate for target fidelity rather than
+   recipe fidelity.
+3. **Partial:** CAP-2A V6 is reissued; freeze a corrected V6-bound H03 cohort
+   identity.
 4. Pass zero-inference preflight, resolve Gemini generation quota, and rerun all
    rows whose visible contract changed.
 5. Freeze the interpretation before proceeding to dependency diversity,
