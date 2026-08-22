@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `ec1432446` on
+programme code checkpoint represented by this ledger is `6217cf748` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1478,6 +1478,26 @@ Luna replay receipt; repository typecheck and quiet ESLint pass. This is
 `RESEARCH_PROVEN` for reference identity across in-process restart. It is not
 durable storage, cross-process recovery, runtime/spend-state recovery, paid
 resumed inference, ProjectService mutation or rendered product acceptance.
+
+**Runtime-accounting-bound provider-resume checkpoint (2026-08-23):** commit
+`6217cf748` extends the same checkpoint owner, provider-native runner and sealed
+runtime-budget controller; it does not introduce another runner, budget owner or
+project authority. Reference-free runtime-guarded episodes issue V3 checkpoints
+and reference-bound runtime-guarded episodes issue V4 checkpoints, while the
+historical V1/V2 identities remain unchanged. Each completed turn stores its
+actual provider output limit and the checkpoint binds the exact ordered runtime
+audit, cumulative provider turns, selected operations, input/cached/cache-write/
+output/thought/reasoning tokens and nano-USD spend to the completed-turn hash,
+authorization and limits. Resume into a fresh controller independently derives
+the cumulative usage from those turn audits before another provider call;
+missing guards, legacy-unbound guards, changed authorizations/limits, stale turn
+bindings and rehashed forged counters fail closed. An unresolved in-flight
+provider request cannot be checkpointed. The resume/reference/runtime suites
+pass 31/31; repository typecheck and quiet ESLint pass. This is
+`RESEARCH_PROVEN` for cumulative resource-accounting integrity across one
+in-process fresh-controller restart. It is not durable storage, authenticated
+cross-process recovery, paid resumed inference, ProjectService mutation or
+rendered product acceptance.
 
 **Model-selected schedule-binding checkpoint (2026-08-22):** commit
 `99f363e28` connects the existing Stage-2 exact `selectedOperatorId` contract
@@ -2305,7 +2325,7 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. DEV-02 now has one real native alternative and one real generated-island/native-continuation hybrid at identical decoded scope, plus sealed blind pack `23870abb...`; hard target gates pass for both. The V3R3 non-leading dependency cohort adds a live six-operation fork/join result under three tool orders: corrected immutable replay receipt `d1cc5d7c...` records Luna 3/3, Terra 3/3, zero evaluable failures and three Gemini credit-depletion non-evaluations for `$0.244869160`, with zero replay inference and zero project effects. Commit `3a161c562` replaces the real-episode hand-built scheduler-effect fixture with exact, hash-bound effects issued from the observed isolated owner. Commits `7a16b0cec` and `03e7aa8a3` then replay one exact Luna P1 episode through those owners and the existing Remotion root; portable receipt `62a1fb24...` proves the two cut boundaries, warm treatment, 1.08 push-in and right-biased focal geometry in a decoded 640x360, 30/1, 720-frame H.264 proxy with zero project effects. Commit `fe22e2f7b` proves one provider-loop prefix can be compacted and resumed through opaque results without replaying mutations or resetting the repair budget. Commit `8512970f9` then replays the exact already-paid Luna P1 response bodies through an interruption after turn four, restores a fresh instance of the same isolated owner from a canonically validated snapshot, executes only the suffix and reaches the original `R45` owner state. Portable receipt `a7dd98a1...` binds all eight captured response hashes, four prefix and four suffix calls, zero inference, zero project effects and the deliberately changed compact-resume request identity. HREF-01's technical review pack is complete: the full 64.75-second source, one model-requested `[20s,23s)` 60/1 dense clip and its 96 kHz stereo WAV are hash-bound under public pack `4431c08b...`. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The exact-effect issuer covers only six holdout operations and the rendered supplement covers only one synthetic Luna row. Audio is absent from that dependency episode and ProjectService reload/product-authority integration are explicitly unverifiable; generic effect coverage and audiovisual proof remain open. HREF-01 now waits only for the sole project owner's blinded judgment; independent agreement remains `UNVERIFIABLE` without a real second reviewer. The phrase “seven unseen holdouts” is retired: HOLD-01 through HOLD-08 already executed, so the next task evidence must use genuinely new dependency/invalidation holdouts. Provider-loop resume is now proven against one exact captured provider row and a fresh owner instance, but still lacks durable storage, runtime-budget/reference-input binding, cross-process worker recovery, paid resumed inference and ProjectService integration. Then complete product-authority conflict/rebase/lock integration, long-form range planning, forced native/generated/hybrid alternatives and blind quality/correction-time receipts. The user's DEV-02 qualitative order `B > C > A` is recorded in chat evidence, but a hash-bound correction-time/confidence review receipt remains pending; H04 still has synthetic tone/no caption-pixel proof; H05 lacks audio/real-logo pixel proof; DEV-03 lacks intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. DEV-02 now has one real native alternative and one real generated-island/native-continuation hybrid at identical decoded scope, plus sealed blind pack `23870abb...`; hard target gates pass for both. The V3R3 non-leading dependency cohort adds a live six-operation fork/join result under three tool orders: corrected immutable replay receipt `d1cc5d7c...` records Luna 3/3, Terra 3/3, zero evaluable failures and three Gemini credit-depletion non-evaluations for `$0.244869160`, with zero replay inference and zero project effects. Commit `3a161c562` replaces the real-episode hand-built scheduler-effect fixture with exact, hash-bound effects issued from the observed isolated owner. Commits `7a16b0cec` and `03e7aa8a3` then replay one exact Luna P1 episode through those owners and the existing Remotion root; portable receipt `62a1fb24...` proves the two cut boundaries, warm treatment, 1.08 push-in and right-biased focal geometry in a decoded 640x360, 30/1, 720-frame H.264 proxy with zero project effects. Commit `fe22e2f7b` proves one provider-loop prefix can be compacted and resumed through opaque results without replaying mutations or resetting the repair budget. Commit `8512970f9` then replays the exact already-paid Luna P1 response bodies through an interruption after turn four, restores a fresh instance of the same isolated owner from a canonically validated snapshot, executes only the suffix and reaches the original `R45` owner state. Portable receipt `a7dd98a1...` binds all eight captured response hashes, four prefix and four suffix calls, zero inference, zero project effects and the deliberately changed compact-resume request identity. Commits `ec1432446` and `6217cf748` now bind exact reference-media identity and cumulative runtime/spend accounting across an in-process fresh-instance resume; forged or mismatched state fails before provider/tool execution. HREF-01's technical review pack is complete: the full 64.75-second source, one model-requested `[20s,23s)` 60/1 dense clip and its 96 kHz stereo WAV are hash-bound under public pack `4431c08b...`. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The exact-effect issuer covers only six holdout operations and the rendered supplement covers only one synthetic Luna row. Audio is absent from that dependency episode and ProjectService reload/product-authority integration are explicitly unverifiable; generic effect coverage and audiovisual proof remain open. HREF-01 now waits only for the sole project owner's blinded judgment; independent agreement remains `UNVERIFIABLE` without a real second reviewer. The phrase “seven unseen holdouts” is retired: HOLD-01 through HOLD-08 already executed, so the next task evidence must use genuinely new dependency/invalidation holdouts. Provider-loop resume has in-process reference and cumulative runtime-budget identity, but still lacks durable authenticated storage, cross-process worker recovery, paid resumed inference and ProjectService integration. Then complete product-authority conflict/rebase/lock integration, long-form range planning, forced native/generated/hybrid alternatives and blind quality/correction-time receipts. The user's DEV-02 qualitative order `B > C > A` is recorded in chat evidence, but a hash-bound correction-time/confidence review receipt remains pending; H04 still has synthetic tone/no caption-pixel proof; H05 lacks audio/real-logo pixel proof; DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -2313,11 +2333,12 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 7 - agency certification | No accepted certification run. | Real consented projects with zero hidden rescue, fatal false-success rate zero and published quality/cost/latency/rights scorecards. |
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
 
-**Stage 2.5 row correction (2026-08-23):** the row's combined
-`runtime-budget/reference-input binding` clause predates commit `ec1432446`.
-Reference-input identity is now research-proven across in-process restart;
-runtime-budget state recovery, durable storage, cross-process recovery, paid
-resumed inference and ProjectService integration remain open.
+**Stage 2.5 row correction (2026-08-23):** the row's former combined
+`runtime-budget/reference-input binding` clause predates commits `ec1432446`
+and `6217cf748`. Reference-input identity and cumulative runtime-budget state
+recovery are now research-proven across in-process fresh-instance restart.
+Durable authenticated storage, cross-process worker recovery, paid resumed
+inference and ProjectService integration remain open.
 
 ### Global timebase and format truth
 
@@ -2778,9 +2799,10 @@ foundation and is no longer the active queue. The next three slices are:
    render/reload/audiovisual proof remain. Then test further genuinely held-
    out dependency/invalidation shapes; force native, generated and hybrid
    implementations on held-out tasks; inject stale user edits, overlap
-   conflicts, safe rebase and locked ranges. Commit `ec1432446` now binds exact
-   image/native-video reference identity into the working provider resume
-   boundary; bind and restore runtime accounting next.
+   conflicts, safe rebase and locked ranges. Commit `ec1432446` binds exact
+   image/native-video reference identity and commit `6217cf748` binds and
+   independently restores cumulative runtime accounting across the working
+   in-process provider-resume boundary.
    Commit `8512970f9` and receipt `a7dd98a1...` prove that one exact captured
    Luna P1 trace survives an in-process turn-four interruption, fresh-owner
    hydration and suffix-only replay without another inference call. Persist
@@ -3911,9 +3933,10 @@ built around it.
     the scheduler, bringing the combined safety suite to 26/26. That graph is a
     constructed fork/join qualification, not provider evidence. The provider
     cohort, the generic resume mechanism and one exact captured Luna P1
-    fresh-owner restart and reference-input identity binding are now complete;
-    durable result storage, runtime-budget recovery, paid resumed inference and
-    cross-process worker recovery remain before long-form/range trials. Product
+    fresh-owner restart, reference-input identity and cumulative runtime-budget
+    recovery are now complete in process; durable authenticated result storage,
+    paid resumed inference and cross-process worker recovery remain before
+    long-form/range trials. Product
     integration waits
     for ProjectService-issued change regions/transforms/locks and a durable
     PlanService rather than a second owner.
