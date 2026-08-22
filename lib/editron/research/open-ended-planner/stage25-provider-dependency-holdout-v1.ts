@@ -11,11 +11,13 @@ import {
 import {
   projectProviderEpisodeSelectedOperationNodesV2R,
 } from './sealed-holdout-trace-v2r';
+import { STAGE25_DEPENDENCY_BEAT_CONSTRAINTS_V1 }
+  from './stage25-provider-dependency-owner-v1';
 
 type JsonRecord = Record<string, unknown>;
 
 export const STAGE25_PROVIDER_DEPENDENCY_HOLDOUT_VERSION_V1 =
-  'EDITRON_OE_STAGE25_PROVIDER_DEPENDENCY_HOLDOUT_V1' as const;
+  'EDITRON_OE_STAGE25_PROVIDER_DEPENDENCY_HOLDOUT_V1_2' as const;
 export const STAGE25_PROVIDER_DEPENDENCY_TASK_ID_V1 =
   'HOLD-FORK-JOIN-01' as const;
 export const STAGE25_PROVIDER_DEPENDENCY_EPISODE_ID_V1 =
@@ -88,6 +90,11 @@ Readonly<ProviderNativeEpisodeContextV2R> {
     projectState: {
       projectId: 'project-42', projectRevision: 'R42', durationInFrames: 720,
       openingOverlayIds: [1, 2, 3], productRange: { startFrame: 600, endFrame: 720 },
+      ownerBoundOperationInputs: {
+        sync_cuts_to_beats: {
+          beatSyncConstraints: STAGE25_DEPENDENCY_BEAT_CONSTRAINTS_V1,
+        },
+      },
     },
     evidence: [
       { evidenceId: 'EV-A', kind: 'OWNER_EVIDENCE_AVAILABLE', ownerOperatorId: 'find_audio_moment', availableOutput: 'result' },
@@ -187,7 +194,14 @@ export function evaluateStage25ProviderDependencyHoldoutV1(input: {
 function prerequisiteSupplements(): readonly JsonRecord[] {
   const origin = (operatorId: string, outputField: string) => [{ origin: 'OPERATOR_OUTPUT', operatorId, outputField }];
   return [
-    { selectableOperatorId: 'sync_cuts_to_beats', inputOrigins: { beatPlan: origin('find_audio_moment', 'result') } },
+    { selectableOperatorId: 'sync_cuts_to_beats', inputOrigins: {
+      beatPlan: origin('find_audio_moment', 'result'),
+      beatSyncConstraints: [{
+        origin: 'PROJECT_POLICY',
+        projectStatePath:
+          'ownerBoundOperationInputs.sync_cuts_to_beats.beatSyncConstraints',
+      }],
+    } },
     { selectableOperatorId: 'resolve_keyframe_edit', inputOrigins: {
       expectedProjectRevision: origin('sync_cuts_to_beats', 'receipt.projectRevision'),
       overlayId: origin('find_visual_moment', 'overlayId'), targetFrame: origin('find_visual_moment', 'targetFrame'),

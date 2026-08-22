@@ -42,6 +42,28 @@ describe('Stage 2.5 non-leading provider dependency holdout', () => {
     expect(serialized).not.toContain('"strongPeakFrames"');
     expect(serialized).not.toContain('"targetFrame":660');
     expect(serialized).not.toContain('"overlayId":42');
+    expect(context.projectState).toMatchObject({
+      ownerBoundOperationInputs: {
+        sync_cuts_to_beats: {
+          beatSyncConstraints: STAGE25_DEPENDENCY_BEAT_CONSTRAINTS_V1,
+        },
+      },
+    });
+    expect(records(dossier.plannerRecordSupplements)).toContainEqual({
+      selectableOperatorId: 'sync_cuts_to_beats',
+      inputOrigins: {
+        beatPlan: [{
+          origin: 'OPERATOR_OUTPUT',
+          operatorId: 'find_audio_moment',
+          outputField: 'result',
+        }],
+        beatSyncConstraints: [{
+          origin: 'PROJECT_POLICY',
+          projectStatePath:
+            'ownerBoundOperationInputs.sync_cuts_to_beats.beatSyncConstraints',
+        }],
+      },
+    });
   });
 
   it('accepts only exact deterministic presentation permutations', () => {
