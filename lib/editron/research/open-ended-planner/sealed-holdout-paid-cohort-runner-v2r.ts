@@ -78,10 +78,10 @@ interface SealedHoldoutPaidRowPlanV2R {
   rowPlanSha256: string;
 }
 
-export const SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R =
+const SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_PAID_COHORT_RUNNER_V2R_1' as const;
 
-export interface SealedHoldoutPaidCohortRunnerDependenciesV2R {
+interface SealedHoldoutPaidCohortRunnerDependenciesV2R {
   fetchImpl?: typeof fetch;
   transportFactory?: typeof createProviderNativeLiveTransportV2R;
   proofExecutor?: (
@@ -91,7 +91,7 @@ export interface SealedHoldoutPaidCohortRunnerDependenciesV2R {
   uniqueId?: () => string;
 }
 
-export interface SealedHoldoutPaidCohortRunInputV2R {
+interface SealedHoldoutPaidCohortRunInputV2R {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
   credentialPreflight: Readonly<SealedHoldoutCredentialPreflightReceiptV2R>;
   paidAuthorization: Readonly<SealedHoldoutPaidDispatchAuthorizationV2R>;
@@ -103,7 +103,7 @@ export interface SealedHoldoutPaidCohortRunInputV2R {
   dependencies?: Readonly<SealedHoldoutPaidCohortRunnerDependenciesV2R>;
 }
 
-export interface SealedHoldoutPaidCohortReceiptV2R {
+interface SealedHoldoutPaidCohortReceiptV2R {
   version: typeof SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V2R;
   authority: 'RESEARCH_PROVIDER_COHORT_NO_PROJECT_AUTHORITY';
   runContractSha256: string;
