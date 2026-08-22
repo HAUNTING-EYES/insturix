@@ -15,8 +15,8 @@ import {
 type JsonRecord = Record<string, unknown>;
 
 const CORRECTED_ACTION = 'replace_with_matching_source_range';
-const FROZEN_V2_RESOLVE_VISUAL_TOOL_SET_SHA256 =
-  '07f7698c898edba5543a67c9e8e4f99b860a4fdbf434f76c367988bb95a65b72';
+const FROZEN_V2R9_RESOLVE_VISUAL_TOOL_SET_SHA256 =
+  'de27f3ec90d88f794938222c09e4dc66819569b6bdb807211cfeff86b9124be8';
 
 const CONTEXT: ProviderNativeEpisodeContextV2R = {
   episodeId: 'versioned-catalog-episode-1',
@@ -31,14 +31,18 @@ const CONTEXT: ProviderNativeEpisodeContextV2R = {
 };
 
 describe('provider-native versioned catalog injection', () => {
-  it('keeps the historical V2 builder identity frozen and opts into corrected schemas', () => {
-    const historical = buildProviderNativeToolSetV2R(['resolve_visual_edit']);
+  it('freezes the active V2R9 builder identity and opts into corrected schemas', () => {
+    const active = buildProviderNativeToolSetV2R(['resolve_visual_edit']);
     const corrected = buildCorrectedToolSet(['resolve_visual_edit']);
 
-    expect(historical.toolSetSha256).toBe(FROZEN_V2_RESOLVE_VISUAL_TOOL_SET_SHA256);
-    expect(actionEnum(historical)).not.toContain(CORRECTED_ACTION);
+    expect(active.catalogIdentity).toMatchObject({
+      catalogRevision: 'EDITRON_OPERATOR_SPECS_V2R_9',
+      catalogSha256: '3c3afe230dc1c0f807e38b45a6f69883b42c010dfe4df15ed271edfbc62d9c3c',
+    });
+    expect(active.toolSetSha256).toBe(FROZEN_V2R9_RESOLVE_VISUAL_TOOL_SET_SHA256);
+    expect(actionEnum(active)).not.toContain(CORRECTED_ACTION);
     expect(corrected.authority).toBe('VERSIONED_CATALOG_PLUS_CAP2A_DOSSIER');
-    expect(corrected.toolSetSha256).not.toBe(historical.toolSetSha256);
+    expect(corrected.toolSetSha256).not.toBe(active.toolSetSha256);
     expect(actionEnum(corrected)).toContain(CORRECTED_ACTION);
   });
 
