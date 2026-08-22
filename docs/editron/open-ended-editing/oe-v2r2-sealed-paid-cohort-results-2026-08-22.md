@@ -203,6 +203,21 @@ remains `SOURCE_CONTRACT_READY_FOR_RENDERED_PROOF`: the exact accepted source
 has not yet produced the bounded render proof, no metered provider source has
 been generated, and no model performance claim is valid yet.
 
+Commit `545c311bc` connects that exact accepted source to the existing Vercel
+Sandbox host contract and a single decoded HOLD-03 measurement owner. The V3R2
+adapter recomputes the episode/trace/evaluator/source lineage, binds the
+sandbox request, result, host receipt and output bytes, then measures the real
+playable proxy for six filled panels, title placement, entry/exit motion,
+reference exclusion and native frame-270 continuity. Historical V2 continues
+to identify and render only the human-authored fixture. Focused H03
+proof/episode/trace checks pass 8/8 with full typecheck and lint. The successful
+automated test uses an explicitly documented in-process host-contract adapter;
+therefore it proves the exact-source render wiring and predicates, not that a
+Vercel microVM or metered model ran. A real sandbox execution and metered
+provider source remain outstanding. Because the refactor changed a CAP-2A
+V4-bound H03 proof path, V4 is preserved history but must be reissued before a
+new provider cohort is frozen.
+
 ## Corrected-identity progress after this cohort
 
 Commit `bb16d0b96` adds the prerequisite versioned provider-catalog seam. The
