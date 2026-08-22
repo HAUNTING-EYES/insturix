@@ -192,6 +192,17 @@ regressions pass 14/14 with full typecheck and lint. Status is now
 provider output, lossless trace/evaluator, exact-source render proof and blind
 review remain outstanding.
 
+Commit `4b04b8676` completes the lossless trace and hidden-evaluator boundary.
+The V3R2 trace carries the exact accepted program, source bundle, model,
+prompt, candidate ordinal, owner authorization and generation receipt hashes,
+but never raw TSX. V3R3 hidden evaluation recomputes those bindings against the
+connected episode and fails closed on missing, stale, copied, forged or leaked
+source lineage. Historical V2/V3 identities remain unchanged; focused
+trace/episode/evaluator checks pass 20/20 with full typecheck and lint. Status
+remains `SOURCE_CONTRACT_READY_FOR_RENDERED_PROOF`: the exact accepted source
+has not yet produced the bounded render proof, no metered provider source has
+been generated, and no model performance claim is valid yet.
+
 ## Corrected-identity progress after this cohort
 
 Commit `bb16d0b96` adds the prerequisite versioned provider-catalog seam. The
