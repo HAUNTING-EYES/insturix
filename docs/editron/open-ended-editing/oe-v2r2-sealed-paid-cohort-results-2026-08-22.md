@@ -149,14 +149,20 @@ new frozen identity reruns them fairly.
    metered provider-source adapter to H03's exact owner-authorized packet. Fake
    provider tests prove route, argument, packet and repair-ordinal drift fail
    before dispatch; no provider output or model-quality claim exists yet.
-8. Separate capability-ceiling and production-budget conditions, pass a new
-   zero-inference preflight, then rerun only rows whose validity or evaluation
-   coverage changed under the new identities.
-9. Complete HREF-01 qualified review, dependency diversity, forced
+8. **Completed in `aa33b4dbc` with zero inference:** freeze the CAP-2A V5-bound
+   H03 V3R3 cohort with production-budget and capability-ceiling arms, three
+   Luna/Terra/Gemini routes, three repetitions per route/arm and eighteen
+   planned rows. Contract-source hash is `cc9b801e...`, manifest hash is
+   `6fec9b9e...`, and the exact worst-case authorization ceiling is `$11.673`.
+9. Run the credentialed V3R3 zero-inference operator preflight, then execute
+   all eighteen frozen rows and bind accepted source to sandbox render, decoded
+   proof and hidden evaluation. Preserve guard/failure receipts without
+   relabelling them as model failures.
+10. Complete HREF-01 qualified review, dependency diversity, forced
    native/generated/hybrid comparisons, stale-user-edit/conflict/rebase/locked
    range trials, context-compaction resume, long-form/range planning and blind
    editor quality/correction-time/latency/cost receipts.
-10. Publish a frozen `GO`, `MODIFY` or `NO-GO`. Current status is `MODIFY`.
+11. Publish a frozen `GO`, `MODIFY` or `NO-GO`. Current status is `MODIFY`.
 
 ### H03 public-input correction checkpoint
 
@@ -271,9 +277,18 @@ metered provider transport without adding project authority. The 5 focused
 adapter tests pass; the broader generated-composition/H03 regression passes
 27 tests with one intentional skip; typecheck and repository lint pass. Those
 tests use injected fake calls, so actual spend is zero and the result is
-`VALID_HARNESS_EVIDENCE`, not provider editing evidence. Separate
-capability-ceiling and production-budget identities plus their changed-row
-zero-inference preflight remain outstanding before any live provider run.
+`VALID_HARNESS_EVIDENCE`, not provider editing evidence.
+
+Commit `aa33b4dbc` freezes the new H03 V3R3 provider cohort without rewriting
+the earlier paid cohort. It binds CAP-2A V5, the exact owner-authorized source
+request, the current route/pricing identity and six implementation hashes.
+Production-budget permits one source candidate, zero verifier repair and at
+most two HTTP requests. Capability-ceiling permits two candidates, one
+verifier-guided repair and at most four requests. Three routes x two arms x
+three repetitions yields eighteen rows and an exact `$11.673` worst-case
+ceiling. The expanded H03/provider/render regression passes 34/34 across nine
+files; typecheck and repository lint pass. No credentialed preflight,
+inference or provider-generated render has run yet.
 
 ## Corrected-identity progress after this cohort
 
