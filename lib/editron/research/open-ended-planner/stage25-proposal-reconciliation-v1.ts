@@ -139,7 +139,7 @@ export function reconcileStage25ProposalV1(input: {
   for (const receipt of changesSinceBase) {
     for (const ref of receipt.invalidatedArtifactRefs) if (proposal.evidenceRefs.includes(ref)) staleEvidenceRefs.add(ref);
     const projectRegion = (region: Stage25EffectRegionV1): Stage25EffectRegionV1 => {
-      if (!receipt.affectedRegions.some((changed) => regionsIntersect(region, changed))) return region;
+      if (!receipt.affectedRegions.some((changed) => stage25EffectRegionsIntersectV1(region, changed))) return region;
       const transforms = receipt.coordinateTransforms.filter((transform) => transformApplies(transform, region));
       if (transforms.length !== 1) {
         conflictReceiptIds.add(receipt.receiptId);
@@ -153,7 +153,7 @@ export function reconcileStage25ProposalV1(input: {
   }
 
   const blockingLockIds = currentLocks
-    .filter((lock) => projectedWriteSet.some((region) => regionsIntersect(region, lock.region)))
+    .filter((lock) => projectedWriteSet.some((region) => stage25EffectRegionsIntersectV1(region, lock.region)))
     .map(({ lockId }) => lockId)
     .sort();
   const conflicts = [...conflictReceiptIds].sort();
@@ -235,16 +235,16 @@ function validateLocks(proposal: Stage25ProposalV1, currentRevision: string, loc
     if (lock.schemaVersion !== STAGE25_PROPOSAL_RECONCILIATION_VERSION_V1 || lock.projectId !== proposal.projectId
       || lock.status !== 'ACTIVE' || lock.lockHash !== hashWithout(lock, 'lockHash')) fail('RANGE_LOCK_INVALID');
     requireText(lock.lockId, 'LOCK_ID'); requireText(lock.ownerActorId, 'LOCK_OWNER'); requireText(lock.reason, 'LOCK_REASON');
-    validateRegion(lock.region, proposal.timebase);
+    validateStage25EffectRegionV1(lock.region, proposal.timebase);
   }
   if (expectedHash !== buildStage25LockSetHashV1({ projectId: proposal.projectId, currentProjectRevision: currentRevision, locks })) fail('LOCK_SET_HASH_INVALID');
 }
 
 function validateUniqueRegions(regions: readonly Stage25EffectRegionV1[], timebase: Stage25ProjectTimebaseRefV1): void {
   const ids = new Set<string>();
-  for (const region of regions) { if (ids.has(region.regionId)) fail('EFFECT_REGION_DUPLICATED'); ids.add(region.regionId); validateRegion(region, timebase); }
+  for (const region of regions) { if (ids.has(region.regionId)) fail('EFFECT_REGION_DUPLICATED'); ids.add(region.regionId); validateStage25EffectRegionV1(region, timebase); }
 }
-function validateRegion(region: Stage25EffectRegionV1, timebase: Stage25ProjectTimebaseRefV1): void {
+export function validateStage25EffectRegionV1(region: Stage25EffectRegionV1, timebase: Stage25ProjectTimebaseRefV1): void {
   requireText(region.regionId, 'REGION_ID'); validatePath(region.path); requireUniqueText(region.identityRefs, 'IDENTITY_REFS');
   if (region.range) validateRange(region.range, timebase);
 }
@@ -256,7 +256,7 @@ function validateRange(range: Stage25TickRangeV1, timebase: Stage25ProjectTimeba
 function validateTimebase(timebase: Stage25ProjectTimebaseRefV1): void { requireText(timebase.timebaseId, 'TIMEBASE_ID'); requireText(timebase.version, 'TIMEBASE_VERSION'); }
 function validatePath(path: readonly string[]): void { if (!path.length || path.some((part) => !part.trim() || part === '.' || part === '..' || part.includes('*'))) fail('PROJECT_PATH_INVALID'); }
 
-function regionsIntersect(left: Stage25EffectRegionV1, right: Stage25EffectRegionV1): boolean {
+export function stage25EffectRegionsIntersectV1(left: Stage25EffectRegionV1, right: Stage25EffectRegionV1): boolean {
   if (!pathsIntersect(left.path, right.path)) return false;
   if (!left.range || !right.range) return true;
   if (!sameTimebase(left.range.timebase, right.range.timebase)) fail('INTERSECTION_TIMEBASE_DRIFT');
