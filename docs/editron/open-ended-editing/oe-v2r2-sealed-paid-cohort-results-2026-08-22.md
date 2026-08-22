@@ -145,8 +145,10 @@ new frozen identity reruns them fairly.
    evidence; the source is not provider output and proves no model quality.
 6. **Completed in `839ce4be5` and `1d0107eab`:** reissue immutable CAP-2A V5
    against stable checkpoint `82c7db926`; preserve V4 as history.
-7. Connect the separately metered provider-source adapter so H03 can evaluate
-   provider-produced code rather than replaying the synthetic callback.
+7. **Completed in `d318a3122` with zero inference:** connect the separately
+   metered provider-source adapter to H03's exact owner-authorized packet. Fake
+   provider tests prove route, argument, packet and repair-ordinal drift fail
+   before dispatch; no provider output or model-quality claim exists yet.
 8. Separate capability-ceiling and production-budget conditions, pass a new
    zero-inference preflight, then rerun only rows whose validity or evaluation
    coverage changed under the new identities.
@@ -262,8 +264,16 @@ It explicitly reconciles the changed H03 evidence, binds the live sandbox
 receipt and retains `SYNTHETIC_CONTRACT_CALLBACK_NOT_PROVIDER_OUTPUT`, model
 performance `NONE`, project mutation `NONE`, zero certified operations and
 zero production-eligible operations. The next valid benchmark identity must
-bind V5; the historical paid cohort remains bound to V4. A metered
-provider-source adapter and changed-row preflight remain outstanding.
+bind V5; the historical paid cohort remains bound to V4.
+
+Commit `d318a3122` then connects H03's sealed source request to the existing
+metered provider transport without adding project authority. The 5 focused
+adapter tests pass; the broader generated-composition/H03 regression passes
+27 tests with one intentional skip; typecheck and repository lint pass. Those
+tests use injected fake calls, so actual spend is zero and the result is
+`VALID_HARNESS_EVIDENCE`, not provider editing evidence. Separate
+capability-ceiling and production-budget identities plus their changed-row
+zero-inference preflight remain outstanding before any live provider run.
 
 ## Corrected-identity progress after this cohort
 
