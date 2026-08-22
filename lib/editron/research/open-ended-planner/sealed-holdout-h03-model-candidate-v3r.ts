@@ -1,6 +1,6 @@
 import { deepFreezeV1, hashCanonicalJsonV1, sha256TextV1 } from './contracts-v1';
 import {
-  GENERATED_COMPOSITION_MODEL_API_SURFACE_V1,
+  GENERATED_COMPOSITION_MODEL_API_SURFACE_V2,
   type GeneratedCompositionModelRepairV1,
 } from './generated-composition-model-candidate-v1';
 import {
@@ -22,7 +22,7 @@ import type { HashedStagePacketV2, ProviderStagePacketV2 }
 type JsonRecord = Record<string, unknown>;
 
 export const SEALED_H03_MODEL_SOURCE_CONTRACT_VERSION_V3R =
-  'EDITRON_OE_SEALED_H03_MODEL_SOURCE_CONTRACT_V3R_1' as const;
+  'EDITRON_OE_SEALED_H03_MODEL_SOURCE_CONTRACT_V3R_2' as const;
 
 export const SEALED_H03_MODEL_SOURCE_STAGE_BUDGET_V3R = deepFreezeV1({
   maxInputTokens: 40_000,
@@ -83,16 +83,28 @@ export function buildSealedH03GeneratedCompositionModelPacketV3R(input: {
       evidencePack: artifacts.evidencePack,
       supplementalFacts: artifacts.supplementalFacts,
       programManifest: promptProgramManifest(artifacts.program),
-      allowedApiSurface: GENERATED_COMPOSITION_MODEL_API_SURFACE_V1,
+      allowedApiSurface: GENERATED_COMPOSITION_MODEL_API_SURFACE_V2,
       apiImplementationHash: input.apiImplementationHash,
       orchestratorOperationRequest: {
         arguments: input.orchestratorArguments,
         argumentsSha256: hashCanonicalJsonV1(input.orchestratorArguments),
       },
       renderedAcceptanceContract: {
-        contractId: 'EDITRON_OE_SEALED_H03_RENDERED_ACCEPTANCE_V3R_1',
+        contractId: 'EDITRON_OE_SEALED_H03_RENDERED_ACCEPTANCE_V3R_2',
         requiredLocalFrames: [0, 24, 90, 150, 179],
         requiredProjectContinuityFrames: [0, 89, 270, 419],
+        directionalMotionMeasurement: {
+          translationUnit: 'CSS_PIXELS',
+          minimumDecodedEdgeLumaDelta: 20,
+          entryEdges: [
+            'left-pair-right-edge', 'centre-top-bottom-edge',
+            'centre-bottom-top-edge', 'right-pair-left-edge',
+          ],
+          exitEdges: [
+            'left-pair-left-edge', 'centre-top-top-edge',
+            'centre-bottom-bottom-edge', 'right-pair-right-edge',
+          ],
+        },
         requiredClaims: [
           'six-filled-panels',
           'title-inside-safe-band',

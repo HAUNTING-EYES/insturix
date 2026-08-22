@@ -33,7 +33,17 @@ describe('sealed H03 model-generated source candidate V3R', () => {
     expect(serialized).not.toContain(SEALED_H03_GENERATED_SOURCE_V2R);
     expect(serialized).not.toContain('build 0-107');
     expect(packet.packet.modelInput).toMatchObject({
-      benchmarkContract: 'EDITRON_OE_SEALED_H03_MODEL_SOURCE_CONTRACT_V3R_1',
+      benchmarkContract: 'EDITRON_OE_SEALED_H03_MODEL_SOURCE_CONTRACT_V3R_2',
+      allowedApiSurface: {
+        contractVersion: 'EDITRON_GENERATED_COMPOSITION_MODEL_API_SURFACE_V2',
+      },
+      renderedAcceptanceContract: {
+        contractId: 'EDITRON_OE_SEALED_H03_RENDERED_ACCEPTANCE_V3R_2',
+        directionalMotionMeasurement: {
+          translationUnit: 'CSS_PIXELS',
+          minimumDecodedEdgeLumaDelta: 20,
+        },
+      },
       orchestratorOperationRequest: {
         argumentsSha256: hashCanonicalJsonV1(argumentsV3R()),
       },
