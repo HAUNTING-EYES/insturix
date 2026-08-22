@@ -3,14 +3,13 @@ import {
   assertSealedHoldoutCohortManifestV3R2,
   type SealedHoldoutCohortManifestV3R2,
 } from './sealed-holdout-cohort-v3r2';
-import { SEALED_HOLDOUT_INITIAL_INPUT_TOKEN_LIMIT_V2R }
-  from './sealed-holdout-credential-preflight-v2r';
 import {
   assertSealedHoldoutGeneralisationManifestV4R,
   type SealedHoldoutGeneralisationManifestV4R,
 } from './sealed-holdout-generalisation-cohort-v4r';
 import {
   assertSealedHoldoutGeneralisationPreflightReceiptV4R,
+  SEALED_HOLDOUT_GENERALISATION_INPUT_TOKEN_LIMIT_V4R,
   type SealedHoldoutGeneralisationPreflightReceiptV4R,
 } from './sealed-holdout-generalisation-preflight-v4r';
 
@@ -114,7 +113,7 @@ export function issueSealedHoldoutGeneralisationPaidAuthorizationV4R(input: Read
       authorizedRows: 45 as const,
       authorizedProviderTurns: sum(authorizedRows, 'maximumProviderTurns'),
       authorizedGoogleCountTokensCalls: sum(authorizedRows, 'maximumGoogleCountTokensCalls'),
-      maxInputTokensPerTurn: SEALED_HOLDOUT_INITIAL_INPUT_TOKEN_LIMIT_V2R,
+      maxInputTokensPerTurn: SEALED_HOLDOUT_GENERALISATION_INPUT_TOKEN_LIMIT_V4R,
       maxSpendMicroUsdPerRow: input.approval.maxSpendMicroUsdPerRow,
       absoluteMaxCohortSpendMicroUsd: input.approval.absoluteMaxCohortSpendMicroUsd,
     },
@@ -174,7 +173,7 @@ export function assertSealedHoldoutGeneralisationPaidAuthorizationV4R(input: Rea
     || limits.authorizedProviderTurns !== sum(expectedRows, 'maximumProviderTurns')
     || limits.authorizedGoogleCountTokensCalls
       !== sum(expectedRows, 'maximumGoogleCountTokensCalls')
-    || limits.maxInputTokensPerTurn !== SEALED_HOLDOUT_INITIAL_INPUT_TOKEN_LIMIT_V2R
+    || limits.maxInputTokensPerTurn !== SEALED_HOLDOUT_GENERALISATION_INPUT_TOKEN_LIMIT_V4R
     || !validSpendLimits(limits, 45)
     || candidate.networkPolicy !== 'MODEL_INFERENCE_AND_GOOGLE_COUNT_TOKENS_ONLY'
     || candidate.projectReadsAuthorized !== 0 || candidate.projectMutationsAuthorized !== 0

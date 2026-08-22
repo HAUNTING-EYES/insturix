@@ -118,6 +118,8 @@ describe('sealed Stage 2.5 generalisation credential preflight V4R', () => {
       stateEffects: [],
     });
     expect(result.receipt.checks).toHaveLength(45);
+    expect(result.receipt.checks.every(({ initialInputTokenLimit }) =>
+      initialInputTokenLimit === 256_000)).toBe(true);
     expect(result.requestCaptures).toHaveLength(45);
     expect(new Set(result.requestCaptures.map(({ rowId }) => rowId))).toHaveLength(45);
     expect(new Set(result.requestCaptures.map(({ request }) => request.requestHash)))
@@ -158,7 +160,7 @@ describe('sealed Stage 2.5 generalisation credential preflight V4R', () => {
       baseManifest,
       authorization: authorization(generalisationManifest.manifestSha256),
       environment: environment(),
-      fetchImpl: providerFetch(75_000).fetchImpl,
+      fetchImpl: providerFetch(225_000).fetchImpl,
     })).rejects.toThrow('SEALED_V4R_PREFLIGHT_INPUT_BUDGET_EXCEEDED');
   });
 });

@@ -17,7 +17,6 @@ import { assertSealedHoldoutCohortManifestV3R2,
   from './sealed-holdout-cohort-v3r2';
 import {
   buildSealedHoldoutBenchmarkRoutesV2R,
-  SEALED_HOLDOUT_INITIAL_INPUT_TOKEN_LIMIT_V2R,
 } from './sealed-holdout-credential-preflight-v2r';
 import { runBudgetedSealedHoldoutEpisodeV3R2 }
   from './sealed-holdout-episode-v3r';
@@ -38,6 +37,7 @@ type TokenCount = Readonly<{ boundedInputTokens: number;
 
 export const SEALED_HOLDOUT_GENERALISATION_PREFLIGHT_VERSION_V4R =
   'EDITRON_OE_STAGE25_GENERALISATION_CREDENTIAL_PREFLIGHT_V4R_1' as const;
+export const SEALED_HOLDOUT_GENERALISATION_INPUT_TOKEN_LIMIT_V4R = 256_000 as const;
 
 export interface SealedHoldoutGeneralisationEgressAuthorizationV4R {
   operatorId: string; generalisationManifestSha256: string;
@@ -100,7 +100,7 @@ export async function preflightSealedHoldoutGeneralisationV4R(input: {
     const tokenCount = route.provider === 'openai'
       ? openAiTokenCount(request)
       : await countGoogleRequest(request, route.model, credentials.googleKey, fetchImpl);
-    if (tokenCount.boundedInputTokens > SEALED_HOLDOUT_INITIAL_INPUT_TOKEN_LIMIT_V2R) {
+    if (tokenCount.boundedInputTokens > SEALED_HOLDOUT_GENERALISATION_INPUT_TOKEN_LIMIT_V4R) {
       fail(`SEALED_V4R_PREFLIGHT_INPUT_BUDGET_EXCEEDED:${text(row.rowId)}`);
     }
     const captureId = text(row.rowId);
@@ -112,7 +112,7 @@ export async function preflightSealedHoldoutGeneralisationV4R(input: {
       publicCaseSha256: taskCase.publicCaseSha256,
       operatorOrderSha256: row.operatorOrderSha256, requestSha256: request.requestHash,
       requestBytes: Buffer.byteLength(JSON.stringify(request), 'utf8'), ...tokenCount,
-      initialInputTokenLimit: SEALED_HOLDOUT_INITIAL_INPUT_TOKEN_LIMIT_V2R,
+      initialInputTokenLimit: SEALED_HOLDOUT_GENERALISATION_INPUT_TOKEN_LIMIT_V4R,
       requestModalities: ['TEXT', 'FUNCTION_DECLARATIONS'], mediaBytesEmbedded: 0 });
   }
   if (checks.length !== 45 || captures.length !== 45
@@ -193,7 +193,8 @@ async function captureInitialRequest(input: { base: Readonly<SealedHoldoutCohort
       publicCaseSha256: taskCase.publicCaseSha256, routeId: input.route.routeId,
       claimedModelIdentity: input.route.claimedModelIdentity,
       routeSha256: hashCanonicalJsonV1(input.route), approvedBy: 'v4r-preflight',
-      approvedAt: '2026-08-22T00:00:00.000Z', maxInputTokensPerTurn: 85_000,
+      approvedAt: '2026-08-22T00:00:00.000Z',
+      maxInputTokensPerTurn: SEALED_HOLDOUT_GENERALISATION_INPUT_TOKEN_LIMIT_V4R,
       absoluteMaxSpendMicroUsd: 6_000_000, pricing: fact.pricing },
     countInputTokens: async (request) => bindSealedHoldoutInputTokenBoundV2R({ request,
       inputTokensUpperBound: 0, method: 'V4R_CAPTURE_ONLY_ZERO_INFERENCE_V1' }),

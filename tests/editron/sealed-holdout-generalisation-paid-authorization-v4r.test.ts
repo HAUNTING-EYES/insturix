@@ -131,7 +131,7 @@ describe('sealed Stage 2.5 generalisation paid authorization V4R', () => {
         authorizedRows: 45,
         authorizedProviderTurns: 555,
         authorizedGoogleCountTokensCalls: 185,
-        maxInputTokensPerTurn: 85_000,
+        maxInputTokensPerTurn: 256_000,
         maxSpendMicroUsdPerRow: 10_000_000,
         absoluteMaxCohortSpendMicroUsd: 75_000_000,
       },
