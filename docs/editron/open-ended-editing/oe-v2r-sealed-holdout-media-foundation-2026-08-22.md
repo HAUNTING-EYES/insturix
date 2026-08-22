@@ -26,9 +26,11 @@ six-window island, splice that bounded island between unchanged native
 research mechanics/proof pass, not evidence that a model wrote the program,
 not a production security sandbox and not ProjectService mutation.
 CAP-2A V4, the V2R2/V2R3 cohort identity and the complete scripted
-zero-inference accounting-plus-proof gate are now current. Credentialed
-zero-inference preflight must still be rerun against that exact identity;
-provider inference dispatch remains disabled.
+zero-inference accounting-plus-proof gate are now current. The credentialed
+zero-inference preflight has passed against that exact identity. The separate
+paid-dispatch contract exists, and the C2 safe-stop plus solvable-noisy-arm
+proof gaps are closed; no authorization has been issued and provider inference
+dispatch remains disabled.
 
 ## Current execution checkpoint
 
@@ -49,6 +51,9 @@ provider inference dispatch remains disabled.
   `4f27e3fcc3f990185432eb8ad5c686058f6280898e9d2765770cb281e7d7964e`
 - Current request-capture-set SHA-256:
   `bef05c653ee048f3ab9ca109e61eb3f22a75e0a103605eb56fe020612055ec11`
+- Paid-dispatch contract commit: `408db9c3f` (contract only; not issued)
+- All-arm no-edit proof commit: `d5a7d949f`
+- Solvable C2 rendered-proof commit: `dcc0e4008`
 
 The complete gate uses deterministic scripted provider turns, explicitly
 denies provider context egress, makes zero network/inference calls and mutates
@@ -310,7 +315,8 @@ context-egress calls and made zero inference calls. Dispatch remains false.
 Exact hashes and token bounds are in
 `oe-v2r2-sealed-holdout-current-credential-preflight-2026-08-22.md`.
 
-1. Issue a separate paid-dispatch
+1. Implement and adversarially verify the resumable 96-row cohort runner, then
+   issue a separate paid-dispatch
    authorization bound to the exact manifest, cases, routes, token ceilings,
    spend ceiling and expiry. A historical approval or preflight receipt may
    not authorize the current cohort.
@@ -351,6 +357,11 @@ Exact hashes and token bounds are in
   calls and zero real-project mutations.
 - Credentialed initial-request preflight and combined sealed checks: 22/22
   passed; 96/96 captures verified with zero inference calls.
+- All eight hidden C2 safe-stop paths plus adversarial no-edit checks: 14/14
+  passed; a successful mutation cannot be relabelled as an honest stop.
+- H01/H02/H04 noisy-arm real rendered/state proof plus unchanged C1 regressions:
+  9/9 passed; C2 receipts use new versions while C1 receipt versions remain
+  unchanged.
 - `npx tsc --noEmit`: passed.
 - Repository ESLint: passed.
 
