@@ -36,6 +36,7 @@ import {
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-generalisation-paid-authorization-v4r';
 import {
   runSealedHoldoutPaidCohortV4R,
+  sealedHoldoutPaidProofAttemptDirectoryNameV2R,
   sealedHoldoutPaidRowArtifactNameV2R,
   SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V4R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-paid-cohort-runner-v2r';
@@ -53,6 +54,16 @@ afterEach(async () => {
 });
 
 describe('sealed Stage 2.5 generalisation paid cohort runner V4R', () => {
+  it('uses bounded portable proof-attempt directory names', () => {
+    const name = sealedHoldoutPaidProofAttemptDirectoryNameV2R(
+      1,
+      '79891fc4-cfb3-4c45-b41a-0c7204a3a077',
+    );
+    expect(name).toMatch(/^001--[a-f0-9]{16}$/);
+    expect(name).not.toContain(':');
+    expect(name.length).toBe(21);
+  });
+
   it('runs the exact 45 rows once, resumes, and rejects capture and row forgeries', async () => {
     const root = await mkdtemp(join(tmpdir(), 'editron-sealed-v4r-runner-'));
     roots.push(root);

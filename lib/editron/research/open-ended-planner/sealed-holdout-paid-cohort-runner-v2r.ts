@@ -380,7 +380,10 @@ async function runPaidCohortCore(
       const outcome = await variant.execute({
         rowPlan, routeBinding, invoke, mediaManifest: input.mediaManifest,
         proofRoot: join(input.outputRoot, 'proof-attempts',
-          `${rowArtifactStem(rowPlan.rowId)}-${safe(uniqueId())}`),
+          sealedHoldoutPaidProofAttemptDirectoryNameV2R(
+            rowPlan.rowIndex,
+            uniqueId(),
+          )),
       });
       const transportReceipt = transport.snapshot();
       const row = buildRowReceipt({
@@ -903,6 +906,16 @@ export function sealedHoldoutPaidRowArtifactNameV2R(rowId: string): string {
   const stem = safe(rowId);
   if (!stem) fail('SEALED_PAID_ROW_ARTIFACT_ID_INVALID');
   return `${stem}--${hashCanonicalJsonV1(rowId).slice(0, 16)}.json`;
+}
+
+export function sealedHoldoutPaidProofAttemptDirectoryNameV2R(
+  rowIndex: number,
+  attemptId: string,
+): string {
+  if (!Number.isSafeInteger(rowIndex) || rowIndex < 1 || !attemptId.trim()) {
+    fail('SEALED_PAID_PROOF_ATTEMPT_ID_INVALID');
+  }
+  return `${String(rowIndex).padStart(3, '0')}--${hashCanonicalJsonV1(attemptId).slice(0, 16)}`;
 }
 
 function rowArtifactStem(rowId: string): string {
