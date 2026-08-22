@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Overlay, KeyframeTrack, Keyframe } from '../../../types';
 import { useEditorContext } from '../../../contexts/editor-context';
+import { Select } from '@/components/primitives';
 
 /**
  * KeyframeInspectorPanel — collapsible "Animation" section for any overlay.
@@ -160,20 +161,20 @@ export const KeyframeInspectorPanel: React.FC<KeyframeInspectorPanelProps> = ({ 
 
           {/* Property selector + Add button */}
           <div className="flex gap-1.5 items-center">
-            <select
+            <Select
+              size="sm"
+              className="flex-1"
+              aria-label="Animated property"
               value={selectedProperty}
-              onChange={e => setSelectedProperty(e.target.value as AnimatableProperty)}
-              className="flex-1 h-7 text-[11px] bg-zinc-900 border border-zinc-700 rounded px-1.5 text-zinc-300"
-            >
-              {PROPERTY_OPTIONS.map(p => (
-                <option key={p.value} value={p.value}>
-                  {p.label} {tracks.find(t => t.property === p.value) ? `(${tracks.find(t => t.property === p.value)!.keyframes.length})` : ''}
-                </option>
-              ))}
-            </select>
+              onChange={v => setSelectedProperty(v as AnimatableProperty)}
+              options={PROPERTY_OPTIONS.map(p => {
+                const track = tracks.find(t => t.property === p.value);
+                return { value: p.value, label: track ? `${p.label} (${track.keyframes.length})` : p.label };
+              })}
+            />
             <button
               onClick={addKeyframe}
-              className="h-7 px-2 text-[10px] font-medium rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors whitespace-nowrap"
+              className="h-7 px-2 text-[10px] font-medium rounded bg-gold hover:bg-gold-hover text-gold-contrast transition-colors whitespace-nowrap"
             >
               + Frame {Math.round(localFrame)}
             </button>
@@ -194,7 +195,7 @@ export const KeyframeInspectorPanel: React.FC<KeyframeInspectorPanelProps> = ({ 
                     type="number"
                     value={kf.frame}
                     onChange={e => updateKeyframeValue(i, 'frame', e.target.value)}
-                    className="w-full bg-transparent text-zinc-300 outline-none"
+                    className="w-full bg-transparent text-ds-secondary outline-none"
                     min={0}
                     max={overlay.durationInFrames}
                   />
@@ -203,12 +204,12 @@ export const KeyframeInspectorPanel: React.FC<KeyframeInspectorPanelProps> = ({ 
                     value={Math.round(kf.value * 100) / 100}
                     onChange={e => updateKeyframeValue(i, 'value', e.target.value)}
                     step={selectedProperty === 'opacity' ? 0.1 : selectedProperty === 'scale' ? 0.05 : 1}
-                    className="w-full bg-transparent text-zinc-300 outline-none"
+                    className="w-full bg-transparent text-ds-secondary outline-none"
                   />
                   <select
                     value={kf.easing}
                     onChange={e => updateKeyframeValue(i, 'easing', e.target.value)}
-                    className="bg-transparent text-zinc-400 outline-none text-[9px]"
+                    className="bg-transparent text-ds-muted outline-none text-[9px]"
                   >
                     {EASING_OPTIONS.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
                   </select>

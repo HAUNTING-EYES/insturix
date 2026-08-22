@@ -1,4 +1,5 @@
 'use client';
+import { Select } from '@/components/primitives';
 
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
@@ -283,7 +284,7 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
                 <Field label="Voice profile id"><input value={f.voiceProfileId} onChange={(e) => set('voiceProfileId', e.target.value)} placeholder="prof_…" style={inp} /></Field>
               )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
-                <Field label="Language"><select value={f.language} onChange={(e) => set('language', e.target.value)} style={inp}><option value="en">English</option><option value="hi">Hindi</option><option value="es">Spanish</option></select></Field>
+                <Field label="Language"><Select aria-label="Language" value={f.language} onChange={(v) => set('language', v)} options={[{ value: 'en', label: 'English' }, { value: 'hi', label: 'Hindi' }, { value: 'es', label: 'Spanish' }]} /></Field>
                 <Field label="Speaking style"><input value={f.speakingStyle} onChange={(e) => set('speakingStyle', e.target.value)} placeholder="e.g. calm, warm, unhurried" style={inp} /></Field>
               </div>
             </div>
@@ -312,7 +313,7 @@ export function AvatarForge({ record, onDone }: { record: AvatarProfileRecord | 
               {f.bindBrand && (
                 <Field label="Brand">
                   {brands.length > 0
-                    ? <select value={f.brandId} onChange={(e) => set('brandId', e.target.value)} style={inp}><option value="">Select a brand…</option>{brands.map((b) => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}</select>
+                    ? <Select aria-label="Brand" placeholder="Select a brand…" value={f.brandId} onChange={(v) => set('brandId', v)} options={brands.map((b) => ({ value: b.brandId, label: b.name }))} />
                     : <Mono s={9} c={C.muted}>No brands yet — create one in Brand Vault first, then it appears here.</Mono>}
                 </Field>
               )}

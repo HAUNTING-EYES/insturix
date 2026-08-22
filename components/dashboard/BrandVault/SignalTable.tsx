@@ -1,4 +1,5 @@
 'use client';
+import { Select } from '@/components/primitives';
 
 /**
  * SignalTable — "Your brand info"
@@ -342,15 +343,13 @@ function SignalValueEditor({
   return (
     <div className="grid max-w-[620px] gap-2">
       {kind === 'boolean' ? (
-        <select
+        <Select
+          aria-label="Value"
           value={value}
           disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-          style={SIGNAL_EDIT_INPUT_STYLE}
-        >
-          <option value="true">Yes</option>
-          <option value="false">No</option>
-        </select>
+          onChange={onChange}
+          options={[{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }]}
+        />
       ) : kind === 'array' || kind === 'json' ? (
         <textarea
           value={value}
