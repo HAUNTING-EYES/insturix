@@ -74,6 +74,12 @@ export interface SealedHoldoutH04NativeProofReceiptV2R {
   receiptSha256: string;
 }
 
+export type SealedHoldoutH04RenderedAvMechanicsV2R = Readonly<Pick<
+  SealedHoldoutH04NativeProofReceiptV2R,
+  'sourceArtifactSha256' | 'outputArtifact' | 'video' | 'audio'
+  | 'visualTakeProof' | 'captionPixelProof' | 'speechIntelligibilityProof'
+>>;
+
 export async function proveSealedHoldoutH04NativeOutcomeV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
   caseId: 'HOLD-04:C1' | 'HOLD-04:C2';
@@ -138,14 +144,65 @@ export async function proveSealedHoldoutH04NativeOutcomeV2R(input: {
   const publicMedia = records(record(input.manifest.cases
     .find(({ caseId }) => caseId === input.caseId)?.publicCase).media);
   const media = publicMedia.find(({ assetId }) => assetId === 'h04-host');
+  const renderedAvProof = await executeSealedHoldoutH04RenderedAvMechanicsV2R({
+    removedRange,
+    publicArtifactSha256: text(media?.artifactSha256),
+    mediaManifest: input.mediaManifest,
+    outputDirectory: input.outputDirectory,
+    outputFilename: 'sealed-holdout-h04-clean-take-proxy.mp4',
+    ffprobePath: input.ffprobePath,
+  });
+  const material = {
+    version: input.caseId === 'HOLD-04:C1'
+      ? SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V2R
+      : SEALED_HOLDOUT_H04_C2_NATIVE_PROOF_VERSION_V2R,
+    authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_AV_PROXY_NO_PROJECT_MUTATION' as const,
+    caseId: input.caseId, taskId: 'HOLD-04' as const,
+    manifestSha256: input.manifest.manifestSha256,
+    publicCaseSha256: bound.publicCaseSha256,
+    traceArtifactSha256: bound.trace.artifactSha256,
+    evaluationReceiptSha256: bound.evaluation.receiptSha256,
+    runtimeBudgetReceiptSha256: bound.trace.runtimeBudgetReceiptSha256,
+    writerIssuedProjectRevision: mutation.writerIssuedProjectRevision,
+    selectedMutation: {
+      nodeId: mutation.nodeId, operatorId: 'cut_section' as const,
+      argumentSha256: mutation.argumentSha256,
+      removedRange: { startFrame: 120 as const, endFrame: 225 as const },
+    },
+    canonicalOwnerProof: {
+      owner: 'lib/editron/services/timeline-range-cut.ts#cutTimelineRange' as const,
+      beforeDurationInFrames: 540 as const, afterDurationInFrames: 435 as const,
+      rightSourceStartFrame: 225 as const,
+      retainedCaptionText: 'our launch is Friday' as const,
+      retainedCaptionOccurrences: 1 as const,
+      presentationReference: DECLARED_PRESENTATION_REF as typeof DECLARED_PRESENTATION_REF,
+      presentationMaterialSha256Before: presentationBefore,
+      presentationMaterialSha256After: presentationAfter,
+    },
+    ...renderedAvProof,
+    assessment: 'PASS_RESEARCH_NATIVE_OWNER_AND_RENDERED_AV_PROXY' as const,
+    productProjectMutationProof: 'NOT_CLAIMED' as const,
+    stateEffects: [] as const,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
+export async function executeSealedHoldoutH04RenderedAvMechanicsV2R(input: {
+  removedRange: Readonly<{ startFrame: number; endFrame: number }>;
+  publicArtifactSha256: string;
+  mediaManifest: Readonly<HoldoutMediaManifestV2R>;
+  outputDirectory: string;
+  outputFilename: string;
+  ffprobePath?: string;
+}): Promise<SealedHoldoutH04RenderedAvMechanicsV2R> {
   const source = await bindHoldoutMediaArtifactV2R({
     manifest: input.mediaManifest, taskId: 'HOLD-04', assetId: 'h04-host',
-    publicArtifactSha256: text(media?.artifactSha256),
+    publicArtifactSha256: input.publicArtifactSha256,
   });
   const rendered = await renderRangeRemovalAvProxyV2R({
-    sourcePath: source.artifactPath, removedRange, durationFrames: 540,
-    width: 640, height: 360, outputDirectory: input.outputDirectory,
-    outputFilename: 'sealed-holdout-h04-clean-take-proxy.mp4',
+    sourcePath: source.artifactPath, removedRange: input.removedRange,
+    durationFrames: 540, width: 640, height: 360,
+    outputDirectory: input.outputDirectory, outputFilename: input.outputFilename,
   });
   const [video, audio, pcm, beforeFrame, startFrame, endFrame, afterFrame] = await Promise.all([
     probeHoldoutVideoV2R(rendered.outputPath, input.ffprobePath),
@@ -180,54 +237,31 @@ export async function proveSealedHoldoutH04NativeOutcomeV2R(input: {
     || retainedTakeMeanAbsolutePcm <= followingQuietMeanAbsolutePcm * 10) {
     fail('SEALED_H04_PROOF_RETAINED_TAKE_AV_FAILED');
   }
-  const material = {
-    version: input.caseId === 'HOLD-04:C1'
-      ? SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V2R
-      : SEALED_HOLDOUT_H04_C2_NATIVE_PROOF_VERSION_V2R,
-    authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_AV_PROXY_NO_PROJECT_MUTATION' as const,
-    caseId: input.caseId, taskId: 'HOLD-04' as const,
-    manifestSha256: input.manifest.manifestSha256,
-    publicCaseSha256: bound.publicCaseSha256,
-    traceArtifactSha256: bound.trace.artifactSha256,
-    evaluationReceiptSha256: bound.evaluation.receiptSha256,
-    runtimeBudgetReceiptSha256: bound.trace.runtimeBudgetReceiptSha256,
-    writerIssuedProjectRevision: mutation.writerIssuedProjectRevision,
-    selectedMutation: {
-      nodeId: mutation.nodeId, operatorId: 'cut_section' as const,
-      argumentSha256: mutation.argumentSha256,
-      removedRange: { startFrame: 120 as const, endFrame: 225 as const },
-    },
-    canonicalOwnerProof: {
-      owner: 'lib/editron/services/timeline-range-cut.ts#cutTimelineRange' as const,
-      beforeDurationInFrames: 540 as const, afterDurationInFrames: 435 as const,
-      rightSourceStartFrame: 225 as const,
-      retainedCaptionText: 'our launch is Friday' as const,
-      retainedCaptionOccurrences: 1 as const,
-      presentationReference: DECLARED_PRESENTATION_REF as typeof DECLARED_PRESENTATION_REF,
-      presentationMaterialSha256Before: presentationBefore,
-      presentationMaterialSha256After: presentationAfter,
-    },
+  return deepFreezeV1({
     sourceArtifactSha256: source.artifactSha256,
     outputArtifact: {
-      filename: 'sealed-holdout-h04-clean-take-proxy.mp4',
-      sha256: rendered.artifactSha256, bytes: rendered.bytes,
+      filename: input.outputFilename,
+      sha256: rendered.artifactSha256,
+      bytes: rendered.bytes,
     },
     video,
     audio: {
-      ...audio, retainedTakeMeanAbsolutePcm,
-      precedingQuietMeanAbsolutePcm, followingQuietMeanAbsolutePcm,
+      ...audio,
+      retainedTakeMeanAbsolutePcm,
+      precedingQuietMeanAbsolutePcm,
+      followingQuietMeanAbsolutePcm,
     },
     visualTakeProof: {
-      retainedStartFrame: 120 as const, retainedEndFrameExclusive: 192 as const,
-      greenPixelsAtStart, greenPixelsAtEnd, greenPixelsBefore, greenPixelsAfter,
+      retainedStartFrame: 120 as const,
+      retainedEndFrameExclusive: 192 as const,
+      greenPixelsAtStart,
+      greenPixelsAtEnd,
+      greenPixelsBefore,
+      greenPixelsAfter,
     },
     captionPixelProof: 'NOT_RENDERED_FIXTURE_HAS_NO_BOUND_CAPTION_PIXEL_FORM' as const,
     speechIntelligibilityProof: 'NOT_CLAIMED_SYNTHETIC_TONE_ONLY' as const,
-    assessment: 'PASS_RESEARCH_NATIVE_OWNER_AND_RENDERED_AV_PROXY' as const,
-    productProjectMutationProof: 'NOT_CLAIMED' as const,
-    stateEffects: [] as const,
-  };
-  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+  });
 }
 
 function buildInitialProjectProxy() {

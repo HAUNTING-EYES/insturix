@@ -30,6 +30,8 @@ export const BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V2R_2' as const;
 export const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_1' as const;
+export const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2 =
+  'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_2_H04_STATE' as const;
 
 type SealedHoldoutEvaluationAssessmentV2R = 'PASS' | 'FAIL' | 'READY_FOR_PROOF'
   | 'NOT_EVALUATED_PROVIDER_INFRASTRUCTURE'
@@ -52,6 +54,12 @@ export interface SealedHoldoutEvaluationReceiptV2R {
 export type SealedHoldoutEvaluationReceiptV3R = Readonly<
   Omit<SealedHoldoutEvaluationReceiptV2R, 'version'> & {
     version: typeof SEALED_HOLDOUT_EVALUATOR_VERSION_V3R;
+  }
+>;
+
+export type SealedHoldoutEvaluationReceiptV3R2 = Readonly<
+  Omit<SealedHoldoutEvaluationReceiptV2R, 'version'> & {
+    version: typeof SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2;
   }
 >;
 
@@ -80,6 +88,7 @@ export function evaluateSealedHoldoutTraceV2R(input: {
     evaluatorVersion: SEALED_HOLDOUT_EVALUATOR_VERSION_V2R,
     structuralPolicy: 'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V1',
     resourceGuardBound: false,
+    requirePostMutationStateRead: false,
   });
   const material = {
     version: SEALED_HOLDOUT_EVALUATOR_VERSION_V2R,
@@ -103,9 +112,34 @@ export function evaluateSealedHoldoutTraceV3R(input: {
     evaluatorVersion: SEALED_HOLDOUT_EVALUATOR_VERSION_V3R,
     structuralPolicy: 'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V3_CORRECTED_EVIDENCE',
     resourceGuardBound: false,
+    requirePostMutationStateRead: false,
   });
   const material = {
     version: SEALED_HOLDOUT_EVALUATOR_VERSION_V3R,
+    authority: 'HIDDEN_POST_EPISODE_EVALUATOR_NO_MODEL_CONTEXT_NO_PROJECT_MUTATION' as const,
+    ...evaluated,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
+export function evaluateSealedHoldoutTraceV3R2(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV3R>;
+  caseId: string;
+  trace: Readonly<SealedHoldoutSelectedOperationTraceV3R>;
+}): Readonly<SealedHoldoutEvaluationReceiptV3R2> {
+  const manifest = assertSealedHoldoutCohortManifestV3R(input.manifest);
+  const trace = assertSealedHoldoutSelectedOperationTraceV3R(input.trace);
+  const evaluated = evaluateTrace({
+    manifest,
+    caseId: input.caseId,
+    trace,
+    evaluatorVersion: SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2,
+    structuralPolicy: 'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V3_H04_EVOLVING_STATE',
+    resourceGuardBound: false,
+    requirePostMutationStateRead: true,
+  });
+  const material = {
+    version: SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2,
     authority: 'HIDDEN_POST_EPISODE_EVALUATOR_NO_MODEL_CONTEXT_NO_PROJECT_MUTATION' as const,
     ...evaluated,
   };
@@ -126,6 +160,7 @@ export function evaluateBudgetedSealedHoldoutTraceV2R(input: {
     evaluatorVersion: BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V2R,
     structuralPolicy: 'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V2_RESOURCE_BOUND',
     resourceGuardBound: true,
+    requirePostMutationStateRead: false,
   });
   const material = {
     version: BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V2R,
@@ -146,6 +181,7 @@ function evaluateTrace(input: Readonly<{
   evaluatorVersion: string;
   structuralPolicy: string;
   resourceGuardBound: boolean;
+  requirePostMutationStateRead: boolean;
 }>): Omit<SealedHoldoutEvaluationReceiptV2R,
   'version' | 'authority' | 'receiptSha256'> {
   const { manifest, trace } = input;
@@ -212,7 +248,12 @@ function evaluateTrace(input: Readonly<{
       if (!acceptableForms.includes(executionForm)) {
         diagnostics.push(`EVAL_EXECUTION_FORM_NOT_ALLOWED:${executionForm}`);
       }
-      diagnostics.push(...structuralDiagnostics(taskId, successfulNodes, record(taskCase.ownerOnly)));
+      diagnostics.push(...structuralDiagnostics(
+        taskId,
+        successfulNodes,
+        record(taskCase.ownerOnly),
+        input.requirePostMutationStateRead,
+      ));
     }
   }
   const sortedDiagnostics = [...new Set(diagnostics)].sort(compareUtf16);
@@ -243,6 +284,7 @@ function structuralDiagnostics(
   taskId: string,
   nodes: readonly Readonly<SealedHoldoutTraceNodeV2R>[],
   ownerOnly: JsonRecord,
+  requirePostMutationStateRead: boolean,
 ): string[] {
   const ids = nodes.map(({ selectedOperatorId }) => selectedOperatorId);
   const diagnostics: string[] = [];
@@ -271,6 +313,15 @@ function structuralDiagnostics(
       && hashCanonicalJsonV1(cut.normalizedArguments.targetRange)
         !== hashCanonicalJsonV1({ startFrame: first[0], endFrame: pause[1] })) {
       diagnostics.push('EVAL_H04_BASELINE_CUT_RANGE_DRIFT');
+    }
+    const postMutationRead = cut?.writerIssuedProjectRevision
+      ? nodes.some((node) => node.turn > cut.turn
+        && node.selectedOperatorId === 'get_timeline_view'
+        && node.normalizedArguments.expectedProjectRevision
+          === cut.writerIssuedProjectRevision)
+      : false;
+    if (requirePostMutationStateRead && !postMutationRead) {
+      diagnostics.push('EVAL_H04_POST_MUTATION_STATE_READ_MISSING');
     }
   } else if (taskId === 'HOLD-05') {
     if (!ids.includes('find_visual_moment')) diagnostics.push('EVAL_H05_SPATIAL_RETRIEVAL_MISSING');
