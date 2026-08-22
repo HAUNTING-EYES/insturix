@@ -1279,10 +1279,29 @@ convergence.
 
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
-this paragraph is authoritative for resuming work. The latest verified code
-checkpoint before this ledger update is `14e3d791b` on
-`infrastructure-improvs-+Editron`; the programme worktree is
-intentionally dirty with unrelated user work that must remain untouched.
+this paragraph is authoritative for resuming work. The latest verified
+programme code checkpoint represented by this ledger is `4b3209fa1` on
+`infrastructure-improvs-+Editron`; documentation checkpoint `b051732a6`
+records that result. The programme worktree is intentionally dirty with
+unrelated user work that must remain untouched.
+
+**Immediate reliability reconciliation:** the previously listed CAP-2A/V3R
+closeout is no longer pending. CAP-2A V4 was reissued against a stable source
+snapshot; the new V3R4 benchmark identity explicitly binds the writer-issued
+post-mutation revision in direct and opaque-reference arms; the evaluator
+rejects missing, stale, forged and copied-literal revisions; the stale cohort
+assertion was corrected; zero-inference preflight passed; and all eighteen
+Luna/Terra/Gemini rows completed fairly under three tool orders. Those results
+are bounded `VALID_EVIDENCE / RESEARCH_PROVEN` for the DEV-03 handoff/order
+claim only. They do not need another paid rerun unless their frozen inputs,
+operator contracts, evaluator policy or provider routes change.
+
+The active Stage 2.5 reliability work starts after that completed closeout:
+close truthful H03 protected-literal and model-generated-program lineage,
+finish remaining short-path proof gaps, separate capability-ceiling from
+production-budget conditions, freeze a new zero-inference preflight for only
+the changed rows, and then run the generalisation episodes and blind quality
+receipts before publishing `GO`, `MODIFY` or `NO-GO`.
 
 **Latest bounded reissue checkpoint:** CAP-2A V4 was issued in commits
 `7ef8f043d` and `f0b1dd829` against stable source commit `373425480`. It binds
