@@ -13,6 +13,10 @@ import {
   type SealedHoldoutCohortManifestV2R,
 } from './sealed-holdout-cohort-v2r';
 import {
+  assertSealedHoldoutCohortManifestV3R2,
+  type SealedHoldoutCohortManifestV3R2,
+} from './sealed-holdout-cohort-v3r2';
+import {
   bindSealedHoldoutInputTokenBoundV2R,
   SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
   type SealedHoldoutInputTokenBoundV2R,
@@ -70,6 +74,16 @@ export interface SealedHoldoutRuntimeRouteBindingReceiptV2R {
   receiptSha256: string;
 }
 
+type RuntimeAccountingBindingV2R = Readonly<{
+  authorization: Readonly<SealedHoldoutRuntimeAuthorizationV2R>;
+  countInputTokens: (
+    request: Readonly<SerializedProviderNativeTurnV2R>,
+  ) => Promise<Readonly<SealedHoldoutInputTokenBoundV2R>>;
+  receipt: Readonly<SealedHoldoutRuntimeRouteBindingReceiptV2R>;
+}>;
+type RuntimeAccountingManifestV2R = Readonly<SealedHoldoutCohortManifestV2R
+  | SealedHoldoutCohortManifestV3R2>;
+
 export function buildSealedHoldoutRuntimeAccountingBindingV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
   caseId: string;
@@ -78,14 +92,38 @@ export function buildSealedHoldoutRuntimeAccountingBindingV2R(input: {
   googleApiKey?: string;
   fetchImpl?: typeof fetch;
   now?: string;
-}): Readonly<{
-  authorization: Readonly<SealedHoldoutRuntimeAuthorizationV2R>;
-  countInputTokens: (
-    request: Readonly<SerializedProviderNativeTurnV2R>,
-  ) => Promise<Readonly<SealedHoldoutInputTokenBoundV2R>>;
-  receipt: Readonly<SealedHoldoutRuntimeRouteBindingReceiptV2R>;
-}> {
-  const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
+}): RuntimeAccountingBindingV2R {
+  return buildRuntimeAccountingBinding({
+    ...input,
+    manifest: assertSealedHoldoutCohortManifestV2R(input.manifest),
+  });
+}
+
+export function buildSealedHoldoutRuntimeAccountingBindingV3R2(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  caseId: string;
+  route: Readonly<ProviderNativeRouteV2R>;
+  approval: Readonly<SealedHoldoutRuntimeAccountingApprovalV2R>;
+  googleApiKey?: string;
+  fetchImpl?: typeof fetch;
+  now?: string;
+}): RuntimeAccountingBindingV2R {
+  return buildRuntimeAccountingBinding({
+    ...input,
+    manifest: assertSealedHoldoutCohortManifestV3R2(input.manifest),
+  });
+}
+
+function buildRuntimeAccountingBinding(input: {
+  manifest: RuntimeAccountingManifestV2R;
+  caseId: string;
+  route: Readonly<ProviderNativeRouteV2R>;
+  approval: Readonly<SealedHoldoutRuntimeAccountingApprovalV2R>;
+  googleApiKey?: string;
+  fetchImpl?: typeof fetch;
+  now?: string;
+}): RuntimeAccountingBindingV2R {
+  const manifest = input.manifest;
   const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
   if (!taskCase) fail(`SEALED_ROUTE_BINDING_CASE_MISSING:${input.caseId}`);
   const routeFactValue = findSealedHoldoutRuntimeRouteFactV2R(input.route.routeId);

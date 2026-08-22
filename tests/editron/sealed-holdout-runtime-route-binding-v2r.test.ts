@@ -15,7 +15,16 @@ import {
   SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V2R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v2r';
 import {
+  buildSealedHoldoutCohortManifestV3R,
+  SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R,
+} from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v3r';
+import {
+  buildSealedHoldoutCohortManifestV3R2,
+  SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2,
+} from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v3r2';
+import {
   buildSealedHoldoutRuntimeAccountingBindingV2R,
+  buildSealedHoldoutRuntimeAccountingBindingV3R2,
   SEALED_HOLDOUT_RUNTIME_ROUTE_BINDING_VERSION_V2R,
   type SealedHoldoutRuntimeAccountingApprovalV2R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-runtime-route-binding-v2r';
@@ -31,6 +40,18 @@ async function manifest() {
   return buildSealedHoldoutCohortManifestV2R(
     createHash('sha256').update(bytes).digest('hex'),
   );
+}
+
+async function currentManifest() {
+  const v2 = await manifest();
+  const v3 = buildSealedHoldoutCohortManifestV3R({
+    contractSourceSha256: await fileSha(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R),
+    baseManifest: v2,
+  });
+  return buildSealedHoldoutCohortManifestV3R2({
+    contractSourceSha256: await fileSha(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2),
+    baseManifest: v3,
+  });
 }
 
 function route(
@@ -82,6 +103,36 @@ function approval(input: {
 }
 
 describe('sealed holdout V2R-3 runtime route accounting binding', () => {
+  it('binds the current V3R2 manifest through the same accounting owner', async () => {
+    const historical = await manifest();
+    const current = await currentManifest();
+    const taskCase = current.cases.find(({ caseId }) => caseId === 'HOLD-06:C1');
+    if (!taskCase) throw new Error('TEST_CURRENT_CASE_MISSING');
+    const currentApproval = {
+      ...approval({ cohort: historical, routeValue: LUNA_ROUTE }),
+      manifestSha256: current.manifestSha256,
+      publicCaseSha256: taskCase.publicCaseSha256,
+    };
+    const binding = buildSealedHoldoutRuntimeAccountingBindingV3R2({
+      manifest: current,
+      caseId: taskCase.caseId,
+      route: LUNA_ROUTE,
+      approval: currentApproval,
+      now: '2026-08-22T00:00:00.000Z',
+    });
+    expect(binding.receipt).toMatchObject({
+      manifestSha256: current.manifestSha256,
+      caseId: 'HOLD-06:C1',
+      assessment: 'PASS_ACCOUNTING_BINDING_NO_INFERENCE',
+    });
+    expect(() => buildSealedHoldoutRuntimeAccountingBindingV3R2({
+      manifest: current,
+      caseId: taskCase.caseId,
+      route: LUNA_ROUTE,
+      approval: approval({ cohort: historical, routeValue: LUNA_ROUTE }),
+    })).toThrow('SEALED_ROUTE_BINDING_APPROVAL_INVALID');
+  });
+
   it('binds the official Luna and Terra prices without provider egress', async () => {
     const cohort = await manifest();
     const luna = buildSealedHoldoutRuntimeAccountingBindingV2R({
@@ -186,3 +237,7 @@ describe('sealed holdout V2R-3 runtime route accounting binding', () => {
       .rejects.toThrow('SEALED_ROUTE_BINDING_GOOGLE_COUNT_FAILED:200');
   });
 });
+
+async function fileSha(filePath: string): Promise<string> {
+  return createHash('sha256').update(await readFile(filePath)).digest('hex');
+}
