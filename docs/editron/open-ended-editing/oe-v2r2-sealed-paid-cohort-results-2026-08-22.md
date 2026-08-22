@@ -149,6 +149,25 @@ new frozen identity reruns them fairly.
    editor quality/correction-time/latency/cost receipts.
 10. Publish a frozen `GO`, `MODIFY` or `NO-GO`. Current status is `MODIFY`.
 
+### H03 public-input correction checkpoint
+
+Commit `429fb45b1` freezes a new derived H03 V3R2 input identity rather than
+rewriting the paid V2 cohort or V3R1. Its contract, manifest and public target
+SHA-256 values are respectively
+`677557ec98ad4e89a4ce9fb88b64aa9846a140a5272dd23f8127a716de2dd6e1`,
+`a468c2f487f3a07385dd51ee5653bd9fcdafaeb86130f3fe6a54381d5cc930f3`
+and `f512ad71cb202147d31865679a86cb47fce89259074ad6539a9b7b415d7325ac`.
+Both H03 arms now expose the protected `EVENT\nMOMENT` literal, blueprint
+identity, measured six-panel geometry/title band, bounded motion relation and
+native frame-270 return as public reference-analysis input. Rehashed input or
+lineage forgery fails closed; no inference or project mutation occurred.
+
+This fixes the missing-input confound only. H03 remains invalid as model-code
+evidence until a provider-produced source bundle is hash-bound to the selected
+operation, passes the existing verifier/sandbox, renders through the claim
+proof and survives blind review. The human-authored V2 fixture remains
+historical mechanics evidence and must not be relabelled as model output.
+
 ## Corrected-identity progress after this cohort
 
 Commit `bb16d0b96` adds the prerequisite versioned provider-catalog seam. The
