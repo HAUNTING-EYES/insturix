@@ -29,7 +29,7 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 
-export const SEALED_HOLDOUT_EPISODE_VERSION_V2R =
+const SEALED_HOLDOUT_EPISODE_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_EPISODE_V2R_2' as const;
 export const BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_EPISODE_V2R_3' as const;
@@ -39,7 +39,7 @@ export const SEALED_HOLDOUT_FINISH_SCHEMA_V2R =
     'CLARIFICATION_REQUIRED', 'POLICY_BLOCKED', 'CONFLICT',
   ]);
 
-export interface SealedHoldoutEpisodeManifestV2R {
+interface SealedHoldoutEpisodeManifestV2R {
   sharedModelContext: Readonly<JsonRecord>;
   sharedModelContextSha256: string;
   cases: readonly Readonly<{
