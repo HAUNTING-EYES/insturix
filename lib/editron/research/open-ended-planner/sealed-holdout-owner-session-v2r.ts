@@ -3,7 +3,6 @@ import { V2R_OPERATOR_CATALOG } from './operator-catalog-v2r';
 import type { ProviderNativeToolExecutionV2R } from './provider-native-tool-episode-v2r';
 import {
   assertSealedHoldoutCohortManifestV2R,
-  type SealedHoldoutCohortManifestV2R,
 } from './sealed-holdout-cohort-v2r';
 
 type JsonRecord = Record<string, unknown>;
@@ -23,6 +22,18 @@ export interface SealedHoldoutOwnerSemanticPolicyV2R {
     currentProjectRevision: string;
   }>) => Readonly<JsonRecord>;
 }
+
+export interface SealedHoldoutOwnerManifestV2R {
+  cases: readonly Readonly<{
+    caseId: string;
+    publicCase: Readonly<JsonRecord>;
+    ownerOnly: Readonly<JsonRecord>;
+  }>[];
+}
+
+export type SealedHoldoutOwnerManifestValidatorV2R = (
+  candidate: unknown,
+) => Readonly<SealedHoldoutOwnerManifestV2R>;
 
 const READ_EVIDENCE_KINDS: Readonly<Record<string, readonly string[]>> = {
   read_project_file: ['PROJECT_REVISION', 'RIGHTS_POLICY', 'NARRATIVE', 'ASSET_MANIFEST'],
@@ -49,11 +60,14 @@ export class SealedHoldoutOwnerSessionV2R {
   private revisionKnown = true;
 
   constructor(input: {
-    manifest: Readonly<SealedHoldoutCohortManifestV2R>;
+    manifest: unknown;
     caseId: string;
     semanticPolicy?: Readonly<SealedHoldoutOwnerSemanticPolicyV2R>;
+    manifestValidator?: SealedHoldoutOwnerManifestValidatorV2R;
   }) {
-    const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
+    const manifest = input.manifestValidator
+      ? input.manifestValidator(input.manifest)
+      : assertSealedHoldoutCohortManifestV2R(input.manifest);
     const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
     if (!taskCase) fail(`SEALED_OWNER_CASE_MISSING:${input.caseId}`);
     this.caseId = taskCase.caseId;

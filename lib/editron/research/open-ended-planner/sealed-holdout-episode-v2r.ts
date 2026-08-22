@@ -39,11 +39,33 @@ export const SEALED_HOLDOUT_FINISH_SCHEMA_V2R =
     'CLARIFICATION_REQUIRED', 'POLICY_BLOCKED', 'CONFLICT',
   ]);
 
+export interface SealedHoldoutEpisodeManifestV2R {
+  sharedModelContext: Readonly<JsonRecord>;
+  sharedModelContextSha256: string;
+  cases: readonly Readonly<{
+    caseId: string;
+    publicCase: Readonly<JsonRecord>;
+  }>[];
+}
+
 export function buildSealedHoldoutEpisodeContextV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
   caseId: string;
 }): Readonly<ProviderNativeEpisodeContextV2R> {
   const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
+  return buildSealedHoldoutEpisodeContextFromManifestV2R({
+    manifest,
+    caseId: input.caseId,
+    episodeVersion: SEALED_HOLDOUT_EPISODE_VERSION_V2R,
+  });
+}
+
+export function buildSealedHoldoutEpisodeContextFromManifestV2R(input: {
+  manifest: Readonly<SealedHoldoutEpisodeManifestV2R>;
+  caseId: string;
+  episodeVersion: string;
+}): Readonly<ProviderNativeEpisodeContextV2R> {
+  const { manifest } = input;
   const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
   if (!taskCase) fail(`SEALED_HOLDOUT_EPISODE_CASE_MISSING:${input.caseId}`);
   const publicCase = record(taskCase.publicCase);
@@ -55,7 +77,7 @@ export function buildSealedHoldoutEpisodeContextV2R(input: {
   const unavailableOperatorRecords = records(planningSheet.operators)
     .filter((operator) => unavailableIds.has(text(operator.operatorId)));
   const context = deepFreezeV1({
-    episodeId: `${SEALED_HOLDOUT_EPISODE_VERSION_V2R}:${taskCase.caseId}`,
+    episodeId: `${input.episodeVersion}:${taskCase.caseId}`,
     objective: text(publicCase.request),
     activeTarget: {
       case: taskCase.publicCase,
