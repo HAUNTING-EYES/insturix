@@ -1,0 +1,67 @@
+import type { HoldoutMediaManifestV2R }
+  from './holdout-media-materializer-v2r';
+import type { BudgetedSealedHoldoutEvaluationReceiptV2R }
+  from './sealed-holdout-evaluator-v2r';
+import { proveSealedHoldoutH01NativeOutcomeV2R }
+  from './sealed-holdout-h01-native-proof-v2r';
+import { proveSealedHoldoutH02NativeOutcomeV2R }
+  from './sealed-holdout-h02-native-proof-v2r';
+import { proveSealedHoldoutH03HybridOutcomeV2R }
+  from './sealed-holdout-h03-hybrid-proof-v2r';
+import { proveSealedHoldoutH04NativeOutcomeV2R }
+  from './sealed-holdout-h04-native-proof-v2r';
+import { proveSealedHoldoutH05NativeOutcomeV2R }
+  from './sealed-holdout-h05-native-proof-v2r';
+import {
+  proveSealedHoldoutGeneralNoEditOutcomeV2R,
+} from './sealed-holdout-no-edit-proof-v2r';
+import type { SealedHoldoutCohortManifestV2R }
+  from './sealed-holdout-cohort-v2r';
+import type { BudgetedSealedHoldoutSelectedOperationTraceV2R }
+  from './sealed-holdout-trace-v2r';
+
+export interface SealedHoldoutPaidProofSummaryV2R {
+  assessment: string;
+  receiptSha256: string;
+  stateEffects: readonly unknown[];
+}
+
+export interface SealedHoldoutPaidProofInputV2R {
+  manifest: Readonly<SealedHoldoutCohortManifestV2R>;
+  caseId: string;
+  trace: Readonly<BudgetedSealedHoldoutSelectedOperationTraceV2R>;
+  evaluation: Readonly<BudgetedSealedHoldoutEvaluationReceiptV2R>;
+  mediaManifest: Readonly<HoldoutMediaManifestV2R>;
+  outputDirectory: string;
+}
+
+/**
+ * Delegates to the frozen claim owner selected by the hidden evaluator. This
+ * adapter never repairs a trace or substitutes a canonical edit for model work.
+ */
+export async function proveSealedHoldoutPaidOutcomeV2R(
+  input: Readonly<SealedHoldoutPaidProofInputV2R>,
+): Promise<Readonly<SealedHoldoutPaidProofSummaryV2R>> {
+  if (input.evaluation.assessment === 'PASS') {
+    return proveSealedHoldoutGeneralNoEditOutcomeV2R(input);
+  }
+  if (input.evaluation.assessment !== 'READY_FOR_PROOF') {
+    throw new Error(`SEALED_PAID_PROOF_EVALUATION_NOT_PROVABLE:${input.evaluation.assessment}`);
+  }
+  if (input.caseId === 'HOLD-01:C1' || input.caseId === 'HOLD-01:C2') {
+    return proveSealedHoldoutH01NativeOutcomeV2R({ ...input, caseId: input.caseId });
+  }
+  if (input.caseId === 'HOLD-02:C1' || input.caseId === 'HOLD-02:C2') {
+    return proveSealedHoldoutH02NativeOutcomeV2R({ ...input, caseId: input.caseId });
+  }
+  if (input.caseId === 'HOLD-03:C1') {
+    return proveSealedHoldoutH03HybridOutcomeV2R({ ...input, caseId: input.caseId });
+  }
+  if (input.caseId === 'HOLD-04:C1' || input.caseId === 'HOLD-04:C2') {
+    return proveSealedHoldoutH04NativeOutcomeV2R({ ...input, caseId: input.caseId });
+  }
+  if (input.caseId === 'HOLD-05:C1') {
+    return proveSealedHoldoutH05NativeOutcomeV2R({ ...input, caseId: input.caseId });
+  }
+  throw new Error(`SEALED_PAID_PROOF_EXECUTABLE_CASE_UNSUPPORTED:${input.caseId}`);
+}

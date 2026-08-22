@@ -16,6 +16,8 @@ import { preflightSealedHoldoutCohortV2R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-preflight-v2r';
 import type { HoldoutMediaManifestV2R }
   from '@/lib/editron/research/open-ended-planner/holdout-media-materializer-v2r';
+import { BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V2R }
+  from '@/lib/editron/research/open-ended-planner/sealed-holdout-episode-v2r';
 
 async function fixtures() {
   const [source, mediaBytes] = await Promise.all([
@@ -95,6 +97,8 @@ describe('sealed holdout credential and initial-request preflight V2R', () => {
       .toBeGreaterThan(8);
     expect(new Set(result.receipt.checks.map((check) => check.model)))
       .toEqual(new Set(['gpt-5.6-luna', 'gpt-5.6-terra', 'gemini-3.7-flash']));
+    expect(JSON.stringify(result.requestCaptures[0]?.request.body))
+      .toContain(BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V2R);
     const serialized = JSON.stringify(result);
     expect(serialized).not.toMatch(/evaluatorOnly|behaviourBrief|successPredicates|C4_NOISY/);
     expect(serialized).not.toContain('openai-production-test');

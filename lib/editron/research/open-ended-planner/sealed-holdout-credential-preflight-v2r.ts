@@ -17,9 +17,17 @@ import {
   assertSealedHoldoutCohortManifestV2R,
   type SealedHoldoutCohortManifestV2R,
 } from './sealed-holdout-cohort-v2r';
-import { runSealedHoldoutEpisodeV2R } from './sealed-holdout-episode-v2r';
+import { runBudgetedSealedHoldoutEpisodeV2R }
+  from './sealed-holdout-episode-v2r';
 import type { SealedHoldoutPreflightReceiptV2R }
   from './sealed-holdout-preflight-v2r';
+import {
+  bindSealedHoldoutInputTokenBoundV2R,
+  SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
+  type SealedHoldoutRuntimeAuthorizationV2R,
+} from './sealed-holdout-runtime-budget-v2r';
+import { findSealedHoldoutRuntimeRouteFactV2R }
+  from './sealed-holdout-runtime-route-facts-v2r';
 import { assertNoEvaluatorLeakV2 } from './staged-packet-v2';
 
 type JsonRecord = Record<string, unknown>;
@@ -31,7 +39,7 @@ type InputTokenCountV2R = Readonly<{
 }>;
 
 export const SEALED_HOLDOUT_CREDENTIAL_PREFLIGHT_VERSION_V2R =
-  'EDITRON_OE_SEALED_HOLDOUT_CREDENTIAL_PREFLIGHT_V2R_1' as const;
+  'EDITRON_OE_SEALED_HOLDOUT_CREDENTIAL_PREFLIGHT_V2R_2' as const;
 export const SEALED_HOLDOUT_PRESENTATION_ORDER_SEED_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_PRESENTATION_ORDER_20260822_V1' as const;
 export const SEALED_HOLDOUT_INITIAL_INPUT_TOKEN_LIMIT_V2R = 85_000 as const;
@@ -268,10 +276,41 @@ async function captureInitialRequest(input: {
   handoffMode: ProviderNativeArgumentHandoffModeV2R;
   operatorOrder: readonly string[];
 }): Promise<Readonly<SerializedProviderNativeTurnV2R>> {
+  const taskCase = input.manifest.cases.find(({ caseId }) => caseId === input.caseId);
+  const routeFact = findSealedHoldoutRuntimeRouteFactV2R(input.route.routeId);
+  if (!taskCase || !routeFact
+    || routeFact.provider !== input.route.provider
+    || routeFact.model !== input.route.model
+    || routeFact.claimedModelIdentity !== input.route.claimedModelIdentity) {
+    fail(`SEALED_CREDENTIAL_PREFLIGHT_CAPTURE_BINDING_INVALID:${input.caseId}:${input.route.routeId}`);
+  }
+  const authorization = deepFreezeV1({
+    version: SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
+    manifestSha256: input.manifest.manifestSha256,
+    caseId: input.caseId,
+    publicCaseSha256: taskCase.publicCaseSha256,
+    routeId: input.route.routeId,
+    claimedModelIdentity: input.route.claimedModelIdentity,
+    routeSha256: hashCanonicalJsonV1(input.route),
+    approvedBy: 'credential-preflight',
+    approvedAt: '2026-08-22T00:00:00.000Z',
+    maxInputTokensPerTurn: SEALED_HOLDOUT_INITIAL_INPUT_TOKEN_LIMIT_V2R,
+    absoluteMaxSpendMicroUsd: 6_000_000,
+    pricing: routeFact.pricing,
+  } satisfies SealedHoldoutRuntimeAuthorizationV2R);
   let captured: Readonly<SerializedProviderNativeTurnV2R> | undefined;
   let calls = 0;
-  await runSealedHoldoutEpisodeV2R({
+  // The capture must pass through the same budgeted episode serializer used by
+  // paid dispatch. The zero-token bound exists only to reach serialization in
+  // this no-inference capture; official/local token accounting follows below.
+  await runBudgetedSealedHoldoutEpisodeV2R({
     ...input,
+    authorization,
+    countInputTokens: async (request) => bindSealedHoldoutInputTokenBoundV2R({
+      request,
+      inputTokensUpperBound: 0,
+      method: 'CAPTURE_ONLY_ZERO_INFERENCE_V1',
+    }),
     argumentHandoffMode: input.handoffMode,
     operatorPresentationOrder: input.operatorOrder,
     invoke: async (request) => {
