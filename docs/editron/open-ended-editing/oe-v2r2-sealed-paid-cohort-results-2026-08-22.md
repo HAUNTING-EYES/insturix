@@ -133,9 +133,10 @@ new frozen identity reruns them fairly.
 3. **Manifest binding completed:** the closed generated-composition and
    subject-reframe schemas are part of the new shared context; execution/proof
    coverage remains incomplete.
-4. **Completed in `6cc1f56de`:** the H04 V3 episode has a truthful evolving
+4. **Completed in `6cc1f56de` and `4b3209fa1`:** the H04 V3 episode has a truthful evolving
    post-mutation clone, canonical cut semantics and declared caption-retiming
-   state. Hidden evaluation and rendered proof remain separate work.
+   state; V3R2 hidden evaluation requires the writer-bound reread and its proof
+   binds that state to a real AV proxy.
 5. Supply required literal title/reference material in the public H03 condition
    and prove model-generated program lineage separately from mechanics.
 6. Use bounded short proof paths on Windows.
@@ -209,6 +210,15 @@ reread. Focused owner/V3 checks pass 11/11 and full typecheck/lint pass. This is
 state-transition harness evidence only: H04 hidden evaluation, AV/caption-pixel
 proof, paid model results, product ProjectService mutation and non-30-fps
 compatibility remain unclaimed.
+
+Commit `4b3209fa1` adds the distinct V3R2 H04 hidden policy and rendered proof
+without changing V2 evidence. The evaluator rejects a missing writer-revision
+post-cut reread. The proof binds the internally hashed provider episode, trace,
+evaluation, actual evolving-state transition and reread, then reuses the sole
+H04 AV mechanics to produce a real 435-frame H.264/30/1 AAC proxy. Missing
+reread and a rehashed forged episode fail closed; focused H04 checks pass 9/9
+and full typecheck/lint pass. It remains non-budgeted research evidence with no
+product mutation, no caption-pixel proof and no intelligible-speech claim.
 
 No production model-driven mutation or Stage 3 agent control plane is authorised
 by this run.
