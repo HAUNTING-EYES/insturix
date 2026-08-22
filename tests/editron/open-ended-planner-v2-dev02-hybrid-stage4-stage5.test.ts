@@ -15,14 +15,28 @@ import {
   compileDev02HybridStage4GraphV2,
   type Dev02HybridStage4SourceV2,
 } from '@/lib/editron/research/open-ended-planner/dev02-hybrid-stage4-compiler-v2';
+import { buildCurrentDev02HybridResearchGraphV2 } from '@/lib/editron/research/open-ended-planner/dev02-current-hybrid-research-graph-v2';
 import { evaluateDev02HybridStage4GraphV2 } from '@/lib/editron/research/open-ended-planner/dev02-hybrid-stage4-evaluator-v2';
 import { DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V1 } from '@/lib/editron/research/open-ended-planner/generated-composition-research-proxy-capability-v1';
+import { DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2 } from '@/lib/editron/research/open-ended-planner/generated-composition-research-proxy-capability-v2';
 import type { GeneratedCompositionProgramV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-program-v1';
 import { compileStage4DeterministicBaselineV2 } from '@/lib/editron/research/open-ended-planner/stage4-deterministic-compiler-v2';
 import { compileStage4ResearchProxyPreviewV2 } from '@/lib/editron/research/open-ended-planner/stage4-research-proxy-compiler-v2';
 import { decideStage5ProceedOrStopV2 } from '@/lib/editron/research/open-ended-planner/stage5-proceed-stop-gate-v2';
 
 describe('open-ended planner V2 DEV-02 full hybrid Stage 4-5', () => {
+  it('assembles the current V2 graph while preserving canonical V1 history', () => {
+    const current = buildCurrentDev02HybridResearchGraphV2() as TestGraph;
+    const historical = compileCanonicalDev02HybridStage4GraphV2() as TestGraph;
+    expect(evaluateDev02HybridStage4GraphV2(current))
+      .toMatchObject({ assessment: 'PASS', diagnostics: [] });
+    expect(current.capabilityPromotion)
+      .toEqual(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2);
+    expect(historical.capabilityPromotion)
+      .toEqual(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V1);
+    expect(current.graphHash).not.toBe(historical.graphHash);
+  });
+
   it('compiles the generated island, native continuation, and proof as one isolated hybrid graph', () => {
     const graph = compileCanonicalDev02HybridStage4GraphV2() as TestGraph;
     expect(evaluateDev02HybridStage4GraphV2(graph)).toEqual({
@@ -170,6 +184,8 @@ interface TestGraph extends Record<string, unknown> {
   hybridScope: Record<string, unknown>;
   unresolvedResearchIntentNodeIds: string[];
   productionProjectExecutionEligibility: string;
+  capabilityPromotion: unknown;
+  graphHash: string;
 }
 
 function alphaRenamedHybridSource(

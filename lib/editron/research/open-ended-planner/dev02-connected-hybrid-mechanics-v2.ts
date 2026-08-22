@@ -8,9 +8,8 @@ import {
   evaluateDev02GeneratedCompositionRenderedProofV1,
   type Dev02GeneratedCompositionRenderedProofV1,
 } from './generated-composition-dev02-rendered-proof-v1';
+import { buildCurrentDev02HybridResearchGraphV2 } from './dev02-current-hybrid-research-graph-v2';
 import { materializeGeneratedCompositionLocalEvidenceV1 } from './generated-composition-local-evidence-v1';
-import { DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V1 } from './generated-composition-research-proxy-capability-v1';
-import { compileCanonicalDev02HybridStage4GraphV2 } from './dev02-hybrid-stage4-compiler-v2';
 import type { Dev02HybridNativeSourceBindingV2 } from './dev02-hybrid-stage6-contract-v2';
 import { evaluateDev02HybridStage6V2 } from './dev02-hybrid-stage6-evaluator-v2';
 import { executeDev02HybridStage6V2 } from './dev02-hybrid-stage6-executor-v2';
@@ -48,12 +47,18 @@ export async function executeConnectedDev02HybridMechanicsV2(input: {
     readFile(widePath), readFile(closePath), readFile(fontPath),
   ]);
 
-  const hybridGraph = input.hybridGraph ?? compileCanonicalDev02HybridStage4GraphV2();
+  const hybridGraph = input.hybridGraph ?? buildCurrentDev02HybridResearchGraphV2();
   const sourceGraph = record(hybridGraph).sourceIslandGraph;
   if (!sourceGraph || typeof sourceGraph !== 'object' || Array.isArray(sourceGraph)) {
     throw new Error('DEV02_CONNECTED_MECHANICS_SOURCE_ISLAND_GRAPH_MISSING');
   }
-  const capability = DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V1;
+  // The verified graph owns the execution identity. A host-side capability
+  // constant could silently mismatch a historical or requalified graph.
+  const implementation = record(record(sourceGraph).capabilityPromotion).implementation;
+  if (!implementation || typeof implementation !== 'object' || Array.isArray(implementation)) {
+    throw new Error('DEV02_CONNECTED_MECHANICS_CAPABILITY_IMPLEMENTATION_MISSING');
+  }
+  const sandboxIdentity = record(implementation);
   const stage6Evidence = await executeStage6ResearchProxyPreviewV2({
     graph: sourceGraph,
     operatorId: 'admin',
@@ -66,8 +71,8 @@ export async function executeConnectedDev02HybridMechanicsV2(input: {
       { kind: 'FONT', bindingId: 'font-noto-sans-v27-regular', fileName: 'noto-sans.ttf', bytes: fontBytes },
     ],
     sandboxEnvironment: {
-      snapshotId: capability.implementation.snapshotId,
-      snapshotCommit: capability.implementation.snapshotCommit,
+      snapshotId: text(sandboxIdentity.snapshotId),
+      snapshotCommit: text(sandboxIdentity.snapshotCommit),
     },
   });
   const localEvidence = await materializeGeneratedCompositionLocalEvidenceV1({
@@ -148,3 +153,4 @@ function record(value: unknown): Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown> : {};
 }
+function text(value: unknown): string { return typeof value === 'string' ? value : ''; }

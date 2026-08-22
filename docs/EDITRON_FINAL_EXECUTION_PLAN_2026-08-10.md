@@ -3563,11 +3563,21 @@ built around it.
     worker, resource envelope and successful smoke receipt. Its capability hash
     is `ad429a4c950d97dd27d12c9b5e487e885ca30d33bb29e93165466290492c1de6`;
     the compiler and
-    evaluator accept only the exact immutable V1 or V2 artifacts. This does not
-    promote product execution. Next connect V2 to the isolated DEV-02 mechanics,
-    rerun generated/hybrid proof, then build the forced
-    native baseline before dependency-shape diversity, conflict/rebase/locked-
-    range, context-resume and long-form/range trials.
+    evaluator accept only the exact immutable V1 or V2 artifacts. Current
+    DEV-02 fixture assembly now calls the existing deterministic, research-
+    proxy and hybrid compilers with V2, while the mechanics take sandbox
+    identity from that verified graph instead of a host-side V1 constant.
+    Historical canonical V1 graphs remain unchanged. The real connected V2 run
+    now passes: source Stage-6 receipt `9425dd46...`, sandbox host receipt
+    `4e44af03...`, hybrid receipt `1a56ecb4...` and output SHA-256
+    `aa5f6644...`. The result is a decoded 345-frame, 1080x1920, 30/1 H.264
+    proxy with generated hard gates, timing, boundary continuity and native
+    continuation all `PASS`, and zero project reads, changed paths or state
+    effects. Creative taste and flash safety remain `UNVERIFIABLE`; there is no
+    audio and no product nested-composition mutation. This does not promote
+    product execution or prove the route choice. Next build the forced native
+    baseline against the same target before dependency-shape diversity,
+    conflict/rebase/locked-range, context-resume and long-form/range trials.
   - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,
     blind review, cost/latency and no hidden manual rescue.
 - [ ] **T8 (P1, human workshop ~2h)** — product — run the promised auto-edit
