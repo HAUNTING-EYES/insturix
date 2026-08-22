@@ -154,15 +154,20 @@ new frozen identity reruns them fairly.
    Luna/Terra/Gemini routes, three repetitions per route/arm and eighteen
    planned rows. Contract-source hash is `cc9b801e...`, manifest hash is
    `6fec9b9e...`, and the exact worst-case authorization ceiling is `$11.673`.
-9. Run the credentialed V3R3 zero-inference operator preflight, then execute
-   all eighteen frozen rows and bind accepted source to sandbox render, decoded
-   proof and hidden evaluation. Preserve guard/failure receipts without
-   relabelling them as model failures.
-10. Complete HREF-01 qualified review, dependency diversity, forced
+9. **Completed through `0302b43a4`:** add the committed operator input/CLI and
+   pass the real credentialed V3R3 zero-inference preflight. Receipts
+   `26ade7ec...`, `05a941d7...` and `38e39712...` record three metadata GETs,
+   seven official Gemini token-count POSTs, zero inference and no project
+   state effects. Dispatch remains unauthorized.
+10. Issue the separate exact spend authorization, then execute all eighteen
+   frozen rows and bind accepted source to sandbox render, decoded proof and
+   hidden evaluation. Preserve guard/failure receipts without relabelling them
+   as model failures.
+11. Complete HREF-01 qualified review, dependency diversity, forced
    native/generated/hybrid comparisons, stale-user-edit/conflict/rebase/locked
    range trials, context-compaction resume, long-form/range planning and blind
    editor quality/correction-time/latency/cost receipts.
-11. Publish a frozen `GO`, `MODIFY` or `NO-GO`. Current status is `MODIFY`.
+12. Publish a frozen `GO`, `MODIFY` or `NO-GO`. Current status is `MODIFY`.
 
 ### H03 public-input correction checkpoint
 
@@ -288,7 +293,17 @@ verifier-guided repair and at most four requests. Three routes x two arms x
 three repetitions yields eighteen rows and an exact `$11.673` worst-case
 ceiling. The expanded H03/provider/render regression passes 34/34 across nine
 files; typecheck and repository lint pass. No credentialed preflight,
-inference or provider-generated render has run yet.
+inference or provider-generated render had run at that checkpoint.
+
+Commit `0302b43a4` then adds the shared repository-byte input builder and the
+operator-only no-inference CLI. The production-credential preflight artifact
+under `.calibration-temp/open-ended-planner-v2/` binds provider infrastructure
+receipt `26ade7ec...`, H03 receipt `05a941d7...` and operator receipt
+`38e39712...` to manifest `6fec9b9e...`. It made three metadata GETs and seven
+official Gemini token-count POSTs. Inference calls, project reads, project
+mutations, persisted secrets and dispatch authorization are all zero/false.
+The next gate is a separately issued exact authorization followed by the
+eighteen frozen provider/render/evaluation rows.
 
 ## Corrected-identity progress after this cohort
 
