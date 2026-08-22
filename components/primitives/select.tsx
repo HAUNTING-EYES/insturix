@@ -167,6 +167,14 @@ export function Select({
           id={listboxId}
           role="listbox"
           aria-activedescendant={activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
+          /* A wrapping <label> (primitives/Field, ThinkForge's field helpers…)
+             forwards a click on any non-interactive descendant — these option
+             divs — to its first labelable control, i.e. the trigger button,
+             which re-opened the list on every mouse pick. Label forwarding is
+             the click's default action, so cancelling it here (the option's own
+             onClick still runs) stops it at the source for every host.
+             Reproduced + verified in headless Chromium (2026-08-22). */
+          onClick={(e) => e.preventDefault()}
           className={cn(
             'absolute inset-x-0 top-[calc(100%+6px)] z-30 max-h-64 overflow-y-auto rounded-lg border border-ds-emphasis bg-surface-raised p-1 shadow-[0_24px_50px_-12px_rgba(0,0,0,0.75)]',
             panelClassName,
