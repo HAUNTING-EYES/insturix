@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `96d2e3923` on
+programme code checkpoint represented by this ledger is `315443e21` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1536,6 +1536,51 @@ claims the record, no artifact resolver reconstructs route/context/tool/media/
 authorization inputs, no provider suffix runs from the stored state, and no
 live Mongo/QStash recovery is proven. Next build that zero-inference worker
 recovery harness before any paid resumed call.
+
+**Final-writer checkpoint repair (2026-08-23):** commit `ecfa20c54` closes a
+real terminal-turn hole in the same provider episode owner. A final mutating
+tool call previously did not issue `receipt.projectRevision` when no later
+model-visible tool consumed that value, so the durable checkpoint callback
+could not bind the writer-issued revision. The opaque-result registry now
+accepts an internal, owner-declared output projection for checkpointing; the
+runner requires the exact writer revision only when it is publishing a
+resumable committed turn, and hydration derives the same requirement for
+prefix mutations. This internal projection never enters the provider prompt,
+so frozen request identities and captured Luna evidence remain unchanged. The
+focused regression proves that the terminal writer emits the revision needed
+by the checkpoint without teaching the model that value.
+
+**Durable provider-recovery worker checkpoint (2026-08-23):** commit
+`81ce63d9b` adds one transport-neutral recovery core over the shared durable
+job record and existing provider-native episode runner; it is not another
+runner, project authority, checkpoint format, registry or queue. The worker
+claims a leased job, restores the exact V4 checkpoint, resolves its declared
+route/context/tool/reference/runtime artifacts through an injected trusted
+port, verifies current ProjectService revision origin plus isolated-clone
+revision and state hashes, executes only the unfinished provider suffix,
+persists later checkpoints, heartbeats the lease and settles completion,
+cancellation, retry or dead-letter state through the shared store. `READY_FOR_PROOF`
+is deliberately persisted as `UNVERIFIABLE`, never `PASS`, because no product
+proof owner has accepted the output. The adversarial suite covers fresh
+store/worker instances, exact prefix preservation, later checkpoint sequence,
+duplicate terminal delivery, tampered context/toolset, transient resolver and
+provider failures, in-flight cancellation and competing leases. The broader
+provider-native suite passes 130 tests with two intentional skips; repository
+typecheck and quiet ESLint pass.
+
+This is a zero-inference, same-process recovery-core qualification. It does
+not yet provide a concrete production artifact resolver, authenticated worker
+ingress, QStash dispatch adapter, separate-OS-process or live Atlas recovery,
+paid resumed inference, ProjectService mutation, approval waits or append-only
+event history. Those distinctions are the remaining production gates; the
+existence of an injectable port is not artifact-resolution convergence.
+
+**Active-catalog test-provenance repair (2026-08-23):** commit `315443e21`
+updates one stale provider test to bind the intentional CAP-2A V2R9 catalog
+identity introduced by `85d1bdcae`. The test keeps the injected catalog and
+current catalog identities separate; it does not rewrite prior benchmark
+artifacts or create new model evidence. No paid inference or project state
+effect occurred in any of these three slices.
 
 **Model-selected schedule-binding checkpoint (2026-08-22):** commit
 `99f363e28` connects the existing Stage-2 exact `selectedOperatorId` contract
@@ -2362,8 +2407,8 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 0 - governance and capability truth | `CAP-0` family-level census and `CAP-1` Adobe gap matrix remain `DONE_ARTIFACT`. CAP-2A V6 at `e3ea46fde` binds 222 source paths, 11 observations and 477 identifiers to corrected source commit `d84b54159`; manifest `2549623e...` records 37 atomic candidates, zero certified and zero production-eligible operations. | CAP-2A remains a bounded research tool dossier, not the complete Editron/Adobe toolset or production certification. Reissue again only if bound source/evidence drifts; never rewrite a prior version. |
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
-| Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. Commit `1f22ef2f2` adds one shared transport-neutral Mongo lifecycle record/store with immutable input binding, idempotency, leases, retries, cancellation, resume-state CAS, dispatch metadata, budget binding and terminal proof references. Commit `96d2e3923` binds the existing research V4 provider checkpoint into that record. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. No production worker executes through the shared record; authenticated ingress, artifact resolution, event history, approval waits, transport recovery, live cross-process proof and family-store migration remain. |
-| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. DEV-02 now has one real native alternative and one real generated-island/native-continuation hybrid at identical decoded scope, plus sealed blind pack `23870abb...`; hard target gates pass for both. The V3R3 non-leading dependency cohort adds a live six-operation fork/join result under three tool orders: corrected immutable replay receipt `d1cc5d7c...` records Luna 3/3, Terra 3/3, zero evaluable failures and three Gemini credit-depletion non-evaluations for `$0.244869160`, with zero replay inference and zero project effects. Commit `3a161c562` replaces the real-episode hand-built scheduler-effect fixture with exact, hash-bound effects issued from the observed isolated owner. Commits `7a16b0cec` and `03e7aa8a3` then replay one exact Luna P1 episode through those owners and the existing Remotion root; portable receipt `62a1fb24...` proves the two cut boundaries, warm treatment, 1.08 push-in and right-biased focal geometry in a decoded 640x360, 30/1, 720-frame H.264 proxy with zero project effects. Commit `fe22e2f7b` proves one provider-loop prefix can be compacted and resumed through opaque results without replaying mutations or resetting the repair budget. Commit `8512970f9` then replays the exact already-paid Luna P1 response bodies through an interruption after turn four, restores a fresh instance of the same isolated owner from a canonically validated snapshot, executes only the suffix and reaches the original `R45` owner state. Portable receipt `a7dd98a1...` binds all eight captured response hashes, four prefix and four suffix calls, zero inference, zero project effects and the deliberately changed compact-resume request identity. Commits `ec1432446` and `6217cf748` now bind exact reference-media identity and cumulative runtime/spend accounting across an in-process fresh-instance resume; forged or mismatched state fails before provider/tool execution. Commits `1f22ef2f2` and `96d2e3923` add the shared durable lifecycle record and bind the exact V4 research checkpoint into it. HREF-01's technical review pack is complete: the full 64.75-second source, one model-requested `[20s,23s)` 60/1 dense clip and its 96 kHz stereo WAV are hash-bound under public pack `4431c08b...`. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The exact-effect issuer covers only six holdout operations and the rendered supplement covers only one synthetic Luna row. Audio is absent from that dependency episode and ProjectService reload/product-authority integration are explicitly unverifiable; generic effect coverage and audiovisual proof remain open. HREF-01 now waits only for the sole project owner's blinded judgment; independent agreement remains `UNVERIFIABLE` without a real second reviewer. The phrase “seven unseen holdouts” is retired: HOLD-01 through HOLD-08 already executed, so the next task evidence must use genuinely new dependency/invalidation holdouts. Provider-loop resume has in-process reference and cumulative runtime-budget identity plus durable V4 persistence, but still lacks an artifact-resolving worker, authenticated ingress, fresh-process suffix recovery, paid resumed inference and ProjectService integration. Then complete product-authority conflict/rebase/lock integration, long-form range planning, forced native/generated/hybrid alternatives and blind quality/correction-time receipts. The user's DEV-02 qualitative order `B > C > A` is recorded in chat evidence, but a hash-bound correction-time/confidence review receipt remains pending; H04 still has synthetic tone/no caption-pixel proof; H05 lacks audio/real-logo pixel proof; DEV-03 lacks intelligible speech. |
+| Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. Commit `1f22ef2f2` adds one shared transport-neutral Mongo lifecycle record/store with immutable input binding, idempotency, leases, retries, cancellation, resume-state CAS, dispatch metadata, budget binding and terminal proof references. Commit `96d2e3923` binds the existing research V4 provider checkpoint into that record; `ecfa20c54` binds terminal writer revisions and `81ce63d9b` exercises the transport-neutral zero-inference recovery core over fresh store/worker instances. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. No authenticated production ingress or transport executes through the shared record; a concrete owner-backed artifact resolver, event history, approval waits, live separate-process/Atlas/QStash proof and family-store migration remain. |
+| Stage 2.5 - open-ended planner experiment | Native handoff/order V3R4 remains valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no mutation under three tool orders. The sealed V2R2/V2R3 cohort executed 96 paid rows for `$9.730960595`; its frozen interpretation separates passes, bounded failures, confounds and resource non-evaluations. H03 generated-source V3R4 executed 18 rows for `$0.21068595`, with 4/12 evaluable Luna/Terra rendered passes and six Gemini-429 non-evaluations. CAP-2A V6 remains a 37-candidate, zero-certified research dossier. Current-context V4R receipt `fe4a3420...` records 13 claim-proof passes, 17 evaluable failures and 15 Gemini-429 non-evaluations for `$2.91745742`. The route-ablation cohort completed all 24 Stage-2 rows under receipt `9583de5c...`: seven honest gaps, nine failures and eight Gemini-429 non-evaluations for `$1.5474777`, with zero project access. DEV-02 now has one real native alternative and one real generated-island/native-continuation hybrid at identical decoded scope, plus sealed blind pack `23870abb...`; hard target gates pass for both. The V3R3 non-leading dependency cohort adds a live six-operation fork/join result under three tool orders: corrected immutable replay receipt `d1cc5d7c...` records Luna 3/3, Terra 3/3, zero evaluable failures and three Gemini credit-depletion non-evaluations for `$0.244869160`, with zero replay inference and zero project effects. Commit `3a161c562` replaces the real-episode hand-built scheduler-effect fixture with exact, hash-bound effects issued from the observed isolated owner. Commits `7a16b0cec` and `03e7aa8a3` then replay one exact Luna P1 episode through those owners and the existing Remotion root; portable receipt `62a1fb24...` proves the two cut boundaries, warm treatment, 1.08 push-in and right-biased focal geometry in a decoded 640x360, 30/1, 720-frame H.264 proxy with zero project effects. Commit `fe22e2f7b` proves one provider-loop prefix can be compacted and resumed through opaque results without replaying mutations or resetting the repair budget. Commit `8512970f9` then replays the exact already-paid Luna P1 response bodies through an interruption after turn four, restores a fresh instance of the same isolated owner from a canonically validated snapshot, executes only the suffix and reaches the original `R45` owner state. Portable receipt `a7dd98a1...` binds all eight captured response hashes, four prefix and four suffix calls, zero inference, zero project effects and the deliberately changed compact-resume request identity. Commits `ec1432446` and `6217cf748` now bind exact reference-media identity and cumulative runtime/spend accounting across an in-process fresh-instance resume; forged or mismatched state fails before provider/tool execution. Commits `1f22ef2f2`, `96d2e3923`, `ecfa20c54` and `81ce63d9b` add the shared durable lifecycle record, bind the exact V4 research checkpoint, require the final writer revision and exercise suffix-only recovery through the existing runner over fresh store/worker instances. Commit `315443e21` corrects the active V2R9 catalog identity in test provenance. HREF-01's technical review pack is complete: the full 64.75-second source, one model-requested `[20s,23s)` 60/1 dense clip and its 96 kHz stereo WAV are hash-bound under public pack `4431c08b...`. | Result remains `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The exact-effect issuer covers only six holdout operations and the rendered supplement covers only one synthetic Luna row. Audio is absent from that dependency episode and ProjectService reload/product-authority integration are explicitly unverifiable; generic effect coverage and audiovisual proof remain open. HREF-01 now waits only for the sole project owner's blinded judgment; independent agreement remains `UNVERIFIABLE` without a real second reviewer. The phrase “seven unseen holdouts” is retired: HOLD-01 through HOLD-08 already executed, so the next task evidence must use genuinely new dependency/invalidation holdouts. Provider-loop resume now has in-process reference and cumulative runtime-budget identity, durable V4 persistence and a zero-inference recovery core, but still lacks a concrete production artifact resolver, authenticated ingress/QStash dispatch, separate-process/live-Atlas suffix-recovery proof, paid resumed inference and ProjectService integration. Then complete product-authority conflict/rebase/lock integration, long-form range planning, forced native/generated/hybrid alternatives and blind quality/correction-time receipts. The user's DEV-02 qualitative order `B > C > A` is recorded in chat evidence, but a hash-bound correction-time/confidence review receipt remains pending; H04 still has synthetic tone/no caption-pixel proof; H05 lacks audio/real-logo pixel proof; DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -2375,10 +2420,13 @@ execution/interpretation checkpoint above supersedes it.
 `runtime-budget/reference-input binding` clause predates commits `ec1432446`
 and `6217cf748`. Reference-input identity and cumulative runtime-budget state
 recovery are now research-proven across in-process fresh-instance restart.
-A shared durable lifecycle record exists at `1f22ef2f2`, and `96d2e3923` binds
-the exact research V4 checkpoint into it. Artifact-resolving worker ingress,
-fresh-process suffix recovery, paid
-resumed inference and ProjectService integration remain open.
+A shared durable lifecycle record exists at `1f22ef2f2`; `96d2e3923` binds the
+exact research V4 checkpoint into it; `ecfa20c54` closes terminal-writer
+revision projection; and `81ce63d9b` proves the transport-neutral
+zero-inference recovery core over fresh store/worker instances. Concrete
+owner-backed artifact resolution, authenticated ingress/QStash dispatch,
+separate-process/live-Atlas suffix recovery, paid resumed inference and
+ProjectService integration remain open.
 
 ### Global timebase and format truth
 
@@ -2845,10 +2893,15 @@ foundation and is no longer the active queue. The next three slices are:
    in-process provider-resume boundary.
    Commit `8512970f9` and receipt `a7dd98a1...` prove that one exact captured
    Luna P1 trace survives an in-process turn-four interruption, fresh-owner
-   hydration and suffix-only replay without another inference call. Persist
-   Commit `96d2e3923` now binds the exact V4 checkpoint through the shared
-   record. Prove zero-inference fresh-process claim/artifact-hydrate/suffix-only recovery;
-   only then authorise paid resumed inference. Exercise realistic
+   hydration and suffix-only replay without another inference call. Commit
+   `96d2e3923` persists that exact V4 checkpoint through the shared record,
+   `ecfa20c54` binds the terminal writer revision, and `81ce63d9b` proves the
+   zero-inference recovery core over fresh store/worker instances. Next add a
+   concrete owner-backed artifact resolver plus authenticated fail-closed
+   ingress/dispatch; prove suffix-only recovery in a separate OS process
+   against non-production Mongo/Atlas and QStash; then run a fresh
+   zero-inference preflight and obtain explicit authorization before any paid
+   resumed inference. Exercise realistic
    long-form sequence/range plans under
    bounded evidence; and collect blind-editor quality, correction-time,
    latency and cost receipts. Only a frozen passing gate may authorise
@@ -3977,9 +4030,11 @@ built around it.
     cohort, the generic resume mechanism and one exact captured Luna P1
     fresh-owner restart, reference-input identity and cumulative runtime-budget
     recovery are now complete in process. Commit `1f22ef2f2` adds the unused
-    shared durable lifecycle record and `96d2e3923` adapts the exact V4
-    checkpoint. Artifact-resolving worker ingress, paid resumed inference and
-    fresh-process suffix recovery remain before
+    shared durable lifecycle record, `96d2e3923` adapts the exact V4
+    checkpoint, `ecfa20c54` closes terminal-writer revision projection and
+    `81ce63d9b` adds the transport-neutral zero-inference recovery core. A
+    concrete owner-backed artifact resolver, authenticated ingress/dispatch,
+    paid resumed inference and separate-process/live-store recovery remain before
     long-form/range trials. Product
     integration waits
     for ProjectService-issued change regions/transforms/locks and a durable
