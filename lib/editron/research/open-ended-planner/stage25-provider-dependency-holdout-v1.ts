@@ -29,12 +29,20 @@ const REQUIRED_OPERATORS = [
   'find_audio_moment', 'find_visual_moment', 'sync_cuts_to_beats',
   'resolve_keyframe_edit', 'set_keyframes', 'apply_filter',
 ] as const;
+export const STAGE25_PROVIDER_DEPENDENCY_ELIGIBLE_OPERATOR_IDS_V1 = [
+  'apply_filter', 'find_audio_moment', 'find_visual_moment',
+  'resolve_keyframe_edit', 'set_keyframes', 'sync_cuts_to_beats',
+] as const;
 
-export function buildStage25ProviderDependencyToolSetV1():
-Readonly<ProviderNativeToolSetV2R> {
-  return buildProviderNativeToolSetV2R(
+export function buildStage25ProviderDependencyToolSetV1(
+  presentationOrder: readonly string[] =
     STAGE25_PROVIDER_DEPENDENCY_PRESENTATION_ORDER_V1,
-  );
+):
+Readonly<ProviderNativeToolSetV2R> {
+  if (!sameSet(presentationOrder, REQUIRED_OPERATORS)) {
+    fail('PRESENTATION_ORDER_NOT_EXACT_OPERATOR_PERMUTATION');
+  }
+  return buildProviderNativeToolSetV2R(presentationOrder);
 }
 
 export function buildStage25ProviderDependencyContextV1():
@@ -97,7 +105,9 @@ Readonly<ProviderNativeEpisodeContextV2R> {
       argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES',
       completeCapabilityDossier: {
         completeDirectory,
-        exactEligibleOperatorIds: [...STAGE25_PROVIDER_DEPENDENCY_PRESENTATION_ORDER_V1],
+        exactEligibleOperatorIds: [
+          ...STAGE25_PROVIDER_DEPENDENCY_ELIGIBLE_OPERATOR_IDS_V1,
+        ],
         plannerRecordSupplements: prerequisiteSupplements(),
         ineligibleOperatorCount: 34,
       },

@@ -151,6 +151,15 @@ const ROUTES: readonly ProviderNativeCohortRouteV2R[] = [
   }, 'https://ai.google.dev/gemini-api/docs/pricing'),
 ] as const;
 
+export function providerNativeCohortRoutesV2R():
+readonly Readonly<ProviderNativeCohortRouteV2R>[] {
+  return deepFreezeV1(ROUTES.map((entry) => ({
+    ...entry,
+    route: { ...entry.route },
+    pricing: { ...entry.pricing },
+  })));
+}
+
 const CASE_POLICY: Readonly<Record<string, Readonly<{
   maxTurns: number;
   callableOperatorIds: readonly string[];

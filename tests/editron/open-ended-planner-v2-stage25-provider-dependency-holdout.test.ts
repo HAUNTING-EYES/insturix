@@ -10,6 +10,7 @@ import {
   buildStage25ProviderDependencyToolSetV1,
   buildStage25ProviderDependencyTraceV1,
   evaluateStage25ProviderDependencyHoldoutV1,
+  STAGE25_PROVIDER_DEPENDENCY_ELIGIBLE_OPERATOR_IDS_V1,
   STAGE25_PROVIDER_DEPENDENCY_PRESENTATION_ORDER_V1,
 } from '@/lib/editron/research/open-ended-planner/stage25-provider-dependency-holdout-v1';
 import {
@@ -36,11 +37,25 @@ describe('Stage 2.5 non-leading provider dependency holdout', () => {
     expect(directory).toHaveLength(40);
     expect(new Set(directory.map(({ operatorId }) => operatorId)).size).toBe(40);
     expect(dossier.exactEligibleOperatorIds).toEqual(
-      STAGE25_PROVIDER_DEPENDENCY_PRESENTATION_ORDER_V1,
+      STAGE25_PROVIDER_DEPENDENCY_ELIGIBLE_OPERATOR_IDS_V1,
     );
     expect(serialized).not.toContain('"strongPeakFrames"');
     expect(serialized).not.toContain('"targetFrame":660');
     expect(serialized).not.toContain('"overlayId":42');
+  });
+
+  it('accepts only exact deterministic presentation permutations', () => {
+    expect(buildStage25ProviderDependencyToolSetV1([
+      'sync_cuts_to_beats', 'set_keyframes', 'resolve_keyframe_edit',
+      'find_visual_moment', 'find_audio_moment', 'apply_filter',
+    ]).operatorIds).toEqual([
+      'sync_cuts_to_beats', 'set_keyframes', 'resolve_keyframe_edit',
+      'find_visual_moment', 'find_audio_moment', 'apply_filter',
+    ]);
+    expect(() => buildStage25ProviderDependencyToolSetV1([
+      'apply_filter', 'apply_filter', 'find_visual_moment',
+      'find_audio_moment', 'resolve_keyframe_edit', 'sync_cuts_to_beats',
+    ])).toThrow('PRESENTATION_ORDER_NOT_EXACT_OPERATOR_PERMUTATION');
   });
 
   it('runs the real opaque-reference loop and preserves the fork/join graph', async () => {
