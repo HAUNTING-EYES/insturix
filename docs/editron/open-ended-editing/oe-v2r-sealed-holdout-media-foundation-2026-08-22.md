@@ -19,10 +19,12 @@ range-cut/state/AV claim for HOLD-04. Commit `0404a253f` repairs the sole
 HOLD-05 reframe owner with source-raster-bound cover geometry and explicit
 authored-layout projection. Commit `8d1afc89f` now binds the sealed selected
 operation and decodes the complete source and rendered 450-frame range.
-Generated/hybrid HOLD-03 proof remains unwired. The sole generated-composition
-API now supports validated normalized panel bounds and horizontal motion, and
-the corrected reference actually contains six windows, but this is API/input
-readiness rather than executed or rendered HOLD-03 proof.
+Commits `4c5b5354b` and `625b36478` now bind HOLD-03's sealed selected
+operation to a human-authored, hash-bound generated-program fixture, render its
+six-window island, splice that bounded island between unchanged native
+`h03-a` ranges and decode the complete 420-frame hybrid proxy. This is a
+research mechanics/proof pass, not evidence that a model wrote the program,
+not a production security sandbox and not ProjectService mutation.
 Credentialed preflight must be rerun after the CAP-2A/V3R reissue; provider
 inference dispatch remains disabled.
 
@@ -136,7 +138,7 @@ does not mean executable holdout certification or provider readiness.
 
 Commit `b148486ce` freezes the research trace/evaluator boundary:
 
-- the trace is a lossless projection of model-selected calls, normalized
+- the trace is a lossless projection of selected calls, normalized
   arguments, typed result-reference bindings, evidence references, execution
   dispositions and writer-issued project revisions;
 - it adds or removes zero creative operations and records zero real-project
@@ -150,12 +152,15 @@ Commit `b148486ce` freezes the research trace/evaluator boundary:
 
 This is pre-proof benchmark plumbing. It is not generic production lowering,
 real native/generated execution, rendered quality or ProjectService authority.
+When a paid cohort runs, the selected calls originate from that provider. The
+current proof-adapter regressions instead use deterministic scripted traces;
+they prove mechanics and rejection boundaries, not model selection quality.
 
 ## HOLD-01 rendered research-native proof
 
 Commit `3e22af490` adds the first claim-appropriate sealed media proof. It does
 not infer or repair an edit. It consumes the exact V2R-3 trace after hidden
-evaluation and requires one successful model-selected
+evaluation and requires one successful trace-selected
 `use_matching_footage` mutation, its writer-issued research revision, both
 resolved evidence references and the original `R9` project binding.
 
@@ -163,7 +168,7 @@ The adapter then:
 
 - binds `h01-clock` and `h01-dial` to the committed media-manifest and public
   case hashes and rejects changed bytes;
-- renders the model-selected incoming source start as a hard-cut-only,
+- renders the trace-selected incoming source start as a hard-cut-only,
   640x360, 30/1, 300-frame H.264 proxy;
 - decodes adjacent output frames 149 and 150;
 - measures the gold clock and cyan dial bounds directly from decoded pixels;
@@ -297,7 +302,7 @@ cumulative provider spend, model output, real execution or rendered proof.
    audible or semantic PASS. The historical zero-inference owner diagnostic found 38
    clipped frames at 360x640 and no authored-layout transform. Commit
    `0404a253f` repairs those owner defects and passes 80/80 focused tests.
-   Commit `8d1afc89f` binds the model-selected `reframe_project`, writer-issued
+   Commit `8d1afc89f` binds the trace-selected `reframe_project`, writer-issued
    research revision, E1/E2 and sealed media hash; it decodes all 450 source
    frames and all 450 rendered output frames. The output is a fixed-30-fps
    360x640 H.264 research proxy with no audio stream, and the logo is a
@@ -305,18 +310,25 @@ cumulative provider spend, model output, real execution or rendered proof.
    changed-byte negatives fail closed.
    The live chat caller supplies no canonical authored-layout evidence and its
    whole-project save/audit path is not ProjectService receipt proof.
-   Generated/hybrid HOLD-03 remains unproved. Its reference/evidence inputs and
-   generalized composition API are now truthful, so the next slice can test
-   the real bounded generated island and native continuity handoff.
+   Commits `4c5b5354b` and `625b36478` close the bounded HOLD-03 mechanics
+   claim. The proof accepts only the sealed generated-composition operation,
+   E1/E2/E3 and owned `h03-a`/`h03-b`; compiles a hash-bound human-authored
+   program against the allowlisted API; renders six asymmetric source panels,
+   centered title and measured entry/exit motion; and concatenates native
+   `h03-a[0,90)`, the local island `[0,180)`, and native
+   `h03-a[270,420)`. Decoded samples bind frame 270 back to source frame 270
+   with negligible codec error, panel/title geometry has zero intersection,
+   and adding `h03-ref` to render inputs fails closed. It does not prove model
+   synthesis, real ProjectService insertion/update, browser/product-renderer
+   parity, a production sandbox, mixed rates or general composition quality.
 3. Run the combined zero-inference complete-episode budget/proof simulation
    and keep dispatch disabled unless both the V2R-3 resource receipt and the
    selected proof adapters pass without an unresolved reservation or usage
    gap.
 4. Only then may a separately authorized sealed cohort make inference calls.
-   CAP-2A V3 remains an immutable historical census artifact. Because commit
-   `0404a253f` changed a bound owner—not merely a research harness—the current
-   truth must be reissued after the HOLD-05/HOLD-03 owners stabilize and before
-   any provider dispatch.
+   CAP-2A V3 remains an immutable historical census artifact. The HOLD-05 and
+   HOLD-03 bounded sources are now stable at the recorded commits, so reissue
+   current truth now and bind the new cohort identity before any dispatch.
 
 ## Verification at issuance
 
@@ -335,6 +347,9 @@ cumulative provider spend, model output, real execution or rendered proof.
 - HOLD-01/HOLD-02/HOLD-04 plus no-edit proof regression: 13/13 passed; full
   typecheck and focused ESLint passed.
 - HOLD-05 full-range proof plus historical CAP-audit checks: 13/13 passed;
+  full typecheck and repository ESLint passed.
+- Generated-composition plus HOLD-01/02/03/04/05/no-edit regression: 44/44
+  passed; HOLD-03's direct proof and reference-smuggling negative passed 2/2;
   full typecheck and repository ESLint passed.
 - Credentialed initial-request preflight and combined sealed checks: 22/22
   passed; 96/96 captures verified with zero inference calls.
