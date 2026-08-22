@@ -97,7 +97,7 @@ describe('V2R provider-native opaque result references', () => {
       required: [],
       properties: {
         argumentReferences: {
-          type: 'array', minItems: 1, maxItems: 16,
+          type: 'array', minItems: 0, maxItems: 16,
         },
       },
       additionalProperties: false,
@@ -106,6 +106,43 @@ describe('V2R provider-native opaque result references', () => {
     expect(exactSync?.providerInputSchema).not.toHaveProperty(
       'properties.argumentReferences',
     );
+  });
+
+  it('normalizes an empty optional reference list to no dependency', async () => {
+    let turn = 0;
+    const executeIsolated = vi.fn(async () => execution({
+      result: BEAT_PLAN,
+      evidence: { evidenceId: 'ev-beats-1' },
+    }));
+    const receipt = await runProviderNativeToolEpisodeV2R({
+      route: ROUTE,
+      context: { ...CONTEXT, episodeId: 'episode-empty-reference-list', budget: {
+        ...CONTEXT.budget, maxTurns: 2,
+      } },
+      eligibleOperatorIds: ['find_audio_moment'],
+      argumentHandoffMode: 'OPAQUE_RESULT_REFERENCES',
+      invoke: async () => {
+        turn += 1;
+        return turn === 1
+          ? response('audio-empty', 'find_audio_moment', {
+              projectId: 'project-1', query: 'measured strong music impacts',
+              argumentReferences: [],
+            })
+          : finish('READY_FOR_PROOF');
+      },
+      executeIsolated,
+    });
+
+    expect(executeIsolated).toHaveBeenCalledTimes(1);
+    expect(receipt.turns[0]).toMatchObject({
+      normalizedArguments: {
+        projectId: 'project-1', query: 'measured strong music impacts',
+      },
+      argumentReferenceBindings: [],
+      execution: { disposition: 'OK' },
+    });
+    expect(receipt.turns[0].diagnostics ?? []).toEqual([]);
+    expect(receipt.terminal.disposition).toBe('READY_FOR_PROOF');
   });
 
   it('rejects unsafe and unbounded declared projection policies', () => {

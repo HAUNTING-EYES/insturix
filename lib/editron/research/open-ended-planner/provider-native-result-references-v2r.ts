@@ -7,7 +7,7 @@ import type {
 type JsonRecord = Record<string, unknown>;
 
 export const PROVIDER_NATIVE_RESULT_REFERENCE_VERSION_V2R =
-  'EDITRON_PROVIDER_NATIVE_RESULT_REFERENCE_V2R_2' as const;
+  'EDITRON_PROVIDER_NATIVE_RESULT_REFERENCE_V2R_3' as const;
 export const PROVIDER_NATIVE_ARGUMENT_REFERENCE_FIELD_V2R =
   'argumentReferences' as const;
 
@@ -119,6 +119,11 @@ export class ProviderNativeResultReferenceRegistryV2R {
     const rawReferences = input.arguments[PROVIDER_NATIVE_ARGUMENT_REFERENCE_FIELD_V2R];
     if (rawReferences === undefined) {
       return deepFreezeV1({ arguments: { ...input.arguments }, bindings: [], diagnostics: [] });
+    }
+    if (Array.isArray(rawReferences) && rawReferences.length === 0) {
+      return deepFreezeV1({
+        arguments: withoutReferenceField(input.arguments), bindings: [], diagnostics: [],
+      });
     }
     const diagnostics: string[] = [];
     if (!Array.isArray(rawReferences) || rawReferences.length < 1 || rawReferences.length > 16) {
@@ -261,7 +266,7 @@ function providerReferenceInputSchema(schema: Readonly<JsonRecord>): Readonly<Js
       ...properties,
       [PROVIDER_NATIVE_ARGUMENT_REFERENCE_FIELD_V2R]: {
         type: 'array',
-        minItems: 1,
+        minItems: 0,
         maxItems: 16,
         items: {
           type: 'object',
