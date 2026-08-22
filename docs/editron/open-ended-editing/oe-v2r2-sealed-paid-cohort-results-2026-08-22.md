@@ -125,11 +125,14 @@ new frozen identity reruns them fairly.
 
 ## What remains before Stage 2.5 can exit
 
-1. Freeze a corrected sealed-holdout identity; never rewrite this cohort.
-2. Bind HOLD-01's explicit valid source-start window and source duration into a
-   new manifest, then align proof to the V3R semantic owner result.
-3. Bind the now-closed generated-composition and subject-reframe schemas into
-   that new cohort identity without rewriting V2.
+1. **Completed in `3c8686859`:** freeze a corrected derived identity without
+   rewriting this cohort.
+2. **Manifest binding completed:** HOLD-01 now separates `[30,120)` search
+   evidence from measured valid starts `[30,37)` and binds source duration;
+   owner/episode/proof connection remains.
+3. **Manifest binding completed:** the closed generated-composition and
+   subject-reframe schemas are part of the new shared context; execution/proof
+   coverage remains incomplete.
 4. Give the research episode a truthful evolving post-mutation clone and expose
    declared owner effects such as caption retiming.
 5. Supply required literal title/reference material in the public H03 condition
@@ -164,6 +167,17 @@ windows and insufficient source handles. Focused catalog/owner checks pass
 cohort/manifest, relabel the ambiguous H01 evidence, alter a proof owner, expose
 truthful H04 post-state, prove H03 model-generated program lineage or authorize
 paid calls.
+
+Commit `3c8686859` freezes
+`EDITRON_OE_SEALED_HOLDOUT_COHORT_V3R_1`, derived from the unchanged V2
+manifest. Contract/manifest/shared-context hashes are `1294613a8ff5...`,
+`c82c4f3b512d...` and `be6a552fe117...`. It binds the V3R catalog, exact
+synthetic source duration/rate and measured H01 evidence. The old `[30,120)`
+range remains a search interval; actual proof geometry accepts `[30,37)` as the
+half-open eligible start window. Noisy C2 remains `UNVERIFIABLE`, dispatch is
+false, focused checks pass 14/14, and full typecheck/lint pass. This still does
+not connect the V3R owner/episode, change a proof, expose H04 post-state, prove
+H03 model-code lineage, pass V3R zero-inference preflight or authorize spend.
 
 No production model-driven mutation or Stage 3 agent control plane is authorised
 by this run.
