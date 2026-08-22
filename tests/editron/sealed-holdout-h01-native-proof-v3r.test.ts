@@ -5,9 +5,12 @@ import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { hashCanonicalJsonV1 }
+  from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { materializeHoldoutMediaV2R }
   from '@/lib/editron/research/open-ended-planner/holdout-media-materializer-v2r';
 import {
+  evaluateBudgetedSealedHoldoutTraceV3R2,
   evaluateSealedHoldoutTraceV3R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-evaluator-v2r';
 import {
@@ -18,11 +21,28 @@ import {
   buildSealedHoldoutCohortManifestV3R,
   SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v3r';
-import { runSealedHoldoutEpisodeV3R }
+import {
+  buildSealedHoldoutCohortManifestV3R2,
+  SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2,
+} from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v3r2';
+import {
+  runBudgetedSealedHoldoutEpisodeV3R2,
+  runSealedHoldoutEpisodeV3R,
+}
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-episode-v3r';
-import { proveSealedHoldoutH01NativeOutcomeV3R }
+import {
+  proveSealedHoldoutH01NativeOutcomeV3R,
+  proveSealedHoldoutH01NativeOutcomeV3R2,
+}
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-h01-native-proof-v3r';
-import { buildSealedHoldoutSelectedOperationTraceV3R }
+import {
+  bindSealedHoldoutInputTokenBoundV2R,
+  SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
+} from '@/lib/editron/research/open-ended-planner/sealed-holdout-runtime-budget-v2r';
+import {
+  buildBudgetedSealedHoldoutSelectedOperationTraceV3R2,
+  buildSealedHoldoutSelectedOperationTraceV3R,
+}
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-trace-v2r';
 
 type JsonRecord = Record<string, unknown>;
@@ -100,6 +120,27 @@ describe('sealed HOLD-01 rendered native proof V3R', () => {
     expect(result.evaluation.assessment).toBe('FAIL');
     expect(result.evaluation.proofRequired).toBe(false);
   });
+
+  it('binds current V3R2 resource accounting to the existing rendered proof mechanics', async () => {
+    const result = await setupCurrent(30);
+    const proof = await proveSealedHoldoutH01NativeOutcomeV3R2({
+      manifest: result.manifest,
+      caseId: 'HOLD-01:C1',
+      trace: result.trace,
+      evaluation: result.evaluation,
+      mediaManifest: result.mediaManifest,
+      outputDirectory: join(result.root, 'p'),
+    });
+
+    expect(proof).toMatchObject({
+      version: 'EDITRON_OE_SEALED_HOLDOUT_H01_RENDERED_NATIVE_PROOF_V3R_2_RESOURCE_BOUND_1',
+      resourceBudgetProof: 'BOUND_ACCOUNTED_WITHIN_BUDGET',
+      runtimeBudgetReceiptSha256: result.trace.runtimeBudgetReceiptSha256,
+      assessment: 'PASS_RESEARCH_RENDERED_NATIVE_PROXY',
+      video: { codec: 'h264', averageFrameRate: '30/1', decodedFrameCount: 300 },
+      stateEffects: [],
+    });
+  }, 60_000);
 });
 
 async function setup(
@@ -157,6 +198,78 @@ async function buildManifest() {
   });
 }
 
+async function setupCurrent(incomingStartFrame: number) {
+  const root = join(suiteRoot, `c${++caseSequence}`);
+  const v3 = await buildManifest();
+  const manifest = buildSealedHoldoutCohortManifestV3R2({
+    contractSourceSha256: await fileSha(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2),
+    baseManifest: v3,
+  });
+  const caseId = 'HOLD-01:C1';
+  const taskCase = manifest.cases.find((entry) => entry.caseId === caseId)!;
+  let turn = 0;
+  const episode = await runBudgetedSealedHoldoutEpisodeV3R2({
+    manifest,
+    caseId,
+    route: route(),
+    authorization: {
+      version: SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
+      manifestSha256: manifest.manifestSha256,
+      caseId,
+      publicCaseSha256: taskCase.publicCaseSha256,
+      routeId: route().routeId,
+      claimedModelIdentity: route().claimedModelIdentity,
+      routeSha256: hashCanonicalJsonV1(route()),
+      approvedBy: 'admin', approvedAt: '2026-08-22T00:00:00.000Z',
+      maxInputTokensPerTurn: 85_000, absoluteMaxSpendMicroUsd: 5_000_000,
+      pricing: {
+        normalInputNanoUsdPerToken: 200, cachedInputNanoUsdPerToken: 20,
+        cacheWriteNanoUsdPerToken: 250, outputNanoUsdPerToken: 1_200,
+      },
+    },
+    countInputTokens: async (request) => bindSealedHoldoutInputTokenBoundV2R({
+      request, inputTokensUpperBound: 1_000,
+      method: 'CURRENT_H01_PROOF_TEST_BOUND_V1',
+    }),
+    invoke: vi.fn(async () => {
+      turn += 1;
+      const output = turn === 1
+        ? call('visual', 'find_visual_moment', {
+          projectId: 'oe-hold-01', query: 'round clock and product dial alignment',
+          evidenceIds: ['E1'],
+        })
+        : turn === 2
+          ? call('timeline', 'get_timeline_view', {
+            projectId: 'oe-hold-01', expectedProjectRevision: 'R9',
+          })
+          : turn === 3
+            ? call('resolve', 'resolve_visual_edit', {
+              projectId: 'oe-hold-01', expectedProjectRevision: 'R9',
+              intent: { query: 'align adjacent circular forms',
+                action: 'replace_with_matching_source_range' },
+              evidenceIds: ['E1', 'E2'],
+            })
+            : turn === 4
+              ? call('replace', 'use_matching_footage', {
+                projectId: 'oe-hold-01', expectedProjectRevision: 'R9',
+                assetId: 'h01-dial', targetRange: { startFrame: 150, endFrame: 300 },
+                sourceRange: { startFrame: incomingStartFrame,
+                  endFrame: incomingStartFrame + 150 },
+                evidenceIds: ['E1', 'E2'], constraints: { transition: 'HARD_CUT_ONLY' },
+              })
+              : finish('READY_FOR_PROOF', ['E1', 'E2']);
+      return response(turn, output);
+    }),
+  });
+  const trace = buildBudgetedSealedHoldoutSelectedOperationTraceV3R2({
+    manifest, caseId, budgetedEpisode: episode,
+  });
+  const evaluation = evaluateBudgetedSealedHoldoutTraceV3R2({
+    manifest, caseId, trace,
+  });
+  return { root, manifest, episode, trace, evaluation, mediaManifest };
+}
+
 function route() {
   return {
     routeId: 'OPENAI_LUNA' as const, provider: 'openai' as const,
@@ -176,7 +289,15 @@ function finish(disposition: string, evidenceIds: readonly string[]): JsonRecord
 function response(turn: number, output: JsonRecord) {
   return {
     status: 200,
-    body: { id: `v3-h01-${turn}`, model: 'gpt-5.6-luna', status: 'completed', output: [output] },
+    body: {
+      id: `v3-h01-${turn}`, model: 'gpt-5.6-luna', status: 'completed',
+      usage: {
+        input_tokens: 100, output_tokens: 40, total_tokens: 140,
+        input_tokens_details: { cached_tokens: 10, cache_write_tokens: 20 },
+        output_tokens_details: { reasoning_tokens: 10 },
+      },
+      output: [output],
+    },
   };
 }
 async function fileSha(filePath: string): Promise<string> {
