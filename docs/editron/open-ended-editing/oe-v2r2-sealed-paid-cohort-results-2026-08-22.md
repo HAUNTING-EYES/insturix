@@ -133,8 +133,9 @@ new frozen identity reruns them fairly.
 3. **Manifest binding completed:** the closed generated-composition and
    subject-reframe schemas are part of the new shared context; execution/proof
    coverage remains incomplete.
-4. Give the research episode a truthful evolving post-mutation clone and expose
-   declared owner effects such as caption retiming.
+4. **Completed in `6cc1f56de`:** the H04 V3 episode has a truthful evolving
+   post-mutation clone, canonical cut semantics and declared caption-retiming
+   state. Hidden evaluation and rendered proof remain separate work.
 5. Supply required literal title/reference material in the public H03 condition
    and prove model-generated program lineage separately from mechanics.
 6. Use bounded short proof paths on Windows.
@@ -198,6 +199,16 @@ evaluation material and noisy-C2 false-ready behavior cannot reach proof.
 Focused V2/V3 checks pass 10/10 and full typecheck/lint pass. The receipt is
 explicitly non-budgeted and claims neither a paid-row result nor real
 ProjectService mutation; those remain separate gates.
+
+Commit `6cc1f56de` gives HOLD-04 a V3-only evolving isolated state owner while
+retaining the same provider-native episode and canonical `cutTimelineRange`
+mutation mechanics. The cut changes the frozen synthetic project from 540 to
+435 frames, exposes the retained source child and one remaining caption group,
+binds that state to the writer-issued revision, and rejects a stale post-cut
+reread. Focused owner/V3 checks pass 11/11 and full typecheck/lint pass. This is
+state-transition harness evidence only: H04 hidden evaluation, AV/caption-pixel
+proof, paid model results, product ProjectService mutation and non-30-fps
+compatibility remain unclaimed.
 
 No production model-driven mutation or Stage 3 agent control plane is authorised
 by this run.
