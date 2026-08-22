@@ -379,7 +379,8 @@ async function runPaidCohortCore(
     try {
       const outcome = await variant.execute({
         rowPlan, routeBinding, invoke, mediaManifest: input.mediaManifest,
-        proofRoot: join(input.outputRoot, 'proof-attempts', `${rowPlan.rowId}-${uniqueId()}`),
+        proofRoot: join(input.outputRoot, 'proof-attempts',
+          `${rowArtifactStem(rowPlan.rowId)}-${safe(uniqueId())}`),
       });
       const transportReceipt = transport.snapshot();
       const row = buildRowReceipt({
@@ -894,8 +895,18 @@ async function initializeRunRoot(root: string, contract: Readonly<JsonRecord>): 
 }
 
 function rowPaths(root: string, row: Readonly<SealedHoldoutPaidRowPlanV2R>): Readonly<{ attempt: string; row: string }> {
-  const name = `${row.rowId}.json`;
+  const name = sealedHoldoutPaidRowArtifactNameV2R(row.rowId);
   return { attempt: join(root, 'attempts', name), row: join(root, 'rows', name) };
+}
+
+export function sealedHoldoutPaidRowArtifactNameV2R(rowId: string): string {
+  const stem = safe(rowId);
+  if (!stem) fail('SEALED_PAID_ROW_ARTIFACT_ID_INVALID');
+  return `${stem}--${hashCanonicalJsonV1(rowId).slice(0, 16)}.json`;
+}
+
+function rowArtifactStem(rowId: string): string {
+  return sealedHoldoutPaidRowArtifactNameV2R(rowId).slice(0, -'.json'.length);
 }
 
 function attemptReceipt(
@@ -1058,7 +1069,8 @@ async function writeFailure(
     rowPlanSha256: row.rowPlanSha256,
     failedAt, error: errorMessage(error), stateEffects: [],
   };
-  await writeJsonOnce(join(root, 'failures', `${text(row.rowId)}-${safe(id)}.json`), {
+  await writeJsonOnce(join(root, 'failures',
+    `${rowArtifactStem(text(row.rowId))}-${safe(id)}.json`), {
     ...material, receiptSha256: hashCanonicalJsonV1(material),
   });
 }

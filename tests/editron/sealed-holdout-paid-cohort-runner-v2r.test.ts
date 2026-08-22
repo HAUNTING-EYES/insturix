@@ -11,6 +11,7 @@ import { materializeHoldoutMediaV2R }
   from '@/lib/editron/research/open-ended-planner/holdout-media-materializer-v2r';
 import {
   runSealedHoldoutPaidCohortV2R,
+  sealedHoldoutPaidRowArtifactNameV2R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-paid-cohort-runner-v2r';
 import {
   SEALED_HOLDOUT_COMPLETE_ZERO_INFERENCE_GATE_V2R,
@@ -140,7 +141,9 @@ describe('sealed holdout paid cohort runner V2R', () => {
       .rejects.toThrow('SEALED_PAID_COHORT_RECEIPT_DRIFT');
     await writeFile(cohortPath, `${JSON.stringify(first, null, 2)}\n`, 'utf8');
 
-    const firstRowPath = join(runRoot, 'rows', String(first.rowSummaries[0].rowId) + '.json');
+    const firstRowPath = join(runRoot, 'rows', sealedHoldoutPaidRowArtifactNameV2R(
+      String(first.rowSummaries[0].rowId),
+    ));
     const tampered = JSON.parse(await readFile(firstRowPath, 'utf8')) as Record<string, unknown>;
     tampered.receiptSha256 = '0'.repeat(64);
     await writeFile(firstRowPath, `${JSON.stringify(tampered, null, 2)}\n`, 'utf8');

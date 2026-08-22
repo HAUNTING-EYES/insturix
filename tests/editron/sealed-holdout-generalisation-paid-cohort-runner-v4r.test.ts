@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -36,6 +36,7 @@ import {
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-generalisation-paid-authorization-v4r';
 import {
   runSealedHoldoutPaidCohortV4R,
+  sealedHoldoutPaidRowArtifactNameV2R,
   SEALED_HOLDOUT_PAID_COHORT_RUNNER_VERSION_V4R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-paid-cohort-runner-v2r';
 import { preflightSealedHoldoutGeneralisationV4R }
@@ -155,6 +156,14 @@ describe('sealed Stage 2.5 generalisation paid cohort runner V4R', () => {
     expect(new Set(first.rowSummaries.map(({ orderId }) => orderId)))
       .toEqual(new Set(['ORDER_1', 'ORDER_2', 'ORDER_3']));
     expect(first.spentNanoUsd).toBeLessThanOrEqual(75_000_000_000);
+    const [rowFiles, attemptFiles] = await Promise.all([
+      readdir(join(runRoot, 'rows')), readdir(join(runRoot, 'attempts')),
+    ]);
+    expect(rowFiles).toHaveLength(45);
+    expect(attemptFiles.sort()).toEqual([...rowFiles].sort());
+    expect(rowFiles.every((name) => name.endsWith('.json') && !name.includes(':'))).toBe(true);
+    const rowStats = await Promise.all(rowFiles.map((name) => stat(join(runRoot, 'rows', name))));
+    expect(rowStats.every(({ size }) => size > 0)).toBe(true);
 
     const resumed = await runSealedHoldoutPaidCohortV4R(common);
     expect(resumed.receiptSha256).toBe(first.receiptSha256);
@@ -170,7 +179,9 @@ describe('sealed Stage 2.5 generalisation paid cohort runner V4R', () => {
       requestCaptures: forgedCaptures,
     })).rejects.toThrow('SEALED_PAID_V4R_REQUEST_CAPTURE_SET_DRIFT');
 
-    const firstRowPath = join(runRoot, 'rows', `${String(first.rowSummaries[0].rowId)}.json`);
+    const firstRowPath = join(runRoot, 'rows', sealedHoldoutPaidRowArtifactNameV2R(
+      String(first.rowSummaries[0].rowId),
+    ));
     const row = JSON.parse(await readFile(firstRowPath, 'utf8')) as Record<string, unknown>;
     row.version = 'FORGED_RUNNER_VERSION';
     const { receiptSha256: _old, ...material } = row;
