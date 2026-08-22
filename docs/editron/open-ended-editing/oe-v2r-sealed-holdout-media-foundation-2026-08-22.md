@@ -28,9 +28,10 @@ not a production security sandbox and not ProjectService mutation.
 CAP-2A V4, the V2R2/V2R3 cohort identity and the complete scripted
 zero-inference accounting-plus-proof gate are now current. The credentialed
 zero-inference preflight has passed against that exact identity. The separate
-paid-dispatch contract exists, and the C2 safe-stop plus solvable-noisy-arm
-proof gaps are closed; no authorization has been issued and provider inference
-dispatch remains disabled.
+paid-dispatch contract exists, the C2 safe-stop plus solvable-noisy-arm proof
+gaps are closed, and commit `5fbf025f5` adds the adversarially verified
+resumable 96-row runner. No authorization has been issued and provider
+inference dispatch remains disabled.
 
 ## Current execution checkpoint
 
@@ -47,11 +48,14 @@ dispatch remains disabled.
   `5a7ceece49f33378b8f13876e5e386e0ced41f642468d42671a67bcd35bdedaa`
 - Complete zero-inference gate commit: `051f7be27`
 - Complete-gate regression: 34/34 across ten test files
-- Current credential-preflight receipt SHA-256:
-  `4f27e3fcc3f990185432eb8ad5c686058f6280898e9d2765770cb281e7d7964e`
+- Current credential-preflight V2 receipt SHA-256:
+  `428cdc9aea676c5dae8ac2887cc2e78507b3ef8dcff12d5a059fb5007cbad622`
 - Current request-capture-set SHA-256:
-  `bef05c653ee048f3ab9ca109e61eb3f22a75e0a103605eb56fe020612055ec11`
+  `62d2626084bfbacd34840ac391001e58c86dac6ce5074a95b1494807f5dc8356`
 - Paid-dispatch contract commit: `408db9c3f` (contract only; not issued)
+- Paid-cohort runner/proof-adapter commit: `5fbf025f5`
+- Runner source SHA-256:
+  `69a0193686b59ea212b96a4437c7462618ff42f2d13dc746d16d023e780ee4c8`
 - All-arm no-edit proof commit: `d5a7d949f`
 - Solvable C2 rendered-proof commit: `dcc0e4008`
 
@@ -308,19 +312,19 @@ cumulative provider spend, model output, real execution or rendered proof.
 
 ## What remains before inference calls
 
-The current-identity credentialed preflight passed 96/96 distinct initial
-request captures after commit `cc7c471de` corrected the stale media default.
-It used the paid Production Google credential, recorded 32 `countTokens`
-context-egress calls and made zero inference calls. Dispatch remains false.
-Exact hashes and token bounds are in
-`oe-v2r2-sealed-holdout-current-credential-preflight-2026-08-22.md`.
+Credential-preflight V2 passed 96/96 distinct budgeted initial requests after
+commit `5fbf025f5` corrected the serializer mismatch. It used the paid
+Production Google credential, recorded 32 `countTokens` context-egress calls
+and made zero inference calls. Dispatch remains false. The V1 receipt captured
+the historical non-budgeted context and is invalid for paid dispatch. Exact
+hashes and token bounds are in
+`oe-v2r2-sealed-paid-cohort-runner-readiness-2026-08-22.md`.
 
-1. Implement and adversarially verify the resumable 96-row cohort runner, then
-   issue a separate paid-dispatch
-   authorization bound to the exact manifest, cases, routes, token ceilings,
-   spend ceiling and expiry. A historical approval or preflight receipt may
-   not authorize the current cohort.
-2. Execute the frozen provider cohort and keep `RAW_EXECUTED`,
+1. Issue the separate paid-dispatch authorization bound to the current V2
+   credential receipt, exact manifest, cases, routes, token ceilings, runner
+   source, spend ceiling and expiry. The former V1 request capture used the
+   non-budgeted serializer and is invalid for paid dispatch.
+2. Execute/resume the frozen 96-row provider cohort and keep `RAW_EXECUTED`,
    `VALID_EVIDENCE`, provider/harness failure and production certification
    separate. Then complete the broader Stage 2.5 generalisation programme:
    dependency diversity, forced native/generated/hybrid alternatives, stale
@@ -362,6 +366,9 @@ Exact hashes and token bounds are in
 - H01/H02/H04 noisy-arm real rendered/state proof plus unchanged C1 regressions:
   9/9 passed; C2 receipts use new versions while C1 receipt versions remain
   unchanged.
+- Paid-runner and preflight integration: all 96 fake-provider rows execute,
+  resume makes zero new calls, and forged row plus self-rehashed forged cohort
+  receipts fail closed; focused credential/runner tests pass 5/5.
 - `npx tsc --noEmit`: passed.
 - Repository ESLint: passed.
 
