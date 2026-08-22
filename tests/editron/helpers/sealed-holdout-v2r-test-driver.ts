@@ -8,9 +8,11 @@ import { evaluateBudgetedSealedHoldoutTraceV2R }
 import { runBudgetedSealedHoldoutEpisodeV2R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-episode-v2r';
 import {
-  bindSealedHoldoutInputTokenBoundV2R,
-  SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
-} from '@/lib/editron/research/open-ended-planner/sealed-holdout-runtime-budget-v2r';
+  buildSealedHoldoutRuntimeAccountingBindingV2R,
+  SEALED_HOLDOUT_RUNTIME_ROUTE_BINDING_VERSION_V2R,
+} from '@/lib/editron/research/open-ended-planner/sealed-holdout-runtime-route-binding-v2r';
+import { SEALED_HOLDOUT_RUNTIME_PRICE_SNAPSHOT_VERSION_V2R }
+  from '@/lib/editron/research/open-ended-planner/sealed-holdout-runtime-route-facts-v2r';
 import {
   buildSealedHoldoutCohortManifestV2R,
   SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V2R,
@@ -44,26 +46,34 @@ export async function runScriptedBudgetedSealedHoldoutV2R(input: {
   );
   const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
   if (!taskCase) throw new Error(`TEST_SEALED_CASE_MISSING:${input.caseId}`);
+  const routeBinding = buildSealedHoldoutRuntimeAccountingBindingV2R({
+    manifest,
+    caseId: input.caseId,
+    route: ROUTE,
+    approval: {
+      version: SEALED_HOLDOUT_RUNTIME_ROUTE_BINDING_VERSION_V2R,
+      pricingSnapshotVersion: SEALED_HOLDOUT_RUNTIME_PRICE_SNAPSHOT_VERSION_V2R,
+      operatorId: 'admin',
+      approvedAt: '2026-08-22T00:00:00.000Z',
+      manifestSha256: manifest.manifestSha256,
+      caseId: input.caseId,
+      publicCaseSha256: taskCase.publicCaseSha256,
+      routeSha256: hashCanonicalJsonV1(ROUTE),
+      counterAction: 'LOCAL_OPENAI_O200K_ESTIMATE',
+      providerContextEgress: 'DENY',
+      maxInputTokensPerTurn: 85_000,
+      absoluteMaxSpendMicroUsd: 5_000_000,
+      inferenceCallsAuthorized: 0,
+    },
+    now: '2026-08-22T00:00:00.000Z',
+  });
   let turn = 0;
   const budgetedEpisode = await runBudgetedSealedHoldoutEpisodeV2R({
     manifest, caseId: input.caseId, route: ROUTE,
     argumentHandoffMode: input.argumentHandoffMode,
-    authorization: {
-      version: SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
-      manifestSha256: manifest.manifestSha256, caseId: input.caseId,
-      publicCaseSha256: taskCase.publicCaseSha256, routeId: ROUTE.routeId,
-      claimedModelIdentity: ROUTE.claimedModelIdentity,
-      routeSha256: hashCanonicalJsonV1(ROUTE), approvedBy: 'admin',
-      approvedAt: '2026-08-22T00:00:00.000Z', maxInputTokensPerTurn: 85_000,
-      absoluteMaxSpendMicroUsd: 5_000_000,
-      pricing: {
-        normalInputNanoUsdPerToken: 200, cachedInputNanoUsdPerToken: 20,
-        cacheWriteNanoUsdPerToken: 250, outputNanoUsdPerToken: 1_200,
-      },
-    },
-    countInputTokens: async (request) => bindSealedHoldoutInputTokenBoundV2R({
-      request, inputTokensUpperBound: 1_000, method: 'SEALED_PROOF_TEST_BOUND_V1',
-    }),
+    authorization: routeBinding.authorization,
+    countInputTokens: routeBinding.countInputTokens,
+    // This is a deterministic local transcript, never a provider transport.
     invoke: async () => {
       const call = input.calls[turn++];
       if (!call) throw new Error('TEST_SCRIPTED_CALL_EXHAUSTED');
@@ -86,7 +96,14 @@ export async function runScriptedBudgetedSealedHoldoutV2R(input: {
   const evaluation = evaluateBudgetedSealedHoldoutTraceV2R({
     manifest, caseId: input.caseId, trace,
   });
-  return { manifest, budgetedEpisode, trace, evaluation };
+  return {
+    manifest,
+    routeBindingReceipt: routeBinding.receipt,
+    scriptedProviderTurns: turn,
+    budgetedEpisode,
+    trace,
+    evaluation,
+  };
 }
 
 export function finishSealedHoldoutScriptV2R(
