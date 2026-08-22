@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+
 import { describe, expect, it } from 'vitest';
 
 import canonicalBoundJson from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-canonical-evidence-bound-intent-v2.json';
@@ -13,6 +16,8 @@ import {
 } from '@/tests/fixtures/editron/open-ended-planner-v2/dev02-generated-composition-program-v1';
 import { hashCanonicalJsonV1 } from '@/lib/editron/research/open-ended-planner/contracts-v1';
 import { DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V1 } from '@/lib/editron/research/open-ended-planner/generated-composition-research-proxy-capability-v1';
+import { DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2 } from '@/lib/editron/research/open-ended-planner/generated-composition-research-proxy-capability-v2';
+import { resolveGeneratedCompositionSandboxOverlayV1 } from '@/lib/editron/research/open-ended-planner/generated-composition-sandbox-runner-v1';
 import { evaluateStage4CompiledGraphArtifactV2 } from '@/lib/editron/research/open-ended-planner/stage4-compilation-evaluator-v2';
 import {
   compileCanonicalStage4DeterministicBaselineV2,
@@ -20,12 +25,34 @@ import {
 } from '@/lib/editron/research/open-ended-planner/stage4-deterministic-compiler-v2';
 import {
   compileCanonicalStage4ResearchProxyPreviewV2,
+  compileCurrentDev02Stage4ResearchProxyPreviewV2,
   compileStage4ResearchProxyPreviewV2,
 } from '@/lib/editron/research/open-ended-planner/stage4-research-proxy-compiler-v2';
 import { evaluateStage4ResearchProxyPreviewV2 } from '@/lib/editron/research/open-ended-planner/stage4-research-proxy-evaluator-v2';
 import { decideStage5ProceedOrStopV2 } from '@/lib/editron/research/open-ended-planner/stage5-proceed-stop-gate-v2';
 
 describe('open-ended planner V2 Stage 4-5 generated-composition research proxy bridge', () => {
+  it('issues a current immutable successor without rewriting the V1 capability', async () => {
+    const graph = compileCurrentDev02Stage4ResearchProxyPreviewV2() as TestGraph;
+    expect(evaluateStage4ResearchProxyPreviewV2(graph))
+      .toMatchObject({ disposition: 'PASS', diagnostics: [] });
+    expect(graph.capabilityPromotion).toEqual(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2);
+    expect(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2.proofBindings.predecessorCapabilityHash)
+      .toBe(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V1.capabilityHash);
+    expect(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2.capabilityHash)
+      .not.toBe(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V1.capabilityHash);
+
+    const [api, runner, overlay] = await Promise.all([
+      readFile('lib/editron/research/open-ended-planner/generated-composition-api-v1.tsx'),
+      readFile('lib/editron/research/open-ended-planner/generated-composition-sandbox-runner-v1.ts'),
+      resolveGeneratedCompositionSandboxOverlayV1(process.cwd()),
+    ]);
+    expect(sha256(api)).toBe(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2.implementation.apiImplementationHash);
+    expect(sha256(runner)).toBe(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2.implementation.runnerImplementationHash);
+    expect(overlay.workerImplementationHash)
+      .toBe(DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2.implementation.workerImplementationHash);
+  });
+
   it('preserves evaluator-approved actual intent lineage through the blocked graph and preview', () => {
     const rename = new Map([
       ['node-source-resolution', 'provider-source'],
@@ -133,10 +160,17 @@ describe('open-ended planner V2 Stage 4-5 generated-composition research proxy b
 interface TestGraph extends Record<string, unknown> {
   nodes: Array<{ writes: string[]; invalidates: string[]; stateEffects: string[] }>;
   edges: Array<Record<string, unknown>>;
-  capabilityPromotion: { proofBindings: { playableReplayReceiptHash: string } };
+  capabilityPromotion: {
+    artifactType: string;
+    proofBindings: Record<string, unknown>;
+  };
   previewInputBundle: Record<string, unknown>;
   fullProjectExecutionEligibility: string;
   unresolvedFullProjectIntentNodeIds: string[];
+}
+
+function sha256(value: Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 type JsonRecord = Record<string, unknown>;

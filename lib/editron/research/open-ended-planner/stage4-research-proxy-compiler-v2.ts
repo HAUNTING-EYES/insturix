@@ -10,9 +10,12 @@ import { cloneCanonicalJsonV1, deepFreezeV1, hashCanonicalJsonV1 } from './contr
 import { readDev02Stage4RoleSymbolsFromBlockedGraphV2 } from './dev02-stage4-role-resolver-v2';
 import {
   DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V1,
-  assertDev02GeneratedCompositionResearchProxyCapabilityV1,
-  type GeneratedCompositionResearchProxyCapabilityV1,
 } from './generated-composition-research-proxy-capability-v1';
+import {
+  DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2,
+  assertDev02GeneratedCompositionResearchProxyCapability,
+  type Dev02GeneratedCompositionResearchProxyCapability,
+} from './generated-composition-research-proxy-capability-v2';
 import type { GeneratedCompositionProgramV1, GeneratedCompositionSourceBundleV1 } from './generated-composition-program-v1';
 import { verifyGeneratedCompositionProgramV1 } from './generated-composition-program-verifier-v1';
 import {
@@ -48,11 +51,23 @@ export function compileCanonicalStage4ResearchProxyPreviewV2(): Readonly<JsonRec
   });
 }
 
+/** Current qualification path; the canonical V1 function above remains immutable history. */
+export function compileCurrentDev02Stage4ResearchProxyPreviewV2(): Readonly<JsonRecord> {
+  return compileStage4ResearchProxyPreviewV2({
+    program: DEV02_GENERATED_COMPOSITION_PROGRAM_V1,
+    sourceBundle: DEV02_GENERATED_COMPOSITION_SOURCE_BUNDLE_V1,
+    evidencePack: DEV02_GENERATED_COMPOSITION_EVIDENCE_PACK_V1,
+    referenceBlueprint: DEV02_GENERATED_COMPOSITION_BLUEPRINT_V1,
+    supplementalFacts: DEV02_GENERATED_COMPOSITION_SUPPLEMENTAL_FACTS_V1,
+    capabilityPromotion: DEV02_GENERATED_COMPOSITION_RESEARCH_PROXY_CAPABILITY_V2,
+  });
+}
+
 export function compileStage4ResearchProxyPreviewV2(
   input: Stage4ResearchProxyCompilerInputV2,
 ): Readonly<JsonRecord> {
-  assertDev02GeneratedCompositionResearchProxyCapabilityV1(input.capabilityPromotion);
-  const capability = input.capabilityPromotion as GeneratedCompositionResearchProxyCapabilityV1;
+  assertDev02GeneratedCompositionResearchProxyCapability(input.capabilityPromotion);
+  const capability = input.capabilityPromotion as Dev02GeneratedCompositionResearchProxyCapability;
   const verification = verifyGeneratedCompositionProgramV1(input);
   if (verification.disposition !== 'CONTRACT_PASS' || !verification.programHash || !verification.sourceBundleHash) {
     throw new Error(`STAGE4_RESEARCH_PROXY_PROGRAM_INVALID:${verification.diagnostics.join(',')}`);
@@ -220,7 +235,7 @@ export function compileStage4ResearchProxyPreviewV2(
 
 function assertAcceptedProfile(
   program: GeneratedCompositionProgramV1,
-  capability: GeneratedCompositionResearchProxyCapabilityV1,
+  capability: Dev02GeneratedCompositionResearchProxyCapability,
 ): void {
   const profile = capability.acceptedProfile;
   if (program.taskId !== capability.taskId || program.projectBinding.projectId !== profile.projectId

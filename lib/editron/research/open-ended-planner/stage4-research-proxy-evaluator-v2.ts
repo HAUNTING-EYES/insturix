@@ -3,7 +3,7 @@ import {
   readDev02Stage4RoleSymbolsFromBlockedGraphV2,
   type Dev02Stage4RoleSymbolsV2,
 } from './dev02-stage4-role-resolver-v2';
-import { assertDev02GeneratedCompositionResearchProxyCapabilityV1 } from './generated-composition-research-proxy-capability-v1';
+import { assertDev02GeneratedCompositionResearchProxyCapability } from './generated-composition-research-proxy-capability-v2';
 import { verifyGeneratedCompositionProgramV1 } from './generated-composition-program-verifier-v1';
 import {
   evaluateStage4CompiledGraphArtifactV2,
@@ -70,7 +70,7 @@ export function evaluateStage4ResearchProxyPreviewV2(
     'operatorCatalogVersion', 'projectId', 'expectedProjectRevision',
   ]) if (graph[field] !== sourceGraph[field]) diagnostics.push(`SOURCE_BLOCKED_${field.toUpperCase()}_DRIFT`);
 
-  try { assertDev02GeneratedCompositionResearchProxyCapabilityV1(graph.capabilityPromotion); }
+  try { assertDev02GeneratedCompositionResearchProxyCapability(graph.capabilityPromotion); }
   catch { diagnostics.push('CAPABILITY_PROMOTION_INVALID'); }
   const capability = record(graph.capabilityPromotion);
   const bundle = record(graph.previewInputBundle);

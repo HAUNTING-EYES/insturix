@@ -3558,9 +3558,14 @@ built around it.
     `snap_CRyxD1...`, request `3c848041...`, host receipt `73291ed9...`, with
     hash-bound playable output and no project mutation. This proves current
     sandbox mechanics only. The historical V1 capability remains pinned to its
-    old snapshot/hashes, so the connected DEV-02 route is still fail-closed
-    until a new immutable research-proxy capability is issued. Next reissue
-    that identity, rerun generated/hybrid mechanics, then build the forced
+    old snapshot/hashes. The successor V2 research capability now preserves
+    V1 as its explicit predecessor and binds the current snapshot, API, runner,
+    worker, resource envelope and successful smoke receipt. Its capability hash
+    is `ad429a4c950d97dd27d12c9b5e487e885ca30d33bb29e93165466290492c1de6`;
+    the compiler and
+    evaluator accept only the exact immutable V1 or V2 artifacts. This does not
+    promote product execution. Next connect V2 to the isolated DEV-02 mechanics,
+    rerun generated/hybrid proof, then build the forced
     native baseline before dependency-shape diversity, conflict/rebase/locked-
     range, context-resume and long-form/range trials.
   - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,
