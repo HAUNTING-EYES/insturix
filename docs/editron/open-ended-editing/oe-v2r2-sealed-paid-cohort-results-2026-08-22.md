@@ -126,10 +126,10 @@ new frozen identity reruns them fairly.
 ## What remains before Stage 2.5 can exit
 
 1. Freeze a corrected sealed-holdout identity; never rewrite this cohort.
-2. Align HOLD-01 resolver output and proof to one declared owner contract.
-3. Publish complete nested callable schemas for generated composition and
-   subject reframe, or use typed opaque resolver results that carry those exact
-   fields.
+2. Bind HOLD-01's explicit valid source-start window and source duration into a
+   new manifest, then align proof to the V3R semantic owner result.
+3. Bind the now-closed generated-composition and subject-reframe schemas into
+   that new cohort identity without rewriting V2.
 4. Give the research episode a truthful evolving post-mutation clone and expose
    declared owner effects such as caption retiming.
 5. Supply required literal title/reference material in the public H03 condition
@@ -153,6 +153,17 @@ recomputes the injected tool-set hash and rejects forged hashes, missing or
 reordered operator records, and finish-schema mismatch before inference. This
 commit does not itself correct HOLD-01/03/04/05, freeze a new cohort identity,
 or authorize paid calls.
+
+Commit `14e3d791b` adds the opt-in
+`EDITRON_OE_SEALED_HOLDOUT_OPERATOR_CATALOG_V3R_1` catalog and semantic-owner
+policy. It preserves the V2 default/hash, closes the nested H03/H05 input forms
+and resolver-specific output form, and aligns HOLD-01 resolution to
+`use_matching_footage`. The owner rejects missing duration, candidate-only
+windows and insufficient source handles. Focused catalog/owner checks pass
+12/12 and full typecheck/lint pass. This still does not freeze a corrected
+cohort/manifest, relabel the ambiguous H01 evidence, alter a proof owner, expose
+truthful H04 post-state, prove H03 model-generated program lineage or authorize
+paid calls.
 
 No production model-driven mutation or Stage 3 agent control plane is authorised
 by this run.
