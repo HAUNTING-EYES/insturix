@@ -1,0 +1,134 @@
+name: ThinkForge Deployed Gemini Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      canary_run_id:
+        description: Disposable deployment run ID (must match its Vercel environment)
+        required: true
+        type: string
+      expected_commit:
+        description: Exact full commit SHA attested by the deployed canary
+        required: true
+        type: string
+      operator:
+        description: Named operator approving this one synthetic paid generation
+        required: true
+        type: string
+      approved_max_usd:
+        description: Explicit upper bound for this one Gemini canary, USD (max 0.50)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: thinkforge-deployed-gemini-canary
+  cancel-in-progress: false
+
+jobs:
+  deployed-gemini-canary:
+    name: Synthetic deployed Gemini proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: thinkforge-deployed-canary
+    env:
+      THINKFORGE_CANARY_BASE_URL: ${{ secrets.THINKFORGE_CANARY_BASE_URL }}
+      THINKFORGE_CANARY_ALLOWED_HOST: ${{ secrets.THINKFORGE_CANARY_ALLOWED_HOST }}
+      THINKFORGE_CANARY_DATABASE_URI: ${{ secrets.THINKFORGE_CANARY_DATABASE_URI }}
+      THINKFORGE_CANARY_REDIS_REST_URL: ${{ secrets.THINKFORGE_CANARY_REDIS_REST_URL }}
+      THINKFORGE_CANARY_REDIS_REST_TOKEN: ${{ secrets.THINKFORGE_CANARY_REDIS_REST_TOKEN }}
+      THINKFORGE_CANARY_BASE_EMAIL: ${{ secrets.THINKFORGE_CANARY_BASE_EMAIL }}
+      THINKFORGE_CANARY_CLERK_PUBLISHABLE_KEY: ${{ secrets.THINKFORGE_CANARY_CLERK_PUBLISHABLE_KEY }}
+      THINKFORGE_CANARY_CLERK_SECRET_KEY: ${{ secrets.THINKFORGE_CANARY_CLERK_SECRET_KEY }}
+      THINKFORGE_CANARY_ATTESTATION_SECRET: ${{ secrets.THINKFORGE_CANARY_ATTESTATION_SECRET }}
+      THINKFORGE_CANARY_RUN_ID: ${{ inputs.canary_run_id }}
+      THINKFORGE_CANARY_EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+      THINKFORGE_CANARY_OPERATOR: ${{ inputs.operator }}
+      THINKFORGE_CANARY_APPROVED_MAX_USD: ${{ inputs.approved_max_usd }}
+      THINKFORGE_CANARY_APPROVAL: APPROVE_ONE_SYNTHETIC_GEMINI_CANARY
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate the one-shot approval envelope
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            THINKFORGE_CANARY_BASE_URL
+            THINKFORGE_CANARY_ALLOWED_HOST
+            THINKFORGE_CANARY_DATABASE_URI
+            THINKFORGE_CANARY_REDIS_REST_URL
+            THINKFORGE_CANARY_REDIS_REST_TOKEN
+            THINKFORGE_CANARY_BASE_EMAIL
+            THINKFORGE_CANARY_CLERK_PUBLISHABLE_KEY
+            THINKFORGE_CANARY_CLERK_SECRET_KEY
+            THINKFORGE_CANARY_ATTESTATION_SECRET
+            THINKFORGE_CANARY_RUN_ID
+            THINKFORGE_CANARY_EXPECTED_COMMIT
+            THINKFORGE_CANARY_OPERATOR
+            THINKFORGE_CANARY_APPROVED_MAX_USD
+          )
+          missing=()
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then missing+=("$name"); fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required deployed-canary value(s): %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+          [[ "$THINKFORGE_CANARY_RUN_ID" =~ ^[A-Za-z0-9]{1,12}$ ]] || {
+            echo 'THINKFORGE_CANARY_RUN_ID must be 1-12 alphanumeric characters.' >&2; exit 1;
+          }
+          [[ "$THINKFORGE_CANARY_EXPECTED_COMMIT" =~ ^[a-fA-F0-9]{7,64}$ ]] || {
+            echo 'THINKFORGE_CANARY_EXPECTED_COMMIT must be a Git SHA.' >&2; exit 1;
+          }
+          [[ "${GITHUB_SHA,,}" == "${THINKFORGE_CANARY_EXPECTED_COMMIT,,}" ]] || {
+            echo 'Workflow ref does not equal the deployment commit requested for proof.' >&2; exit 1;
+          }
+          [[ "$THINKFORGE_CANARY_CLERK_PUBLISHABLE_KEY" == pk_test_* ]] || {
+            echo 'The deployed canary requires a Clerk test publishable key.' >&2; exit 1;
+          }
+          [[ "$THINKFORGE_CANARY_CLERK_SECRET_KEY" == sk_test_* ]] || {
+            echo 'The deployed canary requires a Clerk test secret key.' >&2; exit 1;
+          }
+          python - <<'PY'
+          import os
+          import sys
+
+          try:
+              amount = float(os.environ['THINKFORGE_CANARY_APPROVED_MAX_USD'])
+          except ValueError:
+              sys.exit('THINKFORGE_CANARY_APPROVED_MAX_USD must be numeric.')
+          if not 0 < amount <= 0.50:
+              sys.exit('THINKFORGE_CANARY_APPROVED_MAX_USD must be greater than 0 and no more than 0.50.')
+          PY
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run one attested remote Gemini journey
+        run: pnpm exec playwright test --config playwright.thinkforge-deployed-canary.config.ts
+
+      - name: Upload deployed-canary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: thinkforge-deployed-gemini-canary-${{ inputs.canary_run_id }}-${{ github.run_id }}
+          path: |
+            .artifacts/thinkforge-deployed-canary
+          if-no-files-found: warn
+          retention-days: 30

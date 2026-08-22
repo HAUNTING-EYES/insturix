@@ -255,8 +255,81 @@ not promotion evidence.
 ## Deployed Gemini Smoke
 
 After deterministic gates pass, run the smallest explicitly approved real-provider smoke against the
-deployed preview. Use one synthetic brand and one synthetic document; never use raw customer Brand
-Vault data. Record:
+separately configured disposable canary. Use one synthetic brand and one synthetic document; never
+use raw customer Brand Vault data. The workflow is
+`.github/workflows/thinkforge-deployed-gemini-canary.yml`; it is manual-only and refuses a normal
+preview or production deployment.
+
+### Canary Provisioning
+
+Before dispatching the workflow, create a Vercel deployment of the exact candidate commit with an
+isolated environment. The deployment must contain the following configuration; do not reuse generic
+project or team environment variables:
+
+```text
+THINKFORGE_DEPLOYED_CANARY_MODE=1
+THINKFORGE_DEPLOYED_CANARY_RUN_ID=<1-12 alphanumeric run id>
+THINKFORGE_DEPLOYED_CANARY_REDIS_SCOPE=<same run id>
+THINKFORGE_DEPLOYED_CANARY_ATTESTATION_SECRET=<unique secret>
+
+MONGODB_URI=<disposable QA Mongo URI>
+BRAND_VAULT_MONGODB_URI=<same disposable QA Mongo URI>
+MONGODB_DB_NAME=thinkforge_e2e_<run id>
+THINKFORGE_MONGODB_DB_NAME=thinkforge_e2e_<run id>
+EDITRON_MONGODB_DB_NAME=thinkforge_e2e_<run id>
+BRAND_VAULT_MONGODB_DB_NAME=thinkforge_e2e_brandvault_<run id>
+
+UPSTASH_REDIS_REST_URL=<dedicated disposable Redis>
+UPSTASH_REDIS_REST_TOKEN=<dedicated disposable Redis token>
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=<pk_test_...>
+CLERK_SECRET_KEY=<sk_test_...>
+GEMINI_API_KEY=<approved paid Gemini key>
+```
+
+The deployment must have no `GOOGLE_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, OpenRouter, DeepSeek,
+OpenAI, Anthropic, Perplexity, Fal, Replicate, R2, Blob, GCS, Vector, or QStash credentials. It must
+also have no `THINKFORGE_E2E_MODE`, writer fixture, or Clickatron media fixture. Configure the Clerk
+test instance to allow the exact Vercel canary host. The attestation endpoint returns `404` outside
+this mode and `503` whenever any of these conditions are not true.
+
+Configure the corresponding GitHub Environment secrets:
+
+```text
+THINKFORGE_CANARY_BASE_URL
+THINKFORGE_CANARY_ALLOWED_HOST
+THINKFORGE_CANARY_DATABASE_URI
+THINKFORGE_CANARY_REDIS_REST_URL
+THINKFORGE_CANARY_REDIS_REST_TOKEN
+THINKFORGE_CANARY_BASE_EMAIL
+THINKFORGE_CANARY_CLERK_PUBLISHABLE_KEY
+THINKFORGE_CANARY_CLERK_SECRET_KEY
+THINKFORGE_CANARY_ATTESTATION_SECRET
+```
+
+Use the same run ID, Clerk test instance, test datastore, Redis scope, and attestation secret in
+Vercel and GitHub. The workflow verifies the deployment’s commit before it sends a single request.
+
+### Dispatch And Receipt
+
+From the GitHub Actions UI, dispatch `ThinkForge Deployed Gemini Canary` on the exact deployed commit
+with the matching `canary_run_id`, named operator, full `expected_commit`, and an explicit
+`approved_max_usd` no greater than `$0.50`. The protected `thinkforge-deployed-canary` environment
+should require the release owner’s approval.
+
+The one journey signs into a disposable Clerk user, creates a synthetic 45-second narrated
+motion-graphics script, validates the saved V3 sidecar through the primary AV Script view, validates
+the Editron handoff without legacy parsing, then verifies the persisted receipt/trace, profile
+fingerprint, Gemini-only latency and cost events, and critical operational alerts. It stores a
+sanitized receipt at:
+
+```text
+.artifacts/thinkforge-deployed-canary/<run-id>/receipt.json
+```
+
+If the workflow is cancelled or fails before global teardown, manually delete the run-scoped Mongo
+databases, Redis namespace, Clerk test users/organisation, and Vercel canary deployment before retry.
+
+Record:
 
 - deployment ID and commit
 - model and provider route
