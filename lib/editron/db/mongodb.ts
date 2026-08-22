@@ -5,6 +5,8 @@
  */
 
 import { MongoClient, Db } from 'mongodb';
+import { DURABLE_WORKFLOW_JOB_COLLECTION_V1 }
+  from '@/lib/editron/services/durable-workflow-job-v1';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
@@ -78,6 +80,7 @@ export const COLLECTIONS = {
   CHAT_EDITORIAL_INTENT_JOBS: 'editron_chat_editorial_intent_jobs',
   CHAT_DEEP_ANALYSIS_JOBS: 'editron_chat_deep_analysis_jobs',
   CHAT_DUBBING_JOBS: 'editron_chat_dubbing_jobs',
+  DURABLE_WORKFLOW_JOBS: DURABLE_WORKFLOW_JOB_COLLECTION_V1,
   LEDGER: 'ledger',
   TREND_REQUESTS: 'trend_requests',
   TRENDS: 'trends',
@@ -221,6 +224,19 @@ export async function initializeIndexes(): Promise<void> {
     { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_leaseExpiresAt' },
     { key: { userId: 1, projectId: 1, createdAt: -1 }, name: 'userId_projectId_createdAt' },
     { key: { expiresAt: 1 }, name: 'expiresAt_ttl', expireAfterSeconds: 0 },
+  ]);
+
+  // Shared durable operation record. Queue transports deliver work but never
+  // own job identity, leases, retry/cancellation state or terminal receipts.
+  await db.collection(COLLECTIONS.DURABLE_WORKFLOW_JOBS).createIndexes([
+    { key: { tenantId: 1, idempotencyKey: 1 }, name: 'tenant_idempotency_unique', unique: true },
+    { key: { status: 1, nextAttemptAt: 1, updatedAt: 1 }, name: 'status_retry_updated' },
+    { key: { status: 1, leaseExpiresAt: 1 }, name: 'status_lease_expires' },
+    {
+      key: { tenantId: 1, userId: 1, projectId: 1, createdAt: -1 },
+      name: 'tenant_user_project_created',
+    },
+    { key: { expiresAt: 1 }, name: 'expires_ttl', expireAfterSeconds: 0 },
   ]);
 
   // Source Ledger — analyze-once store keyed by referenceId, deduped by platform URL/ID +
