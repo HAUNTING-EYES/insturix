@@ -1,0 +1,13 @@
+{
+  "version": "EDITRON_OE_SEALED_HOLDOUT_GENERALISATION_COHORT_V4R_1",
+  "contractSourceSha256": "b68351efe6296a19cef6140112d73af65b33067c7e342de21069794127c2f8d1",
+  "manifestSha256": "fcfe2524835b30dfb7edae0c9bdf53ad0cc9d0939524b77b0b0b73984cf6f203",
+  "rowSetSha256": "de6d5912bdaa70ddfe2ed1651ebada7fbfd6414bd2633de4f383c8ab373b148e",
+  "routeSetSha256": "a9248c24b68842cbe1793a515c219597304fb5494b672fd6b6774e0f98d32072",
+  "implementationBindingsSha256": "312b40b278d705d724480be0f3457b8b4c35e5dae4eeba7a1f3d60a277148d28",
+  "baseManifestSha256": "a468c2f487f3a07385dd51ee5653bd9fcdafaeb86130f3fe6a54381d5cc930f3",
+  "cap2ManifestSha256": "2549623eaca44feabf15aa53d8dd93c02804b37406db69879fd047981d2f9ce9",
+  "caseCount": 15,
+  "rowCount": 45,
+  "dispatchAuthorized": false
+}
