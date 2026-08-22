@@ -50,7 +50,19 @@ const request = buildGeneratedCompositionSandboxRequestV1({
     { kind: 'SOURCE_MEDIA', bindingId: 'dev02-close', fileName: 'dev02-close.mp4', bytes: close },
     { kind: 'FONT', bindingId: 'font-noto-sans-v27-regular', fileName: 'noto-sans.ttf', bytes: font },
   ],
-  resources: { wallTimeMs: 90_000, maxCpuMs: 60_000, vcpus: 1, memoryMiB: 2_048, maxOutputBytes: 64 * 1_024 * 1_024 },
+  // Keep the smoke request inside the program-owned limits used by Stage 6. A
+  // smaller harness-only ceiling can misclassify a valid current renderer as
+  // a capability failure before its playable-proxy proof is materialized.
+  resources: {
+    wallTimeMs: DEV02_GENERATED_COMPOSITION_PROGRAM_V1.resourceBudget.maxWallTimeMs,
+    maxCpuMs: DEV02_GENERATED_COMPOSITION_PROGRAM_V1.resourceBudget.maxCpuMs,
+    vcpus: 1,
+    memoryMiB: 2_048,
+    maxOutputBytes: Math.min(
+      DEV02_GENERATED_COMPOSITION_PROGRAM_V1.resourceBudget.maxOutputBytes,
+      64 * 1_024 * 1_024,
+    ),
+  },
 });
 
 const executed = await executeGeneratedCompositionInSandboxV1({ request, repoRoot });

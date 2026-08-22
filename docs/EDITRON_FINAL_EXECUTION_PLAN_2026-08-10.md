@@ -3549,8 +3549,19 @@ built around it.
     the bounded paid runner. All 24 Stage-2 rows executed under receipt
     `9583de5c...`: seven honest gaps, nine hidden failures and eight Gemini-429
     non-evaluations for `$1.5474777`, with zero project access. This is still
-    not an executed or rendered route comparison. Next execute only truthful
-    alternatives before dependency-shape diversity, conflict/rebase/locked-
+    not an executed or rendered route comparison. The first executable-route
+    requalification then found that the tracked DEV-02 smoke harness still
+    imposed a stale 90-second wall/60-second CPU ceiling even though the frozen
+    program and connected Stage 6 owner declare 180/120 seconds. The stale
+    request failed `RESOURCE_BUDGET_EXCEEDED`; the unchanged current renderer
+    passed under the program-owned ceiling in 94,057 ms on production snapshot
+    `snap_CRyxD1...`, request `3c848041...`, host receipt `73291ed9...`, with
+    hash-bound playable output and no project mutation. This proves current
+    sandbox mechanics only. The historical V1 capability remains pinned to its
+    old snapshot/hashes, so the connected DEV-02 route is still fail-closed
+    until a new immutable research-proxy capability is issued. Next reissue
+    that identity, rerun generated/hybrid mechanics, then build the forced
+    native baseline before dependency-shape diversity, conflict/rebase/locked-
     range, context-resume and long-form/range trials.
   - Verify: stage-separated scores, threshold/free-choice/forced-form ablations,
     blind review, cost/latency and no hidden manual rescue.

@@ -3,8 +3,8 @@
 Opened: 2026-08-20; last reconciled: 2026-08-22
 Authority: code-grounded programme audit; status register, not runtime authority
 Audit lane: editron-worktree / infrastructure-improvs-+Editron
-Audit HEAD: findings rechecked through b5f2af0da;
-sealed paid-cohort receipt 9582dffc068b7319835d48da4834c1de70bdb29b39aa011ce0239fa12238022f
+Audit HEAD: findings rechecked through 9ebc2eb92;
+latest route-ablation paid-cohort receipt 9583de5c0eb3281ea780e82cca4d0b735c1ec36f41970d6d7d3bfbe5031a498f
 
 ## Purpose
 
@@ -121,6 +121,7 @@ stated. Later code fixes do not retroactively make the old run valid.
 | DEV-12 | Gemini HTTP 429 rows were sometimes discussed as failure. | HISTORICAL_INVALID_EVIDENCE | Current disposition is PROVIDER_INFRASTRUCTURE_UNVERIFIABLE until actual model output exists. |
 | DEV-13 | Qwen was removed from future cohorts. | USER_DECISION | Historical evidence remains. No technical conclusion that Qwen is globally worse may be inferred from retirement. |
 | DEV-14 | `development-cohort-routes-v2.ts` preserves issued Luna/Terra price values of $1/$6 and $2.50/$15 per million input/output tokens, while the current official snapshot used by V2R-3 is $0.20/$1.20 and $2/$12. | HISTORICAL_ISSUED_SNAPSHOT | Do not silently rewrite historical experiment identities. New runs must use the dated V2R-3 route facts; historical cost ceilings and estimates must be interpreted using their own issued price table. |
+| DEV-15 | The tracked generated-composition smoke harness retained a 90-second wall/60-second CPU ceiling after the frozen DEV-02 program and connected Stage 6 path had moved to 180/120 seconds. | FIXED_CURRENT_HISTORICAL_INVALID_EVIDENCE | The old ceiling rejected the current renderer as `RESOURCE_BUDGET_EXCEEDED`. Using the unchanged program-owned limits, current production snapshot `snap_CRyxD1...` rendered in 94,057 ms under host receipt `73291ed9...`, with hash-bound outputs and zero project mutation. This requalifies the sandbox mechanics only; the old V1 capability identity remains immutable and the connected route still requires a new versioned capability before execution. |
 
 ## C2. Current sealed-holdout benchmark hardcodes and evidence debt
 
