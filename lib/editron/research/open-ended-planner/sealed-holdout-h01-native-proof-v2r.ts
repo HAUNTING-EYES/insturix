@@ -18,11 +18,14 @@ type JsonRecord = Record<string, unknown>;
 
 export const SEALED_HOLDOUT_H01_NATIVE_PROOF_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_H01_RENDERED_NATIVE_PROOF_V2R_1' as const;
+export const SEALED_HOLDOUT_H01_C2_NATIVE_PROOF_VERSION_V2R =
+  'EDITRON_OE_SEALED_HOLDOUT_H01_RENDERED_NATIVE_PROOF_V2R_2_C2' as const;
 
 export interface SealedHoldoutH01NativeProofReceiptV2R {
-  version: typeof SEALED_HOLDOUT_H01_NATIVE_PROOF_VERSION_V2R;
+  version: typeof SEALED_HOLDOUT_H01_NATIVE_PROOF_VERSION_V2R
+    | typeof SEALED_HOLDOUT_H01_C2_NATIVE_PROOF_VERSION_V2R;
   authority: 'RESEARCH_RENDERED_NATIVE_PROXY_NO_PROJECT_MUTATION';
-  caseId: 'HOLD-01:C1';
+  caseId: 'HOLD-01:C1' | 'HOLD-01:C2';
   taskId: 'HOLD-01';
   manifestSha256: string;
   publicCaseSha256: string;
@@ -52,7 +55,7 @@ export interface SealedHoldoutH01NativeProofReceiptV2R {
 
 export async function proveSealedHoldoutH01NativeOutcomeV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
-  caseId: 'HOLD-01:C1';
+  caseId: 'HOLD-01:C1' | 'HOLD-01:C2';
   trace: Readonly<BudgetedSealedHoldoutSelectedOperationTraceV2R>;
   evaluation: Readonly<BudgetedSealedHoldoutEvaluationReceiptV2R>;
   mediaManifest: Readonly<HoldoutMediaManifestV2R>;
@@ -120,7 +123,9 @@ export async function proveSealedHoldoutH01NativeOutcomeV2R(input: {
     fail(`SEALED_H01_PROOF_GEOMETRY_FAILED:${centerDistance}:${diameterRatio}`);
   }
   const material = {
-    version: SEALED_HOLDOUT_H01_NATIVE_PROOF_VERSION_V2R,
+    version: input.caseId === 'HOLD-01:C1'
+      ? SEALED_HOLDOUT_H01_NATIVE_PROOF_VERSION_V2R
+      : SEALED_HOLDOUT_H01_C2_NATIVE_PROOF_VERSION_V2R,
     authority: 'RESEARCH_RENDERED_NATIVE_PROXY_NO_PROJECT_MUTATION' as const,
     caseId: input.caseId, taskId: 'HOLD-01' as const,
     manifestSha256: input.manifest.manifestSha256,

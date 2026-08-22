@@ -26,11 +26,14 @@ const RETAINED_WORDS = ['our', 'launch', 'is', 'Friday'] as const;
 
 export const SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_H04_NATIVE_AV_STATE_PROOF_V2R_1' as const;
+export const SEALED_HOLDOUT_H04_C2_NATIVE_PROOF_VERSION_V2R =
+  'EDITRON_OE_SEALED_HOLDOUT_H04_NATIVE_AV_STATE_PROOF_V2R_2_C2' as const;
 
 export interface SealedHoldoutH04NativeProofReceiptV2R {
-  version: typeof SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V2R;
+  version: typeof SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V2R
+    | typeof SEALED_HOLDOUT_H04_C2_NATIVE_PROOF_VERSION_V2R;
   authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_AV_PROXY_NO_PROJECT_MUTATION';
-  caseId: 'HOLD-04:C1'; taskId: 'HOLD-04'; manifestSha256: string;
+  caseId: 'HOLD-04:C1' | 'HOLD-04:C2'; taskId: 'HOLD-04'; manifestSha256: string;
   publicCaseSha256: string; traceArtifactSha256: string;
   evaluationReceiptSha256: string; runtimeBudgetReceiptSha256: string;
   writerIssuedProjectRevision: string;
@@ -73,7 +76,7 @@ export interface SealedHoldoutH04NativeProofReceiptV2R {
 
 export async function proveSealedHoldoutH04NativeOutcomeV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
-  caseId: 'HOLD-04:C1';
+  caseId: 'HOLD-04:C1' | 'HOLD-04:C2';
   trace: Readonly<BudgetedSealedHoldoutSelectedOperationTraceV2R>;
   evaluation: Readonly<BudgetedSealedHoldoutEvaluationReceiptV2R>;
   mediaManifest: Readonly<HoldoutMediaManifestV2R>;
@@ -178,7 +181,9 @@ export async function proveSealedHoldoutH04NativeOutcomeV2R(input: {
     fail('SEALED_H04_PROOF_RETAINED_TAKE_AV_FAILED');
   }
   const material = {
-    version: SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V2R,
+    version: input.caseId === 'HOLD-04:C1'
+      ? SEALED_HOLDOUT_H04_NATIVE_PROOF_VERSION_V2R
+      : SEALED_HOLDOUT_H04_C2_NATIVE_PROOF_VERSION_V2R,
     authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_AV_PROXY_NO_PROJECT_MUTATION' as const,
     caseId: input.caseId, taskId: 'HOLD-04' as const,
     manifestSha256: input.manifest.manifestSha256,

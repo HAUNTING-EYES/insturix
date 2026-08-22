@@ -24,11 +24,14 @@ type Placement = Readonly<{
 
 export const SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_H02_RENDERED_NATIVE_PROOF_V2R_1' as const;
+export const SEALED_HOLDOUT_H02_C2_NATIVE_PROOF_VERSION_V2R =
+  'EDITRON_OE_SEALED_HOLDOUT_H02_RENDERED_NATIVE_PROOF_V2R_2_C2' as const;
 
 export interface SealedHoldoutH02NativeProofReceiptV2R {
-  version: typeof SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V2R;
+  version: typeof SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V2R
+    | typeof SEALED_HOLDOUT_H02_C2_NATIVE_PROOF_VERSION_V2R;
   authority: 'RESEARCH_RENDERED_NATIVE_PROXY_NO_PROJECT_MUTATION';
-  caseId: 'HOLD-02:C1'; taskId: 'HOLD-02'; manifestSha256: string;
+  caseId: 'HOLD-02:C1' | 'HOLD-02:C2'; taskId: 'HOLD-02'; manifestSha256: string;
   publicCaseSha256: string; traceArtifactSha256: string;
   evaluationReceiptSha256: string; runtimeBudgetReceiptSha256: string;
   writerIssuedProjectRevisions: readonly [string, string, string];
@@ -50,7 +53,7 @@ export interface SealedHoldoutH02NativeProofReceiptV2R {
 
 export async function proveSealedHoldoutH02NativeOutcomeV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
-  caseId: 'HOLD-02:C1';
+  caseId: 'HOLD-02:C1' | 'HOLD-02:C2';
   trace: Readonly<BudgetedSealedHoldoutSelectedOperationTraceV2R>;
   evaluation: Readonly<BudgetedSealedHoldoutEvaluationReceiptV2R>;
   mediaManifest: Readonly<HoldoutMediaManifestV2R>;
@@ -109,7 +112,9 @@ export async function proveSealedHoldoutH02NativeOutcomeV2R(input: {
     || middleMeanRgb[2] - middleMeanRgb[0] < 50
     || middleMeanRgb[1] - middleMeanRgb[0] < 30) fail('SEALED_H02_PROOF_ACTION_SEQUENCE_FAILED');
   const material = {
-    version: SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V2R,
+    version: input.caseId === 'HOLD-02:C1'
+      ? SEALED_HOLDOUT_H02_NATIVE_PROOF_VERSION_V2R
+      : SEALED_HOLDOUT_H02_C2_NATIVE_PROOF_VERSION_V2R,
     authority: 'RESEARCH_RENDERED_NATIVE_PROXY_NO_PROJECT_MUTATION' as const,
     caseId: input.caseId, taskId: 'HOLD-02' as const,
     manifestSha256: input.manifest.manifestSha256, publicCaseSha256: bound.publicCaseSha256,
