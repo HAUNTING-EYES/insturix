@@ -1,10 +1,9 @@
-import { redirect } from 'next/navigation';
+import CalosCalendarV3 from '@/components/dashboard/calos/v3/calos-calendar';
 
-/**
- * Redirect (2026-08 audit, Phase 3): Preview route that was never removed after v3 was swapped into the main route — two URLs served the same calendar.
- * Kept as a redirect rather than deleted so old links/bookmarks still land
- * somewhere useful instead of a 404.
- */
-export default function RedirectPage() {
-  redirect('/dashboard/calos');
+// CalOS v3 preview route. The founder's calos-v3.jsx calendar wired to the real
+// deliverables service, living alongside the current CalOS (app/dashboard/calos)
+// so nothing regresses while Phases 2–3 (campaigns, generation, publishing,
+// workspace, share) are built. Swap into the main route once complete + approved.
+export default function CalosV3PreviewPage() {
+  return <CalosCalendarV3 />;
 }

@@ -106,47 +106,47 @@ export function TaskDetails({ task }: TaskDetailsProps) {
   // Failed task UI (error + suggested action)
   if (task.status === "failed") {
     return (
-      <Card className="w-full shadow-lg border border-ds-emphasis bg-surface-raised">
+      <Card className="w-full shadow-lg border border-zinc-300/30">
         <CardHeader className="flex flex-row items-center gap-3">
-          <Music className="text-gold" />
-          <CardTitle className="flex-1 text-ds-primary">{task.title}</CardTitle>
-          <span className="ml-2 text-status-danger font-semibold text-[14px]">Failed</span>
+          <Music className="text-yellow-400" />
+          <CardTitle className="flex-1 text-zinc-100">{task.title}</CardTitle>
+          <span className="ml-2 text-zinc-500 font-semibold text-[14px]">Failed</span>
         </CardHeader>
-        <Separator className="bg-ds-emphasis" />
+        <Separator />
         <CardContent className="py-6 flex flex-col gap-4">
           <MetaRow task={task} />
           {task.error?.message && (
-            <div className="flex items-start gap-2 bg-status-danger/10 border border-status-danger/40 rounded px-4 py-3 text-status-danger font-medium">
-              <AlertCircle className="w-5 h-5 mr-1 text-status-danger shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 font-medium">
+              <AlertCircle className="w-5 h-5 mr-1 text-red-500 shrink-0 mt-0.5" />
               <span>{task.error.message}</span>
             </div>
           )}
           {task.error?.action && (
-            <div className="flex items-center gap-2 bg-surface-well border border-ds-emphasis rounded px-4 py-3 text-ds-secondary font-medium">
-              <span className="text-ds-muted">Suggested Action:</span>
+            <div className="flex items-center gap-2 bg-zinc-800/50 border border-zinc-700 rounded px-4 py-3 text-zinc-300 font-medium">
+              <span className="text-zinc-400">Suggested Action:</span>
               <span>{task.error.action}</span>
             </div>
           )}
           {/* Lyrics */}
           {task.lyrics && (
             <div className="mt-4">
-              <div className="text-[11px] text-ds-muted mb-1 flex items-center gap-1">
+              <div className="text-[11px] text-zinc-400 mb-1 flex items-center gap-1">
                 <FileText className="w-4 h-4" />
                 Lyrics
               </div>
-              <div className="whitespace-pre-line text-sm text-ds-primary bg-surface-well rounded p-3 border border-ds-subtle">
+              <div className="whitespace-pre-line text-sm text-zinc-100 bg-zinc-900/60 rounded p-3 border border-zinc-800">
                 {task.lyrics}
               </div>
             </div>
           )}
           {/* Task ID */}
           <div className="mt-4">
-            <div className="text-[11px] text-ds-muted mb-1 flex items-center gap-1">
+            <div className="text-[11px] text-zinc-400 mb-1 flex items-center gap-1">
               <Hash className="w-4 h-4" />
               Task ID
             </div>
-            <div className="bg-surface-well p-2 rounded-lg border border-ds-emphasis">
-              <code className="text-[11px] text-ds-secondary font-mono">{task._id}</code>
+            <div className="bg-zinc-900/50 p-2 rounded-lg border border-zinc-700">
+              <code className="text-[11px] text-zinc-200 font-mono">{task._id}</code>
             </div>
           </div>
         </CardContent>

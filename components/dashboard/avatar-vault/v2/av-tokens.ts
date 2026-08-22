@@ -6,12 +6,11 @@ import type { AvatarProviderId } from '@/lib/avatar/avatar-provider-adapter';
    Labels/status meta are sourced from the real avatar types so the UI can
    never drift from the enums it renders. */
 
-// Values point at design-tokens.css variables (P2.7) so a theme change propagates; keep any NEW key a var(--…) too.
 export const C = {
-  bg: 'var(--bg-canvas)', raised: 'var(--bg-raised)', surface: 'var(--bg-deeper)', well: 'var(--bg-well)',
-  border: 'var(--border-subtle)', bs: 'var(--border-emphasis)',
-  text: 'var(--text-primary)', soft: 'var(--text-secondary)', muted: 'var(--text-muted)', dim: 'var(--text-dim)', faint: 'var(--text-faint)',
-  gold: 'var(--accent-gold)', goldH: 'var(--accent-gold-hover)', green: 'var(--status-success)', coral: 'var(--status-danger)',
+  bg: '#0B0B0A', raised: '#0F0F0E', surface: '#131312', well: '#1B1A18',
+  border: '#1C1B19', bs: '#282724',
+  text: '#ECE9E1', soft: '#B8B4A8', muted: '#7A776E', dim: '#5F5E5A', faint: '#454340',
+  gold: '#D4A652', goldH: '#C49840', green: '#5EC97E', coral: '#D46A5C',
 } as const;
 
 export const EASE = 'cubic-bezier(0.16,1,0.3,1)';

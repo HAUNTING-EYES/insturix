@@ -1,10 +1,14 @@
-import { redirect } from 'next/navigation';
+import ProjectDashboard from "@/components/editron/project/project-dashboard";
+import { PipelineBreadcrumb } from "@/components/dashboard/shared/PipelineBreadcrumb";
 
-/**
- * Redirect (2026-08 audit, Phase 3): The old dashboard console. The landing flow inlined footage upload (Phase 2b) and /projects owns the project grid; nothing linked here.
- * Kept as a redirect rather than deleted so old links/bookmarks still land
- * somewhere useful instead of a 404.
- */
-export default function RedirectPage() {
-  redirect('/dashboard/editron');
+// Footage uploader + existing project list (the previous Editron dashboard console).
+// The new "New project" landing (/dashboard/editron) hands off here for footage upload and to
+// reopen existing projects. Phase 2b will inline the auto-edit uploader into NewProjectFlow.
+export default function EditronUploadPage() {
+  return (
+    <>
+      <PipelineBreadcrumb currentStep="edit" />
+      <ProjectDashboard />
+    </>
+  );
 }

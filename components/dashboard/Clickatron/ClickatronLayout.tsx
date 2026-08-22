@@ -28,13 +28,12 @@ import {
 import { Input } from "@/components/ui/input";
 
 // ─── Design tokens ─────────────────────────────────────────────
-// Values point at design-tokens.css variables (P2.7) so a theme change propagates; keep any NEW key a var(--…) too.
 const C = {
-  bg: "var(--bg-canvas)", raised: "var(--bg-raised)", deeper: "var(--bg-deeper)", well: "var(--bg-well)",
-  border: "var(--border-subtle)", borderL: "var(--border-emphasis)",
-  t1: "var(--text-primary)", t2: "var(--text-secondary)", t3: "var(--text-muted)", t4: "var(--text-dim)", t5: "var(--text-faint)",
-  gold: "var(--accent-gold)", goldH: "var(--accent-gold-hover)", goldBg: "rgba(212,166,82,.08)", goldBd: "rgba(212,166,82,.16)",
-  green: "var(--status-success)", red: "var(--status-danger)",
+  bg: "#0B0B0A", raised: "#0F0F0E", deeper: "#131312", well: "#1B1A18",
+  border: "#1C1B19", borderL: "#282724",
+  t1: "#ECE9E1", t2: "#B5B2A8", t3: "#7A776E", t4: "#5F5E5A", t5: "#454340",
+  gold: "#D4A652", goldH: "#C49840", goldBg: "rgba(212,166,82,.08)", goldBd: "rgba(212,166,82,.16)",
+  green: "#5EC97E", red: "#D46A5C",
 } as const;
 const EASE = "cubic-bezier(.16,1,.3,1)";
 

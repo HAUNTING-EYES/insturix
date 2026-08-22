@@ -10,7 +10,7 @@ interface SidebarHeaderProps {
 
 export function SidebarHeader({ isExpanded }: SidebarHeaderProps) {
   return (
-    <div className="h-16 flex items-center justify-center px-4 border-b border-[#1C1B19] bg-[#0F0F0E] relative overflow-hidden">
+    <div className="h-16 flex items-center justify-center px-4 border-b border-white/10 bg-zinc-900 relative overflow-hidden">
       <motion.div
         className="flex items-center justify-center h-full w-full"
         layout

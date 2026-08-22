@@ -23,6 +23,7 @@ import { LogoBrand, AuthButtons, NavItem, menuItems } from "@/components/shared/
  */
 
 const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@200..800&display=swap');
 
 .ikin{--bg:#0B0B0A;--s1:#131312;--border:#1C1B19;--borderL:#282724;--text:#ECE9E1;--soft:#B5B2A8;--muted:#7A776E;--dim:#454340;--gold:#D4A652;--ease:cubic-bezier(0.16,1,0.3,1);
   position:relative;overflow-x:hidden;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans',sans-serif;-webkit-font-smoothing:antialiased}

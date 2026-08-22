@@ -11,14 +11,13 @@ import React from "react";
  * Usage: <PipelineBreadcrumb currentStep="edit" />
  */
 
-// Values point at design-tokens.css variables (P2.7) so a theme change propagates; keep any NEW key a var(--…) too.
 const C = {
-  border: "var(--border-subtle)",
-  t5: "var(--text-faint)",
-  gold: "var(--accent-gold)",
+  border: "#1C1B19",
+  t5: "#454340",
+  gold: "#D4A652",
   goldBg: "rgba(212,166,82,.08)",
   goldBd: "rgba(212,166,82,.16)",
-  green: "var(--status-success)",
+  green: "#5EC97E",
 } as const;
 
 const STAGES = [

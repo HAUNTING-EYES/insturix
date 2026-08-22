@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Select } from "@/components/primitives";
 import { toast } from "@/hooks/use-toast";
 import { MemoryReviewQueue } from "./MemoryReviewQueue";
 
@@ -232,15 +231,6 @@ function VoiceFingerprintSection({
   );
 }
 
-const EXEMPLAR_CONTENT_TYPE_OPTIONS = [
-  { value: "linkedin_post", label: "LinkedIn Post" },
-  { value: "twitter", label: "Tweet" },
-  { value: "instagram", label: "Instagram" },
-  { value: "video_script", label: "Video Script" },
-  { value: "blog_post", label: "Blog Post" },
-  { value: "newsletter", label: "Newsletter" },
-];
-
 function VoiceExemplarSection({
   exemplars,
   onChange,
@@ -329,14 +319,18 @@ function VoiceExemplarSection({
         placeholder="Paste a reference piece the AI should mimic..."
       />
       <div className="flex gap-2">
-        <Select
-          size="sm"
-          aria-label="Exemplar content type"
+        <select
           value={contentType}
-          onChange={setContentType}
-          options={EXEMPLAR_CONTENT_TYPE_OPTIONS}
-          className="w-40"
-        />
+          onChange={(e) => setContentType(e.target.value)}
+          className="rounded-xl bg-white/[0.03] border border-white/[0.08] px-3 py-2 text-[11px] text-[#B5B2A8] focus:outline-none focus:ring-1 focus:ring-[#D4A652]/40"
+        >
+          <option value="linkedin_post">LinkedIn Post</option>
+          <option value="twitter">Tweet</option>
+          <option value="instagram">Instagram</option>
+          <option value="video_script">Video Script</option>
+          <option value="blog_post">Blog Post</option>
+          <option value="newsletter">Newsletter</option>
+        </select>
         <button
           onClick={add}
           disabled={!draft.trim()}

@@ -1,39 +1,50 @@
 /* ═══════════════════════════════════════════════════════════════
-   THINKFORGE ROUTE TOKENS — scoped to .thinkforge-app
-   ─────────────────────────────────────────────────────────────────
-   The global palette (--text-*, --border-*, --accent-gold*, --status-*,
-   --font-mono, motion) comes from app/design-tokens.css and is inherited.
-   Next.js keeps a nested layout's CSS loaded across client navigations,
-   so this block must NEVER sit on :root — it would override the global
-   tokens on every other dashboard route after one ThinkForge visit.
-   Only ThinkForge-specific aliases live here.
+   INSTURIX DESIGN BIBLE v1.0 — DESIGN TOKENS
    ═══════════════════════════════════════════════════════════════ */
-.thinkforge-app {
-  /* Surfaces (ThinkForge short names → global surfaces) */
-  --canvas: var(--bg-canvas);
-  --raised: var(--bg-raised);
-  --deeper: var(--bg-deeper);
-  --well: var(--bg-well);
+:root {
+  /* Surfaces */
+  --canvas: #0B0B0A;
+  --raised: #0F0F0E;
+  --deeper: #131312;
+  --well: #1B1A18;
   --active-surface: #141413;
 
-  /* Accent tints — decision moments ONLY */
+  /* Borders */
+  --border-subtle: #1C1B19;
+  --border-emphasis: #282724;
+
+  /* Text */
+  --text-primary: #ECE9E1;
+  --text-secondary: #B5B2A8;
+  --text-muted: #7A776E;
+  --text-dim: #5F5E5A;
+  --text-faint: #454340;
+
+  /* Accent — decision moments ONLY */
+  --accent-gold: #D4A652;
+  --accent-gold-hover: #C49840;
   --accent-gold-bg: rgba(212, 166, 82, 0.08);
   --accent-gold-border: rgba(212, 166, 82, 0.16);
   --accent-gold-tint: rgba(212, 166, 82, 0.06);
 
-  /* Category (rooms) */
-  --cat-purple: var(--category-purple);
-  --cat-pink: var(--category-pink);
-  --cat-cyan: var(--category-cyan);
+  /* Status */
+  --status-success: #5EC97E;
+  --status-danger: #D46A5C;
 
-  /* Motion (aliases of the global motion tokens) */
-  --ease: var(--ease-out);
-  --dur-hover: var(--motion-micro);
-  --dur-state: var(--motion-response);
-  --dur-atmos: var(--motion-atmosphere);
+  /* Category (rooms) */
+  --cat-purple: #9088D4;
+  --cat-pink: #D088B4;
+  --cat-cyan: #5CB8CC;
+
+  /* Motion */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-hover: 0.25s;
+  --dur-state: 0.35s;
+  --dur-atmos: 0.5s;
 
   /* Typography */
-  --font-body: var(--font-sans);
+  --font-body: 'Plus Jakarta Sans', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
 /* ═══════════════════════════════════════════════════════════════

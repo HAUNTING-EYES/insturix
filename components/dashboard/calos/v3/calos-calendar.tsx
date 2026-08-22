@@ -11,7 +11,6 @@ import {
 } from './calos-view-model';
 import type { CalItem, Placement } from './calos-view-model';
 import { Mono, Glyph, StatusMark, Btn, Chip, Confirm } from './calos-atoms';
-import { Select } from '@/components/primitives';
 import { ContentModal } from './calos-content-modal';
 import CalosCampaignBar from './calos-campaign-bar';
 import { CalosWorkspace, type WorkspaceCampaign } from './calos-workspace';
@@ -406,6 +405,7 @@ export default function CalosCalendarV3() {
   return (
     <div className="calos" style={{ minHeight: '100vh', background: C.bg, color: C.text, fontFamily: SANS }}>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap');
         .calos *{box-sizing:border-box}
         .calos-fr:focus-visible{outline:2px solid ${C.gold};outline-offset:2px}
         .calos-chip:hover{border-color:${C.bs};background:#181614}
@@ -495,15 +495,16 @@ export default function CalosCalendarV3() {
             className="calos-fr"
             style={{ height: 32, minWidth: 200, flex: '0 1 240px', background: C.surface, color: C.text, border: `1px solid ${C.border}`, borderRadius: 7, padding: '0 10px', fontSize: 12.5, fontFamily: SANS, outline: 'none' }}
           />
-          <div style={{ minWidth: 150 }}>
-            <Select
-              size="sm"
-              aria-label="Filter by stage"
-              value={filterStage ?? ''}
-              onChange={(v) => setFilterStage(v || null)}
-              options={[{ value: '', label: 'All stages' }, ...[...STAGES, 'changes_requested'].map((s) => ({ value: s, label: stageLabel(s) }))]}
-            />
-          </div>
+          <select
+            value={filterStage ?? ''}
+            onChange={(e) => setFilterStage(e.target.value || null)}
+            aria-label="Filter by stage"
+            className="calos-fr"
+            style={{ height: 32, background: C.surface, color: filterStage ? C.gold : C.soft, border: `1px solid ${filterStage ? 'rgba(212,166,82,.4)' : C.border}`, borderRadius: 7, padding: '0 10px', fontSize: 12, fontFamily: MONO, outline: 'none' }}
+          >
+            <option value="">All stages</option>
+            {[...STAGES, 'changes_requested'].map((s) => <option key={s} value={s}>{stageLabel(s)}</option>)}
+          </select>
           {(search || filterStage) && (
             <>
               <Btn size="sm" onClick={() => { setSearch(''); setFilterStage(null); }}>Clear</Btn>

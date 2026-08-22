@@ -1,5 +1,4 @@
 'use client';
-import { Select } from '@/components/primitives';
 
 import React, { useMemo, useState } from 'react';
 import type { AvatarProfileRecord } from '@/lib/avatar/avatar-lifecycle';
@@ -202,8 +201,8 @@ export function AvatarRenderPlanner({ record }: { record: AvatarProfileRecord })
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <Field label="Aspect"><Seg opts={[['9:16', '9:16'], ['16:9', '16:9'], ['1:1', '1:1'], ['4:5', '4:5']]} val={s.aspectRatio} on={(v) => set('aspectRatio', v)} /></Field>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <Field label="Resolution"><Select aria-label="Resolution" value={s.resolution} onChange={(v) => set('resolution', v)} options={[{ value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }]} /></Field>
-                <Field label="Seconds"><Select aria-label="Seconds" value={s.durationSeconds} onChange={(v) => set('durationSeconds', v)} options={secondsChoices.map((sec) => ({ value: sec, label: sec }))} /></Field>
+                <Field label="Resolution"><select value={s.resolution} onChange={(e) => set('resolution', e.target.value)} style={inp}><option value="720p">720p</option><option value="1080p">1080p</option></select></Field>
+                <Field label="Seconds"><select value={s.durationSeconds} onChange={(e) => set('durationSeconds', e.target.value)} style={inp}>{secondsChoices.map((sec) => <option key={sec} value={sec}>{sec}</option>)}</select></Field>
               </div>
             </div>
           </div>

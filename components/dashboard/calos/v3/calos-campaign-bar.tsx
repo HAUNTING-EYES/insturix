@@ -11,10 +11,9 @@ import TrendMarketSelector, {
 } from '@/app/dashboard/calos/TrendMarketSelector';
 import type { ContentCard } from '@/app/dashboard/thinkforge/types';
 import type { CalosCampaignReference } from '@/schemas/calos-campaign';
-import { C, MONO, toItem } from './calos-view-model';
+import { C, MONO, SANS, toItem } from './calos-view-model';
 import type { CalItem } from './calos-view-model';
 import { Btn } from './calos-atoms';
-import { Select } from '@/components/primitives';
 import { CalosCadenceModal } from './calos-cadence-modal';
 import { GenerationReview } from './calos-generation-review';
 
@@ -305,10 +304,9 @@ export default function CalosCampaignBar({
     <div className="calos-tw" style={{ padding: 10, background: C.raised, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         {campaigns.length > 0 && (
-          <div style={{ width: 190 }}>
-            <Select size="sm" aria-label="Select campaign" value={campaignId} onChange={setCampaignId}
-              options={campaigns.map((c) => ({ value: c._id, label: c.name }))} />
-          </div>
+          <select value={campaignId} onChange={(e) => setCampaignId(e.target.value)} aria-label="Select campaign" className="calos-fr" style={{ height: 34, maxWidth: 190, background: C.surface, color: C.text, border: `1px solid ${C.border}`, borderRadius: 7, padding: '0 10px', fontSize: 12.5, fontWeight: 700, fontFamily: SANS, outline: 'none' }}>
+            {campaigns.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+          </select>
         )}
         <Btn size="sm" onClick={createCampaign} disabled={busy} title="New campaign">{pending === 'create' ? '…' : '+ Campaign'}</Btn>
         <Btn size="sm" onClick={() => setEditorOpen(true)} disabled={busy || !campaignId} title="Edit cadence">Edit cadence</Btn>

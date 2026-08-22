@@ -9,7 +9,6 @@ import {
   ImageIcon,
   Layers3,
 } from "lucide-react";
-import { Select, type SelectOption } from "@/components/primitives";
 import {
   CLICKATRON_LOGO_OVERLAY_PLACEMENTS,
   CLICKATRON_LOGO_OVERLAY_SCALES,
@@ -51,20 +50,6 @@ const LOGO_SCALE_LABELS: Record<(typeof CLICKATRON_LOGO_OVERLAY_SCALES)[number],
   medium: "Medium",
   large: "Large",
 };
-const OUTPUT_OPTIONS: SelectOption[] = [
-  { value: "single_post_visual", label: "Single post" },
-  { value: "carousel", label: "Carousel" },
-];
-const PLATFORM_OPTIONS: SelectOption[] = PLATFORMS.map((platform) => ({ value: platform, label: platform }));
-const ASPECT_RATIO_OPTIONS: SelectOption[] = ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: ratio }));
-const VISUAL_MODE_OPTIONS: SelectOption[] = VISUAL_MODES.map(([value, label]) => ({ value, label }));
-const TEXT_DENSITY_OPTIONS: SelectOption[] = TEXT_DENSITIES.map(([value, label]) => ({ value, label }));
-const LOGO_TREATMENT_OPTIONS: SelectOption[] = [
-  { value: "none", label: "No logo" },
-  { value: "approved_logo", label: "Use accepted logo" },
-];
-const LOGO_PLACEMENT_OPTIONS: SelectOption[] = CLICKATRON_LOGO_OVERLAY_PLACEMENTS.map((placement) => ({ value: placement, label: LOGO_PLACEMENT_LABELS[placement] }));
-const LOGO_SCALE_OPTIONS: SelectOption[] = CLICKATRON_LOGO_OVERLAY_SCALES.map((scale) => ({ value: scale, label: LOGO_SCALE_LABELS[scale] }));
 
 // Chips are a READ-OUT of what the deriver decided from the content signals — not a menu
 // the user picks from. The system reads the atoms and shows its answer; the user glances.
@@ -197,34 +182,59 @@ export function ClickatronHandoffPanel({
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))", gap: 7, marginBottom: 8 }}>
-        <FieldLabel label="Output" as="div">
-          <Select size="sm" aria-label="Output" value={selectedKind} onChange={(v) => setVisualChoice("kind", v)} options={OUTPUT_OPTIONS} placeholder="Choose output" />
+        <FieldLabel label="Output">
+          <select value={selectedKind} onChange={(e) => setVisualChoice("kind", e.target.value)} style={fieldStyle}>
+            <option value="" disabled>Choose output</option>
+            <option value="single_post_visual">Single post</option>
+            <option value="carousel">Carousel</option>
+          </select>
         </FieldLabel>
-        <FieldLabel label="Platform" as="div">
-          <Select size="sm" aria-label="Platform" value={visualChoices.platform || resolvedVisualChoices?.platform || display?.platform || "generic"} onChange={(v) => setVisualChoice("platform", v)} options={PLATFORM_OPTIONS} />
+        <FieldLabel label="Platform">
+          <select value={visualChoices.platform || resolvedVisualChoices?.platform || display?.platform || "generic"} onChange={(e) => setVisualChoice("platform", e.target.value)} style={fieldStyle}>
+            {PLATFORMS.map((platform) => <option key={platform} value={platform}>{platform}</option>)}
+          </select>
         </FieldLabel>
-        <FieldLabel label="Aspect" as="div">
-          <Select size="sm" aria-label="Aspect" value={visualChoices.aspectRatio || resolvedVisualChoices?.aspectRatio || display?.aspectRatio || DEFAULT_CLICKATRON_HANDOFF_ASPECT_RATIO} onChange={(v) => setVisualChoice("aspectRatio", v)} options={ASPECT_RATIO_OPTIONS} />
+        <FieldLabel label="Aspect">
+          <select value={visualChoices.aspectRatio || resolvedVisualChoices?.aspectRatio || display?.aspectRatio || DEFAULT_CLICKATRON_HANDOFF_ASPECT_RATIO} onChange={(e) => setVisualChoice("aspectRatio", e.target.value)} style={fieldStyle}>
+            {ASPECT_RATIOS.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
+          </select>
         </FieldLabel>
-        <FieldLabel label="Visual" as="div">
-          <Select size="sm" aria-label="Visual" value={visualChoices.visualMode || resolvedVisualChoices?.visualMode || "text_forward_graphic"} onChange={(v) => setVisualChoice("visualMode", v)} options={VISUAL_MODE_OPTIONS} />
+        <FieldLabel label="Visual">
+          <select value={visualChoices.visualMode || resolvedVisualChoices?.visualMode || "text_forward_graphic"} onChange={(e) => setVisualChoice("visualMode", e.target.value)} style={fieldStyle}>
+            {VISUAL_MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
         </FieldLabel>
-        <FieldLabel label="Copy" as="div">
-          <Select size="sm" aria-label="Copy" value={visualChoices.textDensity || resolvedVisualChoices?.textDensity || "medium"} onChange={(v) => setVisualChoice("textDensity", v)} options={TEXT_DENSITY_OPTIONS} />
+        <FieldLabel label="Copy">
+          <select value={visualChoices.textDensity || resolvedVisualChoices?.textDensity || "medium"} onChange={(e) => setVisualChoice("textDensity", e.target.value)} style={fieldStyle}>
+            {TEXT_DENSITIES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
         </FieldLabel>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))", gap: 7, marginBottom: 8 }}>
-        <FieldLabel label="Brand mark" as="div">
-          <Select size="sm" aria-label="Brand mark" value={logoTreatment} onChange={(v) => setVisualChoice("logoTreatment", v)} options={LOGO_TREATMENT_OPTIONS} />
+        <FieldLabel label="Brand mark">
+          <select value={logoTreatment} onChange={(e) => setVisualChoice("logoTreatment", e.target.value)} style={fieldStyle}>
+            <option value="none">No logo</option>
+            <option value="approved_logo">Use accepted logo</option>
+          </select>
         </FieldLabel>
         {logoTreatment === "approved_logo" && (
           <>
-            <FieldLabel label="Logo position" as="div">
-              <Select size="sm" aria-label="Logo position" value={visualChoices.logoPlacement || resolvedVisualChoices?.logoPlacement || ""} onChange={(v) => setVisualChoice("logoPlacement", v)} options={LOGO_PLACEMENT_OPTIONS} placeholder="Choose position" />
+            <FieldLabel label="Logo position">
+              <select value={visualChoices.logoPlacement || resolvedVisualChoices?.logoPlacement || ""} onChange={(e) => setVisualChoice("logoPlacement", e.target.value)} style={fieldStyle}>
+                <option value="" disabled>Choose position</option>
+                {CLICKATRON_LOGO_OVERLAY_PLACEMENTS.map((placement) => (
+                  <option key={placement} value={placement}>{LOGO_PLACEMENT_LABELS[placement]}</option>
+                ))}
+              </select>
             </FieldLabel>
-            <FieldLabel label="Logo size" as="div">
-              <Select size="sm" aria-label="Logo size" value={visualChoices.logoScale || resolvedVisualChoices?.logoScale || ""} onChange={(v) => setVisualChoice("logoScale", v)} options={LOGO_SCALE_OPTIONS} placeholder="Choose size" />
+            <FieldLabel label="Logo size">
+              <select value={visualChoices.logoScale || resolvedVisualChoices?.logoScale || ""} onChange={(e) => setVisualChoice("logoScale", e.target.value)} style={fieldStyle}>
+                <option value="" disabled>Choose size</option>
+                {CLICKATRON_LOGO_OVERLAY_SCALES.map((scale) => (
+                  <option key={scale} value={scale}>{LOGO_SCALE_LABELS[scale]}</option>
+                ))}
+              </select>
             </FieldLabel>
           </>
         )}
@@ -397,17 +407,14 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-// `as="div"` hosts composite controls (the Select listbox): a wrapping <label> forwards clicks on
-// non-interactive descendants — the options — to the trigger button and re-opens the list.
-// Those controls carry aria-label instead.
-function FieldLabel({ label, children, as: Tag = "label" }: { label: string; children: ReactNode; as?: "label" | "div" }) {
+function FieldLabel({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <Tag style={{ display: "grid", gap: 4, minWidth: 0 }}>
+    <label style={{ display: "grid", gap: 4, minWidth: 0 }}>
       <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, letterSpacing: "0.06em", textTransform: "uppercase", color: "#5F5E5A" }}>
         {label}
       </span>
       {children}
-    </Tag>
+    </label>
   );
 }
 

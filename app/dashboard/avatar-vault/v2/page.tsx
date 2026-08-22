@@ -1,10 +1,8 @@
-import { redirect } from 'next/navigation';
+import AvatarVaultV2 from '@/components/dashboard/avatar-vault/v2/avatar-vault-v2';
 
-/**
- * Redirect (2026-08 audit, Phase 3): Preview route that was never removed after v2 was swapped into the main route — two URLs served the same screen.
- * Kept as a redirect rather than deleted so old links/bookmarks still land
- * somewhere useful instead of a 404.
- */
-export default function RedirectPage() {
-  redirect('/dashboard/avatar-vault');
+// Avatar Vault v2 preview route. The founder's avatar-vault.jsx redesign, wired to the
+// real avatar types/hook, living alongside the current /dashboard/avatar-vault so nothing
+// regresses while the forge + render planner are built. Swap in once complete + approved.
+export default function AvatarVaultV2PreviewPage() {
+  return <AvatarVaultV2 />;
 }

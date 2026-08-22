@@ -29,11 +29,6 @@
 
   /* ─── Accent ─── */
   --accent-gold: #D4A652;
-  /* Settled 2026-08 (audit P2): the codebase had THREE competing gold-hovers
-     (#C49840 / #E0B86A / #e0b765) and FOUR text-on-gold near-blacks
-     (#241B08 / #11100e / #120f09 / #0B0B0A). One of each, from here on: */
-  --accent-gold-hover: #E0B86A;    /* lighter-on-hover, per the approved v2/studio surfaces */
-  --accent-gold-contrast: #241B08; /* text/icons on a gold fill */
 
   /* ─── Status ─── */
   --status-success: #5EC97E;

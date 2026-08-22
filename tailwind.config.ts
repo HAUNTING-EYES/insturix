@@ -33,12 +33,8 @@ const config: Config = {
           dim: 'var(--text-dim)',
           faint: 'var(--text-faint)',
         },
-        // Accent (DEFAULT keeps every existing bg-gold/text-gold/ring-gold usage)
-        gold: {
-          DEFAULT: 'var(--accent-gold)',
-          hover: 'var(--accent-gold-hover)',
-          contrast: 'var(--accent-gold-contrast)',
-        },
+        // Accent
+        gold: 'var(--accent-gold)',
         // Status
         status: {
           success: 'var(--status-success)',

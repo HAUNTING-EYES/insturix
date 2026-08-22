@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, Search, TrendingUp, X } from "lucide-react";
-import { Select } from "@/components/primitives";
 import type { SelectedTrend } from "@/lib/thinkforge/trends/selected-trend";
 import type { TrendCandidate, TrendPlatform } from "@/lib/thinkforge/trends/trend-evidence";
 import {
@@ -361,7 +360,7 @@ export function TrendWorkflowPanel({ open, sessionId, initialAuthoringRequest, o
               {intakeMode === "discover"
                 ? <label className="text-xs text-[#A7A39A]">Public niche<input value={niche} onChange={(event) => setNiche(event.target.value)} placeholder="e.g. B2B SaaS marketing" className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60" /></label>
                 : <label className="text-xs text-[#A7A39A]">Trend video URL<input value={referenceVideoUrl} onChange={(event) => setReferenceVideoUrl(event.target.value)} placeholder="YouTube or direct public video URL" className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60" /></label>}
-              <div className="text-xs text-[#A7A39A]">Platform<Select aria-label="Platform" value={platform} onChange={(next) => setPlatform(next as typeof platform)} options={PLATFORM_OPTIONS} className="mt-1.5" /></div>
+              <label className="text-xs text-[#A7A39A]">Platform<select value={platform} onChange={(event) => setPlatform(event.target.value as typeof platform)} className="mt-1.5 w-full rounded-lg border border-[#282724] bg-[#0F0F0E] px-3 py-2.5 text-sm text-[#ECE9E1] outline-none focus:border-[#D4A652]/60">{PLATFORM_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
             </div>
             {intakeMode === "discover"
               ? <button type="button" onClick={discover} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-[#D4A652] px-4 py-2.5 text-sm font-semibold text-[#0B0B0A] disabled:cursor-not-allowed disabled:opacity-50">{busy && stage === "discover" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}Find public trends</button>

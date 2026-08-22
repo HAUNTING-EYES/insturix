@@ -32,22 +32,21 @@ interface ScheduleCalendarProps {
   onSelectVideo: (videoUuid: string) => void;
 }
 
-// Values point at design-tokens.css variables (P2.7) so a theme change propagates; keep any NEW key a var(--…) too.
 const C = {
-  bg: "var(--bg-canvas)",
-  raised: "var(--bg-raised)",
-  deeper: "var(--bg-deeper)",
-  border: "var(--border-subtle)",
-  borderL: "var(--border-emphasis)",
-  t1: "var(--text-primary)",
-  t2: "var(--text-secondary)",
-  t3: "var(--text-muted)",
-  t5: "var(--text-faint)",
-  gold: "var(--accent-gold)",
+  bg: "#0B0B0A",
+  raised: "#0F0F0E",
+  deeper: "#131312",
+  border: "#1C1B19",
+  borderL: "#282724",
+  t1: "#ECE9E1",
+  t2: "#B5B2A8",
+  t3: "#7A776E",
+  t5: "#454340",
+  gold: "#D4A652",
   goldBg: "rgba(212,166,82,.08)",
   goldBd: "rgba(212,166,82,.16)",
-  green: "var(--status-success)",
-  blue: "#6AA8D4", // invented platform-ish blue — flagged in the audit, resolved in the platform-color pass
+  green: "#5EC97E",
+  blue: "#6AA8D4",
 } as const;
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {

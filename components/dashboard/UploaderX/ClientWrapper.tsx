@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Select } from "@/components/primitives";
 import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload, type UploaderXPublishReceipt } from "@/hooks/useUploaderXUpload";
 import { isUploaderXFieldSupported } from "@/lib/uploaderx/platform-capabilities";
@@ -13,13 +12,12 @@ import { DURATIONS, STAGGER } from "@/lib/animation/presets";
 import { ScheduleCalendar } from "./ScheduleCalendar";
 
 // ─── Design tokens (Insturix design system) ───────────────────
-// Values point at design-tokens.css variables (P2.7) so a theme change propagates; keep any NEW key a var(--…) too.
 const C = {
-  bg: "var(--bg-canvas)", raised: "var(--bg-raised)", deeper: "var(--bg-deeper)", well: "var(--bg-well)",
-  border: "var(--border-subtle)", borderL: "var(--border-emphasis)",
-  t1: "var(--text-primary)", t2: "var(--text-secondary)", t3: "var(--text-muted)", t4: "var(--text-dim)", t5: "var(--text-faint)",
-  gold: "var(--accent-gold)", goldH: "var(--accent-gold-hover)", goldBg: "rgba(212,166,82,.08)", goldBd: "rgba(212,166,82,.16)",
-  green: "var(--status-success)", red: "var(--status-danger)", purple: "var(--category-purple)", pink: "var(--category-pink)",
+  bg: "#0B0B0A", raised: "#0F0F0E", deeper: "#131312", well: "#1B1A18",
+  border: "#1C1B19", borderL: "#282724",
+  t1: "#ECE9E1", t2: "#B5B2A8", t3: "#7A776E", t4: "#5F5E5A", t5: "#454340",
+  gold: "#D4A652", goldH: "#C49840", goldBg: "rgba(212,166,82,.08)", goldBd: "rgba(212,166,82,.16)",
+  green: "#5EC97E", red: "#D46A5C", purple: "#9088D4", pink: "#D088B4",
 } as const;
 const EASE = "cubic-bezier(.16,1,.3,1)";
 const UNSUPPORTED_CONTROL_TITLE = "Not wired to publishing yet";
@@ -1287,25 +1285,38 @@ export function UploaderXClientWrapper() {
                           return (
                             <>
                               {availableTypes.length > 1 ? (
-                                <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 4, minWidth: 128 }}>
-                                  <Select
-                                    size="sm"
-                                    aria-label={`${p.key} post type`}
-                                    value={currentSelection}
-                                    onChange={(nextVal) => {
-                                      setSelectedPostTypes(prev => ({ ...prev, [p.key]: nextVal }));
-                                      setUserOverriddenPlatforms(prev => {
-                                        const next = new Set(prev);
-                                        next.add(p.key);
-                                        return next;
-                                      });
-                                    }}
-                                    options={availableTypes.map(t => ({
-                                      value: t,
-                                      label: t === "short" ? "Short" : t === "feed_video" ? "Feed Video" : t === "reel" ? "Reel" : "Video",
-                                    }))}
-                                  />
-                                </div>
+                                <select
+                                  value={currentSelection}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    const nextVal = e.target.value;
+                                    setSelectedPostTypes(prev => ({ ...prev, [p.key]: nextVal }));
+                                    setUserOverriddenPlatforms(prev => {
+                                      const next = new Set(prev);
+                                      next.add(p.key);
+                                      return next;
+                                    });
+                                  }}
+                                  style={{
+                                    background: C.deeper,
+                                    border: `1px solid ${armed ? C.goldBd : C.borderL}`,
+                                    borderRadius: 4,
+                                    padding: "2px 6px",
+                                    fontSize: 11,
+                                    color: armed ? C.gold : C.t2,
+                                    fontFamily: "inherit",
+                                    outline: "none",
+                                    cursor: "pointer",
+                                    marginLeft: 4,
+                                  }}
+                                >
+                                  {availableTypes.map(t => (
+                                    <option key={t} value={t}>
+                                      {t === "short" ? "Short" : t === "feed_video" ? "Feed Video" : t === "reel" ? "Reel" : "Video"}
+                                    </option>
+                                  ))}
+                                </select>
                               ) : (
                                 <span style={{ fontSize: 11, color: armed ? C.t2 : C.t4, marginLeft: 4, fontWeight: 500 }}>
                                   ✓ {currentSelection === "video" ? "Video Post" : currentSelection}
@@ -1436,18 +1447,19 @@ export function UploaderXClientWrapper() {
                 onFocus={(e) => { e.currentTarget.style.borderColor = C.gold; }}
                 onBlur={(e) => { e.currentTarget.style.borderColor = C.border; }}
               />
-              <div style={{ minWidth: 130 }}>
-                <Select
-                  aria-label="Privacy"
-                  value={metaPrivacy}
-                  onChange={(v) => setMetaPrivacy(v as "public" | "unlisted" | "private")}
-                  options={[
-                    { value: "public", label: "Public" },
-                    { value: "unlisted", label: "Unlisted" },
-                    { value: "private", label: "Private" },
-                  ]}
-                />
-              </div>
+              <select
+                value={metaPrivacy}
+                onChange={(e) => setMetaPrivacy(e.target.value as "public" | "unlisted" | "private")}
+                style={{
+                  background: C.raised, border: `1px solid ${C.border}`, borderRadius: 7, padding: "10px 14px",
+                  fontSize: 12, color: C.t2, fontFamily: "inherit", outline: "none", cursor: "pointer",
+                  appearance: "none", minWidth: 100,
+                }}
+              >
+                <option value="public">Public</option>
+                <option value="unlisted">Unlisted</option>
+                <option value="private">Private</option>
+              </select>
               <button
                 disabled={!isUploaderXFieldSupported("youtube", "thumbnail")}
                 title={isUploaderXFieldSupported("youtube", "thumbnail") ? "Upload YouTube thumbnail" : UNSUPPORTED_CONTROL_TITLE}
@@ -1520,23 +1532,24 @@ export function UploaderXClientWrapper() {
                 {armedPlatforms.has("youtube") && (
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 500, color: C.t2, marginBottom: 8 }}>YouTube</div>
-                    <div title={isUploaderXFieldSupported("youtube", "categoryId") ? "YouTube category" : UNSUPPORTED_CONTROL_TITLE}>
-                      <Select
-                        size="sm"
-                        aria-label="YouTube category"
-                        value={ytCategory}
-                        disabled={!isUploaderXFieldSupported("youtube", "categoryId")}
-                        onChange={setYtCategory}
-                        options={[
-                          { value: "22", label: "People & Blogs" },
-                          { value: "24", label: "Entertainment" },
-                          { value: "25", label: "News & Politics" },
-                          { value: "26", label: "Howto & Style" },
-                          { value: "27", label: "Education" },
-                          { value: "28", label: "Science & Technology" },
-                        ]}
-                      />
-                    </div>
+                    <select
+                      value={ytCategory}
+                      disabled={!isUploaderXFieldSupported("youtube", "categoryId")}
+                      title={isUploaderXFieldSupported("youtube", "categoryId") ? "YouTube category" : UNSUPPORTED_CONTROL_TITLE}
+                      onChange={(e) => setYtCategory(e.target.value)}
+                      style={{
+                      background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
+                      fontSize: 12, color: C.t2, fontFamily: "inherit", outline: "none", width: "100%",
+                      cursor: isUploaderXFieldSupported("youtube", "categoryId") ? "pointer" : "not-allowed",
+                      opacity: isUploaderXFieldSupported("youtube", "categoryId") ? 1 : 0.55,
+                    }}>
+                      <option value="22">People & Blogs</option>
+                      <option value="24">Entertainment</option>
+                      <option value="25">News & Politics</option>
+                      <option value="26">Howto & Style</option>
+                      <option value="27">Education</option>
+                      <option value="28">Science & Technology</option>
+                    </select>
                   </div>
                 )}
                 {/* Instagram */}
@@ -1569,42 +1582,45 @@ export function UploaderXClientWrapper() {
                       background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
                       fontSize: 12, color: C.t1, fontFamily: "inherit", outline: "none", width: "100%", marginBottom: 6,
                     }} />
-                    <div title={UNSUPPORTED_CONTROL_TITLE}>
-                      <Select
-                        size="sm"
-                        aria-label="Facebook privacy"
-                        value={fbPrivacy}
-                        disabled={!isUploaderXFieldSupported("facebook", "privacy")}
-                        onChange={(v) => setFbPrivacy(v as "everyone" | "friends" | "only_me")}
-                        options={[
-                          { value: "everyone", label: "Public" },
-                          { value: "friends", label: "Friends" },
-                          { value: "only_me", label: "Only Me" },
-                        ]}
-                      />
-                    </div>
+                    <select
+                      value={fbPrivacy}
+                      disabled={!isUploaderXFieldSupported("facebook", "privacy")}
+                      title={UNSUPPORTED_CONTROL_TITLE}
+                      onChange={(e) => setFbPrivacy(e.target.value as "everyone" | "friends" | "only_me")}
+                      style={{
+                      background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
+                      fontSize: 12, color: C.t2, fontFamily: "inherit", outline: "none", width: "100%",
+                      cursor: isUploaderXFieldSupported("facebook", "privacy") ? "pointer" : "not-allowed",
+                      opacity: isUploaderXFieldSupported("facebook", "privacy") ? 1 : 0.55,
+                    }}>
+                      <option value="everyone">Public</option>
+                      <option value="friends">Friends</option>
+                      <option value="only_me">Only Me</option>
+                    </select>
                   </div>
                 )}
                 {/* X */}
                 {armedPlatforms.has("twitter") && (
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 500, color: C.t2, marginBottom: 8 }}>X</div>
-                    <div title={isUploaderXFieldSupported("twitter", "replySettings") ? "Who can reply" : UNSUPPORTED_CONTROL_TITLE}>
-                      <Select
-                        size="sm"
-                        aria-label="Who can reply"
-                        value={xReplySettings}
-                        disabled={!isUploaderXFieldSupported("twitter", "replySettings")}
-                        onChange={(v) => setXReplySettings(v as "everyone" | "following" | "mentionedUsers" | "subscribers" | "verified")}
-                        options={[
-                          { value: "everyone", label: "Everyone can reply" },
-                          { value: "following", label: "Accounts you follow" },
-                          { value: "mentionedUsers", label: "Mentioned accounts" },
-                          { value: "subscribers", label: "Subscribers" },
-                          { value: "verified", label: "Verified accounts" },
-                        ]}
-                      />
-                    </div>
+                    <select
+                      value={xReplySettings}
+                      disabled={!isUploaderXFieldSupported("twitter", "replySettings")}
+                      title={isUploaderXFieldSupported("twitter", "replySettings") ? "Who can reply" : UNSUPPORTED_CONTROL_TITLE}
+                      onChange={(e) => setXReplySettings(e.target.value as "everyone" | "following" | "mentionedUsers" | "subscribers" | "verified")}
+                      style={{
+                        background: C.raised, border: `1px solid ${C.border}`, borderRadius: 5, padding: "8px 12px",
+                        fontSize: 12, color: C.t2, fontFamily: "inherit", outline: "none", width: "100%",
+                        cursor: isUploaderXFieldSupported("twitter", "replySettings") ? "pointer" : "not-allowed",
+                        opacity: isUploaderXFieldSupported("twitter", "replySettings") ? 1 : 0.55,
+                      }}
+                    >
+                      <option value="everyone">Everyone can reply</option>
+                      <option value="following">Accounts you follow</option>
+                      <option value="mentionedUsers">Mentioned accounts</option>
+                      <option value="subscribers">Subscribers</option>
+                      <option value="verified">Verified accounts</option>
+                    </select>
                   </div>
                 )}
                 {/* LinkedIn */}

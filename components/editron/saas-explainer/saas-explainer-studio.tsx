@@ -16,14 +16,14 @@
  * brand chip + step breadcrumb) over numbered bands. Reads like a film treatment that becomes a video. Single gold
  * accent, JetBrains-mono micro-labels, hairline structure — all via design tokens, no inline colors.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Loader2, Sparkles, Film, FileText, Upload, Link2, Wand2, Download,
-  RotateCcw, ArrowRight, Mic, X,
+  RotateCcw, ArrowRight, Mic, X, ChevronDown, Check,
 } from 'lucide-react';
 import { useActiveBrand } from '@/components/dashboard/ActiveBrand/ActiveBrandProvider';
 import { useToast } from '@/hooks/editron/use-toast';
-import { Btn, Mono, Select, inputClass, textareaClass } from '@/components/primitives';
+import { Btn, Mono, inputClass, textareaClass } from '@/components/primitives';
 import { cn } from '@/lib/utils';
 import { VO_VOICES, DEFAULT_VOICE } from '@/lib/editron/saas-explainer/vo-voices';
 import {
@@ -257,7 +257,7 @@ export default function SaasExplainerStudio() {
               {/* Brand + product + audience are the quieter, secondary inputs. */}
               <div className="grid gap-x-5 gap-y-5 border-t border-ds-subtle pt-5 sm:grid-cols-2">
                 <Field label="Brand" hint={activeBrand?.name ? `Colors, logo, and voice from ${activeBrand.name}.` : 'Colors, logo, and voice pull from Brand Vault.'}>
-                  <Select value={activeBrandId ?? ''} onChange={(v) => setActiveBrandId(v || null)} disabled={brandsLoading}
+                  <Dropdown value={activeBrandId ?? ''} onChange={(v) => setActiveBrandId(v || null)} disabled={brandsLoading}
                     placeholder="Select a brand…"
                     options={[{ value: '', label: 'No brand — describe manually' }, ...brands.map((b) => ({ value: b.brandId, label: b.name }))]} />
                 </Field>
@@ -354,7 +354,7 @@ export default function SaasExplainerStudio() {
               <div className="flex items-center gap-2">
                 <Mic size={14} className="shrink-0 text-ds-muted" />
                 <div className="min-w-0 flex-1">
-                  <Select value={voice} onChange={setVoice}
+                  <Dropdown value={voice} onChange={setVoice}
                     options={VO_VOICES.map((v) => ({ value: v.id, label: `${v.label} · ${v.accent}`, sublabel: v.description }))} />
                 </div>
               </div>
@@ -509,6 +509,59 @@ function RefCard({ kicker, title, blurb, children }: { kicker: string; title: st
         <p className="mt-0.5 text-[11.5px] leading-relaxed text-ds-faint">{blurb}</p>
       </div>
       {children}
+    </div>
+  );
+}
+
+/** Token-styled dark dropdown — replaces the native <select> (whose OS option list renders white and
+ *  breaks the dark theme). Warm-dark surfaces, gold-marked selection, outside-click + Esc to close. */
+function Dropdown({ value, onChange, options, placeholder, disabled }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: Array<{ value: string; label: string; sublabel?: string }>;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
+        className={cn('flex h-11 w-full items-center justify-between gap-2 rounded-md border bg-surface-well px-3.5 text-left text-[14px] transition-colors focus-visible:outline-hidden',
+          disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+          open ? 'border-gold' : 'border-ds-subtle hover:border-ds-emphasis')}>
+        <span className={cn('truncate', selected ? 'text-ds-primary' : 'text-ds-dim')}>{selected?.label ?? placeholder ?? 'Select…'}</span>
+        <ChevronDown size={15} className={cn('shrink-0 transition-transform', open ? 'rotate-180 text-gold' : 'text-ds-muted')} />
+      </button>
+      {open && (
+        <div className="absolute inset-x-0 top-[calc(100%+6px)] z-30 max-h-64 overflow-y-auto rounded-lg border border-ds-emphasis bg-surface-raised p-1 shadow-[0_24px_50px_-12px_rgba(0,0,0,0.75)]">
+          {options.map((o) => {
+            const on = o.value === value;
+            return (
+              <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+                className={cn('flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors',
+                  on ? 'bg-gold/10 text-gold' : 'text-ds-secondary hover:bg-surface-well hover:text-ds-primary')}>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px]">{o.label}</span>
+                  {o.sublabel && <span className="mt-0.5 block truncate text-[11px] text-ds-faint">{o.sublabel}</span>}
+                </span>
+                {on && <Check size={14} className="shrink-0 text-gold" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

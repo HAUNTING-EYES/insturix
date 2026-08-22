@@ -17,7 +17,6 @@
 
 import React from "react";
 import { Camera, Clapperboard, Lightbulb, Mic, Plus, Sliders, Square, Trash2 } from "lucide-react";
-import { Select, type SelectOption } from "@/components/primitives";
 import {
   ProductionCapabilityProfileSchema,
   PRODUCTION_CAPABILITY_PROFILE_VERSION,
@@ -56,23 +55,6 @@ const CATEGORY_KINDS: Record<EquipmentCategory, readonly string[]> = {
   audio: ["built-in", "wired-lav", "wireless-lav", "shotgun", "usb", "field-recorder"],
   modifier: ["reflector", "diffusion", "softbox-grid", "flag", "bounce-board", "blackout-curtain"],
   accessory: ["accessory"],
-};
-
-/** Option tables for the shared Select; values double as labels, as the former <option>s did. */
-const toOptions = (values: readonly string[]): SelectOption[] => values.map((value) => ({ value, label: value }));
-const NOISE_FLOOR_OPTIONS = toOptions(NOISE_FLOORS);
-const LIGHT_KIND_OPTIONS = toOptions(["window", "doorway", "skylight"]);
-const LIGHT_DIRECTION_OPTIONS = toOptions(LIGHT_DIRECTIONS);
-const AVAILABILITY_OPTIONS = toOptions(AVAILABILITIES);
-const COST_BASIS_OPTIONS = toOptions(["one-time", "per-shoot"]);
-const MODIFIER_SIZE_OPTIONS = toOptions(["small", "medium", "large", "unknown"]);
-const CATEGORY_KIND_OPTIONS: Record<EquipmentCategory, SelectOption[]> = {
-  camera: toOptions(CATEGORY_KINDS.camera),
-  support: toOptions(CATEGORY_KINDS.support),
-  light: toOptions(CATEGORY_KINDS.light),
-  audio: toOptions(CATEGORY_KINDS.audio),
-  modifier: toOptions(CATEGORY_KINDS.modifier),
-  accessory: toOptions(CATEGORY_KINDS.accessory),
 };
 const CATEGORY_ICON: Record<EquipmentCategory, React.ReactNode> = {
   camera: <Camera className="h-3.5 w-3.5" />,
@@ -450,8 +432,10 @@ function SpaceRow({ space, onChange, onRemove }: { space: DraftSpace; onChange: 
         <Mini label="Depth (m)"><input type="number" min={0} step="0.1" value={space.depth} onChange={(e) => set({ depth: e.target.value })} className={inputCls} aria-label="Depth in meters" /></Mini>
         <Mini label="Height (m)"><input type="number" min={0} step="0.1" value={space.height} onChange={(e) => set({ height: e.target.value })} className={inputCls} aria-label="Height in meters" /></Mini>
         <Mini label="Usable depth (m)"><input type="number" min={0} step="0.1" value={space.usableDepth} onChange={(e) => set({ usableDepth: e.target.value })} className={inputCls} aria-label="Usable depth in meters" /></Mini>
-        <Mini label="Noise floor" as="div">
-          <Select size="sm" value={space.noiseFloor} onChange={(v) => set({ noiseFloor: v as DraftSpace["noiseFloor"] })} options={NOISE_FLOOR_OPTIONS} aria-label="Noise floor" />
+        <Mini label="Noise floor">
+          <select value={space.noiseFloor} onChange={(e) => set({ noiseFloor: e.target.value as DraftSpace["noiseFloor"] })} className={inputCls} aria-label="Noise floor">
+            {NOISE_FLOORS.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
         </Mini>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -468,8 +452,12 @@ function SpaceRow({ space, onChange, onRemove }: { space: DraftSpace; onChange: 
       ))}
       {space.naturalLight.map((n, ni) => (
         <div key={n.id} className="mt-2 flex flex-wrap items-center gap-2">
-          <Select size="sm" className="w-full" value={n.kind} onChange={(v) => set({ naturalLight: space.naturalLight.map((x, xi) => (xi === ni ? { ...x, kind: v as typeof x.kind } : x)) })} options={LIGHT_KIND_OPTIONS} aria-label="Natural light kind" />
-          <Select size="sm" className="w-full" value={n.direction} onChange={(v) => set({ naturalLight: space.naturalLight.map((x, xi) => (xi === ni ? { ...x, direction: v as typeof x.direction } : x)) })} options={LIGHT_DIRECTION_OPTIONS} aria-label="Natural light direction" />
+          <select value={n.kind} onChange={(e) => set({ naturalLight: space.naturalLight.map((x, xi) => (xi === ni ? { ...x, kind: e.target.value as typeof x.kind } : x)) })} className={inputCls} aria-label="Natural light kind">
+            <option value="window">window</option><option value="doorway">doorway</option><option value="skylight">skylight</option>
+          </select>
+          <select value={n.direction} onChange={(e) => set({ naturalLight: space.naturalLight.map((x, xi) => (xi === ni ? { ...x, direction: e.target.value as typeof x.direction } : x)) })} className={inputCls} aria-label="Natural light direction">
+            {LIGHT_DIRECTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
           <Toggle label="Controllable" checked={n.controllable} onChange={(v) => set({ naturalLight: space.naturalLight.map((x, xi) => (xi === ni ? { ...x, controllable: v } : x)) })} title="You can block or dim it (blinds, curtains)" />
           <IconButton onClick={() => set({ naturalLight: space.naturalLight.filter((_, xi) => xi !== ni) })} label="Remove natural light"><Trash2 className="h-3 w-3" /></IconButton>
         </div>
@@ -484,6 +472,7 @@ function EquipmentRow({ item, rentalAllowed, purchaseAllowed, onChange, onRemove
 }) {
   const set = (p: Partial<DraftEquipment>) => onChange({ ...item, ...p });
   const paid = item.availability === "rental-approved" || item.availability === "purchase-approved";
+  const kinds = CATEGORY_KINDS[item.category];
   return (
     <div className="rounded-[7px] border border-[#1C1B19] bg-[#0F0F0E] p-3">
       <div className="mb-2 flex items-center gap-2">
@@ -493,21 +482,27 @@ function EquipmentRow({ item, rentalAllowed, purchaseAllowed, onChange, onRemove
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {item.category !== "accessory" ? (
-          <Mini label="Kind" as="div">
-            <Select size="sm" value={item.kind} onChange={(v) => set({ kind: v })} options={CATEGORY_KIND_OPTIONS[item.category]} aria-label="Equipment kind" />
+          <Mini label="Kind">
+            <select value={item.kind} onChange={(e) => set({ kind: e.target.value })} className={inputCls} aria-label="Equipment kind">
+              {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
+            </select>
           </Mini>
         ) : (
           <Mini label="Kind"><input value={item.kind} onChange={(e) => set({ kind: e.target.value })} placeholder="e.g. clapperboard" className={inputCls} aria-label="Accessory kind" /></Mini>
         )}
-        <Mini label="Availability" as="div">
-          <Select size="sm" value={item.availability} onChange={(v) => set({ availability: v as DraftEquipment["availability"] })} options={AVAILABILITY_OPTIONS} aria-label="Availability" />
+        <Mini label="Availability">
+          <select value={item.availability} onChange={(e) => set({ availability: e.target.value as DraftEquipment["availability"] })} className={inputCls} aria-label="Availability">
+            {AVAILABILITIES.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
         </Mini>
         <Stepper label="Qty" value={item.quantity} min={1} onChange={(n) => set({ quantity: n })} />
         {paid && (
           <>
             <Mini label="Cost"><input type="number" min={0} value={item.cost} onChange={(e) => set({ cost: e.target.value })} className={inputCls} aria-label="Incremental cost" /></Mini>
-            <Mini label="Cost basis" as="div">
-              <Select size="sm" value={item.costBasis} onChange={(v) => set({ costBasis: v as CostBasis })} options={COST_BASIS_OPTIONS} aria-label="Cost basis" />
+            <Mini label="Cost basis">
+              <select value={item.costBasis} onChange={(e) => set({ costBasis: e.target.value as CostBasis })} className={inputCls} aria-label="Cost basis">
+                <option value="one-time">one-time</option><option value="per-shoot">per-shoot</option>
+              </select>
             </Mini>
           </>
         )}
@@ -539,8 +534,10 @@ function EquipmentRow({ item, rentalAllowed, purchaseAllowed, onChange, onRemove
           </>
         )}
         {item.category === "modifier" && (
-          <Mini label="Size" as="div">
-            <Select size="sm" value={item.size} onChange={(v) => set({ size: v as DraftEquipment["size"] })} options={MODIFIER_SIZE_OPTIONS} aria-label="Modifier size" />
+          <Mini label="Size">
+            <select value={item.size} onChange={(e) => set({ size: e.target.value as DraftEquipment["size"] })} className={inputCls} aria-label="Modifier size">
+              <option value="small">small</option><option value="medium">medium</option><option value="large">large</option><option value="unknown">unknown</option>
+            </select>
           </Mini>
         )}
       </div>
@@ -580,15 +577,12 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
     </div>
   );
 }
-// `as="div"` hosts composite controls (the Select listbox): a wrapping <label> forwards clicks on
-// non-interactive descendants — the options — to the trigger button and re-opens the list.
-// Those controls carry aria-label instead.
-function Mini({ label, children, as: Tag = "label" }: { label: string; children: React.ReactNode; as?: "label" | "div" }) {
+function Mini({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <Tag className="block">
+    <label className="block">
       <span className={`mb-1 block ${MONO_LABEL}`}>{label}</span>
       {children}
-    </Tag>
+    </label>
   );
 }
 function Segmented<T extends string>({ options, value, onChange }: { options: readonly T[]; value: T; onChange: (v: T) => void }) {

@@ -24,7 +24,7 @@ const DEMO_LINE: Record<string, string> = {
 const DONE_LINE = 'Ready — a 48-second cut.';
 const TICK_MS = 1300;
 
-export default function AutoEditDemoClient() {
+export default function AutoEditV2PreviewPage() {
   const [stageIndex, setStageIndex] = useState(0);
   const [done, setDone] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);

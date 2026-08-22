@@ -26,6 +26,7 @@ export default function AvatarVaultV2() {
   return (
     <div className="avault" style={{ minHeight: '100vh', background: C.bg, color: C.text, fontFamily: SANS }}>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap');
         .avault *{box-sizing:border-box}
         .av-fr:focus-visible{outline:2px solid ${C.gold};outline-offset:2px}
         .av-ns::-webkit-scrollbar{width:7px;height:7px}.av-ns::-webkit-scrollbar-thumb{background:${C.bs};border-radius:4px}
