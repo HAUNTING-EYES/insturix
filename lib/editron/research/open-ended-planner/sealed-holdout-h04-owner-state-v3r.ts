@@ -5,6 +5,10 @@ import {
   assertSealedHoldoutCohortManifestV3R,
   type SealedHoldoutCohortManifestV3R,
 } from './sealed-holdout-cohort-v3r';
+import {
+  assertSealedHoldoutCohortManifestV3R2,
+  type SealedHoldoutCohortManifestV3R2,
+} from './sealed-holdout-cohort-v3r2';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -20,10 +24,12 @@ export class SealedHoldoutH04OwnerStateV3R {
   private revision = 'R6';
 
   constructor(input: {
-    manifest: Readonly<SealedHoldoutCohortManifestV3R>;
+    manifest: Readonly<SealedHoldoutCohortManifestV3R | SealedHoldoutCohortManifestV3R2>;
     caseId: 'HOLD-04:C1' | 'HOLD-04:C2';
   }) {
-    const manifest = assertSealedHoldoutCohortManifestV3R(input.manifest);
+    const manifest = input.manifest.version === 'EDITRON_OE_SEALED_HOLDOUT_COHORT_V3R_2'
+      ? assertSealedHoldoutCohortManifestV3R2(input.manifest)
+      : assertSealedHoldoutCohortManifestV3R(input.manifest);
     const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
     const publicCase = record(taskCase?.publicCase);
     const project = record(publicCase.project);

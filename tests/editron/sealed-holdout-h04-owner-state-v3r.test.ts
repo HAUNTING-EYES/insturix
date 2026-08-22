@@ -11,6 +11,10 @@ import {
   buildSealedHoldoutCohortManifestV3R,
   SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v3r';
+import {
+  buildSealedHoldoutCohortManifestV3R2,
+  SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2,
+} from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v3r2';
 import { runSealedHoldoutEpisodeV3R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-episode-v3r';
 import { SealedHoldoutH04OwnerStateV3R }
@@ -19,6 +23,15 @@ import { SealedHoldoutH04OwnerStateV3R }
 type JsonRecord = Record<string, unknown>;
 
 describe('sealed HOLD-04 evolving isolated owner state V3R', () => {
+  it('accepts the exact derived V3R2 case without weakening the state owner', async () => {
+    const manifest = await buildManifestV3R2();
+    const owner = new SealedHoldoutH04OwnerStateV3R({ manifest, caseId: 'HOLD-04:C1' });
+    expect(owner.readTimeline({ currentProjectRevision: 'R6' })).toMatchObject({
+      stateReceipt: { projectRevision: 'R6', durationInFrames: 540 },
+      projection: { captionSemanticState: { wordCount: 8, groupCount: 2 } },
+    });
+  });
+
   it('applies the canonical cut and binds the resulting state to the writer revision', async () => {
     const manifest = await buildManifest();
     const owner = new SealedHoldoutH04OwnerStateV3R({
@@ -173,6 +186,13 @@ async function buildManifest() {
   return buildSealedHoldoutCohortManifestV3R({
     contractSourceSha256: await fileSha(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R),
     baseManifest: base,
+  });
+}
+async function buildManifestV3R2() {
+  const baseManifest = await buildManifest();
+  return buildSealedHoldoutCohortManifestV3R2({
+    contractSourceSha256: await fileSha(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2),
+    baseManifest,
   });
 }
 function route() {
