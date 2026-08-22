@@ -168,6 +168,17 @@ operation, passes the existing verifier/sandbox, renders through the claim
 proof and survives blind review. The human-authored V2 fixture remains
 historical mechanics evidence and must not be relabelled as model output.
 
+Commit `1d902f20f` adds the next H03 boundary without claiming that connection
+already exists. The source-synthesis packet contains the V3R2 public target,
+the selected orchestration arguments and the one shared allowlisted
+generated-composition API, but not the human TSX. Accepted source is bound to
+model ID, prompt hash, orchestration hash, source-bundle hash and program hash
+before the canonical verifier. Wrong target arguments, oversized repairs and
+unsafe source fail closed; focused source/verifier checks pass 11/11 with full
+typecheck/lint. Status is `SOURCE_CONTRACT_READY`: the sealed episode, metered
+provider adapter, lossless trace and rendered proof still need to carry and
+verify those exact identities.
+
 ## Corrected-identity progress after this cohort
 
 Commit `bb16d0b96` adds the prerequisite versioned provider-catalog seam. The
