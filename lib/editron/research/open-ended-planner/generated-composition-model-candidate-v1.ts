@@ -16,6 +16,9 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 
+const DEV02_TEMPORAL_RULE_V1 =
+  'The composition has 180 local frames: build 0-107, settled hold 108-144, release 145-179.';
+
 export interface GeneratedCompositionModelRepairV1 {
   repairOrdinal: 1;
   failureStage: 'CONTRACT_VERIFIER' | 'SANDBOX_RENDER' | 'RENDERED_HARD_GATE';
@@ -62,9 +65,18 @@ const API_SURFACE_V1 = deepFreezeV1({
     'All identity arguments must be string literals matching the manifest.',
     'Panel bounds are normalized canvas coordinates, must remain wholly inside [0,1], and cannot be combined with column/row.',
     'Use only declared imports; no network, filesystem, timers, randomness, dates, dynamic imports, or project state.',
-    'The composition has 180 local frames: build 0-107, settled hold 108-144, release 145-179.',
+    DEV02_TEMPORAL_RULE_V1,
     'Source frames are absolute in each slot range, not composition-relative aliases.',
   ],
+});
+
+// One generated-composition language must serve every task-specific source
+// packet. DEV-02's schedule stays in its historical packet, while other task
+// owners receive only the common language and declare their own target timing.
+export const GENERATED_COMPOSITION_MODEL_API_SURFACE_V1 = deepFreezeV1({
+  ...API_SURFACE_V1,
+  runtimeRules: API_SURFACE_V1.runtimeRules
+    .filter((rule) => rule !== DEV02_TEMPORAL_RULE_V1),
 });
 
 export function buildDev02GeneratedCompositionModelPacketV1(input: {
