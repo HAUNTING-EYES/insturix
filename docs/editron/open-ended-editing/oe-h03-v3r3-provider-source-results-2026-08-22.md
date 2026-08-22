@@ -1,7 +1,9 @@
 # HOLD-03 V3R3 provider-source cohort — frozen execution result
 
-Date: 2026-08-22  
-Status: `MODIFY_AND_RERUN_CORRECTED_IDENTITY`  
+Date: 2026-08-22
+
+Status: `MODIFY_AND_RERUN_CORRECTED_IDENTITY`
+
 Authority: research evidence only; no ProjectService read or mutation
 
 ## Executive result
@@ -139,4 +141,3 @@ production editing agent. Stage 2.5 remains `MODIFY_AND_PROCEED_RESEARCH`.
 5. Freeze the interpretation before proceeding to dependency diversity,
    forced native/generated/hybrid comparisons, conflict/rebase/locked-range,
    context-resume, long-form/range planning and blind editor receipts.
-
