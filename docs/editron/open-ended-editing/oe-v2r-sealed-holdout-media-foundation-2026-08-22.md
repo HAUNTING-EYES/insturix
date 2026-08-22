@@ -25,8 +25,33 @@ six-window island, splice that bounded island between unchanged native
 `h03-a` ranges and decode the complete 420-frame hybrid proxy. This is a
 research mechanics/proof pass, not evidence that a model wrote the program,
 not a production security sandbox and not ProjectService mutation.
-Credentialed preflight must be rerun after the CAP-2A/V3R reissue; provider
-inference dispatch remains disabled.
+CAP-2A V4, the V2R2/V2R3 cohort identity and the complete scripted
+zero-inference accounting-plus-proof gate are now current. Credentialed
+zero-inference preflight must still be rerun against that exact identity;
+provider inference dispatch remains disabled.
+
+## Current execution checkpoint
+
+- CAP-2A V4 commits: `7ef8f043d`, `f0b1dd829`
+- Stable CAP source commit: `373425480`
+- CAP source snapshot SHA-256:
+  `c68e1a33469c1ec5093bfa22b0e7cdf3e905622c4a8a637a6faee5014d456572`
+- CAP manifest SHA-256:
+  `a24b394b2b69609bbeff4fed2c843cdf5915299f77e9f22720ce69ac721aaf24`
+- Current cohort/identity commit: `1a30d919d`
+- Cohort contract/identity: `EDITRON_OE_SEALED_HOLDOUT_COHORT_V2R_2` /
+  `EDITRON_OE_SEALED_HOLDOUT_COHORT_IDENTITY_V2R_3`
+- Cohort manifest SHA-256:
+  `5a7ceece49f33378b8f13876e5e386e0ced41f642468d42671a67bcd35bdedaa`
+- Complete zero-inference gate commit: `051f7be27`
+- Complete-gate regression: 34/34 across ten test files
+
+The complete gate uses deterministic scripted provider turns, explicitly
+denies provider context egress, makes zero network/inference calls and mutates
+no real project. Its authority string is
+`SCRIPTED_RESEARCH_HARNESS_NO_PROVIDER_OR_PROJECT_AUTHORITY`. It is valid
+harness integration evidence only, not editing-model performance or provider
+dispatch evidence.
 
 ## Bound identity
 
@@ -274,61 +299,21 @@ cumulative provider spend, model output, real execution or rendered proof.
 
 ## What remains before inference calls
 
-1. Exercise the new fail-closed V2R-3 runtime budget path in a complete
-   zero-inference simulation with the real per-route token counters and an
-   exact case/manifest/route/spend authorization. Commit `ddfc04b78` contains
-   the four-file runtime guard slice. The guard now binds per-case nodes,
-   candidates and cumulative output; dynamically lowers later-turn output;
-   pre-authorizes input and worst-case spend; prices OpenAI cache writes and
-   Gemini thought tokens; and rejects absent, inconsistent or over-bound usage.
-   Commit `4d6230a04` adds the separately versioned budgeted trace/evaluator
-   path, binds both resource receipts to the V2R-3 context, and keeps resource
-   guard stops distinct from model/editing failure. Forged terminal/accounting
-   bindings fail closed. The combined current checks pass 17/17 and
-   typecheck/focused lint pass. This is `IMPLEMENTED_NOT_DISPATCH_PROVEN`: the
-   historical V2R-2/V1 paths remain unchanged, and no sealed inference call has
-   used V2R-3 yet. Commit `94de011ae` now supplies the fail-closed route layer:
-   official dated prices, exact route/approval/request binding, local Luna/Terra
-   input estimation, authorized Google `countTokens` context egress, price
-   expiry and a no-secret/no-inference receipt. Its focused checks pass 3/3.
-   This closes the standalone route-binding gap, not the complete-episode gate.
-2. Connect the remaining claim-appropriate real native/generated proof
-   adapters. Commits `3e22af490`, `81eeb933a` and `82f412bbb` close bounded
-   research claims for HOLD-01, HOLD-02 and HOLD-04 respectively, while commit
-   `83405595b` closes only the research no-edit family for HOLD-06/07/08 by
-   recomputing hidden evaluation and proving no successful edit/state effect.
-   It explicitly does not claim real ProjectService byte equality. The current
-   historical operation-log clone alone remains insufficient for visual,
-   audible or semantic PASS. The historical zero-inference owner diagnostic found 38
-   clipped frames at 360x640 and no authored-layout transform. Commit
-   `0404a253f` repairs those owner defects and passes 80/80 focused tests.
-   Commit `8d1afc89f` binds the trace-selected `reframe_project`, writer-issued
-   research revision, E1/E2 and sealed media hash; it decodes all 450 source
-   frames and all 450 rendered output frames. The output is a fixed-30-fps
-   360x640 H.264 research proxy with no audio stream, and the logo is a
-   symbolic proof marker rather than the real asset. Static-centre and
-   changed-byte negatives fail closed.
-   The live chat caller supplies no canonical authored-layout evidence and its
-   whole-project save/audit path is not ProjectService receipt proof.
-   Commits `4c5b5354b` and `625b36478` close the bounded HOLD-03 mechanics
-   claim. The proof accepts only the sealed generated-composition operation,
-   E1/E2/E3 and owned `h03-a`/`h03-b`; compiles a hash-bound human-authored
-   program against the allowlisted API; renders six asymmetric source panels,
-   centered title and measured entry/exit motion; and concatenates native
-   `h03-a[0,90)`, the local island `[0,180)`, and native
-   `h03-a[270,420)`. Decoded samples bind frame 270 back to source frame 270
-   with negligible codec error, panel/title geometry has zero intersection,
-   and adding `h03-ref` to render inputs fails closed. It does not prove model
-   synthesis, real ProjectService insertion/update, browser/product-renderer
-   parity, a production sandbox, mixed rates or general composition quality.
-3. Run the combined zero-inference complete-episode budget/proof simulation
-   and keep dispatch disabled unless both the V2R-3 resource receipt and the
-   selected proof adapters pass without an unresolved reservation or usage
-   gap.
-4. Only then may a separately authorized sealed cohort make inference calls.
-   CAP-2A V3 remains an immutable historical census artifact. The HOLD-05 and
-   HOLD-03 bounded sources are now stable at the recorded commits, so reissue
-   current truth now and bind the new cohort identity before any dispatch.
+1. Run the credentialed zero-inference request/token/model-identity preflight
+   against the exact CAP-2A V4 and V2R2/V2R3 cohort hashes above. Persist no
+   secret, authorize zero inference, record Google `countTokens` context egress
+   and reject any source, manifest, route, price or request drift.
+2. If and only if that preflight passes, issue a separate paid-dispatch
+   authorization bound to the exact manifest, cases, routes, token ceilings,
+   spend ceiling and expiry. A historical approval or preflight receipt may
+   not authorize the current cohort.
+3. Execute the frozen provider cohort and keep `RAW_EXECUTED`,
+   `VALID_EVIDENCE`, provider/harness failure and production certification
+   separate. Then complete the broader Stage 2.5 generalisation programme:
+   dependency diversity, forced native/generated/hybrid alternatives, stale
+   user edits and range conflict/rebase/locks, context compaction/resume,
+   long-form range planning, and blind editor quality/correction-time/latency/
+   cost receipts before a frozen `GO`, `MODIFY` or `NO-GO` decision.
 
 ## Verification at issuance
 
@@ -351,6 +336,12 @@ cumulative provider spend, model output, real execution or rendered proof.
 - Generated-composition plus HOLD-01/02/03/04/05/no-edit regression: 44/44
   passed; HOLD-03's direct proof and reference-smuggling negative passed 2/2;
   full typecheck and repository ESLint passed.
+- Current CAP-2A V4/cohort identity checks: CAP V4 binds 221 source paths,
+  11 observations and 475 identifiers; the reissued sealed-cohort suite passes
+  23/23 with adversarial stale-CAP rejection.
+- Complete scripted zero-inference accounting/episode/evaluator/proof
+  regression: 34/34 across ten test files; zero external network/inference
+  calls and zero real-project mutations.
 - Credentialed initial-request preflight and combined sealed checks: 22/22
   passed; 96/96 captures verified with zero inference calls.
 - `npx tsc --noEmit`: passed.
