@@ -13,12 +13,22 @@ import {
   type SealedHoldoutCohortManifestV3R,
 } from './sealed-holdout-cohort-v3r';
 import {
+  assertSealedHoldoutCohortManifestV3R2,
+  type SealedHoldoutCohortManifestV3R2,
+} from './sealed-holdout-cohort-v3r2';
+import {
+  assertSealedH03ConnectedEpisodeReceiptV3R2,
+  type SealedH03ConnectedEpisodeReceiptV3R2,
+} from './sealed-holdout-episode-v3r2';
+import {
   assertBudgetedSealedHoldoutSelectedOperationTraceV2R,
   assertSealedHoldoutSelectedOperationTraceV2R,
   assertSealedHoldoutSelectedOperationTraceV3R,
+  assertSealedHoldoutSelectedOperationTraceV3R2,
   type BudgetedSealedHoldoutSelectedOperationTraceV2R,
   type SealedHoldoutSelectedOperationTraceV2R,
   type SealedHoldoutSelectedOperationTraceV3R,
+  type SealedHoldoutSelectedOperationTraceV3R2,
   type SealedHoldoutTraceNodeV2R,
 } from './sealed-holdout-trace-v2r';
 
@@ -32,6 +42,8 @@ export const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_1' as const;
 export const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2 =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_2_H04_STATE' as const;
+export const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R3 =
+  'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_3_H03_SOURCE' as const;
 
 type SealedHoldoutEvaluationAssessmentV2R = 'PASS' | 'FAIL' | 'READY_FOR_PROOF'
   | 'NOT_EVALUATED_PROVIDER_INFRASTRUCTURE'
@@ -60,6 +72,13 @@ export type SealedHoldoutEvaluationReceiptV3R = Readonly<
 export type SealedHoldoutEvaluationReceiptV3R2 = Readonly<
   Omit<SealedHoldoutEvaluationReceiptV2R, 'version'> & {
     version: typeof SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2;
+  }
+>;
+
+export type SealedHoldoutEvaluationReceiptV3R3 = Readonly<
+  Omit<SealedHoldoutEvaluationReceiptV2R, 'version'> & {
+    version: typeof SEALED_HOLDOUT_EVALUATOR_VERSION_V3R3;
+    connectedEpisodeReceiptSha256: string;
   }
 >;
 
@@ -146,6 +165,43 @@ export function evaluateSealedHoldoutTraceV3R2(input: {
   return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
 }
 
+export function evaluateSealedHoldoutH03TraceV3R3(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  caseId: 'HOLD-03:C1' | 'HOLD-03:C2';
+  trace: Readonly<SealedHoldoutSelectedOperationTraceV3R2>;
+  connectedEpisode: Readonly<SealedH03ConnectedEpisodeReceiptV3R2>;
+}): Readonly<SealedHoldoutEvaluationReceiptV3R3> {
+  const manifest = assertSealedHoldoutCohortManifestV3R2(input.manifest);
+  const trace = assertSealedHoldoutSelectedOperationTraceV3R2(input.trace);
+  const connected = assertSealedH03ConnectedEpisodeReceiptV3R2(input.connectedEpisode);
+  const evaluated = evaluateTrace({
+    manifest,
+    caseId: input.caseId,
+    trace,
+    evaluatorVersion: SEALED_HOLDOUT_EVALUATOR_VERSION_V3R3,
+    structuralPolicy: 'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V3_H03_MODEL_SOURCE',
+    resourceGuardBound: false,
+    requirePostMutationStateRead: false,
+  });
+  const diagnostics = [...new Set([
+    ...evaluated.diagnostics,
+    ...h03SourceLineageDiagnostics(manifest, trace, connected, input.caseId),
+  ])].sort(compareUtf16);
+  const ready = evaluated.assessment === 'READY_FOR_PROOF'
+    && evaluated.executionForm === 'GENERATED_COMPOSITION'
+    && diagnostics.length === 0;
+  const material = {
+    version: SEALED_HOLDOUT_EVALUATOR_VERSION_V3R3,
+    authority: 'HIDDEN_POST_EPISODE_EVALUATOR_NO_MODEL_CONTEXT_NO_PROJECT_MUTATION' as const,
+    ...evaluated,
+    diagnostics,
+    assessment: ready ? 'READY_FOR_PROOF' as const : 'FAIL' as const,
+    proofRequired: ready,
+    connectedEpisodeReceiptSha256: connected.receiptSha256,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
 export function evaluateBudgetedSealedHoldoutTraceV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
   caseId: string;
@@ -173,10 +229,12 @@ export function evaluateBudgetedSealedHoldoutTraceV2R(input: {
 }
 
 function evaluateTrace(input: Readonly<{
-  manifest: Readonly<SealedHoldoutCohortManifestV2R | SealedHoldoutCohortManifestV3R>;
+  manifest: Readonly<SealedHoldoutCohortManifestV2R | SealedHoldoutCohortManifestV3R
+    | SealedHoldoutCohortManifestV3R2>;
   caseId: string;
   trace: Readonly<SealedHoldoutSelectedOperationTraceV2R
     | SealedHoldoutSelectedOperationTraceV3R
+    | SealedHoldoutSelectedOperationTraceV3R2
     | BudgetedSealedHoldoutSelectedOperationTraceV2R>;
   evaluatorVersion: string;
   structuralPolicy: string;
@@ -326,6 +384,50 @@ function structuralDiagnostics(
   } else if (taskId === 'HOLD-05') {
     if (!ids.includes('find_visual_moment')) diagnostics.push('EVAL_H05_SPATIAL_RETRIEVAL_MISSING');
     if (!ids.includes('reframe_project')) diagnostics.push('EVAL_H05_REFRAME_MISSING');
+  }
+  return diagnostics;
+}
+
+function h03SourceLineageDiagnostics(
+  manifest: Readonly<SealedHoldoutCohortManifestV3R2>,
+  trace: Readonly<SealedHoldoutSelectedOperationTraceV3R2>,
+  connected: Readonly<SealedH03ConnectedEpisodeReceiptV3R2>,
+  caseId: string,
+): string[] {
+  const diagnostics: string[] = [];
+  const generated = trace.nodes.filter(({ executionDisposition, operatorKind }) =>
+    executionDisposition === 'OK' && operatorKind === 'GENERATED_COMPOSITION');
+  const accepted = connected.generatedCandidate;
+  if (connected.caseId !== caseId || connected.manifestSha256 !== manifest.manifestSha256
+    || connected.providerEpisode.receiptSha256 !== trace.providerEpisodeReceiptSha256
+    || connected.disposition !== 'SOURCE_CONTRACT_READY_FOR_RENDERED_PROOF') {
+    diagnostics.push('EVAL_H03_CONNECTED_EPISODE_BINDING_DRIFT');
+  }
+  if (generated.length !== 1 || generated[0].selectedOperatorId !== 'generated_composition_program') {
+    diagnostics.push('EVAL_H03_VERIFIED_GENERATED_NODE_MISSING');
+    return diagnostics;
+  }
+  if (!accepted) {
+    diagnostics.push('EVAL_H03_ACCEPTED_MODEL_SOURCE_MISSING');
+    return diagnostics;
+  }
+  const generator = accepted.candidate.program.generator;
+  const expectedBinding = {
+    candidateOrdinal: accepted.candidateOrdinal,
+    sourceContractStatus: 'CONTRACT_VERIFIED',
+    programHash: accepted.verification.programHash,
+    sourceBundleHash: accepted.verification.sourceBundleHash,
+    modelId: generator.modelId,
+    promptHash: generator.promptHash,
+    orchestratorSpecSha256: accepted.orchestratorArgumentsSha256,
+    ownerAuthorizationOutputSha256: accepted.ownerAuthorizationOutputSha256,
+    generationReceiptSha256: accepted.generationReceiptSha256,
+    renderStatus: 'READY_FOR_BOUNDED_PROXY_RENDER',
+    projectMutation: 'NONE',
+  };
+  if (hashCanonicalJsonV1(generated[0].generatedSourceBinding)
+    !== hashCanonicalJsonV1(expectedBinding)) {
+    diagnostics.push('EVAL_H03_MODEL_SOURCE_BINDING_DRIFT');
   }
   return diagnostics;
 }

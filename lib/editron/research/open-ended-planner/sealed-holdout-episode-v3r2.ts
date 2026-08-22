@@ -1,6 +1,7 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
 import {
   isProviderNativeProofGateEligibleV2R,
+  PROVIDER_NATIVE_EPISODE_VERSION_V2R,
   runProviderNativeToolEpisodeV2R,
   type ProviderNativeEpisodeReceiptV2R,
   type ProviderNativeInvokeResponseV2R,
@@ -26,6 +27,8 @@ import {
   buildSealedHoldoutEpisodeContextFromManifestV2R,
   SEALED_HOLDOUT_FINISH_SCHEMA_V2R,
 } from './sealed-holdout-episode-v2r';
+import { verifyGeneratedCompositionProgramV1 }
+  from './generated-composition-program-verifier-v1';
 import {
   executeSealedH03ModelSourceV3R2,
   type SealedH03AcceptedSourceV3R2,
@@ -42,6 +45,8 @@ export const SEALED_HOLDOUT_EPISODE_VERSION_V3R2 =
 export interface SealedH03ConnectedEpisodeReceiptV3R2 {
   version: typeof SEALED_HOLDOUT_EPISODE_VERSION_V3R2;
   authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION';
+  caseId: 'HOLD-03:C1' | 'HOLD-03:C2';
+  manifestSha256: string;
   providerEpisode: Readonly<ProviderNativeEpisodeReceiptV2R>;
   ownerSnapshot: Readonly<JsonRecord>;
   generatedCandidate: Readonly<SealedH03AcceptedSourceV3R2> | null;
@@ -141,6 +146,8 @@ export async function runSealedHoldoutH03ConnectedEpisodeV3R2(input: {
   const material = {
     version: SEALED_HOLDOUT_EPISODE_VERSION_V3R2,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
+    caseId: input.caseId,
+    manifestSha256: manifest.manifestSha256,
     providerEpisode,
     ownerSnapshot,
     generatedCandidate,
@@ -150,6 +157,45 @@ export async function runSealedHoldoutH03ConnectedEpisodeV3R2(input: {
     stateEffects: [] as const,
   };
   return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
+export function assertSealedH03ConnectedEpisodeReceiptV3R2(
+  value: unknown,
+): Readonly<SealedH03ConnectedEpisodeReceiptV3R2> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('SEALED_H03_CONNECTED_RECEIPT_MISSING');
+  }
+  const receipt = value as SealedH03ConnectedEpisodeReceiptV3R2;
+  const { receiptSha256, ...material } = receipt;
+  const episode = receipt.providerEpisode;
+  const { receiptSha256: episodeSha256, ...episodeMaterial } = episode;
+  const accepted = receipt.generatedCandidate;
+  if (receipt.version !== SEALED_HOLDOUT_EPISODE_VERSION_V3R2
+    || receipt.authority !== 'RESEARCH_ONLY_NO_PROJECT_MUTATION'
+    || !['HOLD-03:C1', 'HOLD-03:C2'].includes(receipt.caseId)
+    || !isSha(receipt.manifestSha256)
+    || receiptSha256 !== hashCanonicalJsonV1(material)
+    || receipt.stateEffects.length
+    || episode.receiptVersion !== PROVIDER_NATIVE_EPISODE_VERSION_V2R
+    || episode.authority !== 'RESEARCH_ONLY_NO_PROJECT_MUTATION'
+    || episode.transcriptSha256 !== hashCanonicalJsonV1(episode.turns)
+    || episodeSha256 !== hashCanonicalJsonV1(episodeMaterial)
+    || episode.stateEffects.length) {
+    throw new Error('SEALED_H03_CONNECTED_RECEIPT_DRIFT');
+  }
+  if (accepted) {
+    const verification = verifyGeneratedCompositionProgramV1(accepted.candidate);
+    if (verification.disposition !== 'CONTRACT_PASS'
+      || hashCanonicalJsonV1(verification) !== hashCanonicalJsonV1(accepted.verification)
+      || accepted.generationReceiptSha256
+        !== hashCanonicalJsonV1(accepted.generationReceipt)
+      || !isSha(accepted.orchestratorArgumentsSha256)
+      || !isSha(accepted.ownerAuthorizationOutputSha256)
+      || accepted.candidate.program.generator.kind !== 'MODEL_GENERATED') {
+      throw new Error('SEALED_H03_CONNECTED_SOURCE_RECEIPT_DRIFT');
+    }
+  }
+  return deepFreezeV1(receipt);
 }
 
 function sourceHashes(publicCase: Readonly<JsonRecord>): Readonly<{
@@ -181,6 +227,7 @@ function duplicateGenerationFailure() {
     evidenceIds: [] as const,
   });
 }
+function isSha(value: string): boolean { return /^[a-f0-9]{64}$/.test(value); }
 function isArtifactSha(value: string): boolean { return /^sha256:[a-f0-9]{64}$/.test(value); }
 function sameSet(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && new Set(left).size === left.length

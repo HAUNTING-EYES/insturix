@@ -121,11 +121,13 @@ export async function executeSealedH03ModelSourceV3R2(input: {
           output: {
             codeBundle: {
               status: 'CONTRACT_VERIFIED',
+              candidateOrdinal,
               programHash: verification.programHash,
               sourceBundleHash: verification.sourceBundleHash,
               modelId: generated.modelId,
               promptHash: generated.promptHash,
               orchestratorSpecSha256,
+              ownerAuthorizationOutputSha256: input.ownerAuthorizationOutputSha256,
               generationReceiptSha256,
             },
             renderContract: {

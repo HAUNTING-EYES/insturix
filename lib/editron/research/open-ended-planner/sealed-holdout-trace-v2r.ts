@@ -18,8 +18,14 @@ import {
   assertSealedHoldoutCohortManifestV3R,
   type SealedHoldoutCohortManifestV3R,
 } from './sealed-holdout-cohort-v3r';
+import {
+  assertSealedHoldoutCohortManifestV3R2,
+  type SealedHoldoutCohortManifestV3R2,
+} from './sealed-holdout-cohort-v3r2';
 import { SEALED_HOLDOUT_EPISODE_VERSION_V3R }
   from './sealed-holdout-episode-v3r';
+import { SEALED_HOLDOUT_EPISODE_VERSION_V3R2 }
+  from './sealed-holdout-episode-v3r2';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -29,6 +35,8 @@ export const BUDGETED_SEALED_HOLDOUT_TRACE_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_SELECTED_OPERATION_TRACE_V2R_2' as const;
 export const SEALED_HOLDOUT_TRACE_VERSION_V3R =
   'EDITRON_OE_SEALED_HOLDOUT_SELECTED_OPERATION_TRACE_V3R_1' as const;
+export const SEALED_HOLDOUT_TRACE_VERSION_V3R2 =
+  'EDITRON_OE_SEALED_HOLDOUT_SELECTED_OPERATION_TRACE_V3R_2_H03_SOURCE' as const;
 
 export interface SealedHoldoutTraceNodeV2R {
   nodeId: string;
@@ -43,6 +51,7 @@ export interface SealedHoldoutTraceNodeV2R {
   researchCloneMutation: boolean;
   argumentSha256: string;
   outputSha256: string;
+  generatedSourceBinding?: Readonly<JsonRecord>;
   nodeSha256: string;
 }
 
@@ -67,6 +76,12 @@ export interface SealedHoldoutSelectedOperationTraceV2R {
 export type SealedHoldoutSelectedOperationTraceV3R = Readonly<
   Omit<SealedHoldoutSelectedOperationTraceV2R, 'version'> & {
     version: typeof SEALED_HOLDOUT_TRACE_VERSION_V3R;
+  }
+>;
+
+export type SealedHoldoutSelectedOperationTraceV3R2 = Readonly<
+  Omit<SealedHoldoutSelectedOperationTraceV2R, 'version'> & {
+    version: typeof SEALED_HOLDOUT_TRACE_VERSION_V3R2;
   }
 >;
 
@@ -155,6 +170,43 @@ export function buildSealedHoldoutSelectedOperationTraceV3R(input: {
   return deepFreezeV1({ ...material, artifactSha256: hashCanonicalJsonV1(material) });
 }
 
+export function buildSealedHoldoutSelectedOperationTraceV3R2(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  caseId: string;
+  providerEpisode: Readonly<ProviderNativeEpisodeReceiptV2R>;
+}): Readonly<SealedHoldoutSelectedOperationTraceV3R2> {
+  const manifest = assertSealedHoldoutCohortManifestV3R2(input.manifest);
+  const context = buildSealedHoldoutEpisodeContextFromManifestV2R({
+    manifest,
+    caseId: input.caseId,
+    episodeVersion: SEALED_HOLDOUT_EPISODE_VERSION_V3R2,
+  });
+  const { nodes, sortedDiagnostics } = projectProviderEpisode(
+    input.providerEpisode,
+    context,
+    SEALED_HOLDOUT_OPERATOR_CATALOG_V3R,
+    { includeGeneratedSourceBinding: true },
+  );
+  const traceSha256 = hashCanonicalJsonV1(nodes);
+  const material = {
+    version: SEALED_HOLDOUT_TRACE_VERSION_V3R2,
+    authority: 'LOSSLESS_MODEL_CALL_PROJECTION_NO_CREATIVE_LOWERING_NO_PROJECT_MUTATION' as const,
+    caseId: input.caseId,
+    episodeId: input.providerEpisode.episodeId,
+    contextSha256: input.providerEpisode.contextSha256,
+    providerEpisodeReceiptSha256: input.providerEpisode.receiptSha256,
+    route: input.providerEpisode.route as unknown as JsonRecord,
+    terminalDisposition: input.providerEpisode.terminal.disposition,
+    nodes,
+    researchCloneMutationCount: nodes.filter(({ researchCloneMutation }) => researchCloneMutation).length,
+    assessment: sortedDiagnostics.length ? 'FAIL' as const : 'PASS' as const,
+    diagnostics: sortedDiagnostics,
+    stateEffects: [] as const,
+    traceSha256,
+  };
+  return deepFreezeV1({ ...material, artifactSha256: hashCanonicalJsonV1(material) });
+}
+
 export function buildBudgetedSealedHoldoutSelectedOperationTraceV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
   caseId: string;
@@ -206,6 +258,7 @@ function projectProviderEpisode(
   providerEpisode: Readonly<ProviderNativeEpisodeReceiptV2R>,
   context: Readonly<JsonRecord>,
   operatorCatalog: Readonly<JsonRecord>,
+  options?: Readonly<{ includeGeneratedSourceBinding: boolean }>,
 ): Readonly<{
   nodes: readonly Readonly<SealedHoldoutTraceNodeV2R>[];
   sortedDiagnostics: readonly string[];
@@ -236,6 +289,16 @@ function projectProviderEpisode(
     if (researchCloneMutation && !writerIssuedProjectRevision) {
       diagnostics.push(`TRACE_WRITER_REVISION_MISSING:${selectedOperatorId}`);
     }
+    if (options?.includeGeneratedSourceBinding
+      && operatorKind === 'GENERATED_COMPOSITION'
+      && containsRawGeneratedSource(output)) {
+      diagnostics.push('TRACE_GENERATED_SOURCE_LEAKED_TO_PROVIDER_EPISODE');
+    }
+    const generatedSourceBinding = options?.includeGeneratedSourceBinding
+      && operatorKind === 'GENERATED_COMPOSITION'
+      && executionDisposition === 'OK'
+      ? projectGeneratedSourceBinding(output)
+      : null;
     const nodeMaterial = {
       nodeId: `turn-${number(turn.turn) || index + 1}`,
       turn: number(turn.turn) || index + 1,
@@ -249,6 +312,7 @@ function projectProviderEpisode(
       researchCloneMutation,
       argumentSha256: hashCanonicalJsonV1(record(turn.normalizedArguments)),
       outputSha256: hashCanonicalJsonV1(output),
+      ...(generatedSourceBinding ? { generatedSourceBinding } : {}),
     };
     return [{ ...nodeMaterial, nodeSha256: hashCanonicalJsonV1(nodeMaterial) }];
   });
@@ -288,6 +352,20 @@ export function assertSealedHoldoutSelectedOperationTraceV3R(
   return deepFreezeV1(candidate);
 }
 
+export function assertSealedHoldoutSelectedOperationTraceV3R2(
+  value: unknown,
+): Readonly<SealedHoldoutSelectedOperationTraceV3R2> {
+  if (!isRecord(value)) fail('SEALED_V3R2_TRACE_MISSING');
+  const candidate = value as unknown as SealedHoldoutSelectedOperationTraceV3R2;
+  const { artifactSha256, ...material } = candidate;
+  if (candidate.version !== SEALED_HOLDOUT_TRACE_VERSION_V3R2
+    || candidate.authority !== 'LOSSLESS_MODEL_CALL_PROJECTION_NO_CREATIVE_LOWERING_NO_PROJECT_MUTATION'
+    || candidate.traceSha256 !== hashCanonicalJsonV1(candidate.nodes)
+    || artifactSha256 !== hashCanonicalJsonV1(material)
+    || candidate.stateEffects.length) fail('SEALED_V3R2_TRACE_DRIFT');
+  return deepFreezeV1(candidate);
+}
+
 export function assertBudgetedSealedHoldoutSelectedOperationTraceV2R(
   value: unknown,
 ): Readonly<BudgetedSealedHoldoutSelectedOperationTraceV2R> {
@@ -305,6 +383,31 @@ export function assertBudgetedSealedHoldoutSelectedOperationTraceV2R(
 }
 
 function sameArray(left: readonly string[], right: readonly string[]): boolean { return left.length === right.length && left.every((entry, index) => entry === right[index]); }
+function projectGeneratedSourceBinding(output: Readonly<JsonRecord>): Readonly<JsonRecord> {
+  const code = record(output.codeBundle);
+  const render = record(output.renderContract);
+  return {
+    candidateOrdinal: code.candidateOrdinal,
+    sourceContractStatus: code.status,
+    programHash: code.programHash,
+    sourceBundleHash: code.sourceBundleHash,
+    modelId: code.modelId,
+    promptHash: code.promptHash,
+    orchestratorSpecSha256: code.orchestratorSpecSha256,
+    ownerAuthorizationOutputSha256: code.ownerAuthorizationOutputSha256,
+    generationReceiptSha256: code.generationReceiptSha256,
+    renderStatus: render.status,
+    projectMutation: render.projectMutation,
+  };
+}
+function containsRawGeneratedSource(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsRawGeneratedSource);
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([key, child]) => (
+    ['source', 'sourceCode', 'tsx'].includes(key)
+      && typeof child === 'string' && Boolean(child.trim())
+  ) || containsRawGeneratedSource(child));
+}
 function fail(code: string): never { throw new Error(code); }
 function isRecord(value: unknown): value is JsonRecord { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
 function record(value: unknown): JsonRecord { return isRecord(value) ? value : {}; }
