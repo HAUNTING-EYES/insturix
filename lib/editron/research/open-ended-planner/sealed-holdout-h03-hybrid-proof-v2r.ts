@@ -41,7 +41,7 @@ export interface SealedHoldoutH03HybridProofReceiptV2R {
   caseId: 'HOLD-03:C1'; taskId: 'HOLD-03'; manifestSha256: string;
   publicCaseSha256: string; traceArtifactSha256: string; evaluationReceiptSha256: string;
   executionBoundary: Readonly<{
-    modelSelectedForm: 'GENERATED_COMPOSITION';
+    selectedOperationForm: 'GENERATED_COMPOSITION';
     projectRangeForm: 'HYBRID_NATIVE_SURROUND_GENERATED_ISLAND';
     generatedProgramSource: 'HUMAN_AUTHORED_FIXTURE_NOT_MODEL_OUTPUT';
     sandboxStatus: 'TRUSTED_LOCAL_PROCESS_NOT_PRODUCTION_SECURITY_SANDBOX';
@@ -164,7 +164,7 @@ export async function proveSealedHoldoutH03HybridOutcomeV2R(input: {
     traceArtifactSha256: bound.trace.artifactSha256,
     evaluationReceiptSha256: bound.evaluation.receiptSha256,
     executionBoundary: {
-      modelSelectedForm: 'GENERATED_COMPOSITION' as const,
+      selectedOperationForm: 'GENERATED_COMPOSITION' as const,
       projectRangeForm: 'HYBRID_NATIVE_SURROUND_GENERATED_ISLAND' as const,
       generatedProgramSource: 'HUMAN_AUTHORED_FIXTURE_NOT_MODEL_OUTPUT' as const,
       sandboxStatus: 'TRUSTED_LOCAL_PROCESS_NOT_PRODUCTION_SECURITY_SANDBOX' as const,

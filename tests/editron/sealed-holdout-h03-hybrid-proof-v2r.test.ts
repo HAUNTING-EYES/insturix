@@ -86,7 +86,7 @@ describe('sealed HOLD-03 rendered hybrid proof V2R', () => {
       authority: 'RESEARCH_RENDERED_HYBRID_PROXY_NO_PROJECT_MUTATION',
       assessment: 'PASS_RESEARCH_RENDERED_HYBRID_PROXY', stateEffects: [],
       executionBoundary: {
-        modelSelectedForm: 'GENERATED_COMPOSITION',
+        selectedOperationForm: 'GENERATED_COMPOSITION',
         projectRangeForm: 'HYBRID_NATIVE_SURROUND_GENERATED_ISLAND',
         generatedProgramSource: 'HUMAN_AUTHORED_FIXTURE_NOT_MODEL_OUTPUT',
         sandboxStatus: 'TRUSTED_LOCAL_PROCESS_NOT_PRODUCTION_SECURITY_SANDBOX',
