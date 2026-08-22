@@ -24,6 +24,15 @@ import {
   parseCap2CurrentTruthReissueAuditV4,
 } from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v4';
 import {
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5,
+  CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V5,
+  CAP2_CURRENT_TRUTH_SOURCE_PATHS_V5,
+  assertCap2CurrentTruthSourcesMatchV5,
+  hashNormalizedCap2FileV5,
+  hashNormalizedCap2SourceSnapshotV5,
+  parseCap2CurrentTruthReissueAuditV5,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v5';
+import {
   CAP2_CURRENT_TRUTH_FREEZE_MANIFEST_V1,
   CAP2_FROZEN_CATALOG_HASH_V1,
   CAP2_FROZEN_RECONCILIATION_HASHES_V1,
@@ -113,7 +122,7 @@ describe('CAP-2A frozen current-truth manifest v1', () => {
     }
   });
 
-  it('chains V4 to immutable V3 without changing catalog authority', () => {
+  it('retains V4 as immutable history while reporting its superseded H03 evidence', () => {
     const audit = parseCap2CurrentTruthReissueAuditV4(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4);
     expect(audit.status).toBe('REISSUED_CURRENT_TRUTH_RESEARCH_ONLY');
     expect(audit.priorAuditBinding.manifestHash)
@@ -143,14 +152,63 @@ describe('CAP-2A frozen current-truth manifest v1', () => {
     });
     for (const delta of audit.semanticDeltasSinceV3) {
       for (const evidence of delta.evidence) {
-        expect(hashNormalizedCap2FileV4(evidence.path), evidence.path)
-          .toBe(evidence.normalizedSha256);
+        if (evidence.path.endsWith('sealed-holdout-h03-hybrid-proof-v2r.ts')) {
+          expect(hashNormalizedCap2FileV4(evidence.path), evidence.path)
+            .not.toBe(evidence.normalizedSha256);
+        } else {
+          expect(hashNormalizedCap2FileV4(evidence.path), evidence.path)
+            .toBe(evidence.normalizedSha256);
+        }
       }
     }
     expect(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V4).toHaveLength(221);
     expect(hashNormalizedCap2SourceSnapshotV4(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V4))
       .toBe(audit.sourceBinding.normalizedSourceSnapshotHash);
-    expect(() => assertCap2CurrentTruthSourcesMatchV4()).not.toThrow();
+    expect(() => assertCap2CurrentTruthSourcesMatchV4())
+      .toThrow(/semantic evidence drift/);
+    expect(audit.runtimeAuthority).toEqual({
+      plannerRegistryWired: false,
+      projectMutationAuthorized: false,
+      productionCertificationGranted: false,
+    });
+  });
+
+  it('chains V5 to immutable V4 and binds live sandbox evidence without promotion', () => {
+    const audit = parseCap2CurrentTruthReissueAuditV5(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5);
+    expect(audit.priorAuditBinding.manifestHash)
+      .toBe(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4.manifestHash);
+    expect(audit.sourceBinding).toMatchObject({
+      commit: '82c7db926ea0e2e48c9a6cc7e4772396b5761acf',
+      sourceSnapshotPathCount: 221,
+      sourceObservationCount: 11,
+      observedIdentifierOccurrences: 475,
+      reconciliationStatus: 'RECONCILED_CURRENT_TRUTH_V5',
+    });
+    expect(audit.semanticDeltasSinceV4.map(({ deltaId }) => deltaId)).toEqual([
+      'proof.hold03-model-source-live-sandbox-research-only-v3r2',
+    ]);
+    expect(audit.semanticDeltasSinceV4[0].catalogPromotion).toBe(false);
+    expect(audit.semanticDeltasSinceV4[0].reconciledV4EvidenceDrift)
+      .toMatchObject({ disposition: 'V4_PRESERVED_V5_RECONCILED' });
+    expect(audit.liveSandboxEvidence).toMatchObject({
+      sourceOrigin: 'SYNTHETIC_CONTRACT_CALLBACK_NOT_PROVIDER_OUTPUT',
+      modelPerformanceClaim: 'NONE',
+      projectMutation: 'NONE',
+      provider: 'VERCEL_SANDBOX',
+      networkPolicy: 'DENY_ALL',
+      persistent: false,
+      sandboxDeleted: true,
+    });
+    for (const evidence of audit.semanticDeltasSinceV4[0].evidence) {
+      expect(hashNormalizedCap2FileV5(evidence.path), evidence.path)
+        .toBe(evidence.normalizedSha256);
+    }
+    expect(CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V5
+      .reduce((total, observation) => total + observation.observedCount, 0)).toBe(475);
+    expect(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V5).toHaveLength(221);
+    expect(hashNormalizedCap2SourceSnapshotV5(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V5))
+      .toBe(audit.sourceBinding.normalizedSourceSnapshotHash);
+    expect(() => assertCap2CurrentTruthSourcesMatchV5()).not.toThrow();
     expect(audit.runtimeAuthority).toEqual({
       plannerRegistryWired: false,
       projectMutationAuthorized: false,
@@ -221,5 +279,22 @@ describe('CAP-2A frozen current-truth manifest v1', () => {
     const falseAuthority = structuredClone(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4) as any;
     falseAuthority.runtimeAuthority.projectMutationAuthorized = true;
     expect(() => parseCap2CurrentTruthReissueAuditV4(falseAuthority)).toThrow();
+  });
+
+  it('rejects v5 hash drift, forged sandbox evidence and false runtime authority', () => {
+    const badHash = structuredClone(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5);
+    badHash.manifestHash = '0'.repeat(64);
+    expect(() => parseCap2CurrentTruthReissueAuditV5(badHash)).toThrow(/manifest hash drift/);
+
+    const forgedReceipt = structuredClone(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5) as any;
+    forgedReceipt.liveSandboxEvidence.receiptSha256 = '0'.repeat(64);
+    const { manifestHash: _oldHash, ...forgedMaterial } = forgedReceipt;
+    forgedReceipt.manifestHash = hashCanonicalCap2ArtifactV1(forgedMaterial);
+    expect(() => parseCap2CurrentTruthReissueAuditV5(forgedReceipt))
+      .toThrow(/live sandbox evidence drift/);
+
+    const falseAuthority = structuredClone(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V5) as any;
+    falseAuthority.runtimeAuthority.projectMutationAuthorized = true;
+    expect(() => parseCap2CurrentTruthReissueAuditV5(falseAuthority)).toThrow();
   });
 });
