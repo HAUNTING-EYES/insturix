@@ -27,7 +27,7 @@ const HISTORICAL_INTERPRETATION_RECEIPT_SHA256 =
 const H03_V3R4_COHORT_RECEIPT_SHA256 =
   '47a57bf2b46f8be3b1e0ec27d8d1f2b68cae2185508895393ef0a7cae76f60a2';
 const IMPLEMENTATION_BINDINGS_SHA256 =
-  '4be27c0b23ffe38cb98d7f63da1c41932959fd7cdfb1dfc6ecdf2ebd9f7113fd';
+  '337e12e20fc8b8a262182a92ddaf149462f4824ed583e7567d8bd6e195bcbdb6';
 const CASE_SET_SHA256 =
   'c8f824521bb3e4bf44be7abb900867677d2ff5e90619d19213569cc3c54e8dd0';
 const ROW_SET_SHA256 =
@@ -46,6 +46,11 @@ export const SEALED_HOLDOUT_GENERALISATION_IMPLEMENTATION_PATHS_V4R = deepFreeze
   'lib/editron/research/open-ended-planner/sealed-holdout-h04-native-proof-v3r.ts',
   'lib/editron/research/open-ended-planner/sealed-holdout-h05-native-proof-v2r.ts',
   'lib/editron/research/open-ended-planner/sealed-holdout-no-edit-proof-v2r.ts',
+  'lib/editron/research/open-ended-planner/provider-native-live-transport-v2r.ts',
+  'lib/editron/research/open-ended-planner/sealed-holdout-runtime-route-binding-v2r.ts',
+  'lib/editron/research/open-ended-planner/sealed-holdout-generalisation-preflight-v4r.ts',
+  'lib/editron/research/open-ended-planner/sealed-holdout-generalisation-paid-authorization-v4r.ts',
+  'lib/editron/research/open-ended-planner/sealed-holdout-paid-cohort-runner-v2r.ts',
 ] as const);
 
 export const SEALED_HOLDOUT_HISTORICAL_MATRIX_V4R = deepFreezeV1([
