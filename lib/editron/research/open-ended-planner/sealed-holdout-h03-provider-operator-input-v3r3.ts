@@ -104,7 +104,7 @@ export async function buildSealedH03ProviderOperatorInputV3R3(
       orchestratorArguments: argumentsValue,
     }),
   });
-  return Object.freeze({ providerManifest, cohortManifest, sourceRequest });
+  return Object.freeze({ baseManifest, providerManifest, cohortManifest, sourceRequest });
 }
 
 function generatedArguments(): Readonly<JsonRecord> {
