@@ -5,11 +5,11 @@ import { describe, expect, it } from 'vitest';
 
 import inventoryJson from '@/docs/editron/capability-census/editron-cap2-source-surface-inventory-v1.json';
 import {
-  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3,
-  CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V3,
-  CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3,
-  hashNormalizedCap2SourceSnapshotV3,
-} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v3';
+  CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4,
+  CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V4,
+  CAP2_CURRENT_TRUTH_SOURCE_PATHS_V4,
+  hashNormalizedCap2SourceSnapshotV4,
+} from '@/lib/editron/research/capability-census/cap2-current-truth-reissue-audit-v4';
 import { parseCap2SourceSurfaceInventoryV1 } from '@/lib/editron/research/capability-census/cap2-source-surface-contract-v1';
 
 const REPOSITORY_ROOT = process.cwd();
@@ -304,9 +304,9 @@ describe('CAP-2 source-surface inventory v1', () => {
   it('matches every reissued current observation to a fresh source extraction', () => {
     const extracted = currentExtractions();
     expect(Object.keys(extracted).sort(compareCodeUnits)).toEqual(
-      CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V3.map(({ sourceId }) => sourceId),
+      CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V4.map(({ sourceId }) => sourceId),
     );
-    for (const observation of CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V3) {
+    for (const observation of CAP2_CURRENT_TRUTH_SOURCE_OBSERVATIONS_V4) {
       expect(extracted[observation.sourceId], observation.sourceId).toEqual({
         ids: observation.observedIds,
         paths: observation.evidencePaths,
@@ -315,13 +315,13 @@ describe('CAP-2 source-surface inventory v1', () => {
   });
 
   it('binds current source content without treating CRLF checkout changes as architecture drift', () => {
-    expect(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3).toHaveLength(221);
-    expect(hashNormalizedCap2SourceSnapshotV3(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V3))
-      .toBe(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.sourceBinding.normalizedSourceSnapshotHash);
-    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.status)
+    expect(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V4).toHaveLength(221);
+    expect(hashNormalizedCap2SourceSnapshotV4(CAP2_CURRENT_TRUTH_SOURCE_PATHS_V4))
+      .toBe(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4.sourceBinding.normalizedSourceSnapshotHash);
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4.status)
       .toBe('REISSUED_CURRENT_TRUTH_RESEARCH_ONLY');
-    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V3.sourceBinding.reconciliationStatus)
-      .toBe('RECONCILED_CURRENT_TRUTH_V3');
+    expect(CAP2_CURRENT_TRUTH_REISSUE_AUDIT_V4.sourceBinding.reconciliationStatus)
+      .toBe('RECONCILED_CURRENT_TRUTH_V4');
   });
 
   it('keeps chat descriptors distinct from the executable compatibility bundle', () => {
