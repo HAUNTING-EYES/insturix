@@ -11,7 +11,7 @@ type JsonRecord = Record<string, unknown>;
 
 describe('V2R operator-specific input contracts', () => {
   it('versions causal contract changes without rewriting the historical catalog', () => {
-    expect(V2R_OPERATOR_CATALOG_REVISION).toBe('EDITRON_OPERATOR_SPECS_V2R_8');
+    expect(V2R_OPERATOR_CATALOG_REVISION).toBe('EDITRON_OPERATOR_SPECS_V2R_9');
     expect(V2R_OPERATOR_CATALOG.derivedFrom).toMatchObject({
       artifact: 'tests/fixtures/editron/open-ended-planner-v2/operator-specs-v2.json',
       version: '2.0.0',
@@ -102,6 +102,23 @@ describe('V2R operator-specific input contracts', () => {
     expect(validateJsonSchemaV2({ enabled: true, duckLevel: 0.089 }, audioPlan, '$.audioPlan')).toEqual([]);
     expect(validateJsonSchemaV2({ enabled: true, duckLevel: 0.9 }, audioPlan, '$.audioPlan'))
       .toContain('$.audioPlan.duckLevel:NUMBER');
+  });
+
+  it('publishes the filter owner semantic domain instead of an opaque effect object', () => {
+    expect(operator('apply_filter').ownerRef)
+      .toBe('lib/editron/agent/chat-visual-tools.ts#applyFilterToProject');
+    const effectPlan = requiredSchema('apply_filter', 'effectPlan');
+    expect(validateJsonSchemaV2({ filterIntent: 'warmer' }, effectPlan, '$.effectPlan')).toEqual([]);
+    expect(validateJsonSchemaV2({
+      filterIntent: 'warmer',
+      replaceExistingFilter: true,
+    }, effectPlan, '$.effectPlan')).toEqual([]);
+    expect(validateJsonSchemaV2({ style: 'warm' }, effectPlan, '$.effectPlan')).toEqual(expect.arrayContaining([
+      '$.effectPlan.filterIntent:REQUIRED',
+      '$.effectPlan.style:ADDITIONAL',
+    ]));
+    expect(validateJsonSchemaV2({ filterIntent: 'sepia' }, effectPlan, '$.effectPlan'))
+      .toContain('$.effectPlan.filterIntent:ENUM');
   });
 
   it('validates evidence-bound beat-sync constraints including source handles', () => {

@@ -128,7 +128,7 @@ function scriptedTransport(model: string) {
       });
       if (turn === 6) return response(model, 'filter', 'apply_filter', {
         projectId: 'project-42', targetRange: { startFrame: 600, endFrame: 720 },
-        effectPlan: { filterIntent: 'warmer', strength: 'restrained' },
+        effectPlan: { filterIntent: 'warmer' },
         argumentReferences: [
           ref(request, 'keyframes', 'receipt.projectRevision', 'expectedProjectRevision'),
           ref(request, 'resolve', 'proposedOperation.arguments.overlayId', 'overlayId'),

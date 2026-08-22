@@ -9,7 +9,7 @@ type JsonRecord = Record<string, unknown>;
 // The historical V2 JSON is immutable benchmark evidence. V2R derives its own
 // explicitly identified contract from those bytes so later causal amendments do
 // not rewrite, or silently masquerade as, the issued V2 catalog.
-export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_8' as const;
+export const V2R_OPERATOR_CATALOG_REVISION = 'EDITRON_OPERATOR_SPECS_V2R_9' as const;
 
 const historicalCatalog = cloneJsonV2R(historicalOperatorCatalogJson) as JsonRecord;
 const amendedCatalog = amendCausalOwnerContractsV2R(historicalCatalog);
@@ -103,6 +103,9 @@ function amendCausalOwnerContractsV2R(source: JsonRecord): JsonRecord {
         ['projectId', 'expectedProjectRevision', 'overlayId', 'targetFrame', 'effectPlan'],
       ),
     }],
+    ['apply_filter', {
+      ownerRef: 'lib/editron/agent/chat-visual-tools.ts#applyFilterToProject',
+    }],
   ]);
   const operators = records(source.operators).map((operator) => ({
     ...operator,
@@ -160,6 +163,10 @@ function amendCausalOwnerContractsV2R(source: JsonRecord): JsonRecord {
       apply_camera_shake: {
         overlayId: overlayIdSchemaV2R(),
         effectPlan: cameraShakeEffectPlanSchemaV2R(),
+      },
+      apply_filter: {
+        overlayId: overlayIdSchemaV2R(),
+        effectPlan: filterEffectPlanSchemaV2R(),
       },
       sync_cuts_to_beats: {
         overlayIds: {
@@ -223,6 +230,19 @@ function cameraShakeEffectPlanSchemaV2R(): JsonRecord {
     formIntent: {
       enum: ['subtle-impact', 'restrained-impact', 'pronounced-impact'],
       description: 'Semantic emphasis class. The applyCameraShakeToProject owner resolves exact intensity, duration and decaying keyframes.',
+    },
+  });
+}
+
+function filterEffectPlanSchemaV2R(): JsonRecord {
+  return closedObject(['filterIntent'], {
+    filterIntent: {
+      enum: ['warmer', 'cooler', 'brighter', 'higher-contrast', 'black-and-white', 'muted', 'clear'],
+      description: 'Semantic filter form accepted by applyFilterToProject. The owner resolves exact CSS; use warmer for a restrained warm treatment.',
+    },
+    replaceExistingFilter: {
+      enum: [true, false],
+      description: 'Whether the owner may replace an existing filter. Omit to preserve the owner default.',
     },
   });
 }
