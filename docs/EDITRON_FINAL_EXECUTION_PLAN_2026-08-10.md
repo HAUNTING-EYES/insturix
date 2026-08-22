@@ -1280,7 +1280,7 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `82c7db926` on
+programme code checkpoint represented by this ledger is `1d0107eab` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
@@ -1308,20 +1308,23 @@ records `VERCEL_SANDBOX`, `DENY_ALL`, `persistent=false`, teardown success,
 zero project mutation and a hash-bound 420-frame native/generated/native
 proxy. This is live sandbox/proof infrastructure evidence only: its source is
 `SYNTHETIC_CONTRACT_CALLBACK_NOT_PROVIDER_OUTPUT`, so it proves no provider
-model performance. Next reissue CAP-2A against this stable checkpoint, connect
-the metered provider-source adapter, separate capability-ceiling from
+model performance. CAP-2A V5 is now reissued against this stable checkpoint.
+Next connect the metered provider-source adapter, separate capability-ceiling from
 production-budget conditions, freeze a new zero-inference preflight for only
 changed rows, and then run the generalisation episodes and blind quality
 receipts before publishing `GO`, `MODIFY` or `NO-GO`.
 
-**Latest bounded reissue checkpoint:** CAP-2A V4 was issued in commits
-`7ef8f043d` and `f0b1dd829` against stable source commit `373425480`. It binds
+**Latest bounded reissue checkpoint:** CAP-2A V5 was issued in commits
+`839ce4be5` and `1d0107eab` against stable source commit `82c7db926`. It binds
 221 source paths, 11 supplemental observations and 475 identifiers to source
 snapshot `c68e1a33469c1ec5093bfa22b0e7cdf3e905622c4a8a637a6faee5014d456572`
-and manifest `a24b394b2b69609bbeff4fed2c843cdf5915299f77e9f22720ce69ac721aaf24`.
-It records the HOLD-03/HOLD-05 proof-owner changes without granting planner,
-mutation or production authority. CAP-2A V1/V2/V3 remain immutable historical
-artifacts.
+and manifest `0b18f216bb7a825eb607353f80dd34fbe00b661ea3dd439782fcf76dab27a4f0`.
+It reconciles the changed H03 source/proof code and binds the exact live
+sandbox receipt while recording source origin
+`SYNTHETIC_CONTRACT_CALLBACK_NOT_PROVIDER_OUTPUT`, model-performance claim
+`NONE`, zero project mutation and zero catalog promotion. CAP-2A V1–V4 remain
+immutable historical artifacts; the paid V2R2/V2R3 cohort below remains
+truthfully bound to V4 and is not silently rehashed onto V5.
 
 **Latest sealed-cohort checkpoint:** commit `1a30d919d` reissues the unspent
 cohort as contract `EDITRON_OE_SEALED_HOLDOUT_COHORT_V2R_2` and identity
@@ -1843,11 +1846,11 @@ execution/interpretation checkpoint above supersedes it.
 
 | Master stage | What is verified done | What remains before the stage exit is honest |
 | --- | --- | --- |
-| Stage 0 - governance and capability truth | `CAP-0` family-level census and `CAP-1` Adobe gap matrix remain `DONE_ARTIFACT`. CAP-2A V4 is preserved and binds 221 source paths, 11 observations and 475 identifiers to stable source commit `373425480`; immutable V1/V2/V3 history remains chained. The H03 live-sandbox checkpoint is stabilized at `82c7db926`. | H03 proof-path changes after the V4 source snapshot make V4 historical rather than current-worktree truth. Reissue a new immutable CAP-2A version against `82c7db926`; do not rewrite V4. CAP-2A remains a bounded research tool dossier, not the complete Editron/Adobe toolset or production certification. |
+| Stage 0 - governance and capability truth | `CAP-0` family-level census and `CAP-1` Adobe gap matrix remain `DONE_ARTIFACT`. CAP-2A V5 is current at commits `839ce4be5`/`1d0107eab`, binds 221 source paths, 11 observations and 475 identifiers to stable source commit `82c7db926`, and preserves the V1–V4 chain. Its manifest is `0b18f216...`; its live H03 source is explicitly synthetic, with no model-performance, mutation or catalog-promotion claim. | CAP-2A remains a bounded research tool dossier, not the complete Editron/Adobe toolset or production certification. Reissue again only if bound source/evidence drifts; never rewrite a prior version. |
 | Stage 1 - canonical command/revision/receipt/proof safety | Several receipt/CAS/checkpoint/rollback and overlay-writer slices are `PARTIAL_ACTIVE`; their focused tests exist. The IF1 contract itself is frozen. | Wire IF1 semantics through the sole ProjectService authority; migrate all writers; remove stale whole-state writes; bind checkpoint state and revision atomically; implement safe redo/replay; close fail-open worker auth; prove UI/chat parity and rendered proof. |
 | Stage 1.5 - professional project/sequence and non-blocking editing | Generated-composition project state now has schemas, verification, ProjectService prepare/finalize CAS and checkpoint preservation. | Canonical source/record sequences, reels, tracks, takes, rational timebase, range-scoped proposal/rebase/conflict handling and background editing while unaffected timeline ranges remain interactive are not complete. |
 | Stage 2 - scalable ingest, media identity, evidence and durable jobs | Upload, proxy, transcription, several analyzers, R2/Mongo/Qdrant pieces and job mechanisms exist in separate paths. | There is no converged long-form media identity/evidence contract. Source cadence/PTS, VFR/CFR mapping, timecode/reel identity, colour/audio metadata, shared invalidation, bounded dense inspection and sharded/resumable proof are incomplete. |
-| Stage 2.5 - open-ended planner experiment | V3R4 is valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 native dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. The sealed V2R2/V2R3 cohort then executed all 96 paid rows for `$9.730960595`, with zero real-project reads/mutations. Frozen interpretation `20b5e1c2...` records 24 valid safe-stop proofs, two valid rendered HOLD-02 edit proofs after unchanged short-path reproof, 21 valid bounded trace failures, 19 benchmark-confounded rows and 30 resource-guard non-evaluations. HREF-01 has one Gemini 3.6 native-video/audio observation plus a full-reference and 180-frame dense-window review pack. Existing H01-H05 proof owners demonstrate bounded fixed-30-fps mechanics. Commits through `4b3209fa1` connect corrected H01/H04 state and proof; `429fb45b1` freezes truthful public H03 target input; `1d902f20f` adds its leak-free source contract; `137692a5c` connects owner-authorized H03 arguments to verified source lineage; `4b04b8676` binds it through lossless trace/evaluation; `545c311bc` connects exact model-tagged source to sandbox-host and decoded hybrid proof contracts; `06150a94e` and `82c7db926` execute that exact synthetic callback in a real deny-all Vercel microVM and bind decoded 420-frame proof, with zero project mutation. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The live sandbox path is now proved, but its H03 source is synthetic and makes no provider-model-performance claim. Reissue CAP-2A, connect the metered provider-source adapter, separate capability-ceiling from production-budget arms, freeze a changed-row zero-inference preflight and rerun only changed provider rows. H01/H04 V3 proof is explicitly non-budgeted and is not real ProjectService mutation. HREF-01 still needs a second qualified independent review. Then test dependency diversity, forced native/generated/hybrid routes, stale-user-edit/conflict/rebase/locks, context-resume, long-form range planning and blind quality/correction-time/latency/cost. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
+| Stage 2.5 - open-ended planner experiment | V3R4 is valid bounded evidence: 18/18 Luna/Terra/Gemini rows passed one DEV-03 native dependency chain, direct/opaque writer-revision handoff, rendered proxy proof and no-mutation under three tool orders. The sealed V2R2/V2R3 cohort then executed all 96 paid rows for `$9.730960595`, with zero real-project reads/mutations. Frozen interpretation `20b5e1c2...` records 24 valid safe-stop proofs, two valid rendered HOLD-02 edit proofs after unchanged short-path reproof, 21 valid bounded trace failures, 19 benchmark-confounded rows and 30 resource-guard non-evaluations. HREF-01 has one Gemini 3.6 native-video/audio observation plus a full-reference and 180-frame dense-window review pack. Existing H01-H05 proof owners demonstrate bounded fixed-30-fps mechanics. Commits through `4b3209fa1` connect corrected H01/H04 state and proof; `429fb45b1` freezes truthful public H03 target input; `1d902f20f` adds its leak-free source contract; `137692a5c` connects owner-authorized H03 arguments to verified source lineage; `4b04b8676` binds it through lossless trace/evaluation; `545c311bc` connects exact model-tagged source to sandbox-host and decoded hybrid proof contracts; `06150a94e` and `82c7db926` execute that exact synthetic callback in a real deny-all Vercel microVM and bind decoded 420-frame proof, with zero project mutation; `839ce4be5`/`1d0107eab` reissue CAP-2A V5 over that checkpoint. | Result is `MODIFY_AND_PROCEED_RESEARCH`, not production `GO`. The live sandbox path and current CAP binding are now proved, but H03 source remains synthetic and makes no provider-model-performance claim. Connect the metered provider-source adapter, separate capability-ceiling from production-budget arms, freeze a changed-row zero-inference preflight and rerun only changed provider rows. H01/H04 V3 proof is explicitly non-budgeted and is not real ProjectService mutation. HREF-01 still needs a second qualified independent review. Then test dependency diversity, forced native/generated/hybrid routes, stale-user-edit/conflict/rebase/locks, context-resume, long-form range planning and blind quality/correction-time/latency/cost. The clone is not ProjectService execution; H04 still has synthetic tone/no caption-pixel proof, H05 lacks audio/real-logo pixel proof, and DEV-03 lacks intelligible speech. |
 | Stage 3 - production agent control plane | Planning and ADR material exists. | No production model-driven control plane is authorised or implemented. It must reuse ProjectService, checkpoint, media, registry and proof owners rather than create another authority. |
 | Stage 4 - representative editing vertical recovery | Overlay authority/census/producer-to-proof documents exist; several focused caption, MG, SFX, music, B-roll, receipt and render paths have tests or partial repairs. | Captions, transitions, generated composition/MG, B-roll/reframe, music/SFX/dialogue, masking/tracking, colour and other native families still lack representative save/reload/render/proof/undo certification. Catalog expansion and MG pruning remain gated on these verticals. |
 | Stage 5 - delivery, review and collaboration | Render/delivery code and internal quality-review mechanisms exist in partial paths. | A project-scoped view-only guest link, invite-by-email, timecoded comments, version comparison, approvals and a pre-render client review flow were not found in the Editron product path. Delivery/QC is not yet one certified authority. |
@@ -2278,8 +2281,9 @@ foundation and is no longer the active queue. The next three slices are:
    model-source sandbox/decoded-proof contract. Commits `06150a94e` and
    `82c7db926` additionally prove that exact synthetic callback through a real
    deny-all Vercel microVM; this is infrastructure evidence, not model quality.
-   Next reissue CAP-2A for the changed bound proof path and connect the metered provider
-   adapter, separate capability-ceiling from production-budget arms, pass the
+   Commits `839ce4be5` and `1d0107eab` now reissue CAP-2A V5 over the stable
+   H03 checkpoint without changing catalog authority. Next connect the metered
+   provider adapter, separate capability-ceiling from production-budget arms, pass the
    refreshed zero-inference simulation, and rerun only rows whose validity or
    evaluation coverage changed.
 2. **HREF-01 dense/human closeout:** retain the fourteen-image arm as a sparse

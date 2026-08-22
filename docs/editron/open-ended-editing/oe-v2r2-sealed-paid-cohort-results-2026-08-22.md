@@ -143,8 +143,8 @@ new frozen identity reruns them fairly.
    the exact synthetic callback in a real deny-all Vercel microVM and bind the
    decoded hybrid proof without project mutation. This is infrastructure
    evidence; the source is not provider output and proves no model quality.
-6. Reissue a new immutable CAP-2A current-truth artifact against stable
-   checkpoint `82c7db926`; preserve V4 as history.
+6. **Completed in `839ce4be5` and `1d0107eab`:** reissue immutable CAP-2A V5
+   against stable checkpoint `82c7db926`; preserve V4 as history.
 7. Connect the separately metered provider-source adapter so H03 can evaluate
    provider-produced code rather than replaying the synthetic callback.
 8. Separate capability-ceiling and production-budget conditions, pass a new
@@ -247,8 +247,23 @@ frame-270 continuation. Source origin remains explicitly
 `SYNTHETIC_CONTRACT_CALLBACK_NOT_PROVIDER_OUTPUT`; model-performance claim and
 project mutation are both `NONE`. The earlier stock-image, glibc,
 registry-size, missing-tsconfig and incompatible-Mediabunny failures are
-diagnostic history, not passes. Live sandbox mechanics are now proved; CAP-2A
-reissue and a separately metered provider-source run remain outstanding.
+diagnostic history, not passes. At that checkpoint live sandbox mechanics were
+proved while CAP-2A reissue and a separately metered provider-source run
+remained outstanding.
+
+Commits `839ce4be5` and `1d0107eab` complete the CAP-2A V5 reissue without
+rewriting V4 or enlarging the frozen catalog. V5 binds the same 221 source
+paths, 11 observations and 475 identifiers to source checkpoint `82c7db926`,
+normalized snapshot
+`c68e1a33469c1ec5093bfa22b0e7cdf3e905622c4a8a637a6faee5014d456572`
+and manifest
+`0b18f216bb7a825eb607353f80dd34fbe00b661ea3dd439782fcf76dab27a4f0`.
+It explicitly reconciles the changed H03 evidence, binds the live sandbox
+receipt and retains `SYNTHETIC_CONTRACT_CALLBACK_NOT_PROVIDER_OUTPUT`, model
+performance `NONE`, project mutation `NONE`, zero certified operations and
+zero production-eligible operations. The next valid benchmark identity must
+bind V5; the historical paid cohort remains bound to V4. A metered
+provider-source adapter and changed-row preflight remain outstanding.
 
 ## Corrected-identity progress after this cohort
 
