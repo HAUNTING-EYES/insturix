@@ -45,6 +45,10 @@ provider inference dispatch remains disabled.
   `5a7ceece49f33378b8f13876e5e386e0ced41f642468d42671a67bcd35bdedaa`
 - Complete zero-inference gate commit: `051f7be27`
 - Complete-gate regression: 34/34 across ten test files
+- Current credential-preflight receipt SHA-256:
+  `4f27e3fcc3f990185432eb8ad5c686058f6280898e9d2765770cb281e7d7964e`
+- Current request-capture-set SHA-256:
+  `bef05c653ee048f3ab9ca109e61eb3f22a75e0a103605eb56fe020612055ec11`
 
 The complete gate uses deterministic scripted provider turns, explicitly
 denies provider context egress, makes zero network/inference calls and mutates
@@ -299,15 +303,18 @@ cumulative provider spend, model output, real execution or rendered proof.
 
 ## What remains before inference calls
 
-1. Run the credentialed zero-inference request/token/model-identity preflight
-   against the exact CAP-2A V4 and V2R2/V2R3 cohort hashes above. Persist no
-   secret, authorize zero inference, record Google `countTokens` context egress
-   and reject any source, manifest, route, price or request drift.
-2. If and only if that preflight passes, issue a separate paid-dispatch
+The current-identity credentialed preflight passed 96/96 distinct initial
+request captures after commit `cc7c471de` corrected the stale media default.
+It used the paid Production Google credential, recorded 32 `countTokens`
+context-egress calls and made zero inference calls. Dispatch remains false.
+Exact hashes and token bounds are in
+`oe-v2r2-sealed-holdout-current-credential-preflight-2026-08-22.md`.
+
+1. Issue a separate paid-dispatch
    authorization bound to the exact manifest, cases, routes, token ceilings,
    spend ceiling and expiry. A historical approval or preflight receipt may
    not authorize the current cohort.
-3. Execute the frozen provider cohort and keep `RAW_EXECUTED`,
+2. Execute the frozen provider cohort and keep `RAW_EXECUTED`,
    `VALID_EVIDENCE`, provider/harness failure and production certification
    separate. Then complete the broader Stage 2.5 generalisation programme:
    dependency diversity, forced native/generated/hybrid alternatives, stale
