@@ -25,12 +25,7 @@ const TRACK_FRAMES = [0, 120, 240, 360, 449] as const;
 export const SEALED_HOLDOUT_H05_NATIVE_PROOF_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_H05_NATIVE_VISUAL_PROXY_PROOF_V2R_1' as const;
 
-export interface SealedHoldoutH05NativeProofReceiptV2R {
-  version: typeof SEALED_HOLDOUT_H05_NATIVE_PROOF_VERSION_V2R;
-  authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_VISUAL_PROXY_NO_PROJECT_MUTATION';
-  caseId: 'HOLD-05:C1'; taskId: 'HOLD-05'; manifestSha256: string;
-  publicCaseSha256: string; traceArtifactSha256: string;
-  evaluationReceiptSha256: string; runtimeBudgetReceiptSha256: string;
+export interface SealedHoldoutH05NativeProofMechanicsV2R {
   writerIssuedProjectRevision: string;
   selectedMutation: Readonly<{
     nodeId: string; operatorId: 'reframe_project'; argumentSha256: string;
@@ -62,6 +57,15 @@ export interface SealedHoldoutH05NativeProofReceiptV2R {
     minLogoPixels: number; maxLogoTopMarginErrorPx: number; maxLogoRightMarginErrorPx: number;
   }>;
   audioProof: 'NO_SOURCE_AUDIO_STREAM_AND_NO_OUTPUT_AUDIO_STREAM';
+}
+
+export interface SealedHoldoutH05NativeProofReceiptV2R
+  extends SealedHoldoutH05NativeProofMechanicsV2R {
+  version: typeof SEALED_HOLDOUT_H05_NATIVE_PROOF_VERSION_V2R;
+  authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_VISUAL_PROXY_NO_PROJECT_MUTATION';
+  caseId: 'HOLD-05:C1'; taskId: 'HOLD-05'; manifestSha256: string;
+  publicCaseSha256: string; traceArtifactSha256: string;
+  evaluationReceiptSha256: string; runtimeBudgetReceiptSha256: string;
   assessment: 'PASS_RESEARCH_NATIVE_OWNER_AND_RENDERED_VISUAL_PROXY_LIMITED';
   productProjectMutationProof: 'NOT_CLAIMED'; stateEffects: readonly [];
   receiptSha256: string;
@@ -80,7 +84,39 @@ export async function proveSealedHoldoutH05NativeOutcomeV2R(input: {
     evaluation: input.evaluation, allowedTaskIds: ['HOLD-05'],
     allowedAssessments: ['READY_FOR_PROOF'], allowedExecutionForms: ['NATIVE'],
   });
-  const successful = bound.trace.nodes.filter(({ executionDisposition }) => executionDisposition === 'OK');
+  const taskCase = input.manifest.cases.find(({ caseId }) => caseId === input.caseId)
+    ?? fail('SEALED_H05_PROOF_CASE_MISSING');
+  const mechanics = await executeSealedHoldoutH05NativeProofMechanicsV2R({
+    traceNodes: bound.trace.nodes,
+    publicCase: taskCase.publicCase,
+    ownerOnly: taskCase.ownerOnly,
+    mediaManifest: input.mediaManifest,
+    outputDirectory: input.outputDirectory,
+    ffprobePath: input.ffprobePath,
+  });
+  const material = {
+    version: SEALED_HOLDOUT_H05_NATIVE_PROOF_VERSION_V2R,
+    authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_VISUAL_PROXY_NO_PROJECT_MUTATION' as const,
+    caseId: input.caseId, taskId: 'HOLD-05' as const,
+    manifestSha256: input.manifest.manifestSha256, publicCaseSha256: bound.publicCaseSha256,
+    traceArtifactSha256: bound.trace.artifactSha256,
+    evaluationReceiptSha256: bound.evaluation.receiptSha256,
+    runtimeBudgetReceiptSha256: bound.trace.runtimeBudgetReceiptSha256,
+    ...mechanics,
+    assessment: 'PASS_RESEARCH_NATIVE_OWNER_AND_RENDERED_VISUAL_PROXY_LIMITED' as const,
+    productProjectMutationProof: 'NOT_CLAIMED' as const, stateEffects: [] as const,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
+export async function executeSealedHoldoutH05NativeProofMechanicsV2R(input: {
+  traceNodes: readonly Readonly<BudgetedSealedHoldoutSelectedOperationTraceV2R['nodes'][number]>[];
+  publicCase: Readonly<JsonRecord>;
+  ownerOnly: Readonly<JsonRecord>;
+  mediaManifest: Readonly<HoldoutMediaManifestV2R>;
+  outputDirectory: string; ffprobePath?: string;
+}): Promise<Readonly<SealedHoldoutH05NativeProofMechanicsV2R>> {
+  const successful = input.traceNodes.filter(({ executionDisposition }) => executionDisposition === 'OK');
   const ids = successful.map(({ selectedOperatorId }) => selectedOperatorId);
   const mutations = successful.filter(({ researchCloneMutation }) => researchCloneMutation);
   if (!ids.includes('find_visual_moment') || !ids.includes('get_timeline_view')
@@ -98,9 +134,7 @@ export async function proveSealedHoldoutH05NativeOutcomeV2R(input: {
     || !['E1', 'E2'].every((ref) => evidenceIds.includes(ref))
     || !mutation.writerIssuedProjectRevision) fail('SEALED_H05_PROOF_SELECTED_MUTATION_INVALID');
 
-  const taskCase = input.manifest.cases.find(({ caseId }) => caseId === input.caseId)
-    ?? fail('SEALED_H05_PROOF_CASE_MISSING');
-  const publicCase = record(taskCase.publicCase); const publicProject = record(publicCase.project);
+  const publicCase = record(input.publicCase); const publicProject = record(publicCase.project);
   const publicMedia = records(publicCase.media);
   const media = publicMedia.find(({ assetId }) => assetId === 'h05-subject');
   const source = await bindHoldoutMediaArtifactV2R({
@@ -119,7 +153,7 @@ export async function proveSealedHoldoutH05NativeOutcomeV2R(input: {
     fail('SEALED_H05_PROOF_SOURCE_CONTRACT_INVALID');
   }
 
-  const ownerEvidence = records(record(taskCase.ownerOnly).evidence);
+  const ownerEvidence = records(record(input.ownerOnly).evidence);
   const spatial = ownerEvidence.find(({ kind }) => kind === 'SPATIAL_TRACK');
   const layout = ownerEvidence.find(({ kind }) => kind === 'AUTHORED_LAYOUT');
   const spatialValue = record(spatial?.value); const layoutValue = record(layout?.value);
@@ -191,14 +225,7 @@ export async function proveSealedHoldoutH05NativeOutcomeV2R(input: {
     || video.averageFrameRate !== '30/1' || video.decodedFrameCount !== 450
     || video.audioStreamCount !== 0) fail('SEALED_H05_PROOF_VIDEO_CONTRACT_INVALID');
 
-  const material = {
-    version: SEALED_HOLDOUT_H05_NATIVE_PROOF_VERSION_V2R,
-    authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_VISUAL_PROXY_NO_PROJECT_MUTATION' as const,
-    caseId: input.caseId, taskId: 'HOLD-05' as const,
-    manifestSha256: input.manifest.manifestSha256, publicCaseSha256: bound.publicCaseSha256,
-    traceArtifactSha256: bound.trace.artifactSha256,
-    evaluationReceiptSha256: bound.evaluation.receiptSha256,
-    runtimeBudgetReceiptSha256: bound.trace.runtimeBudgetReceiptSha256,
+  return deepFreezeV1({
     writerIssuedProjectRevision: mutation.writerIssuedProjectRevision,
     selectedMutation: { nodeId: mutation.nodeId, operatorId: 'reframe_project' as const,
       argumentSha256: mutation.argumentSha256, targetAspectRatio: '9:16' as const },
@@ -220,10 +247,7 @@ export async function proveSealedHoldoutH05NativeOutcomeV2R(input: {
       sha256: rendered.artifactSha256, bytes: rendered.bytes },
     video, visualProof,
     audioProof: 'NO_SOURCE_AUDIO_STREAM_AND_NO_OUTPUT_AUDIO_STREAM' as const,
-    assessment: 'PASS_RESEARCH_NATIVE_OWNER_AND_RENDERED_VISUAL_PROXY_LIMITED' as const,
-    productProjectMutationProof: 'NOT_CLAIMED' as const, stateEffects: [] as const,
-  };
-  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+  });
 }
 
 function buildProjectProxy() {

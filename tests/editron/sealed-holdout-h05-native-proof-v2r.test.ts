@@ -8,10 +8,13 @@ import { materializeHoldoutMediaV2R }
   from '@/lib/editron/research/open-ended-planner/holdout-media-materializer-v2r';
 import { proveSealedHoldoutH05NativeOutcomeV2R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-h05-native-proof-v2r';
+import { proveSealedHoldoutH05NativeOutcomeV3R2 }
+  from '@/lib/editron/research/open-ended-planner/sealed-holdout-h05-native-proof-v3r2';
 
 import {
   finishSealedHoldoutScriptV2R,
   runScriptedBudgetedSealedHoldoutV2R,
+  runScriptedBudgetedSealedHoldoutV3R2,
   type SealedHoldoutScriptedCallV2R,
 } from './helpers/sealed-holdout-v2r-test-driver';
 
@@ -52,7 +55,39 @@ async function setup(trackingMode?: string) {
   return { root, mediaManifest, ...episode };
 }
 
+async function setupCurrent() {
+  const root = await mkdtemp(join(tmpdir(), 'editron-current-h05-proof-'));
+  scratch.push(root);
+  const [episode, mediaManifest] = await Promise.all([
+    runScriptedBudgetedSealedHoldoutV3R2({
+      caseId: 'HOLD-05:C1', calls: calls(),
+    }),
+    materializeHoldoutMediaV2R(join(root, 'media')),
+  ]);
+  return { root, mediaManifest, ...episode };
+}
+
 describe('sealed HOLD-05 native tracked-reframe proof V2R', () => {
+  it('binds current resource accounting to the canonical tracked-reframe proof', async () => {
+    const result = await setupCurrent();
+    const proof = await proveSealedHoldoutH05NativeOutcomeV3R2({
+      manifest: result.manifest, caseId: 'HOLD-05:C1', trace: result.trace,
+      evaluation: result.evaluation, mediaManifest: result.mediaManifest,
+      outputDirectory: join(result.root, 'current-proof'),
+    });
+    expect(proof).toMatchObject({
+      version: 'EDITRON_OE_SEALED_HOLDOUT_H05_NATIVE_VISUAL_PROXY_PROOF_V3R_2_RESOURCE_BOUND_1',
+      authority: 'RESEARCH_NATIVE_OWNER_AND_RENDERED_VISUAL_PROXY_CURRENT_RESOURCE_BOUND_NO_PROJECT_MUTATION',
+      resourceBudgetProof: 'BOUND_ACCOUNTED_WITHIN_BUDGET',
+      assessment: 'PASS_RESEARCH_NATIVE_OWNER_AND_RENDERED_VISUAL_PROXY_LIMITED',
+      productProjectMutationProof: 'NOT_CLAIMED', stateEffects: [],
+      video: { decodedFrameCount: 450, averageFrameRate: '30/1' },
+      visualProof: { decodedFrameCount: 450 },
+    });
+    expect(proof.runtimeBudgetReceiptSha256)
+      .toBe(result.trace.runtimeBudgetReceiptSha256);
+  }, 120_000);
+
   it('uses the canonical owner and proves subject/logo geometry over all 450 decoded frames', async () => {
     const result = await setup();
     expect(result.evaluation.assessment).toBe('READY_FOR_PROOF');
