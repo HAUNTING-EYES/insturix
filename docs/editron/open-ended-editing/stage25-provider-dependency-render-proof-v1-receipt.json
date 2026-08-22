@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "EDITRON_STAGE25_PROVIDER_DEPENDENCY_RENDER_PROOF_PORTABLE_V1",
+  "authority": "PORTABLE_RESEARCH_PROOF_NO_PROJECT_MUTATION",
+  "sourceCodeCommit": "03e7aa8a338f1295959f29497e689ee00df37eb8",
+  "criticalSourceBlobSha256": {
+    "lib/editron/research/open-ended-planner/stage25-provider-dependency-render-proof-v1.ts": "fb3d03dc052fb4b34685adacb37fc11b16fe415a",
+    "lib/editron/research/open-ended-planner/stage25-provider-dependency-owner-v1.ts": "251ef86553edebe80a9b2141cd02926b85361082",
+    "lib/editron/research/open-ended-planner/dev03-native-proxy-fixture-v2.ts": "f2ae4794444ddfe65280009f03b0940e8e06444d",
+    "lib/editron/shared/render-request-payload.ts": "2f7f3f707ee696389706dc1085236ff2ac63ee6e",
+    "lib/editron/services/keyframe-mutation.ts": "60b79f9191ffd15ca2a52594909d69221bef9b02",
+    "lib/editron/agent/chat-visual-tools.ts": "8790eeb8d76b5b708c7a925e5d77804d418984e3",
+    "lib/pipeline/scene-to-editron.ts": "417f7bb23193aae5f07ed3a0257c720f8d0e42b8",
+    "components/editron/editor/version-7.0.0/components/core/layer.tsx": "4ac979fd307207a5afed99725a3814973a9f9f09",
+    "components/editron/editor/version-7.0.0/components/overlays/video/video-layer-content.tsx": "4c7f1f05741e9b09fb013b4dce0952d819fd23d3"
+  },
+  "sourceRunRoot": ".calibration-temp/open-ended-planner-v2/stage25-provider-dependency-run-20260822195252",
+  "sourceRowPath": ".calibration-temp/open-ended-planner-v2/stage25-provider-dependency-run-20260822195252/cohort/rows/openai_luna-p1/row.json",
+  "sourceReplayReceiptPath": "docs/editron/open-ended-editing/stage25-provider-dependency-v3r3-replay-receipt.json",
+  "sourceReplayReceiptSha256": "d1cc5d7c9c78b7e461f9f8ea441bb5347155b28515c777f1697d06c775d0cc57",
+  "sourceRowSha256": "dcd20d54bc9442ed1903f4c11ff377b16803f3a0bbbbae40cd2d6efbc29c28eb",
+  "sourceEpisodeReceiptSha256": "7ea3abbc79fe2ed0e9ffff83ecd0ec4cd066b49b87efcd71fa5ae2a02b0da83d",
+  "renderProofReceiptHash": "f89655350d33648f902ba8597515b9748c1e2c2e5ae5537c8e10a0a94a3662c0",
+  "executionId": "stage25-dependency-render-proof-20260823-03",
+  "createdAt": "2026-08-23T02:30:00+05:30",
+  "renderArtifact": {
+    "localPath": ".calibration-temp/open-ended-planner-v2/stage25-dependency-render-proof-20260823-03/stage25-dependency-final.mp4",
+    "sha256": "b032918ed1a5800a9db2fafe47d403bd92d9ece124bf7b83fde76c1bda9e4f4f",
+    "bytes": 38863,
+    "codec": "h264",
+    "width": 640,
+    "height": 360,
+    "averageFrameRate": "30/1",
+    "decodedFrameCount": 720,
+    "audioStreamCount": 0,
+    "committedMediaBytes": false
+  },
+  "ownerBeforeStateHash": "44f37dfc7e27f9262cdfbf71f10219afe0cfec86e5c8750559ae877fc396d433",
+  "ownerAfterStateHash": "a3b2f2ec50dc905c68006bd58b9a3d0ce564eab98f01928cfcb9ffc9693b414e",
+  "sourceBinding": {
+    "assetId": "dev03-cards",
+    "sha256": "4e1050d3922a599b9354a3eb87a670acfdd4232e839058071e46081df4d9ebfd",
+    "rightsStatus": "INTERNAL_OWNED_FIXTURE",
+    "sourceOffsetByEpisodeAssetId": {
+      "clip-a": 0,
+      "clip-b": 117,
+      "clip-c": 267,
+      "product": 450
+    }
+  },
+  "visualMeasurements": {
+    "boundarySamples": [
+      {
+        "frame": 118,
+        "rgb": [
+          32,
+          81,
+          144
+        ]
+      },
+      {
+        "frame": 119,
+        "rgb": [
+          110,
+          53,
+          123
+        ]
+      },
+      {
+        "frame": 238,
+        "rgb": [
+          110,
+          53,
+          123
+        ]
+      },
+      {
+        "frame": 239,
+        "rgb": [
+          38,
+          120,
+          90
+        ]
+      }
+    ],
+    "boundaryMeanAbsDiffs": [
+      45.309238,
+      55.725499
+    ],
+    "initialToFilteredMeanAbsDiff": 9.601868,
+    "scale1CreamBounds": {
+      "left": 76,
+      "right": 524,
+      "top": 115,
+      "bottom": 244,
+      "width": 449,
+      "height": 130,
+      "centerX": 300,
+      "centerY": 179.5
+    },
+    "scale108CreamBounds": {
+      "left": 44,
+      "right": 528,
+      "top": 110,
+      "bottom": 249,
+      "width": 485,
+      "height": 140,
+      "centerX": 286,
+      "centerY": 179.5
+    },
+    "widthScaleRatio": 1.080178,
+    "heightScaleRatio": 1.076923,
+    "centerShiftX": -14,
+    "centerShiftY": 0
+  },
+  "visualEvaluation": {
+    "assessment": "PASS",
+    "diagnostics": []
+  },
+  "proof": {
+    "isolatedOwnerReplay": "PASS",
+    "renderedVisual": "PASS",
+    "renderedAudio": "UNVERIFIABLE_NO_AUDIO_OVERLAY_IN_SOURCE_EPISODE",
+    "projectServiceReload": "UNVERIFIABLE_RESEARCH_CLONE_ONLY",
+    "projectMutation": "NONE"
+  },
+  "browserErrors": [],
+  "externalCalls": {
+    "providerApiCalls": 0,
+    "cloudRenderCalls": 0,
+    "projectServiceCalls": 0,
+    "databaseCalls": 0
+  },
+  "whatHasNotBeenChecked": [
+    "RENDERED_AUDIO_NO_AUDIO_OVERLAY_IN_SOURCE_EPISODE",
+    "PROJECT_SERVICE_RELOAD_RESEARCH_CLONE_ONLY",
+    "PRODUCT_AUTHORITY_INTEGRATION",
+    "GENERAL_OPERATION_OR_CONTENT_COVERAGE"
+  ],
+  "stateEffects": [],
+  "receiptSha256": "62a1fb2440a076de68b0e0de46fd0a8f7be70e20900f97741dc01464be08d479"
+}

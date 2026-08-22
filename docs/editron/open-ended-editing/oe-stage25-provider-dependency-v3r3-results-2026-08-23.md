@@ -121,6 +121,41 @@ Changing to a different Gemini model ID would not resolve an account-credit
 failure. A separately versioned supplement may run after a funded credential
 passes a fresh zero-inference preflight; V3R3 itself remains immutable.
 
+## Subsequent bounded rendered-visual proof
+
+Commits `7a16b0cec` and `03e7aa8a3` add a create-only proof adapter and runner
+without changing the V3R3 cohort. The runner replayed the exact immutable
+`openai_luna-p1` episode (`sourceRowSha256 dcd20d54...`) through the existing
+isolated owner and compared every owner output with the stored provider episode
+before rendering the final `R45` clone through Editron's existing Remotion
+root.
+
+Portable receipt
+`stage25-provider-dependency-render-proof-v1-receipt.json` has SHA-256
+`62a1fb2440a076de68b0e0de46fd0a8f7be70e20900f97741dc01464be08d479`.
+It binds source code commit `03e7aa8a338f1295959f29497e689ee00df37eb8`,
+the critical source blob hashes, source/replay/episode identities, owner state
+hashes, the owned `dev03-cards` fixture and the decoded output.
+
+Measured result:
+
+- isolated owner replay: `PASS`;
+- H.264 output: 640x360, 30/1, 720 decoded frames, zero audio streams;
+- visible cut changes at 118/119 and 238/239 with mean absolute differences
+  `45.309238` and `55.725499`;
+- visible warm-treatment difference at frame 660: `9.601868`;
+- rendered push-in geometry: width ratio `1.080178`, height ratio `1.076923`;
+- rendered right-biased focal behavior: cream-card centre moved 14 pixels left
+  and zero pixels vertically;
+- browser errors, provider calls, cloud calls, ProjectService calls, database
+  calls and state effects: zero.
+
+This closes rendered **visual** proof for one synthetic Luna P1 episode only.
+Rendered audio is `UNVERIFIABLE_NO_AUDIO_OVERLAY_IN_SOURCE_EPISODE` and
+ProjectService reload is `UNVERIFIABLE_RESEARCH_CLONE_ONLY`. The source-offset
+projection and pixel thresholds are frozen fixture measurements, not product
+defaults or general operation certification.
+
 ## Claim boundary and next gates
 
 The model bet has passed this one bounded question: Luna and Terra can choose
@@ -137,8 +172,8 @@ The following remain open before Stage 2.5 can exit:
 4. Stale user edits, overlapping changes, safe rebase and locked ranges.
 5. Provider interruption, compaction and exact resume with result identity.
 6. Realistic long-form sequence/range planning under bounded evidence.
-7. Owner-issued exact effects, bounded render/reload/audiovisual proof and
-   ProjectService-owned integration.
+7. General owner-issued effects, ProjectService reload, rendered audio and
+   ProjectService-owned integration beyond the one visual-only supplement.
 8. Blind-editor quality, correction-time, latency and cost receipts.
 9. A frozen `GO`, `MODIFY` or `NO-GO` decision.
 
