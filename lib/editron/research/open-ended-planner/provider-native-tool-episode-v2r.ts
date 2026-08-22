@@ -10,9 +10,15 @@ import {
 } from './provider-native-tool-codecs-v2r';
 import {
   buildProviderNativeToolSetV2R,
-  type ProviderNativeOperatorToolV2R,
   type ProviderNativeToolSetV2R,
 } from './provider-native-tool-catalog-v2r';
+import {
+  buildProviderNativeResumePromptContextV2R,
+  createProviderNativeEpisodeResumeCheckpointV2R,
+  hydrateProviderNativeEpisodeResumeCheckpointV2R,
+  normalizeProviderNativeExactArgumentsV2R,
+  type ProviderNativeEpisodeResumeCheckpointV2R,
+} from './provider-native-episode-resume-v2r';
 import {
   appendResultReferencesForModelV2R,
   buildOpaqueResultReferenceToolSetV2R,
@@ -150,6 +156,11 @@ export async function runProviderNativeToolEpisodeV2R(input: {
     finishInputSchema?: Readonly<JsonRecord>;
   }>) => Readonly<ProviderNativeToolSetV2R>;
   additionalInstructions?: readonly string[];
+  resumeCheckpoint?: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+  resumeCurrentProjectRevision?: string;
+  onTurnCommitted?: (input: Readonly<{
+    checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>;
+  }>) => void | Promise<void>;
   invoke: (request: Readonly<SerializedProviderNativeTurnV2R>) => Promise<ProviderNativeInvokeResponseV2R>;
   runtimeGuard?: Readonly<ProviderNativeRuntimeGuardV2R>;
   executeIsolated: (
@@ -181,7 +192,23 @@ export async function runProviderNativeToolEpisodeV2R(input: {
     resultReferenceProjectionPolicy,
   );
   const contextSha256 = hashCanonicalJsonV1(input.context);
-  const prompt = canonicalizeJsonV1({
+  if ((input.resumeCheckpoint || input.onTurnCommitted)
+    && argumentHandoffMode !== 'OPAQUE_RESULT_REFERENCES') {
+    throw new Error('PROVIDER_NATIVE_RESUME_REQUIRES_OPAQUE_RESULT_REFERENCES');
+  }
+  if ((input.resumeCheckpoint || input.onTurnCommitted) && input.referenceInput) {
+    throw new Error('PROVIDER_NATIVE_RESUME_REFERENCE_INPUT_BINDING_UNSUPPORTED');
+  }
+  if ((input.resumeCheckpoint || input.onTurnCommitted) && input.runtimeGuard) {
+    throw new Error('PROVIDER_NATIVE_RESUME_RUNTIME_GUARD_BINDING_UNSUPPORTED');
+  }
+  if (input.resumeCheckpoint && !input.resumeCurrentProjectRevision?.trim()) {
+    throw new Error('PROVIDER_NATIVE_RESUME_CURRENT_REVISION_REQUIRED');
+  }
+  if (!input.resumeCheckpoint && input.resumeCurrentProjectRevision !== undefined) {
+    throw new Error('PROVIDER_NATIVE_RESUME_CHECKPOINT_REQUIRED');
+  }
+  const promptMaterial = {
     version: PROVIDER_NATIVE_EPISODE_VERSION_V2R,
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION',
     instructions: [
@@ -225,19 +252,80 @@ export async function runProviderNativeToolEpisodeV2R(input: {
       referenceResolutionOccursBeforeExactInputValidation: true,
       declaredResultReferenceProjections: resultReferenceProjectionPolicy,
     },
-  });
+  };
+  const initialHistory = buildProviderNativeInitialHistoryV2R(
+    input.route.provider,
+    canonicalizeJsonV1(promptMaterial),
+    input.referenceInput,
+  );
+  const resumed = input.resumeCheckpoint
+    ? hydrateProviderNativeEpisodeResumeCheckpointV2R({
+        checkpoint: input.resumeCheckpoint,
+        route: input.route,
+        episodeId: input.context.episodeId,
+        contextSha256,
+        toolSet,
+        exactToolSet,
+        initialHistory,
+        maxOutputTokensPerTurn: input.context.budget.maxOutputTokensPerTurn,
+        maxOperatorArgumentRepairs: MAX_OPERATOR_ARGUMENT_REPAIRS_PER_EPISODE_V2R,
+        currentProjectRevision: input.resumeCurrentProjectRevision ?? '',
+        resultReferences,
+      })
+    : null;
+  const prompt = canonicalizeJsonV1(resumed ? {
+    ...promptMaterial,
+    context: buildProviderNativeResumePromptContextV2R(
+      input.context,
+      resumed.publicResumeContext,
+    ),
+    resumeContext: resumed.publicResumeContext,
+  } : promptMaterial);
   let history = buildProviderNativeInitialHistoryV2R(
     input.route.provider,
     prompt,
     input.referenceInput,
   );
-  const turns: JsonRecord[] = [];
-  const selectedOperatorIds: string[] = [];
-  const callCounts = new Map<string, number>();
-  let mutationEpoch = 0;
-  let operatorArgumentRepairCount = 0;
+  const turns: JsonRecord[] = resumed ? resumed.turns.map((turn) => ({ ...turn })) : [];
+  const selectedOperatorIds: string[] = resumed ? [...resumed.selectedOperatorIds] : [];
+  const callCounts = new Map<string, number>(
+    resumed?.callCounts.map(({ fingerprint, count }) => [fingerprint, count]),
+  );
+  let mutationEpoch = resumed?.mutationEpoch ?? 0;
+  let operatorArgumentRepairCount = resumed?.operatorArgumentRepairCount ?? 0;
+  let checkpointWriterRevisionAvailable = Boolean(resumed);
 
-  for (let turn = 1; turn <= input.context.budget.maxTurns; turn += 1) {
+  const notifyTurnCommitted = async (commit?: Readonly<{
+    mutationCommitted: boolean;
+    issuedResultReferences: readonly Readonly<{ sourceOutputField: string }>[];
+  }>): Promise<void> => {
+    if (!input.onTurnCommitted) return;
+    if (commit?.mutationCommitted) {
+      const writerReferences = commit.issuedResultReferences.filter(
+        ({ sourceOutputField }) => sourceOutputField === 'receipt.projectRevision',
+      );
+      if (writerReferences.length !== 1) {
+        throw new Error('PROVIDER_NATIVE_CHECKPOINT_WRITER_REVISION_REFERENCE_MISSING');
+      }
+      checkpointWriterRevisionAvailable = true;
+    }
+    // A prefix before its first writer has no externally verifiable current
+    // revision. Do not publish a checkpoint that hydration must later reject.
+    if (!checkpointWriterRevisionAvailable) return;
+    await input.onTurnCommitted({
+      checkpoint: createProviderNativeEpisodeResumeCheckpointV2R({
+        route: input.route,
+        episodeId: input.context.episodeId,
+        contextSha256,
+        toolSetSha256: toolSet.toolSetSha256,
+        completedTurns: turns,
+      }),
+    });
+  };
+
+  for (let turn = resumed?.nextTurn ?? 1;
+    turn <= input.context.budget.maxTurns;
+    turn += 1) {
     const runtimeGuardAudit: JsonRecord[] = [];
     const turnAuthorization = await runRuntimeGuardHook(
       input.runtimeGuard ? () => input.runtimeGuard!.beforeTurn({
@@ -390,7 +478,10 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         currentTurn: turn,
       })
       : { arguments: call.arguments, bindings: [], diagnostics: [] };
-    const args = normalizeStrictOptionalNulls(referenceResolution.arguments, exactTool);
+    const args = normalizeProviderNativeExactArgumentsV2R(
+      referenceResolution.arguments,
+      exactTool,
+    );
     const inputDiagnostics = [
       ...referenceResolution.diagnostics,
       ...validateJsonSchemaV2(args, exactTool.exactInputSchema, '$.arguments'),
@@ -427,6 +518,7 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         call,
         result: repair,
       });
+      await notifyTurnCommitted();
       continue;
     }
     const fingerprint = hashCanonicalJsonV1({
@@ -527,6 +619,11 @@ export async function runProviderNativeToolEpisodeV2R(input: {
         execution as unknown as JsonRecord,
         issuedResultReferences,
       ),
+    });
+    await notifyTurnCommitted({
+      mutationCommitted: execution.disposition === 'OK'
+        && advancesEpisodeState(exactTool.kind),
+      issuedResultReferences,
     });
   }
   return finalize(input, toolSet.toolSetSha256, contextSha256, turns, selectedOperatorIds, {
@@ -688,26 +785,6 @@ function finishTerminal(args: JsonRecord): ProviderNativeEpisodeReceiptV2R['term
     reasonCodes: args.reasonCodes as string[], evidenceIds: args.evidenceIds as string[],
     summary: String(args.summary),
   };
-}
-
-function normalizeStrictOptionalNulls(args: JsonRecord, tool: Readonly<ProviderNativeOperatorToolV2R>): JsonRecord {
-  if (!tool.openAiStrict) return { ...args };
-  return normalizeOptionalNullsAgainstSchema(args, tool.exactInputSchema) as JsonRecord;
-}
-
-function normalizeOptionalNullsAgainstSchema(value: unknown, schema: Readonly<JsonRecord>): unknown {
-  if (Array.isArray(value)) {
-    const itemSchema = record(schema.items);
-    return value.map((entry) => normalizeOptionalNullsAgainstSchema(entry, itemSchema));
-  }
-  if (!value || typeof value !== 'object') return value;
-  const properties = record(schema.properties);
-  const required = new Set(strings(schema.required));
-  return Object.fromEntries(Object.entries(value as JsonRecord).flatMap(([field, child]) => {
-    if (child === null && !required.has(field)) return [];
-    const childSchema = record(properties[field]);
-    return [[field, normalizeOptionalNullsAgainstSchema(child, childSchema)]];
-  }));
 }
 
 function validateContext(context: Readonly<ProviderNativeEpisodeContextV2R>): void {
