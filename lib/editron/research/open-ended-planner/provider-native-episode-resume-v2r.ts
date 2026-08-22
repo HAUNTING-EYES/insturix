@@ -454,6 +454,16 @@ export function normalizeProviderNativeExactArgumentsV2R(
   return normalizeOptionalNullsAgainstSchema(args, tool.exactInputSchema) as JsonRecord;
 }
 
+/**
+ * Public integrity seam for persistence/worker adapters. The checkpoint owner
+ * remains the only place that defines its envelope and hash invariants.
+ */
+export function verifyProviderNativeEpisodeResumeCheckpointV2R(
+  checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>,
+): void {
+  verifyCheckpointEnvelope(checkpoint);
+}
+
 function verifyCheckpointEnvelope(checkpoint: Readonly<ProviderNativeEpisodeResumeCheckpointV2R>): void {
   if (![PROVIDER_NATIVE_EPISODE_RESUME_VERSION_V2R,
     PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_BOUND_VERSION_V2R,
