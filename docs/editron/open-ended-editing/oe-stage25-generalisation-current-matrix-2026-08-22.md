@@ -14,7 +14,8 @@ The no-dispatch identity is
 - CAP-2A V6 manifest: `2549623e...`;
 - historical interpretation receipt: `20b5e1c2...` (96 rows);
 - H03-C1 V3R4 receipt: `47a57bf2...` (18 separate rows);
-- V4R manifest: `fcfe2524...`;
+- V4R reissued manifest: `b7f1f101...`;
+- current metered episode/trace/evaluator spine: commit `2fe6a570a`;
 - row set: `de6d5912...`;
 - authority: research only, no provider dispatch and no project authority.
 
@@ -43,8 +44,12 @@ per provider/case is **not** a reliability estimate and cannot support a model
 leaderboard. Repeated reliability, repair-curve, native/generated/hybrid,
 conflict/rebase, compaction-resume and long-form trials remain separate gates.
 
-Before inference, the existing sole episode/evaluator/proof runner must be
-adapted to consume this row set, the initial requests must pass a credentialed
-zero-inference preflight, and an explicit bounded spend authorization must bind
-the exact preflight and manifest. A Gemini 429 remains a provider
-non-evaluation; no substitution with Gemini 3.6 is permitted.
+The existing sole budget controller, episode loop, corrected V3R2 owner session,
+lossless trace and hidden evaluator now share one current metered path. Its
+focused handoff/resource-guard proof passes, and the V4R implementation binding
+was reissued after commit `2fe6a570a`. Before inference, the sole proof
+dispatcher and paid cohort runner must consume this row set, the initial
+requests must pass a credentialed zero-inference preflight, and an explicit
+bounded spend authorization must bind the exact preflight and manifest. A
+Gemini 429 remains a provider non-evaluation; no substitution with Gemini 3.6
+is permitted.
