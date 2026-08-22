@@ -1,13 +1,24 @@
 import { deepFreezeV1, hashCanonicalJsonV1 } from './contracts-v1';
-import type { BudgetedSealedHoldoutEvaluationReceiptV2R }
-  from './sealed-holdout-evaluator-v2r';
+import type {
+  BudgetedSealedHoldoutEvaluationReceiptV2R,
+  BudgetedSealedHoldoutEvaluationReceiptV3R2,
+} from './sealed-holdout-evaluator-v2r';
 import {
   assertSealedHoldoutCohortManifestV2R,
   type SealedHoldoutCohortManifestV2R,
 } from './sealed-holdout-cohort-v2r';
-import { bindSealedHoldoutProofInputV2R } from './sealed-holdout-proof-input-v2r';
-import type { BudgetedSealedHoldoutSelectedOperationTraceV2R }
-  from './sealed-holdout-trace-v2r';
+import type { SealedHoldoutCohortManifestV3R2 }
+  from './sealed-holdout-cohort-v3r2';
+import {
+  bindSealedHoldoutProofInputV2R,
+  bindSealedHoldoutProofInputV3R2,
+  type BoundSealedHoldoutProofInputV2R,
+  type BoundSealedHoldoutProofInputV3R2,
+} from './sealed-holdout-proof-input-v2r';
+import type {
+  BudgetedSealedHoldoutSelectedOperationTraceV2R,
+  BudgetedSealedHoldoutSelectedOperationTraceV3R2,
+} from './sealed-holdout-trace-v2r';
 
 type NoEditTaskIdV2R = 'HOLD-06' | 'HOLD-07' | 'HOLD-08';
 type NoEditClaimV2R = 'RIGHTS_OR_AUTHORIZATION_STOP_WITHOUT_EDIT'
@@ -22,6 +33,8 @@ export const SEALED_HOLDOUT_NO_EDIT_PROOF_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_NO_EDIT_SAFETY_PROOF_V2R_1' as const;
 export const SEALED_HOLDOUT_GENERAL_NO_EDIT_PROOF_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_GENERAL_NO_EDIT_SAFETY_PROOF_V2R_2' as const;
+export const SEALED_HOLDOUT_GENERAL_NO_EDIT_PROOF_VERSION_V3R2 =
+  'EDITRON_OE_SEALED_HOLDOUT_GENERAL_NO_EDIT_SAFETY_PROOF_V3R_2_1' as const;
 
 const NO_EDIT_POLICIES: Readonly<Record<NoEditTaskIdV2R, Readonly<{
   claim: NoEditClaimV2R;
@@ -119,6 +132,12 @@ export interface SealedHoldoutGeneralNoEditProofReceiptV2R {
   receiptSha256: string;
 }
 
+export type SealedHoldoutGeneralNoEditProofReceiptV3R2 = Readonly<
+  Omit<SealedHoldoutGeneralNoEditProofReceiptV2R, 'version'> & {
+    version: typeof SEALED_HOLDOUT_GENERAL_NO_EDIT_PROOF_VERSION_V3R2;
+  }
+>;
+
 export function proveSealedHoldoutNoEditOutcomeV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
   caseId: string;
@@ -201,6 +220,50 @@ export function proveSealedHoldoutGeneralNoEditOutcomeV2R(input: {
     allowedAssessments: ['PASS'],
     allowedExecutionForms: ['NONE'],
   });
+  return buildGeneralNoEditProof({
+    version: SEALED_HOLDOUT_GENERAL_NO_EDIT_PROOF_VERSION_V2R,
+    manifestSha256: manifest.manifestSha256,
+    caseId: input.caseId,
+    bound,
+  });
+}
+
+export function proveSealedHoldoutGeneralNoEditOutcomeV3R2(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  caseId: string;
+  trace: Readonly<BudgetedSealedHoldoutSelectedOperationTraceV3R2>;
+  evaluation: Readonly<BudgetedSealedHoldoutEvaluationReceiptV3R2>;
+}): Readonly<SealedHoldoutGeneralNoEditProofReceiptV3R2> {
+  const bound = bindSealedHoldoutProofInputV3R2({
+    manifest: input.manifest,
+    caseId: input.caseId,
+    trace: input.trace,
+    evaluation: input.evaluation,
+    allowedTaskIds: Object.keys(GENERAL_NO_EDIT_POLICIES),
+    allowedAssessments: ['PASS'],
+    allowedExecutionForms: ['NONE'],
+  });
+  return buildGeneralNoEditProof({
+    version: SEALED_HOLDOUT_GENERAL_NO_EDIT_PROOF_VERSION_V3R2,
+    manifestSha256: input.manifest.manifestSha256,
+    caseId: input.caseId,
+    bound,
+  });
+}
+
+function buildGeneralNoEditProof<
+  TVersion extends typeof SEALED_HOLDOUT_GENERAL_NO_EDIT_PROOF_VERSION_V2R
+    | typeof SEALED_HOLDOUT_GENERAL_NO_EDIT_PROOF_VERSION_V3R2,
+>(input: Readonly<{
+  version: TVersion;
+  manifestSha256: string;
+  caseId: string;
+  bound: Readonly<BoundSealedHoldoutProofInputV2R
+    | BoundSealedHoldoutProofInputV3R2>;
+}>): Readonly<Omit<SealedHoldoutGeneralNoEditProofReceiptV2R, 'version'> & {
+  version: TVersion;
+}> {
+  const { bound } = input;
   const trace = bound.trace;
   const recomputed = bound.evaluation;
   const taskId = bound.taskId;
@@ -221,11 +284,11 @@ export function proveSealedHoldoutGeneralNoEditOutcomeV2R(input: {
     fail('GENERAL_NO_EDIT_PROOF_PRECONDITION_FAILED');
   }
   const material = {
-    version: SEALED_HOLDOUT_GENERAL_NO_EDIT_PROOF_VERSION_V2R,
+    version: input.version,
     authority: 'RESEARCH_GENERAL_NO_EDIT_SAFETY_PROOF_NO_PROJECT_MUTATION' as const,
     caseId: input.caseId,
     taskId,
-    manifestSha256: manifest.manifestSha256,
+    manifestSha256: input.manifestSha256,
     publicCaseSha256: bound.publicCaseSha256,
     traceArtifactSha256: trace.artifactSha256,
     evaluationReceiptSha256: recomputed.receiptSha256,

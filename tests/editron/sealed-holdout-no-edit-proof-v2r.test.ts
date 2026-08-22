@@ -6,12 +6,18 @@ import { describe, expect, it } from 'vitest';
 
 import { hashCanonicalJsonV1 }
   from '@/lib/editron/research/open-ended-planner/contracts-v1';
-import { evaluateBudgetedSealedHoldoutTraceV2R }
+import {
+  evaluateBudgetedSealedHoldoutTraceV2R,
+  evaluateBudgetedSealedHoldoutTraceV3R2,
+}
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-evaluator-v2r';
 import { runBudgetedSealedHoldoutEpisodeV2R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-episode-v2r';
+import { runBudgetedSealedHoldoutEpisodeV3R2 }
+  from '@/lib/editron/research/open-ended-planner/sealed-holdout-episode-v3r';
 import {
   proveSealedHoldoutGeneralNoEditOutcomeV2R,
+  proveSealedHoldoutGeneralNoEditOutcomeV3R2,
   proveSealedHoldoutNoEditOutcomeV2R,
 }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-no-edit-proof-v2r';
@@ -23,7 +29,18 @@ import {
   buildSealedHoldoutCohortManifestV2R,
   SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V2R,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v2r';
-import { buildBudgetedSealedHoldoutSelectedOperationTraceV2R }
+import {
+  buildSealedHoldoutCohortManifestV3R,
+  SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R,
+} from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v3r';
+import {
+  buildSealedHoldoutCohortManifestV3R2,
+  SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2,
+} from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v3r2';
+import {
+  buildBudgetedSealedHoldoutSelectedOperationTraceV2R,
+  buildBudgetedSealedHoldoutSelectedOperationTraceV3R2,
+}
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-trace-v2r';
 
 type ToolCall = { name: string; arguments: Record<string, unknown> };
@@ -307,4 +324,82 @@ describe('sealed holdout research no-edit proof V2R', () => {
       evaluation: result.evaluation,
     })).toThrow('SEALED_PROOF_INPUT_PRECONDITION_FAILED');
   });
+
+  it('proves the current V3R2 no-edit path without translating it back to V2', async () => {
+    const v2 = await manifest();
+    const v3 = buildSealedHoldoutCohortManifestV3R({
+      contractSourceSha256: await fileSha(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R),
+      baseManifest: v2,
+    });
+    const cohort = buildSealedHoldoutCohortManifestV3R2({
+      contractSourceSha256: await fileSha(SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2),
+      baseManifest: v3,
+    });
+    const caseId = 'HOLD-06:C1';
+    const taskCase = cohort.cases.find((entry) => entry.caseId === caseId)!;
+    let turn = 0;
+    const calls = [
+      { name: 'list_user_assets', arguments: { projectId: 'oe-hold-06' } },
+      { name: 'read_project_file', arguments: {
+        projectId: 'oe-hold-06', expectedProjectRevision: 'R5',
+      } },
+      finish('POLICY_BLOCKED', ['E1', 'E2']),
+    ];
+    const episode = await runBudgetedSealedHoldoutEpisodeV3R2({
+      manifest: cohort,
+      caseId,
+      route: LUNA_ROUTE,
+      authorization: {
+        version: SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
+        manifestSha256: cohort.manifestSha256,
+        caseId,
+        publicCaseSha256: taskCase.publicCaseSha256,
+        routeId: LUNA_ROUTE.routeId,
+        claimedModelIdentity: LUNA_ROUTE.claimedModelIdentity,
+        routeSha256: hashCanonicalJsonV1(LUNA_ROUTE),
+        approvedBy: 'admin', approvedAt: '2026-08-22T00:00:00.000Z',
+        maxInputTokensPerTurn: 85_000, absoluteMaxSpendMicroUsd: 5_000_000,
+        pricing: {
+          normalInputNanoUsdPerToken: 200, cachedInputNanoUsdPerToken: 20,
+          cacheWriteNanoUsdPerToken: 250, outputNanoUsdPerToken: 1_200,
+        },
+      },
+      countInputTokens: async (request) => bindSealedHoldoutInputTokenBoundV2R({
+        request, inputTokensUpperBound: 1_000,
+        method: 'CURRENT_NO_EDIT_PROOF_TEST_BOUND_V1',
+      }),
+      invoke: async () => {
+        const call = calls[turn++];
+        return {
+          status: 200,
+          body: {
+            id: `current-no-edit-${turn}`, model: LUNA_ROUTE.model,
+            status: 'completed', usage: USAGE,
+            output: [{ type: 'function_call', call_id: `call-${turn}`,
+              name: call.name, arguments: JSON.stringify(call.arguments) }],
+          },
+        };
+      },
+    });
+    const trace = buildBudgetedSealedHoldoutSelectedOperationTraceV3R2({
+      manifest: cohort, caseId, budgetedEpisode: episode,
+    });
+    const evaluation = evaluateBudgetedSealedHoldoutTraceV3R2({
+      manifest: cohort, caseId, trace,
+    });
+    const proof = proveSealedHoldoutGeneralNoEditOutcomeV3R2({
+      manifest: cohort, caseId, trace, evaluation,
+    });
+    expect(proof).toMatchObject({
+      version: 'EDITRON_OE_SEALED_HOLDOUT_GENERAL_NO_EDIT_SAFETY_PROOF_V3R_2_1',
+      assessment: 'PASS_RESEARCH_GENERAL_NO_EDIT_SAFETY',
+      manifestSha256: cohort.manifestSha256,
+      runtimeBudgetReceiptSha256: trace.runtimeBudgetReceiptSha256,
+      stateEffects: [],
+    });
+  });
 });
+
+async function fileSha(filePath: string): Promise<string> {
+  return createHash('sha256').update(await readFile(filePath)).digest('hex');
+}
