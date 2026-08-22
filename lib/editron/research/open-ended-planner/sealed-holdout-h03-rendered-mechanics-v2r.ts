@@ -12,6 +12,7 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 type NormalizedBounds = readonly [left: number, top: number, width: number, height: number];
+type PanelEdge = 'LEFT' | 'RIGHT' | 'TOP' | 'BOTTOM';
 
 const PANELS: readonly NormalizedBounds[] = [
   [0.03, 0.03, 0.27, 0.39], [0.03, 0.60, 0.27, 0.37],
@@ -22,6 +23,15 @@ const PANELS: readonly NormalizedBounds[] = [
 export interface SealedH03BoundSourceArtifactsV2R {
   sourceA: Readonly<{ artifactSha256: string; artifactPath: string }>;
   sourceB: Readonly<{ artifactSha256: string; artifactPath: string }>;
+}
+
+export interface SealedH03DirectionalMotionDeltasV2R {
+  leftTop: number;
+  leftBottom: number;
+  centreTop: number;
+  centreBottom: number;
+  rightTop: number;
+  rightBottom: number;
 }
 
 export interface SealedH03RenderedHybridMechanicsV2R {
@@ -39,7 +49,12 @@ export interface SealedH03RenderedHybridMechanicsV2R {
       titleYellowBounds: { left: number; right: number; top: number; bottom: number };
       sourcePanelTitleFootprintIntersectionPixels: number;
     };
-    motion: { entryEdgeLumaDelta: number; exitEdgeLumaDelta: number };
+    motion: {
+      entryEdgeLumaDelta: number;
+      exitEdgeLumaDelta: number;
+      entryDirectionalEdgeLumaDeltas: SealedH03DirectionalMotionDeltasV2R;
+      exitDirectionalEdgeLumaDeltas: SealedH03DirectionalMotionDeltasV2R;
+    };
     referenceAssetRendered: false;
   }>;
   nativeSurround: Readonly<{
@@ -135,7 +150,9 @@ export async function executeSealedH03RenderedHybridMechanicsV2R(input: {
     || probe.averageFrameRate !== '30/1' || probe.decodedFrameCount !== 420
     || probe.audioStreamCount !== 0) fail('SEALED_H03_MECHANICS_VIDEO_CONTRACT_INVALID');
   const layout = measureLayout(settled, 1080, 1920);
-  const motion = measureMotion(entry, settled, exit, 1080, 1920);
+  const motion = measureSealedH03DirectionalMotionV2R({
+    entry, settled, exit, width: 1080, height: 1920,
+  });
   const errors = [0, 1, 2, 3].map((index) => meanAbsoluteRgbError(
     continuityFrames[index * 2], continuityFrames[index * 2 + 1],
   ));
@@ -226,21 +243,103 @@ function measureLayout(rgb: Buffer, width: number, height: number) {
     sourcePanelTitleFootprintIntersectionPixels,
   };
 }
-function measureMotion(entry: Buffer, settled: Buffer, exit: Buffer, width: number, height: number) {
-  const entryEdges: readonly NormalizedBounds[] = [
-    [0.282, 0.08, 0.012, 0.25], [0.706, 0.08, 0.012, 0.25],
-  ];
-  const exitEdges: readonly NormalizedBounds[] = [
-    [0.035, 0.08, 0.012, 0.25], [0.952, 0.08, 0.012, 0.25],
-  ];
-  const entryEdgeLumaDelta = Math.min(...entryEdges.map((bounds) =>
-    meanLuma(settled, width, height, bounds) - meanLuma(entry, width, height, bounds)));
-  const exitEdgeLumaDelta = Math.min(...exitEdges.map((bounds) =>
-    meanLuma(settled, width, height, bounds) - meanLuma(exit, width, height, bounds)));
+/**
+ * Measures the public H03 motion relationship from decoded pixels. Each probe
+ * sits just inside the settled panel edge that must be vacated for the declared
+ * direction. This tests all six panels and does not depend on the human
+ * fixture's motion expression or exact travel value.
+ */
+export function measureSealedH03DirectionalMotionV2R(input: {
+  entry: Buffer;
+  settled: Buffer;
+  exit: Buffer;
+  width: number;
+  height: number;
+}) {
+  const { entry, settled, exit, width, height } = input;
+  assertRgbFrame(entry, width, height);
+  assertRgbFrame(settled, width, height);
+  assertRgbFrame(exit, width, height);
+  const entryDirectionalEdgeLumaDeltas = directionalDeltas(
+    entry,
+    settled,
+    width,
+    height,
+    ['RIGHT', 'RIGHT', 'BOTTOM', 'TOP', 'LEFT', 'LEFT'],
+  );
+  const exitDirectionalEdgeLumaDeltas = directionalDeltas(
+    exit,
+    settled,
+    width,
+    height,
+    ['LEFT', 'LEFT', 'TOP', 'BOTTOM', 'RIGHT', 'RIGHT'],
+  );
+  const entryEdgeLumaDelta = Math.min(
+    ...Object.values(entryDirectionalEdgeLumaDeltas),
+  );
+  const exitEdgeLumaDelta = Math.min(
+    ...Object.values(exitDirectionalEdgeLumaDeltas),
+  );
   return {
     entryEdgeLumaDelta: round(entryEdgeLumaDelta),
     exitEdgeLumaDelta: round(exitEdgeLumaDelta),
+    entryDirectionalEdgeLumaDeltas,
+    exitDirectionalEdgeLumaDeltas,
   };
+}
+function directionalDeltas(
+  moving: Buffer,
+  settled: Buffer,
+  width: number,
+  height: number,
+  edges: readonly [PanelEdge, PanelEdge, PanelEdge, PanelEdge, PanelEdge, PanelEdge],
+): SealedH03DirectionalMotionDeltasV2R {
+  const delta = (index: number) => round(
+    meanLuma(settled, width, height, panelEdgeProbe(PANELS[index], edges[index], width, height))
+      - meanLuma(moving, width, height, panelEdgeProbe(PANELS[index], edges[index], width, height)),
+  );
+  return {
+    leftTop: delta(0),
+    leftBottom: delta(1),
+    centreTop: delta(2),
+    centreBottom: delta(3),
+    rightTop: delta(4),
+    rightBottom: delta(5),
+  };
+}
+function panelEdgeProbe(
+  [left, top, width, height]: NormalizedBounds,
+  edge: PanelEdge,
+  canvasWidth: number,
+  canvasHeight: number,
+): NormalizedBounds {
+  const horizontalDepth = 12 / canvasWidth;
+  const verticalDepth = 12 / canvasHeight;
+  const horizontalInset = 6 / canvasWidth;
+  const verticalInset = 6 / canvasHeight;
+  const alongInset = 0.12;
+  if (edge === 'LEFT') {
+    return [left + horizontalInset, top + height * alongInset,
+      horizontalDepth, height * (1 - alongInset * 2)];
+  }
+  if (edge === 'RIGHT') {
+    return [left + width - horizontalInset - horizontalDepth,
+      top + height * alongInset, horizontalDepth, height * (1 - alongInset * 2)];
+  }
+  if (edge === 'TOP') {
+    return [left + width * alongInset, top + verticalInset,
+      width * (1 - alongInset * 2), verticalDepth];
+  }
+  return [left + width * alongInset,
+    top + height - verticalInset - verticalDepth,
+    width * (1 - alongInset * 2), verticalDepth];
+}
+function assertRgbFrame(frame: Buffer, width: number, height: number): void {
+  if (!Number.isSafeInteger(width) || width <= 0
+    || !Number.isSafeInteger(height) || height <= 0
+    || frame.length !== width * height * 3) {
+    fail('SEALED_H03_MECHANICS_FRAME_SIZE_DRIFT');
+  }
 }
 function nonDarkRatio(rgb: Buffer, width: number, height: number, bounds: NormalizedBounds): number {
   const pixels = region(rgb, width, height, inset(bounds, 0.08));
