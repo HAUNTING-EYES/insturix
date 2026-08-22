@@ -128,4 +128,3 @@ DEV-02 blueprint, and no blind editor scored these planning artifacts.
    qualified reviewer exists.
 6. Freeze `GO`, `MODIFY` or `NO-GO` only after the remaining generalisation and
    quality gates have real receipts.
-
