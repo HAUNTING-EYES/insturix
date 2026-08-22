@@ -48,6 +48,23 @@ interface SealedHoldoutEpisodeManifestV2R {
   }>[];
 }
 
+export interface BudgetedSealedHoldoutEpisodeManifestV2R
+extends SealedHoldoutEpisodeManifestV2R {
+  manifestSha256: string;
+  cases: readonly Readonly<{
+    caseId: string;
+    publicCase: Readonly<JsonRecord>;
+    publicCaseSha256: string;
+  }>[];
+}
+
+type ProviderToolSetFactoryV2R = NonNullable<
+  Parameters<typeof runProviderNativeToolEpisodeV2R>[0]['toolSetFactory']
+>;
+type IsolatedExecutionOwnerV2R = Parameters<
+  typeof runProviderNativeToolEpisodeV2R
+>[0]['executeIsolated'];
+
 export function buildSealedHoldoutEpisodeContextV2R(input: {
   manifest: Readonly<SealedHoldoutCohortManifestV2R>;
   caseId: string;
@@ -120,10 +137,23 @@ export function buildBudgetedSealedHoldoutEpisodeContextV2R(input: {
   caseId: string;
 }): Readonly<ProviderNativeEpisodeContextV2R> {
   const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
+  return buildBudgetedSealedHoldoutEpisodeContextFromManifestV2R({
+    manifest,
+    caseId: input.caseId,
+    episodeVersion: BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V2R,
+  });
+}
+
+export function buildBudgetedSealedHoldoutEpisodeContextFromManifestV2R(input: {
+  manifest: Readonly<BudgetedSealedHoldoutEpisodeManifestV2R>;
+  caseId: string;
+  episodeVersion: string;
+}): Readonly<ProviderNativeEpisodeContextV2R> {
+  const { manifest } = input;
   const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
   if (!taskCase) fail(`SEALED_HOLDOUT_EPISODE_CASE_MISSING:${input.caseId}`);
-  const historical = buildSealedHoldoutEpisodeContextV2R({
-    manifest, caseId: input.caseId,
+  const historical = buildSealedHoldoutEpisodeContextFromManifestV2R({
+    manifest, caseId: input.caseId, episodeVersion: input.episodeVersion,
   });
   const resourceBudget = record(record(taskCase.publicCase).resourceBudget);
   const maxNodes = positiveInteger(resourceBudget.maxNodes, 'SEALED_MAX_NODES_INVALID');
@@ -133,7 +163,7 @@ export function buildBudgetedSealedHoldoutEpisodeContextV2R(input: {
   );
   const context = deepFreezeV1({
     ...historical,
-    episodeId: `${BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V2R}:${taskCase.caseId}`,
+    episodeId: `${input.episodeVersion}:${taskCase.caseId}`,
     budget: {
       maxTurns: Math.min(32, maxNodes + 3),
       maxOutputTokensPerTurn: Math.min(4096, maxOutputTokens),
@@ -144,8 +174,8 @@ export function buildBudgetedSealedHoldoutEpisodeContextV2R(input: {
   return context;
 }
 
-export interface BudgetedSealedHoldoutEpisodeReceiptV2R {
-  version: typeof BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V2R;
+export interface BudgetedSealedHoldoutEpisodeReceiptFromManifestV2R {
+  version: string;
   authority: 'RESEARCH_ONLY_BUDGETED_NO_PROJECT_MUTATION';
   manifestSha256: string;
   caseId: string;
@@ -154,11 +184,30 @@ export interface BudgetedSealedHoldoutEpisodeReceiptV2R {
   receiptSha256: string;
 }
 
+export type BudgetedSealedHoldoutEpisodeReceiptV2R = Readonly<
+  Omit<BudgetedSealedHoldoutEpisodeReceiptFromManifestV2R, 'version'> & {
+    version: typeof BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V2R;
+  }
+>;
+
 export function assertBudgetedSealedHoldoutEpisodeReceiptV2R(
   value: unknown,
 ): Readonly<BudgetedSealedHoldoutEpisodeReceiptV2R> {
+  return assertBudgetedSealedHoldoutEpisodeReceiptFromManifestV2R(
+    value,
+    BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V2R,
+  ) as Readonly<BudgetedSealedHoldoutEpisodeReceiptV2R>;
+}
+
+export function assertBudgetedSealedHoldoutEpisodeReceiptFromManifestV2R(
+  value: unknown,
+  expectedVersion: string,
+): Readonly<BudgetedSealedHoldoutEpisodeReceiptFromManifestV2R> {
   if (!isRecord(value)) fail('BUDGETED_SEALED_HOLDOUT_EPISODE_RECEIPT_MISSING');
-  const candidate = value as unknown as BudgetedSealedHoldoutEpisodeReceiptV2R;
+  const candidate = value as unknown as BudgetedSealedHoldoutEpisodeReceiptFromManifestV2R;
+  if (!isRecord(candidate.providerEpisode) || !isRecord(candidate.runtimeBudget)) {
+    fail('BUDGETED_SEALED_HOLDOUT_EPISODE_RECEIPT_DRIFT');
+  }
   const { receiptSha256, ...material } = candidate;
   const { receiptSha256: providerReceiptSha256, ...providerMaterial } =
     candidate.providerEpisode;
@@ -170,7 +219,7 @@ export function assertBudgetedSealedHoldoutEpisodeReceiptV2R(
     : terminal === 'RESOURCE_BUDGET_EXHAUSTED'
       ? 'BUDGET_EXHAUSTED'
       : 'ACCOUNTED_WITHIN_BUDGET';
-  if (candidate.version !== BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V2R
+  if (candidate.version !== expectedVersion
     || candidate.authority !== 'RESEARCH_ONLY_BUDGETED_NO_PROJECT_MUTATION'
     || !/^[a-f0-9]{64}$/.test(candidate.manifestSha256)
     || !candidate.caseId.trim()
@@ -182,6 +231,66 @@ export function assertBudgetedSealedHoldoutEpisodeReceiptV2R(
     fail('BUDGETED_SEALED_HOLDOUT_EPISODE_RECEIPT_DRIFT');
   }
   return deepFreezeV1(structuredClone(candidate));
+}
+
+export async function runBudgetedSealedHoldoutEpisodeFromManifestV2R(input: {
+  manifest: Readonly<BudgetedSealedHoldoutEpisodeManifestV2R>;
+  manifestValidator: (
+    value: unknown,
+  ) => Readonly<BudgetedSealedHoldoutEpisodeManifestV2R>;
+  caseId: string;
+  episodeVersion: string;
+  route: Readonly<ProviderNativeRouteV2R>;
+  authorization: Readonly<SealedHoldoutRuntimeAuthorizationV2R>;
+  countInputTokens: (
+    request: Readonly<SerializedProviderNativeTurnV2R>,
+  ) => Promise<Readonly<SealedHoldoutInputTokenBoundV2R>>;
+  argumentHandoffMode?: ProviderNativeArgumentHandoffModeV2R;
+  operatorPresentationOrder?: readonly string[];
+  toolSetFactory?: ProviderToolSetFactoryV2R;
+  additionalInstructions: readonly string[];
+  invoke: (request: Readonly<SerializedProviderNativeTurnV2R>)
+    => Promise<ProviderNativeInvokeResponseV2R>;
+  executeIsolated: IsolatedExecutionOwnerV2R;
+}): Promise<Readonly<BudgetedSealedHoldoutEpisodeReceiptFromManifestV2R>> {
+  const manifest = input.manifestValidator(input.manifest);
+  const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
+  if (!taskCase) fail(`SEALED_HOLDOUT_EPISODE_CASE_MISSING:${input.caseId}`);
+  const expected = strings(record(manifest.sharedModelContext).callableOperatorIds);
+  const operatorOrder = input.operatorPresentationOrder ?? expected;
+  if (!sameSet(operatorOrder, expected)) fail('SEALED_HOLDOUT_EPISODE_OPERATOR_SET_DRIFT');
+  const runtimeBudget = new SealedHoldoutRuntimeBudgetControllerV2R({
+    publicCase: taskCase.publicCase,
+    publicCaseSha256: taskCase.publicCaseSha256,
+    manifestSha256: manifest.manifestSha256,
+    route: input.route,
+    authorization: input.authorization,
+    countInputTokens: input.countInputTokens,
+  });
+  const providerEpisode = await runProviderNativeToolEpisodeV2R({
+    route: input.route,
+    context: buildBudgetedSealedHoldoutEpisodeContextFromManifestV2R({
+      manifest, caseId: input.caseId, episodeVersion: input.episodeVersion,
+    }),
+    eligibleOperatorIds: operatorOrder,
+    argumentHandoffMode: input.argumentHandoffMode,
+    finishInputSchema: SEALED_HOLDOUT_FINISH_SCHEMA_V2R,
+    ...(input.toolSetFactory ? { toolSetFactory: input.toolSetFactory } : {}),
+    additionalInstructions: input.additionalInstructions,
+    invoke: input.invoke,
+    runtimeGuard: runtimeBudget,
+    executeIsolated: input.executeIsolated,
+  });
+  const budgetReceipt = runtimeBudget.receipt(providerEpisode.terminal.disposition);
+  const material = {
+    version: input.episodeVersion,
+    authority: 'RESEARCH_ONLY_BUDGETED_NO_PROJECT_MUTATION' as const,
+    manifestSha256: manifest.manifestSha256,
+    caseId: input.caseId,
+    providerEpisode,
+    runtimeBudget: budgetReceipt,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
 }
 
 export async function runBudgetedSealedHoldoutEpisodeV2R(input: {
@@ -201,49 +310,28 @@ export async function runBudgetedSealedHoldoutEpisodeV2R(input: {
   }>) => Promise<Readonly<ProviderNativeToolExecutionV2R>>;
 }): Promise<Readonly<BudgetedSealedHoldoutEpisodeReceiptV2R>> {
   const manifest = assertSealedHoldoutCohortManifestV2R(input.manifest);
-  const taskCase = manifest.cases.find(({ caseId }) => caseId === input.caseId);
-  if (!taskCase) fail(`SEALED_HOLDOUT_EPISODE_CASE_MISSING:${input.caseId}`);
-  const expected = strings(record(manifest.sharedModelContext).callableOperatorIds);
-  const operatorOrder = input.operatorPresentationOrder ?? expected;
-  if (!sameSet(operatorOrder, expected)) fail('SEALED_HOLDOUT_EPISODE_OPERATOR_SET_DRIFT');
   const ownerSession = input.executeIsolated ? null : new SealedHoldoutOwnerSessionV2R({
     manifest, caseId: input.caseId,
   });
-  const runtimeBudget = new SealedHoldoutRuntimeBudgetControllerV2R({
-    publicCase: taskCase.publicCase,
-    publicCaseSha256: taskCase.publicCaseSha256,
-    manifestSha256: manifest.manifestSha256,
+  const receipt = await runBudgetedSealedHoldoutEpisodeFromManifestV2R({
+    manifest,
+    manifestValidator: assertSealedHoldoutCohortManifestV2R,
+    caseId: input.caseId,
+    episodeVersion: BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V2R,
     route: input.route,
     authorization: input.authorization,
     countInputTokens: input.countInputTokens,
-  });
-  const providerEpisode = await runProviderNativeToolEpisodeV2R({
-    route: input.route,
-    context: buildBudgetedSealedHoldoutEpisodeContextV2R({
-      manifest, caseId: input.caseId,
-    }),
-    eligibleOperatorIds: operatorOrder,
     argumentHandoffMode: input.argumentHandoffMode,
-    finishInputSchema: SEALED_HOLDOUT_FINISH_SCHEMA_V2R,
+    operatorPresentationOrder: input.operatorPresentationOrder,
     additionalInstructions: [
       'All forty planning records are represented: callable operations are tools; unavailable records are context-only and must never be fabricated as calls.',
       'Use POLICY_BLOCKED only when supplied rights, privacy, egress, or security policy forbids the required action.',
       'The opaque C1/C2 label carries no semantic meaning. Base every choice on the request and returned tool evidence.',
     ],
     invoke: input.invoke,
-    runtimeGuard: runtimeBudget,
     executeIsolated: input.executeIsolated ?? ((call) => ownerSession!.execute(call)),
   });
-  const budgetReceipt = runtimeBudget.receipt(providerEpisode.terminal.disposition);
-  const material = {
-    version: BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V2R,
-    authority: 'RESEARCH_ONLY_BUDGETED_NO_PROJECT_MUTATION' as const,
-    manifestSha256: manifest.manifestSha256,
-    caseId: input.caseId,
-    providerEpisode,
-    runtimeBudget: budgetReceipt,
-  };
-  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+  return assertBudgetedSealedHoldoutEpisodeReceiptV2R(receipt);
 }
 
 export async function runSealedHoldoutEpisodeV2R(input: {

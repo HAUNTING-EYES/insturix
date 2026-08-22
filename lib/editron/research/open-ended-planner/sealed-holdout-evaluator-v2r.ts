@@ -22,10 +22,12 @@ import {
 } from './sealed-holdout-episode-v3r2';
 import {
   assertBudgetedSealedHoldoutSelectedOperationTraceV2R,
+  assertBudgetedSealedHoldoutSelectedOperationTraceV3R2,
   assertSealedHoldoutSelectedOperationTraceV2R,
   assertSealedHoldoutSelectedOperationTraceV3R,
   assertSealedHoldoutSelectedOperationTraceV3R2,
   type BudgetedSealedHoldoutSelectedOperationTraceV2R,
+  type BudgetedSealedHoldoutSelectedOperationTraceV3R2,
   type SealedHoldoutSelectedOperationTraceV2R,
   type SealedHoldoutSelectedOperationTraceV3R,
   type SealedHoldoutSelectedOperationTraceV3R2,
@@ -38,6 +40,8 @@ const SEALED_HOLDOUT_EVALUATOR_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V2R_1' as const;
 const BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V2R =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V2R_2' as const;
+const BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2 =
+  'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_2_RESOURCE_BOUND_1' as const;
 const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R =
   'EDITRON_OE_SEALED_HOLDOUT_HIDDEN_PREPROOF_EVALUATOR_V3R_1' as const;
 const SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2 =
@@ -87,6 +91,17 @@ export type BudgetedSealedHoldoutEvaluationReceiptV2R = Readonly<
     version: typeof BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V2R;
     runtimeBudgetReceiptSha256: string;
     runtimeBudgetAssessment: BudgetedSealedHoldoutSelectedOperationTraceV2R[
+      'runtimeBudgetAssessment'
+    ];
+    receiptSha256: string;
+  }
+>;
+
+export type BudgetedSealedHoldoutEvaluationReceiptV3R2 = Readonly<
+  Omit<SealedHoldoutEvaluationReceiptV2R, 'version' | 'receiptSha256'> & {
+    version: typeof BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2;
+    runtimeBudgetReceiptSha256: string;
+    runtimeBudgetAssessment: BudgetedSealedHoldoutSelectedOperationTraceV3R2[
       'runtimeBudgetAssessment'
     ];
     receiptSha256: string;
@@ -228,6 +243,32 @@ export function evaluateBudgetedSealedHoldoutTraceV2R(input: {
   return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
 }
 
+export function evaluateBudgetedSealedHoldoutTraceV3R2(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  caseId: string;
+  trace: Readonly<BudgetedSealedHoldoutSelectedOperationTraceV3R2>;
+}): Readonly<BudgetedSealedHoldoutEvaluationReceiptV3R2> {
+  const manifest = assertSealedHoldoutCohortManifestV3R2(input.manifest);
+  const trace = assertBudgetedSealedHoldoutSelectedOperationTraceV3R2(input.trace);
+  const evaluated = evaluateTrace({
+    manifest,
+    caseId: input.caseId,
+    trace,
+    evaluatorVersion: BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2,
+    structuralPolicy: 'SEALED_HOLDOUT_STRUCTURAL_PREPROOF_V3_CURRENT_RESOURCE_BOUND',
+    resourceGuardBound: true,
+    requirePostMutationStateRead: true,
+  });
+  const material = {
+    version: BUDGETED_SEALED_HOLDOUT_EVALUATOR_VERSION_V3R2,
+    authority: 'HIDDEN_POST_EPISODE_EVALUATOR_NO_MODEL_CONTEXT_NO_PROJECT_MUTATION' as const,
+    ...evaluated,
+    runtimeBudgetReceiptSha256: trace.runtimeBudgetReceiptSha256,
+    runtimeBudgetAssessment: trace.runtimeBudgetAssessment,
+  };
+  return deepFreezeV1({ ...material, receiptSha256: hashCanonicalJsonV1(material) });
+}
+
 function evaluateTrace(input: Readonly<{
   manifest: Readonly<SealedHoldoutCohortManifestV2R | SealedHoldoutCohortManifestV3R
     | SealedHoldoutCohortManifestV3R2>;
@@ -235,7 +276,8 @@ function evaluateTrace(input: Readonly<{
   trace: Readonly<SealedHoldoutSelectedOperationTraceV2R
     | SealedHoldoutSelectedOperationTraceV3R
     | SealedHoldoutSelectedOperationTraceV3R2
-    | BudgetedSealedHoldoutSelectedOperationTraceV2R>;
+    | BudgetedSealedHoldoutSelectedOperationTraceV2R
+    | BudgetedSealedHoldoutSelectedOperationTraceV3R2>;
   evaluatorVersion: string;
   structuralPolicy: string;
   resourceGuardBound: boolean;

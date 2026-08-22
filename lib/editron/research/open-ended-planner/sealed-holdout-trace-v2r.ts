@@ -3,6 +3,7 @@ import { V2R_OPERATOR_CATALOG } from './operator-catalog-v2r';
 import type { ProviderNativeEpisodeReceiptV2R } from './provider-native-tool-episode-v2r';
 import {
   assertBudgetedSealedHoldoutEpisodeReceiptV2R,
+  buildBudgetedSealedHoldoutEpisodeContextFromManifestV2R,
   buildBudgetedSealedHoldoutEpisodeContextV2R,
   buildSealedHoldoutEpisodeContextFromManifestV2R,
   buildSealedHoldoutEpisodeContextV2R,
@@ -22,8 +23,12 @@ import {
   assertSealedHoldoutCohortManifestV3R2,
   type SealedHoldoutCohortManifestV3R2,
 } from './sealed-holdout-cohort-v3r2';
-import { SEALED_HOLDOUT_EPISODE_VERSION_V3R }
-  from './sealed-holdout-episode-v3r';
+import {
+  assertBudgetedSealedHoldoutEpisodeReceiptV3R2,
+  BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V3R2,
+  SEALED_HOLDOUT_EPISODE_VERSION_V3R,
+  type BudgetedSealedHoldoutEpisodeReceiptV3R2,
+} from './sealed-holdout-episode-v3r';
 import { SEALED_HOLDOUT_EPISODE_VERSION_V3R2 }
   from './sealed-holdout-episode-v3r2';
 
@@ -37,6 +42,8 @@ const SEALED_HOLDOUT_TRACE_VERSION_V3R =
   'EDITRON_OE_SEALED_HOLDOUT_SELECTED_OPERATION_TRACE_V3R_1' as const;
 const SEALED_HOLDOUT_TRACE_VERSION_V3R2 =
   'EDITRON_OE_SEALED_HOLDOUT_SELECTED_OPERATION_TRACE_V3R_2_H03_SOURCE' as const;
+const BUDGETED_SEALED_HOLDOUT_TRACE_VERSION_V3R2 =
+  'EDITRON_OE_SEALED_HOLDOUT_SELECTED_OPERATION_TRACE_V3R_2_RESOURCE_BOUND_1' as const;
 
 export interface SealedHoldoutTraceNodeV2R {
   nodeId: string;
@@ -95,6 +102,12 @@ export type BudgetedSealedHoldoutSelectedOperationTraceV2R = Readonly<
     runtimeBudgetAssessment: 'ACCOUNTED_WITHIN_BUDGET' | 'BUDGET_EXHAUSTED'
       | 'ACCOUNTING_UNVERIFIABLE';
     artifactSha256: string;
+  }
+>;
+
+export type BudgetedSealedHoldoutSelectedOperationTraceV3R2 = Readonly<
+  Omit<BudgetedSealedHoldoutSelectedOperationTraceV2R, 'version'> & {
+    version: typeof BUDGETED_SEALED_HOLDOUT_TRACE_VERSION_V3R2;
   }
 >;
 
@@ -254,6 +267,54 @@ export function buildBudgetedSealedHoldoutSelectedOperationTraceV2R(input: {
   return deepFreezeV1({ ...material, artifactSha256: hashCanonicalJsonV1(material) });
 }
 
+export function buildBudgetedSealedHoldoutSelectedOperationTraceV3R2(input: {
+  manifest: Readonly<SealedHoldoutCohortManifestV3R2>;
+  caseId: string;
+  budgetedEpisode: Readonly<BudgetedSealedHoldoutEpisodeReceiptV3R2>;
+}): Readonly<BudgetedSealedHoldoutSelectedOperationTraceV3R2> {
+  const manifest = assertSealedHoldoutCohortManifestV3R2(input.manifest);
+  const budgetedEpisode = assertBudgetedSealedHoldoutEpisodeReceiptV3R2(
+    input.budgetedEpisode,
+  );
+  if (budgetedEpisode.manifestSha256 !== manifest.manifestSha256
+    || budgetedEpisode.caseId !== input.caseId) {
+    fail('BUDGETED_V3R2_TRACE_EPISODE_BINDING_INVALID');
+  }
+  const context = buildBudgetedSealedHoldoutEpisodeContextFromManifestV2R({
+    manifest,
+    caseId: input.caseId,
+    episodeVersion: BUDGETED_SEALED_HOLDOUT_EPISODE_VERSION_V3R2,
+  });
+  const { nodes, sortedDiagnostics } = projectProviderEpisode(
+    budgetedEpisode.providerEpisode,
+    context,
+    SEALED_HOLDOUT_OPERATOR_CATALOG_V3R,
+    { includeGeneratedSourceBinding: true },
+  );
+  const traceSha256 = hashCanonicalJsonV1(nodes);
+  const material = {
+    version: BUDGETED_SEALED_HOLDOUT_TRACE_VERSION_V3R2,
+    authority: 'LOSSLESS_MODEL_CALL_PROJECTION_NO_CREATIVE_LOWERING_NO_PROJECT_MUTATION' as const,
+    caseId: input.caseId,
+    episodeId: budgetedEpisode.providerEpisode.episodeId,
+    contextSha256: budgetedEpisode.providerEpisode.contextSha256,
+    budgetedEpisodeReceiptSha256: budgetedEpisode.receiptSha256,
+    providerEpisodeReceiptSha256: budgetedEpisode.providerEpisode.receiptSha256,
+    runtimeBudgetReceiptSha256: budgetedEpisode.runtimeBudget.receiptSha256,
+    runtimeBudgetAssessment: budgetedEpisode.runtimeBudget.assessment,
+    route: budgetedEpisode.providerEpisode.route as unknown as JsonRecord,
+    terminalDisposition: budgetedEpisode.providerEpisode.terminal.disposition,
+    nodes,
+    researchCloneMutationCount: nodes.filter(({ researchCloneMutation }) =>
+      researchCloneMutation).length,
+    assessment: sortedDiagnostics.length ? 'FAIL' as const : 'PASS' as const,
+    diagnostics: sortedDiagnostics,
+    stateEffects: [] as const,
+    traceSha256,
+  };
+  return deepFreezeV1({ ...material, artifactSha256: hashCanonicalJsonV1(material) });
+}
+
 function projectProviderEpisode(
   providerEpisode: Readonly<ProviderNativeEpisodeReceiptV2R>,
   context: Readonly<JsonRecord>,
@@ -379,6 +440,22 @@ export function assertBudgetedSealedHoldoutSelectedOperationTraceV2R(
     || candidate.traceSha256 !== hashCanonicalJsonV1(candidate.nodes)
     || artifactSha256 !== hashCanonicalJsonV1(material)
     || candidate.stateEffects.length) fail('BUDGETED_SEALED_TRACE_DRIFT');
+  return deepFreezeV1(candidate);
+}
+
+export function assertBudgetedSealedHoldoutSelectedOperationTraceV3R2(
+  value: unknown,
+): Readonly<BudgetedSealedHoldoutSelectedOperationTraceV3R2> {
+  if (!isRecord(value)) fail('BUDGETED_SEALED_V3R2_TRACE_MISSING');
+  const candidate = value as unknown as BudgetedSealedHoldoutSelectedOperationTraceV3R2;
+  const { artifactSha256, ...material } = candidate;
+  if (candidate.version !== BUDGETED_SEALED_HOLDOUT_TRACE_VERSION_V3R2
+    || candidate.authority !== 'LOSSLESS_MODEL_CALL_PROJECTION_NO_CREATIVE_LOWERING_NO_PROJECT_MUTATION'
+    || !['ACCOUNTED_WITHIN_BUDGET', 'BUDGET_EXHAUSTED', 'ACCOUNTING_UNVERIFIABLE']
+      .includes(candidate.runtimeBudgetAssessment)
+    || candidate.traceSha256 !== hashCanonicalJsonV1(candidate.nodes)
+    || artifactSha256 !== hashCanonicalJsonV1(material)
+    || candidate.stateEffects.length) fail('BUDGETED_SEALED_V3R2_TRACE_DRIFT');
   return deepFreezeV1(candidate);
 }
 

@@ -3,6 +3,10 @@ import { readFile } from 'node:fs/promises';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { hashCanonicalJsonV1 }
+  from '@/lib/editron/research/open-ended-planner/contracts-v1';
+import { evaluateBudgetedSealedHoldoutTraceV3R2 }
+  from '@/lib/editron/research/open-ended-planner/sealed-holdout-evaluator-v2r';
 import {
   buildSealedHoldoutCohortManifestV2R,
   SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V2R,
@@ -15,10 +19,20 @@ import {
   buildSealedHoldoutCohortManifestV3R2,
   SEALED_HOLDOUT_COHORT_CONTRACT_PATH_V3R2,
 } from '@/lib/editron/research/open-ended-planner/sealed-holdout-cohort-v3r2';
-import { runSealedHoldoutEpisodeV3R }
+import {
+  runBudgetedSealedHoldoutEpisodeV3R2,
+  runSealedHoldoutEpisodeV3R,
+}
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-episode-v3r';
 import { SealedHoldoutH04OwnerStateV3R }
   from '@/lib/editron/research/open-ended-planner/sealed-holdout-h04-owner-state-v3r';
+import {
+  bindSealedHoldoutInputTokenBoundV2R,
+  SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
+} from '@/lib/editron/research/open-ended-planner/sealed-holdout-runtime-budget-v2r';
+import {
+  buildBudgetedSealedHoldoutSelectedOperationTraceV3R2,
+} from '@/lib/editron/research/open-ended-planner/sealed-holdout-trace-v2r';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -177,6 +191,97 @@ describe('sealed HOLD-04 evolving isolated owner state V3R', () => {
     expect(episode.terminal.disposition).toBe('UNVERIFIABLE');
     expect(episode.stateEffects).toEqual([]);
   });
+
+  it('binds the V3R2 state handoff to metered trace and evaluator receipts', async () => {
+    const manifest = await buildManifestV3R2();
+    let turn = 0;
+    const episode = await runBudgetedSealedHoldoutEpisodeV3R2({
+      manifest,
+      caseId: 'HOLD-04:C1',
+      route: route(),
+      authorization: authorization(manifest, 'HOLD-04:C1'),
+      countInputTokens: boundedTokenCount(),
+      invoke: vi.fn(async (request) => {
+        turn += 1;
+        const output = turn === 1
+          ? call('transcript', 'get_video_transcription', {
+            projectId: 'oe-hold-04', assetId: 'h04-host',
+          })
+          : turn === 2
+            ? call('before', 'get_timeline_view', {
+              projectId: 'oe-hold-04', expectedProjectRevision: 'R6',
+            })
+            : turn === 3
+              ? call('cut', 'cut_section', {
+                projectId: 'oe-hold-04', expectedProjectRevision: 'R6',
+                targetRange: { startFrame: 120, endFrame: 225 },
+                evidenceIds: ['E1', 'E2'],
+                constraints: {
+                  retainOccurrence: 'SECOND', preserveCaptionPresentation: true,
+                },
+              })
+              : turn === 4
+                ? call('after', 'get_timeline_view', {
+                  projectId: 'oe-hold-04',
+                  expectedProjectRevision: requireWriterRevision(request.body),
+                })
+                : finish('READY_FOR_PROOF', ['E1', 'E2']);
+        return meteredResponse(turn, output);
+      }),
+    });
+    const trace = buildBudgetedSealedHoldoutSelectedOperationTraceV3R2({
+      manifest, caseId: 'HOLD-04:C1', budgetedEpisode: episode,
+    });
+    const evaluation = evaluateBudgetedSealedHoldoutTraceV3R2({
+      manifest, caseId: 'HOLD-04:C1', trace,
+    });
+
+    expect(episode.runtimeBudget.assessment).toBe('ACCOUNTED_WITHIN_BUDGET');
+    expect(trace.diagnostics).toEqual([]);
+    expect(trace.nodes[2].writerIssuedProjectRevision).toMatch(/^OE-HOLD-/);
+    expect(trace.nodes[3].normalizedArguments.expectedProjectRevision)
+      .toBe(trace.nodes[2].writerIssuedProjectRevision);
+    expect(evaluation).toMatchObject({
+      assessment: 'READY_FOR_PROOF', executionForm: 'NATIVE',
+      proofRequired: true, diagnostics: [],
+      runtimeBudgetAssessment: 'ACCOUNTED_WITHIN_BUDGET',
+    });
+
+    const forged = structuredClone(trace) as JsonRecord;
+    (forged.nodes as JsonRecord[])[2].writerIssuedProjectRevision = 'R6';
+    expect(() => evaluateBudgetedSealedHoldoutTraceV3R2({
+      manifest, caseId: 'HOLD-04:C1',
+      trace: forged as Parameters<typeof evaluateBudgetedSealedHoldoutTraceV3R2>[0]['trace'],
+    })).toThrow('BUDGETED_SEALED_V3R2_TRACE_DRIFT');
+  });
+
+  it('classifies a pre-inference resource stop as not evaluated', async () => {
+    const manifest = await buildManifestV3R2();
+    const invoke = vi.fn();
+    const episode = await runBudgetedSealedHoldoutEpisodeV3R2({
+      manifest,
+      caseId: 'HOLD-04:C1',
+      route: route(),
+      authorization: authorization(manifest, 'HOLD-04:C1'),
+      countInputTokens: boundedTokenCount(100_000),
+      invoke,
+    });
+    const trace = buildBudgetedSealedHoldoutSelectedOperationTraceV3R2({
+      manifest, caseId: 'HOLD-04:C1', budgetedEpisode: episode,
+    });
+    const evaluation = evaluateBudgetedSealedHoldoutTraceV3R2({
+      manifest, caseId: 'HOLD-04:C1', trace,
+    });
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(episode.providerEpisode.terminal.disposition)
+      .toBe('RESOURCE_BUDGET_EXHAUSTED');
+    expect(evaluation).toMatchObject({
+      assessment: 'NOT_EVALUATED_RESOURCE_GUARD',
+      proofRequired: false,
+      diagnostics: [],
+    });
+  });
 });
 
 async function buildManifest() {
@@ -216,6 +321,53 @@ function response(turn: number, output: JsonRecord) {
     status: 200,
     body: { id: `v3-h04-${turn}`, model: 'gpt-5.6-terra', status: 'completed', output: [output] },
   };
+}
+function meteredResponse(turn: number, output: JsonRecord) {
+  return {
+    ...response(turn, output),
+    body: {
+      ...response(turn, output).body,
+      usage: {
+        input_tokens: 100, output_tokens: 50, total_tokens: 150,
+        input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+        output_tokens_details: { reasoning_tokens: 0 },
+      },
+    },
+  };
+}
+function authorization(
+  manifest: Awaited<ReturnType<typeof buildManifestV3R2>>,
+  caseId: string,
+) {
+  const taskCase = manifest.cases.find((entry) => entry.caseId === caseId);
+  if (!taskCase) throw new Error(`TEST_CASE_MISSING:${caseId}`);
+  const selectedRoute = route();
+  return {
+    version: SEALED_HOLDOUT_RUNTIME_AUTHORIZATION_VERSION_V2R,
+    manifestSha256: manifest.manifestSha256,
+    caseId,
+    publicCaseSha256: taskCase.publicCaseSha256,
+    routeId: selectedRoute.routeId,
+    claimedModelIdentity: selectedRoute.claimedModelIdentity,
+    routeSha256: hashCanonicalJsonV1(selectedRoute),
+    approvedBy: 'admin',
+    approvedAt: '2026-08-22T00:00:00.000Z',
+    maxInputTokensPerTurn: 85_000,
+    absoluteMaxSpendMicroUsd: 5_000_000,
+    pricing: {
+      normalInputNanoUsdPerToken: 1_000,
+      cachedInputNanoUsdPerToken: 100,
+      cacheWriteNanoUsdPerToken: 1_250,
+      outputNanoUsdPerToken: 6_000,
+    },
+  };
+}
+function boundedTokenCount(inputTokensUpperBound = 1_000) {
+  return vi.fn(async (request) => bindSealedHoldoutInputTokenBoundV2R({
+    request,
+    inputTokensUpperBound,
+    method: 'TEST_DETERMINISTIC_UPPER_BOUND_V1',
+  }));
 }
 function requireWriterRevision(value: unknown): string {
   const revisions = collectStringsForKey(value, 'projectRevision')
