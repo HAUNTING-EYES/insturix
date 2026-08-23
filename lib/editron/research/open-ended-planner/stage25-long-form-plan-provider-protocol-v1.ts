@@ -6,6 +6,9 @@ import {
 import {
   runProviderNativeToolEpisodeV2R,
   type ProviderNativeEpisodeContextV2R,
+  type ProviderNativeEpisodeReceiptV2R,
+  type ProviderNativeInvokeResponseV2R,
+  type ProviderNativeRuntimeGuardV2R,
 } from './provider-native-tool-episode-v2r';
 import type {
   ProviderNativeRouteV2R,
@@ -167,8 +170,27 @@ export async function captureStage25LongFormProviderInitialRequestV1(input: {
   presentationOrdinal: number;
 }): Promise<Readonly<SerializedProviderNativeTurnV2R>> {
   let captured: Readonly<SerializedProviderNativeTurnV2R> | undefined;
+  await runStage25LongFormProviderEpisodeV1({
+    ...input,
+    invoke: async (request) => {
+      captured = request;
+      return { status: 418, body: { preflight: true } };
+    },
+  });
+  if (!captured) throw new Error('STAGE25_LONG_FORM_PROVIDER_REQUEST_CAPTURE_FAILED');
+  return captured;
+}
+
+export async function runStage25LongFormProviderEpisodeV1(input: {
+  route: Readonly<ProviderNativeRouteV2R>;
+  presentationOrdinal: number;
+  invoke: (
+    request: Readonly<SerializedProviderNativeTurnV2R>,
+  ) => Promise<Readonly<ProviderNativeInvokeResponseV2R>>;
+  runtimeGuard?: Readonly<ProviderNativeRuntimeGuardV2R>;
+}): Promise<Readonly<ProviderNativeEpisodeReceiptV2R>> {
   const finishInputSchema = buildStage25LongFormProviderFinishSchemaV1();
-  await runProviderNativeToolEpisodeV2R({
+  return runProviderNativeToolEpisodeV2R({
     route: input.route,
     context: buildStage25LongFormProviderContextV1(input.presentationOrdinal),
     eligibleOperatorIds: [],
@@ -182,16 +204,12 @@ export async function captureStage25LongFormProviderInitialRequestV1(input: {
       'Do not compute hashes, runtime ports, mutation receipts, renders or low-level operator graphs.',
       'Ordering and coverage rules in authorityAndPolicy are public requirements, not hidden evaluator hints.',
     ],
-    invoke: async (request) => {
-      captured = request;
-      return { status: 418, body: { preflight: true } };
-    },
+    invoke: input.invoke,
+    ...(input.runtimeGuard ? { runtimeGuard: input.runtimeGuard } : {}),
     executeIsolated: async () => {
-      throw new Error('STAGE25_LONG_FORM_PREFLIGHT_EXECUTOR_MUST_NOT_RUN');
+      throw new Error('STAGE25_LONG_FORM_PROVIDER_EXECUTOR_MUST_NOT_RUN');
     },
   });
-  if (!captured) throw new Error('STAGE25_LONG_FORM_PROVIDER_REQUEST_CAPTURE_FAILED');
-  return captured;
 }
 
 function closed(properties: Readonly<JsonRecord>): Readonly<JsonRecord> {
