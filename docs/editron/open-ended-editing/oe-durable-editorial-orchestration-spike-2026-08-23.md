@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status: **architecture decision; zero inference; no product mutation**
+Status: **architecture decision plus non-wired implementation chain; zero inference; no product mutation**
 
 Authority: refines the durable-control-plane portion of the
 [final execution plan](../../EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md) and the
@@ -37,6 +37,7 @@ production-ready and no live workflow reaches the store.
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
 | Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable storage; `9687dbd9f` binds accepted work; `d16caaa5b` revalidates it; `b9cf5e820` proves process portability; `c69a845ea` enforces lifecycle gates; `aff06c8d4` persists owner review wait/wake revisions. No authenticated review route or live Atlas/QStash proof exists. |
+| Project proposal clone/proof | `b50f9f9fa` adapts the existing `ProjectService.loadProjectForMutation` paired snapshot/revision boundary to the durable research clone contract, executes only a supplied in-memory owner, detects revision-visible and relevant revision-invisible canonical drift, and binds the final diff receipt into the durable terminal proof references. It is not wired to a product route, live Mongo exercise, concrete production operator owner or canonical apply path. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -92,11 +93,26 @@ Completed foundation:
   exact-head review decision. It provides immutable domain history without a
   sleeping worker or second event store. Session-derived route authentication
   remains open.
+- `b50f9f9fa` supplies the first ProjectService-shaped isolated proposal-clone
+  adapter and durable receipt handoff. It accepts only the existing paired
+  snapshot/revision read, exposes no ProjectService write method, re-reads the
+  canonical state before and after every isolated call, rolls back failed
+  clone calls, rejects scope/revision forgery and stale bases, and emits a
+  hash-bound changed-path/operation receipt only while the canonical base is
+  unchanged. The durable worker independently validates that nested receipt
+  before completion. Twenty-five durable regression tests, repository
+  typecheck and quiet ESLint pass. This is zero inference and zero canonical
+  project mutation; the concrete production operator owner and live wiring
+  remain absent.
 
 Open work:
 
-- artifact-owner resolution for scopes, locks, approvals and proof;
-- remaining artifact resolution for scopes, locks, approvals and proof;
+- remaining artifact resolution for scopes, locks, approvals, reference media,
+  runtime budget and rendered proof;
+- bind concrete certified/pure operator owners to the proposal clone without
+  introducing another operation registry or project authority;
+- proposal review/apply/reload through the sole ProjectService CAS remains
+  separately gated and unimplemented;
 - authenticated review UI/API ingress and authenticated dispatch;
 - live Atlas/QStash crash, redelivery and cancellation tests.
 
@@ -224,6 +240,13 @@ revisions are the review event history, and raw SYSTEM/MODEL promotion is
 rejected. It does not claim that the not-yet-wired web route authenticated the
 actor.
 
+Commit `b50f9f9fa` implements the non-wired ProjectService proposal-clone
+adapter and exact durable receipt handoff. ProjectService remains the snapshot
+and revision issuer; a supplied existing owner edits only the in-memory clone;
+the durable worker validates the resulting diff receipt. No product operator,
+route, live Atlas/QStash run, canonical apply, reload or rendered acceptance is
+claimed.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
@@ -241,15 +264,18 @@ actor.
 6. **Domain complete at `c69a845ea` + `aff06c8d4`:** cancellation, expiry,
    tenant isolation, approval lineage and immutable PlanService review
    wait/wake/history tests. Authenticated UI/API ingress remains step 8 work.
-7. ProjectService clone/proposal execution and exact receipt handoff.
-8. Only then: authenticated non-production QStash/Atlas crash/restart and
-   redelivery exercise.
+7. **Contract/unit complete at `b50f9f9fa`:** ProjectService-issued
+   clone/proposal execution and exact durable receipt handoff, including stale
+   and forgery rejection. Concrete production operator wiring remains step 8.
+8. Authenticated non-production product wiring plus QStash/Atlas crash/restart
+   and redelivery exercise, using real artifact/operator owners and no second
+   authority.
 9. Only after fresh zero-inference preflight and explicit spend approval:
    resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code at `aff06c8d4` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `b50f9f9fa` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
