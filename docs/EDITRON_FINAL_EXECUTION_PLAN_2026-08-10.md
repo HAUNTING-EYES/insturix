@@ -1528,13 +1528,24 @@ typecheck and quiet ESLint. This is
 no provider count or inference call occurred and no product composition root
 invokes either owner yet.
 
+Commit ce3e988a4 then derives terminal product-budget settlement from the
+immutable durable-job terminal state and the exact runtime checkpoint. Normal
+successful provider calls are priced from hash-bound cumulative runtime usage;
+exceptional or unknown attempts remain separately receipt-bound. Proven
+pre-dispatch cancellation releases the hold, while pending or unresolved
+provider outcomes conservatively preserve it. A separate customer-pricing
+receipt is required before actual customer charge, and only the existing
+CreditsService owner moves wallet state. The focused accounting suite passes
+26/26 with repository typecheck and quiet ESLint. This is
+`TERMINAL_SETTLEMENT_DERIVATION_PROVEN_NOT_WORKER_INVOKED`: the durable worker
+does not yet invoke or redrive settlement after a terminal commit.
+
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Add one durable terminal settlement boundary. It must turn committed
-   provider-attempt and workflow-job evidence into exactly one CreditsService
-   actual, conservative-maximum or pre-dispatch-cancellation settlement. The
-   current durable worker completes/dead-letters/cancels jobs but never invokes
-   the product wallet settlement port.
+1. Invoke the existing terminal-settlement owner from every terminal durable-
+   job path and from terminal redelivery. A crash after job completion but
+   before wallet settlement must produce a non-success response, then redrive
+   the same idempotent CreditsService settlement without rerunning the episode.
 2. Make the reference materializer register every source and derived artifact
    in the existing `mediaAssets` owner with content hash, byte length, storage
    identity and canonical envelope before issuance. The current reference-frame
@@ -5015,8 +5026,10 @@ ports. Commit `9251945e4` implements their store-neutral authorization and
 issuance coordinator; commit `07c59690b` implements its concrete transaction
 adapter but not live-store proof. Commit `5f7428248` implements the
 concrete CreditsService-owned reservation writer/locator but not live Atlas
-proof. The next bounded reliability order is therefore: one execution-root
-composition, signed route export,
+proof. Commit `ce3e988a4` derives the exact terminal settlement but does not yet
+invoke it from terminal job paths. The next bounded reliability order is
+therefore: terminal-redelivery settlement wiring, reference-materializer
+`mediaAssets` registration, one execution-root composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.
 Canonical project mutation remains disabled.

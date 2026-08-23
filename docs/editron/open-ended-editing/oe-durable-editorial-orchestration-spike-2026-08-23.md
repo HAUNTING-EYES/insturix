@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts, definition-bound execution-owner composition, a production-shaped canonical-media binding/adapter contract, concrete read-side Mongo/R2/GCS/policy-grant ports, a store-neutral issuance policy/identity owner and concrete existing-client Mongo transaction adapter, plus a product-budget reservation/settlement contract, runtime-guard owner port, atomic-ledger policy coordinator, concrete same-database CreditsService/Mongo adapter and current-route OpenAI/Google product input-token counters; zero inference; no product composition root, durable terminal settlement, live route, live Atlas transaction exercise or product mutation**
+Status: **architecture decision plus fresh/resumed PlanService execution adapter, versioned fresh/resumed proof identity, full Plan-to-native cut proof, Plan-lifecycle crash/redelivery/cancellation recovery, fail-closed QStash dispatch, signed worker-adapter contracts, definition-bound execution-owner composition, a production-shaped canonical-media binding/adapter contract, concrete read-side Mongo/R2/GCS/policy-grant ports, a store-neutral issuance policy/identity owner and concrete existing-client Mongo transaction adapter, plus a product-budget reservation/settlement contract, runtime-guard owner port, atomic-ledger policy coordinator, concrete same-database CreditsService/Mongo adapter, current-route OpenAI/Google product input-token counters and terminal-settlement derivation; zero inference; no worker terminal-settlement invocation, product composition root, live route, live Atlas transaction exercise or product mutation**
 
 Authority: refines the durable-control-plane portion of the
 [final execution plan](../../EDITRON_FINAL_EXECUTION_PLAN_2026-08-10.md) and the
@@ -128,6 +128,16 @@ cluster passes 21/21 with repository typecheck and quiet ESLint. No provider
 count or inference call occurred. This is
 `CURRENT_ROUTE_TOKEN_COUNTERS_IMPLEMENTED_NOT_LIVE_PROVEN`; durable terminal
 wallet settlement and product-root invocation remain absent.
+
+Commit `ce3e988a4` derives actual, conservative-maximum or proven pre-dispatch-
+cancellation settlement from one terminal durable-job snapshot plus its exact
+runtime checkpoint, validates a separate customer-pricing receipt and delegates
+wallet mutation only to the existing CreditsService owner. Normal successful
+turns may correctly have no exceptional-attempt receipt because their usage is
+already committed in the runtime guard. Focused accounting proof passes 26/26
+with repository typecheck and quiet ESLint. This is
+`TERMINAL_SETTLEMENT_DERIVATION_PROVEN_NOT_WORKER_INVOKED`: a crash-safe worker
+hook and terminal-redelivery re-drive remain open.
 
 Commit `607212e02` implements the three read-side canonical-media ports behind
 the existing `498e018e6` owner. An exact scoped binding is read from immutable
@@ -810,9 +820,11 @@ before advancing. This does not add a secret signer or second revision owner.
     Google multimodal content in the official count request and fail closed on
     unsupported or forged input. Focused 21/21 plus repository typecheck and
     quiet ESLint pass. No live count or inference call occurred.
-43. Add one durable terminal settlement boundary so committed attempt/job
-    evidence produces exactly one actual, conservative or pre-dispatch-cancel
-    CreditsService settlement. The current worker does not call `settle`.
+43. **Terminal-settlement derivation complete at `ce3e988a4`; invocation still
+    open:** committed terminal job/checkpoint evidence now derives exactly one
+    actual, conservative or pre-dispatch-cancel CreditsService settlement. Wire
+    it into every terminal worker path and terminal redelivery so a crash in the
+    post-job/pre-wallet gap cannot strand a hold or rerun the episode.
 44. Connect the reference materializer to the existing `mediaAssets` owner so
     source and derived artifacts have the content hash, byte length, storage
     identity and canonical envelope required by the issuance transaction. The
@@ -829,7 +841,7 @@ before advancing. This does not add a secret signer or second revision owner.
 
 ## Evidence basis
 
-- Repository code through `b8f8a439d` and orchestration-decision commit
+- Repository code through `ce3e988a4` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.

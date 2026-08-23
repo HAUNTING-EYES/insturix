@@ -90,7 +90,8 @@ pnpm test                # vitest run
   materially changes. Never leave "calls pending" after calls ran, preserve a
   pass after its evidence was invalidated, or report a historical source hash
   as current truth. Record the exact commit, verified boundary, tests/proof,
-  remaining blockers and next execution order.
+  remaining blockers and next execution order. Plan maintenance is required
+  implementation work, not optional documentation deferred to a later agent.
 - Keep `RAW_EXECUTED`, `VALID_EVIDENCE`, `INVALID_EVIDENCE` and production
   promotion status separate. A paid call, green unit test or attractive render
   is not automatically valid evidence and is never production certification.
@@ -307,14 +308,17 @@ Migrated from the prior Claude-Code sessions. Layout:
    documents only as supporting evidence.
 2. Reproduce repository/worktree truth and run proportionate verification. Do
    not trust the historical status tables above.
-3. Reissue `CAP-2A` as a new current-truth version after source drift; never
-   rewrite the historical v1 freeze.
-4. Restore the V2R suite to green, freeze a new three-route manifest, and build
-   the provider-native sequential tool-result loop without changing V19.
-5. Execute `V2-1F` with untouched Luna, Terra and Gemini 3.7 Flash outputs
-   through separate structured-artifact and provider-native tool-calling arms,
-   isolated native/generated/hybrid execution, actual render proof and blind
-   review. Publish no model ranking before this passes.
+3. Finish durable terminal settlement invocation and prove that a crash after
+   terminal job commit is recovered by idempotent terminal redelivery without
+   rerunning the editorial episode.
+4. Register reference-materializer source and derived artifacts through the
+   existing `mediaAssets` owner before canonical-media issuance.
+5. Compose the existing canonical-media, CreditsService guard, isolated
+   ProjectService clone, native dispatcher, proof and live transport owners
+   behind the definition-bound execution owner; only then export the signed
+   route and run non-production Atlas/QStash crash-redelivery proof. Paid model
+   or render work still requires a fresh zero-inference preflight and explicit
+   approval.
 
 Fail-closed internal-worker authentication, IF1 runtime migration, timebase and
 stale-writer safety are production-risk interrupts. They must be resolved
