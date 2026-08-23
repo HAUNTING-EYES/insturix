@@ -1084,10 +1084,18 @@ before advancing. This does not add a secret signer or second revision owner.
     decomposition, false readiness, omitted requirements/approvals and unsafe
     post-picture ordering. This is structural planning evidence only; no model,
     editor, renderer, project mutation or product store was exercised.
+61. **Long-form provider cohort/preflight contract complete at `30a2ed776`:**
+    the planning-only protocol exposes zero editing operators, makes every
+    dependency and coverage rule provider-visible, and freezes nine rows across
+    Luna, Terra and Gemini 3.7 Flash under three deterministic evidence orders.
+    CAP-2A V7, the canonical holdout/compiler/protocol sources, exact route
+    identities, request budgets and a `$1.5051264` absolute ceiling are bound.
+    Five adversarial preflight tests pass; a real metadata/countTokens preflight
+    and all inference remain pending and unauthorized.
 
 ## Evidence basis
 
-- Repository code through `7319da514` and orchestration-decision commit
+- Repository code through `30a2ed776` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
