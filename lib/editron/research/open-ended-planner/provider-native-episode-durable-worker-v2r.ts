@@ -388,6 +388,11 @@ async function captureProposalRecoveryState(input: Readonly<{
 }>): Promise<Readonly<ProviderNativeProposalRecoveryStateV2R> | undefined> {
   const writerTurns = proposalRecoveryWriterTurnsV2R(input.checkpoint);
   if (!writerTurns.length) return undefined;
+  if (!input.prior && !input.clone.proposalRevisionBinding
+    && !input.clone.captureProposalRecoveryState
+    && !input.clone.finalizeProposalReceipt) {
+    return undefined;
+  }
   if (!input.job.projectId) {
     throw new Error('PROVIDER_NATIVE_DURABLE_PROJECT_SCOPE_REQUIRED');
   }
