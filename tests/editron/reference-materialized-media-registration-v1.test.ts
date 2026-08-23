@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
+import { PassThrough } from 'node:stream';
 
 import { describe, expect, it } from 'vitest';
 
 import {
   registerReferenceMaterializedMediaAssetV1,
+  registerReferenceMaterializedMediaFileV1,
   type ReferenceMaterializedMediaAssetRowV1,
   type ReferenceMaterializedMediaAssetStoreV1,
 } from '@/lib/editron/reference-video/reference-materialized-media-registration-v1';
@@ -84,6 +86,91 @@ describe('reference materialized media registration V1', () => {
     expect(store.rows[0]).toMatchObject({ userId: 'user-operator', orgId: 'org-1' });
   });
 
+  it('streams and registers one demux stream with source and receipt provenance', async () => {
+    const bytes = Buffer.from('demuxed-video-stream');
+    const store = new MemoryStore();
+    const receipt = await registerReferenceMaterializedMediaFileV1({
+      filePath: 'video-only.mp4',
+      upload: upload('video_stream', bytes, { r2Key: 'video_stream' }),
+      actorUserId: 'user-1',
+      mediaOwner: { type: 'USER', userId: 'user-1' },
+      mediaKind: 'video',
+      filename: 'video-only.mp4',
+      role: {
+        kind: 'DERIVED_STREAM',
+        sourceAssetId: 'source_asset',
+        streamKind: 'VIDEO',
+        demuxReceiptSha256: 'd'.repeat(64),
+      },
+      uploadedAt: NOW,
+    }, stableFileDeps(bytes, store));
+
+    expect(receipt).toMatchObject({
+      byteLength: bytes.length,
+      bytesSha256: sha(bytes),
+      provenance: {
+        role: 'DERIVED_STREAM', sourceAssetId: 'source_asset',
+        streamKind: 'VIDEO', demuxReceiptSha256: 'd'.repeat(64),
+      },
+    });
+    expect(store.rows[0]).toMatchObject({
+      type: 'video', contentHash: sha(bytes),
+      referenceMaterialization: { role: 'DERIVED_STREAM' },
+    });
+  });
+
+  it('fails when a derived stream kind lies about its media or the file changes', async () => {
+    const bytes = Buffer.from('demuxed-audio-stream');
+    const base = {
+      filePath: 'audio-only.m4a',
+      upload: upload('audio_stream', bytes, {
+        contentType: 'audio/mp4', r2Key: 'audio_stream',
+      }),
+      actorUserId: 'user-1',
+      mediaOwner: { type: 'USER' as const, userId: 'user-1' },
+      mediaKind: 'audio' as const,
+      filename: 'audio-only.m4a',
+      role: {
+        kind: 'DERIVED_STREAM' as const,
+        sourceAssetId: 'source_asset',
+        streamKind: 'AUDIO' as const,
+        demuxReceiptSha256: 'd'.repeat(64),
+      },
+      uploadedAt: NOW,
+    };
+
+    await expect(registerReferenceMaterializedMediaFileV1({
+      ...base, mediaKind: 'video',
+      upload: { ...base.upload, contentType: 'video/mp4' },
+    }, stableFileDeps(bytes, new MemoryStore())))
+      .rejects.toThrow('DERIVED_STREAM_KIND_MISMATCH');
+    await expect(registerReferenceMaterializedMediaFileV1({
+      ...base,
+      role: { ...base.role, demuxReceiptSha256: 'not-a-hash' },
+    }, stableFileDeps(bytes, new MemoryStore())))
+      .rejects.toThrow('DEMUX_RECEIPT_SHA256_INVALID');
+
+    const provenanceDrift = new MemoryStore({
+      referenceMaterialization: {
+        version: 'EDITRON_REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_V1_1',
+        role: 'DERIVED_STREAM', sourceAssetId: 'source_asset', streamKind: 'AUDIO',
+        demuxReceiptSha256: 'e'.repeat(64),
+      },
+    });
+    await expect(registerReferenceMaterializedMediaFileV1(
+      base, stableFileDeps(bytes, provenanceDrift),
+    )).rejects.toThrow('STORED_PROVENANCE_MISMATCH');
+
+    let statCall = 0;
+    await expect(registerReferenceMaterializedMediaFileV1(base, {
+      store: new MemoryStore(),
+      statFile: async () => ({
+        size: bytes.length, mtimeMs: ++statCall, isFile: () => true,
+      }),
+      createFileReadStream: () => byteStream(bytes),
+    })).rejects.toThrow('FILE_CHANGED_DURING_READ');
+  });
+
   it('rejects byte-length, owner, envelope, storage and stored-identity drift', async () => {
     const bytes = Buffer.from('source');
     const valid = {
@@ -151,6 +238,20 @@ function upload(
     size: bytes.length,
     contentType: overrides.contentType ?? 'video/mp4',
   };
+}
+
+function stableFileDeps(bytes: Buffer, store: MemoryStore) {
+  return {
+    store,
+    statFile: async () => ({ size: bytes.length, mtimeMs: 1, isFile: () => true }),
+    createFileReadStream: () => byteStream(bytes),
+  };
+}
+
+function byteStream(bytes: Buffer) {
+  const value = new PassThrough();
+  value.end(bytes);
+  return value;
 }
 
 function envelope(bytes: Buffer) {

@@ -15,14 +15,22 @@ export type ReferenceMaterializedMediaRoleV1 =
   | Readonly<{ kind: 'SOURCE'; referenceEnvelope: Readonly<ReferenceCanonicalEnvelope> }>
   | Readonly<{
       kind: 'DERIVED_FRAME'; sourceAssetId: string; frameId: string; timestampUs: string;
+    }>
+  | Readonly<{
+      kind: 'DERIVED_STREAM';
+      sourceAssetId: string;
+      streamKind: 'VIDEO' | 'AUDIO';
+      demuxReceiptSha256: string;
     }>;
 
 export interface ReferenceMaterializationProvenanceV1 {
   version: typeof REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1;
-  role: 'SOURCE' | 'DERIVED_FRAME';
+  role: 'SOURCE' | 'DERIVED_FRAME' | 'DERIVED_STREAM';
   sourceAssetId?: string;
   frameId?: string;
   timestampUs?: string;
+  streamKind?: 'VIDEO' | 'AUDIO';
+  demuxReceiptSha256?: string;
   referenceEnvelopeSha256?: string;
 }
 
@@ -56,6 +64,13 @@ export interface ReferenceMaterializedMediaRegistrationInputV1 {
   uploadedAt?: Date;
 }
 
+export type ReferenceMaterializedMediaIdentityRegistrationInputV1 = Readonly<
+  Omit<ReferenceMaterializedMediaRegistrationInputV1, 'bytes'> & {
+    byteLength: number;
+    bytesSha256: string;
+  }
+>;
+
 export class ReferenceMaterializedMediaRegistrationErrorV1 extends Error {}
 
 export function normalizeReferenceMaterializedMediaRegistrationV1(
@@ -63,16 +78,34 @@ export function normalizeReferenceMaterializedMediaRegistrationV1(
 ) {
   const bytes = input.bytes;
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1) fail('BYTES_INVALID');
+  return normalizeReferenceMaterializedMediaIdentityRegistrationV1({
+    ...input,
+    byteLength: bytes.byteLength,
+    bytesSha256: createHash('sha256').update(bytes).digest('hex'),
+  });
+}
+
+/**
+ * Owner-internal normalization for content identity measured from a stream.
+ * Callers must not supply an unverified hash; the file registration owner
+ * computes it while reading the local file and then enters through this seam.
+ */
+export function normalizeReferenceMaterializedMediaIdentityRegistrationV1(
+  input: ReferenceMaterializedMediaIdentityRegistrationInputV1,
+) {
+  if (!Number.isSafeInteger(input.byteLength) || input.byteLength < 1) {
+    fail('BYTE_LENGTH_INVALID');
+  }
+  const bytesSha256 = sha256(input.bytesSha256, 'BYTES_SHA256');
   const actorUserId = identity(input.actorUserId, 'ACTOR_USER_ID');
   const mediaOwner = normalizeOwner(input.mediaOwner, actorUserId);
   const assetId = identity(input.upload.assetId, 'ASSET_ID');
   const contentType = mediaContentType(input.upload.contentType, input.mediaKind);
-  if (!Number.isSafeInteger(input.upload.size) || input.upload.size !== bytes.byteLength) {
+  if (!Number.isSafeInteger(input.upload.size) || input.upload.size !== input.byteLength) {
     fail('BYTE_LENGTH_MISMATCH');
   }
   const storage = canonicalStorage(input.upload);
-  const bytesSha256 = createHash('sha256').update(bytes).digest('hex');
-  const normalizedRole = normalizeRole(input.role, bytesSha256);
+  const normalizedRole = normalizeRole(input.role, bytesSha256, input.mediaKind);
   const row: ReferenceMaterializedMediaAssetRowV1 = {
     assetId,
     userId: actorUserId,
@@ -85,7 +118,7 @@ export function normalizeReferenceMaterializedMediaRegistrationV1(
     gcsPath: nullableStorageKey(input.upload.gcsPath, 'GCS_PATH'),
     ...(input.upload.r2Key ? { r2Key: storageKey(input.upload.r2Key, 'R2_KEY') } : {}),
     urlExpiresAt: validDateOrNull(input.upload.urlExpiresAt, 'URL_EXPIRES_AT'),
-    size: bytes.byteLength,
+    size: input.byteLength,
     contentHash: bytesSha256,
     uploadedAt: validDate(input.uploadedAt ?? new Date(), 'UPLOADED_AT'),
     ...(normalizedRole.referenceEnvelope
@@ -135,7 +168,11 @@ export function assertReferenceMaterializedMediaStoredRowV1(
   }
 }
 
-function normalizeRole(role: ReferenceMaterializedMediaRoleV1, bytesSha256: string) {
+function normalizeRole(
+  role: ReferenceMaterializedMediaRoleV1,
+  bytesSha256: string,
+  mediaKind: ReferenceMaterializedMediaKindV1,
+) {
   if (role.kind === 'SOURCE') {
     const referenceEnvelope = normalizeEnvelope(role.referenceEnvelope, bytesSha256);
     return {
@@ -147,13 +184,28 @@ function normalizeRole(role: ReferenceMaterializedMediaRoleV1, bytesSha256: stri
       },
     };
   }
+  if (role.kind === 'DERIVED_FRAME') {
+    return {
+      provenance: {
+        version: REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1,
+        role: 'DERIVED_FRAME' as const,
+        sourceAssetId: identity(role.sourceAssetId, 'SOURCE_ASSET_ID'),
+        frameId: identity(role.frameId, 'FRAME_ID'),
+        timestampUs: timestampUs(role.timestampUs),
+      },
+    };
+  }
+  if ((role.streamKind === 'VIDEO' && mediaKind !== 'video')
+    || (role.streamKind === 'AUDIO' && mediaKind !== 'audio')) {
+    fail('DERIVED_STREAM_KIND_MISMATCH');
+  }
   return {
     provenance: {
       version: REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1,
-      role: 'DERIVED_FRAME' as const,
+      role: 'DERIVED_STREAM' as const,
       sourceAssetId: identity(role.sourceAssetId, 'SOURCE_ASSET_ID'),
-      frameId: identity(role.frameId, 'FRAME_ID'),
-      timestampUs: timestampUs(role.timestampUs),
+      streamKind: role.streamKind,
+      demuxReceiptSha256: sha256(role.demuxReceiptSha256, 'DEMUX_RECEIPT_SHA256'),
     },
   };
 }
