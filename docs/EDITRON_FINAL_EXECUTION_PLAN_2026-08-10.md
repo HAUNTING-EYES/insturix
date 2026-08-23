@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `ee07f11cf` on
+programme code checkpoint represented by this ledger is `454fb721a` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: ee07f11cf. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 454fb721a. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1313,9 +1313,15 @@ runtime-budget binding. It correctly represents a fresh start without inventing
 an empty resume checkpoint and accepts a resume checkpoint only as an optional
 matching recovery artifact. The research provider durable worker still owns a
 different job identity and requires a pre-existing checkpoint; directly feeding
-it the PlanService job would be false convergence. Next extract one shared
-provider execution core used by both lifecycle adapters, then add authenticated
-non-production QStash/Atlas wiring with zero inference. Exercise the real renderer only
+it the PlanService job would be false convergence. Commit 454fb721a extracts
+the resumed provider loop and durable outcome finalization into shared,
+store-neutral modules while retaining the research worker as its lifecycle
+adapter. This closes the duplicate-loop prerequisite for resumed execution,
+not the product adapter or fresh-start proof contract. Next bind the
+PlanService execution owner to that resume-only core without weakening either
+job identity; define a separate truthful fresh-execution/proof receipt before
+adding authenticated non-production QStash/Atlas wiring with zero inference.
+Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
 authorization. -->
@@ -2116,14 +2122,26 @@ guard. Copied scope, changed schema/toolset/budget and tampering fail closed.
 The provider-envelope/durable cluster passes 28/28 and repository typecheck/
 quiet ESLint pass.
 
-These commits close the product lifecycle and immutable definition seams only.
+**Shared resumed-provider execution-core checkpoint (2026-08-23):** commit
+`454fb721a` extracts the already-proven resumed provider loop and durable
+proposal/outcome finalization from the research job-store adapter. The shared
+core accepts exact scope, checkpoint, artifacts, heartbeat and checkpoint-
+persistence ports; it owns no lease, store, registry, queue or ProjectService
+mutation. The existing research worker remains the lifecycle adapter and its
+public API, receipts and distinct recovery failures remain regression-tested.
+The focused recovery/product-envelope cluster passes 47/47; repository
+typecheck and quiet ESLint pass.
+
+These commits close the product lifecycle, immutable definition and shared
+resume-execution seams only.
 The existing research provider worker still claims
 `ProviderNativeToolEpisodeV2R/research_provider_native_episode` jobs, while the
 product job is `PLAN_SERVICE/editorial_plan_node_episode`; the former also
-requires a persisted non-empty resume checkpoint. A single extracted execution
-core must serve both adapters before QStash ingress can execute the product
-definition. Do not add a second job store, weaken either identity, fabricate a
-zero-turn resume checkpoint or copy the provider loop into a shadow owner.
+requires a persisted non-empty resume checkpoint. The shared core is not yet a
+PlanService execution-owner adapter, and it intentionally cannot represent a
+fresh episode because the existing proof contract binds a real resumed receipt.
+Do not add a second job store, weaken either identity, fabricate a zero-turn
+resume checkpoint or copy the provider loop into a shadow owner.
 
 This is `CONCRETE_OWNER_IMPLEMENTED_ZERO_NETWORK_TESTED`. The current V2R
 `set_keyframes` dossier still omits the real product tool's general `property`
@@ -3000,15 +3018,18 @@ head, definition, dependencies, scope, identity and aggregate budget over
 fresh store instances. Commit `1764a8ff8` now adds the transport-neutral leased
 PlanService execution lifecycle, and `ee07f11cf` binds one exact provider-native
 research-proxy envelope into the signed definition while preserving distinct
-fresh-start and resume states. Commit `b9cf5e820` then carries those exact
+fresh-start and resume states. Commit `454fb721a` extracts the resume-only
+provider loop and outcome finalizer into store-neutral shared modules; the
+research lifecycle adapter continues to own its existing job identity and
+semantics. Commit `b9cf5e820` then carries those exact
 Mongo-shaped product plan, definition and job records through a real process
 exit and revalidates/reclaims them in another process with zero inference and
 zero project effects. The research recovery worker is still a separate
 research path, all referenced product artifacts are not yet resolved, and the
-product binding has not exercised live Atlas or QStash. The product lifecycle
-and provider envelope are now explicit, but the research provider worker still
-cannot consume the product job identity; one shared execution core remains the
-next integration prerequisite.
+product binding has not exercised live Atlas or QStash. The product lifecycle,
+provider envelope and resumed execution core are now explicit, but no
+PlanService execution-owner adapter invokes that core and fresh execution still
+lacks a truthful proof receipt; these are the next integration prerequisites.
 Commit `b50f9f9fa` now supplies the non-wired ProjectService proposal-clone and
 durable diff-receipt adapter, so the former blanket “ProjectService clone” gap
 is retired. Broad certified operator ownership, reference-media and
