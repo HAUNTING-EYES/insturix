@@ -320,7 +320,10 @@ function sliceSourceBoundOverlay(
   const localEnd = Math.max(localStart, Math.min(originalDuration, slice.sourceLocalEnd));
   next.from = slice.timelineFrom;
   next.durationInFrames = localEnd - localStart;
-  next.keyframeTracks = sliceKeyframeTracks(overlay.keyframeTracks, localStart, localEnd);
+  setOptionalKeyframeTracks(
+    next,
+    sliceKeyframeTracks(overlay.keyframeTracks, localStart, localEnd),
+  );
 
   if (overlay.type === 'video') {
     const sourceOffset = frame(overlay.sourceStartFrame ?? overlay.videoStartTime);
@@ -347,10 +350,13 @@ function compressOverlayAcrossRange(
   const next = structuredClone(overlay);
   const removed = range.localCutEnd - range.localCutStart;
   next.durationInFrames = Math.max(0, frame(overlay.durationInFrames) - removed);
-  next.keyframeTracks = spliceKeyframeTracks(
-    overlay.keyframeTracks,
-    range.localCutStart,
-    range.localCutEnd,
+  setOptionalKeyframeTracks(
+    next,
+    spliceKeyframeTracks(
+      overlay.keyframeTracks,
+      range.localCutStart,
+      range.localCutEnd,
+    ),
   );
   if (next.audioEndFrame != null) next.audioEndFrame = frame(next.audioEndFrame) - removed;
   return next;
@@ -359,7 +365,10 @@ function compressOverlayAcrossRange(
 function trimOverlayEnd(overlay: OverlayRecord, durationInFrames: number): OverlayRecord {
   const next = structuredClone(overlay);
   next.durationInFrames = Math.max(0, durationInFrames);
-  next.keyframeTracks = sliceKeyframeTracks(overlay.keyframeTracks, 0, next.durationInFrames);
+  setOptionalKeyframeTracks(
+    next,
+    sliceKeyframeTracks(overlay.keyframeTracks, 0, next.durationInFrames),
+  );
   if (next.audioEndFrame != null) next.audioEndFrame = next.from + next.durationInFrames;
   return next;
 }
@@ -373,7 +382,10 @@ function trimOverlayStart(
   const oldDuration = Math.max(0, frame(overlay.durationInFrames));
   next.from = timelineFrom;
   next.durationInFrames = Math.max(0, oldDuration - localTrimStart);
-  next.keyframeTracks = sliceKeyframeTracks(overlay.keyframeTracks, localTrimStart, oldDuration);
+  setOptionalKeyframeTracks(
+    next,
+    sliceKeyframeTracks(overlay.keyframeTracks, localTrimStart, oldDuration),
+  );
   if (next.audioStartFrame != null) next.audioStartFrame = timelineFrom;
   if (next.audioEndFrame != null) next.audioEndFrame = timelineFrom + next.durationInFrames;
   return next;
@@ -489,12 +501,26 @@ function remapCaptionOverlay(input: {
       },
     };
   }
-  overlay.keyframeTracks = spliceKeyframeTracks(
-    overlay.keyframeTracks,
-    Math.max(0, input.startFrame - oldFrom),
-    Math.max(0, input.endFrame - oldFrom),
+  setOptionalKeyframeTracks(
+    overlay,
+    spliceKeyframeTracks(
+      overlay.keyframeTracks,
+      Math.max(0, input.startFrame - oldFrom),
+      Math.max(0, input.endFrame - oldFrom),
+    ),
   );
   return overlay;
+}
+
+function setOptionalKeyframeTracks(
+  overlay: OverlayRecord,
+  tracks: KeyframeTrack[] | undefined,
+): void {
+  if (tracks === undefined) {
+    delete overlay.keyframeTracks;
+    return;
+  }
+  overlay.keyframeTracks = tracks;
 }
 
 function sourceFramesConsumed(overlay: OverlayRecord, localEndFrame: number): number {
