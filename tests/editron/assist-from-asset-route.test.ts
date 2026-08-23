@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   saveProject: vi.fn(),
   updateOne: vi.fn(),
   isR2Available: vi.fn(() => false),
+  getR2PresignedReadUrl: vi.fn(),
   analyzeVideo: vi.fn(async () => null),
   executeDirectorPlan: vi.fn(async () => ({ actionsExecuted: 1 })),
   getCreditCost: vi.fn(() => 12),
@@ -36,7 +37,11 @@ vi.mock('@/lib/editron/services/asset-resolver', () => ({
 }));
 vi.mock('@/lib/pipeline/scene-to-editron', () => ({ ROW: { VIDEO: 2 } }));
 vi.mock('@/lib/services/creditsMiddleware', () => ({ checkCredits: mocks.checkCredits }));
-vi.mock('@/lib/editron/services/r2-service', () => ({ isR2Available: mocks.isR2Available, getR2PublicUrl: (id: string) => `https://r2/${id}` }));
+vi.mock('@/lib/editron/services/r2-service', () => ({
+  isR2Available: mocks.isR2Available,
+  getR2PresignedReadUrl: mocks.getR2PresignedReadUrl,
+  getR2PublicUrl: (id: string) => `https://r2/${id}`,
+}));
 vi.mock('@/lib/config/creditCosts', () => ({ getCreditCost: mocks.getCreditCost }));
 vi.mock('@/lib/editron/services/vjepa-service', () => ({ warmupVjepa: mocks.warmupVjepa }));
 vi.mock('@/lib/editron/services/wav2vec-service', () => ({ warmupWav2Vec: mocks.warmupWav2Vec }));
@@ -81,6 +86,26 @@ describe('from-asset assist intake handler', () => {
     expect(res.status).toBe(403);
     expect(mocks.createProject).not.toHaveBeenCalled();
     expect(mocks.deduct).not.toHaveBeenCalled();
+  });
+
+  it('fails before charging or creating a project when QStash has no signing key pair', async () => {
+    process.env.QSTASH_TOKEN = 'qstash-token';
+    delete process.env.QSTASH_CURRENT_SIGNING_KEY;
+    delete process.env.QSTASH_NEXT_SIGNING_KEY;
+
+    const res = await POST(request({ assetId: 'a1' }));
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({
+      success: false,
+      error: 'Auto-edit queue is unavailable because its signing keys are not configured.',
+    });
+    expect(mocks.checkCredits).not.toHaveBeenCalled();
+    expect(mocks.deduct).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
+    expect(mocks.saveProject).not.toHaveBeenCalled();
+    expect(mocks.analyzeVideo).not.toHaveBeenCalled();
+    expect(mocks.executeDirectorPlan).not.toHaveBeenCalled();
   });
 
   it('assist: persists editMode + refund handle, reaches ready_for_chat, and NEVER runs the Director', async () => {

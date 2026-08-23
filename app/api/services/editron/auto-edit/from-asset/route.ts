@@ -28,6 +28,7 @@ import { isOrgWalletBillingEnabled } from '@/lib/services/org-wallet-flag';
 import { normalizeEditorialPreferences, type EditorialPreferences } from '@/lib/editron/production-brief/editorial-preferences';
 import { ASSIST_STATUS_READY, isAssistIntakeEnabled, parseEditMode } from '@/lib/editron/services/assist-lane';
 import { readStoredNativeVideoAudioRights } from '@/lib/editron/services/native-video-audio-rights';
+import { isInternalQStashWorkerAuthConfigured } from '@/lib/editron/security/internal-worker-auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -168,6 +169,13 @@ export async function POST(request: NextRequest) {
       }
     }
     const durationInFrames = Math.round(durationSec * fps);
+    const qstashToken = process.env.QSTASH_TOKEN?.trim();
+    if (qstashToken && !isInternalQStashWorkerAuthConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Auto-edit queue is unavailable because its signing keys are not configured.' },
+        { status: 503 },
+      );
+    }
 
     const autoEditCreditOptions = {
       durationMinutes: getBillableAutoEditMinutes(durationSec),
@@ -314,7 +322,6 @@ export async function POST(request: NextRequest) {
     );
 
     // Dispatch to video-analysis worker via QStash
-    const qstashToken = process.env.QSTASH_TOKEN;
     const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');

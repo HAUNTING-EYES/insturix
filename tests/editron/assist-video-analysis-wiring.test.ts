@@ -16,6 +16,10 @@ const source = readFileSync(
   join(process.cwd(), 'app/api/internal/workers/video-analysis/route.ts'),
   'utf8',
 ).replaceAll('\r\n', '\n');
+const tribeSource = readFileSync(
+  join(process.cwd(), 'app/api/internal/workers/tribe-analysis/route.ts'),
+  'utf8',
+).replaceAll('\r\n', '\n');
 
 describe('video-analysis worker zero-edit wiring', () => {
   it('reads the assist lane once, up front, from editMode', () => {
@@ -37,5 +41,12 @@ describe('video-analysis worker zero-edit wiring', () => {
   it('settles assist scan failures through the shared money-safe helper', () => {
     expect(source).toContain("const { settleAssistScanFailure } = await import('@/lib/editron/services/assist-lane')");
     expect(source).toContain('const settlement = await settleAssistScanFailure(db, trackedProjectId, msg)');
+  });
+
+  it('requires the shared dynamic QStash guard for both queued analysis stages', () => {
+    expect(source).toContain("withInternalQStashWorkerAuth(handler, 'video-analysis')");
+    expect(source).not.toContain('verifySignatureAppRouter(handler)');
+    expect(tribeSource).toContain("withInternalQStashWorkerAuth(handler, 'tribe-analysis')");
+    expect(tribeSource).not.toContain('verifySignatureAppRouter(handler)');
   });
 });

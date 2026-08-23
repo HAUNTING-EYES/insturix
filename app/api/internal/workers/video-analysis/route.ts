@@ -23,7 +23,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
+import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
 import { buildProjectAnalysisAssetSet, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
@@ -1388,7 +1388,4 @@ function shouldRunLegacyReferenceExtraction(referenceVideoAnalysis: any): boolea
   if (referenceVideoAnalysis?.status === 'failed') return false;
   return process.env.EDITRON_REFERENCE_LEGACY_FALLBACK_ENABLED?.toLowerCase() !== 'false';
 }
-// QStash signature verification Ã¢â‚¬â€ skip in dev if signing keys not set
-export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
-  ? verifySignatureAppRouter(handler)
-  : handler;
+export const POST = withInternalQStashWorkerAuth(handler, 'video-analysis');

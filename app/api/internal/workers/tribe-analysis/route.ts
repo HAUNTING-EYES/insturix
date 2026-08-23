@@ -19,7 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
+import { withInternalQStashWorkerAuth } from '@/lib/editron/security/internal-worker-auth';
 import { resolveEditronLearningOutcome } from '@/lib/editron/services/editron-learning-gate';
 import { buildProjectAnalysisAssetSet, encodeProjectAnalysisAssetKey, persistProjectAssetAnalysis } from '@/lib/editron/services/project-analysis-storage';
 import {
@@ -691,7 +691,4 @@ function settledErrorClass(result: PromiseSettledResult<unknown>): string | unde
   return result.reason instanceof Error ? result.reason.name : 'Error';
 }
 
-// QStash signature verification — skip in dev if signing keys not set
-export const POST = process.env.QSTASH_CURRENT_SIGNING_KEY
-  ? verifySignatureAppRouter(handler)
-  : handler;
+export const POST = withInternalQStashWorkerAuth(handler, 'tribe-analysis');
