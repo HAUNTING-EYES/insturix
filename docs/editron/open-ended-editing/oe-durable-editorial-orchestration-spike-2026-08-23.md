@@ -36,7 +36,7 @@ production-ready and no live workflow reaches the store.
 | Long-running family jobs | Several family-specific Mongo/QStash paths |
 | Shared execution lifecycle | `EDITRON_DURABLE_WORKFLOW_JOB_V1_1`: input/dependency/budget bindings, idempotency, leases, cancellation, retries, resume CAS and terminal proof references |
 | Research episode definition | `e3ac9b082`: serialized manifest-bound value plus strict resolver; not a product store |
-| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable Mongo revision/definition storage; `9687dbd9f` binds one exact accepted `READY` node into the existing durable job contract. No route, worker binding or live Atlas proof exists. |
+| Product editorial PlanService | Contract/validator exists at `a012e226e`; `0c94bc059` adds immutable Mongo revision/definition storage; `9687dbd9f` binds one exact accepted `READY` node into the existing durable job contract; `d16caaa5b` revalidates a leased job against fresh PlanStore/job-store instances. No route, separate-process product proof or live Atlas proof exists. |
 | Product workflow ingress/recovery | Missing authenticated shared ingress, QStash dispatch and live Atlas/QStash proof |
 
 The existing `lib/services/planService.ts` manages commercial subscription
@@ -70,11 +70,18 @@ Completed foundation:
   PlanService-issued definition. The job binds the plan, node, definition,
   operation set, direction, ProjectService base, policies and one aggregate
   budget without dispatching or executing it.
+- `d16caaa5b` resolves only a leased `running` job, re-resolves its exact plan
+  head, node, definition and source plan, and rebuilds the canonical contract
+  before any effect. Fresh store instances reclaim an expired lease while
+  preserving attempt history; stale leases, duplicate delivery, queued
+  unleased resolution and forged recomputed payloads fail closed. This is not
+  yet an actual separate-process or live-store proof.
 
 Open work:
 
 - artifact-owner resolution for scopes, locks, approvals and proof;
-- execution-time plan-head/definition revalidation and artifact resolution;
+- serialized separate-OS-process product-binding recovery;
+- remaining artifact resolution for scopes, locks, approvals and proof;
 - event history, approval suspension and authenticated dispatch;
 - live Atlas/QStash crash, redelivery and cancellation tests.
 
@@ -174,6 +181,16 @@ hash, but a later execution adapter must resolve that head and every artifact
 again before effects; the plan/job writes are deliberately not presented as
 one cross-collection transaction.
 
+Commit `d16caaa5b` implements the execution-time product resolver. It accepts
+only a currently leased `running` job, re-resolves the PlanService plan head,
+node, definition and source plan, then rebuilds the same canonical job
+contract and rejects altered identity, dependencies, scope, budget or payload
+hash before effects. The recovery test uses newly constructed stores over one
+shared persisted test collection and proves lease expiry/reclaim, attempt
+continuity, old-lease rejection and duplicate-delivery suppression. It does
+not prove a separate OS process, Atlas, QStash, provider inference or a
+ProjectService effect.
+
 ## Required verification sequence
 
 1. **Complete at `a012e226e`:** pure contract/validator tests, including
@@ -182,16 +199,20 @@ one cross-collection transaction.
    concurrent-writer, authorization, owner and forgery tests.
 3. **Complete at `9687dbd9f`:** bind one accepted node definition into the
    existing durable job input with stale/forgery/idempotency tests.
-4. Crash/restart and redelivery with zero provider inference.
-5. Approval wait/cancel/expiry and tenant-isolation tests.
-6. ProjectService clone/proposal execution and exact receipt handoff.
-7. Only then: authenticated non-production QStash/Atlas exercise.
-8. Only after fresh zero-inference preflight and explicit spend approval:
+4. **Partial at `d16caaa5b`:** fresh-instance lease reclaim, exact
+   execution-time PlanService/job revalidation and duplicate-delivery
+   rejection with zero provider inference.
+5. Serialized separate-OS-process product recovery, followed by live-store
+   crash/restart and redelivery proof.
+6. Approval wait/cancel/expiry and tenant-isolation tests.
+7. ProjectService clone/proposal execution and exact receipt handoff.
+8. Only then: authenticated non-production QStash/Atlas exercise.
+9. Only after fresh zero-inference preflight and explicit spend approval:
    resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code at `9687dbd9f` and orchestration-decision commit `19d8c97a8`.
+- Repository code at `d16caaa5b` and orchestration-decision commit `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.
 - Vercel `WorkflowAgent` official documentation: provider tool loops can
