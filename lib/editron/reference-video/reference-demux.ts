@@ -27,18 +27,17 @@ import type {
   ReferenceAudioUsageMode,
   ReferenceCanonicalEnvelope,
 } from '@/lib/editron/services/asset-resolver';
-import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
 
 export const DEMUX_RECEIPT_VERSION = 'editron-r1-demux-receipt-v1' as const;
 export const REFERENCE_ENVELOPE_VERSION = 'editron-r1-reference-envelope-v1' as const;
 
 /** True positive: an input with a video stream always yields a re-muxed video file. */
-export const DEMUX_FFMPEG_TIMEOUT_MS = 180_000; // ⚠️ INVENTED — generous upper bound; tune against real clocks
-export const DEMUX_MIN_VIDEO_BYTES = 256; // ⚠️ INVENTED — an empty remux would be smaller than this
-export const DEMUX_MIN_AUDIO_BYTES = 128; // ⚠️ INVENTED — silence-with-no-track edge; audio may be tiny
+const DEMUX_FFMPEG_TIMEOUT_MS = 180_000; // ⚠️ INVENTED — generous upper bound; tune against real clocks
+const DEMUX_MIN_VIDEO_BYTES = 256; // ⚠️ INVENTED — an empty remux would be smaller than this
+const DEMUX_MIN_AUDIO_BYTES = 128; // ⚠️ INVENTED — silence-with-no-track edge; audio may be tiny
 
 /** AAC 192k — the same codec/bitrate the YouTube reference importer already uses. */
-export const DEMUX_AUDIO_BITRATE = '192k';
+const DEMUX_AUDIO_BITRATE = '192k';
 
 export interface DemuxInput {
   /** Canonical asset id that owns the demuxed artifacts. Downstream stages must use it. */
@@ -386,39 +385,4 @@ export function buildReferenceCanonicalEnvelope(
       audioPresent: receipt.audio?.present ?? false,
     },
   };
-}
-
-/**
- * Persist the canonical envelope on the reference MediaAsset. Fail-loud: throws
- * if the asset row cannot be found or updated. Idempotent (overwrites the
- * envelope + content hash each call, which is correct for a "demux once"
- * lifecycle where re-demux replaces prior artifacts).
- */
-export async function persistReferenceCanonicalEnvelope(
-  input: {
-    assetId: string;
-    userId: string;
-    envelope: ReferenceCanonicalEnvelope;
-  },
-): Promise<MediaAsset> {
-  const { getDatabase, COLLECTIONS } = await import('@/lib/editron/db/mongodb');
-  const db = await getDatabase();
-  const result = await db.collection(COLLECTIONS.MEDIA_ASSETS).findOneAndUpdate(
-    { assetId: input.assetId, userId: input.userId },
-    {
-      $set: {
-        referenceEnvelope: input.envelope,
-        contentHash: input.envelope.contentHash,
-      },
-    },
-    { returnDocument: 'after' },
-  );
-  const updated = result?.value as MediaAsset | null | undefined;
-  if (!updated) {
-    throw new ReferenceDemuxError(
-      'upload_failed',
-      `Cannot persist canonical envelope: reference asset ${input.assetId} not found for user ${input.userId}.`,
-    );
-  }
-  return updated;
 }
