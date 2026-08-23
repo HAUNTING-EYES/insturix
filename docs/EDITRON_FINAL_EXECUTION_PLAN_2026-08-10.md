@@ -3464,6 +3464,19 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 7 - agency certification | No accepted certification run. | Real consented projects with zero hidden rescue, fatal false-success rate zero and published quality/cost/latency/rights scorecards. |
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
 
+**Stage 2.5 long-form evaluator correction (2026-08-24):** the Stage 2.5
+table row's instruction to authorize manifest `59a022ed...` / receipt
+`4ae58954...` is superseded. Commit `4a0538847` postdates that zero-inference
+identity and adds the provider-episode evaluator that compiles accepted outputs
+through the existing PlanService compiler. Its 19/19 focused cases and
+repository typecheck/lint pass, but its result is structural only. The old
+manifest remains immutable historical preflight evidence and is not eligible
+for paid dispatch. Next bind a durable runner, this evaluator and exact
+authorization into a successor cohort, repeat production-credential
+zero-inference preflight, obtain explicit approval for that successor ceiling,
+then run the nine rows. No inference or project mutation is authorized by this
+correction.
+
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
 `eaef92685`, `7fa11669b`, `32d9a91d2`, `7a584535c`, `bde34941a`, `1e18e6d0e`, `e22cee1c4`, `cf47083c3` and `c9137a489` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
@@ -4155,8 +4168,16 @@ foundation and is no longer the active queue. The next three slices are:
    its immutable nine-row Luna/Terra/Gemini cohort and preflight contract with a
    `$1.5051264` absolute ceiling. Live manifest `59a022ed...` and receipt
    `4ae58954...` now verify nine bound requests, exact production model
-   identities and official Google token counts with zero inference. Next obtain
-   explicit authorization up to that ceiling; only then measure model planning quality under
+   identities and official Google token counts with zero inference. Commit
+   `4a0538847` adds the source-hash-valid provider-episode evaluator and compiles
+   accepted proposals through the existing deterministic PlanService compiler;
+   19/19 focused cases plus repository typecheck/lint pass. Its result is
+   `PASS_STRUCTURAL_ONLY`, never editorial or rendered proof. Because this code
+   postdates manifest `59a022ed...`, that manifest/receipt are historical
+   zero-inference evidence and are not eligible for paid dispatch. Next bind a
+   durable runner, evaluator and exact authorization into a successor identity,
+   repeat zero-inference production-credential preflight, obtain explicit approval
+   for that successor ceiling, and only then measure model planning quality under
    the bounded evidence packet; then collect blind-editor quality, correction-time,
    latency and cost receipts. Only a frozen passing gate may authorise
    ProjectService-owned proposal integration design, never direct model writes.
