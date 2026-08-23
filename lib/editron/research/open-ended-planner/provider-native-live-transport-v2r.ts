@@ -84,11 +84,15 @@ export function createProviderNativeDurableLiveTransportOwnerV2R(input: {
   fetchImpl?: FetchV2R;
   timeoutMs?: number;
 }): Readonly<ProviderNativeDurableTransportOwnerV2R> {
+  resolveLiveTimeoutMs(input.timeoutMs);
   return {
     resolve: async ({ route, episodeId }) => {
-      validateDurableRoute(route);
+      assertProviderNativeDurableRouteV2R(route);
       if (!episodeId.trim()) throw new Error('PROVIDER_NATIVE_DURABLE_EPISODE_ID_INVALID');
-      const credential = resolveRouteCredential(route.provider, input.environment);
+      const credential = resolveProviderNativeRouteCredentialV2R(
+        route.provider,
+        input.environment,
+      );
       const transport = createLiveTransport({
         ...input,
         // Durable provider attempts are authorized and receipted outside the
@@ -121,11 +125,8 @@ function createLiveTransport(input: {
   snapshot: () => Readonly<ProviderNativeLiveTransportReceiptV2R>;
 }> {
   const fetchImpl = input.fetchImpl ?? fetch;
-  const timeoutMs = input.timeoutMs ?? 240_000;
+  const timeoutMs = resolveLiveTimeoutMs(input.timeoutMs);
   const maxTransientAttempts = input.maxTransientAttempts ?? 3;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 600_000) {
-    throw new Error('PROVIDER_NATIVE_LIVE_TIMEOUT_INVALID');
-  }
   if (!Number.isSafeInteger(maxTransientAttempts)
     || maxTransientAttempts < 1 || maxTransientAttempts > 3) {
     throw new Error('PROVIDER_NATIVE_LIVE_TRANSIENT_ATTEMPTS_INVALID');
@@ -185,7 +186,17 @@ function createLiveTransport(input: {
   };
 }
 
-function validateDurableRoute(route: Readonly<ProviderNativeRouteV2R>): void {
+function resolveLiveTimeoutMs(value: number | undefined): number {
+  const timeoutMs = value ?? 240_000;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 600_000) {
+    throw new Error('PROVIDER_NATIVE_LIVE_TIMEOUT_INVALID');
+  }
+  return timeoutMs;
+}
+
+export function assertProviderNativeDurableRouteV2R(
+  route: Readonly<ProviderNativeRouteV2R>,
+): void {
   const expected = {
     OPENAI_LUNA: { provider: 'openai', model: 'gpt-5.6-luna' },
     OPENAI_TERRA: { provider: 'openai', model: 'gpt-5.6-terra' },
@@ -225,7 +236,7 @@ function validateDurableResponse(
   }
 }
 
-function resolveRouteCredential(
+export function resolveProviderNativeRouteCredentialV2R(
   provider: ProviderNativeRouteV2R['provider'],
   environment: Readonly<Record<string, string | undefined>>,
 ): string {
