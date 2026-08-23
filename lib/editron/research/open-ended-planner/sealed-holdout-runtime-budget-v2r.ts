@@ -2,6 +2,7 @@ import { canonicalizeJsonV1, deepFreezeV1, hashCanonicalJsonV1 } from './contrac
 import { V2R_OPERATOR_CATALOG_REVISION } from './operator-catalog-v2r';
 import {
   PROVIDER_NATIVE_RUNTIME_GUARD_ATTEMPT_RESUME_STATE_VERSION_V2R,
+  PROVIDER_NATIVE_RUNTIME_GUARD_DISPATCH_RESUME_STATE_VERSION_V2R,
   PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R,
   type ProviderNativeRuntimeGuardResumeStateV2R,
 } from './provider-native-episode-resume-v2r';
@@ -20,6 +21,10 @@ import {
   assertProviderNativeDurableAttemptReceiptV2R,
   type ProviderNativeDurableAttemptReceiptV2R,
 } from './provider-native-durable-attempt-receipt-v2r';
+import {
+  assertProviderNativeDurableDispatchIntentV2R,
+  type ProviderNativeDurableDispatchIntentV2R,
+} from './provider-native-durable-dispatch-intent-v2r';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -190,12 +195,41 @@ implements ProviderNativeRuntimeGuardV2R {
     accountedProviderAttempts?:
       readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
   }>): Readonly<ProviderNativeRuntimeGuardResumeStateV2R> {
-    if (this.pendingRequest) fail('SEALED_RUNTIME_RESUME_PENDING_REQUEST');
+    return this.createBoundResumeState(input);
+  }
+
+  createPendingDispatchResumeState(input: Readonly<{
+    completedTurns: readonly Readonly<JsonRecord>[];
+    accountedProviderAttempts?:
+      readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
+    pendingProviderDispatchIntent: Readonly<ProviderNativeDurableDispatchIntentV2R>;
+  }>): Readonly<ProviderNativeRuntimeGuardResumeStateV2R> {
+    return this.createBoundResumeState(input, input.pendingProviderDispatchIntent);
+  }
+
+  private createBoundResumeState(input: Readonly<{
+    completedTurns: readonly Readonly<JsonRecord>[];
+    accountedProviderAttempts?:
+      readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
+  }>, pendingIntentInput?: Readonly<ProviderNativeDurableDispatchIntentV2R>) {
     const accountedProviderAttempts = input.accountedProviderAttempts ?? [];
+    const pendingProviderDispatchIntent = pendingIntentInput
+      ? assertPendingDispatchBinding(
+          pendingIntentInput,
+          accountedProviderAttempts,
+          this.pendingRequest,
+        ) : undefined;
+    if (this.pendingRequest && !pendingProviderDispatchIntent) {
+      fail('SEALED_RUNTIME_RESUME_PENDING_REQUEST');
+    }
+    if (!this.pendingRequest && pendingProviderDispatchIntent) {
+      fail('SEALED_RUNTIME_RESUME_PENDING_REQUEST_MISSING');
+    }
     assertRuntimeEventsBoundToTurns(
       this.events,
       input.completedTurns,
       accountedProviderAttempts,
+      pendingProviderDispatchIntent,
     );
     const completedTurnsSha256 = hashCanonicalJsonV1(input.completedTurns);
     const state = {
@@ -205,7 +239,9 @@ implements ProviderNativeRuntimeGuardV2R {
       events: structuredClone(this.events),
     };
     const material = {
-      version: accountedProviderAttempts.length
+      version: pendingProviderDispatchIntent
+        ? PROVIDER_NATIVE_RUNTIME_GUARD_DISPATCH_RESUME_STATE_VERSION_V2R
+        : accountedProviderAttempts.length
         ? PROVIDER_NATIVE_RUNTIME_GUARD_ATTEMPT_RESUME_STATE_VERSION_V2R
         : PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R,
       authority: 'RESEARCH_RUNTIME_GUARD_RESUME_NO_PROJECT_MUTATION' as const,
@@ -213,9 +249,13 @@ implements ProviderNativeRuntimeGuardV2R {
       guardIdentitySha256: this.guardIdentitySha256(),
       completedTurnsSha256,
       nextTurn: input.completedTurns.length + 1,
-      ...(accountedProviderAttempts.length ? {
+      ...(accountedProviderAttempts.length || pendingProviderDispatchIntent ? {
         accountedProviderAttemptsSha256:
           hashCanonicalJsonV1(accountedProviderAttempts),
+      } : {}),
+      ...(pendingProviderDispatchIntent ? {
+        pendingProviderDispatchIntentSha256:
+          pendingProviderDispatchIntent.receiptSha256,
       } : {}),
       state,
     };
@@ -230,6 +270,7 @@ implements ProviderNativeRuntimeGuardV2R {
     completedTurns: readonly Readonly<JsonRecord>[];
     accountedProviderAttempts?:
       readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
+    pendingProviderDispatchIntent?: Readonly<ProviderNativeDurableDispatchIntentV2R>;
   }>): void {
     this.assertPristineForResume();
     const resumeState = input.resumeState;
@@ -244,10 +285,22 @@ implements ProviderNativeRuntimeGuardV2R {
         accountedProviderAttemptsSha256:
           resumeState.accountedProviderAttemptsSha256,
       } : {}),
+      ...('pendingProviderDispatchIntentSha256' in resumeState ? {
+        pendingProviderDispatchIntentSha256:
+          resumeState.pendingProviderDispatchIntentSha256,
+      } : {}),
       state: resumeState.state,
     };
     const accountedProviderAttempts = input.accountedProviderAttempts ?? [];
-    const expectedVersion = accountedProviderAttempts.length
+    const pendingProviderDispatchIntent = input.pendingProviderDispatchIntent
+      ? assertPendingDispatchBinding(
+          input.pendingProviderDispatchIntent,
+          accountedProviderAttempts,
+          pendingRequestFromIntent(input.pendingProviderDispatchIntent),
+        ) : undefined;
+    const expectedVersion = pendingProviderDispatchIntent
+      ? PROVIDER_NATIVE_RUNTIME_GUARD_DISPATCH_RESUME_STATE_VERSION_V2R
+      : accountedProviderAttempts.length
       ? PROVIDER_NATIVE_RUNTIME_GUARD_ATTEMPT_RESUME_STATE_VERSION_V2R
       : PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R;
     if (resumeState.version !== expectedVersion
@@ -269,11 +322,17 @@ implements ProviderNativeRuntimeGuardV2R {
       || resumeState.nextTurn !== input.completedTurns.length + 1) {
       fail('SEALED_RUNTIME_RESUME_TURN_BINDING_MISMATCH');
     }
-    if (accountedProviderAttempts.length
+    if (accountedProviderAttempts.length || pendingProviderDispatchIntent
       ? resumeState.accountedProviderAttemptsSha256
           !== hashCanonicalJsonV1(accountedProviderAttempts)
       : 'accountedProviderAttemptsSha256' in resumeState) {
       fail('SEALED_RUNTIME_RESUME_ATTEMPT_BINDING_MISMATCH');
+    }
+    if (pendingProviderDispatchIntent
+      ? resumeState.pendingProviderDispatchIntentSha256
+          !== pendingProviderDispatchIntent.receiptSha256
+      : 'pendingProviderDispatchIntentSha256' in resumeState) {
+      fail('SEALED_RUNTIME_RESUME_DISPATCH_INTENT_BINDING_MISMATCH');
     }
     const state = record(resumeState.state);
     const events = records(state.events);
@@ -281,12 +340,15 @@ implements ProviderNativeRuntimeGuardV2R {
       events,
       input.completedTurns,
       accountedProviderAttempts,
+      pendingProviderDispatchIntent,
     );
     const usage = deriveRuntimeUsageFromEvents(events);
     const expectedState = {
       authorizationSha256: this.authorizationSha256,
       limits: this.limits,
-      usage: { ...usage, pendingRequest: null },
+      usage: { ...usage,
+        pendingRequest: pendingProviderDispatchIntent
+          ? pendingRequestFromIntent(pendingProviderDispatchIntent) : null },
       events,
     };
     if (canonicalizeJsonV1(state) !== canonicalizeJsonV1(expectedState)) {
@@ -304,6 +366,8 @@ implements ProviderNativeRuntimeGuardV2R {
     this.spentNanoUsd = usage.spentNanoUsd;
     this.conservativeReservedOutputTokens = usage.conservativeReservedOutputTokens ?? 0;
     this.conservativeReservedNanoUsd = usage.conservativeReservedNanoUsd ?? 0;
+    this.pendingRequest = pendingProviderDispatchIntent
+      ? pendingRequestFromIntent(pendingProviderDispatchIntent) : null;
   }
 
   beforeTurn(input: Readonly<{
@@ -602,6 +666,7 @@ function assertRuntimeEventsBoundToTurns(
   completedTurns: readonly Readonly<JsonRecord>[],
   accountedProviderAttempts:
     readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[] = [],
+  pendingProviderDispatchIntent?: Readonly<ProviderNativeDurableDispatchIntentV2R>,
 ): void {
   const turnEvents = completedTurns.flatMap((turn) => {
     if (!Array.isArray(turn.runtimeGuardAudit)
@@ -615,12 +680,47 @@ function assertRuntimeEventsBoundToTurns(
     const attempt = assertProviderNativeDurableAttemptReceiptV2R(value);
     return records(attempt.accounting.runtimeGuardAudit);
   });
-  const boundEvents = [...turnEvents, ...attemptEvents].sort(
+  const dispatchEvents = pendingProviderDispatchIntent
+    ? records(assertProviderNativeDurableDispatchIntentV2R(
+        pendingProviderDispatchIntent,
+      ).reservation.runtimeGuardAudit) : [];
+  const boundEvents = [...turnEvents, ...attemptEvents, ...dispatchEvents].sort(
     (left, right) => Number(left.ordinal) - Number(right.ordinal),
   );
   if (canonicalizeJsonV1(events) !== canonicalizeJsonV1(boundEvents)) {
     fail('SEALED_RUNTIME_RESUME_TURN_AUDIT_MISMATCH');
   }
+}
+
+function assertPendingDispatchBinding(
+  value: Readonly<ProviderNativeDurableDispatchIntentV2R>,
+  attempts: readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[],
+  pendingRequest: PendingRequest | null,
+): Readonly<ProviderNativeDurableDispatchIntentV2R> {
+  const intent = assertProviderNativeDurableDispatchIntentV2R(value);
+  const previous = attempts.length
+    ? assertProviderNativeDurableAttemptReceiptV2R(attempts.at(-1)) : undefined;
+  if (!pendingRequest
+    || intent.dispatch.attemptOrdinal !== attempts.length + 1
+    || intent.previousAttemptReceiptSha256 !== (previous?.receiptSha256 ?? null)
+    || canonicalizeJsonV1(pendingRequest)
+      !== canonicalizeJsonV1(pendingRequestFromIntent(intent))) {
+    fail('SEALED_RUNTIME_RESUME_DISPATCH_INTENT_INVALID');
+  }
+  return intent;
+}
+
+function pendingRequestFromIntent(
+  intentInput: Readonly<ProviderNativeDurableDispatchIntentV2R>,
+): PendingRequest {
+  const intent = assertProviderNativeDurableDispatchIntentV2R(intentInput);
+  return {
+    turn: intent.dispatch.turn,
+    requestHash: intent.dispatch.requestHash,
+    inputTokensUpperBound: intent.reservation.inputTokensUpperBound,
+    maxOutputTokens: intent.dispatch.maxOutputTokens,
+    reservedWorstCaseNanoUsd: intent.reservation.reservedWorstCaseNanoUsd,
+  };
 }
 
 function deriveRuntimeUsageFromEvents(

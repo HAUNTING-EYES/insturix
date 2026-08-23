@@ -22,6 +22,10 @@ import {
   assertProviderNativeDurableAttemptReceiptV2R,
   type ProviderNativeDurableAttemptReceiptV2R,
 } from './provider-native-durable-attempt-receipt-v2r';
+import {
+  assertProviderNativeDurableDispatchIntentV2R,
+  type ProviderNativeDurableDispatchIntentV2R,
+} from './provider-native-durable-dispatch-intent-v2r';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -37,10 +41,16 @@ export const PROVIDER_NATIVE_EPISODE_RESUME_ATTEMPT_RUNTIME_BOUND_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_EPISODE_RESUME_V2R_5' as const;
 export const PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_ATTEMPT_RUNTIME_BOUND_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_EPISODE_RESUME_V2R_6' as const;
+export const PROVIDER_NATIVE_EPISODE_RESUME_DISPATCH_RUNTIME_BOUND_VERSION_V2R =
+  'EDITRON_PROVIDER_NATIVE_EPISODE_RESUME_V2R_7' as const;
+export const PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_DISPATCH_RUNTIME_BOUND_VERSION_V2R =
+  'EDITRON_PROVIDER_NATIVE_EPISODE_RESUME_V2R_8' as const;
 export const PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_V2R_1' as const;
 export const PROVIDER_NATIVE_RUNTIME_GUARD_ATTEMPT_RESUME_STATE_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_V2R_2' as const;
+export const PROVIDER_NATIVE_RUNTIME_GUARD_DISPATCH_RESUME_STATE_VERSION_V2R =
+  'EDITRON_PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_V2R_3' as const;
 export const PROVIDER_NATIVE_RESUMED_RECEIPT_VERSION_V2R =
   'EDITRON_PROVIDER_NATIVE_RESUMED_RECEIPT_V2R_1' as const;
 
@@ -68,13 +78,15 @@ interface ProviderNativeEpisodeResumeCheckpointBaseV2R {
 
 export interface ProviderNativeRuntimeGuardResumeStateV2R {
   version: typeof PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R
-    | typeof PROVIDER_NATIVE_RUNTIME_GUARD_ATTEMPT_RESUME_STATE_VERSION_V2R;
+    | typeof PROVIDER_NATIVE_RUNTIME_GUARD_ATTEMPT_RESUME_STATE_VERSION_V2R
+    | typeof PROVIDER_NATIVE_RUNTIME_GUARD_DISPATCH_RESUME_STATE_VERSION_V2R;
   authority: 'RESEARCH_RUNTIME_GUARD_RESUME_NO_PROJECT_MUTATION';
   guardKind: string;
   guardIdentitySha256: string;
   completedTurnsSha256: string;
   nextTurn: number;
   accountedProviderAttemptsSha256?: string;
+  pendingProviderDispatchIntentSha256?: string;
   state: Readonly<JsonRecord>;
   resumeStateSha256: string;
 }
@@ -112,6 +124,25 @@ export type ProviderNativeEpisodeResumeCheckpointV2R =
       referenceInputManifestSha256: string;
       accountedProviderAttempts:
         readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
+      runtimeGuardResumeState: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>;
+    }>)
+  | (ProviderNativeEpisodeResumeCheckpointBaseV2R & Readonly<{
+      checkpointVersion:
+        typeof PROVIDER_NATIVE_EPISODE_RESUME_DISPATCH_RUNTIME_BOUND_VERSION_V2R;
+      accountedProviderAttempts:
+        readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
+      pendingProviderDispatchIntent:
+        Readonly<ProviderNativeDurableDispatchIntentV2R>;
+      runtimeGuardResumeState: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>;
+    }>)
+  | (ProviderNativeEpisodeResumeCheckpointBaseV2R & Readonly<{
+      checkpointVersion:
+        typeof PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_DISPATCH_RUNTIME_BOUND_VERSION_V2R;
+      referenceInputManifestSha256: string;
+      accountedProviderAttempts:
+        readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
+      pendingProviderDispatchIntent:
+        Readonly<ProviderNativeDurableDispatchIntentV2R>;
       runtimeGuardResumeState: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>;
     }>);
 
@@ -151,6 +182,7 @@ export function createProviderNativeEpisodeResumeCheckpointV2R(input: {
   runtimeGuardResumeState?: Readonly<ProviderNativeRuntimeGuardResumeStateV2R>;
   accountedProviderAttempts?:
     readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
+  pendingProviderDispatchIntent?: Readonly<ProviderNativeDurableDispatchIntentV2R>;
 }): Readonly<ProviderNativeEpisodeResumeCheckpointV2R> {
   requireIdentity(input.episodeId, 'EPISODE');
   requireSha256(input.contextSha256, 'CONTEXT');
@@ -170,24 +202,42 @@ export function createProviderNativeEpisodeResumeCheckpointV2R(input: {
     nextTurn,
   });
   const attemptBound = accountedProviderAttempts.length > 0;
-  requireContiguousTurns(input.completedTurns, attemptBound);
+  const pendingProviderDispatchIntent = input.pendingProviderDispatchIntent
+    ? verifyDispatchIntentBinding({
+        intent: input.pendingProviderDispatchIntent,
+        attempts: accountedProviderAttempts,
+        episodeId: input.episodeId,
+        contextSha256: input.contextSha256,
+        toolSetSha256: input.toolSetSha256,
+        routeSha256: hashCanonicalJsonV1(input.route),
+        nextTurn,
+      }) : undefined;
+  const dispatchBound = pendingProviderDispatchIntent !== undefined;
+  requireContiguousTurns(input.completedTurns, attemptBound || dispatchBound);
   const referenceBound = input.referenceInputManifestSha256 !== undefined;
   const runtimeBound = input.runtimeGuardResumeState !== undefined;
-  if (attemptBound && !runtimeBound) {
+  if ((attemptBound || dispatchBound) && !runtimeBound) {
     throw new Error('PROVIDER_NATIVE_RESUME_ATTEMPT_RUNTIME_GUARD_REQUIRED');
   }
-  const accountedProviderAttemptsSha256 = attemptBound
+  const accountedProviderAttemptsSha256 = attemptBound || dispatchBound
     ? hashCanonicalJsonV1(accountedProviderAttempts) : undefined;
+  const pendingProviderDispatchIntentSha256 = pendingProviderDispatchIntent?.receiptSha256;
   if (input.runtimeGuardResumeState) {
     verifyRuntimeGuardResumeState(
       input.runtimeGuardResumeState,
       completedTurnsSha256,
       nextTurn,
       accountedProviderAttemptsSha256,
+      pendingProviderDispatchIntentSha256,
     );
   }
   const material = {
-    checkpointVersion: checkpointVersion(referenceBound, runtimeBound, attemptBound),
+    checkpointVersion: checkpointVersion(
+      referenceBound,
+      runtimeBound,
+      attemptBound,
+      dispatchBound,
+    ),
     authority: 'RESEARCH_ONLY_NO_PROJECT_MUTATION' as const,
     route: input.route,
     episodeId: input.episodeId,
@@ -204,7 +254,8 @@ export function createProviderNativeEpisodeResumeCheckpointV2R(input: {
     ...(runtimeBound ? {
       runtimeGuardResumeState: structuredClone(input.runtimeGuardResumeState),
     } : {}),
-    ...(attemptBound ? { accountedProviderAttempts } : {}),
+    ...(attemptBound || dispatchBound ? { accountedProviderAttempts } : {}),
+    ...(pendingProviderDispatchIntent ? { pendingProviderDispatchIntent } : {}),
     stateEffects: [] as const,
   };
   return deepFreezeV1({
@@ -535,7 +586,9 @@ function verifyCheckpointEnvelope(checkpoint: Readonly<ProviderNativeEpisodeResu
     PROVIDER_NATIVE_EPISODE_RESUME_RUNTIME_BOUND_VERSION_V2R,
     PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_RUNTIME_BOUND_VERSION_V2R,
     PROVIDER_NATIVE_EPISODE_RESUME_ATTEMPT_RUNTIME_BOUND_VERSION_V2R,
-    PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_ATTEMPT_RUNTIME_BOUND_VERSION_V2R]
+    PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_ATTEMPT_RUNTIME_BOUND_VERSION_V2R,
+    PROVIDER_NATIVE_EPISODE_RESUME_DISPATCH_RUNTIME_BOUND_VERSION_V2R,
+    PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_DISPATCH_RUNTIME_BOUND_VERSION_V2R]
     .includes(checkpoint.checkpointVersion)
     || checkpoint.authority !== 'RESEARCH_ONLY_NO_PROJECT_MUTATION'
     || checkpoint.argumentHandoffMode !== 'OPAQUE_RESULT_REFERENCES'
@@ -549,16 +602,22 @@ function verifyCheckpointEnvelope(checkpoint: Readonly<ProviderNativeEpisodeResu
     || checkpoint.checkpointVersion
       === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_RUNTIME_BOUND_VERSION_V2R
     || checkpoint.checkpointVersion
-      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_ATTEMPT_RUNTIME_BOUND_VERSION_V2R;
+      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_ATTEMPT_RUNTIME_BOUND_VERSION_V2R
+    || checkpoint.checkpointVersion
+      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_DISPATCH_RUNTIME_BOUND_VERSION_V2R;
   const attemptBound = checkpoint.checkpointVersion
       === PROVIDER_NATIVE_EPISODE_RESUME_ATTEMPT_RUNTIME_BOUND_VERSION_V2R
     || checkpoint.checkpointVersion
       === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_ATTEMPT_RUNTIME_BOUND_VERSION_V2R;
+  const dispatchBound = checkpoint.checkpointVersion
+      === PROVIDER_NATIVE_EPISODE_RESUME_DISPATCH_RUNTIME_BOUND_VERSION_V2R
+    || checkpoint.checkpointVersion
+      === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_DISPATCH_RUNTIME_BOUND_VERSION_V2R;
   const runtimeBound = checkpoint.checkpointVersion
       === PROVIDER_NATIVE_EPISODE_RESUME_RUNTIME_BOUND_VERSION_V2R
     || checkpoint.checkpointVersion
       === PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_RUNTIME_BOUND_VERSION_V2R;
-  const referenceOrAttemptRuntimeBound = runtimeBound || attemptBound;
+  const checkpointRuntimeBound = runtimeBound || attemptBound || dispatchBound;
   if (referenceBound && 'referenceInputManifestSha256' in checkpoint) {
     requireSha256(
       checkpoint.referenceInputManifestSha256,
@@ -567,7 +626,8 @@ function verifyCheckpointEnvelope(checkpoint: Readonly<ProviderNativeEpisodeResu
   } else if (referenceBound || 'referenceInputManifestSha256' in checkpoint) {
     throw new Error('PROVIDER_NATIVE_RESUME_CHECKPOINT_ENVELOPE_INVALID');
   }
-  const accountedProviderAttempts = attemptBound
+  const attemptLedgerBound = attemptBound || dispatchBound;
+  const accountedProviderAttempts = attemptLedgerBound
     && 'accountedProviderAttempts' in checkpoint
     ? verifyAttemptChain({
         attempts: checkpoint.accountedProviderAttempts,
@@ -577,19 +637,35 @@ function verifyCheckpointEnvelope(checkpoint: Readonly<ProviderNativeEpisodeResu
         routeSha256: hashCanonicalJsonV1(checkpoint.route),
         nextTurn: checkpoint.nextTurn,
       }) : [];
-  if (attemptBound !== ('accountedProviderAttempts' in checkpoint)
+  if (attemptLedgerBound !== ('accountedProviderAttempts' in checkpoint)
     || (attemptBound && !accountedProviderAttempts.length)) {
     throw new Error('PROVIDER_NATIVE_RESUME_CHECKPOINT_ENVELOPE_INVALID');
   }
-  requireContiguousTurns(checkpoint.completedTurns, attemptBound);
-  if (referenceOrAttemptRuntimeBound && 'runtimeGuardResumeState' in checkpoint) {
+  const pendingProviderDispatchIntent = dispatchBound
+    && 'pendingProviderDispatchIntent' in checkpoint
+    ? verifyDispatchIntentBinding({
+        intent: checkpoint.pendingProviderDispatchIntent,
+        attempts: accountedProviderAttempts,
+        episodeId: checkpoint.episodeId,
+        contextSha256: checkpoint.contextSha256,
+        toolSetSha256: checkpoint.toolSetSha256,
+        routeSha256: hashCanonicalJsonV1(checkpoint.route),
+        nextTurn: checkpoint.nextTurn,
+      }) : undefined;
+  if (dispatchBound !== ('pendingProviderDispatchIntent' in checkpoint)
+    || (dispatchBound && !pendingProviderDispatchIntent)) {
+    throw new Error('PROVIDER_NATIVE_RESUME_CHECKPOINT_ENVELOPE_INVALID');
+  }
+  requireContiguousTurns(checkpoint.completedTurns, attemptBound || dispatchBound);
+  if (checkpointRuntimeBound && 'runtimeGuardResumeState' in checkpoint) {
     verifyRuntimeGuardResumeState(
       checkpoint.runtimeGuardResumeState,
       checkpoint.completedTurnsSha256,
       checkpoint.nextTurn,
-      attemptBound ? hashCanonicalJsonV1(accountedProviderAttempts) : undefined,
+      attemptLedgerBound ? hashCanonicalJsonV1(accountedProviderAttempts) : undefined,
+      pendingProviderDispatchIntent?.receiptSha256,
     );
-  } else if (referenceOrAttemptRuntimeBound || 'runtimeGuardResumeState' in checkpoint) {
+  } else if (checkpointRuntimeBound || 'runtimeGuardResumeState' in checkpoint) {
     throw new Error('PROVIDER_NATIVE_RESUME_CHECKPOINT_ENVELOPE_INVALID');
   }
   if (checkpoint.nextTurn !== checkpoint.completedTurns.length + 1
@@ -621,6 +697,9 @@ function checkpointMaterial(checkpoint: Readonly<ProviderNativeEpisodeResumeChec
     ...('accountedProviderAttempts' in checkpoint
       ? { accountedProviderAttempts: checkpoint.accountedProviderAttempts }
       : {}),
+    ...('pendingProviderDispatchIntent' in checkpoint
+      ? { pendingProviderDispatchIntent: checkpoint.pendingProviderDispatchIntent }
+      : {}),
     stateEffects: checkpoint.stateEffects,
   };
 }
@@ -648,7 +727,12 @@ function checkpointVersion(
   referenceBound: boolean,
   runtimeBound: boolean,
   attemptBound: boolean,
+  dispatchBound: boolean,
 ) {
+  if (referenceBound && dispatchBound) {
+    return PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_DISPATCH_RUNTIME_BOUND_VERSION_V2R;
+  }
+  if (dispatchBound) return PROVIDER_NATIVE_EPISODE_RESUME_DISPATCH_RUNTIME_BOUND_VERSION_V2R;
   if (referenceBound && attemptBound) {
     return PROVIDER_NATIVE_EPISODE_RESUME_REFERENCE_ATTEMPT_RUNTIME_BOUND_VERSION_V2R;
   }
@@ -667,9 +751,13 @@ function verifyRuntimeGuardResumeState(
   completedTurnsSha256: string,
   nextTurn: number,
   accountedProviderAttemptsSha256?: string,
+  pendingProviderDispatchIntentSha256?: string,
 ): void {
   const attemptBound = accountedProviderAttemptsSha256 !== undefined;
-  const expectedVersion = attemptBound
+  const dispatchBound = pendingProviderDispatchIntentSha256 !== undefined;
+  const expectedVersion = dispatchBound
+    ? PROVIDER_NATIVE_RUNTIME_GUARD_DISPATCH_RESUME_STATE_VERSION_V2R
+    : attemptBound
     ? PROVIDER_NATIVE_RUNTIME_GUARD_ATTEMPT_RESUME_STATE_VERSION_V2R
     : PROVIDER_NATIVE_RUNTIME_GUARD_RESUME_STATE_VERSION_V2R;
   if (resumeState.version !== expectedVersion
@@ -681,6 +769,10 @@ function verifyRuntimeGuardResumeState(
     || (attemptBound
       && resumeState.accountedProviderAttemptsSha256
         !== accountedProviderAttemptsSha256)
+    || dispatchBound !== ('pendingProviderDispatchIntentSha256' in resumeState)
+    || (dispatchBound
+      && resumeState.pendingProviderDispatchIntentSha256
+        !== pendingProviderDispatchIntentSha256)
     || !Object.keys(record(resumeState.state)).length) {
     throw new Error('PROVIDER_NATIVE_RESUME_RUNTIME_GUARD_STATE_INVALID');
   }
@@ -690,6 +782,12 @@ function verifyRuntimeGuardResumeState(
     requireSha256(
       resumeState.accountedProviderAttemptsSha256 ?? '',
       'RUNTIME_GUARD_ATTEMPTS',
+    );
+  }
+  if (dispatchBound) {
+    requireSha256(
+      resumeState.pendingProviderDispatchIntentSha256 ?? '',
+      'RUNTIME_GUARD_DISPATCH_INTENT',
     );
   }
   requireSha256(resumeState.resumeStateSha256, 'RUNTIME_GUARD_STATE');
@@ -703,6 +801,10 @@ function verifyRuntimeGuardResumeState(
     ...(attemptBound ? {
       accountedProviderAttemptsSha256:
         resumeState.accountedProviderAttemptsSha256,
+    } : {}),
+    ...(dispatchBound ? {
+      pendingProviderDispatchIntentSha256:
+        resumeState.pendingProviderDispatchIntentSha256,
     } : {}),
     state: resumeState.state,
   };
@@ -737,6 +839,29 @@ function verifyAttemptChain(input: Readonly<{
     }
     return structuredClone(attempt);
   });
+}
+
+function verifyDispatchIntentBinding(input: Readonly<{
+  intent: Readonly<ProviderNativeDurableDispatchIntentV2R>;
+  attempts: readonly Readonly<ProviderNativeDurableAttemptReceiptV2R>[];
+  episodeId: string;
+  contextSha256: string;
+  toolSetSha256: string;
+  routeSha256: string;
+  nextTurn: number;
+}>): Readonly<ProviderNativeDurableDispatchIntentV2R> {
+  const intent = assertProviderNativeDurableDispatchIntentV2R(input.intent);
+  const previous = input.attempts.at(-1);
+  if (intent.scope.episodeId !== input.episodeId
+    || intent.scope.contextSha256 !== input.contextSha256
+    || intent.scope.toolSetSha256 !== input.toolSetSha256
+    || intent.scope.routeSha256 !== input.routeSha256
+    || intent.dispatch.turn !== input.nextTurn
+    || intent.dispatch.attemptOrdinal !== input.attempts.length + 1
+    || intent.previousAttemptReceiptSha256 !== (previous?.receiptSha256 ?? null)) {
+    throw new Error('PROVIDER_NATIVE_RESUME_DISPATCH_INTENT_BINDING_INVALID');
+  }
+  return structuredClone(intent);
 }
 
 function requireWriterRevision(
