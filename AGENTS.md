@@ -312,15 +312,17 @@ Migrated from the prior Claude-Code sessions. Layout:
    documents only as supporting evidence.
 2. Reproduce repository/worktree truth and run proportionate verification. Do
    not trust the historical status tables above.
-3. Commits `eaef92685`, `7fa11669b` and `32d9a91d2` wire exact source/frame
+3. Commits `eaef92685`, `7fa11669b`, `32d9a91d2` and `7a584535c` wire exact source/frame
    registration and make the main analysis worker canonicalize every resolved
    source kind before carrying the returned ID/URL through cache, sampling,
    analysis and legacy extraction. Managed R2/GCS objects are reused through a
-   content-addressed alias; unmanaged sources are privately materialized. The
-   standalone SaaS reference-analysis and ingest-reference paths still bypass
-   this complete boundary, full-source buffering remains provisional and live
-   Mongo/R2/GCS proof is absent. Repair those callers next; do not describe all
-   reference materializers or long-form ingest as converged.
+   content-addressed alias; unmanaged sources are privately materialized.
+   `7a584535c` converges the live SaaS Studio ingest-reference route and makes
+   its currently uncalled standalone analyzer use the same boundary. ThinkForge
+   trend analysis and legacy match-edit remain separately implemented reference
+   paths; full-source buffering is provisional and live Mongo/R2/GCS proof is
+   absent. Reconcile those owners next; do not describe project-wide reference
+   materialization or long-form ingest as converged.
 4. Compose the existing canonical-media, CreditsService guard, isolated
    ProjectService clone, native dispatcher, proof and live transport owners
    behind the definition-bound execution owner; only then export the signed

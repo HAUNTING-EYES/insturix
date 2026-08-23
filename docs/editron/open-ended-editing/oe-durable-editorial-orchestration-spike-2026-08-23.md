@@ -184,6 +184,13 @@ Focused 24/24 plus repository typecheck and quiet ESLint pass. This is main-
 worker convergence only: standalone SaaS reference callers, streaming long-form
 materialization, demux-artifact registration and live storage proof remain open.
 
+Commit `7a584535c` converges the live SaaS Studio ingest-reference route on that
+same boundary and adapts the currently uncalled standalone SaaS analyzer. It
+returns frames only after canonical source and derived-frame registration;
+focused 29/29 plus repository typecheck and quiet ESLint pass. ThinkForge trend
+analysis, legacy match-edit, streaming, demux-artifact registration and live
+storage proof remain open, so this is not project-wide reference convergence.
+
 Commit `607212e02` implements the three read-side canonical-media ports behind
 the existing `498e018e6` owner. An exact scoped binding is read from immutable
 metadata; the policy owner requires a separate hash-bound, unexpired and
@@ -869,28 +876,31 @@ before advancing. This does not add a secret signer or second revision owner.
     `98b663f2b`:** committed terminal job/checkpoint evidence derives exactly
     one settlement; every terminal worker path and terminal redelivery invokes
     it. A failed post-job settlement cannot rerun the episode. Live wallet and
-    transport proof remains part of step 46.
+    transport proof remains part of step 48.
 44. **Main-worker reference-source convergence complete at `32d9a91d2`:**
     `eaef92685` and `7fa11669b` first registered remote/frame bytes and consumed
     the returned identity; `32d9a91d2` adds managed/unmanaged uploaded and
     importer-resolved sources through that same owner. This does not cover the
     standalone SaaS callers or live storage.
-45. Converge the standalone SaaS reference-analysis and ingest-reference paths,
-    then replace full-file buffering/provisional bounds and register required
-    demux artifacts without adding a second media authority.
-46. Compose the canonical-media ports, CreditsService guard, route transport,
+45. **SaaS Studio reference intake convergence complete at `7a584535c`:** the
+    live route and dormant analyzer now delegate to the canonical source owner;
+    registered frames are required before success.
+46. Reconcile ThinkForge trend analysis and legacy match-edit, then replace
+    full-file buffering/provisional bounds and register required demux artifacts
+    without adding a second media authority.
+47. Compose the canonical-media ports, CreditsService guard, route transport,
     ProjectService isolated clone, existing native operator dispatcher and
     proof owner behind the existing definition-bound execution owner. Do not
     add a second media store, wallet writer, registry, job store, PlanService or
     project authority.
-47. Export authenticated routes and run the non-production QStash/Atlas
-    crash/restart/redelivery exercise only after step 46 exists.
-48. Only after fresh zero-inference preflight and explicit spend approval:
+48. Export authenticated routes and run the non-production QStash/Atlas
+    crash/restart/redelivery exercise only after step 47 exists.
+49. Only after fresh zero-inference preflight and explicit spend approval:
     resumed paid model inference.
 
 ## Evidence basis
 
-- Repository code through `32d9a91d2` and orchestration-decision commit
+- Repository code through `7a584535c` and orchestration-decision commit
   `19d8c97a8`.
 - Upstash Workflow official documentation: durable stored step results,
   step-level retry/resume, event waits and DLQ recovery.

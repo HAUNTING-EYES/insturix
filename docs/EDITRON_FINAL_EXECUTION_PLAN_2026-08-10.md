@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `32d9a91d2` on
+programme code checkpoint represented by this ledger is `7a584535c` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 32d9a91d2. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 7a584535c. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1600,13 +1600,26 @@ route still bypass this boundary, the canonicalizer buffers the complete source
 under provisional size/time bounds, demux artifacts are not yet registered by
 this source owner, and no live Mongo/R2/GCS path has been exercised.
 
+Commit 7a584535c closes the live SaaS Studio bypass. Its upload and URL route is
+now transport-only over one delegating adapter: URL/DNS/social-source resolution,
+source canonicalization, exact source registration and registered frame sampling
+must all succeed before frame URLs are returned. Upload IDs are content-derived;
+the response binds canonical source/frame identities and registration receipts;
+and direct `uploadMedia`/random-ID sampling is removed. The exported standalone
+SaaS analysis function, which repository search proves currently has no runtime
+caller, now also canonicalizes before cache or sampling if revived. Five focused
+suites pass 29/29 with repository typecheck and quiet ESLint. This is
+`SAAS_REFERENCE_INTAKE_CANONICALIZED`, not project-wide convergence: ThinkForge
+trend analysis and legacy match-edit remain separate reference paths; streaming,
+demux-artifact registration and live-store proof remain open.
+
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Converge the standalone SaaS reference-analysis and ingest-reference callers
-   on the `32d9a91d2` canonical source boundary, then replace full-file buffering
-   and provisional 90-second/10-KB assumptions with a streaming, probed,
-   long-form-safe owner. Register required demux artifacts through the same
-   media authority; do not add another source registry.
+1. Reconcile ThinkForge trend reference analysis and legacy match-edit against
+   the same canonical source owner, retiring or adapting duplicates rather than
+   creating another registry. Then replace full-file buffering and provisional
+   90-second/10-KB assumptions with a streaming, probed, long-form-safe owner
+   and register required demux artifacts through the same media authority.
 2. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof
@@ -3279,14 +3292,14 @@ execution/interpretation checkpoint above supersedes it.
 | Stage 8 - production-house/film-post certification | No accepted certification run. | Camera-card/reel/timecode identity, professional colour/audio/VFX/interchange/conform/mastering/QC/archive workflows and successful end-to-end productions. |
 
 **Stage 2 media row correction (2026-08-23):** commits `d42c1af5b`,
-`eaef92685`, `7fa11669b` and `32d9a91d2` supersede the table's older
+`eaef92685`, `7fa11669b`, `32d9a91d2` and `7a584535c` supersede the table's older
 reference-materializer wording. Exact reference source/frame registration has
 one create-or-compare owner in the existing `mediaAssets` authority. The main
 video-analysis worker now canonicalizes remote, uploaded and importer-resolved
-asset sources and consumes the returned identity throughout. This remains
-partial convergence: standalone SaaS reference callers, streaming long-form
-materialization, demux-artifact registration and live Mongo/R2/GCS proof are
-open.
+asset sources and consumes the returned identity throughout; the live SaaS
+Studio intake now delegates to the same boundary. This remains partial
+convergence: ThinkForge/match-edit reconciliation, streaming long-form
+materialization, demux-artifact registration and live Mongo/R2/GCS proof are open.
 
 **Stage 2 row correction (2026-08-23):** commits `1af638999`, `b0f1442c0` and
 `349a586c3`
