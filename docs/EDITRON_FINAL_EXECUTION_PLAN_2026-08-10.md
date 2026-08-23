@@ -1540,23 +1540,32 @@ CreditsService owner moves wallet state. The focused accounting suite passes
 `TERMINAL_SETTLEMENT_DERIVATION_PROVEN_NOT_WORKER_INVOKED`: the durable worker
 does not yet invoke or redrive settlement after a terminal commit.
 
+Commit 98b663f2b closes that invocation gap at the transport-neutral and signed-
+worker boundaries. Terminal and expiry claims now carry the stored terminal
+snapshot; completion, cancellation and dead-letter transitions invoke the one
+injected settlement owner; and product ingress refuses to claim a job unless
+both execution and settlement owners are composed. If settlement fails after
+job completion, the delivery returns 503. Redelivery settles the already-
+terminal job without re-entering the execution owner. Success/replay, an
+injected post-completion failure, dead-letter, cancellation, retry-wait,
+leasing and provider-native Plan paths pass 32/32 with repository typecheck
+and quiet ESLint. This is
+`TERMINAL_SETTLEMENT_REDRIVE_WIRED_NOT_LIVE_WALLET_PROVEN`: no product route or
+non-production Atlas/QStash/CreditsService transaction has yet exercised it.
+
 The production root is now explicitly decomposed into these remaining gates:
 
-1. Invoke the existing terminal-settlement owner from every terminal durable-
-   job path and from terminal redelivery. A crash after job completion but
-   before wallet settlement must produce a non-success response, then redrive
-   the same idempotent CreditsService settlement without rerunning the episode.
-2. Make the reference materializer register every source and derived artifact
+1. Make the reference materializer register every source and derived artifact
    in the existing `mediaAssets` owner with content hash, byte length, storage
    identity and canonical envelope before issuance. The current reference-frame
    sampler uploads R2/GCS bytes only, so ordered-image issuance cannot yet work
    end to end.
-3. Compose, behind the existing definition-bound execution owner, the exact
+2. Compose, behind the existing definition-bound execution owner, the exact
    route-scoped canonical reference owner, CreditsService locator/runtime guard,
    ProjectService isolated clone, existing cut/keyframe dispatcher and proof
    owner, and durable live transport. This remains an isolated proposal path;
    it must not mutate the canonical project or create another timeline owner.
-4. Export the signed product route, then run the non-production Atlas/QStash
+3. Export the signed product route, then run the non-production Atlas/QStash
    crash/restart/redelivery exercise that proves the actual transactions and
    write-ahead recovery.
 
@@ -5026,10 +5035,11 @@ ports. Commit `9251945e4` implements their store-neutral authorization and
 issuance coordinator; commit `07c59690b` implements its concrete transaction
 adapter but not live-store proof. Commit `5f7428248` implements the
 concrete CreditsService-owned reservation writer/locator but not live Atlas
-proof. Commit `ce3e988a4` derives the exact terminal settlement but does not yet
-invoke it from terminal job paths. The next bounded reliability order is
-therefore: terminal-redelivery settlement wiring, reference-materializer
-`mediaAssets` registration, one execution-root composition, signed route export,
+proof. Commits `ce3e988a4` and `98b663f2b` derive the exact terminal settlement
+and wire idempotent terminal redelivery without rerunning execution; live wallet
+proof remains absent. The next bounded reliability order is therefore:
+reference-materializer `mediaAssets` registration, one execution-root
+composition, signed route export,
 non-production QStash/Atlas crash/redelivery exercise, and only then a fresh
 paid preflight with explicit approval.
 Canonical project mutation remains disabled.

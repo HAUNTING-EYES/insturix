@@ -308,12 +308,9 @@ Migrated from the prior Claude-Code sessions. Layout:
    documents only as supporting evidence.
 2. Reproduce repository/worktree truth and run proportionate verification. Do
    not trust the historical status tables above.
-3. Finish durable terminal settlement invocation and prove that a crash after
-   terminal job commit is recovered by idempotent terminal redelivery without
-   rerunning the editorial episode.
-4. Register reference-materializer source and derived artifacts through the
+3. Register reference-materializer source and derived artifacts through the
    existing `mediaAssets` owner before canonical-media issuance.
-5. Compose the existing canonical-media, CreditsService guard, isolated
+4. Compose the existing canonical-media, CreditsService guard, isolated
    ProjectService clone, native dispatcher, proof and live transport owners
    behind the definition-bound execution owner; only then export the signed
    route and run non-production Atlas/QStash crash-redelivery proof. Paid model
