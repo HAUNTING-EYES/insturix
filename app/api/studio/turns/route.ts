@@ -4,6 +4,7 @@ import { StudioTurnRequestSchema } from "@/lib/studio/contracts/turn";
 import { runWriteTurn, type WriteTurnState } from "@/lib/studio/orchestrator/write";
 import { runEditTurn } from "@/lib/studio/orchestrator/edit";
 import { runDistributeTurn } from "@/lib/studio/orchestrator/distribute";
+import { runDesignTurn } from "@/lib/studio/orchestrator/design";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +61,7 @@ export async function POST(req: Request) {
   const reelAttachment = request.attachments.find((a) => a.role === "reel");
   const editProjectId = reelAttachment?.ref ?? null;
   const wantsDistribute = /\b(schedul|publish|cadence|post it|queue|calendar|week)\b/i.test(request.text) && !editProjectId;
+  const wantsDesign = /\b(thumbnail|design|image|visual|carousel|logo|canvas)\b/i.test(request.text) && !editProjectId && !wantsDistribute;
 
   /* forward auth for the engine bridge (same-origin, same Clerk session) */
   const forwardHeaders: Record<string, string> = {};
@@ -83,6 +85,8 @@ export async function POST(req: Request) {
             )
           : wantsDistribute
             ? runDistributeTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null }, request.text)
+            : wantsDesign
+              ? runDesignTurn({ userId, orgId: orgId ?? null, brandId: request.brandId ?? null, forwardHeaders, origin: new URL(req.url).origin }, request.text, req.signal)
             : runWriteTurn(
                 {
                   userId,

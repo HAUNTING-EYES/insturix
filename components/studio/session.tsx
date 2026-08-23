@@ -168,7 +168,19 @@ export function StudioSession() {
             ? [{ ref: scriptArtifact.sourceRef.externalId, role: "script" }]
             : [];
         const abort = new AbortController();
-        handleRef.current = { turnId: "t_real", answer: () => {}, interrupt: () => abort.abort() };
+        let confirmTurnId: string | null = null;
+        handleRef.current = {
+          turnId: "t_real",
+          answer: (a) => {
+            if (!confirmTurnId) return;
+            void fetch(`/api/studio/turns/${confirmTurnId}/confirm`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ accepted: a.accepted }),
+            });
+          },
+          interrupt: () => abort.abort(),
+        };
         try {
           for await (const ev of runRealTurn(
             {
@@ -184,6 +196,7 @@ export function StudioSession() {
             abort.signal,
           )) {
             applyEvent(ev);
+            if (ev.type === "turn.confirm_required") confirmTurnId = ev.turnId;
             if (ev.type === "turn.capability_gap") gap = ev;
           }
         } finally {
