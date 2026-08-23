@@ -1,4 +1,7 @@
-import { createHash } from 'node:crypto';
+import {
+  canonicalizeEditronJsonV1,
+  hashEditronCanonicalJsonV1,
+} from './canonical-json-v1';
 
 export const DURABLE_WORKFLOW_JOB_VERSION_V1 =
   'EDITRON_DURABLE_WORKFLOW_JOB_V1_1' as const;
@@ -162,40 +165,24 @@ export class DurableWorkflowJobLeaseLostErrorV1 extends Error {}
 export class DurableWorkflowJobTransitionErrorV1 extends Error {}
 
 export function canonicalizeDurableWorkflowJobJsonV1(value: unknown): string {
-  return canonicalizeJson(value);
+  try {
+    return canonicalizeEditronJsonV1(value);
+  } catch (error) {
+    throw durableCanonicalJsonError(error);
+  }
 }
 
 export function hashDurableWorkflowJobJsonV1(value: unknown): string {
-  return createHash('sha256')
-    .update(canonicalizeDurableWorkflowJobJsonV1(value), 'utf8')
-    .digest('hex');
+  try {
+    return hashEditronCanonicalJsonV1(value);
+  } catch (error) {
+    throw durableCanonicalJsonError(error);
+  }
 }
 
-function canonicalizeJson(value: unknown): string {
-  if (value === null) return 'null';
-  if (typeof value === 'string') return JSON.stringify(value.normalize('NFC'));
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error('DURABLE_JOB_JSON_NUMBER_INVALID');
-    return JSON.stringify(Object.is(value, -0) ? 0 : value);
+function durableCanonicalJsonError(error: unknown): Error {
+  if (error instanceof Error && error.message.startsWith('EDITRON_JSON_')) {
+    return new Error(error.message.replace('EDITRON_JSON_', 'DURABLE_JOB_JSON_'));
   }
-  if (Array.isArray(value)) return `[${value.map(canonicalizeJson).join(',')}]`;
-  if (!value || typeof value !== 'object') {
-    throw new Error('DURABLE_JOB_JSON_VALUE_INVALID');
-  }
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new Error('DURABLE_JOB_JSON_OBJECT_INVALID');
-  }
-  const entries = Object.entries(value as Record<string, unknown>).map(([key, entry]) => ({
-    key: key.normalize('NFC'),
-    value: entry,
-  }));
-  if (new Set(entries.map(({ key }) => key)).size !== entries.length) {
-    throw new Error('DURABLE_JOB_JSON_KEY_NORMALIZATION_COLLISION');
-  }
-  entries.sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
-  return `{${entries.map(({ key, value: entry }) => (
-    `${JSON.stringify(key)}:${canonicalizeJson(entry)}`
-  )).join(',')}}`;
+  return error instanceof Error ? error : new Error('DURABLE_JOB_JSON_INVALID');
 }
