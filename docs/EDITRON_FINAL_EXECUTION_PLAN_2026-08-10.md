@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `cd1829223` on
+programme code checkpoint represented by this ledger is `2e2471adc` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: cd1829223. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 2e2471adc. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1328,9 +1328,17 @@ attempts terminalize as UNVERIFIABLE rather than retrying because the current
 runtime guard can resume accounting only for committed tool turns; retrying a
 failed provider attempt would otherwise forget potentially billed usage. Only
 typed artifact-owner failures before provider invocation are retryable. The
-durable resume cluster passes 55/55 with repository typecheck and quiet ESLint
-clean. Next define failed-attempt accounting/retry and a truthful fresh-
-execution/proof receipt, then add authenticated non-production QStash/Atlas
+durable resume cluster passes 55/55 at cd1829223. Commit 2e2471adc preserves
+the V1 outcome-proof receipt byte-for-byte and adds a V2 receipt under the same
+proof authority whose subject explicitly distinguishes
+FRESH_EPISODE_RECEIPT from RESUMED_EPISODE_RECEIPT. A fresh trace must equal
+the episode receipt; a resumed trace must bind a distinct resume receipt.
+Unknown, copied, forged and tampered trace identities fail closed. The focused
+outcome/resume cluster passes 49/49 with repository typecheck and quiet ESLint
+clean. This makes truthful fresh proof representable; existing finalizer,
+clone and proof-owner interfaces still use V1, so fresh execution remains
+disabled. Next migrate those interfaces to V2, add durable failed-provider-
+attempt accounting/retry, then add authenticated non-production QStash/Atlas
 wiring with zero inference.
 Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
