@@ -18,6 +18,11 @@
  * stable code so the intake can surface the rejection reason.
  */
 
+import { createHash } from 'node:crypto';
+import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import type {
   ReferenceCanonicalEnvelope,
   ReferenceAudioUsageMode,
@@ -26,18 +31,16 @@ import type { UploadResult } from '@/lib/editron/services/upload-service';
 import type { ReferenceVideoSource } from './reference-video-source';
 import { buildReferenceCanonicalEnvelope, demuxReferenceVideo } from './reference-demux';
 import {
-  registerReferenceMaterializedMediaAssetV1,
-  type ReferenceMaterializedMediaRegistrationInputV1,
+  registerReferenceMaterializedMediaFileV1,
+  type ReferenceMaterializedMediaFileRegistrationInputV1,
   type ReferenceMaterializedMediaRegistrationReceiptV1,
 } from './reference-materialized-media-registration-v1';
 import {
   buildCanonicalReferenceSourceAssetIdV1,
-  resolveCanonicalReferenceStorageV1,
+  resolveCanonicalReferenceFileStorageV1,
+  type CanonicalReferenceFileIdentityV1,
   type CanonicalReferenceStorageKindV1,
 } from './reference-source-storage-v1';
-
-const MIN_DL_BYTES = 10_000; // ⚠️ INVENTED sanity floor — a real video file is ≥100KB
-const DL_TIMEOUT_MS = 90_000; // ⚠️ INVENTED — generous fetch bound; matches yt-dlp default
 
 export interface CanonicalizeReferenceInput {
   userId: string;
@@ -45,6 +48,8 @@ export interface CanonicalizeReferenceInput {
   source: ReferenceVideoSource;
   /** Constraint #7 audio usage mode. Caller decides; never invented here. */
   audioUsageMode: ReferenceAudioUsageMode;
+  /** Optional product-job cancellation; no hidden whole-download deadline is imposed. */
+  abortSignal?: AbortSignal;
 }
 
 export interface CanonicalizeReferenceOutput {
@@ -66,19 +71,25 @@ export interface CanonicalizeReferenceOutput {
 }
 
 export interface CanonicalizeReferenceDeps {
-  /** Read the resolved source URL to exact bytes. Injected for tests. */
+  /** Legacy seam for bytes already present in request memory (for example uploads). */
   downloadSourceBytes?: (url: string) => Promise<Buffer>;
-  /** Upload bytes only when no existing managed R2/GCS object can be reused. */
-  uploadCanonicalBytes?: (
-    file: Buffer,
+  /** Stream a remote source to the supplied private file and return exact identity. */
+  downloadSourceToFile?: (
+    url: string,
+    filePath: string,
+    abortSignal?: AbortSignal,
+  ) => Promise<Readonly<CanonicalReferenceFileIdentityV1>>;
+  /** Upload a file only when no existing managed R2/GCS object can be reused. */
+  uploadCanonicalFile?: (
+    filePath: string,
     userId: string,
     fileName: string,
     contentType: string,
     canonicalAssetId: string,
   ) => Promise<UploadResult>;
   /** Register the source and its envelope in existing mediaAssets. */
-  registerSource?: (
-    input: Readonly<ReferenceMaterializedMediaRegistrationInputV1>,
+  registerSourceFile?: (
+    input: Readonly<ReferenceMaterializedMediaFileRegistrationInputV1>,
   ) => Promise<Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>>;
   /** Demux delegation. Injected for tests. */
   demux?: typeof demuxReferenceVideo;
@@ -103,29 +114,48 @@ export class CanonicalizeReferenceError extends Error {
   }
 }
 
-async function defaultDownloadSourceBytes(url: string): Promise<Buffer> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DL_TIMEOUT_MS);
+async function defaultDownloadSourceToFile(
+  url: string,
+  filePath: string,
+  abortSignal?: AbortSignal,
+): Promise<Readonly<CanonicalReferenceFileIdentityV1>> {
+  const response = await fetch(url, { signal: abortSignal });
+  if (!response.ok) throw new Error(`fetch failed (HTTP ${response.status})`);
+  if (!response.body) throw new Error('fetch returned no response body');
+  const handle = await open(filePath, 'wx');
+  const hash = createHash('sha256');
+  let byteLength = 0;
   try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`fetch failed (HTTP ${response.status})`);
+    for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+      hash.update(chunk);
+      let offset = 0;
+      while (offset < chunk.byteLength) {
+        const write = await handle.write(
+          chunk, offset, chunk.byteLength - offset, byteLength + offset,
+        );
+        if (write.bytesWritten < 1) throw new Error('source file write made no progress');
+        offset += write.bytesWritten;
+      }
+      byteLength += chunk.byteLength;
     }
-    return Buffer.from(await response.arrayBuffer());
+    await handle.sync();
   } finally {
-    clearTimeout(timer);
+    await handle.close();
   }
+  return { filePath, byteLength, contentSha256: hash.digest('hex') };
 }
 
-async function defaultUploadCanonicalBytes(
-  file: Buffer,
+async function defaultUploadCanonicalFile(
+  filePath: string,
   userId: string,
   fileName: string,
   contentType: string,
   canonicalAssetId: string,
 ): Promise<UploadResult> {
-  const { uploadMedia } = await import('@/lib/editron/services/upload-service');
-  return uploadMedia(file, userId, fileName, contentType, { customAssetId: canonicalAssetId });
+  const { uploadMediaFromFile } = await import('@/lib/editron/services/upload-service');
+  return uploadMediaFromFile(
+    filePath, userId, fileName, contentType, { customAssetId: canonicalAssetId },
+  );
 }
 
 /**
@@ -139,113 +169,102 @@ export async function canonicalizeReferenceVideo(
 ): Promise<CanonicalizeReferenceOutput> {
   const { source, userId, audioUsageMode } = input;
 
-  const downloadSourceBytes = deps.downloadSourceBytes ?? defaultDownloadSourceBytes;
-  const uploadCanonicalBytes = deps.uploadCanonicalBytes ?? defaultUploadCanonicalBytes;
-  const registerSource = deps.registerSource ?? registerReferenceMaterializedMediaAssetV1;
+  const downloadSourceToFile = deps.downloadSourceToFile ?? defaultDownloadSourceToFile;
+  const uploadCanonicalFile = deps.uploadCanonicalFile ?? defaultUploadCanonicalFile;
+  const registerSourceFile = deps.registerSourceFile ?? registerReferenceMaterializedMediaFileV1;
   const demux = deps.demux ?? demuxReferenceVideo;
-
-  // Exact source bytes are required for both the envelope and immutable ID.
-  let bytes: Buffer;
-  try {
-    bytes = await downloadSourceBytes(source.videoUrl);
-  } catch (error) {
-    throw new CanonicalizeReferenceError(
-      'source_download_failed',
-      'Reference source read failed: ' + (error instanceof Error ? error.message : String(error)),
-      [source.videoUrl],
-    );
-  }
-  if (bytes.byteLength < MIN_DL_BYTES) {
-    throw new CanonicalizeReferenceError(
-      'source_too_small',
-      `Reference source too small to be video (${bytes.byteLength} bytes): ${source.videoUrl}`,
-    );
-  }
-
-  let storage: Awaited<ReturnType<typeof resolveCanonicalReferenceStorageV1>>;
-  try {
-    storage = await resolveCanonicalReferenceStorageV1(
-      { userId, source, bytes },
-      { uploadCanonicalBytes },
-    );
-  } catch (error) {
-    throw new CanonicalizeReferenceError(
-      'source_storage_failed',
-      'Reference source storage resolution failed: '
-        + (error instanceof Error ? error.message : String(error)),
-    );
-  }
-  const uploaded = storage.upload;
-
-  // 3. Demux + attach the canonical envelope (content hash = source hash).
-  //    Write bytes to a temp file for the demux (it reads from disk).
-  const { writeFile, mkdtemp, rm } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const path = await import('node:path');
   const tmpDir = await mkdtemp(path.join(tmpdir(), 'editron-canonicalize-'));
   const tmpPath = path.join(tmpDir, 'source.mp4');
-  let envelope: ReferenceCanonicalEnvelope;
-  let demuxedAudio: { key: string; contentType: string } | null = null;
   try {
-    await writeFile(tmpPath, bytes);
-    const receipt = await demux(
-      {
-        referenceAssetId: uploaded.assetId,
-        userId,
-        sourcePath: tmpPath,
-        sourceKind: source.kind,
-        sourceLabel: source.sourceLabel,
-      },
-      { sha256: deps.sha256, readDurationMs: deps.readDurationMs },
-    );
-    envelope = buildReferenceCanonicalEnvelope(receipt, audioUsageMode);
-    if (receipt.audio) {
-      demuxedAudio = { key: receipt.audio.key, contentType: receipt.audio.contentType };
+    let file: Readonly<CanonicalReferenceFileIdentityV1>;
+    try {
+      if (deps.downloadSourceBytes) {
+        const bytes = await deps.downloadSourceBytes(source.videoUrl);
+        await writeFile(tmpPath, bytes, { flag: 'wx' });
+        file = {
+          filePath: tmpPath,
+          byteLength: bytes.byteLength,
+          contentSha256: createHash('sha256').update(bytes).digest('hex'),
+        };
+      } else {
+        file = await downloadSourceToFile(source.videoUrl, tmpPath, input.abortSignal);
+      }
+    } catch (error) {
+      throw new CanonicalizeReferenceError(
+        'source_download_failed',
+        'Reference source read failed: ' + (error instanceof Error ? error.message : String(error)),
+        [source.videoUrl],
+      );
     }
-  } catch (error) {
-    await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
-    throw error instanceof CanonicalizeReferenceError
-      ? error
-      : new CanonicalizeReferenceError('source_demux_failed',
-        'Reference source demux failed: ' + (error instanceof Error ? error.message : String(error)));
+    if (file.filePath !== tmpPath || !Number.isSafeInteger(file.byteLength)
+      || file.byteLength < 1 || !/^[a-f0-9]{64}$/.test(file.contentSha256)) {
+      throw new CanonicalizeReferenceError(
+        'source_too_small', `Reference source is empty or has invalid identity: ${source.videoUrl}`,
+      );
+    }
+
+    let storage: Awaited<ReturnType<typeof resolveCanonicalReferenceFileStorageV1>>;
+    try {
+      storage = await resolveCanonicalReferenceFileStorageV1(
+        { userId, source, file }, { uploadCanonicalFile },
+      );
+    } catch (error) {
+      throw new CanonicalizeReferenceError(
+        'source_storage_failed',
+        'Reference source storage resolution failed: '
+          + (error instanceof Error ? error.message : String(error)),
+      );
+    }
+    const uploaded = storage.upload;
+
+    let envelope: ReferenceCanonicalEnvelope;
+    let demuxedAudio: { key: string; contentType: string } | null = null;
+    try {
+      const receipt = await demux({
+        referenceAssetId: uploaded.assetId, userId, sourcePath: tmpPath,
+        sourceKind: source.kind, sourceLabel: source.sourceLabel,
+      }, { sha256: deps.sha256, readDurationMs: deps.readDurationMs });
+      envelope = buildReferenceCanonicalEnvelope(receipt, audioUsageMode);
+      if (receipt.audio) {
+        demuxedAudio = { key: receipt.audio.key, contentType: receipt.audio.contentType };
+      }
+    } catch (error) {
+      throw error instanceof CanonicalizeReferenceError
+        ? error
+        : new CanonicalizeReferenceError('source_demux_failed',
+          'Reference source demux failed: ' + (error instanceof Error ? error.message : String(error)));
+    }
+
+    let sourceRegistration: Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>;
+    try {
+      sourceRegistration = await registerSourceFile({
+        filePath: tmpPath, upload: uploaded, actorUserId: userId,
+        mediaOwner: input.orgId
+          ? { type: 'ORG', orgId: input.orgId }
+          : { type: 'USER', userId },
+        mediaKind: 'video', filename: storage.filename,
+        role: { kind: 'SOURCE', referenceEnvelope: envelope },
+      });
+    } catch (error) {
+      throw new CanonicalizeReferenceError(
+        'source_registration_failed',
+        'Failed to register canonical source: '
+          + (error instanceof Error ? error.message : String(error)),
+      );
+    }
+
+    return {
+      referenceAssetId: uploaded.assetId, videoUrl: uploaded.signedUrl, envelope,
+      canonicalKind: storage.canonicalKind, audioArtifact: demuxedAudio,
+      sourceLabel: source.sourceLabel, sourceFingerprint: source.sourceFingerprint,
+      sourceRegistration,
+      durationSec: envelope.demux?.durationMs === null || envelope.demux?.durationMs === undefined
+        ? source.durationSec
+        : envelope.demux.durationMs / 1_000,
+    };
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
   }
-
-  // 4. Register source bytes + envelope in the existing mediaAssets authority.
-  let sourceRegistration: Readonly<ReferenceMaterializedMediaRegistrationReceiptV1>;
-  try {
-    sourceRegistration = await registerSource({
-      bytes,
-      upload: uploaded,
-      actorUserId: userId,
-      mediaOwner: input.orgId
-        ? { type: 'ORG', orgId: input.orgId }
-        : { type: 'USER', userId },
-      mediaKind: 'video',
-      filename: storage.filename,
-      role: { kind: 'SOURCE', referenceEnvelope: envelope },
-    });
-  } catch (error) {
-    throw new CanonicalizeReferenceError(
-      'source_registration_failed',
-      'Failed to register canonical source: ' + (error instanceof Error ? error.message : String(error)),
-    );
-  }
-
-  return {
-    referenceAssetId: uploaded.assetId,
-    videoUrl: uploaded.signedUrl,
-    envelope,
-    canonicalKind: storage.canonicalKind,
-    audioArtifact: demuxedAudio,
-    sourceLabel: source.sourceLabel,
-    sourceFingerprint: source.sourceFingerprint,
-    sourceRegistration,
-    durationSec: envelope.demux?.durationMs === null || envelope.demux?.durationMs === undefined
-      ? source.durationSec
-      : envelope.demux.durationMs / 1_000,
-  };
 }
 
 /** Content-addressed per-user source ID: changed URL bytes never overwrite prior evidence. */

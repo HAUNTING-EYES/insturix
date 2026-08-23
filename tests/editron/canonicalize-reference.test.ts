@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { readFile, stat } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -11,7 +14,7 @@ import {
 import { REFERENCE_ENVELOPE_VERSION } from '@/lib/editron/reference-video/reference-demux';
 import {
   REFERENCE_MATERIALIZED_MEDIA_REGISTRATION_VERSION_V1,
-  type ReferenceMaterializedMediaRegistrationInputV1,
+  type ReferenceMaterializedMediaFileRegistrationInputV1,
 }
   from '@/lib/editron/reference-video/reference-materialized-media-registration-v1';
 
@@ -26,18 +29,19 @@ const source = {
 function fakeDeps(overrides: Partial<CanonicalizeReferenceDeps> = {}): CanonicalizeReferenceDeps {
   return {
     downloadSourceBytes: async () => Buffer.alloc(20_000, 0xab),
-    uploadCanonicalBytes: async (
-      file: Buffer, _userId: string, _fileName: string, contentType: string, canonicalAssetId: string,
+    uploadCanonicalFile: async (
+      filePath: string, _userId: string, _fileName: string,
+      contentType: string, canonicalAssetId: string,
     ) => ({
       assetId: canonicalAssetId,
       signedUrl: `https://cdn.example.com/asset/${canonicalAssetId}`,
       gcsPath: null,
       r2Key: canonicalAssetId,
       urlExpiresAt: null,
-      size: file.byteLength,
+      size: (await stat(filePath)).size,
       contentType,
     }),
-    registerSource: async (input) => registrationReceipt(input),
+    registerSourceFile: async (input) => registrationReceipt(input),
     demux: async () => ({
       version: 'editron-r1-demux-receipt-v1' as const,
       referenceAssetId: 'ref_url_abc',
@@ -46,7 +50,10 @@ function fakeDeps(overrides: Partial<CanonicalizeReferenceDeps> = {}): Canonical
       durationMs: 10_000,
       video: { key: 'r2/v.mp4', size: 100, contentType: 'video/mp4', sha256: 'a'.repeat(64) },
       audio: null,
-      source: { path: 'x', kind: 'remote-url' as const, sourceSha256: 'c'.repeat(64) },
+      source: {
+        path: 'x', kind: 'remote-url' as const,
+        sourceSha256: createHash('sha256').update(Buffer.alloc(20_000, 0xab)).digest('hex'),
+      },
     }),
     readDurationMs: async () => 10_000,
     sha256: (b: Buffer) => b.toString('hex'),
@@ -57,7 +64,7 @@ function fakeDeps(overrides: Partial<CanonicalizeReferenceDeps> = {}): Canonical
 describe('R1-C canonicalize reference', () => {
   it('registers an asset under a content-addressed alias over its existing managed object', async () => {
     const bytes = Buffer.alloc(20_000, 0xab);
-    const uploadCanonicalBytes = vi.fn(fakeDeps().uploadCanonicalBytes!);
+    const uploadCanonicalFile = vi.fn(fakeDeps().uploadCanonicalFile!);
     let registeredStorageKey = '';
     const assetSource = {
       kind: 'asset' as const,
@@ -77,8 +84,8 @@ describe('R1-C canonicalize reference', () => {
       { userId: 'user_1', source: assetSource, audioUsageMode: 'preview-waveform-only' },
       fakeDeps({
         downloadSourceBytes: async () => bytes,
-        uploadCanonicalBytes,
-        registerSource: async (input) => {
+        uploadCanonicalFile,
+        registerSourceFile: async (input) => {
           registeredStorageKey = input.upload.r2Key ?? '';
           return registrationReceipt(input);
         },
@@ -90,7 +97,7 @@ describe('R1-C canonicalize reference', () => {
     ));
     expect(out.canonicalKind).toBe('asset');
     expect(registeredStorageKey).toBe('original/source-r2-key');
-    expect(uploadCanonicalBytes).not.toHaveBeenCalled();
+    expect(uploadCanonicalFile).not.toHaveBeenCalled();
   });
 
   it('privately materializes an asset that has no managed R2/GCS object', async () => {
@@ -108,24 +115,34 @@ describe('R1-C canonicalize reference', () => {
         uploadedAt: new Date('2026-08-01T00:00:00.000Z'),
       },
     };
-    const uploadCanonicalBytes = vi.fn(fakeDeps().uploadCanonicalBytes!);
+    const uploadCanonicalFile = vi.fn(fakeDeps().uploadCanonicalFile!);
     const out = await canonicalizeReferenceVideo(
       { userId: 'user_1', source: assetSource, audioUsageMode: 'preview-waveform-only' },
-      fakeDeps({ uploadCanonicalBytes }),
+      fakeDeps({ uploadCanonicalFile }),
     );
     expect(out.canonicalKind).toBe('materialized-asset');
-    expect(uploadCanonicalBytes).toHaveBeenCalledWith(
-      expect.any(Buffer), 'user_1', 'reference.webm', 'video/webm', expect.stringMatching(/^ref_canon_/),
+    expect(uploadCanonicalFile).toHaveBeenCalledWith(
+      expect.any(String), 'user_1', 'reference.webm', 'video/webm', expect.stringMatching(/^ref_canon_/),
     );
   });
 
   it('materializes a remote-url reference into a canonical asset with envelope', async () => {
+    const exactBytes = Buffer.alloc(20_000, 0xab);
     const expectedId = buildCanonicalRemoteAssetId(
-      'user_1', source.referenceId, createHash('sha256').update(Buffer.alloc(20_000, 0xab)).digest('hex'),
+      'user_1', source.referenceId, createHash('sha256').update(exactBytes).digest('hex'),
     );
     let uploadedAssetId = '';
+    const fetchSource = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(exactBytes.subarray(0, 7_000));
+        controller.enqueue(exactBytes.subarray(7_000));
+        controller.close();
+      },
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchSource);
     const deps = fakeDeps({
-      uploadCanonicalBytes: async (_file, _userId, _fileName, contentType, canonicalAssetId) => {
+      downloadSourceBytes: undefined,
+      uploadCanonicalFile: async (_file, _userId, _fileName, contentType, canonicalAssetId) => {
         uploadedAssetId = canonicalAssetId;
         return {
           assetId: canonicalAssetId,
@@ -138,11 +155,17 @@ describe('R1-C canonicalize reference', () => {
         };
       },
     });
-    const out = await canonicalizeReferenceVideo(
-      { userId: 'user_1', source, audioUsageMode: 'preview-waveform-only' },
-      deps,
-    );
+    let out;
+    try {
+      out = await canonicalizeReferenceVideo(
+        { userId: 'user_1', source, audioUsageMode: 'preview-waveform-only' },
+        deps,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
 
+    expect(fetchSource).toHaveBeenCalledWith(source.videoUrl, { signal: undefined });
     expect(out.canonicalKind).toBe('materialized-remote');
     expect(out.referenceAssetId).toBe(expectedId);
     expect(uploadedAssetId).toBe(expectedId);
@@ -151,7 +174,9 @@ describe('R1-C canonicalize reference', () => {
     expect(out.envelope).toBeDefined();
     expect(out.envelope?.version).toBe(REFERENCE_ENVELOPE_VERSION);
     expect(out.envelope?.audioUsageMode).toBe('preview-waveform-only');
-    expect(out.envelope?.contentHash).toBe('c'.repeat(64)); // wired from the demux receipt source hash
+    expect(out.envelope?.contentHash).toBe(
+      createHash('sha256').update(exactBytes).digest('hex'),
+    );
     expect(out.envelope?.demux?.audioPresent).toBe(false);
   });
 
@@ -171,7 +196,7 @@ describe('R1-C canonicalize reference', () => {
 
   it('rejects a remote file too small to be video (fail-loud)', async () => {
     const deps = fakeDeps({
-      downloadSourceBytes: async () => Buffer.alloc(50, 0x00),
+      downloadSourceBytes: async () => Buffer.alloc(0),
     });
     await expect(
       canonicalizeReferenceVideo({ userId: 'user_1', source, audioUsageMode: 'preview-waveform-only' }, deps),
@@ -191,7 +216,7 @@ describe('R1-C canonicalize reference', () => {
 
   it('propagates source registration failure with a stable code', async () => {
     const deps = fakeDeps({
-      registerSource: async () => {
+      registerSourceFile: async () => {
         throw new Error('asset not found');
       },
     });
@@ -201,7 +226,7 @@ describe('R1-C canonicalize reference', () => {
   });
 
   it('fails loudly when remote upload fails before demux or registration', async () => {
-    const deps = fakeDeps({ uploadCanonicalBytes: async () => { throw new Error('R2 unavailable'); } });
+    const deps = fakeDeps({ uploadCanonicalFile: async () => { throw new Error('R2 unavailable'); } });
     await expect(
       canonicalizeReferenceVideo({ userId: 'user_1', source, audioUsageMode: 'preview-waveform-only' }, deps),
     ).rejects.toMatchObject({ code: 'source_storage_failed' });
@@ -214,9 +239,23 @@ describe('R1-C canonicalize reference', () => {
     );
     expect(out.envelope?.audioUsageMode).toBe('export-attested');
   });
+
+  it('keeps the default remote path streaming rather than using arrayBuffer', () => {
+    const code = readFileSync(path.join(
+      process.cwd(), 'lib/editron/reference-video/canonicalize-reference.ts',
+    ), 'utf8');
+    expect(code).toContain('for await (const chunk of response.body');
+    expect(code).toContain('uploadMediaFromFile');
+    expect(code).toContain('registerReferenceMaterializedMediaFileV1');
+    expect(code).not.toContain('response.arrayBuffer()');
+    expect(code).not.toContain('MIN_DL_BYTES');
+    expect(code).not.toContain('DL_TIMEOUT_MS');
+  });
 });
 
-function registrationReceipt(input: Readonly<ReferenceMaterializedMediaRegistrationInputV1>) {
+async function registrationReceipt(
+  input: Readonly<ReferenceMaterializedMediaFileRegistrationInputV1>,
+) {
   const r2Key = input.upload.r2Key;
   const gcsPath = input.upload.gcsPath;
   if (!r2Key && !gcsPath) throw new Error('test receipt requires managed storage');
@@ -225,8 +264,8 @@ function registrationReceipt(input: Readonly<ReferenceMaterializedMediaRegistrat
     assetId: input.upload.assetId,
     mediaOwner: { type: 'USER' as const, userId: 'user_1' },
     contentType: input.upload.contentType,
-    byteLength: input.bytes.byteLength,
-    bytesSha256: createHash('sha256').update(input.bytes).digest('hex'),
+    byteLength: (await stat(input.filePath)).size,
+    bytesSha256: createHash('sha256').update(await readFile(input.filePath)).digest('hex'),
     storage: r2Key
       ? { backend: 'R2' as const, key: r2Key }
       : { backend: 'GCS' as const, key: gcsPath! },

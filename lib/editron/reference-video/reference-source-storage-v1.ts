@@ -15,6 +15,12 @@ export interface CanonicalReferenceStorageV1 {
   canonicalKind: CanonicalReferenceStorageKindV1;
 }
 
+export interface CanonicalReferenceFileIdentityV1 {
+  filePath: string;
+  byteLength: number;
+  contentSha256: string;
+}
+
 export class ReferenceSourceStorageErrorV1 extends Error {}
 
 /**
@@ -42,32 +48,99 @@ export async function resolveCanonicalReferenceStorageV1(
   if (!Buffer.isBuffer(input.bytes) || input.bytes.byteLength < 1) fail('BYTES_REQUIRED');
 
   const contentSha256 = createHash('sha256').update(input.bytes).digest('hex');
+  return resolveCanonicalReferenceStorageIdentityV1({
+    userId: input.userId,
+    source: input.source,
+    byteLength: input.bytes.byteLength,
+    contentSha256,
+  }, {
+    uploadCanonical: (userId, filename, contentType, canonicalAssetId) =>
+      deps.uploadCanonicalBytes(
+        input.bytes, userId, filename, contentType, canonicalAssetId,
+      ),
+  });
+}
+
+/** File-backed storage decision used by long-form reference materialization. */
+export async function resolveCanonicalReferenceFileStorageV1(
+  input: Readonly<{
+    userId: string;
+    source: Readonly<ReferenceVideoSource>;
+    file: Readonly<CanonicalReferenceFileIdentityV1>;
+  }>,
+  deps: Readonly<{
+    uploadCanonicalFile: (
+      filePath: string,
+      userId: string,
+      filename: string,
+      contentType: string,
+      canonicalAssetId: string,
+    ) => Promise<UploadResult>;
+  }>,
+): Promise<Readonly<CanonicalReferenceStorageV1>> {
+  if (typeof input.file.filePath !== 'string' || !input.file.filePath.trim()) {
+    fail('FILE_PATH_REQUIRED');
+  }
+  return resolveCanonicalReferenceStorageIdentityV1({
+    userId: input.userId,
+    source: input.source,
+    byteLength: input.file.byteLength,
+    contentSha256: input.file.contentSha256,
+  }, {
+    uploadCanonical: (userId, filename, contentType, canonicalAssetId) =>
+      deps.uploadCanonicalFile(
+        input.file.filePath, userId, filename, contentType, canonicalAssetId,
+      ),
+  });
+}
+
+async function resolveCanonicalReferenceStorageIdentityV1(
+  input: Readonly<{
+    userId: string;
+    source: Readonly<ReferenceVideoSource>;
+    byteLength: number;
+    contentSha256: string;
+  }>,
+  deps: Readonly<{
+    uploadCanonical: (
+      userId: string,
+      filename: string,
+      contentType: string,
+      canonicalAssetId: string,
+    ) => Promise<UploadResult>;
+  }>,
+): Promise<Readonly<CanonicalReferenceStorageV1>> {
+  if (!input.userId.trim()) fail('USER_ID_REQUIRED');
+  if (!Number.isSafeInteger(input.byteLength) || input.byteLength < 1) {
+    fail('BYTE_LENGTH_INVALID');
+  }
+  if (!/^[a-f0-9]{64}$/.test(input.contentSha256)) fail('CONTENT_SHA256_INVALID');
   const canonicalAssetId = buildCanonicalReferenceSourceAssetIdV1(
     input.userId,
     input.source.referenceId,
-    contentSha256,
+    input.contentSha256,
   );
   const contentType = resolveReferenceVideoContentTypeV1(input.source);
   const filename = buildCanonicalReferenceFilenameV1(input.source, contentType);
   const existingStorage = buildExistingManagedStorageUpload(
-    input.source, canonicalAssetId, input.bytes.byteLength, contentType,
+    input.source, canonicalAssetId, input.byteLength, contentType,
   );
   if (existingStorage) {
     return {
       upload: existingStorage,
       filename,
-      contentSha256,
+      contentSha256: input.contentSha256,
       canonicalKind: 'asset',
     };
   }
 
-  const upload = await deps.uploadCanonicalBytes(
-    input.bytes, input.userId, filename, contentType, canonicalAssetId,
+  const upload = await deps.uploadCanonical(
+    input.userId, filename, contentType, canonicalAssetId,
   );
   return {
     upload,
     filename,
-    contentSha256,
+    contentSha256: input.contentSha256,
     canonicalKind: input.source.kind === 'remote-url'
       ? 'materialized-remote'
       : 'materialized-asset',
