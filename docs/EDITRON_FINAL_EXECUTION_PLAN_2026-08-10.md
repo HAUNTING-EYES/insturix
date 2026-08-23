@@ -1280,11 +1280,11 @@ convergence.
 This subsection supersedes older "calls pending" and paid-cohort status text
 below. The bullets remain as a chronological audit trail; the checkpoint in
 this paragraph is authoritative for resuming work. The latest verified
-programme code checkpoint represented by this ledger is `434563cd6` on
+programme code checkpoint represented by this ledger is `498e018e6` on
 `infrastructure-improvs-+Editron`. The programme worktree is intentionally
 dirty with unrelated user work that must remain untouched.
 
-<!-- CURRENT RESUME CHECKPOINT: 434563cd6. Deterministic proposal recovery, two
+<!-- CURRENT RESUME CHECKPOINT: 498e018e6. Deterministic proposal recovery, two
 real bounded native owners (cut_section plus focal-scale set_keyframes),
 immutable reference/runtime-budget owners, strict
 outcome-proof completion mechanics, a concrete cut/focal Phase-0 proof adapter
@@ -1402,9 +1402,17 @@ the existing provider-native owner. Two different episodes reach their own
 downstream guard, while a forged definition stops before any downstream owner;
 the focused lifecycle cluster passes 37/37 with full typecheck and quiet
 ESLint. This is definition composition only, not a product composition root.
-The next gate is canonical media and a resumable product budget owner—not the
-inline research reference artifact or sealed-holdout controller—followed by
-signed route export and non-production Atlas/QStash exercise.
+Commit 498e018e6 then freezes the production-shaped canonical-media binding and
+adapter used by that future root. It stores no media bytes, binds either native
+video or ordered timestamped images to exact scope, accepted route, source
+asset/version/content hash, policy authorization, manifest and per-artifact
+hash/length identity, and rejects scope, route, policy, record and byte drift.
+This proves the contract and owner-port boundary only: the concrete canonical
+media locator, byte reader and rights/privacy policy authority remain unwired.
+The next gate is those concrete canonical-media ports plus a resumable product
+budget reservation/settlement owner—not the inline research reference artifact
+or sealed-holdout controller—followed by their single execution-root
+composition, signed route export and non-production Atlas/QStash exercise.
 Exercise the real renderer only
 with explicit external-cost authorization; do not rerun paid
 cohorts without fresh zero-inference preflight plus explicit spend
@@ -3160,7 +3168,7 @@ research recovery proof. It does not select or implement the product
 Commit `0c94bc059` later adds that non-wired product plan/definition database;
 it still does not make the worker reachable.
 
-**Stage 2/2.5 ingress correction (current at `b6171bed2`):** the table and
+**Stage 2/2.5 ingress correction (current at `498e018e6`):** the table and
 chronological paragraphs above that say all authenticated dispatch/worker
 adapters are missing are superseded. Commit `0f54a0a2a` now binds an
 authenticated actor to the exact accepted Plan node, publishes only the opaque
@@ -3168,9 +3176,13 @@ durable job identity to a fixed HTTPS QStash destination and records a late
 message acknowledgement without changing lifecycle state. Commit `b6171bed2`
 wraps the existing durable Plan worker in fail-closed QStash verification,
 strictly parses that opaque message and refuses to claim when an explicit
-execution owner is absent. What remains missing is materially different: the
-product canonical-media locator and product runtime-budget owner composition,
-actual API route exports, live Atlas/QStash execution and recovery, canonical
+execution owner is absent. Commit `498e018e6` now adds the exact scoped
+canonical-media binding/adapter contract for both native-video and ordered-image
+reference arms, without storing bytes or becoming a second media authority.
+What remains missing is materially different: concrete canonical-media locator,
+byte-reader and policy-owner implementations, a product runtime-budget owner and
+their one execution-root composition, actual API route exports, live Atlas/QStash
+execution and recovery, canonical
 ProjectService apply/reload, broad certified operators and live rendered proof.
 The research inline-reference and sealed-holdout budget owners are not valid
 product substitutes.
@@ -3669,9 +3681,12 @@ foundation and is no longer the active queue. The next three slices are:
    without provider re-invocation or canonical mutation. Commits `0f54a0a2a`
    and `b6171bed2` now add the fail-closed actor-bound QStash dispatcher and
    signed worker-ingress factory. They deliberately export no live route while
-   the product execution-owner composition root is absent. Next bind canonical
-   media and product-budget owners into that one composition root, export the
-   signed routes and prove recovery against non-production Atlas and QStash;
+   the product execution-owner composition root is absent. Commit `498e018e6`
+   freezes the canonical-media binding and adapter but deliberately leaves its
+   concrete locator, byte reader and policy ports unwired. Next implement those
+   ports and the product-budget owner, bind both into that one composition root,
+   export the signed routes and prove recovery against non-production Atlas and
+   QStash;
    then run a fresh
    zero-inference preflight and obtain explicit authorization before any paid
    resumed inference. Exercise realistic long-form sequence/range plans under
@@ -4849,8 +4864,10 @@ invented checkpoint. Crash/redelivery and cancellation are likewise proven
 over the real leased Plan job lifecycle. This remains **durable recovery
 groundwork**, not automatic retry authorization or production mutation. The
 fail-closed product dispatch and signed worker adapters now exist but remain
-non-routable without an explicit product execution-owner composition. The next
-bounded reliability order is therefore: canonical-media/product-budget owner
+non-routable without an explicit product execution-owner composition. Commit
+`498e018e6` proves the canonical-media binding/adapter contract, not its concrete
+storage/policy ports. The next bounded reliability order is therefore: concrete
+canonical-media ports plus product-budget owner, their one execution-root
 composition, signed route export, non-production QStash/Atlas crash/redelivery
 exercise, and only then a fresh paid preflight with explicit approval.
 Canonical project mutation remains disabled.
